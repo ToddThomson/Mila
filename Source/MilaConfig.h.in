@@ -1,0 +1,6 @@
+#pragma once
+
+// Tthe configured options and settings for Mila
+#define MILA_VERSION_MAJOR @MILA_VERSION_MAJOR@
+#define MILA_VERSION_MINOR @MILA_VERSION_MINOR@
+#define MILA_VERSION_BUILD @MILA_VERSION_BUILD@

@@ -1,0 +1,5 @@
+#pragma once
+// the configured options and settings for Tutorial
+#define AcmeML_VERSION_MAJOR @AcmeML_VERSION_MAJOR@
+#define AcmeML_VERSION_MINOR @AcmeML_VERSION_MINOR@
+#define AcmeML_VERSION_BUILD @AcmeML_VERSION_BUILD@
