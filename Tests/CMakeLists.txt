@@ -11,12 +11,30 @@ FetchContent_Declare(
 )
 
 # For Windows: Prevent overriding the parent project's compiler/linker settings
-set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+set( gtest_force_shared_crt ON CACHE BOOL "" FORCE )
 
 FetchContent_MakeAvailable( googletest )
 include( GoogleTest )
 
-add_executable( "MilaTest" test.cpp )
-target_link_libraries( MilaTest gtest_main )
+add_executable( 
+    MilaTest
+    "main.cpp"
+    "Cuda/Device.cpp"
+    "dnn/Context.cpp"
+    "dnn/Utils.cpp"
+    "dnn/RNN/RnnDataSet.cpp"
+    "dnn/RNN/RnnOp.cpp"
+    "Dnn/RNN/RnnModel.cpp"
+    "dnn/Tensor.cpp"
+    "dnn/Common.h"
+    "dnn/Dropout.cpp"  
+     )
+    
+# Cuda and CuDNN includes
+target_include_directories(
+    MilaTest
+    PRIVATE ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES} )
+
+target_link_libraries( MilaTest MilaLib gtest )
     
 gtest_discover_tests( MilaTest )

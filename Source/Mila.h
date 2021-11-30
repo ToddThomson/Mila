@@ -1,27 +1,34 @@
-#pragma once
+#ifndef _MILA_H_
+#define _MILA_H_
 
-namespace Gerb
-{
-    int myAddFunc(int x, int y);
-}
+#include "Dnn/DnnModel.h"
+#include "Dnn/DnnModelBuilder.h"
+#include "Dnn/DnnModelOptions.h"
+#include "Dnn/NeuralNetType.h"
 
-#pragma once
+#include "Dnn/Tensor.h"
+#include "Dnn/Dropout.h"
+#include "Dnn/RnnModelOptions.h"
+#include "Dnn/RNNOperation.h"
+#include "Dnn/RNNDataSet.h"
 
-namespace MathLibrary
-{
-    class Arithmetic
-    {
-    public:
-        // Returns a + b
-        static double Add(double a, double b);
+#include "Dnn/RnnModel.h"
 
-        // Returns a - b
-        static double Subtract(double a, double b);
+// TJT: Move Compute/Cuda to internal namespace and MilaInternal.h
 
-        // Returns a * b
-        static double Multiply(double a, double b);
+#include "Dnn/Cuda/CudaDevice.h"
+#include "Dnn/Cuda/CudaStream.h"
+#include "Dnn/Cuda/CudaError.h"
+#include "Dnn/Cuda/CudaDeviceProps.h"
+#include "Dnn/Cuda/CudaHelper.h"
+#include "Dnn/Cuda/CudaEnv.h"
 
-        // Returns a / b
-        static double Divide(double a, double b);
-    };
-}
+#include "Dnn/CuDNN/CudnnContext.h"
+#include "Dnn/CuDNN/Descriptor.h"
+#include "Dnn/CuDNN/Error.h" 
+#include "Dnn/CuDNN/Helpers.h" 
+#include "Dnn/CuDNN/Status.h" 
+#include "Dnn/CuDNN/Version.h"
+#include "Dnn/CuDNN/Utils.h"
+
+#endif
