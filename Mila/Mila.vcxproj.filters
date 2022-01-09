@@ -1,0 +1,164 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CudaCompile Include="Source\Dnn\CuDNN\init_data.cu">
+      <Filter>Dnn\CuDnn</Filter>
+    </CudaCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Dnn">
+      <UniqueIdentifier>{e8b7c9dc-1483-41e7-a458-02cafbea9bbb}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Dnn\CuDnn">
+      <UniqueIdentifier>{93a59edd-708b-4d5d-a1e5-08c12918dfe8}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Dnn\Cuda">
+      <UniqueIdentifier>{eb1b4f6f-f12e-4354-ba2c-e78b7daf442f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Dnn\Data">
+      <UniqueIdentifier>{def6bf7a-f1c5-418d-acd2-f2bb11d76f9c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Dnn\Data\H5">
+      <UniqueIdentifier>{f838f7ba-f8ba-475b-8402-1757516fcd5e}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Source\Dnn\CuDNN\fp16_emu.cpp">
+      <Filter>Dnn\CuDnn</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\CuDNN\CuDnn.ixx">
+      <Filter>Dnn\CuDnn</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\CuDNN\CudnnContext.ixx">
+      <Filter>Dnn\CuDnn</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\CuDNN\Descriptor.ixx">
+      <Filter>Dnn\CuDnn</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\CuDNN\Error.ixx">
+      <Filter>Dnn\CuDnn</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\CuDNN\Helpers.ixx">
+      <Filter>Dnn\CuDnn</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\CuDNN\OpaqueDescriptor.ixx">
+      <Filter>Dnn\CuDnn</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\CuDNN\OpaqueDescriptorType.ixx">
+      <Filter>Dnn\CuDnn</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\CuDNN\OpaqueHandle.ixx">
+      <Filter>Dnn\CuDnn</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\CuDNN\Status.ixx">
+      <Filter>Dnn\CuDnn</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\CuDNN\Utils.ixx">
+      <Filter>Dnn\CuDnn</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\CuDNN\Version.ixx">
+      <Filter>Dnn\CuDnn</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\Cuda\Cuda.ixx">
+      <Filter>Dnn\Cuda</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\Cuda\CudaDevice.ixx">
+      <Filter>Dnn\Cuda</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\Cuda\CudaDeviceProps.ixx">
+      <Filter>Dnn\Cuda</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\Cuda\CudaEnv.ixx">
+      <Filter>Dnn\Cuda</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\Cuda\CudaError.ixx">
+      <Filter>Dnn\Cuda</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\Cuda\CudaHelpers.ixx">
+      <Filter>Dnn\Cuda</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\Cuda\CudaMemory.ixx">
+      <Filter>Dnn\Cuda</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\Cuda\CudaProfiler.ixx">
+      <Filter>Dnn\Cuda</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\Cuda\CudaStream.ixx">
+      <Filter>Dnn\Cuda</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\Cuda\CudaUniqueHandle.ixx">
+      <Filter>Dnn\Cuda</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\DnnModel.ixx">
+      <Filter>Dnn</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\DnnModelBuilder.ixx">
+      <Filter>Dnn</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\DnnModelOptions.ixx">
+      <Filter>Dnn</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\Dropout.ixx">
+      <Filter>Dnn</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\Mila-Dnn.ixx">
+      <Filter>Dnn</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\NeuralNetType.ixx">
+      <Filter>Dnn</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\RnnDataSet.ixx">
+      <Filter>Dnn</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\RnnLayerCollection.ixx">
+      <Filter>Dnn</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\RnnLinearLayer.ixx">
+      <Filter>Dnn</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\RnnModel.ixx">
+      <Filter>Dnn</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\RnnModelOptions.ixx">
+      <Filter>Dnn</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\RNNOperation.ixx">
+      <Filter>Dnn</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\StateTensor.ixx">
+      <Filter>Dnn</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\Tensor.ixx">
+      <Filter>Dnn</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\Data\H5\H5DatasetReader.ixx">
+      <Filter>Dnn\Data\H5</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\Data\H5\H5DatasetWriter.ixx">
+      <Filter>Dnn\Data\H5</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\Data\BatchSequenceLoader.ixx">
+      <Filter>Dnn\Data</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\Data\DatasetType.ixx">
+      <Filter>Dnn\Data</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\Data\FileStream.ixx">
+      <Filter>Dnn\Data</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\Data\OneOfK.ixx">
+      <Filter>Dnn\Data</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\Data\TextToH5.ixx">
+      <Filter>Dnn\Data</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Source\Dnn\CuDNN\fp16_emu.h">
+      <Filter>Dnn\CuDnn</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Dnn\CuDNN\init_data.h">
+      <Filter>Dnn\CuDnn</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>
