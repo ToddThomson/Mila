@@ -48,13 +48,13 @@ namespace Mila::Dnn
         /// </summary>
         /// <typeparam name="TDesc">The type of Descriptor to create.</typeparam>
         /// <returns>The reference to the descriptor created.</returns>
-        template<class TDesc>
-        TDesc Create()
+        template <typename TDesc>
+        TDesc Create() const
         {
             return TDesc( cudnn_context_->GetCudnnHandle() );
         }
 
-        const ManagedCudnnContext& GetCudnnContext()
+        const ManagedCudnnContext& GetCudnnContext() const
         {
             return cudnn_context_;
         }

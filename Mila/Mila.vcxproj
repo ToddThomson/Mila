@@ -17,6 +17,8 @@
     <CudaCompile Include="Source\Dnn\CuDNN\init_data.cu" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="Mila-Core.ixx" />
+    <ClCompile Include="Source\Core\Version.ixx" />
     <ClCompile Include="Source\Dnn\Cuda\Cuda.ixx" />
     <ClCompile Include="Source\Dnn\Cuda\CudaDevice.ixx" />
     <ClCompile Include="Source\Dnn\Cuda\CudaDeviceProps.ixx" />
@@ -27,7 +29,7 @@
     <ClCompile Include="Source\Dnn\Cuda\CudaProfiler.ixx" />
     <ClCompile Include="Source\Dnn\Cuda\CudaStream.ixx" />
     <ClCompile Include="Source\Dnn\Cuda\CudaUniqueHandle.ixx" />
-    <ClCompile Include="Source\Dnn\CuDNN\CuDnn.ixx" />
+    <ClCompile Include="Source\Dnn\CuDNN\Mila-Cudnn.ixx" />
     <ClCompile Include="Source\Dnn\CuDNN\CudnnContext.ixx" />
     <ClCompile Include="Source\Dnn\CuDNN\Descriptor.ixx" />
     <ClCompile Include="Source\Dnn\CuDNN\Error.ixx" />
@@ -38,7 +40,6 @@
     <ClCompile Include="Source\Dnn\CuDNN\OpaqueHandle.ixx" />
     <ClCompile Include="Source\Dnn\CuDNN\Status.ixx" />
     <ClCompile Include="Source\Dnn\CuDNN\Utils.ixx" />
-    <ClCompile Include="Source\Dnn\CuDNN\Version.ixx" />
     <ClCompile Include="Source\Dnn\DnnModel.ixx" />
     <ClCompile Include="Source\Dnn\DnnModelBuilder.ixx" />
     <ClCompile Include="Source\Dnn\DnnModelOptions.ixx" />
@@ -64,6 +65,7 @@
   <ItemGroup>
     <ClInclude Include="Source\Dnn\CuDNN\fp16_emu.h" />
     <ClInclude Include="Source\Dnn\CuDNN\init_data.h" />
+    <ClCompile Include="Source\Mila.ixx" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{50FE4F4B-1D05-338D-868A-50322CA8872E}</ProjectGuid>

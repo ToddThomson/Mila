@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright 2021 Todd Thomson, Achilles Software.  All rights reserved.
  *
  * Please refer to the Mila end user license agreement (EULA) associated
@@ -19,46 +19,19 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-module;
 #include <string>
-#include <algorithm>
-#include <iterator>
-#include <vector>
+#include <iostream>
 
-export module Dnn.Data.OneOfK;
+import RnnApp.Model;
 
-namespace Mila::Dnn::Data
+int main()
 {
-    export template <typename TElement>
-    class OneOfK
-    {
-    public:
+	RnnApp::Model::TrainModel();
 
-        OneOfK( size_t k, TElement value )
-            : k_( k ), value_( value )
-        {
-            k_vector_ = std::vector<TElement>( k_, {} );
-        }
+	std::cout << "RNN App initialized." << std::endl; // << app.ToString() << endl;
 
-        std::vector<TElement> Convert( const std::vector<int>& input )
-        {
-            std::vector<TElement> output;
-            output.reserve( k_ * input.size() );
-
-            for (int e : input)
-            {
-                k_vector_[e - 1] = value_;
-                std::copy( k_vector_.begin(), k_vector_.end(), std::back_inserter( output ) );
-                k_vector_[e - 1] = {};
-            }
-
-            return output;
-        }
-
-    private:
-
-        size_t k_ = 0;
-        TElement value_;
-        std::vector<TElement> k_vector_;
-    };
+	return 0;
 }
+
+
+

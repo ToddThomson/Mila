@@ -64,7 +64,7 @@ namespace Mila::Dnn::Data
                     auto it = tokens.find( c );
                     if ( it == tokens.end() )
                     {
-                        tokens.insert( { c, index++ } );
+                        tokens.insert( {c, index++} );
                     }
                 }
             }
@@ -128,8 +128,8 @@ namespace Mila::Dnn::Data
 
     private:
 
-        float validation_split_ = 0.1;
-        float test_split_ = 0.1;
+        float validation_split_ = 0.1f;
+        float test_split_ = 0.1f;
 
         const int TRAINING_SET = 0;
         const int VALIDATION_SET = 1;

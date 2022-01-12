@@ -6,6 +6,7 @@ using std::filesystem::current_path;
 
 import Dnn.Data.TextToH5;
 import Dnn.Data.BatchSequenceLoader;
+import Dnn.Data.OneOfK;
 
 using namespace Mila::Dnn::Data;
 
@@ -21,7 +22,7 @@ namespace Mila::Test::Data
         TextToH5 h5Converter = TextToH5();
 
         h5Converter.Convert( filepath );
-        
+
         int numErrors = 0;
 
         EXPECT_TRUE( numErrors != 0 );
@@ -38,17 +39,29 @@ namespace Mila::Test::Data
         int sequence_length = 10;
 
         BatchSequenceLoader loader = BatchSequenceLoader(
-            DatasetType::training, filepath,
-            batch_size, sequence_length );
+            DatasetType::training, 
+            filepath,
+            batch_size, 
+            sequence_length );
 
         int blocks_read = 0;
-        while ( !loader.EndOfDataset() )
+        while (!loader.EndOfDataset())
         {
             XYPair samples = loader.Next();
 
             blocks_read++;
         }
 
-        EXPECT_EQ( blocks_read,loader.BlockCount() );
+        EXPECT_EQ( blocks_read, loader.BlockCount() );
+    };
+
+    TEST( Dataset, OneOfK )
+    {
+        std::vector<int> input = { 2, 3, 1 };
+        auto transformer = OneOfK<float>( 3, 1.0 );
+
+        auto output = transformer.Convert( input );
+        
+        EXPECT_TRUE( output.size() == 9);
     };
 }

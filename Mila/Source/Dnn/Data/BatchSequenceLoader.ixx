@@ -38,9 +38,16 @@ namespace Mila::Dnn::Data
     {
     public:
 
-        BatchSequenceLoader( const DatasetType datasetType, fs::path filename, int batchSize, int sequenceLength )
+        /// <summary>
+        /// BatchSequenceLoader constructor
+        /// </summary>
+        /// <param name="datasetType"></param>
+        /// <param name="datasetPath"></param>
+        /// <param name="batchSize"></param>
+        /// <param name="sequenceLength"></param>
+        BatchSequenceLoader( const DatasetType datasetType, fs::path datasetPath, int batchSize, int sequenceLength )
         { 
-            file_path_ = filename;
+            dataset_path_ = datasetPath;
             batch_size_ = batchSize;
             sequence_length_ = sequenceLength;
 
@@ -89,7 +96,7 @@ namespace Mila::Dnn::Data
 
         int ReadDataset( const DatasetType datasetType )
         {
-            H5::H5DatasetReader ds_reader = H5::H5DatasetReader( file_path_.string() );
+            H5::H5DatasetReader ds_reader = H5::H5DatasetReader( dataset_path_.string() );
 
             ds_reader.ReadDataset( to_string( datasetType ), dataset_ );
 
@@ -102,7 +109,7 @@ namespace Mila::Dnn::Data
 
     private:
 
-        fs::path file_path_;
+        fs::path dataset_path_;
 
         int batch_size_;
         int sequence_length_;

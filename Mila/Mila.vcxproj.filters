@@ -21,12 +21,15 @@
     <Filter Include="Dnn\Data\H5">
       <UniqueIdentifier>{f838f7ba-f8ba-475b-8402-1757516fcd5e}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Core">
+      <UniqueIdentifier>{fba0eba9-be24-42b2-adb6-ca6f1962e820}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Source\Dnn\CuDNN\fp16_emu.cpp">
       <Filter>Dnn\CuDnn</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\CuDNN\CuDnn.ixx">
+    <ClCompile Include="Source\Dnn\CuDNN\Mila-Cudnn.ixx">
       <Filter>Dnn\CuDnn</Filter>
     </ClCompile>
     <ClCompile Include="Source\Dnn\CuDNN\CudnnContext.ixx">
@@ -54,9 +57,6 @@
       <Filter>Dnn\CuDnn</Filter>
     </ClCompile>
     <ClCompile Include="Source\Dnn\CuDNN\Utils.ixx">
-      <Filter>Dnn\CuDnn</Filter>
-    </ClCompile>
-    <ClCompile Include="Source\Dnn\CuDNN\Version.ixx">
       <Filter>Dnn\CuDnn</Filter>
     </ClCompile>
     <ClCompile Include="Source\Dnn\Cuda\Cuda.ixx">
@@ -152,6 +152,13 @@
     <ClCompile Include="Source\Dnn\Data\TextToH5.ixx">
       <Filter>Dnn\Data</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Core\Version.ixx">
+      <Filter>Core</Filter>
+    </ClCompile>
+    <ClCompile Include="Mila-Core.ixx">
+      <Filter>Core</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Mila.ixx" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Source\Dnn\CuDNN\fp16_emu.h">

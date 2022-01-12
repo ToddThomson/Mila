@@ -3,13 +3,23 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.32014.148
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Mila", "Mila\Mila.vcxproj", "{C26DB58F-497A-49A8-8CB0-4672B35D40F9}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Mila", "Mila\Mila.vcxproj", "{50FE4F4B-1D05-338D-868A-50322CA8872E}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MilaTest", "MilaTest\MilaTest.vcxproj", "{FC1BC469-7B95-42F6-A51D-FDDA8D6A7336}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Samples", "Samples", "{DFDD48DE-CF9C-43CD-AD49-B922C9DF721B}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MilaApp", "MilaApp\MilaApp.vcxproj", "{9CE7912E-7970-41C0-A5FD-E6D0F3B24A64}"
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{0BB67041-6EAD-4FF9-86F7-CFCE22E45F7F}"
+	ProjectSection(SolutionItems) = preProject
+		.gitattributes = .gitattributes
+		.gitignore = .gitignore
+		License.md = License.md
+		README.md = README.md
+	EndProjectSection
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RnnApp", "Samples\RnnApp\RnnApp.vcxproj", "{880ADB14-270A-4B8C-A994-08CCE5F8D6C5}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MilaApp", "Samples\MilaApp\MilaApp.vcxproj", "{9CE7912E-7970-41C0-A5FD-E6D0F3B24A64}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -19,14 +29,14 @@ Global
 		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{C26DB58F-497A-49A8-8CB0-4672B35D40F9}.Debug|x64.ActiveCfg = Debug|x64
-		{C26DB58F-497A-49A8-8CB0-4672B35D40F9}.Debug|x64.Build.0 = Debug|x64
-		{C26DB58F-497A-49A8-8CB0-4672B35D40F9}.Debug|x86.ActiveCfg = Debug|Win32
-		{C26DB58F-497A-49A8-8CB0-4672B35D40F9}.Debug|x86.Build.0 = Debug|Win32
-		{C26DB58F-497A-49A8-8CB0-4672B35D40F9}.Release|x64.ActiveCfg = Release|x64
-		{C26DB58F-497A-49A8-8CB0-4672B35D40F9}.Release|x64.Build.0 = Release|x64
-		{C26DB58F-497A-49A8-8CB0-4672B35D40F9}.Release|x86.ActiveCfg = Release|Win32
-		{C26DB58F-497A-49A8-8CB0-4672B35D40F9}.Release|x86.Build.0 = Release|Win32
+		{50FE4F4B-1D05-338D-868A-50322CA8872E}.Debug|x64.ActiveCfg = Debug|x64
+		{50FE4F4B-1D05-338D-868A-50322CA8872E}.Debug|x64.Build.0 = Debug|x64
+		{50FE4F4B-1D05-338D-868A-50322CA8872E}.Debug|x86.ActiveCfg = Debug|Win32
+		{50FE4F4B-1D05-338D-868A-50322CA8872E}.Debug|x86.Build.0 = Debug|Win32
+		{50FE4F4B-1D05-338D-868A-50322CA8872E}.Release|x64.ActiveCfg = Release|x64
+		{50FE4F4B-1D05-338D-868A-50322CA8872E}.Release|x64.Build.0 = Release|x64
+		{50FE4F4B-1D05-338D-868A-50322CA8872E}.Release|x86.ActiveCfg = Release|Win32
+		{50FE4F4B-1D05-338D-868A-50322CA8872E}.Release|x86.Build.0 = Release|Win32
 		{FC1BC469-7B95-42F6-A51D-FDDA8D6A7336}.Debug|x64.ActiveCfg = Debug|x64
 		{FC1BC469-7B95-42F6-A51D-FDDA8D6A7336}.Debug|x64.Build.0 = Debug|x64
 		{FC1BC469-7B95-42F6-A51D-FDDA8D6A7336}.Debug|x86.ActiveCfg = Debug|Win32
@@ -35,6 +45,14 @@ Global
 		{FC1BC469-7B95-42F6-A51D-FDDA8D6A7336}.Release|x64.Build.0 = Release|x64
 		{FC1BC469-7B95-42F6-A51D-FDDA8D6A7336}.Release|x86.ActiveCfg = Release|Win32
 		{FC1BC469-7B95-42F6-A51D-FDDA8D6A7336}.Release|x86.Build.0 = Release|Win32
+		{880ADB14-270A-4B8C-A994-08CCE5F8D6C5}.Debug|x64.ActiveCfg = Debug|x64
+		{880ADB14-270A-4B8C-A994-08CCE5F8D6C5}.Debug|x64.Build.0 = Debug|x64
+		{880ADB14-270A-4B8C-A994-08CCE5F8D6C5}.Debug|x86.ActiveCfg = Debug|Win32
+		{880ADB14-270A-4B8C-A994-08CCE5F8D6C5}.Debug|x86.Build.0 = Debug|Win32
+		{880ADB14-270A-4B8C-A994-08CCE5F8D6C5}.Release|x64.ActiveCfg = Release|x64
+		{880ADB14-270A-4B8C-A994-08CCE5F8D6C5}.Release|x64.Build.0 = Release|x64
+		{880ADB14-270A-4B8C-A994-08CCE5F8D6C5}.Release|x86.ActiveCfg = Release|Win32
+		{880ADB14-270A-4B8C-A994-08CCE5F8D6C5}.Release|x86.Build.0 = Release|Win32
 		{9CE7912E-7970-41C0-A5FD-E6D0F3B24A64}.Debug|x64.ActiveCfg = Debug|x64
 		{9CE7912E-7970-41C0-A5FD-E6D0F3B24A64}.Debug|x64.Build.0 = Debug|x64
 		{9CE7912E-7970-41C0-A5FD-E6D0F3B24A64}.Debug|x86.ActiveCfg = Debug|Win32
@@ -48,6 +66,7 @@ Global
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
+		{880ADB14-270A-4B8C-A994-08CCE5F8D6C5} = {DFDD48DE-CF9C-43CD-AD49-B922C9DF721B}
 		{9CE7912E-7970-41C0-A5FD-E6D0F3B24A64} = {DFDD48DE-CF9C-43CD-AD49-B922C9DF721B}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution

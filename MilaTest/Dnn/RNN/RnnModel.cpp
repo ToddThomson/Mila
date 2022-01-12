@@ -7,7 +7,7 @@ import CuDnn.Utils;
 
 namespace Mila::Tests::Dnn
 {
-    template Mila::Dnn::RnnModel<float>;
+    //template Mila::Dnn::RnnModel<float>;
 
     TEST( Dnn_Model, Builds_Default_RnnModel_Float )
     {

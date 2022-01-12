@@ -27,7 +27,7 @@ module;
 
 export module CuDnn.Utils;
 
-import CuDnn.Version;
+import Core.Version;
 import CuDnn.Status;
 import CuDnn.Helpers;
 
@@ -220,7 +220,7 @@ namespace Mila::Dnn::CuDNN
         }
     };
 
-    export inline cudnnVersion GetVersion()
+    export inline Mila::Core::Version GetVersion()
     {
         cudnnResult<int> result;
         int major = 0, minor = 0, patch = 1;
@@ -240,6 +240,6 @@ namespace Mila::Dnn::CuDNN
         if ( result.IsSuccess() )
             patch = result.getValue();
 
-        return cudnnVersion( major, minor, patch );
+        return Mila::Core::Version( major, minor, patch );
     };
 }

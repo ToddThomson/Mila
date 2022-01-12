@@ -65,7 +65,7 @@ namespace Mila::Dnn
         /// Override to configure the application dnn model.
         /// </summary>
         /// <param name="builder"></param>
-        virtual void OnModelBuilding( DnnModelBuilder builder )
+        virtual void OnModelBuilding( const DnnModelBuilder& builder )
         {
         }
 

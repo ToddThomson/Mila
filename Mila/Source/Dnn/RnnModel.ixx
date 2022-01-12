@@ -60,7 +60,7 @@ namespace Mila::Dnn
             return dropout_;
         }*/
 
-        const RnnOperation& GetRnnOp()
+        const RnnOperation& GetRnnOp() const
         {
             return rnnOp_;
         }
@@ -127,8 +127,9 @@ namespace Mila::Dnn
 
     protected:
 
-        void OnModelBuilding( DnnModelBuilder builder ) override
+        void OnModelBuilding( const DnnModelBuilder& builder ) override
         {
+            // TJT: This is so ugly/complicated!
             cudnnHandle_ = builder.GetCudnnContext()->GetCudnnHandle()->GetOpaqueHandle();
 
             CalculateParameterSizes();
@@ -333,7 +334,7 @@ namespace Mila::Dnn
         /// Creates the linear layers <seealso ref="RnnLinearLayer"/> for the Recurrent network type.
         /// </summary>
         /// <param name="builder">Model builder</param>
-        void CreateLayers( DnnModelBuilder builder )
+        void CreateLayers( const DnnModelBuilder& builder )
         {
             std::cout << ">>> CreateLayers()\n";
 
@@ -354,8 +355,8 @@ namespace Mila::Dnn
                     int nbDims = 0;
                     int shape[ 8 ], stride[ 8 ];
 
-                    float* weightMatrixAddress = NULL;
-                    float* biasVectorAddress = NULL;
+                    T_ELEM* weightMatrixAddress = NULL;
+                    T_ELEM* biasVectorAddress = NULL;
 
                     auto status = cudnnGetRNNWeightParams(
                         builder.GetCudnnContext()->GetCudnnHandle()->GetOpaqueHandle(),
@@ -393,7 +394,7 @@ namespace Mila::Dnn
                         InitGPUData<T_ELEM>(
                             weightMatrixAddress,
                             shape[ 0 ] * shape[ 1 ] * shape[ 2 ],
-                            1.0 / (shape[ 0 ] * shape[ 1 ] * shape[ 2 ]) );
+                            T_ELEM(1.0) / (shape[ 0 ] * shape[ 1 ] * shape[ 2 ]) );
                     }
 
                     if ( biasVectorAddress )
@@ -734,4 +735,7 @@ namespace Mila::Dnn
 
         RnnLayerCollection layers_;
     };
+
+    export template class RnnModel<float>;
+    export template class RnnModel<double>;
 }

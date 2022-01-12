@@ -6,7 +6,7 @@
  * this software. Any use, reproduction, disclosure, or distribution of
  * this software and related documentation outside the terms of the EULA
  * is strictly prohibited.
- * 
+ *
  * The above copyright notice and this permission notice shall be included in
  * all copies or substantial portions of the Software.
  *
@@ -19,16 +19,43 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-export module CuDnn;
+module;
+#include <iostream>
 
-export import CuDnn.Context;
-export import CuDnn.Descriptor;
-export import CuDnn.Error;
-export import CuDnn.Helpers;
-export import CuDnn.Error;
-export import CuDnn.OpaqueDescriptor;
-export import CuDnn.OpaqueDescriptorType;
-export import CuDnn.OpaqueHandle;
-export import CuDnn.Status;
-export import CuDnn.Utils;
-export import CuDnn.Version;
+export module RnnApp.Model;
+
+import Dnn.RnnModel;
+import CuDnn.Utils;
+
+namespace RnnApp::Model
+{
+    export void TrainModel()
+    {
+        auto model = Mila::Dnn::RnnModel<float>();
+
+        model.BuildModel();
+        model.Train();
+
+        std::cout << "RnnModel::rnnOp member:" << std::endl
+            << model.GetRnnOp().ToString() << std::endl;
+
+        auto status = model.GetRnnOp().get_status();
+        auto error = model.GetRnnOp().get_error();
+
+        if ( status == CUDNN_STATUS_SUCCESS )
+        {
+            std::cout << std::endl << "Test passed successfully." << std::endl;
+        }
+        else
+        {
+            std::cout << std::endl << "Test Failed!" << std::endl
+                << "Status: " << Mila::Dnn::CuDNN::to_string( status ) << std::endl
+                << "Error: " << error << std::endl;
+        }
+    };
+
+    //export class RnnAppModel : Mila::Dnn::RnnModel<float>
+    //{
+
+    //};
+}

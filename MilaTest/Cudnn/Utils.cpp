@@ -1,6 +1,5 @@
 #include "gtest/gtest.h"
 
-import CuDnn.Version;
 import CuDnn.Utils;
 
 using namespace Mila::Dnn::CuDNN;

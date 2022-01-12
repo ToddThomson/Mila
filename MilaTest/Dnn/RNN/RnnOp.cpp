@@ -18,7 +18,7 @@ namespace Mila::Tests::Dnn
             options_ = GetDefaultRnnOptions();
         }
 
-        void OnModelBuilding( DnnModelBuilder builder ) override
+        void OnModelBuilding( const DnnModelBuilder& builder ) override
         {
             CreateDropout( builder );
 
@@ -51,7 +51,7 @@ namespace Mila::Tests::Dnn
             dropout_.Finalize();
         }
 
-        const RnnOperation& GetRnnOp()
+        const RnnOperation& GetRnnOp() const
         {
             return rnnOp_;
         }

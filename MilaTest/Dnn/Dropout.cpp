@@ -16,7 +16,7 @@ namespace Mila::Tests::Dnn
         {
         }
 
-        void OnModelBuilding( DnnModelBuilder builder ) override
+        void OnModelBuilding( const DnnModelBuilder& builder ) override
         {
             auto options = GetDefaultRnnOptions();
 

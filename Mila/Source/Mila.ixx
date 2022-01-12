@@ -19,46 +19,15 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-module;
-#include <string>
-#include <algorithm>
-#include <iterator>
-#include <vector>
+export module Mila;
 
-export module Dnn.Data.OneOfK;
+export import Mila.Core;
+export import Mila.Cudnn;
 
-namespace Mila::Dnn::Data
-{
-    export template <typename TElement>
-    class OneOfK
-    {
-    public:
+namespace Mila {
 
-        OneOfK( size_t k, TElement value )
-            : k_( k ), value_( value )
-        {
-            k_vector_ = std::vector<TElement>( k_, {} );
-        }
-
-        std::vector<TElement> Convert( const std::vector<int>& input )
-        {
-            std::vector<TElement> output;
-            output.reserve( k_ * input.size() );
-
-            for (int e : input)
-            {
-                k_vector_[e - 1] = value_;
-                std::copy( k_vector_.begin(), k_vector_.end(), std::back_inserter( output ) );
-                k_vector_[e - 1] = {};
-            }
-
-            return output;
-        }
-
-    private:
-
-        size_t k_ = 0;
-        TElement value_;
-        std::vector<TElement> k_vector_;
-    };
+	export Core::Version GetAPIVersion() {
+		return Core::Version{0, 9, 2};
+	}
 }
+
