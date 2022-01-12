@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package >
+  <metadata>
+    <id>Achilles.Mila</id>
+    <version>0.9.2-pre</version>
+    <title>Mila Deep Neural Net Library</title>
+    <authors>Todd J. Thomson</authors>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <license type="expression">MIT</license>
+    <iconUrl>https://github.com/ToddThomson/Mila/achilles-icon.png</iconUrl>
+    <projectUrl>https://github.com/ToddThomson/Mila</projectUrl>
+    <description>
+		Achilles Mila Deep Neural Network library provides an API to model, train and evaluate
+		Recurrent Neural Networks.
+	</description>
+    <releaseNotes>Preliminary alpha release.</releaseNotes>
+    <copyright>Copyright 2022 Todd J. Thomson, Achilles Software</copyright>
+    <tags>Native, native</tags>
+  </metadata>
+	<files>
+		<file src="build\x64\Debug\Mila.lib" target="native\build\x64\Debug" />
+		<file src="build\x64\Debug\Mila.idb" target="native\build\x64\Debug" />
+		<file src="build\x64\Debug\Mila.pdb" target="native\build\x64\Debug" />
+	</files>
+</package>

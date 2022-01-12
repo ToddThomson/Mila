@@ -67,6 +67,9 @@
     <ClInclude Include="Source\Dnn\CuDNN\init_data.h" />
     <ClCompile Include="Source\Mila.ixx" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="Mila.nuspec" />
+  </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{50FE4F4B-1D05-338D-868A-50322CA8872E}</ProjectGuid>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
@@ -96,13 +99,13 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
     <_ProjectFileVersion>10.0.20506.1</_ProjectFileVersion>
-    <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|X64'">Build\Mila\Debug\</OutDir>
-    <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|X64'">Build\Debug\</IntDir>
-    <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|X64'">Mila</TargetName>
+	<OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|X64'">Build\$(Platform)\$(Configuration)\</OutDir>
+	<IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|X64'">Build\$(Platform)\$(Configuration)</IntDir>
+	<TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|X64'">Mila</TargetName>
     <TargetExt Condition="'$(Configuration)|$(Platform)'=='Debug|X64'">.lib</TargetExt>
-    <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|X64'">C:\Users\toddt\GitHub\Mila\build\Source\Release\</OutDir>
-    <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|X64'">MilaLib.dir\Release\</IntDir>
-    <TargetName Condition="'$(Configuration)|$(Platform)'=='Release|X64'">MilaLib</TargetName>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|X64'">$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|X64'">$(Platform)\$(Configuration)\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Release|X64'">$(ProjectName)</TargetName>
     <TargetExt Condition="'$(Configuration)|$(Platform)'=='Release|X64'">.lib</TargetExt>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|X64'">
@@ -137,6 +140,7 @@
       <Runtime>MDd</Runtime>
       <RuntimeChecks>RTC1</RuntimeChecks>
       <UseHostInclude>false</UseHostInclude>
+      <TargetMachinePlatform>64</TargetMachinePlatform>
     </CudaCompile>
     <Midl>
       <AdditionalIncludeDirectories>C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.5\include;C:\Users\toddt\GitHub\Mila\build;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -180,12 +184,13 @@
       <Defines>%(Defines);_WINDOWS;NDEBUG;CMAKE_INTDIR="Release"</Defines>
       <AdditionalOptions>%(AdditionalOptions) -std=c++17 -Xcompiler="/EHsc -Ob2"</AdditionalOptions>
       <CodeGeneration>compute_52,compute_52;compute_52,sm_52</CodeGeneration>
-      <CompileOut>$(IntDir)%(Filename).obj</CompileOut>
+      <CompileOut>Build\$(IntDir)%(Filename).obj</CompileOut>
       <CudaRuntime>Static</CudaRuntime>
       <GPUDebugInfo>false</GPUDebugInfo>
       <Optimization>O2</Optimization>
       <Runtime>MD</Runtime>
       <UseHostInclude>false</UseHostInclude>
+      <TargetMachinePlatform>64</TargetMachinePlatform>
     </CudaCompile>
     <Midl>
       <AdditionalIncludeDirectories>C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.5\include;C:\Users\toddt\GitHub\Mila\build;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>

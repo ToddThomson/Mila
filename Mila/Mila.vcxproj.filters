@@ -168,4 +168,7 @@
       <Filter>Dnn\CuDnn</Filter>
     </ClInclude>
   </ItemGroup>
+  <ItemGroup>
+    <None Include="Mila.nuspec" />
+  </ItemGroup>
 </Project>

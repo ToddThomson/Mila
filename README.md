@@ -27,7 +27,6 @@ Mila, version 0.9.2-pre adds:
 * additional sample code
 * 
 
-
 ## Components
 * C++ 20 Module API
 * NVIDIA CuDNN, 8.3.1
