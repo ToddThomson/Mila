@@ -26,7 +26,7 @@ module;
 
 export module Core.Version;
 
-namespace Mila::Core
+export namespace Mila::Core
 {
     /// <summary>
     /// Semantic Version data.

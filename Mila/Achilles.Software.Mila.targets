@@ -1,0 +1,15 @@
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+	<PropertyGroup Condition="'$(MilaLib)' == '' ">
+		<MilaLib>true</MilaLib>
+	</PropertyGroup>
+	<ItemDefinitionGroup Condition="'$(MilaLib)' == 'true'">
+		<Link>
+			<AdditionalDependencies Condition="'$(Configuration)' == 'Debug' And '$(Platform)' == 'x64'">$(MSBuildThisFileDirectory)x64\Debug\Mila.lib;%(AdditionalDependencies)</AdditionalDependencies>
+		</Link>
+		<ClCompile>
+			<AdditionalBMIDirectories Condition="'$(Configuration)' == 'Debug' And '$(Platform)' == 'x64'">$(MSBuildThisFileDirectory)x64\Debug;%(AdditionalBMIDirectories)</AdditionalBMIDirectories>
+			<PreprocessorDefinitions Condition="'$(Configuration)' == 'Debug' And '$(Platform)' == 'x64'">_GERB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+			<AdditionalIncludeDirectories Condition="'$(Configuration)' == 'Debug' And '$(Platform)' == 'x64'">$(MilaInclude)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+		</ClCompile>
+	</ItemDefinitionGroup>
+</Project>

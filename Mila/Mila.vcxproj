@@ -17,8 +17,8 @@
     <CudaCompile Include="Source\Dnn\CuDNN\init_data.cu" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Mila-Core.ixx" />
-    <ClCompile Include="Source\Core\Version.ixx" />
+    <ClCompile Include="Mila.Core.ixx" />
+    <ClCompile Include="Source\Core\Core.Version.ixx" />
     <ClCompile Include="Source\Dnn\Cuda\Cuda.ixx" />
     <ClCompile Include="Source\Dnn\Cuda\CudaDevice.ixx" />
     <ClCompile Include="Source\Dnn\Cuda\CudaDeviceProps.ixx" />
@@ -69,6 +69,10 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="Mila.nuspec" />
+    <None Include="Achilles.Software.Mila.targets" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="..\icon.png" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{50FE4F4B-1D05-338D-868A-50322CA8872E}</ProjectGuid>
@@ -99,9 +103,9 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
     <_ProjectFileVersion>10.0.20506.1</_ProjectFileVersion>
-	<OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|X64'">Build\$(Platform)\$(Configuration)\</OutDir>
-	<IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|X64'">Build\$(Platform)\$(Configuration)</IntDir>
-	<TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|X64'">Mila</TargetName>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|X64'">Build\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|X64'">Build\$(Platform)\$(Configuration)</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|X64'">Mila</TargetName>
     <TargetExt Condition="'$(Configuration)|$(Platform)'=='Debug|X64'">.lib</TargetExt>
     <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|X64'">$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
     <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|X64'">$(Platform)\$(Configuration)\</IntDir>
@@ -123,6 +127,7 @@
       <UseFullPaths>false</UseFullPaths>
       <PreprocessorDefinitions>_DEBUG;_LIB;%(PreprocessorDefinitions);WIN32;_WINDOWS</PreprocessorDefinitions>
       <ObjectFileName>$(IntDir)</ObjectFileName>
+      <ModuleOutputFile>$(IntDir)%(FileName).ifc</ModuleOutputFile>
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_DEBUG;_WINDOWS;CMAKE_INTDIR=\"Debug\"</PreprocessorDefinitions>
@@ -158,6 +163,12 @@
       <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
       <AdditionalDependencies>$(CudaToolkitLibDir)/cudnn.lib;C:\Program Files\HDF_Group\HDF5\1.12.1.D\cmake\lib\libhdf5_cpp_D.lib;C:\Program Files\HDF_Group\HDF5\1.12.1.D\cmake\lib\libhdf5_D.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Lib>
+    <PostBuildEvent>
+      <Command>"nuget.exe pack -outputDirectory Build\Nuget mila.nuspec"</Command>
+    </PostBuildEvent>
+    <PostBuildEvent>
+      <Command>nuget.exe pack -outputDirectory Build\nuget</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|X64'">
     <ClCompile>

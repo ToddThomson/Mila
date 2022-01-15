@@ -152,10 +152,10 @@
     <ClCompile Include="Source\Dnn\Data\TextToH5.ixx">
       <Filter>Dnn\Data</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Core\Version.ixx">
+    <ClCompile Include="Source\Core\Core.Version.ixx">
       <Filter>Core</Filter>
     </ClCompile>
-    <ClCompile Include="Mila-Core.ixx">
+    <ClCompile Include="Mila.Core.ixx">
       <Filter>Core</Filter>
     </ClCompile>
     <ClCompile Include="Source\Mila.ixx" />
@@ -170,5 +170,9 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="Mila.nuspec" />
+    <None Include="Achilles.Software.Mila.targets" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="..\icon.png" />
   </ItemGroup>
 </Project>

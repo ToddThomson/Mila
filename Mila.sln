@@ -22,6 +22,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RnnApp", "Samples\RnnApp\Rn
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MilaApp", "Samples\MilaApp\MilaApp.vcxproj", "{9CE7912E-7970-41C0-A5FD-E6D0F3B24A64}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MilaPackage", "Samples\MilaPackage\MilaPackage.vcxproj", "{EC5B44AA-7F9E-4BB6-97B2-FA14A5320F84}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -62,6 +64,14 @@ Global
 		{9CE7912E-7970-41C0-A5FD-E6D0F3B24A64}.Release|x64.Build.0 = Release|x64
 		{9CE7912E-7970-41C0-A5FD-E6D0F3B24A64}.Release|x86.ActiveCfg = Release|Win32
 		{9CE7912E-7970-41C0-A5FD-E6D0F3B24A64}.Release|x86.Build.0 = Release|Win32
+		{EC5B44AA-7F9E-4BB6-97B2-FA14A5320F84}.Debug|x64.ActiveCfg = Debug|x64
+		{EC5B44AA-7F9E-4BB6-97B2-FA14A5320F84}.Debug|x64.Build.0 = Debug|x64
+		{EC5B44AA-7F9E-4BB6-97B2-FA14A5320F84}.Debug|x86.ActiveCfg = Debug|Win32
+		{EC5B44AA-7F9E-4BB6-97B2-FA14A5320F84}.Debug|x86.Build.0 = Debug|Win32
+		{EC5B44AA-7F9E-4BB6-97B2-FA14A5320F84}.Release|x64.ActiveCfg = Release|x64
+		{EC5B44AA-7F9E-4BB6-97B2-FA14A5320F84}.Release|x64.Build.0 = Release|x64
+		{EC5B44AA-7F9E-4BB6-97B2-FA14A5320F84}.Release|x86.ActiveCfg = Release|Win32
+		{EC5B44AA-7F9E-4BB6-97B2-FA14A5320F84}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -69,6 +79,7 @@ Global
 	GlobalSection(NestedProjects) = preSolution
 		{880ADB14-270A-4B8C-A994-08CCE5F8D6C5} = {DFDD48DE-CF9C-43CD-AD49-B922C9DF721B}
 		{9CE7912E-7970-41C0-A5FD-E6D0F3B24A64} = {DFDD48DE-CF9C-43CD-AD49-B922C9DF721B}
+		{EC5B44AA-7F9E-4BB6-97B2-FA14A5320F84} = {DFDD48DE-CF9C-43CD-AD49-B922C9DF721B}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {62A9CFD3-069E-42A4-9B59-972B634A9DB7}

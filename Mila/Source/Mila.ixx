@@ -22,9 +22,9 @@
 export module Mila;
 
 export import Mila.Core;
-export import Mila.Cudnn;
+//export import Mila.Cudnn;
 
-namespace Mila {
+export namespace Mila {
 
 	export Core::Version GetAPIVersion() {
 		return Core::Version{0, 9, 2};
