@@ -27,7 +27,7 @@ export import Mila.Core;
 export namespace Mila {
 
 	export Core::Version GetAPIVersion() {
-		return Core::Version{0, 9, 2};
+		return Core::Version{0, 9, 3};
 	}
 }
 

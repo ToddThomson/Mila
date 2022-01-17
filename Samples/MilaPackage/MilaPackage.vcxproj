@@ -86,12 +86,12 @@
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
-    <Import Project="..\..\packages\Achilles.Mila.0.9.2-pre\build\native\Achilles.Mila.targets" Condition="Exists('..\..\packages\Achilles.Mila.0.9.2-pre\build\native\Achilles.Mila.targets')" />
+    <Import Project="..\..\packages\Achilles.Software.Mila.0.9.3-alpha\build\native\Achilles.Software.Mila.targets" Condition="Exists('..\..\packages\Achilles.Software.Mila.0.9.3-alpha\build\native\Achilles.Software.Mila.targets')" />
   </ImportGroup>
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
     <PropertyGroup>
       <ErrorText>This project references NuGet package(s) that are missing on this computer. Use NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105. The missing file is {0}.</ErrorText>
     </PropertyGroup>
-    <Error Condition="!Exists('..\..\packages\Achilles.Mila.0.9.2-pre\build\native\Achilles.Mila.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\..\packages\Achilles.Mila.0.9.2-pre\build\native\Achilles.Mila.targets'))" />
+    <Error Condition="!Exists('..\..\packages\Achilles.Software.Mila.0.9.3-alpha\build\native\Achilles.Software.Mila.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\..\packages\Achilles.Software.Mila.0.9.3-alpha\build\native\Achilles.Software.Mila.targets'))" />
   </Target>
 </Project>
