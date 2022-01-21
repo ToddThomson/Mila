@@ -29,12 +29,14 @@ module;
 
 export module Data.H5DatasetWriter;
 
+import Data.H5DataTypeMapper;
+
 namespace fs = std::filesystem;
 using namespace H5;
 
 namespace Mila::Dnn::Data::H5
 {
-    template<typename TElement>
+    /*template<typename TElement>
     const PredType& get_data_type();
 
     template<>
@@ -44,7 +46,7 @@ namespace Mila::Dnn::Data::H5
     const PredType& get_data_type<int>() { return PredType::NATIVE_INT; }
 
     template<>
-    const PredType& get_data_type<char>() { return PredType::NATIVE_CHAR; }
+    const PredType& get_data_type<char>() { return PredType::NATIVE_CHAR; }*/
 
     export class H5DatasetWriter
     {
@@ -65,8 +67,7 @@ namespace Mila::Dnn::Data::H5
                 DataSpace dataspace( 1, splits_dimsf );
 
                 //PredType predType = get_data_type<TElement>();
-                //PredType::NATIVE_UCHAR
-                IntType datatype( PredType::NATIVE_UCHAR );// get_data_type<TElement>() );
+                IntType datatype( get_data_type<TElement>() ); // PredType::NATIVE_UCHAR ); 
                 datatype.setOrder( H5T_ORDER_LE );
 
                 /*
@@ -80,7 +81,7 @@ namespace Mila::Dnn::Data::H5
                  * Write the data to the dataset using default memory space, file
                  * space, and transfer properties.
                  */
-                dataset.write( data.data(), PredType::NATIVE_UCHAR ); // get_data_type<TElement>() );
+                dataset.write( data.data(), get_data_type<TElement>() ); // PredType::NATIVE_UCHAR );
 
             } // end of try block
 

@@ -40,6 +40,7 @@
     <ClCompile Include="Source\Dnn\CuDNN\CuDnnOpaqueHandle.ixx" />
     <ClCompile Include="Source\Dnn\CuDNN\CuDnnStatus.ixx" />
     <ClCompile Include="Source\Dnn\CuDNN\CuDnnUtils.ixx" />
+    <ClCompile Include="Source\Dnn\Data\H5\DataH5DataTypeMapper.ixx" />
     <ClCompile Include="Source\Dnn\DnnModel.ixx" />
     <ClCompile Include="Source\Dnn\DnnModelBuilder.ixx" />
     <ClCompile Include="Source\Dnn\DnnModelOptions.ixx" />

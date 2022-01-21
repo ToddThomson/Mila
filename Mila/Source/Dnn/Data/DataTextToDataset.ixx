@@ -86,6 +86,9 @@ namespace Mila::Dnn::Data
             }
         }
             
+        /// <summary>
+        /// 
+        /// </summary>
         void CreateDataset()
         {
             std::ifstream text_file( file_path_ );
@@ -169,6 +172,7 @@ namespace Mila::Dnn::Data
             h5Writer.WriteDataset<char>( "validation_ds", splits[ VALIDATION_SET ] );
             h5Writer.WriteDataset<char>( "testing_ds", splits[ TESTING_SET ] );
             
+            // Convert the m
             std::vector<int> vocabulary_vector;
 
             for ( const auto& [key, value ] : tokens ) {
@@ -183,8 +187,8 @@ namespace Mila::Dnn::Data
 
         const fs::path file_path_;
         
-        float validation_split_;
-        float test_split_;
+        float validation_split_ = 0.1f;
+        float test_split_ = 0.1f;
 
         size_t vocabulary_size = 0;
         size_t text_size = 0;

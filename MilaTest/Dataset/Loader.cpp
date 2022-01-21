@@ -23,8 +23,6 @@ namespace Mila::Test::Data
 
         h5Converter.CreateDataset();
 
-        //int numErrors = 0;
-
         //EXPECT_TRUE( numErrors != 0 );
     };
 
@@ -47,7 +45,7 @@ namespace Mila::Test::Data
         int blocks_read = 0;
         while (!loader.EndOfDataset())
         {
-            XYPair samples = loader.Next();
+            XYPair samples = loader.NextBlock();
 
             blocks_read++;
         }

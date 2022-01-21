@@ -24,14 +24,17 @@ module;
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <vector>
 #include "H5Cpp.h"
 
 export module Data.H5DatasetReader;
 
+import Data.H5DataTypeMapper;
+
 namespace fs = std::filesystem;
 using namespace H5;
 
-namespace Mila::Dnn::Data::H5
+export namespace Mila::Dnn::Data::H5
 {
     export class H5DatasetReader
     {
@@ -42,7 +45,8 @@ namespace Mila::Dnn::Data::H5
             h5_file_ = H5File( filename, H5F_ACC_RDONLY );
         }
 
-        int ReadDataset( const std::string& datasetName, std::vector<char>& data )
+        template <class TElement>
+        int ReadDataset( const std::string& datasetName, std::vector<TElement>& data )
         {
             try
             {
@@ -61,7 +65,7 @@ namespace Mila::Dnn::Data::H5
                 data.resize( (unsigned long)(dims[ 0 ]) );
                 DataSpace mspace1( 1, dims );
 
-                dataset.read( data.data(), PredType::NATIVE_UCHAR, mspace1, filespace);
+                dataset.read( data.data(), get_data_type<TElement>(), mspace1, filespace);
                 //data.resize( (unsigned long)(dims[ 0 ]) );
 
             } // end of try block
@@ -101,4 +105,7 @@ namespace Mila::Dnn::Data::H5
 
         H5File h5_file_;
     };
+
+    template int H5DatasetReader::ReadDataset<char>( const std::string& datasetName, std::vector<char>& data );
+    template int H5DatasetReader::ReadDataset<int>( const std::string& datasetName, std::vector<int>& data );
 }

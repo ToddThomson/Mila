@@ -159,6 +159,9 @@
       <Filter>Core</Filter>
     </ClCompile>
     <ClCompile Include="Source\Mila.ixx" />
+    <ClCompile Include="Source\Dnn\Data\H5\DataH5DataTypeMapper.ixx">
+      <Filter>Dnn\Data\H5</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Source\Dnn\CuDNN\fp16_emu.h">

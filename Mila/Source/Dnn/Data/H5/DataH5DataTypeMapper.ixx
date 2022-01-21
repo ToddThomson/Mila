@@ -20,35 +20,23 @@
  */
 
 module;
-#include <string>
-#include <stdexcept>
+#include "H5Cpp.h"
 
-export module Data.DatasetType;
+export module Data.H5DataTypeMapper;
 
-namespace Mila::Dnn::Data
+using namespace H5;
+
+export namespace Mila::Dnn::Data::H5
 {
-    export enum DatasetType
-    {
-        training,
-        validation,
-        testing,
-        vocabulary
-    };
+    template<typename TElement>
+    const PredType& get_data_type();
 
-    export inline std::string to_string( DatasetType type )
-    {
-        switch ( type )
-        {
-        case training:
-            return std::string( "training_ds" );
-        case validation:
-            return std::string( "validation_ds" ); 
-        case testing:
-                return std::string( "testing_ds" );
-        case vocabulary:
-            return std::string( "vocabulary_ds" );
-        default:
-            throw std::invalid_argument( "Invalid DatasetType" );
-        }
-    };
+    template<>
+    const PredType& get_data_type<float>() { return PredType::NATIVE_FLOAT; }
+
+    template<>
+    const PredType& get_data_type<int>() { return PredType::NATIVE_INT; }
+
+    template<>
+    const PredType& get_data_type<char>() { return PredType::NATIVE_CHAR; }
 }

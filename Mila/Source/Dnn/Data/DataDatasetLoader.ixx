@@ -22,6 +22,8 @@
 module;
 #include <string>
 #include <filesystem>
+#include <map>
+#include <vector>
 
 export module Data.DatasetLoader;
 
@@ -32,8 +34,14 @@ namespace fs = std::filesystem;
 
 namespace Mila::Dnn::Data
 {
+    /// <summary>
+    /// Represents a block of (X,Y) input, output character vectors.
+    /// </summary>
     export using XYPair = std::pair<std::vector<char>, std::vector<char>>;
 
+    /// <summary>
+    /// Character dataset loader.
+    /// </summary>
     export class DatasetLoader
     {
     public:
@@ -46,7 +54,12 @@ namespace Mila::Dnn::Data
         /// <param name="batchSize"></param>
         /// <param name="sequenceLength"></param>
         DatasetLoader( const DatasetType datasetType, fs::path datasetPath, int batchSize, int sequenceLength )
-        { 
+        {
+            if ( !std::filesystem::exists( datasetPath ) )
+            {
+                throw std::invalid_argument( "Dataset file does not exist." );
+            }
+
             dataset_path_ = datasetPath;
             batch_size_ = batchSize;
             sequence_length_ = sequenceLength;
@@ -56,7 +69,11 @@ namespace Mila::Dnn::Data
             ReadDataset( datasetType );
         }
 
-        XYPair Next()
+        /// <summary>
+        /// Gets the next block from the dataset.
+        /// </summary>
+        /// <returns>X,Y input pair</returns>
+        XYPair NextBlock()
         {
             if ( EndOfDataset() )
             {
@@ -97,8 +114,9 @@ namespace Mila::Dnn::Data
         int ReadDataset( const DatasetType datasetType )
         {
             H5::H5DatasetReader ds_reader = H5::H5DatasetReader( dataset_path_.string() );
-
-            ds_reader.ReadDataset( to_string( datasetType ), dataset_ );
+            
+            //ds_reader.ReadDataset<int>( "vocabulary_ds", dataset_);
+            ds_reader.ReadDataset<char>( to_string( datasetType ), dataset_ );
 
             int dataset_size = dataset_.size();
              
@@ -120,6 +138,7 @@ namespace Mila::Dnn::Data
         int max_blocks_ = 0;
         int block_size_ = 0;
 
+        std::map<char, int> vocabulary_;
         std::vector<char> dataset_;
     };
 }
