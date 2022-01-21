@@ -29,7 +29,7 @@ import CuDnn.Context;
 import CuDnn.Descriptor;
 import CuDnn.Error;
 
-using namespace Mila::Dnn::CuDNN;
+using namespace Mila::Dnn::CuDnn;
 
 namespace Mila::Dnn
 {

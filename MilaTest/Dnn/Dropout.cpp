@@ -3,7 +3,7 @@
 #include <iostream>
 
 import Dnn.Model;
-import Dnn.Dropout; // TJT: review change to DropoutOperation
+import Dnn.DropoutDescriptor;
 import CuDnn.Utils;
 
 namespace Mila::Tests::Dnn
@@ -52,7 +52,7 @@ namespace Mila::Tests::Dnn
         if ( status != CUDNN_STATUS_SUCCESS )
         {
             std::cout << std::endl << "Test Failed!" << std::endl
-                << "Status: " << Mila::Dnn::CuDNN::to_string( status ) << std::endl
+                << "Status: " << Mila::Dnn::CuDnn::to_string( status ) << std::endl
                 << "Error: " << dropout.get_error();
         }
 

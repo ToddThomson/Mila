@@ -4,7 +4,7 @@
 #include <vector>
 
 import Dnn.Model;
-import Dnn.RnnDataSet;
+import Dnn.RnnDataSetDescriptor;
 import CuDnn.Utils;
 
 namespace Mila::Tests::Dnn
@@ -43,7 +43,7 @@ namespace Mila::Tests::Dnn
 
         std::cout << "RNN data set, input x tensor: " << std::endl
             << xDesc.ToString() << std::endl
-            << "Status: " << Mila::Dnn::CuDNN::to_string( status ) << std::endl
+            << "Status: " << Mila::Dnn::CuDnn::to_string( status ) << std::endl
             << "Error Msg: " << xDesc.get_error() << std::endl;
 
         EXPECT_TRUE( status == CUDNN_STATUS_SUCCESS );

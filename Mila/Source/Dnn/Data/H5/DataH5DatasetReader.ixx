@@ -26,7 +26,7 @@ module;
 #include <string>
 #include "H5Cpp.h"
 
-export module Dnn.Data.H5DatasetReader;
+export module Data.H5DatasetReader;
 
 namespace fs = std::filesystem;
 using namespace H5;

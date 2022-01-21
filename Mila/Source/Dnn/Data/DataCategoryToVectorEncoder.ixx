@@ -25,21 +25,34 @@ module;
 #include <iterator>
 #include <vector>
 
-export module Dnn.Data.OneOfK;
+export module Data.CategoryToVectorEncoder;
 
 namespace Mila::Dnn::Data
 {
+    /// <summary>
+    /// A category to vector (One-hot) encoder
+    /// </summary>
     export template <typename TElement>
-    class OneOfK
+    class CategoryToVectorEncoder
     {
     public:
 
-        OneOfK( size_t k, TElement value )
+        /// <summary>
+        /// Class constructor
+        /// </summary>
+        /// <param name="k">Size of vector</param>
+        /// <param name="value">Numeric value to use for marking category</param>
+        CategoryToVectorEncoder( size_t k, TElement value )
             : k_( k ), value_( value )
         {
             k_vector_ = std::vector<TElement>( k_, {} );
         }
 
+        /// <summary>
+        /// Encodes 
+        /// </summary>
+        /// <param name="input"></param>
+        /// <returns></returns>
         std::vector<TElement> Convert( const std::vector<int>& input )
         {
             std::vector<TElement> output;

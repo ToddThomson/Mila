@@ -56,6 +56,7 @@ export namespace Mila::Core
 
             return ss.str();
         }
+
         /// <summary>
         /// Gets the major version number.
         /// </summary>

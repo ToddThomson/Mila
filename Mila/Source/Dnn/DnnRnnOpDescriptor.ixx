@@ -25,16 +25,16 @@ module;
 #include <sstream>
 #include <cudnn.h>
 
-export module Dnn.RnnOperation;
+export module Dnn.RnnOpDescriptor;
 
 import CuDnn.Context;
 import CuDnn.Descriptor;
 import CuDnn.Error;
 import CuDnn.Utils;
 
-import Dnn.Dropout;
+import Dnn.DropoutDescriptor;
 
-using namespace Mila::Dnn::CuDNN;
+using namespace Mila::Dnn::CuDnn;
 
 namespace Mila::Dnn
 {
@@ -42,7 +42,7 @@ namespace Mila::Dnn
     /// The descriptor of an RNN operation.
     /// Use <seealso cref="RNNOperationBuilder"/> to build an instance of this class.
     /// </summary>
-    export class RnnOperation : public CuDNN::Descriptor
+    export class RnnOperation : public CuDnn::Descriptor
     {
         friend class DnnModelBuilder;
 
@@ -180,9 +180,9 @@ namespace Mila::Dnn
         {
             std::stringstream ss;
             ss << "RNNOperation:: " << std::endl
-                << " Algorithm: " << CuDNN::to_string( algorithm_ ) << std::endl
-                << " CellMode: " << CuDNN::to_string( cellMode_ ) << std::endl
-                << " DataType: " << CuDNN::to_string( dataType_ ) << std::endl;
+                << " Algorithm: " << CuDnn::to_string( algorithm_ ) << std::endl
+                << " CellMode: " << CuDnn::to_string( cellMode_ ) << std::endl
+                << " DataType: " << CuDnn::to_string( dataType_ ) << std::endl;
 
             return ss.str();
         };

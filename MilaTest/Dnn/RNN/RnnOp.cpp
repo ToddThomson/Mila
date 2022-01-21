@@ -3,8 +3,8 @@
 #include <iostream>
 
 import Dnn.Model;
-import Dnn.RnnOperation;
-import Dnn.Dropout;
+import Dnn.RnnOpDescriptor;
+import Dnn.DropoutDescriptor;
 import CuDnn.Utils;
 
 namespace Mila::Tests::Dnn
@@ -91,7 +91,7 @@ namespace Mila::Tests::Dnn
         }
         else
         {
-            std::cout << "Test Failed with Status: " << Mila::Dnn::CuDNN::to_string( status ) << std::endl;
+            std::cout << "Test Failed with Status: " << Mila::Dnn::CuDnn::to_string( status ) << std::endl;
         }
 
         EXPECT_TRUE( status == CUDNN_STATUS_SUCCESS );

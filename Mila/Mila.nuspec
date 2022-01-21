@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <package >
   <metadata>
-    <id>Achilles.Software.Mila</id>
-    <version>0.9.3-alpha</version>
+    <id>Achilles.Mila</id>
+    <version>0.9.4-alpha</version>
     <title>Mila Deep Neural Net Library</title>
     <authors>Todd J. Thomson</authors>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
@@ -22,6 +22,6 @@
 		<file src="build\x64\Debug\*.ifc" target="build\native\x64\Debug" />
 		<file src="..\icon.png" target="images\" />
 		<!-- .targets -->
-		<file src="Achilles.Software.Mila.targets" target="\build\native"/>
+		<file src="Achilles.Mila.targets" target="\build\native"/>
 	</files>
 </package>

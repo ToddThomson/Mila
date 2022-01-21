@@ -4,28 +4,28 @@
 
 using std::filesystem::current_path;
 
-import Dnn.Data.TextToH5;
-import Dnn.Data.BatchSequenceLoader;
-import Dnn.Data.OneOfK;
+import Data.TextToDataset;
+import Data.DatasetLoader;
+import Data.CategoryToVectorEncoder;
 
 using namespace Mila::Dnn::Data;
 
 namespace Mila::Test::Data
 {
-    TEST( Dataset, H5Converter )
+    TEST( Dataset, TextToDataset )
     {
         std::cout << "Current working directory: " << current_path() << std::endl;
 
         auto filepath = current_path();
         filepath += "\\Data\\tiny-shakespeare.txt";
 
-        TextToH5 h5Converter = TextToH5();
+        TextToDataset h5Converter = TextToDataset( filepath );
 
-        h5Converter.Convert( filepath );
+        h5Converter.CreateDataset();
 
-        int numErrors = 0;
+        //int numErrors = 0;
 
-        EXPECT_TRUE( numErrors != 0 );
+        //EXPECT_TRUE( numErrors != 0 );
     };
 
     TEST( Dataset, SequenceLoader )
@@ -38,7 +38,7 @@ namespace Mila::Test::Data
         int batch_size = 10;
         int sequence_length = 10;
 
-        BatchSequenceLoader loader = BatchSequenceLoader(
+        DatasetLoader loader = DatasetLoader(
             DatasetType::training, 
             filepath,
             batch_size, 
@@ -55,10 +55,10 @@ namespace Mila::Test::Data
         EXPECT_EQ( blocks_read, loader.BlockCount() );
     };
 
-    TEST( Dataset, OneOfK )
+    TEST( Dataset, CategoryVector )
     {
         std::vector<int> input = { 2, 3, 1 };
-        auto transformer = OneOfK<float>( 3, 1.0 );
+        auto transformer = CategoryToVectorEncoder<float>( 3, 1.0 );
 
         auto output = transformer.Convert( input );
         

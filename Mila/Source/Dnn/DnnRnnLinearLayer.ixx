@@ -28,7 +28,7 @@ module;
 
 export module Dnn.RnnLinearLayer;
 
-import Dnn.StateTensor;
+import Dnn.StateTensorDescriptor;
 
 namespace Mila::Dnn
 {

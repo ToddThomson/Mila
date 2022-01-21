@@ -32,10 +32,10 @@ import Cuda.Memory;
 import Cuda.Helpers;
 import CuDnn.Utils;
 import CuDnn.Error;
-import Dnn.Dropout;
+import Dnn.DropoutDescriptor;
 import Dnn.TensorDescriptor;
-import Dnn.RnnOperation;
-import Dnn.RnnDataSet;
+import Dnn.RnnOpDescriptor;
+import Dnn.RnnDataSetDescriptor;
 import Dnn.Model;
 import Dnn.RnnModelOptions;
 import Dnn.RnnLayerCollection;
@@ -44,8 +44,7 @@ using namespace Mila::Dnn::Cuda;
 
 namespace Mila::Dnn
 {
-    export 
-    template <typename T_ELEM>
+    export template <typename T_ELEM>
     class RnnModel : public DnnModel
     {
     public:
@@ -184,7 +183,7 @@ namespace Mila::Dnn
             return linear_layers;
         }
 
-        void CreateInputOutputDataSets( DnnModelBuilder builder )
+        void CreateInputOutputDataSets( const DnnModelBuilder& builder )
         {
             cudnnDataType_t dataType = CUDNN_DATA_FLOAT;
 
@@ -235,12 +234,12 @@ namespace Mila::Dnn
             std::vector<int> shape = {
                 options_.numLayers * bidirectionalScale_,
                 options_.batchSize,
-                options_.hiddenSize };
+                options_.hiddenSize};
 
             std::vector<int> strides = {
                 shape[ 1 ] * shape[ 2 ],
                 shape[ 2 ],
-                1 };
+                1};
 
             h = builder.Create<Tensor>();
 
@@ -300,7 +299,7 @@ namespace Mila::Dnn
 
             if ( status != CUDNN_STATUS_SUCCESS )
             {
-                throw CuDNN::cudnnException( "Failed to get RNN WeightBias space size.", status );
+                throw CuDnn::cudnnException( "Failed to get RNN WeightBias space size.", status );
             }
 
             std::cout << "Allocating Cuda weightBiasSpace: " << std::to_string( weightSpaceSize_ ) << std::endl;
@@ -319,7 +318,7 @@ namespace Mila::Dnn
 
             if ( status != CUDNN_STATUS_SUCCESS )
             {
-                throw CuDNN::cudnnException( "Failed to get workspace/reserve space size", status );
+                throw CuDnn::cudnnException( "Failed to get workspace/reserve space size", status );
             }
 
             std::cout << "Allocating Cuda workSpace: " << std::to_string( workSpaceSize_ ) << std::endl;
@@ -344,8 +343,8 @@ namespace Mila::Dnn
             {
                 for ( int linLayerId = 0; linLayerId < linLayers; linLayerId++ )
                 {
-                    std::cout << "Initializing layer (" 
-                        << std::to_string( layerId) << ", " 
+                    std::cout << "Initializing layer ("
+                        << std::to_string( layerId ) << ", "
                         << std::to_string( linLayerId ) << ")" << std::endl;
 
                     StateTensor w = builder.Create<StateTensor>();
@@ -372,7 +371,7 @@ namespace Mila::Dnn
 
                     if ( status != CUDNN_STATUS_SUCCESS )
                     {
-                        throw CuDNN::cudnnException( "Failed to get RNN Weight Params", status );
+                        throw CuDnn::cudnnException( "Failed to get RNN Weight Params", status );
                     }
 
                     if ( weightMatrixAddress )
@@ -383,7 +382,7 @@ namespace Mila::Dnn
 
                         if ( status != CUDNN_STATUS_SUCCESS )
                         {
-                            throw CuDNN::cudnnException( "Failed to get TensorNdDescriptor for weight states.", status );
+                            throw CuDnn::cudnnException( "Failed to get TensorNdDescriptor for weight states.", status );
                         }
 
                         w.SetDataType( dataTypeTemp );
@@ -394,7 +393,7 @@ namespace Mila::Dnn
                         InitGPUData<T_ELEM>(
                             weightMatrixAddress,
                             shape[ 0 ] * shape[ 1 ] * shape[ 2 ],
-                            T_ELEM(1.0) / (shape[ 0 ] * shape[ 1 ] * shape[ 2 ]) );
+                            T_ELEM( 1.0 ) / (shape[ 0 ] * shape[ 1 ] * shape[ 2 ]) );
                     }
 
                     if ( biasVectorAddress )
@@ -405,7 +404,7 @@ namespace Mila::Dnn
 
                         if ( status != CUDNN_STATUS_SUCCESS )
                         {
-                            throw CuDNN::cudnnException( "Failed to get TensorNdDescriptor for weight states.", status );
+                            throw CuDnn::cudnnException( "Failed to get TensorNdDescriptor for weight states.", status );
                         }
 
                         b.SetDataType( dataTypeTemp );
@@ -413,8 +412,8 @@ namespace Mila::Dnn
                         b.SetDimensions( nbDims, shape, stride );
 
                         // TJT: See above
-                        InitGPUData<T_ELEM>( 
-                            biasVectorAddress, 
+                        InitGPUData<T_ELEM>(
+                            biasVectorAddress,
                             shape[ 0 ] * shape[ 1 ] * shape[ 2 ],
                             1.0 );
                     }
@@ -446,7 +445,7 @@ namespace Mila::Dnn
             std::cout << "InitializeData()" << " Initializing x_data memory to 1.0" << std::endl;
 
             // Initialize inputs
-            InitGPUData<T_ELEM>( (T_ELEM*)x_data.GetBuffer(), inputTensorSize_, 1.0);
+            InitGPUData<T_ELEM>( (T_ELEM*)x_data.GetBuffer(), inputTensorSize_, 1.0 );
 
             if ( hx_data.GetBuffer() != NULL )
             {
@@ -454,16 +453,16 @@ namespace Mila::Dnn
 
                 InitGPUData<T_ELEM>( (T_ELEM*)hx_data.GetBuffer(), hiddenTensorSize_, 1.0 );
             }
-            
+
             if ( cx_data.GetBuffer() != NULL )
             {
                 std::cout << "InitializeData()" << " Initializing cx_data memory to 1.0" << std::endl;
 
                 InitGPUData<T_ELEM>( (T_ELEM*)cx_data.GetBuffer(), hiddenTensorSize_, 1.0 );
             }
-            
+
             // Initialize outputs
-            InitGPUData<T_ELEM>( (T_ELEM*)dy_data.GetBuffer(), outputTensorSize_, 1.0);
+            InitGPUData<T_ELEM>( (T_ELEM*)dy_data.GetBuffer(), outputTensorSize_, 1.0 );
 
             if ( dhy_data.GetBuffer() != NULL )
             {
@@ -482,90 +481,90 @@ namespace Mila::Dnn
 
     private:
 
-        void Checksum( 
+        void Checksum(
             CudaMemory& ds,
             CudaMemory& h,
             CudaMemory& c )
         {
-                T_ELEM* ds_output;
-                T_ELEM* h_output;
-                T_ELEM* c_output;
+            T_ELEM* ds_output;
+            T_ELEM* h_output;
+            T_ELEM* c_output;
 
-                ds_output = (T_ELEM*)malloc( ds.GetBufferSize() );
-                h_output = (T_ELEM*)malloc( h.GetBufferSize() );
-                c_output = (T_ELEM*)malloc( c.GetBufferSize() );
+            ds_output = (T_ELEM*)malloc( ds.GetBufferSize() );
+            h_output = (T_ELEM*)malloc( h.GetBufferSize() );
+            c_output = (T_ELEM*)malloc( c.GetBufferSize() );
 
-                cudaCheckStatus( cudaMemcpy( 
-                    ds_output, 
-                    ds.GetBuffer(), 
-                    ds.GetBufferSize(),
-                    cudaMemcpyDeviceToHost));
-                
-                if ( h.GetBuffer() != nullptr )
+            cudaCheckStatus( cudaMemcpy(
+                ds_output,
+                ds.GetBuffer(),
+                ds.GetBufferSize(),
+                cudaMemcpyDeviceToHost ) );
+
+            if ( h.GetBuffer() != nullptr )
+            {
+                cudaCheckStatus( cudaMemcpy(
+                    h_output,
+                    h.GetBuffer(),
+                    h.GetBufferSize(),
+                    cudaMemcpyDeviceToHost ) );
+            }
+
+            if ( c.GetBuffer() != nullptr )
+            {
+                cudaCheckStatus( cudaMemcpy( c_output,
+                    c.GetBuffer(),
+                    c.GetBufferSize(),
+                    cudaMemcpyDeviceToHost ) );
+            }
+
+            double ds_checksum = 0.f;
+            double h_checksum = 0.f;
+            double c_checksum = 0.f;
+
+            for ( int m = 0; m < options_.batchSize; m++ )
+            {
+                double localSumi = 0;
+                double localSumh = 0;
+                double localSumc = 0;
+
+                for ( int j = 0; j < options_.sequenceLength; j++ )
                 {
-                    cudaCheckStatus( cudaMemcpy(
-                        h_output,
-                        h.GetBuffer(),
-                        h.GetBufferSize(),
-                        cudaMemcpyDeviceToHost ) );
-                }
-                
-                if ( c.GetBuffer() != nullptr )
-                {
-                    cudaCheckStatus( cudaMemcpy( c_output, 
-                        c.GetBuffer(),
-                        c.GetBufferSize(),
-                        cudaMemcpyDeviceToHost ) );
-                }
-
-                double ds_checksum = 0.f;
-                double h_checksum = 0.f;
-                double c_checksum = 0.f;
-
-                for ( int m = 0; m < options_.batchSize; m++ )
-                {
-                    double localSumi = 0;
-                    double localSumh = 0;
-                    double localSumc = 0;
-
-                    for ( int j = 0; j < options_.sequenceLength; j++ )
+                    for ( int i = 0; i < hiddenTensorSize_ * bidirectionalScale_; i++ )
                     {
-                        for ( int i = 0; i < hiddenTensorSize_ * bidirectionalScale_; i++ )
+                        localSumi += (double)ds_output[ j * options_.batchSize * hiddenTensorSize_ * bidirectionalScale_ + m * hiddenTensorSize_ * bidirectionalScale_ + i ];
+                    }
+                }
+                for ( int j = 0; j < numLinearLayers_ * bidirectionalScale_; j++ )
+                {
+                    for ( int i = 0; i < hiddenTensorSize_; i++ )
+                    {
+                        if ( h.GetBuffer() != nullptr )
                         {
-                            localSumi += (double)ds_output[ j * options_.batchSize * hiddenTensorSize_ * bidirectionalScale_ + m * hiddenTensorSize_ * bidirectionalScale_ + i ];
+                            localSumh += (double)h_output[ j * hiddenTensorSize_ * options_.batchSize + m * hiddenTensorSize_ + i ];
+                        }
+                        if ( c.GetBuffer() != nullptr )
+                        {
+                            localSumc += (double)c_output[ j * hiddenTensorSize_ * options_.batchSize + m * hiddenTensorSize_ + i ];
                         }
                     }
-                    for ( int j = 0; j < numLinearLayers_ * bidirectionalScale_; j++ )
-                    {
-                        for ( int i = 0; i < hiddenTensorSize_; i++ )
-                        {
-                            if ( h.GetBuffer() != nullptr )
-                            {
-                                localSumh += (double)h_output[ j * hiddenTensorSize_ * options_.batchSize + m * hiddenTensorSize_ + i ];
-                            }
-                            if ( c.GetBuffer() != nullptr )
-                            {
-                                localSumc += (double)c_output[ j * hiddenTensorSize_ * options_.batchSize + m * hiddenTensorSize_ + i ];
-                            }
-                        }
-                    }
-
-                    ds_checksum += localSumi;
-                    h_checksum += localSumh;
-                    c_checksum += localSumc;
                 }
 
-                std::cout << "ds checksum: " << std::to_string( ds_checksum ) << std::endl;
-                std::cout << "h checksum: " << std::to_string( h_checksum ) << std::endl;
-                
-                if ( c.GetBuffer() != nullptr )
-                {
-                    std::cout << "c checksum: " << std::to_string( c_checksum ) << std::endl;
-                }
+                ds_checksum += localSumi;
+                h_checksum += localSumh;
+                c_checksum += localSumc;
+            }
 
-                free( ds_output );
-                free( c_output );
-                free( h_output );
+            std::cout << "ds checksum: " << std::to_string( ds_checksum ) << std::endl;
+            std::cout << "h checksum: " << std::to_string( h_checksum ) << std::endl;
+
+            if ( c.GetBuffer() != nullptr )
+            {
+                std::cout << "c checksum: " << std::to_string( c_checksum ) << std::endl;
+            }
+
+            free( ds_output );
+            free( c_output );
+            free( h_output );
         }
 
         void ForwardStep(
@@ -602,9 +601,9 @@ namespace Mila::Dnn
 
             if ( status != CUDNN_STATUS_SUCCESS )
             {
-                std::cout << "CudnnForward() failed: " << Mila::Dnn::CuDNN::to_string( status ) << std::endl;
+                std::cout << "CudnnForward() failed: " << Mila::Dnn::CuDnn::to_string( status ) << std::endl;
 
-                throw CuDNN::cudnnException( "Failed CudnnForward() call", status );
+                throw CuDnn::cudnnException( "Failed CudnnForward() call", status );
             }
 
             std::cout << " Done." << std::endl;
@@ -629,15 +628,15 @@ namespace Mila::Dnn
                 cudnnHandle_,
                 static_cast<cudnnRNNDescriptor_t>(rnnOp_.GetOpaqueDescriptor()),
                 x.GetSeqLengthArray(),
-                static_cast<cudnnRNNDataDescriptor_t>(y.GetOpaqueDescriptor() ),
+                static_cast<cudnnRNNDataDescriptor_t>(y.GetOpaqueDescriptor()),
                 y_data.GetBuffer(), dy_data.GetBuffer(),
-                static_cast<cudnnRNNDataDescriptor_t>(x.GetOpaqueDescriptor() ),
+                static_cast<cudnnRNNDataDescriptor_t>(x.GetOpaqueDescriptor()),
                 dx_data.GetBuffer(),
-                static_cast<cudnnTensorDescriptor_t>(h.GetOpaqueDescriptor() ),
+                static_cast<cudnnTensorDescriptor_t>(h.GetOpaqueDescriptor()),
                 hx_data.GetBuffer(),
                 dhy_data.GetBuffer(),
                 dhx_data.GetBuffer(),
-                static_cast<cudnnTensorDescriptor_t>(c.GetOpaqueDescriptor() ),
+                static_cast<cudnnTensorDescriptor_t>(c.GetOpaqueDescriptor()),
                 cx_data.GetBuffer(),
                 dcy_data.GetBuffer(),
                 dcx_data.GetBuffer(),
@@ -650,9 +649,9 @@ namespace Mila::Dnn
 
             if ( status != CUDNN_STATUS_SUCCESS )
             {
-                std::cout << "CudnnBackwardData_v8() failed: " << CuDNN::to_string( status ) << std::endl;
+                std::cout << "CudnnBackwardData_v8() failed: " << CuDnn::to_string( status ) << std::endl;
 
-                throw CuDNN::cudnnException( "Failed CudnnBackwardData_v8()", status );
+                throw CuDnn::cudnnException( "Failed CudnnBackwardData_v8()", status );
             }
 
             dweightBiasSpace_.Set( 0 );
@@ -662,11 +661,11 @@ namespace Mila::Dnn
                 static_cast<cudnnRNNDescriptor_t>(rnnOp_.GetOpaqueDescriptor()),
                 CUDNN_WGRAD_MODE_ADD,
                 x.GetSeqLengthArray(),
-                static_cast<cudnnRNNDataDescriptor_t>(x.GetOpaqueDescriptor() ),
+                static_cast<cudnnRNNDataDescriptor_t>(x.GetOpaqueDescriptor()),
                 x_data.GetBuffer(),
-                static_cast<cudnnTensorDescriptor_t>(h.GetOpaqueDescriptor() ),
+                static_cast<cudnnTensorDescriptor_t>(h.GetOpaqueDescriptor()),
                 hx_data.GetBuffer(),
-                static_cast<cudnnRNNDataDescriptor_t>(y.GetOpaqueDescriptor() ),
+                static_cast<cudnnRNNDataDescriptor_t>(y.GetOpaqueDescriptor()),
                 y_data.GetBuffer(),
                 dweightBiasSpace_.GetBufferSize(),
                 dweightBiasSpace_.GetBuffer(),

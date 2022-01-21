@@ -25,7 +25,7 @@ module;
 #include <sstream>
 #include <cudnn.h>
 
-export module Dnn.Dropout;
+export module Dnn.DropoutDescriptor;
 
 import Cuda.Memory;
 import Cuda.Error;
@@ -35,7 +35,7 @@ import CuDnn.Descriptor;
 import CuDnn.Error;
 
 using namespace Mila::Dnn::Cuda;
-using namespace Mila::Dnn::CuDNN;
+using namespace Mila::Dnn::CuDnn;
 
 namespace Mila::Dnn
 {

@@ -32,7 +32,7 @@ import CuDnn.OpaqueHandle;
 import CuDnn.Error;
 import CuDnn.Utils;
 
-namespace Mila::Dnn::CuDNN
+namespace Mila::Dnn::CuDnn
 {
     class CudnnContext;
 

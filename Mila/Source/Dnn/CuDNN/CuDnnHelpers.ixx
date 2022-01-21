@@ -20,32 +20,19 @@
  */
 
 module;
-#include <string>
-#include <stdexcept>
+#include <cudnn.h>
 
-export module Dnn.Data.DatasetType;
+export module CuDnn.Helpers;
 
-namespace Mila::Dnn::Data
+import CuDnn.Status;
+
+namespace Mila::Dnn::CuDnn
 {
-    export enum DatasetType
-    {
-        training,
-        validation,
-        testing
-    };
+	export inline cudnnResult<int> getVersionPart( libraryPropertyType type )
+	{
+		int versionPart;
+		auto status_ = cudnnGetProperty( type, &versionPart );
 
-    export inline std::string to_string( DatasetType type )
-    {
-        switch ( type )
-        {
-        case training:
-            return std::string( "training_ds" );
-        case validation:
-            return std::string( "validation_ds" ); 
-        case testing:
-                return std::string( "testing_ds" );
-        default:
-            throw std::invalid_argument( "Invalid DatasetType" );
-        }
-    };
+		return cudnnResult<int>( status_, versionPart );
+	};
 }

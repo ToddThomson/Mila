@@ -31,7 +31,7 @@ import Dnn.ModelOptions;
 import Dnn.ModelBuilder;
 import Dnn.NeuralNetType;
 
-using namespace Mila::Dnn::CuDNN;
+using namespace Mila::Dnn::CuDnn;
 
 namespace Mila::Dnn
 {

@@ -35,7 +35,7 @@ namespace Mila::Tests::Dnn
         if ( status != CUDNN_STATUS_SUCCESS )
         {
             std::cout << std::endl << "Test Failed!" << std::endl
-                << "Status: " << Mila::Dnn::CuDNN::to_string( status ) << std::endl
+                << "Status: " << Mila::Dnn::CuDnn::to_string( status ) << std::endl
                 << "Error: " << tensor.get_error();
         }
 

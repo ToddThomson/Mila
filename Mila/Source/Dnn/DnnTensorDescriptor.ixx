@@ -22,58 +22,58 @@
 module;
 #include <string>
 #include <sstream>
+#include <iostream>
 #include <vector>
 #include <stdexcept>
 #include <cudnn.h>
 
-export module Dnn.StateTensor;
+export module Dnn.TensorDescriptor;
 
-import Cuda.Memory;
-
-import CuDnn.Context;
 import CuDnn.Descriptor;
 import CuDnn.Error;
 import CuDnn.Utils;
 
-using namespace Mila::Dnn::CuDNN;
+using namespace Mila::Dnn::CuDnn;
 
 namespace Mila::Dnn
 {
     /// <summary>
-    /// An n-Dimensional state tensor.
+    /// A generic n-Dimensional Tensor.
+    /// Use <seealso member="DnnModelBuilder"/> to build an instance of this class.
     /// </summary>
-    export class StateTensor : public CuDNN::Descriptor
+    export class Tensor : public CuDnn::Descriptor
     {
+        friend class DnnModelBuilder;
+
     public:
 
-        StateTensor() = default;
+        Tensor() = default;
 
-        StateTensor( const ManagedCudnnHandle& handle )
+        Tensor( ManagedCudnnHandle& handle )
             : Descriptor( handle, CUDNN_TENSOR_DESCRIPTOR )
         {
+            std::cout << "Tensor()" << std::endl;
+        }
+
+        std::string ToString() const override
+        {
+            std::stringstream ss;
+            char sep = ' ';
+            ss << "Tensor:: " << std::endl
+                << "Datatype: " << CuDnn::to_string( data_type_ ) << std::endl
+                << "Dimensions: " << std::to_string( dimensions_ ) << std::endl;
+
+            return ss.str();
         }
 
         /// <summary>
         /// Sets the data type of the Tensor elements.
         /// </summary>
-        /// <param name="data_type">Tensor elements data type.</param>
-        /// <returns>StateTensor reference</returns>
-        auto SetDataType( cudnnDataType_t data_type ) -> StateTensor&
+        /// <param name="data_type"></param>
+        /// <returns>Tensor builder</returns>
+        auto SetDataType( cudnnDataType_t data_type ) -> Tensor&
         {
-            CheckFinalizedThrow();
             data_type_ = data_type;
-            return *this;
-        }
-
-        /// <summary>
-        /// Sets the tensor state device buffer address. 
-        /// </summary>
-        /// <param name="address">Buffer address</param>
-        /// <returns></returns>
-        auto SetAddress( const void* address ) -> StateTensor&
-        {
-            CheckFinalizedThrow();
-            //address_ = address;
             return *this;
         }
 
@@ -83,18 +83,16 @@ namespace Mila::Dnn
         /// <param name="numberOfDimensions">Numer of dimensions of the Tensor</param>
         /// <param name="dimensionSizes">Array that contain the size of the tensor for every dimension</param>
         /// <returns>Fluent tensor builder</returns>
-        auto SetDimensions( int dimensions, int shape[], int strides[]) -> StateTensor&
+        auto SetDimensions( int dimensions, const std::vector<int>& shape, const std::vector<int>& strides ) -> Tensor&
         {
-            CheckFinalizedThrow();
-            
             if ( dimensions >= CUDNN_DIM_MAX || dimensions <= 2 )
             {
                 throw std::runtime_error( "Tensor dimensions is outside range." );
             }
-             
+
             dimensions_ = dimensions;
-            std::copy( shape, shape + dimensions, shape_ );
-            std::copy( strides, strides + dimensions, strides_ );
+            shape_.assign( shape.begin(), shape.end() );
+            strides_.assign( strides.begin(), strides.end() );
 
             return *this;
         }
@@ -104,34 +102,32 @@ namespace Mila::Dnn
             return dimensions_;
         }
 
-        const void* GetAddress()
-        {
-            // TJT: FIXME
-            return nullptr;// address_;
-        }
-
-        std::string ToString() const override
-        {
-            std::stringstream ss;
-            char sep = ' ';
-            ss << "StateTensor:: "
-                << " Datatype: " << CuDNN::to_string( data_type_ );
-
-            return ss.str();
-        }
-
         cudnnStatus_t Finalize() override
         {
+            auto status = cudnnSetTensorNdDescriptor(
+                static_cast<cudnnTensorDescriptor_t>(GetOpaqueDescriptor()),
+                data_type_,
+                dimensions_,
+                shape_.data(),
+                strides_.data() );
+
+            if ( status != CUDNN_STATUS_SUCCESS )
+            {
+                SetErrorAndThrow(
+                    /* this, */ status, "Failed to set Tensor descriptor.");
+
+                return status;
+            }
+
             return Descriptor::SetFinalized();
         }
-        
+
     private:
 
-        cudnnDataType_t data_type_ = CUDNN_DATA_FLOAT;
+        // Tensor Properties
+        cudnnDataType_t data_type_ = CUDNN_DATA_FLOAT; 
         int dimensions_ = -1;
-        int shape_[ CUDNN_DIM_MAX + 1 ] = { -1 };
-        int strides_[ CUDNN_DIM_MAX + 1 ] = { -1 };
-        
-        //CudaMemory state_;
+        std::vector<int> shape_ = { -1,-1,-1,-1,-1,-1 ,-1,-1,-1 };
+        std::vector<int> strides_ ={ -1,-1,-1,-1,-1,-1 ,-1,-1,-1 };
     };
 }

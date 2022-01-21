@@ -23,10 +23,10 @@ module;
 #include <string>
 #include <filesystem>
 
-export module Dnn.Data.BatchSequenceLoader;
+export module Data.DatasetLoader;
 
-import Dnn.Data.H5DatasetReader;
-import Dnn.Data.DatasetType;
+import Data.H5DatasetReader;
+import Data.DatasetType;
 
 namespace fs = std::filesystem;
 
@@ -34,18 +34,18 @@ namespace Mila::Dnn::Data
 {
     export using XYPair = std::pair<std::vector<char>, std::vector<char>>;
 
-    export class BatchSequenceLoader
+    export class DatasetLoader
     {
     public:
 
         /// <summary>
-        /// BatchSequenceLoader constructor
+        /// DatasetLoader constructor
         /// </summary>
         /// <param name="datasetType"></param>
         /// <param name="datasetPath"></param>
         /// <param name="batchSize"></param>
         /// <param name="sequenceLength"></param>
-        BatchSequenceLoader( const DatasetType datasetType, fs::path datasetPath, int batchSize, int sequenceLength )
+        DatasetLoader( const DatasetType datasetType, fs::path datasetPath, int batchSize, int sequenceLength )
         { 
             dataset_path_ = datasetPath;
             batch_size_ = batchSize;

@@ -28,7 +28,7 @@ export module CuDnn.OpaqueHandle;
 
 import CuDnn.Error;
 
-export namespace Mila::Dnn::CuDNN
+export namespace Mila::Dnn::CuDnn
 {
     // Forward Declaration
     class OpaqueCudnnHandle;

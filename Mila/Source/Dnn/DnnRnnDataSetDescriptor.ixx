@@ -26,7 +26,7 @@ module;
 #include <vector>
 #include <cudnn.h>
 
-export module Dnn.RnnDataSet;
+export module Dnn.RnnDataSetDescriptor;
 
 import Cuda.Memory;
 import Cuda.Error;
@@ -37,7 +37,7 @@ import CuDnn.Descriptor;
 import CuDnn.Error;
 import CuDnn.Utils;
 
-using namespace Mila::Dnn::CuDNN;
+using namespace Mila::Dnn::CuDnn;
 using namespace Mila::Dnn::Cuda;
 
 namespace Mila::Dnn
@@ -45,7 +45,7 @@ namespace Mila::Dnn
     /// <summary>
     /// The RNN data descriptor of an RNN operation.
     /// </summary>
-    export class RnnDataSet : public CuDNN::Descriptor
+    export class RnnDataSet : public CuDnn::Descriptor
     {
         friend class DnnModelBuilder;
 
@@ -203,8 +203,8 @@ namespace Mila::Dnn
             std::stringstream ss;
 
             ss << "RnnDataSet::" << std::endl
-                << " Datatype: " << CuDNN::to_string( data_type_ ) << std::endl
-                << " Layout: " << CuDNN::to_string( layout_ ) << std::endl
+                << " Datatype: " << CuDnn::to_string( data_type_ ) << std::endl
+                << " Layout: " << CuDnn::to_string( layout_ ) << std::endl
                 << " MaxSeqLength: " << std::to_string( max_seq_length_ ) << std::endl
                 << " BatchSize: " << std::to_string( batch_size_ ) << std::endl
                 << " VectorSize: " << std::to_string( vector_size_ ) << std::endl

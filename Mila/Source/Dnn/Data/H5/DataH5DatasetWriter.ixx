@@ -24,15 +24,28 @@ module;
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <map>
 #include "H5Cpp.h"
 
-export module Dnn.Data.H5DatasetWriter;
+export module Data.H5DatasetWriter;
 
 namespace fs = std::filesystem;
 using namespace H5;
 
 namespace Mila::Dnn::Data::H5
 {
+    template<typename TElement>
+    const PredType& get_data_type();
+
+    template<>
+    const PredType& get_data_type<float>() { return PredType::NATIVE_FLOAT; }
+
+    template<>
+    const PredType& get_data_type<int>() { return PredType::NATIVE_INT; }
+
+    template<>
+    const PredType& get_data_type<char>() { return PredType::NATIVE_CHAR; }
+
     export class H5DatasetWriter
     {
     public:
@@ -42,15 +55,18 @@ namespace Mila::Dnn::Data::H5
             h5_file_ = H5File( filename, H5F_ACC_TRUNC );
         }
 
-        int WriteDataset( const std::string& datasetName, const std::vector<char>& data )
+        template <class TElement>
+        int WriteDataset( const std::string& datasetName, const std::vector<TElement>& data )
         {
             try
             {
-                hsize_t splits_dimsf[ 1 ];
-                splits_dimsf[ 0 ] = data.size();
+                hsize_t splits_dimsf[ 1 ]{ data.size()};
+                //splits_dimsf[ 0 ] = data.size();
                 DataSpace dataspace( 1, splits_dimsf );
 
-                IntType datatype( PredType::NATIVE_UCHAR );
+                //PredType predType = get_data_type<TElement>();
+                //PredType::NATIVE_UCHAR
+                IntType datatype( PredType::NATIVE_UCHAR );// get_data_type<TElement>() );
                 datatype.setOrder( H5T_ORDER_LE );
 
                 /*
@@ -64,7 +80,7 @@ namespace Mila::Dnn::Data::H5
                  * Write the data to the dataset using default memory space, file
                  * space, and transfer properties.
                  */
-                dataset.write( data.data(), PredType::NATIVE_UCHAR );
+                dataset.write( data.data(), PredType::NATIVE_UCHAR ); // get_data_type<TElement>() );
 
             } // end of try block
 
@@ -96,11 +112,14 @@ namespace Mila::Dnn::Data::H5
                 return -1;
             }
 
-            return 0; // successfully terminated            
+            return 0; // successfully terminated
         }
 
     private:
-
+     
         H5File h5_file_;
     };
+ 
+    template int H5DatasetWriter::WriteDataset<char>( const std::string& datasetName, const std::vector<char>& data );
+    template int H5DatasetWriter::WriteDataset<int>( const std::string& datasetName, const std::vector<int>& data );
 }

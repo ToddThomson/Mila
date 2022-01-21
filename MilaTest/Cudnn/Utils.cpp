@@ -2,17 +2,16 @@
 
 import CuDnn.Utils;
 
-using namespace Mila::Dnn::CuDNN;
+using namespace Mila::Dnn::CuDnn;
 
 namespace Mila::Test::Dnn
 {
     TEST( CuDnn, Utils_GetVersion )
     {
-        int numErrors = 0;
+        auto ver = GetCudnnVersion();
+        std::cout << "CuDnn: Version: " << ver.ToString() << std::endl;
 
-        auto ver = GetVersion();
-        std::cout << "CUDNN: Version: " << ver.ToString() << std::endl;
-
-        EXPECT_TRUE( numErrors == 0 );
+        EXPECT_TRUE( ver.getMajor() == 8);
+        EXPECT_TRUE( ver.getMinor() == 3 );
     };
 }

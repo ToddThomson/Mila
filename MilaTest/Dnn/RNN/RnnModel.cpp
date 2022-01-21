@@ -7,8 +7,6 @@ import CuDnn.Utils;
 
 namespace Mila::Tests::Dnn
 {
-    //template Mila::Dnn::RnnModel<float>;
-
     TEST( Dnn_Model, Builds_Default_RnnModel_Float )
     {
         auto model = Mila::Dnn::RnnModel<float>();
@@ -29,7 +27,7 @@ namespace Mila::Tests::Dnn
         else
         {
             std::cout << std::endl << "Test Failed!" << std::endl
-                << "Status: " << Mila::Dnn::CuDNN::to_string( status ) << std::endl
+                << "Status: " << Mila::Dnn::CuDnn::to_string( status ) << std::endl
                 << "Error: " << error << std::endl;
         }
 
