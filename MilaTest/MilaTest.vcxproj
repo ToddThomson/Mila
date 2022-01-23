@@ -37,6 +37,8 @@
   <ItemGroup>
     <ClCompile Include="Cuda\Device.cpp" />
     <ClCompile Include="Cudnn\Utils.cpp" />
+    <ClCompile Include="Dataset\Encoding.cpp" />
+    <ClCompile Include="Dataset\Generator.cpp" />
     <ClCompile Include="Dataset\Loader.cpp" />
     <ClCompile Include="Dnn\Context.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ExcludedFromBuild>

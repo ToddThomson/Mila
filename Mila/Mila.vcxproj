@@ -17,7 +17,7 @@
     <CudaCompile Include="Source\Dnn\CuDNN\init_data.cu" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Mila.Core.ixx" />
+    <ClCompile Include="Source\Core\Core.ixx" />
     <ClCompile Include="Source\Core\Core.Version.ixx" />
     <ClCompile Include="Source\Dnn\Cuda\Cuda.ixx" />
     <ClCompile Include="Source\Dnn\Cuda\CudaDevice.ixx" />
@@ -29,7 +29,7 @@
     <ClCompile Include="Source\Dnn\Cuda\CudaProfiler.ixx" />
     <ClCompile Include="Source\Dnn\Cuda\CudaStream.ixx" />
     <ClCompile Include="Source\Dnn\Cuda\CudaUniqueHandle.ixx" />
-    <ClCompile Include="Source\Dnn\CuDNN\MilaCuDnn.ixx" />
+    <ClCompile Include="Source\Dnn\CuDNN\CuDnn.ixx" />
     <ClCompile Include="Source\Dnn\CuDNN\CuDnnContext.ixx" />
     <ClCompile Include="Source\Dnn\CuDNN\CuDnnDescriptor.ixx" />
     <ClCompile Include="Source\Dnn\CuDNN\CuDnnError.ixx" />
@@ -40,12 +40,14 @@
     <ClCompile Include="Source\Dnn\CuDNN\CuDnnOpaqueHandle.ixx" />
     <ClCompile Include="Source\Dnn\CuDNN\CuDnnStatus.ixx" />
     <ClCompile Include="Source\Dnn\CuDNN\CuDnnUtils.ixx" />
+    <ClCompile Include="Source\Dnn\Data\Data.ixx" />
+    <ClCompile Include="Source\Dnn\Data\DataDataset.ixx" />
     <ClCompile Include="Source\Dnn\Data\H5\DataH5DataTypeMapper.ixx" />
     <ClCompile Include="Source\Dnn\DnnModel.ixx" />
     <ClCompile Include="Source\Dnn\DnnModelBuilder.ixx" />
     <ClCompile Include="Source\Dnn\DnnModelOptions.ixx" />
     <ClCompile Include="Source\Dnn\DnnDropoutDescriptor.ixx" />
-    <ClCompile Include="Source\Dnn\MilaDnn.ixx" />
+    <ClCompile Include="Source\Dnn\Dnn.ixx" />
     <ClCompile Include="Source\Dnn\DnnNeuralNetType.ixx" />
     <ClCompile Include="Source\Dnn\DnnRnnDataSetDescriptor.ixx" />
     <ClCompile Include="Source\Dnn\DnnRnnLayerCollection.ixx" />
@@ -55,13 +57,12 @@
     <ClCompile Include="Source\Dnn\DnnRnnOpDescriptor.ixx" />
     <ClCompile Include="Source\Dnn\DnnStateTensorDescriptor.ixx" />
     <ClCompile Include="Source\Dnn\DnnTensorDescriptor.ixx" />
-    <ClCompile Include="Source\Dnn\Data\DataDatasetLoader.ixx" />
     <ClCompile Include="Source\Dnn\Data\DataDatasetType.ixx" />
     <ClCompile Include="Source\Dnn\Data\FileStream.ixx" />
     <ClCompile Include="Source\Dnn\Data\H5\DataH5DatasetReader.ixx" />
     <ClCompile Include="Source\Dnn\Data\H5\DataH5DatasetWriter.ixx" />
-    <ClCompile Include="Source\Dnn\Data\DataCategoryToVectorEncoder.ixx" />
-    <ClCompile Include="Source\Dnn\Data\DataTextToDataset.ixx" />
+    <ClCompile Include="Source\Dnn\Data\DataCategoryVectorEncoder.ixx" />
+    <ClCompile Include="Source\Dnn\Data\DataCharDatasetGenerator.ixx" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Source\Dnn\CuDNN\fp16_emu.h" />
@@ -129,6 +130,7 @@
       <PreprocessorDefinitions>_DEBUG;_LIB;%(PreprocessorDefinitions);WIN32;_WINDOWS</PreprocessorDefinitions>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <ModuleOutputFile>$(IntDir)%(FileName).ifc</ModuleOutputFile>
+      <GenerateXMLDocumentationFiles>false</GenerateXMLDocumentationFiles>
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_DEBUG;_WINDOWS;CMAKE_INTDIR=\"Debug\"</PreprocessorDefinitions>

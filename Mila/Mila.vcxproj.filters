@@ -29,7 +29,7 @@
     <ClCompile Include="Source\Dnn\CuDNN\fp16_emu.cpp">
       <Filter>Dnn\CuDnn</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\CuDNN\MilaCuDnn.ixx">
+    <ClCompile Include="Source\Dnn\CuDNN\CuDnn.ixx">
       <Filter>Dnn\CuDnn</Filter>
     </ClCompile>
     <ClCompile Include="Source\Dnn\CuDNN\CuDnnContext.ixx">
@@ -101,7 +101,7 @@
     <ClCompile Include="Source\Dnn\DnnDropoutDescriptor.ixx">
       <Filter>Dnn</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\MilaDnn.ixx">
+    <ClCompile Include="Source\Dnn\Dnn.ixx">
       <Filter>Dnn</Filter>
     </ClCompile>
     <ClCompile Include="Source\Dnn\DnnNeuralNetType.ixx">
@@ -137,31 +137,32 @@
     <ClCompile Include="Source\Dnn\Data\H5\DataH5DatasetWriter.ixx">
       <Filter>Dnn\Data\H5</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\Data\DataDatasetLoader.ixx">
-      <Filter>Dnn\Data</Filter>
-    </ClCompile>
     <ClCompile Include="Source\Dnn\Data\DataDatasetType.ixx">
       <Filter>Dnn\Data</Filter>
     </ClCompile>
     <ClCompile Include="Source\Dnn\Data\FileStream.ixx">
       <Filter>Dnn\Data</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\Data\DataCategoryToVectorEncoder.ixx">
+    <ClCompile Include="Source\Dnn\Data\DataCategoryVectorEncoder.ixx">
       <Filter>Dnn\Data</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\Data\DataTextToDataset.ixx">
+    <ClCompile Include="Source\Dnn\Data\DataCharDatasetGenerator.ixx">
       <Filter>Dnn\Data</Filter>
     </ClCompile>
     <ClCompile Include="Source\Core\Core.Version.ixx">
       <Filter>Core</Filter>
     </ClCompile>
-    <ClCompile Include="Mila.Core.ixx">
+    <ClCompile Include="Source\Core\Core.ixx">
       <Filter>Core</Filter>
     </ClCompile>
     <ClCompile Include="Source\Mila.ixx" />
     <ClCompile Include="Source\Dnn\Data\H5\DataH5DataTypeMapper.ixx">
       <Filter>Dnn\Data\H5</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Dnn\Data\DataDataset.ixx">
+      <Filter>Dnn\Data</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Dnn\Data\Data.ixx" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Source\Dnn\CuDNN\fp16_emu.h">

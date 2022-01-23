@@ -19,6 +19,9 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-export module Mila.Core;
+export module Data;
 
-export import Core.Version;
+export import Data.Dataset;
+export import Data.DatasetType;
+export import Data.CharDatasetGenerator;
+export import Data.CategoryVectorEncoder;

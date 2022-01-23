@@ -25,7 +25,7 @@ module;
 #include <iterator>
 #include <vector>
 
-export module Data.CategoryToVectorEncoder;
+export module Data.CategoryVectorEncoder;
 
 namespace Mila::Dnn::Data
 {
@@ -33,7 +33,7 @@ namespace Mila::Dnn::Data
     /// A category to vector (One-hot) encoder
     /// </summary>
     export template <typename TElement>
-    class CategoryToVectorEncoder
+    class CategoryVectorEncoder
     {
     public:
 
@@ -42,7 +42,7 @@ namespace Mila::Dnn::Data
         /// </summary>
         /// <param name="k">Size of vector</param>
         /// <param name="value">Numeric value to use for marking category</param>
-        CategoryToVectorEncoder( size_t k, TElement value )
+        CategoryVectorEncoder( size_t k, TElement value )
             : k_( k ), value_( value )
         {
             k_vector_ = std::vector<TElement>( k_, {} );

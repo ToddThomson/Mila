@@ -29,6 +29,8 @@
     <ClCompile Include="Dataset\Loader.cpp">
       <Filter>Dataset</Filter>
     </ClCompile>
+    <ClCompile Include="Dataset\Generator.cpp" />
+    <ClCompile Include="Dataset\Encoding.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />

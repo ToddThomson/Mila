@@ -6,7 +6,7 @@
  * this software. Any use, reproduction, disclosure, or distribution of
  * this software and related documentation outside the terms of the EULA
  * is strictly prohibited.
- *
+ * 
  * The above copyright notice and this permission notice shall be included in
  * all copies or substantial portions of the Software.
  *
@@ -19,20 +19,15 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-export module Mila;
+export module Cudnn;
 
-export import Core;
-export import Dnn;
-
-//export import Mila.Cudnn;
-
-export namespace Mila {
-
-	/// <summary>
-	/// Gets the Mila API version.
-	/// </summary>
-	export Core::Version GetAPIVersion() {
-		return Core::Version{0, 9, 4};
-	}
-}
-
+export import CuDnn.Context;
+export import CuDnn.Descriptor;
+export import CuDnn.Error;
+export import CuDnn.Helpers;
+export import CuDnn.Error;
+export import CuDnn.OpaqueDescriptor;
+export import CuDnn.OpaqueDescriptorType;
+export import CuDnn.OpaqueHandle;
+export import CuDnn.Status;
+export import CuDnn.Utils;

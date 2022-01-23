@@ -19,6 +19,7 @@
 	<files>
 		<file src="build\x64\Debug\Mila.lib" target="build\native\x64\Debug" />
 		<file src="build\x64\Debug\Mila.pdb" target="build\native\x64\Debug" />
+		<!-- file src="build\x64\Debug\Mila.xml" target="build\native\x64\Debug" / -->
 		<file src="build\x64\Debug\*.ifc" target="build\native\x64\Debug" />
 		<file src="..\icon.png" target="images\" />
 		<!-- .targets -->

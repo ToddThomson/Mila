@@ -22,13 +22,14 @@
 module;
 #include <string>
 #include <filesystem>
+#include <stdexcept>
 #include <map>
 #include <vector>
 
-export module Data.DatasetLoader;
+export module Data.Dataset;
 
-import Data.H5DatasetReader;
 import Data.DatasetType;
+import Data.H5DatasetReader;
 
 namespace fs = std::filesystem;
 
@@ -39,34 +40,41 @@ namespace Mila::Dnn::Data
     /// </summary>
     export using XYPair = std::pair<std::vector<char>, std::vector<char>>;
 
-    /// <summary>
-    /// Character dataset loader.
-    /// </summary>
-    export class DatasetLoader
+    export class Dataset
     {
     public:
 
-        /// <summary>
-        /// DatasetLoader constructor
-        /// </summary>
-        /// <param name="datasetType"></param>
-        /// <param name="datasetPath"></param>
-        /// <param name="batchSize"></param>
-        /// <param name="sequenceLength"></param>
-        DatasetLoader( const DatasetType datasetType, fs::path datasetPath, int batchSize, int sequenceLength )
+        Dataset( const fs::path& datasetPath, int batchSize, int sequenceLength )
+            : path_( datasetPath ), batch_size_( batchSize ), sequence_length_( sequenceLength )
         {
-            if ( !std::filesystem::exists( datasetPath ) )
+            if ( !fs::exists( path_ ) )
             {
                 throw std::invalid_argument( "Dataset file does not exist." );
             }
 
-            dataset_path_ = datasetPath;
-            batch_size_ = batchSize;
-            sequence_length_ = sequenceLength;
+            block_size_ = batch_size_ * sequence_length_;
 
-            block_size_ = batchSize * sequenceLength;
+            ReadVocabulary();
+        }
 
-            ReadDataset( datasetType );
+        /// <summary>
+        /// Loads the specified dataset type.
+        /// </summary>
+        /// <param name="datasetType"></param>
+        void Load( const DatasetType datasetType )
+        {
+            H5::H5DatasetReader ds_reader = H5::H5DatasetReader( path_.string() );
+
+            ds_reader.ReadDataset<char>( to_string( datasetType ), dataset_ );
+
+            int dataset_size = dataset_.size();
+
+            max_blocks_ = (dataset_size - 1) / block_size_;
+        }
+
+        const std::map<int,int>& GetVocabulary()
+        {
+            return vocabulary_;
         }
 
         /// <summary>
@@ -111,23 +119,21 @@ namespace Mila::Dnn::Data
 
     private:
 
-        int ReadDataset( const DatasetType datasetType )
+        void ReadVocabulary()
         {
-            H5::H5DatasetReader ds_reader = H5::H5DatasetReader( dataset_path_.string() );
-            
-            //ds_reader.ReadDataset<int>( "vocabulary_ds", dataset_);
-            ds_reader.ReadDataset<char>( to_string( datasetType ), dataset_ );
+            H5::H5DatasetReader ds_reader = H5::H5DatasetReader( path_.string() );
 
-            int dataset_size = dataset_.size();
-             
-            max_blocks_ = (dataset_size - 1) / block_size_;
+            std::vector<int> vocabulary_vector;
+            ds_reader.ReadDataset<int>( to_string( DatasetType::vocabulary ), vocabulary_vector );
 
-            return 0;
+            for ( auto it = vocabulary_vector.begin(); it != vocabulary_vector.end(); it++ ) {
+                vocabulary_[ *it++ ] = *it;
+            }
         }
 
     private:
 
-        fs::path dataset_path_;
+        fs::path path_;
 
         int batch_size_;
         int sequence_length_;
@@ -138,7 +144,7 @@ namespace Mila::Dnn::Data
         int max_blocks_ = 0;
         int block_size_ = 0;
 
-        std::map<char, int> vocabulary_;
+        std::map<int, int> vocabulary_;
         std::vector<char> dataset_;
     };
 }

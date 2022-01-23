@@ -49,8 +49,9 @@ module;
 #include <string>
 #include <map>
 
-export module Data.TextToDataset;
+export module Data.CharDatasetGenerator;
 
+import Data.DatasetType;
 import Data.H5DatasetWriter;
 
 namespace fs = std::filesystem;
@@ -61,18 +62,18 @@ namespace Mila::Dnn::Data
     /// <summary>
     /// A class to convert a text file to an H5 formatted dataset.
     /// </summary>
-    export class TextToDataset
+    export class CharDatasetGenerator
     {
     public:
 
         /// <summary>
         /// Creates a dataset from a text file with the specified test, validation
-        /// and training splits.
+        /// splits.
         /// </summary>
         /// <param name="file_path"></param>
         /// <param name="test_split"></param>
         /// <param name="validation_split"></param>
-        TextToDataset( const fs::path& file_path, float test_split = 0.1f, float validation_split = 0.1f )
+        CharDatasetGenerator( const fs::path& file_path, float test_split = 0.1f, float validation_split = 0.1f )
             : file_path_( file_path), test_split_( test_split ), validation_split_( validation_split )
         {
             if ( test_split + validation_split >= 1.0f )
@@ -87,9 +88,9 @@ namespace Mila::Dnn::Data
         }
             
         /// <summary>
-        /// 
+        /// Generates a dataset from the text file. 
         /// </summary>
-        void CreateDataset()
+        void GenerateDataset()
         {
             std::ifstream text_file( file_path_ );
 
@@ -99,8 +100,8 @@ namespace Mila::Dnn::Data
             }
 
             // First go through the file once to determine its size and to 
-            // build the vocabulary token map.
-            std::map<char, int> tokens = {};
+            // build the vocabulary map.
+            std::map<char, int> vocabulary = {};
             int total_chars = 0;
             int index = 1;
             std::string line;
@@ -111,19 +112,19 @@ namespace Mila::Dnn::Data
 
                 for ( char c : line )
                 {
-                    auto it = tokens.find( c );
-                    if ( it == tokens.end() )
+                    auto it = vocabulary.find( c );
+                    if ( it == vocabulary.end() )
                     {
-                        tokens.insert( {c, index++} );
+                        vocabulary.insert( {c, index++} );
                     }
                 }
             }
 
             std::cout << "File size: " << std::to_string( total_chars ) << std::endl;
-            std::cout << "Vocab size: " << std::to_string( tokens.size() ) << std::endl;
+            std::cout << "Vocab size: " << std::to_string( vocabulary.size() ) << std::endl;
 
-            vocabulary_size = tokens.size();
-            text_size = total_chars;
+            vocabulary_size_ = vocabulary.size();
+            text_size_ = total_chars;
 
             // Now we can figure out the split sizes
             int validation_size = validation_split_ * total_chars;
@@ -152,7 +153,7 @@ namespace Mila::Dnn::Data
 
                 for ( char& c : line )
                 {
-                    splits[ split_index ][ split_position++ ] = tokens[ c ];
+                    splits[ split_index ][ split_position++ ] = vocabulary[ c ];
 
                     if ( split_position >= splits[ split_index ].size() )
                     {
@@ -172,15 +173,14 @@ namespace Mila::Dnn::Data
             h5Writer.WriteDataset<char>( "validation_ds", splits[ VALIDATION_SET ] );
             h5Writer.WriteDataset<char>( "testing_ds", splits[ TESTING_SET ] );
             
-            // Convert the m
+            // Write the vocabulary map to a linear vector
             std::vector<int> vocabulary_vector;
-
-            for ( const auto& [key, value ] : tokens ) {
+            for ( const auto& [key, value ] : vocabulary ) {
                 vocabulary_vector.push_back( key );
                 vocabulary_vector.push_back( value );
             }
 
-            h5Writer.WriteDataset<int>( "vocabulary_ds", vocabulary_vector );
+            h5Writer.WriteDataset<int>( to_string( DatasetType::vocabulary ), vocabulary_vector );
         }
 
     private:
@@ -190,8 +190,10 @@ namespace Mila::Dnn::Data
         float validation_split_ = 0.1f;
         float test_split_ = 0.1f;
 
-        size_t vocabulary_size = 0;
-        size_t text_size = 0;
+        std::map<int, int> vocabulary_ = {};
+
+        size_t vocabulary_size_ = 0;
+        size_t text_size_ = 0;
 
         const int TRAINING_SET = 0;
         const int VALIDATION_SET = 1;
