@@ -51,7 +51,6 @@ namespace Mila::Dnn::CuDnn
         {
             std::cout << "In CudnnContext constructor\n";
 
-            // Initialize the managed handle
             auto status = InitializeManagedCudnnHandle();
 
             if ( status != CUDNN_STATUS_SUCCESS )

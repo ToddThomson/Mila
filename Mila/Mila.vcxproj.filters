@@ -149,10 +149,10 @@
     <ClCompile Include="Source\Dnn\Data\DataCharDatasetGenerator.ixx">
       <Filter>Dnn\Data</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Core\Core.Version.ixx">
+    <ClCompile Include="Source\Dnn\Core\Core.Version.ixx">
       <Filter>Core</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Core\Core.ixx">
+    <ClCompile Include="Source\Dnn\Core\Core.ixx">
       <Filter>Core</Filter>
     </ClCompile>
     <ClCompile Include="Source\Mila.ixx" />
@@ -163,6 +163,7 @@
       <Filter>Dnn\Data</Filter>
     </ClCompile>
     <ClCompile Include="Source\Dnn\Data\Data.ixx" />
+    <ClCompile Include="Source\Dnn\Core\Core.Logger.ixx" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Source\Dnn\CuDNN\fp16_emu.h">

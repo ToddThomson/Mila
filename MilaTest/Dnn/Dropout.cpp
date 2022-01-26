@@ -2,23 +2,23 @@
 #include "Common.h"
 #include <iostream>
 
-import Dnn.Model;
+import Dnn.RnnModel;
 import Dnn.DropoutDescriptor;
 import CuDnn.Utils;
 
 namespace Mila::Tests::Dnn
 {
-    class DropoutTestModel : public Mila::Dnn::DnnModel
+    class DropoutTestModel : public Mila::Dnn::RnnModel<float>
     {
     public:
 
-        DropoutTestModel() : DnnModel( DnnModelOptions() )
+        DropoutTestModel() : Mila::Dnn::RnnModel<float>( GetDefaultRnnOptions() )
         {
         }
 
         void OnModelBuilding( const DnnModelBuilder& builder ) override
         {
-            auto options = GetDefaultRnnOptions();
+            //auto options = GetDefaultRnnOptions();
 
             dropout_ = builder.Create<Dropout>();
 
@@ -28,7 +28,7 @@ namespace Mila::Tests::Dnn
             dropout_.Finalize();
         }
 
-        Dropout& GetDropout()
+        const Dropout& GetDropout()
         {
             return dropout_;
         }
@@ -44,7 +44,7 @@ namespace Mila::Tests::Dnn
 
         app.BuildModel();
 
-        Dropout& dropout = app.GetDropout();
+        const Dropout& dropout = app.GetDropout();
         auto status = dropout.get_status();
 
         std::cout << dropout.ToString() << std::endl;

@@ -26,7 +26,7 @@ namespace Mila::Test::Data
         dataset.Load( DatasetType::training );
 
         int blocks_read = 0;
-        while (!dataset.EndOfDataset())
+        while ( !dataset.EndOfDataset() )
         {
             XYPair samples = dataset.NextBlock();
 

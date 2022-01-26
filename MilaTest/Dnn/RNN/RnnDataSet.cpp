@@ -3,7 +3,7 @@
 #include <iostream>
 #include <vector>
 
-import Dnn.Model;
+import Dnn.RnnModel;
 import Dnn.RnnDataSetDescriptor;
 import CuDnn.Utils;
 
@@ -11,9 +11,9 @@ namespace Mila::Tests::Dnn
 {
     TEST( Dnn_Descriptor, Create_RnnDataSet_Float )
     {
-        auto model = Mila::Dnn::DnnModel();
-
         auto options = GetDefaultRnnOptions();
+
+        auto model = Mila::Dnn::RnnModel<float>( options );
 
         cudnnDataType_t dataType = CUDNN_DATA_FLOAT;
 

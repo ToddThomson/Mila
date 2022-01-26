@@ -1,5 +1,5 @@
-﻿/*
- * Copyright 2021 Todd Thomson, Achilles Software.  All rights reserved.
+/*
+ * Copyright 2022 Todd Thomson, Achilles Software.  All rights reserved.
  *
  * Please refer to the Mila end user license agreement (EULA) associated
  * with this source code for terms and conditions that govern your use of
@@ -19,19 +19,45 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
+module;
 #include <string>
+#include <string_view>
+#include <fmt/format.h>
+#include <fmt/color.h>
 #include <iostream>
 
-import RnnApp;
+export module Core.Logger;
 
-int main()
+namespace Mila::Core
 {
-	RnnApp::BuildAndTrainRnnModel();
+    export enum LogLevel {
+        None = 0,
+        Error = 1,
+        Warn = 2,
+        Trace = 3,
+        Info = 4
+    };
 
-	std::cout << "RNN App initialized." << std::endl; // << app.ToString() << endl;
+    export class Logger {
 
-	return 0;
+    public:
+
+        static void set_level( LogLevel level ) {
+            log_level_ = level;
+        }
+
+        template <typename... T>
+        static void log( LogLevel level, fmt::format_string<T...> fmt, T&&... args )
+        {
+            if ( level <= log_level_ ) {
+                return;
+            }
+
+            std::cout << fmt::format( fmt, args...) << std::endl;
+        }
+
+        static LogLevel log_level_;
+    };
+
+    LogLevel Logger::log_level_ = LogLevel::None;
 }
-
-
-

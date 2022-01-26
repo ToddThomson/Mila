@@ -9,7 +9,8 @@ namespace Mila::Tests::Dnn
 {
     TEST( Dnn_Model, Builds_Default_RnnModel_Float )
     {
-        auto model = Mila::Dnn::RnnModel<float>();
+        auto options = GetDefaultRnnOptions();
+        auto model = Mila::Dnn::RnnModel<float>( options );
 
         model.BuildModel();
         model.Train();

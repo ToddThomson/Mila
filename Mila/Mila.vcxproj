@@ -17,8 +17,9 @@
     <CudaCompile Include="Source\Dnn\CuDNN\init_data.cu" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Source\Core\Core.ixx" />
-    <ClCompile Include="Source\Core\Core.Version.ixx" />
+    <ClCompile Include="Source\Dnn\Core\Core.ixx" />
+    <ClCompile Include="Source\Dnn\Core\Core.Version.ixx" />
+    <ClCompile Include="Source\Dnn\Core\Core.Logger.ixx" />
     <ClCompile Include="Source\Dnn\Cuda\Cuda.ixx" />
     <ClCompile Include="Source\Dnn\Cuda\CudaDevice.ixx" />
     <ClCompile Include="Source\Dnn\Cuda\CudaDeviceProps.ixx" />
@@ -116,7 +117,7 @@
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|X64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.5\include;C:\Program Files\HDF_Group\HDF5\1.12.1.D\cmake\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.5\include;C:\Program Files\HDF_Group\HDF5\1.12.1.D\cmake\include;C:\Users\toddt\Source\Repos\Machine Learning\Mila\packages\fmt-8.1.1\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
@@ -164,7 +165,8 @@
     </CudaLink>
     <Lib>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
-      <AdditionalDependencies>$(CudaToolkitLibDir)/cudnn.lib;C:\Program Files\HDF_Group\HDF5\1.12.1.D\cmake\lib\libhdf5_cpp_D.lib;C:\Program Files\HDF_Group\HDF5\1.12.1.D\cmake\lib\libhdf5_D.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>fmtd.lib;$(CudaToolkitLibDir)/cudnn.lib;C:\Program Files\HDF_Group\HDF5\1.12.1.D\cmake\lib\libhdf5_cpp_D.lib;C:\Program Files\HDF_Group\HDF5\1.12.1.D\cmake\lib\libhdf5_D.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>C:\Users\toddt\Source\Repos\Machine Learning\Mila\packages\fmt-8.1.1\build\Debug;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Lib>
     <PostBuildEvent>
       <Command>"nuget.exe pack -outputDirectory Build\Nuget mila.nuspec"</Command>

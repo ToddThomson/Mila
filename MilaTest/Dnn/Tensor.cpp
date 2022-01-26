@@ -4,7 +4,7 @@
 #include <iostream>
 #include "Common.h"
 
-import Dnn.Model;
+import Dnn.RnnModel;
 import Dnn.TensorDescriptor;
 import CuDnn.Utils;
 
@@ -12,11 +12,10 @@ namespace Mila::Tests::Dnn
 {
     TEST( Dnn_Descriptor, Creates_Tensor_Float )
     {
-        auto model = Mila::Dnn::DnnModel();
+        auto options = GetDefaultRnnOptions();
+        auto model = Mila::Dnn::RnnModel<float>( options );
 
         auto builder = model.GetModelBuilder();
-
-        auto options = GetDefaultRnnOptions();
 
         cudnnDataType_t dataType = CUDNN_DATA_FLOAT;
         int dimensions = 3;

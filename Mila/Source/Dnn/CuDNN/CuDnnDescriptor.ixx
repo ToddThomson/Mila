@@ -60,11 +60,9 @@ import CuDnn.Error;
 namespace Mila::Dnn::CuDnn
 {
     /// <summary>
-    /// A shared_ptr wrapper for an opaque descriptor pointer.
+    /// A unique_ptr wrapper for an opaque descriptor.
     /// </summary>
     export using ManagedDescriptor = std::unique_ptr<OpaqueDescriptor>;
-
-    //using ManagedCudnnContext = std::shared_ptr<CudnnContext>;
 
     /// <summary>
     /// Makes a managed shared pointer to an opaque descriptor type.
@@ -77,19 +75,17 @@ namespace Mila::Dnn::CuDnn
     };
 
     /// <summary>
-    /// Stores a managed pointer to a OpaqueDescriptorPointer class object.
-    ///
-    /// Contains the status and error message if set after any operation.
-    /// If exception is disabled the user must query the status after
-    /// build operation in order to check if the cudnn construct was built
-    /// correctly.
+    /// Base class to Create and store a managed OpaqueDescriptor class.
     /// </summary>
-    /// 
-    
     export class Descriptor
     {
     public:
 
+        /// <summary>
+        /// Descriptor base class constructorr.
+        /// </summary>
+        /// <param name="cudnnHandle">Managed CuDNN library context</param>
+        /// <param name="descriptorType">Descriptor type to construct</param>
         Descriptor( const ManagedCudnnHandle& cudnnHandle, opaqueDescriptorType_t descriptorType )
         {
             std::cout << ">>> Descriptor( handle )\n";
@@ -100,7 +96,7 @@ namespace Mila::Dnn::CuDnn
             if ( status != CUDNN_STATUS_SUCCESS )
             {
                 throw std::runtime_error(
-                    std::string( std::string( "Failed to create the managed descriptor." ) ).c_str() );
+                    "Failed to create the managed descriptor." );
             }
         }
 

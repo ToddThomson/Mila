@@ -22,16 +22,18 @@
 module;
 #include <iostream>
 
-export module RnnApp.Model;
+export module RnnApp;
 
 import Dnn.RnnModel;
+import Dnn.RnnModelOptions;
 import CuDnn.Utils;
 
-namespace RnnApp::Model
+namespace RnnApp
 {
-    export void TrainModel()
+    export void BuildAndTrainRnnModel()
     {
-        auto model = Mila::Dnn::RnnModel<float>();
+        auto options = Mila::Dnn::RnnModelOptions();
+        auto model = Mila::Dnn::RnnModel<float>( options );
 
         model.BuildModel();
         model.Train();
@@ -53,9 +55,4 @@ namespace RnnApp::Model
                 << "Error: " << error << std::endl;
         }
     };
-
-    //export class RnnAppModel : Mila::Dnn::RnnModel<float>
-    //{
-
-    //};
 }

@@ -26,7 +26,11 @@ module;
 
 export module Cuda.Memory;
 
+import Core.Logger;
 import Cuda.Helpers;
+
+using Logger = Mila::Core::Logger;
+using LogLevel = Mila::Core::LogLevel;
 
 namespace Mila::Dnn::Cuda
 {
@@ -39,19 +43,16 @@ namespace Mila::Dnn::Cuda
 
         CudaMemory( size_t bufferSize = 0 )
         {
-            std::cout << "CudaMemory::CudaMemory( bufferSize: " 
-                << std::to_string( bufferSize ) << " )" << std::endl;
+            //Logger::log( LogLevel::Trace, "CudaMemory::CudaMemory( {0} )", bufferSize );
 
             buffer_size_ = bufferSize;
 
             if ( bufferSize > 0 )
             {
-                std::cout << "CudaMemory:: allocating memory: "
-                    << std::to_string( buffer_size_ ) << " Bytes.. ";
+                //Logger::log( LogLevel::Trace,
+                //    "CudaMemory:: allocating CUDA memory: {0} bytes.", buffer_size_ );
 
                 cudaCheckStatus( cudaMalloc( (void**)&buffer_, buffer_size_ ) );
-                
-                std::cout << "Done memory allocation\n";
             }
         }
 

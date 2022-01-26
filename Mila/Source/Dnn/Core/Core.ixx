@@ -22,3 +22,4 @@
 export module Core;
 
 export import Core.Version;
+export import Core.Logger;

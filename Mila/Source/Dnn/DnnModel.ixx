@@ -35,16 +35,17 @@ using namespace Mila::Dnn::CuDnn;
 
 namespace Mila::Dnn
 {
+    /// <summary>
+    /// Base class for deep NN model objects.
+    /// </summary>
     export class DnnModel
     {
     public:
 
-        DnnModel() : DnnModel( DnnModelOptions() )
-        {}
-
-        DnnModel( const DnnModelOptions& options )
+        DnnModel( neuralNetType_t neuralNetType )
+            : type_( neuralNetType )
         {
-            options_ = options;
+            // TJT: Review this!
             context_ = std::make_unique<CudnnContext>();
             builder_ = DnnModelBuilder( context_ );
         }
@@ -62,22 +63,19 @@ namespace Mila::Dnn
     protected:
 
         /// <summary>
-        /// Override to configure the application dnn model.
+        /// Override to configure the dnn model.
         /// </summary>
-        /// <param name="builder"></param>
-        virtual void OnModelBuilding( const DnnModelBuilder& builder )
-        {
-        }
+        /// <param name="builder">Reference to the DNN model builder</param>
+        virtual void OnModelBuilding( const DnnModelBuilder& builder ) = 0;
 
     private:
 
         DnnModel( DnnModel const& ) = delete;
         DnnModel& operator=( DnnModel const& ) = delete;
 
-        DnnModelOptions options_;
         DnnModelBuilder builder_;
         ManagedCudnnContext context_ = nullptr;
        
-        neuralNetType_t type_ = RECURRENT_NN_TYPE;
+        neuralNetType_t type_;
     };
 }

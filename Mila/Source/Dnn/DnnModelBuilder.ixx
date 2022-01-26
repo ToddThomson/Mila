@@ -25,11 +25,16 @@ module;
 
 export module Dnn.ModelBuilder;
 
+import Core.Logger;
 import CuDnn.Context;
 import CuDnn.Descriptor;
 import CuDnn.Error;
 
 using namespace Mila::Dnn::CuDnn;
+
+using Logger = Mila::Core::Logger;
+using LogLevel = Mila::Core::LogLevel;
+
 
 namespace Mila::Dnn
 {
@@ -39,7 +44,7 @@ namespace Mila::Dnn
 
         DnnModelBuilder( const ManagedCudnnContext& cudnnContext )
         {
-            std::cout << "DnnModelBuilder() constructor\n";
+            Logger::log( LogLevel::Trace, "DnnModelBuilder() constructor" );
             cudnn_context_ = cudnnContext;
         }
 

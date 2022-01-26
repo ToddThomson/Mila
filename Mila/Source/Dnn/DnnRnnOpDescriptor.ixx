@@ -40,7 +40,7 @@ namespace Mila::Dnn
 {
     /// <summary>
     /// The descriptor of an RNN operation.
-    /// Use <seealso cref="RNNOperationBuilder"/> to build an instance of this class.
+    /// Use <seealso cref="DnnModelBuilder"/> to build an instance of this class.
     /// </summary>
     export class RnnOperation : public CuDnn::Descriptor
     {

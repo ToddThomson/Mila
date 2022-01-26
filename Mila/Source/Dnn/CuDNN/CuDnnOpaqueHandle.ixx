@@ -30,7 +30,7 @@ import CuDnn.Error;
 
 export namespace Mila::Dnn::CuDnn
 {
-    // Forward Declaration
+    // Forward Declaration for ManagedCudnnHandle
     class OpaqueCudnnHandle;
 
     /// <summary>
@@ -64,7 +64,7 @@ export namespace Mila::Dnn::CuDnn
         /// </summary>
         OpaqueCudnnHandle()
         {
-            std::cout << "OpaqueCudnnHandle() Creating cudnn handle\n";
+            std::cout << "OpaqueCudnnHandle() Creating cuDNN handle...\n";
 
             status_ = cudnnCreate( &handle_ );
 
@@ -78,9 +78,9 @@ export namespace Mila::Dnn::CuDnn
         }
 
         /// <summary>
-        /// Gets the const reference to raw underlying CuDNN context handle.
+        /// Gets the const reference to the opaque CuDNN library context.
         /// </summary>
-        /// <returns></returns>
+        /// <returns>Opaque CuDNN library context</returns>
         cudnnHandle_t GetOpaqueHandle() const
         {
             return handle_;

@@ -1,15 +1,17 @@
 #include "gtest/gtest.h"
 #include <iostream>
 
-import Dnn.Model;
+import Dnn.RnnModel;
+import Dnn.RnnModelOptions;
 
 using namespace Mila::Dnn;
 
 namespace Mila::Tests::Dnn
 {
-    TEST( Dnn, Creates_DnnModel )
+    TEST( Dnn, Creates_RnnModel )
     {
-        DnnModel model = DnnModel();
+        auto options = RnnModelOptions();
+        auto model = RnnModel<float>( options );
 
         std::cout << "Created DNN Model" << std::endl;
     };

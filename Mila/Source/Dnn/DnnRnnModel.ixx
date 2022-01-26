@@ -38,6 +38,7 @@ import Dnn.RnnOpDescriptor;
 import Dnn.RnnDataSetDescriptor;
 import Dnn.Model;
 import Dnn.RnnModelOptions;
+import Dnn.NeuralNetType;
 import Dnn.RnnLayerCollection;
 
 using namespace Mila::Dnn::Cuda;
@@ -49,9 +50,9 @@ namespace Mila::Dnn
     {
     public:
 
-        RnnModel() : DnnModel( DnnModelOptions() )
+        RnnModel( RnnModelOptions options ) : DnnModel( RECURRENT_NN_TYPE )
         {
-            options_ = RnnModelOptions();
+            options_ = options;
         }
 
         /*const Dropout& GetDropout()
@@ -118,10 +119,8 @@ namespace Mila::Dnn
         //{
         //    //CUDA_CALL( cudaFree( workSpace_ ) );
         //    //CUDA_CALL( cudaFree( reserveSpace_ ) );
-
         //    //CUDA_CALL( cudaFree( dweightBiasSpace_ ) );
         //    //CUDA_CALL( cudaFree( weightBiasSpace_ ) );
-
         //}
 
     protected:
@@ -129,6 +128,7 @@ namespace Mila::Dnn
         void OnModelBuilding( const DnnModelBuilder& builder ) override
         {
             // TJT: This is so ugly/complicated!
+            // Why do we even need to save the cudnn opaque handle!
             cudnnHandle_ = builder.GetCudnnContext()->GetCudnnHandle()->GetOpaqueHandle();
 
             CalculateParameterSizes();

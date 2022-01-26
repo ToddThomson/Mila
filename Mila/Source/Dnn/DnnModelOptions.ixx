@@ -25,12 +25,14 @@ import Dnn.NeuralNetType;
 
 namespace Mila::Dnn
 {
-    export class DnnModelOptions
+    // TJT: Keep until beta release. Might use if there any common DNN options other than type. 
+
+    /*export class DnnModelOptions
     {
     public:
 
         DnnModelOptions() = default;
 
         neuralNetType_t nnType_ = RECURRENT_NN_TYPE;
-    };
+    };*/
 }
