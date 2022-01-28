@@ -18,9 +18,11 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  */
+module;
 
 export module Cuda;
 
+export import Cuda.Error;
 export import Cuda.Helpers;
 export import Cuda.Device;
 export import Cuda.DeviceProperties;

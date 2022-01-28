@@ -52,12 +52,64 @@ namespace Mila::Dnn::Cuda
         return cudaCheckStatus( status_ );
     }
 
+    export int GetDriverVersion() {
+        int driverVersion;
+
+        cudaCheckStatus( cudaDriverGetVersion( &driverVersion ) );
+
+        return driverVersion;
+    };
+
+    export int GetRuntimeVersion() {
+        int runtimeVersion;
+        cudaCheckStatus( cudaRuntimeGetVersion( &runtimeVersion ) );
+
+        return runtimeVersion;
+    };
+
+    export inline int GetDeviceCount()
+    {
+        int devCount;
+        CUDA_CALL( cudaGetDeviceCount( &devCount ) );
+
+        return devCount;
+    };
+
+    export int CheckDevice( int deviceId )
+    {
+        if ( deviceId < 0 )
+        {
+            throw std::invalid_argument( "Invalid device id." );
+        }
+
+        int devCount = GetDeviceCount();
+
+        if ( devCount == 0 )
+        {
+            throw std::runtime_error( "No Cuda devices found." );
+        }
+
+        if ( deviceId > devCount - 1 )
+        {
+            throw std::out_of_range( "Device id out of range." );
+        }
+
+        int computeMode = -1,
+            CUDA_CALL( cudaDeviceGetAttribute( &computeMode, cudaDevAttrComputeMode, deviceId ) );
+
+        if ( computeMode == cudaComputeModeProhibited )
+        {
+            throw std::runtime_error( "Device is running in Compute ModeProhibited." );
+        }
+
+        return deviceId;
+    };
+
     static const char* _cudaGetErrorEnum( cudaError_t error )
     {
         return cudaGetErrorName( error );
     }
 
-    // Beginning of GPU Architecture definitions
     inline int _ConvertSMVer2Cores( int major, int minor )
     {
         // Defines for GPU Architecture types (using the SM version to determine
@@ -153,14 +205,6 @@ namespace Mila::Dnn::Cuda
         // to run properly
         return nGpuArchNameSM[ index - 1 ].name;
     }
-
-    export inline int GetDeviceCount()
-    {
-        int devCount;
-        CUDA_CALL( cudaGetDeviceCount( &devCount ) );
-
-        return devCount;
-    };
     
     /// <summary>
     /// Returns the GPU with the maximum GFLOPS.
@@ -178,7 +222,7 @@ namespace Mila::Dnn::Cuda
 
         if ( devCount == 0 )
         {
-            throw std::runtime_error( 
+            throw std::runtime_error(
                 "No CUDA devices found." );
         }
 
@@ -245,10 +289,22 @@ namespace Mila::Dnn::Cuda
         }
 
         return max_perf_device;
-    }
+    };
 
-    export inline int FindBestCudaDevice()
+    export inline int FindCudaDevice( int deviceId = -1 )
     {
-        return GetMaxGflopsDeviceId();
+        int device_count = GetDeviceCount();
+
+        if ( device_count == 0 )
+        {
+            throw std::runtime_error(
+                "No CUDA devices found." );
+        }
+
+        if ( deviceId < 0 )
+        {
+            return GetMaxGflopsDeviceId();
+        }
+
     };
 }

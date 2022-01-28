@@ -48,35 +48,6 @@ namespace Mila::Dnn::Cuda
 
     private:
 
-        int CheckDevice( int deviceId )
-        {
-            if ( deviceId < 0 )
-            {
-                throw std::invalid_argument( "Invalid device id." );
-            }
-
-            int devCount = GetDeviceCount();
-
-            if ( devCount == 0 )
-            {
-                throw std::runtime_error( "No Cuda devices found." );
-            }
-
-            if ( deviceId > devCount - 1 )
-            {
-                throw std::out_of_range( "Device id out of range." );
-            }
-
-            int computeMode = -1,
-            CUDA_CALL( cudaDeviceGetAttribute( &computeMode, cudaDevAttrComputeMode, device_id_ ) );
-
-            if ( computeMode == cudaComputeModeProhibited )
-            {
-                throw std::runtime_error( "Device is running in Compute ModeProhibited." );
-            }
-
-            return deviceId;
-        }
     
     private:
 
