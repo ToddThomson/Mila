@@ -15,7 +15,7 @@ namespace Mila::Test::Cuda
     {
         int device_count = GetDeviceCount();
 
-        EXPECT_THROW( CudaDevice device = CudaDevice( device_count ), Mila::Dnn::Cuda::CudaError() ) ;
+        EXPECT_THROW( CudaDevice device = CudaDevice( device_count ), std::out_of_range ) ;
     };
 
     TEST( Cuda, CudaDevice_Constructor_Fails_Not_Valid )

@@ -2,7 +2,7 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="test.cpp" />
-    <ClCompile Include="Cuda\Device.cpp">
+    <ClCompile Include="Cuda\CudaDevice.cpp">
       <Filter>Cuda</Filter>
     </ClCompile>
     <ClCompile Include="Dnn\Context.cpp">
@@ -31,6 +31,8 @@
     </ClCompile>
     <ClCompile Include="Dataset\Generator.cpp" />
     <ClCompile Include="Dataset\Encoding.cpp" />
+    <ClCompile Include="Cuda\CudaDeviceProps.cpp" />
+    <ClCompile Include="Cuda\CudaDeviceHelpers.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />

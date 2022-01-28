@@ -306,5 +306,6 @@ namespace Mila::Dnn::Cuda
             return GetMaxGflopsDeviceId();
         }
 
+        return CheckDevice( deviceId );
     };
 }

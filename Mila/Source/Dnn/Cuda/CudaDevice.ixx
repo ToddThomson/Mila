@@ -25,7 +25,7 @@ module;
 
 export module Cuda.Device;
 
-import Cuda.DeviceProperties;
+import Cuda.DeviceProps;
 import Cuda.Helpers;
 
 namespace Mila::Dnn::Cuda
@@ -42,17 +42,19 @@ namespace Mila::Dnn::Cuda
         /// </summary>
         /// <param name="deviceId">Cuda GPU device id</param>
         CudaDevice( int deviceId = 0 )
-            : device_id_( CheckDevice( deviceId ) ), props_( CudaDeviceProperties( device_id_ ) )
+            : device_id_( CheckDevice( deviceId ) ), props_( CudaDeviceProps( device_id_ ) )
         {
+        }
+
+        const CudaDeviceProps& GetProperties() const
+        {
+            return props_;
         }
 
     private:
 
-    
-    private:
-
         int device_id_;
 
-        CudaDeviceProperties props_;
+        CudaDeviceProps props_;
     };
 }

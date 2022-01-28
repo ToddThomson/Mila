@@ -35,7 +35,9 @@
   <ImportGroup Label="PropertySheets" />
   <PropertyGroup Label="UserMacros" />
   <ItemGroup>
-    <ClCompile Include="Cuda\Device.cpp" />
+    <ClCompile Include="Cuda\CudaDevice.cpp" />
+    <ClCompile Include="Cuda\CudaDeviceHelpers.cpp" />
+    <ClCompile Include="Cuda\CudaDeviceProps.cpp" />
     <ClCompile Include="Cudnn\Utils.cpp" />
     <ClCompile Include="Dataset\Encoding.cpp" />
     <ClCompile Include="Dataset\Generator.cpp" />

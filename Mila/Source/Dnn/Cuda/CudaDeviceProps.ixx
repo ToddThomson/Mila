@@ -27,17 +27,17 @@ module;
 #include <stdexcept>
 #include <cuda_runtime.h>
 
-export module Cuda.DeviceProperties;
+export module Cuda.DeviceProps;
 
 import Cuda.Helpers;
 
 namespace Mila::Dnn::Cuda 
 {
-	export class CudaDeviceProperties
+	export class CudaDeviceProps
 	{
 	public:
 
-        CudaDeviceProperties( int deviceId )
+        CudaDeviceProps( int deviceId )
         {
             CUDA_CALL( cudaGetDeviceProperties( &props_, deviceId ) );
         }
@@ -49,7 +49,7 @@ namespace Mila::Dnn::Cuda
 
         std::string ToString() const
         {
-            // Include CUDA driver and runtime versions
+            // TJT: REVIEW Include CUDA driver and runtime versions
             int driver_version = GetDriverVersion();
             int runtime_version = GetRuntimeVersion();
             
