@@ -26,4 +26,5 @@ export import Cuda.Error;
 export import Cuda.Helpers;
 export import Cuda.Device;
 export import Cuda.DeviceProps;
+export import Cuda.Memory;
 export import Cuda.Profiler;

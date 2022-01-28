@@ -32,55 +32,55 @@
     <ClCompile Include="Source\Dnn\CuDNN\CuDnn.ixx">
       <Filter>Dnn\CuDnn</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\CuDNN\CuDnnContext.ixx">
+    <ClCompile Include="Source\Dnn\CuDNN\CuDnn.Context.ixx">
       <Filter>Dnn\CuDnn</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\CuDNN\CuDnnDescriptor.ixx">
+    <ClCompile Include="Source\Dnn\CuDNN\CuDnn.Descriptor.ixx">
       <Filter>Dnn\CuDnn</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\CuDNN\CuDnnError.ixx">
+    <ClCompile Include="Source\Dnn\CuDNN\CuDnn.Error.ixx">
       <Filter>Dnn\CuDnn</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\CuDNN\CuDnnHelpers.ixx">
+    <ClCompile Include="Source\Dnn\CuDNN\CuDnn.Helpers.ixx">
       <Filter>Dnn\CuDnn</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\CuDNN\CuDnnOpaqueDescriptor.ixx">
+    <ClCompile Include="Source\Dnn\CuDNN\CuDnn.OpaqueDescriptor.ixx">
       <Filter>Dnn\CuDnn</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\CuDNN\CuDnnOpaqueDescriptorType.ixx">
+    <ClCompile Include="Source\Dnn\CuDNN\CuDnn.OpaqueDescriptorType.ixx">
       <Filter>Dnn\CuDnn</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\CuDNN\CuDnnOpaqueHandle.ixx">
+    <ClCompile Include="Source\Dnn\CuDNN\CuDnn.OpaqueHandle.ixx">
       <Filter>Dnn\CuDnn</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\CuDNN\CuDnnStatus.ixx">
+    <ClCompile Include="Source\Dnn\CuDNN\CuDnn.Status.ixx">
       <Filter>Dnn\CuDnn</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\CuDNN\CuDnnUtils.ixx">
+    <ClCompile Include="Source\Dnn\CuDNN\CuDnn.Utils.ixx">
       <Filter>Dnn\CuDnn</Filter>
     </ClCompile>
     <ClCompile Include="Source\Dnn\Cuda\Cuda.ixx">
       <Filter>Dnn\Cuda</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\Cuda\CudaDevice.ixx">
+    <ClCompile Include="Source\Dnn\Cuda\Cuda.Device.ixx">
       <Filter>Dnn\Cuda</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\Cuda\CudaDeviceProps.ixx">
+    <ClCompile Include="Source\Dnn\Cuda\Cuda.DeviceProps.ixx">
       <Filter>Dnn\Cuda</Filter>
     </ClCompile>
     <ClCompile Include="Source\Dnn\Cuda\CudaEnv.ixx">
       <Filter>Dnn\Cuda</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\Cuda\CudaError.ixx">
+    <ClCompile Include="Source\Dnn\Cuda\Cuda.Error.ixx">
       <Filter>Dnn\Cuda</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\Cuda\CudaHelpers.ixx">
+    <ClCompile Include="Source\Dnn\Cuda\Cuda.Helpers.ixx">
       <Filter>Dnn\Cuda</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\Cuda\CudaMemory.ixx">
+    <ClCompile Include="Source\Dnn\Cuda\Cuda.Memory.ixx">
       <Filter>Dnn\Cuda</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\Cuda\CudaProfiler.ixx">
+    <ClCompile Include="Source\Dnn\Cuda\Cuda.Profiler.ixx">
       <Filter>Dnn\Cuda</Filter>
     </ClCompile>
     <ClCompile Include="Source\Dnn\Cuda\CudaStream.ixx">
@@ -89,46 +89,46 @@
     <ClCompile Include="Source\Dnn\Cuda\CudaUniqueHandle.ixx">
       <Filter>Dnn\Cuda</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\DnnModel.ixx">
+    <ClCompile Include="Source\Dnn\Dnn.Model.ixx">
       <Filter>Dnn</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\DnnModelBuilder.ixx">
+    <ClCompile Include="Source\Dnn\Dnn.ModelBuilder.ixx">
       <Filter>Dnn</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\DnnModelOptions.ixx">
+    <ClCompile Include="Source\Dnn\Dnn.ModelOptions.ixx">
       <Filter>Dnn</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\DnnDropoutDescriptor.ixx">
+    <ClCompile Include="Source\Dnn\Dnn.DropoutDescriptor.ixx">
       <Filter>Dnn</Filter>
     </ClCompile>
     <ClCompile Include="Source\Dnn\Dnn.ixx">
       <Filter>Dnn</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\DnnNeuralNetType.ixx">
+    <ClCompile Include="Source\Dnn\Dnn.NeuralNetType.ixx">
       <Filter>Dnn</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\DnnRnnDataSetDescriptor.ixx">
+    <ClCompile Include="Source\Dnn\Dnn.RnnDataSetDescriptor.ixx">
       <Filter>Dnn</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\DnnRnnLayerCollection.ixx">
+    <ClCompile Include="Source\Dnn\Dnn.RnnLayerCollection.ixx">
       <Filter>Dnn</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\DnnRnnLinearLayer.ixx">
+    <ClCompile Include="Source\Dnn\Dnn.RnnLinearLayer.ixx">
       <Filter>Dnn</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\DnnRnnModel.ixx">
+    <ClCompile Include="Source\Dnn\Dnn.RnnModel.ixx">
       <Filter>Dnn</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\DnnRnnModelOptions.ixx">
+    <ClCompile Include="Source\Dnn\Dnn.RnnModelOptions.ixx">
       <Filter>Dnn</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\DnnRnnOpDescriptor.ixx">
+    <ClCompile Include="Source\Dnn\Dnn.RnnOpDescriptor.ixx">
       <Filter>Dnn</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\DnnStateTensorDescriptor.ixx">
+    <ClCompile Include="Source\Dnn\Dnn.StateTensorDescriptor.ixx">
       <Filter>Dnn</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\DnnTensorDescriptor.ixx">
+    <ClCompile Include="Source\Dnn\Dnn.TensorDescriptor.ixx">
       <Filter>Dnn</Filter>
     </ClCompile>
     <ClCompile Include="Source\Dnn\Data\H5\DataH5DatasetReader.ixx">
@@ -137,16 +137,13 @@
     <ClCompile Include="Source\Dnn\Data\H5\DataH5DatasetWriter.ixx">
       <Filter>Dnn\Data\H5</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\Data\DataDatasetType.ixx">
+    <ClCompile Include="Source\Dnn\Data\Data.DatasetType.ixx">
       <Filter>Dnn\Data</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\Data\FileStream.ixx">
+    <ClCompile Include="Source\Dnn\Data\Data.CategoryVectorEncoder.ixx">
       <Filter>Dnn\Data</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\Data\DataCategoryVectorEncoder.ixx">
-      <Filter>Dnn\Data</Filter>
-    </ClCompile>
-    <ClCompile Include="Source\Dnn\Data\DataCharDatasetGenerator.ixx">
+    <ClCompile Include="Source\Dnn\Data\Data.CharDatasetGenerator.ixx">
       <Filter>Dnn\Data</Filter>
     </ClCompile>
     <ClCompile Include="Source\Dnn\Core\Core.Version.ixx">
@@ -159,7 +156,7 @@
     <ClCompile Include="Source\Dnn\Data\H5\DataH5DataTypeMapper.ixx">
       <Filter>Dnn\Data\H5</Filter>
     </ClCompile>
-    <ClCompile Include="Source\Dnn\Data\DataDataset.ixx">
+    <ClCompile Include="Source\Dnn\Data\Data.Dataset.ixx">
       <Filter>Dnn\Data</Filter>
     </ClCompile>
     <ClCompile Include="Source\Dnn\Data\Data.ixx" />

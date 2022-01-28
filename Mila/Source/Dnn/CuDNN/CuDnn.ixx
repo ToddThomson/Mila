@@ -19,13 +19,12 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-export module Cudnn;
+export module CuDnn;
 
 export import CuDnn.Context;
 export import CuDnn.Descriptor;
 export import CuDnn.Error;
 export import CuDnn.Helpers;
-export import CuDnn.Error;
 export import CuDnn.OpaqueDescriptor;
 export import CuDnn.OpaqueDescriptorType;
 export import CuDnn.OpaqueHandle;

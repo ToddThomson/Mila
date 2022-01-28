@@ -23,8 +23,10 @@ export module Mila;
 
 export import Core;
 export import Dnn;
+export import Data;
 
-//export import Mila.Cudnn;
+export import Cuda;
+export import CuDnn;
 
 export namespace Mila {
 

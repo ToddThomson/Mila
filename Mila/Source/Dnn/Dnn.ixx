@@ -1,5 +1,6 @@
 export module Dnn;
 
+export import Dnn.RnnModel;
 export import Dnn.Model;
 export import Dnn.ModelBuilder;
 export import Dnn.ModelOptions;
