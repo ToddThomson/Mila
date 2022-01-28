@@ -28,9 +28,12 @@ module;
 export module CuDnn.Context;
 
 import Cuda.Device;
+import Cuda.Helpers;
 import CuDnn.OpaqueHandle;
 import CuDnn.Error;
 import CuDnn.Utils;
+
+using namespace Mila::Dnn::Cuda;
 
 namespace Mila::Dnn::CuDnn
 {
@@ -47,16 +50,20 @@ namespace Mila::Dnn::CuDnn
         /// <summary>
         /// CuDNN context class constructor
         /// </summary>
-        CudnnContext() /* CudaDevice device ) */
+        CudnnContext( int deviceId = 0 )
+            : device_id_( deviceId )
         {
             std::cout << "In CudnnContext constructor\n";
+
+            CUDA_CALL( cudaSetDevice( device_id_ ) );
 
             auto status = InitializeManagedCudnnHandle();
 
             if ( status != CUDNN_STATUS_SUCCESS )
             {
-                throw cudnnException(
-                    std::string( std::string( "Failed to create CuDNN handle. Status: " ) + to_string( status ) ).c_str(), status );
+                throw CudnnException(
+                    std::string( std::string( "Failed to create CuDNN handle. Status: " ) + to_string( status ) ).c_str(),
+                    status );
             }
         }
 
@@ -66,6 +73,8 @@ namespace Mila::Dnn::CuDnn
         }
 
     private:
+
+        int device_id_ = 0;
 
         CudnnContext( CudnnContext const& ) = delete;
         CudnnContext& operator=( CudnnContext const& ) = delete;

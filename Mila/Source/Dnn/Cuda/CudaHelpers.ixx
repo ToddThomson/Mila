@@ -151,59 +151,22 @@ namespace Mila::Dnn::Cuda
 
         // If we don't find the values, we default use the previous one
         // to run properly
-        printf(
-            "MapSMtoArchName for SM %d.%d is undefined."
-            "  Default to use %s\n",
-            major, minor, nGpuArchNameSM[ index - 1 ].name );
         return nGpuArchNameSM[ index - 1 ].name;
     }
 
-    export inline int getDeviceCount()
+    export inline int GetDeviceCount()
     {
         int devCount;
         CUDA_CALL( cudaGetDeviceCount( &devCount ) );
 
         return devCount;
-    }
-
-    inline int deviceInit( int device )
-    {
-        if ( device < 0 )
-        {
-            throw std::invalid_argument( "Invalid device." );
-        }
-
-        int deviceCount = getDeviceCount();
-
-        if ( deviceCount == 0 )
-        {
-            throw std::runtime_error( "No devices found." );
-        }
-
-        if ( device > deviceCount - 1 )
-        {
-            throw std::out_of_range( "device out of range." );
-        }
-
-        int computeMode = -1,
-
-            CUDA_CALL( cudaDeviceGetAttribute( &computeMode, cudaDevAttrComputeMode, device ) );
-
-        if ( computeMode == cudaComputeModeProhibited )
-        {
-            throw std::runtime_error( "Device is running in Compute ModeProhibited." );
-        }
-
-        cudaSetDevice( device );
-
-        return device;
-    }
+    };
     
     /// <summary>
-    /// Returns the best GPU (with maximum GFLOPS) 
+    /// Returns the GPU with the maximum GFLOPS.
     /// </summary>
     /// <returns>GPU device Id</returns>
-    inline int gpuGetMaxGflopsDeviceId()
+    export inline int GetMaxGflopsDeviceId()
     {
         int current_device = 0, sm_per_multiproc = 0;
         int max_perf_device = 0;
@@ -211,14 +174,14 @@ namespace Mila::Dnn::Cuda
 
         uint64_t max_compute_perf = 0;
 
-        int devCount = getDeviceCount();
+        int devCount = GetDeviceCount();
 
         if ( devCount == 0 )
         {
-            throw std::runtime_error( "No CUDA devices found." );
+            throw std::runtime_error( 
+                "No CUDA devices found." );
         }
 
-        // Find the best CUDA capable GPU device
         current_device = 0;
 
         while ( current_device < devCount )
@@ -239,8 +202,7 @@ namespace Mila::Dnn::Cuda
                 }
                 else
                 {
-                    sm_per_multiproc =
-                        _ConvertSMVer2Cores( major, minor );
+                    sm_per_multiproc = _ConvertSMVer2Cores( major, minor );
                 }
 
                 int multiProcessorCount = 0, clockRate = 0;
@@ -257,9 +219,8 @@ namespace Mila::Dnn::Cuda
                     }
                     else
                     {
-                        fprintf( stderr, "CUDA error at %s:%d code=%d(%s) \n", __FILE__, __LINE__,
-                            static_cast<unsigned int>(result), _cudaGetErrorEnum( result ) );
-                        exit( EXIT_FAILURE );
+                        throw CudaError(
+                            result );
                     }
                 }
                 uint64_t compute_perf = (uint64_t)multiProcessorCount * sm_per_multiproc * clockRate;
@@ -286,37 +247,8 @@ namespace Mila::Dnn::Cuda
         return max_perf_device;
     }
 
-    // Initialization code to find the best CUDA Device
-    inline int findBestCudaDevice( int device_id = -1 )
+    export inline int FindBestCudaDevice()
     {
-        int devID = 0;
-
-        devID = gpuGetMaxGflopsDeviceId();
-
-        CUDA_CALL( cudaSetDevice( devID ) );
-
-        return devID;
-    }
-
-    // General check for CUDA GPU SM Capabilities
-    inline bool checkCudaComputeCapabily( int major_version, int minor_version )
-    {
-        int dev;
-        int major = 0, minor = 0;
-
-        CUDA_CALL( cudaGetDevice( &dev ) );
-        CUDA_CALL( cudaDeviceGetAttribute( &major, cudaDevAttrComputeCapabilityMajor, dev ) );
-        CUDA_CALL( cudaDeviceGetAttribute( &minor, cudaDevAttrComputeCapabilityMinor, dev ) );
-
-        if ( (major > major_version) ||
-            (major == major_version &&
-                minor >= minor_version) )
-        {
-            return true;
-        }
-        else
-        {
-            return false;
-        }
-    }
+        return GetMaxGflopsDeviceId();
+    };
 }

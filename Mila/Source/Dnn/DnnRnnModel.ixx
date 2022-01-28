@@ -299,7 +299,9 @@ namespace Mila::Dnn
 
             if ( status != CUDNN_STATUS_SUCCESS )
             {
-                throw CuDnn::cudnnException( "Failed to get RNN WeightBias space size.", status );
+                throw CuDnn::CudnnException(
+                    "Failed to get RNN WeightBias space size.",
+                    status );
             }
 
             std::cout << "Allocating Cuda weightBiasSpace: " << std::to_string( weightSpaceSize_ ) << std::endl;
@@ -318,11 +320,14 @@ namespace Mila::Dnn
 
             if ( status != CUDNN_STATUS_SUCCESS )
             {
-                throw CuDnn::cudnnException( "Failed to get workspace/reserve space size", status );
+                throw CuDnn::CudnnException(
+                    "Failed to get workspace/reserve space size",
+                    status );
             }
 
             std::cout << "Allocating Cuda workSpace: " << std::to_string( workSpaceSize_ ) << std::endl;
             std::cout << "Allocating Cuda reserveSpace: " << std::to_string( reserveSpaceSize_ ) << std::endl;
+            
             workSpace_ = CudaMemory( workSpaceSize_ );
             reserveSpace_ = Cuda::CudaMemory( reserveSpaceSize_ );
 
@@ -371,7 +376,9 @@ namespace Mila::Dnn
 
                     if ( status != CUDNN_STATUS_SUCCESS )
                     {
-                        throw CuDnn::cudnnException( "Failed to get RNN Weight Params", status );
+                        throw CuDnn::CudnnException(
+                            "Failed to get RNN Weight Params",
+                            status );
                     }
 
                     if ( weightMatrixAddress )
@@ -382,7 +389,9 @@ namespace Mila::Dnn
 
                         if ( status != CUDNN_STATUS_SUCCESS )
                         {
-                            throw CuDnn::cudnnException( "Failed to get TensorNdDescriptor for weight states.", status );
+                            throw CuDnn::CudnnException(
+                                "Failed to get TensorNdDescriptor for weight states.",
+                                status );
                         }
 
                         w.SetDataType( dataTypeTemp );
@@ -404,7 +413,9 @@ namespace Mila::Dnn
 
                         if ( status != CUDNN_STATUS_SUCCESS )
                         {
-                            throw CuDnn::cudnnException( "Failed to get TensorNdDescriptor for weight states.", status );
+                            throw CuDnn::CudnnException(
+                                "Failed to get TensorNdDescriptor for weight states.",
+                                status );
                         }
 
                         b.SetDataType( dataTypeTemp );
@@ -603,7 +614,9 @@ namespace Mila::Dnn
             {
                 std::cout << "CudnnForward() failed: " << Mila::Dnn::CuDnn::to_string( status ) << std::endl;
 
-                throw CuDnn::cudnnException( "Failed CudnnForward() call", status );
+                throw CuDnn::CudnnException(
+                    "Failed CudnnForward() call.",
+                    status );
             }
 
             std::cout << " Done." << std::endl;
@@ -651,7 +664,9 @@ namespace Mila::Dnn
             {
                 std::cout << "CudnnBackwardData_v8() failed: " << CuDnn::to_string( status ) << std::endl;
 
-                throw CuDnn::cudnnException( "Failed CudnnBackwardData_v8()", status );
+                throw CuDnn::CudnnException(
+                    "Failed CudnnBackwardData_v8()",
+                    status );
             }
 
             dweightBiasSpace_.Set( 0 );

@@ -24,44 +24,28 @@ module;
 #include <stdexcept>
 #include <cuda_runtime.h>
 
-export module Cuda.DeviceProps;
+export module Cuda.DeviceProperties;
 
 import Cuda.Helpers;
 
 namespace Mila::Dnn::Cuda 
 {
-	export class CudaDeviceProps
+	export class CudaDeviceProperties
 	{
 	public:
 
-        CudaDeviceProps()
+        CudaDeviceProperties( int deviceId )
         {
-            int devCount = 0;
-            CUDA_CALL( cudaGetDeviceCount( &devCount ) );
-
-            if ( devCount > 0 )
-            {
-                props_.resize( devCount );
-
-                for ( int devId = 0; devId < devCount; ++devId )
-                {
-                    CUDA_CALL( cudaGetDeviceProperties( &props_[ devId ], devId ) );
-                }
-            }
+            CUDA_CALL( cudaGetDeviceProperties( &props_, deviceId ) );
         }
 
-        const cudaDeviceProp* get( int devId ) const
+        const cudaDeviceProp* GetProperties() const
         {
-            if ( static_cast<size_t>(devId) < props_.size() )
-            {
-                throw std::out_of_range( "device id out of range." );
-            }
-
-            return &props_[ devId ];
+            return &props_;
         };
 
 	private:
 
-		std::vector<cudaDeviceProp> props_;
+		cudaDeviceProp props_;
 	};
 }

@@ -21,6 +21,7 @@
 
 export module Cuda;
 
+export import Cuda.Helpers;
 export import Cuda.Device;
-export import Cuda.DeviceProps;
+export import Cuda.DeviceProperties;
 export import Cuda.Profiler;

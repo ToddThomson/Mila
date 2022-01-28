@@ -32,7 +32,7 @@ export namespace Mila {
 	/// Gets the Mila API version.
 	/// </summary>
 	export Core::Version GetAPIVersion() {
-		return Core::Version{0, 9, 4};
+		return Core::Version{0, 9, 5};
 	}
 }
 

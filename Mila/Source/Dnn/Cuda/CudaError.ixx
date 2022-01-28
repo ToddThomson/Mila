@@ -29,7 +29,6 @@ module;
 #include <sstream>
 #include <cuda.h>
 #include <cuda_runtime.h>
-#include <cuda_runtime_api.h>
 
 export module Cuda.Error;
 
@@ -39,62 +38,35 @@ namespace Mila::Dnn::Cuda {
     {
     public:
 
-        explicit CudaError( cudaError_t status_ ) : std::runtime_error( get_message( status_ ) ), rt_err( status_ )
-        {
-        }
-        explicit CudaError( CUresult status_ ) : std::runtime_error( get_message( status_ ) ), drv_err( status_ )
+        CudaError( cudaError_t status )
+            : std::runtime_error( get_message( status ) ), cuda_error_( status )
         {
         }
 
-        CUresult drv_error() const noexcept
+        cudaError_t Error() const noexcept
         {
-            return drv_err;
-        }
-        cudaError_t rt_error() const noexcept
-        {
-            return rt_err;
-        }
-
-        bool is_drv_api() const noexcept
-        {
-            return drv_err != CUDA_SUCCESS;
-        }
-        bool is_rt_api() const noexcept
-        {
-            return rt_err != cudaSuccess;
+            return cuda_error_;
         }
 
     private:
 
-        CUresult drv_err = CUDA_SUCCESS;
-        cudaError_t rt_err = cudaSuccess;
+        cudaError_t cuda_error_ = cudaSuccess;
 
-        static std::string get_message( CUresult status_ )
+        static std::string get_message( cudaError_t status )
         {
-            const char* name = nullptr, * desc = nullptr;
+            const char* name = cudaGetErrorName( status );
+            const char* desc = cudaGetErrorString( status );
 
-            // FIXME: Linking errors
-            
-            //cuGetErrorName( status_, &name );
-            //cuGetErrorString( status_, &desc );
-            std::ostringstream ss;
-            if ( !name ) name = "<unknown error>";
-            ss << "CUDA driver API error "
-                << name << " (" << static_cast<unsigned>(status_) << ")";
-            if ( desc && *desc ) ss << ":\n" << desc;
-            
-            return ss.str();
-        }
+            if ( !name )
+                name = "<unknown error>";
 
-        static std::string get_message( cudaError_t status_ )
-        {
-            const char* name = cudaGetErrorName( status_ );
-            const char* desc = cudaGetErrorString( status_ );
-            if ( !name ) name = "<unknown error>";
             std::ostringstream ss;
             ss << "CUDA runtime API error "
-                << name << " (" << static_cast<unsigned>(status_) << ")";
-            if ( desc && *desc ) ss << ":\n" << desc;
+                << name << " (" << static_cast<unsigned>(status) << ")";
+            
+            if ( desc && *desc )
+                ss << ":\n" << desc;
+
             return ss.str();
         }
     };

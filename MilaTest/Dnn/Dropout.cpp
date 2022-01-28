@@ -18,8 +18,6 @@ namespace Mila::Tests::Dnn
 
         void OnModelBuilding( const DnnModelBuilder& builder ) override
         {
-            //auto options = GetDefaultRnnOptions();
-
             dropout_ = builder.Create<Dropout>();
 
             dropout_.SetProbability( 0.1f )

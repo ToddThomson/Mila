@@ -42,11 +42,11 @@ namespace Mila::Dnn
     {
     public:
 
-        DnnModel( neuralNetType_t neuralNetType )
-            : type_( neuralNetType )
+        DnnModel( neuralNetType_t neuralNetType, int gpuId = 0 )
+            : type_( neuralNetType ), device_id_( gpuId )
         {
             // TJT: Review this!
-            context_ = std::make_unique<CudnnContext>();
+            context_ = std::make_unique<CudnnContext>( gpuId );
             builder_ = DnnModelBuilder( context_ );
         }
 
@@ -69,6 +69,8 @@ namespace Mila::Dnn
         virtual void OnModelBuilding( const DnnModelBuilder& builder ) = 0;
 
     private:
+
+        int device_id_ = 0;
 
         DnnModel( DnnModel const& ) = delete;
         DnnModel& operator=( DnnModel const& ) = delete;

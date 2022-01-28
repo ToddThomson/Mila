@@ -2,7 +2,7 @@
 <package >
   <metadata>
     <id>Achilles.Mila</id>
-    <version>0.9.4-alpha</version>
+    <version>0.9.5-alpha</version>
     <title>Mila Deep Neural Net Library</title>
     <authors>Todd J. Thomson</authors>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>

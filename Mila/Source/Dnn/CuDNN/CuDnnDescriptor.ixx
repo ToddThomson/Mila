@@ -117,7 +117,7 @@ namespace Mila::Dnn::CuDnn
         }
 
         /// <summary>
-        /// Gets the current status of the descriptor
+        /// Gets the current status of the descriptor.
         /// </summary>
         /// <returns></returns>
         cudnnStatus_t get_status() const
@@ -140,7 +140,10 @@ namespace Mila::Dnn::CuDnn
             err_msg_ = message;
         }
 
-        //! Diagonistic error message if any
+        /// <summary>
+        /// Gets the diagnostic error message.
+        /// </summary>
+        /// <returns>A diagnostic string</returns>
         const char* get_error() const
         {
             return err_msg_.c_str();
@@ -172,13 +175,6 @@ namespace Mila::Dnn::CuDnn
         bool IsFinalized()
         {
             return isFinalized_;
-        }
-
-        cudnnStatus_t SetFinalized()
-        {
-            isFinalized_ = true;
-
-            return CUDNN_STATUS_SUCCESS;
         }
 
     protected:
@@ -227,12 +223,31 @@ namespace Mila::Dnn::CuDnn
 
         virtual ~Descriptor() = default;
 
+        void SetErrorAndThrow(
+            cudnnStatus_t status,
+            const char* message )
+        {
+            status_ = status;
+            err_msg_ = message;
+
+            throw CudnnException(
+                std::string( std::string( message ) + std::string( " cudnn_status: " ) + to_string( status ) ).c_str(),
+                status );
+        }
+
         void CheckFinalizedThrow()
         {
             if ( isFinalized_ )
             {
                 throw std::runtime_error( "Descriptor property cannot be set after Finalize is called." );
             }
+        }
+
+        cudnnStatus_t SetFinalized()
+        {
+            isFinalized_ = true;
+
+            return CUDNN_STATUS_SUCCESS;
         }
 
         ManagedDescriptor managedDescriptor_ = nullptr;

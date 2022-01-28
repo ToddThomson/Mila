@@ -28,7 +28,9 @@ import Cuda.Helpers;
 
 namespace Mila::Dnn::Cuda 
 {
-    export class CudaEnvironment
+    // TJT: To be removed.
+
+    /*export class CudaEnvironment
     {
     public:
 
@@ -40,6 +42,5 @@ namespace Mila::Dnn::Cuda
     private:
 
         int device_count_ = 0;
-
-    };
+    };*/
 }

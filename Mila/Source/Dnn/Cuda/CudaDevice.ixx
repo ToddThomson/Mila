@@ -25,62 +25,63 @@ module;
 
 export module Cuda.Device;
 
+import Cuda.DeviceProperties;
 import Cuda.Helpers;
 
 namespace Mila::Dnn::Cuda
 {
 	/// <summary>
-	/// 
+	/// Represents a Cuda device. 
 	/// </summary>
     export class CudaDevice // : public unique_handle<int, CudaDevice>
     {
     public:
 
         /// <summary>
-        /// 
+        /// Creates a CudaDevice object with the specified device id.
         /// </summary>
-        /// <param name="device_id"></param>
-        CudaDevice( int device = 0 )
+        /// <param name="deviceId">Cuda GPU device id</param>
+        CudaDevice( int deviceId = 0 )
+            : device_id_( CheckDevice( deviceId ) ), props_( CudaDeviceProperties( device_id_ ) )
         {
-            device_ = Init( device );
         }
 
     private:
 
-        int Init( int device )
+        int CheckDevice( int deviceId )
         {
-            if ( device < 0 )
+            if ( deviceId < 0 )
             {
-                throw std::invalid_argument( "Invalid device." );
+                throw std::invalid_argument( "Invalid device id." );
             }
 
-            int devCount = getDeviceCount();
+            int devCount = GetDeviceCount();
 
             if ( devCount == 0 )
             {
-                throw std::runtime_error( "No devices found." );
+                throw std::runtime_error( "No Cuda devices found." );
             }
 
-            if ( device > devCount - 1 )
+            if ( deviceId > devCount - 1 )
             {
-                throw std::out_of_range( "device id out of range." );
+                throw std::out_of_range( "Device id out of range." );
             }
 
             int computeMode = -1,
-            CUDA_CALL( cudaDeviceGetAttribute( &computeMode, cudaDevAttrComputeMode, device ) );
+            CUDA_CALL( cudaDeviceGetAttribute( &computeMode, cudaDevAttrComputeMode, device_id_ ) );
 
             if ( computeMode == cudaComputeModeProhibited )
             {
                 throw std::runtime_error( "Device is running in Compute ModeProhibited." );
             }
 
-            //CUDA_CALL( cudaSetDevice( device ) );
-
-            return device;
-        };
+            return deviceId;
+        }
     
     private:
 
-        int device_;
+        int device_id_;
+
+        CudaDeviceProperties props_;
     };
 }
