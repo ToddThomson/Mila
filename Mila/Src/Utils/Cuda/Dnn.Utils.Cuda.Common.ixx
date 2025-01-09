@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 Todd Thomson, Achilles Software.  All rights reserved.
+ * Copyright 2024 Todd Thomson, Achilles Software.  All rights reserved.
  *
  * Please refer to the Mila end user license agreement (EULA) associated
  * with this source code for terms and conditions that govern your use of
@@ -18,29 +18,29 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  */
+
 module;
-#include <thrust/host_vector.h>
-#include <thrust/sort.h>
-#ifdef USE_OMP
-#include <omp.h>
+#include <string>
+#include <sstream>
+#include <cuda_runtime.h>
+#include <cuda_bf16.h>
+#include <cuda_fp16.h>
+
+export module Dnn.Utils.Cuda.Common;
+
+namespace Mila::Dnn::Utils::Cuda
+{
+    // Specific configurations based on the enabled precision
+#if defined(ENABLE_FP32)
+    export typedef float floatX;
+#define PRECISION_MODE PRECISION_FP32
+    // use fp16 (note: this may require gradient scaler, currently not implemented!)
+#elif defined(ENABLE_FP16)
+    export typedef half floatX;
+#define PRECISION_MODE PRECISION_FP16
+#else // Default to bfloat16
+    export typedef __nv_bfloat16 floatX;
+
+#define PRECISION_MODE PRECISION_BF16
 #endif
-
-export module Mila;
-
-import Mila.Version;
-
-export import Dnn.Module;
-export import Dnn.Model;
-export import Dnn.Tensor;
-export import Dnn.TensorHelpers;
-export import Dnn.Session;
-
-
-export namespace Mila {
-	/// <summary>
-	/// Gets the Mila API version.
-	/// </summary>
-	export Version GetAPIVersion() {
-		return Version{0, 9, 13};
-	}
 }

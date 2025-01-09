@@ -18,29 +18,22 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  */
+
 module;
-#include <thrust/host_vector.h>
-#include <thrust/sort.h>
-#ifdef USE_OMP
-#include <omp.h>
-#endif
+#include <string>
+#include <sstream>
 
-export module Mila;
+export module Dnn.TensorSpec;
 
-import Mila.Version;
+import Dnn.DType;
 
-export import Dnn.Module;
-export import Dnn.Model;
-export import Dnn.Tensor;
-export import Dnn.TensorHelpers;
-export import Dnn.Session;
+namespace Mila::Dnn
+{
+    export struct TensorSpec {
+        void** ptr;
+        size_t size;
+        DType type;
+    };
 
-
-export namespace Mila {
-	/// <summary>
-	/// Gets the Mila API version.
-	/// </summary>
-	export Version GetAPIVersion() {
-		return Version{0, 9, 13};
-	}
+#define TENSOR_SPEC(pointer, size) TensorSpec{(void**)(&pointer), (size), dtype_of(pointer)};
 }
