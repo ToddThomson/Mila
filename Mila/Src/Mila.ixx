@@ -41,6 +41,6 @@ export namespace Mila {
 	/// Gets the Mila API version.
 	/// </summary>
 	export Version GetAPIVersion() {
-		return Version{0, 9, 13};
+		return Version{0, 9, 15};
 	}
 }

@@ -32,7 +32,7 @@ module;
 #include <array>
 #include <iostream>
 
-#include "../../Mila/Src/Core/rand.h"
+#include "../../../Src/Core/rand.h"
 
 export module Gpt2.DataLoader;
 

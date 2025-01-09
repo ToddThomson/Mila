@@ -2,17 +2,17 @@
 
 # Add executable
 add_executable( Gpt2App 
-	"TrainGpt2.cpp"
+	"Src/TrainGpt2.cpp"
 )
 
 target_sources( Gpt2App
 PUBLIC
 	FILE_SET module_files
        TYPE CXX_MODULES FILES
-		"ModelConfig.ixx"
-		"Gpt2DataLoader.ixx"
-		"Gpt2Model.ixx"
-		"Tokenizer.ixx" 
+		"Src/ModelConfig.ixx"
+		"Src/Gpt2DataLoader.ixx"
+		"Src/Gpt2Model.ixx"
+		"Src/Tokenizer.ixx" 
 )
 
 target_link_libraries( Gpt2App PUBLIC Mila Thrust::Thrust )

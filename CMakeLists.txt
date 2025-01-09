@@ -12,7 +12,7 @@ set(CMAKE_CUDA_STANDARD 20)
  
 option(MILA_ENABLE_TESTING "Enable Mila Library tests." "ON")  
 option(MILA_ENABLE_GPT2_TESTING "Enable GPT2 tests." "OFF")  
-option(MILA_ENABLE_EXAMPLES "Enable Mila Library examples." "ON")
+option(MILA_ENABLE_SAMPLES "Enable Mila Library samples." "ON")
 option(MILA_ENABLE_NVBENCH "Enable NvBench." "OFF")
 option(MILA_ENABLE_OPENMP "Enable OpenMP support." "OFF")  
  
@@ -38,12 +38,6 @@ endif()
 # The Mila library  
 add_subdirectory( Mila )  
  
-add_executable(train_gpt2 train_gpt2.cpp )  
-target_include_directories(train_gpt2 PRIVATE dev)  
-target_link_libraries(train_gpt2 PRIVATE CUDA::nvml CUDA::cublas CUDA::cublasLt)  
-target_link_libraries(train_gpt2 ${CUDA_LIBRARIES})  
-#target_compile_options(train_gpt2cu PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-O3 --use_fast_math --extended-lambda>)  
- 
 enable_testing()  
  
 # Add MilaTest directory  
@@ -51,10 +45,10 @@ if (MILA_ENABLE_TESTING)
 add_subdirectory(Mila/Tests)  
 endif()  
  
-if (MILA_ENABLE_EXAMPLES)  
-add_subdirectory(Examples)  
+if (MILA_ENABLE_SAMPLES)  
+add_subdirectory(Mila/Samples)  
 endif()
 
 if (MILA_ENABLE_NVBENCH )
-#add_subdirectory( Benches )
+add_subdirectory( Benches )
 endif()
