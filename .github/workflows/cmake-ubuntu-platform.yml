@@ -9,6 +9,7 @@ on:
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
   BUILD_TYPE: Release
+  CUDAToolkit_ROOT: /usr/local/cuda-12.6
 
 jobs:
   build:
@@ -27,6 +28,8 @@ jobs:
         sudo cp /var/cuda-repo-ubuntu2404-12-6-local/cuda-*-keyring.gpg /usr/share/keyrings/
         sudo apt-get update
         sudo apt-get -y install cuda-toolkit-12-6
+        echo "CUDAToolkit_ROOT=/usr/local/cuda-12.6" >> $GITHUB_ENV
+        echo "PATH=/usr/local/cuda-12.6/bin:$PATH" >> $GITHUB_ENV
 
     - name: Configure CMake
       run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
