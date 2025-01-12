@@ -1,7 +1,8 @@
 module;
 #include <vector>  
 #include <numeric>  
-#include <iostream>  
+#include <iostream>
+#include <iomanip>
 #include <cassert>  
 #include <variant>  
 #include <memory>
@@ -14,6 +15,9 @@ export module Dnn.Tensor;
 import Dnn.TensorType;  
 import Dnn.TensorBuffer; 
 import Dnn.TensorTag;
+import Compute.DeviceRegistry;
+import Compute.DeviceInterface;
+//import Compute.CudaDevice;
 
 namespace Mila::Dnn
 {
@@ -28,10 +32,11 @@ namespace Mila::Dnn
 			using Extent3d = std::dextents<size_t, 3>;
 			using Extent4d = std::dextents<size_t, 4>;
 
-			Tensor( const std::vector<size_t>& shape /* TJT: Feature std::function<void(Tensor<T>&)> initializer = nullptr  */)
+			Tensor( const std::vector<size_t>& shape, const std::string& device_name = "CPU", int device_id = 0 )
 				:shape_( shape ), strides_( computeStrides( shape ) ), size_( computeSize( shape ) ) {
-				allocate_buffer();
-				
+				setDevice( device_name, device_id );
+				allocateBuffer();
+
 				// TJT: Feature 
 				//if ( initializer ) {
 				//	initializer( this );
@@ -41,8 +46,28 @@ namespace Mila::Dnn
 			// Creates an empty tensor with zero size
 			Tensor()
 				: shape_(), strides_( computeStrides( shape_ ) ), size_() {
-				allocate_buffer();
+				//const std::string& device_name = "CPU";
+				//int device_id = 0;
+				//setDevice( device_name, device_id );
+				allocateBuffer();
 			}
+
+			// Copy asignement operator
+			Tensor& operator=( const Tensor& other ) {
+				if ( this != &other ) {
+					shape_ = other.shape_;
+					strides_ = other.strides_;
+					size_ = other.size_;
+					data_type_ = other.data_type_;
+					buffer_ = other.buffer_;
+					device_ = other.device_; // ->clone();
+				}
+				return *this;
+			}
+
+			// Copy constructor for shallow copy
+			Tensor( const Tensor& other )
+				: shape_( other.shape_ ), strides_( other.strides_ ), size_( other.size_ ), data_type_( other.data_type_ ), buffer_( other.buffer_ ), device_( other.device_ ) {}
 
 			void reshape( const std::vector<size_t>& new_shape ) {
 				size_t new_size = computeSize( new_shape );
@@ -54,14 +79,22 @@ namespace Mila::Dnn
 					}
 					return;
 				}
+
 				throw std::runtime_error( "The new shape must match the size of the tensor or the tensor must be empty." );
 			}
 
-			auto as_vector( size_t size ) {
-				return std::mdspan<ElementType, Extent1d>( buffer_->data(), size );
+			auto vectorSpan() {
+				return std::mdspan<ElementType, Extent1d>( buffer_->data(), size_ );
 			}
 
-			auto as_matrix( const std::vector<size_t>& shape ) {
+			auto matrixSpan( const std::vector<size_t>& shape ) {
+				if ( shape.size() != 2 ) {
+					throw std::runtime_error( "matrixSpan: The shape must have exactly 2 dimensions." );
+				}
+				size_t total_size = shape[ 0 ] * shape[ 1 ];
+				if ( total_size > size_ ) {
+					throw std::runtime_error( "matrixSpan: The specified shape exceeds the tensor size." );
+				}
 				return std::mdspan<ElementType, Extent2d>( buffer_->data(), shape[ 0 ], shape[ 1 ] );
 			}
 
@@ -73,23 +106,39 @@ namespace Mila::Dnn
 				return data()[ offset ];
 			}*/
 
+			/*template<typename... Args>
+			T& operator[]( Args... args ) {
+				size_t index = computeIndex( { static_cast<size_t>(args)... } );
+				return buffer_->data()[ index ];
+			}
+
+			template<typename... Args>
+			const T& operator[]( Args... args ) const {
+				const size_t num_args = sizeof...(args);
+				if ( num_args != shape_.size() ) {
+					throw std::runtime_error( "Number of indices must match the tensor rank." );
+				}
+				size_t index = computeIndex( { static_cast<size_t>(args)... } );
+				return buffer_->data()[ index ];
+			}*/
+
 			T& operator[]( size_t index ) {
 				if ( rank() != 1 ) {
-					throw std::runtime_error( "The rank of the tensor must be 1." );
+					throw std::runtime_error( "Operator[]: The rank of the tensor must be 1." );
 				}
 				return buffer_->data()[ index ];
 			}
 
 			const T& operator[]( size_t index ) const {
 				if ( rank() != 1 ) {
-					throw std::runtime_error( "The rank of the tensor must be 1." );
+					throw std::runtime_error( "Operator[]: The rank of the tensor must be 1." );
 				}
 				return buffer_->data()[ index ];
 			}
 
 			T& operator[]( size_t row, size_t col ) {
 				if ( rank() != 2 ) {
-					throw std::runtime_error( "The rank of the tensor must be 2." );
+					throw std::runtime_error( "Operator[]: The rank of the tensor must be 2." );
 				}
 
 				size_t index = row * shape_[ 1 ] + col;
@@ -101,7 +150,7 @@ namespace Mila::Dnn
 
 			const T& operator[]( size_t row, size_t col ) const {
 				if ( rank() != 2 ) {
-					throw std::runtime_error( "The rank of the tensor must be 2." );
+					throw std::runtime_error( "Operator[]: The rank of the tensor must be 2." );
 				}
 
 				size_t index = row * shape_[ 1 ] + col;
@@ -130,6 +179,10 @@ namespace Mila::Dnn
 
 			size_t rank() const {
 				return shape_.size();
+			}
+
+			const std::shared_ptr<Compute::DeviceInterface>& device() const {
+				return device_;
 			}
 
 			T* data() {
@@ -164,9 +217,9 @@ namespace Mila::Dnn
 			std::vector<size_t> shape_;
 			std::vector<size_t> strides_;
 			std::shared_ptr<TensorBuffer<T>> buffer_;
-			//std::mdspan<float,ExtentView> buffer_view;
+			std::shared_ptr<Compute::DeviceInterface> device_;
 
-			void allocate_buffer() {
+			void allocateBuffer() {
 				buffer_ = std::make_shared<TensorBuffer<T>>( size_ );
 				data_type_ = tensor_type_of( buffer_->data() );
 			}
@@ -175,14 +228,25 @@ namespace Mila::Dnn
 			void printBuffer( size_t index, size_t depth ) {
 				if ( depth == shape_.size() - 1 ) {
 					for ( size_t i = 0; i < shape_[ depth ]; ++i ) {
-						std::cout << buffer_->data()[ index + i ] << " ";
+						if ( i < 3 || i >= shape_[ depth ] - 3 ) {
+							std::cout << std::setw( 10 ) << buffer_->data()[ index + i ] << " ";
+						}
+						else if ( i == 3 ) {
+							std::cout << "... ";
+						}
 					}
 				}
 				else {
 					for ( size_t i = 0; i < shape_[ depth ]; ++i ) {
-						std::cout << "[ ";
-						printBuffer<T>( index + i * strides_[ depth ], depth + 1 );
-						std::cout << "]" << std::endl;
+						if ( i < 3 || i >= shape_[ depth ] - 3 ) {
+							std::cout << "[ ";
+							printBuffer<T>( index + i * strides_[ depth ], depth + 1 );
+							std::cout << "]" << std::endl;
+						}
+						else if ( i == 3 ) {
+							std::cout << "[ ... ]" << std::endl;
+							i = shape_[ depth ] - 4;
+						}
 					}
 				}
 			}
@@ -205,6 +269,24 @@ namespace Mila::Dnn
 					size *= dim;
 				}
 				return size;
+			}
+
+			size_t computeIndex( const std::vector<size_t>& indices ) const {
+				size_t index = 0;
+				for ( size_t i = 0; i < indices.size(); ++i ) {
+					index += indices[ i ] * strides_[ i ];
+				}
+				return index;
+			}
+
+			void setDevice( const std::string& device_name, int device_id ) {
+				auto dev = Compute::DeviceRegistry::instance().createDevice( device_name );
+				if ( dev ) {
+					device_ = std::move( dev );
+				}
+				else {
+					throw std::runtime_error( "Invalid device name." );
+				}
 			}
 	};
 } // namespace Mila::Dnn

@@ -7,5 +7,6 @@ export module Dnn.TensorTag;
 namespace Mila::Dnn
 {
 	export struct TensorTag {
+		// TODO: Feature addition
 	};
 }

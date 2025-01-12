@@ -2,11 +2,9 @@ module;
 #include <math.h>
 #include <iostream>
 
-export module Op.LayerNorm;
+export module App.Ops.LayerNorm;
 
 import Mila;
-
-//import Dnn.Tensor;
 
 using namespace Mila::Dnn;
 
@@ -36,7 +34,7 @@ namespace App::Ops
         // Module interface methods..
 
         Tensor<T> forward( const Tensor<T>& input ) override {
-            Tensor<T> output = input;
+            Tensor<T> output( input.shape() );
             float eps = 1e-5f;
             
             for ( int b = 0; b < B_; b++ ) {

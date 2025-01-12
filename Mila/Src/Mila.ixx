@@ -33,14 +33,26 @@ export import Dnn.Module;
 export import Dnn.Model;
 export import Dnn.Tensor;
 export import Dnn.TensorHelpers;
-export import Dnn.Session;
 
+//export import Compute.Device;
+export import Compute.DeviceInterface;
+export import Compute.DeviceRegistry;
+export import Compute.CpuDevice;
+export import Compute.CudaDevice;
+
+//export import Dnn.Session;
+
+export import Compute.Cpu.Ops.layernorm;
 
 export namespace Mila {
 	/// <summary>
 	/// Gets the Mila API version.
 	/// </summary>
 	export Version GetAPIVersion() {
-		return Version{0, 9, 15};
+		return Version{0, 9, 17};
 	}
+
+	// TODO: Static device registration should be automatic
+	bool Dnn::Compute::Cpu::CpuDevice::registered_ = (CpuDevice::RegisterDevice(), true);
+	bool Dnn::Compute::Cuda::CudaDevice::registered_ = (CudaDevice::RegisterDevices(), true);
 }

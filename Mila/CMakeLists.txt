@@ -32,12 +32,12 @@ PUBLIC
 		"Src/Dnn/TensorBuffer.ixx"  
 		"Src/Dnn/TensorHelpers.ixx"
 		"Src/Dnn/Compute/Operations.ixx"
-		"Src/Dnn/Compute/BackendFactory.ixx"
-		"Src/Dnn/Compute/BackendRegistry.ixx"
-		"Src/Dnn/Session.ixx" 
-		"Src/Dnn/Compute/BackendInterface.ixx"  
-		"Src/Dnn/Compute/Cuda/CudaBackend.ixx" 
-		"Src/Dnn/Compute/CPU/CPUBackend.ixx" 
+		"Src/Dnn/Compute/DeviceFactory.ixx"
+		"Src/Dnn/Compute/DeviceRegistry.ixx"
+		#"Src/Dnn/Session.ixx" 
+		"Src/Dnn/Compute/DeviceInterface.ixx"  
+		"Src/Dnn/Compute/Cuda/CudaDevice.ixx" 
+		"Src/Dnn/Compute/CPU/CpuDevice.ixx" 
 		"Src/Dnn/Compute/CPU/Ops/Encoder.ixx" 
 		"Src/Dnn/Compute/CPU/Ops/LayerNorm.ixx" 
 		"Src/Dnn/Compute/CPU/Ops/Attention.ixx" 
@@ -53,6 +53,7 @@ PUBLIC
 		"Src/Data/DataLoaderBase.ixx" 
 		"Src/Dnn/TensorTraits.ixx" 
 		"Src/Dnn/Module.ixx" 
-		)
+		#"Src/Dnn/Modules/LayerNorm.ixx"
+)
 
 target_link_libraries( Mila PRIVATE Thrust::Thrust CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )

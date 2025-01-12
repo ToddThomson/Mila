@@ -3,8 +3,8 @@
 
 import Mila;
 
-import Model.LayerNorm;
-import Op.LayerNorm;
+import App.Model.LayerNorm;
+import App.Ops.LayerNorm;
 
 int main() {
 
@@ -19,8 +19,11 @@ int main() {
 
     // TJT: B,T,C should come from input tensor shape?
 
-    LayerNormModel<float> model = LayerNormModel<float>( "LayerNorm Model", B, T, C);
-    model.add( LayerNormOp<float>( "ln1", B, T, C));
+    auto model = LayerNormModel<float>( "LayerNorm Model", B, T, C);
+	//auto layer = LayerNormOp<float>( "ln1", B, T, C );
+
+	//model.add( layer );
+    model.add( LayerNormOp<float>( "ln1", B, T, C) );
 
     auto layer = std::dynamic_pointer_cast<LayerNormOp<float>>( model[ 0 ] );
     
@@ -42,7 +45,7 @@ int main() {
     // now let's calculate everything ourselves
 
     // forward pass
-    y = model.forward( x );
+    auto y_result = model.forward( x );
 
     //model.backward( c_dx, c_dw, c_db, dout, x, w, c_mean, c_rstd, B, T, C );
 

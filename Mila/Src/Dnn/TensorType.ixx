@@ -101,5 +101,6 @@ namespace Mila::Dnn
         case TensorType::kINT64:
             return "kINT64";
         }
+		return "Unknown Tensor type";
     }
 }

@@ -10,38 +10,46 @@ int main() {
 
     std::cout << "Mila version: " << Mila::GetAPIVersion().ToString() << std::endl;
 
-    // Construct a session
-    auto dnn = Session();
+    auto& registry = Compute::DeviceRegistry::instance();
+    auto devices = registry.list_devices();
+	std::cout << "Available Compute Devices: ";
+	for ( const auto& device : devices ) {
+		std::cout << device << " ";
+	}
+	std::cout << std::endl;
 
-    Tensor<float> tensor( { 2,3 } );
-    tensor.fill( 5.0f );
-    tensor[ 1,2 ] = 3.0f;
+    Tensor<float> tensor( {  1000, 1000 }, "CUDA:0" );
+    random<float>( tensor, 0.0f, 5.0f );
+    //tensor.fill( 5.0f );
+    //tensor[ 1,2,1 ] = 3.0f;
+
+    tensor.print();
 
     std::vector<size_t> shape = { 2, 3 };
     Tensor<float> t2( shape );
 
-    auto view = t2.as_vector( 20 );
-	std::cout << "Tensor mapped to a 4 element vector" << std::endl;
+    auto view = t2.vectorSpan();
+	std::cout << "Tensor mapped to a vector" << std::endl;
     std::cout << "Size: " << view.size() << std::endl;
     std::cout << "Rank: " << view.rank() << std::endl;
     std::cout << "Rows: " << view.extent( 0 ) << std::endl;
 
-	auto view2 = t2.as_matrix( { 3,2 } );
+	auto view2 = t2.matrixSpan( { 3,2 } );
 	std::cout << "Tensor mapped to 3x2 matrix" << std::endl;
     std::cout << "Size: " << view2.size() << std::endl;
     std::cout << "Rank: " << view2.rank() << std::endl;
     std::cout << "Rows: " << view2.extent( 0 ) << std::endl;
     std::cout << "Cols: " << view2.extent( 1 ) << std::endl;
 
-    auto view3 = t2.as_matrix( { 2,3 } );
+    auto view3 = t2.matrixSpan( { 2,3 } );
     std::cout << "Tensor mapped to 2x3 matrix" << std::endl;
     std::cout << "Size: " << view3.size() << std::endl;
     std::cout << "Rank: " << view3.rank() << std::endl;
     std::cout << "Rows: " << view3.extent( 0 ) << std::endl;
     std::cout << "Cols: " << view3.extent( 1 ) << std::endl;
 
-	float value = tensor[1,1];
-	std::cout << "Value at [1,1]: " << value << std::endl;
+	/*float value = tensor[1,1];
+	std::cout << "Value at [1,1]: " << value << std::endl;*/
     
     tensor.print();
 

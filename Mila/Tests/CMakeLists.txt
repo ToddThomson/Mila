@@ -17,7 +17,8 @@ include( GoogleTest )
 add_executable( MilaTests
     "main.cpp" 
     "Dnn/Tensor.cpp"
-)
+    "Dnn/Model.cpp"
+ "Dnn/Compute/Device.cpp")
 
 target_link_libraries( MilaTests PUBLIC Mila PRIVATE gtest Thrust::Thrust )
 

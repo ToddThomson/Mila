@@ -1,7 +1,7 @@
 module;
 #include <iostream>
 
-export module Model.LayerNorm;
+export module App.Model.LayerNorm;
 
 import Mila;
 

@@ -22,8 +22,6 @@ namespace Mila::Dnn
 
 		virtual void print() = 0;
 
-		//virtual void device( const std::string& device ) = 0;
-
 		virtual size_t parameters() = 0;
 
 		virtual std::string name() = 0;

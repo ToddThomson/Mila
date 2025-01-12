@@ -205,7 +205,7 @@ namespace Mila::Dnn::Gpt2
 			matmul_backward( grads_acts_.lnf.data(), grads_.wte.data(), NULL, grads_acts_.logits.data(), acts_.lnf.data(), params_.wte.data(), B, T, C, Vp );
 			float* residual = acts_.residual3.data() + (L - 1) * B * T * C; // last layer's residual
 			float* dresidual = grads_acts_.residual3.data() + (L - 1) * B * T * C; // write to last layer's residual
-			layernorm_backward( dresidual, grads_.lnfw.data(), grads_.lnfb.data(), grads_acts_.lnf.data(), residual, params_.lnfw.data(), acts_.lnf_mean.data(), acts_.lnf_rstd.data(), B, T, C );
+			//layernorm_backward( dresidual, grads_.lnfw.data(), grads_.lnfb.data(), grads_acts_.lnf.data(), residual, params_.lnfw.data(), acts_.lnf_mean.data(), acts_.lnf_rstd.data(), B, T, C );
 
 			for ( int l = L - 1; l >= 0; l-- ) {
 				residual = l == 0 ? acts_.encoded.data() : acts_.residual3.data() + (l - 1) * B * T * C;
@@ -265,12 +265,12 @@ namespace Mila::Dnn::Gpt2
 				matmul_backward( dl_fch_gelu, dl_fcprojw, dl_fcprojb, dl_fcproj, l_fch_gelu, l_fcprojw, B, T, 4 * C, C );
 				gelu_backward( dl_fch, l_fch, dl_fch_gelu, B * T * 4 * C );
 				matmul_backward( dl_ln2, dl_fcw, dl_fcb, dl_fch, l_ln2, l_fcw, B, T, C, 4 * C );
-				layernorm_backward( dl_residual2, dl_ln2w, dl_ln2b, dl_ln2, l_residual2, l_ln2w, l_ln2_mean, l_ln2_rstd, B, T, C );
+				//layernorm_backward( dl_residual2, dl_ln2w, dl_ln2b, dl_ln2, l_residual2, l_ln2w, l_ln2_mean, l_ln2_rstd, B, T, C );
 				residual_backward( dresidual, dl_attproj, dl_residual2, B * T * C );
 				matmul_backward( dl_atty, dl_attprojw, dl_attprojb, dl_attproj, l_atty, l_attprojw, B, T, C, C );
 				attention_backward( dl_qkv, dl_preatt, dl_att, dl_atty, l_qkv, l_att, B, T, C, NH );
 				matmul_backward( dl_ln1, dl_qkvw, dl_qkvb, dl_qkv, l_ln1, l_qkvw, B, T, C, 3 * C );
-				layernorm_backward( dresidual, dl_ln1w, dl_ln1b, dl_ln1, residual, l_ln1w, l_ln1_mean, l_ln1_rstd, B, T, C );
+				//layernorm_backward( dresidual, dl_ln1w, dl_ln1b, dl_ln1, residual, l_ln1w, l_ln1_mean, l_ln1_rstd, B, T, C );
 			}
 			encoder_backward( grads_.wte.data(), grads_.wpe.data(), grads_acts_.encoded.data(), inputs_, B, T, C );
 		}
@@ -302,8 +302,8 @@ namespace Mila::Dnn::Gpt2
 				initialize_activation_tensors( acts_ );
 
 				// also create Tensors fpr caching inputs and targets
-				inputs_ = Tensor<int>( { B * T } );
-				targets_ = Tensor<int>( { B * T } ); // might be unused if we never have targets but it's small
+				inputs_.reshape( { B * T } );
+				targets_.reshape( { B * T } ); // might be unused if we never have targets but it's small
 			}
 			else {
 				// validate B,T is consistent with how we've allocated Tensors previously
@@ -315,10 +315,11 @@ namespace Mila::Dnn::Gpt2
 			}
 
 			// cache the inputs/targets
-			inputs_ = inputs;
+			// FIXME
+			/*inputs_ = inputs;
 			if ( !targets.empty() ) {
 				targets_ = targets;
-			}
+			}*/
 
 			// forward pass
 			float* residual;
@@ -360,19 +361,19 @@ namespace Mila::Dnn::Gpt2
 				float* l_residual3 = acts_.residual3.data() + l * batch_size_ * seq_len_ * C;
 
 				// now do the forward pass
-				layernorm_forward( l_ln1, l_ln1_mean, l_ln1_rstd, residual, l_ln1w, l_ln1b, batch_size_, seq_len_, C );
+				//layernorm_forward( l_ln1, l_ln1_mean, l_ln1_rstd, residual, l_ln1w, l_ln1b, batch_size_, seq_len_, C );
 				matmul_forward( l_qkv, l_ln1, l_qkvw, l_qkvb, batch_size_, seq_len_, C, 3 * C );
 				attention_forward( l_atty, l_preatt, l_att, l_qkv, batch_size_, seq_len_, C, NH );
 				matmul_forward( l_attproj, l_atty, l_attprojw, l_attprojb, batch_size_, seq_len_, C, C );
 				residual_forward( l_residual2, residual, l_attproj, batch_size_ * seq_len_ * C );
-				layernorm_forward( l_ln2, l_ln2_mean, l_ln2_rstd, l_residual2, l_ln2w, l_ln2b, batch_size_, seq_len_, C );
+				//layernorm_forward( l_ln2, l_ln2_mean, l_ln2_rstd, l_residual2, l_ln2w, l_ln2b, batch_size_, seq_len_, C );
 				matmul_forward( l_fch, l_ln2, l_fcw, l_fcb, batch_size_, seq_len_, C, 4 * C );
 				gelu_forward( l_fch_gelu, l_fch, batch_size_ * seq_len_ * 4 * C );
 				matmul_forward( l_fcproj, l_fch_gelu, l_fcprojw, l_fcprojb, batch_size_, seq_len_, 4 * C, C );
 				residual_forward( l_residual3, l_residual2, l_fcproj, batch_size_ * seq_len_ * C );
 			}
 			residual = acts_.residual3.data() + (L - 1) * batch_size_ * seq_len_ * C; // last residual is in residual3
-			layernorm_forward( acts_.lnf.data(), acts_.lnf_mean.data(), acts_.lnf_rstd.data(), residual, params_.lnfw.data(), params_.lnfb.data(), batch_size_, seq_len_, C );
+			//layernorm_forward( acts_.lnf.data(), acts_.lnf_mean.data(), acts_.lnf_rstd.data(), residual, params_.lnfw.data(), params_.lnfb.data(), batch_size_, seq_len_, C );
 			matmul_forward( acts_.logits.data(), acts_.lnf.data(), params_.wte.data(), NULL, batch_size_, seq_len_, C, Vp );
 			softmax_forward( acts_.probs.data(), acts_.logits.data(), batch_size_, seq_len_, V, Vp );
 

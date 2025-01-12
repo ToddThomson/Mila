@@ -6,9 +6,9 @@ module;
 
 export module Dnn.Session;
 
-import Compute.BackendRegistry;
-import Compute.BackendInterface;
-import Compute.CudaBackend;
+import Compute.DeviceRegistry;
+import Compute.DeviceInterface;
+import Compute.CudaDevice;
 import Compute.Operations;
 
 namespace Mila::Dnn
@@ -17,33 +17,33 @@ namespace Mila::Dnn
 
 	export class Session {
 	public:
-		explicit Session( const std::string& backendName = "CPU", int deviceId = 0 ) {
-			setBackend( backendName, deviceId );
+		explicit Session( const std::string& deviceName = "CPU", int deviceId = 0 ) {
+			set_device( deviceName, deviceId );
 		}
 
-		void setBackend( const std::string& backendName, int deviceId = 0 ) {
-			if (backendName.rfind( "CUDA", 0 ) == 0) {
-				backend_ = std::make_unique<Cuda::CudaBackend>( deviceId );
+		void set_device( const std::string& deviceName, int deviceId = 0 ) {
+			if (deviceName.rfind( "CUDA", 0 ) == 0) {
+				device_ = std::make_unique<Cuda::CudaDevice>( deviceId );
 			}
 			else {
-				backend_ = Compute::BackendRegistry::instance().createBackend( backendName );
+				device_ = Compute::DeviceRegistry::instance().createDevice( deviceName );
 			}
 		}
 
-		std::set<Operation> supportedOperations() const {
-			return backend_->supportedOperations();
+		std::set<Operation> supportedOps() const {
+			return device_->supportedOps();
 		}
 
-		BackendInterface& getBackend() {
-			if (!backend_) {
-				throw std::runtime_error( "Backend not configured." );
+		DeviceInterface& getDevice() {
+			if (!device_) {
+				throw std::runtime_error( "Device not configured." );
 			}
 
-			return *backend_;
+			return *device_;
 		}
 
 	private:
 
-		std::unique_ptr<Compute::BackendInterface> backend_;
+		std::unique_ptr<Compute::DeviceInterface> device_;
 	};
 }

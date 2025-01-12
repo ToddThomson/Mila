@@ -14,8 +14,9 @@ namespace Mila::Dnn
 		std::mt19937 gen( rd() );
 		std::uniform_real_distribution<T> dis( min, max );
 
+		auto v = tensor.vectorSpan();
 		for ( size_t i = 0; i < tensor.size(); ++i ) {
-			tensor[ i ] = dis( gen );
+			v[i] = dis(gen);
 		}
 	}
 
