@@ -29,21 +29,22 @@ namespace Mila::Dnn
 
         /**
          * @brief Adds a module to the model.
-         * 
+         *
          * @tparam ModuleType The type of the module to add.
          * @param module The module to add.
          * @throws std::invalid_argument if a module with the same name already exists.
          */
-        template <typename ModuleType, typename = std::enable_if_t<std::is_base_of_v<Module<T>, ModuleType>>>
-        void add( ModuleType&& module ) {
+        template <typename ModuleType> requires std::derived_from<ModuleType, Module<T>>
+        size_t add( ModuleType module ) {
             std::string name = module.name();
-            if ( module_map_.count( name ) > 0 ) {
+            if ( std::find(module_names_.begin(), module_names_.end(), name) != module_names_.end() ) {
                 throw std::invalid_argument( "Module with name '" + name + "'" + " already exists." );
             }
-            auto module_ptr = std::make_shared<ModuleType>( module );
+            auto module_ptr = std::make_shared<ModuleType>( std::move(module) );
             modules_.emplace_back( module_ptr );
-            module_map_[ name ] = module_ptr;
             module_names_.emplace_back( name );
+
+            return modules_.size() - 1;
         }
 
         /**
@@ -56,8 +57,6 @@ namespace Mila::Dnn
             Tensor<T> out = input;
             for ( const auto& module : modules_ ) {
                 out = module->forward( out );
-				//input = out;
-                //output  = std::move( module->forward( output );
             }
 
             return out;
@@ -73,7 +72,7 @@ namespace Mila::Dnn
          * @throws std::out_of_range if the index is out of range.
          */
         std::shared_ptr<Module<T>> operator[]( size_t index ) const {
-            if ( index > modules_.size() ) {
+            if ( index >= modules_.size() ) {
                 throw std::out_of_range( "Index out of range" );
             }
             return modules_[ index ];
@@ -87,11 +86,12 @@ namespace Mila::Dnn
          * @throws std::out_of_range if no module with the given name is found.
          */
         std::shared_ptr<Module<T>> operator[]( const std::string& name ) const {
-            auto it = module_map_.find( name );
-            if ( it == module_map_.end() ) {
+            auto it = std::find(module_names_.begin(), module_names_.end(), name);
+            if ( it == module_names_.end() ) {
                 throw std::out_of_range( "No module found with name '" + name + "'." );
             }
-            return it->second;
+            size_t index = std::distance(module_names_.begin(), it);
+            return modules_[ index ];
         }
 
         /**
@@ -99,14 +99,13 @@ namespace Mila::Dnn
          * 
          * @return size_t The total number of parameters.
          */
-        size_t parameters() override {
+        size_t parameters() const override {
             size_t total_parameters = 0;
             for ( const auto& module : modules_ ) {
                 total_parameters += module->parameters();
             }
             return total_parameters;
         }
-
 
         /**
          * @brief Returns the number of modules in the model.
@@ -120,7 +119,7 @@ namespace Mila::Dnn
         /**
          * @brief Prints the model's structure and total number of parameters.
          */
-        void print() override {
+        void print() const override {
             std::cout << "Modules: " << std::endl;
             for ( const auto& module : modules_ ) {
                 module->print();
@@ -130,7 +129,6 @@ namespace Mila::Dnn
 
     private:
         std::vector<std::shared_ptr<Module<T>>> modules_;
-        std::unordered_map<std::string, std::shared_ptr<Module<T>>> module_map_;
         std::vector<std::string> module_names_;
     };
 }

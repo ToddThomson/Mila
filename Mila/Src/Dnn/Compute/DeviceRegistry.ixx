@@ -33,6 +33,8 @@ export namespace Mila::Dnn::Compute
 			return it->second();
 		}
 
+
+
 		std::vector<std::string> list_devices() const {
 			std::lock_guard<std::mutex> lock( mutex_ );
 			std::vector<std::string> names;

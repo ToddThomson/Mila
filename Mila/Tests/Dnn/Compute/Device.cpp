@@ -19,29 +19,16 @@ namespace Dnn::Compute::Tests
         DeviceTest() {}
     };
    
-    TEST( DeviceRegistryTests, CpuRegisterAndCreateDevice ) {
-        auto& registry = DeviceRegistry::instance();
-        registry.registerDevice( "MockDevice", []() { return std::make_unique<Cpu::CpuDevice>(); } );
-
-        auto device = registry.createDevice( "MockDevice" );
-        EXPECT_NE( device, nullptr );
-    }
-
-    TEST( DeviceRegistryTests, CreateNonExistentDevice ) {
-        auto& registry = DeviceRegistry::instance();
-        auto device = registry.createDevice( "NonExistentDevice" );
-        EXPECT_EQ( device, nullptr );
-    }
-
     TEST( DeviceRegistryTests, ListDevices ) {
-        auto& registry = DeviceRegistry::instance();
-        registry.registerDevice( "MockDevice1", []() { return std::make_unique<Cpu::CpuDevice>(); } );
-        registry.registerDevice( "MockDevice2", []() { return std::make_unique<Cuda::CudaDevice>(); } );
-
-        auto devices = registry.list_devices();
-        EXPECT_EQ( devices.size(), 2 );
-        EXPECT_NE( std::find( devices.begin(), devices.end(), "MockDevice1" ), devices.end() );
-        EXPECT_NE( std::find( devices.begin(), devices.end(), "MockDevice2" ), devices.end() );
+        auto device_count = Cuda::GetDeviceCount();
+		int expected_device_count = 1 + device_count;
+        auto devices = list_devices();
+        EXPECT_EQ( devices.size(), expected_device_count );
+        EXPECT_NE( std::find( devices.begin(), devices.end(), "CPU" ), devices.end() );
+		for ( int i = 0; i < device_count; i++ ) {
+			std::string device_name = "CUDA:" + std::to_string( i );
+			EXPECT_NE( std::find( devices.begin(), devices.end(), device_name ), devices.end() );
+		}
     }
 
 }

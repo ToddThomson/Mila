@@ -20,10 +20,10 @@ namespace Mila::Dnn
             return {};
         }
 
-		virtual void print() = 0;
+		virtual size_t parameters() const = 0;
 
-		virtual size_t parameters() = 0;
+		virtual std::string name() const = 0;
 
-		virtual std::string name() = 0;
+        virtual void print() const = 0;
     };
 }

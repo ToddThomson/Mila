@@ -1,4 +1,3 @@
-// poor man's tensor checker
 #include <iostream>
 
 import Mila;
@@ -6,11 +5,17 @@ import Mila;
 import App.Model.LayerNorm;
 import App.Ops.LayerNorm;
 
+
 int main() {
 
     using namespace Mila::Dnn;
     using namespace App::Model::LayerNorm;
     using namespace App::Ops;
+
+	// Initialize Mila
+	Mila::Initialize();
+
+    //std::cout << "Mila version: " << Mila::GetAPIVersion().ToString() << std::endl;
 
     // Hyperparameters: batch, time / sequence length, number of channels
     size_t B = 2;
@@ -20,12 +25,12 @@ int main() {
     // TJT: B,T,C should come from input tensor shape?
 
     auto model = LayerNormModel<float>( "LayerNorm Model", B, T, C);
-	//auto layer = LayerNormOp<float>( "ln1", B, T, C );
+	auto layer_norm = LayerNormOp<float>( "ln1", B, T, C );
 
-	//model.add( layer );
-    model.add( LayerNormOp<float>( "ln1", B, T, C) );
+	int index = model.add( layer_norm );
+    //int ln2_index = model.add( LayerNormOp<float>( "ln2", B, T, C) );
 
-    auto layer = std::dynamic_pointer_cast<LayerNormOp<float>>( model[ 0 ] );
+    auto layer = std::dynamic_pointer_cast<LayerNormOp<float>>( model[ index ] );
     
     xavier( layer->Weight(), C, C );
 
@@ -33,7 +38,6 @@ int main() {
  
     // Input tensor 
     Tensor<float> x = Tensor<float>( { B * T * C } );
-    Tensor<float> y = Tensor<float>( { B * T * C } );
 
     random( x, -1.0f, 1.0f );
 

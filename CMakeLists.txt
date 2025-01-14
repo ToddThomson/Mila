@@ -15,7 +15,18 @@ option(MILA_ENABLE_GPT2_TESTING "Enable GPT2 tests." "OFF")
 option(MILA_ENABLE_SAMPLES "Enable Mila Library samples." "ON")
 option(MILA_ENABLE_NVBENCH "Enable NvBench." "OFF")
 option(MILA_ENABLE_OPENMP "Enable OpenMP support." "OFF")  
- 
+
+# TODO: Use CPM to fetch CCCL from GitHub
+# Uses the CMake Package Manager (CPM) to simplify fetching CCCL from GitHub
+#include(cmake/CPM.cmake)
+
+# This will automatically clone CCCL from GitHub and make the exported cmake targets available
+#CPMAddPackage(
+#    NAME CCCL
+#    GITHUB_REPOSITORY "nvidia/cccl"
+#    GIT_TAG "main"
+#)
+
 find_package(CUDAToolkit)  
 find_package(Thrust REQUIRED)  
 

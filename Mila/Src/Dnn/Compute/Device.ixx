@@ -6,7 +6,7 @@ export module Compute.Device;
 
 import Dnn.Tensor;
 
-namespace Mila::Dnn
+namespace Mila::Dnn::Compute
 {
     enum class DeviceType {
         CPU,

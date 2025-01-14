@@ -16,11 +16,11 @@ namespace Dnn::Tensors::Tests
     public:
         //MockModel() = default;
            
-        std::string name() override {
+        std::string name() const override {
             return "Mock";
         }
         
-        void print() override {}
+        void print() const override {}
     };
 
     class ModelTests : public ::testing::Test {

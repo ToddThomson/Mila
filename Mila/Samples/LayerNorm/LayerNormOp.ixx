@@ -121,15 +121,15 @@ namespace App::Ops
             }
         }
     
-		size_t parameters() override {
+		size_t parameters() const override {
 			return C_ * 2;
 		}
 
-		std::string name() override {
+		std::string name() const override {
             return name_;
 		}
 
-		void print() override {
+		void print() const override {
 			std::cout << "Module: " << name_ << std::endl;
 			std::cout << "Parameters: " << parameters() << std::endl;
 		}

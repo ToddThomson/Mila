@@ -16,11 +16,11 @@ namespace App::Model::LayerNorm
 		: name_( name ), batch_size_( batch_size ), seq_len_( sequence_length ), channels_( channels ) {
 		}
 
-		std::string name() override {
+		std::string name() const override {
 			return name_;
 		}
 
-		void print() {
+		void print() const {
 			std::cout << "Model: " << name_ << std::endl;
 			std::cout << "Batch size: " << batch_size_ << std::endl;
 			std::cout << "Sequence length: " << seq_len_ << std::endl;

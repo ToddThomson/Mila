@@ -39,7 +39,7 @@ namespace Mila::Dnn::Compute::Cuda
 			for ( int i = 0; i < deviceCount; i++ ) {
 				std::string name = "CUDA:" + std::to_string( i );
 				DeviceRegistry::instance().registerDevice( name, [i]() {
-					return std::make_unique<CudaDevice>( i );
+					return std::make_shared<CudaDevice>( i );
 					} );
 			}
 		}
@@ -49,5 +49,5 @@ namespace Mila::Dnn::Compute::Cuda
 		static bool registered_;
 	};
 
-	//export bool CudaDevice::registered_ = (CudaDevice::RegisterDevices(), true);
+	export bool CudaDevice::registered_ = (CudaDevice::RegisterDevices(), true);
 }

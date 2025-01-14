@@ -17,19 +17,19 @@ namespace Mila::Dnn::Compute::Cpu
 			return { Operation::LayerNorm };
 		}
 
-		std::string name() const override {
-			return "CPU";
+		static void RegisterDevice() {
+			DeviceRegistry::instance().registerDevice( "CPU", []() -> std::shared_ptr<DeviceInterface> {
+				return std::make_shared<CpuDevice>();
+				} );
 		}
 
-		static void RegisterDevice() {
-			DeviceRegistry::instance().registerDevice( "CPU", []() -> std::unique_ptr<DeviceInterface> {
-				return std::make_unique<CpuDevice>();
-				} );
+		std::string name() const override {
+			return "CPU";
 		}
 
 	private:
 		static bool registered_;
 	};
 
-	//export bool CpuDevice::registered_ = (CpuDevice::RegisterDevice(),true);
+	export bool CpuDevice::registered_ = (CpuDevice::RegisterDevice(),true);
 }

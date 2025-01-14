@@ -17,6 +17,7 @@ import Dnn.TensorBuffer;
 import Dnn.TensorTag;
 import Compute.DeviceRegistry;
 import Compute.DeviceInterface;
+import Mila.Context;
 //import Compute.CudaDevice;
 
 namespace Mila::Dnn
@@ -31,24 +32,20 @@ namespace Mila::Dnn
 			using Extent2d = std::dextents<size_t, 2>;
 			using Extent3d = std::dextents<size_t, 3>;
 			using Extent4d = std::dextents<size_t, 4>;
+			
+            Tensor( const std::vector<size_t>& shape, const std::string& device_name = "" )
+                : shape_( shape ), strides_( computeStrides( shape ) ), size_( computeSize( shape ) ), device_( setDevice( device_name )) {
+                allocateBuffer();
 
-			Tensor( const std::vector<size_t>& shape, const std::string& device_name = "CPU", int device_id = 0 )
-				:shape_( shape ), strides_( computeStrides( shape ) ), size_( computeSize( shape ) ) {
-				setDevice( device_name, device_id );
-				allocateBuffer();
-
-				// TJT: Feature 
-				//if ( initializer ) {
-				//	initializer( this );
-				//}
-			}
+                // TJT: Feature 
+                //if ( initializer ) {
+                //    initializer( this );
+                //}
+            }
 
 			// Creates an empty tensor with zero size
 			Tensor()
-				: shape_(), strides_( computeStrides( shape_ ) ), size_() {
-				//const std::string& device_name = "CPU";
-				//int device_id = 0;
-				//setDevice( device_name, device_id );
+				: shape_(), strides_( computeStrides( shape_ ) ), size_(), device_( setDevice( "" )) {
 				allocateBuffer();
 			}
 
@@ -197,13 +194,15 @@ namespace Mila::Dnn
 				buffer_->fill( value );
 			}
 
-			void print() {
+			void print() const {
 				std::cout << "Tensor of shape: ";
 				for ( auto dim : shape_ ) {
 					std::cout << dim << " ";
 				}
 				std::cout << std::endl;
-				std::cout << "TensorType::" << to_string( data_type_ ) << std::endl;
+				std::cout << "Tensor type::" << to_string( data_type_ ) << std::endl;
+				std::cout << "Device: " << device_->name() << std::endl;
+				std::cout << "Size: " << size_ << std::endl;
 				std::cout << "Data:" << std::endl;
 
 				if ( data_type_ == TensorType::kFP32 ) {
@@ -225,7 +224,7 @@ namespace Mila::Dnn
 			}
 
 			template <typename T>
-			void printBuffer( size_t index, size_t depth ) {
+			void printBuffer( size_t index, size_t depth ) const {
 				if ( depth == shape_.size() - 1 ) {
 					for ( size_t i = 0; i < shape_[ depth ]; ++i ) {
 						if ( i < 3 || i >= shape_[ depth ] - 3 ) {
@@ -279,13 +278,18 @@ namespace Mila::Dnn
 				return index;
 			}
 
-			void setDevice( const std::string& device_name, int device_id ) {
-				auto dev = Compute::DeviceRegistry::instance().createDevice( device_name );
-				if ( dev ) {
-					device_ = std::move( dev );
+			std::shared_ptr<Compute::DeviceInterface> setDevice( const std::string& device_name ) {
+				if ( device_name.empty() ) {
+					return Mila::Context::instance().device();
 				}
 				else {
-					throw std::runtime_error( "Invalid device name." );
+					auto dev = Compute::DeviceRegistry::instance().createDevice( device_name );
+					if ( dev ) {
+						return std::move( dev );
+					}
+					else {
+						throw std::runtime_error( "Invalid device name." );
+					}
 				}
 			}
 	};

@@ -2,10 +2,10 @@
 #include <math.h>
 #include <iostream>
 
-//export module Dnn.Module.LayerNorm;
-//
-//import Dnn.Tensor;
-//import Dnn.Module;
+export module Dnn.Modules.LayerNorm;
+
+import Dnn.Tensor;
+import Dnn.Module;
 
 //namespace Dnn::Modules
 //{

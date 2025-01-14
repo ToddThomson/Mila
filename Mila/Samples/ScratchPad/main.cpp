@@ -10,8 +10,7 @@ int main() {
 
     std::cout << "Mila version: " << Mila::GetAPIVersion().ToString() << std::endl;
 
-    auto& registry = Compute::DeviceRegistry::instance();
-    auto devices = registry.list_devices();
+    auto devices = Compute::list_devices();
 	std::cout << "Available Compute Devices: ";
 	for ( const auto& device : devices ) {
 		std::cout << device << " ";

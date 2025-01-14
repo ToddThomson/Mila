@@ -27,14 +27,16 @@ PUBLIC
 		"Src/Version.ixx"
 		"Src/Mila.ixx"
 		"Src/Misc/Glob.ixx"
+		"Src/Dnn/Compute/Cuda/CudaError.ixx"
+		"Src/Dnn/Compute/Cuda/CudaHelpers.ixx"
 		"Src/Dnn/Tensor.ixx"
 		"Src/Dnn/TensorType.ixx" 
 		"Src/Dnn/TensorBuffer.ixx"  
 		"Src/Dnn/TensorHelpers.ixx"
+		"Src/Dnn/TensorOp.ixx" 
 		"Src/Dnn/Compute/Operations.ixx"
 		"Src/Dnn/Compute/DeviceFactory.ixx"
 		"Src/Dnn/Compute/DeviceRegistry.ixx"
-		#"Src/Dnn/Session.ixx" 
 		"Src/Dnn/Compute/DeviceInterface.ixx"  
 		"Src/Dnn/Compute/Cuda/CudaDevice.ixx" 
 		"Src/Dnn/Compute/CPU/CpuDevice.ixx" 
@@ -47,13 +49,26 @@ PUBLIC
 		"Src/Dnn/Compute/CPU/Ops/Gelu.ixx"
 		"Src/Dnn/Compute/CPU/Ops/CrossEntropy.ixx"  
 		"Src/Helpers/Memory.ixx" 
-		"Src/Dnn/TensorOp.ixx" 
 		"Src/Utils/Logger.ixx"
 		"Src/Dnn/Model.ixx" 
 		"Src/Data/DataLoaderBase.ixx" 
 		"Src/Dnn/TensorTraits.ixx" 
 		"Src/Dnn/Module.ixx" 
-		#"Src/Dnn/Modules/LayerNorm.ixx"
-)
+		"Src/Dnn/Modules/LayerNorm.ixx"
+ "Src/Dnn/Compute/DeviceHelpers.ixx" "Src/Context.ixx")
 
 target_link_libraries( Mila PRIVATE Thrust::Thrust CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
+
+# Get the current date and time
+string(TIMESTAMP BUILD_DATE "%Y-%m-%d")
+string(TIMESTAMP BUILD_TIME "%H:%M:%S")
+
+# Write the version file
+configure_file(
+    ${CMAKE_SOURCE_DIR}/Mila/Src/Version.h.in
+    ${CMAKE_BINARY_DIR}/Mila/Version.h
+    @ONLY
+)
+
+# Include the generated version file
+include_directories(${CMAKE_BINARY_DIR})
