@@ -33,7 +33,10 @@ PUBLIC
 		"Src/Dnn/TensorType.ixx" 
 		"Src/Dnn/TensorBuffer.ixx"  
 		"Src/Dnn/TensorHelpers.ixx"
-		"Src/Dnn/TensorOp.ixx" 
+		
+		"Src/Dnn/Compute/Operation.ixx" 
+		"Src/Dnn/Compute/OperationBase.ixx" 
+		"Src/Dnn/Compute/OperationsFactory.ixx"
 		"Src/Dnn/Compute/Operations.ixx"
 		"Src/Dnn/Compute/DeviceFactory.ixx"
 		"Src/Dnn/Compute/DeviceRegistry.ixx"
@@ -41,7 +44,7 @@ PUBLIC
 		"Src/Dnn/Compute/Cuda/CudaDevice.ixx" 
 		"Src/Dnn/Compute/CPU/CpuDevice.ixx" 
 		"Src/Dnn/Compute/CPU/Ops/Encoder.ixx" 
-		"Src/Dnn/Compute/CPU/Ops/LayerNorm.ixx" 
+		"Src/Dnn/Compute/CPU/Ops/LayerNormOp.ixx" 
 		"Src/Dnn/Compute/CPU/Ops/Attention.ixx" 
 		"Src/Dnn/Compute/CPU/Ops/Residual.ixx" 
 		"Src/Dnn/Compute/CPU/Ops/MatMul.ixx"
@@ -55,7 +58,10 @@ PUBLIC
 		"Src/Dnn/TensorTraits.ixx" 
 		"Src/Dnn/Module.ixx" 
 		"Src/Dnn/Modules/LayerNorm.ixx"
- "Src/Dnn/Compute/DeviceHelpers.ixx" "Src/Context.ixx")
+		"Src/Dnn/Modules/MatMul.ixx" 
+		"Src/Dnn/Compute/DeviceHelpers.ixx" 
+		"Src/Dnn/ModelContext.ixx"
+ "Src/Dnn/Compute/OperationRegistry.ixx" "Src/Dnn/Attributes.ixx"  )
 
 target_link_libraries( Mila PRIVATE Thrust::Thrust CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
 

@@ -18,14 +18,14 @@ int main() {
 	std::cout << std::endl;
 
     Tensor<float> tensor( {  1000, 1000 }, "CUDA:0" );
-    random<float>( tensor, 0.0f, 5.0f );
+    random( tensor, 0.0f, 5.0f );
     //tensor.fill( 5.0f );
     //tensor[ 1,2,1 ] = 3.0f;
 
     tensor.print();
 
-    std::vector<size_t> shape = { 2, 3 };
-    Tensor<float> t2( shape );
+    //std::vector<size_t> shape = { 2, 3 };
+    Tensor<float> t2( { 2,3 } );
 
     auto view = t2.vectorSpan();
 	std::cout << "Tensor mapped to a vector" << std::endl;

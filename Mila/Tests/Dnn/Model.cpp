@@ -5,19 +5,16 @@
 
 import Mila;
 
-import Compute.Cpu.Ops.layernorm;
-
-namespace Dnn::Tensors::Tests
+namespace Dnn::Models::Tests
 {
     using namespace Mila::Dnn;
 
 	template<typename T>
-    class MockModel : public Model<T> {
+    class TestModel : public Model<T> {
     public:
-        //MockModel() = default;
-           
+
         std::string name() const override {
-            return "Mock";
+            return "TestModel";
         }
         
         void print() const override {}
@@ -35,36 +32,36 @@ namespace Dnn::Tensors::Tests
     };
 
     TEST_F(ModelTests, Constructor_ShouldInitializeCorrectly) {
-        MockModel<float> mock = MockModel<float>();
-        EXPECT_EQ(mock.name(), "Mock");
+        TestModel<float> mock = TestModel<float>();
+        EXPECT_EQ(mock.name(), "TestModel");
     }
 
     TEST_F(ModelTests, AddLayer_ShouldAddLayerCorrectly) {
         // Arrange
-        auto mock_model = MockModel<float>();
-        //auto layer = Mila::Dnn::Compute::Cpu::Ops::LayerNormOp<float>("ln1", 2, 3, 4);
+        auto model = TestModel<float>();
+        auto layer = std::make_shared<Modules::LayerNorm<float>>( "ln1", 2, 3, 4 );
         
         // Act
-        mock_model.add( Mila::Dnn::Compute::Cpu::Ops::LayerNormOp<float>( "ln1", 2, 3, 4 ) );
+        model.add( layer );
 
         // Assert
-        EXPECT_EQ(mock_model.size(), 1);
+        EXPECT_EQ(model.size(), 1);
     }
 
     TEST_F(ModelTests, Forward_ShouldReturnCorrectOutput) {
         // Arrange
-        MockModel<float> mock_model = MockModel<float>();
-        //auto layer = Mila::Dnn::Compute::Cpu::Ops::LayerNormOp<float>("ln1", 2, 3, 4);
-        mock_model.add( Mila::Dnn::Compute::Cpu::Ops::LayerNormOp<float>( "ln1", 2, 3, 4 ) );
-        Tensor<float> input({2 * 3 * 4});
-        random(input, -1.0f, 1.0f);
+        TestModel<float> model = TestModel<float>();
+        auto layer = std::make_shared<Modules::LayerNorm<float>>("ln1", 2, 3, 4);
+        model.add( layer );
+		
+        // Create a random input tensor with shape (B=2, T=3, C=4)
+        Tensor<float> X({2, 3, 4}); 
+        random(X, -1.0f, 1.0f);
 
         // Act
-        Tensor<float> output = mock_model.forward(input);
+        auto Y = model.forward( std::make_shared<Tensor<float>>( X ) );
 
         // Assert
-        EXPECT_EQ(output.size(), input.size());
+        EXPECT_EQ( Y->size(), X.size());
     }
-
-    
 }

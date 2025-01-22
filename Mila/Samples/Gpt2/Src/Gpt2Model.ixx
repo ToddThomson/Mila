@@ -14,7 +14,7 @@ export module Gpt2.Gpt2Model;
 
 import Dnn.Tensor;
 import Gpt2.Gpt2Config;
-import Compute.Cpu.Ops.layernorm;
+import Compute.Cpu.Ops.LayerNormOp;
 import Compute.Cpu.Ops.MatMul;
 import Compute.Cpu.Ops.CrossEntropy;
 import Compute.Cpu.Ops.Residual;

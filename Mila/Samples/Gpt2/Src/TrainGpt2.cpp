@@ -8,7 +8,6 @@ import Mila;
 import Utils.Logger;
 import Gpt2.DataLoader;
 import Gpt2.Tokenizer;
-import Dnn.Tensor;
 import Gpt2.Gpt2Config;
 import Gpt2.Gpt2Model;
 
@@ -58,6 +57,9 @@ void error_usage() {
 }
 
 int main( int argc, char* argv[] ) {
+	Mila::Initialize();
+	std::cout << "Mila version: " << Mila::GetAPIVersion().ToString() << std::endl;
+
 
 	using namespace Mila::Dnn::Gpt2;
 
@@ -136,7 +138,7 @@ int main( int argc, char* argv[] ) {
 
 	// some memory for generating samples from the model
 	uint64_t rng_state = 1337;
-	Tensor<int> gen_tokens( { B * T } );
+	Tensor<int> gen_tokens( std::vector<size_t>( { B * T } ) );
 
 	// Training loop
 	for ( int step = 0; step <= 40; step++ ) {
@@ -171,7 +173,7 @@ int main( int argc, char* argv[] ) {
 				// we re-calculate the forward pass for all of (B,T) positions from scratch
 				// but the inference here is just for sanity checking anyway
 				// and we can maybe optimize a bit more later, with careful tests
-				Tensor<int> empty_targets;
+				Tensor<int> empty_targets; //int
 				model.forward( gen_tokens, empty_targets, B, T );
 
 				// furthermore, below we're only using b=0 (i.e. the first row) of all B rows

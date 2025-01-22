@@ -430,8 +430,7 @@ __global__ void __launch_bounds__(512, 2) // todo - any warnings on Turing with 
 // kernel launchers
 
 // similar to `fused_residual_forward5`
-void layernorm_forward(floatX* out, float* mean, float* rstd,
-                       floatX* inp, const floatX* weight, const floatX* bias,
+void layernorm_forward(floatX* out, float* mean, float* rstd, floatX* inp, const floatX* weight, const floatX* bias,
                        int B, int T, int C, cudaStream_t stream) {
     NVTX_RANGE_FN();
     const int block_size = 256;

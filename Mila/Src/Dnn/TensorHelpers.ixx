@@ -8,11 +8,11 @@ import Dnn.Tensor;
 
 namespace Mila::Dnn
 {
-	export template<typename T>
-		void random( Tensor<T>& tensor, T min, T max ) {
+	export 
+		void random( Tensor<float>& tensor, float min, float max ) {
 		std::random_device rd;
 		std::mt19937 gen( rd() );
-		std::uniform_real_distribution<T> dis( min, max );
+		std::uniform_real_distribution<float> dis( min, max );
 
 		auto v = tensor.vectorSpan();
 		for ( size_t i = 0; i < tensor.size(); ++i ) {
@@ -20,12 +20,11 @@ namespace Mila::Dnn
 		}
 	}
 
-	export template<typename T>
-		void xavier( Tensor<T>& tensor, size_t input_size, size_t output_size ) {
-		T limit = std::sqrt( 6.0 / (input_size + output_size) );
+		export void xavier( Tensor<float>& tensor, size_t input_size, size_t output_size ) {
+		float limit = std::sqrt( 6.0 / (input_size + output_size) );
 		std::random_device rd;
 		std::mt19937 gen( rd() );
-		std::uniform_real_distribution<T> dis( -limit, limit );
+		std::uniform_real_distribution<float> dis( -limit, limit );
 
 		for ( size_t i = 0; i < tensor.size(); ++i ) {
 			tensor[ i ] = dis( gen );

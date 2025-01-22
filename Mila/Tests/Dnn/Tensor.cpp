@@ -26,11 +26,11 @@ namespace Dnn::Tensors::Tests {
         EXPECT_TRUE( tensor.empty() );
         EXPECT_EQ( tensor.size(), 0 );
         EXPECT_EQ( tensor.rank(), 0 );
-		EXPECT_EQ( tensor.device() == nullptr, true );
+		EXPECT_EQ( tensor.device()->name(), "CPU");
     }
 
     TEST( TensorTest, ConstructorWithShape ) {
-        std::vector<size_t> shape = { 2, 3 };
+		std::vector<size_t> shape = { 2, 3 };
         Tensor<float> tensor( shape );
         EXPECT_FALSE( tensor.empty() );
         EXPECT_EQ( tensor.size(), 6 );
@@ -50,7 +50,7 @@ namespace Dnn::Tensors::Tests {
 
     TEST( TensorTest, VectorSpan ) {
         std::vector<size_t> shape = { 6 };
-        Tensor<float> tensor( shape );
+        Tensor<float> tensor( {6});
         auto span = tensor.vectorSpan();
         EXPECT_EQ( span.extent( 0 ), 6 );
     }
@@ -124,7 +124,7 @@ namespace Dnn::Tensors::Tests {
     
     TEST( TensorTest, Strides ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<double> tensor( shape );
+        Tensor<float> tensor( shape );
         std::vector<size_t> expected_strides = { 3, 1 };
         EXPECT_EQ( tensor.strides(), expected_strides );
     }

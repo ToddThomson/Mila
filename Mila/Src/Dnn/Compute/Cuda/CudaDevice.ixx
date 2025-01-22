@@ -25,7 +25,7 @@ namespace Mila::Dnn::Compute::Cuda
 		}
 
 		std::set<Operation> supportedOps() const override {
-			return { Operation::LayerNorm, Operation::MatrixMultiply };
+			return { Operation::LayerNormOp, Operation::MatMulOp };
 		}
 
 		std::string name() const override {

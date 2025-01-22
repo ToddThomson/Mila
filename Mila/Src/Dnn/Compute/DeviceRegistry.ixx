@@ -28,12 +28,10 @@ export namespace Mila::Dnn::Compute
 			std::lock_guard<std::mutex> lock( mutex_ );
 			auto it = devices_.find( name );
 			if (it == devices_.end()) {
-                return nullptr; // throw std::runtime_error( "Invalid device name." );
+                return nullptr; // TJT: Review throw std::runtime_error( "Invalid device name." );
 			}
 			return it->second();
 		}
-
-
 
 		std::vector<std::string> list_devices() const {
 			std::lock_guard<std::mutex> lock( mutex_ );

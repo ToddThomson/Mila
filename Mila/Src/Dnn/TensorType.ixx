@@ -10,8 +10,9 @@ export module Dnn.TensorType;
 
 namespace Mila::Dnn
 {
-    // enumerator to indentify the datatype of a tensor.
+    // enumerator to identify the datatype of a tensor.
     export enum class TensorType {
+        kNotSet, // Not set
         kFP32, // float
         kFP64, // double
         kFP16, // half
@@ -19,7 +20,7 @@ namespace Mila::Dnn
         kINT32, // int32_t
         kINT64, // int64_t
         //kBF16, // nv_bfloat16
-        kEmptyType,
+       
     };
 
     // Given a datatype enum, returns the underlying number of bytes
@@ -45,12 +46,14 @@ namespace Mila::Dnn
         }
     };
 
-    export TensorType tensor_type_of( double* f ) { return TensorType::kFP64; };
-    export TensorType tensor_type_of( float* f ) { return TensorType::kFP32; };
-    export TensorType tensor_type_of( half* f ) { return TensorType::kFP16; };
-    export TensorType tensor_type_of( int16_t* f ) { return TensorType::kINT16; };
-    export TensorType tensor_type_of( int* f ) { return TensorType::kINT32; };
-    export TensorType tensor_type_of( int64_t* f ) { return TensorType::kINT64; };
+
+
+    export TensorType tensor_type_of( double* val ) { return TensorType::kFP64; };
+    export TensorType tensor_type_of( float* val ) { return TensorType::kFP32; };
+    export TensorType tensor_type_of( half* val ) { return TensorType::kFP16; };
+    export TensorType tensor_type_of( int16_t* val ) { return TensorType::kINT16; };
+    export TensorType tensor_type_of( int* val ) { return TensorType::kINT32; };
+    export TensorType tensor_type_of( int64_t* val ) { return TensorType::kINT64; };
 
     // Define a type trait to map T to the corresponding ElementType variant
     export template <TensorType T>

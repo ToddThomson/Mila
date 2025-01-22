@@ -34,6 +34,7 @@ export import Cuda.Helpers;
 
 export import Dnn.Module;
 export import Dnn.Model;
+export import Dnn.ModelContext;
 export import Dnn.Tensor;
 export import Dnn.TensorHelpers;
 
@@ -43,20 +44,22 @@ import Compute.DeviceRegistry;
 import Compute.CpuDevice;
 import Compute.CudaDevice;
 export import Compute.DeviceHelpers;
-export import Mila.Context;
 
-//export import Dnn::Modules::LayerNorm;
+export import Dnn.Modules.LayerNorm;
+export import Dnn.Modules.MatMul;
+
+import Compute.Cpu.Ops.LayerNormOp;
 
 namespace Mila {
     /// <summary>
     /// Gets the Mila API version.
     /// </summary>
     export Version GetAPIVersion() {
-        return Version{0, 9, 20, "alpha", 1 };
+        return Version{0, 9, 25, "alpha", 1 };
     }
 
 	export void device( const std::string& name ) {
-		Mila::Context::instance().setDevice( name );
+		Mila::Dnn::ModelContext::instance().setDevice( name );
 	}
 
     namespace {
@@ -67,13 +70,20 @@ namespace Mila {
             }
         };
 
+		struct OperationRegistrar {
+			OperationRegistrar() {
+                Mila::Dnn::Compute::Cpu::Ops::LayerNormOp<float>::RegisterOperation();
+			}
+		};
+
         // Static instance to trigger registration
         static DeviceRegistrar deviceRegistrar;
+		static OperationRegistrar operationRegistrar;
     }
 
     // Ensure the static instance is referenced to trigger the constructor
     export void Initialize() {
         (void)deviceRegistrar;
-
+		(void)operationRegistrar;
     }
 }

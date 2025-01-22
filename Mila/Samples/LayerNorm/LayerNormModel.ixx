@@ -34,6 +34,6 @@ namespace App::Model::LayerNorm
 		size_t seq_len_{ 0 };
 		size_t channels_{ 0 };
 
-		std::string name_{ "LayerNorm" };
+		std::string name_{ "LayerNormModel" };
 	};
 }

@@ -18,6 +18,7 @@ namespace Mila::Dnn::Compute
 		virtual std::set<Operation> supportedOps() const = 0;
 
 		virtual std::string name() const = 0;
+
 	};
 }
 

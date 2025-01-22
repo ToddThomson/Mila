@@ -10,7 +10,7 @@ PUBLIC
 	FILE_SET module_files
        TYPE CXX_MODULES FILES
 		"Src/ModelConfig.ixx"
-		"Src/Gpt2DataLoader.ixx"
+		"Src/DataLoader.ixx"
 		"Src/Gpt2Model.ixx"
 		"Src/Tokenizer.ixx" 
 )

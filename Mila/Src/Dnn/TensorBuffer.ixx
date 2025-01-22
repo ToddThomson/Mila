@@ -5,21 +5,16 @@ module;
 export module Dnn.TensorBuffer;
 
 import Dnn.TensorType;
-//import Dnn.TensorBufferBase;
 
 namespace Mila::Dnn
 {
 	export template<typename T>
-	class TensorBuffer {//: public TensorBufferBase {
+	class TensorBuffer {
     public:
         TensorBuffer( size_t buffer_size )
 			: buffer_( buffer_size ) {
         }
-
-		/*TensorBuffer()
-			: buffer_( 0 ) {
-		}*/
-
+		
         size_t size() const {
             return buffer_.size();
         }
@@ -28,7 +23,7 @@ namespace Mila::Dnn
 			return buffer_.data();
 		}
 
-		T * data() {
+		T* data() {
 			return buffer_.data();
 		}
 
@@ -40,9 +35,8 @@ namespace Mila::Dnn
 			buffer_.resize( size );
 		}
 
-
     private:
 		//thrust::host_vector<std::byte> buffer_;
 		std::vector<T> buffer_;
     };
-} // namespace Mila::Dnn
+}

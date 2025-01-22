@@ -35,13 +35,14 @@ namespace Mila::Dnn
          * @throws std::invalid_argument if a module with the same name already exists.
          */
         template <typename ModuleType> requires std::derived_from<ModuleType, Module<T>>
-        size_t add( ModuleType module ) {
-            std::string name = module.name();
+        size_t add( std::shared_ptr<ModuleType> module ) {
+            std::string name = module->name();
             if ( std::find(module_names_.begin(), module_names_.end(), name) != module_names_.end() ) {
                 throw std::invalid_argument( "Module with name '" + name + "'" + " already exists." );
             }
-            auto module_ptr = std::make_shared<ModuleType>( std::move(module) );
-            modules_.emplace_back( module_ptr );
+            //auto module_ptr = std::make_shared<ModuleType>( std::move(module) );
+            //module->setParent( this );
+            modules_.emplace_back( std::move(module) );
             module_names_.emplace_back( name );
 
             return modules_.size() - 1;
@@ -53,8 +54,8 @@ namespace Mila::Dnn
          * @param input The input tensor.
          * @return Tensor<T> The output tensor.
          */
-        Tensor<T> forward( const Tensor<T>& input ) override {
-            Tensor<T> out = input;
+        std::shared_ptr<Tensor<T>> forward( const std::shared_ptr<Tensor<T>>& input ) override {
+            std::shared_ptr<Tensor<T>> out = input;
             for ( const auto& module : modules_ ) {
                 out = module->forward( out );
             }
@@ -62,6 +63,7 @@ namespace Mila::Dnn
             return out;
         }
 
+		// ---------------------------------------------------------------------
         // Module access functions
 
         /**

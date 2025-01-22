@@ -6,8 +6,7 @@ export module Compute.Cpu.Ops.MatMul;
 
 namespace Mila::Dnn::Compute::Cpu::Ops
 {
-    export void matmul_forward_naive( float* out,
-        const float* inp, const float* weight, const float* bias,
+    export void matmul_forward_naive( float* out, const float* inp, const float* weight, const float* bias,
         int B, int T, int C, int OC ) {
         // the most naive implementation of matrix multiplication
         // this serves as an algorithmic reference, and as a fallback for
@@ -27,7 +26,8 @@ namespace Mila::Dnn::Compute::Cpu::Ops
         }
     }
 
-    export void matmul_forward( float* out, const float* inp, const float* weight, const float* bias, int B, int T, int C, int OC ) {
+    export void matmul_forward( float* out, const float* inp, const float* weight, const float* bias, 
+        int B, int T, int C, int OC ) {
         const int LOOP_UNROLL = 8;
         if (B * T % LOOP_UNROLL != 0) {
             matmul_forward_naive( out, inp, weight, bias, B, T, C, OC );
@@ -56,7 +56,8 @@ namespace Mila::Dnn::Compute::Cpu::Ops
         }
     }
 
-    export void matmul_backward( float* dinp, float* dweight, float* dbias, const float* dout, const float* inp, const float* weight, int B, int T, int C, int OC ) {
+    export void matmul_backward( float* dinp, float* dweight, float* dbias, const float* dout, const float* inp, const float* weight, 
+        int B, int T, int C, int OC ) {
         #pragma omp parallel for collapse(2)
         for (int b = 0; b < B; b++) {
             for (int t = 0; t < T; t++) {

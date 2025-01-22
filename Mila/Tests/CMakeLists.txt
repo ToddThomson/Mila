@@ -18,7 +18,10 @@ add_executable( MilaTests
     "main.cpp" 
     "Dnn/Tensor.cpp"
     "Dnn/Model.cpp"
- "Dnn/Compute/Device.cpp" "Dnn/Compute/DeviceHelpers.cpp" "Context.cpp")
+    "Dnn/Compute/Device.cpp" 
+    "Dnn/Compute/DeviceHelpers.cpp" 
+    "Context.cpp"
+)
 
 target_link_libraries( MilaTests PUBLIC Mila PRIVATE gtest Thrust::Thrust )
 

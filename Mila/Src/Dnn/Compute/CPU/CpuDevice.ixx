@@ -14,7 +14,7 @@ namespace Mila::Dnn::Compute::Cpu
 	export class CpuDevice : public DeviceInterface {
 	public:
 		std::set<Operation> supportedOps() const override {
-			return { Operation::LayerNorm };
+			return { Operation::LayerNormOp };
 		}
 
 		static void RegisterDevice() {

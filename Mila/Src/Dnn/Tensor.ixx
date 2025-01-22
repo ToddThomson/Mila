@@ -7,6 +7,7 @@ module;
 #include <variant>  
 #include <memory>
 #include <mdspan>
+#include <optional>
 #include <functional>
 #include <cuda_fp16.h>
 
@@ -15,18 +16,19 @@ export module Dnn.Tensor;
 import Dnn.TensorType;  
 import Dnn.TensorBuffer; 
 import Dnn.TensorTag;
+import Dnn.ModelContext;
 import Compute.DeviceRegistry;
 import Compute.DeviceInterface;
-import Mila.Context;
+
 //import Compute.CudaDevice;
 
 namespace Mila::Dnn
 {
 	export template<typename T>
-		class Tensor : TensorTag {
+	class Tensor : TensorTag {
 		public:
 
-			using ElementType = T;
+			using scalar_t = std::variant<int64_t, int32_t, half, float>;
 
 			using Extent1d = std::dextents<size_t, 1>;
 			using Extent2d = std::dextents<size_t, 2>;
@@ -49,6 +51,21 @@ namespace Mila::Dnn
 				allocateBuffer();
 			}
 
+			/*Tensor( float const& scalar ) 
+				: scalar_value_( scalar ), is_scalar_( true ), shape_{ 1 }, strides_{ 1 }, data_type_( TensorType::kFP32 ){
+			}
+
+			Tensor( half const& scalar ) 
+				: scalar_value_( scalar ), is_scalar_( true ), shape_{ 1 }, strides_{ 1 }, data_type_( TensorType::kFP16 ) {
+			}
+
+			Tensor( int32_t const& scalar ) 
+				: scalar_value_( scalar ), is_scalar_( true ), shape_{ 1 }, strides_{ 1 }, data_type_( TensorType::kINT32 ) {}
+
+			Tensor( int64_t const& scalar )
+				: scalar_value_( scalar ), is_scalar_( true ), shape_{ 1 }, strides_{ 1 }, data_type_( TensorType::kINT64 ) {
+			}*/
+			
 			// Copy asignement operator
 			Tensor& operator=( const Tensor& other ) {
 				if ( this != &other ) {
@@ -81,7 +98,7 @@ namespace Mila::Dnn
 			}
 
 			auto vectorSpan() {
-				return std::mdspan<ElementType, Extent1d>( buffer_->data(), size_ );
+				return std::mdspan<T, Extent1d>( buffer_->data(), size_ );
 			}
 
 			auto matrixSpan( const std::vector<size_t>& shape ) {
@@ -92,7 +109,7 @@ namespace Mila::Dnn
 				if ( total_size > size_ ) {
 					throw std::runtime_error( "matrixSpan: The specified shape exceeds the tensor size." );
 				}
-				return std::mdspan<ElementType, Extent2d>( buffer_->data(), shape[ 0 ], shape[ 1 ] );
+				return std::mdspan<T, Extent2d>( buffer_->data(), shape[ 0 ], shape[ 1 ] );
 			}
 
 			/*T_ELEM& at( const std::vector<size_t>& indices ) {
@@ -182,6 +199,18 @@ namespace Mila::Dnn
 				return device_;
 			}
 
+			/*template<typename TValue>
+			TValue scalar() const {
+				if ( is_scalar_ && scalar_value_.has_value() ) {
+					auto scalar_var = scalar_value_.value();
+					return std::get<TValue>(scalar_var);
+				}
+				else {
+					throw std::runtime_error( "Tensor does not hold a scalar value." );
+				}
+			}*/
+            
+
 			T* data() {
 				return buffer_->data();
 			}
@@ -206,14 +235,16 @@ namespace Mila::Dnn
 				std::cout << "Data:" << std::endl;
 
 				if ( data_type_ == TensorType::kFP32 ) {
-					printBuffer<float>( 0, 0 );
+					printBuffer( 0, 0 );
 				}
 			}
 
 		private:
+			std::optional<scalar_t> scalar_value_{ std::nullopt };
+			bool is_scalar_{ false };
 			size_t size_{ 0 };
-			TensorType data_type_{ TensorType::kEmptyType };
-			std::vector<size_t> shape_;
+			TensorType data_type_{ TensorType::kNotSet };
+			std::vector<size_t> shape_{};
 			std::vector<size_t> strides_;
 			std::shared_ptr<TensorBuffer<T>> buffer_;
 			std::shared_ptr<Compute::DeviceInterface> device_;
@@ -223,7 +254,6 @@ namespace Mila::Dnn
 				data_type_ = tensor_type_of( buffer_->data() );
 			}
 
-			template <typename T>
 			void printBuffer( size_t index, size_t depth ) const {
 				if ( depth == shape_.size() - 1 ) {
 					for ( size_t i = 0; i < shape_[ depth ]; ++i ) {
@@ -239,7 +269,7 @@ namespace Mila::Dnn
 					for ( size_t i = 0; i < shape_[ depth ]; ++i ) {
 						if ( i < 3 || i >= shape_[ depth ] - 3 ) {
 							std::cout << "[ ";
-							printBuffer<T>( index + i * strides_[ depth ], depth + 1 );
+							printBuffer( index + i * strides_[ depth ], depth + 1 );
 							std::cout << "]" << std::endl;
 						}
 						else if ( i == 3 ) {
@@ -280,7 +310,7 @@ namespace Mila::Dnn
 
 			std::shared_ptr<Compute::DeviceInterface> setDevice( const std::string& device_name ) {
 				if ( device_name.empty() ) {
-					return Mila::Context::instance().device();
+					return ModelContext::instance().device();
 				}
 				else {
 					auto dev = Compute::DeviceRegistry::instance().createDevice( device_name );
@@ -293,4 +323,4 @@ namespace Mila::Dnn
 				}
 			}
 	};
-} // namespace Mila::Dnn
+}
