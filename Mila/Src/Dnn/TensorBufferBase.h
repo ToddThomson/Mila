@@ -2,7 +2,7 @@
 
 namespace Mila::Dnn
 {
-    export template<typename T>
+    template<typename T>
     class TensorBufferBase {
     public:
         virtual ~TensorBufferBase() = default;

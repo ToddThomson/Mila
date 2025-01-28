@@ -1,5 +1,6 @@
 ﻿#include <iostream>
 #include <thrust/host_vector.h>
+//#include <thrust/device_vector.h>
 
 import Mila;
 
@@ -7,7 +8,7 @@ int main() {
 
     using namespace Mila::Dnn;
 
-    //std::cout << "Mila version: " << Mila::GetAPIVersion().ToString() << std::endl;
+    std::cout << "Mila version: " << Mila::GetAPIVersion().ToString() << std::endl;
 
     auto devices = Compute::list_devices();
 	std::cout << "Available Compute Devices: ";

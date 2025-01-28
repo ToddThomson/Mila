@@ -2,8 +2,8 @@
 
 add_library( Mila STATIC
 	"Src/Dnn/Compute/Cuda/Kernels/Cuda.MatMul.cu"
-	#"Src/Dnn/Compute/Cuda/Kernels/Cuda.MatMul.h"
-	#"Src/Dnn/TensorBufferBase.h"
+	"Src/Dnn/Compute/Cuda/Kernels/Cuda.MatMul.h"
+	"Src/Dnn/TensorBufferBase.h"
 	"Src/Dnn/TensorBuffer.cuh"
 )
 

@@ -21,6 +21,9 @@
 module;
 #include <iostream>
 #include <thrust/host_vector.h>
+#include <thrust/device_vector.h>
+
+#include "Dnn/TensorBuffer.cuh"
 
 export module Mila;
 
@@ -62,24 +65,15 @@ namespace Mila {
 		Dnn::Compute::DeviceContext::instance().setDevice( name );
 	}
 
-    // Ensure the static instance is referenced to trigger the constructor
+    // TJT: Remove. Ensure the static instance is referenced to trigger the constructor
     void Initialize() {
-        
     }
 
-  //  namespace {
-		//
-		///*struct OperationRegistrar {
-		//	OperationRegistrar() {
-  //              Mila::Dnn::Compute::Cuda::CudaMatMulOp<float>::registerOperation();
+    // Explicit instantiation definitions
+    //export template class Dnn::TensorBuffer<float, thrust::device_vector>;
+    //export template class Dnn::TensorBuffer<int, thrust::device_vector>;
 
-  //              Mila::Dnn::Compute::Cpu::Ops::LayerNormOp<float>::registerOperation();
-  //              Mila::Dnn::Compute::Cpu::Ops::MatMulOp<float>::registerOperation();
-		//	}
-		//};*/
+    export template class Dnn::TensorBuffer<float, thrust::host_vector>;
+    export template class Dnn::TensorBuffer<int, thrust::host_vector>;
 
-  //      // Static instance to trigger registration
-  //      //static DeviceRegistrar deviceRegistrar;
-		////static OperationRegistrar operationRegistrar;
-  //  }
 }
