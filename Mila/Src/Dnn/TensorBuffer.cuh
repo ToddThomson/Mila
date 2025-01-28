@@ -1,6 +1,8 @@
 #pragma once
 
 #include <thrust/host_vector.h>
+
+// TJT: Adding the device_vector include causes a compile error
 //#include <thrust/device_vector.h>
 
 #include "TensorBufferBase.h"

@@ -2,10 +2,7 @@ module;
 #include <math.h>
 #include <iostream>
 #include <unordered_map>
-#include <thrust/detail/raw_pointer_cast.h>
 #include <thrust/host_vector.h>
-#include <thrust/device_vector.h>
-#include <thrust/device_ptr.h>
 
 export module Dnn.Modules.LayerNorm;
 

@@ -248,15 +248,13 @@ namespace Mila::Dnn
 			std::vector<size_t> shape_{};
 			std::vector<size_t> strides_;
 			std::shared_ptr<TensorBufferBase<T>> buffer_;
-			//std::shared_ptr<TensorBuffer<T, thrust::device_vector>> buffer_;
-			//std::unique_ptr<TensorBuffer<T, thrust::device_vector>> device_buffer_;
 			std::shared_ptr<Compute::DeviceInterface> device_;
 
 			void allocateBuffer() {
 
-				buffer_ = std::make_shared<TensorBuffer<T, thrust::host_vector>>( size_ );
-
-
+				//buffer_ = std::make_shared<TensorBuffer<T, thrust::host_vector>>( size_ );
+				
+				// TJT: thrust::host_vector by default
 				buffer_ = std::make_shared<TensorBuffer<T>>( size_ );
 				data_type_ = tensor_type_of( buffer_->data() );
 			}

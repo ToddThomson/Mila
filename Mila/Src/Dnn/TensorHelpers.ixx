@@ -1,10 +1,7 @@
 module;
 #include <random>
 #include <cmath>
-#include <thrust/detail/raw_pointer_cast.h>
 #include <thrust/host_vector.h>
-#include <thrust/device_vector.h>
-#include <thrust/device_ptr.h>
 
 export module Dnn.TensorHelpers;
 
