@@ -31,6 +31,10 @@ module;
 #include <vector>
 #include <array>
 #include <iostream>
+#include <thrust/host_vector.h>
+#include <thrust/device_vector.h>
+#include <thrust/device_ptr.h>
+#include <thrust/detail/raw_pointer_cast.h>
 
 #include "../../../Src/Core/rand.h"
 

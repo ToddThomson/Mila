@@ -2,4 +2,11 @@
 
 # Add executable
 add_executable(ScratchPad "main.cpp")
-target_link_libraries(ScratchPad PUBLIC Mila Thrust::Thrust )
+
+set_target_properties( ScratchPad
+    PROPERTIES
+      _THRUST_HOST CPP
+      _THRUST_DEVICE CUDA
+)
+
+target_link_libraries(ScratchPad PRIVATE Mila Thrust::Thrust CUDA::cudart )

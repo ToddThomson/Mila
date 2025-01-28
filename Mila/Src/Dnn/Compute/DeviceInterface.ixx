@@ -1,13 +1,12 @@
 module;
-#include <vector>
 #include <iostream>
 #include <set>
 #include <string>
 
 export module Compute.DeviceInterface;
 
-//import Dnn.Tensor;
-import Compute.Operations;
+import Compute.OperationType;
+import Compute.DeviceType;
 
 namespace Mila::Dnn::Compute
 {
@@ -15,10 +14,10 @@ namespace Mila::Dnn::Compute
 	public:
 		virtual ~DeviceInterface() = default;
 
-		virtual std::set<Operation> supportedOps() const = 0;
+		virtual constexpr DeviceType getDeviceType() const = 0;
 
-		virtual std::string name() const = 0;
+		virtual std::set<OperationType> supportedOps() const = 0;
 
+		virtual std::string getName() const = 0;
 	};
 }
-

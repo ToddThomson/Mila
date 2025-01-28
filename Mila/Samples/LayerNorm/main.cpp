@@ -1,4 +1,7 @@
 #include <iostream>
+#include <thrust/host_vector.h>
+#include <thrust/device_vector.h>
+
 
 import Mila;
 import App.Model.LayerNorm;
@@ -8,10 +11,9 @@ int main() {
     using namespace Mila::Dnn;
     using namespace App::Model::LayerNorm;
 
-	// Initialize Mila
-	Mila::Initialize();
+	//Mila::Initialize();
 
-    std::cout << "Mila version: " << Mila::GetAPIVersion().ToString() << std::endl;
+    //std::cout << "Mila version: " << Mila::GetAPIVersion().ToString() << std::endl;
 
     // Hyperparameters: batch, time / sequence length, number of channels
     size_t B = 2;

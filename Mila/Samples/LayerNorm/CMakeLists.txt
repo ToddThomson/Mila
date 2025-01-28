@@ -1,5 +1,8 @@
 # CMakeList.txt : CMake project for Mila examples
 
+# For Windows: Prevent overriding the parent project's compiler/linker settings
+set( gtest_force_shared_crt ON CACHE BOOL "" FORCE )
+
 # Add executable
 add_executable( LayerNorm 
 	"main.cpp"
@@ -12,4 +15,10 @@ PUBLIC
 		"LayerNormModel.ixx" 
 )
 
-target_link_libraries(LayerNorm PUBLIC Mila Thrust::Thrust )
+#set_target_properties( LayerNorm
+#    PROPERTIES
+#      _THRUST_HOST CPP
+#      _THRUST_DEVICE CUDA
+#)
+
+target_link_libraries(LayerNorm PRIVATE Mila Thrust::Thrust CUDA::cudart )

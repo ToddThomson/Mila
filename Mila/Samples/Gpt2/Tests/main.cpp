@@ -1,8 +1,6 @@
 #include <gtest/gtest.h>
-#include <thrust/host_vector.h>
-#include <thrust/sort.h>
 
-//import Mila;
+import Mila;
 
 int main( int argc, char** argv ) {
 	::testing::InitGoogleTest( &argc, argv );

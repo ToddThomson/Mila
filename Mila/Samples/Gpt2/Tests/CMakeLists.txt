@@ -18,7 +18,7 @@ add_executable( Gpt2Tests
     "main.cpp" 
     "Tokenizer.cpp")
 
-target_link_libraries( Gpt2Tests PUBLIC Mila PRIVATE gtest Thrust::Thrust )
+target_link_libraries( Gpt2Tests PRIVATE Mila gtest )
 
 add_custom_command(
     TARGET Gpt2Tests POST_BUILD

@@ -19,11 +19,11 @@
  * DEALINGS IN THE SOFTWARE.
  */
 module;
+#include <iostream>
+#include <thrust/detail/raw_pointer_cast.h>
 #include <thrust/host_vector.h>
-#include <thrust/sort.h>
-#ifdef USE_OMP
-#include <omp.h>
-#endif
+#include <thrust/device_vector.h>
+#include <thrust/device_ptr.h>
 
 export module Mila;
 
@@ -34,56 +34,55 @@ export import Cuda.Helpers;
 
 export import Dnn.Module;
 export import Dnn.Model;
-export import Dnn.ModelContext;
+
 export import Dnn.Tensor;
 export import Dnn.TensorHelpers;
 
-//export import Compute.Device;
 export import Compute.DeviceInterface;
+export import Compute.DeviceContext;
 import Compute.DeviceRegistry;
 import Compute.CpuDevice;
 import Compute.CudaDevice;
 export import Compute.DeviceHelpers;
 
+import Compute.CudaMatMulOp;
+
 export import Dnn.Modules.LayerNorm;
 export import Dnn.Modules.MatMul;
 
-import Compute.Cpu.Ops.LayerNormOp;
+import Compute.CpuLayerNormOp;
+import Compute.CpuMatMulOp;
 
 namespace Mila {
     /// <summary>
     /// Gets the Mila API version.
     /// </summary>
     export Version GetAPIVersion() {
-        return Version{0, 9, 25, "alpha", 1 };
+        return Version{0, 9, 35, "alpha", 1 };
     }
 
-	export void device( const std::string& name ) {
-		Mila::Dnn::ModelContext::instance().setDevice( name );
+	export void setDevice( const std::string& name ) {
+		Dnn::Compute::DeviceContext::instance().setDevice( name );
 	}
 
-    namespace {
-        struct DeviceRegistrar {
-            DeviceRegistrar() {
-                Mila::Dnn::Compute::Cpu::CpuDevice::RegisterDevice();
-                Mila::Dnn::Compute::Cuda::CudaDevice::RegisterDevices();
-            }
-        };
-
-		struct OperationRegistrar {
-			OperationRegistrar() {
-                Mila::Dnn::Compute::Cpu::Ops::LayerNormOp<float>::RegisterOperation();
-			}
-		};
-
-        // Static instance to trigger registration
-        static DeviceRegistrar deviceRegistrar;
-		static OperationRegistrar operationRegistrar;
-    }
-
     // Ensure the static instance is referenced to trigger the constructor
-    export void Initialize() {
-        (void)deviceRegistrar;
-		(void)operationRegistrar;
+    void Initialize() {
+        
     }
+
+  //  namespace {
+		//
+		///*struct OperationRegistrar {
+		//	OperationRegistrar() {
+  //              Mila::Dnn::Compute::Cuda::CudaMatMulOp<float>::registerOperation();
+
+  //              Mila::Dnn::Compute::Cpu::Ops::LayerNormOp<float>::registerOperation();
+  //              Mila::Dnn::Compute::Cpu::Ops::MatMulOp<float>::registerOperation();
+		//	}
+		//};*/
+
+  //      // Static instance to trigger registration
+  //      //static DeviceRegistrar deviceRegistrar;
+		////static OperationRegistrar operationRegistrar;
+  //  }
 }

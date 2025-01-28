@@ -2,6 +2,10 @@ module;
 #include <vector>
 #include <string>
 #include <memory>
+#include <thrust/detail/raw_pointer_cast.h>
+#include <thrust/host_vector.h>
+#include <thrust/device_vector.h>
+#include <thrust/device_ptr.h>
 
 export module Dnn.Module;
 
@@ -9,7 +13,8 @@ import Dnn.Tensor;
 
 namespace Mila::Dnn
 {
-	class Model; // Forward declaration
+	// Forward declaration for setParent and getParent
+	class Model; 
 
     export template<typename T>
     class Module {

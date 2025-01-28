@@ -1,30 +1,37 @@
 module;
 #include <math.h>
 #include <iostream>
-#include <unordered_map>
+#include <thrust/detail/raw_pointer_cast.h>
+#include <thrust/host_vector.h>
+#include <thrust/device_vector.h>
+#include <thrust/device_ptr.h>
 
-export module Compute.Cpu.Ops.LayerNormOp;
+export module Compute.CpuLayerNormOp;
 
 import Dnn.Tensor;
 import Compute.OperationBase;
 import Compute.OperationRegistry;
+import Compute.DeviceType;
+import Compute.OperationType;
 
 using namespace Mila::Dnn;
 
-namespace Mila::Dnn::Compute::Cpu::Ops
+namespace Mila::Dnn::Compute
 {
 	export
 	template<typename T>
-    class LayerNormOp :public OperationBase<T> {
+    class CpuLayerNormOp :public OperationBase<T> {
     public:
+        CpuLayerNormOp() : OperationBase<T>( DeviceType::kCpu, OperationType::kLayerNormOp ) {}
+
         void forward( 
             const std::shared_ptr<Tensor<T>>& input,
-            const std::vector<std::shared_ptr<Tensor<T>>>& input_attributes, 
+            const std::vector<std::shared_ptr<Tensor<T>>>& parameters, 
             std::shared_ptr<Tensor<T>>& output, 
             std::vector<std::shared_ptr<Tensor<T>>>& output_attributes ) const override {
 
-	        auto weight = input_attributes[ 0 ];
-			auto bias = input_attributes[ 1 ];
+	        auto weight = parameters[ 0 ];
+			auto bias = parameters[ 1 ];
 
             auto mean = output_attributes[ 0 ];
 			auto rstd = output_attributes[ 1 ];
@@ -117,16 +124,14 @@ namespace Mila::Dnn::Compute::Cpu::Ops
             }
         }
 
-		std::string getName() const override {
-			return "LayerNormOp<float>";
-		}
-
-        static void RegisterOperation() {
-            OperationRegistry<float>::instance().registerOperation( "CPU", "Cpu::LayerNormOp<float>", []() -> std::shared_ptr<OperationBase<float>> {
-                return std::make_shared<LayerNormOp<float>>();
+        static void registerOperation() {
+            OperationRegistry<float>::instance().registerOperation( "CPU", "Cpu::LayerNormOp", []() -> std::shared_ptr<OperationBase<float>> {
+                return std::make_shared<CpuLayerNormOp<float>>();
                 } );
         }
-	};
 
-    
+		std::string getName() const override {
+			return "Cpu::LayerNormOp";
+		}
+	};
 }

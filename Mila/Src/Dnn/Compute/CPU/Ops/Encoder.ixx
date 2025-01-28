@@ -1,6 +1,10 @@
 module;  
 #include <corecrt_math.h>  
-#include <corecrt_math_defines.h>  
+#include <corecrt_math_defines.h>
+#include <thrust/detail/raw_pointer_cast.h>
+#include <thrust/host_vector.h>
+#include <thrust/device_vector.h>
+#include <thrust/device_ptr.h>
 
 export module Compute.Cpu.Ops.Encoder;
 

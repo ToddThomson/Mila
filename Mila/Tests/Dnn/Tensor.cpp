@@ -1,10 +1,5 @@
-// Description: Unit tests for the Tensor class.
 #include <gtest/gtest.h>
 #include <thrust/host_vector.h>
-#include <thrust/sort.h>
-#ifdef USE_OMP
-#include <omp.h>
-#endif
 
 import Mila;
 
@@ -19,24 +14,24 @@ namespace Dnn::Tensors::Tests {
         }
     };
 
-    using namespace Mila::Dnn;
-
     TEST( TensorTest, DefaultConstructor ) {
         Tensor<float> tensor;
+		auto device = Compute::DeviceContext::instance().getDevice();
         EXPECT_TRUE( tensor.empty() );
         EXPECT_EQ( tensor.size(), 0 );
         EXPECT_EQ( tensor.rank(), 0 );
-		EXPECT_EQ( tensor.device()->name(), "CPU");
+		EXPECT_EQ( tensor.device()->getName(), device->getName() );
     }
 
     TEST( TensorTest, ConstructorWithShape ) {
+        auto device = Compute::DeviceContext::instance().getDevice();
 		std::vector<size_t> shape = { 2, 3 };
         Tensor<float> tensor( shape );
         EXPECT_FALSE( tensor.empty() );
         EXPECT_EQ( tensor.size(), 6 );
         EXPECT_EQ( tensor.rank(), 2 );
         EXPECT_EQ( tensor.shape(), shape );
-        EXPECT_EQ( tensor.device()->name(), "CPU");
+        EXPECT_EQ( tensor.device()->getName(), device->getName() );
     }
 
     TEST( TensorTest, Reshape ) {

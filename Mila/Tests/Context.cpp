@@ -3,17 +3,19 @@
 #include <string>
 #include <memory>
 
+#include <thrust/host_vector.h>
+
 import Mila;
 
 namespace Mila::Context2::Tests
 {
-    using namespace Mila;
+    using namespace Mila::Dnn;
 
     class ContextTest : public ::testing::Test {
     protected:
         void SetUp() override {
             // Ensure the singleton instance is reset before each test
-            Dnn::ModelContext::instance().setDevice( "CPU" );
+            Compute::DeviceContext::instance().setDevice( "CPU" );
         }
     };
 

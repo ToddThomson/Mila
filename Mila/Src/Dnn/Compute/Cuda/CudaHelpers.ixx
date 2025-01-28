@@ -270,7 +270,7 @@ namespace Mila::Dnn::Compute::Cuda
         return max_perf_device;
     };
 
-    export inline int FindCudaDevice( int deviceId = -1 )
+    export inline int findCudaDevice( int deviceId = -1 )
     {
         int device_count = GetDeviceCount();
 

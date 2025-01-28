@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
-#include <thrust/host_vector.h>
-#include <thrust/sort.h>
+
+
 #ifdef USE_OMP
 #include <omp.h>
 #endif

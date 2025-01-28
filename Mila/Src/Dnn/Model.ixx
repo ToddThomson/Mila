@@ -5,6 +5,10 @@ module;
 #include <string>
 #include <iostream>
 #include <stdexcept>
+#include <thrust/detail/raw_pointer_cast.h>
+#include <thrust/host_vector.h>
+#include <thrust/device_vector.h>
+#include <thrust/device_ptr.h>
 
 export module Dnn.Model;
 
@@ -40,8 +44,9 @@ namespace Mila::Dnn
             if ( std::find(module_names_.begin(), module_names_.end(), name) != module_names_.end() ) {
                 throw std::invalid_argument( "Module with name '" + name + "'" + " already exists." );
             }
-            //auto module_ptr = std::make_shared<ModuleType>( std::move(module) );
+            
             //module->setParent( this );
+            
             modules_.emplace_back( std::move(module) );
             module_names_.emplace_back( name );
 

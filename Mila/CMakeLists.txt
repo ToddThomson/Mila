@@ -1,10 +1,19 @@
 ﻿# CMake project for Mila Library
 
-add_library( Mila STATIC )
+add_library( Mila STATIC
+	"Src/Dnn/Compute/Cuda/Kernels/Cuda.MatMul.cu"
+	#"Src/Dnn/Compute/Cuda/Kernels/Cuda.MatMul.h"
+	#"Src/Dnn/TensorBufferBase.h"
+	"Src/Dnn/TensorBuffer.cuh"
+)
 
+set_target_properties( Mila 
+    PROPERTIES
+      _THRUST_HOST CPP
+      _THRUST_DEVICE CUDA
+)
 set_target_properties( Mila PROPERTIES
 	CXX_STANDARD_REQUIRED ON
-	#CXX_MODULE_STD ON
 	CXX_EXTENSIONS OFF )
 
 # TODO: Add globally 
@@ -18,7 +27,7 @@ if(MILA_ENABLE_OPENMP)
 		target_compile_options( Mila PRIVATE ${OpenMP_CXX_FLAGS})
 		target_link_options( Mila PRIVATE OpenMP::OpendMP_CXX)
 	endif()
-endif()  
+endif()
 
 target_sources( Mila
 PUBLIC
@@ -31,23 +40,27 @@ PUBLIC
 		"Src/Dnn/Compute/Cuda/CudaHelpers.ixx"
 		"Src/Dnn/Tensor.ixx"
 		"Src/Dnn/TensorType.ixx" 
-		"Src/Dnn/TensorBuffer.ixx"  
 		"Src/Dnn/TensorHelpers.ixx"
-		
-		"Src/Dnn/Compute/Operation.ixx" 
+		 
 		"Src/Dnn/Compute/OperationBase.ixx" 
-		"Src/Dnn/Compute/OperationsFactory.ixx"
-		"Src/Dnn/Compute/Operations.ixx"
-		"Src/Dnn/Compute/DeviceFactory.ixx"
+		
+		"Src/Dnn/Compute/OperationType.ixx"
+		"Src/Dnn/Compute/DeviceType.ixx"
+		
 		"Src/Dnn/Compute/DeviceRegistry.ixx"
 		"Src/Dnn/Compute/DeviceInterface.ixx"  
-		"Src/Dnn/Compute/Cuda/CudaDevice.ixx" 
+		"Src/Dnn/Compute/DeviceHelpers.ixx" 
+		"Src/Dnn/Compute/Devices.ixx" 
+		
+		"Src/Dnn/Compute/Cuda/CudaDevice.ixx"
+		"Src/Dnn/Compute/Cuda/CudaMatMulOp.ixx"
+		
 		"Src/Dnn/Compute/CPU/CpuDevice.ixx" 
 		"Src/Dnn/Compute/CPU/Ops/Encoder.ixx" 
 		"Src/Dnn/Compute/CPU/Ops/LayerNormOp.ixx" 
 		"Src/Dnn/Compute/CPU/Ops/Attention.ixx" 
 		"Src/Dnn/Compute/CPU/Ops/Residual.ixx" 
-		"Src/Dnn/Compute/CPU/Ops/MatMul.ixx"
+		"Src/Dnn/Compute/CPU/Ops/MatMulOp.ixx"
 		"Src/Dnn/Compute/CPU/Ops/Softmax.ixx"
 		"Src/Dnn/Compute/CPU/Ops/Gelu.ixx"
 		"Src/Dnn/Compute/CPU/Ops/CrossEntropy.ixx"  
@@ -59,9 +72,13 @@ PUBLIC
 		"Src/Dnn/Module.ixx" 
 		"Src/Dnn/Modules/LayerNorm.ixx"
 		"Src/Dnn/Modules/MatMul.ixx" 
-		"Src/Dnn/Compute/DeviceHelpers.ixx" 
-		"Src/Dnn/ModelContext.ixx"
- "Src/Dnn/Compute/OperationRegistry.ixx" "Src/Dnn/Attributes.ixx"  )
+		
+		"Src/Dnn/Compute/DeviceContext.ixx"
+		"Src/Dnn/Compute/OperationRegistry.ixx" 
+		    
+		"Src/Dnn/Compute/Cuda/CudaDeviceProps.ixx"
+		"Src/Dnn/Compute/OpsContext.ixx"  
+		)
 
 target_link_libraries( Mila PRIVATE Thrust::Thrust CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
 

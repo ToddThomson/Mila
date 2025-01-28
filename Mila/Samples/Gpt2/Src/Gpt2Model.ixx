@@ -9,6 +9,10 @@ module;
 #include <fstream>
 #include <vector>
 #include <array>
+#include <thrust/host_vector.h>
+#include <thrust/device_vector.h>
+#include <thrust/device_ptr.h>
+#include <thrust/detail/raw_pointer_cast.h>
 
 export module Gpt2.Gpt2Model;
 

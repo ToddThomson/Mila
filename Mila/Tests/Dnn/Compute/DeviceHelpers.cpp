@@ -1,10 +1,5 @@
 #include <gtest/gtest.h>
-#include <thrust/host_vector.h>
-#include <thrust/sort.h>
 #include <memory>
-#ifdef USE_OMP
-#include <omp.h>
-#endif
 
 import Mila;
 

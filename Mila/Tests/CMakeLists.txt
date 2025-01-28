@@ -14,6 +14,22 @@ set( gtest_force_shared_crt ON CACHE BOOL "" FORCE )
 FetchContent_MakeAvailable( googletest )
 include( GoogleTest )
 
+# Set global C++ and CUDA standard 
+set(CMAKE_CXX_STANDARD 23)  
+set(CMAKE_CXX_STANDARD_REQUIRED ON)  
+set(CMAKE_CXX_EXTENSIONS OFF)  
+set(CMAKE_CUDA_STANDARD 20)
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+
+find_package(CUDAToolkit REQUIRED)
+find_package(Thrust REQUIRED)
+
+# Default to building for the GPU on the current system
+if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+  set(CMAKE_CUDA_ARCHITECTURES native)
+endif()
+
+
 add_executable( MilaTests
     "main.cpp" 
     "Dnn/Tensor.cpp"
@@ -21,9 +37,30 @@ add_executable( MilaTests
     "Dnn/Compute/Device.cpp" 
     "Dnn/Compute/DeviceHelpers.cpp" 
     "Context.cpp"
+    "Dnn/Modules/MatMul.cpp"
 )
 
-target_link_libraries( MilaTests PUBLIC Mila PRIVATE gtest Thrust::Thrust )
+set_target_properties( MilaTests 
+    PROPERTIES
+      _THRUST_HOST CPP
+      _THRUST_DEVICE CUDA
+)
+
+# TODO: Add globally 
+target_compile_features( MilaTests PUBLIC cxx_std_23 )
+
+if(MILA_ENABLE_OPENMP)  
+	if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+		target_compile_options( MilaTests PRIVATE -openmp:llvm -DUSE_OMP )
+		target_link_options( MilaTests PRIVATE -openmp:llvm )
+	else()
+		target_compile_options( MilaTests PRIVATE ${OpenMP_CXX_FLAGS})
+		target_link_options( MilaTests PRIVATE OpenMP::OpendMP_CXX)
+	endif()
+endif()  
+
+
+target_link_libraries( MilaTests PRIVATE Mila gtest Thrust::Thrust CUDA::cudart )
 
 add_custom_command(
     TARGET MilaTests POST_BUILD

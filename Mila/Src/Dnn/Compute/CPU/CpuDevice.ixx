@@ -7,23 +7,28 @@ export module Compute.CpuDevice;
 
 import Compute.DeviceRegistry;
 import Compute.DeviceInterface;
-import Compute.Operations;
+import Compute.DeviceType;
+import Compute.OperationType;
 
-namespace Mila::Dnn::Compute::Cpu
+namespace Mila::Dnn::Compute
 {
 	export class CpuDevice : public DeviceInterface {
 	public:
-		std::set<Operation> supportedOps() const override {
-			return { Operation::LayerNormOp };
+		std::set<OperationType> supportedOps() const override {
+			return { OperationType::kLayerNormOp, OperationType::kMatMulOp };
 		}
 
-		static void RegisterDevice() {
+		static void registerDevice() {
 			DeviceRegistry::instance().registerDevice( "CPU", []() -> std::shared_ptr<DeviceInterface> {
 				return std::make_shared<CpuDevice>();
 				} );
 		}
 
-		std::string name() const override {
+		constexpr DeviceType getDeviceType() const override {
+			return DeviceType::kCpu;
+		}
+
+		std::string getName() const override {
 			return "CPU";
 		}
 
@@ -31,5 +36,5 @@ namespace Mila::Dnn::Compute::Cpu
 		static bool registered_;
 	};
 
-	export bool CpuDevice::registered_ = (CpuDevice::RegisterDevice(),true);
+	export bool CpuDevice::registered_ = (CpuDevice::registerDevice(),true);
 }

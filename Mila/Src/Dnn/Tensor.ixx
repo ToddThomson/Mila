@@ -1,26 +1,25 @@
 module;
 #include <vector>  
-#include <numeric>  
 #include <iostream>
 #include <iomanip>
-#include <cassert>  
 #include <variant>  
 #include <memory>
 #include <mdspan>
 #include <optional>
-#include <functional>
+#include <thrust/host_vector.h>
+//#include <thrust/device_vector.h>
 #include <cuda_fp16.h>
+
+#include "TensorBufferBase.h"
+#include "TensorBuffer.cuh"
 
 export module Dnn.Tensor;
 
 import Dnn.TensorType;  
-import Dnn.TensorBuffer; 
+//import Dnn.TensorBuffer; 
 import Dnn.TensorTag;
-import Dnn.ModelContext;
-import Compute.DeviceRegistry;
+import Compute.DeviceContext;
 import Compute.DeviceInterface;
-
-//import Compute.CudaDevice;
 
 namespace Mila::Dnn
 {
@@ -38,6 +37,8 @@ namespace Mila::Dnn
             Tensor( const std::vector<size_t>& shape, const std::string& device_name = "" )
                 : shape_( shape ), strides_( computeStrides( shape ) ), size_( computeSize( shape ) ), device_( setDevice( device_name )) {
                 allocateBuffer();
+
+				// TODO: Review the need for a tensor to override the device context
 
                 // TJT: Feature 
                 //if ( initializer ) {
@@ -120,7 +121,7 @@ namespace Mila::Dnn
 				return data()[ offset ];
 			}*/
 
-			/*template<typename... Args>
+			template<typename... Args>
 			T& operator[]( Args... args ) {
 				size_t index = computeIndex( { static_cast<size_t>(args)... } );
 				return buffer_->data()[ index ];
@@ -134,7 +135,7 @@ namespace Mila::Dnn
 				}
 				size_t index = computeIndex( { static_cast<size_t>(args)... } );
 				return buffer_->data()[ index ];
-			}*/
+			}
 
 			T& operator[]( size_t index ) {
 				if ( rank() != 1 ) {
@@ -230,7 +231,7 @@ namespace Mila::Dnn
 				}
 				std::cout << std::endl;
 				std::cout << "Tensor type::" << to_string( data_type_ ) << std::endl;
-				std::cout << "Device: " << device_->name() << std::endl;
+				std::cout << "Device: " << device_->getName() << std::endl;
 				std::cout << "Size: " << size_ << std::endl;
 				std::cout << "Data:" << std::endl;
 
@@ -246,10 +247,16 @@ namespace Mila::Dnn
 			TensorType data_type_{ TensorType::kNotSet };
 			std::vector<size_t> shape_{};
 			std::vector<size_t> strides_;
-			std::shared_ptr<TensorBuffer<T>> buffer_;
+			std::shared_ptr<TensorBufferBase<T>> buffer_;
+			//std::shared_ptr<TensorBuffer<T, thrust::device_vector>> buffer_;
+			//std::unique_ptr<TensorBuffer<T, thrust::device_vector>> device_buffer_;
 			std::shared_ptr<Compute::DeviceInterface> device_;
 
 			void allocateBuffer() {
+
+				buffer_ = std::make_shared<TensorBuffer<T, thrust::host_vector>>( size_ );
+
+
 				buffer_ = std::make_shared<TensorBuffer<T>>( size_ );
 				data_type_ = tensor_type_of( buffer_->data() );
 			}
@@ -309,8 +316,12 @@ namespace Mila::Dnn
 			}
 
 			std::shared_ptr<Compute::DeviceInterface> setDevice( const std::string& device_name ) {
-				if ( device_name.empty() ) {
-					return ModelContext::instance().device();
+				// This call ensures that the DeviceContext is initialized
+				auto device = Compute::DeviceContext::instance().getDevice();
+
+				return device;
+				/*if ( device_name.empty() ) {
+					return device;
 				}
 				else {
 					auto dev = Compute::DeviceRegistry::instance().createDevice( device_name );
@@ -320,7 +331,7 @@ namespace Mila::Dnn
 					else {
 						throw std::runtime_error( "Invalid device name." );
 					}
-				}
+				}*/
 			}
 	};
 }

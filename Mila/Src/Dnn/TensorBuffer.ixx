@@ -1,42 +1,46 @@
-module;
-#include <vector>
-#include <memory>
+#include <thrust/host_vector.h>
+#include <thrust/device_vector.h>
 
-export module Dnn.TensorBuffer;
-
-import Dnn.TensorType;
+#include "TensorBufferBase.h"
 
 namespace Mila::Dnn
 {
-	export template<typename T>
-	class TensorBuffer {
+	export template<typename T, template<typename> class VectorType = thrust::device_vector>
+	class TensorBuffer : public TensorBufferBase<T> {
     public:
         TensorBuffer( size_t buffer_size )
 			: buffer_( buffer_size ) {
         }
 		
-        size_t size() const {
+        size_t size() const override {
             return buffer_.size();
         }
 
-		const T* data() const {
-			return buffer_.data();
+		const T* data() const override {
+			if constexpr (std::is_same_v<VectorType<T>, thrust::device_vector<T>>) {
+				return thrust::raw_pointer_cast(buffer_.data());
+			} else {
+				return buffer_.data();
+			}
 		}
 
-		T* data() {
-			return buffer_.data();
+		T* data() override {
+			if constexpr (std::is_same_v<VectorType<T>, thrust::device_vector<T>>) {
+				return thrust::raw_pointer_cast(buffer_.data());
+			} else {
+				return buffer_.data();
+			}
 		}
 
-		void fill(const T& value) {
-			std::fill(buffer_.begin(), std::end(buffer_), value);
-		}
+		void fill(const T& value) override {
+			thrust::fill(buffer_.begin(), buffer_.end(), value);
+        }
 
-		void resize( size_t size ) {
+		void resize( size_t size ) override {
 			buffer_.resize( size );
 		}
 
     private:
-		//thrust::host_vector<std::byte> buffer_;
-		std::vector<T> buffer_;
+		VectorType<T> buffer_;
     };
 }
