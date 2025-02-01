@@ -1,7 +1,6 @@
 module;
 #include <random>
 #include <cmath>
-#include <thrust/host_vector.h>
 
 export module Dnn.TensorHelpers;
 

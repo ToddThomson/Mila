@@ -9,7 +9,9 @@ import Compute.DeviceInterface;
 import Compute.DeviceRegistry;
 import Compute.CpuDevice;
 import Compute.CudaDevice;
-//import Compute.Operations;
+//import Compute.OperationRegistry;
+//import Compute.CpuOperations;
+//import Compute.CudaOperations;
 
 namespace Mila::Dnn::Compute
 {
@@ -25,8 +27,8 @@ namespace Mila::Dnn::Compute
 		static DeviceContext& instance() {
 			static DeviceContext instance;
 			if ( !is_initialized_ ) {
-				CpuDevice::registerDevice();
-				CudaDevice::registerDevices();
+				registerDevices();
+				registerOperations();
 
 				// Set the default device to the highest performance CUDA device or CPU if no CUDA devices are found
 				try {
@@ -69,5 +71,18 @@ namespace Mila::Dnn::Compute
 		DeviceContext() = default;
 		std::shared_ptr<DeviceInterface> device_;
 		static inline bool is_initialized_ = false;
+
+		static void registerDevices() {
+			CpuDevice::registerDevice();
+			CudaDevice::registerDevices();
+		}
+
+		static void registerOperations() {
+			// CPU operations...
+			//CpuMatMulOp<float>::registerOperation();
+
+			// CUDA operations...
+			//CudaMatMulOp<float>::registerOperation();
+		}
 	};
 }

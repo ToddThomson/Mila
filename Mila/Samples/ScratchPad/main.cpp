@@ -17,10 +17,11 @@ int main() {
 	}
 	std::cout << std::endl;
 
-    Tensor<float> tensor( {  1000, 1000 } );
+    // Create a host tensor by default
+    Tensor<float> tensor( { 1000, 1000 } );
     random( tensor, 0.0f, 5.0f );
-    tensor.fill( 5.0f );
-    tensor[ 1,2 ] = 3.0f;
+    //tensor.fill( 5.0f );
+    //tensor[ 1,2 ] = 3.0f;
 
     tensor.print();
 

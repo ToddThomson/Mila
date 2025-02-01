@@ -3,8 +3,6 @@
 add_library( Mila STATIC
 	"Src/Dnn/Compute/Cuda/Kernels/Cuda.MatMul.cu"
 	"Src/Dnn/Compute/Cuda/Kernels/Cuda.MatMul.h"
-	"Src/Dnn/TensorBufferBase.h"
-	"Src/Dnn/TensorBuffer.cuh"
 )
 
 set_target_properties( Mila 
@@ -38,8 +36,11 @@ PUBLIC
 		"Src/Misc/Glob.ixx"
 		"Src/Dnn/Compute/Cuda/CudaError.ixx"
 		"Src/Dnn/Compute/Cuda/CudaHelpers.ixx"
+		
 		"Src/Dnn/Tensor.ixx"
+		"Src/Dnn/TensorBuffer.ixx"
 		"Src/Dnn/TensorType.ixx" 
+		"Src/Dnn/TensorTraits.ixx" 
 		"Src/Dnn/TensorHelpers.ixx"
 		 
 		"Src/Dnn/Compute/OperationBase.ixx" 
@@ -64,11 +65,13 @@ PUBLIC
 		"Src/Dnn/Compute/CPU/Ops/Softmax.ixx"
 		"Src/Dnn/Compute/CPU/Ops/Gelu.ixx"
 		"Src/Dnn/Compute/CPU/Ops/CrossEntropy.ixx"  
+		
 		"Src/Helpers/Memory.ixx" 
 		"Src/Utils/Logger.ixx"
+		
 		"Src/Dnn/Model.ixx" 
 		"Src/Data/DataLoaderBase.ixx" 
-		"Src/Dnn/TensorTraits.ixx" 
+		
 		"Src/Dnn/Module.ixx" 
 		"Src/Dnn/Modules/LayerNorm.ixx"
 		"Src/Dnn/Modules/MatMul.ixx" 
@@ -78,7 +81,16 @@ PUBLIC
 		    
 		"Src/Dnn/Compute/Cuda/CudaDeviceProps.ixx"
 		"Src/Dnn/Compute/OpsContext.ixx"  
-		)
+		
+		"Src/Dnn/Compute/Cuda/DeviceMemoryResource.ixx"
+		"Src/Dnn/Compute/CPU/CpuMemoryResource.ixx"
+		"Src/Dnn/Compute/Cuda/ManagedMemoryResource.ixx"
+		"Src/Dnn/Compute/MemoryResource.ixx"
+		"Src/Dnn/Compute/Cuda/PinnedMemoryResource.ixx"
+		
+		"Src/Dnn/Compute/CPU/Ops/CpuOperations.ixx"
+		"Src/Dnn/Compute/Cuda/CudaOperations.ixx"
+)
 
 target_link_libraries( Mila PRIVATE Thrust::Thrust CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
 

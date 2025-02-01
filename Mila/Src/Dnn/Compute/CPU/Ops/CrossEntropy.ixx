@@ -1,7 +1,5 @@
 module;
 #include <corecrt_math.h>
-#include <thrust/host_vector.h>
-
 
 export module Compute.Cpu.Ops.CrossEntropy;
 

@@ -3,8 +3,6 @@
 #include <string>
 #include <memory>
 
-#include <thrust/host_vector.h>
-
 import Mila;
 
 namespace Mila::Context2::Tests

@@ -6,24 +6,25 @@ module;
 #include <memory>
 #include <mdspan>
 #include <optional>
-#include <thrust/host_vector.h>
-//#include <thrust/device_vector.h>
 #include <cuda_fp16.h>
-
-#include "TensorBufferBase.h"
-#include "TensorBuffer.cuh"
 
 export module Dnn.Tensor;
 
 import Dnn.TensorType;  
-//import Dnn.TensorBuffer; 
+import Dnn.TensorBuffer; 
 import Dnn.TensorTag;
 import Compute.DeviceContext;
 import Compute.DeviceInterface;
+import Compute.MemoryResource;
+import Compute.CpuMemoryResource;
+import Compute.DeviceMemoryResource;
+import Compute.ManagedMemoryResource;
+import Compute.PinnedMemoryResource;
 
 namespace Mila::Dnn
 {
-	export template<typename T>
+	export template<typename T, typename MR = Compute::CpuMemoryResource>
+	requires std::is_base_of_v<Compute::MemoryResource, MR>
 	class Tensor : TensorTag {
 		public:
 
@@ -37,13 +38,6 @@ namespace Mila::Dnn
             Tensor( const std::vector<size_t>& shape, const std::string& device_name = "" )
                 : shape_( shape ), strides_( computeStrides( shape ) ), size_( computeSize( shape ) ), device_( setDevice( device_name )) {
                 allocateBuffer();
-
-				// TODO: Review the need for a tensor to override the device context
-
-                // TJT: Feature 
-                //if ( initializer ) {
-                //    initializer( this );
-                //}
             }
 
 			// Creates an empty tensor with zero size
@@ -220,9 +214,15 @@ namespace Mila::Dnn
 				return buffer_->data();
 			}
 
-			void fill( const T& value ) {
-				buffer_->fill( value );
-			}
+            void fill( const T& value ) {
+            if constexpr ( std::is_same_v<MR, Compute::CpuMemoryResource> || std::is_same_v<MR, Compute::ManagedMemoryResource> ) {
+            std::fill( buffer_->data(), buffer_->data() + size_, value );
+            }
+            else {
+            // TODO: Implement fill for other memory resources
+            throw std::runtime_error( "Fill is only supported for CPU and Managed memory." );
+            }
+            }
 
 			void print() const {
 				std::cout << "Tensor of shape: ";
@@ -246,18 +246,14 @@ namespace Mila::Dnn
 			size_t size_{ 0 };
 			TensorType data_type_{ TensorType::kNotSet };
 			std::vector<size_t> shape_{};
-			std::vector<size_t> strides_;
-			std::shared_ptr<TensorBufferBase<T>> buffer_;
-			std::shared_ptr<Compute::DeviceInterface> device_;
+			std::vector<size_t> strides_{};
+			std::shared_ptr<TensorBuffer<T>> buffer_{ nullptr };
+			std::shared_ptr<Compute::DeviceInterface> device_{ nullptr };
 
-			void allocateBuffer() {
-
-				//buffer_ = std::make_shared<TensorBuffer<T, thrust::host_vector>>( size_ );
-				
-				// TJT: thrust::host_vector by default
-				buffer_ = std::make_shared<TensorBuffer<T>>( size_ );
-				data_type_ = tensor_type_of( buffer_->data() );
-			}
+            void allocateBuffer() {
+				buffer_ = std::make_shared<TensorBuffer<T>>( size_, std::make_shared<MR>());
+                data_type_ = tensor_type_of(buffer_->data());
+            }
 
 			void printBuffer( size_t index, size_t depth ) const {
 				if ( depth == shape_.size() - 1 ) {
@@ -332,4 +328,16 @@ namespace Mila::Dnn
 				}*/
 			}
 	};
+
+	template <class T>
+	using host_tensor = Tensor<T, Compute::CpuMemoryResource>;
+
+	template <class T>
+	using device_tensor = Tensor<T, Compute::DeviceMemoryResource>;
+
+	template <class T>
+	using pinned_tensor = Tensor<T, Compute::PinnedMemoryResource>;
+
+	template <class T>
+	using universal_tensor = Tensor<T, Compute::ManagedMemoryResource>;
 }

@@ -37,7 +37,7 @@ add_executable( MilaTests
     "Dnn/Compute/Device.cpp" 
     "Dnn/Compute/DeviceHelpers.cpp" 
     "Context.cpp"
-    "Dnn/Modules/MatMul.cpp"
+    #"Dnn/Modules/MatMul.cpp"
 )
 
 set_target_properties( MilaTests 
@@ -58,7 +58,6 @@ if(MILA_ENABLE_OPENMP)
 		target_link_options( MilaTests PRIVATE OpenMP::OpendMP_CXX)
 	endif()
 endif()  
-
 
 target_link_libraries( MilaTests PRIVATE Mila gtest Thrust::Thrust CUDA::cudart )
 

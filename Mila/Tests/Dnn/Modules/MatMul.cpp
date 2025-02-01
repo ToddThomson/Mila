@@ -1,5 +1,4 @@
 #include <gtest/gtest.h>
-#include <thrust/host_vector.h>
 #include <memory>
 #include <vector>
 #include <string>

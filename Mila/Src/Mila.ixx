@@ -20,10 +20,6 @@
  */
 module;
 #include <iostream>
-#include <thrust/host_vector.h>
-#include <thrust/device_vector.h>
-
-#include "Dnn/TensorBuffer.cuh"
 
 export module Mila;
 
@@ -58,7 +54,7 @@ namespace Mila {
     /// Gets the Mila API version.
     /// </summary>
     export Version GetAPIVersion() {
-        return Version{0, 9, 35, "alpha", 1 };
+        return Version{0, 9, 40, "alpha", 1 };
     }
 
 	export void setDevice( const std::string& name ) {
@@ -68,12 +64,4 @@ namespace Mila {
     // TJT: Remove. Ensure the static instance is referenced to trigger the constructor
     void Initialize() {
     }
-
-    // Explicit instantiation definitions
-    //export template class Dnn::TensorBuffer<float, thrust::device_vector>;
-    //export template class Dnn::TensorBuffer<int, thrust::device_vector>;
-
-    export template class Dnn::TensorBuffer<float, thrust::host_vector>;
-    export template class Dnn::TensorBuffer<int, thrust::host_vector>;
-
 }

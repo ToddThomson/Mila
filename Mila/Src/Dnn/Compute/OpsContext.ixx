@@ -1,7 +1,6 @@
 module;
 #include <math.h>
 #include <iostream>
-#include <thrust/host_vector.h>
 
 export module Compute.Operations;
 
