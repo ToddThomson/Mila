@@ -36,25 +36,25 @@ export import Dnn.TensorHelpers;
 
 export import Compute.DeviceInterface;
 export import Compute.DeviceContext;
-import Compute.DeviceRegistry;
-import Compute.CpuDevice;
-import Compute.CudaDevice;
+//import Compute.DeviceRegistry;
+//import Compute.CpuDevice;
+//import Compute.CudaDevice;
 export import Compute.DeviceHelpers;
 
-import Compute.CudaMatMulOp;
+//import Compute.CudaMatMulOp;
 
 export import Dnn.Modules.LayerNorm;
 export import Dnn.Modules.MatMul;
 
-import Compute.CpuLayerNormOp;
-import Compute.CpuMatMulOp;
+//import Compute.CpuLayerNormOp;
+//import Compute.CpuMatMulOp;
 
 namespace Mila {
     /// <summary>
     /// Gets the Mila API version.
     /// </summary>
     export Version GetAPIVersion() {
-        return Version{0, 9, 40, "alpha", 1 };
+        return Version{0, 9, 45, "alpha", 1 };
     }
 
 	export void setDevice( const std::string& name ) {
@@ -62,6 +62,7 @@ namespace Mila {
 	}
 
     // TJT: Remove. Ensure the static instance is referenced to trigger the constructor
-    void Initialize() {
+    export void Initialize() {
+		Dnn::Compute::DeviceContext::instance();
     }
 }

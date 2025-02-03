@@ -13,8 +13,9 @@ export module Dnn.Tensor;
 import Dnn.TensorType;  
 import Dnn.TensorBuffer; 
 import Dnn.TensorTag;
-import Compute.DeviceContext;
+
 import Compute.DeviceInterface;
+
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.DeviceMemoryResource;
@@ -36,13 +37,13 @@ namespace Mila::Dnn
 			using Extent4d = std::dextents<size_t, 4>;
 			
             Tensor( const std::vector<size_t>& shape, const std::string& device_name = "" )
-                : shape_( shape ), strides_( computeStrides( shape ) ), size_( computeSize( shape ) ), device_( setDevice( device_name )) {
+                : shape_( shape ), strides_( computeStrides( shape ) ), size_( computeSize( shape ) ) { //}, device_(setDevice(device_name)) {
                 allocateBuffer();
             }
 
 			// Creates an empty tensor with zero size
 			Tensor()
-				: shape_(), strides_( computeStrides( shape_ ) ), size_(), device_( setDevice( "" )) {
+				: shape_(), strides_( computeStrides( shape_ ) ), size_() { //}, device_(setDevice("")) {
 				allocateBuffer();
 			}
 
@@ -69,14 +70,14 @@ namespace Mila::Dnn
 					size_ = other.size_;
 					data_type_ = other.data_type_;
 					buffer_ = other.buffer_;
-					device_ = other.device_; // ->clone();
+					//device_ = other.device_; // ->clone();
 				}
 				return *this;
 			}
 
 			// Copy constructor for shallow copy
 			Tensor( const Tensor& other )
-				: shape_( other.shape_ ), strides_( other.strides_ ), size_( other.size_ ), data_type_( other.data_type_ ), buffer_( other.buffer_ ), device_( other.device_ ) {}
+				: shape_( other.shape_ ), strides_( other.strides_ ), size_( other.size_ ), data_type_( other.data_type_ ), buffer_( other.buffer_ ) /*, device_(other.device_) */ {}
 
 			void reshape( const std::vector<size_t>& new_shape ) {
 				size_t new_size = computeSize( new_shape );
@@ -190,9 +191,9 @@ namespace Mila::Dnn
 				return shape_.size();
 			}
 
-			const std::shared_ptr<Compute::DeviceInterface>& device() const {
+			/*const std::shared_ptr<Compute::DeviceInterface>& device() const {
 				return device_;
-			}
+			}*/
 
 			/*template<typename TValue>
 			TValue scalar() const {
@@ -214,15 +215,15 @@ namespace Mila::Dnn
 				return buffer_->data();
 			}
 
-            void fill( const T& value ) {
-            if constexpr ( std::is_same_v<MR, Compute::CpuMemoryResource> || std::is_same_v<MR, Compute::ManagedMemoryResource> ) {
-            std::fill( buffer_->data(), buffer_->data() + size_, value );
-            }
-            else {
-            // TODO: Implement fill for other memory resources
-            throw std::runtime_error( "Fill is only supported for CPU and Managed memory." );
-            }
-            }
+			void fill( const T& value ) {
+				if constexpr ( std::is_same_v<MR, Compute::CpuMemoryResource> || std::is_same_v<MR, Compute::ManagedMemoryResource> ) {
+					std::fill( buffer_->data(), buffer_->data() + size_, value );
+				}
+				else {
+					// TODO: Implement fill for other memory resources
+					throw std::runtime_error( "Fill is only supported for CPU and Managed memory." );
+				}
+			}
 
 			void print() const {
 				std::cout << "Tensor of shape: ";
@@ -231,7 +232,7 @@ namespace Mila::Dnn
 				}
 				std::cout << std::endl;
 				std::cout << "Tensor type::" << to_string( data_type_ ) << std::endl;
-				std::cout << "Device: " << device_->getName() << std::endl;
+				//std::cout << "Device: " << device_->getName() << std::endl;
 				std::cout << "Size: " << size_ << std::endl;
 				std::cout << "Data:" << std::endl;
 
@@ -248,7 +249,7 @@ namespace Mila::Dnn
 			std::vector<size_t> shape_{};
 			std::vector<size_t> strides_{};
 			std::shared_ptr<TensorBuffer<T>> buffer_{ nullptr };
-			std::shared_ptr<Compute::DeviceInterface> device_{ nullptr };
+			//std::shared_ptr<Compute::DeviceInterface> device_{ nullptr };
 
             void allocateBuffer() {
 				buffer_ = std::make_shared<TensorBuffer<T>>( size_, std::make_shared<MR>());
@@ -309,24 +310,24 @@ namespace Mila::Dnn
 				return index;
 			}
 
-			std::shared_ptr<Compute::DeviceInterface> setDevice( const std::string& device_name ) {
-				// This call ensures that the DeviceContext is initialized
-				auto device = Compute::DeviceContext::instance().getDevice();
+			//std::shared_ptr<Compute::DeviceInterface> setDevice( const std::string& device_name ) {
+			//	// This call ensures that the DeviceContext is initialized
+			//	auto device = Compute::DeviceContext::instance().getDevice();
 
-				return device;
-				/*if ( device_name.empty() ) {
-					return device;
-				}
-				else {
-					auto dev = Compute::DeviceRegistry::instance().createDevice( device_name );
-					if ( dev ) {
-						return std::move( dev );
-					}
-					else {
-						throw std::runtime_error( "Invalid device name." );
-					}
-				}*/
-			}
+			//	return device;
+			//	/*if ( device_name.empty() ) {
+			//		return device;
+			//	}
+			//	else {
+			//		auto dev = Compute::DeviceRegistry::instance().createDevice( device_name );
+			//		if ( dev ) {
+			//			return std::move( dev );
+			//		}
+			//		else {
+			//			throw std::runtime_error( "Invalid device name." );
+			//		}
+			//	}*/
+			//}
 	};
 
 	template <class T>

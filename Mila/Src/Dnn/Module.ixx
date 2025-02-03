@@ -2,7 +2,6 @@ module;
 #include <vector>
 #include <string>
 #include <memory>
-#include <thrust/host_vector.h>
 
 export module Dnn.Module;
 
@@ -10,10 +9,8 @@ import Dnn.Tensor;
 
 namespace Mila::Dnn
 {
-	// Forward declaration for setParent and getParent
-	class Model; 
-
-    export template<typename T>
+    export 
+    template<typename T>
     class Module {
     public:
         virtual ~Module() = default;
@@ -25,21 +22,21 @@ namespace Mila::Dnn
             return {};
         }
 
-		virtual size_t parameters() const = 0;
+		void setTrainingMode( bool training ) {
+			is_training_ = training;
+		}
 
-		virtual std::string name() const = 0;
+        bool isTraining() const {
+            return is_training_;
+        }
+
+        virtual size_t parameters() const = 0;
+
+        virtual std::string name() const = 0;
 
         virtual void print() const = 0;
 
-        void setParent( Model* parent ) {
-            parent_ = parent;
-        }
-
-        Model* parent() const {
-            return parent_;
-        }
-
-	private:
-		Model* parent_{ nullptr };
+    private:
+        bool is_training_{ false };
     };
 }

@@ -10,7 +10,7 @@ import Compute.DeviceRegistry;
 import Compute.CpuDevice;
 import Compute.CudaDevice;
 //import Compute.OperationRegistry;
-//import Compute.CpuOperations;
+import Compute.CpuOperations;
 //import Compute.CudaOperations;
 
 namespace Mila::Dnn::Compute
@@ -79,7 +79,8 @@ namespace Mila::Dnn::Compute
 
 		static void registerOperations() {
 			// CPU operations...
-			//CpuMatMulOp<float>::registerOperation();
+			CpuLayerNormOp<float>::registerOperation();
+			CpuMatMulOp<float>::registerOperation();
 
 			// CUDA operations...
 			//CudaMatMulOp<float>::registerOperation();

@@ -5,17 +5,17 @@ cmake_minimum_required (VERSION 3.31)
 project(MilaProject LANGUAGES CXX CUDA)  
  
 # Set global C++ and CUDA standard 
-set(CMAKE_CXX_STANDARD 23)  
+set(CMAKE_CXX_STANDARD 23)   
 set(CMAKE_CXX_STANDARD_REQUIRED ON)  
 set(CMAKE_CXX_EXTENSIONS OFF)  
 set(CMAKE_CUDA_STANDARD 20)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
  
-option(MILA_ENABLE_TESTING "Enable Mila Library tests." "ON")  
-option(MILA_ENABLE_GPT2_TESTING "Enable GPT2 tests." "OFF")  
-option(MILA_ENABLE_SAMPLES "Enable Mila Library samples." "ON")
-option(MILA_ENABLE_NVBENCH "Enable NvBench." "OFF")
-option(MILA_ENABLE_OPENMP "Enable OpenMP support." "OFF")  
+option(MILA_ENABLE_TESTING "Enable Mila Library tests." ON)  
+option(MILA_ENABLE_GPT2_TESTING "Enable GPT2 tests." OFF )  
+option(MILA_ENABLE_SAMPLES "Enable Mila Library samples." ON )
+option(MILA_ENABLE_NVBENCH "Enable NvBench." OFF )
+option(MILA_ENABLE_OPENMP "Enable OpenMP support." OFF )  
 
 # TJT: Bleeding edge.. We could us CPM to fetch CCCL from GitHub
 # Uses the CMake Package Manager (CPM) to simplify fetching CCCL from GitHub

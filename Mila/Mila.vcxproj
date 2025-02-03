@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Src\Core\rand.h" />
+    <ClInclude Include="Src\Dnn\Compute\Cuda\Kernels\Cuda.MatMul.h" />
+    <ClInclude Include="Src\Utils\unistd.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Src\Data\DataLoaderBase.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\CPU\CpuDevice.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\CPU\CpuMemoryResource.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\CPU\Ops\Attention.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\CPU\Ops\CpuOperations.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\CPU\Ops\CrossEntropy.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\CPU\Ops\Encoder.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\CPU\Ops\Gelu.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\CPU\Ops\LayerNormOp.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\CPU\Ops\MatMulOp.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\CPU\Ops\Residual.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\CPU\Ops\Softmax.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\Cuda\CudaDevice.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\Cuda\CudaDeviceProps.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\Cuda\CudaError.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\Cuda\CudaHelpers.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\Cuda\CudaMatMulOp.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\Cuda\CudaOperations.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\Cuda\DeviceMemoryResource.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\Cuda\ManagedMemoryResource.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\Cuda\PinnedMemoryResource.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\DeviceContext.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\DeviceHelpers.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\DeviceInterface.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\DeviceRegistry.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\DeviceType.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\MemoryResource.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\OperationBase.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\OperationRegistry.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\OperationType.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\OpsContext.ixx" />
+    <ClCompile Include="Src\Dnn\Model.ixx" />
+    <ClCompile Include="Src\Dnn\Module.ixx" />
+    <ClCompile Include="Src\Dnn\Modules\LayerNorm.ixx" />
+    <ClCompile Include="Src\Dnn\Modules\MatMul.ixx" />
+    <ClCompile Include="Src\Dnn\Tensor.ixx" />
+    <ClCompile Include="Src\Dnn\TensorBuffer.ixx" />
+    <ClCompile Include="Src\Dnn\TensorHelpers.ixx" />
+    <ClCompile Include="Src\Dnn\TensorTraits.ixx" />
+    <ClCompile Include="Src\Dnn\TensorType.ixx" />
+    <ClCompile Include="Src\Helpers\FileIo.ixx" />
+    <ClCompile Include="Src\Helpers\Memory.ixx" />
+    <ClCompile Include="Src\Mila.ixx" />
+    <ClCompile Include="Src\Misc\Glob.ixx" />
+    <ClCompile Include="Src\Utils\Cuda\Dnn.Utils.Cuda.Common.ixx" />
+    <ClCompile Include="Src\Utils\Logger.ixx" />
+    <ClCompile Include="Src\Version.ixx" />
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{9B7A4BCA-8126-4DB6-9F5A-B0034B0928EF}</ProjectGuid>
+    <RootNamespace>Mila</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 12.8.props" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <LinkIncremental>true</LinkIncremental>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <PreprocessorDefinitions>WIN32;WIN64;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <LanguageStandard>stdcpplatest</LanguageStandard>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <SubSystem>Console</SubSystem>
+      <AdditionalDependencies>cudart_static.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <CudaCompile>
+      <TargetMachinePlatform>64</TargetMachinePlatform>
+    </CudaCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <PreprocessorDefinitions>WIN32;WIN64;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <SubSystem>Console</SubSystem>
+      <AdditionalDependencies>cudart_static.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <CudaCompile>
+      <TargetMachinePlatform>64</TargetMachinePlatform>
+    </CudaCompile>
+  </ItemDefinitionGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 12.8.targets" />
+  </ImportGroup>
+</Project>

@@ -3,7 +3,6 @@ module;
 #include <memory>
 #include <vector>
 #include <stdexcept>
-#include <thrust/host_vector.h>
 
 export module Compute.OperationBase;
 

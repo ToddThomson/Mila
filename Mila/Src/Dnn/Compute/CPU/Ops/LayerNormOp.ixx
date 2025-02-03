@@ -1,7 +1,6 @@
 module;
 #include <math.h>
 #include <iostream>
-#include <thrust/host_vector.h>
 
 export module Compute.CpuLayerNormOp;
 
@@ -19,7 +18,7 @@ namespace Mila::Dnn::Compute
 	template<typename T>
     class CpuLayerNormOp :public OperationBase<T> {
     public:
-        CpuLayerNormOp() : OperationBase<T>( DeviceType::kCpu, OperationType::kLayerNormOp ) {}
+        CpuLayerNormOp() : OperationBase<T>( DeviceType::kCpu, OperationType::kLayerNorm ) {}
 
         void forward( 
             const std::shared_ptr<Tensor<T>>& input,

@@ -8,6 +8,8 @@ int main() {
 
     using namespace Mila::Dnn;
 
+	Mila::Initialize();
+
     std::cout << "Mila version: " << Mila::GetAPIVersion().ToString() << std::endl;
 
     auto devices = Compute::list_devices();
@@ -20,7 +22,9 @@ int main() {
     // Create a host tensor by default
     Tensor<float> tensor( { 1000, 1000 } );
     random( tensor, 0.0f, 5.0f );
-    //tensor.fill( 5.0f );
+    tensor.print();
+
+    tensor.fill( 5.0f );
     //tensor[ 1,2 ] = 3.0f;
 
     tensor.print();

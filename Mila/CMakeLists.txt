@@ -43,15 +43,13 @@ PUBLIC
 		"Src/Dnn/TensorTraits.ixx" 
 		"Src/Dnn/TensorHelpers.ixx"
 		 
-		"Src/Dnn/Compute/OperationBase.ixx" 
 		
-		"Src/Dnn/Compute/OperationType.ixx"
 		"Src/Dnn/Compute/DeviceType.ixx"
 		
 		"Src/Dnn/Compute/DeviceRegistry.ixx"
 		"Src/Dnn/Compute/DeviceInterface.ixx"  
 		"Src/Dnn/Compute/DeviceHelpers.ixx" 
-		"Src/Dnn/Compute/Devices.ixx" 
+		 
 		
 		"Src/Dnn/Compute/Cuda/CudaDevice.ixx"
 		"Src/Dnn/Compute/Cuda/CudaMatMulOp.ixx"
@@ -76,21 +74,22 @@ PUBLIC
 		"Src/Dnn/Modules/LayerNorm.ixx"
 		"Src/Dnn/Modules/MatMul.ixx" 
 		
+		"Src/Dnn/Compute/OperationBase.ixx" 
+		"Src/Dnn/Compute/OperationType.ixx"
 		"Src/Dnn/Compute/DeviceContext.ixx"
-		"Src/Dnn/Compute/OperationRegistry.ixx" 
+		"Src/Dnn/Compute/OperationRegistry.ixx"
+		"Src/Dnn/Compute/CPU/Ops/CpuOperations.ixx"
+		"Src/Dnn/Compute/Cuda/CudaOperations.ixx"
 		    
 		"Src/Dnn/Compute/Cuda/CudaDeviceProps.ixx"
-		"Src/Dnn/Compute/OpsContext.ixx"  
+		#"Src/Dnn/Compute/OpsContext.ixx"  
 		
 		"Src/Dnn/Compute/Cuda/DeviceMemoryResource.ixx"
 		"Src/Dnn/Compute/CPU/CpuMemoryResource.ixx"
 		"Src/Dnn/Compute/Cuda/ManagedMemoryResource.ixx"
 		"Src/Dnn/Compute/MemoryResource.ixx"
-		"Src/Dnn/Compute/Cuda/PinnedMemoryResource.ixx"
-		
-		"Src/Dnn/Compute/CPU/Ops/CpuOperations.ixx"
-		"Src/Dnn/Compute/Cuda/CudaOperations.ixx"
-)
+		"Src/Dnn/Compute/Cuda/PinnedMemoryResource.ixx"	
+ "Src/Dnn/Modules/MatMulBuilder.ixx" "Src/Dnn/Compute/MemoryResourceProperties.ixx")
 
 target_link_libraries( Mila PRIVATE Thrust::Thrust CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
 

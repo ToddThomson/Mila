@@ -25,7 +25,7 @@ namespace Mila::Dnn::Compute
 		}
 
 		std::set<OperationType> supportedOps() const override {
-			return { OperationType::kLayerNormOp, OperationType::kMatMulOp };
+			return { OperationType::kLayerNorm, OperationType::kMatMul };
 		}
 
 		constexpr DeviceType getDeviceType() const override {
@@ -75,5 +75,5 @@ namespace Mila::Dnn::Compute
 		}
 	};
 
-	export bool CudaDevice::registered_ = (CudaDevice::registerDevices(), true);
+	//export bool CudaDevice::registered_ = (CudaDevice::registerDevices(), true);
 }

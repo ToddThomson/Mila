@@ -15,7 +15,7 @@ namespace Mila::Dnn::Compute
 	export class CpuDevice : public DeviceInterface {
 	public:
 		std::set<OperationType> supportedOps() const override {
-			return { OperationType::kLayerNormOp, OperationType::kMatMulOp };
+			return { OperationType::kLayerNorm, OperationType::kMatMul };
 		}
 
 		static void registerDevice() {

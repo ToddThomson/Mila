@@ -8,7 +8,7 @@ import Dnn.Tensor;
 
 namespace Mila::Dnn
 {
-	export 
+	export
 		void random( Tensor<float>& tensor, float min, float max ) {
 		std::random_device rd;
 		std::mt19937 gen( rd() );
@@ -16,11 +16,11 @@ namespace Mila::Dnn
 
 		auto v = tensor.vectorSpan();
 		for ( size_t i = 0; i < tensor.size(); ++i ) {
-			v[i] = dis(gen);
+			v[ i ] = dis( gen );
 		}
 	}
 
-		export void xavier( Tensor<float>& tensor, size_t input_size, size_t output_size ) {
+	export void xavier( Tensor<float>& tensor, size_t input_size, size_t output_size ) {
 		float limit = std::sqrt( 6.0 / (input_size + output_size) );
 		std::random_device rd;
 		std::mt19937 gen( rd() );

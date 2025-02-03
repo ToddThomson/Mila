@@ -19,7 +19,7 @@ namespace Dnn::Tensors::Tests {
         EXPECT_TRUE( tensor.empty() );
         EXPECT_EQ( tensor.size(), 0 );
         EXPECT_EQ( tensor.rank(), 0 );
-		EXPECT_EQ( tensor.device()->getName(), device->getName() );
+		//EXPECT_EQ( tensor.device()->getName(), device->getName() );
     }
 
     TEST( TensorTest, ConstructorWithShape ) {
@@ -30,7 +30,7 @@ namespace Dnn::Tensors::Tests {
         EXPECT_EQ( tensor.size(), 6 );
         EXPECT_EQ( tensor.rank(), 2 );
         EXPECT_EQ( tensor.shape(), shape );
-        EXPECT_EQ( tensor.device()->getName(), device->getName() );
+        //EXPECT_EQ( tensor.device()->getName(), device->getName() );
     }
 
     TEST( TensorTest, Reshape ) {

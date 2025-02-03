@@ -1,7 +1,6 @@
 module;
 #include <math.h>
 #include <iostream>
-#include <thrust/host_vector.h>
 
 #ifdef USE_OMP
 #include <omp.h>
@@ -24,7 +23,7 @@ namespace Mila::Dnn::Compute
     class CpuMatMulOp :public OperationBase<T> {
     public:
 
-		CpuMatMulOp() : OperationBase<T>( DeviceType::kCpu, OperationType::kMatMulOp ) {}
+		CpuMatMulOp() : OperationBase<T>( DeviceType::kCpu, OperationType::kMatMul ) {}
 
         void forward(
             const std::shared_ptr<Tensor<T>>& input,
