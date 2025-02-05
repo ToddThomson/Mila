@@ -6,16 +6,16 @@ export module Compute.OperationType;
 export namespace Mila::Dnn::Compute
 {
 	export enum class OperationType {
-		kLayerNorm,
-		kMatMul,
-		kSoftmax
+		LayerNormOp,
+		MatMulOp,
+		SoftmaxOp
 	};
 
 	export std::string operationTypeToString( OperationType op ) {
 		switch ( op ) {
-			case OperationType::kLayerNorm: return "LayerNorm";
-			case OperationType::kMatMul: return "MatMul";
-			case OperationType::kSoftmax: return "Softmax";
+			case OperationType::LayerNormOp: return "LayerNormOp";
+			case OperationType::MatMulOp: return "MatMulOp";
+			case OperationType::SoftmaxOp: return "SoftmaxOp";
 
 			default:
 				throw std::runtime_error( "Invalid OperationType." );

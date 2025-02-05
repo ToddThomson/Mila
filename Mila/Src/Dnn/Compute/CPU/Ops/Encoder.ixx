@@ -9,6 +9,7 @@ import Dnn.Tensor;
 import Compute.OperationBase;
 import Compute.DeviceType;
 import Compute.OperationType;
+import Compute.CpuMemoryResource;
 
 using namespace Mila::Dnn;
 
@@ -16,7 +17,7 @@ namespace Mila::Dnn::Compute
 {
 	export
 	template<typename T>
-	class CpuEncoderOp :public OperationBase<T> {
+	class CpuEncoderOp :public OperationBase<T,CpuMemoryResource> {
 	public:
 
 		CpuEncoderOp() : OperationBase<T>( DeviceType::kCpu, OperationType::kEncoderOp ) {}

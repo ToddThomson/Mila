@@ -10,26 +10,28 @@ import Dnn.Tensor;
 import Dnn.Module;
 import Compute.OperationBase;
 import Compute.OperationRegistry;
+import Compute.MemoryResource;
+import Compute.CpuMemoryResource;
+import Compute.DeviceMemoryResource;
 
 namespace Mila::Dnn::Modules
 {
 	using namespace Mila::Dnn::Compute;
 
 	export
-	template<typename T>
-	class LayerNorm : public Module<T> {
+	template<typename T, typename MR> requires std::is_same_v<MR, CpuMemoryResource> || std::is_same_v<MR, DeviceMemoryResource>
+	class LayerNorm : public Module<T,MR> {
 	public:
-		LayerNorm( std::string name, int64_t batch_size, int64_t sequence_length, int64_t channels, bool is_training = false, std::string op_engine = "" )
+		LayerNorm( std::string name, int64_t batch_size, int64_t sequence_length, int64_t channels, bool is_training = false, std::string engine_ns = "" )
 			: name_( name ), B_( batch_size ), T_( sequence_length ), C_( channels ), is_training_( is_training ) {
-			createOperation( op_engine );
-			init_tensors();
+			createOperation( engine_ns );
 		}
 
-		Tensor<float>& Weight() {
+		Tensor<float,MR>& Weight() {
 			return weight_;
 		}
 
-		Tensor<float>& Bias() {
+		Tensor<float,MR>& Bias() {
 			return bias_;
 		}
 
@@ -45,7 +47,7 @@ namespace Mila::Dnn::Modules
 			return name_;
 		}
 
-		std::shared_ptr<Tensor<float>> forward( const std::shared_ptr<Tensor<float>>& input ) override {
+		std::shared_ptr<Tensor<float,MR>> forward( const std::shared_ptr<Tensor<float,MR>> input ) override {
 			auto output = std::make_shared<Tensor<float>>( std::vector<size_t>{ B_, T_, C_ } );
 			operation_->forward( input, parameters_, output, output_attributes_ );
 
@@ -67,33 +69,33 @@ namespace Mila::Dnn::Modules
 		// TODO: Feature not yet implemented
 		bool is_training_{ false };
 
-		Tensor<float> weight_ = Tensor<float>( std::vector<size_t>{ C_ } );
-		Tensor<float> bias_ = Tensor<float>( std::vector<size_t>{ C_ } );
+		Tensor<float,MR> weight_ = Tensor<float,MR>( std::vector<size_t>{ C_ } );
+		Tensor<float,MR> bias_ = Tensor<float,MR>( std::vector<size_t>{ C_ } );
 
-		Tensor<float> mean_ = Tensor<float>( std::vector<size_t>{ B_* T_ } );
-		Tensor<float> rstd_ = Tensor<float>( std::vector<size_t>{ B_* T_ } );
+		Tensor<float> mean_ = Tensor<float,MR>( std::vector<size_t>{ B_* T_ } );
+		Tensor<float> rstd_ = Tensor<float,MR>( std::vector<size_t>{ B_* T_ } );
 
-		std::vector<std::shared_ptr<Tensor<T>>> parameters_;
-		std::vector<std::shared_ptr<Tensor<T>>> output_attributes_;
-		std::vector<std::shared_ptr<Tensor<T>>> scalars_;
+		std::vector<std::shared_ptr<Tensor<T,MR>>> parameters_;
+		std::vector<std::shared_ptr<Tensor<T,MR>>> output_attributes_;
+		std::vector<std::shared_ptr<Tensor<T,MR>>> scalars_;
 
-		std::shared_ptr<Dnn::Compute::OperationBase<float>> operation_;
+		std::shared_ptr<Dnn::Compute::OperationBase<float,MR>> operation_;
 
 		void createOperation( std::string op_engine ) {
-			parameters_.emplace_back( std::make_shared<Tensor<float>>( weight_ ) );
-			parameters_.emplace_back( std::make_shared<Tensor<float>>( bias_ ) );
+			parameters_.emplace_back( std::make_shared<Tensor<float,MR>>( weight_ ) );
+			parameters_.emplace_back( std::make_shared<Tensor<float,MR>>( bias_ ) );
 
-			output_attributes_.emplace_back( std::make_shared<Tensor<float>>( mean_ ) );
-			output_attributes_.emplace_back( std::make_shared<Tensor<float>>( rstd_ ) );
+			output_attributes_.emplace_back( std::make_shared<Tensor<float,MR>>( mean_ ) );
+			output_attributes_.emplace_back( std::make_shared<Tensor<float,MR>>( rstd_ ) );
 
 			//scalars_[ scalar_names_::EPSILON ] = std::make_shared<Tensor>( epsilon_ );*/
 
-
-			operation_ = OperationRegistry<float>::instance().createOperation( "CPU", "Cpu::LayerNormOp" );
-		}
-
-		void init_tensors() {
-			//xavier( weight_, C_, C_ );
+			if constexpr ( std::is_same_v<MR, Compute::CpuMemoryResource> ) {
+				operation_ = OperationRegistry<float, CpuMemoryResource>::instance().createOperation( DeviceType::Cpu, "Cpu::LayerNormOp" );
+			}
+			/*else {
+				operation_ = OperationRegistry<float, DeviceMemoryResource>::instance().createOperation( DeviceType::Cuda, "Cuda::LayerNormOp" );
+			}*/
 		}
 	};
 }

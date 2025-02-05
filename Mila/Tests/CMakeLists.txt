@@ -36,8 +36,8 @@ add_executable( MilaTests
     "Dnn/Model.cpp"
     "Dnn/Compute/Device.cpp" 
     "Dnn/Compute/DeviceHelpers.cpp" 
-    "Context.cpp"
-    #"Dnn/Modules/MatMul.cpp"
+    "Dnn/Compute/DeviceContext.cpp"
+    "Dnn/Modules/MatMul.cpp"
 )
 
 set_target_properties( MilaTests 

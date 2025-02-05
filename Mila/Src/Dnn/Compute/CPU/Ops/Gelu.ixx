@@ -13,6 +13,8 @@ import Compute.OperationBase;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.OperationType;
+import Compute.MemoryResource;
+import Compute.CpuMemoryResource;
 
 using namespace Mila::Dnn;
 
@@ -23,7 +25,7 @@ namespace Mila::Dnn::Compute
 	//constexpr float GELU_SCALING_FACTOR = sqrtf( 2.0f / M_PI );
 
 	export template<typename T>
-		class CpuGeluOp :public OperationBase<T> {
+		class CpuGeluOp :public OperationBase<T,CpuMemoryResource> {
 		public:
 
 			CpuGeluOp() : OperationBase<T>( DeviceType::kCpu, OperationType::kGeluOp ) {}

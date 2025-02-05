@@ -9,6 +9,8 @@ import Compute.OperationBase;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.OperationType;
+import Compute.MemoryResource;
+import Compute.CpuMemoryResource;
 
 using namespace Mila::Dnn;
 
@@ -16,15 +18,15 @@ namespace Mila::Dnn::Compute
 {
 	export
 	template<typename T>
-    class CpuLayerNormOp :public OperationBase<T> {
+    class CpuLayerNormOp : public OperationBase<float,CpuMemoryResource> {
     public:
-        CpuLayerNormOp() : OperationBase<T>( DeviceType::kCpu, OperationType::kLayerNorm ) {}
+        CpuLayerNormOp() : OperationBase<float,CpuMemoryResource>( DeviceType::Cpu, OperationType::LayerNormOp ) {}
 
         void forward( 
-            const std::shared_ptr<Tensor<T>>& input,
-            const std::vector<std::shared_ptr<Tensor<T>>>& parameters, 
-            std::shared_ptr<Tensor<T>>& output, 
-            std::vector<std::shared_ptr<Tensor<T>>>& output_attributes ) const override {
+            const std::shared_ptr<Tensor<float,CpuMemoryResource>> input,
+            const std::vector<std::shared_ptr<Tensor<float,CpuMemoryResource>>>& parameters, 
+            std::shared_ptr<Tensor<float,CpuMemoryResource>> output, 
+            std::vector<std::shared_ptr<Tensor<float,CpuMemoryResource>>>& output_attributes ) const override {
 
 	        auto weight = parameters[ 0 ];
 			auto bias = parameters[ 1 ];
@@ -121,8 +123,8 @@ namespace Mila::Dnn::Compute
         }
 
         static void registerOperation() {
-            OperationRegistry<float>::instance().registerOperation( "CPU", "Cpu::LayerNormOp", []() -> std::shared_ptr<OperationBase<float>> {
-                return std::make_shared<CpuLayerNormOp<float>>();
+            OperationRegistry<float,CpuMemoryResource>::instance().registerOperation( DeviceType::Cpu, "Cpu::LayerNormOp", []() -> std::unique_ptr<OperationBase<float,CpuMemoryResource>> {
+                return std::make_unique<CpuLayerNormOp<float>>();
                 } );
         }
 
@@ -130,4 +132,7 @@ namespace Mila::Dnn::Compute
 			return "Cpu::LayerNormOp";
 		}
 	};
+
+	export bool registered_ = (CpuLayerNormOp<float>::registerOperation(), true);
 }
+

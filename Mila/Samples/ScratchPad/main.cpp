@@ -1,6 +1,5 @@
 ﻿#include <iostream>
-#include <thrust/host_vector.h>
-//#include <thrust/device_vector.h>
+#include <memory>
 
 import Mila;
 
@@ -19,16 +18,31 @@ int main() {
 	}
 	std::cout << std::endl;
 
-    // Create a host tensor by default
-    Tensor<float> tensor( { 1000, 1000 } );
-    random( tensor, 0.0f, 5.0f );
-    tensor.print();
+    std::cout << "The current ComputeDevice is: " << Mila::getDevice()->getName() << std::endl;
 
-    tensor.fill( 5.0f );
-    //tensor[ 1,2 ] = 3.0f;
+    std::unique_ptr<Modules::MatMul<float, Compute::CpuMemoryResource>> cpu_matmul;
+    std::unique_ptr<Modules::MatMul<float, Compute::DeviceMemoryResource>> cuda_matmul;
+    
+    size_t cuda_batch_size_ = 128;
+	size_t cpu_batch_size_ = 2;
+    size_t sequence_length_ = 1024;
+    size_t channels_ = 768;
+    size_t output_channels_ = 3 * channels_;
 
-    tensor.print();
+    cpu_matmul = std::make_unique<Modules::MatMul<float, Compute::CpuMemoryResource>>( "CpuMatMul_1", cpu_batch_size_, sequence_length_, channels_, output_channels_, true );
 
+    cuda_matmul = std::make_unique<Modules::MatMul<float, Compute::DeviceMemoryResource>>( "CudaMatMul_2", cuda_batch_size_, sequence_length_, channels_, output_channels_, true );
+
+    Tensor<float, Compute::CpuMemoryResource> input( { cpu_batch_size_, sequence_length_, channels_ } );
+    random( input, 0.0f, 5.0f );
+
+    input.print();
+
+    auto output = cpu_matmul->forward( std::make_shared<HostTensor<float>>( input ) );
+
+    //auto output = cuda_matmul->forward( std::make_shared<Tensor<float,Compute::CpuMemoryResource>>( input ) );
+
+	output->print();
 
     return 0;
 }

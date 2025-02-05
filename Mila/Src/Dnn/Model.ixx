@@ -13,8 +13,6 @@ import Dnn.Tensor;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.DeviceMemoryResource;
-import Compute.ManagedMemoryResource;
-import Compute.PinnedMemoryResource;
 
 namespace Mila::Dnn
 {
@@ -24,9 +22,9 @@ namespace Mila::Dnn
 	* @tparam T The data type used for the model's parameters and computations.
 	* @tparam MemoryResource The memory resource type used for memory management.
 	*/
-	export 
-	template<typename T, typename MemoryResource = Compute::CpuMemoryResource>
-	class Model : public Module<T> {
+	export
+	template<typename T, typename MR> requires std::is_same_v<MR, Compute::CpuMemoryResource> || std::is_same_v<MR, Compute::DeviceMemoryResource>
+	class Model : public Module<T, MR> {
 	public:
 
 		/**
@@ -35,7 +33,7 @@ namespace Mila::Dnn
 		* Initializes CUDA stream if the memory resource is a device memory resource.
 		*/
 		Model() {
-			if constexpr ( std::is_same_v<MemoryResource, Compute::DeviceMemoryResource> ) {
+			if constexpr ( std::is_same_v<MR, Compute::DeviceMemoryResource> ) {
 				cudaStreamCreate( &stream_ );
 			}
 		}
@@ -46,24 +44,23 @@ namespace Mila::Dnn
 		* Destroys CUDA stream if the memory resource is a device memory resource.
 		*/
 		~Model() {
-			if constexpr ( std::is_same_v<MemoryResource, Compute::DeviceMemoryResource> ) {
+			if constexpr ( std::is_same_v<MR, Compute::DeviceMemoryResource> ) {
 				cudaStreamDestroy( stream_ );
 			}
 		}
 
 		/**
-* @brief Adds a module to the model.
-*
-* @tparam ModuleType The type of the module to add.
-* @param module The module to add.
-* @return size_t The index of the added module.
-* @throws std::invalid_argument if a module with the same name already exists.
-*/
-		template <typename ModuleType>
-			requires std::derived_from<ModuleType, Module<T>>
+		* @brief Adds a module to the model.
+		*
+		* @tparam ModuleType The type of the module to add.
+		* @param module The module to add.
+		* @return size_t The index of the added module.
+		* @throws std::invalid_argument if a module with the same name already exists.
+		*/
+		template <typename ModuleType> requires std::derived_from<ModuleType, Module<T,MR>>
 		size_t add( std::shared_ptr<ModuleType> module ) {
 
-			if constexpr ( std::is_same_v<MemoryResource, Compute::DeviceMemoryResource> ) {
+			if constexpr ( std::is_same_v<MR, Compute::DeviceMemoryResource> ) {
 				module->setStream( stream_ );
 			}
 
@@ -75,6 +72,7 @@ namespace Mila::Dnn
 			modules_.emplace_back( std::move( module ) );
 			module_names_.emplace_back( name );
 
+			// Return the index of the added module
 			return modules_.size() - 1;
 		}
 
@@ -85,12 +83,12 @@ namespace Mila::Dnn
 * @return std::shared_ptr<Tensor<T>> The output tensor.
 * @throws std::runtime_error if the model has not been built.
 */
-		std::shared_ptr<Tensor<T>> forward( const std::shared_ptr<Tensor<T>>& input ) override {
+		std::shared_ptr<Tensor<T, MR>> forward( const std::shared_ptr<Tensor<T, MR>> input ) override {
 			if ( !is_built_ ) {
 				throw std::runtime_error( "Model has not been built. Call build() before forward()." );
 			}
 
-			std::shared_ptr<Tensor<T>> out = input;
+			std::shared_ptr<Tensor<T, MR>> out = input;
 			for ( const auto& module : modules_ ) {
 				out = module->forward( out );
 			}
@@ -147,7 +145,7 @@ namespace Mila::Dnn
 * @return std::shared_ptr<Module<T>> A shared pointer to the module.
 * @throws std::out_of_range if the index is out of range.
 */
-		std::shared_ptr<Module<T>> operator[]( size_t index ) const {
+		std::shared_ptr<Module<T, MR>> operator[]( size_t index ) const {
 			if ( index >= modules_.size() ) {
 				throw std::out_of_range( "Index out of range" );
 			}
@@ -161,7 +159,7 @@ namespace Mila::Dnn
 * @return std::shared_ptr<Module<T>> A shared pointer to the module.
 * @throws std::out_of_range if no module with the given name is found.
 */
-		std::shared_ptr<Module<T>> operator[]( const std::string& name ) const {
+		std::shared_ptr<Module<T, MR>> operator[]( const std::string& name ) const {
 			auto it = std::find( module_names_.begin(), module_names_.end(), name );
 			if ( it == module_names_.end() ) {
 				throw std::out_of_range( "No module found with name '" + name + "'." );
@@ -204,7 +202,7 @@ namespace Mila::Dnn
 		}
 
 	private:
-		std::vector<std::shared_ptr<Module<T>>> modules_; ///< The list of modules in the model.
+		std::vector<std::shared_ptr<Module<T, MR>>> modules_; ///< The list of modules in the model.
 		std::vector<std::string> module_names_; ///< The list of module names.
 		bool is_built_{ false }; ///< Indicates whether the model has been built.
 		bool is_training_{ false }; ///< Indicates whether the model is in training mode.

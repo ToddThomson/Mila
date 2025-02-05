@@ -8,28 +8,23 @@ module;
 
 export module Compute.CudaDevice;
 
-import Compute.DeviceInterface;
+import Compute.ComputeDevice;
 import Compute.DeviceRegistry;
 import Compute.DeviceType;
 import Cuda.DeviceProps;
 import Compute.OperationType;
-//import Compute.CudaMatMulOp;
 
 namespace Mila::Dnn::Compute
 {
-	export class CudaDevice : public DeviceInterface {
+	export class CudaDevice : public ComputeDevice {
 	public:
 
 		explicit CudaDevice( int device_id = 0 ) 
 			: device_id_( setDevice( device_id )), props_( Cuda::DeviceProps( device_id_ ) ) {
 		}
 
-		std::set<OperationType> supportedOps() const override {
-			return { OperationType::kLayerNorm, OperationType::kMatMul };
-		}
-
 		constexpr DeviceType getDeviceType() const override {
-			return DeviceType::kCuda;
+			return DeviceType::Cuda;
 		}
 
 		std::string getName() const override {
@@ -53,15 +48,6 @@ namespace Mila::Dnn::Compute
 			}
 		}
 
-		/*static void registerOperations() {
-			OperationRegistry::instance().registerOperation( "CUDA", "LayerNormOp", []() {
-				return std::make_shared<Cuda::LayerNormOp<float>>();
-				} );
-			OperationRegistry::instance().registerOperation( "CUDA", "MatMulOp", []() {
-				return std::make_shared<Cuda::MatMulOp<float>>();
-				} );
-		}*/
-		
 	private:
 		int device_id_;
 		Cuda::DeviceProps props_;
@@ -75,5 +61,5 @@ namespace Mila::Dnn::Compute
 		}
 	};
 
-	//export bool CudaDevice::registered_ = (CudaDevice::registerDevices(), true);
+	//static bool CudaDevice::registered_ = (CudaDevice::registerDevices(), true);
 }

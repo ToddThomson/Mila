@@ -5,6 +5,8 @@ module;
 export module Dnn.Modules.MatMulBuilder;
 
 import Dnn.Modules.MatMul;
+import Compute.CpuMemoryResource;
+import Compute.DeviceMemoryResource;
 
 export namespace Mila::Dnn::Modules
 {
@@ -13,7 +15,7 @@ export namespace Mila::Dnn::Modules
      *
      * @tparam T The data type of the module.
      */
-    export template<typename T>
+    export template<typename T, typename MR> requires std::is_same_v<MR, CpuMemoryResource> || std::is_same_v<MR, DeviceMemoryResource>
         class MatMulBuilder {
         public:
             /**
@@ -87,8 +89,8 @@ export namespace Mila::Dnn::Modules
              *
              * @return std::shared_ptr<MatMul<T>> The built MatMul module.
              */
-            std::shared_ptr<MatMul<T>> build() const {
-                return std::make_shared<MatMul<T>>( name_, batch_size_, sequence_length_, channels_, output_channels_, is_training_ );
+            std::unique_ptr<MatMul<T,MR>> build() const {
+                return std::make_unique<MatMul<T,MR>>( name_, batch_size_, sequence_length_, channels_, output_channels_, is_training_ );
             }
 
         private:

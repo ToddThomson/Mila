@@ -9,12 +9,13 @@ export module Compute.CpuResidual;
 import Compute.OperationBase;
 import Compute.DeviceType;
 import Compute.OperationType;
+import Compute.CpuMemoryResource;
 
 namespace Mila::Dnn::Compute
 {
     export
     template<typename T>
-    class CpuResidual :public OperationBase<T> {
+    class CpuResidual :public OperationBase<T, CpuMemoryResource> {
     public:
         CpuResidual() : OperationBase<T>( DeviceType::kCpu, OperationType::kResidual ) {}
 

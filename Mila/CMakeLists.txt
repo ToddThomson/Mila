@@ -31,65 +31,66 @@ target_sources( Mila
 PUBLIC
 	FILE_SET module_files
        TYPE CXX_MODULES FILES
+		# Version
 		"Src/Version.ixx"
 		"Src/Mila.ixx"
 		"Src/Misc/Glob.ixx"
-		"Src/Dnn/Compute/Cuda/CudaError.ixx"
-		"Src/Dnn/Compute/Cuda/CudaHelpers.ixx"
 		
+		# Helpers
+		"Src/Helpers/Memory.ixx"
+		"Src/Utils/Logger.ixx"
+		
+		# Dnn
 		"Src/Dnn/Tensor.ixx"
 		"Src/Dnn/TensorBuffer.ixx"
 		"Src/Dnn/TensorType.ixx" 
 		"Src/Dnn/TensorTraits.ixx" 
 		"Src/Dnn/TensorHelpers.ixx"
-		 
-		
-		"Src/Dnn/Compute/DeviceType.ixx"
-		
-		"Src/Dnn/Compute/DeviceRegistry.ixx"
-		"Src/Dnn/Compute/DeviceInterface.ixx"  
-		"Src/Dnn/Compute/DeviceHelpers.ixx" 
-		 
-		
-		"Src/Dnn/Compute/Cuda/CudaDevice.ixx"
-		"Src/Dnn/Compute/Cuda/CudaMatMulOp.ixx"
-		
-		"Src/Dnn/Compute/CPU/CpuDevice.ixx" 
-		"Src/Dnn/Compute/CPU/Ops/Encoder.ixx" 
-		"Src/Dnn/Compute/CPU/Ops/LayerNormOp.ixx" 
-		"Src/Dnn/Compute/CPU/Ops/Attention.ixx" 
-		"Src/Dnn/Compute/CPU/Ops/Residual.ixx" 
-		"Src/Dnn/Compute/CPU/Ops/MatMulOp.ixx"
-		"Src/Dnn/Compute/CPU/Ops/Softmax.ixx"
-		"Src/Dnn/Compute/CPU/Ops/Gelu.ixx"
-		"Src/Dnn/Compute/CPU/Ops/CrossEntropy.ixx"  
-		
-		"Src/Helpers/Memory.ixx" 
-		"Src/Utils/Logger.ixx"
-		
 		"Src/Dnn/Model.ixx" 
-		"Src/Data/DataLoaderBase.ixx" 
-		
 		"Src/Dnn/Module.ixx" 
 		"Src/Dnn/Modules/LayerNorm.ixx"
 		"Src/Dnn/Modules/MatMul.ixx" 
-		
+		"Src/Dnn/Modules/MatMulBuilder.ixx" 
+		"Src/Dnn/Compute/DeviceType.ixx"
+		"Src/Dnn/Compute/DeviceRegistry.ixx"
+		"Src/Dnn/Compute/ComputeDevice.ixx"  
+		"Src/Dnn/Compute/DeviceHelpers.ixx" 
 		"Src/Dnn/Compute/OperationBase.ixx" 
 		"Src/Dnn/Compute/OperationType.ixx"
 		"Src/Dnn/Compute/DeviceContext.ixx"
 		"Src/Dnn/Compute/OperationRegistry.ixx"
-		"Src/Dnn/Compute/CPU/Ops/CpuOperations.ixx"
-		"Src/Dnn/Compute/Cuda/CudaOperations.ixx"
-		    
-		"Src/Dnn/Compute/Cuda/CudaDeviceProps.ixx"
-		#"Src/Dnn/Compute/OpsContext.ixx"  
-		
-		"Src/Dnn/Compute/Cuda/DeviceMemoryResource.ixx"
-		"Src/Dnn/Compute/CPU/CpuMemoryResource.ixx"
-		"Src/Dnn/Compute/Cuda/ManagedMemoryResource.ixx"
+		"Src/Dnn/Compute/Operations.ixx"  
+		"Src/Dnn/Compute/ComputeResource.ixx"
 		"Src/Dnn/Compute/MemoryResource.ixx"
-		"Src/Dnn/Compute/Cuda/PinnedMemoryResource.ixx"	
- "Src/Dnn/Modules/MatMulBuilder.ixx" "Src/Dnn/Compute/MemoryResourceProperties.ixx")
+		"Src/Dnn/Compute/MemoryResourceProperties.ixx"
+		
+		# Dnn Compute CPU
+		"Src/Dnn/Compute/CPU/CpuDevice.ixx" 
+		"Src/Dnn/Compute/CPU/Ops/Encoder.ixx" 
+		"Src/Dnn/Compute/CPU/Ops/CpuLayerNormOp.ixx" 
+		"Src/Dnn/Compute/CPU/Ops/Attention.ixx" 
+		"Src/Dnn/Compute/CPU/Ops/Residual.ixx" 
+		"Src/Dnn/Compute/CPU/Ops/CpuMatMulOp.ixx"
+		"Src/Dnn/Compute/CPU/Ops/Softmax.ixx"
+		"Src/Dnn/Compute/CPU/Ops/Gelu.ixx"
+		"Src/Dnn/Compute/CPU/Ops/CrossEntropy.ixx"  
+		"Src/Dnn/Compute/CPU/Ops/CpuOperations.ixx"
+		"Src/Dnn/Compute/CPU/CpuMemoryResource.ixx"
+		
+		# Dnn Compute CUDA
+		"Src/Dnn/Compute/Cuda/CudaError.ixx"
+		"Src/Dnn/Compute/Cuda/CudaHelpers.ixx"
+		"Src/Dnn/Compute/Cuda/CudaDevice.ixx"
+		"Src/Dnn/Compute/Cuda/CudaMatMulOp.ixx"
+		"Src/Dnn/Compute/Cuda/CudaOperations.ixx"
+		"Src/Dnn/Compute/Cuda/CudaDeviceProps.ixx"
+		"Src/Dnn/Compute/Cuda/DeviceMemoryResource.ixx"
+		"Src/Dnn/Compute/Cuda/ManagedMemoryResource.ixx"
+		"Src/Dnn/Compute/Cuda/PinnedMemoryResource.ixx"
+		
+		# Data
+		"Src/Data/DataLoaderBase.ixx" 
+)
 
 target_link_libraries( Mila PRIVATE Thrust::Thrust CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
 

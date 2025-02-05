@@ -6,6 +6,7 @@ module;
 export module Compute.CpuMemoryResource;
 
 import Compute.MemoryResource;
+import Compute.MemoryResourceProperties;
 
 namespace Mila::Dnn::Compute
 {
@@ -57,5 +58,7 @@ namespace Mila::Dnn::Compute
 		bool do_is_equal( const std::pmr::memory_resource& other ) const noexcept override {
 			return this == &other;
 		}
+
+		friend void get_property( CpuMemoryResource const&, Compute::DeviceAccessible ) noexcept {}
 	};
 }

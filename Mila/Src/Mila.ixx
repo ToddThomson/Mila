@@ -34,20 +34,20 @@ export import Dnn.Model;
 export import Dnn.Tensor;
 export import Dnn.TensorHelpers;
 
-export import Compute.DeviceInterface;
+export import Compute.ComputeDevice;
 export import Compute.DeviceContext;
-//import Compute.DeviceRegistry;
-//import Compute.CpuDevice;
-//import Compute.CudaDevice;
 export import Compute.DeviceHelpers;
 
-//import Compute.CudaMatMulOp;
+export import Compute.MemoryResource;
+export import Compute.CpuMemoryResource;
+export import Compute.DeviceMemoryResource;
+export import Compute.ManagedMemoryResource;
+export import Compute.PinnedMemoryResource;
 
 export import Dnn.Modules.LayerNorm;
 export import Dnn.Modules.MatMul;
 
-//import Compute.CpuLayerNormOp;
-//import Compute.CpuMatMulOp;
+import Compute.Operations;
 
 namespace Mila {
     /// <summary>
@@ -61,8 +61,13 @@ namespace Mila {
 		Dnn::Compute::DeviceContext::instance().setDevice( name );
 	}
 
+    export std::shared_ptr<Dnn::Compute::ComputeDevice> getDevice() {
+        return Dnn::Compute::DeviceContext::instance().getDevice();
+    }
+
     // TJT: Remove. Ensure the static instance is referenced to trigger the constructor
     export void Initialize() {
+        Dnn::Compute::Operations::instance();
 		Dnn::Compute::DeviceContext::instance();
     }
 }

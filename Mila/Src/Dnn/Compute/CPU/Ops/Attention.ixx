@@ -11,13 +11,14 @@ import Dnn.Tensor;
 import Compute.OperationBase;
 import Compute.DeviceType;
 import Compute.OperationType;
+import Compute.CpuMemoryResource;
 
 using namespace Mila::Dnn;
 
 namespace Mila::Dnn::Compute
 {
     export template<typename T>
-    class CpuAttentionOp :public OperationBase<T> {
+    class CpuAttentionOp :public OperationBase<T, CpuMemoryResource> {
     public:
 
         CpuAttentionOp() : OperationBase<T>( DeviceType::kCpu, OperationType::kAttentionOp ) {}

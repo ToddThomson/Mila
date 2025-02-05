@@ -10,11 +10,12 @@ export module Compute.CpuSoftmaxOp;
 import Compute.OperationBase;
 import Compute.DeviceType;
 import Compute.OperationType;
+import Compute.CpuMemoryResource;
 
 namespace Mila::Dnn::Compute
 {
 	export template<typename T>
-		class CpuSoftmaxOp :public OperationBase<T> {
+		class CpuSoftmaxOp :public OperationBase<T, CpuMemoryResource> {
 		public:
 			CpuSoftmaxOp() : OperationBase<T>( DeviceType::kCpu, OperationType::kSoftmax ) {}
 

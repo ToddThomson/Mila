@@ -13,6 +13,8 @@ import Compute.OperationBase;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.OperationType;
+import Compute.MemoryResource;
+import Compute.CpuMemoryResource;
 
 using namespace Mila::Dnn;
 
@@ -20,16 +22,16 @@ namespace Mila::Dnn::Compute
 {
     export
     template<typename T>
-    class CpuMatMulOp :public OperationBase<T> {
+    class CpuMatMulOp : public OperationBase<T,CpuMemoryResource> {
     public:
 
-		CpuMatMulOp() : OperationBase<T>( DeviceType::kCpu, OperationType::kMatMul ) {}
+		CpuMatMulOp() : OperationBase<T,CpuMemoryResource>( DeviceType::Cpu, OperationType::MatMulOp ) {}
 
         void forward(
-            const std::shared_ptr<Tensor<T>>& input,
-            const std::vector<std::shared_ptr<Tensor<T>>>& input_attributes,
-            std::shared_ptr<Tensor<T>>& output,
-            std::vector<std::shared_ptr<Tensor<T>>>& output_attributes ) const override {
+            const std::shared_ptr<Tensor<T,CpuMemoryResource>> input,
+            const std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& input_attributes,
+            std::shared_ptr<Tensor<T,CpuMemoryResource>> output,
+            std::vector<std::shared_ptr<Tensor<T,CpuMemoryResource>>>& output_attributes ) const override {
             auto weight = input_attributes[ 0 ];
             auto bias = input_attributes[ 1 ];
 
@@ -102,8 +104,8 @@ namespace Mila::Dnn::Compute
         }
 
         static void registerOperation() {
-            OperationRegistry<float>::instance().registerOperation( "CPU", "Cpu::MatMulOp", []() -> std::shared_ptr<OperationBase<float>> {
-                return std::make_shared<CpuMatMulOp<float>>();
+            OperationRegistry<float, CpuMemoryResource>::instance().registerOperation( DeviceType::Cpu, "Cpu::MatMulOp", []() -> std::unique_ptr<OperationBase<float,CpuMemoryResource>> {
+                return std::make_unique<CpuMatMulOp<float>>();
                 } );
             }
 
@@ -113,8 +115,8 @@ namespace Mila::Dnn::Compute
 
     private:
         void forward_naive( 
-            const std::shared_ptr<Tensor<float>>& input, 
-            const std::shared_ptr<Tensor<float>>& weight, const std::shared_ptr<Tensor<float>>& bias,
+            const std::shared_ptr<Tensor<float>> input, 
+            const std::shared_ptr<Tensor<float>> weight, const std::shared_ptr<Tensor<float>> bias,
 			std::shared_ptr<Tensor<float>>& output,
             int B, int T, int C, int OC ) const {
             // the most naive implementation of matrix multiplication

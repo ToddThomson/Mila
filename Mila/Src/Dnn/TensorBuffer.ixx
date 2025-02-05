@@ -12,7 +12,7 @@ namespace Mila::Dnn
 	* 
 	* @tparam T The type of the elements stored in the buffer.
 	*/
-	export template <typename T>
+	export template <typename T, typename MR> requires std::is_base_of_v<Compute::MemoryResource, MR>
 	class TensorBuffer {
 	public:
 		/**
@@ -21,8 +21,8 @@ namespace Mila::Dnn
 		* @param size The number of elements in the buffer.
 		* @param mr A shared pointer to a memory resource for allocation.
 		*/
-		explicit TensorBuffer( size_t size, std::shared_ptr<Compute::MemoryResource> mr )
-			: size_( size ), mr_( mr ) {
+		explicit TensorBuffer( size_t size ) //, std::shared_ptr<Compute::MemoryResource> mr )
+			: size_( size ) , mr_( std::make_unique<MR>() ) {
 			data_ = static_cast<T*>( mr_->allocate( size_ * sizeof( T ) ) );
 		}
 
@@ -56,8 +56,6 @@ namespace Mila::Dnn
 			return data_[ i ];
 		}
 
-
-
 		/**
 		* @brief Get a pointer to the data.
 		* 
@@ -79,6 +77,6 @@ namespace Mila::Dnn
 	private:
 		size_t size_{ 0 }; ///< The number of elements in the buffer.
 		T* data_{ nullptr }; ///< A pointer to the data.
-		std::shared_ptr<Compute::MemoryResource> mr_{ nullptr }; ///< A shared pointer to the memory resource.
+		std::unique_ptr<Compute::MemoryResource> mr_{ nullptr }; ///< A unique pointer to the memory resource.
 	};
 }

@@ -10,6 +10,7 @@
 // CUDA kernels
 
 #define GELU_SCALING_FACTOR sqrtf(2.0f / M_PI)
+
 __global__ void gelu_forward_kernel2(floatX* out, const floatX* inp) {
     int idx = (blockIdx.x * blockDim.x + threadIdx.x) * x128::size;
 

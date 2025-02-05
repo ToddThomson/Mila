@@ -7,6 +7,7 @@ import Dnn.Tensor;
 import Compute.OperationBase;
 import Compute.DeviceType;
 import Compute.OperationType;
+import Compute.CpuMemoryResource;
 
 using namespace Mila::Dnn;
 
@@ -14,10 +15,10 @@ namespace Mila::Dnn::Compute
 {
     export
     template<typename T>
-    class CpuCrossEntropyOp :public OperationBase<T> {
+    class CpuCrossEntropyOp :public OperationBase<T, CpuMemoryResource> {
     public:
 
-        CpuCrossEntropyOp() : OperationBase<T>( DeviceType::kCpu, OperationType::kCrossEntropyOp ) {}
+        CpuCrossEntropyOp() : OperationBase<T>( DeviceType::Cpu, OperationType::CrossEntropyOp ) {}
 
         void forward( float* losses, float* probs, const Tensor<int>& targets, int B, int T, int Vp ) {
             // output: losses is (B,T) of the individual losses at each position

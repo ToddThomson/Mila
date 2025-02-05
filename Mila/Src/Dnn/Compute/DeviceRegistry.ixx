@@ -7,22 +7,19 @@ module;
 
 export module Compute.DeviceRegistry;
 
-import Compute.DeviceInterface;
-//import Compute.Devices;
+import Compute.ComputeDevice;
 
 export namespace Mila::Dnn::Compute
 {
     export class DeviceRegistry {
     public:
-        using DeviceFactory = std::function<std::shared_ptr<DeviceInterface>()>;
+        using DeviceFactory = std::function<std::shared_ptr<ComputeDevice>()>;
 
         static DeviceRegistry& instance() {
             static DeviceRegistry registry;
 
             if ( !is_initialized_ ) {
                 is_initialized_ = true;
-
-                //Devices::instance().isInitialized();
             }
             return registry;
         }
@@ -32,9 +29,9 @@ export namespace Mila::Dnn::Compute
             devices_[name] = std::move( factory );
         }
 
-        std::shared_ptr<DeviceInterface> createDevice( const std::string& name ) const {
+        std::shared_ptr<ComputeDevice> createDevice( const std::string& device_name ) const {
             std::lock_guard<std::mutex> lock( mutex_ );
-            auto it = devices_.find( name );
+            auto it = devices_.find( device_name );
             if (it == devices_.end()) {
                 // TODO: Review throw std::runtime_error( "Invalid device type." );
                 return nullptr; 

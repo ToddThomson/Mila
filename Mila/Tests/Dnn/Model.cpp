@@ -9,28 +9,31 @@ namespace Dnn::Models::Tests
 {
     using namespace Mila::Dnn;
 
-    class DummyModule : public Module<float> {
+    class CpuDummyModule : public Module<float, Compute::CpuMemoryResource> {
     public:
-        DummyModule( const std::string& name ) : name_( name ) {}
-        std::shared_ptr<Tensor<float>> forward( const std::shared_ptr<Tensor<float>>& input ) override {
-            return input; // Dummy forward pass
+        CpuDummyModule( const std::string& name ) : name_( name ) {}
+        
+        std::shared_ptr<HostTensor<float>> forward( const std::shared_ptr<HostTensor<float>> input ) override {
+            return input;
         }
-        void setTrainingMode( bool training ) {}
+        
         size_t parameters() const override { return 0; }
         void print() const override {}
         std::string name() const override { return name_; }
+    
     private:
 		bool is_training_{ false };
         std::string name_;
     };
 
 	template<typename T>
-    class TestModel : public Model<T> {
+    class CpuTestModel : public Model<T, Compute::CpuMemoryResource> {
     public:
         std::string name() const override {
             return "TestModel";
         }
         void print() const override {}
+        size_t parameters() const override { return 0; }
     };
 
     class ModelTests : public ::testing::Test {
@@ -44,66 +47,67 @@ namespace Dnn::Models::Tests
         }
     };
 
-    TEST( ModelTests, AddModule ) {
-        auto model = TestModel<float>();
-        auto module = std::make_shared<DummyModule>( "module1" );
+    TEST( ModelTests, CpuModel_AddModule ) {
+        auto model = CpuTestModel<float>();
+        auto module = std::make_shared<CpuDummyModule>( "module1" );
         size_t index = model.add( module );
         EXPECT_EQ( index, 0 );
         EXPECT_EQ( model.size(), 1 );
     }
 
-    TEST( ModelTests, AddDuplicateModule ) {
-        auto model = TestModel<float>();
-        auto module = std::make_shared<DummyModule>( "module1" );
+    TEST( ModelTests, CpuModel_AddDuplicateNamedModule ) {
+        auto model = CpuTestModel<float>();
+        auto module = std::make_shared < CpuDummyModule>( "module1" );
+        auto module2 = std::make_shared < CpuDummyModule>( "module1" );
         model.add( module );
-        EXPECT_THROW( model.add( module ), std::invalid_argument );
+        EXPECT_THROW( model.add( module2 ), std::invalid_argument );
     }
 
-    TEST( ModelTests, ForwardPass ) {
-        auto model = TestModel<float>();
-        auto module = std::make_shared<DummyModule>( "module1" );
+    TEST( ModelTests, CpuModel_ForwardPass ) {
+        auto model = CpuTestModel<float>();
+        auto module = std::make_shared<CpuDummyModule>( "module1" );
         model.add( module );
         model.build();
-        auto input = std::make_shared<Tensor<float>>();
+        auto input = std::make_shared<HostTensor<float>>();
         auto output = model.forward( input );
         EXPECT_EQ( input, output );
     }
 
-    TEST( ModelTests, ForwardPassWithoutBuild ) {
-        auto model = TestModel<float>();
-        auto module = std::make_shared<DummyModule>( "module1" );
+    TEST( ModelTests, CpuModel_ForwardPassWithoutBuild ) {
+        auto model = CpuTestModel<float>();
+        auto module = std::make_shared<CpuDummyModule>( "module1" );
         model.add( module );
-        auto input = std::make_shared<Tensor<float>>();
+        auto input = std::make_shared<HostTensor<float>>();
         EXPECT_THROW( model.forward( input ), std::runtime_error );
     }
 
-    TEST( ModelTests, BuildModel ) {
-        auto model = TestModel<float>();
-        auto module = std::make_shared<DummyModule>( "module1" );
+    TEST( ModelTests, CpuModel_BuildModel ) {
+        auto model = CpuTestModel<float>();
+        auto module = std::make_shared<CpuDummyModule>( "module1" );
         model.add( module );
         model.build();
         EXPECT_THROW( model.build(), std::runtime_error );
     }
 
     TEST( ModelTests, AccessModuleByIndex ) {
-        auto model = TestModel<float>();
-        auto module = std::make_shared<DummyModule>( "module1" );
+        auto model = CpuTestModel<float>();
+        auto module = std::make_shared<CpuDummyModule>( "module1" );
         model.add( module );
         EXPECT_EQ( model[ 0 ], module );
         EXPECT_THROW( model[ 1 ], std::out_of_range );
     }
 
     TEST( ModelTests, AccessModuleByName ) {
-        auto model = TestModel<float>();
-        auto module = std::make_shared<DummyModule>( "module1" );
+        auto model = CpuTestModel<float>();
+        auto module = std::make_shared<CpuDummyModule>( "module1" );
         model.add( module );
         EXPECT_EQ( model[ "module1" ], module );
         EXPECT_THROW( model[ "module2" ], std::out_of_range );
     }
 
     TEST( ModelTests, ParametersCount ) {
-        auto model = TestModel<float>();
-        auto module = std::make_shared<DummyModule>( "module1" );
+        auto model = CpuTestModel<float>();
+        auto module = std::make_shared<CpuDummyModule>( "module1" );
         model.add( module );
         EXPECT_EQ( model.parameters(), 0 );
     }
@@ -121,31 +125,31 @@ namespace Dnn::Models::Tests
     }*/
 
     TEST(ModelTests, Constructor_ShouldInitializeCorrectly) {
-        TestModel<float> mock = TestModel<float>();
-        EXPECT_EQ(mock.name(), "TestModel");
+        auto model = CpuTestModel<float>();
+        EXPECT_EQ(model.name(), "TestModel");
     }
 
     TEST(ModelTests, AddModule_ShouldAddModuleCorrectly) {
-        auto model = TestModel<float>();
-        auto layer = std::make_shared<Modules::LayerNorm<float>>( "ln1", 2, 3, 4 );
+        auto model = CpuTestModel<float>();
+        auto module = std::make_shared<Modules::LayerNorm<float,Compute::CpuMemoryResource>>( "ln1", 2, 3, 4 );
 
-        model.add( layer );
+        model.add( module );
 
         EXPECT_EQ(model.size(), 1);
     }
 
     TEST(ModelTests, Forward_ShouldReturnCorrectOutput) {
-        TestModel<float> model = TestModel<float>();
-        auto layer = std::make_shared<Modules::LayerNorm<float>>("ln1", 2, 3, 4);
-        model.add( layer );
+        auto model = CpuTestModel<float>();
+        auto ln1 = std::make_shared<Modules::LayerNorm<float, Compute::CpuMemoryResource>>("ln1", 2, 3, 4);
+        model.add( ln1 );
 		
         // Create a random input tensor with shape (B=2, T=3, C=4)
-        Tensor<float> X({2, 3, 4}); 
+        HostTensor<float> X({2, 3, 4}); 
         random(X, -1.0f, 1.0f);
 
         model.build();
 
-        auto Y = model.forward( std::make_shared<Tensor<float>>( X ) );
+        auto Y = model.forward( std::make_shared<HostTensor<float>>( X ) );
 
         EXPECT_EQ( Y->size(), X.size());
     }

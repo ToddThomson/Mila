@@ -2,12 +2,17 @@ module;
 #include <string>
 #include <memory>
 #include <unordered_map>
+#include <format>
 #include <functional>
 #include <stdexcept>
 
 export module Compute.OperationRegistry;
 
 import Compute.OperationBase;
+import Compute.DeviceType;
+import Compute.MemoryResource;
+import Compute.CpuMemoryResource;
+import Compute.DeviceMemoryResource;
 
 export namespace Mila::Dnn::Compute
 {
@@ -17,11 +22,11 @@ export namespace Mila::Dnn::Compute
      * @tparam T The type of the operation.
      */
     export 
-    template<typename T> 
+    template<typename T, typename MR> requires std::is_same_v<MR, CpuMemoryResource> || std::is_same_v<MR, DeviceMemoryResource>
     class OperationRegistry {
     public:
 
-        using OperationCreator = std::function<std::shared_ptr<OperationBase<T>>()>; ///< Type alias for the operation creator function.
+        using OperationCreator = std::function<std::shared_ptr<OperationBase<T,MR>>()>; ///< Type alias for the operation creator function.
 
         /**
          * @brief Get the singleton instance of the OperationRegistry.
@@ -44,8 +49,8 @@ export namespace Mila::Dnn::Compute
          * @param operation_name The name of the operation.
          * @param creator The function that creates the operation.
          */
-        void registerOperation( const std::string& device_name, const std::string& operation_name, OperationCreator creator ) {
-            registry_[ device_name ][ operation_name ] = std::move( creator );
+        void registerOperation( const DeviceType& device_type, const std::string& operation_name, OperationCreator creator ) {
+            registry_[ device_type ][ operation_name ] = std::move( creator );
         }
         
         /**
@@ -56,10 +61,10 @@ export namespace Mila::Dnn::Compute
          * @return std::shared_ptr<OperationBase<T>> The created operation.
          * @throws std::runtime_error If the device or operation name is invalid.
          */
-        std::shared_ptr<OperationBase<T>> createOperation( const std::string& device_name, const std::string& operation_name ) const {
-            auto deviceIt = registry_.find( device_name );
+        std::shared_ptr<OperationBase<T,MR>> createOperation( const DeviceType& device_type, const std::string& operation_name ) const {
+            auto deviceIt = registry_.find( device_type );
             if ( deviceIt == registry_.end() ) {
-                throw std::runtime_error( "createOperation: Invalid device name." );
+                throw std::runtime_error( std::format( "createOperation: No operations registered for device type: {}", deviceToString( device_type ) ));
             }
             auto opIt = deviceIt->second.find( operation_name );
             if ( opIt == deviceIt->second.end() ) {
@@ -69,7 +74,7 @@ export namespace Mila::Dnn::Compute
         }
 
     private:
-        std::unordered_map<std::string, std::unordered_map<std::string, OperationCreator>> registry_; ///< The registry of operation creators.
+        std::unordered_map<DeviceType, std::unordered_map<std::string, OperationCreator>> registry_; ///< The registry of operation creators.
         static inline bool is_initialized_ = false; ///< Flag to check if the registry is initialized.
 
         OperationRegistry() = default; ///< Default constructor.

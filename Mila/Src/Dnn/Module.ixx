@@ -6,16 +6,19 @@ module;
 export module Dnn.Module;
 
 import Dnn.Tensor;
+import Compute.MemoryResource;
+import Compute.CpuMemoryResource;
+import Compute.DeviceMemoryResource;
 
 namespace Mila::Dnn
 {
     export 
-    template<typename T>
+    template<typename T, typename MR> requires std::is_same_v<MR, Compute::CpuMemoryResource> || std::is_same_v<MR, Compute::DeviceMemoryResource>
     class Module {
     public:
         virtual ~Module() = default;
 
-        virtual std::shared_ptr<Tensor<T>> forward( const std::shared_ptr<Tensor<T>>& input ) = 0;
+        virtual std::shared_ptr<Tensor<T, MR>> forward( const std::shared_ptr<Tensor<T,MR>> input ) = 0;
 
         virtual Tensor<T> backward( const Tensor<T>& gradient ) {
             // Default to no op

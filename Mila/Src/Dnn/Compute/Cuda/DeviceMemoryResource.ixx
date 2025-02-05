@@ -2,7 +2,6 @@ module;
 #include <cuda_runtime.h>
 #include <memory_resource>
 #include <stdexcept>
-#include <thrust/device_ptr.h>
 
 export module Compute.DeviceMemoryResource;
 
@@ -14,27 +13,7 @@ namespace Mila::Dnn::Compute
      * @brief A memory resource that allocates memory on a CUDA device.
      */
     export class DeviceMemoryResource : public MemoryResource {
-    public:
-        /**
-         * @brief Fills the allocated memory with a specified value using Thrust.
-         *
-         * @param ptr A pointer to the memory to fill.
-         * @param value The value to fill the memory with.
-         * @param size The number of elements to fill.
-         */
-        
-        //
-		// TODO: Investigate how to use Thrust to fill memory.
-        //
-
-        /*template <typename T>
-        void fill( void* ptr, const T& value, std::size_t size ) {
-            thrust::device_ptr<T> dev_ptr( static_cast<T*>(ptr) );
-            thrust::fill( dev_ptr, dev_ptr + size, value );
-        }*/
-    
     protected:
-
         /**
          * @brief Allocates memory on the CUDA device.
          * 
