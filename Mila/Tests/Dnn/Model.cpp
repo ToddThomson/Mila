@@ -145,7 +145,7 @@ namespace Dnn::Models::Tests
 		
         // Create a random input tensor with shape (B=2, T=3, C=4)
         HostTensor<float> X({2, 3, 4}); 
-        random(X, -1.0f, 1.0f);
+        random<float,Compute::CpuMemoryResource>(X, -1.0f, 1.0f);
 
         model.build();
 

@@ -2,7 +2,8 @@
 Mila Deep Neural Net library
 
 ## Prerelease Notice
-Mila, version 0.9.45-alpha is currently an early, experimental, preview release.
+Mila, version 0.9.47-alpha is currently an early, experimental, preview release.
+
 
 ## Description
 Achilles Mila Deep Neural Network library provides an API to model, train and evaluate
@@ -19,12 +20,14 @@ Deep Neural Networks. Mila utilizes the NVIDIA CUDA runtime for high-performance
  
 ## What's New
 
-Mila, Version 0.9.45-alpha adds:
+Mila, Version 0.9.47-alpha adds:
 * CUDA Runtime 12.8
-* NVidia Thrust latest
 
 ## Mila Build Instructions
-Mila is transitioning to use CMake build.
+Mila uses CMake build. To build Mila, follow the steps below:
+
+1. Clone the Mila repository
+2. Open the Mila directory using Visual Studio Code or any other IDE
 
 ## Required Components
 * C++ 20 Module API

@@ -90,7 +90,7 @@ PUBLIC
 		
 		# Data
 		"Src/Data/DataLoaderBase.ixx" 
-)
+ "Src/Dnn/Compute/CPU/CpuComputeResource.ixx")
 
 target_link_libraries( Mila PRIVATE Thrust::Thrust CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
 

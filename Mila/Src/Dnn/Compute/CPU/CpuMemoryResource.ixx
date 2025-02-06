@@ -14,6 +14,10 @@ namespace Mila::Dnn::Compute
 	* @brief A memory resource for CPU memory allocation.
 	*/
 	export class CpuMemoryResource : public MemoryResource {
+	public:
+		static constexpr bool is_host_accessible = HostAccessible::is_host_accessible;
+		static constexpr bool is_device_accessible = false;
+
 	protected:
 		/**
 		* @brief Allocates memory with the specified size and alignment.
@@ -58,7 +62,5 @@ namespace Mila::Dnn::Compute
 		bool do_is_equal( const std::pmr::memory_resource& other ) const noexcept override {
 			return this == &other;
 		}
-
-		friend void get_property( CpuMemoryResource const&, Compute::DeviceAccessible ) noexcept {}
 	};
 }

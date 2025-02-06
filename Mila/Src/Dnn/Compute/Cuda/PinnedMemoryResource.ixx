@@ -6,6 +6,7 @@ module;
 export module Compute.PinnedMemoryResource;
 
 import Compute.MemoryResource;
+import Compute.MemoryResourceProperties;
 
 namespace Mila::Dnn::Compute
 {
@@ -13,6 +14,11 @@ namespace Mila::Dnn::Compute
      * @brief A memory resource that allocates pinned (page-locked) memory using CUDA.
      */
     export class PinnedMemoryResource : public MemoryResource {
+
+    public:
+        static constexpr bool is_host_accessible = HostAccessible::is_host_accessible;
+        static constexpr bool is_device_accessible = DeviceAccessible::is_device_accessible;
+
     protected:
         /**
          * @brief Allocates pinned memory.

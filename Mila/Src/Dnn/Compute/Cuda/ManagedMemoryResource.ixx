@@ -6,6 +6,7 @@ module;
 export module Compute.ManagedMemoryResource;
 
 import Compute.MemoryResource;
+import Compute.MemoryResourceProperties;
 
 namespace Mila::Dnn::Compute
 {
@@ -13,6 +14,10 @@ namespace Mila::Dnn::Compute
      * @brief A memory resource that uses CUDA managed memory.
      */
     export class ManagedMemoryResource : public MemoryResource {
+    public:
+        static constexpr bool is_host_accessible = HostAccessible::is_host_accessible;
+        static constexpr bool is_device_accessible = DeviceAccessible::is_device_accessible;
+
     protected:
         /**
          * @brief Allocates memory using CUDA managed memory.

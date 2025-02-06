@@ -22,23 +22,23 @@ namespace Mila::Dnn::Compute
 {
     export
     template<typename T>
-    class CpuMatMulOp : public OperationBase<T,CpuMemoryResource> {
+    class CpuMatMulOp : public OperationBase<T, CpuMemoryResource> {
     public:
 
-		CpuMatMulOp() : OperationBase<T,CpuMemoryResource>( DeviceType::Cpu, OperationType::MatMulOp ) {}
+        CpuMatMulOp() : OperationBase<T, CpuMemoryResource>( DeviceType::Cpu, OperationType::MatMulOp ) {}
 
         void forward(
-            const std::shared_ptr<Tensor<T,CpuMemoryResource>> input,
+            const std::shared_ptr<Tensor<T, CpuMemoryResource>> input,
             const std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& input_attributes,
-            std::shared_ptr<Tensor<T,CpuMemoryResource>> output,
-            std::vector<std::shared_ptr<Tensor<T,CpuMemoryResource>>>& output_attributes ) const override {
+            std::shared_ptr<Tensor<T, CpuMemoryResource>> output,
+            std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& output_attributes ) const override {
             auto weight = input_attributes[ 0 ];
             auto bias = input_attributes[ 1 ];
 
             int B = input->shape()[ 0 ];
             int T = input->shape()[ 1 ];
             int C = input->shape()[ 2 ];
-			int OC = weight->shape()[ 0 ];
+            int OC = weight->shape()[ 0 ];
 
             const int LOOP_UNROLL = 8;
             if ( B * T % LOOP_UNROLL != 0 ) {
@@ -46,14 +46,14 @@ namespace Mila::Dnn::Compute
                 return;
             }
 
-            #pragma omp parallel for
+        #pragma omp parallel for
             for ( int obt = 0; obt < B * T; obt += LOOP_UNROLL ) {
                 for ( int o = 0; o < OC; o++ ) {
                     float result[ LOOP_UNROLL ];
                     for ( int ibt = 0; ibt < LOOP_UNROLL; ibt++ ) {
-                        result[ ibt ] = (bias->data() != nullptr ) ? bias->data()[ o ] : 0.0f;
+                        result[ ibt ] = (bias->data() != nullptr) ? bias->data()[ o ] : 0.0f;
                     }
-                    
+
                     for ( int i = 0; i < C; i++ ) {
                         float w = weight->data()[ i + o * C ];
                         for ( int ibt = 0; ibt < LOOP_UNROLL; ibt++ ) {
@@ -61,7 +61,7 @@ namespace Mila::Dnn::Compute
                             result[ ibt ] += input->data()[ bt * C + i ] * w;
                         }
                     }
-                    
+
                     for ( int ibt = 0; ibt < LOOP_UNROLL; ibt++ ) {
                         int bt = obt + ibt;
                         output->data()[ bt * OC + o ] = result[ ibt ];
@@ -72,7 +72,7 @@ namespace Mila::Dnn::Compute
 
         void backward( float* dinp, float* dweight, float* dbias, const float* dout, const float* inp, const float* weight,
             int B, int T, int C, int OC ) {
-            #pragma omp parallel for collapse(2)
+        #pragma omp parallel for collapse(2)
             for ( int b = 0; b < B; b++ ) {
                 for ( int t = 0; t < T; t++ ) {
                     const float* dout_bt = dout + b * T * OC + t * OC;
@@ -86,7 +86,7 @@ namespace Mila::Dnn::Compute
                     }
                 }
             }
-            #pragma omp parallel for
+        #pragma omp parallel for
             for ( int o = 0; o < OC; o++ ) {
                 for ( int b = 0; b < B; b++ ) {
                     for ( int t = 0; t < T; t++ ) {
@@ -104,25 +104,27 @@ namespace Mila::Dnn::Compute
         }
 
         static void registerOperation() {
-            OperationRegistry<float, CpuMemoryResource>::instance().registerOperation( DeviceType::Cpu, "Cpu::MatMulOp", []() -> std::unique_ptr<OperationBase<float,CpuMemoryResource>> {
+            OperationRegistry<float, CpuMemoryResource>::instance().registerOperation( DeviceType::Cpu, "Cpu::MatMulOp", []() -> std::unique_ptr<OperationBase<float, CpuMemoryResource>> {
                 return std::make_unique<CpuMatMulOp<float>>();
-                } );
-            }
+            } );
+        }
 
         std::string getName() const override {
             return "Cpu::MatMulOp";
         }
 
     private:
-        void forward_naive( 
-            const std::shared_ptr<Tensor<float,CpuMemoryResource>> input, 
-            const std::shared_ptr<Tensor<float,CpuMemoryResource>> weight, const std::shared_ptr<Tensor<float, CpuMemoryResource>> bias,
-			std::shared_ptr<Tensor<float,CpuMemoryResource>>& output,
+        void forward_naive(
+            const std::shared_ptr<Tensor<float, CpuMemoryResource>> input,
+            const std::shared_ptr<Tensor<float, CpuMemoryResource>> weight, const std::shared_ptr<Tensor<float, CpuMemoryResource>> bias,
+            std::shared_ptr<Tensor<float, CpuMemoryResource>>& output,
             int B, int T, int C, int OC ) const {
-            // the most naive implementation of matrix multiplication
+            
+            // The most naive implementation of matrix multiplication
             // this serves as an algorithmic reference, and as a fallback for
             // unfriendly input shapes inside matmul_forward(), below.
-            #pragma omp parallel for collapse(2)
+
+        #pragma omp parallel for collapse(2)
             for ( int b = 0; b < B; b++ ) {
                 for ( int t = 0; t < T; t++ ) {
                     int bt = b * T + t;

@@ -5,30 +5,54 @@ module;
 export module Dnn.TensorHelpers;
 
 import Dnn.Tensor;
+import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
+import Compute.DeviceMemoryResource;
 
 namespace Mila::Dnn
 {
-	export
-		void random( Tensor<float, Compute::CpuMemoryResource>& tensor, float min, float max ) {
+	export template<typename T, typename MR> requires std::is_base_of_v<Compute::MemoryResource, MR>
+	void random( Tensor<float, MR>& tensor, float min, float max ) {
 		std::random_device rd;
 		std::mt19937 gen( rd() );
 		std::uniform_real_distribution<float> dis( min, max );
 
-		auto v = tensor.vectorSpan();
-		for ( size_t i = 0; i < tensor.size(); ++i ) {
-			v[ i ] = dis( gen );
+		if constexpr ( std::is_same_v<MR, Compute::DeviceMemoryResource> ) {
+			auto temp = tensor.to<Compute::CpuMemoryResource>();
+			auto v = temp.vectorSpan();
+			for ( size_t i = 0; i < temp.size(); ++i ) {
+				temp[ i ] = dis( gen );
+			}
+			tensor = temp.to<MR>();
+		}
+		else {
+			auto v = tensor.vectorSpan();
+			for ( size_t i = 0; i < tensor.size(); ++i ) {
+				v[ i ] = dis( gen );
+			}
 		}
 	}
 
-	export void xavier( Tensor<float, Compute::CpuMemoryResource>& tensor, size_t input_size, size_t output_size ) {
+	export template<typename T, typename MR> requires std::is_base_of_v<Compute::MemoryResource, MR>
+	void xavier( Tensor<float, MR>& tensor, size_t input_size, size_t output_size ) {
 		float limit = std::sqrt( 6.0 / (input_size + output_size) );
 		std::random_device rd;
 		std::mt19937 gen( rd() );
 		std::uniform_real_distribution<float> dis( -limit, limit );
 
-		for ( size_t i = 0; i < tensor.size(); ++i ) {
-			tensor[ i ] = dis( gen );
+		if constexpr ( std::is_same_v<MR, Compute::DeviceMemoryResource> ) {
+			auto temp = tensor.to<Compute::CpuMemoryResource>();
+			auto v = temp.vectorSpan();
+			for ( size_t i = 0; i < temp.size(); ++i ) {
+				v[ i ] = dis( gen );
+			}
+			tensor = temp.to<MR>();
+		}
+		else {
+			auto v = tensor.vectorSpan();
+			for ( size_t i = 0; i < tensor.size(); ++i ) {
+				v[ i ] = dis( gen );
+			}
 		}
 	}
 }

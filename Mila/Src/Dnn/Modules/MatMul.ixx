@@ -8,6 +8,8 @@ export module Dnn.Modules.MatMul;
 
 import Dnn.Module;
 import Dnn.Tensor;
+import Dnn.TensorHelpers;
+
 import Compute.DeviceType;
 import Compute.OperationBase;
 import Compute.OperationRegistry;
@@ -40,17 +42,18 @@ export namespace Mila::Dnn::Modules
 		 * @param channels The number of output channels (channels * N)
 		 * @param is_training Whether the module is in training mode.
 		 */
-		MatMul( std::string name, int64_t batch_size, int64_t sequence_length, int64_t channels, int64_t output_channels, bool is_training = false )
-			: name_( name ), B_( batch_size ), T_( sequence_length ), C_( channels ), OC_( output_channels ), is_training_( is_training ) {
+		MatMul( std::string name, const std::vector<size_t>& input_shape, size_t output_channels, bool is_training = false )
+			: name_( name ), input_shape_( input_shape ), output_channels_( output_channels ), is_training_( is_training ) {
+			validateAndCreateParameters();
 			createOperation();
 		}
 
-		/**
-		 * @brief Get the weight tensor.
-		 *
-		 * @return Tensor<float>& The weight tensor.
-		 */
-		Tensor<float, MR>& getWeight() {
+        /**
+        * @brief Get the weight tensor.
+        *
+        * @return std::shared_ptr<Tensor<float, MR>> The weight tensor.
+        */
+		std::shared_ptr<Tensor<float, MR>> getWeight() {
 			return weight_;
 		}
 
@@ -61,12 +64,12 @@ export namespace Mila::Dnn::Modules
 			weight_ = weight;
 		}
 
-		/**
-		 * @brief Get the bias tensor.
-		 *
-		 * @return Tensor<float>& The bias tensor.
-		 */
-		Tensor<float, MR>& getBias() {
+        /**  
+        * @brief Get the bias tensor.  
+        *  
+        * @return std::shared_ptr<Tensor<float, MR>> The bias tensor.  
+        */  
+		std::shared_ptr<Tensor<float, MR>> getBias() {
 			return bias_;
 		}
 
@@ -84,7 +87,7 @@ export namespace Mila::Dnn::Modules
 		 * @return size_t The number of parameters.
 		 */
 		size_t parameters() const override {
-			return OC_ + OC_;
+			return output_channels_ + output_channels_;
 		}
 
 		/**
@@ -103,7 +106,10 @@ export namespace Mila::Dnn::Modules
 		 * @return std::shared_ptr<Tensor<float>> The output tensor.
 		 */
 		std::shared_ptr<Tensor<float, MR>> forward( const std::shared_ptr<Tensor<float, MR>> input ) {
-			auto output = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ B_, T_, OC_ } );
+			auto B = input->shape()[ 0 ];
+			auto T = input->shape()[ 1 ];
+
+			auto output = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ B, T, output_channels_ } );
 			operation_->forward( input, parameters_, output, output_attributes_ );
 
 			return output;
@@ -123,15 +129,14 @@ export namespace Mila::Dnn::Modules
 
 	private:
 		std::string name_{ "MatMul" }; ///< The name of the module.
-		size_t B_{ 0 }; ///< The batch size.
-		size_t T_{ 0 }; ///< The sequence length.
-		size_t C_{ 0 }; ///< The number of channels.
-		size_t OC_{ 0 }; ///< The number of output channels.
+		std::vector<size_t> input_shape_; ///< The input shape.
+
+		size_t output_channels_{ 0 }; ///< The number of output channels.
 
 		bool is_training_{ false }; ///< Whether the module is in training mode.
 
-		Tensor<float, MR> weight_ = Tensor<float, MR>( { OC_, C_ } ); ///< The weight tensor.
-		Tensor<float, MR> bias_ = Tensor<float, MR>( { OC_ } ); ///< The bias tensor.
+		std::shared_ptr<Tensor<float, MR>> weight_{ nullptr }; // = Tensor<float, MR>( { output_channels_, C_ } ); ///< The weight tensor.
+		std::shared_ptr<Tensor<float, MR>> bias_{ nullptr };// = Tensor<float, MR>( { output_channels_ } ); ///< The bias tensor.
 
 		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_; ///< The parameters.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_attributes_; ///< The output attributes.
@@ -139,13 +144,33 @@ export namespace Mila::Dnn::Modules
 
 		std::shared_ptr<Dnn::Compute::OperationBase<T, MR>> operation_; ///< The operation.
 
+		void validateAndCreateParameters() {
+			// TODO: For now, we only support 3D input shapes.
+			if ( input_shape_.size() != 3 ) {
+				throw std::invalid_argument( "The input shape must have 3 dimensions." );
+			}
+			
+			// The last dimension of the input shape is the number of channels.
+			auto input_channels = input_shape_[ 2 ];
+
+			weight_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ output_channels_, input_channels } );
+			bias_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ output_channels_ } );
+
+			// Initialize the weight tensor. The bias tensor is default initialized to zeros
+			initializeWeights();
+			
+			parameters_.emplace_back( weight_ );
+			parameters_.emplace_back( bias_ );
+		}
+		
+		void initializeWeights() {
+			xavier<float, MR>( *weight_, input_shape_[ 2 ], output_channels_ );
+		}
+
 		/**
 		 * @brief Create the operation.
 		 */
 		void createOperation() {
-			parameters_.emplace_back( std::make_shared<Tensor<float, MR>>( weight_ ) );
-			parameters_.emplace_back( std::make_shared<Tensor<float, MR>>( bias_ ) );
-
 			if constexpr ( std::is_same_v<MR, Compute::CpuMemoryResource> ) {
 				operation_ = OperationRegistry<float, MR>::instance().createOperation( DeviceType::Cpu, "Cpu::MatMulOp" );
 			}

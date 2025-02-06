@@ -6,6 +6,7 @@ module;
 export module Compute.DeviceMemoryResource;
 
 import Compute.MemoryResource;
+import Compute.MemoryResourceProperties;
 
 namespace Mila::Dnn::Compute
 {
@@ -13,6 +14,11 @@ namespace Mila::Dnn::Compute
      * @brief A memory resource that allocates memory on a CUDA device.
      */
     export class DeviceMemoryResource : public MemoryResource {
+
+    public:
+        static constexpr bool is_host_accessible = false;
+        static constexpr bool is_device_accessible = DeviceAccessible::is_device_accessible;
+
     protected:
         /**
          * @brief Allocates memory on the CUDA device.

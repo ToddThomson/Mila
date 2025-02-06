@@ -39,7 +39,7 @@ namespace Mila::Dnn::Compute
 			int C = input->shape()[ 2 ];
 			int OC = weight->shape()[ 0 ];
 
-			cuda_matmul_forward( input->data(), weight->data(), bias->data(), output->data(), B, T, C, OC );
+			cuda_matmul_forward( output->data(), input->data(), weight->data(), bias->data(),  B, T, C, OC );
 		}
 
 		static void registerOperation() {
