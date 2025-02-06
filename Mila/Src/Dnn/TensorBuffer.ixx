@@ -1,9 +1,13 @@
 module;
 #include <memory>
+#include <vector>
+#include <cuda_runtime.h>
 
 export module Dnn.TensorBuffer;
 
 import Compute.MemoryResource;
+import Compute.CpuMemoryResource;
+import Compute.DeviceMemoryResource;
 
 namespace Mila::Dnn
 {
@@ -16,14 +20,26 @@ namespace Mila::Dnn
 	class TensorBuffer {
 	public:
 		/**
-		* @brief Construct a new TensorBuffer object.
+		* @brief Construct a new TensorBuffer object with default initialization.
 		* 
 		* @param size The number of elements in the buffer.
-		* @param mr A shared pointer to a memory resource for allocation.
 		*/
-		explicit TensorBuffer( size_t size ) //, std::shared_ptr<Compute::MemoryResource> mr )
-			: size_( size ) , mr_( std::make_unique<MR>() ) {
+		explicit TensorBuffer( size_t size )
+			: size_( size ), mr_( std::make_unique<MR>() ) {
 			data_ = static_cast<T*>( mr_->allocate( size_ * sizeof( T ) ) );
+			initializeBuffer();
+		}
+
+		/**
+		* @brief Construct a new TensorBuffer object with a specific value initialization.
+		* 
+		* @param size The number of elements in the buffer.
+		* @param value The value to initialize the buffer with.
+		*/
+		TensorBuffer( size_t size, const T& value )
+			: size_( size ), mr_( std::make_unique<MR>() ) {
+			data_ = static_cast<T*>( mr_->allocate( size_ * sizeof( T ) ) );
+			initializeBuffer(value);
 		}
 
 		/**
@@ -43,6 +59,7 @@ namespace Mila::Dnn
 				mr_->deallocate( data_, size_ * sizeof( T ) );
 				size_ = size;
 				data_ = static_cast<T*>( mr_->allocate( size_ * sizeof(T) ) );
+				initializeBuffer();
 			}
 		}
 
@@ -78,5 +95,31 @@ namespace Mila::Dnn
 		size_t size_{ 0 }; ///< The number of elements in the buffer.
 		T* data_{ nullptr }; ///< A pointer to the data.
 		std::unique_ptr<Compute::MemoryResource> mr_{ nullptr }; ///< A unique pointer to the memory resource.
+
+		/**
+		* @brief Initialize the buffer with default values.
+		*/
+		void initializeBuffer() {
+			if constexpr (std::is_same_v<MR, Compute::CpuMemoryResource>) {
+				std::fill(data_, data_ + size_, T{});
+			} else if constexpr (std::is_same_v<MR, Compute::DeviceMemoryResource>) {
+				cudaMemset(data_, 0, size_ * sizeof(T));
+			}
+		}
+
+		/**
+		* @brief Initialize the buffer with a specific value.
+		* 
+		* @param value The value to initialize the buffer with.
+		*/
+		void initializeBuffer(const T& value) {
+			if constexpr (std::is_same_v<MR, Compute::CpuMemoryResource>) {
+				std::fill(data_, data_ + size_, value);
+			} else if constexpr (std::is_same_v<MR, Compute::DeviceMemoryResource>) {
+				// For CUDA, we need to use cudaMemcpy to set the value
+				std::vector<T> temp(size_, value);
+				cudaMemcpy(data_, temp.data(), size_ * sizeof(T), cudaMemcpyHostToDevice);
+			}
+		}
 	};
 }

@@ -15,6 +15,7 @@ import Dnn.TensorBuffer;
 import Dnn.TensorTag;
 
 import Compute.ComputeDevice;
+import Compute.DeviceContext;
 
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
@@ -24,8 +25,7 @@ import Compute.PinnedMemoryResource;
 
 namespace Mila::Dnn
 {
-	export template<typename T, typename MR = Compute::CpuMemoryResource>
-		requires std::is_base_of_v<Compute::MemoryResource, MR>
+	export template<typename T, typename MR> requires std::is_base_of_v<Compute::MemoryResource, MR>
 	class Tensor : TensorTag {
 	public:
 
@@ -37,13 +37,17 @@ namespace Mila::Dnn
 		using Extent4d = std::dextents<size_t, 4>;
 
 		Tensor( const std::vector<size_t>& shape, std::shared_ptr<Compute::ComputeDevice> device_ptr = nullptr )
-			: shape_( shape ), strides_( computeStrides( shape ) ), size_( computeSize( shape ) ), device_ptr_( device_ptr ) {
+			: shape_( shape ), strides_( computeStrides( shape ) ), size_( computeSize( shape ) ), device_ptr_( setDevice( device_ptr ) ) {
 			allocateBuffer();
 		}
 
-		// Creates an empty tensor with zero size
+		Tensor( const std::vector<size_t>& shape, const T& value, std::shared_ptr<Compute::ComputeDevice> device_ptr = nullptr )
+			: shape_( shape ), strides_( computeStrides( shape ) ), size_( computeSize( shape ) ), device_ptr_( setDevice( device_ptr ) ) {
+			allocateBuffer( value );
+		}
+
 		Tensor()
-			: shape_(), strides_( computeStrides( shape_ ) ), size_(), device_ptr_{ nullptr } {
+			: shape_(), strides_( computeStrides( shape_ ) ), size_(), device_ptr_( setDevice( nullptr ) ) {
 			allocateBuffer();
 		}
 
@@ -79,6 +83,59 @@ namespace Mila::Dnn
 			}
 			return *this;
 		}
+
+		template<typename NewMR>
+		Tensor<T, NewMR> to() const {
+			static_assert(std::is_base_of_v<Compute::MemoryResource, NewMR>, "NewMR must be derived from Compute::MemoryResource");
+
+			// Create a new tensor with the same shape and the new memory resource
+			Tensor<T, NewMR> new_tensor( shape_, device_ptr_ );
+
+			// Copy data from the current tensor to the new tensor
+			if constexpr ( std::is_same_v<MR, Compute::CpuMemoryResource> && std::is_same_v<NewMR, Compute::DeviceMemoryResource> ) {
+				cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyHostToDevice );
+			}
+			else if constexpr ( std::is_same_v<MR, Compute::DeviceMemoryResource> && std::is_same_v<NewMR, Compute::CpuMemoryResource> ) {
+				cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyDeviceToHost );
+			}
+			else if constexpr ( std::is_same_v<MR, Compute::CpuMemoryResource> && std::is_same_v<NewMR, Compute::PinnedMemoryResource> ) {
+				cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyHostToHost );
+			}
+			else if constexpr ( std::is_same_v<MR, Compute::PinnedMemoryResource> && std::is_same_v<NewMR, Compute::CpuMemoryResource> ) {
+				cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyHostToHost );
+			}
+			else if constexpr ( std::is_same_v<MR, Compute::DeviceMemoryResource> && std::is_same_v<NewMR, Compute::PinnedMemoryResource> ) {
+				cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyDeviceToHost );
+			}
+			else if constexpr ( std::is_same_v<MR, Compute::PinnedMemoryResource> && std::is_same_v<NewMR, Compute::DeviceMemoryResource> ) {
+				cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyHostToDevice );
+			}
+			else if constexpr ( std::is_same_v<MR, Compute::CpuMemoryResource> && std::is_same_v<NewMR, Compute::ManagedMemoryResource> ) {
+				cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyHostToDevice );
+			}
+			else if constexpr ( std::is_same_v<MR, Compute::ManagedMemoryResource> && std::is_same_v<NewMR, Compute::CpuMemoryResource> ) {
+				cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyDeviceToHost );
+			}
+			else {
+				std::copy( this->data(), this->data() + size_, new_tensor.data() );
+			}
+
+			return new_tensor;
+		}
+
+		//template<typename NewMR>
+		//Tensor<T, NewMR> to() const {
+		//	Tensor<T, NewMR> new_tensor( shape_, device_ptr_ );
+		//	if ( constexpr (std::is_same_v<MR, NewMR>) ) {
+		//		std::copy( buffer_->data(), buffer_->data() + size_, new_tensor.data() );
+		//	}
+		//	else {
+		//		// Copy data from one memory resource to another
+		//		std::copy( buffer_->data(), buffer_->data() + size_, new_tensor.data() );
+		//	}
+		//	
+		//	return new_tensor;
+		//}
 
 		void reshape( const std::vector<size_t>& new_shape ) {
 			size_t new_size = computeSize( new_shape );
@@ -257,6 +314,10 @@ namespace Mila::Dnn
 			buffer_ = std::make_shared<TensorBuffer<T, MR>>( size_ );
 			data_type_ = tensor_type_of( buffer_->data() );
 		}
+		void allocateBuffer( T value ) {
+			buffer_ = std::make_shared<TensorBuffer<T, MR>>( size_, value );
+			data_type_ = tensor_type_of( buffer_->data() );
+		}
 
 		void printBuffer( size_t index, size_t depth ) const {
 			if ( depth == shape_.size() - 1 ) {
@@ -302,6 +363,15 @@ namespace Mila::Dnn
 				size *= dim;
 			}
 			return size;
+		}
+
+		std::shared_ptr<Compute::ComputeDevice> setDevice( std::shared_ptr<Compute::ComputeDevice> device_ptr ) {
+			if ( device_ptr ) {
+				return device_ptr;
+			}
+			else {
+				return Compute::DeviceContext::instance().getDevice();
+			}
 		}
 
 		size_t computeIndex( const std::vector<size_t>& indices ) const {

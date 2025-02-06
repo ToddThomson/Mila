@@ -88,9 +88,9 @@ namespace Mila::Dnn::Compute
 		* @throws std::runtime_error If the operation does not support backward pass.
 		*/
 		virtual void backward(
-			const std::shared_ptr<Tensor<T>>& grad,
-			const std::vector<std::shared_ptr<Tensor<T>>>& inputs,
-			std::vector<std::shared_ptr<Tensor<T>>>& outputGrads ) const {
+			const std::shared_ptr<Tensor<T,MR>> grad,
+			const std::vector<std::shared_ptr<Tensor<T,MR>>> inputs_attributes,
+			std::vector<std::shared_ptr<Tensor<T,MR>>>& outputGrads ) const {
 			// Default implementation for backward pass
 			throw std::runtime_error( "Operation does not support backward pass." );
 		};

@@ -38,9 +38,11 @@ int main() {
 
     input.print();
 
+	auto cuda_input = input.to<Compute::DeviceMemoryResource>();
+
     auto output = cpu_matmul->forward( std::make_shared<HostTensor<float>>( input ) );
 
-    //auto output = cuda_matmul->forward( std::make_shared<Tensor<float,Compute::CpuMemoryResource>>( input ) );
+    auto output2 = cuda_matmul->forward( std::make_shared<DeviceTensor<float>>( cuda_input ) );
 
 	output->print();
 

@@ -16,13 +16,12 @@ using namespace Mila::Dnn;
 namespace Mila::Dnn::Compute
 {
 	export
-	template<typename T>
-	class CpuEncoderOp :public OperationBase<T,CpuMemoryResource> {
+	class CpuEncoderOp :public OperationBase<float, CpuMemoryResource> {
 	public:
 
-		CpuEncoderOp() : OperationBase<T>( DeviceType::kCpu, OperationType::kEncoderOp ) {}
+		CpuEncoderOp() : OperationBase<float, CpuMemoryResource>( DeviceType::Cpu, OperationType::EncoderOp ) {}
 
-		void forward( float* out, const Tensor<int>& inp, float* wte, float* wpe, int B, int T, int C ) {
+		void forward( float* out, const Tensor<int,CpuMemoryResource>& inp, float* wte, float* wpe, int B, int T, int C ) {
 			for ( int b = 0; b < B; b++ ) {
 				for ( int t = 0; t < T; t++ ) {
 					float* out_bt = out + b * T * C + t * C;
@@ -37,7 +36,7 @@ namespace Mila::Dnn::Compute
 			}
 		}
 
-		void backward( float* dwte, float* dwpe, float* dout, const Tensor<int>& inp, int B, int T, int C ) {
+		void backward( float* dwte, float* dwpe, float* dout, const Tensor<int,CpuMemoryResource>& inp, int B, int T, int C ) {
 			for ( int b = 0; b < B; b++ ) {
 				for ( int t = 0; t < T; t++ ) {
 					float* dout_bt = dout + b * T * C + t * C;

@@ -35,7 +35,7 @@ namespace Mila::Dnn::Modules
 			return bias_;
 		}
 
-		Tensor<float>& Epsilon() {
+		Tensor<float,MR>& Epsilon() {
 			return epsilon_;
 		}
 
@@ -48,7 +48,7 @@ namespace Mila::Dnn::Modules
 		}
 
 		std::shared_ptr<Tensor<float,MR>> forward( const std::shared_ptr<Tensor<float,MR>> input ) override {
-			auto output = std::make_shared<Tensor<float>>( std::vector<size_t>{ B_, T_, C_ } );
+			auto output = std::make_shared<Tensor<float,MR>>( std::vector<size_t>{ B_, T_, C_ } );
 			operation_->forward( input, parameters_, output, output_attributes_ );
 
 			return output;
@@ -72,8 +72,8 @@ namespace Mila::Dnn::Modules
 		Tensor<float,MR> weight_ = Tensor<float,MR>( std::vector<size_t>{ C_ } );
 		Tensor<float,MR> bias_ = Tensor<float,MR>( std::vector<size_t>{ C_ } );
 
-		Tensor<float> mean_ = Tensor<float,MR>( std::vector<size_t>{ B_* T_ } );
-		Tensor<float> rstd_ = Tensor<float,MR>( std::vector<size_t>{ B_* T_ } );
+		Tensor<float,MR> mean_ = Tensor<float,MR>( std::vector<size_t>{ B_* T_ } );
+		Tensor<float,MR> rstd_ = Tensor<float,MR>( std::vector<size_t>{ B_* T_ } );
 
 		std::vector<std::shared_ptr<Tensor<T,MR>>> parameters_;
 		std::vector<std::shared_ptr<Tensor<T,MR>>> output_attributes_;

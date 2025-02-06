@@ -20,7 +20,7 @@ namespace Mila::Dnn
 
         virtual std::shared_ptr<Tensor<T, MR>> forward( const std::shared_ptr<Tensor<T,MR>> input ) = 0;
 
-        virtual Tensor<T> backward( const Tensor<T>& gradient ) {
+        virtual Tensor<T,MR> backward( const Tensor<T,MR>& gradient ) {
             // Default to no op
             return {};
         }

@@ -54,7 +54,7 @@ namespace Mila {
     /// Gets the Mila API version.
     /// </summary>
     export Version GetAPIVersion() {
-        return Version{0, 9, 45, "alpha", 1 };
+        return Version{0, 9, 46, "alpha", 1 };
     }
 
 	export void setDevice( const std::string& name ) {

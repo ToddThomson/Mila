@@ -38,7 +38,7 @@ add_executable( MilaTests
     "Dnn/Compute/DeviceHelpers.cpp" 
     "Dnn/Compute/DeviceContext.cpp"
     "Dnn/Modules/MatMul.cpp"
-)
+ "Dnn/TensorBuffer.cpp")
 
 set_target_properties( MilaTests 
     PROPERTIES

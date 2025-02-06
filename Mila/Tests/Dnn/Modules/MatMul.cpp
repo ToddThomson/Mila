@@ -40,17 +40,17 @@ namespace Dnn::Modules::Tests
     }
 
     TEST_F( MatMulTests, CpuMatMul_TestWeightInitialization ) {
-        auto& weight = cpu_matmul->Weight();
+        auto& weight = cpu_matmul->getWeight();
         EXPECT_EQ( weight.size(), output_channels_ * channels_ );
     }
 
     TEST_F( MatMulTests, TestBiasInitialization ) {
-        auto& bias = cpu_matmul->Bias();
+        auto& bias = cpu_matmul->getBias();
         EXPECT_EQ( bias.size(), output_channels_ );
     }
 
     TEST_F( MatMulTests, CpuMatMul_TestForward ) {
-        MilaDnn::Tensor<float> input( { 1, sequence_length_, channels_ } );
+        MilaDnn::Tensor<float, MilaDnn::Compute::CpuMemoryResource> input( { 1, sequence_length_, channels_ } );
         auto output = cpu_matmul->forward( std::make_shared<MilaDnn::HostTensor<float>>( input ) );
         EXPECT_EQ( output->size(), batch_size_ * sequence_length_ * output_channels_ );
     }

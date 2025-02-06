@@ -17,6 +17,7 @@ namespace Mila::Dnn::Compute
 	*/
 	export class DeviceContext {
 	public:
+		
 		/**
 		* @brief Gets the singleton instance of the DeviceContext.
 		* @return The singleton instance of the DeviceContext.
@@ -65,6 +66,7 @@ namespace Mila::Dnn::Compute
 		DeviceContext& operator=( const DeviceContext& ) = delete;
 
 	private:
+
 		DeviceContext() = default;
 		std::shared_ptr<ComputeDevice> device_;
 		static inline bool is_initialized_ = false;
@@ -73,7 +75,5 @@ namespace Mila::Dnn::Compute
 			CpuDevice::registerDevice();
 			CudaDevice::registerDevices();
 		}
-
-		
 	};
 }

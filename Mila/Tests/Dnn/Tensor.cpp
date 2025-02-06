@@ -13,29 +13,29 @@ namespace Dnn::Tensors::Tests {
         }
     };
 
-    TEST( TensorTest, DefaultConstructor ) {
-        Tensor<float> tensor;
+    TEST( TensorTest, Cpu_DefaultConstructor ) {
+        Tensor<float, Compute::CpuMemoryResource> tensor;
 		auto device = Compute::DeviceContext::instance().getDevice();
         EXPECT_TRUE( tensor.empty() );
         EXPECT_EQ( tensor.size(), 0 );
         EXPECT_EQ( tensor.rank(), 0 );
-		//EXPECT_EQ( tensor.device()->getName(), device->getName() );
+		EXPECT_EQ( tensor.device()->getName(), device->getName() );
     }
 
     TEST( TensorTest, ConstructorWithShape ) {
         auto device = Compute::DeviceContext::instance().getDevice();
 		std::vector<size_t> shape = { 2, 3 };
-        Tensor<float> tensor( shape );
+        Tensor<float,Compute::DeviceMemoryResource> tensor( shape );
         EXPECT_FALSE( tensor.empty() );
         EXPECT_EQ( tensor.size(), 6 );
         EXPECT_EQ( tensor.rank(), 2 );
         EXPECT_EQ( tensor.shape(), shape );
-        //EXPECT_EQ( tensor.device()->getName(), device->getName() );
+        EXPECT_EQ( tensor.device()->getName(), device->getName() );
     }
 
     TEST( TensorTest, Reshape ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float> tensor( shape );
+        Tensor<float, Compute::CpuMemoryResource> tensor( shape );
         std::vector<size_t> new_shape = { 3, 2 };
         tensor.reshape( new_shape );
         EXPECT_EQ( tensor.shape(), new_shape );
@@ -44,14 +44,14 @@ namespace Dnn::Tensors::Tests {
 
     TEST( TensorTest, VectorSpan ) {
         std::vector<size_t> shape = { 6 };
-        Tensor<float> tensor( {6});
+        Tensor<float,Compute::CpuMemoryResource> tensor( {6});
         auto span = tensor.vectorSpan();
         EXPECT_EQ( span.extent( 0 ), 6 );
     }
 
     TEST( TensorTest, MatrixSpan ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float> tensor( shape );
+        Tensor<float, Compute::CpuMemoryResource> tensor( shape );
         auto span = tensor.matrixSpan( shape );
         EXPECT_EQ( span.extent( 0 ), 2 );
         EXPECT_EQ( span.extent( 1 ), 3 );
@@ -59,14 +59,14 @@ namespace Dnn::Tensors::Tests {
 
     TEST( TensorTest, OperatorIndex1D ) {
         std::vector<size_t> shape = { 6 };
-        Tensor<float> tensor( shape );
+        Tensor<float,Compute::CpuMemoryResource> tensor( shape );
         tensor[ 0 ] = 1.0f;
         EXPECT_EQ( tensor[ 0 ], 1.0f );
     }
 
     TEST( TensorTest, OperatorIndex2D ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float> tensor( shape );
+        Tensor<float, Compute::CpuMemoryResource> tensor( shape );
         tensor.fill( 3.14f );
         tensor[ 0, 1 ] = 1.0f;
 		auto val = tensor[ 0, 1 ];
@@ -75,7 +75,7 @@ namespace Dnn::Tensors::Tests {
 
     TEST( TensorTest, Fill ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float> tensor( shape );
+        Tensor<float, Compute::CpuMemoryResource> tensor( shape );
         tensor.fill( 3.1415f );
         for ( size_t i = 0; i < tensor.shape()[0]; ++i ) {
             for ( size_t j = 0; j < tensor.shape()[ 1 ]; ++j ) {
@@ -87,7 +87,7 @@ namespace Dnn::Tensors::Tests {
 
     TEST( TensorTest, Print ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float> tensor( shape );
+        Tensor<float, Compute::CpuMemoryResource> tensor( shape );
         tensor.fill( 1.0f );
         testing::internal::CaptureStdout();
         tensor.print();
@@ -98,7 +98,7 @@ namespace Dnn::Tensors::Tests {
 
     TEST( TensorTest, ViewReturnsCorrectMatrixMdspan ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float> tensor( shape );
+        Tensor<float, Compute::CpuMemoryResource> tensor( shape );
         tensor.fill( 3.14f );
 
         auto matrix_view = tensor.matrixSpan( { 3,2 } );
@@ -118,7 +118,7 @@ namespace Dnn::Tensors::Tests {
     
     TEST( TensorTest, Strides ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float> tensor( shape );
+        Tensor<float, Compute::CpuMemoryResource> tensor( shape );
         std::vector<size_t> expected_strides = { 3, 1 };
         EXPECT_EQ( tensor.strides(), expected_strides );
     }

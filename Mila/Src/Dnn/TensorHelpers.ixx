@@ -5,11 +5,12 @@ module;
 export module Dnn.TensorHelpers;
 
 import Dnn.Tensor;
+import Compute.CpuMemoryResource;
 
 namespace Mila::Dnn
 {
 	export
-		void random( Tensor<float>& tensor, float min, float max ) {
+		void random( Tensor<float, Compute::CpuMemoryResource>& tensor, float min, float max ) {
 		std::random_device rd;
 		std::mt19937 gen( rd() );
 		std::uniform_real_distribution<float> dis( min, max );
@@ -20,7 +21,7 @@ namespace Mila::Dnn
 		}
 	}
 
-	export void xavier( Tensor<float>& tensor, size_t input_size, size_t output_size ) {
+	export void xavier( Tensor<float, Compute::CpuMemoryResource>& tensor, size_t input_size, size_t output_size ) {
 		float limit = std::sqrt( 6.0 / (input_size + output_size) );
 		std::random_device rd;
 		std::mt19937 gen( rd() );

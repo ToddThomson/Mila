@@ -25,7 +25,7 @@ export namespace Mila::Dnn::Modules
 	 * @tparam T The data type of the module.
 	 */
 	export
-	template<typename T, typename MR> requires std::is_same_v<MR, CpuMemoryResource> || std::is_same_v<MR, DeviceMemoryResource>
+		template<typename T, typename MR> requires std::is_same_v<MR, CpuMemoryResource> || std::is_same_v<MR, DeviceMemoryResource>
 	class MatMul : public Module<T, MR> {
 	public:
 		using TensorPtr = std::shared_ptr<Tensor<T, MR>>;
@@ -50,8 +50,15 @@ export namespace Mila::Dnn::Modules
 		 *
 		 * @return Tensor<float>& The weight tensor.
 		 */
-		Tensor<float, MR>& Weight() {
+		Tensor<float, MR>& getWeight() {
 			return weight_;
+		}
+
+		void setWeight( const Tensor<float, MR>& weight ) {
+			if ( weight.shape() != weight_.shape() ) {
+				throw std::invalid_argument( "The shape of the new weight tensor must match the current weight tensor." );
+			}
+			weight_ = weight;
 		}
 
 		/**
@@ -59,9 +66,17 @@ export namespace Mila::Dnn::Modules
 		 *
 		 * @return Tensor<float>& The bias tensor.
 		 */
-		Tensor<float, MR>& Bias() {
+		Tensor<float, MR>& getBias() {
 			return bias_;
 		}
+
+		void setBias( const Tensor<float, MR>& bias ) {
+			if ( bias.shape() != bias_.shape() ) {
+				throw std::invalid_argument( "The shape of the new bias tensor must match the current weight tensor." );
+			}
+			bias_ = bias;
+		}
+
 
 		/**
 		 * @brief Get the number of parameters.
@@ -118,21 +133,21 @@ export namespace Mila::Dnn::Modules
 		Tensor<float, MR> weight_ = Tensor<float, MR>( { OC_, C_ } ); ///< The weight tensor.
 		Tensor<float, MR> bias_ = Tensor<float, MR>( { OC_ } ); ///< The bias tensor.
 
-		std::vector<std::shared_ptr<Tensor<T,MR>>> parameters_; ///< The parameters.
-		std::vector<std::shared_ptr<Tensor<T,MR>>> output_attributes_; ///< The output attributes.
-		std::vector<std::shared_ptr<Tensor<T,MR>>> scalars_; ///< The scalars.
+		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_; ///< The parameters.
+		std::vector<std::shared_ptr<Tensor<float, MR>>> output_attributes_; ///< The output attributes.
+		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_; ///< The scalars.
 
-		std::shared_ptr<Dnn::Compute::OperationBase<T,MR>> operation_; ///< The operation.
+		std::shared_ptr<Dnn::Compute::OperationBase<T, MR>> operation_; ///< The operation.
 
 		/**
 		 * @brief Create the operation.
 		 */
 		void createOperation() {
-			parameters_.emplace_back( std::make_shared<Tensor<float,MR>>( weight_ ) );
-			parameters_.emplace_back( std::make_shared<Tensor<float,MR>>( bias_ ) );
+			parameters_.emplace_back( std::make_shared<Tensor<float, MR>>( weight_ ) );
+			parameters_.emplace_back( std::make_shared<Tensor<float, MR>>( bias_ ) );
 
 			if constexpr ( std::is_same_v<MR, Compute::CpuMemoryResource> ) {
-				operation_ = OperationRegistry<float,MR>::instance().createOperation( DeviceType::Cpu, "Cpu::MatMulOp" );
+				operation_ = OperationRegistry<float, MR>::instance().createOperation( DeviceType::Cpu, "Cpu::MatMulOp" );
 			}
 			else {
 				operation_ = OperationRegistry<float, MR>::instance().createOperation( DeviceType::Cuda, "Cuda::MatMulOp" );

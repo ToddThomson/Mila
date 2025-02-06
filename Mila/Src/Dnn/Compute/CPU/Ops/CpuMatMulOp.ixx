@@ -115,9 +115,9 @@ namespace Mila::Dnn::Compute
 
     private:
         void forward_naive( 
-            const std::shared_ptr<Tensor<float>> input, 
-            const std::shared_ptr<Tensor<float>> weight, const std::shared_ptr<Tensor<float>> bias,
-			std::shared_ptr<Tensor<float>>& output,
+            const std::shared_ptr<Tensor<float,CpuMemoryResource>> input, 
+            const std::shared_ptr<Tensor<float,CpuMemoryResource>> weight, const std::shared_ptr<Tensor<float, CpuMemoryResource>> bias,
+			std::shared_ptr<Tensor<float,CpuMemoryResource>>& output,
             int B, int T, int C, int OC ) const {
             // the most naive implementation of matrix multiplication
             // this serves as an algorithmic reference, and as a fallback for
