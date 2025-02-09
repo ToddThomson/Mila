@@ -1,6 +1,12 @@
 module;
+#include <string>
+#include <memory>
+#include <vector>
+#include <cmath>
+
 #include <corecrt_math.h>
 #include <corecrt_math_defines.h>
+
 #ifdef USE_OMP
 #include <omp.h>
 #endif
@@ -9,36 +15,51 @@ export module Compute.CpuAttention;
 
 import Dnn.Tensor;
 import Compute.OperationBase;
+import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.OperationType;
+import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 
 using namespace Mila::Dnn;
 
 namespace Mila::Dnn::Compute
 {
-    export template<typename T>
-    class CpuAttentionOp :public OperationBase<T, CpuMemoryResource> {
+    export
+    template<typename T>
+    class CpuAttentionOp : public OperationBase<T, CpuMemoryResource> {
     public:
 
-        CpuAttentionOp() : OperationBase<T>( DeviceType::kCpu, OperationType::kAttentionOp ) {}
+        CpuAttentionOp() : OperationBase<T, CpuMemoryResource>( DeviceType::Cpu, OperationType::AttentionOp ) {}
+    
+        void forward( const std::shared_ptr<Tensor<T, CpuMemoryResource>> input,
+            const std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& input_parameters,
+            std::shared_ptr<Tensor<T, CpuMemoryResource>> output,
+            std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& output_cache ) const override {
 
-        void forward( float* out, float* preatt, float* att, float* inp, int B, int T, int C, int NH ) {
-            int C3 = C * 3;
+            auto preatt = output_cache[ 0 ];
+            auto att = output_cache[ 1 ];
+
+            int B = input->shape()[ 0 ];
+            int T = input->shape()[ 1 ];
+            int C3 = input->shape()[ 2 ]; // qkv vectors
+            int NH = att->shape()[ 1 ];
+
+            int C = C3 / 3;
             int hs = C / NH;
             float scale = 1.0 / sqrtf( hs );
 
-            #pragma omp parallel for collapse(3)
+        #pragma omp parallel for collapse(3)
             for ( int b = 0; b < B; b++ ) {
                 for ( int t = 0; t < T; t++ ) {
                     for ( int h = 0; h < NH; h++ ) {
-                        float* query_t = inp + b * T * C3 + t * C3 + h * hs;
-                        float* preatt_bth = preatt + b * NH * T * T + h * T * T + t * T;
-                        float* att_bth = att + b * NH * T * T + h * T * T + t * T;
+                        float* query_t = input->data() + b * T * C3 + t * C3 + h * hs;
+                        float* preatt_bth = preatt->data() + b * NH * T * T + h * T * T + t * T;
+                        float* att_bth = att->data() + b * NH * T * T + h * T * T + t * T;
 
                         float maxval = -10000.0f;
                         for ( int t2 = 0; t2 <= t; t2++ ) {
-                            float* key_t2 = inp + b * T * C3 + t2 * C3 + h * hs + C;
+                            float* key_t2 = input->data() + b * T * C3 + t2 * C3 + h * hs + C;
                             float val = 0.0f;
                             for ( int i = 0; i < hs; i++ ) {
                                 val += query_t[ i ] * key_t2[ i ];
@@ -67,10 +88,14 @@ namespace Mila::Dnn::Compute
                             }
                         }
 
-                        float* out_bth = out + b * T * C + t * C + h * hs;
-                        for ( int i = 0; i < hs; i++ ) { out_bth[ i ] = 0.0f; }
+                        float* out_bth = output->data() + b * T * C + t * C + h * hs;
+                        for ( int i = 0; i < hs; i++ ) 
+                        { 
+                            out_bth[ i ] = 0.0f;
+                        }
+                        
                         for ( int t2 = 0; t2 <= t; t2++ ) {
-                            float* value_t2 = inp + b * T * C3 + t2 * C3 + h * hs + C * 2;
+                            float* value_t2 = input->data() + b * T * C3 + t2 * C3 + h * hs + C * 2;
                             float att_btht2 = att_bth[ t2 ];
                             for ( int i = 0; i < hs; i++ ) {
                                 out_bth[ i ] += att_btht2 * value_t2[ i ];
@@ -124,6 +149,16 @@ namespace Mila::Dnn::Compute
                     }
                 }
             }
+        }
+        
+        static void registerOperation() {
+            OperationRegistry<float, CpuMemoryResource>::instance().registerOperation( DeviceType::Cpu, "Cpu::AttentionOp", []() -> std::unique_ptr<OperationBase<float, CpuMemoryResource>> {
+                return std::make_unique<CpuAttentionOp<float>>();
+            } );
+        }
+
+        std::string getName() const override {
+            return "Cpu::AttentionOp";
         }
     };
 }

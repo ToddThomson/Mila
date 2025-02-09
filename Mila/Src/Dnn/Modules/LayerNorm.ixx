@@ -1,13 +1,15 @@
 module;
-#include <math.h>
 #include <iostream>
-#include <unordered_map>
-#include <thrust/host_vector.h>
+#include <memory>
+#include <string>
+#include <vector>
 
 export module Dnn.Modules.LayerNorm;
 
-import Dnn.Tensor;
 import Dnn.Module;
+import Dnn.Tensor;
+
+import Compute.DeviceType;
 import Compute.OperationBase;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
@@ -18,84 +20,140 @@ namespace Mila::Dnn::Modules
 {
 	using namespace Mila::Dnn::Compute;
 
+	/**
+	* @brief Layer Normalization module.
+	*
+	* @tparam T Data type of the tensor.
+	* @tparam MR Memory resource type (CpuMemoryResource or DeviceMemoryResource).
+	*/
 	export
 	template<typename T, typename MR> requires std::is_same_v<MR, CpuMemoryResource> || std::is_same_v<MR, DeviceMemoryResource>
-	class LayerNorm : public Module<T,MR> {
+	class LayerNorm : public Module<T, MR> {
 	public:
-		LayerNorm( std::string name, int64_t batch_size, int64_t sequence_length, int64_t channels, bool is_training = false, std::string engine_ns = "" )
-			: name_( name ), B_( batch_size ), T_( sequence_length ), C_( channels ), is_training_( is_training ) {
-			createOperation( engine_ns );
+
+		//using TensorPtr = std::shared_ptr<Tensor<T, MR>>;
+
+		/**
+		* @brief Construct a new LayerNorm object.
+		*
+		* @param name Name of the module.
+		* @param input_shape Shape of the input tensor.
+		* @param has_bias Whether the module has a bias tensor. Default is true.
+		* @param is_training Whether the module is in training mode. Default is false.
+		*/
+		LayerNorm( std::string name, const std::vector<size_t>& input_shape, bool has_bias = true, bool is_training = false )
+			: name_{ name }, input_shape_{ input_shape }, has_bias_{ has_bias }, is_training_{ is_training } {
+			createOperation();
 		}
 
-		Tensor<float,MR>& Weight() {
+		/**
+		* @brief Get the weight tensor.
+		*
+		* @return TensorPtr Shared pointer to the weight tensor.
+		*/
+		std::shared_ptr<Tensor<float, MR>> getWeight() {
 			return weight_;
 		}
 
-		Tensor<float,MR>& Bias() {
+		/**
+		* @brief Get the bias tensor.
+		*
+		* @return TensorPtr Shared pointer to the bias tensor.
+		*/
+		std::shared_ptr<Tensor<float, MR>> getBias() {
 			return bias_;
 		}
 
-		Tensor<float,MR>& Epsilon() {
-			return epsilon_;
-		}
-
+		/**
+		* @brief Get the number of parameters.
+		*
+		* @return size_t Number of parameters.
+		*/
 		size_t parameters() const override {
-			return C_ * 2;
+			return weight_->size() + bias_->size();
 		}
 
+		/**
+		* @brief Get the name of the module.
+		*
+		* @return std::string Name of the module.
+		*/
 		std::string name() const override {
 			return name_;
 		}
 
-		std::shared_ptr<Tensor<float,MR>> forward( const std::shared_ptr<Tensor<float,MR>> input ) override {
-			auto output = std::make_shared<Tensor<float,MR>>( std::vector<size_t>{ B_, T_, C_ } );
+		/**
+		* @brief Forward pass of the module.
+		*
+		* @param input Input tensor.
+		* @return TensorPtr Output tensor.
+		*/
+		std::shared_ptr<Tensor<float, MR>> forward( const std::shared_ptr<Tensor<float, MR>> input ) override {
+			auto output = std::make_shared<Tensor<float, MR>>( input->shape() );
 			operation_->forward( input, parameters_, output, output_attributes_ );
 
 			return output;
 		}
 
+		/**
+		* @brief Print the module information.
+		*/
 		void print() const override {
 			std::cout << "Module: " << name_ << std::endl;
 			std::cout << "Parameters: " << parameters() << std::endl;
 		}
 
 	private:
-		std::string name_{ "LayerNorm" };
-		float epsilon_{ 1e-05f };
-		size_t B_{ 0 };
-		size_t T_{ 0 };
-		size_t C_{ 0 };
+		std::string name_{ "LayerNorm" }; ///< The name of the module.
+		std::vector<size_t> input_shape_; ///< The input shape.
+		float epsilon_{ 1e-05f }; ///< The epsilon value.
 
-		// TODO: Feature not yet implemented
-		bool is_training_{ false };
+		bool has_bias_{ true }; ///< Whether the module has a bias tensor. Default is true.
+		bool is_training_{ false }; ///< Whether the module is in training mode. Default is false.
 
-		Tensor<float,MR> weight_ = Tensor<float,MR>( std::vector<size_t>{ C_ } );
-		Tensor<float,MR> bias_ = Tensor<float,MR>( std::vector<size_t>{ C_ } );
+		std::shared_ptr<Tensor<float, MR>> weight_{ nullptr }; ///< The weight tensor.
+		std::shared_ptr<Tensor<float, MR>> bias_{ nullptr }; ///< The bias tensor.
 
-		Tensor<float,MR> mean_ = Tensor<float,MR>( std::vector<size_t>{ B_* T_ } );
-		Tensor<float,MR> rstd_ = Tensor<float,MR>( std::vector<size_t>{ B_* T_ } );
+		std::shared_ptr<Tensor<float, MR>> mean_ = { nullptr }; ///< The mean.
+		std::shared_ptr<Tensor<float, MR>> rstd_{ nullptr }; ///< The reciprocal standard deviation.
 
-		std::vector<std::shared_ptr<Tensor<T,MR>>> parameters_;
-		std::vector<std::shared_ptr<Tensor<T,MR>>> output_attributes_;
-		std::vector<std::shared_ptr<Tensor<T,MR>>> scalars_;
+		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_; ///< The parameters.
+		std::vector<std::shared_ptr<Tensor<float, MR>>> output_attributes_; ///< The output attributes.
+		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_; ///< The scalars.
 
-		std::shared_ptr<Dnn::Compute::OperationBase<float,MR>> operation_;
+		std::shared_ptr<Dnn::Compute::OperationBase<T, MR>> operation_; ///< The operation.
 
-		void createOperation( std::string op_engine ) {
-			parameters_.emplace_back( std::make_shared<Tensor<float,MR>>( weight_ ) );
-			parameters_.emplace_back( std::make_shared<Tensor<float,MR>>( bias_ ) );
+		/**
+		* @brief Create the operation.
+		*/
+		void createOperation() {
+			auto batch_size = input_shape_[ 0 ];
+			auto sequence_length = input_shape_[ 1 ];
+			auto channels = input_shape_[ 2 ];
 
-			output_attributes_.emplace_back( std::make_shared<Tensor<float,MR>>( mean_ ) );
-			output_attributes_.emplace_back( std::make_shared<Tensor<float,MR>>( rstd_ ) );
+			weight_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ channels }, 1.0f );
 
+			if ( has_bias_ )
+				bias_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ channels } );
+
+			parameters_.emplace_back( weight_ );
+			parameters_.emplace_back( bias_ );
+
+			mean_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ batch_size, sequence_length } );
+			rstd_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ batch_size, sequence_length } );
+
+			output_attributes_.emplace_back( mean_ );
+			output_attributes_.emplace_back( rstd_ );
+
+			// TODO: tensor scalars
 			//scalars_[ scalar_names_::EPSILON ] = std::make_shared<Tensor>( epsilon_ );*/
 
 			if constexpr ( std::is_same_v<MR, Compute::CpuMemoryResource> ) {
-				operation_ = OperationRegistry<float, CpuMemoryResource>::instance().createOperation( DeviceType::Cpu, "Cpu::LayerNormOp" );
+				operation_ = OperationRegistry<float, MR>::instance().createOperation( DeviceType::Cpu, "Cpu::LayerNormOp" );
 			}
-			/*else {
-				operation_ = OperationRegistry<float, DeviceMemoryResource>::instance().createOperation( DeviceType::Cuda, "Cuda::LayerNormOp" );
-			}*/
+			else {
+				operation_ = OperationRegistry<float, MR>::instance().createOperation( DeviceType::Cuda, "Cuda::LayerNormOp" );
+			}
 		}
 	};
 }

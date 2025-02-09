@@ -2,6 +2,10 @@ module;
 #include <math.h>
 #include <iostream>
 
+#ifdef USE_OMP
+#include <omp.h>
+#endif
+
 export module Compute.CpuLayerNormOp;
 
 import Dnn.Tensor;
@@ -18,26 +22,28 @@ namespace Mila::Dnn::Compute
 {
 	export
 	template<typename T>
-    class CpuLayerNormOp : public OperationBase<float,CpuMemoryResource> {
+    class CpuLayerNormOp : public OperationBase<T,CpuMemoryResource> {
     public:
-        CpuLayerNormOp() : OperationBase<float,CpuMemoryResource>( DeviceType::Cpu, OperationType::LayerNormOp ) {}
+        CpuLayerNormOp() : OperationBase<T,CpuMemoryResource>( DeviceType::Cpu, OperationType::LayerNormOp ) {}
 
         void forward( 
-            const std::shared_ptr<Tensor<float,CpuMemoryResource>> input,
-            const std::vector<std::shared_ptr<Tensor<float,CpuMemoryResource>>>& parameters, 
-            std::shared_ptr<Tensor<float,CpuMemoryResource>> output, 
-            std::vector<std::shared_ptr<Tensor<float,CpuMemoryResource>>>& output_attributes ) const override {
+            const std::shared_ptr<Tensor<T,CpuMemoryResource>> input,
+            const std::vector<std::shared_ptr<Tensor<T,CpuMemoryResource>>>& parameters, 
+            std::shared_ptr<Tensor<T,CpuMemoryResource>> output, 
+            std::vector<std::shared_ptr<Tensor<T,CpuMemoryResource>>>& output_cache ) const override {
 
 	        auto weight = parameters[ 0 ];
 			auto bias = parameters[ 1 ];
 
-            auto mean = output_attributes[ 0 ];
-			auto rstd = output_attributes[ 1 ];
+            auto mean = output_cache[ 0 ];
+			auto rstd = output_cache[ 1 ];
 
+			// B: batch size, T: sequence length, C: number of channels
 			int B = input->shape()[ 0 ];
 			int T = input->shape()[ 1 ];
 			int C = input->shape()[ 2 ];
 
+			// TODO: make this a parameter
             float eps = 1e-5f;
 
             for ( int b = 0; b < B; b++ ) {

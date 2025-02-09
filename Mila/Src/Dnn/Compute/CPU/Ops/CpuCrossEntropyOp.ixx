@@ -1,11 +1,11 @@
 module;
 #include <corecrt_math.h>
 
-export module Compute.CpuCrossEntropy;
+export module Compute.CpuCrossEntropyOp;
 
 import Dnn.Tensor;
-import Compute.OperationBase;
 import Compute.DeviceType;
+import Compute.OperationBase;
 import Compute.OperationType;
 import Compute.CpuMemoryResource;
 

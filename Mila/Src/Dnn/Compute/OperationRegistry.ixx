@@ -68,7 +68,7 @@ export namespace Mila::Dnn::Compute
             }
             auto opIt = deviceIt->second.find( operation_name );
             if ( opIt == deviceIt->second.end() ) {
-                throw std::runtime_error( "createOperation: Invalid operation name." );
+                throw std::runtime_error( std::format( "createOperation: Operation not found: {}", operation_name ) );
             }
             return opIt->second();
         }

@@ -22,28 +22,30 @@ export namespace Mila::Dnn::Modules
 	using namespace Mila::Dnn::Compute;
 
 	/**
-	 * @brief A class representing a matrix multiplication module.
+	 * @brief A class representing a linear module.
+	 * The module performs the following operation:
+	 * output = input * weight + bias
 	 *
 	 * @tparam T The data type of the module.
 	 */
 	export
 		template<typename T, typename MR> requires std::is_same_v<MR, CpuMemoryResource> || std::is_same_v<MR, DeviceMemoryResource>
-	class MatMul : public Module<T, MR> {
+	class Linear : public Module<T, MR> {
 	public:
+
 		using TensorPtr = std::shared_ptr<Tensor<T, MR>>;
 
-		/**
-		 * @brief Construct a new MatMul object.
-		 *
-		 * @param name The name of the module.
-		 * @param batch_size The batch size.
-		 * @param sequence_length The sequence length.
-		 * @param channels The number of channels.
-		 * @param channels The number of output channels (channels * N)
-		 * @param is_training Whether the module is in training mode.
-		 */
-		MatMul( std::string name, const std::vector<size_t>& input_shape, size_t output_channels, bool is_training = false )
-			: name_( name ), input_shape_( input_shape ), output_channels_( output_channels ), is_training_( is_training ) {
+        /**
+        * @brief Construct a new Linear object.
+        *
+        * @param name The name of the module.
+        * @param input_shape The shape of the input tensor.
+        * @param output_channels The number of output channels/features.
+		* @param has_bias Whether the module has a bias tensor.
+        * @param is_training Whether the module is in training mode.
+        */
+		Linear( std::string name, const std::vector<size_t>& input_shape, size_t output_channels, bool has_bias = true, bool is_training = false )
+			: name_( name ), input_shape_( input_shape ), output_channels_( output_channels ), has_bias_( has_bias ), is_training_( is_training ) {
 			validateAndCreateParameters();
 			createOperation();
 		}
@@ -57,37 +59,31 @@ export namespace Mila::Dnn::Modules
 			return weight_;
 		}
 
-		void setWeight( const Tensor<float, MR>& weight ) {
-			if ( weight.shape() != weight_.shape() ) {
-				throw std::invalid_argument( "The shape of the new weight tensor must match the current weight tensor." );
-			}
-			weight_ = weight;
-		}
-
-        /**  
-        * @brief Get the bias tensor.  
-        *  
-        * @return std::shared_ptr<Tensor<float, MR>> The bias tensor.  
-        */  
+		/**
+		* @brief Get the bias tensor.
+		*
+		* @return std::shared_ptr<Tensor<float, MR>> The bias tensor.
+		* @throws std::runtime_error if the module does not have a bias tensor.
+		*/
 		std::shared_ptr<Tensor<float, MR>> getBias() {
+			if ( !has_bias_ ) {
+				throw std::runtime_error( "This module does not have a bias tensor." );
+			}
+			
 			return bias_;
 		}
 
-		void setBias( const Tensor<float, MR>& bias ) {
-			if ( bias.shape() != bias_.shape() ) {
-				throw std::invalid_argument( "The shape of the new bias tensor must match the current weight tensor." );
-			}
-			bias_ = bias;
-		}
-
-
 		/**
-		 * @brief Get the number of parameters.
-		 *
-		 * @return size_t The number of parameters.
-		 */
+		* @brief Get the number of parameters.
+		*
+		* @return size_t The number of parameters.
+		*/
 		size_t parameters() const override {
-			return output_channels_ + output_channels_;
+			size_t num_params = weight_->size();
+			if ( has_bias_ ) {
+				num_params += bias_->size();
+			}
+			return num_params;
 		}
 
 		/**
@@ -123,26 +119,29 @@ export namespace Mila::Dnn::Modules
 			std::cout << "Parameters: " << parameters() << std::endl;
 		}
 
+		// TODO: Implement the backward pass.
+		// 
 		//void backward(const std::vector<float>& grad_outputs, std::vector<float>& grad_inputs) const override {
 		//    operation_->backward(grad_outputs, grad_inputs);
 		//}
 
 	private:
-		std::string name_{ "MatMul" }; ///< The name of the module.
+		std::string name_; ///< The name of the module.
 		std::vector<size_t> input_shape_; ///< The input shape.
 
 		size_t output_channels_{ 0 }; ///< The number of output channels.
 
-		bool is_training_{ false }; ///< Whether the module is in training mode.
+		bool has_bias_{ true }; ///< Whether the module has a bias tensor. Default is true.
+		bool is_training_{ false }; ///< Whether the module is in training mode. Default is false.
 
-		std::shared_ptr<Tensor<float, MR>> weight_{ nullptr }; // = Tensor<float, MR>( { output_channels_, C_ } ); ///< The weight tensor.
-		std::shared_ptr<Tensor<float, MR>> bias_{ nullptr };// = Tensor<float, MR>( { output_channels_ } ); ///< The bias tensor.
+		std::shared_ptr<Tensor<float, MR>> weight_{ nullptr };  ///< The weight tensor.
+		std::shared_ptr<Tensor<float, MR>> bias_{ nullptr }; ///< The bias tensor.
 
 		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_; ///< The parameters.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_attributes_; ///< The output attributes.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_; ///< The scalars.
 
-		std::shared_ptr<Dnn::Compute::OperationBase<T, MR>> operation_; ///< The operation.
+		std::shared_ptr<Dnn::Compute::OperationBase<T, MR>> operation_{ nullptr }; ///< The operation.
 
 		void validateAndCreateParameters() {
 			// TODO: For now, we only support 3D input shapes.
@@ -150,11 +149,14 @@ export namespace Mila::Dnn::Modules
 				throw std::invalid_argument( "The input shape must have 3 dimensions." );
 			}
 			
-			// The last dimension of the input shape is the number of channels.
-			auto input_channels = input_shape_[ 2 ];
+			// The last dimension of the input shape is the number of input channels/features.
+			auto input_channels = input_shape_.back();
 
 			weight_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ output_channels_, input_channels } );
-			bias_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ output_channels_ } );
+
+			if ( has_bias_ )
+				bias_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ output_channels_ } );
+
 
 			// Initialize the weight tensor. The bias tensor is default initialized to zeros
 			initializeWeights();

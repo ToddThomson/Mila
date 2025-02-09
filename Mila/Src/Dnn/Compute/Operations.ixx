@@ -41,8 +41,11 @@ namespace Mila::Dnn::Compute
 		*/
 		static void initializeOperations() {
 			// CPU operations...
+			CpuAttentionOp<float>::registerOperation();
+			CpuGeluOp<float>::registerOperation();
 			CpuLayerNormOp<float>::registerOperation();
 			CpuMatMulOp<float>::registerOperation();
+			CpuResidualOp<float>::registerOperation();
 
 			// CUDA operations...
 			CudaMatMulOp<float>::registerOperation();

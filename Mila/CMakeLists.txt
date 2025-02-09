@@ -49,8 +49,8 @@ PUBLIC
 		"Src/Dnn/Model.ixx" 
 		"Src/Dnn/Module.ixx" 
 		"Src/Dnn/Modules/LayerNorm.ixx"
-		"Src/Dnn/Modules/MatMul.ixx" 
-		"Src/Dnn/Modules/MatMulBuilder.ixx" 
+		"Src/Dnn/Modules/Linear.ixx" 
+		 
 		"Src/Dnn/Compute/DeviceType.ixx"
 		"Src/Dnn/Compute/DeviceRegistry.ixx"
 		"Src/Dnn/Compute/ComputeDevice.ixx"  
@@ -68,12 +68,12 @@ PUBLIC
 		"Src/Dnn/Compute/CPU/CpuDevice.ixx" 
 		"Src/Dnn/Compute/CPU/Ops/Encoder.ixx" 
 		"Src/Dnn/Compute/CPU/Ops/CpuLayerNormOp.ixx" 
-		"Src/Dnn/Compute/CPU/Ops/Attention.ixx" 
-		"Src/Dnn/Compute/CPU/Ops/Residual.ixx" 
+		"Src/Dnn/Compute/CPU/Ops/CpuAttentionOp.ixx" 
+		"Src/Dnn/Compute/CPU/Ops/CpuResidualOp.ixx" 
 		"Src/Dnn/Compute/CPU/Ops/CpuMatMulOp.ixx"
 		"Src/Dnn/Compute/CPU/Ops/Softmax.ixx"
-		"Src/Dnn/Compute/CPU/Ops/Gelu.ixx"
-		"Src/Dnn/Compute/CPU/Ops/CrossEntropy.ixx"  
+		"Src/Dnn/Compute/CPU/Ops/CpuGeluOp.ixx"
+		"Src/Dnn/Compute/CPU/Ops/CpuCrossEntropyOp.ixx"  
 		"Src/Dnn/Compute/CPU/Ops/CpuOperations.ixx"
 		"Src/Dnn/Compute/CPU/CpuMemoryResource.ixx"
 		
@@ -90,7 +90,7 @@ PUBLIC
 		
 		# Data
 		"Src/Data/DataLoaderBase.ixx" 
- "Src/Dnn/Compute/CPU/CpuComputeResource.ixx")
+ "Src/Dnn/Compute/CPU/CpuComputeResource.ixx"  "Src/Dnn/Modules/Gelu.ixx" "Src/Dnn/Modules/Attention.ixx" "Src/Dnn/Modules/Residual.ixx")
 
 target_link_libraries( Mila PRIVATE Thrust::Thrust CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
 

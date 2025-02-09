@@ -1,7 +1,7 @@
 # CMakeList.txt : CMake project for Mila examples
 
 # Add executable
-add_executable(ScratchPad "main.cpp")
+add_executable(ScratchPad "main.cpp" "Linear.cpp")
 
 set_target_properties( ScratchPad
     PROPERTIES

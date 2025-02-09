@@ -123,20 +123,6 @@ namespace Mila::Dnn
 			return new_tensor;
 		}
 
-		//template<typename NewMR>
-		//Tensor<T, NewMR> to() const {
-		//	Tensor<T, NewMR> new_tensor( shape_, device_ptr_ );
-		//	if ( constexpr (std::is_same_v<MR, NewMR>) ) {
-		//		std::copy( buffer_->data(), buffer_->data() + size_, new_tensor.data() );
-		//	}
-		//	else {
-		//		// Copy data from one memory resource to another
-		//		std::copy( buffer_->data(), buffer_->data() + size_, new_tensor.data() );
-		//	}
-		//	
-		//	return new_tensor;
-		//}
-
 		void reshape( const std::vector<size_t>& new_shape ) {
 			size_t new_size = computeSize( new_shape );
 			if ( this->empty() || new_size == size_ ) {

@@ -1,6 +1,8 @@
 module;
 #include <math.h>
-#include <iostream>
+#include <string>
+#include <memory>
+#include <vector>
 
 #ifdef USE_OMP
 #include <omp.h>
@@ -29,11 +31,11 @@ namespace Mila::Dnn::Compute
 
         void forward(
             const std::shared_ptr<Tensor<T, CpuMemoryResource>> input,
-            const std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& input_attributes,
+            const std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& input_parameters,
             std::shared_ptr<Tensor<T, CpuMemoryResource>> output,
-            std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& output_attributes ) const override {
-            auto weight = input_attributes[ 0 ];
-            auto bias = input_attributes[ 1 ];
+            std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& output_cache ) const override {
+            auto weight = input_parameters[ 0 ];
+            auto bias = input_parameters[ 1 ];
 
             int B = input->shape()[ 0 ];
             int T = input->shape()[ 1 ];

@@ -29,7 +29,7 @@ namespace Mila::Dnn::Compute
 			const std::shared_ptr<Tensor<T, DeviceMemoryResource>> input,
 			const std::vector<std::shared_ptr<Tensor<T, DeviceMemoryResource>>>& parameters_,
 			std::shared_ptr<Tensor<T, DeviceMemoryResource>> output,
-			std::vector<std::shared_ptr<Tensor<T, DeviceMemoryResource>>>& output_attributes ) const override {
+			std::vector<std::shared_ptr<Tensor<T, DeviceMemoryResource>>>& output_cache ) const override {
 
 			auto weight = parameters_[ 0 ];
 			auto bias = parameters_[ 1 ];
