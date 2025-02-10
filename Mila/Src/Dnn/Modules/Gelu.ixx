@@ -73,10 +73,10 @@ export namespace Mila::Dnn::Modules
 		 * @brief Perform the forward pass.
 		 *
 		 * @param input The input tensor.
-		 * @return std::shared_ptr<Tensor<float>> The output tensor.
+		 * @return The output tensor.
 		 */
-		std::shared_ptr<Tensor<float, MR>> forward( const std::shared_ptr<Tensor<float, MR>> input ) {
-			auto output = std::make_shared<Tensor<float, MR>>( std::vector<size_t>( input->shape() ) );
+		Tensor<float, MR> forward( const Tensor<float, MR>& input ) override {
+			auto output = Tensor<float, MR>( input.shape() );
 			operation_->forward( input, parameters_, output, output_attributes_ );
 
 			return output;

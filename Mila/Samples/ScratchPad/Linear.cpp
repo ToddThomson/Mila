@@ -33,14 +33,14 @@ namespace Scratchpad::Linear
 
         auto cuda_input = input.to<Compute::DeviceMemoryResource>();
 
-        auto output = cpu_linear->forward( std::make_shared<HostTensor<float>>( input ) );
-        auto output2 = cuda_linear->forward( std::make_shared<DeviceTensor<float>>( cuda_input ) );
+        auto output = cpu_linear->forward( HostTensor<float>( input ) );
+        auto output2 = cuda_linear->forward( DeviceTensor<float>( cuda_input ) );
 
         std::cout << "Cpu output: " << std::endl;
-        output->print();
+        output.print();
 
         std::cout << "Cuda output: " << std::endl;
-        auto from_cuda_output2 = output2->to<Compute::CpuMemoryResource>();
+        auto from_cuda_output2 = output2.to<Compute::CpuMemoryResource>();
         from_cuda_output2.print();
     }
 }

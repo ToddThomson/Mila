@@ -47,8 +47,8 @@ namespace Dnn::Modules::Tests
 
     TEST_F( GeluTests, Cpu_TestForward ) {
         MilaDnn::Tensor<float, MilaDnn::Compute::CpuMemoryResource> input( { cpu_batch_size_, sequence_length_, channels_ } );
-        auto output = cpu_gelu->forward( std::make_shared<MilaDnn::HostTensor<float>>( input ) );
-        EXPECT_EQ( output->size(), cpu_batch_size_ * sequence_length_ * channels_ );
+        auto output = cpu_gelu->forward( input );
+        EXPECT_EQ( output.size(), cpu_batch_size_ * sequence_length_ * channels_ );
     }
 
     /*TEST_F( GeluTests, Cuda_TestForward ) {

@@ -29,15 +29,18 @@ namespace Mila::Dnn::Compute
         CpuResidualOp() : OperationBase<T, CpuMemoryResource>( DeviceType::Cpu, OperationType::ResidualOp ) {}
 
         void forward(
-            const std::shared_ptr<Tensor<T, CpuMemoryResource>> input,
+            const Tensor<T, CpuMemoryResource>& input,
             const std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& parameters,
-            std::shared_ptr<Tensor<T, CpuMemoryResource>> output,
+            Tensor<T, CpuMemoryResource>& output,
             std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& output_cache ) const override {
-			auto N = input->size();
+			auto X = input.data();
+			auto Y = output.data();
+			auto N = input.size();
             
+		#pragma omp parallel for
             for ( int i = 0; i < N; i++ ) {
                 // FIXME: input 2 is required
-                output->data()[ i ] = input->data()[ i ] + input->data()[ i ];
+                Y[ i ] = X[ i ] + X[ i ];
             }
 		}
 

@@ -66,14 +66,14 @@ namespace Dnn::Modules::Tests
 
     TEST_F( LinearTests, Cpu_TestForward ) {
         MilaDnn::Tensor<float, MilaDnn::Compute::CpuMemoryResource> input( { cpu_batch_size_, sequence_length_, channels_ } );
-        auto output = cpu_linear->forward( std::make_shared<MilaDnn::HostTensor<float>>( input ) );
-        EXPECT_EQ( output->size(), cpu_batch_size_ * sequence_length_ * output_channels_ );
+        auto output = cpu_linear->forward( input );
+        EXPECT_EQ( output.size(), cpu_batch_size_ * sequence_length_ * output_channels_ );
     }
 
     TEST_F( LinearTests, Cuda_TestForward ) {
         MilaDnn::Tensor<float, MilaDnn::Compute::DeviceMemoryResource> input( { batch_size_, sequence_length_, channels_ } );
-        auto output = cuda_linear->forward( std::make_shared<MilaDnn::Tensor<float,MilaDnn::Compute::DeviceMemoryResource>>( input ) );
-        EXPECT_EQ( output->size(), batch_size_ * sequence_length_ * output_channels_ );
+        auto output = cuda_linear->forward( input );
+        EXPECT_EQ( output.size(), batch_size_ * sequence_length_ * output_channels_ );
     }
 
     TEST_F( LinearTests, Cpu_TestPrint ) {

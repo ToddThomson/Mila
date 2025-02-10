@@ -1,10 +1,12 @@
 module;
-#include <math.h>
-#include <iostream>
-
+#include <cmath>
+#include <vector>
+#include <memory>
+#include <string>
 #ifdef USE_OMP
 #include <omp.h>
 #endif
+
 
 export module Compute.CpuLayerNormOp;
 
@@ -27,21 +29,24 @@ namespace Mila::Dnn::Compute
         CpuLayerNormOp() : OperationBase<T,CpuMemoryResource>( DeviceType::Cpu, OperationType::LayerNormOp ) {}
 
         void forward( 
-            const std::shared_ptr<Tensor<T,CpuMemoryResource>> input,
+            const Tensor<T,CpuMemoryResource>& input,
             const std::vector<std::shared_ptr<Tensor<T,CpuMemoryResource>>>& parameters, 
-            std::shared_ptr<Tensor<T,CpuMemoryResource>> output, 
-            std::vector<std::shared_ptr<Tensor<T,CpuMemoryResource>>>& output_cache ) const override {
+            Tensor<T,CpuMemoryResource>& output, 
+            std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& output_cache ) const override {
 
-	        auto weight = parameters[ 0 ];
-			auto bias = parameters[ 1 ];
+			const T* X = input.data();
+		    T* Y = output.data();
 
-            auto mean = output_cache[ 0 ];
-			auto rstd = output_cache[ 1 ];
+	        const T* weight = parameters[ 0 ]->data();
+			const T* bias = parameters[ 1 ]->data();
+
+            T* mean = output_cache[ 0 ]->data();
+			T* rstd = output_cache[ 1 ]->data();
 
 			// B: batch size, T: sequence length, C: number of channels
-			int B = input->shape()[ 0 ];
-			int T = input->shape()[ 1 ];
-			int C = input->shape()[ 2 ];
+			int B = input.shape()[ 0 ];
+			int T = input.shape()[ 1 ];
+			int C = input.shape()[ 2 ];
 
 			// TODO: make this a parameter
             float eps = 1e-5f;
@@ -55,14 +60,14 @@ namespace Mila::Dnn::Compute
                     // calculate the mean
                     float m = 0.0f;
                     for ( int i = 0; i < C; i++ ) {
-                        m += input->data()[ input_offset + i ];
+                        m += input.data()[ input_offset + i ];
                     }
                     m = m / C;
 
                     // calculate the variance (without any bias correction)
                     float v = 0.0f;
                     for ( int i = 0; i < C; i++ ) {
-                        float xshift = input->data()[ input_offset + i ] - m;
+                        float xshift = X[ input_offset + i ] - m;
                         v += xshift * xshift;
                     }
                     v = v / C;
@@ -75,14 +80,14 @@ namespace Mila::Dnn::Compute
                     int out_offset = b * T * C + t * C;
 
                     for ( int i = 0; i < C; i++ ) {
-                        float n = (s * (input->data()[ input_offset + i ] - m)); // normalized output
-                        float o = n * weight->data()[ i ] + bias->data()[ i ]; // scale and shift it
-                        output->data()[ out_offset + i ] = o; // write
+                        float n = (s * (X[ input_offset + i ] - m)); // normalized output
+                        float o = n * weight[ i ] + bias[ i ]; // scale and shift it
+                        Y[ out_offset + i ] = o;
                     }
 
                     // TJT: only if is_training_ cache the mean and rstd for the backward pass later
-                    mean->data()[ b * T + t ] = m;
-                    rstd->data()[ b * T + t ] = s;
+                    mean[ b * T + t ] = m;
+                    rstd[ b * T + t ] = s;
                 }
             }
         }

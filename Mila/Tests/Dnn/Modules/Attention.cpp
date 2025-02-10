@@ -54,8 +54,8 @@ namespace Dnn::Modules::Tests
 
     TEST_F( AttentionTests, Cpu_TestForward ) {
         MilaDnn::Tensor<float, MilaDnn::Compute::CpuMemoryResource> input( { cpu_batch_size_, sequence_length_,  3 * channels_ } );
-        auto output = cpu_attention->forward( std::make_shared<MilaDnn::HostTensor<float>>( input ) );
-        EXPECT_EQ( output->size(), cpu_batch_size_ * sequence_length_ *  ( 3 * channels_ ) );
+        auto output = cpu_attention->forward( input );
+        EXPECT_EQ( output.size(), cpu_batch_size_ * sequence_length_ *  ( 3 * channels_ ) );
     }
 
     /*TEST_F( AttentionTests, Cuda_TestForward ) {

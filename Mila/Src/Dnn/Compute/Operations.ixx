@@ -46,6 +46,7 @@ namespace Mila::Dnn::Compute
 			CpuLayerNormOp<float>::registerOperation();
 			CpuMatMulOp<float>::registerOperation();
 			CpuResidualOp<float>::registerOperation();
+			CpuSoftmaxOp::registerOperation();
 
 			// CUDA operations...
 			CudaMatMulOp<float>::registerOperation();

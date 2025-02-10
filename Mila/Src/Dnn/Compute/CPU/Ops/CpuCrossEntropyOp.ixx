@@ -1,12 +1,21 @@
 module;
-#include <corecrt_math.h>
+#include <math.h>
+#include <string>
+#include <memory>
+#include <vector>
+#ifdef USE_OMP
+#include <omp.h>
+#endif
+#include <cmath>
 
 export module Compute.CpuCrossEntropyOp;
 
 import Dnn.Tensor;
-import Compute.DeviceType;
 import Compute.OperationBase;
+import Compute.OperationRegistry;
+import Compute.DeviceType;
 import Compute.OperationType;
+import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 
 using namespace Mila::Dnn;
@@ -14,15 +23,29 @@ using namespace Mila::Dnn;
 namespace Mila::Dnn::Compute
 {
 	export
+	template<typename T>
 	class CpuCrossEntropyOp : public OperationBase<float, CpuMemoryResource> {
 	public:
 
 		CpuCrossEntropyOp() : OperationBase<float, CpuMemoryResource>( DeviceType::Cpu, OperationType::CrossEntropyOp ) {}
 
-		void forward( float* losses, float* probs, const Tensor<int, CpuMemoryResource>& targets, int B, int T, int Vp ) {
+		void forward(
+			const Tensor<int, CpuMemoryResource>& input,
+			const std::vector<std::shared_ptr<Tensor<float, CpuMemoryResource>>>& parameters,
+			Tensor<float, CpuMemoryResource>& output,
+			std::vector<std::shared_ptr<Tensor<float, CpuMemoryResource>>>& output_cache ) const override {
+		//void forward( float* losses, float* probs, const Tensor<int, CpuMemoryResource>& targets, int B, int T, int Vp ) {
 			// output: losses is (B,T) of the individual losses at each position
 			// input: probs are (B,T,Vp) of the probabilities
 			// input: targets is (B,T) of integers giving the correct index in logits
+			auto B = input.shape()[ 0 ];
+			auto T = input.shape()[ 1 ];
+			auto Vp = parameters[ 0 ]->shape()[ 2 ];
+
+			auto losses = output.data();
+			auto probs = parameters[ 0 ]->data();
+			auto targets = input.data();
+
 			for ( int b = 0; b < B; b++ ) {
 				for ( int t = 0; t < T; t++ ) {
 					// loss = -log(probs[target])
@@ -51,6 +74,16 @@ namespace Mila::Dnn::Compute
 					}
 				}
 			}
+		}
+
+		static void registerOperation() {
+			OperationRegistry<float, CpuMemoryResource>::instance().registerOperation( DeviceType::Cpu, "Cpu::CrossEntropyOp", []() -> std::unique_ptr<OperationBase<float, CpuMemoryResource>> {
+				return std::make_unique<CpuCrossEntropyOp<float>>();
+			} );
+		}
+
+		std::string getName() const override {
+			return "Cpu::CrossEntropyOp";
 		}
 	};
 }

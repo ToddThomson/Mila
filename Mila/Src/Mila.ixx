@@ -49,6 +49,7 @@ export import Dnn.Modules.Gelu;
 export import Dnn.Modules.LayerNorm;
 export import Dnn.Modules.MatMul;
 export import Dnn.Modules.Residual;
+export import Dnn.Modules.Softmax;
 
 import Compute.Operations;
 

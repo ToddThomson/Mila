@@ -29,9 +29,13 @@ namespace Mila::Dnn
          * @brief Forward pass of the module.
          * 
          * @param input Input tensor.
-         * @return std::shared_ptr<Tensor<T, MR>> Output tensor.
+         * @return Tensor<T, MR> Output tensor.
          */
-        virtual std::shared_ptr<Tensor<T, MR>> forward( const std::shared_ptr<Tensor<T,MR>> input ) = 0;
+		
+         // TODO: Review the creation of the output tensor. It should be pass by reference to the forward function
+		// to avoid unnecessary memory allocation and copying.
+
+        virtual Tensor<T, MR> forward( const Tensor<T,MR>& input ) = 0;
 
         /**
          * @brief Backward pass of the module.

@@ -26,20 +26,23 @@ namespace Mila::Dnn::Compute
 		CudaMatMulOp() : OperationBase<T, DeviceMemoryResource>( DeviceType::Cuda, OperationType::MatMulOp ) {}
 
 		void forward(
-			const std::shared_ptr<Tensor<T, DeviceMemoryResource>> input,
-			const std::vector<std::shared_ptr<Tensor<T, DeviceMemoryResource>>>& parameters_,
-			std::shared_ptr<Tensor<T, DeviceMemoryResource>> output,
+			const Tensor<T, DeviceMemoryResource>& input,
+			const std::vector<std::shared_ptr<Tensor<T, DeviceMemoryResource>>>& parameters,
+			Tensor<T, DeviceMemoryResource>& output,
 			std::vector<std::shared_ptr<Tensor<T, DeviceMemoryResource>>>& output_cache ) const override {
 
-			auto weight = parameters_[ 0 ];
-			auto bias = parameters_[ 1 ];
+			auto X = input.data();
+			auto Y = output.data();
 
-			int B = input->shape()[ 0 ];
-			int T = input->shape()[ 1 ];
-			int C = input->shape()[ 2 ];
-			int OC = weight->shape()[ 0 ];
+			auto weight = parameters[ 0 ]->data();
+			auto bias = parameters[ 1 ]->data();
 
-			cuda_matmul_forward( output->data(), input->data(), weight->data(), bias->data(),  B, T, C, OC );
+			int B = input.shape()[ 0 ];
+			int T = input.shape()[ 1 ];
+			int C = input.shape()[ 2 ];
+			int OC = output.shape()[ 2 ];
+
+			cuda_matmul_forward( Y, X, weight, bias, B, T, C, OC );
 		}
 
 		static void registerOperation() {

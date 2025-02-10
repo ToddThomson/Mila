@@ -26,7 +26,7 @@ export namespace Mila::Dnn::Compute
     class OperationRegistry {
     public:
 
-        using OperationCreator = std::function<std::shared_ptr<OperationBase<T,MR>>()>; ///< Type alias for the operation creator function.
+        using OperationCreator = std::function<std::unique_ptr<OperationBase<T,MR>>()>; ///< Type alias for the operation creator function.
 
         /**
          * @brief Get the singleton instance of the OperationRegistry.

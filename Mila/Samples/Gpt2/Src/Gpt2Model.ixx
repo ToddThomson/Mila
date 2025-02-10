@@ -9,24 +9,16 @@ module;
 #include <fstream>
 #include <vector>
 #include <array>
-#include <thrust/host_vector.h>
 
 export module Gpt2.Gpt2Model;
 
-import Dnn.Tensor;
+import Mila;
+
 import Gpt2.Gpt2Config;
-import Compute.Cpu.Ops.LayerNormOp;
-import Compute.Cpu.Ops.MatMul;
-import Compute.Cpu.Ops.CrossEntropy;
-import Compute.Cpu.Ops.Residual;
-import Compute.Cpu.Ops.Gelu;
-import Compute.Cpu.Ops.Attention;
-import Compute.Cpu.Ops.Softmax;
-import Compute.Cpu.Ops.Encoder;
 
 namespace Mila::Dnn::Gpt2
 {
-	using namespace Mila::Dnn::Compute::Cpu::Ops;
+	using namespace Mila::Dnn::Compute;
 
 	constexpr int Gpt2ModelHeaderSize = 256;
 	constexpr int NumberOfParameterTensors = 16;
@@ -202,15 +194,15 @@ namespace Mila::Dnn::Gpt2
 				grads_acts_.losses[ i ] = dloss_mean;
 			}
 
-			crossentropy_softmax_backward( grads_acts_.logits.data(), grads_acts_.losses.data(), acts_.probs.data(), targets_, B, T, V, Vp );
-			matmul_backward( grads_acts_.lnf.data(), grads_.wte.data(), NULL, grads_acts_.logits.data(), acts_.lnf.data(), params_.wte.data(), B, T, C, Vp );
-			float* residual = acts_.residual3.data() + (L - 1) * B * T * C; // last layer's residual
-			float* dresidual = grads_acts_.residual3.data() + (L - 1) * B * T * C; // write to last layer's residual
+			//crossentropy_softmax_backward( grads_acts_.logits.data(), grads_acts_.losses.data(), acts_.probs.data(), targets_, B, T, V, Vp );
+			//matmul_backward( grads_acts_.lnf.data(), grads_.wte.data(), NULL, grads_acts_.logits.data(), acts_.lnf.data(), params_.wte.data(), B, T, C, Vp );
+			//float* residual = acts_.residual3.data() + (L - 1) * B * T * C; // last layer's residual
+			//float* dresidual = grads_acts_.residual3.data() + (L - 1) * B * T * C; // write to last layer's residual
 			//layernorm_backward( dresidual, grads_.lnfw.data(), grads_.lnfb.data(), grads_acts_.lnf.data(), residual, params_.lnfw.data(), acts_.lnf_mean.data(), acts_.lnf_rstd.data(), B, T, C );
 
 			for ( int l = L - 1; l >= 0; l-- ) {
-				residual = l == 0 ? acts_.encoded.data() : acts_.residual3.data() + (l - 1) * B * T * C;
-				dresidual = l == 0 ? grads_acts_.encoded.data() : grads_acts_.residual3.data() + (l - 1) * B * T * C;
+				//residual = l == 0 ? acts_.encoded.data() : acts_.residual3.data() + (l - 1) * B * T * C;
+				//dresidual = l == 0 ? grads_acts_.encoded.data() : grads_acts_.residual3.data() + (l - 1) * B * T * C;
 
 				// get the pointers of the weights for this layer
 				float* l_ln1w = params_.ln1w.data() + l * C;
@@ -262,18 +254,18 @@ namespace Mila::Dnn::Gpt2
 				float* dl_residual3 = grads_acts_.residual3.data() + l * B * T * C;
 
 				// backprop this layer
-				residual_backward( dl_residual2, dl_fcproj, dl_residual3, B * T * C );
-				matmul_backward( dl_fch_gelu, dl_fcprojw, dl_fcprojb, dl_fcproj, l_fch_gelu, l_fcprojw, B, T, 4 * C, C );
-				gelu_backward( dl_fch, l_fch, dl_fch_gelu, B * T * 4 * C );
-				matmul_backward( dl_ln2, dl_fcw, dl_fcb, dl_fch, l_ln2, l_fcw, B, T, C, 4 * C );
+				//residual_backward( dl_residual2, dl_fcproj, dl_residual3, B * T * C );
+				//matmul_backward( dl_fch_gelu, dl_fcprojw, dl_fcprojb, dl_fcproj, l_fch_gelu, l_fcprojw, B, T, 4 * C, C );
+				//gelu_backward( dl_fch, l_fch, dl_fch_gelu, B * T * 4 * C );
+				//matmul_backward( dl_ln2, dl_fcw, dl_fcb, dl_fch, l_ln2, l_fcw, B, T, C, 4 * C );
 				//layernorm_backward( dl_residual2, dl_ln2w, dl_ln2b, dl_ln2, l_residual2, l_ln2w, l_ln2_mean, l_ln2_rstd, B, T, C );
-				residual_backward( dresidual, dl_attproj, dl_residual2, B * T * C );
-				matmul_backward( dl_atty, dl_attprojw, dl_attprojb, dl_attproj, l_atty, l_attprojw, B, T, C, C );
-				attention_backward( dl_qkv, dl_preatt, dl_att, dl_atty, l_qkv, l_att, B, T, C, NH );
-				matmul_backward( dl_ln1, dl_qkvw, dl_qkvb, dl_qkv, l_ln1, l_qkvw, B, T, C, 3 * C );
+				//residual_backward( dresidual, dl_attproj, dl_residual2, B * T * C );
+				//matmul_backward( dl_atty, dl_attprojw, dl_attprojb, dl_attproj, l_atty, l_attprojw, B, T, C, C );
+				//attention_backward( dl_qkv, dl_preatt, dl_att, dl_atty, l_qkv, l_att, B, T, C, NH );
+				//matmul_backward( dl_ln1, dl_qkvw, dl_qkvb, dl_qkv, l_ln1, l_qkvw, B, T, C, 3 * C );
 				//layernorm_backward( dresidual, dl_ln1w, dl_ln1b, dl_ln1, residual, l_ln1w, l_ln1_mean, l_ln1_rstd, B, T, C );
 			}
-			encoder_backward( grads_.wte.data(), grads_.wpe.data(), grads_acts_.encoded.data(), inputs_, B, T, C );
+			//encoder_backward( grads_.wte.data(), grads_.wpe.data(), grads_acts_.encoded.data(), inputs_, B, T, C );
 		}
 
 		void forward( const Tensor<int>& inputs, const Tensor<int>& targets, size_t B, size_t T ) {
@@ -324,7 +316,7 @@ namespace Mila::Dnn::Gpt2
 
 			// forward pass
 			float* residual;
-			encoder_forward( acts_.encoded.data(), inputs, params_.wte.data(), params_.wpe.data(), B, T, C ); // encoding goes into residual[0]
+			//encoder_forward( acts_.encoded.data(), inputs, params_.wte.data(), params_.wpe.data(), B, T, C ); // encoding goes into residual[0]
 
 			for ( int l = 0; l < L; l++ ) {
 				residual = l == 0 ? acts_.encoded.data() : acts_.residual3.data() + (l - 1) * B * T * C;
@@ -363,24 +355,24 @@ namespace Mila::Dnn::Gpt2
 
 				// now do the forward pass
 				//layernorm_forward( l_ln1, l_ln1_mean, l_ln1_rstd, residual, l_ln1w, l_ln1b, batch_size_, seq_len_, C );
-				matmul_forward( l_qkv, l_ln1, l_qkvw, l_qkvb, batch_size_, seq_len_, C, 3 * C );
-				attention_forward( l_atty, l_preatt, l_att, l_qkv, batch_size_, seq_len_, C, NH );
-				matmul_forward( l_attproj, l_atty, l_attprojw, l_attprojb, batch_size_, seq_len_, C, C );
-				residual_forward( l_residual2, residual, l_attproj, batch_size_ * seq_len_ * C );
+				//matmul_forward( l_qkv, l_ln1, l_qkvw, l_qkvb, batch_size_, seq_len_, C, 3 * C );
+				//attention_forward( l_atty, l_preatt, l_att, l_qkv, batch_size_, seq_len_, C, NH );
+				//matmul_forward( l_attproj, l_atty, l_attprojw, l_attprojb, batch_size_, seq_len_, C, C );
+				//residual_forward( l_residual2, residual, l_attproj, batch_size_ * seq_len_ * C );
 				//layernorm_forward( l_ln2, l_ln2_mean, l_ln2_rstd, l_residual2, l_ln2w, l_ln2b, batch_size_, seq_len_, C );
-				matmul_forward( l_fch, l_ln2, l_fcw, l_fcb, batch_size_, seq_len_, C, 4 * C );
-				gelu_forward( l_fch_gelu, l_fch, batch_size_ * seq_len_ * 4 * C );
-				matmul_forward( l_fcproj, l_fch_gelu, l_fcprojw, l_fcprojb, batch_size_, seq_len_, 4 * C, C );
-				residual_forward( l_residual3, l_residual2, l_fcproj, batch_size_ * seq_len_ * C );
+				//matmul_forward( l_fch, l_ln2, l_fcw, l_fcb, batch_size_, seq_len_, C, 4 * C );
+				//gelu_forward( l_fch_gelu, l_fch, batch_size_ * seq_len_ * 4 * C );
+				//matmul_forward( l_fcproj, l_fch_gelu, l_fcprojw, l_fcprojb, batch_size_, seq_len_, 4 * C, C );
+				//residual_forward( l_residual3, l_residual2, l_fcproj, batch_size_ * seq_len_ * C );
 			}
 			residual = acts_.residual3.data() + (L - 1) * batch_size_ * seq_len_ * C; // last residual is in residual3
 			//layernorm_forward( acts_.lnf.data(), acts_.lnf_mean.data(), acts_.lnf_rstd.data(), residual, params_.lnfw.data(), params_.lnfb.data(), batch_size_, seq_len_, C );
-			matmul_forward( acts_.logits.data(), acts_.lnf.data(), params_.wte.data(), NULL, batch_size_, seq_len_, C, Vp );
-			softmax_forward( acts_.probs.data(), acts_.logits.data(), batch_size_, seq_len_, V, Vp );
+			//matmul_forward( acts_.logits.data(), acts_.lnf.data(), params_.wte.data(), NULL, batch_size_, seq_len_, C, Vp );
+			//softmax_forward( acts_.probs.data(), acts_.logits.data(), batch_size_, seq_len_, V, Vp );
 
 			// also forward the cross-entropy loss function if we have the targets
 			if ( !targets.empty() ) {
-				crossentropy_forward( acts_.losses.data(), acts_.probs.data(), targets, batch_size_, seq_len_, Vp );
+				//crossentropy_forward( acts_.losses.data(), acts_.probs.data(), targets, batch_size_, seq_len_, Vp );
 				// for convenience also evaluate the mean loss
 				float mean_loss = 0.0f;
 				for ( int i = 0; i < batch_size_ * seq_len_; i++ ) {

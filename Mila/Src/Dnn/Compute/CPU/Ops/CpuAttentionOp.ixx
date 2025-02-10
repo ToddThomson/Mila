@@ -3,10 +3,6 @@ module;
 #include <memory>
 #include <vector>
 #include <cmath>
-
-#include <corecrt_math.h>
-#include <corecrt_math_defines.h>
-
 #ifdef USE_OMP
 #include <omp.h>
 #endif
@@ -32,17 +28,20 @@ namespace Mila::Dnn::Compute
 
         CpuAttentionOp() : OperationBase<T, CpuMemoryResource>( DeviceType::Cpu, OperationType::AttentionOp ) {}
     
-        void forward( const std::shared_ptr<Tensor<T, CpuMemoryResource>> input,
-            const std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& input_parameters,
-            std::shared_ptr<Tensor<T, CpuMemoryResource>> output,
+        void forward( const Tensor<T, CpuMemoryResource>& input,
+            const std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& parameters,
+            Tensor<T, CpuMemoryResource>& output,
             std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& output_cache ) const override {
+
+			auto X = input.data();
+			auto Y = output.data();
 
             auto preatt = output_cache[ 0 ];
             auto att = output_cache[ 1 ];
 
-            int B = input->shape()[ 0 ];
-            int T = input->shape()[ 1 ];
-            int C3 = input->shape()[ 2 ]; // qkv vectors
+            int B = input.shape()[ 0 ];
+            int T = input.shape()[ 1 ];
+            int C3 = input.shape()[ 2 ]; // qkv vectors
             int NH = att->shape()[ 1 ];
 
             int C = C3 / 3;
@@ -53,13 +52,13 @@ namespace Mila::Dnn::Compute
             for ( int b = 0; b < B; b++ ) {
                 for ( int t = 0; t < T; t++ ) {
                     for ( int h = 0; h < NH; h++ ) {
-                        float* query_t = input->data() + b * T * C3 + t * C3 + h * hs;
+                        const float* query_t = X + b * T * C3 + t * C3 + h * hs;
                         float* preatt_bth = preatt->data() + b * NH * T * T + h * T * T + t * T;
                         float* att_bth = att->data() + b * NH * T * T + h * T * T + t * T;
 
                         float maxval = -10000.0f;
                         for ( int t2 = 0; t2 <= t; t2++ ) {
-                            float* key_t2 = input->data() + b * T * C3 + t2 * C3 + h * hs + C;
+                            const float* key_t2 = X + b * T * C3 + t2 * C3 + h * hs + C;
                             float val = 0.0f;
                             for ( int i = 0; i < hs; i++ ) {
                                 val += query_t[ i ] * key_t2[ i ];
@@ -88,14 +87,14 @@ namespace Mila::Dnn::Compute
                             }
                         }
 
-                        float* out_bth = output->data() + b * T * C + t * C + h * hs;
+                        float* out_bth = Y + b * T * C + t * C + h * hs;
                         for ( int i = 0; i < hs; i++ ) 
                         { 
                             out_bth[ i ] = 0.0f;
                         }
                         
                         for ( int t2 = 0; t2 <= t; t2++ ) {
-                            float* value_t2 = input->data() + b * T * C3 + t2 * C3 + h * hs + C * 2;
+                            const float* value_t2 = X + b * T * C3 + t2 * C3 + h * hs + C * 2;
                             float att_btht2 = att_bth[ t2 ];
                             for ( int i = 0; i < hs; i++ ) {
                                 out_bth[ i ] += att_btht2 * value_t2[ i ];

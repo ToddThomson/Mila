@@ -68,14 +68,14 @@ namespace Mila::Dnn::Compute
 		* @brief Executes the forward pass of the operation.
 		*
 		* @param input The input tensor.
-		* @param input_attributes Additional attributes for the input tensor.
+		* @param parameters The parameters for the operation.
 		* @param output The output tensor.
-		* @param output_attributes Additional attributes for the output tensor.
+		* @param output_cache Cache for the output tensors.
 		*/
 		virtual void forward(
-			const std::shared_ptr<Tensor<T, MR>> input,
-			const std::vector<std::shared_ptr<Tensor<T, MR>>>& input_parameters,
-			std::shared_ptr<Tensor<T, MR>> output,
+			const Tensor<T, MR>& input,
+			const std::vector<std::shared_ptr<Tensor<T, MR>>>& parameters,
+			Tensor<T, MR>& output,
 			std::vector<std::shared_ptr<Tensor<T, MR>>>& output_cache ) const = 0;
 
 		/**
@@ -88,8 +88,8 @@ namespace Mila::Dnn::Compute
 		* @throws std::runtime_error If the operation does not support backward pass.
 		*/
 		virtual void backward(
-			const std::shared_ptr<Tensor<T,MR>> grad,
-			const std::vector<std::shared_ptr<Tensor<T,MR>>> inputs_parameters,
+			const Tensor<T,MR>& grad,
+			const std::vector<std::shared_ptr<Tensor<T,MR>>>& parameters,
 			std::vector<std::shared_ptr<Tensor<T,MR>>>& outputGrads ) const {
 			// Default implementation for backward pass
 			throw std::runtime_error( "Operation does not support backward pass." );

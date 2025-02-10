@@ -4,7 +4,6 @@ module;
 #include <string>
 #define _USE_MATH_DEFINES
 #include <math.h>
-
 #ifdef USE_OMP
 #include <omp.h>
 #endif
@@ -31,23 +30,23 @@ namespace Mila::Dnn::Compute
 	template<typename T>
 	class CpuGeluOp :public OperationBase<T, CpuMemoryResource> {
 	public:
-
 		CpuGeluOp() : OperationBase<T, CpuMemoryResource>( DeviceType::Cpu, OperationType::GeluOp ) {}
 
 		void forward(
-			const std::shared_ptr<Tensor<T, CpuMemoryResource>> input,
-			const std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& input_parameters,
-			std::shared_ptr<Tensor<T, CpuMemoryResource>> output,
+			const Tensor<T, CpuMemoryResource>& input,
+			const std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& parameters,
+			Tensor<T, CpuMemoryResource>& output,
 			std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& output_cache ) const override {
 			// (approximate) GeLU elementwise non-linearity in the MLP block of Transformer
 
-			int N = input->size();
+			const T* X = input.data();
+			T* Y = output.data();
+			const int N = input.size();
 
-		#pragma omp parallel for
 			for ( int i = 0; i < N; i++ ) {
-				float x = input->data()[ i ];
+				float x = X[ i ];
 				float cube = 0.044715f * x * x * x;
-				output->data()[ i ] = 0.5f * x * (1.0f + tanhf( GELU_SCALING_FACTOR * (x + cube) ));
+				Y[ i ] = 0.5f * x * (1.0f + tanhf( GELU_SCALING_FACTOR * (x + cube) ));
 			}
 		}
 

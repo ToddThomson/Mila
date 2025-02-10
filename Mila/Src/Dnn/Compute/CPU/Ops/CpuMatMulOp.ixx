@@ -3,7 +3,6 @@ module;
 #include <string>
 #include <memory>
 #include <vector>
-
 #ifdef USE_OMP
 #include <omp.h>
 #endif
@@ -30,21 +29,24 @@ namespace Mila::Dnn::Compute
         CpuMatMulOp() : OperationBase<T, CpuMemoryResource>( DeviceType::Cpu, OperationType::MatMulOp ) {}
 
         void forward(
-            const std::shared_ptr<Tensor<T, CpuMemoryResource>> input,
-            const std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& input_parameters,
-            std::shared_ptr<Tensor<T, CpuMemoryResource>> output,
+            const Tensor<T, CpuMemoryResource>& input,
+            const std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& parameters_,
+            Tensor<T, CpuMemoryResource>& output,
             std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& output_cache ) const override {
-            auto weight = input_parameters[ 0 ];
-            auto bias = input_parameters[ 1 ];
+			auto X = input.data();
+			auto Y = output.data();
 
-            int B = input->shape()[ 0 ];
-            int T = input->shape()[ 1 ];
-            int C = input->shape()[ 2 ];
-            int OC = weight->shape()[ 0 ];
+            auto weight = parameters_[ 0 ];
+            auto bias = parameters_[ 1 ];
+
+            int B = input.shape()[ 0 ];
+            int T = input.shape()[ 1 ];
+            int C = input.shape()[ 2 ];
+            int OC = output.shape()[ 2 ];
 
             const int LOOP_UNROLL = 8;
             if ( B * T % LOOP_UNROLL != 0 ) {
-                forward_naive( input, weight, bias, output, B, T, C, OC );
+                forward_naive( input, *weight, *bias, output, B, T, C, OC );
                 return;
             }
 
@@ -60,13 +62,13 @@ namespace Mila::Dnn::Compute
                         float w = weight->data()[ i + o * C ];
                         for ( int ibt = 0; ibt < LOOP_UNROLL; ibt++ ) {
                             int bt = obt + ibt;
-                            result[ ibt ] += input->data()[ bt * C + i ] * w;
+                            result[ ibt ] += X[ bt * C + i ] * w;
                         }
                     }
 
                     for ( int ibt = 0; ibt < LOOP_UNROLL; ibt++ ) {
                         int bt = obt + ibt;
-                        output->data()[ bt * OC + o ] = result[ ibt ];
+                        Y[ bt * OC + o ] = result[ ibt ];
                     }
                 }
             }
@@ -117,9 +119,9 @@ namespace Mila::Dnn::Compute
 
     private:
         void forward_naive(
-            const std::shared_ptr<Tensor<float, CpuMemoryResource>> input,
-            const std::shared_ptr<Tensor<float, CpuMemoryResource>> weight, const std::shared_ptr<Tensor<float, CpuMemoryResource>> bias,
-            std::shared_ptr<Tensor<float, CpuMemoryResource>>& output,
+            const Tensor<float, CpuMemoryResource>& input,
+            const Tensor<float, CpuMemoryResource>& weight, const Tensor<float, CpuMemoryResource>& bias,
+            Tensor<float, CpuMemoryResource>& output,
             int B, int T, int C, int OC ) const {
             
             // The most naive implementation of matrix multiplication
@@ -131,11 +133,11 @@ namespace Mila::Dnn::Compute
                 for ( int t = 0; t < T; t++ ) {
                     int bt = b * T + t;
                     for ( int o = 0; o < OC; o++ ) {
-                        float val = (bias->data() != NULL) ? bias->data()[ o ] : 0.0f;
+                        float val = (bias.data() != NULL) ? bias.data()[ o ] : 0.0f;
                         for ( int i = 0; i < C; i++ ) {
-                            val += input->data()[ bt * C + i ] * weight->data()[ o * C + i ];
+                            val += input.data()[ bt * C + i ] * weight.data()[ o * C + i ];
                         }
-                        output->data()[ bt * OC + o ] = val;
+                        output.data()[ bt * OC + o ] = val;
                     }
                 }
             }

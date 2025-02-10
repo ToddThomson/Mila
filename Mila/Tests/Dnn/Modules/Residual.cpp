@@ -46,8 +46,8 @@ namespace Dnn::Modules::Tests
 
     TEST_F( ResidualTests, Cpu_TestForward ) {
         MilaDnn::Tensor<float, MilaDnn::Compute::CpuMemoryResource> input( { cpu_batch_size_, sequence_length_, channels_ } );
-        auto output = cpu_residual->forward( std::make_shared<MilaDnn::HostTensor<float>>( input ) );
-        EXPECT_EQ( output->size(), cpu_batch_size_ * sequence_length_ * channels_ );
+        auto output = cpu_residual->forward( input );
+        EXPECT_EQ( output.size(), cpu_batch_size_ * sequence_length_ * channels_ );
     }
 
     /*TEST_F( ResidualTests, Cuda_TestForward ) {

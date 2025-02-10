@@ -25,7 +25,7 @@ import Compute.PinnedMemoryResource;
 
 namespace Mila::Dnn
 {
-	export template<typename T, typename MR> requires std::is_base_of_v<Compute::MemoryResource, MR>
+	export template<typename T, typename MR = Compute::CpuMemoryResource> requires std::is_base_of_v<Compute::MemoryResource, MR>
 	class Tensor : TensorTag {
 	public:
 

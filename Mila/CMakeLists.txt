@@ -66,12 +66,12 @@ PUBLIC
 		
 		# Dnn Compute CPU
 		"Src/Dnn/Compute/CPU/CpuDevice.ixx" 
-		"Src/Dnn/Compute/CPU/Ops/Encoder.ixx" 
+		"Src/Dnn/Compute/CPU/Ops/CpuEncoderOp.ixx" 
 		"Src/Dnn/Compute/CPU/Ops/CpuLayerNormOp.ixx" 
 		"Src/Dnn/Compute/CPU/Ops/CpuAttentionOp.ixx" 
 		"Src/Dnn/Compute/CPU/Ops/CpuResidualOp.ixx" 
 		"Src/Dnn/Compute/CPU/Ops/CpuMatMulOp.ixx"
-		"Src/Dnn/Compute/CPU/Ops/Softmax.ixx"
+		"Src/Dnn/Compute/CPU/Ops/CpuSoftmaxOp.ixx"
 		"Src/Dnn/Compute/CPU/Ops/CpuGeluOp.ixx"
 		"Src/Dnn/Compute/CPU/Ops/CpuCrossEntropyOp.ixx"  
 		"Src/Dnn/Compute/CPU/Ops/CpuOperations.ixx"
@@ -90,7 +90,7 @@ PUBLIC
 		
 		# Data
 		"Src/Data/DataLoaderBase.ixx" 
- "Src/Dnn/Compute/CPU/CpuComputeResource.ixx"  "Src/Dnn/Modules/Gelu.ixx" "Src/Dnn/Modules/Attention.ixx" "Src/Dnn/Modules/Residual.ixx")
+ "Src/Dnn/Compute/CPU/CpuComputeResource.ixx"  "Src/Dnn/Modules/Gelu.ixx" "Src/Dnn/Modules/Attention.ixx" "Src/Dnn/Modules/Residual.ixx" "Src/Dnn/Modules/Softmax.ixx" "Src/Dnn/Modules/Encoder.ixx")
 
 target_link_libraries( Mila PRIVATE Thrust::Thrust CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
 

@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
-#include <iostream>
 #include <string>
 #include <memory>
+#include <stdexcept>
 
 import Mila;
 
@@ -13,7 +13,7 @@ namespace Dnn::Models::Tests
     public:
         CpuDummyModule( const std::string& name ) : name_( name ) {}
 
-        std::shared_ptr<HostTensor<float>> forward( const std::shared_ptr<HostTensor<float>> input ) override {
+        HostTensor<float> forward( const HostTensor<float>& input ) override {
             return input;
         }
 
@@ -62,22 +62,27 @@ namespace Dnn::Models::Tests
         model.add( module );
         EXPECT_THROW( model.add( module2 ), std::invalid_argument );
     }
-
+    
     TEST( ModelTests, CpuModel_ForwardPass ) {
         auto model = CpuTestModel<float>();
         auto module = std::make_shared<CpuDummyModule>( "module1" );
         model.add( module );
         model.build();
-        auto input = std::make_shared<HostTensor<float>>();
+        auto input = HostTensor<float>();
         auto output = model.forward( input );
-        EXPECT_EQ( input, output );
+        
+        EXPECT_EQ( input.shape(), output.shape() );
+
+		for ( size_t i = 0; i < input.size(); ++i ) {
+			EXPECT_EQ( input.data() + i, output.data() + i );
+		}
     }
 
     TEST( ModelTests, CpuModel_ForwardPassWithoutBuild ) {
         auto model = CpuTestModel<float>();
         auto module = std::make_shared<CpuDummyModule>( "module1" );
         model.add( module );
-        auto input = std::make_shared<HostTensor<float>>();
+        auto input = HostTensor<float>();
         EXPECT_THROW( model.forward( input ), std::runtime_error );
     }
 
@@ -128,31 +133,4 @@ namespace Dnn::Models::Tests
         auto model = CpuTestModel<float>();
         EXPECT_EQ( model.name(), "TestModel" );
     }
-
-    /*TEST( ModelTests, AddModule_ShouldAddModuleCorrectly ) {
-        auto model = CpuTestModel<float>();
-        auto input_shape = std::vector<size_t>{ 2, 3, 4 };
-        auto module = std::make_shared<Modules::LayerNorm<float, Compute::CpuMemoryResource>>( "ln1", input_shape );
-
-        model.add( module );
-
-        EXPECT_EQ( model.size(), 1 );
-    }*/
-
-    //TEST( ModelTests, Forward_ShouldReturnCorrectOutput ) {
-    //    auto model = CpuTestModel<float>();
-    //    auto input_shape = std::vector<size_t>{ 2, 3, 4 };
-    //    auto ln1 = std::make_shared<Modules::LayerNorm<float, Compute::CpuMemoryResource>>( "ln1", input_shape );
-    //    model.add( ln1 );
-
-    //    // Create a random input tensor with shape (B=2, T=3, C=4)
-    //    HostTensor<float> X( input_shape );
-    //    random<float, Compute::CpuMemoryResource>( X, -1.0f, 1.0f );
-
-    //    model.build();
-
-    //    auto Y = model.forward( std::make_shared<HostTensor<float>>( X ) );
-
-    //    EXPECT_EQ( Y->size(), X.size() );
-    //}
 }

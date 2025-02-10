@@ -83,12 +83,12 @@ namespace Mila::Dnn
 * @return std::shared_ptr<Tensor<T>> The output tensor.
 * @throws std::runtime_error if the model has not been built.
 */
-		std::shared_ptr<Tensor<T, MR>> forward( const std::shared_ptr<Tensor<T, MR>> input ) override {
+		Tensor<T, MR> forward( const Tensor<T, MR>& input ) override {
 			if ( !is_built_ ) {
 				throw std::runtime_error( "Model has not been built. Call build() before forward()." );
 			}
 
-			std::shared_ptr<Tensor<T, MR>> out = input;
+			Tensor<T, MR> out = input;
 			for ( const auto& module : modules_ ) {
 				out = module->forward( out );
 			}

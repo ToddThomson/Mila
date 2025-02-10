@@ -101,11 +101,14 @@ export namespace Mila::Dnn::Modules
 		 * @param input The input tensor.
 		 * @return std::shared_ptr<Tensor<float>> The output tensor.
 		 */
-		std::shared_ptr<Tensor<float, MR>> forward( const std::shared_ptr<Tensor<float, MR>> input ) {
-			auto B = input->shape()[ 0 ];
-			auto T = input->shape()[ 1 ];
+		Tensor<float, MR> forward( const Tensor<float, MR>& input ) {
+			auto B = input.shape()[ 0 ];
+			auto T = input.shape()[ 1 ];
 
-			auto output = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ B, T, output_channels_ } );
+			// TODO: Review the creation of the output tensor. It should be pass by reference to the forward function
+			// to avoid unnecessary memory allocation and copying.
+			auto output = Tensor<float, MR>( std::vector<size_t>{ B, T, output_channels_ } );
+
 			operation_->forward( input, parameters_, output, output_attributes_ );
 
 			return output;

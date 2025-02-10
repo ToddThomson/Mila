@@ -23,7 +23,7 @@ namespace Dnn::Modules::Tests
                 "cpu_ln", input_shape_ );
 
             /*cuda_linear = std::make_unique<MilaDnn::Modules::Linear<float, MilaDnn::Compute::DeviceMemoryResource>>(
-                "cuda_linear_2", input_shape_, output_channels_ );*/
+                "cuda_ln", input_shape_, output_channels_ );*/
         }
 
         std::unique_ptr<MilaDnn::Modules::LayerNorm<float, MilaDnn::Compute::CpuMemoryResource>> cpu_layernorm;
@@ -62,8 +62,8 @@ namespace Dnn::Modules::Tests
 
     TEST_F( LayernormTests, Cpu_TestForward ) {
         MilaDnn::Tensor<float, MilaDnn::Compute::CpuMemoryResource> input( { cpu_batch_size_, sequence_length_, channels_ } );
-        auto output = cpu_layernorm->forward( std::make_shared<MilaDnn::HostTensor<float>>( input ) );
-        EXPECT_EQ( output->size(), cpu_batch_size_ * sequence_length_ * channels_ );
+        auto output = cpu_layernorm->forward( input );
+        EXPECT_EQ( output.size(), cpu_batch_size_ * sequence_length_ * channels_ );
     }
 
     /*TEST_F( LayernormTests, Cuda_TestForward ) {

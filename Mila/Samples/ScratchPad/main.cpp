@@ -20,35 +20,50 @@ int main() {
 
     std::cout << "The current Compute Device is: " << Mila::getDevice()->getName() << std::endl;
 
-    std::unique_ptr<Modules::LayerNorm<float, Compute::CpuMemoryResource>> cpu_layernorm{ nullptr };
+    std::unique_ptr<Modules::Softmax<float, Compute::CpuMemoryResource>> cpu_softmax{ nullptr };
     //std::unique_ptr<Modules::LayerNorm<float, Compute::DeviceMemoryResource>> cuda_layernorm{ nullptr };
 
     size_t cuda_batch_size = 4;
-    size_t cpu_batch_size = 4;
-    size_t sequence_length = 1024;
-    size_t channels = 768;
+    size_t cpu_batch_size = 2;
+    size_t sequence_length = 4;
+    size_t channels = 3;
 
     std::vector<size_t> cpu_input_shape = { cpu_batch_size, sequence_length, channels };
-    std::vector<size_t> cuda_input_shape = { cuda_batch_size, sequence_length, channels };
+    //std::vector<size_t> cuda_input_shape = { cuda_batch_size, sequence_length, channels };
 
-    cpu_layernorm = std::make_unique<Modules::LayerNorm<float, Compute::CpuMemoryResource>>(
-        "Cpu_ln_1", cpu_input_shape );
-
-    //cuda_layernorm = std::make_unique<Modules::LayerNorm<float, Compute::DeviceMemoryResource>>(
-    //    "Cuda_ln_1", cuda_input_shape );
+    cpu_softmax = std::make_unique<Modules::Softmax<float, Compute::CpuMemoryResource>>(
+        "Cpu_softmax", cpu_input_shape );
 
     Tensor<float, Compute::CpuMemoryResource> input( cpu_input_shape );
     random<float, Compute::CpuMemoryResource>( input, 0.0f, 5.0f );
 
-    auto cuda_input = input.to<Compute::DeviceMemoryResource>();
+	input.print();
 
-    //auto output = cpu_layernorm->forward( std::make_shared<HostTensor<float>>( input ) );
+    //auto cuda_input = input.to<Compute::DeviceMemoryResource>();
+
+    auto output = cpu_softmax->forward( input );
+    
     //auto output2 = cuda_layernorm->forward( std::make_shared<DeviceTensor<float>>( cuda_input ) );
 
     std::cout << "Cpu output: " << std::endl;
-    //output->print();
+    output.print();
 
-    std::cout << "Cuda output: " << std::endl;
+	auto B = output.shape()[ 0 ];
+	auto T = output.shape()[ 1 ];
+	auto V = output.shape()[ 2 ];
+	// Check if all values in the output sum to a value close to 1
+	float sum = 0.0f;
+    for ( size_t i = 0; i < B; ++i ) {
+		for ( size_t j = 0; j < T; ++j ) {
+			float sum = 0.0f;
+			for ( size_t v = 0; v < V; ++v ) {
+				sum += output[ i, j, v ];
+			}
+			std::cout << std::format( "Sum({},{}): ", i, j ) << sum << std::endl;
+		}
+    }
+
+    //std::cout << "Cuda output: " << std::endl;
     //auto from_cuda_output2 = output2->to<Compute::CpuMemoryResource>();
     //from_cuda_output2.print();
 

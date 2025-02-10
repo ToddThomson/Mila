@@ -88,11 +88,11 @@ namespace Mila::Dnn::Modules
 		* @param input Input tensor.
 		* @return TensorPtr Output tensor.
 		*/
-		std::shared_ptr<Tensor<float, MR>> forward( const std::shared_ptr<Tensor<float, MR>> input ) override {
-			auto output = std::make_shared<Tensor<float, MR>>( input->shape() );
-			operation_->forward( input, parameters_, output, output_attributes_ );
+		Tensor<float, MR> forward( const Tensor<float, MR>& input ) override {
+			auto output = Tensor<float, MR>( input.shape() );
+			operation_->forward( input, parameters_, output, output_cache_ );
 
-			return output;
+			return std::move( output );
 		}
 
 		/**
@@ -118,7 +118,7 @@ namespace Mila::Dnn::Modules
 		std::shared_ptr<Tensor<float, MR>> rstd_{ nullptr }; ///< The reciprocal standard deviation.
 
 		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_; ///< The parameters.
-		std::vector<std::shared_ptr<Tensor<float, MR>>> output_attributes_; ///< The output attributes.
+		std::vector<std::shared_ptr<Tensor<float, MR>>> output_cache_; ///< The output attributes.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_; ///< The scalars.
 
 		std::shared_ptr<Dnn::Compute::OperationBase<T, MR>> operation_; ///< The operation.
@@ -142,8 +142,8 @@ namespace Mila::Dnn::Modules
 			mean_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ batch_size, sequence_length } );
 			rstd_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ batch_size, sequence_length } );
 
-			output_attributes_.emplace_back( mean_ );
-			output_attributes_.emplace_back( rstd_ );
+			output_cache_.emplace_back( mean_ );
+			output_cache_.emplace_back( rstd_ );
 
 			// TODO: tensor scalars
 			//scalars_[ scalar_names_::EPSILON ] = std::make_shared<Tensor>( epsilon_ );*/

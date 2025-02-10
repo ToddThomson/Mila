@@ -31,7 +31,6 @@ module;
 #include <vector>
 #include <array>
 #include <iostream>
-#include <thrust/host_vector.h>
 
 #include "../../../Src/Core/rand.h"
 

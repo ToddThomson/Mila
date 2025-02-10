@@ -10,7 +10,7 @@ using namespace Mila::Dnn;
 namespace App::Model::LayerNorm
 {
 	export template<typename T>
-	class LayerNormModel : public Mila::Dnn::Model<T> {
+	class LayerNormModel : public Mila::Dnn::Model<T, Compute::CpuMemoryResource> {
 	public:
 		LayerNormModel( std::string name, size_t batch_size, size_t sequence_length, size_t channels )
 		: name_( name ), batch_size_( batch_size ), seq_len_( sequence_length ), channels_( channels ) {
@@ -26,7 +26,7 @@ namespace App::Model::LayerNorm
 			std::cout << "Sequence length: " << seq_len_ << std::endl;
 			std::cout << "Channels: " << channels_ << std::endl;
 
-			Mila::Dnn::Model<T>::print();
+			//Mila::Dnn::Model<T>::print();
 		}
 
 	private:

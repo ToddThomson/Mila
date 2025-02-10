@@ -51,9 +51,9 @@ export namespace Mila::Dnn::Modules
 			return name_;
 		}
 
-		std::shared_ptr<Tensor<float, MR>> forward( const std::shared_ptr<Tensor<float, MR>> input ) {
-			auto output = std::make_shared<Tensor<float, MR>>( std::vector<size_t>( input->shape() ) );
-			operation_->forward( input, parameters_, output, output_attributes_ );
+		Tensor<float, MR> forward( const Tensor<float, MR>& input ) override {
+			auto output = Tensor<float, MR>( input.shape() );
+			operation_->forward( input, parameters_, output, output_cache_ );
 
 			return output;
 		}
@@ -79,7 +79,7 @@ export namespace Mila::Dnn::Modules
 		std::shared_ptr<Tensor<float, MR>> pre_attention_{ nullptr };
 
 		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_; ///< The parameters.
-		std::vector<std::shared_ptr<Tensor<float, MR>>> output_attributes_; ///< The output attributes.
+		std::vector<std::shared_ptr<Tensor<float, MR>>> output_cache_; ///< The output attributes.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_; ///< The scalars.
 
 		std::shared_ptr<Dnn::Compute::OperationBase<T, MR>> operation_{ nullptr }; ///< The operation.
@@ -95,8 +95,8 @@ export namespace Mila::Dnn::Modules
 			attention_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ batch_size, num_heads_, sequence_length, sequence_length } );
 			pre_attention_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ batch_size, num_heads_, sequence_length, sequence_length } );
 
-			output_attributes_.emplace_back( attention_ );
-			output_attributes_.emplace_back( pre_attention_ );
+			output_cache_.emplace_back( attention_ );
+			output_cache_.emplace_back( pre_attention_ );
 
 			if constexpr ( std::is_same_v<MR, Compute::CpuMemoryResource> ) {
 				operation_ = OperationRegistry<float, MR>::instance().createOperation( DeviceType::Cpu, "Cpu::AttentionOp" );
