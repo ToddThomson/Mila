@@ -2,6 +2,7 @@ module;
 #include <cuda_runtime.h>
 #include <vector>
 #include <memory>
+#include <unordered_set>
 #include <string>
 #include <iostream>
 #include <stdexcept>
@@ -10,6 +11,7 @@ export module Dnn.Model;
 
 import Dnn.Module;
 import Dnn.Tensor;
+import Dnn.TensorTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.DeviceMemoryResource;
@@ -23,8 +25,9 @@ namespace Mila::Dnn
 	* @tparam MemoryResource The memory resource type used for memory management.
 	*/
 	export
-	template<typename T, typename MR> requires std::is_same_v<MR, Compute::CpuMemoryResource> || std::is_same_v<MR, Compute::DeviceMemoryResource>
-	class Model : public Module<T, MR> {
+	template<typename TInput, typename TCompute = TInput, typename MR = Compute::CpuMemoryResource>
+		requires ValidTensorTypes<TInput, TCompute> && ( std::is_same_v<MR, Compute::CpuMemoryResource> || std::is_same_v<MR, Compute::DeviceMemoryResource> )
+	class Model : public Module<TInput, TCompute, MR> {
 	public:
 
 		/**
@@ -57,7 +60,7 @@ namespace Mila::Dnn
 		* @return size_t The index of the added module.
 		* @throws std::invalid_argument if a module with the same name already exists.
 		*/
-		template <typename ModuleType> requires std::derived_from<ModuleType, Module<T,MR>>
+		template <typename ModuleType> requires std::derived_from<ModuleType, Module<TInput, TCompute, MR>>
 		size_t add( std::shared_ptr<ModuleType> module ) {
 
 			if constexpr ( std::is_same_v<MR, Compute::DeviceMemoryResource> ) {
@@ -77,23 +80,23 @@ namespace Mila::Dnn
 		}
 
 		/**
-* @brief Performs a forward pass through the model.
-*
-* @param input The input tensor.
-* @return std::shared_ptr<Tensor<T>> The output tensor.
-* @throws std::runtime_error if the model has not been built.
-*/
-		Tensor<T, MR> forward( const Tensor<T, MR>& input ) override {
+		* @brief Performs a forward pass through the model.
+		*
+		* @param input The input tensor.
+		* @return std::shared_ptr<Tensor<T>> The output tensor.
+		* @throws std::runtime_error if the model has not been built.
+		*/
+		Tensor<TCompute, MR>&& forward( const Tensor<TInput, MR>& input ) override {
 			if ( !is_built_ ) {
 				throw std::runtime_error( "Model has not been built. Call build() before forward()." );
 			}
 
-			Tensor<T, MR> out = input;
+			Tensor<TCompute, MR> out = input;
 			for ( const auto& module : modules_ ) {
 				out = module->forward( out );
 			}
 
-			return out;
+			return std::move( out );
 		}
 
 		/**
@@ -139,13 +142,13 @@ namespace Mila::Dnn
 		}
 
 		/**
-* @brief Accesses a module by its index.
-*
-* @param index The index of the module.
-* @return std::shared_ptr<Module<T>> A shared pointer to the module.
-* @throws std::out_of_range if the index is out of range.
-*/
-		std::shared_ptr<Module<T, MR>> operator[]( size_t index ) const {
+		* @brief Accesses a module by its index.
+		*
+		* @param index The index of the module.
+		* @return std::shared_ptr<Module<T>> A shared pointer to the module.
+		* @throws std::out_of_range if the index is out of range.
+		*/
+		std::shared_ptr<Module<TInput,TCompute, MR>> operator[]( size_t index ) const {
 			if ( index >= modules_.size() ) {
 				throw std::out_of_range( "Index out of range" );
 			}
@@ -153,13 +156,13 @@ namespace Mila::Dnn
 		}
 
 		/**
-* @brief Accesses a module by its name.
-*
-* @param name The name of the module.
-* @return std::shared_ptr<Module<T>> A shared pointer to the module.
-* @throws std::out_of_range if no module with the given name is found.
-*/
-		std::shared_ptr<Module<T, MR>> operator[]( const std::string& name ) const {
+		* @brief Accesses a module by its name.
+		*
+		* @param name The name of the module.
+		* @return std::shared_ptr<Module<T>> A shared pointer to the module.
+		* @throws std::out_of_range if no module with the given name is found.
+		*/
+		std::shared_ptr<Module<TInput,TCompute, MR>> operator[]( const std::string& name ) const {
 			auto it = std::find( module_names_.begin(), module_names_.end(), name );
 			if ( it == module_names_.end() ) {
 				throw std::out_of_range( "No module found with name '" + name + "'." );
@@ -168,11 +171,18 @@ namespace Mila::Dnn
 			return modules_[ index ];
 		}
 
+		inline std::shared_ptr<Tensor<TCompute, MR>> tensor( const Tensor<TInput, MR>& tensor ) {
+			auto tensor_ptr = std::make_shared<Tensor<TInput, MR>>( tensor );
+			inputs_.emplace( tensor_ptr );
+
+			return tensor_ptr;
+		}
+
 		/**
-* @brief Calculates the total number of parameters in the model.
-*
-* @return size_t The total number of parameters.
-*/
+		* @brief Calculates the total number of parameters in the model.
+		*
+		* @return size_t The total number of parameters.
+		*/
 		size_t parameters() const override {
 			size_t total_parameters = 0;
 			for ( const auto& module : modules_ ) {
@@ -182,17 +192,17 @@ namespace Mila::Dnn
 		}
 
 		/**
-* @brief Returns the number of modules in the model.
-*
-* @return size_t The number of modules.
-*/
+		* @brief Returns the number of modules in the model.
+		*
+		* @return size_t The number of modules.
+		*/
 		size_t size() const {
 			return modules_.size();
 		}
 
 		/**
-* @brief Prints the model's structure and total number of parameters.
-*/
+		* @brief Prints the model's structure and total number of parameters.
+		*/
 		void print() const override {
 			std::cout << "Modules: " << std::endl;
 			for ( const auto& module : modules_ ) {
@@ -202,10 +212,14 @@ namespace Mila::Dnn
 		}
 
 	private:
-		std::vector<std::shared_ptr<Module<T, MR>>> modules_; ///< The list of modules in the model.
+		std::vector<std::shared_ptr<Module<TInput, TCompute, MR>>> modules_; ///< The list of modules in the model.
 		std::vector<std::string> module_names_; ///< The list of module names.
+
+		std::unordered_set<std::shared_ptr<Tensor<TInput, MR>>> inputs_; ///< The setof input tensors.
+
 		bool is_built_{ false }; ///< Indicates whether the model has been built.
 		bool is_training_{ false }; ///< Indicates whether the model is in training mode.
+
 		cudaStream_t stream_{}; ///< The CUDA stream for device memory resource.
 	};
 }

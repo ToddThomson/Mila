@@ -2,6 +2,7 @@
 #include <string>
 #include <memory>
 #include <stdexcept>
+#include <type_traits>
 
 import Mila;
 
@@ -9,12 +10,13 @@ namespace Dnn::Models::Tests
 {
     using namespace Mila::Dnn;
 
-    class CpuDummyModule : public Module<float, Compute::CpuMemoryResource> {
+    class CpuDummyModule : public Module<float, float, Compute::CpuMemoryResource> {
     public:
         CpuDummyModule( const std::string& name ) : name_( name ) {}
 
-        HostTensor<float> forward( const HostTensor<float>& input ) override {
-            return input;
+        Tensor<float,Compute::CpuMemoryResource>&& forward( const HostTensor<float>& input ) override {
+			auto output = HostTensor<float>( input.shape() );
+            return std::move( output );
         }
 
         size_t parameters() const override { return 0; }
@@ -26,8 +28,8 @@ namespace Dnn::Models::Tests
         std::string name_;
     };
 
-    template<typename T>
-    class CpuTestModel : public Model<T, Compute::CpuMemoryResource> {
+    template<typename TInput, typename TCompute>
+    class CpuTestModel : public Model<TInput, TCompute, Compute::CpuMemoryResource> {
     public:
         std::string name() const override {
             return "TestModel";
@@ -48,7 +50,7 @@ namespace Dnn::Models::Tests
     };
 
     TEST( ModelTests, CpuModel_AddModule ) {
-        auto model = CpuTestModel<float>();
+        auto model = CpuTestModel<float, float>();
         auto module = std::make_shared<CpuDummyModule>( "module1" );
         size_t index = model.add( module );
         EXPECT_EQ( index, 0 );
@@ -56,7 +58,7 @@ namespace Dnn::Models::Tests
     }
 
     TEST( ModelTests, CpuModel_AddDuplicateNamedModule ) {
-        auto model = CpuTestModel<float>();
+        auto model = CpuTestModel<float, float>();
         auto module = std::make_shared < CpuDummyModule>( "module1" );
         auto module2 = std::make_shared < CpuDummyModule>( "module1" );
         model.add( module );
@@ -64,7 +66,7 @@ namespace Dnn::Models::Tests
     }
     
     TEST( ModelTests, CpuModel_ForwardPass ) {
-        auto model = CpuTestModel<float>();
+        auto model = CpuTestModel<float, float>();
         auto module = std::make_shared<CpuDummyModule>( "module1" );
         model.add( module );
         model.build();
@@ -79,7 +81,7 @@ namespace Dnn::Models::Tests
     }
 
     TEST( ModelTests, CpuModel_ForwardPassWithoutBuild ) {
-        auto model = CpuTestModel<float>();
+        auto model = CpuTestModel<float,float>();
         auto module = std::make_shared<CpuDummyModule>( "module1" );
         model.add( module );
         auto input = HostTensor<float>();
@@ -87,7 +89,7 @@ namespace Dnn::Models::Tests
     }
 
     TEST( ModelTests, CpuModel_BuildModel ) {
-        auto model = CpuTestModel<float>();
+        auto model = CpuTestModel<float,float>();
         auto module = std::make_shared<CpuDummyModule>( "module1" );
         model.add( module );
         model.build();
@@ -95,7 +97,7 @@ namespace Dnn::Models::Tests
     }
 
     TEST( ModelTests, AccessModuleByIndex ) {
-        auto model = CpuTestModel<float>();
+        auto model = CpuTestModel<float,float>();
         auto module = std::make_shared<CpuDummyModule>( "module1" );
         model.add( module );
         EXPECT_EQ( model[ 0 ], module );
@@ -103,7 +105,7 @@ namespace Dnn::Models::Tests
     }
 
     TEST( ModelTests, AccessModuleByName ) {
-        auto model = CpuTestModel<float>();
+        auto model = CpuTestModel<float,float>();
         auto module = std::make_shared<CpuDummyModule>( "module1" );
         model.add( module );
         EXPECT_EQ( model[ "module1" ], module );
@@ -111,7 +113,7 @@ namespace Dnn::Models::Tests
     }
 
     TEST( ModelTests, ParametersCount ) {
-        auto model = CpuTestModel<float>();
+        auto model = CpuTestModel<float,float>();
         auto module = std::make_shared<CpuDummyModule>( "module1" );
         model.add( module );
         EXPECT_EQ( model.parameters(), 0 );
@@ -130,7 +132,7 @@ namespace Dnn::Models::Tests
     }*/
 
     TEST( ModelTests, Constructor_ShouldInitializeCorrectly ) {
-        auto model = CpuTestModel<float>();
+        auto model = CpuTestModel<float,float>();
         EXPECT_EQ( model.name(), "TestModel" );
     }
 }

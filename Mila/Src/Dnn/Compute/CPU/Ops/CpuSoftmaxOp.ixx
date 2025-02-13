@@ -23,13 +23,14 @@ namespace Mila::Dnn::Compute
      *  
      * @tparam T Data type of the tensor elements.  
      */  
-    export  
-    class CpuSoftmaxOp : public OperationBase<float, CpuMemoryResource> {  
+    export
+	template<typename T>
+    class CpuSoftmaxOp : public OperationBase<float, float, CpuMemoryResource> {  
     public:  
         /**  
          * @brief Constructor for CpuSoftmaxOp.  
          */  
-        CpuSoftmaxOp() : OperationBase<float,CpuMemoryResource>(DeviceType::Cpu, OperationType::SoftmaxOp) {}  
+        CpuSoftmaxOp() : OperationBase<float, float, CpuMemoryResource>(DeviceType::Cpu, OperationType::SoftmaxOp) {}  
 
         /**  
          * @brief Forward pass of the softmax operation.  
@@ -40,10 +41,10 @@ namespace Mila::Dnn::Compute
          * @param output_cache Cache for output tensors (not used).  
          */  
         void forward(  
-            const Tensor<float, CpuMemoryResource>& input,  
-            const std::vector<std::shared_ptr<Tensor<float, CpuMemoryResource>>>& parameters,  
-            Tensor<float, CpuMemoryResource>& output,  
-            std::vector<std::shared_ptr<Tensor<float, CpuMemoryResource>>>& output_cache) const override {  
+            const Tensor<T, CpuMemoryResource>& input,  
+            const std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& parameters,  
+            Tensor<T, CpuMemoryResource>& output,  
+            std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& output_cache) const override {  
 
             const float* logits = input.data();
             float* probs = output.data();
@@ -91,7 +92,7 @@ namespace Mila::Dnn::Compute
          * @brief Registers the CpuSoftmaxOp operation in the operation registry.  
          */  
         static void registerOperation() {  
-            OperationRegistry<float, CpuMemoryResource>::instance().registerOperation(DeviceType::Cpu, "Cpu::SoftmaxOp", []() -> std::unique_ptr<OperationBase<float, CpuMemoryResource>> {  
+            OperationRegistry<float, float, CpuMemoryResource>::instance().registerOperation(DeviceType::Cpu, "Cpu::SoftmaxOp", []() -> std::unique_ptr<OperationBase<float, float, CpuMemoryResource>> {  
                 return std::make_unique<CpuSoftmaxOp>();  
             });  
         }  

@@ -3,11 +3,13 @@ module;
 #include <vector>
 #include <string>
 #include <iostream>
+#include <type_traits>
 
 export module Dnn.Modules.Gelu;
 
 import Dnn.Module;
 import Dnn.Tensor;
+import Dnn.TensorTraits;
 import Dnn.TensorHelpers;
 
 import Compute.DeviceType;
@@ -29,12 +31,10 @@ export namespace Mila::Dnn::Modules
 	 * @tparam T The data type of the module.
 	 */
 	export
-		template<typename T, typename MR> requires std::is_same_v<MR, CpuMemoryResource> || std::is_same_v<MR, DeviceMemoryResource>
-	class Gelu : public Module<T, MR> {
+	template<typename TInput, typename TCompute = TInput, typename MR = CpuMemoryResource> 
+		requires ValidTensorTypes<TInput, TCompute> && ( std::is_same_v<MR, CpuMemoryResource> || std::is_same_v<MR, DeviceMemoryResource> )
+	class Gelu : public Module<TInput, TCompute, MR> {
 	public:
-
-		using TensorPtr = std::shared_ptr<Tensor<T, MR>>;
-
 		/**
 		* @brief Construct a new Linear object.
 		*
@@ -46,10 +46,8 @@ export namespace Mila::Dnn::Modules
 		*/
 		Gelu( std::string name, const std::vector<size_t>& input_shape, bool is_training = false )
 			: name_( name ), input_shape_( input_shape ), is_training_( is_training ) {
-			validateAndCreateParameters();
 			createOperation();
 		}
-
 
 		/**
 		* @brief Get the number of parameters.
@@ -75,11 +73,10 @@ export namespace Mila::Dnn::Modules
 		 * @param input The input tensor.
 		 * @return The output tensor.
 		 */
-		Tensor<float, MR> forward( const Tensor<float, MR>& input ) override {
-			auto output = Tensor<float, MR>( input.shape() );
-			operation_->forward( input, parameters_, output, output_attributes_ );
+		Tensor<TCompute, MR>&& forward( const Tensor<TInput, MR>& input ) override {
+			operation_->forward( input, parameters_, output_, output_attributes_ );
 
-			return output;
+			return std::move( output_ );
 		}
 
 		/**
@@ -100,38 +97,27 @@ export namespace Mila::Dnn::Modules
 		std::string name_; ///< The name of the module.
 		std::vector<size_t> input_shape_; ///< The input shape.
 
-		size_t output_channels_{ 0 }; ///< The number of output channels.
-
-		
 		bool is_training_{ false }; ///< Whether the module is in training mode. Default is false.
 
-		
+		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_{ nullptr }; ///< The parameters. Not used in this module.
+		std::vector<std::shared_ptr<Tensor<float, MR>>> output_attributes_{ nullptr }; ///< The output attributes.
+		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_{ nullptr }; ///< The scalars.
 
-		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_; ///< The parameters.
-		std::vector<std::shared_ptr<Tensor<float, MR>>> output_attributes_; ///< The output attributes.
-		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_; ///< The scalars.
+		Tensor<TCompute, MR> output_; ///< The output tensor.
 
-		std::shared_ptr<Dnn::Compute::OperationBase<T, MR>> operation_{ nullptr }; ///< The operation.
-
-		void validateAndCreateParameters() {
-			// TODO: For now, we only support 3D input shapes.
-			if ( input_shape_.size() != 3 ) {
-				throw std::invalid_argument( "The input shape must have 3 dimensions." );
-			}
-
-			// The last dimension of the input shape is the number of input channels/features.
-			auto input_channels = input_shape_.back();
-		}
+		std::shared_ptr<Dnn::Compute::OperationBase<TInput, TCompute, MR>> operation_{ nullptr }; ///< The operation.
 
 		/**
 		 * @brief Create the operation.
 		 */
 		void createOperation() {
+			output_ = Tensor<float, MR>( input_shape_ );
+
 			if constexpr ( std::is_same_v<MR, Compute::CpuMemoryResource> ) {
-				operation_ = OperationRegistry<float, MR>::instance().createOperation( DeviceType::Cpu, "Cpu::GeluOp" );
+				operation_ = OperationRegistry<float, float, MR>::instance().createOperation( DeviceType::Cpu, "Cpu::GeluOp" );
 			}
 			else {
-				operation_ = OperationRegistry<float, MR>::instance().createOperation( DeviceType::Cuda, "Cuda::GeluOp" );
+				operation_ = OperationRegistry<float, float, MR>::instance().createOperation( DeviceType::Cuda, "Cuda::GeluOp" );
 			}
 		}
 	};

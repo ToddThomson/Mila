@@ -69,9 +69,9 @@ namespace Mila::Dnn
 		* @param i The index of the element.
 		* @return T& A reference to the element.
 		*/
-		T& operator[]( size_t i ) {
+		/*T& operator[]( size_t i ) {
 			return data_[ i ];
-		}
+		}*/
 
 		/**
 		* @brief Get a pointer to the data.

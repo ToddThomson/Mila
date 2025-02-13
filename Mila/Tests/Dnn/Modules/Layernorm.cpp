@@ -16,24 +16,26 @@ namespace Dnn::Modules::Tests
             cpu_batch_size_ = 4;
             sequence_length_ = 1024;
             channels_ = 768;
-            input_shape_ = { batch_size_, sequence_length_, channels_ };
+			cpu_input_shape_ = { cpu_batch_size_, sequence_length_, channels_ };
+            cuda_input_shape_ = { batch_size_, sequence_length_, channels_ };
             has_bias_ = true;
 
-            cpu_layernorm = std::make_unique<MilaDnn::Modules::LayerNorm<float, MilaDnn::Compute::CpuMemoryResource>>(
-                "cpu_ln", input_shape_ );
+            cpu_layernorm = std::make_unique<MilaDnn::Modules::LayerNorm<float, float, MilaDnn::Compute::CpuMemoryResource>>(
+                "cpu_ln", cpu_input_shape_ );
 
             /*cuda_linear = std::make_unique<MilaDnn::Modules::Linear<float, MilaDnn::Compute::DeviceMemoryResource>>(
                 "cuda_ln", input_shape_, output_channels_ );*/
         }
 
-        std::unique_ptr<MilaDnn::Modules::LayerNorm<float, MilaDnn::Compute::CpuMemoryResource>> cpu_layernorm;
-        std::unique_ptr<MilaDnn::Modules::LayerNorm<float, MilaDnn::Compute::DeviceMemoryResource>> cuda_layernorm;
+        std::unique_ptr<MilaDnn::Modules::LayerNorm<float, float, MilaDnn::Compute::CpuMemoryResource>> cpu_layernorm;
+        std::unique_ptr<MilaDnn::Modules::LayerNorm<float, float, MilaDnn::Compute::DeviceMemoryResource>> cuda_layernorm;
 
         size_t batch_size_{ 0 };
         size_t cpu_batch_size_{ 0 };
         size_t sequence_length_{ 0 };
         size_t channels_{ 0 };
-        std::vector<size_t> input_shape_;
+        std::vector<size_t> cpu_input_shape_;
+        std::vector<size_t> cuda_input_shape_;
         bool has_bias_{ true };
     };
 
@@ -61,9 +63,9 @@ namespace Dnn::Modules::Tests
     }
 
     TEST_F( LayernormTests, Cpu_TestForward ) {
-        MilaDnn::Tensor<float, MilaDnn::Compute::CpuMemoryResource> input( { cpu_batch_size_, sequence_length_, channels_ } );
+        MilaDnn::Tensor<float, MilaDnn::Compute::CpuMemoryResource> input( cpu_input_shape_ );
         auto output = cpu_layernorm->forward( input );
-        EXPECT_EQ( output.size(), cpu_batch_size_ * sequence_length_ * channels_ );
+        EXPECT_EQ( output.size(), input.size() );
     }
 
     /*TEST_F( LayernormTests, Cuda_TestForward ) {

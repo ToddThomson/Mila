@@ -8,6 +8,7 @@ export module Dnn.Modules.Attention;
 
 import Dnn.Module;
 import Dnn.Tensor;
+import Dnn.TensorTraits;
 import Dnn.TensorHelpers;
 
 import Compute.DeviceType;
@@ -22,11 +23,10 @@ export namespace Mila::Dnn::Modules
 	using namespace Mila::Dnn::Compute;
 
 	export
-	template<typename T, typename MR> requires std::is_same_v<MR, CpuMemoryResource> || std::is_same_v<MR, DeviceMemoryResource>
-	class Attention : public Module<T, MR> {
+	template<typename TInput, typename TCompute = TInput, typename MR = CpuMemoryResource>
+		requires ValidTensorTypes<TInput, TCompute> && ( std::is_same_v<MR, CpuMemoryResource> || std::is_same_v<MR, DeviceMemoryResource> )
+	class Attention : public Module<TInput, TCompute, MR> {
 	public:
-
-		using TensorPtr = std::shared_ptr<Tensor<T, MR>>;
 
 		Attention( std::string name, const std::vector<size_t>& input_shape, size_t num_heads, bool is_training = false )
 			: name_{ name }, input_shape_{ input_shape }, num_heads_{ num_heads }, is_training_{ is_training } {
@@ -51,11 +51,10 @@ export namespace Mila::Dnn::Modules
 			return name_;
 		}
 
-		Tensor<float, MR> forward( const Tensor<float, MR>& input ) override {
-			auto output = Tensor<float, MR>( input.shape() );
-			operation_->forward( input, parameters_, output, output_cache_ );
+		Tensor<TCompute, MR>&& forward( const Tensor<TInput, MR>& input ) override {
+			operation_->forward( input, parameters_, output_, output_cache_ );
 
-			return output;
+			return std::move( output_ );
 		}
 
 		void print() const override {
@@ -75,6 +74,8 @@ export namespace Mila::Dnn::Modules
 		size_t num_heads_{ 0 };
 		bool is_training_{ false }; ///< Whether the module is in training mode. Default is false.
 
+		Tensor<float, MR> output_;
+
 		std::shared_ptr<Tensor<float, MR>> attention_ = { nullptr };
 		std::shared_ptr<Tensor<float, MR>> pre_attention_{ nullptr };
 
@@ -82,7 +83,7 @@ export namespace Mila::Dnn::Modules
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_cache_; ///< The output attributes.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_; ///< The scalars.
 
-		std::shared_ptr<Dnn::Compute::OperationBase<T, MR>> operation_{ nullptr }; ///< The operation.
+		std::shared_ptr<Dnn::Compute::OperationBase<TInput, TCompute, MR>> operation_{ nullptr }; ///< The operation.
 
 		/**
 		 * @brief Create the operation.
@@ -98,11 +99,13 @@ export namespace Mila::Dnn::Modules
 			output_cache_.emplace_back( attention_ );
 			output_cache_.emplace_back( pre_attention_ );
 
+			output_ = Tensor<float, MR>( input_shape_ );
+
 			if constexpr ( std::is_same_v<MR, Compute::CpuMemoryResource> ) {
-				operation_ = OperationRegistry<float, MR>::instance().createOperation( DeviceType::Cpu, "Cpu::AttentionOp" );
+				operation_ = OperationRegistry<float, float, MR>::instance().createOperation( DeviceType::Cpu, "Cpu::AttentionOp" );
 			}
 			else {
-				operation_ = OperationRegistry<float, MR>::instance().createOperation( DeviceType::Cuda, "Cuda::AttentionOp" );
+				operation_ = OperationRegistry<float, float, MR>::instance().createOperation( DeviceType::Cuda, "Cuda::AttentionOp" );
 			}
 		}
 	};

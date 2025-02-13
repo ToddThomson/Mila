@@ -22,11 +22,11 @@ export namespace Mila::Dnn::Compute
      * @tparam T The type of the operation.
      */
     export 
-    template<typename T, typename MR> requires std::is_same_v<MR, CpuMemoryResource> || std::is_same_v<MR, DeviceMemoryResource>
+    template<typename T, typename TInput, typename MR> requires std::is_same_v<MR, CpuMemoryResource> || std::is_same_v<MR, DeviceMemoryResource>
     class OperationRegistry {
     public:
 
-        using OperationCreator = std::function<std::unique_ptr<OperationBase<T,MR>>()>; ///< Type alias for the operation creator function.
+        using OperationCreator = std::function<std::unique_ptr<OperationBase<T, TInput, MR>>()>; ///< Type alias for the operation creator function.
 
         /**
          * @brief Get the singleton instance of the OperationRegistry.
@@ -61,7 +61,7 @@ export namespace Mila::Dnn::Compute
          * @return std::shared_ptr<OperationBase<T>> The created operation.
          * @throws std::runtime_error If the device or operation name is invalid.
          */
-        std::shared_ptr<OperationBase<T,MR>> createOperation( const DeviceType& device_type, const std::string& operation_name ) const {
+        std::shared_ptr<OperationBase<T,TInput, MR>> createOperation( const DeviceType& device_type, const std::string& operation_name ) const {
             auto deviceIt = registry_.find( device_type );
             if ( deviceIt == registry_.end() ) {
                 throw std::runtime_error( std::format( "createOperation: No operations registered for device type: {}", deviceToString( device_type ) ));

@@ -1,6 +1,3 @@
-# CMakeList.txt : CMake project for Mila examples
-
-# Add executable
 add_executable( Gpt2App 
 	"Src/TrainGpt2.cpp"
 )

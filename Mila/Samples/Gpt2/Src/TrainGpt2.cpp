@@ -3,6 +3,7 @@
 #include <time.h>
 #include <iostream>
 #include <chrono>
+#include <string>
 
 import Mila;
 import Utils.Logger;
@@ -60,7 +61,6 @@ int main( int argc, char* argv[] ) {
 	Mila::Initialize();
 	std::cout << "Mila version: " << Mila::GetAPIVersion().ToString() << std::endl;
 
-
 	using namespace Mila::Dnn::Gpt2;
 
 	// read in the (optional) command line arguments
@@ -74,6 +74,7 @@ int main( int argc, char* argv[] ) {
 	int val_max_steps = 20; // how many batches max do we eval for validation loss?
 	int sample_every = 20; // every how many steps to do inference?
 	int genT = 64; // number of steps of inference we will do
+	
 	for ( int i = 1; i < argc; i += 2 ) {
 		if ( i + 1 >= argc ) { error_usage(); } // must have arg after flag
 		if ( argv[ i ][ 0 ] != '-' ) { error_usage(); } // must start with dash

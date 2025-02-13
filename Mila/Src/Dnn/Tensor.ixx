@@ -51,7 +51,6 @@ namespace Mila::Dnn
 			allocateBuffer();
 		}
 
-		// Copy constructor for shallow copy
 		Tensor( const Tensor& other )
 			: shape_( other.shape_ ), strides_( other.strides_ ), size_( other.size_ ), data_type_( other.data_type_ ),
 			buffer_( other.buffer_ ), device_ptr_( other.device_ptr_ ) {}
@@ -280,7 +279,7 @@ namespace Mila::Dnn
 			std::cout << "Size: " << size_ << std::endl;
 			std::cout << "Data:" << std::endl;
 
-			if ( data_type_ == TensorType::kFP32 ) {
+			if ( data_type_ == TensorType::FP32 ) {
 				printBuffer( 0, 0 );
 			}
 		}
@@ -289,7 +288,7 @@ namespace Mila::Dnn
 		std::optional<scalar_t> scalar_value_{ std::nullopt };
 		bool is_scalar_{ false };
 		size_t size_{ 0 };
-		TensorType data_type_{ TensorType::kNotSet };
+		TensorType data_type_;
 		std::vector<size_t> shape_{};
 		std::vector<size_t> strides_{};
 		std::shared_ptr<Compute::ComputeDevice> device_ptr_{ nullptr };

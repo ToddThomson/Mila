@@ -20,10 +20,10 @@ namespace Mila::Dnn::Compute
 {
 	export
 	template<typename T>
-	class CudaMatMulOp : public OperationBase<T, DeviceMemoryResource> {
+	class CudaMatMulOp : public OperationBase<T, T, DeviceMemoryResource> {
 	public:
 
-		CudaMatMulOp() : OperationBase<T, DeviceMemoryResource>( DeviceType::Cuda, OperationType::MatMulOp ) {}
+		CudaMatMulOp() : OperationBase<T, T, DeviceMemoryResource>( DeviceType::Cuda, OperationType::MatMulOp ) {}
 
 		void forward(
 			const Tensor<T, DeviceMemoryResource>& input,
@@ -46,7 +46,7 @@ namespace Mila::Dnn::Compute
 		}
 
 		static void registerOperation() {
-			OperationRegistry<float,DeviceMemoryResource>::instance().registerOperation( DeviceType::Cuda, "Cuda::MatMulOp", []() -> std::unique_ptr<OperationBase<float, DeviceMemoryResource>> {
+			OperationRegistry<float,float,DeviceMemoryResource>::instance().registerOperation( DeviceType::Cuda, "Cuda::MatMulOp", []() -> std::unique_ptr<OperationBase<float, float, DeviceMemoryResource>> {
 				return std::make_unique<CudaMatMulOp<float>>();
 				} );
 		}

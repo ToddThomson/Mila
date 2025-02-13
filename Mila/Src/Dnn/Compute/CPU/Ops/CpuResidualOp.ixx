@@ -24,9 +24,9 @@ namespace Mila::Dnn::Compute
 {
     export
     template<typename T>
-    class CpuResidualOp :public OperationBase<T, CpuMemoryResource> {
+    class CpuResidualOp :public OperationBase<T, T, CpuMemoryResource> {
     public:
-        CpuResidualOp() : OperationBase<T, CpuMemoryResource>( DeviceType::Cpu, OperationType::ResidualOp ) {}
+        CpuResidualOp() : OperationBase<T, T,CpuMemoryResource>( DeviceType::Cpu, OperationType::ResidualOp ) {}
 
         void forward(
             const Tensor<T, CpuMemoryResource>& input,
@@ -52,7 +52,7 @@ namespace Mila::Dnn::Compute
         }
 
         static void registerOperation() {
-            OperationRegistry<float, CpuMemoryResource>::instance().registerOperation( DeviceType::Cpu, "Cpu::ResidualOp", []() -> std::unique_ptr<OperationBase<float, CpuMemoryResource>> {
+            OperationRegistry<float, float, CpuMemoryResource>::instance().registerOperation( DeviceType::Cpu, "Cpu::ResidualOp", []() -> std::unique_ptr<OperationBase<float, float, CpuMemoryResource>> {
                 return std::make_unique<CpuResidualOp<float>>();
             } );
         }

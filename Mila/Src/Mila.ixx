@@ -45,6 +45,7 @@ export import Compute.ManagedMemoryResource;
 export import Compute.PinnedMemoryResource;
 
 export import Dnn.Modules.Attention;
+export import Dnn.Modules.Encoder;
 export import Dnn.Modules.Gelu;
 export import Dnn.Modules.LayerNorm;
 export import Dnn.Modules.MatMul;
@@ -58,7 +59,7 @@ namespace Mila {
     /// Gets the Mila API version.
     /// </summary>
     export Version GetAPIVersion() {
-        return Version{0, 9, 48, "alpha", 1 };
+        return Version{0, 9, 49, "alpha", 1 };
     }
 
 	export void setDevice( const std::string& name ) {

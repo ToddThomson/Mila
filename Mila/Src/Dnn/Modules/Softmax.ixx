@@ -8,6 +8,7 @@ export module Dnn.Modules.Softmax;
 
 import Dnn.Module;
 import Dnn.Tensor;
+import Dnn.TensorTraits;
 import Dnn.TensorHelpers;
 
 import Compute.DeviceType;
@@ -31,12 +32,10 @@ export namespace Mila::Dnn::Modules
 	* @tparam MR The memory resource type, either CpuMemoryResource or DeviceMemoryResource.
 	*/
 	export
-	template<typename T, typename MR> requires std::is_same_v<MR, CpuMemoryResource> || std::is_same_v<MR, DeviceMemoryResource>
-	class Softmax : public Module<T, MR> {
+	template<typename TInput, typename TCompute = TInput, typename MR = CpuMemoryResource> 
+		requires ValidTensorTypes<TInput, TCompute> && ( std::is_same_v<MR, CpuMemoryResource> || std::is_same_v<MR, DeviceMemoryResource> )
+	class Softmax : public Module<TInput, TCompute, MR> {
 	public:
-
-		using TensorPtr = std::shared_ptr<Tensor<T, MR>>;
-
 		/**
 		* @brief Construct a new Softmax module.
 		* 
@@ -73,11 +72,10 @@ export namespace Mila::Dnn::Modules
 		* @param input The input tensor.
 		* @return std::shared_ptr<Tensor<float>> The output tensor.
 		*/
-		Tensor<float, MR> forward( const Tensor<float, MR>& input ) {
-			auto output = Tensor<float, MR>( input.shape() );
-			operation_->forward( input, parameters_, output, output_cache_ );
+		Tensor<TCompute, MR>&& forward( const Tensor<TInput, MR>& input ) {
+			operation_->forward( input, parameters_, output_, output_cache_ );
 
-			return output;
+			return std::move( output_ );
 		}
 
 		// TODO: Implement the backward pass.
@@ -97,24 +95,28 @@ export namespace Mila::Dnn::Modules
 	private:
 		std::string name_; ///< The name of the module.
 		std::vector<size_t> input_shape_; ///< The input shape.
-
 		bool is_training_{ false }; ///< Whether the module is in training mode. Default is false.
+
+		Tensor<float, MR> output_; ///< The output tensor.
 
 		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_{ nullptr }; ///< The parameters. Not used in this module.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_cache_{ nullptr }; ///< The output attributes. Not used in this module.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_{ nullptr }; ///< The scalars.module;
 
-		std::shared_ptr<Dnn::Compute::OperationBase<T, MR>> operation_{ nullptr }; ///< The operation.
+		std::shared_ptr<Dnn::Compute::OperationBase<TInput, TCompute, MR>> operation_{ nullptr }; ///< The operation.
 
 		/**
 		* @brief Create the operation.
 		*/
 		void createOperation() {
+
+			output_ = Tensor<float, MR>( input_shape_ );
+
 			if constexpr ( std::is_same_v<MR, Compute::CpuMemoryResource> ) {
-				operation_ = OperationRegistry<float, MR>::instance().createOperation( DeviceType::Cpu, "Cpu::SoftmaxOp" );
+				operation_ = OperationRegistry<float, float, CpuMemoryResource>::instance().createOperation( DeviceType::Cpu, "Cpu::SoftmaxOp" );
 			}
 			else {
-				operation_ = OperationRegistry<float, MR>::instance().createOperation( DeviceType::Cuda, "Cuda::SoftmaxOp" );
+				operation_ = OperationRegistry<float, float, DeviceMemoryResource>::instance().createOperation( DeviceType::Cuda, "Cuda::SoftmaxOp" );
 			}
 		}
 	};

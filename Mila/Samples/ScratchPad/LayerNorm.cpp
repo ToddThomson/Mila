@@ -20,7 +20,7 @@ namespace Scratchpad::LayerNorm
 
         std::cout << "The current Compute Device is: " << Mila::getDevice()->getName() << std::endl;
 
-        std::unique_ptr<Modules::LayerNorm<float, Compute::CpuMemoryResource>> cpu_layernorm{ nullptr };
+        std::unique_ptr<Modules::LayerNorm<float, float, Compute::CpuMemoryResource>> cpu_layernorm{ nullptr };
         //std::unique_ptr<Modules::LayerNorm<float, Compute::DeviceMemoryResource>> cuda_layernorm{ nullptr };
 
         size_t cuda_batch_size = 4;
@@ -31,7 +31,7 @@ namespace Scratchpad::LayerNorm
         std::vector<size_t> cpu_input_shape = { cpu_batch_size, sequence_length, channels };
         std::vector<size_t> cuda_input_shape = { cuda_batch_size, sequence_length, channels };
 
-        cpu_layernorm = std::make_unique<Modules::LayerNorm<float, Compute::CpuMemoryResource>>(
+        cpu_layernorm = std::make_unique<Modules::LayerNorm<float, float,Compute::CpuMemoryResource>>(
             "Cpu_ln_1", cpu_input_shape );
 
         //cuda_layernorm = std::make_unique<Modules::LayerNorm<float, Compute::DeviceMemoryResource>>(

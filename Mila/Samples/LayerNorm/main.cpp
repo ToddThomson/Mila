@@ -22,9 +22,9 @@ int main() {
 
     // TJT: B,T,C should come from input tensor shape?
 
-    auto model = LayerNormModel<float>( "LayerNorm Model", B, T, C);
+    auto model = LayerNormModel( "LayerNorm Model", B, T, C);
 	
-    auto layernorm = std::make_shared<Modules::LayerNorm<float,Compute::CpuMemoryResource>>("ln1", input_shape);
+    auto layernorm = std::make_shared<Modules::LayerNorm<float>>("ln1", input_shape);
 
 	int index = model.add( layernorm );
     

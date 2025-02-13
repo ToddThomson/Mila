@@ -1,5 +1,9 @@
 ﻿#include <iostream>
 #include <memory>
+#include <vector>
+#include <string>
+#include <format>
+
 
 import Mila;
 
@@ -20,18 +24,15 @@ int main() {
 
     std::cout << "The current Compute Device is: " << Mila::getDevice()->getName() << std::endl;
 
-    std::unique_ptr<Modules::Softmax<float, Compute::CpuMemoryResource>> cpu_softmax{ nullptr };
-    //std::unique_ptr<Modules::LayerNorm<float, Compute::DeviceMemoryResource>> cuda_layernorm{ nullptr };
-
     size_t cuda_batch_size = 4;
     size_t cpu_batch_size = 2;
     size_t sequence_length = 4;
     size_t channels = 3;
 
-    std::vector<size_t> cpu_input_shape = { cpu_batch_size, sequence_length, channels };
+    std::vector<size_t> cpu_input_shape = std::vector<size_t>{ cpu_batch_size, sequence_length, channels };
     //std::vector<size_t> cuda_input_shape = { cuda_batch_size, sequence_length, channels };
 
-    cpu_softmax = std::make_unique<Modules::Softmax<float, Compute::CpuMemoryResource>>(
+    auto cpu_softmax = Modules::Softmax<float>(
         "Cpu_softmax", cpu_input_shape );
 
     Tensor<float, Compute::CpuMemoryResource> input( cpu_input_shape );
@@ -41,7 +42,7 @@ int main() {
 
     //auto cuda_input = input.to<Compute::DeviceMemoryResource>();
 
-    auto output = cpu_softmax->forward( input );
+    auto output = cpu_softmax.forward( input );
     
     //auto output2 = cuda_layernorm->forward( std::make_shared<DeviceTensor<float>>( cuda_input ) );
 

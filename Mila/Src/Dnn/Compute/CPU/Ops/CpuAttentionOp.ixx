@@ -22,11 +22,11 @@ using namespace Mila::Dnn;
 namespace Mila::Dnn::Compute
 {
     export
-    template<typename T>
-    class CpuAttentionOp : public OperationBase<T, CpuMemoryResource> {
+    template<typename T, typename TInput = T>
+    class CpuAttentionOp : public OperationBase<T, TInput, CpuMemoryResource> {
     public:
 
-        CpuAttentionOp() : OperationBase<T, CpuMemoryResource>( DeviceType::Cpu, OperationType::AttentionOp ) {}
+        CpuAttentionOp() : OperationBase<T, TInput, CpuMemoryResource>( DeviceType::Cpu, OperationType::AttentionOp ) {}
     
         void forward( const Tensor<T, CpuMemoryResource>& input,
             const std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& parameters,
@@ -151,7 +151,7 @@ namespace Mila::Dnn::Compute
         }
         
         static void registerOperation() {
-            OperationRegistry<float, CpuMemoryResource>::instance().registerOperation( DeviceType::Cpu, "Cpu::AttentionOp", []() -> std::unique_ptr<OperationBase<float, CpuMemoryResource>> {
+            OperationRegistry<float, float, CpuMemoryResource>::instance().registerOperation( DeviceType::Cpu, "Cpu::AttentionOp", []() -> std::unique_ptr<OperationBase<float, float, CpuMemoryResource>> {
                 return std::make_unique<CpuAttentionOp<float>>();
             } );
         }

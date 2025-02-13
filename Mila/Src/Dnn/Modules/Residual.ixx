@@ -8,6 +8,7 @@ export module Dnn.Modules.Residual;
 
 import Dnn.Module;
 import Dnn.Tensor;
+import Dnn.TensorTraits;
 import Dnn.TensorHelpers;
 
 import Compute.DeviceType;
@@ -22,12 +23,10 @@ export namespace Mila::Dnn::Modules
 	using namespace Mila::Dnn::Compute;
 
 	export
-		template<typename T, typename MR> requires std::is_same_v<MR, CpuMemoryResource> || std::is_same_v<MR, DeviceMemoryResource>
-	class Residual : public Module<T, MR> {
+	template<typename TInput, typename TCompute = TInput, typename MR = CpuMemoryResource>
+		requires ValidTensorTypes<TInput, TCompute> && ( std::is_same_v<MR, CpuMemoryResource> || std::is_same_v<MR, DeviceMemoryResource> )
+	class Residual : public Module<TInput, TCompute, MR> {
 	public:
-
-		using TensorPtr = std::shared_ptr<Tensor<T, MR>>;
-
 		Residual( std::string name, const std::vector<size_t>& input_shape, bool is_training = false )
 			: name_( name ), input_shape_( input_shape ), is_training_( is_training ) {
 			createOperation();
@@ -50,13 +49,12 @@ export namespace Mila::Dnn::Modules
 		 * @brief Perform the forward pass.
 		 *
 		 * @param input The input tensor.
-		 * @return std::shared_ptr<Tensor<float>> The output tensor.
+		 * @return Tensor<float,MR> The output tensor.
 		 */
-		Tensor<float, MR> forward( const Tensor<float, MR>& input ) {
-			auto output = Tensor<float, MR>( input.shape() );
-			operation_->forward( input, parameters_, output, output_attributes_ );
+		Tensor<TCompute, MR>&& forward( const Tensor<TInput, MR>& input ) {
+			operation_->forward( input, parameters_, output_, output_attributes_ );
 
-			return output;
+			return std::move( output_ );
 		}
 
 		/**
@@ -77,23 +75,27 @@ export namespace Mila::Dnn::Modules
 		std::string name_; ///< The name of the module.
 		std::vector<size_t> input_shape_; ///< The input shape.
 
+		Tensor<TCompute, MR> output_; ///< The output tensor.
+
 		bool is_training_{ false }; ///< Whether the module is in training mode. Default is false.
 
 		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_{ nullptr }; ///< The parameters. Not used in this module.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_attributes_{ nullptr }; ///< The output attributes. Not used in this module.
-		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_{ nullptr }; ///< The scalars.module;
+		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_{ nullptr }; ///< The scalars. Not used in this module.
 
-		std::shared_ptr<Dnn::Compute::OperationBase<T, MR>> operation_{ nullptr }; ///< The operation.
+		std::shared_ptr<Dnn::Compute::OperationBase<TInput, TCompute, MR>> operation_{ nullptr }; ///< The operation.
 
 		/**
 		 * @brief Create the operation.
 		 */
 		void createOperation() {
+			output_ = Tensor<float, MR>( input_shape_ );
+
 			if constexpr ( std::is_same_v<MR, Compute::CpuMemoryResource> ) {
-				operation_ = OperationRegistry<float, MR>::instance().createOperation( DeviceType::Cpu, "Cpu::ResidualOp" );
+				operation_ = OperationRegistry<float, float, MR>::instance().createOperation( DeviceType::Cpu, "Cpu::ResidualOp" );
 			}
 			else {
-				operation_ = OperationRegistry<float, MR>::instance().createOperation( DeviceType::Cuda, "Cuda::ResidualOp" );
+				operation_ = OperationRegistry<float, float, MR>::instance().createOperation( DeviceType::Cuda, "Cuda::ResidualOp" );
 			}
 		}
 	};

@@ -23,25 +23,25 @@ using namespace Mila::Dnn;
 namespace Mila::Dnn::Compute
 {
 	export
-	template<typename T>
-    class CpuLayerNormOp : public OperationBase<T,CpuMemoryResource> {
+		template<typename T>
+    class CpuLayerNormOp : public OperationBase<float, float, CpuMemoryResource> {
     public:
-        CpuLayerNormOp() : OperationBase<T,CpuMemoryResource>( DeviceType::Cpu, OperationType::LayerNormOp ) {}
+        CpuLayerNormOp() : OperationBase<float, float, CpuMemoryResource>( DeviceType::Cpu, OperationType::LayerNormOp ) {}
 
-        void forward( 
-            const Tensor<T,CpuMemoryResource>& input,
-            const std::vector<std::shared_ptr<Tensor<T,CpuMemoryResource>>>& parameters, 
-            Tensor<T,CpuMemoryResource>& output, 
-            std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& output_cache ) const override {
+        void forward(
+            const Tensor<float>& input,
+            const std::vector<std::shared_ptr<Tensor<float>>>& parameters,
+            Tensor<float>& output,
+            std::vector<std::shared_ptr<Tensor<float>>>& output_cache ) const override {
 
-			const T* X = input.data();
-		    T* Y = output.data();
+			const float* X = input.data();
+		    float* Y = output.data();
 
-	        const T* weight = parameters[ 0 ]->data();
-			const T* bias = parameters[ 1 ]->data();
+	        const float* weight = parameters[ 0 ]->data();
+			const float* bias = parameters[ 1 ]->data();
 
-            T* mean = output_cache[ 0 ]->data();
-			T* rstd = output_cache[ 1 ]->data();
+            float* mean = output_cache[ 0 ]->data();
+			float* rstd = output_cache[ 1 ]->data();
 
 			// B: batch size, T: sequence length, C: number of channels
 			int B = input.shape()[ 0 ];
@@ -134,8 +134,8 @@ namespace Mila::Dnn::Compute
         }
 
         static void registerOperation() {
-            OperationRegistry<float,CpuMemoryResource>::instance().registerOperation( DeviceType::Cpu, "Cpu::LayerNormOp", []() -> std::unique_ptr<OperationBase<float,CpuMemoryResource>> {
-                return std::make_unique<CpuLayerNormOp<float>>();
+            OperationRegistry<float, float, CpuMemoryResource>::instance().registerOperation( DeviceType::Cpu, "Cpu::LayerNormOp", []() -> std::unique_ptr<OperationBase<float, float, CpuMemoryResource>> {
+                return std::make_unique<CpuLayerNormOp>();
                 } );
         }
 
@@ -143,7 +143,4 @@ namespace Mila::Dnn::Compute
 			return "Cpu::LayerNormOp";
 		}
 	};
-
-	export bool registered_ = (CpuLayerNormOp<float>::registerOperation(), true);
 }
-

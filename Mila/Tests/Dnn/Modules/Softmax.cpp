@@ -15,11 +15,11 @@ namespace Dnn::Modules::Tests
     protected:
         void SetUp() override {
             input_shape = { 5, 3, 8 };
-            softmax = std::make_shared<Softmax<float, CpuMemoryResource>>( "softmax_test", input_shape );
+            softmax = std::make_shared<Softmax<float, float, CpuMemoryResource>>( "softmax_test", input_shape );
         }
 
         std::vector<size_t> input_shape;
-        std::shared_ptr<Softmax<float, CpuMemoryResource>> softmax;
+        std::shared_ptr<Softmax<float, float, CpuMemoryResource>> softmax;
     };
 
     TEST_F( SoftmaxTest, TestName ) {
@@ -36,13 +36,14 @@ namespace Dnn::Modules::Tests
         auto output = softmax->forward( input );
         ASSERT_EQ( output.shape(), input_shape );
 
-		// Check if all values in the output sum to a value close to 1
 		auto B = output.shape()[ 0 ];
 		auto T = output.shape()[ 1 ];
 		auto V = output.shape()[ 2 ];
 		
         for ( size_t i = 0; i < B; ++i ) {
 			for ( size_t j = 0; j < T; ++j ) {
+				// For each (b,t) position, sum the values across the vocabulary dimension
+                // Check if the sum is a value close to 1
 				auto sum = 0.0f;
 				for ( size_t v = 0; v < V; ++v ) {
 					sum += output[ i, j, v ];

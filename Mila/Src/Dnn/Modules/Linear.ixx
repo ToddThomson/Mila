@@ -29,12 +29,10 @@ export namespace Mila::Dnn::Modules
 	 * @tparam T The data type of the module.
 	 */
 	export
-		template<typename T, typename MR> requires std::is_same_v<MR, CpuMemoryResource> || std::is_same_v<MR, DeviceMemoryResource>
-	class Linear : public Module<T, MR> {
+	template<typename TInput, typename TOutput = TInput, typename MR = CpuMemoryResource>
+		requires std::is_same_v<MR, CpuMemoryResource> || std::is_same_v<MR, DeviceMemoryResource>
+	class Linear : public Module<TInput, TOutput, MR> {
 	public:
-
-		using TensorPtr = std::shared_ptr<Tensor<T, MR>>;
-
         /**
         * @brief Construct a new Linear object.
         *
@@ -46,7 +44,7 @@ export namespace Mila::Dnn::Modules
         */
 		Linear( std::string name, const std::vector<size_t>& input_shape, size_t output_channels, bool has_bias = true, bool is_training = false )
 			: name_( name ), input_shape_( input_shape ), output_channels_( output_channels ), has_bias_( has_bias ), is_training_( is_training ) {
-			validateAndCreateParameters();
+			createParameters();
 			createOperation();
 		}
 
@@ -55,7 +53,7 @@ export namespace Mila::Dnn::Modules
         *
         * @return std::shared_ptr<Tensor<float, MR>> The weight tensor.
         */
-		std::shared_ptr<Tensor<float, MR>> getWeight() {
+		std::shared_ptr<Tensor<TInput, MR>> getWeight() {
 			return weight_;
 		}
 
@@ -65,7 +63,7 @@ export namespace Mila::Dnn::Modules
 		* @return std::shared_ptr<Tensor<float, MR>> The bias tensor.
 		* @throws std::runtime_error if the module does not have a bias tensor.
 		*/
-		std::shared_ptr<Tensor<float, MR>> getBias() {
+		std::shared_ptr<Tensor<TInput, MR>> getBias() {
 			if ( !has_bias_ ) {
 				throw std::runtime_error( "This module does not have a bias tensor." );
 			}
@@ -101,17 +99,10 @@ export namespace Mila::Dnn::Modules
 		 * @param input The input tensor.
 		 * @return std::shared_ptr<Tensor<float>> The output tensor.
 		 */
-		Tensor<float, MR> forward( const Tensor<float, MR>& input ) {
-			auto B = input.shape()[ 0 ];
-			auto T = input.shape()[ 1 ];
+		Tensor<TOutput, MR>&& forward( const Tensor<TInput, MR>& input ) {
+			operation_->forward( input, parameters_, output_, output_cache );
 
-			// TODO: Review the creation of the output tensor. It should be pass by reference to the forward function
-			// to avoid unnecessary memory allocation and copying.
-			auto output = Tensor<float, MR>( std::vector<size_t>{ B, T, output_channels_ } );
-
-			operation_->forward( input, parameters_, output, output_attributes_ );
-
-			return output;
+			return std::move( output_ );
 		}
 
 		/**
@@ -131,9 +122,7 @@ export namespace Mila::Dnn::Modules
 	private:
 		std::string name_; ///< The name of the module.
 		std::vector<size_t> input_shape_; ///< The input shape.
-
 		size_t output_channels_{ 0 }; ///< The number of output channels.
-
 		bool has_bias_{ true }; ///< Whether the module has a bias tensor. Default is true.
 		bool is_training_{ false }; ///< Whether the module is in training mode. Default is false.
 
@@ -141,17 +130,29 @@ export namespace Mila::Dnn::Modules
 		std::shared_ptr<Tensor<float, MR>> bias_{ nullptr }; ///< The bias tensor.
 
 		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_; ///< The parameters.
-		std::vector<std::shared_ptr<Tensor<float, MR>>> output_attributes_; ///< The output attributes.
+		std::vector<std::shared_ptr<Tensor<float, MR>>> output_cache; ///< The output cache.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_; ///< The scalars.
 
-		std::shared_ptr<Dnn::Compute::OperationBase<T, MR>> operation_{ nullptr }; ///< The operation.
+		Tensor<float, MR> output_; ///< The output tensor.
 
-		void validateAndCreateParameters() {
+		std::shared_ptr<Dnn::Compute::OperationBase<TInput, TOutput, MR>> operation_{ nullptr }; ///< The operation.
+
+        /**
+        * @brief Validate the input shape and create the weight and bias parameter tensors.
+        *
+        * This function checks if the input shape has 3 dimensions. If the input shape is valid,
+        * it creates the weight tensor with dimensions [output_channels, input_channels] and the
+        * bias tensor with dimensions [output_channels] if the module has a bias. The weight tensor
+        * is initialized using the Xavier initialization method.
+        *
+        * @throws std::invalid_argument if the input shape does not have 3 dimensions.
+        */
+		void createParameters() {
 			// TODO: For now, we only support 3D input shapes.
 			if ( input_shape_.size() != 3 ) {
 				throw std::invalid_argument( "The input shape must have 3 dimensions." );
 			}
-			
+
 			// The last dimension of the input shape is the number of input channels/features.
 			auto input_channels = input_shape_.back();
 
@@ -160,12 +161,17 @@ export namespace Mila::Dnn::Modules
 			if ( has_bias_ )
 				bias_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ output_channels_ } );
 
-
 			// Initialize the weight tensor. The bias tensor is default initialized to zeros
 			initializeWeights();
-			
+
 			parameters_.emplace_back( weight_ );
 			parameters_.emplace_back( bias_ );
+
+			// Create the output tensor
+			auto B = input_shape_[ 0 ];
+			auto T = input_shape_[ 1 ];
+
+			output_ = Tensor<TOutput, MR>( std::vector<size_t>{ B, T, output_channels_ } );
 		}
 		
 		void initializeWeights() {
@@ -177,10 +183,10 @@ export namespace Mila::Dnn::Modules
 		 */
 		void createOperation() {
 			if constexpr ( std::is_same_v<MR, Compute::CpuMemoryResource> ) {
-				operation_ = OperationRegistry<float, MR>::instance().createOperation( DeviceType::Cpu, "Cpu::MatMulOp" );
+				operation_ = OperationRegistry<float, float, MR>::instance().createOperation( DeviceType::Cpu, "Cpu::MatMulOp" );
 			}
 			else {
-				operation_ = OperationRegistry<float, MR>::instance().createOperation( DeviceType::Cuda, "Cuda::MatMulOp" );
+				operation_ = OperationRegistry<float, float, MR>::instance().createOperation( DeviceType::Cuda, "Cuda::MatMulOp" );
 			}
 		}
 	};

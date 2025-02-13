@@ -22,17 +22,17 @@ using namespace Mila::Dnn;
 namespace Mila::Dnn::Compute
 {
     export
-    template<typename T>
-    class CpuMatMulOp : public OperationBase<T, CpuMemoryResource> {
+    template<typename TInput, typename TOutput = TInput>
+    class CpuMatMulOp : public OperationBase<TInput, TOutput, CpuMemoryResource> {
     public:
 
-        CpuMatMulOp() : OperationBase<T, CpuMemoryResource>( DeviceType::Cpu, OperationType::MatMulOp ) {}
+        CpuMatMulOp() : OperationBase<TInput, TOutput, CpuMemoryResource>( DeviceType::Cpu, OperationType::MatMulOp ) {}
 
         void forward(
-            const Tensor<T, CpuMemoryResource>& input,
-            const std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& parameters_,
-            Tensor<T, CpuMemoryResource>& output,
-            std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& output_cache ) const override {
+            const Tensor<TInput, CpuMemoryResource>& input,
+            const std::vector<std::shared_ptr<Tensor<TOutput, CpuMemoryResource>>>& parameters_,
+            Tensor<TOutput, CpuMemoryResource>& output,
+            std::vector<std::shared_ptr<Tensor<TOutput, CpuMemoryResource>>>& output_cache ) const override {
 			auto X = input.data();
 			auto Y = output.data();
 
@@ -108,7 +108,7 @@ namespace Mila::Dnn::Compute
         }
 
         static void registerOperation() {
-            OperationRegistry<float, CpuMemoryResource>::instance().registerOperation( DeviceType::Cpu, "Cpu::MatMulOp", []() -> std::unique_ptr<OperationBase<float, CpuMemoryResource>> {
+            OperationRegistry<float, float, CpuMemoryResource>::instance().registerOperation( DeviceType::Cpu, "Cpu::MatMulOp", []() -> std::unique_ptr<OperationBase<float, float, CpuMemoryResource>> {
                 return std::make_unique<CpuMatMulOp<float>>();
             } );
         }

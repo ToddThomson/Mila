@@ -23,11 +23,10 @@ using namespace Mila::Dnn;
 namespace Mila::Dnn::Compute
 {
 	export
-	template<typename T>
-	class CpuCrossEntropyOp : public OperationBase<float, CpuMemoryResource> {
+	class CpuCrossEntropyOp : public OperationBase<int, float, CpuMemoryResource> {
 	public:
 
-		CpuCrossEntropyOp() : OperationBase<float, CpuMemoryResource>( DeviceType::Cpu, OperationType::CrossEntropyOp ) {}
+		CpuCrossEntropyOp() : OperationBase<int, float, CpuMemoryResource>( DeviceType::Cpu, OperationType::CrossEntropyOp ) {}
 
 		void forward(
 			const Tensor<int, CpuMemoryResource>& input,
@@ -77,8 +76,8 @@ namespace Mila::Dnn::Compute
 		}
 
 		static void registerOperation() {
-			OperationRegistry<float, CpuMemoryResource>::instance().registerOperation( DeviceType::Cpu, "Cpu::CrossEntropyOp", []() -> std::unique_ptr<OperationBase<float, CpuMemoryResource>> {
-				return std::make_unique<CpuCrossEntropyOp<float>>();
+			OperationRegistry<int, float, CpuMemoryResource>::instance().registerOperation( DeviceType::Cpu, "Cpu::CrossEntropyOp", []() -> std::unique_ptr<OperationBase<int, float, CpuMemoryResource>> {
+				return std::make_unique<CpuCrossEntropyOp>();
 			} );
 		}
 
