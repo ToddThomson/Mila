@@ -8,11 +8,7 @@ import Dnn.TensorType;
 
 namespace Mila::Dnn
 {
-	export struct TensorTag {
-		// TODO: Feature addition
-	};
-
-    template <typename T>
+	template <typename T>
     struct TensorTypeTrait;
 
     template <>
@@ -35,7 +31,7 @@ namespace Mila::Dnn
         static constexpr TensorType value = TensorType::INT32;
     };
 
-    template <typename T>
+    export template <typename T>
     concept ValidTensorType = requires {
         { TensorTypeTrait<T>::value } -> std::convertible_to<TensorType>;
     };

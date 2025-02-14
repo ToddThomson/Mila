@@ -6,13 +6,14 @@ module;
 #include <memory>
 #include <mdspan>
 #include <optional>
+#include <type_traits>
 #include <cuda_fp16.h>
 
 export module Dnn.Tensor;
 
 import Dnn.TensorType;  
 import Dnn.TensorBuffer; 
-import Dnn.TensorTag;
+import Dnn.TensorTraits;
 
 import Compute.ComputeDevice;
 import Compute.DeviceContext;
@@ -25,10 +26,10 @@ import Compute.PinnedMemoryResource;
 
 namespace Mila::Dnn
 {
-	export template<typename T, typename MR = Compute::CpuMemoryResource> requires std::is_base_of_v<Compute::MemoryResource, MR>
-	class Tensor : TensorTag {
+	export template<typename T, typename MR = Compute::CpuMemoryResource>
+		requires ValidTensorType<T> && ( std::is_base_of_v<Compute::MemoryResource, MR> )
+	class Tensor {
 	public:
-
 		using scalar_t = std::variant<int64_t, int32_t, half, float>;
 
 		using Extent1d = std::dextents<size_t, 1>;
@@ -36,24 +37,20 @@ namespace Mila::Dnn
 		using Extent3d = std::dextents<size_t, 3>;
 		using Extent4d = std::dextents<size_t, 4>;
 
-		Tensor( const std::vector<size_t>& shape, std::shared_ptr<Compute::ComputeDevice> device_ptr = nullptr )
-			: shape_( shape ), strides_( computeStrides( shape ) ), size_( computeSize( shape ) ), device_ptr_( setDevice( device_ptr ) ) {
+		Tensor( const std::vector<size_t>& shape )
+			: shape_( shape ), strides_( computeStrides( shape ) ), size_( computeSize( shape ) ) {
 			allocateBuffer();
 		}
 
-		Tensor( const std::vector<size_t>& shape, const T& value, std::shared_ptr<Compute::ComputeDevice> device_ptr = nullptr )
-			: shape_( shape ), strides_( computeStrides( shape ) ), size_( computeSize( shape ) ), device_ptr_( setDevice( device_ptr ) ) {
+		Tensor( const std::vector<size_t>& shape, const T& value )
+			: shape_( shape ), strides_( computeStrides( shape ) ), size_( computeSize( shape ) ) {
 			allocateBuffer( value );
 		}
 
 		Tensor()
-			: shape_(), strides_( computeStrides( shape_ ) ), size_(), device_ptr_( setDevice( nullptr ) ) {
+			: shape_(), strides_( computeStrides( shape_ ) ), size_() {
 			allocateBuffer();
 		}
-
-		Tensor( const Tensor& other )
-			: shape_( other.shape_ ), strides_( other.strides_ ), size_( other.size_ ), data_type_( other.data_type_ ),
-			buffer_( other.buffer_ ), device_ptr_( other.device_ptr_ ) {}
 
 		/*Tensor( float const& scalar )
 			: scalar_value_( scalar ), is_scalar_( true ), shape_{ 1 }, strides_{ 1 }, data_type_( TensorType::kFP32 ){
@@ -70,25 +67,12 @@ namespace Mila::Dnn
 			: scalar_value_( scalar ), is_scalar_( true ), shape_{ 1 }, strides_{ 1 }, data_type_( TensorType::kINT64 ) {
 		}*/
 
-		// Copy asignement operator
-		Tensor& operator=( const Tensor& other ) {
-			if ( this != &other ) {
-				shape_ = other.shape_;
-				strides_ = other.strides_;
-				size_ = other.size_;
-				data_type_ = other.data_type_;
-				buffer_ = other.buffer_;
-				device_ptr_ = other.device_ptr_;
-			}
-			return *this;
-		}
-
 		template<typename NewMR>
 		Tensor<T, NewMR> to() const {
 			static_assert(std::is_base_of_v<Compute::MemoryResource, NewMR>, "NewMR must be derived from Compute::MemoryResource");
 
 			// Create a new tensor with the same shape and the new memory resource
-			Tensor<T, NewMR> new_tensor( shape_, device_ptr_ );
+			Tensor<T, NewMR> new_tensor( shape_ );
 
 			// Copy data from the current tensor to the new tensor
 			if constexpr ( std::is_same_v<MR, Compute::CpuMemoryResource> && std::is_same_v<NewMR, Compute::DeviceMemoryResource> ) {
@@ -234,10 +218,6 @@ namespace Mila::Dnn
 			return shape_.size();
 		}
 
-		const std::shared_ptr<Compute::ComputeDevice>& device() const {
-			return device_ptr_;
-		}
-
 		/*template<typename TValue>
 		TValue scalar() const {
 			if ( is_scalar_ && scalar_value_.has_value() ) {
@@ -248,7 +228,6 @@ namespace Mila::Dnn
 				throw std::runtime_error( "Tensor does not hold a scalar value." );
 			}
 		}*/
-
 
 		T* data() {
 			return buffer_->data();
@@ -268,6 +247,16 @@ namespace Mila::Dnn
 			}
 		}
 
+		std::string
+			get_name() const {
+			return name_;
+		}
+
+		auto set_name( std::string const& value ) -> Tensor<T,MR>& {
+			name_ = value;
+			return *this;
+		}
+
 		void print() const {
 			std::cout << "Tensor of shape: ";
 			for ( auto dim : shape_ ) {
@@ -284,15 +273,90 @@ namespace Mila::Dnn
 			}
 		}
 
+		/**
+		* @brief Copy constructor.
+		*
+		* This constructor creates a new tensor by copying the contents of the given tensor.
+		*
+		* @param other The tensor to copy from.
+		*/
+		Tensor( const Tensor& other ) : name_( other.name_ ), shape_( other.shape_ ), strides_( other.strides_ ),
+			size_( other.size_ ), data_type_( other.data_type_ ), buffer_( other.buffer_ ) {}
+		
+		
+        /**
+        * @brief Move constructor.
+        *
+        * This constructor moves the contents of the given tensor to this tensor.
+        *
+        * @param other The tensor to move from.
+        */
+        Tensor( Tensor&& other ) noexcept
+        : name_( std::move( other.name_ ) ),
+        scalar_value_( std::move( other.scalar_value_ ) ),
+        is_scalar_( other.is_scalar_ ),
+        size_( other.size_ ),
+        data_type_( other.data_type_ ),
+        shape_( std::move( other.shape_ ) ),
+        strides_( std::move( other.strides_ ) ),
+        buffer_( std::move( other.buffer_ ) ) {
+        other.size_ = 0;
+        other.data_type_ = TensorType::FP16;
+        }
+
+		/**
+		* @brief Move assignment operator.
+		*
+		* This operator moves the contents of the given tensor to this tensor.
+		*
+		* @param other The tensor to move from.
+		* @return Tensor& A reference to this tensor.
+		*/
+		Tensor& operator=( Tensor&& other ) noexcept {
+			if ( this != &other ) {
+				name_ = std::move( other.name_ );
+				shape_ = std::move( other.shape_ );
+				strides_ = std::move( other.strides_ );
+				size_ = other.size_;
+				data_type_ = other.data_type_;
+				buffer_ = std::move( other.buffer_ );
+
+				other.size_ = 0;
+				other.data_type_ = TensorType::FP16;
+			}
+			return *this;
+		}
+
+		/**
+		* @brief Copy assignment operator.
+		*
+		* This operator copies the contents of the given tensor to this tensor.
+		*
+		* @param other The tensor to copy from.
+		* @return Tensor& A reference to this tensor.
+		*/
+		Tensor& operator=( const Tensor& other ) {
+			if ( this != &other ) {
+				name_ = other.name_;
+				shape_ = other.shape_;
+				strides_ = other.strides_;
+				size_ = other.size_;
+				data_type_ = other.data_type_;
+				buffer_ = other.buffer_;
+			}
+			return *this;
+		}
+
+		~Tensor() = default;
+
 	private:
+		std::string name_;
 		std::optional<scalar_t> scalar_value_{ std::nullopt };
 		bool is_scalar_{ false };
 		size_t size_{ 0 };
 		TensorType data_type_;
 		std::vector<size_t> shape_{};
 		std::vector<size_t> strides_{};
-		std::shared_ptr<Compute::ComputeDevice> device_ptr_{ nullptr };
-		MR mr_{};
 		std::shared_ptr<TensorBuffer<T, MR>> buffer_{ nullptr };
 
 		void allocateBuffer() {
@@ -348,15 +412,6 @@ namespace Mila::Dnn
 				size *= dim;
 			}
 			return size;
-		}
-
-		std::shared_ptr<Compute::ComputeDevice> setDevice( std::shared_ptr<Compute::ComputeDevice> device_ptr ) {
-			if ( device_ptr ) {
-				return device_ptr;
-			}
-			else {
-				return Compute::DeviceContext::instance().getDevice();
-			}
 		}
 
 		size_t computeIndex( const std::vector<size_t>& indices ) const {

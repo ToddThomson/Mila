@@ -91,7 +91,8 @@ namespace Mila::Dnn
 				throw std::runtime_error( "Model has not been built. Call build() before forward()." );
 			}
 
-			Tensor<TCompute, MR> out = input;
+			auto out = std::move( input );
+
 			for ( const auto& module : modules_ ) {
 				out = module->forward( out );
 			}

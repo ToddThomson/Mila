@@ -3,6 +3,8 @@ module;
 #include <vector>
 #include <string>
 #include <iostream>
+#include <ostream>
+#include <type_traits>
 
 export module Dnn.Modules.Attention;
 
@@ -92,7 +94,7 @@ export namespace Mila::Dnn::Modules
 			auto batch_size = input_shape_[ 0 ];
 			auto sequence_length = input_shape_[ 1 ];
 
-			// preatt, att are( B, NH, T, T ).NH = number of heads, T = sequence length
+			// preatt, att are( B, NH, T, T ). NH = number of heads, T = sequence length
 			attention_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ batch_size, num_heads_, sequence_length, sequence_length } );
 			pre_attention_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ batch_size, num_heads_, sequence_length, sequence_length } );
 

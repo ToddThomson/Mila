@@ -44,7 +44,7 @@ namespace Mila::Dnn::Compute
 			CpuAttentionOp<float>::registerOperation();
 			CpuEncoderOp::registerOperation();
 			CpuGeluOp<float>::registerOperation();
-			CpuLayerNormOp<float>::registerOperation();
+			CpuLayerNormOp::registerOperation();
 			CpuMatMulOp<float>::registerOperation();
 			CpuResidualOp<float>::registerOperation();
 			CpuSoftmaxOp<float>::registerOperation();

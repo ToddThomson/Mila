@@ -3,11 +3,13 @@ module;
 #include <vector>
 #include <string>
 #include <iostream>
+#include <type_traits>
 
 export module Dnn.Modules.Linear;
 
 import Dnn.Module;
 import Dnn.Tensor;
+import Dnn.TensorTraits;
 import Dnn.TensorHelpers;
 
 import Compute.DeviceType;
@@ -29,9 +31,9 @@ export namespace Mila::Dnn::Modules
 	 * @tparam T The data type of the module.
 	 */
 	export
-	template<typename TInput, typename TOutput = TInput, typename MR = CpuMemoryResource>
-		requires std::is_same_v<MR, CpuMemoryResource> || std::is_same_v<MR, DeviceMemoryResource>
-	class Linear : public Module<TInput, TOutput, MR> {
+	template<typename TInput, typename TCompute = TInput, typename MR = CpuMemoryResource>
+		requires ValidTensorTypes<TInput, TCompute> && std::is_base_of_v<Compute::MemoryResource, MR>
+	class Linear : public Module<TInput, TCompute, MR> {
 	public:
         /**
         * @brief Construct a new Linear object.
@@ -99,7 +101,7 @@ export namespace Mila::Dnn::Modules
 		 * @param input The input tensor.
 		 * @return std::shared_ptr<Tensor<float>> The output tensor.
 		 */
-		Tensor<TOutput, MR>&& forward( const Tensor<TInput, MR>& input ) {
+		Tensor<TCompute, MR>&& forward( const Tensor<TInput, MR>& input ) {
 			operation_->forward( input, parameters_, output_, output_cache );
 
 			return std::move( output_ );
@@ -135,7 +137,7 @@ export namespace Mila::Dnn::Modules
 
 		Tensor<float, MR> output_; ///< The output tensor.
 
-		std::shared_ptr<Dnn::Compute::OperationBase<TInput, TOutput, MR>> operation_{ nullptr }; ///< The operation.
+		std::shared_ptr<Dnn::Compute::OperationBase<TInput, TCompute, MR>> operation_{ nullptr }; ///< The operation.
 
         /**
         * @brief Validate the input shape and create the weight and bias parameter tensors.
@@ -171,7 +173,7 @@ export namespace Mila::Dnn::Modules
 			auto B = input_shape_[ 0 ];
 			auto T = input_shape_[ 1 ];
 
-			output_ = Tensor<TOutput, MR>( std::vector<size_t>{ B, T, output_channels_ } );
+			output_ = Tensor<TCompute, MR>( std::vector<size_t>{ B, T, output_channels_ } );
 		}
 		
 		void initializeWeights() {

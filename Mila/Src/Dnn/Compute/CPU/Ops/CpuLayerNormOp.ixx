@@ -7,7 +7,6 @@ module;
 #include <omp.h>
 #endif
 
-
 export module Compute.CpuLayerNormOp;
 
 import Dnn.Tensor;
@@ -23,7 +22,6 @@ using namespace Mila::Dnn;
 namespace Mila::Dnn::Compute
 {
 	export
-		template<typename T>
     class CpuLayerNormOp : public OperationBase<float, float, CpuMemoryResource> {
     public:
         CpuLayerNormOp() : OperationBase<float, float, CpuMemoryResource>( DeviceType::Cpu, OperationType::LayerNormOp ) {}

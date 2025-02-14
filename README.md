@@ -2,7 +2,7 @@
 Mila Deep Neural Net library
 
 ## Prerelease Notice
-Mila, version 0.9.49-alpha is currently an early, experimental, preview release.
+Mila, version 0.9.50-alpha is currently an early, experimental, preview release.
 
 
 ## Description

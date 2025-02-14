@@ -42,7 +42,7 @@ namespace Mila::Dnn::Modules
 		* @param is_training Whether the module is in training mode. Default is false.
 		*/
 		LayerNorm( std::string name, const std::vector<size_t>& input_shape, bool has_bias = true, bool is_training = false )
-			: name_{ name }, input_shape_{ input_shape }, has_bias_{ has_bias }, is_training_{ is_training } {
+			: name_{ name }, input_shape_{ input_shape }, output_{ createOutputTensor() }, has_bias_ { has_bias	}, is_training_{ is_training } {
 			createOperation();
 		}
 
@@ -103,7 +103,7 @@ namespace Mila::Dnn::Modules
 		}
 
 	private:
-		std::string name_{ "LayerNorm" }; ///< The name of the module.
+		std::string name_; ///< The name of the module.
 		std::vector<size_t> input_shape_; ///< The input shape.
 		float epsilon_{ 1e-05f }; ///< The epsilon value.
 
@@ -124,6 +124,12 @@ namespace Mila::Dnn::Modules
 
 		std::shared_ptr<Dnn::Compute::OperationBase<TInput, TCompute, MR>> operation_; ///< The operation.
 
+		Tensor<TCompute,MR> createOutputTensor() {
+			auto output = Tensor<TCompute, MR>( input_shape_ );
+			output.set_name( name_ + "::Y" );
+			return output;
+		}
+
 		/**
 		* @brief Create the operation.
 		*/
@@ -133,9 +139,12 @@ namespace Mila::Dnn::Modules
 			auto channels = input_shape_[ 2 ];
 
 			weight_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ channels }, 1.0f );
+			weight_->set_name( name_ + "::W" );
 
-			if ( has_bias_ )
+			if ( has_bias_ ) {
 				bias_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ channels } );
+				bias_->set_name( name_ + "::B" );
+			}
 
 			parameters_.emplace_back( weight_ );
 			parameters_.emplace_back( bias_ );
@@ -147,7 +156,7 @@ namespace Mila::Dnn::Modules
 			output_cache_.emplace_back( rstd_ );
 
 			// Create the output tensor. The output tensor has the same shape as the input tensor.
-			output_ = Tensor<TCompute, MR>( input_shape_ );
+			//output_ = std::make_shared<Tensor<TCompute, MR>>( input_shape_ );
 
 			// TODO: tensor scalars
 			//scalars_[ scalar_names_::EPSILON ] = std::make_shared<Tensor>( epsilon_ );*/
