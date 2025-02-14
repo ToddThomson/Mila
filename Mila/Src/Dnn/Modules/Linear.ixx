@@ -4,7 +4,7 @@ module;
 #include <string>
 #include <iostream>
 
-export module Dnn.Modules.MatMul;
+export module Dnn.Modules.Linear;
 
 import Dnn.Module;
 import Dnn.Tensor;

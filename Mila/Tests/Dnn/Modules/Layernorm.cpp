@@ -9,7 +9,7 @@ namespace Dnn::Modules::Tests
 {
     namespace MilaDnn = Mila::Dnn;
 
-    class LayernormTests : public ::testing::Test {
+    class LayerNormTests : public ::testing::Test {
     protected:
         void SetUp() override {
             batch_size_ = 128;
@@ -39,11 +39,11 @@ namespace Dnn::Modules::Tests
         bool has_bias_{ true };
     };
 
-    TEST_F( LayernormTests, Cpu_TestName ) {
+    TEST_F( LayerNormTests, Cpu_TestName ) {
         EXPECT_EQ( cpu_layernorm->name(), "cpu_ln" );
     }
 
-    TEST_F( LayernormTests, Cpu_TestParameters ) {
+    TEST_F( LayerNormTests, Cpu_TestParameters ) {
         auto num_parameters = /* weights */ channels_;
         if ( has_bias_ ) {
             num_parameters += channels_;
@@ -52,29 +52,29 @@ namespace Dnn::Modules::Tests
         EXPECT_EQ( cpu_layernorm->parameters(), num_parameters );
     }
 
-    TEST_F( LayernormTests, Cpu_TestWeightInitialization ) {
+    TEST_F( LayerNormTests, Cpu_TestWeightInitialization ) {
         auto weight = cpu_layernorm->getWeight();
         EXPECT_EQ( weight->size(), channels_ );
     }
 
-    TEST_F( LayernormTests, Cpu_TestBiasInitialization ) {
+    TEST_F( LayerNormTests, Cpu_TestBiasInitialization ) {
         auto bias = cpu_layernorm->getBias();
         EXPECT_EQ( bias->size(), channels_ );
     }
 
-    TEST_F( LayernormTests, Cpu_TestForward ) {
+    TEST_F( LayerNormTests, Cpu_TestForward ) {
         MilaDnn::Tensor<float, MilaDnn::Compute::CpuMemoryResource> input( cpu_input_shape_ );
         auto output = cpu_layernorm->forward( input );
         EXPECT_EQ( output.size(), input.size() );
     }
 
-    /*TEST_F( LayernormTests, Cuda_TestForward ) {
+    /*TEST_F( LayerNormTests, Cuda_TestForward ) {
         MilaDnn::Tensor<float, MilaDnn::Compute::DeviceMemoryResource> input( { batch_size_, sequence_length_, channels_ } );
         auto output = cuda_linear->forward( std::make_shared<MilaDnn::Tensor<float, MilaDnn::Compute::DeviceMemoryResource>>( input ) );
         EXPECT_EQ( output->size(), batch_size_ * sequence_length_ * output_channels_ );
     }*/
 
-    TEST_F( LayernormTests, Cpu_TestPrint ) {
+    TEST_F( LayerNormTests, Cpu_TestPrint ) {
         testing::internal::CaptureStdout();
         cpu_layernorm->print();
         std::string output = testing::internal::GetCapturedStdout();

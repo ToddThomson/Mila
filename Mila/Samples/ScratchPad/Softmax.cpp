@@ -4,9 +4,10 @@
 #include <string>
 #include <format>
 
+
 import Mila;
 
-int main() {
+int Softmax() {
 
     using namespace Mila::Dnn;
 
@@ -31,7 +32,8 @@ int main() {
     std::vector<size_t> cpu_input_shape = std::vector<size_t>{ cpu_batch_size, sequence_length, channels };
     //std::vector<size_t> cuda_input_shape = { cuda_batch_size, sequence_length, channels };
 
-    auto transformer_block = Blocks::TransformerBlock<float>();
+    auto cpu_softmax = Modules::Softmax<float>(
+        "Cpu_softmax", cpu_input_shape );
 
     Tensor<float, Compute::CpuMemoryResource> input( cpu_input_shape );
     random<float, Compute::CpuMemoryResource>( input, 0.0f, 5.0f );
@@ -40,12 +42,31 @@ int main() {
 
     //auto cuda_input = input.to<Compute::DeviceMemoryResource>();
 
-    auto output = transformer_block.forward( input );
+    auto output = cpu_softmax.forward( input );
     
     //auto output2 = cuda_layernorm->forward( std::make_shared<DeviceTensor<float>>( cuda_input ) );
 
     std::cout << "Cpu output: " << std::endl;
     output.print();
+
+	auto B = output.shape()[ 0 ];
+	auto T = output.shape()[ 1 ];
+	auto V = output.shape()[ 2 ];
+	// Check if all values in the output sum to a value close to 1
+	float sum = 0.0f;
+    for ( size_t i = 0; i < B; ++i ) {
+		for ( size_t j = 0; j < T; ++j ) {
+			float sum = 0.0f;
+			for ( size_t v = 0; v < V; ++v ) {
+				sum += output[ i, j, v ];
+			}
+			std::cout << std::format( "Sum({},{}): ", i, j ) << sum << std::endl;
+		}
+    }
+
+    //std::cout << "Cuda output: " << std::endl;
+    //auto from_cuda_output2 = output2->to<Compute::CpuMemoryResource>();
+    //from_cuda_output2.print();
 
 	return 0;
 }

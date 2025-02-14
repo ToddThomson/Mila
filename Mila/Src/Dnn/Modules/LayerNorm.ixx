@@ -33,9 +33,6 @@ namespace Mila::Dnn::Modules
 		requires ValidTensorTypes<TInput, TCompute> && std::is_base_of_v<Compute::MemoryResource, MR>
 	class LayerNorm : public Module<TInput, TCompute, MR> {
 	public:
-
-		//using TensorPtr = std::shared_ptr<Tensor<T, MR>>;
-
 		/**
 		* @brief Construct a new LayerNorm object.
 		*

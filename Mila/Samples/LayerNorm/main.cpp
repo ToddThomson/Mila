@@ -44,6 +44,7 @@ int main() {
     Tensor<float> grad_y = Tensor<float>( { B * T * C } );*/
 
     // now let's calculate everything ourselves
+	model.build();
 
     // forward pass
     auto Y = model.forward( X );

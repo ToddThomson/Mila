@@ -3,6 +3,8 @@ module;
 #include <vector>
 #include <string>
 #include <iostream>
+#include <ostream>
+#include <type_traits>
 
 export module Dnn.Modules.Residual;
 

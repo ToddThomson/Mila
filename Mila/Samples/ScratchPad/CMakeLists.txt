@@ -1,7 +1,7 @@
 # CMakeList.txt : CMake project for Mila examples
 
 # Add executable
-add_executable(ScratchPad "main.cpp" "Linear.cpp" "LayerNorm.cpp" )
+add_executable(ScratchPad "main.cpp" "Linear.cpp" "LayerNorm.cpp"  "Softmax.cpp")
 
 set_target_properties( ScratchPad
     PROPERTIES

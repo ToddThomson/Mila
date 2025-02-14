@@ -22,28 +22,13 @@ import Compute.DeviceMemoryResource;
 export namespace Mila::Dnn::Modules
 {
 	using namespace Mila::Dnn::Compute;
-
-	/**
-	 * @brief A class representing a linear module.
-	 * The module performs the following operation:
-	 * output = input * weight + bias
-	 *
-	 * @tparam T The data type of the module.
-	 */
+	
 	export
 	template<typename TInput, typename TCompute = TInput, typename MR = CpuMemoryResource> 
 		requires ValidTensorTypes<TInput, TCompute> && ( std::is_same_v<MR, CpuMemoryResource> || std::is_same_v<MR, DeviceMemoryResource> )
 	class Gelu : public Module<TInput, TCompute, MR> {
 	public:
-		/**
-		* @brief Construct a new Linear object.
-		*
-		* @param name The name of the module.
-		* @param input_shape The shape of the input tensor.
-		* @param output_channels The number of output channels/features.
-		* @param has_bias Whether the module has a bias tensor.
-		* @param is_training Whether the module is in training mode.
-		*/
+		
 		Gelu( std::string name, const std::vector<size_t>& input_shape, bool is_training = false )
 			: name_( name ), input_shape_( input_shape ), is_training_( is_training ) {
 			createOperation();

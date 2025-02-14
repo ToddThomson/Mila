@@ -32,6 +32,7 @@ export import Dnn.Module;
 export import Dnn.Model;
 
 export import Dnn.Tensor;
+export import Dnn.TensorTraits;
 export import Dnn.TensorHelpers;
 
 export import Compute.ComputeDevice;
@@ -48,9 +49,12 @@ export import Dnn.Modules.Attention;
 export import Dnn.Modules.Encoder;
 export import Dnn.Modules.Gelu;
 export import Dnn.Modules.LayerNorm;
-export import Dnn.Modules.MatMul;
+export import Dnn.Modules.Linear;
 export import Dnn.Modules.Residual;
 export import Dnn.Modules.Softmax;
+
+export import Dnn.Blocks.MLP;
+export import Dnn.Blocks.TransformerBlock;
 
 import Compute.Operations;
 
