@@ -14,24 +14,26 @@ import Compute.OperationBase;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.OperationType;
+import Compute.CpuComputeResource;
 import Compute.MemoryResource;
-import Compute.CpuMemoryResource;
+import Compute.CpuDevice;
 
 using namespace Mila::Dnn;
 
 namespace Mila::Dnn::Compute
 {
     export
-    template<typename T, typename TInput = T>
-    class CpuAttentionOp : public OperationBase<T, TInput, CpuMemoryResource> {
+    template<typename TInput, typename TCompute = TInput>
+        requires ValidTensorTypes<TInput, TCompute>
+    class CpuAttentionOp : public OperationBase<TInput, TCompute, CpuDevice> {
     public:
 
-        CpuAttentionOp() : OperationBase<T, TInput, CpuMemoryResource>( DeviceType::Cpu, OperationType::AttentionOp ) {}
+        CpuAttentionOp() : OperationBase<TInput, TCompute, CpuDevice>(DeviceType::Cpu, OperationType::AttentionOp) {}
     
-        void forward( const Tensor<T, CpuMemoryResource>& input,
-            const std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& parameters,
-            Tensor<T, CpuMemoryResource>& output,
-            std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& output_cache ) const override {
+        void forward( const Tensor<TInput, CpuMemoryResource>& input,
+            const std::vector<std::shared_ptr<Tensor<TCompute, CpuMemoryResource>>>& parameters,
+            Tensor<TCompute, CpuMemoryResource>& output,
+            std::vector<std::shared_ptr<Tensor<TCompute, CpuMemoryResource>>>& output_cache ) const override {
 
 			auto X = input.data();
 			auto Y = output.data();
@@ -151,7 +153,7 @@ namespace Mila::Dnn::Compute
         }
         
         static void registerOperation() {
-            OperationRegistry<float, float, CpuMemoryResource>::instance().registerOperation( DeviceType::Cpu, "Cpu::AttentionOp", []() -> std::unique_ptr<OperationBase<float, float, CpuMemoryResource>> {
+            OperationRegistry<float, float, CpuDevice>::instance().registerOperation( DeviceType::Cpu, "Cpu::AttentionOp", []() -> std::unique_ptr<OperationBase<float, float, CpuDevice>> {
                 return std::make_unique<CpuAttentionOp<float>>();
             } );
         }

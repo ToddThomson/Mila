@@ -13,7 +13,6 @@ module;
 export module Gpt2.Gpt2Model;
 
 import Mila;
-
 import Gpt2.Gpt2Config;
 
 namespace Mila::Dnn::Gpt2

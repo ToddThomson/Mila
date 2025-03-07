@@ -23,14 +23,13 @@ int main() {
 
     std::cout << "The current Compute Device is: " << Mila::getDevice()->getName() << std::endl;
 
-    size_t batch_size = 4;
-    size_t sequence_length = 4;
-    size_t channels = 12;
-	size_t num_heads = 12;
+    size_t batch_size = 2;
+    size_t sequence_length = 2;
+    size_t channels = 4;
+	size_t num_heads = 4;
 
     std::vector<size_t> input_shape = std::vector<size_t>{ batch_size, sequence_length, channels };
     std::vector<size_t> output_shape = std::vector<size_t>{ batch_size, sequence_length, channels };
-    //std::vector<size_t> cuda_input_shape = { cuda_batch_size, sequence_length, channels };
 
     auto transformer_block = Blocks::TransformerBlock<float>( input_shape, num_heads );
 
@@ -44,11 +43,7 @@ int main() {
 
 	X.print();
 
-    //auto cuda_input = input.to<Compute::DeviceMemoryResource>();
-
-    Y = transformer_block.forward( X );
-    
-    //auto output2 = cuda_layernorm->forward( std::make_shared<DeviceTensor<float>>( cuda_input ) );
+    transformer_block.forward( X, Y );
 
     std::cout << "Cpu output: " << std::endl;
     Y.print();

@@ -14,21 +14,25 @@ import Dnn.TensorTraits;
 import Dnn.TensorHelpers;
 
 import Compute.DeviceType;
+import Compute.CpuDevice;
+import Compute.CudaDevice;
+
 import Compute.OperationBase;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
-import Compute.DeviceMemoryResource;
+import Compute.CudaMemoryResource;
 
-export namespace Mila::Dnn::Modules
+export namespace Mila::Dnn
 {
 	using namespace Mila::Dnn::Compute;
 
 	export
-	template<typename TInput, typename TCompute = TInput, typename MR = CpuMemoryResource>
-		requires ValidTensorTypes<TInput, TCompute> && ( std::is_same_v<MR, CpuMemoryResource> || std::is_same_v<MR, DeviceMemoryResource> )
-	class Attention : public Module<TInput, TCompute, MR> {
+		template<typename TInput, typename TCompute = TInput, typename TDevice = CpuDevice>
+		requires ValidTensorTypes<TInput, TCompute>&& std::is_base_of_v<Compute::ComputeDevice, TDevice>
+	class Attention : public Module<TInput, TCompute, TDevice> {
 	public:
+		using MR = TDevice::MR;
 
 		Attention( std::string name, const std::vector<size_t>& input_shape, size_t num_heads, bool is_training = false )
 			: name_{ name }, input_shape_{ input_shape }, num_heads_{ num_heads }, is_training_{ is_training } {
@@ -53,10 +57,21 @@ export namespace Mila::Dnn::Modules
 			return name_;
 		}
 
-		Tensor<TCompute, MR>&& forward( const Tensor<TInput, MR>& input ) override {
-			operation_->forward( input, parameters_, output_, output_cache_ );
+		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute, MR>& output) override {
+			operation_->forward( input, parameters_, output, output_cache_ );
+		}
 
-			return std::move( output_ );
+		void save( mz_zip_archive& zip ) const override {
+			// Save the state of the parameters
+			for ( const auto& [name, tensor] : this->named_parameters_ ) {
+				// Save tensor data to zip archive
+			}
+		}
+
+		void load( mz_zip_archive& zip ) override {
+			for ( const auto& [name, tensor] : this->named_parameters_ ) {
+				// Load tensor data from zip archive
+			}
 		}
 
 		void print() const override {
@@ -76,7 +91,7 @@ export namespace Mila::Dnn::Modules
 		size_t num_heads_{ 0 };
 		bool is_training_{ false }; ///< Whether the module is in training mode. Default is false.
 
-		Tensor<float, MR> output_;
+		//Tensor<float, MR> output_;
 
 		std::shared_ptr<Tensor<float, MR>> attention_ = { nullptr };
 		std::shared_ptr<Tensor<float, MR>> pre_attention_{ nullptr };
@@ -85,7 +100,7 @@ export namespace Mila::Dnn::Modules
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_cache_; ///< The output attributes.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_; ///< The scalars.
 
-		std::shared_ptr<Dnn::Compute::OperationBase<TInput, TCompute, MR>> operation_{ nullptr }; ///< The operation.
+		std::shared_ptr<Dnn::Compute::OperationBase<TInput, TCompute, TDevice>> operation_{ nullptr }; ///< The operation.
 
 		/**
 		 * @brief Create the operation.
@@ -101,13 +116,13 @@ export namespace Mila::Dnn::Modules
 			output_cache_.emplace_back( attention_ );
 			output_cache_.emplace_back( pre_attention_ );
 
-			output_ = Tensor<float, MR>( input_shape_ );
+			//output_ = Tensor<float, MR>( input_shape_ );
 
 			if constexpr ( std::is_same_v<MR, Compute::CpuMemoryResource> ) {
-				operation_ = OperationRegistry<float, float, MR>::instance().createOperation( DeviceType::Cpu, "Cpu::AttentionOp" );
+				operation_ = OperationRegistry<float, float, CpuDevice>::instance().createOperation( DeviceType::Cpu, "Cpu::AttentionOp" );
 			}
 			else {
-				operation_ = OperationRegistry<float, float, MR>::instance().createOperation( DeviceType::Cuda, "Cuda::AttentionOp" );
+				operation_ = OperationRegistry<float, float, CudaDevice>::instance().createOperation( DeviceType::Cuda, "Cuda::AttentionOp" );
 			}
 		}
 	};

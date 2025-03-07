@@ -15,21 +15,20 @@ option(MILA_ENABLE_TESTING "Enable Mila Library tests." ON)
 option(MILA_ENABLE_GPT2_TESTING "Enable GPT2 tests." OFF )  
 option(MILA_ENABLE_SAMPLES "Enable Mila Library samples." ON )
 option(MILA_ENABLE_NVBENCH "Enable NvBench." OFF )
-option(MILA_ENABLE_OPENMP "Enable OpenMP support." ON )  
+option(MILA_ENABLE_OPENMP "Enable OpenMP support." ON )
 
-# TJT:  Bleeding edge.. We could us CPM to fetch CCCL from GitHub
-# Uses the CMake Package Manager (CPM) to simplify fetching CCCL from GitHub
-#include(cmake/CPM.cmake)
+# Include CPM.cmake
+include(Cmake/CPM.cmake)
 
-# This will automatically clone CCCL from GitHub and make the exported cmake targets available
-#CPMAddPackage(
-#    NAME CCCL
-#    GITHUB_REPOSITORY "nvidia/cccl"
-#    GIT_TAG "main"
-#)
+# Use CPM to download miniz
+CPMAddPackage(
+    NAME miniz
+    GITHUB_REPOSITORY richgel999/miniz
+    GIT_TAG 3.0.2
+)
 
 find_package(CUDAToolkit)  
-find_package(Thrust REQUIRED)  
+find_package(miniz REQUIRED)  
 
 if(MILA_ENABLE_OPENMP)
    find_package(OpenMP)

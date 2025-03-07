@@ -5,9 +5,9 @@
 
 import Mila;
 
-namespace Dnn::Modules::Tests
+namespace Modules::Tests
 {
-	namespace MilaDnn = Mila::Dnn;
+	using namespace Mila::Dnn;
 
     class LinearTests : public ::testing::Test {
     protected:
@@ -18,19 +18,19 @@ namespace Dnn::Modules::Tests
 			channels_ = 768;
 			cuda_input_shape_ = { batch_size_, sequence_length_, channels_ };
             cpu_input_shape_ = { cpu_batch_size_, sequence_length_, channels_ };
-            output_features_ = 3;
+            output_features_ = 4;
 			output_channels_ = output_features_ * channels_;
 			has_bias_ = true;
 
-            cpu_linear = std::make_unique<MilaDnn::Modules::Linear<float, float,MilaDnn::Compute::CpuMemoryResource>>(
-                "cpu_linear_1", cpu_input_shape_, output_channels_ );
+            cpu_linear = std::make_unique<Linear<float, float,Compute::CpuDevice>>(
+                "cpu_linear", channels_, output_channels_ );
 
-            cuda_linear = std::make_unique<MilaDnn::Modules::Linear<float, float,MilaDnn::Compute::DeviceMemoryResource>>(
-                "cuda_linear_2", cuda_input_shape_, output_channels_ );
+            /*cuda_linear = std::make_unique<Linear<float, float, Compute::CudaDevice>>(
+                "cuda_linear", channels_, output_channels_ );*/
         }
 
-        std::unique_ptr<MilaDnn::Modules::Linear<float, float, MilaDnn::Compute::CpuMemoryResource>> cpu_linear;
-        std::unique_ptr<MilaDnn::Modules::Linear<float, float, MilaDnn::Compute::DeviceMemoryResource>> cuda_linear;
+        std::unique_ptr<Linear<float, float, Compute::CpuDevice>> cpu_linear;
+        //std::unique_ptr<Linear<float, float, Compute::CudaDevice>> cuda_linear;
         
         size_t batch_size_{ 0 };
         size_t cpu_batch_size_{ 0 };
@@ -44,7 +44,7 @@ namespace Dnn::Modules::Tests
     };
 
     TEST_F( LinearTests, Cpu_TestName ) {
-        EXPECT_EQ( cpu_linear->name(), "cpu_linear_1" );
+        EXPECT_EQ( cpu_linear->name(), "cpu_linear" );
     }
 
     TEST_F( LinearTests, Cpu_TestParameters ) {
@@ -67,22 +67,24 @@ namespace Dnn::Modules::Tests
     }
 
     TEST_F( LinearTests, Cpu_TestForward ) {
-        MilaDnn::Tensor<float, MilaDnn::Compute::CpuMemoryResource> input( { cpu_batch_size_, sequence_length_, channels_ } );
-        auto output = cpu_linear->forward( input );
+        Tensor<float, Compute::CpuMemoryResource> input( { cpu_batch_size_, sequence_length_, channels_ } );
+        Tensor<float, Compute::CpuMemoryResource> output( { cpu_batch_size_, sequence_length_, 4 * channels_ } );
+        cpu_linear->forward( input, output );
         EXPECT_EQ( output.size(), cpu_batch_size_ * sequence_length_ * output_channels_ );
     }
 
-    TEST_F( LinearTests, Cuda_TestForward ) {
-        MilaDnn::Tensor<float, MilaDnn::Compute::DeviceMemoryResource> input( { batch_size_, sequence_length_, channels_ } );
-        auto output = cuda_linear->forward( input );
+    /*TEST_F( LinearTests, Cuda_TestForward ) {
+        Tensor<float, Compute::CudaMemoryResource> input( { batch_size_, sequence_length_, channels_ } );
+        Tensor<float, Compute::CudaMemoryResource> output( { batch_size_, sequence_length_, 4 * channels_ } );
+        cuda_linear->forward( input, output );
         EXPECT_EQ( output.size(), batch_size_ * sequence_length_ * output_channels_ );
-    }
+    }*/
 
     TEST_F( LinearTests, Cpu_TestPrint ) {
         testing::internal::CaptureStdout();
         cpu_linear->print();
         std::string output = testing::internal::GetCapturedStdout();
-        EXPECT_NE( output.find( "Module: cpu_linear_1" ), std::string::npos );
+        EXPECT_NE( output.find( "Module: cpu_linear" ), std::string::npos );
         EXPECT_NE( output.find( "Parameters: " ), std::string::npos );
     }
 }

@@ -5,9 +5,9 @@
 
 import Mila;
 
-namespace Dnn::Modules::Tests
+namespace Modules::Tests
 {
-    namespace MilaDnn = Mila::Dnn;
+    using namespace Mila::Dnn;
 
     class AttentionTests : public ::testing::Test {
     protected:
@@ -21,14 +21,14 @@ namespace Dnn::Modules::Tests
             cuda_input_shape_ = { batch_size_, sequence_length_, 3 * channels_ };
             has_bias_ = true;
 
-            cpu_attention = std::make_unique<MilaDnn::Modules::Attention<float, float, MilaDnn::Compute::CpuMemoryResource>>(
+            cpu_attention = std::make_unique<Attention<float, float, Compute::CpuDevice>>(
                 "cpu_attn", cpu_input_shape_, num_heads_ );
 
             /*cuda_linear = std::make_unique<MilaDnn::Modules::Linear<float, MilaDnn::Compute::DeviceMemoryResource>>(
                 "cuda_linear_2", input_shape_, output_channels_ );*/
         }
 
-        std::unique_ptr<MilaDnn::Modules::Attention<float, float, MilaDnn::Compute::CpuMemoryResource>> cpu_attention;
+        std::unique_ptr<Attention<float, float, Compute::CpuDevice>> cpu_attention;
         //std::unique_ptr<MilaDnn::Modules::Linear<float, MilaDnn::Compute::DeviceMemoryResource>> cuda_linear;
 
         size_t batch_size_{ 0 };
@@ -55,8 +55,9 @@ namespace Dnn::Modules::Tests
     //}
 
     TEST_F( AttentionTests, Cpu_TestForward ) {
-        MilaDnn::Tensor<float, MilaDnn::Compute::CpuMemoryResource> input( { cpu_batch_size_, sequence_length_,  3 * channels_ } );
-        auto output = cpu_attention->forward( input );
+        Tensor<float, Compute::CpuMemoryResource> input( { cpu_batch_size_, sequence_length_,  3 * channels_ } );
+        Tensor<float, Compute::CpuMemoryResource> output( { cpu_batch_size_, sequence_length_,  3 * channels_ } );
+        cpu_attention->forward( input, output );
         EXPECT_EQ( output.size(), cpu_batch_size_ * sequence_length_ *  ( 3 * channels_ ) );
     }
 

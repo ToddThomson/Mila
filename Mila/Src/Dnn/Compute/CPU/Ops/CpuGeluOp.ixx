@@ -16,24 +16,25 @@ import Compute.OperationType;
 import Compute.OperationBase;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
-import Compute.CpuMemoryResource;
+import Compute.CpuDevice;
 
 using namespace Mila::Dnn;
 
 namespace Mila::Dnn::Compute
 {
 	const float GELU_SCALING_FACTOR = sqrtf( 2.0f / M_PI );
-
 	//constexpr float GELU_SCALING_FACTOR = sqrtf( 2.0f / M_PI );
 
 	export 
 	template<typename T>
-	class CpuGeluOp :public OperationBase<T, T, CpuMemoryResource> {
+	class CpuGeluOp : public OperationBase<float, float, CpuDevice> {
 	public:
-		CpuGeluOp() : OperationBase<T, T, CpuMemoryResource>( DeviceType::Cpu, OperationType::GeluOp ) {}
+		using MR = CpuDevice::MR;
+
+		CpuGeluOp() : OperationBase<float, float, CpuDevice>( DeviceType::Cpu, OperationType::GeluOp ) {}
 
 		void forward(
-			const Tensor<T, CpuMemoryResource>& input,
+			const Tensor<float, CpuMemoryResource>& input,
 			const std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& parameters,
 			Tensor<T, CpuMemoryResource>& output,
 			std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& output_cache ) const override {
@@ -54,7 +55,7 @@ namespace Mila::Dnn::Compute
 	#pragma float_control(precise, on, push)
 	#if defined(__GNUC__) && !defined(__clang__)
 		__attribute__( (optimize( "no-finite-math-only" )) )
-		#endif
+	#endif
 
 			void backward( float* dinp, float* inp, float* dout, int N ) {
 			for ( int i = 0; i < N; i++ ) {
@@ -66,12 +67,12 @@ namespace Mila::Dnn::Compute
 				float sech_out = 1.0f / (coshf_out * coshf_out);
 				float local_grad = 0.5f * (1.0f + tanh_out) + x * 0.5f * sech_out * GELU_SCALING_FACTOR * (1.0f + 3.0f * 0.044715f * x * x);
 				dinp[ i ] += local_grad * dout[ i ];
-			#pragma float_control(pop)
+	#pragma float_control(pop)
 			}
 		}
 
 		static void registerOperation() {
-			OperationRegistry<float, float, CpuMemoryResource>::instance().registerOperation( DeviceType::Cpu, "Cpu::GeluOp", []() -> std::unique_ptr<OperationBase<float, float, CpuMemoryResource>> {
+			OperationRegistry<float, float, CpuDevice>::instance().registerOperation( DeviceType::Cpu, "Cpu::GeluOp", []() -> std::unique_ptr<OperationBase<float, float, CpuDevice>> {
 				return std::make_unique<CpuGeluOp<float>>();
 			} );
 		}

@@ -2,7 +2,7 @@
 
 import Mila;
 
-namespace Dnn::Tensors::Tests {
+namespace Tensors::Tests {
 
     using namespace Mila::Dnn;
     
@@ -24,7 +24,7 @@ namespace Dnn::Tensors::Tests {
     TEST( TensorTest, ConstructorWithShape ) {
         auto device = Compute::DeviceContext::instance().getDevice();
 		std::vector<size_t> shape = { 2, 3 };
-        Tensor<float,Compute::DeviceMemoryResource> tensor( shape );
+        Tensor<float,Compute::CudaMemoryResource> tensor( shape );
         EXPECT_FALSE( tensor.empty() );
         EXPECT_EQ( tensor.size(), 6 );
         EXPECT_EQ( tensor.rank(), 2 );

@@ -1,54 +1,59 @@
 #include <iostream>
 #include <vector>
+#include <memory>
 
 import Mila;
-import App.Model.LayerNorm;
 
 int main() {
 
     using namespace Mila::Dnn;
-    using namespace App::Model::LayerNorm;
 
 	Mila::Initialize();
 
     std::cout << "Mila version: " << Mila::GetAPIVersion().ToString() << std::endl;
+
+    auto devices = Compute::list_devices();
+    std::cout << "Available compute devices: ";
+    for ( const auto& device : devices ) {
+        std::cout << device << " ";
+    }
+    std::cout << std::endl;
+
+    std::cout << "The current Compute Device is: " << Mila::getDevice()->getName() << std::endl;
+
+    auto layernorm_model = Model<float>();
 
     // Hyperparameters: batch, time / sequence length, number of channels
     size_t B = 2;
     size_t T = 3;
     size_t C = 4;
 
-	auto input_shape = std::vector<size_t>{ B, T, C };
+    // Create the required layernorm tensors
+	auto input = Tensor<float>( std::vector<size_t>{ B, T, C } );
+    random<float>( input, -1.0f, 1.0f );
+    input.print();
 
-    // TJT: B,T,C should come from input tensor shape?
 
-    auto model = LayerNormModel( "LayerNorm Model", B, T, C);
-	
-    auto layernorm = std::make_shared<Modules::LayerNorm<float>>("ln1", input_shape);
+	auto ln_normalized_shape = std::vector<size_t>{ C };
 
-	int index = model.add( layernorm );
-    
-    xavier<float,Compute::CpuMemoryResource>( *layernorm->getWeight(), C, C );
+    // auto weights = Tensor<float>( std::vector<size_t>{ C }, 1.0f );
+    //auto bias = Tensor<float>( std::vector<size_t>{ C });
+   
+	// Register the tensors with the model
+	auto X = layernorm_model.tensor( "X", input );
+	//auto W = layernorm_model.tensor( "W", weights );
+	//auto b = layernorm_model.tensor( "B", bias );
 
-    model.print();
- 
-    // Input tensor 
-    Tensor<float,Compute::CpuMemoryResource> X( input_shape );
-    random<float,Compute::CpuMemoryResource>( X, -1.0f, 1.0f );
-	
-    X.print();
+    //auto Y =  layernorm_model.layernorm( "ln1", X, ln_normalized_shape );
 
-    /*Tensor<float> grad_x = Tensor<float>( { B * T * C } );
-    Tensor<float> grad_w = Tensor<float>( { C } );
-    Tensor<float> grad_b = Tensor<float>( { C } );
-    Tensor<float> grad_y = Tensor<float>( { B * T * C } );*/
+    //model.print();
 
     // now let's calculate everything ourselves
-	model.build();
+	//layernorm_model.build();
 
     // forward pass
-    auto Y = model.forward( X );
-	Y.print();
+    //layernorm_model.forward();
+	//Y->print();
 
     //model.backward( c_dx, c_dw, c_db, dout, x, w, c_mean, c_rstd, B, T, C );
 

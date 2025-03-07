@@ -3,19 +3,21 @@
 add_library( Mila STATIC
 	"Src/Dnn/Compute/Cuda/Kernels/Cuda.MatMul.cu"
 	"Src/Dnn/Compute/Cuda/Kernels/Cuda.MatMul.h"
-)
+	"Src/Dnn/Compute/Cuda/Kernels/Cuda.Gelu.h"
+	"Src/Dnn/Compute/Cuda/Kernels/Cuda.Gelu.cu"
+ "Src/Dnn/Compute/Cuda/Kernels/Cuda.Utils.h")
 
-set_target_properties( Mila 
-    PROPERTIES
-      _THRUST_HOST CPP
-      _THRUST_DEVICE CUDA
-)
 set_target_properties( Mila PROPERTIES
 	CXX_STANDARD_REQUIRED ON
 	CXX_EXTENSIONS OFF )
 
 # TODO: Add globally 
 target_compile_features( Mila PUBLIC cxx_std_23 )
+
+find_package(miniz REQUIRED)  
+
+target_include_directories( Mila INTERFACE ${miniz_SOURCE_DIR})
+target_link_libraries( Mila PRIVATE miniz)
 
 if(MILA_ENABLE_OPENMP)  
 	if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
@@ -90,9 +92,21 @@ PUBLIC
 		
 		# Data
 		"Src/Data/DataLoaderBase.ixx" 
- "Src/Dnn/Compute/CPU/CpuComputeResource.ixx"  "Src/Dnn/Modules/Gelu.ixx" "Src/Dnn/Modules/Attention.ixx" "Src/Dnn/Modules/Residual.ixx" "Src/Dnn/Modules/Softmax.ixx" "Src/Dnn/Modules/Encoder.ixx" "Src/Dnn/Blocks/TransformerBlock.ixx" "Src/Dnn/Blocks/MLP.ixx")
+		"Src/Dnn/Compute/CPU/CpuComputeResource.ixx"
+		"Src/Dnn/Modules/Gelu.ixx"
+		"Src/Dnn/Modules/Attention.ixx"
+		"Src/Dnn/Modules/Residual.ixx"
+		"Src/Dnn/Modules/Softmax.ixx"
+		"Src/Dnn/Modules/Encoder.ixx"
+		"Src/Dnn/Blocks/TransformerBlock.ixx"
+		"Src/Dnn/Blocks/MLP.ixx"
+		
+		"Src/Dnn/Graph.ixx"
+		"Src/Dnn/Compute/Backend.ixx"
+		"Src/Dnn/Compute/Cuda/CudaComputeResource.ixx"
+ "Src/Dnn/Compute/Cuda/CudaGeluOp.ixx")
 
-target_link_libraries( Mila PRIVATE Thrust::Thrust CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
+target_link_libraries( Mila PRIVATE CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
 
 # Get the current date and time
 string(TIMESTAMP BUILD_DATE "%Y-%m-%d")

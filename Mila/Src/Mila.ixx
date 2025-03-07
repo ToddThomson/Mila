@@ -20,6 +20,7 @@
  */
 module;
 #include <iostream>
+#include <memory>
 
 export module Mila;
 
@@ -36,12 +37,14 @@ export import Dnn.TensorTraits;
 export import Dnn.TensorHelpers;
 
 export import Compute.ComputeDevice;
+export import Compute.CpuDevice;
+export import Compute.CudaDevice;
 export import Compute.DeviceContext;
 export import Compute.DeviceHelpers;
 
 export import Compute.MemoryResource;
 export import Compute.CpuMemoryResource;
-export import Compute.DeviceMemoryResource;
+export import Compute.CudaMemoryResource;
 export import Compute.ManagedMemoryResource;
 export import Compute.PinnedMemoryResource;
 
@@ -63,7 +66,7 @@ namespace Mila {
     /// Gets the Mila API version.
     /// </summary>
     export Version GetAPIVersion() {
-        return Version{0, 9, 50, "alpha", 1 };
+        return Version{0, 9, 51, "alpha", 1 };
     }
 
 	export void setDevice( const std::string& name ) {

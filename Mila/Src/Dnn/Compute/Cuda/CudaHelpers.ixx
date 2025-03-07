@@ -1,8 +1,6 @@
 module;
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <stdexcept>
 #include <cuda_runtime.h>
 
@@ -10,23 +8,40 @@ export module Cuda.Helpers;
 
 import Cuda.Error;
 
-namespace Mila::Dnn::Compute::Cuda 
+namespace Mila::Dnn::Compute::Cuda
 {
+    // convenience function for calculating grid/block dimensions for kernels
+    export constexpr int ceil_div( int M, int N ) {
+        return (M + N - 1) / N;
+    }
+
+    // CUDA error checking
+    export inline void cudaCheck( cudaError_t error, const char* file, int line ) {
+        if ( error != cudaSuccess ) {
+            printf( "[CUDA ERROR] at file %s:%d:\n%s\n", file, line,
+                cudaGetErrorString( error ) );
+            exit( EXIT_FAILURE );
+        }
+    }
+
+    export inline void cudaCheck( cudaError_t error ) {
+        cudaCheck( error, __FILE__, __LINE__ );
+    }
+
     export inline void cudaCheckStatus( cudaError_t status_ )
     {
-        switch ( status_ )
-        {
-        case cudaSuccess:
-            return;
+        switch ( status_ ) {
+            case cudaSuccess:
+                return;
 
-        default:
-            cudaGetLastError();
-            throw CudaError( status_ );
+            default:
+                cudaGetLastError();
+                throw CudaError( status_ );
         }
     }
 
     export template <typename T>
-    inline void CUDA_CALL( T status_ )
+        inline void CUDA_CALL( T status_ )
     {
         return cudaCheckStatus( status_ );
     }
@@ -56,28 +71,24 @@ namespace Mila::Dnn::Compute::Cuda
 
     export int CheckDevice( int deviceId )
     {
-        if ( deviceId < 0 )
-        {
+        if ( deviceId < 0 ) {
             throw std::invalid_argument( "Invalid device id." );
         }
 
         int devCount = GetDeviceCount();
 
-        if ( devCount == 0 )
-        {
+        if ( devCount == 0 ) {
             throw std::runtime_error( "No Cuda devices found." );
         }
 
-        if ( deviceId > devCount - 1 )
-        {
+        if ( deviceId > devCount - 1 ) {
             throw std::out_of_range( "Device id out of range." );
         }
 
         int computeMode = -1,
             CUDA_CALL( cudaDeviceGetAttribute( &computeMode, cudaDevAttrComputeMode, deviceId ) );
 
-        if ( computeMode == cudaComputeModeProhibited )
-        {
+        if ( computeMode == cudaComputeModeProhibited ) {
             throw std::runtime_error( "Device is running in Compute ModeProhibited." );
         }
 
@@ -120,10 +131,8 @@ namespace Mila::Dnn::Compute::Cuda
 
         int index = 0;
 
-        while ( nGpuArchCoresPerSM[ index ].SM != -1 )
-        {
-            if ( nGpuArchCoresPerSM[ index ].SM == ((major << 4) + minor) )
-            {
+        while ( nGpuArchCoresPerSM[ index ].SM != -1 ) {
+            if ( nGpuArchCoresPerSM[ index ].SM == ((major << 4) + minor) ) {
                 return nGpuArchCoresPerSM[ index ].Cores;
             }
 
@@ -170,10 +179,8 @@ namespace Mila::Dnn::Compute::Cuda
 
         int index = 0;
 
-        while ( nGpuArchNameSM[ index ].SM != -1 )
-        {
-            if ( nGpuArchNameSM[ index ].SM == ((major << 4) + minor) )
-            {
+        while ( nGpuArchNameSM[ index ].SM != -1 ) {
+            if ( nGpuArchNameSM[ index ].SM == ((major << 4) + minor) ) {
                 return nGpuArchNameSM[ index ].name;
             }
 
@@ -184,7 +191,7 @@ namespace Mila::Dnn::Compute::Cuda
         // to run properly
         return nGpuArchNameSM[ index - 1 ].name;
     }
-    
+
     /// <summary>
     /// Returns the GPU with the maximum GFLOPS.
     /// </summary>
@@ -199,16 +206,14 @@ namespace Mila::Dnn::Compute::Cuda
 
         int devCount = GetDeviceCount();
 
-        if ( devCount == 0 )
-        {
+        if ( devCount == 0 ) {
             throw std::runtime_error(
                 "No CUDA devices found." );
         }
 
         current_device = 0;
 
-        while ( current_device < devCount )
-        {
+        while ( current_device < devCount ) {
             int computeMode = -1, major = 0, minor = 0;
 
             CUDA_CALL( cudaDeviceGetAttribute( &computeMode, cudaDevAttrComputeMode, current_device ) );
@@ -217,14 +222,11 @@ namespace Mila::Dnn::Compute::Cuda
 
             // If this GPU is not running on Compute Mode prohibited,
             // then we can add it to the list
-            if ( computeMode != cudaComputeModeProhibited )
-            {
-                if ( major == 9999 && minor == 9999 )
-                {
+            if ( computeMode != cudaComputeModeProhibited ) {
+                if ( major == 9999 && minor == 9999 ) {
                     sm_per_multiproc = 1;
                 }
-                else
-                {
+                else {
                     sm_per_multiproc = _ConvertSMVer2Cores( major, minor );
                 }
 
@@ -232,38 +234,32 @@ namespace Mila::Dnn::Compute::Cuda
                 CUDA_CALL( cudaDeviceGetAttribute( &multiProcessorCount, cudaDevAttrMultiProcessorCount, current_device ) );
                 cudaError_t result = cudaDeviceGetAttribute( &clockRate, cudaDevAttrClockRate, current_device );
 
-                if ( result != cudaSuccess )
-                {
+                if ( result != cudaSuccess ) {
                     // If cudaDevAttrClockRate attribute is not supported we
                     // set clockRate as 1, to consider GPU with most SMs and CUDA Cores.
-                    if ( result == cudaErrorInvalidValue )
-                    {
+                    if ( result == cudaErrorInvalidValue ) {
                         clockRate = 1;
                     }
-                    else
-                    {
+                    else {
                         throw CudaError(
                             result );
                     }
                 }
                 uint64_t compute_perf = (uint64_t)multiProcessorCount * sm_per_multiproc * clockRate;
 
-                if ( compute_perf > max_compute_perf )
-                {
+                if ( compute_perf > max_compute_perf ) {
                     max_compute_perf = compute_perf;
                     max_perf_device = current_device;
                 }
             }
-            else
-            {
+            else {
                 devices_prohibited++;
             }
 
             ++current_device;
         }
 
-        if ( devices_prohibited == devCount )
-        {
+        if ( devices_prohibited == devCount ) {
             throw std::runtime_error( "All devices have compute mode prohibited." );
         }
 
@@ -274,14 +270,12 @@ namespace Mila::Dnn::Compute::Cuda
     {
         int device_count = GetDeviceCount();
 
-        if ( device_count == 0 )
-        {
+        if ( device_count == 0 ) {
             throw std::runtime_error(
                 "No CUDA devices found." );
         }
 
-        if ( deviceId < 0 )
-        {
+        if ( deviceId < 0 ) {
             return GetMaxGflopsDeviceId();
         }
 

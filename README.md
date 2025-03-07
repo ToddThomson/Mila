@@ -2,7 +2,7 @@
 Mila Deep Neural Net library
 
 ## Prerelease Notice
-Mila, version 0.9.50-alpha is currently an early, experimental, preview release.
+Mila, version 0.9.51-alpha is currently an early, experimental, preview release.
 
 
 ## Description
@@ -20,8 +20,8 @@ Deep Neural Networks. Mila utilizes the NVIDIA CUDA runtime for high-performance
  
 ## What's New
 
-Mila, Version 0.9.49-alpha adds:
-* Operations now support a TCompute template parameter to specify the compute type
+Mila, Version 0.9.51-alpha adds:
+* Operations now support a TDevice parameter to specify the compute device type (Cuda, CPU)
 * 
 
 ## Mila Build Instructions

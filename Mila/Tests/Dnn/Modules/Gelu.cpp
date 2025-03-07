@@ -5,9 +5,9 @@
 
 import Mila;
 
-namespace Dnn::Modules::Tests
+namespace Modules::Tests
 {
-	namespace MilaDnn = Mila::Dnn;
+    using namespace Mila::Dnn;
 
     class GeluTests : public ::testing::Test {
     protected:
@@ -16,25 +16,25 @@ namespace Dnn::Modules::Tests
 			cpu_batch_size_= 4;
 			sequence_length_ = 1024;
 			channels_ = 768;
-			cpu_input_shape_ = { cpu_batch_size_, sequence_length_, 4 * channels_ };
-			cuda_input_shape_ = { batch_size_, sequence_length_, 4 * channels_ };
-			
-            cpu_gelu = std::make_unique<MilaDnn::Modules::Gelu<float, float, MilaDnn::Compute::CpuMemoryResource>>(
-                "cpu_gelu", cpu_input_shape_ );
+			cpu_io_shape_ = { cpu_batch_size_, sequence_length_, 4 * channels_ };
+			cuda_io_shape_ = { batch_size_, sequence_length_, 4 * channels_ };
 
-            //cuda_linear = std::make_unique<MilaDnn::Modules::Linear<float, MilaDnn::Compute::DeviceMemoryResource>>(
-            //    "cuda_linear_2", input_shape_ );
+            cpu_gelu = std::make_unique<Gelu<float, float, Compute::CpuDevice>>(
+                "cpu_gelu" );
+
+            cuda_gelu = std::make_unique<Gelu<float, float, Compute::CudaDevice>>(
+                "cuda_gelu" );
         }
 
-        std::unique_ptr<MilaDnn::Modules::Gelu<float, float, MilaDnn::Compute::CpuMemoryResource>> cpu_gelu;
-        //std::unique_ptr<MilaDnn::Modules::Linear<float, MilaDnn::Compute::DeviceMemoryResource>> cuda_linear;
+        std::unique_ptr<Gelu<float, float, Compute::CpuDevice>> cpu_gelu;
+        std::unique_ptr<Gelu<float, float, Compute::CudaDevice>> cuda_gelu;
         
         size_t batch_size_{ 0 };
         size_t cpu_batch_size_{ 0 };
         size_t sequence_length_{ 0 };
         size_t channels_{ 0 };
-		std::vector<size_t> cpu_input_shape_;
-		std::vector<size_t> cuda_input_shape_;
+		std::vector<size_t> cpu_io_shape_;
+		std::vector<size_t> cuda_io_shape_;
     };
 
     TEST_F( GeluTests, Cpu_TestName ) {
@@ -47,16 +47,18 @@ namespace Dnn::Modules::Tests
     }
 
     TEST_F( GeluTests, Cpu_TestForward ) {
-        MilaDnn::Tensor<float, MilaDnn::Compute::CpuMemoryResource> input( cpu_input_shape_ );
-        auto output = cpu_gelu->forward( input );
+        Tensor<float, Compute::CpuMemoryResource> input( cpu_io_shape_ );
+        Tensor<float, Compute::CpuMemoryResource> output( cpu_io_shape_ );
+        cpu_gelu->forward( input, output );
         EXPECT_EQ( output.size(), input.size() );
     }
 
-    /*TEST_F( GeluTests, Cuda_TestForward ) {
-        MilaDnn::Tensor<float, MilaDnn::Compute::DeviceMemoryResource> input( { batch_size_, sequence_length_, channels_ } );
-        auto output = cuda_gelu->forward( std::make_shared<MilaDnn::Tensor<float,MilaDnn::Compute::DeviceMemoryResource>>( input ) );
-        EXPECT_EQ( output->size(), batch_size_ * sequence_length_ * output_channels_ );
-    }*/
+    TEST_F( GeluTests, Cuda_TestForward ) {
+        Tensor<float, Compute::CudaMemoryResource> input( cuda_io_shape_ );
+        Tensor<float, Compute::CudaMemoryResource> output( cuda_io_shape_ );
+        cuda_gelu->forward( input, output );
+        EXPECT_EQ( output.size(), input.size() );
+    }
 
     TEST_F( GeluTests, Cpu_TestPrint ) {
         testing::internal::CaptureStdout();

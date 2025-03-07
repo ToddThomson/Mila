@@ -4,6 +4,7 @@ module;
 #include <string>
 #include <vector>
 #include <type_traits>
+#include <cstdint>
 
 export module Dnn.Modules.LayerNorm;
 
@@ -11,14 +12,15 @@ import Dnn.Module;
 import Dnn.Tensor;
 import Dnn.TensorTraits;
 
+import Compute.ComputeDevice;
 import Compute.DeviceType;
 import Compute.OperationBase;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
-import Compute.DeviceMemoryResource;
+import Compute.CudaMemoryResource;
 
-namespace Mila::Dnn::Modules
+namespace Mila::Dnn
 {
 	using namespace Mila::Dnn::Compute;
 
@@ -26,13 +28,15 @@ namespace Mila::Dnn::Modules
 	* @brief Layer Normalization module.
 	*
 	* @tparam T Data type of the tensor.
-	* @tparam MR Memory resource type (CpuMemoryResource or DeviceMemoryResource).
+	* @tparam TDevice Memory resource type (CpuMemoryResource or DeviceMemoryResource).
 	*/
 	export
-	template<typename TInput, typename TCompute = TInput, typename MR = CpuMemoryResource> 
-		requires ValidTensorTypes<TInput, TCompute> && std::is_base_of_v<Compute::MemoryResource, MR>
-	class LayerNorm : public Module<TInput, TCompute, MR> {
+	template<typename TInput, typename TCompute = TInput, typename TDevice = CpuDevice> 
+		requires ValidTensorTypes<TInput, TCompute> && std::is_base_of_v<Compute::ComputeDevice, TDevice>
+	class LayerNorm : public Module<TInput, TCompute, TDevice> {
 	public:
+		using MR = TDevice::MR;
+
 		/**
 		* @brief Construct a new LayerNorm object.
 		*
@@ -41,8 +45,14 @@ namespace Mila::Dnn::Modules
 		* @param has_bias Whether the module has a bias tensor. Default is true.
 		* @param is_training Whether the module is in training mode. Default is false.
 		*/
-		LayerNorm( std::string name, const std::vector<size_t>& input_shape, bool has_bias = true, bool is_training = false )
-			: name_{ name }, input_shape_{ input_shape }, output_{ createOutputTensor() }, has_bias_ { has_bias	}, is_training_{ is_training } {
+		LayerNorm(
+			std::string name,
+			const std::vector<size_t>& input_shape,
+			int64_t axis = -1,
+			bool has_bias = true,
+			bool is_training = false )
+			: name_{ name }, input_shape_{ input_shape }, has_bias_{ has_bias }, is_training_{ is_training } {
+			createParameters();
 			createOperation();
 		}
 
@@ -88,10 +98,21 @@ namespace Mila::Dnn::Modules
 		* @param input Input tensor.
 		* @return TensorPtr Output tensor.
 		*/
-		Tensor<TCompute, MR>&& forward( const Tensor<TInput, MR>& input ) override {
-			operation_->forward( input, parameters_, output_, output_cache_ );
+		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute,MR>& output ) override {
+			operation_->forward( input, parameters_, output, output_state_ );
+		}
 
-			return std::move( output_ );
+		void save( mz_zip_archive& zip ) const override {
+			// Save the state of the parameters
+			for ( const auto& [name, tensor] : this->named_parameters_ ) {
+				// Save tensor data to zip archive
+			}
+		}
+
+		void load( mz_zip_archive& zip ) override {
+			for ( const auto& [name, tensor] : this->named_parameters_ ) {
+				// Load tensor data from zip archive
+			}
 		}
 
 		/**
@@ -104,13 +125,12 @@ namespace Mila::Dnn::Modules
 
 	private:
 		std::string name_; ///< The name of the module.
-		std::vector<size_t> input_shape_; ///< The input shape.
+		std::vector<size_t> input_shape_; ///< The normalized shape.
 		float epsilon_{ 1e-05f }; ///< The epsilon value.
-
 		bool has_bias_{ true }; ///< Whether the module has a bias tensor. Default is true.
 		bool is_training_{ false }; ///< Whether the module is in training mode. Default is false.
 
-		Tensor<TCompute, MR> output_; ///< The output tensor.
+		//Tensor<TCompute, MR> output_; ///< The output tensor.
 
 		std::shared_ptr<Tensor<float, MR>> weight_{ nullptr }; ///< The weight tensor.
 		std::shared_ptr<Tensor<float, MR>> bias_{ nullptr }; ///< The bias tensor.
@@ -119,21 +139,18 @@ namespace Mila::Dnn::Modules
 		std::shared_ptr<Tensor<float, MR>> rstd_{ nullptr }; ///< The reciprocal standard deviation.
 
 		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_; ///< The parameters.
-		std::vector<std::shared_ptr<Tensor<float, MR>>> output_cache_; ///< The output attributes.
-		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_; ///< The scalars.
+		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_; ///< The output attributes.
+		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_{ nullptr }; ///< The scalars.
 
-		std::shared_ptr<Dnn::Compute::OperationBase<TInput, TCompute, MR>> operation_; ///< The operation.
+		std::shared_ptr<Dnn::Compute::OperationBase<TInput, TCompute, TDevice>> operation_; ///< The operation.
 
-		Tensor<TCompute,MR> createOutputTensor() {
-			auto output = Tensor<TCompute, MR>( input_shape_ );
+		/*Tensor<TCompute,MR> createOutputTensor() {
+			auto output = Tensor<TCompute, MR>( input_->shape() );
 			output.set_name( name_ + "::Y" );
 			return output;
-		}
+		}*/
 
-		/**
-		* @brief Create the operation.
-		*/
-		void createOperation() {
+		void createParameters() {
 			auto batch_size = input_shape_[ 0 ];
 			auto sequence_length = input_shape_[ 1 ];
 			auto channels = input_shape_[ 2 ];
@@ -152,20 +169,20 @@ namespace Mila::Dnn::Modules
 			mean_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ batch_size, sequence_length } );
 			rstd_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ batch_size, sequence_length } );
 
-			output_cache_.emplace_back( mean_ );
-			output_cache_.emplace_back( rstd_ );
+			output_state_.emplace_back( mean_ );
+			output_state_.emplace_back( rstd_ );
+		}
 
-			// Create the output tensor. The output tensor has the same shape as the input tensor.
-			//output_ = std::make_shared<Tensor<TCompute, MR>>( input_shape_ );
-
-			// TODO: tensor scalars
-			//scalars_[ scalar_names_::EPSILON ] = std::make_shared<Tensor>( epsilon_ );*/
-
-			if constexpr ( std::is_same_v<MR, Compute::CpuMemoryResource> ) {
-				operation_ = OperationRegistry<float, float, MR>::instance().createOperation( DeviceType::Cpu, "Cpu::LayerNormOp" );
+		/**
+		* @brief Create the operation.
+		*/
+		void createOperation() {
+			
+			if constexpr ( std::is_same_v<TDevice, Compute::CpuDevice> ) {
+				operation_ = OperationRegistry<float, float, CpuDevice>::instance().createOperation( DeviceType::Cpu, "Cpu::LayerNormOp" );
 			}
 			else {
-				operation_ = OperationRegistry<float, float, MR>::instance().createOperation( DeviceType::Cuda, "Cuda::LayerNormOp" );
+				operation_ = OperationRegistry<float, float, CudaDevice>::instance().createOperation( DeviceType::Cuda, "Cuda::LayerNormOp" );
 			}
 		}
 	};

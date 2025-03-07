@@ -1,12 +1,8 @@
 module;
-#include <cstring>
-#include <cstdio>
 #include <stdexcept>
 #include <string>
 #include <ostream>
-#include <iostream>
 #include <sstream>
-#include <cuda.h>
 #include <cuda_runtime.h>
 
 export module Cuda.Error;

@@ -16,17 +16,17 @@ import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.OperationType;
 import Compute.MemoryResource;
-import Compute.CpuMemoryResource;
+import Compute.CpuDevice;
 
 using namespace Mila::Dnn;
 
 namespace Mila::Dnn::Compute
 {
 	export
-	class CpuCrossEntropyOp : public OperationBase<int, float, CpuMemoryResource> {
+	class CpuCrossEntropyOp : public OperationBase<int, float, CpuDevice> {
 	public:
 
-		CpuCrossEntropyOp() : OperationBase<int, float, CpuMemoryResource>( DeviceType::Cpu, OperationType::CrossEntropyOp ) {}
+		CpuCrossEntropyOp() : OperationBase<int, float, CpuDevice>( DeviceType::Cpu, OperationType::CrossEntropyOp ) {}
 
 		void forward(
 			const Tensor<int, CpuMemoryResource>& input,
@@ -76,7 +76,7 @@ namespace Mila::Dnn::Compute
 		}
 
 		static void registerOperation() {
-			OperationRegistry<int, float, CpuMemoryResource>::instance().registerOperation( DeviceType::Cpu, "Cpu::CrossEntropyOp", []() -> std::unique_ptr<OperationBase<int, float, CpuMemoryResource>> {
+			OperationRegistry<int, float, CpuDevice>::instance().registerOperation( DeviceType::Cpu, "Cpu::CrossEntropyOp", []() -> std::unique_ptr<OperationBase<int, float, CpuDevice>> {
 				return std::make_unique<CpuCrossEntropyOp>();
 			} );
 		}

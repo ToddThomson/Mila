@@ -12,7 +12,6 @@ target_sources( LayerNorm
 PUBLIC
 	FILE_SET module_files
        TYPE CXX_MODULES FILES
-		"LayerNormModel.ixx" 
 )
 
 #set_target_properties( LayerNorm
@@ -21,4 +20,4 @@ PUBLIC
 #      _THRUST_DEVICE CUDA
 #)
 
-target_link_libraries(LayerNorm PRIVATE Mila Thrust::Thrust CUDA::cudart )
+target_link_libraries(LayerNorm PRIVATE Mila CUDA::cudart )

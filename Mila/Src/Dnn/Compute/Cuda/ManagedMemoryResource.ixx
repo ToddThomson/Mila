@@ -15,8 +15,8 @@ namespace Mila::Dnn::Compute
      */
     export class ManagedMemoryResource : public MemoryResource {
     public:
-        static constexpr bool is_host_accessible = HostAccessible::is_host_accessible;
-        static constexpr bool is_device_accessible = DeviceAccessible::is_device_accessible;
+        static constexpr bool is_host_accessible = CpuAccessible::is_cpu_accessible;
+        static constexpr bool is_device_accessible = CudaAccessible::is_cuda_accessible;
 
     protected:
         /**

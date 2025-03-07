@@ -15,18 +15,19 @@ import Compute.DeviceType;
 import Compute.OperationBase;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
-import Compute.CpuMemoryResource;
-import Compute.DeviceMemoryResource;
+import Compute.CpuDevice;
+import Compute.CudaDevice;
 
-export namespace Mila::Dnn::Modules
+export namespace Mila::Dnn
 {
 	using namespace Mila::Dnn::Compute;
 
 	export
-	template<typename TInput, typename TCompute = TInput, typename MR = CpuMemoryResource>
-		requires ValidTensorTypes<TInput, TCompute> && ( std::is_same_v<MR, CpuMemoryResource> || std::is_same_v<MR, DeviceMemoryResource> )
-	class Encoder : public Module<TInput, TCompute, MR> {
+		template<typename TInput, typename TCompute = TInput, typename TDevice = CpuDevice>
+		requires ValidTensorTypes<TInput, TCompute>&& std::is_base_of_v<Compute::ComputeDevice, TDevice>
+	class Encoder : public Module<TInput, TCompute, TDevice> {
 	public:
+		using MR = TDevice::MR;
 
 		/**
 		* @brief Construct a new Encoder object.
@@ -36,9 +37,9 @@ export namespace Mila::Dnn::Modules
 		* the token ids at each (b,t) position
 		* @param is_training Whether the module is in training mode. Default is false.
 		*/
-		Encoder( std::string name, const std::vector<size_t>& input_shape, size_t channels, size_t max_seq_len, 
+		Encoder( std::string name, size_t channels, size_t max_seq_len, 
 			size_t vocab_len,  bool is_training = false )
-			: name_{ name }, input_shape_{ input_shape }, channels_{ channels }, max_seq_len_{ max_seq_len },
+			: name_{ name }, channels_{ channels }, max_seq_len_{ max_seq_len },
 			vocab_len_{ vocab_len }, is_training_{ is_training } {
 			createOperation();
 		}
@@ -67,10 +68,21 @@ export namespace Mila::Dnn::Modules
 		* @param input The input tensor.
 		* @return Tensor<float, MR> The output tensor.
 		*/
-		Tensor<TCompute, MR>&& forward( const Tensor<TInput, MR>& input ) {
-			operation_->forward( input, parameters_, output_, output_cache_ );
+		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute, MR>& output ) {
+			operation_->forward( input, parameters_, output, output_cache_ );
+		}
 
-			return std::move( output_ );
+		void save( mz_zip_archive& zip ) const override {
+			// Save the state of the parameters
+			for ( const auto& [name, tensor] : this->named_parameters_ ) {
+				// Save tensor data to zip archive
+			}
+		}
+
+		void load( mz_zip_archive& zip ) override {
+			for ( const auto& [name, tensor] : this->named_parameters_ ) {
+				// Load tensor data from zip archive
+			}
 		}
 
 		/**
@@ -102,7 +114,7 @@ export namespace Mila::Dnn::Modules
 
 		Tensor<float, MR> output_; ///< The output tensor.
 
-		std::shared_ptr<Dnn::Compute::OperationBase<int, float, MR>> operation_{ nullptr }; ///< The operation.
+		std::shared_ptr<Dnn::Compute::OperationBase<int, float, TDevice>> operation_{ nullptr }; ///< The operation.
 
 		/**
 		* @brief Create the operation.
@@ -115,17 +127,17 @@ export namespace Mila::Dnn::Modules
 			parameters_.emplace_back( wte_ );
 			parameters_.emplace_back( wpe_ );
 
-			// output is (B,T,C). At each position (b,t), a C dimentional vector summarizing token & position
-			auto B = input_shape_[ 0 ];
-			auto T = input_shape_[ 1 ];
+			// output is (B,T,C). At each position (b,t), a C dimensional vector summarizing token & position
+			//auto B = input_shape_[ 0 ];
+			//auto T = input_shape_[ 1 ];
 
-			output_ = Tensor<float, MR>( std::vector<size_t>( { B, T, channels_ } ) );
+			//output_ = Tensor<float, MR>( std::vector<size_t>( { B, T, channels_ } ) );
 
-			if constexpr ( std::is_same_v<MR, Compute::CpuMemoryResource> ) {
-				operation_ = OperationRegistry<int, float, MR>::instance().createOperation( DeviceType::Cpu, "Cpu::EncoderOp" );
+			if constexpr ( std::is_same_v<TDevice, Compute::CpuDevice> ) {
+				operation_ = OperationRegistry<int, float, CpuDevice>::instance().createOperation( DeviceType::Cpu, "Cpu::EncoderOp" );
 			}
 			else {
-				operation_ = OperationRegistry<int, float, MR>::instance().createOperation( DeviceType::Cuda, "Cuda::EncoderOp" );
+				operation_ = OperationRegistry<int, float, CudaDevice>::instance().createOperation( DeviceType::Cuda, "Cuda::EncoderOp" );
 			}
 		}
 	};

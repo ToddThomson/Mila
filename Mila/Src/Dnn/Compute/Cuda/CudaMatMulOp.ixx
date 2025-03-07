@@ -1,5 +1,6 @@
 module;
 #include <math.h>
+#include <vector>
 #include <iostream>
 
 #include "Kernels/Cuda.MatMul.h"
@@ -12,24 +13,25 @@ import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.OperationType;
 import Compute.MemoryResource;
-import Compute.DeviceMemoryResource;
+import Compute.CudaMemoryResource;
+import Compute.CudaDevice;
 
 using namespace Mila::Dnn;
 
 namespace Mila::Dnn::Compute
 {
 	export
-	template<typename T>
-	class CudaMatMulOp : public OperationBase<T, T, DeviceMemoryResource> {
+		template<typename TInput, typename TOutput = TInput>
+	class CudaMatMulOp : public OperationBase<TInput, TOutput, CudaDevice> {
 	public:
 
-		CudaMatMulOp() : OperationBase<T, T, DeviceMemoryResource>( DeviceType::Cuda, OperationType::MatMulOp ) {}
+		CudaMatMulOp() : OperationBase<TInput, TOutput, CudaDevice>( DeviceType::Cuda, OperationType::MatMulOp ) {}
 
 		void forward(
-			const Tensor<T, DeviceMemoryResource>& input,
-			const std::vector<std::shared_ptr<Tensor<T, DeviceMemoryResource>>>& parameters,
-			Tensor<T, DeviceMemoryResource>& output,
-			std::vector<std::shared_ptr<Tensor<T, DeviceMemoryResource>>>& output_cache ) const override {
+			const Tensor<TInput, CudaMemoryResource>& input,
+			const std::vector<std::shared_ptr<Tensor<TInput, CudaMemoryResource>>>& parameters,
+			Tensor<TOutput, CudaMemoryResource>& output,
+			std::vector<std::shared_ptr<Tensor<TOutput, CudaMemoryResource>>>& output_state ) const override {
 
 			auto X = input.data();
 			auto Y = output.data();
@@ -46,7 +48,7 @@ namespace Mila::Dnn::Compute
 		}
 
 		static void registerOperation() {
-			OperationRegistry<float,float,DeviceMemoryResource>::instance().registerOperation( DeviceType::Cuda, "Cuda::MatMulOp", []() -> std::unique_ptr<OperationBase<float, float, DeviceMemoryResource>> {
+			OperationRegistry<float,float,CudaDevice>::instance().registerOperation( DeviceType::Cuda, "Cuda::MatMulOp", []() -> std::unique_ptr<OperationBase<float, float, CudaDevice>> {
 				return std::make_unique<CudaMatMulOp<float>>();
 				} );
 		}

@@ -3,7 +3,7 @@
 
 import Mila;
 
-namespace Dnn::TensorBuffers::Tests
+namespace TensorBuffers::Tests
 {
     using namespace Mila::Dnn;
 
@@ -19,9 +19,9 @@ namespace Dnn::TensorBuffers::Tests
         }
     }
 
-    TEST( TensorBufferTest, DeviceMemoryResource_DefaultInitialization ) {
+    TEST( TensorBufferTest, CudaMemoryResource_DefaultInitialization ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::DeviceMemoryResource> tensor( shape );
+        Tensor<float, Compute::CudaMemoryResource> tensor( shape );
         EXPECT_EQ( tensor.size(), 6 );
 
 		auto host_tensor = tensor.to<Compute::CpuMemoryResource>();
@@ -45,9 +45,9 @@ namespace Dnn::TensorBuffers::Tests
         }
     }
 
-    TEST( TensorBufferTest, DeviceMemoryResource_ValueInitialization ) {
+    TEST( TensorBufferTest, CudaMemoryResource_ValueInitialization ) {
         std::vector<size_t> shape = { 5, 723 };
-        Tensor<float, Compute::DeviceMemoryResource> tensor( shape, 3.1415f );
+        Tensor<float, Compute::CudaMemoryResource> tensor( shape, 3.1415f );
 
         auto host_tensor = tensor.to<Compute::CpuMemoryResource>();
 

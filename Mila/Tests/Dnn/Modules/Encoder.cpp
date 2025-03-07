@@ -5,9 +5,9 @@
 
 import Mila;
 
-namespace Dnn::Modules::Tests
+namespace Modules::Tests
 {
-    namespace MilaDnn = Mila::Dnn;
+    using namespace Mila::Dnn;
 
     class EncoderTests : public ::testing::Test {
     protected:
@@ -21,12 +21,13 @@ namespace Dnn::Modules::Tests
 
             cuda_input_shape_ = { batch_size_, sequence_length_ };
             cpu_input_shape_ = { cpu_batch_size_, sequence_length_ };
+            cpu_output_shape_ = { cpu_batch_size_, sequence_length_, channels_ };
             
-            cpu_encoder = std::make_unique<MilaDnn::Modules::Encoder<int, float, MilaDnn::Compute::CpuMemoryResource>>(
-                "cpu_encoder", cpu_input_shape_, channels_, max_seq_len_, vocab_len_ );
+            cpu_encoder = std::make_unique<Encoder<int, float, Compute::CpuDevice>>(
+                "cpu_encoder", channels_, max_seq_len_, vocab_len_ );
         }
 
-        std::unique_ptr<MilaDnn::Modules::Encoder<int, float, MilaDnn::Compute::CpuMemoryResource>> cpu_encoder;
+        std::unique_ptr<Encoder<int, float, Compute::CpuDevice>> cpu_encoder;
 
         size_t batch_size_{ 0 };
         size_t cpu_batch_size_{ 0 };
@@ -36,6 +37,7 @@ namespace Dnn::Modules::Tests
 		size_t max_seq_len_{ 0 };
         std::vector<size_t> cuda_input_shape_;
         std::vector<size_t> cpu_input_shape_;
+        std::vector<size_t> cpu_output_shape_;
     };
 
     TEST_F( EncoderTests, Cpu_TestName ) {
@@ -49,8 +51,9 @@ namespace Dnn::Modules::Tests
     }
 
     TEST_F( EncoderTests, Cpu_TestForward ) {
-        MilaDnn::Tensor<int, MilaDnn::Compute::CpuMemoryResource> input( cpu_input_shape_ );
-        auto output = cpu_encoder->forward( input );
+        Tensor<int, Compute::CpuMemoryResource> input( cpu_input_shape_ );
+        Tensor<float, Compute::CpuMemoryResource> output( cpu_output_shape_ );
+        cpu_encoder->forward( input, output );
         EXPECT_EQ( output.size(), cpu_batch_size_ * sequence_length_ * channels_ );
     }
 

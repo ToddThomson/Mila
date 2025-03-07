@@ -3,7 +3,8 @@ module;
 #include <memory>  
 #include <vector>  
 #include <cmath>  
-#ifdef USE_OMP  
+#ifdef USE_OMP
+#include <omp.h>
 #endif  
 
 export module Compute.CpuSoftmaxOp;  
@@ -14,7 +15,7 @@ import Compute.OperationBase;
 import Compute.OperationRegistry;  
 import Compute.OperationType;  
 import Compute.MemoryResource;  
-import Compute.CpuMemoryResource;  
+import Compute.CpuDevice;  
 
 namespace Mila::Dnn::Compute  
 {  
@@ -25,12 +26,12 @@ namespace Mila::Dnn::Compute
      */  
     export
 	template<typename T>
-    class CpuSoftmaxOp : public OperationBase<float, float, CpuMemoryResource> {  
+    class CpuSoftmaxOp : public OperationBase<float, float, CpuDevice> {  
     public:  
         /**  
          * @brief Constructor for CpuSoftmaxOp.  
          */  
-        CpuSoftmaxOp() : OperationBase<float, float, CpuMemoryResource>(DeviceType::Cpu, OperationType::SoftmaxOp) {}  
+        CpuSoftmaxOp() : OperationBase<float, float, CpuDevice>(DeviceType::Cpu, OperationType::SoftmaxOp) {}  
 
         /**  
          * @brief Forward pass of the softmax operation.  
@@ -92,7 +93,7 @@ namespace Mila::Dnn::Compute
          * @brief Registers the CpuSoftmaxOp operation in the operation registry.  
          */  
         static void registerOperation() {  
-            OperationRegistry<float, float, CpuMemoryResource>::instance().registerOperation(DeviceType::Cpu, "Cpu::SoftmaxOp", []() -> std::unique_ptr<OperationBase<float, float, CpuMemoryResource>> {  
+            OperationRegistry<float, float, CpuDevice>::instance().registerOperation(DeviceType::Cpu, "Cpu::SoftmaxOp", []() -> std::unique_ptr<OperationBase<float, float, CpuDevice>> {  
                 return std::make_unique<CpuSoftmaxOp>();  
             });  
         }  

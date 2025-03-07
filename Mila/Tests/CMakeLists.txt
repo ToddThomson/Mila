@@ -33,12 +33,20 @@ endif()
 add_executable( MilaTests
     "main.cpp" 
     "Dnn/Tensor.cpp"
-    "Dnn/Model.cpp"
+    "Dnn/TensorBuffer.cpp" 
+    #"Dnn/Model.cpp"
     "Dnn/Compute/Device.cpp" 
     "Dnn/Compute/DeviceHelpers.cpp" 
     "Dnn/Compute/DeviceContext.cpp"
+    
     "Dnn/Modules/Linear.cpp"
- "Dnn/TensorBuffer.cpp" "Dnn/Modules/Gelu.cpp" "Dnn/Modules/Attention.cpp" "Dnn/Modules/Layernorm.cpp" "Dnn/Modules/Residual.cpp" "Dnn/Modules/Softmax.cpp" "Dnn/Modules/Encoder.cpp")
+    "Dnn/Modules/Gelu.cpp" 
+    "Dnn/Modules/Attention.cpp" 
+    "Dnn/Modules/Layernorm.cpp"
+    "Dnn/Modules/Residual.cpp"
+    "Dnn/Modules/Softmax.cpp"
+    "Dnn/Modules/Encoder.cpp"
+)
 
 set_target_properties( MilaTests 
     PROPERTIES

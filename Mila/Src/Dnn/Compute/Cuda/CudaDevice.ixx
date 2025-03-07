@@ -13,11 +13,13 @@ import Compute.DeviceRegistry;
 import Compute.DeviceType;
 import Cuda.DeviceProps;
 import Compute.OperationType;
+import Compute.CudaMemoryResource;
 
 namespace Mila::Dnn::Compute
 {
 	export class CudaDevice : public ComputeDevice {
 	public:
+		using MR = CudaMemoryResource;
 
 		explicit CudaDevice( int device_id = 0 ) 
 			: device_id_( setDevice( device_id )), props_( Cuda::DeviceProps( device_id_ ) ) {
@@ -61,5 +63,5 @@ namespace Mila::Dnn::Compute
 		}
 	};
 
-	//static bool CudaDevice::registered_ = (CudaDevice::registerDevices(), true);
+	export bool CudaDevice::registered_ = (CudaDevice::registerDevices(), true);
 }

@@ -7,7 +7,7 @@ export module Dnn.TensorBuffer;
 
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
-import Compute.DeviceMemoryResource;
+import Compute.CudaMemoryResource;
 
 namespace Mila::Dnn
 {
@@ -16,7 +16,8 @@ namespace Mila::Dnn
 	* 
 	* @tparam T The type of the elements stored in the buffer.
 	*/
-	export template <typename T, typename MR> requires std::is_base_of_v<Compute::MemoryResource, MR>
+	export template <typename T, typename MR> 
+		requires std::is_base_of_v<Compute::MemoryResource, MR>
 	class TensorBuffer {
 	public:
 		/**
@@ -102,7 +103,7 @@ namespace Mila::Dnn
 		void initializeBuffer() {
 			if constexpr (std::is_same_v<MR, Compute::CpuMemoryResource>) {
 				std::fill(data_, data_ + size_, T{});
-			} else if constexpr (std::is_same_v<MR, Compute::DeviceMemoryResource>) {
+			} else if constexpr (std::is_same_v<MR, Compute::CudaMemoryResource>) {
 				cudaMemset(data_, 0, size_ * sizeof(T));
 			}
 		}
@@ -115,7 +116,7 @@ namespace Mila::Dnn
 		void initializeBuffer(const T& value) {
 			if constexpr (std::is_same_v<MR, Compute::CpuMemoryResource>) {
 				std::fill(data_, data_ + size_, value);
-			} else if constexpr (std::is_same_v<MR, Compute::DeviceMemoryResource>) {
+			} else if constexpr (std::is_same_v<MR, Compute::CudaMemoryResource>) {
 				// For CUDA, we need to use cudaMemcpy to set the value
 				std::vector<T> temp(size_, value);
 				cudaMemcpy(data_, temp.data(), size_ * sizeof(T), cudaMemcpyHostToDevice);

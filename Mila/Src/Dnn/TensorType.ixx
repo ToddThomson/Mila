@@ -58,6 +58,7 @@ namespace Mila::Dnn
                 return "INT16";
             case TensorType::INT32:
                 return "INT32";
+            default:
                 return "Unknown Tensor type";
         }
     };

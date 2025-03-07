@@ -50,6 +50,7 @@ namespace Mila::Dnn::Compute
 			CpuSoftmaxOp<float>::registerOperation();
 
 			// CUDA operations...
+			CudaGeluOp<float>::registerOperation();
 			CudaMatMulOp<float>::registerOperation();
 		}
 

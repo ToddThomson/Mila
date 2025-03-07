@@ -15,24 +15,24 @@ import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.OperationType;
 import Compute.MemoryResource;
-import Compute.CpuMemoryResource;
-
-using namespace Mila::Dnn;
+import Compute.CpuDevice;
 
 namespace Mila::Dnn::Compute
 {
+    using namespace Mila::Dnn;
+
     export
     template<typename TInput, typename TOutput = TInput>
-    class CpuMatMulOp : public OperationBase<TInput, TOutput, CpuMemoryResource> {
+    class CpuMatMulOp : public OperationBase<TInput, TOutput, CpuDevice> {
     public:
 
-        CpuMatMulOp() : OperationBase<TInput, TOutput, CpuMemoryResource>( DeviceType::Cpu, OperationType::MatMulOp ) {}
+        CpuMatMulOp() : OperationBase<TInput, TOutput, CpuDevice>( DeviceType::Cpu, OperationType::MatMulOp ) {}
 
         void forward(
             const Tensor<TInput, CpuMemoryResource>& input,
             const std::vector<std::shared_ptr<Tensor<TOutput, CpuMemoryResource>>>& parameters_,
             Tensor<TOutput, CpuMemoryResource>& output,
-            std::vector<std::shared_ptr<Tensor<TOutput, CpuMemoryResource>>>& output_cache ) const override {
+            std::vector<std::shared_ptr<Tensor<TOutput, CpuMemoryResource>>>& output_state ) const override {
 			auto X = input.data();
 			auto Y = output.data();
 
@@ -41,8 +41,8 @@ namespace Mila::Dnn::Compute
 
             int B = input.shape()[ 0 ];
             int T = input.shape()[ 1 ];
-            int C = input.shape()[ 2 ];
-            int OC = output.shape()[ 2 ];
+			int C = input.shape()[ 2 ]; // input features
+			int OC = output.shape()[ 2 ]; // output features
 
             const int LOOP_UNROLL = 8;
             if ( B * T % LOOP_UNROLL != 0 ) {
@@ -108,7 +108,7 @@ namespace Mila::Dnn::Compute
         }
 
         static void registerOperation() {
-            OperationRegistry<float, float, CpuMemoryResource>::instance().registerOperation( DeviceType::Cpu, "Cpu::MatMulOp", []() -> std::unique_ptr<OperationBase<float, float, CpuMemoryResource>> {
+            OperationRegistry<float, float, CpuDevice>::instance().registerOperation( DeviceType::Cpu, "Cpu::MatMulOp", []() -> std::unique_ptr<OperationBase<float, float, CpuDevice>> {
                 return std::make_unique<CpuMatMulOp<float>>();
             } );
         }

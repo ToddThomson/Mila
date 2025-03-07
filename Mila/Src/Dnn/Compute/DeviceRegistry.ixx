@@ -4,6 +4,8 @@ module;
 #include <mutex>
 #include <functional>
 #include <string>
+#include <type_traits>
+#include <stdexcept>
 
 export module Compute.DeviceRegistry;
 
@@ -25,6 +27,13 @@ export namespace Mila::Dnn::Compute
         }
 
         void registerDevice( const std::string& name, DeviceFactory factory ) {
+            if ( name.empty() ) {
+                throw std::invalid_argument( "Device name cannot be empty." );
+            }
+            if ( !factory ) {
+                throw std::invalid_argument( "Device factory cannot be null." );
+            }
+
             std::lock_guard<std::mutex> lock( mutex_ );
             devices_[name] = std::move( factory );
         }

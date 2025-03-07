@@ -2,42 +2,43 @@
 #include <memory>
 #include <vector>
 
-import Mila;
-
-using namespace Mila::Dnn;
-
-namespace Scratchpad::Linear
-{
-    void SampleLinear() {
-        size_t cuda_batch_size = 4;
-        size_t cpu_batch_size = 4;
-        size_t sequence_length = 1024;
-        size_t channels = 768;
-
-        std::vector<size_t> cpu_input_shape = { cpu_batch_size, sequence_length, channels };
-        std::vector<size_t> cuda_input_shape = { cuda_batch_size, sequence_length, channels };
-
-        size_t output_channels = 3 * channels;
-
-        auto cpu_linear = Modules::Linear<float>(
-            "cpu_linear_1", cpu_input_shape, output_channels );
-
-        auto cuda_linear = Modules::Linear<float, float, Compute::DeviceMemoryResource>(
-            "cuda_linear_2", cuda_input_shape, output_channels );
-
-        Tensor<float, Compute::CpuMemoryResource> input( cpu_input_shape );
-        random<float, Compute::CpuMemoryResource>( input, 0.0f, 5.0f );
-
-        auto cuda_input = input.to<Compute::DeviceMemoryResource>();
-
-        //auto output = cpu_linear.forward( HostTensor<float>( input ) );
-        //auto output2 = cuda_linear.forward( DeviceTensor<float>( cuda_input ) );
-
-        std::cout << "Cpu output: " << std::endl;
-        //output.print();
-
-        std::cout << "Cuda output: " << std::endl;
-        //auto from_cuda_output2 = output2.to<Compute::CpuMemoryResource>();
-        //from_cuda_output2.print();
-    }
-}
+//import Mila;
+//
+//namespace Scratchpad::Linear
+//{
+//    using namespace Mila::Dnn;
+//
+//    void SampleLinear() {
+//        size_t cuda_batch_size = 4;
+//        size_t cpu_batch_size = 4;
+//        size_t sequence_length = 1024;
+//        size_t channels = 768;
+//
+//        std::vector<size_t> cpu_input_shape = { cpu_batch_size, sequence_length, channels };
+//        std::vector<size_t> cuda_input_shape = { cuda_batch_size, sequence_length, channels };
+//
+//		auto A = std::shared_ptr<Tensor<float, Compute::CpuMemoryResource>>( cpu_input_shape );
+//
+//        //size_t output_channels = 3 * channels;
+//
+//        //auto cpu_linear = Linear<float>( "cpu_linear_1", cpu_input_shape, output_channels );
+//
+//        //auto cuda_linear = Linear<float, float, Compute::DeviceMemoryResource>(
+//        //    "cuda_linear_2", cuda_input_shape, output_channels );
+//
+//        //Tensor<float, Compute::CpuMemoryResource> input( cpu_input_shape );
+//        //random<float, Compute::CpuMemoryResource>( input, 0.0f, 5.0f );
+//
+//        //auto cuda_input = input.to<Compute::DeviceMemoryResource>();
+//
+//        ////auto output = cpu_linear.forward( HostTensor<float>( input ) );
+//        ////auto output2 = cuda_linear.forward( DeviceTensor<float>( cuda_input ) );
+//
+//        //std::cout << "Cpu output: " << std::endl;
+//        ////output.print();
+//
+//        //std::cout << "Cuda output: " << std::endl;
+//        ////auto from_cuda_output2 = output2.to<Compute::CpuMemoryResource>();
+//        ////from_cuda_output2.print();
+//    }
+//}

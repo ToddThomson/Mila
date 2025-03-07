@@ -6,7 +6,7 @@
 
 import Mila;
 
-namespace Dnn::Models::Tests
+namespace MilaLib::Models::Tests
 {
     using namespace Mila::Dnn;
 

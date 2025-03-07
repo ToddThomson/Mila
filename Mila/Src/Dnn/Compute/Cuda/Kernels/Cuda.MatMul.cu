@@ -1,22 +1,5 @@
-#include <math.h>
-#include <iostream>
 #include <cuda_runtime.h>
-
-// ----------------------------------------------------------------------------
-// CUDA utils
-
-// convenience macro for calculating grid/block dimensions for kernels
-#define CEIL_DIV(M, N) (((M) + (N)-1) / (N))
-
-// CUDA error checking
-void cudaCheck( cudaError_t error, const char* file, int line ) {
-    if ( error != cudaSuccess ) {
-        printf( "[CUDA ERROR] at file %s:%d:\n%s\n", file, line,
-            cudaGetErrorString( error ) );
-        exit( EXIT_FAILURE );
-    }
-};
-#define cudaCheck(err) (cudaCheck(err, __FILE__, __LINE__))
+#include "Cuda.Utils.h"
 
 __device__ float4 ld_vec( const float* address ) {
     return *reinterpret_cast<const float4*>(address);
@@ -117,11 +100,10 @@ __global__ void __launch_bounds__( 16 * 16 ) matmul_forward_kernel4(
         
         int sqrt_block_size = 16;
 
-        dim3 gridDim( CEIL_DIV( B * T, 8 * sqrt_block_size ), CEIL_DIV( OC, 8 * sqrt_block_size ) );
+        dim3 gridDim( ceil_div( B * T, 8 * sqrt_block_size ), ceil_div( OC, 8 * sqrt_block_size ) );
         dim3 blockDim( sqrt_block_size, sqrt_block_size );
         
         matmul_forward_kernel4 << <gridDim, blockDim >> > (out, inp, weight, bias, C, OC);
         
         cudaCheck( cudaGetLastError() );
     }
-
