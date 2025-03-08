@@ -9,15 +9,19 @@ module;
 #include <fstream>
 #include <vector>
 #include <array>
+#include <format>
+#include <memory>
+#include <type_traits>
 
 export module Gpt2.Gpt2Model;
 
 import Mila;
+
 import Gpt2.Gpt2Config;
 
 namespace Mila::Dnn::Gpt2
 {
-	using namespace Mila::Dnn::Compute;
+	using namespace Mila::Dnn;
 
 	constexpr int Gpt2ModelHeaderSize = 256;
 	constexpr int NumberOfParameterTensors = 16;
@@ -84,12 +88,32 @@ namespace Mila::Dnn::Gpt2
 		std::vector<float> losses; ///< Losses (B, T)
 	};
 
-	export class Gpt2Model {
+	export
+	template<typename TInput, typename TCompute = TInput, typename TDevice = Compute::CpuDevice>
+		requires ValidTensorTypes<TInput, TCompute> && std::is_base_of_v<Compute::ComputeDevice, TDevice>
+	class Gpt2Model { // : public Module<TInput, TCompute, TDevice> {
 	public:
+		using MR = TDevice::MR;
+
 		Gpt2Model( const ModelConfig& config, size_t batch_size, size_t sequence_length, bool is_training = true )
 			: config_( config ), batch_size_( batch_size ), seq_len_( sequence_length ), is_training_( is_training ) {
 			initialize_parameter_tensor_sizes();
 			initialize_activation_tensor_sizes();
+
+			// TODO: Good enough for testing
+			size_t B = batch_size_;
+			size_t T = seq_len_;
+			size_t C = (size_t)config_.channels;
+			size_t NH = config_.num_heads;
+
+			auto input_shape_ = std::vector<size_t>( { batch_size_, seq_len_, C } );
+
+			ln1_ = std::make_unique<LayerNorm<TInput, TCompute, TDevice>>( "ln_1", input_shape_ );
+			fc_1 = std::make_unique<Linear<TInput, TCompute, TDevice>>( "fc_1", C, 3 * C );
+			attn_ = std::make_unique< Attention<TInput, TCompute, TDevice>>( "attn_1", input_shape_, NH );
+			ln2_ = std::make_unique< LayerNorm<TInput, TCompute, TDevice>>( "ln_2", input_shape_ );
+			mlp_ = std::make_unique< MLP<TInput, TCompute, TDevice>>( "mlp_1", input_shape_, 4 * C );
+			residual_ = std::make_unique<Residual<TInput, TCompute, TDevice>>( "res_1" );
 
 			// Note: initialization of the activation tensors is handled during the current forward pass
 			// TJT: The model should be initialized and ready upon completion of the constructor
@@ -159,7 +183,7 @@ namespace Mila::Dnn::Gpt2
 			model_file.read( reinterpret_cast<char*>(&params_.lnfw[ 0 ]), param_sizes_[ 14 ] * sizeof( float ) );
 			model_file.read( reinterpret_cast<char*>(&params_.lnfb[ 0 ]), param_sizes_[ 15 ] * sizeof( float ) );
 
-			// TOD): Vectors or Tensors here
+			// TODO: Vectors or Tensors here
 			m_memory_ = nullptr;
 			v_memory_ = nullptr;
 		}
@@ -267,22 +291,24 @@ namespace Mila::Dnn::Gpt2
 			//encoder_backward( grads_.wte.data(), grads_.wpe.data(), grads_acts_.encoded.data(), inputs_, B, T, C );
 		}
 
-		void forward( const Tensor<int>& inputs, const Tensor<int>& targets, size_t B, size_t T ) {
+		void forward( const Tensor<int>& inputs, const Tensor<int>& targets ) {
 			// convenience parameters (size_t to help prevent int overflow)
 			size_t V = config_.vocab_size;
 			size_t Vp = config_.padded_vocab_size;
 			size_t L = config_.num_layers;
 			size_t NH = config_.num_heads;
 			size_t C = config_.channels;
+			size_t B = batch_size_;
+			size_t T = seq_len_;
 
 			// validate inputs, all indices must be in the range [0, V)
 			// TJT: This seems unnecessary - review 
-			for ( int i = 0; i < B * T; i++ ) {
-				assert( 0 <= inputs[ i ] && inputs[ i ] < V );
+			/*for ( int i = 0; i < B * T; i++ ) {
+				assert( 0 <= input[ i ] && input[ i ] < V );
 				if ( !targets.empty() ) {
 					assert( 0 <= targets[ i ] && targets[ i ] < V );
 				}
-			}
+			}*/
 
 			// allocate space for all the activations if needed (done here, lazily)
 			if ( acts_.encoded.empty() ) {
@@ -439,6 +465,20 @@ namespace Mila::Dnn::Gpt2
 		}
 
 	private:
+
+		std::unique_ptr<LayerNorm<TInput, TCompute, TDevice>> ln1_{ nullptr };
+		std::unique_ptr<Linear<TInput, TCompute, TDevice>> fc_1{ nullptr };
+		std::unique_ptr < Attention<TInput, TCompute, TDevice>> attn_{ nullptr };
+		std::unique_ptr < LayerNorm<TInput, TCompute, TDevice>> ln2_{ nullptr };
+		std::unique_ptr < MLP<TInput, TCompute, TDevice>> mlp_{ nullptr };
+		std::unique_ptr < Residual<TInput, TCompute, TDevice>> residual_{ nullptr };
+
+		Tensor<TCompute, MR> ln1_output_;
+		Tensor<TCompute, MR> fc1_output_;
+		Tensor<TCompute, MR> attn_output_;
+		Tensor<TCompute, MR> ln2_output_;
+		Tensor<TCompute, MR> mlp_output_;
+		Tensor<TCompute, MR> residual_output_;
 
 		void initialize_parameter_tensor_sizes() {
 			// Shorthand notation
@@ -656,8 +696,8 @@ namespace Mila::Dnn::Gpt2
 		ActivationTensors grads_acts_;
 
 		// other run state configuration
-		int batch_size_{ 0 }; // the batch size (B) of current forward pass
-		int seq_len_{ 0 }; // the sequence length (T) of current forward pass
+		size_t batch_size_{ 0 }; // the batch size (B) of current forward pass
+		size_t seq_len_{ 0 }; // the sequence length (T) of current forward pass
 
 		bool is_training_{ true };
 

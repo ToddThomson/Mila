@@ -4,6 +4,7 @@
 #include <iostream>
 #include <chrono>
 #include <string>
+#include <vector>
 
 import Mila;
 import Utils.Logger;
@@ -12,7 +13,6 @@ import Gpt2.Tokenizer;
 import Gpt2.Gpt2Config;
 import Gpt2.Gpt2Model;
 
-using namespace Mila::Dnn;
 
 unsigned int random_u32( uint64_t* state ) {
 	// xorshift rng: https://en.wikipedia.org/wiki/Xorshift#xorshift.2A
@@ -58,6 +58,8 @@ void error_usage() {
 }
 
 int main( int argc, char* argv[] ) {
+	using namespace Mila::Dnn;
+
 	Mila::Initialize();
 	std::cout << "Mila version: " << Mila::GetAPIVersion().ToString() << std::endl;
 
@@ -115,7 +117,7 @@ int main( int argc, char* argv[] ) {
 
 	// TJT: This is a bit confusing. The model is initialied with a config object, but then the model is loaded from a checkpoint.
 	ModelConfig config;
-	Gpt2Model model = Gpt2Model( config, B, T, /*is_training*/ true );
+	auto model = Gpt2Model<float>( config, B, T );
 	model.fromCheckpoint( "data/models/gpt2/gpt2_124M.bin" );
 
 	model.print();
@@ -152,7 +154,7 @@ int main( int argc, char* argv[] ) {
 			// Evaluate the validation loss
 			for ( int i = 0; i < val_num_batches; i++ ) {
 				val_loader.next_batch();
-				model.forward( val_loader.inputs(), val_loader.targets(), B, T );
+				//model.forward( val_loader.inputs(), val_loader.targets() );
 				val_loss += model.get_mean_loss();
 				std::cout << ".";
 			}
@@ -175,7 +177,7 @@ int main( int argc, char* argv[] ) {
 				// but the inference here is just for sanity checking anyway
 				// and we can maybe optimize a bit more later, with careful tests
 				Tensor<int> empty_targets; //int
-				model.forward( gen_tokens, empty_targets, B, T );
+				//model.forward( gen_tokens, empty_targets );
 
 				// furthermore, below we're only using b=0 (i.e. the first row) of all B rows
 				// we're in principle running B "inference streams" in parallel here
@@ -208,10 +210,10 @@ int main( int argc, char* argv[] ) {
 
 		train_loader.next_batch();
 
-		model.forward( train_loader.inputs(), train_loader.targets(), B, T );
-		model.zero_grads();
-		model.backward();
-		model.update( 1e-4f, 0.9f, 0.999f, 1e-8f, 0.0f, step + 1 );
+		//model.forward( train_loader.inputs(), train_loader.targets() );
+		//model.zero_grads();
+		//model.backward();
+		//model.update( 1e-4f, 0.9f, 0.999f, 1e-8f, 0.0f, step + 1 );
 
 		auto end_time = std::chrono::steady_clock::now();
 		double time_elapsed_s = std::chrono::duration<double>( end_time - start_time ).count();

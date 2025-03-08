@@ -90,7 +90,7 @@ namespace Tensors::Tests {
         testing::internal::CaptureStdout();
         tensor.print();
         std::string output = testing::internal::GetCapturedStdout();
-        EXPECT_NE( output.find( "Tensor of shape: 2 3" ), std::string::npos );
+        EXPECT_NE( output.find( "Shape: 2 3" ), std::string::npos );
         EXPECT_NE( output.find( "1" ), std::string::npos );
     }
 

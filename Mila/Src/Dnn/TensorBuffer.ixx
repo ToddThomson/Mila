@@ -21,33 +21,22 @@ namespace Mila::Dnn
 	class TensorBuffer {
 	public:
 		/**
-		* @brief Construct a new TensorBuffer object with default initialization.
+		* @brief Construct a new TensorBuffer object with optional value initialization.
 		* 
 		* @param size The number of elements in the buffer.
+		* @param value Value to initialize the buffer with.
 		*/
-		explicit TensorBuffer( size_t size )
+		explicit TensorBuffer( size_t size, T value = T{} )
 			: size_( size ), mr_( std::make_unique<MR>() ) {
-			data_ = static_cast<T*>( mr_->allocate( size_ * sizeof( T ) ) );
-			initializeBuffer();
-		}
-
-		/**
-		* @brief Construct a new TensorBuffer object with a specific value initialization.
-		* 
-		* @param size The number of elements in the buffer.
-		* @param value The value to initialize the buffer with.
-		*/
-		TensorBuffer( size_t size, const T& value )
-			: size_( size ), mr_( std::make_unique<MR>() ) {
-			data_ = static_cast<T*>( mr_->allocate( size_ * sizeof( T ) ) );
-			initializeBuffer(value);
+			data_ = static_cast<T*>(mr_->allocate( size_ * sizeof( T ) ));
+			initializeBuffer( value );
 		}
 
 		/**
 		* @brief Destroy the TensorBuffer object.
 		*/
 		~TensorBuffer() {
-			mr_->deallocate( data_, size_ * sizeof(T) );
+			mr_->deallocate(data_, size_ * sizeof(T));
 		}
 
 		/**
@@ -55,11 +44,11 @@ namespace Mila::Dnn
 		* 
 		* @param size The new size of the buffer.
 		*/
-		void resize( size_t size ) {
-			if ( size_ != size ) {
-				mr_->deallocate( data_, size_ * sizeof( T ) );
+		void resize(size_t size) {
+			if (size_ != size) {
+				mr_->deallocate(data_, size_ * sizeof(T));
 				size_ = size;
-				data_ = static_cast<T*>( mr_->allocate( size_ * sizeof(T) ) );
+				data_ = static_cast<T*>(mr_->allocate(size_ * sizeof(T)));
 				initializeBuffer();
 			}
 		}
@@ -70,8 +59,8 @@ namespace Mila::Dnn
 		* @param i The index of the element.
 		* @return T& A reference to the element.
 		*/
-		/*T& operator[]( size_t i ) {
-			return data_[ i ];
+		/*T& operator[](size_t i) {
+			return data_[i];
 		}*/
 
 		/**
@@ -93,31 +82,19 @@ namespace Mila::Dnn
 		}
 
 	private:
-		size_t size_{ 0 }; ///< The number of elements in the buffer.
-		T* data_{ nullptr }; ///< A pointer to the data.
-		std::unique_ptr<Compute::MemoryResource> mr_{ nullptr }; ///< A unique pointer to the memory resource.
+		size_t size_{0}; ///< The number of elements in the buffer.
+		T* data_{nullptr}; ///< A pointer to the data.
+		std::unique_ptr<Compute::MemoryResource> mr_{nullptr}; ///< A unique pointer to the memory resource.
 
 		/**
-		* @brief Initialize the buffer with default values.
-		*/
-		void initializeBuffer() {
-			if constexpr (std::is_same_v<MR, Compute::CpuMemoryResource>) {
-				std::fill(data_, data_ + size_, T{});
-			} else if constexpr (std::is_same_v<MR, Compute::CudaMemoryResource>) {
-				cudaMemset(data_, 0, size_ * sizeof(T));
-			}
-		}
-
-		/**
-		* @brief Initialize the buffer with a specific value.
+		* @brief Initialize the buffer with a value.
 		* 
-		* @param value The value to initialize the buffer with.
+		* @param value Value to initialize the buffer with.
 		*/
-		void initializeBuffer(const T& value) {
+		void initializeBuffer(T value = T{}) {
 			if constexpr (std::is_same_v<MR, Compute::CpuMemoryResource>) {
 				std::fill(data_, data_ + size_, value);
 			} else if constexpr (std::is_same_v<MR, Compute::CudaMemoryResource>) {
-				// For CUDA, we need to use cudaMemcpy to set the value
 				std::vector<T> temp(size_, value);
 				cudaMemcpy(data_, temp.data(), size_ * sizeof(T), cudaMemcpyHostToDevice);
 			}

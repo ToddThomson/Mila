@@ -51,20 +51,23 @@ namespace Mila::Dnn
 		using Extent3d = std::dextents<size_t, 3>;
 		using Extent4d = std::dextents<size_t, 4>;
 
-		Tensor( const std::vector<size_t>& shape )
+        /**
+        * @brief Constructs a tensor with the given shape and initializes it with the specified value.
+        *
+        * This constructor initializes the tensor with the provided shape and fills it with the given value.
+        * If no value is provided, the tensor is initialized with the default value of the type T.
+        *
+        * @param shape The shape of the tensor.
+        * @param value The value to initialize the tensor with. Defaults to the default value of type T.
+        */
+		Tensor( const std::vector<size_t>& shape, T value = T{} )
 			: uid_{ set_uid() }, shape_( shape ), strides_( computeStrides( shape ) ), size_( computeSize( shape ) ) {
-			
-			allocateBuffer();
-		}
-
-		Tensor( const std::vector<size_t>& shape, const T& value )
-			: shape_( shape ), strides_( computeStrides( shape ) ), size_( computeSize( shape ) ) {
 			allocateBuffer( value );
 		}
 
 		Tensor()
-			: shape_(), strides_( computeStrides( shape_ ) ), size_() {
-			allocateBuffer();
+			: uid_{ set_uid() }, shape_(), strides_( computeStrides( shape_ ) ), size_() {
+			allocateBuffer( T{} );
 		}
 
 		/*Tensor( float const& scalar )
@@ -277,19 +280,20 @@ namespace Mila::Dnn
 		}
 
 		void print() const {
-			std::cout << "Tensor of shape: ";
+			std::cout << "Tensor: " << uid_;
+			if ( !name_.empty() ) std::cout << "::" << name_ << std::endl;
+			std::cout << "Type::" << to_string( data_type_ ) << std::endl;
+			std::cout << "Size: " << size_ << std::endl;
+			std::cout << "Shape: ";
 			for ( auto dim : shape_ ) {
 				std::cout << dim << " ";
 			}
 			std::cout << std::endl;
-			std::cout << "Tensor type::" << to_string( data_type_ ) << std::endl;
-			//std::cout << "Device: " << device_->getName() << std::endl;
-			std::cout << "Size: " << size_ << std::endl;
-			std::cout << "Data:" << std::endl;
 
 			if ( data_type_ == TensorType::FP32 ) {
 				printBuffer( 0, 0 );
 			}
+			std::cout << std::endl;
 		}
 
 		/**
@@ -299,7 +303,8 @@ namespace Mila::Dnn
 		*
 		* @param other The tensor to copy from.
 		*/
-		Tensor( const Tensor& other ) : name_( other.name_ ), shape_( other.shape_ ), strides_( other.strides_ ),
+		Tensor( const Tensor& other ) 
+			: uid_( other.uid_ ), name_( other.name_ ), shape_( other.shape_ ), strides_( other.strides_ ),
 			size_( other.size_ ), data_type_( other.data_type_ ), buffer_( other.buffer_ ) {}
 		
 		
@@ -310,18 +315,19 @@ namespace Mila::Dnn
         *
         * @param other The tensor to move from.
         */
-        Tensor( Tensor&& other ) noexcept
-        : name_( std::move( other.name_ ) ),
-        scalar_value_( std::move( other.scalar_value_ ) ),
-        is_scalar_( other.is_scalar_ ),
-        size_( other.size_ ),
-        data_type_( other.data_type_ ),
-        shape_( std::move( other.shape_ ) ),
-        strides_( std::move( other.strides_ ) ),
-        buffer_( std::move( other.buffer_ ) ) {
-        other.size_ = 0;
-        other.data_type_ = TensorType::FP16;
-        }
+		Tensor( Tensor&& other ) noexcept
+			: uid_( std::move( other.uid_ ) ),
+			name_( std::move( other.name_ ) ),
+			scalar_value_( std::move( other.scalar_value_ ) ),
+			is_scalar_( other.is_scalar_ ),
+			size_( other.size_ ),
+			data_type_( other.data_type_ ),
+			shape_( std::move( other.shape_ ) ),
+			strides_( std::move( other.strides_ ) ),
+			buffer_( std::move( other.buffer_ ) ) {
+			other.size_ = 0;
+			other.data_type_ = TensorType::FP16;
+		}
 
 		/**
 		* @brief Move assignment operator.
@@ -333,6 +339,7 @@ namespace Mila::Dnn
 		*/
 		Tensor& operator=( Tensor&& other ) noexcept {
 			if ( this != &other ) {
+				uid_ = std::move( other.uid_ );
 				name_ = std::move( other.name_ );
 				shape_ = std::move( other.shape_ );
 				strides_ = std::move( other.strides_ );
@@ -356,6 +363,7 @@ namespace Mila::Dnn
 		*/
 		Tensor& operator=( const Tensor& other ) {
 			if ( this != &other ) {
+				uid_ = other.uid_;
 				name_ = other.name_;
 				shape_ = other.shape_;
 				strides_ = other.strides_;
@@ -379,10 +387,6 @@ namespace Mila::Dnn
 		std::vector<size_t> strides_{};
 		std::shared_ptr<TensorBuffer<T, TMemoryResource>> buffer_{ nullptr };
 
-		void allocateBuffer() {
-			buffer_ = std::make_shared<TensorBuffer<T, TMemoryResource>>( size_ );
-			data_type_ = tensor_type_of( buffer_->data() );
-		}
 		void allocateBuffer( T value ) {
 			buffer_ = std::make_shared<TensorBuffer<T, TMemoryResource>>( size_, value );
 			data_type_ = tensor_type_of( buffer_->data() );

@@ -17,13 +17,12 @@ import Compute.CpuDevice;
 import Dnn.Modules.Linear;
 import Dnn.Modules.Gelu;
 
-namespace Mila::Dnn::Blocks
+namespace Mila::Dnn
 {
-    using namespace Mila::Dnn;
 
     export
     template<typename TInput, typename TCompute = TInput, typename TDevice = Compute::CpuDevice>
-        requires ValidTensorTypes<TInput, TCompute>&& std::is_base_of_v<Compute::ComputeDevice, TDevice>
+        requires ValidTensorTypes<TInput, TCompute> && std::is_base_of_v<Compute::ComputeDevice, TDevice>
     class MLP : public Module<TInput, TCompute, TDevice> {
     public:
 		using MR = TDevice::MR;

@@ -5,7 +5,8 @@ add_library( Mila STATIC
 	"Src/Dnn/Compute/Cuda/Kernels/Cuda.MatMul.h"
 	"Src/Dnn/Compute/Cuda/Kernels/Cuda.Gelu.h"
 	"Src/Dnn/Compute/Cuda/Kernels/Cuda.Gelu.cu"
- "Src/Dnn/Compute/Cuda/Kernels/Cuda.Utils.h")
+	"Src/Dnn/Compute/Cuda/Kernels/Cuda.Utils.h"
+)
 
 set_target_properties( Mila PROPERTIES
 	CXX_STANDARD_REQUIRED ON
@@ -98,13 +99,13 @@ PUBLIC
 		"Src/Dnn/Modules/Residual.ixx"
 		"Src/Dnn/Modules/Softmax.ixx"
 		"Src/Dnn/Modules/Encoder.ixx"
-		"Src/Dnn/Blocks/TransformerBlock.ixx"
-		"Src/Dnn/Blocks/MLP.ixx"
+		"Src/Dnn/Modules/Blocks/MLP.ixx"
+		"Src/Dnn/Modules/Blocks/TransformerBlock.ixx"
 		
 		"Src/Dnn/Graph.ixx"
 		"Src/Dnn/Compute/Backend.ixx"
 		"Src/Dnn/Compute/Cuda/CudaComputeResource.ixx"
- "Src/Dnn/Compute/Cuda/CudaGeluOp.ixx")
+		"Src/Dnn/Compute/Cuda/CudaGeluOp.ixx")
 
 target_link_libraries( Mila PRIVATE CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
 

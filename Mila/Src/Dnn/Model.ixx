@@ -8,6 +8,7 @@ module;
 #include <string>
 #include <iostream>
 #include <stdexcept>
+#include <type_traits>
 
 export module Dnn.Model;
 
@@ -37,8 +38,8 @@ namespace Mila::Dnn
 	* @tparam MemoryResource The memory resource type used for memory management.
 	*/
 	export
-		template<typename TInput, typename TCompute = TInput, typename TDevice = Compute::CpuDevice>
-		requires ValidTensorTypes<TInput, TCompute> && (std::is_same_v<TDevice, Compute::CpuDevice> || std::is_same_v<TDevice, Compute::CudaDevice>)
+	template<typename TInput, typename TCompute = TInput, typename TDevice = Compute::CpuDevice>
+		requires ValidTensorTypes<TInput, TCompute> && std::is_base_of_v<Compute::ComputeDevice, TDevice>
 	class Model {
 	public:
 		using MR = TDevice::MR;

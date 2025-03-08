@@ -111,5 +111,5 @@ namespace Mila::Dnn::Gpt2
 		uint32_t vocab_size_; ///< The size of the vocabulary.
 		std::vector<std::vector<char>> token_table_; ///< The table of tokens.
 		int eot_token_; ///< The end-of-text token ID.
-	};  // class Tokenizer
-} // namespace Mila::Dnn::Gpt2
+	};
+}

@@ -36,13 +36,14 @@ module;
 
 export module Gpt2.DataLoader;
 
-import Dnn.Tensor;
+import Mila;
+
 import Helpers.Memory;
 import Misc.Glob;
 
 namespace Mila::Dnn::Gpt2
 {
-	//using Tensor = Mila::Dnn::Tensor;
+    using namespace Mila::Dnn;
 
     /// @brief Size of the GPT-2 token file header.
     constexpr int Gpt2TokenFileHeaderSize = 256;

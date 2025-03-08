@@ -31,7 +31,7 @@ int main() {
     std::vector<size_t> input_shape = std::vector<size_t>{ batch_size, sequence_length, channels };
     std::vector<size_t> output_shape = std::vector<size_t>{ batch_size, sequence_length, channels };
 
-    auto transformer_block = Blocks::TransformerBlock<float>( input_shape, num_heads );
+    auto transformer_block = TransformerBlock<float>( input_shape, num_heads );
 
     Tensor<float, Compute::CpuMemoryResource> X( input_shape );
 	X.set_name( "X" );
@@ -41,11 +41,12 @@ int main() {
     Tensor<float, Compute::CpuMemoryResource> Y( output_shape );
 	Y.set_name( "Y" );
 
+	std::cout << ">>> TransformerBlock input: " << std::endl;
 	X.print();
 
     transformer_block.forward( X, Y );
 
-    std::cout << "Cpu output: " << std::endl;
+    std::cout << ">>> TransformerBlock output: " << std::endl;
     Y.print();
 
 	return 0;

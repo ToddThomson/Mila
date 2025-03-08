@@ -21,10 +21,8 @@ import Dnn.Modules.Attention;
 import Dnn.Modules.Residual;
 import Dnn.Blocks.MLP;
 
-namespace Mila::Dnn::Blocks
+namespace Mila::Dnn
 {
-	using namespace Mila::Dnn;
-
 	export
 	template<typename TInput, typename TCompute = TInput, typename TDevice = Compute::CpuDevice>
 		requires ValidTensorTypes<TInput, TCompute> && std::is_base_of_v<Compute::ComputeDevice, TDevice>
@@ -43,7 +41,7 @@ namespace Mila::Dnn::Blocks
 			fc_1 = std::make_unique<Linear<TInput, TCompute, TDevice>>( "fc_1", C, 3 * C );
 			attn_ = std::make_unique< Attention<TInput, TCompute, TDevice>>( "attn_1", input_shape_, num_heads_ );
 			ln2_ = std::make_unique< LayerNorm<TInput, TCompute, TDevice>>( "ln_2", input_shape_ );
-			mlp_ = std::make_unique< MLP<TInput, TCompute, TDevice>>( "mlp_1", input_shape, 4 * C);
+			mlp_ = std::make_unique< MLP<TInput, TCompute, TDevice>>( "mlp_1", input_shape_, 4 * C);
 			residual_ = std::make_unique<Residual<TInput, TCompute, TDevice>>( "res_1" );
 
 			// Pre-allocate output tensors for the Transformer block layers

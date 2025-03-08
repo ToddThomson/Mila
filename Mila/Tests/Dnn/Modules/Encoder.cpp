@@ -25,9 +25,13 @@ namespace Modules::Tests
             
             cpu_encoder = std::make_unique<Encoder<int, float, Compute::CpuDevice>>(
                 "cpu_encoder", channels_, max_seq_len_, vocab_len_ );
+
+            //cuda_encoder = std::make_unique<Encoder<int, float, Compute::CudaDevice>>(
+            //    "cuda_encoder", channels_, max_seq_len_, vocab_len_ );
         }
 
         std::unique_ptr<Encoder<int, float, Compute::CpuDevice>> cpu_encoder;
+        //std::unique_ptr<Encoder<int, float, Compute::CudaDevice>> cuda_encoder;
 
         size_t batch_size_{ 0 };
         size_t cpu_batch_size_{ 0 };
@@ -57,10 +61,12 @@ namespace Modules::Tests
         EXPECT_EQ( output.size(), cpu_batch_size_ * sequence_length_ * channels_ );
     }
 
+	// TODO: Uncomment when the CUDA encoder is fully implemented
     //TEST_F( EncoderTests, Cuda_TestForward ) {
-    //    MilaDnn::Tensor<float, MilaDnn::Compute::DeviceMemoryResource> input( { batch_size_, sequence_length_, channels_ } );
-    //    auto output = cuda_linear->forward( input );
-    //    EXPECT_EQ( output.size(), batch_size_ * sequence_length_ * output_channels_ );
+    //    Tensor<float, Compute::CudaMemoryResource> input( { batch_size_, sequence_length_ } );
+    //    Tensor<float, Compute::CudaMemoryResource> output( { batch_size_, sequence_length_, channels_ } );
+    //    cuda_encoder->forward( input, output );
+    //    EXPECT_EQ( output.size(), batch_size_ * sequence_length_ * channels_ );
     //}
 
     TEST_F( EncoderTests, Cpu_TestPrint ) {

@@ -3,6 +3,7 @@ module;
 #include <vector>
 #include <string>
 #include <iostream>
+#include <type_traits>
 
 export module Dnn.Modules.Encoder;
 

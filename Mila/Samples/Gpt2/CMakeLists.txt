@@ -2,6 +2,10 @@ add_executable( Gpt2App
 	"Src/TrainGpt2.cpp"
 )
 
+set_target_properties(Gpt2App PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+)
+
 target_sources( Gpt2App
 PUBLIC
 	FILE_SET module_files
