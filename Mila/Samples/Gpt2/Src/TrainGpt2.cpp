@@ -13,7 +13,6 @@ import Gpt2.Tokenizer;
 import Gpt2.Gpt2Config;
 import Gpt2.Gpt2Model;
 
-
 unsigned int random_u32( uint64_t* state ) {
 	// xorshift rng: https://en.wikipedia.org/wiki/Xorshift#xorshift.2A
 	*state ^= *state >> 12;

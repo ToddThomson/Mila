@@ -10,6 +10,8 @@ module;
 #include <cuda_fp16.h>
 #include <atomic>
 #include <string>
+#include <stdexcept>
+#include <numeric>
 
 export module Dnn.Tensor;
 
@@ -126,16 +128,17 @@ namespace Mila::Dnn
 
 		void reshape( const std::vector<size_t>& new_shape ) {
 			size_t new_size = computeSize( new_shape );
-			if ( this->empty() || new_size == size_ ) {
-				shape_ = new_shape;
-				if ( empty() ) {
-					buffer_->resize( new_size );
-					size_ = new_size;
-				}
-				return;
+			if ( !empty() && (new_size != size_) ) {
+				throw std::runtime_error( "The new shape must match the size of the tensor or the tensor must be empty." );
 			}
 
-			throw std::runtime_error( "The new shape must match the size of the tensor or the tensor must be empty." );
+			shape_ = new_shape;
+			strides_ = computeStrides( new_shape );
+
+			if ( empty() ) {
+				buffer_->resize( new_size );
+				size_ = new_size;
+			}
 		}
 
 		auto vectorSpan() {
@@ -418,25 +421,28 @@ namespace Mila::Dnn
 			}
 		}
 
+        
 		static std::vector<size_t> computeStrides( const std::vector<size_t>& shape ) {
-			std::vector<size_t> strides( shape.size() );
+			std::vector<size_t> strides( shape.size(), 1 );
 
-			size_t stride = 1;
-			for ( int i = shape.size() - 1; i >= 0; --i ) {
-				strides[ i ] = stride;
-				stride *= shape[ i ];
+			if ( shape.empty() ) {
+				return strides;
+			}
+
+			for ( int i = shape.size() - 2; i >= 0; --i ) {
+				strides[ i ] = strides[ i + 1 ] * shape[ i + 1 ];
 			}
 
 			return strides;
 		}
 
-		static size_t computeSize( const std::vector<size_t>& shape ) {
-			size_t size = 1;
-			for ( size_t dim : shape ) {
-				size *= dim;
-			}
-			return size;
-		}
+        static size_t computeSize(const std::vector<size_t>& shape) {
+           if (shape.empty()) {
+               return 0;
+           }
+           return std::accumulate(shape.begin(), shape.end(), 1ull, std::multiplies<size_t>());
+        }
+
 
 		size_t computeIndex( const std::vector<size_t>& indices ) const {
 			size_t index = 0;
@@ -451,7 +457,7 @@ namespace Mila::Dnn
 		}
 	};
 
-	export template <class T>
+	export template <typename T>
 		using CpuTensor = Tensor<T, Compute::CpuMemoryResource>;
 
 	export template <class T>

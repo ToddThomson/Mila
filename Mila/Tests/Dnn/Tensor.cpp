@@ -31,6 +31,70 @@ namespace Tensors::Tests {
         EXPECT_EQ( tensor.shape(), shape );
     }
 
+    TEST( TensorTest, Cpu_ConstructorWithEmptyShape ) {
+        std::vector<size_t> shape = {};
+        Tensor<float> tensor( shape );
+        EXPECT_TRUE( tensor.empty() );
+        EXPECT_EQ( tensor.size(), 0 );
+        EXPECT_EQ( tensor.rank(), 0 );
+		EXPECT_EQ( tensor.strides().size(), 0 );
+        EXPECT_EQ( tensor.shape(), shape );
+    }
+
+    TEST( TensorTest, ConstructorWithValidShapeAndValue ) {
+        // Test case 1: 1D tensor with shape {5} and value 1
+        std::vector<size_t> shape1D = { 5 };
+        int value1D = 1;
+        Tensor<int> tensor1D( shape1D, value1D );
+        EXPECT_EQ( tensor1D.size(), 5 );
+        EXPECT_EQ( tensor1D.shape(), shape1D );
+        for ( size_t i = 0; i < tensor1D.size(); ++i ) {
+            EXPECT_EQ( tensor1D[ i ], value1D );
+        }
+
+        // Test case 2: 2D tensor with shape {3, 3} and value 2.5
+        std::vector<size_t> shape2D = { 3, 3 };
+        float value2D = 2.5f;
+        Tensor<float> tensor2D( shape2D, value2D );
+        EXPECT_EQ( tensor2D.size(), 9 );
+        EXPECT_EQ( tensor2D.shape(), shape2D );
+        /*for ( size_t i = 0; i < shape2D[ 0 ]; ++i ) {
+            for ( size_t j = 0; j < shape2D[ 1 ]; ++j ) {
+                EXPECT_EQ( tensor2D[ i, j ], value2D );
+            }
+        }*/
+
+        // Test case 3: 3D tensor with shape {2, 2, 2} and value -1
+        std::vector<size_t> shape3D = { 2, 2, 2 };
+        int value3D = -1;
+        Tensor<int> tensor3D( shape3D, value3D );
+        EXPECT_EQ( tensor3D.size(), 8 );
+        EXPECT_EQ( tensor3D.shape(), shape3D );
+        /*for ( size_t i = 0; i < shape3D[ 0 ]; ++i ) {
+            for ( size_t j = 0; j < shape3D[ 1 ]; ++j ) {
+                for ( size_t k = 0; k < shape3D[ 2 ]; ++k ) {
+                    EXPECT_EQ( tensor3D[ i, j, k ], value3D );
+                }
+            }
+        }*/
+
+        // Test case 4: 4D tensor with shape {2, 2, 2, 2} and value 0.5
+        std::vector<size_t> shape4D = { 2, 2, 2, 2 };
+        double value4D = 0.5f;
+        Tensor<float> tensor4D( shape4D, value4D );
+        EXPECT_EQ( tensor4D.size(), 16 );
+        EXPECT_EQ( tensor4D.shape(), shape4D );
+        /*for ( size_t i = 0; i < shape4D[ 0 ]; ++i ) {
+            for ( size_t j = 0; j < shape4D[ 1 ]; ++j ) {
+                for ( size_t k = 0; k < shape4D[ 2 ]; ++k ) {
+                    for ( size_t l = 0; l < shape4D[ 3 ]; ++l ) {
+                        EXPECT_EQ( tensor4D[ i, j, k, l ], value4D );
+                    }
+                }
+            }
+        }*/
+    }
+
     TEST( TensorTest, Reshape ) {
         std::vector<size_t> shape = { 2, 3 };
         Tensor<float, Compute::CpuMemoryResource> tensor( shape );
