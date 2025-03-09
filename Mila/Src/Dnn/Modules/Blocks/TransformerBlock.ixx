@@ -32,7 +32,6 @@ namespace Mila::Dnn
 
 		TransformerBlock( const std::vector<size_t>& input_shape, const size_t num_heads )
 			: input_shape_{ validate_shape( input_shape ) }, num_heads_{ num_heads } {
-			// The input shape is [batch_size, sequence_length, channels] from the previous layer. Initially from the encoder block.
 			auto B = input_shape_[ 0 ];
 			auto T = input_shape_[ 1 ];
 			auto C = input_shape_[ 2 ];
@@ -135,11 +134,10 @@ namespace Mila::Dnn
 		Tensor<TCompute, MR> ln2_output_;
 		Tensor<TCompute, MR> mlp_output_;
 		Tensor<TCompute, MR> residual_output_;
-	
 
 		std::vector<size_t> validate_shape( const std::vector<size_t>& shape ) {
 			if ( shape.size() != 3 ) {
-				throw std::invalid_argument( "The input shape must have 3 dimensions." );
+				throw std::invalid_argument( "The input shape must have rank of 3." );
 			}
 
 			return shape;

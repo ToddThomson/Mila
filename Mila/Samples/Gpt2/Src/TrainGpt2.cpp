@@ -118,7 +118,6 @@ int main( int argc, char* argv[] ) {
 	ModelConfig config;
 	auto model = Gpt2Model<float>( config, B, T );
 	model.fromCheckpoint( "data/models/gpt2/gpt2_124M.bin" );
-
 	model.print();
 
 	// build DataLoaders for both train and val
@@ -138,9 +137,9 @@ int main( int argc, char* argv[] ) {
 	// build the Tokenizer
 	Tokenizer tokenizer = Tokenizer( "data/models/gpt2/gpt2_tokenizer.bin" );
 
-	// some memory for generating samples from the model
+	// Tensor for generating samples from the model
 	uint64_t rng_state = 1337;
-	Tensor<int> gen_tokens( std::vector<size_t>( { B * T } ) );
+	Tensor<int> gen_tokens( std::vector<size_t>( { B, T } ) );
 
 	// Training loop
 	for ( int step = 0; step <= 40; step++ ) {
@@ -150,10 +149,11 @@ int main( int argc, char* argv[] ) {
 			val_loader.reset();
 			std::cout << "Calculating validation loss: .";
 
-			// Evaluate the validation loss
 			for ( int i = 0; i < val_num_batches; i++ ) {
 				val_loader.next_batch();
-				//model.forward( val_loader.inputs(), val_loader.targets() );
+				val_loader.inputs().print();
+				val_loader.targets().print();
+				model.forward( val_loader.inputs(), val_loader.targets() );
 				val_loss += model.get_mean_loss();
 				std::cout << ".";
 			}
@@ -176,7 +176,7 @@ int main( int argc, char* argv[] ) {
 				// but the inference here is just for sanity checking anyway
 				// and we can maybe optimize a bit more later, with careful tests
 				Tensor<int> empty_targets; //int
-				//model.forward( gen_tokens, empty_targets );
+				model.forward( gen_tokens, empty_targets );
 
 				// furthermore, below we're only using b=0 (i.e. the first row) of all B rows
 				// we're in principle running B "inference streams" in parallel here

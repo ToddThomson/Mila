@@ -64,25 +64,34 @@ namespace Mila::Dnn::Gpt2
 	 */
 	struct ActivationTensors {
 		std::vector<float> encoded; ///< Encoded input tokens (B, T, C)
+
 		std::vector<float> ln1; ///< Layer normalization 1 activations (L, B, T, C)
 		std::vector<float> ln1_mean; ///< Layer normalization 1 mean (L, B, T)
 		std::vector<float> ln1_rstd; ///< Layer normalization 1 reciprocal standard deviation (L, B, T)
+		
 		std::vector<float> qkv; ///< Query, Key, Value activations (L, B, T, 3*C)
 		std::vector<float> atty; ///< Attention output (L, B, T, C)
 		std::vector<float> preatt; ///< Pre-attention activations (L, B, NH, T, T)
 		std::vector<float> att; ///< Attention activations (L, B, NH, T, T)
 		std::vector<float> attproj; ///< Attention projection activations (L, B, T, C)
+		
 		std::vector<float> residual2; ///< Residual connection 2 activations (L, B, T, C)
+		
 		std::vector<float> ln2; ///< Layer normalization 2 activations (L, B, T, C)
 		std::vector<float> ln2_mean; ///< Layer normalization 2 mean (L, B, T)
 		std::vector<float> ln2_rstd; ///< Layer normalization 2 reciprocal standard deviation (L, B, T)
+		
 		std::vector<float> fch; ///< Fully connected hidden layer activations (L, B, T, 4*C)
 		std::vector<float> fch_gelu; ///< GELU activations (L, B, T, 4*C)
+		
 		std::vector<float> fcproj; ///< Fully connected projection activations (L, B, T, C)
+		
 		std::vector<float> residual3; ///< Residual connection 3 activations (L, B, T, C)
+		
 		std::vector<float> lnf; ///< Final layer normalization activations (B, T, C)
 		std::vector<float> lnf_mean; ///< Final layer normalization mean (B, T)
 		std::vector<float> lnf_rstd; ///< Final layer normalization reciprocal standard deviation (B, T)
+		
 		std::vector<float> logits; ///< Logits (B, T, V)
 		std::vector<float> probs; ///< Probabilities (B, T, V)
 		std::vector<float> losses; ///< Losses (B, T)
@@ -97,6 +106,8 @@ namespace Mila::Dnn::Gpt2
 
 		Gpt2Model( const ModelConfig& config, size_t batch_size, size_t sequence_length, bool is_training = true )
 			: config_( config ), batch_size_( batch_size ), seq_len_( sequence_length ), is_training_( is_training ) {
+			// Deprecated way of initializing the model. To be removed after model serialization is implemented.
+
 			initialize_parameter_tensor_sizes();
 			initialize_activation_tensor_sizes();
 
@@ -106,14 +117,22 @@ namespace Mila::Dnn::Gpt2
 			size_t C = (size_t)config_.channels;
 			size_t NH = config_.num_heads;
 
-			auto input_shape_ = std::vector<size_t>( { batch_size_, seq_len_, C } );
+			encoder_ = std::make_unique<Encoder<int, float, TDevice>>( "enc", C, T, config_.vocab_size );
+			encoder_output_ = Tensor<TCompute, MR>( std::vector<size_t>( { B,T,C } ));
 
-			ln1_ = std::make_unique<LayerNorm<TInput, TCompute, TDevice>>( "ln_1", input_shape_ );
-			fc_1 = std::make_unique<Linear<TInput, TCompute, TDevice>>( "fc_1", C, 3 * C );
-			attn_ = std::make_unique< Attention<TInput, TCompute, TDevice>>( "attn_1", input_shape_, NH );
-			ln2_ = std::make_unique< LayerNorm<TInput, TCompute, TDevice>>( "ln_2", input_shape_ );
-			mlp_ = std::make_unique< MLP<TInput, TCompute, TDevice>>( "mlp_1", input_shape_, 4 * C );
-			residual_ = std::make_unique<Residual<TInput, TCompute, TDevice>>( "res_1" );
+			auto block_io_shape = std::vector<size_t>( { batch_size_, seq_len_, C } );
+			block_output_ = Tensor<TCompute, MR>( block_io_shape );
+
+			for ( size_t l = 0; l < config_.num_layers; l++ ) {
+				layers_.emplace_back( std::make_unique<TransformerBlock<TInput, TCompute, TDevice>>( block_io_shape, NH ) );
+			}
+
+			//ln1_ = std::make_unique<LayerNorm<TInput, TCompute, TDevice>>( "ln_1", input_shape_ );
+			//fc_1 = std::make_unique<Linear<TInput, TCompute, TDevice>>( "fc_1", C, 3 * C );
+			//attn_ = std::make_unique< Attention<TInput, TCompute, TDevice>>( "attn_1", input_shape_, NH );
+			//ln2_ = std::make_unique< LayerNorm<TInput, TCompute, TDevice>>( "ln_2", input_shape_ );
+			//mlp_ = std::make_unique< MLP<TInput, TCompute, TDevice>>( "mlp_1", input_shape_, 4 * C );
+			//residual_ = std::make_unique<Residual<TInput, TCompute, TDevice>>( "res_1" );
 
 			// Note: initialization of the activation tensors is handled during the current forward pass
 			// TJT: The model should be initialized and ready upon completion of the constructor
@@ -132,13 +151,13 @@ namespace Mila::Dnn::Gpt2
 		}
 
 		void fromCheckpoint( const std::string& checkpoint_path ) {
-			// read in model from a checkpoint file
+			// Read in model from a checkpoint file
 			std::ifstream model_file( checkpoint_path, std::ifstream::binary );
 			if ( !model_file.is_open() ) {
 				throw std::runtime_error( std::format( "Could not open model file: {}", checkpoint_path ) );
 			}
 
-			// read in the header
+			// Read in the header
 			std::array<int, Gpt2ModelHeaderSize> model_header;
 			model_file.read( reinterpret_cast<char*>(&model_header), Gpt2ModelHeaderSize * sizeof( int ) );
 
@@ -319,7 +338,7 @@ namespace Mila::Dnn::Gpt2
 				// initialize the activation Tensors
 				initialize_activation_tensors( acts_ );
 
-				// also create Tensors fpr caching inputs and targets
+				// also create Tensors for caching inputs and targets
 				inputs_.reshape( { B * T } );
 				targets_.reshape( { B * T } ); // might be unused if we never have targets but it's small
 			}
@@ -339,58 +358,13 @@ namespace Mila::Dnn::Gpt2
 				targets_ = targets;
 			}*/
 
-			// forward pass
-			float* residual;
-			//encoder_forward( acts_.encoded.data(), inputs, params_.wte.data(), params_.wpe.data(), B, T, C ); // encoding goes into residual[0]
+			encoder_->forward( inputs, encoder_output_ );
 
 			for ( int l = 0; l < L; l++ ) {
-				residual = l == 0 ? acts_.encoded.data() : acts_.residual3.data() + (l - 1) * B * T * C;
-
-				// get the pointers of the weights and biases for this layer
-				float* l_ln1w = params_.ln1w.data() + l * C;
-				float* l_ln1b = params_.ln1b.data() + l * C;
-				float* l_qkvw = params_.qkvw.data() + l * 3 * C * C;
-				float* l_qkvb = params_.qkvb.data() + l * 3 * C;
-				float* l_attprojw = params_.attprojw.data() + l * C * C;
-				float* l_attprojb = params_.attprojb.data() + l * C;
-				float* l_ln2w = params_.ln2w.data() + l * C;
-				float* l_ln2b = params_.ln2b.data() + l * C;
-				float* l_fcw = params_.fcw.data() + l * 4 * C * C;
-				float* l_fcb = params_.fcb.data() + l * 4 * C;
-				float* l_fcprojw = params_.fcprojw.data() + l * C * 4 * C;
-				float* l_fcprojb = params_.fcprojb.data() + l * C;
-
-				// get the pointers of the activations for this layer
-				float* l_ln1 = acts_.ln1.data() + l * batch_size_ * seq_len_ * C;
-				float* l_ln1_mean = acts_.ln1_mean.data() + l * batch_size_ * seq_len_;
-				float* l_ln1_rstd = acts_.ln1_rstd.data() + l * batch_size_ * seq_len_;
-				float* l_qkv = acts_.qkv.data() + l * batch_size_ * seq_len_ * 3 * C;
-				float* l_atty = acts_.atty.data() + l * batch_size_ * seq_len_ * C;
-				float* l_preatt = acts_.preatt.data() + l * batch_size_ * NH * seq_len_ * seq_len_;
-				float* l_att = acts_.att.data() + l * batch_size_ * NH * seq_len_ * seq_len_;
-				float* l_attproj = acts_.attproj.data() + l * batch_size_ * seq_len_ * C;
-				float* l_residual2 = acts_.residual2.data() + l * batch_size_ * seq_len_ * C;
-				float* l_ln2 = acts_.ln2.data() + l * batch_size_ * seq_len_ * C;
-				float* l_ln2_mean = acts_.ln2_mean.data() + l * batch_size_ * seq_len_;
-				float* l_ln2_rstd = acts_.ln2_rstd.data() + l * batch_size_ * seq_len_;
-				float* l_fch = acts_.fch.data() + l * batch_size_ * seq_len_ * 4 * C;
-				float* l_fch_gelu = acts_.fch_gelu.data() + l * batch_size_ * seq_len_ * 4 * C;
-				float* l_fcproj = acts_.fcproj.data() + l * batch_size_ * seq_len_ * C;
-				float* l_residual3 = acts_.residual3.data() + l * batch_size_ * seq_len_ * C;
-
-				// now do the forward pass
-				//layernorm_forward( l_ln1, l_ln1_mean, l_ln1_rstd, residual, l_ln1w, l_ln1b, batch_size_, seq_len_, C );
-				//matmul_forward( l_qkv, l_ln1, l_qkvw, l_qkvb, batch_size_, seq_len_, C, 3 * C );
-				//attention_forward( l_atty, l_preatt, l_att, l_qkv, batch_size_, seq_len_, C, NH );
-				//matmul_forward( l_attproj, l_atty, l_attprojw, l_attprojb, batch_size_, seq_len_, C, C );
-				//residual_forward( l_residual2, residual, l_attproj, batch_size_ * seq_len_ * C );
-				//layernorm_forward( l_ln2, l_ln2_mean, l_ln2_rstd, l_residual2, l_ln2w, l_ln2b, batch_size_, seq_len_, C );
-				//matmul_forward( l_fch, l_ln2, l_fcw, l_fcb, batch_size_, seq_len_, C, 4 * C );
-				//gelu_forward( l_fch_gelu, l_fch, batch_size_ * seq_len_ * 4 * C );
-				//matmul_forward( l_fcproj, l_fch_gelu, l_fcprojw, l_fcprojb, batch_size_, seq_len_, 4 * C, C );
-				//residual_forward( l_residual3, l_residual2, l_fcproj, batch_size_ * seq_len_ * C );
+				auto residual = l == 0 ? encoder_output_ : block_output_;
+				layers_[ l ]->forward( residual, block_output_ );
 			}
-			residual = acts_.residual3.data() + (L - 1) * batch_size_ * seq_len_ * C; // last residual is in residual3
+			//residual = acts_.residual3.data() + (L - 1) * batch_size_ * seq_len_ * C; // last residual is in residual3
 			//layernorm_forward( acts_.lnf.data(), acts_.lnf_mean.data(), acts_.lnf_rstd.data(), residual, params_.lnfw.data(), params_.lnfb.data(), batch_size_, seq_len_, C );
 			//matmul_forward( acts_.logits.data(), acts_.lnf.data(), params_.wte.data(), NULL, batch_size_, seq_len_, C, Vp );
 			//softmax_forward( acts_.probs.data(), acts_.logits.data(), batch_size_, seq_len_, V, Vp );
@@ -465,20 +439,11 @@ namespace Mila::Dnn::Gpt2
 		}
 
 	private:
-
-		std::unique_ptr<LayerNorm<TInput, TCompute, TDevice>> ln1_{ nullptr };
-		std::unique_ptr<Linear<TInput, TCompute, TDevice>> fc_1{ nullptr };
-		std::unique_ptr < Attention<TInput, TCompute, TDevice>> attn_{ nullptr };
-		std::unique_ptr < LayerNorm<TInput, TCompute, TDevice>> ln2_{ nullptr };
-		std::unique_ptr < MLP<TInput, TCompute, TDevice>> mlp_{ nullptr };
-		std::unique_ptr < Residual<TInput, TCompute, TDevice>> residual_{ nullptr };
-
-		Tensor<TCompute, MR> ln1_output_;
-		Tensor<TCompute, MR> fc1_output_;
-		Tensor<TCompute, MR> attn_output_;
-		Tensor<TCompute, MR> ln2_output_;
-		Tensor<TCompute, MR> mlp_output_;
-		Tensor<TCompute, MR> residual_output_;
+		std::unique_ptr<Encoder<int, float, TDevice>> encoder_{ nullptr };
+		std::vector<std::unique_ptr<TransformerBlock<float,float,TDevice>>> layers_;
+		
+		Tensor<TCompute, MR> encoder_output_;
+		Tensor<TCompute, MR> block_output_;
 
 		void initialize_parameter_tensor_sizes() {
 			// Shorthand notation
@@ -492,14 +457,19 @@ namespace Mila::Dnn::Gpt2
 
 			param_sizes_[ 2 ] = L * C; // ln1w
 			param_sizes_[ 3 ] = L * C; // ln1b
+			
 			param_sizes_[ 4 ] = L * (3 * C) * C; // qkvw
 			param_sizes_[ 5 ] = L * (3 * C); // qkvb
+			
 			param_sizes_[ 6 ] = L * C * C; // attprojw
 			param_sizes_[ 7 ] = L * C; // attprojb
+			
 			param_sizes_[ 8 ] = L * C; // ln2w
 			param_sizes_[ 9 ] = L * C; // ln2b
+			
 			param_sizes_[ 10 ] = L * (4 * C) * C; // fcw
 			param_sizes_[ 11 ] = L * (4 * C); // fcb
+			
 			param_sizes_[ 12 ] = L * C * (4 * C); // fcprojw
 			param_sizes_[ 13 ] = L * C; // fcprojb
 
@@ -507,6 +477,7 @@ namespace Mila::Dnn::Gpt2
 			param_sizes_[ 15 ] = C; // lnfb
 
 			num_parameters_ = 0;
+			
 			for ( size_t i = 0; i < NumberOfParameterTensors; i++ ) {
 				num_parameters_ += param_sizes_[ i ];
 			}

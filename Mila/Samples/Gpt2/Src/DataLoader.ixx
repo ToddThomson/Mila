@@ -68,8 +68,8 @@ namespace Mila::Dnn::Gpt2
         * @param num_processes Total number of processes.
         * @param should_shuffle Flag indicating whether to shuffle data.
         */
-        DataLoader( const std::string& filename_pattern, size_t batch_size, size_t token_size, int process_rank, int num_processes, bool should_shuffle )
-            : batch_size_( batch_size ), token_size_( token_size ), process_rank_( process_rank ), num_processes_( num_processes ), should_shuffle_( should_shuffle ) {
+        DataLoader( const std::string& filename_pattern, size_t batch_size, size_t token_seq_len, int process_rank, int num_processes, bool should_shuffle )
+            : batch_size_( batch_size ), token_seq_len_( token_seq_len ), process_rank_( process_rank ), num_processes_( num_processes ), should_shuffle_( should_shuffle ) {
             // Initialize the data loader
             init( filename_pattern );
         }
@@ -128,16 +128,19 @@ namespace Mila::Dnn::Gpt2
             int64_t current_offset = header_bytes_ + global_batch_offset_bytes + local_batch_offset_bytes_;
 
             size_t B = batch_size_;
-            size_t T = token_size_;
+            size_t T = token_seq_len_;
             
             // read B*T+1 uint16_t tokens from the file into buffer
             tokens_file_.seekg( (int)current_offset );
             tokens_file_.read( reinterpret_cast<char*>( buffer_.data() ), ( B * T + 1 ) * sizeof(uint16_t) );
             
-            // Decode the buffer into inputs and targets tensors
-            for ( int i = 0; i < B * T; i++ ) {
-                inputs_[ i ] = (int)buffer_[ i ];
-                targets_[ i ] = (int)buffer_[ i + 1 ];
+            // Decode the buffer into inputs and targets tensors of shape (B,T)
+            for ( int i = 0; i < B; i++ ) {
+                for ( int j = 0; j < T; j++ ) {
+					// TODO: validate read buffer values are within the expected range
+                    inputs_[ i, j ] = (int)buffer_[ i * T + j ];
+                    targets_[ i, j ] = (int)buffer_[ i * T + j + 1 ];
+                }
             }
         }
 
@@ -173,9 +176,9 @@ namespace Mila::Dnn::Gpt2
             std::cout << "  process_rank: " << process_rank_ << std::endl;
             std::cout << "  num_processes: " << num_processes_ << std::endl;
             std::cout << "  batch_size B: " << batch_size_ << std::endl;
-            std::cout << "  token_siae T: " << token_size_ << std::endl;
+            std::cout << "  token_seq_len T: " << token_seq_len_ << std::endl;
             std::cout << "  num_tokens: " << num_tokens_ << std::endl;
-            std::cout << "  train dataset num_batches: " << num_tokens_ / (batch_size_ * token_size_) << std::endl;
+            std::cout << "  train dataset num_batches: " << num_tokens_ / (batch_size_ * token_seq_len_) << std::endl;
             std::cout << "  current_shard_idx: " << current_shard_idx_ << std::endl;
             std::cout << "  current_sample_idx: " << current_sample_idx_ << std::endl;
             std::cout << "  shard_num_samples: " << shard_num_samples_ << std::endl;
@@ -198,8 +201,8 @@ namespace Mila::Dnn::Gpt2
         */
         void init( const std::string &filename_pattern ) {
             header_bytes_ = Gpt2TokenFileHeaderSize * sizeof( int );
-            total_batch_size_bytes_ = ((num_processes_ * (batch_size_ * token_size_)) * sizeof( uint16_t ));
-            local_batch_offset_bytes_ = process_rank_ * batch_size_ * token_size_ * sizeof( uint16_t );
+            total_batch_size_bytes_ = ((num_processes_ * (batch_size_ * token_seq_len_)) * sizeof( uint16_t ));
+            local_batch_offset_bytes_ = process_rank_ * batch_size_ * token_seq_len_ * sizeof( uint16_t );
 
             // glob to get the list of files matching the pattern, these are our data shards
             int glob_status = glob( filename_pattern.c_str(), 0, NULL, &glob_result_);
@@ -227,7 +230,7 @@ namespace Mila::Dnn::Gpt2
                 int64_t shard_ntok = load_shard_( shard_index );
                 // we need at least one batch/shard, the way things are written right now.
                 // can be relaxed a lot later.
-                assert( shard_ntok >= (int64_t)(num_processes_ * batch_size_ * token_size_ + 1) );
+                assert( shard_ntok >= (int64_t)(num_processes_ * batch_size_ * token_seq_len_ + 1) );
                 ntok_total += shard_ntok;
             }
             
@@ -236,9 +239,9 @@ namespace Mila::Dnn::Gpt2
             // printf("DataLoader: Found %ld tokens across %zu shards\n", ntok_total, glob_result_.gl_pathc);
 
             // allocate all the space we'll need
-            buffer_.resize( (batch_size_ * token_size_ + 1));
-            inputs_.reshape( { batch_size_ * token_size_ } );
-            targets_.reshape( { batch_size_ * token_size_ } );
+            buffer_.resize( (batch_size_ * token_seq_len_ + 1));
+            inputs_.reshape( { batch_size_, token_seq_len_ } );
+            targets_.reshape( { batch_size_, token_seq_len_ } );
             
             num_tokens_ = ntok_total;
 
@@ -358,9 +361,9 @@ namespace Mila::Dnn::Gpt2
         size_t batch_size_;
 
         /**
-        * @brief Token size.
+        * @brief Token sequence length.
         */
-        size_t token_size_;
+        size_t token_seq_len_;
 
         /**
         * @brief Total number of tokens.

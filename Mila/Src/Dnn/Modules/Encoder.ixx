@@ -24,7 +24,7 @@ export namespace Mila::Dnn
 	using namespace Mila::Dnn::Compute;
 
 	export
-		template<typename TInput, typename TCompute = TInput, typename TDevice = CpuDevice>
+	template<typename TInput, typename TCompute = TInput, typename TDevice = CpuDevice>
 		requires ValidTensorTypes<TInput, TCompute>&& std::is_base_of_v<Compute::ComputeDevice, TDevice>
 	class Encoder : public Module<TInput, TCompute, TDevice> {
 	public:
@@ -38,10 +38,8 @@ export namespace Mila::Dnn
 		* the token ids at each (b,t) position
 		* @param is_training Whether the module is in training mode. Default is false.
 		*/
-		Encoder( std::string name, size_t channels, size_t max_seq_len, 
-			size_t vocab_len,  bool is_training = false )
-			: name_{ name }, channels_{ channels }, max_seq_len_{ max_seq_len },
-			vocab_len_{ vocab_len }, is_training_{ is_training } {
+		Encoder( std::string name, size_t channels, size_t max_seq_len, size_t vocab_len, bool is_training = false )
+			: name_{ name }, channels_{ channels }, max_seq_len_{ max_seq_len }, vocab_len_{ vocab_len }, is_training_{ is_training } {
 			createOperation();
 		}
 
@@ -69,7 +67,7 @@ export namespace Mila::Dnn
 		* @param input The input tensor.
 		* @return Tensor<float, MR> The output tensor.
 		*/
-		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute, MR>& output ) {
+		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute, MR>& output ) override {
 			operation_->forward( input, parameters_, output, output_cache_ );
 		}
 
@@ -96,7 +94,7 @@ export namespace Mila::Dnn
 
 	private:
 		std::string name_; ///< The name of the module.
-		std::vector<size_t> input_shape_; ///< The input shape.
+		//std::vector<size_t> input_shape_; ///< The input shape.
 		size_t channels_; ///< The number of channels.
 		size_t max_seq_len_; ///< The maximum sequence length.
 		size_t vocab_len_; ///< The length of the vocabulary.
@@ -113,7 +111,7 @@ export namespace Mila::Dnn
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_cache_{ nullptr }; ///< The output attributes. Not used in this module.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_{ nullptr }; ///< The scalars. Not used in this module.
 
-		Tensor<float, MR> output_; ///< The output tensor.
+		//Tensor<float, MR> output_; ///< The output tensor.
 
 		std::shared_ptr<Dnn::Compute::OperationBase<int, float, TDevice>> operation_{ nullptr }; ///< The operation.
 
@@ -121,13 +119,13 @@ export namespace Mila::Dnn
 		* @brief Create the operation.
 		*/
 		void createOperation() {
-
 			wte_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ vocab_len_, channels_ } );
 			wpe_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ max_seq_len_, channels_ } );
 
 			parameters_.emplace_back( wte_ );
 			parameters_.emplace_back( wpe_ );
 
+			// REVIEW: I haven't decided on creating the output on the first call to the forward pass...
 			// output is (B,T,C). At each position (b,t), a C dimensional vector summarizing token & position
 			//auto B = input_shape_[ 0 ];
 			//auto T = input_shape_[ 1 ];

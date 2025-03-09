@@ -166,54 +166,28 @@ namespace Mila::Dnn
 
 		template<typename... Args>
 		T& operator[]( Args... args ) {
+			static_assert(sizeof...(args) > 0, "operator[]: At least one index must be provided.");
+			const size_t num_args = sizeof...(args);
+			if ( num_args != shape_.size() ) {
+				throw std::runtime_error( "operator[]: Number of indices must match the tensor rank." );
+			}
 			size_t index = computeIndex( { static_cast<size_t>(args)... } );
+			if ( index >= size_ ) {
+				throw std::out_of_range( "operator[]: Index out of range." );
+			}
 			return buffer_->data()[ index ];
 		}
 
 		template<typename... Args>
 		const T& operator[]( Args... args ) const {
+			static_assert(sizeof...(args) > 0, "operator[]: At least one index must be provided.");
 			const size_t num_args = sizeof...(args);
 			if ( num_args != shape_.size() ) {
-				throw std::runtime_error( "Number of indices must match the tensor rank." );
+				throw std::runtime_error( "operator[]: Number of indices must match the tensor rank." );
 			}
 			size_t index = computeIndex( { static_cast<size_t>(args)... } );
-			return buffer_->data()[ index ];
-		}
-
-		T& operator[]( size_t index ) {
-			if ( rank() != 1 ) {
-				throw std::runtime_error( "Operator[]: The rank of the tensor must be 1." );
-			}
-			return buffer_->data()[ index ];
-		}
-
-		const T& operator[]( size_t index ) const {
-			if ( rank() != 1 ) {
-				throw std::runtime_error( "Operator[]: The rank of the tensor must be 1." );
-			}
-			return buffer_->data()[ index ];
-		}
-
-		T& operator[]( size_t row, size_t col ) {
-			if ( rank() != 2 ) {
-				throw std::runtime_error( "Operator[]: The rank of the tensor must be 2." );
-			}
-
-			size_t index = row * shape_[ 1 ] + col;
 			if ( index >= size_ ) {
-				throw std::runtime_error( "Index out or range." );
-			}
-			return buffer_->data()[ index ];
-		}
-
-		const T& operator[]( size_t row, size_t col ) const {
-			if ( rank() != 2 ) {
-				throw std::runtime_error( "Operator[]: The rank of the tensor must be 2." );
-			}
-
-			size_t index = row * shape_[ 1 ] + col;
-			if ( index >= size_ ) {
-				throw std::runtime_error( "Index out or range." );
+				throw std::out_of_range( "operator[]: Index out of range." );
 			}
 			return buffer_->data()[ index ];
 		}
@@ -293,9 +267,9 @@ namespace Mila::Dnn
 			}
 			std::cout << std::endl;
 
-			if ( data_type_ == TensorType::FP32 ) {
+			//if ( data_type_ == TensorType::FP32 ) {
 				printBuffer( 0, 0 );
-			}
+			//}
 			std::cout << std::endl;
 		}
 
