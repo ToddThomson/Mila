@@ -57,11 +57,11 @@ namespace Mila::Dnn
 
 		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute, MR>& output ) override {
 			fc_1_->forward( input, fc_1_output_ );
-			fc_1_output_.print();
+			//fc_1_output_.print();
 			gelu_->forward( fc_1_output_, gelu_output_ );
-			gelu_output_.print();
+			//gelu_output_.print();
 			fc_proj_->forward( gelu_output_, output );
-			output.print();
+			//output.print();
 		}
 
 		size_t parameters() const override {

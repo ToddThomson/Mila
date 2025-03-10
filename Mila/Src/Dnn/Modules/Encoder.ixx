@@ -49,7 +49,7 @@ export namespace Mila::Dnn
 		* @return size_t The number of parameters.
 		*/
 		size_t parameters() const override {
-			return 0;
+			return wte_->size() + wpe_->size();
 		}
 
 		/**
@@ -94,7 +94,6 @@ export namespace Mila::Dnn
 
 	private:
 		std::string name_; ///< The name of the module.
-		//std::vector<size_t> input_shape_; ///< The input shape.
 		size_t channels_; ///< The number of channels.
 		size_t max_seq_len_; ///< The maximum sequence length.
 		size_t vocab_len_; ///< The length of the vocabulary.
@@ -120,7 +119,9 @@ export namespace Mila::Dnn
 		*/
 		void createOperation() {
 			wte_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ vocab_len_, channels_ } );
+			xavier<float, MR>( *wte_, vocab_len_, channels_ );
 			wpe_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ max_seq_len_, channels_ } );
+			xavier<float, MR>( *wpe_, max_seq_len_, channels_ );
 
 			parameters_.emplace_back( wte_ );
 			parameters_.emplace_back( wpe_ );

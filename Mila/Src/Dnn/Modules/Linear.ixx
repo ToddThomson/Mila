@@ -158,13 +158,14 @@ export namespace Mila::Dnn
         * @throws std::invalid_argument if the input shape does not have 3 dimensions.
         */
 		void createParameters() {
+			// Initialize the weight tensor using xavier distribution and the bias tensor is default initialized to zeros
 			weight_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ output_channels_, input_channels_ } );
 			xavier<float, MR>( *weight_, input_channels_, output_channels_ );
 
 			if ( has_bias_ )
 				bias_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ output_channels_ } );
 
-			// Initialize the weight tensor. The bias tensor is default initialized to zeros
+			
 			// TODO: initializeWeights();
 
 			parameters_.emplace_back( weight_ );

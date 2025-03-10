@@ -331,26 +331,15 @@ namespace Mila::Dnn::Gpt2
 
 			// allocate space for all the activations if needed (done here, lazily)
 			if ( acts_.encoded.empty() ) {
-				// record the current B,T as well
-				batch_size_ = B;
-				seq_len_ = T;
-
 				// initialize the activation Tensors
 				initialize_activation_tensors( acts_ );
 
 				// also create Tensors for caching inputs and targets
-				inputs_.reshape( { B * T } );
-				targets_.reshape( { B * T } ); // might be unused if we never have targets but it's small
+				// TJT: Should be part of model initialization
+				inputs_.reshape( { B, T } );
+				targets_.reshape( { B, T } );
 			}
-			else {
-				// validate B,T is consistent with how we've allocated Tensors previously
-				// in principle we could get more clever here in the future, for now this is safest
-				if ( B != batch_size_ || T != seq_len_ ) {
-					std::cerr << std::format( "Model: B={} T={}, Desired: B={} T={}\n", B, T, (int)batch_size_, (int)seq_len_ );
-					exit( EXIT_FAILURE );
-				}
-			}
-
+			
 			// cache the inputs/targets
 			// FIXME
 			/*inputs_ = inputs;
@@ -359,6 +348,8 @@ namespace Mila::Dnn::Gpt2
 			}*/
 
 			encoder_->forward( inputs, encoder_output_ );
+			//std::cout << "Encoder output: " << std::endl;
+			//encoder_output_.print();
 
 			for ( int l = 0; l < L; l++ ) {
 				auto residual = l == 0 ? encoder_output_ : block_output_;

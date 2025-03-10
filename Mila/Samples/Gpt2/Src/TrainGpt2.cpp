@@ -151,8 +151,8 @@ int main( int argc, char* argv[] ) {
 
 			for ( int i = 0; i < val_num_batches; i++ ) {
 				val_loader.next_batch();
-				val_loader.inputs().print();
-				val_loader.targets().print();
+				//val_loader.inputs().print();
+				//val_loader.targets().print();
 				model.forward( val_loader.inputs(), val_loader.targets() );
 				val_loss += model.get_mean_loss();
 				std::cout << ".";
@@ -163,10 +163,12 @@ int main( int argc, char* argv[] ) {
 		}
 
 		// once in a while do model inference to print generated text
-		if ( step > 0 && step % 20 == 0 ) {
+		if ( step > 0 && step % 2 /* 0 */ == 0 ) {
 			// fill up gen_tokens with the GPT2_EOT, which kicks off the generation
-			for ( int i = 0; i < B * T; ++i ) {
-				gen_tokens[ i ] = tokenizer.get_eot_token();
+			for ( int b = 0; b < B; ++b ) {
+				for ( int t = 0; t < T; ++t ) {
+					gen_tokens[ b, t ] = tokenizer.get_eot_token();
+				}
 			}
 			// now sample from the model autoregressively
 			std::cout << "generating:\n---\n";
@@ -188,7 +190,7 @@ int main( int argc, char* argv[] ) {
 				// note we're only sampling from the first V elements, ignoring padding
 				// (the probabilities in the padded region should be zero anyway)
 				int next_token = sample_mult( probs, model.get_config().vocab_size, coin );
-				gen_tokens[ t ] = next_token;
+				gen_tokens[ 0, t ] = next_token;
 
 				// print the generated token, either using the Tokenizer or a fallback
 				//if ( tokenizer.init_ok ) {

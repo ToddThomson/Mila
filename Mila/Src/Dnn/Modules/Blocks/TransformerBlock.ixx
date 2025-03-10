@@ -55,28 +55,28 @@ namespace Mila::Dnn
 
 		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute,MR>& output ) override {
 			ln1_->forward( input, ln1_output_ );
-			std::cout << "ln1_output_" << std::endl;
-			ln1_output_.print();
+			//std::cout << "ln1_output_" << std::endl;
+			//ln1_output_.print();
 
 			fc_1->forward( ln1_output_, fc1_output_ );
-			std::cout << "fc1_output_" << std::endl;
-			fc1_output_.print();
+			//std::cout << "fc1_output_" << std::endl;
+			//fc1_output_.print();
 
 			attn_->forward( fc1_output_, attn_output_ );
-			std::cout << "attn_output_" << std::endl;
-			attn_output_.print();
+			//std::cout << "attn_output_" << std::endl;
+			//attn_output_.print();
 
 			residual_->forward( attn_output_, residual_output_ );
-			std::cout << "residual_output_" << std::endl;
-			residual_output_.print();
+			//std::cout << "residual_output_" << std::endl;
+			//residual_output_.print();
 			
 			ln2_->forward( residual_output_, ln2_output_ );
-			std::cout << "ln2_output_" << std::endl;
-			ln2_output_.print();
+			//std::cout << "ln2_output_" << std::endl;
+			//ln2_output_.print();
 
 			mlp_->forward( ln2_output_, output );
-			std::cout << "mlp_output_" << std::endl;
-			output.print();
+			//std::cout << "mlp_output_" << std::endl;
+			//output.print();
 		}
 
 		size_t parameters() const override {

@@ -394,7 +394,6 @@ namespace Mila::Dnn
 				}
 			}
 		}
-
         
 		static std::vector<size_t> computeStrides( const std::vector<size_t>& shape ) {
 			std::vector<size_t> strides( shape.size(), 1 );

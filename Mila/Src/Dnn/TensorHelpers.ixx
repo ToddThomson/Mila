@@ -41,7 +41,7 @@ namespace Mila::Dnn
 	void xavier( Tensor<float, MR>& tensor, size_t input_size, size_t output_size ) {
 		float limit = std::sqrt( 6.0 / (input_size + output_size) );
 		std::random_device rd;
-		std::mt19937 gen( 42 );// rd() );
+		std::mt19937 gen( 42 ); // TJT: revert back to rd() );
 		std::uniform_real_distribution<float> dis( -limit, limit );
 
 		if constexpr ( std::is_same_v<MR, Compute::CudaMemoryResource> ) {

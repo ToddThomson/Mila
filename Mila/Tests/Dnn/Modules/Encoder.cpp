@@ -49,7 +49,7 @@ namespace Modules::Tests
     }
 
     TEST_F( EncoderTests, Cpu_TestParameters ) {
-        auto num_parameters = 0; //* weights */(output_channels_ * channels_);
+        auto num_parameters = /* wte */ (vocab_len_ * channels_) + /* wpe */ (max_seq_len_ * channels_);
 
         EXPECT_EQ( cpu_encoder->parameters(), num_parameters );
     }
