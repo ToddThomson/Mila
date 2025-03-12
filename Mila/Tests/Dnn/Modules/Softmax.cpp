@@ -25,7 +25,7 @@ namespace Modules::Tests
     };
 
     TEST_F( SoftmaxTest, TestName ) {
-        EXPECT_EQ( softmax->name(), "softmax_1" );
+        EXPECT_EQ( softmax->getName(), "softmax_1" );
     }
 
     TEST_F( SoftmaxTest, Test_parameterCount ) {

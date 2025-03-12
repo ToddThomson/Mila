@@ -30,8 +30,11 @@ namespace Mila::Dnn
 	public:
 		using MR = TDevice::MR;
 
-		TransformerBlock( std::string name, const std::vector<size_t>& input_shape, const size_t num_heads )
-			: name_{ name }, input_shape_{ validate_shape( input_shape ) }, num_heads_{ num_heads } {
+		TransformerBlock( std::string name, const std::vector<size_t>& input_shape, const size_t num_heads, bool is_training = false )
+			: input_shape_{ validate_shape( input_shape ) }, num_heads_{ num_heads } {
+			this->setName( name );
+			this->setTraining( is_training );
+
 			auto B = input_shape_[ 0 ];
 			auto T = input_shape_[ 1 ];
 			auto C = input_shape_[ 2 ];
@@ -98,10 +101,6 @@ namespace Mila::Dnn
 			return 0;
 		}
 
-		std::string name() const override {
-			return name_;
-		}
-
 		void save( mz_zip_archive& zip ) const override {
 			// Save the state of the child modules
 			for ( const auto& module : this->getSubModules() ) {
@@ -116,12 +115,11 @@ namespace Mila::Dnn
 		}
 
 		void print() const override {
-			std::cout << "Module: " << name_ << std::endl;
+			std::cout << "Module: " << this->getName() << std::endl;
 			std::cout << "Parameter count: " << parameterCount() << std::endl;
 		}
 
 	private:
-		std::string name_; ///< The name of the module.
 		std::vector<size_t> input_shape_; ///< The input shape.
 		size_t num_heads_; ///< The number of attention heads.
 

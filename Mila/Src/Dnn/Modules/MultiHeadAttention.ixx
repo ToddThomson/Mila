@@ -35,7 +35,9 @@ export namespace Mila::Dnn
 		using MR = TDevice::MR;
 
 		MultiHeadAttention( std::string name, const std::vector<size_t>& input_shape, size_t num_heads, bool is_training = false )
-			: name_{ name }, input_shape_{ input_shape }, num_heads_{ num_heads }, is_training_{ is_training } {
+			: input_shape_{ input_shape }, num_heads_{ num_heads } {
+			this->setTraining( is_training );
+			this->setName( name );
 			createOperation();
 		}
 
@@ -50,15 +52,6 @@ export namespace Mila::Dnn
 
 		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameters() const override {
 			return parameters_;
-		}
-
-		/**
-		 * @brief Get the name of the module.
-		 *
-		 * @return std::string The name of the module.
-		 */
-		std::string name() const override {
-			return name_;
 		}
 
 		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute, MR>& output) override {
@@ -79,7 +72,7 @@ export namespace Mila::Dnn
 		}
 
 		void print() const override {
-			std::cout << "Module: " << name_ << std::endl;
+			std::cout << "Module: " << this->getName() << std::endl;
 			std::cout << "Parameter count: " << parameterCount() << std::endl;
 		}
 
@@ -90,10 +83,8 @@ export namespace Mila::Dnn
 		//}
 
 	private:
-		std::string name_; ///< The name of the module.
 		std::vector<size_t> input_shape_; ///< The input shape.
 		size_t num_heads_{ 0 };
-		bool is_training_{ false }; ///< Whether the module is in training mode. Default is false.
 
 		std::shared_ptr<Tensor<float, MR>> attention_ = { nullptr };
 		std::shared_ptr<Tensor<float, MR>> pre_attention_{ nullptr };

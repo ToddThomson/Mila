@@ -27,8 +27,10 @@ namespace Mila::Dnn
 		using MR = TDevice::MR;
 
 		MLP( std::string name, const std::vector<size_t>& input_shape, size_t output_channels, bool has_bias = true, bool is_training = false )
-			: name_{ name }, input_shape_{ input_shape }, output_channels_{ output_channels }, is_training_ { is_training } {
-			
+			: input_shape_{ input_shape }, output_channels_{ output_channels } {
+			this->setName( name );
+			this->setTraining( is_training );
+
 			// Infer the number of input channels from the input shape
 			input_channels_ = input_shape.back();
 
@@ -64,12 +66,7 @@ namespace Mila::Dnn
 			return fc_1_->parameterCount() + gelu_->parameterCount() + fc_proj_->parameterCount();
 		}
 
-		std::string name() const override {
-			return name_;
-		}
-
 		void save( mz_zip_archive& zip ) const override {
-			// Save the state of the child modules
 			for ( const auto& module : this->getSubModules() ) {
 				module->save( zip );
 			}
@@ -81,7 +78,6 @@ namespace Mila::Dnn
 		}
 
 		void load( mz_zip_archive& zip ) override {
-			// Load the state of the child modules
 			for ( const auto& module : this->getSubModules() ) {
 				module->load( zip );
 			}
@@ -93,17 +89,15 @@ namespace Mila::Dnn
 		}
 
 		void print() const override {
-			std::cout << "Module: " << name_ << std::endl;
+			std::cout << "Module: " << this->getName() << std::endl;
 			std::cout << "Parameter count: " << parameterCount() << std::endl;
 		}
 
     private:
-        std::string name_; ///< The name of the module.
 		std::vector<size_t> input_shape_; ///< The input shape.
 		size_t input_channels_; ///< The number of input channels
 		size_t output_channels_; ///< The number of output channels
-		bool has_bias_{ true }; ///< Whether the module has a bias tensor. Default is true.
-		bool is_training_{ false }; ///< Whether the module is in training mode. Default is false.
+		//bool has_bias_{ true }; ///< Whether the module has a bias tensor. Default is true.
 
 		std::shared_ptr<Linear<TInput, TCompute, TDevice>> fc_1_{ nullptr };
 		std::shared_ptr<Gelu<TInput, TCompute, TDevice>> gelu_{ nullptr };

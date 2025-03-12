@@ -38,7 +38,7 @@ namespace Modules::Tests
     };
 
     TEST_F( ResidualTests, Cpu_TestName ) {
-        EXPECT_EQ( cpu_residual->name(), "cpu_residual" );
+        EXPECT_EQ( cpu_residual->getName(), "cpu_residual" );
     }
 
     TEST_F( ResidualTests, Cpu_parameterCount ) {

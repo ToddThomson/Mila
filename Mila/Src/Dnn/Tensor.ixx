@@ -242,15 +242,16 @@ namespace Mila::Dnn
 			}
 		}
 
-		std::string
-			get_name() const {
+		std::string	getName() const {
 			return name_;
 		}
 
-		auto set_name( std::string const& value ) -> Tensor<T,TMemoryResource>& {
-			name_ = value;
-			return *this;
-		}
+        void setName( const std::string const& value ) {
+            if ( value.empty() ) {
+                throw std::invalid_argument("Tensor name cannot be empty.");
+            }
+            name_ = value;
+        }
 
 		std::string get_uid() const {
 			return uid_;

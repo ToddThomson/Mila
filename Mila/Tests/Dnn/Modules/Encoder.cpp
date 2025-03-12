@@ -45,7 +45,7 @@ namespace Modules::Tests
     };
 
     TEST_F( EncoderTests, Cpu_TestName ) {
-        EXPECT_EQ( cpu_encoder->name(), "cpu_encoder" );
+        EXPECT_EQ( cpu_encoder->getName(), "cpu_encoder" );
     }
 
     TEST_F( EncoderTests, Cpu_parameterCount ) {

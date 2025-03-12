@@ -44,7 +44,7 @@ namespace Modules::Tests
     };
 
     TEST_F( LinearTests, Cpu_TestName ) {
-        EXPECT_EQ( cpu_linear->name(), "cpu_linear" );
+        EXPECT_EQ( cpu_linear->getName(), "cpu_linear" );
     }
 
     TEST_F( LinearTests, Cpu_parameterCount ) {

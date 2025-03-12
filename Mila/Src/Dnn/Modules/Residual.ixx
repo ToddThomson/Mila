@@ -34,8 +34,9 @@ export namespace Mila::Dnn
 	public:
 		using MR = TDevice::MR;
 
-		Residual( std::string name, bool is_training = false )
-			: name_( name ), is_training_( is_training ) {
+		Residual( std::string name, bool is_training = false ) {
+			this->setTraining( is_training );
+			this->setName( name );
 			createOperation();
 		}
 
@@ -45,15 +46,6 @@ export namespace Mila::Dnn
 
 		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameters() const override {
 			return parameters_;
-		}
-
-		/**
-		 * @brief Get the name of the module.
-		 *
-		 * @return std::string The name of the module.
-		 */
-		std::string name() const override {
-			return name_;
 		}
 
 		/**
@@ -83,7 +75,7 @@ export namespace Mila::Dnn
 		 * @brief Print the module information.
 		 */
 		void print() const override {
-			std::cout << "Module: " << name_ << std::endl;
+			std::cout << "Module: " << this->getName() << std::endl;
 			std::cout << "Parameter count: " << parameterCount() << std::endl;
 		}
 
@@ -94,13 +86,6 @@ export namespace Mila::Dnn
 		//}
 
 	private:
-		std::string name_; ///< The name of the module.
-		//std::vector<size_t> input_shape_; ///< The input shape.
-
-		//Tensor<TCompute, MR> output_; ///< The output tensor.
-
-		bool is_training_{ false }; ///< Whether the module is in training mode. Default is false.
-
 		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_{ nullptr }; ///< The parameters. Not used in this module.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_attributes_{ nullptr }; ///< The output attributes. Not used in this module.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_{ nullptr }; ///< The scalars. Not used in this module.

@@ -38,7 +38,7 @@ namespace Modules::Tests
     };
 
     TEST_F( GeluTests, Cpu_TestName ) {
-        EXPECT_EQ( cpu_gelu->name(), "cpu_gelu" );
+        EXPECT_EQ( cpu_gelu->getName(), "cpu_gelu" );
     }
 
     TEST_F( GeluTests, Cpu_parameterCount ) {

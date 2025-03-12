@@ -92,7 +92,26 @@ namespace Mila::Dnn
 		*
 		* @return std::string Name of the module.
 		*/
-		virtual std::string name() const = 0;
+		std::string getName() const {
+			return name_;
+		}
+
+        /**
+        * @brief Set the name of the module.
+        *
+        * @param name The name to set. Must not be empty and cannot contain a dot ('.').
+        * @throws std::invalid_argument If the name is empty or contains a dot.
+        */
+        void setName( const std::string& name ) {
+           if (name.empty() || name.find('.') != std::string::npos) {
+               throw std::invalid_argument("Name must not be empty and cannot contain a dot ('.').");
+           }
+           name_ = name;
+        }
+
+		void setTraining( bool is_training ) {
+			is_training_ = is_training;
+		}
 
 		/**
 		* @brief Print the module information.
@@ -129,7 +148,9 @@ namespace Mila::Dnn
 		}
 
 	private:
-		bool is_training_{ false }; ///< Training mode flag.
+		std::string name_; ///< The name of the module. Cannot be empty and cannot contain a dot ('.').
+		bool is_training_{ false }; ///< Whether the module is in training mode. Default is false.
+
 		std::vector<std::shared_ptr<Module<TInput, TCompute, TDevice>>> sub_modules_; ///< Child modules.
 	};
 }

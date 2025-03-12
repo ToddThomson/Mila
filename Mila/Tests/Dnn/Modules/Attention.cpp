@@ -42,7 +42,7 @@ namespace Modules::Tests
     };
 
     TEST_F( AttentionTests, Cpu_TestName ) {
-        EXPECT_EQ( cpu_attention->name(), "cpu_attn" );
+        EXPECT_EQ( cpu_attention->getName(), "cpu_attn" );
     }
 
     //TEST_F( AttentionTests, Cpu_TestParameters ) {

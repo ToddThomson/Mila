@@ -40,7 +40,7 @@ namespace Modules::Tests
     };
 
     TEST_F( LayerNormTests, Cpu_TestName ) {
-        EXPECT_EQ( cpu_layernorm->name(), "cpu_ln" );
+        EXPECT_EQ( cpu_layernorm->getName(), "cpu_ln" );
     }
 
     TEST_F( LayerNormTests, Cpu_parameterCount ) {

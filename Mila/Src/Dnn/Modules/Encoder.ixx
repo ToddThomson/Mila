@@ -39,7 +39,9 @@ export namespace Mila::Dnn
 		* @param is_training Whether the module is in training mode. Default is false.
 		*/
 		Encoder( std::string name, size_t channels, size_t max_seq_len, size_t vocab_len, bool is_training = false )
-			: name_{ name }, channels_{ channels }, max_seq_len_{ max_seq_len }, vocab_len_{ vocab_len }, is_training_{ is_training } {
+			: channels_{ channels }, max_seq_len_{ max_seq_len }, vocab_len_{ vocab_len } {
+			this->setTraining( is_training );
+			this->setName( name );
 			createOperation();
 		}
 
@@ -54,15 +56,6 @@ export namespace Mila::Dnn
 
         const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameters() const override {
 			return parameters_;
-		}
-
-		/**
-		* @brief Get the name of the module.
-		*
-		* @return std::string The name of the module.
-		*/
-		std::string name() const override {
-			return name_;
 		}
 
 		/**
@@ -92,16 +85,14 @@ export namespace Mila::Dnn
 		* @brief Print the module information.
 		*/
 		void print() const override {
-			std::cout << "Module: " << name_ << std::endl;
+			std::cout << "Module: " << this->getName() << std::endl;
 			std::cout << "Parameter count: " << parameterCount() << std::endl;
 		}
 
 	private:
-		std::string name_; ///< The name of the module.
 		size_t channels_; ///< The number of channels.
 		size_t max_seq_len_; ///< The maximum sequence length.
 		size_t vocab_len_; ///< The length of the vocabulary.
-		bool is_training_{ false }; ///< Whether the module is in training mode. Default is false.
 
 		// wte is (V,C) of token embeddings, short for "weight token embeddings"
 		std::shared_ptr<Tensor<float, MR>> wte_{ nullptr };
@@ -113,8 +104,6 @@ export namespace Mila::Dnn
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_cache_{ nullptr }; ///< The output attributes. Not used in this module.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_{ nullptr }; ///< The scalars. Not used in this module.
 
-		//Tensor<float, MR> output_; ///< The output tensor.
-
 		std::shared_ptr<Dnn::Compute::OperationBase<int, float, TDevice>> operation_{ nullptr }; ///< The operation.
 
 		/**
@@ -122,9 +111,11 @@ export namespace Mila::Dnn
 		*/
 		void createOperation() {
 			wte_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ vocab_len_, channels_ } );
+			wte_->setName( this->getName() + ".wte" );
 			xavier<float, MR>( *wte_, vocab_len_, channels_ );
 			wpe_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ max_seq_len_, channels_ } );
 			xavier<float, MR>( *wpe_, max_seq_len_, channels_ );
+			wpe_->setName( this->getName() + ".wpe" );
 
 			parameters_.emplace_back( wte_ );
 			parameters_.emplace_back( wpe_ );

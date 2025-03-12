@@ -51,7 +51,9 @@ export namespace Mila::Dnn
 		* @param is_training Whether the module is in training mode. Default is false.
 		*/
 		Softmax( std::string name, int64_t axis = -1, bool is_training = false )
-			: name_( name ), axis_{ axis }, is_training_( is_training ) {
+			: axis_{ axis } {
+			this->setTraining( is_training );
+			this->setName( name );
 			createOperation();
 		}
 
@@ -66,15 +68,6 @@ export namespace Mila::Dnn
 
 		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameters() const override {
 			return parameters_;
-		}
-
-		/**
-		* @brief Get the name of the module.
-		*
-		* @return std::string The name of the module.
-		*/
-		std::string name() const override {
-			return name_;
 		}
 
 		/**
@@ -110,17 +103,13 @@ export namespace Mila::Dnn
 		* @brief Print the module information.
 		*/
 		void print() const override {
-			std::cout << "Module: " << name_ << std::endl;
+			std::cout << "Module: " << this->getName() << std::endl;
 			std::cout << "Parameter count: " << parameterCount() << std::endl;
 		}
 
 	private:
-		std::string name_; ///< The name of the module.
 		std::vector<size_t> input_shape_; ///< The input shape.
 		int64_t axis_{ -1 }; ///< The dimension to perform the softmax operation on. Default is -1 for the last dimension.
-		bool is_training_{ false }; ///< Whether the module is in training mode. Default is false.
-
-		//Tensor<float, MR> output_; ///< The output tensor.
 
 		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_{ nullptr }; ///< The parameters. Not used in this module.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_cache_{ nullptr }; ///< The output attributes. Not used in this module.

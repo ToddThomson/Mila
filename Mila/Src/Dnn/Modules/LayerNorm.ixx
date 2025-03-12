@@ -52,10 +52,9 @@ namespace Mila::Dnn
 			int64_t axis = -1,
 			bool has_bias = true,
 			bool is_training = false )
-			: name_{ name }, input_shape_{ input_shape }, has_bias_{ has_bias }, is_training_{ is_training } {
-			if ( name_.empty() ) {
-				throw std::invalid_argument( "Module name cannot be empty" );
-			}
+			: input_shape_{ input_shape }, has_bias_{ has_bias } {
+			this->setTraining( is_training );
+			this->setName( name );
 			createParameters();
 			createOperation();
 		}
@@ -92,15 +91,6 @@ namespace Mila::Dnn
 		}
 
 		/**
-		* @brief Get the name of the module.
-		*
-		* @return std::string Name of the module.
-		*/
-		std::string name() const override {
-			return name_;
-		}
-
-		/**
 		* @brief Forward pass of the module.
 		*
 		* @param input Input tensor.
@@ -127,18 +117,14 @@ namespace Mila::Dnn
 		* @brief Print the module information.
 		*/
 		void print() const override {
-			std::cout << "Module: " << name_ << std::endl;
+			std::cout << "Module: " << this->getName() << std::endl;
 			std::cout << "Parameter count: " << parameterCount() << std::endl;
 		}
 
 	private:
-		std::string name_; ///< The name of the module.
 		std::vector<size_t> input_shape_; ///< The normalized shape.
 		float epsilon_{ 1e-05f }; ///< The epsilon value.
 		bool has_bias_{ true }; ///< Whether the module has a bias tensor. Default is true.
-		bool is_training_{ false }; ///< Whether the module is in training mode. Default is false.
-
-		//Tensor<TCompute, MR> output_; ///< The output tensor.
 
 		std::shared_ptr<Tensor<float, MR>> weight_{ nullptr }; ///< The weight tensor.
 		std::shared_ptr<Tensor<float, MR>> bias_{ nullptr }; ///< The bias tensor.
@@ -152,23 +138,17 @@ namespace Mila::Dnn
 
 		std::shared_ptr<Dnn::Compute::OperationBase<TInput, TCompute, TDevice>> operation_; ///< The operation.
 
-		/*Tensor<TCompute,MR> createOutputTensor() {
-			auto output = Tensor<TCompute, MR>( input_->shape() );
-			output.set_name( name_ + "::Y" );
-			return output;
-		}*/
-
 		void createParameters() {
 			auto batch_size = input_shape_[ 0 ];
 			auto sequence_length = input_shape_[ 1 ];
 			auto channels = input_shape_[ 2 ];
 
 			weight_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ channels }, 1.0f );
-			weight_->set_name( name_ + "::W" );
+			weight_->setName( this->getName() + ".weight");
 
 			if ( has_bias_ ) {
 				bias_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ channels } );
-				bias_->set_name( name_ + "::B" );
+				bias_->setName( this->getName() + ".bias");
 			}
 
 			parameters_.emplace_back( weight_ );

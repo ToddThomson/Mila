@@ -4,6 +4,7 @@ module;
 #include <string>
 #include <iostream>
 #include <type_traits>
+#include <stdexcept>
 
 export module Dnn.Modules.Linear;
 
@@ -44,7 +45,9 @@ export namespace Mila::Dnn
 			size_t output_channels,
 			bool has_bias = true,
 			bool is_training = false )
-			: name_{ name }, input_channels_{ input_channels }, output_channels_{ output_channels }, has_bias_{ has_bias }, is_training_( is_training ) {
+			: input_channels_{ input_channels }, output_channels_{ output_channels }, has_bias_{ has_bias } {
+			this->setTraining( is_training );
+			this->setName( name );
 			createParameters();
 			createOperation();
 		}
@@ -90,15 +93,6 @@ export namespace Mila::Dnn
 		}
 
 		/**
-		 * @brief Get the name of the module.
-		 *
-		 * @return std::string The name of the module.
-		 */
-		std::string name() const override {
-			return name_;
-		}
-
-		/**
 		 * @brief Perform the forward pass.
 		 *
 		 * @param input The input tensor.
@@ -125,7 +119,7 @@ export namespace Mila::Dnn
 		 * @brief Print the module information.
 		 */
 		void print() const override {
-			std::cout << "Module: " << name_ << std::endl;
+			std::cout << "Module: " << this->getName() << std::endl;
 			std::cout << "Parameter count: " << parameterCount() << std::endl;
 		}
 
@@ -136,11 +130,9 @@ export namespace Mila::Dnn
 		//}
 
 	private:
-		std::string name_; ///< The name of the module.
 		size_t input_channels_{ 0 }; ///< The number of input channels.
 		size_t output_channels_{ 0 }; ///< The number of output channels.
 		bool has_bias_{ true }; ///< Whether the module has a bias tensor. Default is true.
-		bool is_training_{ false }; ///< Whether the module is in training mode. Default is false.
 
 		std::shared_ptr<Tensor<float, MR>> weight_{ nullptr };  ///< The weight tensor.
 		std::shared_ptr<Tensor<float, MR>> bias_{ nullptr }; ///< The bias tensor.
