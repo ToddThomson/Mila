@@ -3,8 +3,6 @@ module;
 #include <vector>
 #include <string>
 #include <memory>
-#include <unordered_set>
-#include <unordered_map>
 #include <stdexcept>
 #include <type_traits>
 
@@ -89,8 +87,6 @@ namespace Mila::Dnn
 
 		virtual const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameters() const = 0;
 
-		virtual const std::vector<std::shared_ptr<Module<TInput, TCompute, TDevice>>>& getSubModules() const = 0;
-
 		/**
 		* @brief Get the name of the module.
 		*
@@ -124,33 +120,16 @@ namespace Mila::Dnn
         * @param module The child module to register.
         * @throws std::runtime_error If a module with the same name is already registered.
         */
-		void addModule( const std::string& name, std::shared_ptr<Module<TInput, TCompute, TDevice>> module ) {
-			if ( sub_modules_.find( name ) != sub_modules_.end() ) {
-				throw std::runtime_error( "Module with name '" + name + "' already registered." );
-			}
-			sub_modules_[ name ] = module;
+		void addModule( std::shared_ptr<Module<TInput, TCompute, TDevice>> module ) {
+			sub_modules_.emplace_back( module );
 		}
 
-        /**
-        * @brief Register a parameter tensor.
-        *
-        * @param name The name of the parameter tensor.
-        * @param tensor The parameter tensor to register.
-        * @throws std::runtime_error If a parameter with the same name is already registered.
-        */
-		/*void addParameter( const std::string& name, std::shared_ptr<Tensor<TCompute, MR>> tensor ) {
-			if ( parameters_.find( name ) != parameters_.end() ) {
-				throw std::runtime_error( "Parameter with name '" + name + "' already registered." );
-			}
-			parameters_[ name ] = tensor;
-		}*/
-
-	protected:
-		std::unordered_map<std::string, std::shared_ptr<Module<TInput, TCompute, TDevice>>> sub_modules_;
-		//std::vector<std::shared_ptr<Tensor<TCompute, MR>>> parameters_;
-
+		const std::vector<std::shared_ptr<Module<TInput, TCompute, TDevice>>>& getSubModules() const {
+			return sub_modules_;
+		}
 
 	private:
 		bool is_training_{ false }; ///< Training mode flag.
+		std::vector<std::shared_ptr<Module<TInput, TCompute, TDevice>>> sub_modules_; ///< Child modules.
 	};
 }

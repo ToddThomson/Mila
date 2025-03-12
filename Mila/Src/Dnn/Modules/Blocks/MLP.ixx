@@ -19,7 +19,6 @@ import Dnn.Modules.Gelu;
 
 namespace Mila::Dnn
 {
-
     export
     template<typename TInput, typename TCompute = TInput, typename TDevice = Compute::CpuDevice>
         requires ValidTensorTypes<TInput, TCompute> && std::is_base_of_v<Compute::ComputeDevice, TDevice>
@@ -37,36 +36,28 @@ namespace Mila::Dnn
 			std::vector<size_t> fc_1_output_shape = input_shape;
 			fc_1_output_shape.back() = output_channels_;
 
-			fc_1_ = std::make_unique<Linear<TInput, TCompute, TDevice>>( "fc_1", input_channels_, output_channels_ );
-			gelu_ = std::make_unique<Gelu<TInput, TCompute, TDevice>>( "act_1" );
-			fc_proj_ = std::make_unique<Linear<TInput, TCompute, TDevice>>( "fc_proj", output_channels_, output_channels_ );
+			fc_1_ = std::make_shared<Linear<TInput, TCompute, TDevice>>( "fc_1", input_channels_, output_channels_ );
+			gelu_ = std::make_shared<Gelu<TInput, TCompute, TDevice>>( "act_1" );
+			fc_proj_ = std::make_shared<Linear<TInput, TCompute, TDevice>>( "fc_proj", output_channels_, output_channels_ );
 
-			// Add sub modules
-			/*addModule( "fc_1", fc_1_ );
-			addModule( "gelu", gelu_ );
-			addModule( "fc_proj", fc_proj_ );*/
+			// Add sub-modules to the MLP block
+			this->addModule( fc_1_ );
+			this->addModule( gelu_ );
+			this->addModule( fc_proj_ );
 
 			// Allocate output tensors for the MLP layers
 			fc_1_output_ = Tensor<TCompute, MR>( fc_1_output_shape );
 			gelu_output_ = Tensor<TCompute, MR>( fc_1_output_shape );
 		}
 
-		const std::vector<std::shared_ptr<Module<TInput, TCompute, TDevice>>>& getSubModules() const override {
-			//static std::vector<std::shared_ptr<Module<TInput, TCompute, TDevice>>> subModules( { fc_1_, gelu_, fc_proj_ } );
-			return {};
+		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute, MR>& output ) override {
+			fc_1_->forward( input, fc_1_output_ );
+			gelu_->forward( fc_1_output_, gelu_output_ );
+			fc_proj_->forward( gelu_output_, output );
 		}
 
 		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameters() const override {
 			return {};
-		}
-
-		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute, MR>& output ) override {
-			fc_1_->forward( input, fc_1_output_ );
-			//fc_1_output_.print();
-			gelu_->forward( fc_1_output_, gelu_output_ );
-			//gelu_output_.print();
-			fc_proj_->forward( gelu_output_, output );
-			//output.print();
 		}
 
 		size_t parameterCount() const override {
@@ -79,7 +70,7 @@ namespace Mila::Dnn
 
 		void save( mz_zip_archive& zip ) const override {
 			// Save the state of the child modules
-			for ( const auto& [name, module] : this->sub_modules_ ) {
+			for ( const auto& module : this->getSubModules() ) {
 				module->save( zip );
 			}
 
@@ -91,7 +82,7 @@ namespace Mila::Dnn
 
 		void load( mz_zip_archive& zip ) override {
 			// Load the state of the child modules
-			for ( const auto& [name, module] : this->sub_modules_ ) {
+			for ( const auto& module : this->getSubModules() ) {
 				module->load( zip );
 			}
 
@@ -110,13 +101,13 @@ namespace Mila::Dnn
         std::string name_; ///< The name of the module.
 		std::vector<size_t> input_shape_; ///< The input shape.
 		size_t input_channels_; ///< The number of input channels
-		size_t output_channels_;
+		size_t output_channels_; ///< The number of output channels
 		bool has_bias_{ true }; ///< Whether the module has a bias tensor. Default is true.
 		bool is_training_{ false }; ///< Whether the module is in training mode. Default is false.
 
-		std::unique_ptr<Linear<TInput, TCompute, TDevice>> fc_1_{ nullptr };
-		std::unique_ptr<Gelu<TInput, TCompute, TDevice>> gelu_{ nullptr };
-		std::unique_ptr<Linear<TInput, TCompute, TDevice>> fc_proj_{ nullptr };
+		std::shared_ptr<Linear<TInput, TCompute, TDevice>> fc_1_{ nullptr };
+		std::shared_ptr<Gelu<TInput, TCompute, TDevice>> gelu_{ nullptr };
+		std::shared_ptr<Linear<TInput, TCompute, TDevice>> fc_proj_{ nullptr };
 
 		Tensor<TCompute, MR> fc_1_output_;
 		Tensor<TCompute, MR> gelu_output_;

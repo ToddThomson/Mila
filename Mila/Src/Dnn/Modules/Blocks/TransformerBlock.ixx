@@ -30,25 +30,25 @@ namespace Mila::Dnn
 	public:
 		using MR = TDevice::MR;
 
-		TransformerBlock( const std::vector<size_t>& input_shape, const size_t num_heads )
-			: input_shape_{ validate_shape( input_shape ) }, num_heads_{ num_heads } {
+		TransformerBlock( std::string name, const std::vector<size_t>& input_shape, const size_t num_heads )
+			: name_{ name }, input_shape_{ validate_shape( input_shape ) }, num_heads_{ num_heads } {
 			auto B = input_shape_[ 0 ];
 			auto T = input_shape_[ 1 ];
 			auto C = input_shape_[ 2 ];
 
-			ln_1_ = std::make_unique<LayerNorm<TInput, TCompute, TDevice>>( "ln_1", input_shape_ );
-			fc_ = std::make_unique<Linear<TInput, TCompute, TDevice>>( "fc_", C, 3 * C );
-			attn_ = std::make_unique<MultiHeadAttention<TInput, TCompute, TDevice>>( "attn_", input_shape_, num_heads_ );
-			ln_2_ = std::make_unique<LayerNorm<TInput, TCompute, TDevice>>( "ln_2", input_shape_ );
-			mlp_ = std::make_unique<MLP<TInput, TCompute, TDevice>>( "mlp_", input_shape_, 4 * C);
-			residual_ = std::make_unique<Residual<TInput, TCompute, TDevice>>( "res_" );
+			ln_1_ = std::make_shared<LayerNorm<TInput, TCompute, TDevice>>( "ln_1", input_shape_ );
+			fc_ = std::make_shared<Linear<TInput, TCompute, TDevice>>( "fc_", C, 3 * C );
+			attn_ = std::make_shared<MultiHeadAttention<TInput, TCompute, TDevice>>( "attn_", input_shape_, num_heads_ );
+			ln_2_ = std::make_shared<LayerNorm<TInput, TCompute, TDevice>>( "ln_2", input_shape_ );
+			mlp_ = std::make_shared<MLP<TInput, TCompute, TDevice>>( "mlp_", input_shape_, 4 * C);
+			residual_ = std::make_shared<Residual<TInput, TCompute, TDevice>>( "res_" );
 
-			/*addModule( "ln_1", ln_1_ );
-			addModule( "fc", fc_ );
-			addModule( "attn", attn_ );
-			addModule( "ln_2", ln_2_ );
-			addModule( "mlp", mlp_ );
-			addModule( "res", residual_ );*/
+			this->addModule( ln_1_ );
+			this->addModule( fc_ );
+			this->addModule( attn_ );
+			this->addModule( ln_2_ );
+			this->addModule( mlp_ );
+			this->addModule( residual_ );
 
 			// Pre-allocate output tensors for the Transformer block layers
 			ln_1_output_ = Tensor<TCompute, MR>( input_shape_ );
@@ -86,9 +86,9 @@ namespace Mila::Dnn
 			//output.print();
 		}
 
-		const std::vector<std::shared_ptr<Module<TInput, TCompute, TDevice>>>& getSubModules() const override {
-			return {};// { ln_1_, fc_, attn_, ln_2_, mlp_, residual_ };
-		}
+		//const std::vector<std::shared_ptr<Module<TInput, TCompute, TDevice>>>& getSubModules() const override {
+		//	return {};// { ln_1_, fc_, attn_, ln_2_, mlp_, residual_ };
+		//}
 
 		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameters() const override {
 			return {};
@@ -104,13 +104,13 @@ namespace Mila::Dnn
 
 		void save( mz_zip_archive& zip ) const override {
 			// Save the state of the child modules
-			for ( const auto& module : getSubModules() ) {
+			for ( const auto& module : this->getSubModules() ) {
 				module->save( zip );
 			}
 		}
 
 		void load( mz_zip_archive& zip ) override {
-			for ( const auto& module : getSubModules() ) {
+			for ( const auto& module : this->getSubModules() ) {
 				module->load( zip );
 			}
 		}
@@ -125,12 +125,12 @@ namespace Mila::Dnn
 		std::vector<size_t> input_shape_; ///< The input shape.
 		size_t num_heads_; ///< The number of attention heads.
 
-		std::unique_ptr<LayerNorm<TInput, TCompute, TDevice>> ln_1_{ nullptr };
-		std::unique_ptr<Linear<TInput, TCompute, TDevice>> fc_{ nullptr };
-		std::unique_ptr<MultiHeadAttention<TInput, TCompute, TDevice>> attn_{ nullptr };
-		std::unique_ptr<LayerNorm<TInput, TCompute, TDevice>> ln_2_{ nullptr };
-		std::unique_ptr<MLP<TInput, TCompute, TDevice>> mlp_{ nullptr };
-		std::unique_ptr<Residual<TInput, TCompute, TDevice>> residual_{ nullptr };
+		std::shared_ptr<LayerNorm<TInput, TCompute, TDevice>> ln_1_{ nullptr };
+		std::shared_ptr<Linear<TInput, TCompute, TDevice>> fc_{ nullptr };
+		std::shared_ptr<MultiHeadAttention<TInput, TCompute, TDevice>> attn_{ nullptr };
+		std::shared_ptr<LayerNorm<TInput, TCompute, TDevice>> ln_2_{ nullptr };
+		std::shared_ptr<MLP<TInput, TCompute, TDevice>> mlp_{ nullptr };
+		std::shared_ptr<Residual<TInput, TCompute, TDevice>> residual_{ nullptr };
 
 		Tensor<TCompute, MR> ln_1_output_;
 		Tensor<TCompute, MR> fc_output_;

@@ -85,10 +85,6 @@ export namespace Mila::Dnn
 			return num_params;
 		}
 
-		const std::vector<std::shared_ptr<Module<TInput, TCompute, TDevice>>>& getSubModules() const override {
-			return {};
-		}
-
 		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameters() const override {
 			return parameters_;
 		}

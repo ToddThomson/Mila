@@ -124,7 +124,8 @@ namespace Mila::Dnn::Gpt2
 			block_output_ = Tensor<TCompute, MR>( block_io_shape );
 
 			for ( size_t l = 0; l < config_.num_layers; l++ ) {
-				layers_.emplace_back( std::make_unique<TransformerBlock<TInput, TCompute, TDevice>>( block_io_shape, NH ) );
+				std::string layer_name = std::format( "tf_{}", l );
+				layers_.emplace_back( std::make_unique<TransformerBlock<TInput, TCompute, TDevice>>( layer_name, block_io_shape, NH ) );
 			}
 
 			//ln1_ = std::make_unique<LayerNorm<TInput, TCompute, TDevice>>( "ln_1", input_shape_ );
