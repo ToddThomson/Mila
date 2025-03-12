@@ -66,7 +66,7 @@ namespace Mila::Dnn
 			}
 		}
 
-		void save_checkpoint( const std::string& filename ) const {
+		void saveCheckpoint( const std::string& filename ) const {
 			mz_zip_archive zip;
 			memset( &zip, 0, sizeof( zip ) );
 			mz_zip_writer_init_file( &zip, filename.c_str(), 0 );
@@ -80,7 +80,7 @@ namespace Mila::Dnn
 		}
 
 		// Load the checkpoint
-		void load_checkpoint( const std::string& filename ) {
+		void loadCheckpoint( const std::string& filename ) {
 			mz_zip_archive zip;
 			memset( &zip, 0, sizeof( zip ) );
 			mz_zip_reader_init_file( &zip, filename.c_str(), 0 );
@@ -136,7 +136,6 @@ namespace Mila::Dnn
 			return { nullptr };// node->output();
 		}
 
-		// Create a Residual block
 		std::shared_ptr<Tensor<TInput, MR>> residual( std::shared_ptr<Tensor<TInput, MR>> input,
 			std::shared_ptr<Tensor<TInput, MR>> function_output ) {
 

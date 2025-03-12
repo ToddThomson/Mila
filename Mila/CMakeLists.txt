@@ -95,7 +95,7 @@ PUBLIC
 		"Src/Data/DataLoaderBase.ixx" 
 		"Src/Dnn/Compute/CPU/CpuComputeResource.ixx"
 		"Src/Dnn/Modules/Gelu.ixx"
-		"Src/Dnn/Modules/Attention.ixx"
+		"Src/Dnn/Modules/MultiHeadAttention.ixx"
 		"Src/Dnn/Modules/Residual.ixx"
 		"Src/Dnn/Modules/Softmax.ixx"
 		"Src/Dnn/Modules/Encoder.ixx"

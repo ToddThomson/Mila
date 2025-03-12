@@ -41,18 +41,23 @@ namespace Mila::Dnn
 			gelu_ = std::make_unique<Gelu<TInput, TCompute, TDevice>>( "act_1" );
 			fc_proj_ = std::make_unique<Linear<TInput, TCompute, TDevice>>( "fc_proj", output_channels_, output_channels_ );
 
-			// Register child modules and parameters
-			//registerModule( "fc_1", fc_1_ );
-			//registerModule( "gelu", gelu_ );
-			//registerModule( "fc_proj", fc_proj_ );
+			// Add sub modules
+			/*addModule( "fc_1", fc_1_ );
+			addModule( "gelu", gelu_ );
+			addModule( "fc_proj", fc_proj_ );*/
 
 			// Allocate output tensors for the MLP layers
 			fc_1_output_ = Tensor<TCompute, MR>( fc_1_output_shape );
 			gelu_output_ = Tensor<TCompute, MR>( fc_1_output_shape );
+		}
 
-			// Register output tensors
-			//registerParameter( "fc_1_output", std::make_shared<Tensor<TCompute, MR>>( fc_1_output_ ) );
-			//registerParameter( "gelu_output", std::make_shared<Tensor<TCompute, MR>>( gelu_output_ ) );
+		const std::vector<std::shared_ptr<Module<TInput, TCompute, TDevice>>>& getSubModules() const override {
+			//static std::vector<std::shared_ptr<Module<TInput, TCompute, TDevice>>> subModules( { fc_1_, gelu_, fc_proj_ } );
+			return {};
+		}
+
+		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameters() const override {
+			return {};
 		}
 
 		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute, MR>& output ) override {
@@ -64,8 +69,8 @@ namespace Mila::Dnn
 			//output.print();
 		}
 
-		size_t parameters() const override {
-			return fc_1_->parameters() + gelu_->parameters() + fc_proj_->parameters();
+		size_t parameterCount() const override {
+			return fc_1_->parameterCount() + gelu_->parameterCount() + fc_proj_->parameterCount();
 		}
 
 		std::string name() const override {
@@ -74,31 +79,31 @@ namespace Mila::Dnn
 
 		void save( mz_zip_archive& zip ) const override {
 			// Save the state of the child modules
-			for ( const auto& [name, module] : this->child_modules_ ) {
+			for ( const auto& [name, module] : this->sub_modules_ ) {
 				module->save( zip );
 			}
 
-			// Save the state of the parameters
-			for ( const auto& [name, tensor] : this->named_parameters_ ) {
-				// Save tensor data to zip archive
-			}
+			//// Save the state of the parameters
+			//for ( const auto& [name, tensor] : this->parameters_ ) {
+			//	// Save tensor data to zip archive
+			//}
 		}
 
 		void load( mz_zip_archive& zip ) override {
 			// Load the state of the child modules
-			for ( const auto& [name, module] : this->child_modules_ ) {
+			for ( const auto& [name, module] : this->sub_modules_ ) {
 				module->load( zip );
 			}
 
-			// Load the state of the parameters
-			for ( const auto& [name, tensor] : this->named_parameters_ ) {
-				// Load tensor data from zip archive
-			}
+			//// Load the state of the parameters
+			//for ( const auto& [name, tensor] : this->parameters_ ) {
+			//	// Load tensor data from zip archive
+			//}
 		}
 
 		void print() const override {
 			std::cout << "Module: " << name_ << std::endl;
-			std::cout << "Parameters: " << parameters() << std::endl;
+			std::cout << "Parameter count: " << parameterCount() << std::endl;
 		}
 
     private:

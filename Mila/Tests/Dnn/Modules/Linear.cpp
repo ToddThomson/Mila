@@ -47,13 +47,13 @@ namespace Modules::Tests
         EXPECT_EQ( cpu_linear->name(), "cpu_linear" );
     }
 
-    TEST_F( LinearTests, Cpu_TestParameters ) {
+    TEST_F( LinearTests, Cpu_parameterCount ) {
         auto num_parameters = /* weights */(output_channels_ * channels_);
 		if ( has_bias_ ) {
 			num_parameters += output_channels_;
 		}
 
-        EXPECT_EQ( cpu_linear->parameters(), num_parameters ) ;
+        EXPECT_EQ( cpu_linear->parameterCount(), num_parameters ) ;
     }
 
     TEST_F( LinearTests, Cpu_TestWeightInitialization ) {
@@ -85,6 +85,6 @@ namespace Modules::Tests
         cpu_linear->print();
         std::string output = testing::internal::GetCapturedStdout();
         EXPECT_NE( output.find( "Module: cpu_linear" ), std::string::npos );
-        EXPECT_NE( output.find( "Parameters: " ), std::string::npos );
+        EXPECT_NE( output.find( "Parameter count: " ), std::string::npos );
     }
 }

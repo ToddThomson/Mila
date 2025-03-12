@@ -48,8 +48,16 @@ export namespace Mila::Dnn
 		*
 		* @return size_t The number of parameters.
 		*/
-		size_t parameters() const override {
+		size_t parameterCount() const override {
 			return wte_->size() + wpe_->size();
+		}
+
+        const std::vector<std::shared_ptr<Module<TInput, TCompute, TDevice>>>& getSubModules() const override {
+			return {};
+		}
+
+		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameters() const override {
+			return parameters_;
 		}
 
 		/**
@@ -73,13 +81,13 @@ export namespace Mila::Dnn
 
 		void save( mz_zip_archive& zip ) const override {
 			// Save the state of the parameters
-			for ( const auto& [name, tensor] : this->named_parameters_ ) {
+			for ( const auto& tensor : getParameters() ) {
 				// Save tensor data to zip archive
 			}
 		}
 
 		void load( mz_zip_archive& zip ) override {
-			for ( const auto& [name, tensor] : this->named_parameters_ ) {
+			for ( const auto& tensor : getParameters() ) {
 				// Load tensor data from zip archive
 			}
 		}
@@ -89,7 +97,7 @@ export namespace Mila::Dnn
 		*/
 		void print() const override {
 			std::cout << "Module: " << name_ << std::endl;
-			std::cout << "Parameters: " << parameters() << std::endl;
+			std::cout << "Parameter count: " << parameterCount() << std::endl;
 		}
 
 	private:
@@ -97,14 +105,13 @@ export namespace Mila::Dnn
 		size_t channels_; ///< The number of channels.
 		size_t max_seq_len_; ///< The maximum sequence length.
 		size_t vocab_len_; ///< The length of the vocabulary.
+		bool is_training_{ false }; ///< Whether the module is in training mode. Default is false.
 
 		// wte is (V,C) of token embeddings, short for "weight token embeddings"
 		std::shared_ptr<Tensor<float, MR>> wte_{ nullptr };
 
 		// wpe is (maxT,C) of position embeddings, short for "weight positional embedding"
 		std::shared_ptr<Tensor<float, MR>> wpe_{ nullptr };
-
-		bool is_training_{ false }; ///< Whether the module is in training mode. Default is false.
 
 		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_; ///< The Encoder parameters
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_cache_{ nullptr }; ///< The output attributes. Not used in this module.

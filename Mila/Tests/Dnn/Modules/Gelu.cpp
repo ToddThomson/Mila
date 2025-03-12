@@ -41,9 +41,9 @@ namespace Modules::Tests
         EXPECT_EQ( cpu_gelu->name(), "cpu_gelu" );
     }
 
-    TEST_F( GeluTests, Cpu_TestParameters ) {
+    TEST_F( GeluTests, Cpu_parameterCount ) {
         auto num_parameters = 0;
-        EXPECT_EQ( cpu_gelu->parameters(), num_parameters ) ;
+        EXPECT_EQ( cpu_gelu->parameterCount(), num_parameters ) ;
     }
 
     TEST_F( GeluTests, Cpu_TestForward ) {
@@ -65,6 +65,6 @@ namespace Modules::Tests
         cpu_gelu->print();
         std::string output = testing::internal::GetCapturedStdout();
         EXPECT_NE( output.find( "Module: cpu_gelu" ), std::string::npos );
-        EXPECT_NE( output.find( "Parameters: " ), std::string::npos );
+        EXPECT_NE( output.find( "Parameter count: " ), std::string::npos );
     }
 }

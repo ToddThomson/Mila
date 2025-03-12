@@ -36,33 +36,40 @@ namespace Mila::Dnn
 			auto T = input_shape_[ 1 ];
 			auto C = input_shape_[ 2 ];
 
-			ln1_ = std::make_unique<LayerNorm<TInput, TCompute, TDevice>>( "ln_1", input_shape_ );
-			fc_1 = std::make_unique<Linear<TInput, TCompute, TDevice>>( "fc_1", C, 3 * C );
-			attn_ = std::make_unique< Attention<TInput, TCompute, TDevice>>( "attn_1", input_shape_, num_heads_ );
-			ln2_ = std::make_unique< LayerNorm<TInput, TCompute, TDevice>>( "ln_2", input_shape_ );
-			mlp_ = std::make_unique< MLP<TInput, TCompute, TDevice>>( "mlp_1", input_shape_, 4 * C);
-			residual_ = std::make_unique<Residual<TInput, TCompute, TDevice>>( "res_1" );
+			ln_1_ = std::make_unique<LayerNorm<TInput, TCompute, TDevice>>( "ln_1", input_shape_ );
+			fc_ = std::make_unique<Linear<TInput, TCompute, TDevice>>( "fc_", C, 3 * C );
+			attn_ = std::make_unique<MultiHeadAttention<TInput, TCompute, TDevice>>( "attn_", input_shape_, num_heads_ );
+			ln_2_ = std::make_unique<LayerNorm<TInput, TCompute, TDevice>>( "ln_2", input_shape_ );
+			mlp_ = std::make_unique<MLP<TInput, TCompute, TDevice>>( "mlp_", input_shape_, 4 * C);
+			residual_ = std::make_unique<Residual<TInput, TCompute, TDevice>>( "res_" );
+
+			/*addModule( "ln_1", ln_1_ );
+			addModule( "fc", fc_ );
+			addModule( "attn", attn_ );
+			addModule( "ln_2", ln_2_ );
+			addModule( "mlp", mlp_ );
+			addModule( "res", residual_ );*/
 
 			// Pre-allocate output tensors for the Transformer block layers
-			ln1_output_ = Tensor<TCompute, MR>( input_shape_ );
+			ln_1_output_ = Tensor<TCompute, MR>( input_shape_ );
 
-			fc1_output_ = Tensor<TCompute, MR>( { B, T, 3 * C } );
+			fc_output_ = Tensor<TCompute, MR>( { B, T, 3 * C } );
 			attn_output_ = Tensor<TCompute, MR>( input_shape_ );
-			ln2_output_ = Tensor<TCompute, MR>( input_shape_ );
+			ln_2_output_ = Tensor<TCompute, MR>( input_shape_ );
 			mlp_output_ = Tensor<TCompute, MR>( input_shape_ );
 			residual_output_ = Tensor<TCompute, MR>( input_shape_ );
 		}
 
 		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute,MR>& output ) override {
-			ln1_->forward( input, ln1_output_ );
+			ln_1_->forward( input, ln_1_output_ );
 			//std::cout << "ln1_output_" << std::endl;
 			//ln1_output_.print();
 
-			fc_1->forward( ln1_output_, fc1_output_ );
+			fc_->forward( ln_1_output_, fc_output_ );
 			//std::cout << "fc1_output_" << std::endl;
 			//fc1_output_.print();
 
-			attn_->forward( fc1_output_, attn_output_ );
+			attn_->forward( fc_output_, attn_output_ );
 			//std::cout << "attn_output_" << std::endl;
 			//attn_output_.print();
 
@@ -70,16 +77,24 @@ namespace Mila::Dnn
 			//std::cout << "residual_output_" << std::endl;
 			//residual_output_.print();
 			
-			ln2_->forward( residual_output_, ln2_output_ );
+			ln_2_->forward( residual_output_, ln_2_output_ );
 			//std::cout << "ln2_output_" << std::endl;
 			//ln2_output_.print();
 
-			mlp_->forward( ln2_output_, output );
+			mlp_->forward( ln_2_output_, output );
 			//std::cout << "mlp_output_" << std::endl;
 			//output.print();
 		}
 
-		size_t parameters() const override {
+		const std::vector<std::shared_ptr<Module<TInput, TCompute, TDevice>>>& getSubModules() const override {
+			return {};// { ln_1_, fc_, attn_, ln_2_, mlp_, residual_ };
+		}
+
+		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameters() const override {
+			return {};
+		}
+
+        size_t parameterCount() const override {
 			return 0;
 		}
 
@@ -89,31 +104,20 @@ namespace Mila::Dnn
 
 		void save( mz_zip_archive& zip ) const override {
 			// Save the state of the child modules
-			for ( const auto& [name, module] : this->child_modules_ ) {
+			for ( const auto& module : getSubModules() ) {
 				module->save( zip );
-			}
-
-			// Save the state of the parameters
-			for ( const auto& [name, tensor] : this->named_parameters_ ) {
-				// Save tensor data to zip archive
 			}
 		}
 
 		void load( mz_zip_archive& zip ) override {
-			// Load the state of the child modules
-			for ( const auto& [name, module] : this->child_modules_ ) {
+			for ( const auto& module : getSubModules() ) {
 				module->load( zip );
-			}
-
-			// Load the state of the parameters
-			for ( const auto& [name, tensor] : this->named_parameters_ ) {
-				// Load tensor data from zip archive
 			}
 		}
 
 		void print() const override {
 			std::cout << "Module: " << name_ << std::endl;
-			std::cout << "Parameters: " << parameters() << std::endl;
+			std::cout << "Parameter count: " << parameterCount() << std::endl;
 		}
 
 	private:
@@ -121,17 +125,17 @@ namespace Mila::Dnn
 		std::vector<size_t> input_shape_; ///< The input shape.
 		size_t num_heads_; ///< The number of attention heads.
 
-		std::unique_ptr<LayerNorm<TInput, TCompute, TDevice>> ln1_{ nullptr };
-		std::unique_ptr<Linear<TInput, TCompute, TDevice>> fc_1{ nullptr };
-		std::unique_ptr < Attention<TInput, TCompute, TDevice>> attn_{ nullptr };
-		std::unique_ptr < LayerNorm<TInput, TCompute, TDevice>> ln2_{ nullptr };
-		std::unique_ptr < MLP<TInput, TCompute, TDevice>> mlp_{ nullptr };
-		std::unique_ptr < Residual<TInput, TCompute, TDevice>> residual_{ nullptr };
+		std::unique_ptr<LayerNorm<TInput, TCompute, TDevice>> ln_1_{ nullptr };
+		std::unique_ptr<Linear<TInput, TCompute, TDevice>> fc_{ nullptr };
+		std::unique_ptr<MultiHeadAttention<TInput, TCompute, TDevice>> attn_{ nullptr };
+		std::unique_ptr<LayerNorm<TInput, TCompute, TDevice>> ln_2_{ nullptr };
+		std::unique_ptr<MLP<TInput, TCompute, TDevice>> mlp_{ nullptr };
+		std::unique_ptr<Residual<TInput, TCompute, TDevice>> residual_{ nullptr };
 
-		Tensor<TCompute, MR> ln1_output_;
-		Tensor<TCompute, MR> fc1_output_;
+		Tensor<TCompute, MR> ln_1_output_;
+		Tensor<TCompute, MR> fc_output_;
 		Tensor<TCompute, MR> attn_output_;
-		Tensor<TCompute, MR> ln2_output_;
+		Tensor<TCompute, MR> ln_2_output_;
 		Tensor<TCompute, MR> mlp_output_;
 		Tensor<TCompute, MR> residual_output_;
 

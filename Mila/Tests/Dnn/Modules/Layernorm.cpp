@@ -43,13 +43,13 @@ namespace Modules::Tests
         EXPECT_EQ( cpu_layernorm->name(), "cpu_ln" );
     }
 
-    TEST_F( LayerNormTests, Cpu_TestParameters ) {
+    TEST_F( LayerNormTests, Cpu_parameterCount ) {
         auto num_parameters = /* weights */ channels_;
         if ( has_bias_ ) {
             num_parameters += channels_;
         }
 
-        EXPECT_EQ( cpu_layernorm->parameters(), num_parameters );
+        EXPECT_EQ( cpu_layernorm->parameterCount(), num_parameters );
     }
 
     TEST_F( LayerNormTests, Cpu_TestWeightInitialization ) {
@@ -105,6 +105,6 @@ namespace Modules::Tests
         cpu_layernorm->print();
         std::string output = testing::internal::GetCapturedStdout();
         EXPECT_NE( output.find( "Module: cpu_ln" ), std::string::npos );
-        EXPECT_NE( output.find( "Parameters: " ), std::string::npos );
+        EXPECT_NE( output.find( "Parameter count: " ), std::string::npos );
     }
 }

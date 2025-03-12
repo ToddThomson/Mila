@@ -48,10 +48,10 @@ namespace Modules::Tests
         EXPECT_EQ( cpu_encoder->name(), "cpu_encoder" );
     }
 
-    TEST_F( EncoderTests, Cpu_TestParameters ) {
+    TEST_F( EncoderTests, Cpu_parameterCount ) {
         auto num_parameters = /* wte */ (vocab_len_ * channels_) + /* wpe */ (max_seq_len_ * channels_);
 
-        EXPECT_EQ( cpu_encoder->parameters(), num_parameters );
+        EXPECT_EQ( cpu_encoder->parameterCount(), num_parameters );
     }
 
     TEST_F( EncoderTests, Cpu_TestForward ) {
@@ -74,6 +74,6 @@ namespace Modules::Tests
         cpu_encoder->print();
         std::string output = testing::internal::GetCapturedStdout();
         EXPECT_NE( output.find( "Module: cpu_encoder" ), std::string::npos );
-        EXPECT_NE( output.find( "Parameters: " ), std::string::npos );
+        EXPECT_NE( output.find( "Parameter count: " ), std::string::npos );
     }
 }

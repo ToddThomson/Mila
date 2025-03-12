@@ -48,8 +48,16 @@ export namespace Mila::Dnn
 		*
 		* @return size_t The number of parameters.
 		*/
-		size_t parameters() const override {
+		size_t parameterCount() const override {
 			return 0;
+		}
+
+		const std::vector<std::shared_ptr<Module<TInput, TCompute, TDevice>>>& getSubModules() const override {
+			return {};
+		}
+
+		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameters() const override {
+			return parameters_;
 		}
 
 		/**
@@ -73,13 +81,13 @@ export namespace Mila::Dnn
 
 		void save( mz_zip_archive& zip ) const override {
 			// Save the state of the parameters
-			for ( const auto& [name, tensor] : this->named_parameters_ ) {
+			for ( const auto& tensor :getParameters() ) {
 				// Save tensor data to zip archive
 			}
 		}
 
 		void load( mz_zip_archive& zip ) override {
-			for ( const auto& [name, tensor] : this->named_parameters_ ) {
+			for ( const auto& tensor : getParameters() ) {
 				// Load tensor data from zip archive
 			}
 		}
@@ -89,7 +97,7 @@ export namespace Mila::Dnn
 		 */
 		void print() const override {
 			std::cout << "Module: " << name_ << std::endl;
-			std::cout << "Parameters: " << parameters() << std::endl;
+			std::cout << "Parameter count: " << parameterCount() << std::endl;
 		}
 
 		// TODO: Implement the backward pass.
@@ -100,15 +108,11 @@ export namespace Mila::Dnn
 
 	private:
 		std::string name_; ///< The name of the module.
-		std::shared_ptr<Tensor<TInput, MR>> input_;
-
 		bool is_training_{ false }; ///< Whether the module is in training mode. Default is false.
 
 		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_{ nullptr }; ///< The parameters. Not used in this module.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_{ nullptr }; ///< The output cache. Not used in this module.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_{ nullptr }; ///< The scalars. Not used in this module.
-
-		//Tensor<TCompute, MR> output_; ///< The output tensor.
 
 		std::shared_ptr<Dnn::Compute::OperationBase<TInput, TCompute, TDevice>> operation_{ nullptr }; ///< The operation.
 
@@ -116,9 +120,8 @@ export namespace Mila::Dnn
 		 * @brief Create the operation.
 		 */
 		void createOperation() {
-			//output_ = Tensor<float, MR>( input_shape_ );
 
-			if constexpr ( std::is_same_v<MR, Compute::CpuMemoryResource> ) {
+			if constexpr ( std::is_same_v<TDevice, Compute::CpuDevice> ) {
 				operation_ = OperationRegistry<float, float, CpuDevice>::instance().createOperation( DeviceType::Cpu, "Cpu::GeluOp" );
 			}
 			else {

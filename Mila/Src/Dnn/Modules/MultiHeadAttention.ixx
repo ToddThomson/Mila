@@ -30,11 +30,11 @@ export namespace Mila::Dnn
 	export
 		template<typename TInput, typename TCompute = TInput, typename TDevice = CpuDevice>
 		requires ValidTensorTypes<TInput, TCompute>&& std::is_base_of_v<Compute::ComputeDevice, TDevice>
-	class Attention : public Module<TInput, TCompute, TDevice> {
+    class MultiHeadAttention : public Module<TInput, TCompute, TDevice> {
 	public:
 		using MR = TDevice::MR;
 
-		Attention( std::string name, const std::vector<size_t>& input_shape, size_t num_heads, bool is_training = false )
+		MultiHeadAttention( std::string name, const std::vector<size_t>& input_shape, size_t num_heads, bool is_training = false )
 			: name_{ name }, input_shape_{ input_shape }, num_heads_{ num_heads }, is_training_{ is_training } {
 			createOperation();
 		}
@@ -44,8 +44,16 @@ export namespace Mila::Dnn
 		*
 		* @return size_t The number of parameters.
 		*/
-		size_t parameters() const override {
+		size_t parameterCount() const override {
 			return 0;
+		}
+
+		const std::vector<std::shared_ptr<Module<TInput, TCompute, TDevice>>>& getSubModules() const override {
+			return {};
+		}
+
+		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameters() const override {
+			return parameters_;
 		}
 
 		/**
@@ -63,20 +71,20 @@ export namespace Mila::Dnn
 
 		void save( mz_zip_archive& zip ) const override {
 			// Save the state of the parameters
-			for ( const auto& [name, tensor] : this->named_parameters_ ) {
+			for ( const auto& tensor : getParameters() ) {
 				// Save tensor data to zip archive
 			}
 		}
 
 		void load( mz_zip_archive& zip ) override {
-			for ( const auto& [name, tensor] : this->named_parameters_ ) {
+			for ( const auto& tensor : getParameters() ) {
 				// Load tensor data from zip archive
 			}
 		}
 
 		void print() const override {
 			std::cout << "Module: " << name_ << std::endl;
-			std::cout << "Parameters: " << parameters() << std::endl;
+			std::cout << "Parameter count: " << parameterCount() << std::endl;
 		}
 
 		// TODO: Implement the backward pass.
@@ -90,8 +98,6 @@ export namespace Mila::Dnn
 		std::vector<size_t> input_shape_; ///< The input shape.
 		size_t num_heads_{ 0 };
 		bool is_training_{ false }; ///< Whether the module is in training mode. Default is false.
-
-		//Tensor<float, MR> output_;
 
 		std::shared_ptr<Tensor<float, MR>> attention_ = { nullptr };
 		std::shared_ptr<Tensor<float, MR>> pre_attention_{ nullptr };
@@ -116,9 +122,7 @@ export namespace Mila::Dnn
 			output_cache_.emplace_back( attention_ );
 			output_cache_.emplace_back( pre_attention_ );
 
-			//output_ = Tensor<float, MR>( input_shape_ );
-
-			if constexpr ( std::is_same_v<MR, Compute::CpuMemoryResource> ) {
+			if constexpr ( std::is_same_v<TDevice, Compute::CpuDevice> ) {
 				operation_ = OperationRegistry<float, float, CpuDevice>::instance().createOperation( DeviceType::Cpu, "Cpu::AttentionOp" );
 			}
 			else {

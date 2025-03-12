@@ -41,9 +41,9 @@ namespace Modules::Tests
         EXPECT_EQ( cpu_residual->name(), "cpu_residual" );
     }
 
-    TEST_F( ResidualTests, Cpu_TestParameters ) {
+    TEST_F( ResidualTests, Cpu_parameterCount ) {
         auto num_parameters = 0;
-        EXPECT_EQ( cpu_residual->parameters(), num_parameters );
+        EXPECT_EQ( cpu_residual->parameterCount(), num_parameters );
     }
 
     TEST_F( ResidualTests, Cpu_TestForward ) {
@@ -64,6 +64,6 @@ namespace Modules::Tests
         cpu_residual->print();
         std::string output = testing::internal::GetCapturedStdout();
         EXPECT_NE( output.find( "Module: cpu_residual" ), std::string::npos );
-        EXPECT_NE( output.find( "Parameters: " ), std::string::npos );
+        EXPECT_NE( output.find( "Parameter count: " ), std::string::npos );
     }
 }

@@ -28,8 +28,8 @@ namespace Modules::Tests
         EXPECT_EQ( softmax->name(), "softmax_1" );
     }
 
-    TEST_F( SoftmaxTest, TestParameters ) {
-        EXPECT_EQ( softmax->parameters(), 0 );
+    TEST_F( SoftmaxTest, Test_parameterCount ) {
+        EXPECT_EQ( softmax->parameterCount(), 0 );
     }
 
     TEST_F( SoftmaxTest, Cpu_TestForward ) {
@@ -63,6 +63,6 @@ namespace Modules::Tests
         softmax->print();
         std::string output = testing::internal::GetCapturedStdout();
         EXPECT_NE( output.find( "Module: softmax_1" ), std::string::npos );
-        EXPECT_NE( output.find( "Parameters: 0" ), std::string::npos );
+        EXPECT_NE( output.find( "Parameter count: 0" ), std::string::npos );
     }
 }

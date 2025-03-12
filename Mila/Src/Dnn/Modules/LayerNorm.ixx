@@ -5,6 +5,7 @@ module;
 #include <vector>
 #include <type_traits>
 #include <cstdint>
+#include <stdexcept>
 
 export module Dnn.Modules.LayerNorm;
 
@@ -37,14 +38,14 @@ namespace Mila::Dnn
 	public:
 		using MR = TDevice::MR;
 
-		/**
-		* @brief Construct a new LayerNorm object.
-		*
-		* @param name Name of the module.
-		* @param input_shape Shape of the input tensor.
-		* @param has_bias Whether the module has a bias tensor. Default is true.
-		* @param is_training Whether the module is in training mode. Default is false.
-		*/
+        /**
+        * @brief Construct a new LayerNorm object.
+        *
+        * @param name Name of the module.
+        * @param input_shape Shape of the input tensor.
+        * @param has_bias Whether the module has a bias tensor. Default is true.
+        * @param is_training Whether the module is in training mode. Default is false.
+        */
 		LayerNorm(
 			std::string name,
 			const std::vector<size_t>& input_shape,
@@ -52,6 +53,9 @@ namespace Mila::Dnn
 			bool has_bias = true,
 			bool is_training = false )
 			: name_{ name }, input_shape_{ input_shape }, has_bias_{ has_bias }, is_training_{ is_training } {
+			if ( name_.empty() ) {
+				throw std::invalid_argument( "Module name cannot be empty" );
+			}
 			createParameters();
 			createOperation();
 		}
@@ -79,8 +83,16 @@ namespace Mila::Dnn
 		*
 		* @return size_t Number of parameters.
 		*/
-		size_t parameters() const override {
+		size_t parameterCount() const override {
 			return weight_->size() + bias_->size();
+		}
+
+		const std::vector<std::shared_ptr<Module<TInput, TCompute, TDevice>>>& getSubModules() const override {
+			return {};
+		}
+
+		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameters() const override {
+			return parameters_;
 		}
 
 		/**
@@ -104,13 +116,13 @@ namespace Mila::Dnn
 
 		void save( mz_zip_archive& zip ) const override {
 			// Save the state of the parameters
-			for ( const auto& [name, tensor] : this->named_parameters_ ) {
+			for ( const auto& tensor : getParameters() ) {
 				// Save tensor data to zip archive
 			}
 		}
 
 		void load( mz_zip_archive& zip ) override {
-			for ( const auto& [name, tensor] : this->named_parameters_ ) {
+			for ( const auto& tensor : getParameters() ) {
 				// Load tensor data from zip archive
 			}
 		}
@@ -120,7 +132,7 @@ namespace Mila::Dnn
 		*/
 		void print() const override {
 			std::cout << "Module: " << name_ << std::endl;
-			std::cout << "Parameters: " << parameters() << std::endl;
+			std::cout << "Parameter count: " << parameterCount() << std::endl;
 		}
 
 	private:
