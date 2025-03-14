@@ -3,8 +3,9 @@ module;
 #include <vector>
 #include <string>
 #include <iostream>
-#include <type_traits>
+#include <sstream> 
 #include <stdexcept>
+#include <iosfwd>
 
 export module Dnn.Blocks.TransformerBlock;
 
@@ -39,12 +40,12 @@ namespace Mila::Dnn
 			auto T = input_shape_[ 1 ];
 			auto C = input_shape_[ 2 ];
 
-			ln_1_ = std::make_shared<LayerNorm<TInput, TCompute, TDevice>>( "ln_1", input_shape_ );
-			fc_ = std::make_shared<Linear<TInput, TCompute, TDevice>>( "fc_", C, 3 * C );
-			attn_ = std::make_shared<MultiHeadAttention<TInput, TCompute, TDevice>>( "attn_", input_shape_, num_heads_ );
-			ln_2_ = std::make_shared<LayerNorm<TInput, TCompute, TDevice>>( "ln_2", input_shape_ );
-			mlp_ = std::make_shared<MLP<TInput, TCompute, TDevice>>( "mlp_", input_shape_, 4 * C);
-			residual_ = std::make_shared<Residual<TInput, TCompute, TDevice>>( "res_" );
+            ln_1_ = std::make_shared<LayerNorm<TInput, TCompute, TDevice>>( this->getName() + ".ln_1", input_shape_ );
+            fc_ = std::make_shared<Linear<TInput, TCompute, TDevice>>( this->getName() + ".fc_", C, 3 * C );
+            attn_ = std::make_shared<MultiHeadAttention<TInput, TCompute, TDevice>>( this->getName() + ".attn", input_shape_, num_heads_ );
+            ln_2_ = std::make_shared<LayerNorm<TInput, TCompute, TDevice>>( this->getName() + ".ln_2", input_shape_ );
+            mlp_ = std::make_shared<MLP<TInput, TCompute, TDevice>>( this->getName() + ".mlp", input_shape_, 4 * C);
+            residual_ = std::make_shared<Residual<TInput, TCompute, TDevice>>( this->getName() + ".res" );
 
 			this->addModule( ln_1_ );
 			this->addModule( fc_ );
@@ -89,16 +90,20 @@ namespace Mila::Dnn
 			//output.print();
 		}
 
-		//const std::vector<std::shared_ptr<Module<TInput, TCompute, TDevice>>>& getSubModules() const override {
-		//	return {};// { ln_1_, fc_, attn_, ln_2_, mlp_, residual_ };
-		//}
-
-		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameters() const override {
+		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameterTensors() const override {
 			return {};
 		}
 
-        size_t parameterCount() const override {
-			return 0;
+		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getStateTensors() const override {
+			return {};
+		}
+
+		size_t parameterCount() const override {
+			size_t total_parameters = 0;
+			for ( const auto& module : this->getSubModules() ) {
+				total_parameters += module->parameterCount();
+			}
+			return total_parameters;
 		}
 
 		void save( mz_zip_archive& zip ) const override {
@@ -114,9 +119,18 @@ namespace Mila::Dnn
 			}
 		}
 
-		void print() const override {
-			std::cout << "Module: " << this->getName() << std::endl;
-			std::cout << "Parameter count: " << parameterCount() << std::endl;
+		std::string toString() const override {
+			std::ostringstream oss;
+			oss << "====================" << std::endl;
+			oss << "Transformer: " << this->getName() << std::endl;
+			oss << "Parameter count: " << parameterCount() << std::endl;
+			oss << "Sub-Modules..." << std::endl;
+
+			for ( const auto& module : this->getSubModules() ) {
+				oss << *module;
+			}
+
+			return oss.str();
 		}
 
 	private:

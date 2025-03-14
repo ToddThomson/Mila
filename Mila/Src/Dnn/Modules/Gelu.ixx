@@ -3,6 +3,7 @@ module;
 #include <vector>
 #include <string>
 #include <iostream>
+#include <sstream>
 #include <type_traits>
 
 export module Dnn.Modules.Gelu;
@@ -49,8 +50,12 @@ export namespace Mila::Dnn
 			return 0;
 		}
 
-		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameters() const override {
+		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameterTensors() const override {
 			return parameters_;
+		}
+
+		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getStateTensors() const override {
+			return output_state_;
 		}
 
 		/**
@@ -65,23 +70,26 @@ export namespace Mila::Dnn
 
 		void save( mz_zip_archive& zip ) const override {
 			// Save the state of the parameters
-			for ( const auto& tensor :getParameters() ) {
+			for ( const auto& tensor :getParameterTensors() ) {
 				// Save tensor data to zip archive
 			}
 		}
 
 		void load( mz_zip_archive& zip ) override {
-			for ( const auto& tensor : getParameters() ) {
+			for ( const auto& tensor : getParameterTensors() ) {
 				// Load tensor data from zip archive
 			}
 		}
 
-		/**
-		 * @brief Print the module information.
-		 */
-		void print() const override {
-			std::cout << "Module: " << this->getName() << std::endl;
-			std::cout << "Parameter count: " << parameterCount() << std::endl;
+        /**
+        * @brief Convert the module information to a string.
+        */
+		std::string toString() const override {
+			std::ostringstream oss;
+			oss << "--------------------" << std::endl;
+			oss << "Gelu: " << this->getName() << std::endl;
+
+			return oss.str();
 		}
 
 		// TODO: Implement the backward pass.

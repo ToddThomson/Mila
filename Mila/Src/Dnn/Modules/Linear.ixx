@@ -3,6 +3,7 @@ module;
 #include <vector>
 #include <string>
 #include <iostream>
+#include <sstream>
 #include <type_traits>
 #include <stdexcept>
 
@@ -48,7 +49,7 @@ export namespace Mila::Dnn
 			: input_channels_{ input_channels }, output_channels_{ output_channels }, has_bias_{ has_bias } {
 			this->setTraining( is_training );
 			this->setName( name );
-			createParameters();
+			initializeTensors();
 			createOperation();
 		}
 
@@ -88,8 +89,12 @@ export namespace Mila::Dnn
 			return num_params;
 		}
 
-		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameters() const override {
+		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameterTensors() const override {
 			return parameters_;
+		}
+
+		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getStateTensors() const override {
+			return output_state_;
 		}
 
 		/**
@@ -99,28 +104,50 @@ export namespace Mila::Dnn
 		 * @return std::shared_ptr<Tensor<float>> The output tensor.
 		 */
 		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute,MR>& output ) {
-			operation_->forward( input, parameters_, output, output_cache );
+			operation_->forward( input, parameters_, output, output_state_ );
 		}
 
 		void save( mz_zip_archive& zip ) const override {
 			// Save the state of the parameters
-			for ( const auto& tensor : getParameters() ) {
+			for ( const auto& tensor : getParameterTensors() ) {
 				// Save tensor data to zip archive
 			}
 		}
 
 		void load( mz_zip_archive& zip ) override {
-			for ( const auto& tensor : getParameters() ) {
+			for ( const auto& tensor : getParameterTensors() ) {
 				// Load tensor data from zip archive
 			}
 		}
 
 		/**
-		 * @brief Print the module information.
-		 */
-		void print() const override {
-			std::cout << "Module: " << this->getName() << std::endl;
-			std::cout << "Parameter count: " << parameterCount() << std::endl;
+		* @brief Convert the module information to string.
+		*
+		* @return std::string Module information as string.
+		*/
+		std::string toString() const override {
+			std::ostringstream oss;
+			oss << "--------------------" << std::endl;
+			oss << "Linear: " << this->getName();
+			oss << ", Input channels: " << input_channels_;
+			oss << ", Output channels: " << output_channels_ << std::endl;
+
+			if ( getParameterTensors().size() > 0 ) {
+				oss << "Parameter Tensors..." << std::endl;
+				for ( const auto& tensor : getParameterTensors() ) {
+					oss << tensor->toString();
+				}
+				oss << "Parameter count: " << parameterCount() << std::endl;
+			}
+
+			if ( getStateTensors().size() > 0 ) {
+				oss << "State Tensors..." << std::endl;
+				for ( const auto& tensor : getStateTensors() ) {
+					oss << tensor->toString();
+				}
+			}
+
+			return oss.str();
 		}
 
 		// TODO: Implement the backward pass.
@@ -138,7 +165,7 @@ export namespace Mila::Dnn
 		std::shared_ptr<Tensor<float, MR>> bias_{ nullptr }; ///< The bias tensor.
 
 		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_; ///< The parameters.
-		std::vector<std::shared_ptr<Tensor<float, MR>>> output_cache; ///< The output cache.
+		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_; ///< The output cache.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_; ///< The scalars.
 
 		std::shared_ptr<Dnn::Compute::OperationBase<TInput, TCompute, TDevice>> operation_{ nullptr }; ///< The operation.
@@ -153,17 +180,14 @@ export namespace Mila::Dnn
         *
         * @throws std::invalid_argument if the input shape does not have 3 dimensions.
         */
-		void createParameters() {
+		void initializeTensors() {
 			// Initialize the weight tensor using xavier distribution and the bias tensor is default initialized to zeros
 			weight_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ output_channels_, input_channels_ } );
 			xavier<float, MR>( *weight_, input_channels_, output_channels_ );
 
 			if ( has_bias_ )
 				bias_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ output_channels_ } );
-
 			
-			// TODO: initializeWeights();
-
 			parameters_.emplace_back( weight_ );
 			parameters_.emplace_back( bias_ );
 		}

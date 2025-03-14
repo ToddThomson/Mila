@@ -61,10 +61,7 @@ namespace Modules::Tests
     }
 
     TEST_F( GeluTests, Cpu_TestPrint ) {
-        testing::internal::CaptureStdout();
-        cpu_gelu->print();
-        std::string output = testing::internal::GetCapturedStdout();
-        EXPECT_NE( output.find( "Module: cpu_gelu" ), std::string::npos );
-        EXPECT_NE( output.find( "Parameter count: " ), std::string::npos );
+		std::string output = cpu_gelu->toString();
+        EXPECT_NE( output.find( "Gelu: cpu_gelu" ), std::string::npos );
     }
 }

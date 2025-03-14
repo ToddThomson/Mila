@@ -1,4 +1,8 @@
 #include <gtest/gtest.h>
+#include <memory>
+#include <vector>
+#include <string>
+#include <sstream>
 
 import Mila;
 
@@ -147,16 +151,14 @@ namespace Tensors::Tests {
         }
     }
 
-    TEST( TensorTest, Print ) {
+    TEST( TensorTest, toString ) {
         std::vector<size_t> shape = { 2, 3 };
         Tensor<float, Compute::CpuMemoryResource> tensor( shape );
         tensor.fill( 1.0f );
-        testing::internal::CaptureStdout();
-        tensor.print();
-        std::string output = testing::internal::GetCapturedStdout();
-        EXPECT_NE( output.find( "Shape: 2 3" ), std::string::npos );
-        EXPECT_NE( output.find( "1" ), std::string::npos );
-    }
+        std::string output = tensor.toString();
+        EXPECT_NE( output.find( "Tensor: " ), std::string::npos );
+        EXPECT_NE( output.find( "Shape: (2,3)" ), std::string::npos );
+     }
 
     TEST( TensorTest, ViewReturnsCorrectMatrixMdspan ) {
         std::vector<size_t> shape = { 2, 3 };

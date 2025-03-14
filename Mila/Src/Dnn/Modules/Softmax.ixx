@@ -3,6 +3,7 @@ module;
 #include <vector>
 #include <string>
 #include <iostream>
+#include <sstream>
 #include <type_traits>
 #include <cstdint>
 
@@ -66,8 +67,12 @@ export namespace Mila::Dnn
 			return 0;
 		}
 
-		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameters() const override {
+		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameterTensors() const override {
 			return parameters_;
+		}
+
+		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getStateTensors() const override {
+			return {};
 		}
 
 		/**
@@ -77,7 +82,7 @@ export namespace Mila::Dnn
 		* @return std::shared_ptr<Tensor<float>> The output tensor.
 		*/
 		void forward( const Tensor<TInput, MR>& input, Tensor<TInput, MR>& output ) {
-			operation_->forward( input, parameters_, output, output_cache_ );
+			operation_->forward( input, parameters_, output, output_state_ );
 		}
 
 		// TODO: Implement the backward pass.
@@ -88,23 +93,36 @@ export namespace Mila::Dnn
 
 		void save( mz_zip_archive& zip ) const override {
 			// Save the state of the parameters
-			for ( const auto& tensor : getParameters() ) {
+			for ( const auto& tensor : getParameterTensors() ) {
 				// Save tensor data to zip archive
 			}
 		}
 
 		void load( mz_zip_archive& zip ) override {
-			for ( const auto& tensor : getParameters() ) {
+			for ( const auto& tensor : getParameterTensors() ) {
 				// Load tensor data from zip archive
 			}
 		}
 
 		/**
-		* @brief Print the module information.
+		* @brief Convert the module information to string.
+		*
+		* @return std::string Module information as string.
 		*/
-		void print() const override {
-			std::cout << "Module: " << this->getName() << std::endl;
-			std::cout << "Parameter count: " << parameterCount() << std::endl;
+		std::string toString() const override {
+			std::ostringstream oss;
+			oss << "--------------------" << std::endl;
+			oss << "Softmax: " << this->getName() << ", Dimension: " << axis_;
+			oss << ", Input shape: (";
+			for ( size_t i = 0; i < input_shape_.size(); ++i ) {
+				oss << input_shape_[ i ];
+				if ( i != input_shape_.size() - 1 ) {
+					oss << ",";
+				}
+			}
+			oss << ")" << std::endl;
+
+			return oss.str();
 		}
 
 	private:
@@ -112,7 +130,7 @@ export namespace Mila::Dnn
 		int64_t axis_{ -1 }; ///< The dimension to perform the softmax operation on. Default is -1 for the last dimension.
 
 		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_{ nullptr }; ///< The parameters. Not used in this module.
-		std::vector<std::shared_ptr<Tensor<float, MR>>> output_cache_{ nullptr }; ///< The output attributes. Not used in this module.
+		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_{ nullptr }; ///< The output attributes. Not used in this module.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_{ nullptr }; ///< The scalars.module;
 
 		std::shared_ptr<Dnn::Compute::OperationBase<TInput, TCompute, TDevice>> operation_{ nullptr }; ///< The operation.

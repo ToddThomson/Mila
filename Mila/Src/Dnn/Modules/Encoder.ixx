@@ -3,6 +3,7 @@ module;
 #include <vector>
 #include <string>
 #include <iostream>
+#include <sstream>
 #include <type_traits>
 
 export module Dnn.Modules.Encoder;
@@ -25,7 +26,7 @@ export namespace Mila::Dnn
 
 	export
 	template<typename TInput, typename TCompute = TInput, typename TDevice = CpuDevice>
-		requires ValidTensorTypes<TInput, TCompute>&& std::is_base_of_v<Compute::ComputeDevice, TDevice>
+		requires ValidTensorTypes<TInput, TCompute> && std::is_base_of_v<Compute::ComputeDevice, TDevice>
 	class Encoder : public Module<TInput, TCompute, TDevice> {
 	public:
 		using MR = TDevice::MR;
@@ -42,6 +43,7 @@ export namespace Mila::Dnn
 			: channels_{ channels }, max_seq_len_{ max_seq_len }, vocab_len_{ vocab_len } {
 			this->setTraining( is_training );
 			this->setName( name );
+			initializeTensors();
 			createOperation();
 		}
 
@@ -54,8 +56,12 @@ export namespace Mila::Dnn
 			return wte_->size() + wpe_->size();
 		}
 
-        const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameters() const override {
+        const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameterTensors() const override {
 			return parameters_;
+		}
+
+		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getStateTensors() const override {
+			return output_state_;
 		}
 
 		/**
@@ -65,30 +71,41 @@ export namespace Mila::Dnn
 		* @return Tensor<float, MR> The output tensor.
 		*/
 		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute, MR>& output ) override {
-			operation_->forward( input, parameters_, output, output_cache_ );
+			operation_->forward( input, parameters_, output, output_state_ );
 		}
 
 		void save( mz_zip_archive& zip ) const override {
 			// Save the state of the parameters
-			for ( const auto& tensor : getParameters() ) {
+			for ( const auto& tensor : getParameterTensors() ) {
 				// Save tensor data to zip archive
 			}
 		}
 
 		void load( mz_zip_archive& zip ) override {
-			for ( const auto& tensor : getParameters() ) {
+			for ( const auto& tensor : getParameterTensors() ) {
 				// Load tensor data from zip archive
 			}
 		}
 
-		/**
-		* @brief Print the module information.
-		*/
-		void print() const override {
-			std::cout << "Module: " << this->getName() << std::endl;
-			std::cout << "Parameter count: " << parameterCount() << std::endl;
-		}
+        /**
+        * @brief Get the module information as a string.
+        *
+        * @return std::string The module information.
+        */
+		std::string toString() const override {
+			std::ostringstream oss;
+			oss << "Encoder: " << this->getName();
+			oss << ", Channels: " << channels_ << ", Max Sequence Length: " << max_seq_len_;
+			oss << ", Vocabulary Length: " << vocab_len_ << std::endl;
+			oss << "Parameter Tensors..." << std::endl;
+			for ( const auto& tensor : getParameterTensors() ) {
+				oss << tensor->toString();
+			}
+			oss << "Parameter count: " << parameterCount() << std::endl;
 
+			return oss.str();
+		}
+		
 	private:
 		size_t channels_; ///< The number of channels.
 		size_t max_seq_len_; ///< The maximum sequence length.
@@ -101,15 +118,12 @@ export namespace Mila::Dnn
 		std::shared_ptr<Tensor<float, MR>> wpe_{ nullptr };
 
 		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_; ///< The Encoder parameters
-		std::vector<std::shared_ptr<Tensor<float, MR>>> output_cache_{ nullptr }; ///< The output attributes. Not used in this module.
+		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_{ nullptr }; ///< The output attributes. Not used in this module.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_{ nullptr }; ///< The scalars. Not used in this module.
 
 		std::shared_ptr<Dnn::Compute::OperationBase<int, float, TDevice>> operation_{ nullptr }; ///< The operation.
 
-		/**
-		* @brief Create the operation.
-		*/
-		void createOperation() {
+		void initializeTensors() {
 			wte_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ vocab_len_, channels_ } );
 			wte_->setName( this->getName() + ".wte" );
 			xavier<float, MR>( *wte_, vocab_len_, channels_ );
@@ -119,6 +133,12 @@ export namespace Mila::Dnn
 
 			parameters_.emplace_back( wte_ );
 			parameters_.emplace_back( wpe_ );
+		}
+
+		/**
+		* @brief Create the operation.
+		*/
+		void createOperation() {
 
 			// REVIEW: I haven't decided on creating the output on the first call to the forward pass...
 			// output is (B,T,C). At each position (b,t), a C dimensional vector summarizing token & position

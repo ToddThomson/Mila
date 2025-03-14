@@ -1,5 +1,6 @@
 module;
 #include <iostream>
+#include <sstream>
 #include <memory>
 #include <string>
 #include <type_traits>
@@ -38,9 +39,9 @@ namespace Mila::Dnn
 			std::vector<size_t> fc_1_output_shape = input_shape;
 			fc_1_output_shape.back() = output_channels_;
 
-			fc_1_ = std::make_shared<Linear<TInput, TCompute, TDevice>>( "fc_1", input_channels_, output_channels_ );
-			gelu_ = std::make_shared<Gelu<TInput, TCompute, TDevice>>( "act_1" );
-			fc_proj_ = std::make_shared<Linear<TInput, TCompute, TDevice>>( "fc_proj", output_channels_, output_channels_ );
+			fc_1_ = std::make_shared<Linear<TInput, TCompute, TDevice>>( this->getName() + ".fc_1", input_channels_, output_channels_ );
+			gelu_ = std::make_shared<Gelu<TInput, TCompute, TDevice>>( this->getName() + ".gelu" );
+			fc_proj_ = std::make_shared<Linear<TInput, TCompute, TDevice>>( this->getName() + ".fc_proj", output_channels_, input_channels_ );
 
 			// Add sub-modules to the MLP block
 			this->addModule( fc_1_ );
@@ -58,12 +59,20 @@ namespace Mila::Dnn
 			fc_proj_->forward( gelu_output_, output );
 		}
 
-		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameters() const override {
+		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameterTensors() const override {
+			return {};
+		}
+
+		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getStateTensors() const override {
 			return {};
 		}
 
 		size_t parameterCount() const override {
-			return fc_1_->parameterCount() + gelu_->parameterCount() + fc_proj_->parameterCount();
+			size_t total_parameters = 0;
+			for ( const auto& module : this->getSubModules() ) {
+				total_parameters += module->parameterCount();
+			}
+			return total_parameters;
 		}
 
 		void save( mz_zip_archive& zip ) const override {
@@ -88,10 +97,28 @@ namespace Mila::Dnn
 			//}
 		}
 
-		void print() const override {
-			std::cout << "Module: " << this->getName() << std::endl;
-			std::cout << "Parameter count: " << parameterCount() << std::endl;
-		}
+        std::string toString() const override {
+			std::ostringstream oss;
+			oss << "====================" << std::endl;
+			oss << "MLP: " << this->getName();
+			oss << ", Input shape: (";
+			for ( size_t i = 0; i < input_shape_.size(); ++i ) {
+				oss << input_shape_[ i ];
+				if ( i != input_shape_.size() - 1 ) {
+					oss << ",";
+				}
+			}
+			oss << ")";
+			oss << ", Input channels: " << input_channels_;
+			oss << ", Output channels: " << output_channels_ << std::endl;
+			oss << "Parameter count: " << parameterCount() << std::endl;
+			oss << "Sub-Modules..." << std::endl;
+            for (const auto& module : this->getSubModules()) {
+                oss << *module;
+            }
+			
+			return oss.str();
+        }
 
     private:
 		std::vector<size_t> input_shape_; ///< The input shape.

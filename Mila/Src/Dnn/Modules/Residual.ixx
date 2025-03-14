@@ -1,9 +1,11 @@
 module;
-#include <memory>
-#include <vector>
-#include <string>
-#include <iostream>
-#include <ostream>
+//#include <miniz.h>
+#include <sstream>
+//#include <memory>
+//#include <vector>
+//#include <string>
+//#include <iostream>
+//#include <ostream>
 #include <type_traits>
 
 export module Dnn.Modules.Residual;
@@ -28,7 +30,7 @@ export namespace Mila::Dnn
 	using namespace Mila::Dnn::Compute;
 
 	export
-		template<typename TInput, typename TCompute = TInput, typename TDevice = CpuDevice>
+	template<typename TInput, typename TCompute = TInput, typename TDevice = CpuDevice>
 		requires ValidTensorTypes<TInput, TCompute>&& std::is_base_of_v<Compute::ComputeDevice, TDevice>
 	class Residual : public Module<TInput, TCompute, TDevice> {
 	public:
@@ -44,8 +46,12 @@ export namespace Mila::Dnn
 			return 0;
 		}
 
-		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameters() const override {
+		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameterTensors() const override {
 			return parameters_;
+		}
+
+		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getStateTensors() const override {
+			return output_state_;
 		}
 
 		/**
@@ -55,29 +61,35 @@ export namespace Mila::Dnn
 		 * @return Tensor<float,MR> The output tensor.
 		 */
 		void forward( const Tensor<TInput, MR>& input, Tensor<TInput, MR>& output ) {
-			operation_->forward( input, parameters_, output, output_attributes_ );
+			operation_->forward( input, parameters_, output, output_state_ );
 		}
 
 		void save( mz_zip_archive& zip ) const override {
 			// Save the state of the parameters
-			for ( const auto& tensor : getParameters() ) {
+			for ( const auto& tensor : getParameterTensors() ) {
 				// Save tensor data to zip archive
 			}
 		}
 
 		void load( mz_zip_archive& zip ) override {
-			for ( const auto& tensor : getParameters() ) {
+			for ( const auto& tensor : getParameterTensors() ) {
 				// Load tensor data from zip archive
 			}
 		}
 
 		/**
-		 * @brief Print the module information.
-		 */
-		void print() const override {
-			std::cout << "Module: " << this->getName() << std::endl;
-			std::cout << "Parameter count: " << parameterCount() << std::endl;
+		* @brief Convert the module information to string.
+		*
+		* @return std::string Module information as string.
+		*/
+		std::string toString() const override {
+			std::ostringstream oss;
+			oss << "--------------------" << std::endl;
+			oss << "Residual: " << this->getName() << std::endl;
+			
+			return oss.str();
 		}
+
 
 		// TODO: Implement the backward pass.
 		// 
@@ -87,7 +99,7 @@ export namespace Mila::Dnn
 
 	private:
 		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_{ nullptr }; ///< The parameters. Not used in this module.
-		std::vector<std::shared_ptr<Tensor<float, MR>>> output_attributes_{ nullptr }; ///< The output attributes. Not used in this module.
+		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_{ nullptr }; ///< The output attributes. Not used in this module.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_{ nullptr }; ///< The scalars. Not used in this module.
 
 		std::shared_ptr<Dnn::Compute::OperationBase<TInput, TCompute, TDevice>> operation_{ nullptr }; ///< The operation.

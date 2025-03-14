@@ -1,5 +1,7 @@
 #include <iostream>
 #include <vector>
+#include <string>
+#include <sstream>
 #include <memory>
 
 import Mila;
@@ -31,7 +33,7 @@ int main() {
     // Create the required layernorm tensors
 	auto input = Tensor<float>( std::vector<size_t>{ B, T, C } );
     random<float>( input, -1.0f, 1.0f );
-    input.print();
+    std::cout << input.toString();
 
 
 	auto ln_normalized_shape = std::vector<size_t>{ C };

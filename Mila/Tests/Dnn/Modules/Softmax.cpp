@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include <vector>
 #include <string>
+#include <iostream>
+#include <sstream>
 #include <memory>
 
 import Mila;
@@ -58,11 +60,9 @@ namespace Modules::Tests
         }
     }
 
-    TEST_F( SoftmaxTest, TestPrint ) {
-        testing::internal::CaptureStdout();
-        softmax->print();
-        std::string output = testing::internal::GetCapturedStdout();
-        EXPECT_NE( output.find( "Module: softmax_1" ), std::string::npos );
-        EXPECT_NE( output.find( "Parameter count: 0" ), std::string::npos );
-    }
+    TEST_F( SoftmaxTest, toString ) {
+        std::string output = softmax->toString();
+        EXPECT_NE( output.find( "Softmax: softmax_1" ), std::string::npos );
+		EXPECT_NE( output.find( "Dimension: 2" ), std::string::npos );
+	}
 }

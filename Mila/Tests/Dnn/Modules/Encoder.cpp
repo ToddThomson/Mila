@@ -69,11 +69,13 @@ namespace Modules::Tests
     //    EXPECT_EQ( output.size(), batch_size_ * sequence_length_ * channels_ );
     //}
 
-    TEST_F( EncoderTests, Cpu_TestPrint ) {
-        testing::internal::CaptureStdout();
-        cpu_encoder->print();
-        std::string output = testing::internal::GetCapturedStdout();
-        EXPECT_NE( output.find( "Module: cpu_encoder" ), std::string::npos );
-        EXPECT_NE( output.find( "Parameter count: " ), std::string::npos );
+    TEST_F( EncoderTests, Cpu_toString ) {
+        /*std::ostringstream oss;
+        oss << cpu_encoder;
+        std::string output = oss.str();
+        EXPECT_NE( output.find( "Encoder: cpu_encoder" ), std::string::npos );*/
+
+        std::string output = cpu_encoder->toString();
+        EXPECT_NE( output.find( "Encoder: cpu_encoder" ), std::string::npos );
     }
 }

@@ -1,6 +1,7 @@
 module;
 #include <vector>  
 #include <iostream>
+#include <sstream>
 #include <iomanip>
 #include <variant>  
 #include <memory>
@@ -246,7 +247,7 @@ namespace Mila::Dnn
 			return name_;
 		}
 
-        void setName( const std::string const& value ) {
+        void setName( const std::string& value ) {
             if ( value.empty() ) {
                 throw std::invalid_argument("Tensor name cannot be empty.");
             }
@@ -257,21 +258,32 @@ namespace Mila::Dnn
 			return uid_;
 		}
 
-		void print() const {
-			std::cout << "Tensor: " << uid_;
-			if ( !name_.empty() ) std::cout << "::" << name_ << std::endl;
-			std::cout << "Type::" << to_string( data_type_ ) << std::endl;
-			std::cout << "Size: " << size_ << std::endl;
-			std::cout << "Shape: ";
-			for ( auto dim : shape_ ) {
-				std::cout << dim << " ";
+		std::string toString( bool showBuffer = false ) const {
+			std::ostringstream oss;
+			oss << "Tensor: " << uid_;
+			if ( !name_.empty() ) oss << "::" << name_;
+			oss << ", ";
+			oss << "Shape: (";
+			for ( size_t i = 0; i < shape_.size(); ++i ) {
+				oss << shape_[ i ];
+				if ( i != shape_.size() - 1 ) {
+					oss << ",";
+				}
 			}
-			std::cout << std::endl;
+			oss << ")";
+			oss << " Size: " << size_;
+			oss << " Type: " << to_string( data_type_ ) << std::endl;
 
-			//if ( data_type_ == TensorType::FP32 ) {
-				printBuffer( 0, 0 );
-			//}
-			std::cout << std::endl;
+			if ( showBuffer ) {
+				outputBuffer( 0, 0 );
+			}
+
+			return oss.str();
+		}
+
+		friend std::ostream& operator<<( std::ostream& os, const Tensor& tensor ) {
+			os << tensor.toString();
+			return os;
 		}
 
 		/**
@@ -370,31 +382,33 @@ namespace Mila::Dnn
 			data_type_ = tensor_type_of( buffer_->data() );
 		}
 
-		void printBuffer( size_t index, size_t depth ) const {
-			if ( depth == shape_.size() - 1 ) {
-				for ( size_t i = 0; i < shape_[ depth ]; ++i ) {
-					if ( i < 3 || i >= shape_[ depth ] - 3 ) {
-						std::cout << std::setw( 10 ) << buffer_->data()[ index + i ] << " ";
-					}
-					else if ( i == 3 ) {
-						std::cout << "... ";
-					}
-				}
-			}
-			else {
-				for ( size_t i = 0; i < shape_[ depth ]; ++i ) {
-					if ( i < 3 || i >= shape_[ depth ] - 3 ) {
-						std::cout << "[ ";
-						printBuffer( index + i * strides_[ depth ], depth + 1 );
-						std::cout << "]" << std::endl;
-					}
-					else if ( i == 3 ) {
-						std::cout << "[ ... ]" << std::endl;
-						i = shape_[ depth ] - 4;
-					}
-				}
-			}
-		}
+        std::string outputBuffer( size_t index, size_t depth ) const {
+            std::ostringstream oss;
+            if ( depth == shape_.size() - 1 ) {
+                for ( size_t i = 0; i < shape_[ depth ]; ++i ) {
+                    if ( i < 3 || i >= shape_[ depth ] - 3 ) {
+                        oss << std::setw( 10 ) << buffer_->data()[ index + i ] << " ";
+                    }
+                    else if ( i == 3 ) {
+                        oss << "... ";
+                    }
+                }
+            }
+            else {
+                for ( size_t i = 0; i < shape_[ depth ]; ++i ) {
+                    if ( i < 3 || i >= shape_[ depth ] - 3 ) {
+                        oss << "[ ";
+                        oss << outputBuffer( index + i * strides_[ depth ], depth + 1 );
+                        oss << "]" << std::endl;
+                    }
+                    else if ( i == 3 ) {
+                        oss << "[ ... ]" << std::endl;
+                        i = shape_[ depth ] - 4;
+                    }
+                }
+            }
+            return oss.str();
+        }
         
 		static std::vector<size_t> computeStrides( const std::vector<size_t>& shape ) {
 			std::vector<size_t> strides( shape.size(), 1 );

@@ -59,11 +59,8 @@ namespace Modules::Tests
         EXPECT_EQ( output->size(), batch_size_ * sequence_length_ * output_channels_ );
     }*/
 
-    TEST_F( ResidualTests, Cpu_TestPrint ) {
-        testing::internal::CaptureStdout();
-        cpu_residual->print();
-        std::string output = testing::internal::GetCapturedStdout();
-        EXPECT_NE( output.find( "Module: cpu_residual" ), std::string::npos );
-        EXPECT_NE( output.find( "Parameter count: " ), std::string::npos );
+    TEST_F( ResidualTests, Cpu_toString ) {
+        std::string output = cpu_residual->toString();
+        EXPECT_NE( output.find( "Residual: cpu_residual" ), std::string::npos );
     }
 }

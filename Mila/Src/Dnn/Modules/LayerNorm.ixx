@@ -1,5 +1,6 @@
 module;
 #include <iostream>
+#include <sstream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -43,6 +44,7 @@ namespace Mila::Dnn
         *
         * @param name Name of the module.
         * @param input_shape Shape of the input tensor.
+        * @param axis Axis for normalization. Default is -1.
         * @param has_bias Whether the module has a bias tensor. Default is true.
         * @param is_training Whether the module is in training mode. Default is false.
         */
@@ -52,10 +54,10 @@ namespace Mila::Dnn
 			int64_t axis = -1,
 			bool has_bias = true,
 			bool is_training = false )
-			: input_shape_{ input_shape }, has_bias_{ has_bias } {
+			: input_shape_{ input_shape }, axis_{ axis }, has_bias_{ has_bias } {
 			this->setTraining( is_training );
 			this->setName( name );
-			createParameters();
+			initializeTensors();
 			createOperation();
 		}
 
@@ -86,8 +88,12 @@ namespace Mila::Dnn
 			return weight_->size() + bias_->size();
 		}
 
-		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameters() const override {
+		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameterTensors() const override {
 			return parameters_;
+		}
+
+		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getStateTensors() const override {
+			return output_state_;
 		}
 
 		/**
@@ -102,28 +108,54 @@ namespace Mila::Dnn
 
 		void save( mz_zip_archive& zip ) const override {
 			// Save the state of the parameters
-			for ( const auto& tensor : getParameters() ) {
+			for ( const auto& tensor : getParameterTensors() ) {
 				// Save tensor data to zip archive
 			}
 		}
 
 		void load( mz_zip_archive& zip ) override {
-			for ( const auto& tensor : getParameters() ) {
+			for ( const auto& tensor : getParameterTensors() ) {
 				// Load tensor data from zip archive
 			}
 		}
 
-		/**
-		* @brief Print the module information.
-		*/
-		void print() const override {
-			std::cout << "Module: " << this->getName() << std::endl;
-			std::cout << "Parameter count: " << parameterCount() << std::endl;
+        /**
+        * @brief Convert the module information to string.
+        *
+        * @return std::string Module information as string.
+        */
+		std::string toString() const override {
+			std::ostringstream oss;
+			oss << "--------------------" << std::endl;
+			oss << "LayerNorm: " << this->getName();
+			oss << ", Normalization Axis: " << axis_;
+			oss << ", Input shape: (";
+			for ( size_t i = 0; i < input_shape_.size(); ++i ) {
+				oss << input_shape_[ i ];
+				if ( i != input_shape_.size() - 1 ) {
+					oss << ",";
+				}
+			}
+			oss << ")" << std::endl;
+
+			oss << "Parameter Tensors..."  << std::endl;
+			for ( const auto& tensor : getParameterTensors() ) {
+				oss << tensor->toString();
+			}
+			oss << "Parameter count: " << parameterCount() << std::endl;
+
+			oss << "State Tensors..." << std::endl;
+			for ( const auto& tensor : getStateTensors() ) {
+				oss << tensor->toString();
+			}
+
+			return oss.str();
 		}
 
 	private:
 		std::vector<size_t> input_shape_; ///< The normalized shape.
 		float epsilon_{ 1e-05f }; ///< The epsilon value.
+		int64_t axis_{ -1 }; ///< The axis for normalization. Default is -1 for last dimension.
 		bool has_bias_{ true }; ///< Whether the module has a bias tensor. Default is true.
 
 		std::shared_ptr<Tensor<float, MR>> weight_{ nullptr }; ///< The weight tensor.
@@ -138,7 +170,7 @@ namespace Mila::Dnn
 
 		std::shared_ptr<Dnn::Compute::OperationBase<TInput, TCompute, TDevice>> operation_; ///< The operation.
 
-		void createParameters() {
+		void initializeTensors() {
 			auto batch_size = input_shape_[ 0 ];
 			auto sequence_length = input_shape_[ 1 ];
 			auto channels = input_shape_[ 2 ];
@@ -155,7 +187,9 @@ namespace Mila::Dnn
 			parameters_.emplace_back( bias_ );
 
 			mean_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ batch_size, sequence_length } );
+			mean_->setName( this->getName() + ".mean" );
 			rstd_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ batch_size, sequence_length } );
+			rstd_->setName( this->getName() + ".rstd" );
 
 			output_state_.emplace_back( mean_ );
 			output_state_.emplace_back( rstd_ );

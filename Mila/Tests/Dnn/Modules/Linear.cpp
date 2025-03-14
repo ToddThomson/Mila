@@ -80,11 +80,8 @@ namespace Modules::Tests
         EXPECT_EQ( output.size(), batch_size_ * sequence_length_ * output_channels_ );
     }*/
 
-    TEST_F( LinearTests, Cpu_TestPrint ) {
-        testing::internal::CaptureStdout();
-        cpu_linear->print();
-        std::string output = testing::internal::GetCapturedStdout();
-        EXPECT_NE( output.find( "Module: cpu_linear" ), std::string::npos );
-        EXPECT_NE( output.find( "Parameter count: " ), std::string::npos );
+    TEST_F( LinearTests, toString ) {
+        std::string output = cpu_linear->toString();
+        EXPECT_NE( output.find( "Linear: cpu_linear" ), std::string::npos );
     }
 }

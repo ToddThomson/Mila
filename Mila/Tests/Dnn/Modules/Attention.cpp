@@ -2,6 +2,7 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <sstream>
 
 import Mila;
 
@@ -67,11 +68,8 @@ namespace Modules::Tests
         EXPECT_EQ( output->size(), batch_size_ * sequence_length_ * output_channels_ );
     }*/
 
-    TEST_F( AttentionTests, Cpu_TestPrint ) {
-        testing::internal::CaptureStdout();
-        cpu_attention->print();
-        std::string output = testing::internal::GetCapturedStdout();
-        EXPECT_NE( output.find( "Module: cpu_attn" ), std::string::npos );
-        EXPECT_NE( output.find( "Parameter count: " ), std::string::npos );
+    TEST_F( AttentionTests, Test_toString ) {
+		std::string output = cpu_attention->toString();
+        EXPECT_NE( output.find("MultiHeadAttention: cpu_attn"), std::string::npos);
     }
 }

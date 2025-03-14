@@ -101,10 +101,7 @@ namespace Modules::Tests
     }*/
 
     TEST_F( LayerNormTests, Cpu_TestPrint ) {
-        testing::internal::CaptureStdout();
-        cpu_layernorm->print();
-        std::string output = testing::internal::GetCapturedStdout();
-        EXPECT_NE( output.find( "Module: cpu_ln" ), std::string::npos );
-        EXPECT_NE( output.find( "Parameter count: " ), std::string::npos );
+        std::string output = cpu_layernorm->toString();
+        EXPECT_NE( output.find( "LayerNorm: cpu_ln" ), std::string::npos );
     }
 }

@@ -1,4 +1,5 @@
 ﻿#include <iostream>
+#include <sstream>
 #include <memory>
 #include <vector>
 #include <string>
@@ -32,6 +33,7 @@ int main() {
     std::vector<size_t> output_shape = std::vector<size_t>{ batch_size, sequence_length, channels };
 
     auto transformer_block = TransformerBlock<float>( "tf", input_shape, num_heads);
+	std::cout << transformer_block << std::endl;
 
     Tensor<float, Compute::CpuMemoryResource> X( input_shape );
 	X.setName( "tf.X" );
@@ -42,12 +44,12 @@ int main() {
 	Y.setName( "tf.Y" );
 
 	std::cout << ">>> TransformerBlock input: " << std::endl;
-	X.print();
+	std::cout << X;
 
     transformer_block.forward( X, Y );
 
     std::cout << ">>> TransformerBlock output: " << std::endl;
-    Y.print();
+    std::cout << Y;
 
 	return 0;
 }
