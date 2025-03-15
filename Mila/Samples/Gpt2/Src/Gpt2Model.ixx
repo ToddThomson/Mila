@@ -5,7 +5,6 @@ module;
 #include <cassert>
 #include <cstring>
 #include <stdexcept>
-#include <cassert>
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -116,19 +115,29 @@ namespace Mila::Dnn::Gpt2
 			// TODO: Good enough for dev/testing
 			size_t B = batch_size_;
 			size_t T = seq_len_;
-			size_t C = (size_t)config_.channels;
+			size_t C = config_.channels;
+			size_t Vp = config_.padded_vocab_size;
 			size_t NH = config_.num_heads;
 
 			encoder_ = std::make_unique<Encoder<int, float, TDevice>>( "gpt2.enc", C, config_.max_seq_len, config_.padded_vocab_size );
 			encoder_output_ = Tensor<TCompute, MR>( std::vector<size_t>( { B,T,C } ));
 
-			auto block_io_shape = std::vector<size_t>( { batch_size_, seq_len_, C } );
-			block_output_ = Tensor<TCompute, MR>( block_io_shape );
+			auto tf_io_shape = std::vector<size_t>( { batch_size_, seq_len_, C } );
+			tf_output_ = Tensor<TCompute, MR>( tf_io_shape );
 
 			for ( size_t l = 0; l < config_.num_layers; l++ ) {
 				std::string layer_name = std::format( "gpt2.tf_{}", l );
-				layers_.emplace_back( std::make_unique<TransformerBlock<TInput, TCompute, TDevice>>( layer_name, block_io_shape, NH ) );
+				tf_layers_.emplace_back( std::make_unique<TransformerBlock<TInput, TCompute, TDevice>>( layer_name, tf_io_shape, NH ) );
 			}
+
+			ln_f_ = std::make_unique<LayerNorm<TInput, TCompute, TDevice>>( "gpt2.ln_f", tf_io_shape );
+			ln_f_output_ = Tensor<TCompute, MR>( tf_io_shape );
+
+			fc_f_ = std::make_unique<Linear<TInput, TCompute, TDevice>>( "gpt2.fc_f", C, Vp );
+			fc_logits_output_ = Tensor<TCompute, MR>( std::vector<size_t>( { B, T, Vp } ) );
+
+			smax_ = std::make_unique<Softmax<TInput, TCompute, TDevice>>( "gpt2.smax" );
+			smax_probs_output_ = Tensor<TCompute, MR>( std::vector<size_t>( { B, T, Vp } ) );
 		}
 
 		float get_mean_loss() const {
@@ -201,6 +210,7 @@ namespace Mila::Dnn::Gpt2
 			model_file.read( reinterpret_cast<char*>(&params_.lnfw[ 0 ]), param_sizes_[ 14 ] * sizeof( float ) );
 			model_file.read( reinterpret_cast<char*>(&params_.lnfb[ 0 ]), param_sizes_[ 15 ] * sizeof( float ) );
 
+			// Temp code to conver to the v2 parameter tensors
 			initializeParameterTensors();
 
 			// TODO: Vectors or Tensors here
@@ -223,7 +233,7 @@ namespace Mila::Dnn::Gpt2
 
 			// Transformer layer parameters...
 			for ( size_t l = 0; l < config_.num_layers; l++ ) {
-				auto& layer = layers_[ l ];
+				auto& layer = tf_layers_[ l ];
 				int module_index = 0;
 				for ( const auto& module : layer->getSubModules() ) {
 					if ( module_index == 0 ) {
@@ -441,14 +451,16 @@ namespace Mila::Dnn::Gpt2
 
 			encoder_->forward( inputs, encoder_output_ );
 
+			// Forward pass through the transformer layers...
 			for ( int l = 0; l < L; l++ ) {
-				auto residual = l == 0 ? encoder_output_ : block_output_;
-				layers_[ l ]->forward( residual, block_output_ );
+				auto residual = l == 0 ? encoder_output_ : tf_output_;
+				tf_layers_[ l ]->forward( residual, tf_output_ );
 			}
+			
 			//residual = acts_.residual3.data() + (L - 1) * batch_size_ * seq_len_ * C; // last residual is in residual3
-			//layernorm_forward( acts_.lnf.data(), acts_.lnf_mean.data(), acts_.lnf_rstd.data(), residual, params_.lnfw.data(), params_.lnfb.data(), batch_size_, seq_len_, C );
-			//matmul_forward( acts_.logits.data(), acts_.lnf.data(), params_.wte.data(), NULL, batch_size_, seq_len_, C, Vp );
-			//softmax_forward( acts_.probs.data(), acts_.logits.data(), batch_size_, seq_len_, V, Vp );
+			ln_f_->forward( tf_output_, ln_f_output_ );
+			fc_f_->forward( ln_f_output_, fc_logits_output_ );
+			smax_->forward( fc_logits_output_, smax_probs_output_ );
 
 			// also forward the cross-entropy loss function if we have the targets
 			if ( !targets.empty() ) {
@@ -520,12 +532,6 @@ namespace Mila::Dnn::Gpt2
 		}
 
 	private:
-		std::unique_ptr<Encoder<int, float, TDevice>> encoder_{ nullptr };
-		std::vector<std::unique_ptr<TransformerBlock<float,float,TDevice>>> layers_;
-		
-		Tensor<TCompute, MR> encoder_output_;
-		Tensor<TCompute, MR> block_output_;
-
 		void initialize_parameter_tensor_sizes() {
 			// Shorthand notation
 			size_t Vp = config_.padded_vocab_size;
@@ -611,18 +617,22 @@ namespace Mila::Dnn::Gpt2
 			// TODO: These should be activation shapes so that proper tensors can be created.
 
 			act_sizes_[ 0 ] = B * T * C; // encoded
+
 			act_sizes_[ 1 ] = L * B * T * C; // ln1
 			act_sizes_[ 2 ] = L * B * T; // ln1_mean
 			act_sizes_[ 3 ] = L * B * T; // ln1_rstd
+			
 			act_sizes_[ 4 ] = L * B * T * 3 * C; // qkv
 			act_sizes_[ 5 ] = L * B * T * C; // atty
 			act_sizes_[ 6 ] = L * B * NH * T * T; // preatt
 			act_sizes_[ 7 ] = L * B * NH * T * T; // att
 			act_sizes_[ 8 ] = L * B * T * C; // attproj
 			act_sizes_[ 9 ] = L * B * T * C; // residual2
+			
 			act_sizes_[ 10 ] = L * B * T * C; // ln2
 			act_sizes_[ 11 ] = L * B * T; // ln2_mean
 			act_sizes_[ 12 ] = L * B * T; // ln2_rstd
+			
 			act_sizes_[ 13 ] = L * B * T * 4 * C; // fch
 			act_sizes_[ 14 ] = L * B * T * 4 * C; // fch_gelu
 			act_sizes_[ 15 ] = L * B * T * C; // fcproj
@@ -630,8 +640,10 @@ namespace Mila::Dnn::Gpt2
 			act_sizes_[ 17 ] = B * T * C; // lnf
 			act_sizes_[ 18 ] = B * T; // lnf_mean
 			act_sizes_[ 19 ] = B * T; // lnf_rstd
+
 			act_sizes_[ 20 ] = B * T * Vp; // logits
 			act_sizes_[ 21 ] = B * T * Vp; // probs
+
 			act_sizes_[ 22 ] = B * T; // losses
 
 			num_activations_ = 0;
@@ -723,6 +735,18 @@ namespace Mila::Dnn::Gpt2
 			std::fill( grads_acts_.probs.begin(), grads_acts_.probs.end(), 0 );
 			std::fill( grads_acts_.losses.begin(), grads_acts_.losses.end(), 0 );
 		}
+		
+		std::unique_ptr<Encoder<int, float, TDevice>> encoder_{ nullptr };
+		std::vector<std::unique_ptr<TransformerBlock<float, float, TDevice>>> tf_layers_;
+		std::unique_ptr<LayerNorm<float, float, TDevice>> ln_f_{ nullptr };
+		std::unique_ptr<Linear<float, float, TDevice>> fc_f_{ nullptr };
+		std::unique_ptr<Softmax<float, float, TDevice>> smax_{ nullptr };
+
+		Tensor<TCompute, MR> encoder_output_;
+		Tensor<TCompute, MR> tf_output_;
+		Tensor<TCompute, MR> ln_f_output_;
+		Tensor<TCompute, MR> fc_logits_output_;
+		Tensor<TCompute, MR> smax_probs_output_;
 
 		ModelConfig config_;
 

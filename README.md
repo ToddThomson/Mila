@@ -2,7 +2,7 @@
 Mila Deep Neural Net library
 
 ## Prerelease Notice
-Mila, version 0.9.56-alpha is currently an early, experimental, preview release.
+Mila, version 0.9.57-alpha is currently an early, experimental, preview release.
 
 ## Description
 Achilles Mila Deep Neural Network library provides an API to model, train and evaluate
@@ -19,7 +19,7 @@ Deep Neural Networks. Mila utilizes the NVIDIA CUDA runtime for high-performance
  
 ## What's New
 
-Mila, Version 0.9.55-alpha adds:
+Mila, Version 0.9.57-alpha adds:
 * GPT2 module tensors initialized from checkpoint (v1)
 * 
 
