@@ -53,29 +53,6 @@ export namespace Mila::Dnn
 			createOperation();
 		}
 
-        /**
-        * @brief Get the weight tensor.
-        *
-        * @return std::shared_ptr<Tensor<float, MR>> The weight tensor.
-        */
-		std::shared_ptr<Tensor<TInput, MR>> getWeight() {
-			return weight_;
-		}
-
-		/**
-		* @brief Get the bias tensor.
-		*
-		* @return std::shared_ptr<Tensor<float, MR>> The bias tensor.
-		* @throws std::runtime_error if the module does not have a bias tensor.
-		*/
-		std::shared_ptr<Tensor<TInput, MR>> getBias() {
-			if ( !has_bias_ ) {
-				throw std::runtime_error( "This module does not have a bias tensor." );
-			}
-			
-			return bias_;
-		}
-
 		/**
 		* @brief Get the number of parameters.
 		*
@@ -87,14 +64,6 @@ export namespace Mila::Dnn
 				num_params += bias_->size();
 			}
 			return num_params;
-		}
-
-		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameterTensors() const override {
-			return parameters_;
-		}
-
-		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getStateTensors() const override {
-			return output_state_;
 		}
 
 		/**
@@ -109,13 +78,13 @@ export namespace Mila::Dnn
 
 		void save( mz_zip_archive& zip ) const override {
 			// Save the state of the parameters
-			for ( const auto& tensor : getParameterTensors() ) {
+			for ( const auto& [name,tensor] : this->getParameterTensors() ) {
 				// Save tensor data to zip archive
 			}
 		}
 
 		void load( mz_zip_archive& zip ) override {
-			for ( const auto& tensor : getParameterTensors() ) {
+			for ( const auto& [name, tensor] : this->getParameterTensors() ) {
 				// Load tensor data from zip archive
 			}
 		}
@@ -131,21 +100,7 @@ export namespace Mila::Dnn
 			oss << "Linear: " << this->getName();
 			oss << ", Input channels: " << input_channels_;
 			oss << ", Output channels: " << output_channels_ << std::endl;
-
-			if ( getParameterTensors().size() > 0 ) {
-				oss << "Parameter Tensors..." << std::endl;
-				for ( const auto& tensor : getParameterTensors() ) {
-					oss << tensor->toString();
-				}
-				oss << "Parameter count: " << parameterCount() << std::endl;
-			}
-
-			if ( getStateTensors().size() > 0 ) {
-				oss << "State Tensors..." << std::endl;
-				for ( const auto& tensor : getStateTensors() ) {
-					oss << tensor->toString();
-				}
-			}
+			oss << this->parametersToString();
 
 			return oss.str();
 		}
@@ -164,9 +119,9 @@ export namespace Mila::Dnn
 		std::shared_ptr<Tensor<float, MR>> weight_{ nullptr };  ///< The weight tensor.
 		std::shared_ptr<Tensor<float, MR>> bias_{ nullptr }; ///< The bias tensor.
 
-		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_; ///< The parameters.
-		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_; ///< The output cache.
-		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_; ///< The scalars.
+		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_ = {}; ///< The parameters.
+		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_ = {}; ///< The output state.
+		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_ = {}; ///< The scalars.
 
 		std::shared_ptr<Dnn::Compute::OperationBase<TInput, TCompute, TDevice>> operation_{ nullptr }; ///< The operation.
 
@@ -183,13 +138,17 @@ export namespace Mila::Dnn
 		void initializeTensors() {
 			// Initialize the weight tensor using xavier distribution and the bias tensor is default initialized to zeros
 			weight_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ output_channels_, input_channels_ } );
+			weight_->setName( this->getName() + ".weight" );
 			xavier<float, MR>( *weight_, input_channels_, output_channels_ );
-
-			if ( has_bias_ )
-				bias_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ output_channels_ } );
-			
 			parameters_.emplace_back( weight_ );
-			parameters_.emplace_back( bias_ );
+			this->parameter_map_[ "weight" ] = weight_;
+
+			if ( has_bias_ ) {
+				bias_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ output_channels_ } );
+				bias_->setName( this->getName() + ".bias" );
+				parameters_.emplace_back( bias_ );
+				this->parameter_map_[ "bias" ] = bias_;
+			}
 		}
 		
 		/**

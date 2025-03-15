@@ -51,27 +51,19 @@ export namespace Mila::Dnn
 			return 0;
 		}
 
-		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameterTensors() const override {
-			return parameters_;
-		}
-
-		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getStateTensors() const override {
-			return output_state_;
-		}
-
 		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute, MR>& output) override {
 			operation_->forward( input, parameters_, output, output_state_ );
 		}
 
 		void save( mz_zip_archive& zip ) const override {
 			// Save the state of the parameters
-			for ( const auto& tensor : getParameterTensors() ) {
+			for ( const auto& [name, tensor] : this->getParameterTensors() ) {
 				// Save tensor data to zip archive
 			}
 		}
 
 		void load( mz_zip_archive& zip ) override {
-			for ( const auto& tensor : getParameterTensors() ) {
+			for ( const auto& [name, tensor] : this->getParameterTensors() ) {
 				// Load tensor data from zip archive
 			}
 		}
@@ -94,21 +86,7 @@ export namespace Mila::Dnn
 				}
 			}
 			oss << ")" << std::endl;
-
-			if ( getParameterTensors().size() > 0 ) {
-				oss << "Parameter Tensors..." << std::endl;
-				for ( const auto& tensor : getParameterTensors() ) {
-					oss << tensor->toString();
-				}
-				oss << "Parameter count: " << parameterCount() << std::endl;
-			}
-
-			if ( getStateTensors().size() > 0 ) {
-				oss << "State Tensors..." << std::endl;
-				for ( const auto& tensor : getStateTensors() ) {
-					oss << tensor->toString();
-				}
-			}
+			oss << this->stateToString();
 
 			return oss.str();
 		}
@@ -124,11 +102,11 @@ export namespace Mila::Dnn
 		size_t num_heads_{ 0 };
 
 		std::shared_ptr<Tensor<float, MR>> attn_ = { nullptr };
-		std::shared_ptr<Tensor<float, MR>> pre_attn_{ nullptr };
+		std::shared_ptr<Tensor<float, MR>> pre_attn_ = { nullptr };
 
-		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_; ///< The parameters.
+		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_ = {}; ///< The parameters. 
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_; ///< The output attributes.
-		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_; ///< The scalars.
+		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_ = {}; ///< The scalars.
 
 		std::shared_ptr<Dnn::Compute::OperationBase<TInput, TCompute, TDevice>> operation_{ nullptr }; ///< The operation.
 

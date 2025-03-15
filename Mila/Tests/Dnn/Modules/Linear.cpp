@@ -56,14 +56,9 @@ namespace Modules::Tests
         EXPECT_EQ( cpu_linear->parameterCount(), num_parameters ) ;
     }
 
-    TEST_F( LinearTests, Cpu_TestWeightInitialization ) {
-        auto weight = cpu_linear->getWeight();
-        EXPECT_EQ( weight->size(), output_channels_ * channels_ );
-    }
-
-    TEST_F( LinearTests, Cpu_TestBiasInitialization ) {
-        auto bias = cpu_linear->getBias();
-        EXPECT_EQ( bias->size(), output_channels_ );
+    TEST_F( LinearTests, Test_InitializeParameterTensors ) {
+        auto parameters = cpu_linear->getParameterTensors();
+        EXPECT_EQ( parameters.size(), 2 );
     }
 
     TEST_F( LinearTests, Cpu_TestForward ) {

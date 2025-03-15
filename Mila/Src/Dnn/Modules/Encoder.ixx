@@ -5,6 +5,7 @@ module;
 #include <iostream>
 #include <sstream>
 #include <type_traits>
+#include <unordered_map>
 
 export module Dnn.Modules.Encoder;
 
@@ -56,14 +57,6 @@ export namespace Mila::Dnn
 			return wte_->size() + wpe_->size();
 		}
 
-        const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameterTensors() const override {
-			return parameters_;
-		}
-
-		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getStateTensors() const override {
-			return output_state_;
-		}
-
 		/**
 		* @brief Perform the forward pass of the encoder.
 		*
@@ -76,13 +69,13 @@ export namespace Mila::Dnn
 
 		void save( mz_zip_archive& zip ) const override {
 			// Save the state of the parameters
-			for ( const auto& tensor : getParameterTensors() ) {
+			for ( const auto& [name, tensor] : this->getParameterTensors() ) {
 				// Save tensor data to zip archive
 			}
 		}
 
 		void load( mz_zip_archive& zip ) override {
-			for ( const auto& tensor : getParameterTensors() ) {
+			for ( const auto& [name, tensor] : this->getParameterTensors() ) {
 				// Load tensor data from zip archive
 			}
 		}
@@ -98,7 +91,7 @@ export namespace Mila::Dnn
 			oss << ", Channels: " << channels_ << ", Max Sequence Length: " << max_seq_len_;
 			oss << ", Vocabulary Length: " << vocab_len_ << std::endl;
 			oss << "Parameter Tensors..." << std::endl;
-			for ( const auto& tensor : getParameterTensors() ) {
+			for ( const auto& [name, tensor] : this->getParameterTensors() ) {
 				oss << tensor->toString();
 			}
 			oss << "Parameter count: " << parameterCount() << std::endl;
@@ -133,6 +126,9 @@ export namespace Mila::Dnn
 
 			parameters_.emplace_back( wte_ );
 			parameters_.emplace_back( wpe_ );
+
+			this->parameter_map_[ "wte" ] = wte_;
+			this->parameter_map_[ "wpe" ] = wpe_;
 		}
 
 		/**

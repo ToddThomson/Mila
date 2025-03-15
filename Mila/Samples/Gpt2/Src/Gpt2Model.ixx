@@ -5,6 +5,7 @@ module;
 #include <cassert>
 #include <cstring>
 #include <stdexcept>
+#include <cassert>
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -118,14 +119,14 @@ namespace Mila::Dnn::Gpt2
 			size_t C = (size_t)config_.channels;
 			size_t NH = config_.num_heads;
 
-			encoder_ = std::make_unique<Encoder<int, float, TDevice>>( "enc", C, T, config_.vocab_size );
+			encoder_ = std::make_unique<Encoder<int, float, TDevice>>( "gpt2.enc", C, config_.max_seq_len, config_.padded_vocab_size );
 			encoder_output_ = Tensor<TCompute, MR>( std::vector<size_t>( { B,T,C } ));
 
 			auto block_io_shape = std::vector<size_t>( { batch_size_, seq_len_, C } );
 			block_output_ = Tensor<TCompute, MR>( block_io_shape );
 
 			for ( size_t l = 0; l < config_.num_layers; l++ ) {
-				std::string layer_name = std::format( "tf_{}", l );
+				std::string layer_name = std::format( "gpt2.tf_{}", l );
 				layers_.emplace_back( std::make_unique<TransformerBlock<TInput, TCompute, TDevice>>( layer_name, block_io_shape, NH ) );
 			}
 		}
@@ -181,31 +182,131 @@ namespace Mila::Dnn::Gpt2
 
 			model_file.read( reinterpret_cast<char*>(&params_.ln1w[ 0 ]), param_sizes_[ 2 ] * sizeof( float ) );
 			model_file.read( reinterpret_cast<char*>(&params_.ln1b[ 0 ]), param_sizes_[ 3 ] * sizeof( float ) );
+
 			model_file.read( reinterpret_cast<char*>(&params_.qkvw[ 0 ]), param_sizes_[ 4 ] * sizeof( float ) );
 			model_file.read( reinterpret_cast<char*>(&params_.qkvb[ 0 ]), param_sizes_[ 5 ] * sizeof( float ) );
+
 			model_file.read( reinterpret_cast<char*>(&params_.attprojw[ 0 ]), param_sizes_[ 6 ] * sizeof( float ) );
-			model_file.read( reinterpret_cast<char*>(&params_.attprojb[ 0 ]), param_sizes_[ 7 ] * sizeof( float ) );
+			model_file.read( reinterpret_cast<char*>(&params_.attprojb[ 0 ]), param_sizes_[ 7 ] * sizeof( float )
+			);
 			model_file.read( reinterpret_cast<char*>(&params_.ln2w[ 0 ]), param_sizes_[ 8 ] * sizeof( float ) );
 			model_file.read( reinterpret_cast<char*>(&params_.ln2b[ 0 ]), param_sizes_[ 9 ] * sizeof( float ) );
+
 			model_file.read( reinterpret_cast<char*>(&params_.fcw[ 0 ]), param_sizes_[ 10 ] * sizeof( float ) );
 			model_file.read( reinterpret_cast<char*>(&params_.fcb[ 0 ]), param_sizes_[ 11 ] * sizeof( float ) );
+
 			model_file.read( reinterpret_cast<char*>(&params_.fcprojw[ 0 ]), param_sizes_[ 12 ] * sizeof( float ) );
-			model_file.read( reinterpret_cast<char*>(&params_.fcprojb[ 0 ]), param_sizes_[ 13 ] * sizeof( float ) );
+			model_file.read( reinterpret_cast<char*>(&params_.fcprojb[ 0 ]), param_sizes_[ 13 ] * sizeof( float )
+			);
 			model_file.read( reinterpret_cast<char*>(&params_.lnfw[ 0 ]), param_sizes_[ 14 ] * sizeof( float ) );
 			model_file.read( reinterpret_cast<char*>(&params_.lnfb[ 0 ]), param_sizes_[ 15 ] * sizeof( float ) );
 
 			initializeParameterTensors();
 
 			// TODO: Vectors or Tensors here
-			m_memory_ = nullptr;
-			v_memory_ = nullptr;
+			//m_memory_ = nullptr;
+			//v_memory_ = nullptr;
 		}
 
 		void initializeParameterTensors() {
-			// Initialize the parameter tensors
+			// TJT: This is a temporary function to initialize the parameter tensors
+			//      with the values read from the checkpoint file. This will be replaced
+			//      with a proper implementation once the model save/load is implemented.
 
-			//encoder_->w
+			// Encoder paramters...
+			auto enc_parameters = encoder_->getParameterTensors();
+			auto wte = enc_parameters[ "wte" ];
+			std::copy( params_.wte.begin(), params_.wte.end(), wte->data() );
 
+			auto wpe = enc_parameters[ "wpe" ];
+			std::copy( params_.wpe.begin(), params_.wpe.end(), wpe->data() );
+
+			// Transformer layer parameters...
+			for ( size_t l = 0; l < config_.num_layers; l++ ) {
+				auto& layer = layers_[ l ];
+				int module_index = 0;
+				for ( const auto& module : layer->getSubModules() ) {
+					if ( module_index == 0 ) {
+						// ln1 layer
+						auto ln_1_parameters = module->getParameterTensors();
+						auto weight = ln_1_parameters[ "weight" ];
+						std::copy( params_.ln1w.begin() + (l * weight->size()), params_.ln1w.begin() + (l * weight->size()) + weight->size(), weight->data() );
+						auto bias = ln_1_parameters[ "bias" ];
+						std::copy( params_.ln1b.begin() + (l * bias->size()), params_.ln1b.begin() + (l * bias->size()) + bias->size(), bias->data() );
+					}
+
+					if ( module_index == 1 ) {
+						// linear layer
+						auto qkv_parameters = module->getParameterTensors();
+						auto weight = qkv_parameters[ "weight" ];
+						std::copy( params_.qkvw.begin() + (l * weight->size()), params_.qkvw.begin() + (l * weight->size()) + weight->size(), weight->data() );
+						auto bias = qkv_parameters[ "bias" ];
+						std::copy( params_.qkvb.begin() + (l * bias->size()), params_.qkvb.begin() + (l * bias->size()) + bias->size(), bias->data() );
+					}
+
+					if ( module_index == 2 ) {
+						//attn layer, no parameters
+					}
+
+					if ( module_index == 3 ) {
+						// linear layer
+						auto fc_proj_parameters = module->getParameterTensors();
+						auto weight = fc_proj_parameters[ "weight" ];
+						assert( (weight->size() * 12) == param_sizes_[ 6 ] && "Size mismatch between weight and fcprojw" );
+						std::copy( params_.attprojw.begin() + (l * weight->size()), params_.attprojw.begin() + (l * weight->size()) + weight->size(), weight->data() );
+						auto bias = fc_proj_parameters[ "bias" ];
+						assert( (bias->size() * 12) == param_sizes_[ 7 ] && "Size mismatch between bias and fcprojw" );
+						std::copy( params_.attprojb.begin() + (l * bias->size()), params_.attprojb.begin() + (l * bias->size()) + bias->size(), bias->data() );
+					}
+
+					if ( module_index == 4 ) {
+						// residual layer, no parameters
+					}
+
+					if ( module_index == 5 ) {
+						// ln2 layer
+						auto ln_2_parameters = module->getParameterTensors();
+						auto weight = ln_2_parameters[ "weight" ];
+						std::copy( params_.ln2w.begin() + (l * weight->size()), params_.ln2w.begin() + (l * weight->size()) + weight->size(), weight->data() );
+						auto bias = ln_2_parameters[ "bias" ];
+						std::copy( params_.ln2b.begin() + (l * bias->size()), params_.ln2b.begin() + (l * bias->size()) + bias->size(), bias->data() );
+					}
+
+					int mlp_index = 0;
+
+					if ( module_index == 6 ) {
+						for ( const auto& mlp_module : module->getSubModules() ) {
+							if ( mlp_index == 0 ) {
+								auto fc_1_parameters = mlp_module->getParameterTensors();
+								auto weight = fc_1_parameters[ "weight" ];
+								std::copy( params_.fcw.begin() + (l * weight->size()), params_.fcw.begin() + (l * weight->size()) + weight->size(), weight->data() );
+								auto bias = fc_1_parameters[ "bias" ];
+								std::copy( params_.fcb.begin() + (l * bias->size()), params_.fcb.begin() + (l * bias->size()) + bias->size(), bias->data() );
+							}
+							
+							if ( mlp_index == 1 ) {
+								// GELU module has no parameters
+							}
+
+							if ( mlp_index == 2 ) {
+								auto fcproj_parameters = mlp_module->getParameterTensors();
+								auto weight = fcproj_parameters[ "weight" ];
+								std::copy( params_.fcprojw.begin() + (l * weight->size()), params_.fcprojw.begin() + (l * weight->size()) + weight->size(), weight->data() );
+								auto bias = fcproj_parameters[ "bias" ];
+								std::copy( params_.fcprojb.begin() + (l * bias->size()), params_.fcprojb.begin() + (l * bias->size()) + bias->size(), bias->data() );
+							}
+
+							mlp_index++;
+						}
+					}
+
+					if ( module_index == 7 ) {
+						// residual layer, no parameters
+					}
+
+					module_index++;
+				}
+			}
 		}
 
 		void backward() {

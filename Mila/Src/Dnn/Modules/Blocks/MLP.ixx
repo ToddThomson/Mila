@@ -59,14 +59,6 @@ namespace Mila::Dnn
 			fc_proj_->forward( gelu_output_, output );
 		}
 
-		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameterTensors() const override {
-			return {};
-		}
-
-		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getStateTensors() const override {
-			return {};
-		}
-
 		size_t parameterCount() const override {
 			size_t total_parameters = 0;
 			for ( const auto& module : this->getSubModules() ) {

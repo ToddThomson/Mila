@@ -50,14 +50,6 @@ export namespace Mila::Dnn
 			return 0;
 		}
 
-		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameterTensors() const override {
-			return parameters_;
-		}
-
-		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getStateTensors() const override {
-			return output_state_;
-		}
-
 		/**
 		 * @brief Perform the forward pass.
 		 *
@@ -70,13 +62,13 @@ export namespace Mila::Dnn
 
 		void save( mz_zip_archive& zip ) const override {
 			// Save the state of the parameters
-			for ( const auto& tensor :getParameterTensors() ) {
+			for ( const auto& tensor : this->getParameterTensors() ) {
 				// Save tensor data to zip archive
 			}
 		}
 
 		void load( mz_zip_archive& zip ) override {
-			for ( const auto& tensor : getParameterTensors() ) {
+			for ( const auto& tensor : this->getParameterTensors() ) {
 				// Load tensor data from zip archive
 			}
 		}

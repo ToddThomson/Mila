@@ -88,14 +88,6 @@ namespace Mila::Dnn
 			return weight_->size() + bias_->size();
 		}
 
-		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameterTensors() const override {
-			return parameters_;
-		}
-
-		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getStateTensors() const override {
-			return output_state_;
-		}
-
 		/**
 		* @brief Forward pass of the module.
 		*
@@ -108,13 +100,13 @@ namespace Mila::Dnn
 
 		void save( mz_zip_archive& zip ) const override {
 			// Save the state of the parameters
-			for ( const auto& tensor : getParameterTensors() ) {
+			for ( const auto& [name,tensor] : this->getParameterTensors() ) {
 				// Save tensor data to zip archive
 			}
 		}
 
 		void load( mz_zip_archive& zip ) override {
-			for ( const auto& tensor : getParameterTensors() ) {
+			for ( const auto& [name,tensor] : this->getParameterTensors() ) {
 				// Load tensor data from zip archive
 			}
 		}
@@ -139,13 +131,13 @@ namespace Mila::Dnn
 			oss << ")" << std::endl;
 
 			oss << "Parameter Tensors..."  << std::endl;
-			for ( const auto& tensor : getParameterTensors() ) {
+			for ( const auto& [name, tensor] : this->getParameterTensors() ) {
 				oss << tensor->toString();
 			}
 			oss << "Parameter count: " << parameterCount() << std::endl;
 
 			oss << "State Tensors..." << std::endl;
-			for ( const auto& tensor : getStateTensors() ) {
+			for ( const auto& [name, tensor] : this->getStateTensors() ) {
 				oss << tensor->toString();
 			}
 
@@ -177,14 +169,15 @@ namespace Mila::Dnn
 
 			weight_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ channels }, 1.0f );
 			weight_->setName( this->getName() + ".weight");
+			parameters_.emplace_back( weight_ );
+			this->parameter_map_[ "weight" ] = weight_;
 
 			if ( has_bias_ ) {
 				bias_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ channels } );
 				bias_->setName( this->getName() + ".bias");
+				parameters_.emplace_back( bias_ );
+				this->parameter_map_[ "bias" ] = bias_;
 			}
-
-			parameters_.emplace_back( weight_ );
-			parameters_.emplace_back( bias_ );
 
 			mean_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ batch_size, sequence_length } );
 			mean_->setName( this->getName() + ".mean" );
@@ -193,13 +186,15 @@ namespace Mila::Dnn
 
 			output_state_.emplace_back( mean_ );
 			output_state_.emplace_back( rstd_ );
+
+			this->state_map_[ "mean" ] = mean_;
+			this->state_map_[ "rstd" ] = rstd_;
 		}
 
 		/**
 		* @brief Create the operation.
 		*/
 		void createOperation() {
-			
 			if constexpr ( std::is_same_v<TDevice, Compute::CpuDevice> ) {
 				operation_ = OperationRegistry<float, float, CpuDevice>::instance().createOperation( DeviceType::Cpu, "Cpu::LayerNormOp" );
 			}

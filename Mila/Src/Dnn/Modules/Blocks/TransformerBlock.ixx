@@ -41,27 +41,32 @@ namespace Mila::Dnn
 			auto C = input_shape_[ 2 ];
 
             ln_1_ = std::make_shared<LayerNorm<TInput, TCompute, TDevice>>( this->getName() + ".ln_1", input_shape_ );
-            fc_ = std::make_shared<Linear<TInput, TCompute, TDevice>>( this->getName() + ".fc_", C, 3 * C );
+            fc_qkv_ = std::make_shared<Linear<TInput, TCompute, TDevice>>( this->getName() + ".fc_qkv", C, 3 * C );
             attn_ = std::make_shared<MultiHeadAttention<TInput, TCompute, TDevice>>( this->getName() + ".attn", input_shape_, num_heads_ );
+			fc_attn_proj_ = std::make_shared<Linear<TInput, TCompute, TDevice>>( this->getName() + ".fc_attn_proj", C, C );
+			res_1_ = std::make_shared<Residual<TInput, TCompute, TDevice>>( this->getName() + ".res_1" );
             ln_2_ = std::make_shared<LayerNorm<TInput, TCompute, TDevice>>( this->getName() + ".ln_2", input_shape_ );
             mlp_ = std::make_shared<MLP<TInput, TCompute, TDevice>>( this->getName() + ".mlp", input_shape_, 4 * C);
-            residual_ = std::make_shared<Residual<TInput, TCompute, TDevice>>( this->getName() + ".res" );
+            res_2_ = std::make_shared<Residual<TInput, TCompute, TDevice>>( this->getName() + ".res_2" );
 
 			this->addModule( ln_1_ );
-			this->addModule( fc_ );
-			this->addModule( attn_ );
+			this->addModule( fc_qkv_ ); // qkv
+			this->addModule( attn_ ); // attn
+			this->addModule( fc_attn_proj_ ); // fc_proj
+			this->addModule( res_1_ ); // residual
 			this->addModule( ln_2_ );
 			this->addModule( mlp_ );
-			this->addModule( residual_ );
+			this->addModule( res_2_ );
 
 			// Pre-allocate output tensors for the Transformer block layers
 			ln_1_output_ = Tensor<TCompute, MR>( input_shape_ );
-
-			fc_output_ = Tensor<TCompute, MR>( { B, T, 3 * C } );
+			fc_qkv_output_ = Tensor<TCompute, MR>( { B, T, 3 * C } );
 			attn_output_ = Tensor<TCompute, MR>( input_shape_ );
+			fc_attn_proj_output_ = Tensor<TCompute, MR>( { B, T, C } );
+			res_1_output_ = Tensor<TCompute, MR>( input_shape_ );
 			ln_2_output_ = Tensor<TCompute, MR>( input_shape_ );
 			mlp_output_ = Tensor<TCompute, MR>( input_shape_ );
-			residual_output_ = Tensor<TCompute, MR>( input_shape_ );
+			res_2_output_ = Tensor<TCompute, MR>( input_shape_ );
 		}
 
 		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute,MR>& output ) override {
@@ -69,33 +74,29 @@ namespace Mila::Dnn
 			//std::cout << "ln1_output_" << std::endl;
 			//ln1_output_.print();
 
-			fc_->forward( ln_1_output_, fc_output_ );
+			fc_qkv_->forward( ln_1_output_, fc_qkv_output_ );
 			//std::cout << "fc1_output_" << std::endl;
 			//fc1_output_.print();
 
-			attn_->forward( fc_output_, attn_output_ );
+			attn_->forward( fc_qkv_output_, attn_output_ );
 			//std::cout << "attn_output_" << std::endl;
 			//attn_output_.print();
 
-			residual_->forward( attn_output_, residual_output_ );
+			fc_attn_proj_->forward( attn_output_, fc_attn_proj_output_ );
+
+			res_1_->forward( fc_attn_proj_output_, res_1_output_ );
 			//std::cout << "residual_output_" << std::endl;
 			//residual_output_.print();
 			
-			ln_2_->forward( residual_output_, ln_2_output_ );
+			ln_2_->forward( res_1_output_, ln_2_output_ );
 			//std::cout << "ln2_output_" << std::endl;
 			//ln2_output_.print();
 
-			mlp_->forward( ln_2_output_, output );
+			mlp_->forward( ln_2_output_, mlp_output_ );
 			//std::cout << "mlp_output_" << std::endl;
 			//output.print();
-		}
 
-		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getParameterTensors() const override {
-			return {};
-		}
-
-		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& getStateTensors() const override {
-			return {};
+			res_2_->forward( mlp_output_, output );
 		}
 
 		size_t parameterCount() const override {
@@ -138,18 +139,22 @@ namespace Mila::Dnn
 		size_t num_heads_; ///< The number of attention heads.
 
 		std::shared_ptr<LayerNorm<TInput, TCompute, TDevice>> ln_1_{ nullptr };
-		std::shared_ptr<Linear<TInput, TCompute, TDevice>> fc_{ nullptr };
+		std::shared_ptr<Linear<TInput, TCompute, TDevice>> fc_qkv_{ nullptr };
 		std::shared_ptr<MultiHeadAttention<TInput, TCompute, TDevice>> attn_{ nullptr };
+		std::shared_ptr<Linear<TInput, TCompute, TDevice>> fc_attn_proj_{ nullptr };
+		std::shared_ptr<Residual<TInput, TCompute, TDevice>> res_1_{ nullptr };
 		std::shared_ptr<LayerNorm<TInput, TCompute, TDevice>> ln_2_{ nullptr };
 		std::shared_ptr<MLP<TInput, TCompute, TDevice>> mlp_{ nullptr };
-		std::shared_ptr<Residual<TInput, TCompute, TDevice>> residual_{ nullptr };
+		std::shared_ptr<Residual<TInput, TCompute, TDevice>> res_2_{ nullptr };
 
 		Tensor<TCompute, MR> ln_1_output_;
-		Tensor<TCompute, MR> fc_output_;
+		Tensor<TCompute, MR> fc_qkv_output_;
 		Tensor<TCompute, MR> attn_output_;
+		Tensor<TCompute, MR> fc_attn_proj_output_;
+		Tensor<TCompute, MR> res_1_output_;
 		Tensor<TCompute, MR> ln_2_output_;
 		Tensor<TCompute, MR> mlp_output_;
-		Tensor<TCompute, MR> residual_output_;
+		Tensor<TCompute, MR> res_2_output_;
 
 		std::vector<size_t> validate_shape( const std::vector<size_t>& shape ) {
 			if ( shape.size() != 3 ) {
