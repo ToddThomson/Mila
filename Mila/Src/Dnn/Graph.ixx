@@ -90,11 +90,11 @@ export module Dnn.Graph;
 //    //        return t;
 //    //    }
 //
-//    //    // Create a Linear layer
+//    //    // Create a FullyConnected layer
 //    //    std::shared_ptr<Tensor<T>> linear( std::shared_ptr<Tensor<T>> input,
 //    //        std::shared_ptr<Tensor<T>> weight,
 //    //        std::shared_ptr<Tensor<T>> bias ) {
-//    //        auto node = std::make_shared<Linear<T>>( input, weight, bias );
+//    //        auto node = std::make_shared<FullyConnected<T>>( input, weight, bias );
 //    //        return registerNode( node );
 //    //    }
 //

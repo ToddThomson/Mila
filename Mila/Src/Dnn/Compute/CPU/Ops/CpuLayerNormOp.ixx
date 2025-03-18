@@ -11,6 +11,7 @@ export module Compute.CpuLayerNormOp;
 
 import Dnn.Tensor;
 import Compute.OperationBase;
+import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.OperationType;
@@ -25,12 +26,12 @@ namespace Mila::Dnn::Compute
      * @brief CPU implementation of the Layer Normalization operation.
      */
     export
-    class CpuLayerNormOp : public OperationBase<float, float, CpuDevice> {
+    class CpuLayerNormOp : public UnaryOperation<float, float, CpuDevice> {
     public:
         /**
          * @brief Constructor for CpuLayerNormOp.
          */
-        CpuLayerNormOp() : OperationBase<float, float, CpuDevice>( DeviceType::Cpu, OperationType::LayerNormOp ) {}
+        CpuLayerNormOp() : UnaryOperation<float, float, CpuDevice>( DeviceType::Cpu, OperationType::LayerNormOp ) {}
 
         /**
          * @brief Forward pass for the Layer Normalization operation.

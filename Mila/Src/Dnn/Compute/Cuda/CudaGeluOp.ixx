@@ -9,6 +9,7 @@ export module Compute.CudaGeluOp;
 import Dnn.Tensor;
 
 import Compute.OperationBase;
+import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.OperationType;
@@ -22,10 +23,10 @@ namespace Mila::Dnn::Compute
 {
 	export
 	template<typename TInput, typename TOutput = TInput>
-	class CudaGeluOp : public OperationBase<TInput, TOutput, CudaDevice> {
+	class CudaGeluOp : public UnaryOperation<TInput, TOutput, CudaDevice> {
 	public:
 
-		CudaGeluOp() : OperationBase<TInput, TOutput, CudaDevice>( DeviceType::Cuda, OperationType::GeluOp ) {}
+		CudaGeluOp() : UnaryOperation<TInput, TOutput, CudaDevice>( DeviceType::Cuda, OperationType::GeluOp ) {}
 
 		void forward(
 			const Tensor<TInput, CudaMemoryResource>& input,

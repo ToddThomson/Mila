@@ -10,6 +10,7 @@ export module Compute.CpuEncoderOp;
 
 import Dnn.Tensor;
 import Compute.OperationBase;
+import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.OperationType;
@@ -22,11 +23,11 @@ namespace Mila::Dnn::Compute
 	using namespace Mila::Dnn;
 	
 	export
-	class CpuEncoderOp :public OperationBase<int, float, CpuDevice> {
+	class CpuEncoderOp :public UnaryOperation<int, float, CpuDevice> {
 	public:
 		using MR = CpuDevice::MR;
 
-		CpuEncoderOp() : OperationBase<int, float, CpuDevice>( DeviceType::Cpu, OperationType::EncoderOp ) {}
+		CpuEncoderOp() : UnaryOperation<int, float, CpuDevice>( DeviceType::Cpu, OperationType::EncoderOp ) {}
 
 		void forward(
 			const Tensor<int, CpuMemoryResource>& input,

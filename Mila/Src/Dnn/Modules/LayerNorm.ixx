@@ -17,6 +17,7 @@ import Dnn.TensorTraits;
 import Compute.ComputeDevice;
 import Compute.DeviceType;
 import Compute.OperationBase;
+import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
@@ -94,7 +95,7 @@ namespace Mila::Dnn
 		* @param input Input tensor.
 		* @return TensorPtr Output tensor.
 		*/
-		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute,MR>& output ) override {
+		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute,MR>& output ) {
 			operation_->forward( input, parameters_, output, output_state_ );
 		}
 
@@ -160,7 +161,7 @@ namespace Mila::Dnn
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_; ///< The output attributes.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_{ nullptr }; ///< The scalars.
 
-		std::shared_ptr<Dnn::Compute::OperationBase<TInput, TCompute, TDevice>> operation_; ///< The operation.
+		std::shared_ptr<Dnn::Compute::UnaryOperation<TInput, TCompute, TDevice>> operation_; ///< The operation.
 
 		void initializeTensors() {
 			auto batch_size = input_shape_[ 0 ];
@@ -196,10 +197,12 @@ namespace Mila::Dnn
 		*/
 		void createOperation() {
 			if constexpr ( std::is_same_v<TDevice, Compute::CpuDevice> ) {
-				operation_ = OperationRegistry<float, float, CpuDevice>::instance().createOperation( DeviceType::Cpu, "Cpu::LayerNormOp" );
+				auto base_operation = OperationRegistry<float, float, CpuDevice>::instance().createOperation( DeviceType::Cpu, "Cpu::LayerNormOp" );
+				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<float, float, CpuDevice>>(base_operation);
 			}
 			else {
-				operation_ = OperationRegistry<float, float, CudaDevice>::instance().createOperation( DeviceType::Cuda, "Cuda::LayerNormOp" );
+				auto base_operation = OperationRegistry<float, float, CudaDevice>::instance().createOperation( DeviceType::Cuda, "Cuda::LayerNormOp" );
+				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<float, float, CudaDevice>>(base_operation);
 			}
 		}
 	};

@@ -38,10 +38,10 @@ public:
 	using MR = TDevice::MR;
 
 	/**  
-	* @brief Constructs an OperationBase object.  
-	*  
-	* @param device_type The type of device on which the operation will be executed.  
-	* @param operation_type The type of the operation.  
+	* @brief Constructs an OperationBase object.
+	*
+	* @param device_type The type of device on which the operation will be executed.
+	* @param operation_type The type of the operation.
 	*/  
 	OperationBase( DeviceType device_type, OperationType operation_type )  
 		: device_type_( device_type ), operation_type_( operation_type ) {}  
@@ -76,19 +76,19 @@ public:
 		return operation_type_;  
 	}  
 
-	/**  
-	* @brief Executes the forward pass of the operation.  
-	*  
-	* @param input The input tensor.  
-	* @param parameters The parameters for the operation.  
-	* @param output The output tensor.  
-	* @param output_state Cache for the output tensors.  
-	*/  
-	virtual void forward(  
-		const Tensor<TInput, MR>& input,  
-		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& parameters,  
-		Tensor<TCompute, MR>& output,  
-		std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& output_state ) const = 0;  
+	///**  
+	//* @brief Executes the forward pass of the operation.  
+	//*  
+	//* @param input The input tensor.  
+	//* @param parameters The parameters for the operation.  
+	//* @param output The output tensor.  
+	//* @param output_state Cache for the output tensors.  
+	//*/  
+	//virtual void forward(  
+	//	const Tensor<TInput, MR>& input,  
+	//	const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& parameters,  
+	//	Tensor<TCompute, MR>& output,  
+	//	std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& output_state ) const = 0;  
 
 	/**  
 	* @brief Executes the backward pass of the operation.  

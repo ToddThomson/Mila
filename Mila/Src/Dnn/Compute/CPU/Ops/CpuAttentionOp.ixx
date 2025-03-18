@@ -11,6 +11,7 @@ export module Compute.CpuAttention;
 
 import Dnn.Tensor;
 import Compute.OperationBase;
+import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.OperationType;
@@ -25,10 +26,10 @@ namespace Mila::Dnn::Compute
     export
     template<typename TInput, typename TCompute = TInput>
         requires ValidTensorTypes<TInput, TCompute>
-    class CpuAttentionOp : public OperationBase<TInput, TCompute, CpuDevice> {
+    class CpuAttentionOp : public UnaryOperation<TInput, TCompute, CpuDevice> {
     public:
 
-        CpuAttentionOp() : OperationBase<TInput, TCompute, CpuDevice>(DeviceType::Cpu, OperationType::AttentionOp) {}
+        CpuAttentionOp() : UnaryOperation<TInput, TCompute, CpuDevice>(DeviceType::Cpu, OperationType::MultiHeadAttentionOp) {}
     
         void forward( const Tensor<TInput, CpuMemoryResource>& input,
             const std::vector<std::shared_ptr<Tensor<TCompute, CpuMemoryResource>>>& parameters,

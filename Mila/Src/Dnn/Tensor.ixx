@@ -275,7 +275,7 @@ namespace Mila::Dnn
 			oss << " Type: " << to_string( data_type_ ) << std::endl;
 
 			if ( showBuffer ) {
-				outputBuffer( 0, 0 );
+				oss << outputBuffer( 0, 0 );
 			}
 
 			return oss.str();

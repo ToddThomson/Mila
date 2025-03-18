@@ -17,7 +17,7 @@ import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Dnn.Module;
 import Dnn.Modules.LayerNorm;
-import Dnn.Modules.Linear;
+import Dnn.Modules.FullyConnected;
 import Dnn.Modules.Attention;
 import Dnn.Modules.Residual;
 import Dnn.Blocks.MLP;
@@ -41,9 +41,9 @@ namespace Mila::Dnn
 			auto C = input_shape_[ 2 ];
 
             ln_1_ = std::make_shared<LayerNorm<TInput, TCompute, TDevice>>( this->getName() + ".ln_1", input_shape_ );
-            fc_qkv_ = std::make_shared<Linear<TInput, TCompute, TDevice>>( this->getName() + ".fc_qkv", C, 3 * C );
+            fc_qkv_ = std::make_shared<FullyConnected<TInput, TCompute, TDevice>>( this->getName() + ".fc_qkv", C, 3 * C );
             attn_ = std::make_shared<MultiHeadAttention<TInput, TCompute, TDevice>>( this->getName() + ".attn", input_shape_, num_heads_ );
-			fc_attn_proj_ = std::make_shared<Linear<TInput, TCompute, TDevice>>( this->getName() + ".fc_attn_proj", C, C );
+			fc_attn_proj_ = std::make_shared<FullyConnected<TInput, TCompute, TDevice>>( this->getName() + ".fc_attn_proj", C, C );
 			res_1_ = std::make_shared<Residual<TInput, TCompute, TDevice>>( this->getName() + ".res_1" );
             ln_2_ = std::make_shared<LayerNorm<TInput, TCompute, TDevice>>( this->getName() + ".ln_2", input_shape_ );
             mlp_ = std::make_shared<MLP<TInput, TCompute, TDevice>>( this->getName() + ".mlp", input_shape_, 4 * C);
@@ -69,7 +69,7 @@ namespace Mila::Dnn
 			res_2_output_ = Tensor<TCompute, MR>( input_shape_ );
 		}
 
-		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute,MR>& output ) override {
+		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute,MR>& output ) {
 			ln_1_->forward( input, ln_1_output_ );
 			//std::cout << "ln1_output_" << std::endl;
 			//ln1_output_.print();
@@ -84,7 +84,7 @@ namespace Mila::Dnn
 
 			fc_attn_proj_->forward( attn_output_, fc_attn_proj_output_ );
 
-			res_1_->forward( fc_attn_proj_output_, res_1_output_ );
+			res_1_->forward( input, fc_attn_proj_output_, res_1_output_ );
 			//std::cout << "residual_output_" << std::endl;
 			//residual_output_.print();
 			
@@ -96,7 +96,7 @@ namespace Mila::Dnn
 			//std::cout << "mlp_output_" << std::endl;
 			//output.print();
 
-			res_2_->forward( mlp_output_, output );
+			res_2_->forward( res_1_output_, mlp_output_, output );
 		}
 
 		size_t parameterCount() const override {
@@ -139,9 +139,9 @@ namespace Mila::Dnn
 		size_t num_heads_; ///< The number of attention heads.
 
 		std::shared_ptr<LayerNorm<TInput, TCompute, TDevice>> ln_1_{ nullptr };
-		std::shared_ptr<Linear<TInput, TCompute, TDevice>> fc_qkv_{ nullptr };
+		std::shared_ptr<FullyConnected<TInput, TCompute, TDevice>> fc_qkv_{ nullptr };
 		std::shared_ptr<MultiHeadAttention<TInput, TCompute, TDevice>> attn_{ nullptr };
-		std::shared_ptr<Linear<TInput, TCompute, TDevice>> fc_attn_proj_{ nullptr };
+		std::shared_ptr<FullyConnected<TInput, TCompute, TDevice>> fc_attn_proj_{ nullptr };
 		std::shared_ptr<Residual<TInput, TCompute, TDevice>> res_1_{ nullptr };
 		std::shared_ptr<LayerNorm<TInput, TCompute, TDevice>> ln_2_{ nullptr };
 		std::shared_ptr<MLP<TInput, TCompute, TDevice>> mlp_{ nullptr };

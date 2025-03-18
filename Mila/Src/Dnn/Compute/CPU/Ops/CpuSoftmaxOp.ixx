@@ -12,6 +12,7 @@ export module Compute.CpuSoftmaxOp;
 import Dnn.Tensor;  
 import Compute.DeviceType;  
 import Compute.OperationBase;  
+import Compute.UnaryOperation;
 import Compute.OperationRegistry;  
 import Compute.OperationType;  
 import Compute.MemoryResource;  
@@ -26,12 +27,12 @@ namespace Mila::Dnn::Compute
      */  
     export
 	template<typename T>
-    class CpuSoftmaxOp : public OperationBase<float, float, CpuDevice> {  
+    class CpuSoftmaxOp : public UnaryOperation<float, float, CpuDevice> {  
     public:  
         /**  
          * @brief Constructor for CpuSoftmaxOp.  
          */  
-        CpuSoftmaxOp() : OperationBase<float, float, CpuDevice>(DeviceType::Cpu, OperationType::SoftmaxOp) {}  
+        CpuSoftmaxOp() : UnaryOperation<float, float, CpuDevice>(DeviceType::Cpu, OperationType::SoftmaxOp) {}  
 
         /**  
          * @brief Forward pass of the softmax operation.  

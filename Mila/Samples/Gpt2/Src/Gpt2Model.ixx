@@ -133,7 +133,7 @@ namespace Mila::Dnn::Gpt2
 			ln_f_ = std::make_unique<LayerNorm<TInput, TCompute, TDevice>>( "gpt2.ln_f", tf_io_shape );
 			ln_f_output_ = Tensor<TCompute, MR>( tf_io_shape );
 
-			fc_f_ = std::make_unique<Linear<TInput, TCompute, TDevice>>( "gpt2.fc_f", C, Vp );
+			fc_f_ = std::make_unique<FullyConnected<TInput, TCompute, TDevice>>( "gpt2.fc_f", Vp, C, /* has_bias */ false );
 			fc_logits_output_ = Tensor<TCompute, MR>( std::vector<size_t>( { B, T, Vp } ) );
 
 			smax_ = std::make_unique<Softmax<TInput, TCompute, TDevice>>( "gpt2.smax" );
@@ -146,6 +146,10 @@ namespace Mila::Dnn::Gpt2
 
 		const ActivationTensors& get_activations() const {
 			return acts_;
+		}
+
+		const Tensor<TCompute,MR>& getProbabilities() const {
+			return smax_probs_output_ ;
 		}
 
 		const ModelConfig& get_config() const {
@@ -186,7 +190,7 @@ namespace Mila::Dnn::Gpt2
 
 			// read in all the parameters from the checkpoint file
 			// TODO: Move to separate code block
-			model_file.read( reinterpret_cast<char*>(params_.wte.data()), params_.wte.size() * sizeof( float ) );
+			model_file.read( reinterpret_cast<char*>(&params_.wte[ 0 ]), param_sizes_[ 0 ] * sizeof(float) );
 			model_file.read( reinterpret_cast<char*>(&params_.wpe[ 0 ]), param_sizes_[ 1 ] * sizeof( float ) );
 
 			model_file.read( reinterpret_cast<char*>(&params_.ln1w[ 0 ]), param_sizes_[ 2 ] * sizeof( float ) );
@@ -227,9 +231,21 @@ namespace Mila::Dnn::Gpt2
 			auto enc_parameters = encoder_->getParameterTensors();
 			auto wte = enc_parameters[ "wte" ];
 			std::copy( params_.wte.begin(), params_.wte.end(), wte->data() );
+			//std::cout << wte->toString( true ) << std::endl;
 
 			auto wpe = enc_parameters[ "wpe" ];
 			std::copy( params_.wpe.begin(), params_.wpe.end(), wpe->data() );
+
+			// The wte tensor is also used in the fc_f layer as the weight tensor
+			auto fc_f_parameters = fc_f_->getParameterTensors();
+			auto fc_f_weight = fc_f_parameters[ "weight" ];
+			assert( fc_f_weight->size() == param_sizes_[ 0 ] && "Size mismatch between weight and fc_fw" );
+
+			// TJT: There is a bug here. Still investigating...
+			// 
+			//std::cout << fc_f_weight->toString(true) << std::endl;
+			//std::copy( params_.wte.begin(), params_.wte.end(), fc_f_weight->data() );
+			//std::cout << fc_f_weight->toString(true) << std::endl;
 
 			// Transformer layer parameters...
 			for ( size_t l = 0; l < config_.num_layers; l++ ) {
@@ -460,6 +476,7 @@ namespace Mila::Dnn::Gpt2
 			//residual = acts_.residual3.data() + (L - 1) * batch_size_ * seq_len_ * C; // last residual is in residual3
 			ln_f_->forward( tf_output_, ln_f_output_ );
 			fc_f_->forward( ln_f_output_, fc_logits_output_ );
+			//std::cout << "fc_logits_output_: " << fc_logits_output_.toString( true ) << std::endl;
 			smax_->forward( fc_logits_output_, smax_probs_output_ );
 
 			// also forward the cross-entropy loss function if we have the targets
@@ -517,6 +534,34 @@ namespace Mila::Dnn::Gpt2
 			//}
 		}
 
+		int sampleMult( const Tensor<TCompute, MR>& probabilities, int n, float coin ) {
+			// Below we're only using b=0 (i.e. the first row) of all B rows
+			// we're in principle running B "inference streams" in parallel here
+			// but only using position 0
+			// get the Vp-dimensional vector probs[0, t-1, :]
+			// TJT: Original code: float* probs = reinterpret_cast<float*>(acts.probs.data()) + ((t - 1) * model.get_config().padded_vocab_size);
+			
+			// sample index from probabilities (they must sum to 1!)
+			// coin is a random number in [0, 1), usually from random_f32()
+			auto T = probabilities.shape()[ 1 ];
+			auto V = probabilities.shape()[ 2 ];
+
+			float cdf = 0.0f;
+			for ( int v = 0; v < n; v++ ) {
+				cdf += probabilities[ 0, (T - 1), v ];
+			}
+			assert( cdf > 0.999f && cdf < 1.001f );
+			
+			cdf = 0.0f;
+			for ( int v = 0; v < n; v++ ) {
+				cdf += probabilities[ 0, (T - 1), v ];
+				if ( coin < cdf ) {
+					return v;
+				}
+			}
+			return n - 1; // in case of rounding errors
+		}
+
 		void print() const {
 			std::cout << "GPT-2 Model: " << std::endl;
 			std::cout << "max_seq_len: " << config_.max_seq_len << std::endl;
@@ -532,6 +577,8 @@ namespace Mila::Dnn::Gpt2
 		}
 
 	private:
+
+		
 		void initialize_parameter_tensor_sizes() {
 			// Shorthand notation
 			size_t Vp = config_.padded_vocab_size;
@@ -739,7 +786,7 @@ namespace Mila::Dnn::Gpt2
 		std::unique_ptr<Encoder<int, float, TDevice>> encoder_{ nullptr };
 		std::vector<std::unique_ptr<TransformerBlock<float, float, TDevice>>> tf_layers_;
 		std::unique_ptr<LayerNorm<float, float, TDevice>> ln_f_{ nullptr };
-		std::unique_ptr<Linear<float, float, TDevice>> fc_f_{ nullptr };
+		std::unique_ptr<FullyConnected<float, float, TDevice>> fc_f_{ nullptr };
 		std::unique_ptr<Softmax<float, float, TDevice>> smax_{ nullptr };
 
 		Tensor<TCompute, MR> encoder_output_;

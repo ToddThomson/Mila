@@ -14,6 +14,7 @@ import Dnn.Tensor;
 import Compute.DeviceType;
 import Compute.OperationType;
 import Compute.OperationBase;
+import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuDevice;
@@ -27,11 +28,11 @@ namespace Mila::Dnn::Compute
 
 	export 
 	template<typename T>
-	class CpuGeluOp : public OperationBase<float, float, CpuDevice> {
+	class CpuGeluOp : public UnaryOperation<float, float, CpuDevice> {
 	public:
 		using MR = CpuDevice::MR;
 
-		CpuGeluOp() : OperationBase<float, float, CpuDevice>( DeviceType::Cpu, OperationType::GeluOp ) {}
+		CpuGeluOp() : UnaryOperation<float, float, CpuDevice>( DeviceType::Cpu, OperationType::GeluOp ) {}
 
 		void forward(
 			const Tensor<float, CpuMemoryResource>& input,

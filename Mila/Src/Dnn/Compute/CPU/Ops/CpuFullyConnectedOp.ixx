@@ -7,10 +7,11 @@ module;
 #include <omp.h>
 #endif
 
-export module Compute.CpuMatMulOp;
+export module Compute.CpuFullyConnectedOp;
 
 import Dnn.Tensor;
 import Compute.OperationBase;
+import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.OperationType;
@@ -23,21 +24,25 @@ namespace Mila::Dnn::Compute
 
     export
     template<typename TInput, typename TOutput = TInput>
-    class CpuMatMulOp : public OperationBase<TInput, TOutput, CpuDevice> {
+    class CpuFullyConnectedOp : public UnaryOperation<TInput, TOutput, CpuDevice> {
     public:
 
-        CpuMatMulOp() : OperationBase<TInput, TOutput, CpuDevice>( DeviceType::Cpu, OperationType::MatMulOp ) {}
+        CpuFullyConnectedOp() : UnaryOperation<TInput, TOutput, CpuDevice>( DeviceType::Cpu, OperationType::FullyConnectedOp ) {}
 
         void forward(
             const Tensor<TInput, CpuMemoryResource>& input,
             const std::vector<std::shared_ptr<Tensor<TOutput, CpuMemoryResource>>>& parameters_,
             Tensor<TOutput, CpuMemoryResource>& output,
             std::vector<std::shared_ptr<Tensor<TOutput, CpuMemoryResource>>>& output_state ) const override {
-			auto X = input.data();
-			auto Y = output.data();
+            auto X = input.data();
+            auto Y = output.data();
 
             auto weight = parameters_[ 0 ];
-            auto bias = parameters_[ 1 ];
+            std::shared_ptr<Tensor<TOutput, CpuMemoryResource>> bias = { nullptr };
+
+            if ( parameters_.size() == 2 ) {
+                bias = parameters_[ 1 ];
+            }
 
             int B = input.shape()[ 0 ];
             int T = input.shape()[ 1 ];
@@ -46,7 +51,8 @@ namespace Mila::Dnn::Compute
 
             const int LOOP_UNROLL = 8;
             if ( B * T % LOOP_UNROLL != 0 ) {
-                forward_naive( input, *weight, *bias, output, B, T, C, OC );
+				// TJT: Write a unit test for this case
+                forward_naive( input, weight, bias, output, B, T, C, OC );
                 return;
             }
 
@@ -55,7 +61,7 @@ namespace Mila::Dnn::Compute
                 for ( int o = 0; o < OC; o++ ) {
                     float result[ LOOP_UNROLL ];
                     for ( int ibt = 0; ibt < LOOP_UNROLL; ibt++ ) {
-                        result[ ibt ] = (bias->data() != nullptr) ? bias->data()[ o ] : 0.0f;
+                        result[ ibt ] = (bias ? bias->data()[ o ] : 0.0f);
                     }
 
                     for ( int i = 0; i < C; i++ ) {
@@ -108,8 +114,8 @@ namespace Mila::Dnn::Compute
         }
 
         static void registerOperation() {
-            OperationRegistry<float, float, CpuDevice>::instance().registerOperation( DeviceType::Cpu, "Cpu::MatMulOp", []() -> std::unique_ptr<OperationBase<float, float, CpuDevice>> {
-                return std::make_unique<CpuMatMulOp<float>>();
+            OperationRegistry<float, float, CpuDevice>::instance().registerOperation( DeviceType::Cpu, "Cpu::FullyConnectedOp", []() -> std::unique_ptr<OperationBase<float, float, CpuDevice>> {
+                return std::make_unique<CpuFullyConnectedOp<float>>();
             } );
         }
 
@@ -120,7 +126,8 @@ namespace Mila::Dnn::Compute
     private:
         void forward_naive(
             const Tensor<float, CpuMemoryResource>& input,
-            const Tensor<float, CpuMemoryResource>& weight, const Tensor<float, CpuMemoryResource>& bias,
+            const std::shared_ptr<Tensor<float, CpuMemoryResource>>& weight, 
+            const std::shared_ptr < Tensor<float, CpuMemoryResource>>& bias,
             Tensor<float, CpuMemoryResource>& output,
             int B, int T, int C, int OC ) const {
             
@@ -133,9 +140,9 @@ namespace Mila::Dnn::Compute
                 for ( int t = 0; t < T; t++ ) {
                     int bt = b * T + t;
                     for ( int o = 0; o < OC; o++ ) {
-                        float val = (bias.data() != NULL) ? bias.data()[ o ] : 0.0f;
+                        float val = (bias ? bias->data()[ o ] : 0.0f);
                         for ( int i = 0; i < C; i++ ) {
-                            val += input.data()[ bt * C + i ] * weight.data()[ o * C + i ];
+                            val += input.data()[ bt * C + i ] * weight->data()[ o * C + i ];
                         }
                         output.data()[ bt * OC + o ] = val;
                     }

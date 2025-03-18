@@ -52,7 +52,7 @@ export import Dnn.Modules.Attention;
 export import Dnn.Modules.Encoder;
 export import Dnn.Modules.Gelu;
 export import Dnn.Modules.LayerNorm;
-export import Dnn.Modules.Linear;
+export import Dnn.Modules.FullyConnected;
 export import Dnn.Modules.Residual;
 export import Dnn.Modules.Softmax;
 
@@ -66,7 +66,7 @@ namespace Mila {
     /// Gets the Mila API version.
     /// </summary>
     export Version GetAPIVersion() {
-        return Version{0, 9, 57, "alpha", 1 };
+        return Version{0, 9, 58, "alpha", 1 };
     }
 
 	export void setDevice( const std::string& name ) {

@@ -18,6 +18,7 @@ import Compute.ComputeDevice;
 import Compute.CpuDevice;
 
 import Compute.OperationBase;
+import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
@@ -29,7 +30,7 @@ export namespace Mila::Dnn
 	
 	export
 	template<typename TInput, typename TCompute = TInput, typename TDevice = CpuDevice>
-		requires ValidTensorTypes<TInput, TCompute>&& std::is_base_of_v<Compute::ComputeDevice, TDevice>
+		requires ValidTensorTypes<TInput, TCompute> && std::is_base_of_v<Compute::ComputeDevice, TDevice>
 	class Gelu : public Module<TInput, TCompute, TDevice> {
 	public:
 		using MR = TDevice::MR;
@@ -56,7 +57,7 @@ export namespace Mila::Dnn
 		 * @param input The input tensor.
 		 * @return The output tensor.
 		 */
-		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute, MR>& output ) override {
+		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute, MR>& output ) {
 			operation_->forward( input, parameters_, output, output_state_ );
 		}
 
@@ -95,18 +96,19 @@ export namespace Mila::Dnn
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_{ nullptr }; ///< The output cache. Not used in this module.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_{ nullptr }; ///< The scalars. Not used in this module.
 
-		std::shared_ptr<Dnn::Compute::OperationBase<TInput, TCompute, TDevice>> operation_{ nullptr }; ///< The operation.
+		std::shared_ptr<Dnn::Compute::UnaryOperation<TInput, TCompute, TDevice>> operation_{ nullptr }; ///< The operation.
 
 		/**
 		 * @brief Create the operation.
 		 */
 		void createOperation() {
-
 			if constexpr ( std::is_same_v<TDevice, Compute::CpuDevice> ) {
-				operation_ = OperationRegistry<float, float, CpuDevice>::instance().createOperation( DeviceType::Cpu, "Cpu::GeluOp" );
+				auto base_operation = OperationRegistry<float, float, CpuDevice>::instance().createOperation( DeviceType::Cpu, "Cpu::GeluOp" );
+				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<float, float, CpuDevice>>(base_operation);
 			}
 			else {
-				operation_ = OperationRegistry<float, float, CudaDevice>::instance().createOperation( DeviceType::Cuda, "Cuda::GeluOp" );
+				auto base_operation = OperationRegistry<float, float, CudaDevice>::instance().createOperation( DeviceType::Cuda, "Cuda::GeluOp" );
+				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<float, float, CudaDevice>>(base_operation);
 			}
 		}
 	};

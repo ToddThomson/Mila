@@ -49,7 +49,7 @@ namespace Mila::Dnn
         * @param input Input tensor.
         * @param output Output tensor.
         */
-        virtual void forward( const Tensor<TInput, MR>& input, Tensor<TCompute, MR>& output ) = 0;
+        //virtual void forward( const Tensor<TInput, MR>& input, Tensor<TCompute, MR>& output ) = 0;
 
         /**
         * @brief Backward pass of the module.
@@ -57,10 +57,10 @@ namespace Mila::Dnn
         * @param gradient Gradient tensor.
         * @return Tensor<TCompute, MR> Gradient with respect to the input.
         */
-        virtual Tensor<TCompute, MR> backward( const Tensor<TInput, MR>& gradient ) {
+        //virtual Tensor<TCompute, MR> backward( const Tensor<TInput, MR>& gradient ) {
             // Default to no op  
-            return {};
-        }
+            //return {};
+        //}
 
         /**
         * @brief Set the training mode of the module.
@@ -95,8 +95,6 @@ namespace Mila::Dnn
         const std::unordered_map<std::string, std::shared_ptr<Tensor<TCompute, MR>>>& getStateTensors() const {
             return state_map_;
         }
-
-		
 
         /**
         * @brief Get the name of the module.
@@ -190,6 +188,7 @@ namespace Mila::Dnn
 
             return oss.str();
         }
+
         const std::string stateToString() const {
             std::ostringstream oss;
             for ( const auto& [name, tensor] : getStateTensors() ) {

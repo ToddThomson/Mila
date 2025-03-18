@@ -7,7 +7,7 @@ module;
 #include <type_traits>
 #include <stdexcept>
 
-export module Dnn.Modules.Linear;
+export module Dnn.Modules.FullyConnected;
 
 import Dnn.Module;
 import Dnn.Tensor;
@@ -17,6 +17,7 @@ import Dnn.TensorHelpers;
 import Compute.ComputeDevice;
 import Compute.DeviceType;
 import Compute.OperationBase;
+import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuDevice;
@@ -26,21 +27,23 @@ export namespace Mila::Dnn
 {
 	using namespace Mila::Dnn::Compute;
 
-	/**
-	 * @brief A class representing a linear or fully-connected module.
-	 * The module performs the following operation:
-	 * output = input * weight + bias
-	 *
-	 * @tparam T The data type of the module.
-	 */
+    /**
+    * @brief A class representing a fully-connected module.
+    * The module performs the following operation:
+    * output = input * weight + bias
+    *
+    * @tparam TInput The data type of the input tensor.
+    * @tparam TCompute The data type used for computation.
+    * @tparam TDevice The device type used for computation.
+    */
 	export
 	template<typename TInput, typename TCompute = TInput, typename TDevice = CpuDevice>
 		requires ValidTensorTypes<TInput, TCompute> && std::is_base_of_v<Compute::ComputeDevice, TDevice>
-	class Linear : public Module<TInput, TCompute, TDevice> {
+	class FullyConnected : public Module<TInput, TCompute, TDevice> {
 	public:
 		using MR = TDevice::MR;
 		
-		Linear(
+		FullyConnected(
 			std::string name,
 			size_t input_channels,
 			size_t output_channels,
@@ -97,7 +100,7 @@ export namespace Mila::Dnn
 		std::string toString() const override {
 			std::ostringstream oss;
 			oss << "--------------------" << std::endl;
-			oss << "Linear: " << this->getName();
+			oss << "FullyConnected: " << this->getName();
 			oss << ", Input channels: " << input_channels_;
 			oss << ", Output channels: " << output_channels_ << std::endl;
 			oss << this->parametersToString();
@@ -123,7 +126,7 @@ export namespace Mila::Dnn
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_ = {}; ///< The output state.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_ = {}; ///< The scalars.
 
-		std::shared_ptr<Dnn::Compute::OperationBase<TInput, TCompute, TDevice>> operation_{ nullptr }; ///< The operation.
+		std::shared_ptr<Dnn::Compute::UnaryOperation<TInput, TCompute, TDevice>> operation_{ nullptr }; ///< The operation.
 
         /**
         * @brief Validate the input shape and create the weight and bias parameter tensors.
@@ -156,10 +159,12 @@ export namespace Mila::Dnn
 		 */
 		void createOperation() {
 			if constexpr ( std::is_same_v<TDevice, Compute::CpuDevice> ) {
-				operation_ = OperationRegistry<float, float, CpuDevice>::instance().createOperation( DeviceType::Cpu, "Cpu::MatMulOp" );
+				auto base_operation = OperationRegistry<float, float, CpuDevice>::instance().createOperation( DeviceType::Cpu, "Cpu::FullyConnectedOp" );
+				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<float, float, CpuDevice>>(base_operation);
 			}
 			else {
-				operation_ = OperationRegistry<float, float, CudaDevice>::instance().createOperation( DeviceType::Cuda, "Cuda::MatMulOp" );
+				auto base_operation = OperationRegistry<float, float, CudaDevice>::instance().createOperation( DeviceType::Cuda, "Cuda::FullyConnectedOp" );
+				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<float, float, CudaDevice>>(base_operation);
 			}
 		}
 	};

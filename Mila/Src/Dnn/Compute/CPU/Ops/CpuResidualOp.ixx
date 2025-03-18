@@ -14,6 +14,7 @@ import Dnn.Tensor;
 import Compute.DeviceType;
 import Compute.OperationType;
 import Compute.OperationBase;
+import Compute.BinaryOperation;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuDevice;
@@ -24,23 +25,24 @@ namespace Mila::Dnn::Compute
 {
     export
     template<typename T>
-    class CpuResidualOp :public OperationBase<float, float, CpuDevice> {
+    class CpuResidualOp :public BinaryOperation<float, float, CpuDevice> {
     public:
-        CpuResidualOp() : OperationBase<float, float , CpuDevice>( DeviceType::Cpu, OperationType::ResidualOp ) {}
+        CpuResidualOp() : BinaryOperation<float, float , CpuDevice>( DeviceType::Cpu, OperationType::ResidualOp ) {}
 
         void forward(
-            const Tensor<T, CpuMemoryResource>& input,
+            const Tensor<T, CpuMemoryResource>& input_a,
+            const Tensor<T, CpuMemoryResource>& input_b,
             const std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& parameters,
             Tensor<T, CpuMemoryResource>& output,
             std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& output_cache ) const override {
-			auto X = input.data();
+			auto A = input_a.data();
+            auto B = input_b.data();
 			auto Y = output.data();
-			auto N = input.size();
+			auto N = input_a.size();
             
 		#pragma omp parallel for
             for ( int i = 0; i < N; i++ ) {
-                // FIXME: input 2 is required
-                Y[ i ] = X[ i ] + X[ i ];
+				Y[ i ] = A[ i ] + B[ i ];
             }
 		}
 

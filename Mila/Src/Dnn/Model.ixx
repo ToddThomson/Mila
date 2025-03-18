@@ -25,7 +25,7 @@ import Compute.CpuMemoryResource;
 import Compute.CudaMemoryResource;
 
 import Dnn.Modules.LayerNorm;
-import Dnn.Modules.Linear;
+import Dnn.Modules.FullyConnected;
 import Dnn.Modules.Gelu;
 import Dnn.Modules.Residual;
 
@@ -130,7 +130,7 @@ namespace Mila::Dnn
 			/*auto output = std::make_shared<Tensor<TInput,MR>>( std::vector<T>() );
 			tensor_map[ output->getID() ] = output;*/
 
-			auto node = std::make_shared<Linear<TInput, TCompute, TDevice>>( input, weight, bias );
+			auto node = std::make_shared<FullyConnected<TInput, TCompute, TDevice>>( input, weight, bias );
 			registerNode( node );
 
 			return { nullptr };// node->output();

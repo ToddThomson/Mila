@@ -9,7 +9,7 @@ namespace Modules::Tests
 {
 	using namespace Mila::Dnn;
 
-    class LinearTests : public ::testing::Test {
+    class FullyConnectedTests : public ::testing::Test {
     protected:
         void SetUp() override {
 			batch_size_ = 128;
@@ -22,15 +22,15 @@ namespace Modules::Tests
 			output_channels_ = output_features_ * channels_;
 			has_bias_ = true;
 
-            cpu_linear = std::make_unique<Linear<float, float,Compute::CpuDevice>>(
-                "cpu_linear", channels_, output_channels_ );
+            cpu_linear = std::make_unique<FullyConnected<float, float,Compute::CpuDevice>>(
+                "fc", channels_, output_channels_ );
 
             /*cuda_linear = std::make_unique<Linear<float, float, Compute::CudaDevice>>(
-                "cuda_linear", channels_, output_channels_ );*/
+                "fc", channels_, output_channels_ );*/
         }
 
-        std::unique_ptr<Linear<float, float, Compute::CpuDevice>> cpu_linear;
-        //std::unique_ptr<Linear<float, float, Compute::CudaDevice>> cuda_linear;
+        std::unique_ptr<FullyConnected<float, float, Compute::CpuDevice>> cpu_linear;
+        //std::unique_ptr<FullyConnected<float, float, Compute::CudaDevice>> cuda_linear;
         
         size_t batch_size_{ 0 };
         size_t cpu_batch_size_{ 0 };
@@ -43,11 +43,11 @@ namespace Modules::Tests
 		bool has_bias_{ true };
     };
 
-    TEST_F( LinearTests, Cpu_TestName ) {
-        EXPECT_EQ( cpu_linear->getName(), "cpu_linear" );
+    TEST_F( FullyConnectedTests, Cpu_TestName ) {
+        EXPECT_EQ( cpu_linear->getName(), "fc" );
     }
 
-    TEST_F( LinearTests, Cpu_parameterCount ) {
+    TEST_F( FullyConnectedTests, Cpu_parameterCount ) {
         auto num_parameters = /* weights */(output_channels_ * channels_);
 		if ( has_bias_ ) {
 			num_parameters += output_channels_;
@@ -56,27 +56,27 @@ namespace Modules::Tests
         EXPECT_EQ( cpu_linear->parameterCount(), num_parameters ) ;
     }
 
-    TEST_F( LinearTests, Test_InitializeParameterTensors ) {
+    TEST_F( FullyConnectedTests, Test_InitializeParameterTensors ) {
         auto parameters = cpu_linear->getParameterTensors();
         EXPECT_EQ( parameters.size(), 2 );
     }
 
-    TEST_F( LinearTests, Cpu_TestForward ) {
+    TEST_F( FullyConnectedTests, Cpu_TestForward ) {
         Tensor<float, Compute::CpuMemoryResource> input( { cpu_batch_size_, sequence_length_, channels_ } );
         Tensor<float, Compute::CpuMemoryResource> output( { cpu_batch_size_, sequence_length_, 4 * channels_ } );
         cpu_linear->forward( input, output );
         EXPECT_EQ( output.size(), cpu_batch_size_ * sequence_length_ * output_channels_ );
     }
 
-    /*TEST_F( LinearTests, Cuda_TestForward ) {
+    /*TEST_F( FullyConnectedTests, Cuda_TestForward ) {
         Tensor<float, Compute::CudaMemoryResource> input( { batch_size_, sequence_length_, channels_ } );
         Tensor<float, Compute::CudaMemoryResource> output( { batch_size_, sequence_length_, 4 * channels_ } );
         cuda_linear->forward( input, output );
         EXPECT_EQ( output.size(), batch_size_ * sequence_length_ * output_channels_ );
     }*/
 
-    TEST_F( LinearTests, toString ) {
+    TEST_F( FullyConnectedTests, toString ) {
         std::string output = cpu_linear->toString();
-        EXPECT_NE( output.find( "Linear: cpu_linear" ), std::string::npos );
+        EXPECT_NE( output.find( "FullyConnected: fc" ), std::string::npos );
     }
 }

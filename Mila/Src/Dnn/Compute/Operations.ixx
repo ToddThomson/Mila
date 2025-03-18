@@ -45,13 +45,13 @@ namespace Mila::Dnn::Compute
 			CpuEncoderOp::registerOperation();
 			CpuGeluOp<float>::registerOperation();
 			CpuLayerNormOp::registerOperation();
-			CpuMatMulOp<float>::registerOperation();
+			CpuFullyConnectedOp<float>::registerOperation();
 			CpuResidualOp<float>::registerOperation();
 			CpuSoftmaxOp<float>::registerOperation();
 
 			// CUDA operations...
 			CudaGeluOp<float>::registerOperation();
-			CudaMatMulOp<float>::registerOperation();
+			CudaFullyConnectedOp<float>::registerOperation();
 		}
 
 		// Flag to check if operations are initialized

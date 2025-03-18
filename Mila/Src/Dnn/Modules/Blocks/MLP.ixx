@@ -15,7 +15,7 @@ import Compute.MemoryResource;
 import Compute.ComputeDevice;
 import Compute.CpuDevice;
 
-import Dnn.Modules.Linear;
+import Dnn.Modules.FullyConnected;
 import Dnn.Modules.Gelu;
 
 namespace Mila::Dnn
@@ -39,9 +39,9 @@ namespace Mila::Dnn
 			std::vector<size_t> fc_1_output_shape = input_shape;
 			fc_1_output_shape.back() = output_channels_;
 
-			fc_1_ = std::make_shared<Linear<TInput, TCompute, TDevice>>( this->getName() + ".fc_1", input_channels_, output_channels_ );
+			fc_1_ = std::make_shared<FullyConnected<TInput, TCompute, TDevice>>( this->getName() + ".fc_1", input_channels_, output_channels_ );
 			gelu_ = std::make_shared<Gelu<TInput, TCompute, TDevice>>( this->getName() + ".gelu" );
-			fc_proj_ = std::make_shared<Linear<TInput, TCompute, TDevice>>( this->getName() + ".fc_proj", output_channels_, input_channels_ );
+			fc_proj_ = std::make_shared<FullyConnected<TInput, TCompute, TDevice>>( this->getName() + ".fc_proj", output_channels_, input_channels_ );
 
 			// Add sub-modules to the MLP block
 			this->addModule( fc_1_ );
@@ -53,7 +53,7 @@ namespace Mila::Dnn
 			gelu_output_ = Tensor<TCompute, MR>( fc_1_output_shape );
 		}
 
-		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute, MR>& output ) override {
+		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute, MR>& output ) {
 			fc_1_->forward( input, fc_1_output_ );
 			gelu_->forward( fc_1_output_, gelu_output_ );
 			fc_proj_->forward( gelu_output_, output );
@@ -116,11 +116,10 @@ namespace Mila::Dnn
 		std::vector<size_t> input_shape_; ///< The input shape.
 		size_t input_channels_; ///< The number of input channels
 		size_t output_channels_; ///< The number of output channels
-		//bool has_bias_{ true }; ///< Whether the module has a bias tensor. Default is true.
 
-		std::shared_ptr<Linear<TInput, TCompute, TDevice>> fc_1_{ nullptr };
+		std::shared_ptr<FullyConnected<TInput, TCompute, TDevice>> fc_1_{ nullptr };
 		std::shared_ptr<Gelu<TInput, TCompute, TDevice>> gelu_{ nullptr };
-		std::shared_ptr<Linear<TInput, TCompute, TDevice>> fc_proj_{ nullptr };
+		std::shared_ptr<FullyConnected<TInput, TCompute, TDevice>> fc_proj_{ nullptr };
 
 		Tensor<TCompute, MR> fc_1_output_;
 		Tensor<TCompute, MR> gelu_output_;

@@ -9,6 +9,7 @@ export module Compute.CudaMatMulOp;
 
 import Dnn.Tensor;
 import Compute.OperationBase;
+import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.OperationType;
@@ -22,10 +23,10 @@ namespace Mila::Dnn::Compute
 {
 	export
 		template<typename TInput, typename TOutput = TInput>
-	class CudaMatMulOp : public OperationBase<TInput, TOutput, CudaDevice> {
+	class CudaFullyConnectedOp : public UnaryOperation<TInput, TOutput, CudaDevice> {
 	public:
 
-		CudaMatMulOp() : OperationBase<TInput, TOutput, CudaDevice>( DeviceType::Cuda, OperationType::MatMulOp ) {}
+		CudaFullyConnectedOp() : UnaryOperation<TInput, TOutput, CudaDevice>( DeviceType::Cuda, OperationType::FullyConnectedOp ) {}
 
 		void forward(
 			const Tensor<TInput, CudaMemoryResource>& input,
@@ -48,13 +49,13 @@ namespace Mila::Dnn::Compute
 		}
 
 		static void registerOperation() {
-			OperationRegistry<float,float,CudaDevice>::instance().registerOperation( DeviceType::Cuda, "Cuda::MatMulOp", []() -> std::unique_ptr<OperationBase<float, float, CudaDevice>> {
-				return std::make_unique<CudaMatMulOp<float>>();
+			OperationRegistry<float,float,CudaDevice>::instance().registerOperation( DeviceType::Cuda, "Cuda::FullyConnectedOp", []() -> std::unique_ptr<OperationBase<float, float, CudaDevice>> {
+				return std::make_unique<CudaFullyConnectedOp<float>>();
 				} );
 		}
 
 		std::string getName() const override {
-			return "Cuda::MatMulOp";
+			return "Cuda::FullyConnectedOp";
 		}
 	};
 }

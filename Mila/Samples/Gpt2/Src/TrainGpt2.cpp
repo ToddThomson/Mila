@@ -24,18 +24,18 @@ float random_f32( uint64_t* state ) { // random float32 in [0,1)
 	return (random_u32( state ) >> 8) / 16777216.0f;
 }
 
-int sample_mult( float* probabilities, int n, float coin ) {
-	// sample index from probabilities (they must sum to 1!)
-	// coin is a random number in [0, 1), usually from random_f32()
-	float cdf = 0.0f;
-	for ( int i = 0; i < n; i++ ) {
-		cdf += probabilities[ i ];
-		if ( coin < cdf ) {
-			return i;
-		}
-	}
-	return n - 1; // in case of rounding errors
-}
+//int sample_mult( const Tensor<float* probabilities, int n, float coin ) {
+//	// sample index from probabilities (they must sum to 1!)
+//	// coin is a random number in [0, 1), usually from random_f32()
+//	float cdf = 0.0f;
+//	for ( int i = 0; i < n; i++ ) {
+//		cdf += probabilities[ i ];
+//		if ( coin < cdf ) {
+//			return i;
+//		}
+//	}
+//	return n - 1; // in case of rounding errors
+//}
 
 // ----------------------------------------------------------------------------
 // CLI, poor man's argparse
@@ -144,7 +144,8 @@ int main( int argc, char* argv[] ) {
 	// Training loop
 	for ( int step = 0; step <= 40; step++ ) {
 		// once in a while estimate the validation loss
-		if ( step % 10 == 0 ) {
+		// TJT: Adjusted to never run
+		if ( step % 10 == 100 ) {
 			float val_loss = 0.0f;
 			val_loader.reset();
 			std::cout << "Calculating validation loss: .";
@@ -177,19 +178,20 @@ int main( int argc, char* argv[] ) {
 				// we re-calculate the forward pass for all of (B,T) positions from scratch
 				// but the inference here is just for sanity checking anyway
 				// and we can maybe optimize a bit more later, with careful tests
-				Tensor<int> empty_targets; //int
+				Tensor<int> empty_targets;
 				model.forward( gen_tokens, empty_targets );
 
 				// furthermore, below we're only using b=0 (i.e. the first row) of all B rows
 				// we're in principle running B "inference streams" in parallel here
 				// but only using position 0
 				// get the Vp-dimensional vector probs[0, t-1, :]
-				auto acts = model.get_activations();
-				float* probs = reinterpret_cast<float*>(acts.probs.data()) + ((t - 1) * model.get_config().padded_vocab_size);
+				auto probs = model.getProbabilities();
+
+				//float* probs = reinterpret_cast<float*>(acts.probs.data()) + ((t - 1) * model.get_config().padded_vocab_size);
 				float coin = random_f32( &rng_state );
 				// note we're only sampling from the first V elements, ignoring padding
 				// (the probabilities in the padded region should be zero anyway)
-				int next_token = sample_mult( probs, model.get_config().vocab_size, coin );
+				int next_token = model.sampleMult( probs, model.get_config().vocab_size, coin );
 				gen_tokens[ 0, t ] = next_token;
 
 				// print the generated token, either using the Tokenizer or a fallback

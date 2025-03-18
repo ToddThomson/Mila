@@ -52,7 +52,7 @@ PUBLIC
 		"Src/Dnn/Model.ixx" 
 		"Src/Dnn/Module.ixx" 
 		"Src/Dnn/Modules/LayerNorm.ixx"
-		"Src/Dnn/Modules/Linear.ixx" 
+		"Src/Dnn/Modules/FullyConnected.ixx" 
 		 
 		"Src/Dnn/Compute/DeviceType.ixx"
 		"Src/Dnn/Compute/DeviceRegistry.ixx"
@@ -60,6 +60,8 @@ PUBLIC
 		"Src/Dnn/Compute/DeviceHelpers.ixx" 
 		"Src/Dnn/Compute/OperationBase.ixx" 
 		"Src/Dnn/Compute/OperationType.ixx"
+		"Src/Dnn/Compute/UnaryOperation.ixx" 
+		"Src/Dnn/Compute/BinaryOperation.ixx"
 		"Src/Dnn/Compute/DeviceContext.ixx"
 		"Src/Dnn/Compute/OperationRegistry.ixx"
 		"Src/Dnn/Compute/Operations.ixx"  
@@ -73,7 +75,7 @@ PUBLIC
 		"Src/Dnn/Compute/CPU/Ops/CpuLayerNormOp.ixx" 
 		"Src/Dnn/Compute/CPU/Ops/CpuAttentionOp.ixx" 
 		"Src/Dnn/Compute/CPU/Ops/CpuResidualOp.ixx" 
-		"Src/Dnn/Compute/CPU/Ops/CpuMatMulOp.ixx"
+		"Src/Dnn/Compute/CPU/Ops/CpuFullyConnectedOp.ixx"
 		"Src/Dnn/Compute/CPU/Ops/CpuSoftmaxOp.ixx"
 		"Src/Dnn/Compute/CPU/Ops/CpuGeluOp.ixx"
 		"Src/Dnn/Compute/CPU/Ops/CpuCrossEntropyOp.ixx"  
@@ -105,7 +107,8 @@ PUBLIC
 		"Src/Dnn/Graph.ixx"
 		"Src/Dnn/Compute/Backend.ixx"
 		"Src/Dnn/Compute/Cuda/CudaComputeResource.ixx"
-		"Src/Dnn/Compute/Cuda/CudaGeluOp.ixx")
+		"Src/Dnn/Compute/Cuda/CudaGeluOp.ixx" 
+)
 
 target_link_libraries( Mila PRIVATE CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
 

@@ -12,6 +12,7 @@ export module Compute.CpuCrossEntropyOp;
 
 import Dnn.Tensor;
 import Compute.OperationBase;
+import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.OperationType;
@@ -23,10 +24,10 @@ using namespace Mila::Dnn;
 namespace Mila::Dnn::Compute
 {
 	export
-	class CpuCrossEntropyOp : public OperationBase<int, float, CpuDevice> {
+	class CpuCrossEntropyOp : public UnaryOperation<int, float, CpuDevice> {
 	public:
 
-		CpuCrossEntropyOp() : OperationBase<int, float, CpuDevice>( DeviceType::Cpu, OperationType::CrossEntropyOp ) {}
+		CpuCrossEntropyOp() : UnaryOperation<int, float, CpuDevice>( DeviceType::Cpu, OperationType::CrossEntropyOp ) {}
 
 		void forward(
 			const Tensor<int, CpuMemoryResource>& input,

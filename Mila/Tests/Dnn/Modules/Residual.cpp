@@ -47,10 +47,11 @@ namespace Modules::Tests
     }
 
     TEST_F( ResidualTests, Cpu_TestForward ) {
-        Tensor<float, Compute::CpuMemoryResource> input( cpu_io_shape_ );
+        Tensor<float, Compute::CpuMemoryResource> input_a( cpu_io_shape_, 4.0f );
+        Tensor<float, Compute::CpuMemoryResource> input_b( cpu_io_shape_, 2.0f );
         Tensor<float, Compute::CpuMemoryResource> output( cpu_io_shape_ );
-        cpu_residual->forward( input, output );
-        EXPECT_EQ( output.size(), input.size() );
+        cpu_residual->forward( input_a, input_b, output );
+        EXPECT_EQ( output.size(), input_a.size() );
     }
 
     /*TEST_F( ResidualTests, Cuda_TestForward ) {

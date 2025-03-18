@@ -16,6 +16,7 @@ import Dnn.TensorHelpers;
 
 import Compute.DeviceType;
 import Compute.OperationBase;
+import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuDevice;
@@ -63,7 +64,7 @@ export namespace Mila::Dnn
 		* @param input The input tensor.
 		* @return Tensor<float, MR> The output tensor.
 		*/
-		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute, MR>& output ) override {
+		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute, MR>& output ) {
 			operation_->forward( input, parameters_, output, output_state_ );
 		}
 
@@ -114,7 +115,7 @@ export namespace Mila::Dnn
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_{ nullptr }; ///< The output attributes. Not used in this module.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_{ nullptr }; ///< The scalars. Not used in this module.
 
-		std::shared_ptr<Dnn::Compute::OperationBase<int, float, TDevice>> operation_{ nullptr }; ///< The operation.
+		std::shared_ptr<Dnn::Compute::UnaryOperation<int, float, TDevice>> operation_{ nullptr }; ///< The operation.
 
 		void initializeTensors() {
 			wte_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ vocab_len_, channels_ } );
@@ -144,10 +145,12 @@ export namespace Mila::Dnn
 			//output_ = Tensor<float, MR>( std::vector<size_t>( { B, T, channels_ } ) );
 
 			if constexpr ( std::is_same_v<TDevice, Compute::CpuDevice> ) {
-				operation_ = OperationRegistry<int, float, CpuDevice>::instance().createOperation( DeviceType::Cpu, "Cpu::EncoderOp" );
+				auto base_operation = OperationRegistry<int, float, CpuDevice>::instance().createOperation( DeviceType::Cpu, "Cpu::EncoderOp" );
+				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<int, float, CpuDevice>>(base_operation);
 			}
 			else {
-				operation_ = OperationRegistry<int, float, CudaDevice>::instance().createOperation( DeviceType::Cuda, "Cuda::EncoderOp" );
+				auto base_operation = OperationRegistry<int, float, CpuDevice>::instance().createOperation( DeviceType::Cuda, "Cuda::EncoderOp" );
+				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<int, float, CpuDevice>>(base_operation);
 			}
 		}
 	};
