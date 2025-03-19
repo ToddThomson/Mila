@@ -133,7 +133,7 @@ namespace Mila::Dnn::Gpt2
 			ln_f_ = std::make_unique<LayerNorm<TInput, TCompute, TDevice>>( "gpt2.ln_f", tf_io_shape );
 			ln_f_output_ = Tensor<TCompute, MR>( tf_io_shape );
 
-			fc_f_ = std::make_unique<FullyConnected<TInput, TCompute, TDevice>>( "gpt2.fc_f", Vp, C, /* has_bias */ false );
+			fc_f_ = std::make_unique<FullyConnected<TInput, TCompute, TDevice>>( "gpt2.fc_f", C, Vp, /* has_bias */ false );
 			fc_logits_output_ = Tensor<TCompute, MR>( std::vector<size_t>( { B, T, Vp } ) );
 
 			smax_ = std::make_unique<Softmax<TInput, TCompute, TDevice>>( "gpt2.smax" );
@@ -231,7 +231,6 @@ namespace Mila::Dnn::Gpt2
 			auto enc_parameters = encoder_->getParameterTensors();
 			auto wte = enc_parameters[ "wte" ];
 			std::copy( params_.wte.begin(), params_.wte.end(), wte->data() );
-			//std::cout << wte->toString( true ) << std::endl;
 
 			auto wpe = enc_parameters[ "wpe" ];
 			std::copy( params_.wpe.begin(), params_.wpe.end(), wpe->data() );
@@ -240,6 +239,16 @@ namespace Mila::Dnn::Gpt2
 			auto fc_f_parameters = fc_f_->getParameterTensors();
 			auto fc_f_weight = fc_f_parameters[ "weight" ];
 			assert( fc_f_weight->size() == param_sizes_[ 0 ] && "Size mismatch between weight and fc_fw" );
+			std::copy( params_.wte.begin(), params_.wte.end(), fc_f_weight->data() );
+
+			std::cout << fc_f_weight->toString( true ) << std::endl;
+
+			// lnf layer
+			auto ln_f_parameters = ln_f_->getParameterTensors();
+			auto lnf_weight = ln_f_parameters[ "weight" ];
+			std::copy( params_.lnfw.begin(), params_.lnfw.end() , lnf_weight->data() );
+			auto lnf_bias = ln_f_parameters[ "bias" ];
+			std::copy( params_.lnfb.begin(), params_.lnfb.end() , lnf_bias->data() );
 
 			// TJT: There is a bug here. Still investigating...
 			// 
@@ -466,18 +475,20 @@ namespace Mila::Dnn::Gpt2
 			}*/
 
 			encoder_->forward( inputs, encoder_output_ );
+			//std::cout << encoder_output_.toString( true ) << std::endl;
 
 			// Forward pass through the transformer layers...
 			for ( int l = 0; l < L; l++ ) {
 				auto residual = l == 0 ? encoder_output_ : tf_output_;
 				tf_layers_[ l ]->forward( residual, tf_output_ );
 			}
-			
-			//residual = acts_.residual3.data() + (L - 1) * batch_size_ * seq_len_ * C; // last residual is in residual3
+
 			ln_f_->forward( tf_output_, ln_f_output_ );
 			fc_f_->forward( ln_f_output_, fc_logits_output_ );
-			//std::cout << "fc_logits_output_: " << fc_logits_output_.toString( true ) << std::endl;
+			//std::cout << "fc_logits_output_: " << std::endl << fc_logits_output_.toString( true ) << std::endl;
+			
 			smax_->forward( fc_logits_output_, smax_probs_output_ );
+			//std::cout << "smax_probs_output_: " << std::endl << smax_probs_output_.toString( true ) << std::endl;
 
 			// also forward the cross-entropy loss function if we have the targets
 			if ( !targets.empty() ) {
@@ -534,7 +545,7 @@ namespace Mila::Dnn::Gpt2
 			//}
 		}
 
-		int sampleMult( const Tensor<TCompute, MR>& probabilities, int n, float coin ) {
+		int sampleMult( const Tensor<TCompute, MR>& probabilities, int n, int t, float coin ) {
 			// Below we're only using b=0 (i.e. the first row) of all B rows
 			// we're in principle running B "inference streams" in parallel here
 			// but only using position 0
@@ -543,18 +554,18 @@ namespace Mila::Dnn::Gpt2
 			
 			// sample index from probabilities (they must sum to 1!)
 			// coin is a random number in [0, 1), usually from random_f32()
-			auto T = probabilities.shape()[ 1 ];
-			auto V = probabilities.shape()[ 2 ];
+			//auto T = probabilities.shape()[ 1 ];
+			//auto V = probabilities.shape()[ 2 ];
 
 			float cdf = 0.0f;
-			for ( int v = 0; v < n; v++ ) {
+			/*for ( int v = 0; v < n; v++ ) {
 				cdf += probabilities[ 0, (T - 1), v ];
 			}
-			assert( cdf > 0.999f && cdf < 1.001f );
+			assert( cdf > 0.999f && cdf < 1.001f );*/
 			
 			cdf = 0.0f;
 			for ( int v = 0; v < n; v++ ) {
-				cdf += probabilities[ 0, (T - 1), v ];
+				cdf += probabilities[ 0, (t - 1), v ];
 				if ( coin < cdf ) {
 					return v;
 				}

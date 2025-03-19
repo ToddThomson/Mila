@@ -71,8 +71,7 @@ namespace Mila::Dnn
 
 		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute,MR>& output ) {
 			ln_1_->forward( input, ln_1_output_ );
-			//std::cout << "ln1_output_" << std::endl;
-			//ln1_output_.print();
+			//std::cout << ln_1_output_.toString( true ) << std::endl;
 
 			fc_qkv_->forward( ln_1_output_, fc_qkv_output_ );
 			//std::cout << "fc1_output_" << std::endl;

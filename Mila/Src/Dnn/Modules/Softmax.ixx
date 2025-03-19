@@ -123,9 +123,9 @@ export namespace Mila::Dnn
 		std::vector<size_t> input_shape_; ///< The input shape.
 		int64_t axis_{ -1 }; ///< The dimension to perform the softmax operation on. Default is -1 for the last dimension.
 
-		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_{ nullptr }; ///< The parameters. Not used in this module.
-		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_{ nullptr }; ///< The output attributes. Not used in this module.
-		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_{ nullptr }; ///< The scalars.module;
+		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_ = { nullptr }; ///< The parameters. Not used in this module.
+		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_ = { nullptr }; ///< The output attributes. Not used in this module.
+		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_ = { nullptr }; ///< The scalars.module;
 
 		std::shared_ptr<Dnn::Compute::UnaryOperation<TInput, TCompute, TDevice>> operation_{ nullptr }; ///< The operation.
 
@@ -138,8 +138,8 @@ export namespace Mila::Dnn
 				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<float, float, CpuDevice>>(base_operation);
 			}
 			else {
-				auto base_operation = OperationRegistry<float, float, CpuDevice>::instance().createOperation( DeviceType::Cuda, "Cuda::SoftmaxOp" );
-				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<float, float, CpuDevice>>(base_operation);
+				auto base_operation = OperationRegistry<float, float, CudaDevice>::instance().createOperation( DeviceType::Cuda, "Cuda::SoftmaxOp" );
+				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<float, float, CudaDevice>>(base_operation);
 			}
 		}
 	};

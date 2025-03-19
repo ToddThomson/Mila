@@ -106,7 +106,7 @@ export namespace Mila::Dnn
 		std::shared_ptr<Tensor<float, MR>> pre_attn_ = { nullptr };
 
 		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_ = {}; ///< The parameters. 
-		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_; ///< The output attributes.
+		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_ = {}; ///< The output attributes.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_ = {}; ///< The scalars.
 
 		std::shared_ptr<Dnn::Compute::UnaryOperation<TInput, TCompute, TDevice>> operation_{ nullptr }; ///< The operation.
@@ -116,13 +116,14 @@ export namespace Mila::Dnn
 			auto sequence_length = input_shape_[ 1 ];
 
 			// preatt, att are( B, NH, T, T ). NH = number of heads, T = sequence length
-			attn_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ batch_size, num_heads_, sequence_length, sequence_length } );
-			attn_->setName( this->getName() + ".attn" );
 			pre_attn_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ batch_size, num_heads_, sequence_length, sequence_length } );
 			pre_attn_->setName( this->getName() + ".pre_attn" );
 
-			output_state_.emplace_back( attn_ );
+			attn_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ batch_size, num_heads_, sequence_length, sequence_length } );
+			attn_->setName( this->getName() + ".attn" );
+
 			output_state_.emplace_back( pre_attn_ );
+			output_state_.emplace_back( attn_ );
 		}
 		/**
 		 * @brief Create the operation.

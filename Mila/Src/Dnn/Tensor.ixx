@@ -398,7 +398,7 @@ namespace Mila::Dnn
                 for ( size_t i = 0; i < shape_[ depth ]; ++i ) {
                     if ( i < 3 || i >= shape_[ depth ] - 3 ) {
                         oss << "[ ";
-                        oss << outputBuffer( index + i * strides_[ depth ], depth + 1 );
+                        oss << outputBuffer( index + i * shape_[ depth + 1 ], depth + 1 );
                         oss << "]" << std::endl;
                     }
                     else if ( i == 3 ) {
@@ -430,7 +430,6 @@ namespace Mila::Dnn
            }
            return std::accumulate(shape.begin(), shape.end(), 1ull, std::multiplies<size_t>());
         }
-
 
 		size_t computeIndex( const std::vector<size_t>& indices ) const {
 			size_t index = 0;

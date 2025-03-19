@@ -127,19 +127,9 @@ export namespace Mila::Dnn
 		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_ = {}; ///< The scalars.
 
 		std::shared_ptr<Dnn::Compute::UnaryOperation<TInput, TCompute, TDevice>> operation_{ nullptr }; ///< The operation.
-
-        /**
-        * @brief Validate the input shape and create the weight and bias parameter tensors.
-        *
-        * This function checks if the input shape has 3 dimensions. If the input shape is valid,
-        * it creates the weight tensor with dimensions [output_channels, input_channels] and the
-        * bias tensor with dimensions [output_channels] if the module has a bias. The weight tensor
-        * is initialized using the Xavier initialization method.
-        *
-        * @throws std::invalid_argument if the input shape does not have 3 dimensions.
-        */
+        
 		void initializeTensors() {
-			// Initialize the weight tensor using xavier distribution and the bias tensor is default initialized to zeros
+			// Initialize the weight tensor using xavier distribution
 			weight_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ output_channels_, input_channels_ } );
 			weight_->setName( this->getName() + ".weight" );
 			xavier<float, MR>( *weight_, input_channels_, output_channels_ );
@@ -147,6 +137,7 @@ export namespace Mila::Dnn
 			this->parameter_map_[ "weight" ] = weight_;
 
 			if ( has_bias_ ) {
+				// Initialize the bias tensor with zeros
 				bias_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ output_channels_ } );
 				bias_->setName( this->getName() + ".bias" );
 				parameters_.emplace_back( bias_ );

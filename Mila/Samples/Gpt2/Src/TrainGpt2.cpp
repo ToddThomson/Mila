@@ -191,7 +191,7 @@ int main( int argc, char* argv[] ) {
 				float coin = random_f32( &rng_state );
 				// note we're only sampling from the first V elements, ignoring padding
 				// (the probabilities in the padded region should be zero anyway)
-				int next_token = model.sampleMult( probs, model.get_config().vocab_size, coin );
+				int next_token = model.sampleMult( probs, model.get_config().vocab_size, t, coin );
 				gen_tokens[ 0, t ] = next_token;
 
 				// print the generated token, either using the Tokenizer or a fallback
