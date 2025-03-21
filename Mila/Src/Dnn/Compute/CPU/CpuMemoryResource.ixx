@@ -1,7 +1,7 @@
 module;
 #include <memory_resource>
-#include <cstddef>
-#include <stdexcept>
+#include <malloc.h>
+#include <exception>
 
 export module Compute.CpuMemoryResource;
 
@@ -15,7 +15,14 @@ namespace Mila::Dnn::Compute
 	*/
 	export class CpuMemoryResource : public MemoryResource {
 	public:
+		/**
+		* @brief Indicates if the memory resource is accessible by the CPU.
+		*/
 		static constexpr bool is_cpu_accessible = CpuAccessible::is_cpu_accessible;
+
+		/**
+		* @brief Indicates if the memory resource is accessible by CUDA.
+		*/
 		static constexpr bool is_cuda_accessible = false;
 
 	protected:
@@ -24,7 +31,7 @@ namespace Mila::Dnn::Compute
 		* 
 		* @param n The size of the memory to allocate.
 		* @param alignment The alignment of the memory to allocate.
-		* @return void* A pointer to the allocated memory.
+		* @return A pointer to the allocated memory.
 		* @throws std::bad_alloc if the memory allocation fails.
 		*/
 		void* do_allocate( std::size_t n, std::size_t alignment ) override {
@@ -32,27 +39,34 @@ namespace Mila::Dnn::Compute
 				return nullptr;
 			}
 
-			// TODO: Implement alignment
-			void* ptr = std::malloc( /*alignment,*/ n );
-			
+		#ifdef _WIN32
+			void* ptr = _aligned_malloc( n, alignment );
+		#else
+			void* ptr = std::aligned_alloc( alignment, n );
+		#endif
+
 			if ( !ptr ) {
 				throw std::bad_alloc();
 			}
-			
+
 			return ptr;
 		}
 
 		/**
-		* @brief Deallocates the memory at the specified pointer.
+		* @brief Deallocates the memory pointed to by ptr.
 		* 
-		* @param ptr A pointer to the memory to deallocate.
+		* @param ptr The pointer to the memory to deallocate.
 		* @param n The size of the memory to deallocate.
 		* @param alignment The alignment of the memory to deallocate.
 		*/
 		void do_deallocate( void* ptr, std::size_t, std::size_t ) override {
-			std::free( ptr );
+		#ifdef _WIN32
+			_aligned_free( ptr );
+		#else
+			std::free( ptr ); // aligned_alloc can be freed with regular free
+		#endif
 		}
-
+		
 		/**
 		* @brief Checks if this memory resource is equal to another memory resource.
 		* 

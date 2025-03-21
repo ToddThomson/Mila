@@ -1,10 +1,12 @@
 module;
 #include <vector>
 #include <iostream>
+#include <memory>
 
 #include "Kernels/Cuda.Ops.h"
 
-export module Compute.CudaGeluOp;
+
+export module Compute.CudaSoftmaxOp;
 
 import Dnn.Tensor;
 
@@ -23,10 +25,10 @@ namespace Mila::Dnn::Compute
 {
 	export
 	template<typename TInput, typename TOutput = TInput>
-	class CudaGeluOp : public UnaryOperation<TInput, TOutput, CudaDevice> {
+	class CudaSoftmaxOp : public UnaryOperation<TInput, TOutput, CudaDevice> {
 	public:
 
-		CudaGeluOp() : UnaryOperation<TInput, TOutput, CudaDevice>( DeviceType::Cuda, OperationType::GeluOp ) {}
+		CudaSoftmaxOp() : UnaryOperation<TInput, TOutput, CudaDevice>( DeviceType::Cuda, OperationType::SoftmaxOp ) {}
 
 		void forward(
 			const Tensor<TInput, CudaMemoryResource>& input,
@@ -38,12 +40,12 @@ namespace Mila::Dnn::Compute
 			auto Y = output.data();
 			int N = input.size();
 
-			cuda_gelu_forward( Y, X, N );
+			cuda_softmax_forward( Y, X, N );
 		}
 
 		static void registerOperation() {
-			OperationRegistry<float, float, CudaDevice>::instance().registerOperation( DeviceType::Cuda, "Cuda::GeluOp", []() -> std::unique_ptr<OperationBase<float, float, CudaDevice>> {
-				return std::make_unique<CudaGeluOp<float>>();
+			OperationRegistry<float, float, CudaDevice>::instance().registerOperation( DeviceType::Cuda, "Cuda::SoftmaxOp", []() -> std::unique_ptr<OperationBase<float, float, CudaDevice>> {
+				return std::make_unique<CudaSoftmaxOp<float>>();
 			} );
 		}
 

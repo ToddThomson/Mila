@@ -149,8 +149,8 @@ export namespace Mila::Dnn
 				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<int, float, CpuDevice>>(base_operation);
 			}
 			else {
-				auto base_operation = OperationRegistry<int, float, CpuDevice>::instance().createOperation( DeviceType::Cuda, "Cuda::EncoderOp" );
-				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<int, float, CpuDevice>>(base_operation);
+				auto base_operation = OperationRegistry<int, float, CudaDevice>::instance().createOperation( DeviceType::Cuda, "Cuda::EncoderOp" );
+				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<int, float, CudaDevice>>(base_operation);
 			}
 		}
 	};

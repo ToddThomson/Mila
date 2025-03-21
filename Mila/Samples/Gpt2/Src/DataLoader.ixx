@@ -52,15 +52,17 @@ namespace Mila::Dnn::Gpt2
     constexpr int Gpt2TokenFileMagicNumber = 20240520;
 	
     /**
-    * @class DataLoader
+    * @class Gpt2DataLoader
     * @brief Class for loading and managing data for distributed training.
     */
-    export class DataLoader {
-
+    export
+    template<typename TData = int, typename TMemoryResource = Compute::CudaPinnedMemoryResource>
+        requires ValidTensorType<TData> && std::is_base_of_v<Compute::MemoryResource, TMemoryResource>
+    class Gpt2DataLoader {
     public:
 
         /**
-        * @brief Constructor for DataLoader.
+        * @brief Constructor for Gpt2DataLoader.
         * @param filename_pattern Pattern for filenames to load.
         * @param batch_size Size of each batch.
         * @param token_size Size of each token.
@@ -68,13 +70,15 @@ namespace Mila::Dnn::Gpt2
         * @param num_processes Total number of processes.
         * @param should_shuffle Flag indicating whether to shuffle data.
         */
-        DataLoader( const std::string& filename_pattern, size_t batch_size, size_t token_seq_len, int process_rank, int num_processes, bool should_shuffle )
+        Gpt2DataLoader( 
+            const std::string& filename_pattern, size_t batch_size, size_t token_seq_len, 
+            int process_rank, int num_processes, bool should_shuffle )
             : batch_size_( batch_size ), token_seq_len_( token_seq_len ), process_rank_( process_rank ), num_processes_( num_processes ), should_shuffle_( should_shuffle ) {
             // Initialize the data loader
             init( filename_pattern );
         }
 
-        ~DataLoader() {
+        ~Gpt2DataLoader() {
             free();
         }
 
@@ -82,19 +86,19 @@ namespace Mila::Dnn::Gpt2
             return num_tokens_;
         }
 
-        Tensor<int>& inputs() {
+        Tensor<int, TMemoryResource>& inputs() {
             return inputs_;
         }
         
-        const Tensor<int>& inputs() const {
+        const Tensor<int,TMemoryResource>& inputs() const {
             return inputs_; 
         }
 
-        Tensor<int>& targets() {
+        Tensor<int, TMemoryResource>& targets() {
             return targets_;
         }
 
-        const Tensor<int>& targets() const { 
+        const Tensor<int,TMemoryResource>& targets() const { 
             return targets_;
         }
 
@@ -169,10 +173,10 @@ namespace Mila::Dnn::Gpt2
         }
 
         /**
-        * @brief Print the current state of the DataLoader.
+        * @brief Print the current state of the Gpt2DataLoader.
         */
         void print() {
-            std::cout << "DataLoader: " << std::endl;
+            std::cout << "Gpt2DataLoader: " << std::endl;
             std::cout << "  process_rank: " << process_rank_ << std::endl;
             std::cout << "  num_processes: " << num_processes_ << std::endl;
             std::cout << "  batch_size B: " << batch_size_ << std::endl;
@@ -196,7 +200,7 @@ namespace Mila::Dnn::Gpt2
 
     private:
         /**
-        * @brief Initialize the DataLoader.
+        * @brief Initialize the Gpt2DataLoader.
         * @param filename_pattern Pattern for filenames to load.
         */
         void init( const std::string &filename_pattern ) {
@@ -235,8 +239,8 @@ namespace Mila::Dnn::Gpt2
             }
             
             // debugging prints
-            // printf("DataLoader: filename_pattern: %s\n", filename_pattern);
-            // printf("DataLoader: Found %ld tokens across %zu shards\n", ntok_total, glob_result_.gl_pathc);
+            // printf("Gpt2DataLoader: filename_pattern: %s\n", filename_pattern);
+            // printf("Gpt2DataLoader: Found %ld tokens across %zu shards\n", ntok_total, glob_result_.gl_pathc);
 
             // allocate all the space we'll need
             buffer_.resize( (batch_size_ * token_seq_len_ + 1));
@@ -406,12 +410,12 @@ namespace Mila::Dnn::Gpt2
         /**
         * @brief Input tokens into transformer.
         */
-        Tensor<int> inputs_;
+        Tensor<int, TMemoryResource> inputs_;
 
         /**
         * @brief Target tokens for the transformer.
         */
-        Tensor<int> targets_;
+        Tensor<int, TMemoryResource> targets_;
 
         // random shuffle related variables
         /**

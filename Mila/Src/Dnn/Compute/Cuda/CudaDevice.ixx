@@ -14,12 +14,17 @@ import Compute.DeviceType;
 import Cuda.DeviceProps;
 import Compute.OperationType;
 import Compute.CudaMemoryResource;
+import Compute.CudaPinnedMemoryResource;
+import Compute.CudaManagedMemoryResource;
 
 namespace Mila::Dnn::Compute
 {
 	export class CudaDevice : public ComputeDevice {
 	public:
 		using MR = CudaMemoryResource;
+		using PINNED_MR = CudaPinnedMemoryResource;
+		using MANAGED_MR = CudaManagedMemoryResource;
+
 
 		explicit CudaDevice( int device_id = 0 ) 
 			: device_id_( setDevice( device_id )), props_( Cuda::DeviceProps( device_id_ ) ) {

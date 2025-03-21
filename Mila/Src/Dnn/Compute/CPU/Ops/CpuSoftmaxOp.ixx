@@ -53,7 +53,7 @@ namespace Mila::Dnn::Compute
 
             int B = input.shape()[ 0 ];
             int T = input.shape()[ 1 ];
-            int V = 50257;
+            int V = input.shape()[ 2 ];  // 50257;
             int Vp = input.shape()[ 2 ];
 
             for ( int b = 0; b < B; b++ ) {

@@ -98,11 +98,12 @@ namespace Mila::Dnn::Gpt2
 	};
 
 	export
-	template<typename TInput, typename TCompute = TInput, typename TDevice = Compute::CpuDevice>
-		requires ValidTensorTypes<TInput, TCompute> && std::is_base_of_v<Compute::ComputeDevice, TDevice>
-	class Gpt2Model { // : public Module<TInput, TCompute, TDevice> {
+	template<typename TCompute = float, typename TDevice = Compute::CudaDevice>
+		requires ValidTensorType<TCompute> && std::is_base_of_v<Compute::ComputeDevice, TDevice>
+	class Gpt2Model : public ModelBase {
 	public:
-		using MR = TDevice::MR;
+		using MR_INPUT = std::conditional_t<std::is_same_v<TDevice, Compute::CudaDevice>, CudaPinnedMemoryResource, CpuMemoryResource>;
+		using MR = std::conditional_t<std::is_same_v<TDevice, Compute::CudaDevice>, CudaMemoryResource, CpuMemoryResource>;
 
 		Gpt2Model( const ModelConfig& config, size_t batch_size, size_t sequence_length, bool is_training = true )
 			: config_( config ), batch_size_( batch_size ), seq_len_( sequence_length ), is_training_( is_training ) {
@@ -127,16 +128,16 @@ namespace Mila::Dnn::Gpt2
 
 			for ( size_t l = 0; l < config_.num_layers; l++ ) {
 				std::string layer_name = std::format( "gpt2.tf_{}", l );
-				tf_layers_.emplace_back( std::make_unique<TransformerBlock<TInput, TCompute, TDevice>>( layer_name, tf_io_shape, NH ) );
+				tf_layers_.emplace_back( std::make_unique<TransformerBlock<TCompute, TCompute, TDevice>>( layer_name, tf_io_shape, NH ) );
 			}
 
-			ln_f_ = std::make_unique<LayerNorm<TInput, TCompute, TDevice>>( "gpt2.ln_f", tf_io_shape );
+			ln_f_ = std::make_unique<LayerNorm<TCompute, TCompute, TDevice>>( "gpt2.ln_f", tf_io_shape );
 			ln_f_output_ = Tensor<TCompute, MR>( tf_io_shape );
 
-			fc_f_ = std::make_unique<FullyConnected<TInput, TCompute, TDevice>>( "gpt2.fc_f", C, Vp, /* has_bias */ false );
+			fc_f_ = std::make_unique<FullyConnected<TCompute, TCompute, TDevice>>( "gpt2.fc_f", C, Vp, /* has_bias */ false );
 			fc_logits_output_ = Tensor<TCompute, MR>( std::vector<size_t>( { B, T, Vp } ) );
 
-			smax_ = std::make_unique<Softmax<TInput, TCompute, TDevice>>( "gpt2.smax" );
+			smax_ = std::make_unique<Softmax<TCompute, TCompute, TDevice>>( "gpt2.smax" );
 			smax_probs_output_ = Tensor<TCompute, MR>( std::vector<size_t>( { B, T, Vp } ) );
 		}
 
@@ -148,8 +149,8 @@ namespace Mila::Dnn::Gpt2
 			return acts_;
 		}
 
-		const Tensor<TCompute,MR>& getProbabilities() const {
-			return smax_probs_output_ ;
+		const Tensor<TCompute,Compute::CpuMemoryResource>& getProbabilities() const {
+			return smax_probs_output_;
 		}
 
 		const ModelConfig& get_config() const {
@@ -447,7 +448,7 @@ namespace Mila::Dnn::Gpt2
 			//encoder_backward( grads_.wte.data(), grads_.wpe.data(), grads_acts_.encoded.data(), inputs_, B, T, C );
 		}
 
-		void forward( const Tensor<int>& inputs, const Tensor<int>& targets ) {
+		void forward( const Tensor<int, MR>& inputs, const Tensor<int, MR>& targets ) {
 			// convenience parameters (size_t to help prevent int overflow)
 			size_t V = config_.vocab_size;
 			size_t Vp = config_.padded_vocab_size;
@@ -466,7 +467,7 @@ namespace Mila::Dnn::Gpt2
 				inputs_.reshape( { B, T } );
 				targets_.reshape( { B, T } );
 			}
-			
+
 			// cache the inputs/targets
 			// FIXME:
 			/*inputs_ = inputs;
@@ -474,7 +475,7 @@ namespace Mila::Dnn::Gpt2
 				targets_ = targets;
 			}*/
 
-			encoder_->forward( inputs, encoder_output_ );
+			encoder_->forward( inputs.to<Compute::CudaMemoryResource>(), encoder_output_);
 			//std::cout << encoder_output_.toString( true ) << std::endl;
 
 			// Forward pass through the transformer layers...
@@ -486,7 +487,7 @@ namespace Mila::Dnn::Gpt2
 			ln_f_->forward( tf_output_, ln_f_output_ );
 			fc_f_->forward( ln_f_output_, fc_logits_output_ );
 			//std::cout << "fc_logits_output_: " << std::endl << fc_logits_output_.toString( true ) << std::endl;
-			
+
 			smax_->forward( fc_logits_output_, smax_probs_output_ );
 			//std::cout << "smax_probs_output_: " << std::endl << smax_probs_output_.toString( true ) << std::endl;
 
@@ -588,7 +589,6 @@ namespace Mila::Dnn::Gpt2
 		}
 
 	private:
-
 		
 		void initialize_parameter_tensor_sizes() {
 			// Shorthand notation

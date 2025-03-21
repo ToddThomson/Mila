@@ -26,8 +26,8 @@ import Compute.DeviceContext;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaMemoryResource;
-import Compute.ManagedMemoryResource;
-import Compute.PinnedMemoryResource;
+import Compute.CudaManagedMemoryResource;
+import Compute.CudaPinnedMemoryResource;
 
 namespace Mila::Dnn
 {
@@ -68,6 +68,25 @@ namespace Mila::Dnn
 			allocateBuffer( value );
 		}
 
+		/**
+		* @brief Constructs a tensor with the given shape and a shared pointer to allocated memory.
+		*
+		* This constructor initializes the tensor with the provided shape and uses the given shared pointer to allocated memory.
+		* The tensor does not take ownership of the memory.
+		*
+		* @param shape The shape of the tensor.
+		* @param data_ptr Shared pointer to the allocated memory.
+		*/
+		Tensor( const std::vector<size_t>& shape, std::shared_ptr<T> data_ptr )
+			: uid_{ set_uid() }, shape_( shape ), strides_( computeStrides( shape ) ), size_( computeSize( shape ) ), data_ptr_( data_ptr ) {
+			if ( !data_ptr_ ) {
+				throw std::invalid_argument( "data_ptr cannot be null." );
+			}
+			buffer_ = std::make_shared<TensorBuffer<T, TMemoryResource>>( size_, data_ptr_.get() );
+			data_type_ = tensor_type_of( data_ptr_.get() );
+		}
+
+
 		Tensor()
 			: uid_{ set_uid() }, shape_(), strides_( computeStrides( shape_ ) ), size_() {
 			allocateBuffer( T{} );
@@ -102,22 +121,22 @@ namespace Mila::Dnn
 			else if constexpr ( std::is_same_v<TMemoryResource, Compute::CudaMemoryResource> && std::is_same_v<NewTMemoryResource, Compute::CpuMemoryResource> ) {
 				cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyDeviceToHost );
 			}
-			else if constexpr ( std::is_same_v<TMemoryResource, Compute::CpuMemoryResource> && std::is_same_v<NewTMemoryResource, Compute::PinnedMemoryResource> ) {
+			else if constexpr ( std::is_same_v<TMemoryResource, Compute::CpuMemoryResource> && std::is_same_v<NewTMemoryResource, Compute::CudaPinnedMemoryResource> ) {
 				cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyHostToHost );
 			}
-			else if constexpr ( std::is_same_v<TMemoryResource, Compute::PinnedMemoryResource> && std::is_same_v<NewTMemoryResource, Compute::CpuMemoryResource> ) {
+			else if constexpr ( std::is_same_v<TMemoryResource, Compute::CudaPinnedMemoryResource> && std::is_same_v<NewTMemoryResource, Compute::CpuMemoryResource> ) {
 				cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyHostToHost );
 			}
-			else if constexpr ( std::is_same_v<TMemoryResource, Compute::CudaMemoryResource> && std::is_same_v<NewTMemoryResource, Compute::PinnedMemoryResource> ) {
+			else if constexpr ( std::is_same_v<TMemoryResource, Compute::CudaMemoryResource> && std::is_same_v<NewTMemoryResource, Compute::CudaPinnedMemoryResource> ) {
 				cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyDeviceToHost );
 			}
-			else if constexpr ( std::is_same_v<TMemoryResource, Compute::PinnedMemoryResource> && std::is_same_v<NewTMemoryResource, Compute::CudaMemoryResource> ) {
+			else if constexpr ( std::is_same_v<TMemoryResource, Compute::CudaPinnedMemoryResource> && std::is_same_v<NewTMemoryResource, Compute::CudaMemoryResource> ) {
 				cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyHostToDevice );
 			}
-			else if constexpr ( std::is_same_v<TMemoryResource, Compute::CpuMemoryResource> && std::is_same_v<NewTMemoryResource, Compute::ManagedMemoryResource> ) {
+			else if constexpr ( std::is_same_v<TMemoryResource, Compute::CpuMemoryResource> && std::is_same_v<NewTMemoryResource, Compute::CudaManagedMemoryResource> ) {
 				cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyHostToDevice );
 			}
-			else if constexpr ( std::is_same_v<TMemoryResource, Compute::ManagedMemoryResource> && std::is_same_v<NewTMemoryResource, Compute::CpuMemoryResource> ) {
+			else if constexpr ( std::is_same_v<TMemoryResource, Compute::CudaManagedMemoryResource> && std::is_same_v<NewTMemoryResource, Compute::CpuMemoryResource> ) {
 				cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyDeviceToHost );
 			}
 			else {
@@ -234,7 +253,7 @@ namespace Mila::Dnn
 		}
 
 		void fill( const T& value ) {
-			if constexpr ( std::is_same_v<TMemoryResource, Compute::CpuMemoryResource> || std::is_same_v<TMemoryResource, Compute::ManagedMemoryResource> ) {
+			if constexpr ( std::is_same_v<TMemoryResource, Compute::CpuMemoryResource> || std::is_same_v<TMemoryResource, Compute::CudaManagedMemoryResource> ) {
 				std::fill( buffer_->data(), buffer_->data() + size_, value );
 			}
 			else {
@@ -376,6 +395,7 @@ namespace Mila::Dnn
 		std::vector<size_t> shape_{};
 		std::vector<size_t> strides_{};
 		std::shared_ptr<TensorBuffer<T, TMemoryResource>> buffer_{ nullptr };
+		std::shared_ptr<T> data_ptr_{ nullptr }; // Shared pointer to external memory (non-owning)
 
 		void allocateBuffer( T value ) {
 			buffer_ = std::make_shared<TensorBuffer<T, TMemoryResource>>( size_, value );
@@ -451,8 +471,8 @@ namespace Mila::Dnn
 		using CudaTensor = Tensor<T, Compute::CudaMemoryResource>;
 
 	export template <class T>
-		using PinnedTensor = Tensor<T, Compute::PinnedMemoryResource>;
+		using PinnedTensor = Tensor<T, Compute::CudaPinnedMemoryResource>;
 
 	export template <class T>
-		using UniversalTensor = Tensor<T, Compute::ManagedMemoryResource>;
+		using UniversalTensor = Tensor<T, Compute::CudaManagedMemoryResource>;
 }

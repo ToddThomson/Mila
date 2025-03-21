@@ -1,13 +1,13 @@
 module;
 #include <vector>
-#include <iostream>
+#include <memory>
+#include <string>
 
 #include "Kernels/Cuda.Ops.h"
 
-export module Compute.CudaGeluOp;
+export module Compute.CudaMatMulOp;
 
 import Dnn.Tensor;
-
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
@@ -23,10 +23,10 @@ namespace Mila::Dnn::Compute
 {
 	export
 	template<typename TInput, typename TOutput = TInput>
-	class CudaGeluOp : public UnaryOperation<TInput, TOutput, CudaDevice> {
+	class CudaFullyConnectedOp : public UnaryOperation<TInput, TOutput, CudaDevice> {
 	public:
 
-		CudaGeluOp() : UnaryOperation<TInput, TOutput, CudaDevice>( DeviceType::Cuda, OperationType::GeluOp ) {}
+		CudaFullyConnectedOp() : UnaryOperation<TInput, TOutput, CudaDevice>( DeviceType::Cuda, OperationType::FullyConnectedOp ) {}
 
 		void forward(
 			const Tensor<TInput, CudaMemoryResource>& input,
@@ -36,19 +36,26 @@ namespace Mila::Dnn::Compute
 
 			auto X = input.data();
 			auto Y = output.data();
-			int N = input.size();
 
-			cuda_gelu_forward( Y, X, N );
+			auto weight = parameters[ 0 ]->data();
+			auto bias = parameters[ 1 ]->data();
+
+			int B = input.shape()[ 0 ];
+			int T = input.shape()[ 1 ];
+			int C = input.shape()[ 2 ];
+			int OC = output.shape()[ 2 ];
+
+			cuda_matmul_forward( Y, X, weight, bias, B, T, C, OC );
 		}
 
 		static void registerOperation() {
-			OperationRegistry<float, float, CudaDevice>::instance().registerOperation( DeviceType::Cuda, "Cuda::GeluOp", []() -> std::unique_ptr<OperationBase<float, float, CudaDevice>> {
-				return std::make_unique<CudaGeluOp<float>>();
-			} );
+			OperationRegistry<float,float,CudaDevice>::instance().registerOperation( DeviceType::Cuda, "Cuda::FullyConnectedOp", []() -> std::unique_ptr<OperationBase<float, float, CudaDevice>> {
+				return std::make_unique<CudaFullyConnectedOp<float>>();
+				} );
 		}
 
 		std::string getName() const override {
-			return "Cuda::GeluOp";
+			return "Cuda::FullyConnectedOp";
 		}
 	};
 }

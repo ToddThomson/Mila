@@ -1,11 +1,11 @@
 ﻿# CMake project for Mila Library
 
 add_library( Mila STATIC
+	"Src/Dnn/Compute/Cuda/Kernels/Cuda.Utils.h"	
+	"Src/Dnn/Compute/Cuda/Kernels/Cuda.Ops.h"
+	"Src/Dnn/Compute/Cuda/Kernels/Cuda.Encoder.cu"
 	"Src/Dnn/Compute/Cuda/Kernels/Cuda.MatMul.cu"
-	"Src/Dnn/Compute/Cuda/Kernels/Cuda.MatMul.h"
-	"Src/Dnn/Compute/Cuda/Kernels/Cuda.Gelu.h"
 	"Src/Dnn/Compute/Cuda/Kernels/Cuda.Gelu.cu"
-	"Src/Dnn/Compute/Cuda/Kernels/Cuda.Utils.h"
 )
 
 set_target_properties( Mila PROPERTIES
@@ -86,12 +86,12 @@ PUBLIC
 		"Src/Dnn/Compute/Cuda/CudaError.ixx"
 		"Src/Dnn/Compute/Cuda/CudaHelpers.ixx"
 		"Src/Dnn/Compute/Cuda/CudaDevice.ixx"
-		"Src/Dnn/Compute/Cuda/CudaMatMulOp.ixx"
+		"Src/Dnn/Compute/Cuda/CudaFullyConnectedOp.ixx"
 		"Src/Dnn/Compute/Cuda/CudaOperations.ixx"
 		"Src/Dnn/Compute/Cuda/CudaDeviceProps.ixx"
-		"Src/Dnn/Compute/Cuda/DeviceMemoryResource.ixx"
-		"Src/Dnn/Compute/Cuda/ManagedMemoryResource.ixx"
-		"Src/Dnn/Compute/Cuda/PinnedMemoryResource.ixx"
+		"Src/Dnn/Compute/Cuda/CudaMemoryResource.ixx"
+		"Src/Dnn/Compute/Cuda/CudaManagedMemoryResource.ixx"
+		"Src/Dnn/Compute/Cuda/CudaPinnedMemoryResource.ixx"
 		
 		# Data
 		"Src/Data/DataLoaderBase.ixx" 
@@ -108,7 +108,7 @@ PUBLIC
 		"Src/Dnn/Compute/Backend.ixx"
 		"Src/Dnn/Compute/Cuda/CudaComputeResource.ixx"
 		"Src/Dnn/Compute/Cuda/CudaGeluOp.ixx" 
-)
+ "Src/Dnn/Compute/Cuda/CudaSoftmaxOp.ixx" "Src/Dnn/Compute/Cuda/CudaLayerNormOp.ixx" "Src/Dnn/Compute/Cuda/CudaEncoderOp.ixx" "Src/Dnn/Compute/Cuda/CudaMultiHeadAttentionOp.ixx" "Src/Dnn/ModelBase.ixx")
 
 target_link_libraries( Mila PRIVATE CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
 

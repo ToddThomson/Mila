@@ -5,6 +5,7 @@
 #include <chrono>
 #include <string>
 #include <vector>
+#include <memory>
 
 import Mila;
 import Utils.Logger;
@@ -23,19 +24,6 @@ unsigned int random_u32( uint64_t* state ) {
 float random_f32( uint64_t* state ) { // random float32 in [0,1)
 	return (random_u32( state ) >> 8) / 16777216.0f;
 }
-
-//int sample_mult( const Tensor<float* probabilities, int n, float coin ) {
-//	// sample index from probabilities (they must sum to 1!)
-//	// coin is a random number in [0, 1), usually from random_f32()
-//	float cdf = 0.0f;
-//	for ( int i = 0; i < n; i++ ) {
-//		cdf += probabilities[ i ];
-//		if ( coin < cdf ) {
-//			return i;
-//		}
-//	}
-//	return n - 1; // in case of rounding errors
-//}
 
 // ----------------------------------------------------------------------------
 // CLI, poor man's argparse
@@ -61,6 +49,18 @@ int main( int argc, char* argv[] ) {
 
 	Mila::Initialize();
 	std::cout << "Mila version: " << Mila::GetAPIVersion().ToString() << std::endl;
+
+	auto devices = Compute::list_devices();
+	std::cout << "Available compute devices: ";
+	for ( const auto& device : devices ) {
+		std::cout << device << " ";
+	}
+	std::cout << std::endl;
+
+	auto device = Mila::getDevice();
+	std::cout << "The current Compute Device is: " << device->getName() << std::endl;
+
+	bool use_cuda = ( device->getDeviceType() == DeviceType::Cuda);
 
 	using namespace Mila::Dnn::Gpt2;
 
@@ -114,15 +114,15 @@ int main( int argc, char* argv[] ) {
 
 	// build the GPT-2 model from a checkpoint
 
-	// TJT: This is a bit confusing. The model is initialied with a config object, but then the model is loaded from a checkpoint.
-	ModelConfig config;
-	auto model = Gpt2Model<float>( config, B, T );
-	model.fromCheckpoint( "data/models/gpt2/gpt2_124M.bin" );
-	model.print();
+	// TJT: This is a bit confusing. The model is initialized with a config object, but then the model is loaded from a checkpoint.
+    ModelConfig config;
+    auto model = std::make_unique<Gpt2Model<float, Compute::CudaDevice>>(config, B, T);
+    model->fromCheckpoint("data/models/gpt2/gpt2_124M.bin");
+	model->print();
 
 	// build DataLoaders for both train and val
-	DataLoader train_loader( train_data_pattern, B, T, 0, 1, true );
-	DataLoader val_loader( val_data_pattern, B, T, 0, 1, false );
+	auto train_loader = Gpt2DataLoader<int>( train_data_pattern, B, T, 0, 1, true );
+	auto val_loader = Gpt2DataLoader<int>( val_data_pattern, B, T, 0, 1, false );
 
 	int train_num_batches = train_loader.num_tokens() / (B * T); // let's do 1 epoch by default for now
 	int val_num_batches = val_loader.num_tokens() / (B * T);
@@ -137,9 +137,9 @@ int main( int argc, char* argv[] ) {
 	// build the Tokenizer
 	Tokenizer tokenizer = Tokenizer( "data/models/gpt2/gpt2_tokenizer.bin" );
 
-	// Tensor for generating samples from the model
+	// Cpu Tensor for generating samples from the model.
 	uint64_t rng_state = 1337;
-	Tensor<int> gen_tokens( std::vector<size_t>( { B, T } ) );
+	Tensor<int, Compute::CudaPinnedMemoryResource> gen_tokens( std::vector<size_t>( { B, T } ) );
 
 	// Training loop
 	for ( int step = 0; step <= 40; step++ ) {
@@ -152,10 +152,9 @@ int main( int argc, char* argv[] ) {
 
 			for ( int i = 0; i < val_num_batches; i++ ) {
 				val_loader.next_batch();
-				//val_loader.inputs().print();
-				//val_loader.targets().print();
-				model.forward( val_loader.inputs(), val_loader.targets() );
-				val_loss += model.get_mean_loss();
+				// FIXME:
+				//model->forward( val_loader.inputs(), val_loader.targets() );
+				//val_loss += model->get_mean_loss();
 				std::cout << ".";
 			}
 			std::cout << std::endl;
@@ -178,26 +177,26 @@ int main( int argc, char* argv[] ) {
 				// we re-calculate the forward pass for all of (B,T) positions from scratch
 				// but the inference here is just for sanity checking anyway
 				// and we can maybe optimize a bit more later, with careful tests
-				Tensor<int> empty_targets;
-				model.forward( gen_tokens, empty_targets );
+				Tensor<int,Compute::CudaPinnedMemoryResource> empty_targets;
+				//model->forward( gen_tokens, empty_targets );
 
 				// furthermore, below we're only using b=0 (i.e. the first row) of all B rows
 				// we're in principle running B "inference streams" in parallel here
 				// but only using position 0
 				// get the Vp-dimensional vector probs[0, t-1, :]
-				auto probs = model.getProbabilities();
+				//auto probs = model->getProbabilities();
 
 				//float* probs = reinterpret_cast<float*>(acts.probs.data()) + ((t - 1) * model.get_config().padded_vocab_size);
 				float coin = random_f32( &rng_state );
 				// note we're only sampling from the first V elements, ignoring padding
 				// (the probabilities in the padded region should be zero anyway)
-				int next_token = model.sampleMult( probs, model.get_config().vocab_size, t, coin );
-				gen_tokens[ 0, t ] = next_token;
+				//int next_token = model->sampleMult( probs, model->get_config().vocab_size, t, coin );
+				//gen_tokens[ 0, t ] = next_token;
 
 				// print the generated token, either using the Tokenizer or a fallback
 				//if ( tokenizer.init_ok ) {
-				const char* token_str = tokenizer.decode( next_token );
-				std::cout << token_str;
+				//const char* token_str = tokenizer.decode( next_token );
+				//std::cout << token_str;
 				//}
 				//else {
 				//    // fall back to printing the token id
@@ -221,7 +220,7 @@ int main( int argc, char* argv[] ) {
 		auto end_time = std::chrono::steady_clock::now();
 		double time_elapsed_s = std::chrono::duration<double>( end_time - start_time ).count();
 		//total_sum_iteration_time_s += time_elapsed_s;
-		auto log_msg = std::format( "step {}/{}: train loss {} ({} ms)\n", step + 1, train_num_batches, model.get_mean_loss(), time_elapsed_s * 1000 );
+		auto log_msg = std::format( "step {}/{}: train loss {} ({} ms)\n", step + 1, train_num_batches, model->get_mean_loss(), time_elapsed_s * 1000 );
 		logger.log_step( step + 1, log_msg );
 	}
 	return 0;

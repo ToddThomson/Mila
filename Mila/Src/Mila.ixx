@@ -31,8 +31,10 @@ export import Cuda.Helpers;
 
 export import Dnn.Module;
 export import Dnn.Model;
+export import Dnn.ModelBase;
 
 export import Dnn.Tensor;
+export import Dnn.TensorBuffer; // TJT: Remove after testing
 export import Dnn.TensorTraits;
 export import Dnn.TensorHelpers;
 
@@ -45,8 +47,8 @@ export import Compute.DeviceHelpers;
 export import Compute.MemoryResource;
 export import Compute.CpuMemoryResource;
 export import Compute.CudaMemoryResource;
-export import Compute.ManagedMemoryResource;
-export import Compute.PinnedMemoryResource;
+export import Compute.CudaManagedMemoryResource;
+export import Compute.CudaPinnedMemoryResource;
 
 export import Dnn.Modules.Attention;
 export import Dnn.Modules.Encoder;
@@ -66,7 +68,7 @@ namespace Mila {
     /// Gets the Mila API version.
     /// </summary>
     export Version GetAPIVersion() {
-        return Version{0, 9, 59, "alpha", 1 };
+        return Version{0, 9, 60, "alpha", 1 };
     }
 
 	export void setDevice( const std::string& name ) {
