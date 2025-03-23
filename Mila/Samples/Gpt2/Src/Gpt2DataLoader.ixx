@@ -34,15 +34,16 @@ module;
 
 #include "../../../Src/Core/rand.h"
 
-export module Gpt2.DataLoader;
+export module Gpt2App.Gpt2DataLoader;
 
 import Mila;
 
 import Helpers.Memory;
 import Misc.Glob;
 
-namespace Mila::Dnn::Gpt2
+namespace Gpt2App
 {
+    using namespace Mila;
     using namespace Mila::Dnn;
 
     /// @brief Size of the GPT-2 token file header.

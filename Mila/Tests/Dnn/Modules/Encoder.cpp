@@ -9,14 +9,28 @@ namespace Modules::Tests
 {
     using namespace Mila::Dnn;
 
-    template <class TDevice>
+    // Create wrapper types for each device type
+    template <Compute::DeviceType TDeviceType>
+    struct DeviceTypeWrapper {
+        static constexpr Compute::DeviceType value = TDeviceType;
+        // Add the MR type that's used in the tests
+        using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::CpuMemoryResource>;
+    };
+
+    // Specific type definitions for CPU and CUDA
+    using CpuDeviceType = DeviceTypeWrapper<Compute::DeviceType::Cpu>;
+    using CudaDeviceType = DeviceTypeWrapper<Compute::DeviceType::Cuda>;
+
+    template <typename TDeviceTypeWrapper>
     class EncoderTests : public ::testing::Test {
     protected:
         void SetUp() override {
-            if constexpr ( std::is_same_v<TDevice, Compute::CpuDevice> ) {
+            constexpr Compute::DeviceType TDeviceType = TDeviceTypeWrapper::value;
+
+            if constexpr ( TDeviceType == DeviceType::Cpu ) {
                 batch_size_ = 4;
             }
-            else if constexpr ( std::is_same_v<TDevice, Compute::CudaDevice> ) {
+            else if constexpr ( TDeviceType == DeviceType::Cuda ) {
                 batch_size_ = 64;
             }
             sequence_length_ = 512;
@@ -26,11 +40,11 @@ namespace Modules::Tests
             input_shape_ = { batch_size_, sequence_length_ };
             output_shape_ = { batch_size_, sequence_length_, channels_ };
 
-            encoder_ = std::make_unique<Encoder<int, float, TDevice>>(
+            encoder_ = std::make_unique<Encoder<int, float, TDeviceType>>(
                 "enc_1", channels_, max_seq_len_, vocab_len_ );
         }
 
-        std::unique_ptr<Encoder<int, float, TDevice>> encoder_;
+        std::unique_ptr<Encoder<int, float, TDeviceTypeWrapper::value>> encoder_;
 
         size_t batch_size_{ 0 };
         size_t sequence_length_{ 0 };
@@ -41,7 +55,7 @@ namespace Modules::Tests
         std::vector<size_t> output_shape_;
     };
 
-    struct GenerateDeviceName {
+    /*struct GenerateDeviceName {
         template <typename T>
         static std::string GetName( int ) {
             if constexpr ( std::is_same_v<T, CudaDevice> ) {
@@ -53,9 +67,9 @@ namespace Modules::Tests
 
             return "Unknown";
         }
-    };
+    };*/
 
-    using EncoderTypes = ::testing::Types<Compute::CpuDevice, Compute::CudaDevice>;
+    using EncoderTypes = ::testing::Types<CpuDeviceType, CudaDeviceType>;
     TYPED_TEST_SUITE(EncoderTests, EncoderTypes );
 
     TYPED_TEST( EncoderTests, getName ) {

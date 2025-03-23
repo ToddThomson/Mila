@@ -35,18 +35,18 @@ int main() {
     auto transformer_block = TransformerBlock<float>( "tf", input_shape, num_heads);
 	std::cout << transformer_block << std::endl;
 
-    Tensor<float, Compute::CpuMemoryResource> X( input_shape );
+    Tensor<float> X( input_shape );
 	X.setName( "tf.X" );
 
-    random<float, Compute::CpuMemoryResource>( X, 0.0f, 5.0f );
+    random<float>( X, 0.0f, 5.0f );
 
-    Tensor<float, Compute::CpuMemoryResource> Y( output_shape );
+    Tensor<float> Y( output_shape );
 	Y.setName( "tf.Y" );
 
 	std::cout << ">>> TransformerBlock input: " << std::endl;
 	std::cout << X;
 
-    transformer_block.forward( X, Y );
+    //transformer_block.forward( X, Y );
 
     std::cout << ">>> TransformerBlock output: " << std::endl;
     std::cout << Y;

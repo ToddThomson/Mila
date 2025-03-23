@@ -24,14 +24,15 @@ namespace Mila::Dnn::Compute
 
     export
     template<typename TInput, typename TOutput = TInput>
-    class CpuFullyConnectedOp : public UnaryOperation<TInput, TOutput, CpuDevice> {
+    class CpuFullyConnectedOp : public UnaryOperation<TInput, TOutput, DeviceType::Cpu> {
     public:
 
-        CpuFullyConnectedOp() : UnaryOperation<TInput, TOutput, CpuDevice>( DeviceType::Cpu, OperationType::FullyConnectedOp ) {}
+        CpuFullyConnectedOp() : UnaryOperation<TInput, TOutput, DeviceType::Cpu>( DeviceType::Cpu, OperationType::FullyConnectedOp ) {}
 
         void forward(
             const Tensor<TInput, CpuMemoryResource>& input,
             const std::vector<std::shared_ptr<Tensor<TOutput, CpuMemoryResource>>>& parameters_,
+            const OperationProperties& properties,
             Tensor<TOutput, CpuMemoryResource>& output,
             std::vector<std::shared_ptr<Tensor<TOutput, CpuMemoryResource>>>& output_state ) const override {
             auto X = input.data();
@@ -114,7 +115,7 @@ namespace Mila::Dnn::Compute
         }
 
         static void registerOperation() {
-            OperationRegistry<float, float, CpuDevice>::instance().registerOperation( DeviceType::Cpu, "Cpu::FullyConnectedOp", []() -> std::unique_ptr<OperationBase<float, float, CpuDevice>> {
+            OperationRegistry<float, float, DeviceType::Cpu>::instance().registerOperation( DeviceType::Cpu, "Cpu::FullyConnectedOp", []() -> std::unique_ptr<OperationBase<float, float, DeviceType::Cpu>> {
                 return std::make_unique<CpuFullyConnectedOp<float>>();
             } );
         }

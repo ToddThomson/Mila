@@ -31,11 +31,11 @@ export namespace Mila::Dnn
 	using namespace Mila::Dnn::Compute;
 
 	export
-	template<typename TInput, typename TCompute = TInput, typename TDevice = CpuDevice>
-		requires ValidTensorTypes<TInput, TCompute>&& std::is_base_of_v<Compute::ComputeDevice, TDevice>
-	class Residual : public Module<TInput, TCompute, TDevice> {
+	template<typename TInput, typename TCompute = TInput, Compute::DeviceType TDeviceType = Compute::DeviceType::Cuda>
+		requires ValidTensorTypes<TInput, TCompute>
+	class Residual : public Module<TInput, TCompute, TDeviceType> {
 	public:
-		using MR = TDevice::MR;
+		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::CpuMemoryResource>;
 
 		Residual( std::string name, bool is_training = false ) {
 			this->setTraining( is_training );
@@ -95,19 +95,19 @@ export namespace Mila::Dnn
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_{ nullptr }; ///< The output attributes. Not used in this module.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_{ nullptr }; ///< The scalars. Not used in this module.
 
-		std::shared_ptr<Dnn::Compute::BinaryOperation<TInput, TCompute, TDevice>> operation_{ nullptr }; ///< The operation.
+		std::shared_ptr<Dnn::Compute::BinaryOperation<TInput, TCompute, TDeviceType>> operation_{ nullptr }; ///< The operation.
 
 		/**
 		 * @brief Create the operation.
 		 */
 		void createOperation() {
-			if constexpr ( std::is_same_v<TDevice, Compute::CpuDevice> ) {
-				auto base_operation = OperationRegistry<float, float, CpuDevice>::instance().createOperation( DeviceType::Cpu, "Cpu::ResidualOp" );
-				operation_ = std::dynamic_pointer_cast<Dnn::Compute::BinaryOperation<float, float, CpuDevice>>(base_operation);
+			if constexpr ( TDeviceType == DeviceType::Cpu ) {
+				auto base_operation = OperationRegistry<float, float, DeviceType::Cpu>::instance().createOperation( DeviceType::Cpu, "Cpu::ResidualOp" );
+				operation_ = std::dynamic_pointer_cast<Dnn::Compute::BinaryOperation<float, float, DeviceType::Cpu>>(base_operation);
 			}
 			else {
-				auto base_operation = OperationRegistry<float, float, CpuDevice>::instance().createOperation( DeviceType::Cuda, "Cuda::ResidualOp" );
-				operation_ = std::dynamic_pointer_cast<Dnn::Compute::BinaryOperation<float, float, CudaDevice>>(base_operation);
+				auto base_operation = OperationRegistry<float, float, DeviceType::Cuda>::instance().createOperation( DeviceType::Cuda, "Cuda::ResidualOp" );
+				operation_ = std::dynamic_pointer_cast<Dnn::Compute::BinaryOperation<float, float, DeviceType::Cuda>>(base_operation);
 			}
 		}
 	};

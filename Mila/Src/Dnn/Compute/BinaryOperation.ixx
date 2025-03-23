@@ -30,13 +30,13 @@ namespace Mila::Dnn::Compute
 	* @tparam TMemoryResource The memory resource type, must be derived from MemoryResource.
 	*/
 	export
-	template <typename TInput, typename TCompute, typename TDevice>
-		requires ValidTensorTypes<TInput, TCompute>&& std::is_base_of_v<Compute::ComputeDevice, TDevice>
-	class BinaryOperation : public OperationBase<TInput, TCompute, TDevice> {
+	template <typename TInput, typename TCompute, Compute::DeviceType TDeviceType = Compute::DeviceType::Cuda>
+		requires ValidTensorTypes<TInput, TCompute>
+	class BinaryOperation : public OperationBase<TInput, TCompute, TDeviceType> {
 	public:
-		using MR = typename TDevice::MR;
+		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::CpuMemoryResource>;
 
-		using OperationBase<TInput, TCompute, TDevice>::OperationBase;
+		using OperationBase<TInput, TCompute, TDeviceType>::OperationBase;
 
 		/**
 		* @brief Executes the forward pass of a binary operation.

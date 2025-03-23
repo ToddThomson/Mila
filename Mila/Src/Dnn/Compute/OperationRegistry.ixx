@@ -28,12 +28,12 @@ export namespace Mila::Dnn::Compute
      * @tparam T The type of the operation.
      */
     export 
-    template<typename TInput, typename TOutput, typename TDevice>
-        requires ValidTensorTypes<TInput, TOutput> && ( std::is_same_v<TDevice, CpuDevice> || std::is_same_v<TDevice, CudaDevice> )
+    template<typename TInput, typename TOutput, Compute::DeviceType TDeviceType = Compute::DeviceType::Cuda>
+        requires ValidTensorTypes<TInput, TOutput>
     class OperationRegistry {
     public:
 
-        using OperationCreator = std::function<std::unique_ptr<OperationBase<TInput, TOutput, TDevice>>()>; ///< Type alias for the operation creator function.
+        using OperationCreator = std::function<std::unique_ptr<OperationBase<TInput, TOutput, TDeviceType>>()>; ///< Type alias for the operation creator function.
 
         /**
          * @brief Get the singleton instance of the OperationRegistry.
@@ -68,7 +68,7 @@ export namespace Mila::Dnn::Compute
          * @return std::shared_ptr<OperationBase<T>> The created operation.
          * @throws std::runtime_error If the device or operation name is invalid.
          */
-        std::shared_ptr<OperationBase<TInput, TOutput, TDevice>> createOperation( const DeviceType& device_type, const std::string& operation_name ) const {
+        std::shared_ptr<OperationBase<TInput, TOutput, TDeviceType>> createOperation( const DeviceType& device_type, const std::string& operation_name ) const {
             auto deviceIt = registry_.find( device_type );
             if ( deviceIt == registry_.end() ) {
                 throw std::runtime_error( std::format( "createOperation: No operations registered for device type: {}", deviceToString( device_type ) ));

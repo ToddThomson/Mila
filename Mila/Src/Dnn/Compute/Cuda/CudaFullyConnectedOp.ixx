@@ -23,14 +23,15 @@ namespace Mila::Dnn::Compute
 {
 	export
 	template<typename TInput, typename TOutput = TInput>
-	class CudaFullyConnectedOp : public UnaryOperation<TInput, TOutput, CudaDevice> {
+	class CudaFullyConnectedOp : public UnaryOperation<TInput, TOutput, DeviceType::Cuda> {
 	public:
 
-		CudaFullyConnectedOp() : UnaryOperation<TInput, TOutput, CudaDevice>( DeviceType::Cuda, OperationType::FullyConnectedOp ) {}
+		CudaFullyConnectedOp() : UnaryOperation<TInput, TOutput, DeviceType::Cuda>( DeviceType::Cuda, OperationType::FullyConnectedOp ) {}
 
 		void forward(
 			const Tensor<TInput, CudaMemoryResource>& input,
 			const std::vector<std::shared_ptr<Tensor<TInput, CudaMemoryResource>>>& parameters,
+			const OperationProperties& properties,
 			Tensor<TOutput, CudaMemoryResource>& output,
 			std::vector<std::shared_ptr<Tensor<TOutput, CudaMemoryResource>>>& output_state ) const override {
 
@@ -49,7 +50,7 @@ namespace Mila::Dnn::Compute
 		}
 
 		static void registerOperation() {
-			OperationRegistry<float,float,CudaDevice>::instance().registerOperation( DeviceType::Cuda, "Cuda::FullyConnectedOp", []() -> std::unique_ptr<OperationBase<float, float, CudaDevice>> {
+			OperationRegistry<float,float, DeviceType::Cuda>::instance().registerOperation( DeviceType::Cuda, "Cuda::FullyConnectedOp", []() -> std::unique_ptr<OperationBase<float, float, DeviceType::Cuda>> {
 				return std::make_unique<CudaFullyConnectedOp<float>>();
 				} );
 		}

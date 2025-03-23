@@ -18,12 +18,12 @@ namespace Modules::Tests
             io_shape = { 5, 3, 8 };
             softmax_dim = 2;
             
-            softmax = std::make_unique<Softmax<float, float, CpuDevice>>( "softmax_1", softmax_dim );
+            softmax = std::make_unique<Softmax<float, float, DeviceType::Cpu>>( "softmax_1", softmax_dim );
         }
 
         std::vector<size_t> io_shape;
         int64_t softmax_dim;
-        std::unique_ptr<Softmax<float, float, CpuDevice>> softmax;
+        std::unique_ptr<Softmax<float, float, DeviceType::Cpu>> softmax;
     };
 
     TEST_F( SoftmaxTest, TestName ) {

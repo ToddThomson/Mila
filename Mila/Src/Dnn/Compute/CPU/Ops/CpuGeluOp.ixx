@@ -28,15 +28,16 @@ namespace Mila::Dnn::Compute
 
 	export 
 	template<typename T>
-	class CpuGeluOp : public UnaryOperation<float, float, CpuDevice> {
+	class CpuGeluOp : public UnaryOperation<float, float, DeviceType::Cpu> {
 	public:
 		using MR = CpuDevice::MR;
 
-		CpuGeluOp() : UnaryOperation<float, float, CpuDevice>( DeviceType::Cpu, OperationType::GeluOp ) {}
+		CpuGeluOp() : UnaryOperation<float, float, DeviceType::Cpu>( DeviceType::Cpu, OperationType::GeluOp ) {}
 
 		void forward(
 			const Tensor<float, CpuMemoryResource>& input,
 			const std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& parameters,
+			const OperationProperties& properties,
 			Tensor<T, CpuMemoryResource>& output,
 			std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& output_cache ) const override {
 			// (approximate) GeLU elementwise non-linearity in the MLP block of Transformer
@@ -73,7 +74,7 @@ namespace Mila::Dnn::Compute
 		}
 
 		static void registerOperation() {
-			OperationRegistry<float, float, CpuDevice>::instance().registerOperation( DeviceType::Cpu, "Cpu::GeluOp", []() -> std::unique_ptr<OperationBase<float, float, CpuDevice>> {
+			OperationRegistry<float, float, DeviceType::Cpu>::instance().registerOperation( DeviceType::Cpu, "Cpu::GeluOp", []() -> std::unique_ptr<OperationBase<float, float, DeviceType::Cpu>> {
 				return std::make_unique<CpuGeluOp<float>>();
 			} );
 		}

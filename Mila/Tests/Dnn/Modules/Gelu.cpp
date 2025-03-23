@@ -19,15 +19,15 @@ namespace Modules::Tests
 			cpu_io_shape_ = { cpu_batch_size_, sequence_length_, 4 * channels_ };
 			cuda_io_shape_ = { batch_size_, sequence_length_, 4 * channels_ };
 
-            cpu_gelu = std::make_unique<Gelu<float, float, Compute::CpuDevice>>(
+            cpu_gelu = std::make_unique<Gelu<float, float, Compute::DeviceType::Cpu>>(
                 "cpu_gelu" );
 
-            cuda_gelu = std::make_unique<Gelu<float, float, Compute::CudaDevice>>(
+            cuda_gelu = std::make_unique<Gelu<float, float, Compute::DeviceType::Cuda>>(
                 "cuda_gelu" );
         }
 
-        std::unique_ptr<Gelu<float, float, Compute::CpuDevice>> cpu_gelu;
-        std::unique_ptr<Gelu<float, float, Compute::CudaDevice>> cuda_gelu;
+        std::unique_ptr<Gelu<float, float, Compute::DeviceType::Cpu>> cpu_gelu;
+        std::unique_ptr<Gelu<float, float, Compute::DeviceType::Cuda>> cuda_gelu;
         
         size_t batch_size_{ 0 };
         size_t cpu_batch_size_{ 0 };

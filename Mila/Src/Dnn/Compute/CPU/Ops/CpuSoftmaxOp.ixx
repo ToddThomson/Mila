@@ -27,12 +27,12 @@ namespace Mila::Dnn::Compute
      */  
     export
 	template<typename T>
-    class CpuSoftmaxOp : public UnaryOperation<float, float, CpuDevice> {  
+    class CpuSoftmaxOp : public UnaryOperation<float, float, DeviceType::Cpu> {
     public:  
         /**  
          * @brief Constructor for CpuSoftmaxOp.  
          */  
-        CpuSoftmaxOp() : UnaryOperation<float, float, CpuDevice>(DeviceType::Cpu, OperationType::SoftmaxOp) {}  
+        CpuSoftmaxOp() : UnaryOperation<float, float, DeviceType::Cpu>(DeviceType::Cpu, OperationType::SoftmaxOp) {}
 
         /**  
          * @brief Forward pass of the softmax operation.  
@@ -45,6 +45,7 @@ namespace Mila::Dnn::Compute
         void forward(
             const Tensor<T, CpuMemoryResource>& input,
             const std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& parameters,
+            const OperationProperties& properties,
             Tensor<T, CpuMemoryResource>& output,
             std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& output_cache ) const override {
 
@@ -94,7 +95,7 @@ namespace Mila::Dnn::Compute
          * @brief Registers the CpuSoftmaxOp operation in the operation registry.  
          */  
         static void registerOperation() {  
-            OperationRegistry<float, float, CpuDevice>::instance().registerOperation(DeviceType::Cpu, "Cpu::SoftmaxOp", []() -> std::unique_ptr<OperationBase<float, float, CpuDevice>> {  
+            OperationRegistry<float, float, DeviceType::Cpu>::instance().registerOperation(DeviceType::Cpu, "Cpu::SoftmaxOp", []() -> std::unique_ptr<OperationBase<float, float, DeviceType::Cpu>> {
                 return std::make_unique<CpuSoftmaxOp>();  
             });  
         }  

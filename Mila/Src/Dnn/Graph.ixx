@@ -16,9 +16,9 @@ export module Dnn.Graph;
 //namespace Mila::Dnn
 //{
 //    /*export
-//    template<typename TInput, typename TCompute = TInput, typename MR = Compute::CpuMemoryResource>
-//        requires ValidTensorTypes<TInput, TCompute> && (std::is_same_v<MR, Compute::CpuMemoryResource> || std::is_same_v<MR, Compute::DeviceMemoryResource>)
-//    class Model : public Module<TInput, TCompute, MR> {
+//    template<typename TInput, typename TPrecision = TInput, typename MR = Compute::CpuMemoryResource>
+//        requires ValidTensorTypes<TInput, TPrecision> && (std::is_same_v<MR, Compute::CpuMemoryResource> || std::is_same_v<MR, Compute::DeviceMemoryResource>)
+//    class Model : public Module<TInput, TPrecision, MR> {
 //    public:*/
 //
 //    //    // Register a node and return its output tensor

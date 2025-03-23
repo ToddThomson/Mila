@@ -13,6 +13,7 @@ import Dnn.Tensor;
 import Dnn.TensorTraits;
 import Compute.MemoryResource;
 import Compute.ComputeDevice;
+import Compute.DeviceType;
 import Compute.CpuDevice;
 
 import Dnn.Modules.FullyConnected;
@@ -21,11 +22,11 @@ import Dnn.Modules.Gelu;
 namespace Mila::Dnn
 {
     export
-    template<typename TInput, typename TCompute = TInput, typename TDevice = Compute::CpuDevice>
-        requires ValidTensorTypes<TInput, TCompute> && std::is_base_of_v<Compute::ComputeDevice, TDevice>
-    class MLP : public Module<TInput, TCompute, TDevice> {
+    template<typename TInput, typename TCompute = TInput, Compute::DeviceType TDeviceType = Compute::DeviceType::Cuda>
+        requires ValidTensorTypes<TInput, TCompute>
+    class MLP : public Module<TInput, TCompute, TDeviceType> {
     public:
-		using MR = TDevice::MR;
+		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::CpuMemoryResource>;
 
 		MLP( std::string name, const std::vector<size_t>& input_shape, size_t output_channels, bool has_bias = true, bool is_training = false )
 			: input_shape_{ input_shape }, output_channels_{ output_channels } {
@@ -39,9 +40,9 @@ namespace Mila::Dnn
 			std::vector<size_t> fc_1_output_shape = input_shape;
 			fc_1_output_shape.back() = output_channels_;
 
-			fc_1_ = std::make_shared<FullyConnected<TInput, TCompute, TDevice>>( this->getName() + ".fc_1", input_channels_, output_channels_ );
-			gelu_ = std::make_shared<Gelu<TInput, TCompute, TDevice>>( this->getName() + ".gelu" );
-			fc_proj_ = std::make_shared<FullyConnected<TInput, TCompute, TDevice>>( this->getName() + ".fc_proj", output_channels_, input_channels_ );
+			fc_1_ = std::make_shared<FullyConnected<TInput, TCompute, TDeviceType>>( this->getName() + ".fc_1", input_channels_, output_channels_ );
+			gelu_ = std::make_shared<Gelu<TInput, TCompute, TDeviceType>>( this->getName() + ".gelu" );
+			fc_proj_ = std::make_shared<FullyConnected<TInput, TCompute, TDeviceType>>( this->getName() + ".fc_proj", output_channels_, input_channels_ );
 
 			// Add sub-modules to the MLP block
 			this->addModule( fc_1_ );
@@ -117,9 +118,9 @@ namespace Mila::Dnn
 		size_t input_channels_; ///< The number of input channels
 		size_t output_channels_; ///< The number of output channels
 
-		std::shared_ptr<FullyConnected<TInput, TCompute, TDevice>> fc_1_{ nullptr };
-		std::shared_ptr<Gelu<TInput, TCompute, TDevice>> gelu_{ nullptr };
-		std::shared_ptr<FullyConnected<TInput, TCompute, TDevice>> fc_proj_{ nullptr };
+		std::shared_ptr<FullyConnected<TInput, TCompute, TDeviceType>> fc_1_{ nullptr };
+		std::shared_ptr<Gelu<TInput, TCompute, TDeviceType>> gelu_{ nullptr };
+		std::shared_ptr<FullyConnected<TInput, TCompute, TDeviceType>> fc_proj_{ nullptr };
 
 		Tensor<TCompute, MR> fc_1_output_;
 		Tensor<TCompute, MR> gelu_output_;

@@ -17,6 +17,7 @@ import Dnn.TensorHelpers;
 import Compute.ComputeDevice;
 import Compute.DeviceType;
 import Compute.OperationBase;
+import Compute.OperationProperties;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
@@ -33,15 +34,15 @@ export namespace Mila::Dnn
     * output = input * weight + bias
     *
     * @tparam TInput The data type of the input tensor.
-    * @tparam TCompute The data type used for computation.
+    * @tparam TPrecision The data type used for computation.
     * @tparam TDevice The device type used for computation.
     */
 	export
-	template<typename TInput, typename TCompute = TInput, typename TDevice = CpuDevice>
-		requires ValidTensorTypes<TInput, TCompute> && std::is_base_of_v<Compute::ComputeDevice, TDevice>
-	class FullyConnected : public Module<TInput, TCompute, TDevice> {
+	template<typename TInput, typename TCompute = TInput, Compute::DeviceType TDeviceType = DeviceType::Cuda>
+		requires ValidTensorTypes<TInput, TCompute>
+	class FullyConnected : public Module<TInput, TCompute, TDeviceType> {
 	public:
-		using MR = TDevice::MR;
+		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::CpuMemoryResource>;
 		
 		FullyConnected(
 			std::string name,
@@ -76,7 +77,7 @@ export namespace Mila::Dnn
 		 * @return std::shared_ptr<Tensor<float>> The output tensor.
 		 */
 		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute,MR>& output ) {
-			operation_->forward( input, parameters_, output, output_state_ );
+			operation_->forward( input, parameters_, properties_, output, output_state_ );
 		}
 
 		void save( mz_zip_archive& zip ) const override {
@@ -124,9 +125,9 @@ export namespace Mila::Dnn
 
 		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_ = {}; ///< The parameters.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_ = {}; ///< The output state.
-		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_ = {}; ///< The scalars.
+		OperationProperties properties_; ///< The operation properties.
 
-		std::shared_ptr<Dnn::Compute::UnaryOperation<TInput, TCompute, TDevice>> operation_{ nullptr }; ///< The operation.
+		std::shared_ptr<Dnn::Compute::UnaryOperation<TInput, TCompute, TDeviceType>> operation_{ nullptr }; ///< The operation.
         
 		void initializeTensors() {
 			// Initialize the weight tensor using xavier distribution
@@ -149,13 +150,13 @@ export namespace Mila::Dnn
 		 * @brief Create the operation.
 		 */
 		void createOperation() {
-			if constexpr ( std::is_same_v<TDevice, Compute::CpuDevice> ) {
-				auto base_operation = OperationRegistry<float, float, CpuDevice>::instance().createOperation( DeviceType::Cpu, "Cpu::FullyConnectedOp" );
-				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<float, float, CpuDevice>>(base_operation);
+			if constexpr ( TDeviceType == DeviceType::Cpu ) {
+				auto base_operation = OperationRegistry<float, float, DeviceType::Cpu>::instance().createOperation( DeviceType::Cpu, "Cpu::FullyConnectedOp" );
+				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<float, float, DeviceType::Cpu>>(base_operation);
 			}
 			else {
-				auto base_operation = OperationRegistry<float, float, CudaDevice>::instance().createOperation( DeviceType::Cuda, "Cuda::FullyConnectedOp" );
-				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<float, float, CudaDevice>>(base_operation);
+				auto base_operation = OperationRegistry<float, float, DeviceType::Cuda>::instance().createOperation( DeviceType::Cuda, "Cuda::FullyConnectedOp" );
+				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<float, float, DeviceType::Cuda>>(base_operation);
 			}
 		}
 	};

@@ -21,6 +21,7 @@ import Compute.CpuDevice;
 
 import Compute.OperationBase;
 import Compute.UnaryOperation;
+import Compute.OperationProperties;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
@@ -30,21 +31,22 @@ export namespace Mila::Dnn
 {
 	using namespace Mila::Dnn::Compute;
 
-	/**
-	* @brief Softmax module for neural networks.
-	* 
-	* This class implements the softmax function, which is often used in the final layer of a neural network
-	* to convert raw scores into probabilities.
-	* 
-	* @tparam T The data type of the tensor elements.
-	* @tparam MR The memory resource type, either CpuMemoryResource or DeviceMemoryResource.
-	*/
+    /**
+    * @brief Softmax module for neural networks.
+    * 
+    * This class implements the softmax function, which is often used in the final layer of a neural network
+    * to convert raw scores into probabilities.
+    * 
+    * @tparam TInput The data type of the input tensor elements.
+    * @tparam TPrecision The data type of the precision tensor elements.
+    * @tparam TDeviceType The device type, either Cpu or Cuda.
+    */
 	export
-		template<typename TInput, typename TCompute = TInput, typename TDevice = CpuDevice>
-		requires ValidTensorTypes<TInput, TCompute>&& std::is_base_of_v<Compute::ComputeDevice, TDevice>
-	class Softmax : public Module<TInput, TCompute, TDevice> {
+	template<typename TInput, typename TPrecision = TInput, Compute::DeviceType TDeviceType = Compute::DeviceType::Cuda>
+		requires ValidTensorTypes<TInput, TPrecision>
+	class Softmax : public Module<TInput, TPrecision, TDeviceType> {
 	public:
-		using MR = TDevice::MR;
+		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::CpuMemoryResource>;
 
 		/**
 		* @brief Construct a new Softmax module.
@@ -76,7 +78,7 @@ export namespace Mila::Dnn
 		* @return std::shared_ptr<Tensor<float>> The output tensor.
 		*/
 		void forward( const Tensor<TInput, MR>& input, Tensor<TInput, MR>& output ) {
-			operation_->forward( input, parameters_, output, output_state_ );
+			operation_->forward( input, parameters_, properties_, output, output_state_ );
 		}
 
 		// TODO: Implement the backward pass.
@@ -125,22 +127,19 @@ export namespace Mila::Dnn
 
 		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_ = { nullptr }; ///< The parameters. Not used in this module.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_ = { nullptr }; ///< The output attributes. Not used in this module.
-		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_ = { nullptr }; ///< The scalars.module;
-
-		std::shared_ptr<Dnn::Compute::UnaryOperation<TInput, TCompute, TDevice>> operation_{ nullptr }; ///< The operation.
+		OperationProperties properties_{ .axis = axis_ }; ///< The operation properties.
+		
+		std::shared_ptr<Dnn::Compute::UnaryOperation<TInput, TPrecision, TDeviceType>> operation_{ nullptr }; ///< The operation.
 
 		/**
 		* @brief Create the operation.
 		*/
 		void createOperation() {
-			if constexpr ( std::is_same_v<TDevice, Compute::CpuDevice> ) {
-				auto base_operation = OperationRegistry<float, float, CpuDevice>::instance().createOperation( DeviceType::Cpu, "Cpu::SoftmaxOp" );
-				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<float, float, CpuDevice>>(base_operation);
-			}
-			else {
-				auto base_operation = OperationRegistry<float, float, CudaDevice>::instance().createOperation( DeviceType::Cuda, "Cuda::SoftmaxOp" );
-				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<float, float, CudaDevice>>(base_operation);
-			}
+			auto base_operation = OperationRegistry<TInput, TPrecision, TDeviceType>::instance().createOperation(
+				TDeviceType,
+				(TDeviceType == DeviceType::Cpu) ? "Cpu::SoftmaxOp" : "Cuda::SoftmaxOp"
+			);
+			operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<TInput, TPrecision, TDeviceType>>(base_operation);
 		}
 	};
 }

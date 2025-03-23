@@ -42,7 +42,7 @@ int main() {
     //auto bias = Tensor<float>( std::vector<size_t>{ C });
    
 	// Register the tensors with the model
-	auto X = layernorm_model.tensor( "X", input );
+	//auto X = layernorm_model.tensor( "X", input );
 	//auto W = layernorm_model.tensor( "W", weights );
 	//auto b = layernorm_model.tensor( "B", bias );
 

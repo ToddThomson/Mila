@@ -20,15 +20,15 @@ namespace Modules::Tests
             cuda_input_shape_ = { batch_size_, sequence_length_, channels_ };
             has_bias_ = true;
 
-            cpu_layernorm = std::make_unique<LayerNorm<float, float, Compute::CpuDevice>>(
+            cpu_layernorm = std::make_unique<LayerNorm<float, float, Compute::DeviceType::Cpu>>(
                 "cpu_ln", cpu_io_shape_ );
 
             /*cuda_linear = std::make_unique<MilaDnn::Modules::Linear<float, MilaDnn::Compute::DeviceMemoryResource>>(
                 "cuda_ln", input_shape_, output_channels_ );*/
         }
 
-        std::unique_ptr<LayerNorm<float, float, Compute::CpuDevice>> cpu_layernorm;
-        std::unique_ptr<LayerNorm<float, float, Compute::CudaDevice>> cuda_layernorm;
+        std::unique_ptr<LayerNorm<float, float, Compute::DeviceType::Cpu>> cpu_layernorm;
+        std::unique_ptr<LayerNorm<float, float, Compute::DeviceType::Cuda>> cuda_layernorm;
 
         size_t batch_size_{ 0 };
         size_t cpu_batch_size_{ 0 };
@@ -74,7 +74,7 @@ namespace Modules::Tests
         input.data()[ 4 ] = 5.0f;
         input.data()[ 5 ] = 6.0f;
 
-        auto ln = std::make_unique<LayerNorm<float, float, Compute::CpuDevice>>(
+        auto ln = std::make_unique<LayerNorm<float, float, Compute::DeviceType::Cpu>>(
             "ln", io_shape );
         
         ln->forward( input, output );

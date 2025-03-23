@@ -24,14 +24,15 @@ using namespace Mila::Dnn;
 namespace Mila::Dnn::Compute
 {
 	export
-	class CpuCrossEntropyOp : public UnaryOperation<int, float, CpuDevice> {
+	class CpuCrossEntropyOp : public UnaryOperation<int, float, DeviceType::Cpu> {
 	public:
 
-		CpuCrossEntropyOp() : UnaryOperation<int, float, CpuDevice>( DeviceType::Cpu, OperationType::CrossEntropyOp ) {}
+		CpuCrossEntropyOp() : UnaryOperation<int, float, DeviceType::Cpu>( DeviceType::Cpu, OperationType::CrossEntropyOp ) {}
 
 		void forward(
 			const Tensor<int, CpuMemoryResource>& input,
 			const std::vector<std::shared_ptr<Tensor<float, CpuMemoryResource>>>& parameters,
+			const OperationProperties& properties,
 			Tensor<float, CpuMemoryResource>& output,
 			std::vector<std::shared_ptr<Tensor<float, CpuMemoryResource>>>& output_cache ) const override {
 		//void forward( float* losses, float* probs, const Tensor<int, CpuMemoryResource>& targets, int B, int T, int Vp ) {
@@ -77,7 +78,7 @@ namespace Mila::Dnn::Compute
 		}
 
 		static void registerOperation() {
-			OperationRegistry<int, float, CpuDevice>::instance().registerOperation( DeviceType::Cpu, "Cpu::CrossEntropyOp", []() -> std::unique_ptr<OperationBase<int, float, CpuDevice>> {
+			OperationRegistry<int, float, DeviceType::Cpu>::instance().registerOperation( DeviceType::Cpu, "Cpu::CrossEntropyOp", []() -> std::unique_ptr<OperationBase<int, float, DeviceType::Cpu>> {
 				return std::make_unique<CpuCrossEntropyOp>();
 			} );
 		}

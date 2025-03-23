@@ -12,6 +12,7 @@ export module Dnn.Blocks.TransformerBlock;
 import Dnn.Tensor;
 import Dnn.TensorTraits;
 import Compute.ComputeDevice;
+import Compute.DeviceType;
 import Compute.CpuDevice;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
@@ -25,11 +26,11 @@ import Dnn.Blocks.MLP;
 namespace Mila::Dnn
 {
 	export
-	template<typename TInput, typename TCompute = TInput, typename TDevice = Compute::CpuDevice>
-		requires ValidTensorTypes<TInput, TCompute> && std::is_base_of_v<Compute::ComputeDevice, TDevice>
-	class TransformerBlock : public Module<TInput, TCompute, TDevice> {
+	template<typename TInput, typename TCompute = TInput, Compute::DeviceType TDeviceType = Compute::DeviceType::Cuda>
+		requires ValidTensorTypes<TInput, TCompute>
+	class TransformerBlock : public Module<TInput, TCompute, TDeviceType> {
 	public:
-		using MR = TDevice::MR;
+		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::CpuMemoryResource>;
 
 		TransformerBlock( std::string name, const std::vector<size_t>& input_shape, const size_t num_heads, bool is_training = false )
 			: input_shape_{ validate_shape( input_shape ) }, num_heads_{ num_heads } {
@@ -40,14 +41,14 @@ namespace Mila::Dnn
 			auto T = input_shape_[ 1 ];
 			auto C = input_shape_[ 2 ];
 
-            ln_1_ = std::make_shared<LayerNorm<TInput, TCompute, TDevice>>( this->getName() + ".ln_1", input_shape_ );
-            fc_qkv_ = std::make_shared<FullyConnected<TInput, TCompute, TDevice>>( this->getName() + ".fc_qkv", C, 3 * C );
-            attn_ = std::make_shared<MultiHeadAttention<TInput, TCompute, TDevice>>( this->getName() + ".attn", input_shape_, num_heads_ );
-			fc_attn_proj_ = std::make_shared<FullyConnected<TInput, TCompute, TDevice>>( this->getName() + ".fc_attn_proj", C, C );
-			res_1_ = std::make_shared<Residual<TInput, TCompute, TDevice>>( this->getName() + ".res_1" );
-            ln_2_ = std::make_shared<LayerNorm<TInput, TCompute, TDevice>>( this->getName() + ".ln_2", input_shape_ );
-            mlp_ = std::make_shared<MLP<TInput, TCompute, TDevice>>( this->getName() + ".mlp", input_shape_, 4 * C);
-            res_2_ = std::make_shared<Residual<TInput, TCompute, TDevice>>( this->getName() + ".res_2" );
+            ln_1_ = std::make_shared<LayerNorm<TInput, TCompute, TDeviceType>>( this->getName() + ".ln_1", input_shape_ );
+            fc_qkv_ = std::make_shared<FullyConnected<TInput, TCompute, TDeviceType>>( this->getName() + ".fc_qkv", C, 3 * C );
+            attn_ = std::make_shared<MultiHeadAttention<TInput, TCompute, TDeviceType>>( this->getName() + ".attn", input_shape_, num_heads_ );
+			fc_attn_proj_ = std::make_shared<FullyConnected<TInput, TCompute, TDeviceType>>( this->getName() + ".fc_attn_proj", C, C );
+			res_1_ = std::make_shared<Residual<TInput, TCompute, TDeviceType>>( this->getName() + ".res_1" );
+            ln_2_ = std::make_shared<LayerNorm<TInput, TCompute, TDeviceType>>( this->getName() + ".ln_2", input_shape_ );
+            mlp_ = std::make_shared<MLP<TInput, TCompute, TDeviceType>>( this->getName() + ".mlp", input_shape_, 4 * C);
+            res_2_ = std::make_shared<Residual<TInput, TCompute, TDeviceType>>( this->getName() + ".res_2" );
 
 			this->addModule( ln_1_ );
 			this->addModule( fc_qkv_ ); // qkv
@@ -137,14 +138,14 @@ namespace Mila::Dnn
 		std::vector<size_t> input_shape_; ///< The input shape.
 		size_t num_heads_; ///< The number of attention heads.
 
-		std::shared_ptr<LayerNorm<TInput, TCompute, TDevice>> ln_1_{ nullptr };
-		std::shared_ptr<FullyConnected<TInput, TCompute, TDevice>> fc_qkv_{ nullptr };
-		std::shared_ptr<MultiHeadAttention<TInput, TCompute, TDevice>> attn_{ nullptr };
-		std::shared_ptr<FullyConnected<TInput, TCompute, TDevice>> fc_attn_proj_{ nullptr };
-		std::shared_ptr<Residual<TInput, TCompute, TDevice>> res_1_{ nullptr };
-		std::shared_ptr<LayerNorm<TInput, TCompute, TDevice>> ln_2_{ nullptr };
-		std::shared_ptr<MLP<TInput, TCompute, TDevice>> mlp_{ nullptr };
-		std::shared_ptr<Residual<TInput, TCompute, TDevice>> res_2_{ nullptr };
+		std::shared_ptr<LayerNorm<TInput, TCompute, TDeviceType>> ln_1_{ nullptr };
+		std::shared_ptr<FullyConnected<TInput, TCompute, TDeviceType>> fc_qkv_{ nullptr };
+		std::shared_ptr<MultiHeadAttention<TInput, TCompute, TDeviceType>> attn_{ nullptr };
+		std::shared_ptr<FullyConnected<TInput, TCompute, TDeviceType>> fc_attn_proj_{ nullptr };
+		std::shared_ptr<Residual<TInput, TCompute, TDeviceType>> res_1_{ nullptr };
+		std::shared_ptr<LayerNorm<TInput, TCompute, TDeviceType>> ln_2_{ nullptr };
+		std::shared_ptr<MLP<TInput, TCompute, TDeviceType>> mlp_{ nullptr };
+		std::shared_ptr<Residual<TInput, TCompute, TDeviceType>> res_2_{ nullptr };
 
 		Tensor<TCompute, MR> ln_1_output_;
 		Tensor<TCompute, MR> fc_qkv_output_;

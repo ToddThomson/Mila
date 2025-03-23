@@ -23,15 +23,16 @@ namespace Mila::Dnn::Compute
 	using namespace Mila::Dnn;
 	
 	export
-	class CpuEncoderOp :public UnaryOperation<int, float, CpuDevice> {
+	class CpuEncoderOp : public UnaryOperation<int, float, DeviceType::Cpu> {
 	public:
-		using MR = CpuDevice::MR;
+		//using MR = CpuDevice::MR;
 
-		CpuEncoderOp() : UnaryOperation<int, float, CpuDevice>( DeviceType::Cpu, OperationType::EncoderOp ) {}
+		CpuEncoderOp() : UnaryOperation<int, float, DeviceType::Cpu>( DeviceType::Cpu, OperationType::EncoderOp ) {}
 
 		void forward(
 			const Tensor<int, CpuMemoryResource>& input,
 			const std::vector<std::shared_ptr<Tensor<float, CpuMemoryResource>>>& parameters,
+			const OperationProperties& properties,
 			Tensor<float, CpuMemoryResource>& output,
 			std::vector<std::shared_ptr<Tensor<float, CpuMemoryResource>>>& output_cache ) const override {
 			auto X = input.data();
@@ -75,7 +76,7 @@ namespace Mila::Dnn::Compute
 		}
 
 		static void registerOperation() {
-			OperationRegistry<int, float, CpuDevice>::instance().registerOperation( DeviceType::Cpu, "Cpu::EncoderOp", []() -> std::unique_ptr<OperationBase<int, float, CpuDevice>> {
+			OperationRegistry<int, float, DeviceType::Cpu>::instance().registerOperation( DeviceType::Cpu, "Cpu::EncoderOp", []() -> std::unique_ptr<OperationBase<int, float, DeviceType::Cpu>> {
 				return std::make_unique<CpuEncoderOp>();
 			} );
 		}

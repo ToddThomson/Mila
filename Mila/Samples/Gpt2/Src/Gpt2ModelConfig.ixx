@@ -1,6 +1,6 @@
-export module Gpt2.Gpt2Config;
+export module Gpt2App.Gpt2Config;
 
-namespace Mila::Dnn::Gpt2
+namespace Gpt2App
 {
 	/**
 	* @brief Configuration structure for GPT-2 model.

@@ -26,12 +26,12 @@ namespace Mila::Dnn::Compute
      * @brief CPU implementation of the Layer Normalization operation.
      */
     export
-    class CpuLayerNormOp : public UnaryOperation<float, float, CpuDevice> {
+    class CpuLayerNormOp : public UnaryOperation<float, float, DeviceType::Cpu> {
     public:
         /**
          * @brief Constructor for CpuLayerNormOp.
          */
-        CpuLayerNormOp() : UnaryOperation<float, float, CpuDevice>( DeviceType::Cpu, OperationType::LayerNormOp ) {}
+        CpuLayerNormOp() : UnaryOperation<float, float, DeviceType::Cpu>( DeviceType::Cpu, OperationType::LayerNormOp ) {}
 
         /**
          * @brief Forward pass for the Layer Normalization operation.
@@ -44,6 +44,7 @@ namespace Mila::Dnn::Compute
         void forward(
             const Tensor<float>& input,
             const std::vector<std::shared_ptr<Tensor<float>>>& parameters,
+			const OperationProperties& properties,
             Tensor<float>& output,
             std::vector<std::shared_ptr<Tensor<float>>>& output_state ) const override {
 
@@ -163,7 +164,7 @@ namespace Mila::Dnn::Compute
          * @brief Registers the Layer Normalization operation in the operation registry.
          */
         static void registerOperation() {
-            OperationRegistry<float, float, CpuDevice>::instance().registerOperation( DeviceType::Cpu, "Cpu::LayerNormOp", []() -> std::unique_ptr<OperationBase<float, float, CpuDevice>> {
+            OperationRegistry<float, float, DeviceType::Cpu>::instance().registerOperation( DeviceType::Cpu, "Cpu::LayerNormOp", []() -> std::unique_ptr<OperationBase<float, float, DeviceType::Cpu>> {
                 return std::make_unique<CpuLayerNormOp>();
                 } );
         }

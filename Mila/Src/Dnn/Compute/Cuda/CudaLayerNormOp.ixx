@@ -23,10 +23,10 @@ namespace Mila::Dnn::Compute
 {
 	export
 		template<typename TInput, typename TOutput = TInput>
-	class CudaLayerNormOp : public UnaryOperation<TInput, TOutput, CudaDevice> {
+	class CudaLayerNormOp : public UnaryOperation<TInput, TOutput, DeviceType::Cuda> {
 	public:
 
-		CudaLayerNormOp() : UnaryOperation<TInput, TOutput, CudaDevice>( DeviceType::Cuda, OperationType::LayerNormOp ) {}
+		CudaLayerNormOp() : UnaryOperation<TInput, TOutput, DeviceType::Cuda>( DeviceType::Cuda, OperationType::LayerNormOp ) {}
 
 		void forward(
 			const Tensor<TInput, CudaMemoryResource>& input,
@@ -49,7 +49,7 @@ namespace Mila::Dnn::Compute
 		}
 
 		static void registerOperation() {
-			OperationRegistry<float, float, CudaDevice>::instance().registerOperation( DeviceType::Cuda, "Cuda::LayerNormOp", []() -> std::unique_ptr<OperationBase<float, float, CudaDevice>> {
+			OperationRegistry<float, float, DeviceType::Cuda>::instance().registerOperation( DeviceType::Cuda, "Cuda::LayerNormOp", []() -> std::unique_ptr<OperationBase<float, float, CudaDevice>> {
 				return std::make_unique<CudaLayerNormOp<float>>();
 			} );
 		}

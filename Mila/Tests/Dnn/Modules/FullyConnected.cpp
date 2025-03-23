@@ -22,14 +22,14 @@ namespace Modules::Tests
 			output_channels_ = output_features_ * channels_;
 			has_bias_ = true;
 
-            cpu_linear = std::make_unique<FullyConnected<float, float,Compute::CpuDevice>>(
+            cpu_linear = std::make_unique<FullyConnected<float, float,Compute::DeviceType::Cpu>>(
                 "fc", channels_, output_channels_ );
 
             /*cuda_linear = std::make_unique<Linear<float, float, Compute::CudaDevice>>(
                 "fc", channels_, output_channels_ );*/
         }
 
-        std::unique_ptr<FullyConnected<float, float, Compute::CpuDevice>> cpu_linear;
+        std::unique_ptr<FullyConnected<float, float, Compute::DeviceType::Cpu>> cpu_linear;
         //std::unique_ptr<FullyConnected<float, float, Compute::CudaDevice>> cuda_linear;
         
         size_t batch_size_{ 0 };

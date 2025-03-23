@@ -17,6 +17,7 @@ import Dnn.Tensor;
 import Dnn.TensorTraits;
 
 import Compute.ComputeDevice;
+import Compute.DeviceType;
 import Compute.CpuDevice;
 import Compute.CudaDevice;
 
@@ -38,11 +39,11 @@ namespace Mila::Dnn
 	* @tparam MemoryResource The memory resource type used for memory management.
 	*/
 	export
-	template<typename TInput, typename TCompute = TInput, typename TDevice = Compute::CpuDevice>
-		requires ValidTensorTypes<TInput, TCompute> && std::is_base_of_v<Compute::ComputeDevice, TDevice>
+	template<typename TInput, typename TCompute = TInput, Compute::DeviceType TDeviceType = Compute::DeviceType::Cuda>
+		requires ValidTensorTypes<TInput, TCompute>
 	class Model {
 	public:
-		using MR = TDevice::MR;
+		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::CpuMemoryResource>;
 
 		/**
 		* @brief Constructs a new Model object.
@@ -103,7 +104,7 @@ namespace Mila::Dnn
 			/*auto output = std::make_shared<Tensor<TInput, MR>>( std::vector<T>( input->value.size() ) );
 			tensor_map[ output->getID() ] = output;*/
 
-			auto node = std::make_shared<Gelu<TInput, TCompute, TDevice>>( input );
+			auto node = std::make_shared<Gelu<TInput, TCompute, TDeviceType>>( input );
 
 			return registerModule( node );
 		}
@@ -116,7 +117,7 @@ namespace Mila::Dnn
 			/*auto output = std::make_shared<Tensor<TInput,MR>>( std::vector<T>() );
 			tensor_map[ output->getID() ] = output;*/
 
-			auto node = std::make_shared<LayerNorm<TInput, TCompute, TDevice>>( name, normalized_shape );
+			auto node = std::make_shared<LayerNorm<TInput, TCompute, TDeviceType>>( name, normalized_shape );
 			registerModule( node );
 
 			return { nullptr };// node->output();
@@ -130,7 +131,7 @@ namespace Mila::Dnn
 			/*auto output = std::make_shared<Tensor<TInput,MR>>( std::vector<T>() );
 			tensor_map[ output->getID() ] = output;*/
 
-			auto node = std::make_shared<FullyConnected<TInput, TCompute, TDevice>>( input, weight, bias );
+			auto node = std::make_shared<FullyConnected<TInput, TCompute, TDeviceType>>( input, weight, bias );
 			registerNode( node );
 
 			return { nullptr };// node->output();
@@ -154,7 +155,7 @@ namespace Mila::Dnn
 		* @return size_t The index of the added module.
 		* @throws std::invalid_argument if a module with the same name already exists.
 		*/
-		//template <typename ModuleType> requires std::derived_from<ModuleType, Module<TInput, TCompute, MR>>
+		//template <typename ModuleType> requires std::derived_from<ModuleType, Module<TInput, TPrecision, MR>>
 		//size_t add( std::shared_ptr<ModuleType> module ) {
 
 		//	if constexpr ( std::is_same_v<MR, Compute::DeviceMemoryResource> ) {
@@ -235,7 +236,7 @@ namespace Mila::Dnn
 		* @return std::shared_ptr<Module<T>> A shared pointer to the module.
 		* @throws std::out_of_range if the index is out of range.
 		*/
-		std::shared_ptr<Module<TInput, TCompute, TDevice>> operator[]( size_t index ) const {
+		std::shared_ptr<Module<TInput, TCompute, TDeviceType>> operator[]( size_t index ) const {
 			if ( index >= modules_.size() ) {
 				throw std::out_of_range( "Index out of range" );
 			}
@@ -249,7 +250,7 @@ namespace Mila::Dnn
 		* @return std::shared_ptr<Module<T>> A shared pointer to the module.
 		* @throws std::out_of_range if no module with the given name is found.
 		*/
-		std::shared_ptr<Module<TInput, TCompute, TDevice>> operator[]( const std::string& name ) const {
+		std::shared_ptr<Module<TInput, TCompute, TDeviceType>> operator[]( const std::string& name ) const {
 			auto it = std::find( module_names_.begin(), module_names_.end(), name );
 			if ( it == module_names_.end() ) {
 				throw std::out_of_range( "No module found with name '" + name + "'." );
@@ -258,7 +259,7 @@ namespace Mila::Dnn
 			return modules_[ index ];
 		}
 
-		/*inline std::shared_ptr<Tensor<TCompute, MR>> tensor( const Tensor<TInput, MR>& tensor ) {
+		/*inline std::shared_ptr<Tensor<TPrecision, MR>> tensor( const Tensor<TInput, MR>& tensor ) {
 			auto tensor_ptr = std::make_shared<Tensor<TInput, MR>>( tensor );
 			inputs_.emplace( tensor_ptr );
 
@@ -301,10 +302,10 @@ namespace Mila::Dnn
 	private:
 		std::unordered_set<std::shared_ptr<Tensor<TInput, MR>>> inputs_; ///< The setof input tensors.
 		std::unordered_map<std::string, std::shared_ptr<Tensor<TInput, MR>>> input_tensor_map_;
-		std::vector<std::shared_ptr<Module<TInput, TCompute, TDevice>>> modules_; ///< The list of modules in the model.
+		std::vector<std::shared_ptr<Module<TInput, TCompute, TDeviceType>>> modules_; ///< The list of modules in the model.
 		std::vector<std::string> module_names_; ///< The list of module names.
 
-		std::vector<std::shared_ptr<Module<TInput, TCompute, TDevice>>> execution_order;
+		std::vector<std::shared_ptr<Module<TInput, TCompute, TDeviceType>>> execution_order;
 
 		cudaGraph_t cuda_graph;
 		cudaGraphExec_t cuda_graph_exec;
@@ -315,7 +316,7 @@ namespace Mila::Dnn
 
 		cudaStream_t stream_{}; ///< The CUDA stream for device memory resource.
 
-		std::shared_ptr<Tensor<TCompute, MR>> registerModule( std::shared_ptr<Module<TInput, TCompute, TDevice>> module ) {
+		std::shared_ptr<Tensor<TCompute, MR>> registerModule( std::shared_ptr<Module<TInput, TCompute, TDeviceType>> module ) {
 			modules_.push_back( module );
 
 			return { nullptr };// input_tensor_map_[ module->output_id ];

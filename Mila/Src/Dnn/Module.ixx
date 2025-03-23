@@ -13,7 +13,8 @@ export module Dnn.Module;
 import Dnn.Tensor;
 import Dnn.TensorTraits;
 
-import Compute.ComputeDevice;  
+import Compute.ComputeDevice;
+import Compute.DeviceType;
 import Compute.CpuDevice;  
 import Compute.CudaDevice;  
 
@@ -31,36 +32,17 @@ namespace Mila::Dnn
     * @brief Abstract base class for all modules in the Mila DNN framework.
     *
     * @tparam TInput Data type of the input tensor elements.
-    * @tparam TCompute Data type of the compute tensor elements.
+    * @tparam TPrecision Data type of the compute tensor elements.
     * @tparam TDevice Device type, either CpuDevice or CudaDevice.
     */
     export
-        template<typename TInput, typename TCompute = TInput, typename TDevice = Compute::CpuDevice>
-        requires ValidTensorTypes<TInput, TCompute>&& std::is_base_of_v<Compute::ComputeDevice, TDevice>
+        template<typename TInput, typename TCompute = TInput, Compute::DeviceType TDeviceType = Compute::DeviceType::Cuda>
+        requires ValidTensorTypes<TInput, TCompute>
     class Module {
     public:
-        using MR = TDevice::MR;
+        using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::CpuMemoryResource>;
 
         virtual ~Module() = default;
-
-        /**
-        * @brief Forward pass of the module.
-        *
-        * @param input Input tensor.
-        * @param output Output tensor.
-        */
-        //virtual void forward( const Tensor<TInput, MR>& input, Tensor<TCompute, MR>& output ) = 0;
-
-        /**
-        * @brief Backward pass of the module.
-        *
-        * @param gradient Gradient tensor.
-        * @return Tensor<TCompute, MR> Gradient with respect to the input.
-        */
-        //virtual Tensor<TCompute, MR> backward( const Tensor<TInput, MR>& gradient ) {
-            // Default to no op  
-            //return {};
-        //}
 
         /**
         * @brief Set the training mode of the module.
@@ -148,11 +130,11 @@ namespace Mila::Dnn
         * @param module The child module to register.
         * @throws std::runtime_error If a module with the same name is already registered.
         */
-        void addModule( std::shared_ptr<Module<TInput, TCompute, TDevice>> module ) {
+        void addModule( std::shared_ptr<Module<TInput, TCompute, TDeviceType>> module ) {
             sub_modules_.emplace_back( module );
         }
 
-        const std::vector<std::shared_ptr<Module<TInput, TCompute, TDevice>>>& getSubModules() const {
+        const std::vector<std::shared_ptr<Module<TInput, TCompute, TDeviceType>>>& getSubModules() const {
             return sub_modules_;
         }
 
@@ -201,6 +183,6 @@ namespace Mila::Dnn
         std::string name_; ///< The name of the module. Cannot be empty and cannot contain a dot ('.').  
         bool is_training_{ false }; ///< Whether the module is in training mode. Default is false.  
 
-        std::vector<std::shared_ptr<Module<TInput, TCompute, TDevice>>> sub_modules_; ///< Child modules.
+        std::vector<std::shared_ptr<Module<TInput, TCompute, TDeviceType>>> sub_modules_; ///< Child modules.
     };
 }

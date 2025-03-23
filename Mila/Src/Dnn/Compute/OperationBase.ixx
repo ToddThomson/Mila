@@ -31,11 +31,11 @@ namespace Mila::Dnn::Compute
 * @tparam TMemoryResource The memory resource type, must be derived from MemoryResource.  
 */  
 export  
-template <typename TInput, typename TCompute, typename TDevice>
-	requires ValidTensorTypes<TInput, TCompute> && std::is_base_of_v<Compute::ComputeDevice, TDevice>
+template <typename TInput, typename TCompute, Compute::DeviceType TDeviceType = Compute::DeviceType::Cuda>
+	requires ValidTensorTypes<TInput, TCompute>
 class OperationBase {  
 public:
-	using MR = TDevice::MR;
+	using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::CpuMemoryResource>;
 
 	/**  
 	* @brief Constructs an OperationBase object.
@@ -86,9 +86,9 @@ public:
 	//*/  
 	//virtual void forward(  
 	//	const Tensor<TInput, MR>& input,  
-	//	const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& parameters,  
-	//	Tensor<TCompute, MR>& output,  
-	//	std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& output_state ) const = 0;  
+	//	const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,  
+	//	Tensor<TPrecision, MR>& output,  
+	//	std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const = 0;  
 
 	/**  
 	* @brief Executes the backward pass of the operation.  

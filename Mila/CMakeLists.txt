@@ -108,7 +108,7 @@ PUBLIC
 		"Src/Dnn/Compute/Backend.ixx"
 		"Src/Dnn/Compute/Cuda/CudaComputeResource.ixx"
 		"Src/Dnn/Compute/Cuda/CudaGeluOp.ixx" 
- "Src/Dnn/Compute/Cuda/CudaSoftmaxOp.ixx" "Src/Dnn/Compute/Cuda/CudaLayerNormOp.ixx" "Src/Dnn/Compute/Cuda/CudaEncoderOp.ixx" "Src/Dnn/Compute/Cuda/CudaMultiHeadAttentionOp.ixx" "Src/Dnn/ModelBase.ixx")
+ "Src/Dnn/Compute/Cuda/CudaSoftmaxOp.ixx" "Src/Dnn/Compute/Cuda/CudaLayerNormOp.ixx" "Src/Dnn/Compute/Cuda/CudaEncoderOp.ixx" "Src/Dnn/Compute/Cuda/CudaMultiHeadAttentionOp.ixx" "Src/Dnn/ModelBase.ixx" "Src/Dnn/Compute/OperationProperties.ixx")
 
 target_link_libraries( Mila PRIVATE CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
 

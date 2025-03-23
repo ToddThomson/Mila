@@ -23,14 +23,15 @@ namespace Mila::Dnn::Compute
 {
 	export
 	template<typename TOutput = float>
-	class CudaEncoderOp : public UnaryOperation<int, TOutput, CudaDevice> {
+	class CudaEncoderOp : public UnaryOperation<int, TOutput, DeviceType::Cuda> {
 	public:
 
-		CudaEncoderOp() : UnaryOperation<int, TOutput, CudaDevice>( DeviceType::Cuda, OperationType::EncoderOp ) {}
+		CudaEncoderOp() : UnaryOperation<int, TOutput, DeviceType::Cuda>( DeviceType::Cuda, OperationType::EncoderOp ) {}
 
 		void forward(
 			const Tensor<int, CudaMemoryResource>& input,
 			const std::vector<std::shared_ptr<Tensor<TOutput, CudaMemoryResource>>>& parameters,
+			const OperationProperties& properties,
 			Tensor<TOutput, CudaMemoryResource>& output,
 			std::vector<std::shared_ptr<Tensor<TOutput, CudaMemoryResource>>>& output_state ) const override {
 
@@ -48,7 +49,7 @@ namespace Mila::Dnn::Compute
 		}
 
 		static void registerOperation() {
-			OperationRegistry<int, float, CudaDevice>::instance().registerOperation( DeviceType::Cuda, "Cuda::EncoderOp", []() -> std::unique_ptr<OperationBase<int, float, CudaDevice>> {
+			OperationRegistry<int, float, DeviceType::Cuda>::instance().registerOperation( DeviceType::Cuda, "Cuda::EncoderOp", []() -> std::unique_ptr<OperationBase<int, float, DeviceType::Cuda>> {
 				return std::make_unique<CudaEncoderOp<float>>();
 			} );
 		}

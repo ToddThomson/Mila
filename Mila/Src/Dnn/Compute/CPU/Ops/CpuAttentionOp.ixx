@@ -26,13 +26,14 @@ namespace Mila::Dnn::Compute
     export
     template<typename TInput, typename TCompute = TInput>
         requires ValidTensorTypes<TInput, TCompute>
-    class CpuAttentionOp : public UnaryOperation<TInput, TCompute, CpuDevice> {
+    class CpuAttentionOp : public UnaryOperation<TInput, TCompute, DeviceType::Cpu> {
     public:
 
-        CpuAttentionOp() : UnaryOperation<TInput, TCompute, CpuDevice>(DeviceType::Cpu, OperationType::MultiHeadAttentionOp) {}
+        CpuAttentionOp() : UnaryOperation<TInput, TCompute, DeviceType::Cpu>(DeviceType::Cpu, OperationType::MultiHeadAttentionOp) {}
     
         void forward( const Tensor<TInput, CpuMemoryResource>& input,
             const std::vector<std::shared_ptr<Tensor<TCompute, CpuMemoryResource>>>& parameters,
+			const OperationProperties& properties,
             Tensor<TCompute, CpuMemoryResource>& output,
             std::vector<std::shared_ptr<Tensor<TCompute, CpuMemoryResource>>>& output_cache ) const override {
 
@@ -154,7 +155,7 @@ namespace Mila::Dnn::Compute
         }
         
         static void registerOperation() {
-            OperationRegistry<float, float, CpuDevice>::instance().registerOperation( DeviceType::Cpu, "Cpu::AttentionOp", []() -> std::unique_ptr<OperationBase<float, float, CpuDevice>> {
+            OperationRegistry<float, float, DeviceType::Cpu>::instance().registerOperation( DeviceType::Cpu, "Cpu::AttentionOp", []() -> std::unique_ptr<OperationBase<float, float, DeviceType::Cpu>> {
                 return std::make_unique<CpuAttentionOp<float>>();
             } );
         }

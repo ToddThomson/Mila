@@ -1,5 +1,5 @@
 add_executable( Gpt2App 
-	"Src/TrainGpt2.cpp"
+	"Src/Gpt2.cpp"
 )
 
 set_target_properties(Gpt2App PROPERTIES
@@ -10,8 +10,8 @@ target_sources( Gpt2App
 PUBLIC
 	FILE_SET module_files
        TYPE CXX_MODULES FILES
-		"Src/ModelConfig.ixx"
-		"Src/DataLoader.ixx"
+		"Src/Gpt2ModelConfig.ixx"
+		"Src/Gpt2DataLoader.ixx"
 		"Src/Gpt2Model.ixx"
 		"Src/Tokenizer.ixx" 
 )

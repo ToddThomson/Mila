@@ -22,14 +22,14 @@ namespace Modules::Tests
             cuda_input_shape_ = { batch_size_, sequence_length_, 3 * channels_ };
             has_bias_ = true;
 
-            cpu_attention = std::make_unique<MultiHeadAttention<float, float, Compute::CpuDevice>>(
+            cpu_attention = std::make_unique<MultiHeadAttention<float, float, Compute::DeviceType::Cpu>>(
                 "cpu_attn", cpu_input_shape_, num_heads_ );
 
             /*cuda_linear = std::make_unique<MilaDnn::Modules::Linear<float, MilaDnn::Compute::DeviceMemoryResource>>(
                 "cuda_linear_2", input_shape_, output_channels_ );*/
         }
 
-        std::unique_ptr<MultiHeadAttention<float, float, Compute::CpuDevice>> cpu_attention;
+        std::unique_ptr<MultiHeadAttention<float, float, Compute::DeviceType::Cpu>> cpu_attention;
         //std::unique_ptr<MilaDnn::Modules::Linear<float, MilaDnn::Compute::DeviceMemoryResource>> cuda_linear;
 
         size_t batch_size_{ 0 };

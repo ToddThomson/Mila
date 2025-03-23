@@ -6,13 +6,15 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <variant>
 
 import Mila;
 import Utils.Logger;
-import Gpt2.DataLoader;
-import Gpt2.Tokenizer;
-import Gpt2.Gpt2Config;
-import Gpt2.Gpt2Model;
+
+import Gpt2App.Gpt2DataLoader;
+import Gpt2App.Gpt2Tokenizer;
+import Gpt2App.Gpt2Config;
+import Gpt2App.Gpt2Model;
 
 unsigned int random_u32( uint64_t* state ) {
 	// xorshift rng: https://en.wikipedia.org/wiki/Xorshift#xorshift.2A
@@ -41,28 +43,18 @@ void error_usage() {
 	std::cerr << ("  -m <int>    val_max_steps, up to how many val batches to estimate val loss? (default = 20)\n");
 	std::cerr << ("  -s <int>    sample_every, how often we inference the model (default = 20)\n");
 	std::cerr << ("  -g <int>    genT, how many steps of inference we do (default = 64)\n");
+	std::cerr << ("  -c <string> compute type (default = auto)\n");
+	std::cerr << ("  -h          print this help message\n");
+
 	exit( EXIT_FAILURE );
 }
 
 int main( int argc, char* argv[] ) {
+	using namespace Gpt2App;
 	using namespace Mila::Dnn;
 
 	Mila::Initialize();
 	std::cout << "Mila version: " << Mila::GetAPIVersion().ToString() << std::endl;
-
-	auto devices = Compute::list_devices();
-	std::cout << "Available compute devices: ";
-	for ( const auto& device : devices ) {
-		std::cout << device << " ";
-	}
-	std::cout << std::endl;
-
-	auto device = Mila::getDevice();
-	std::cout << "The current Compute Device is: " << device->getName() << std::endl;
-
-	bool use_cuda = ( device->getDeviceType() == DeviceType::Cuda);
-
-	using namespace Mila::Dnn::Gpt2;
 
 	// read in the (optional) command line arguments
 	std::string train_data_pattern = "data/datasets/tinyshakespeare/tiny_shakespeare_train.bin";
@@ -75,6 +67,7 @@ int main( int argc, char* argv[] ) {
 	int val_max_steps = 20; // how many batches max do we eval for validation loss?
 	int sample_every = 20; // every how many steps to do inference?
 	int genT = 64; // number of steps of inference we will do
+	std::string compute_type = "CUDA";
 	
 	for ( int i = 1; i < argc; i += 2 ) {
 		if ( i + 1 >= argc ) { error_usage(); } // must have arg after flag
@@ -91,6 +84,8 @@ int main( int argc, char* argv[] ) {
 		else if ( argv[ i ][ 1 ] == 'm' ) { val_max_steps = atoi( argv[ i + 1 ] ); }
 		else if ( argv[ i ][ 1 ] == 's' ) { sample_every = atoi( argv[ i + 1 ] ); }
 		else if ( argv[ i ][ 1 ] == 'g' ) { genT = atoi( argv[ i + 1 ] ); }
+		else if ( argv[ i ][ 1 ] == 'c' ) { compute_type = argv[ i + 1 ]; }
+		else if ( argv[ i ][ 1 ] == 'h' ) { error_usage(); }
 		else { error_usage(); }
 	}
 
@@ -107,17 +102,90 @@ int main( int argc, char* argv[] ) {
 	std::cout << std::format( "| val_max_steps         | {:<55d} |\n", val_max_steps );
 	std::cout << std::format( "| sample_every          | {:<55d} |\n", sample_every );
 	std::cout << std::format( "| genT                  | {:<55d} |\n", genT );
+	std::cout << std::format( "| compute type          | {:<55} |\n", compute_type );
 	std::cout << "+-----------------------+---------------------------------------------------------+\n";
 
 	// set up the Logger
 	Mila::Dnn::Logger logger( output_log_file );
 
+	auto devices = Compute::list_devices();
+	std::cout << "Available compute devices: ";
+	for ( const auto& device : devices ) {
+		std::cout << device << " ";
+	}
+	std::cout << std::endl;
+
+	//auto device = Mila::getDevice();
+	//std::cout << "The current Compute Device is: " << device->getName() << std::endl;
+
+	//bool use_cuda = (device->getDeviceType() == DeviceType::Cuda);
+
 	// build the GPT-2 model from a checkpoint
 
 	// TJT: This is a bit confusing. The model is initialized with a config object, but then the model is loaded from a checkpoint.
-    ModelConfig config;
-    auto model = std::make_unique<Gpt2Model<float, Compute::CudaDevice>>(config, B, T);
-    model->fromCheckpoint("data/models/gpt2/gpt2_124M.bin");
+    //ModelConfig config;
+
+	/*std::unique_ptr<Gpt2Model<float, std::conditional_t<std::same_as<std::string_view, decltype("CUDA")>,
+		Compute::CudaDevice,
+		Compute::CpuDevice>>> model;
+
+	if ( compute_type == "CUDA" ) {
+		model = createAndSetupModel<Compute::CudaDevice>( config, B, T );
+	}
+	else {
+		model = createAndSetupModel<Compute::CpuDevice>( config, B, T );
+	}*/
+
+	// Then in main(), replace the if-else block with:
+	/*using ModelType = Gpt2Model<float, std::conditional_t<
+		isMatchingDevice<Compute::CudaDevice>( compute_type ),
+		Compute::CudaDevice,
+		Compute::CpuDevice>>;
+
+	auto model = createGpt2Model<float,
+		std::conditional_t<
+		isMatchingDevice<Compute::CudaDevice>( compute_type ),
+		Compute::CudaDevice,
+		Compute::CpuDevice>>(config, B, T);*/
+
+	// In main(), replace the current model initialization with:
+	/*ModelConfig config;
+	auto model = [&]() {
+		if ( compute_type == "CUDA" ) {
+			return createGpt2Model<float, Compute::CudaDevice>( config, B, T );
+		}
+		return createGpt2Model<float, Compute::CpuDevice>( config, B, T );
+	}();*/
+
+	/*ModelConfig config;
+	auto device = Mila::Dnn::Compute::DeviceRegistry::instance().createDevice( compute_type );
+	auto model = [&]() {
+		if ( device->getDeviceType() == Compute::DeviceType::Cuda ) {
+			return createGpt2Model<float, Compute::CudaDevice>( config, B, T );
+		}
+		return createGpt2Model<float, Compute::CpuDevice>( config, B, T );
+	}();*/
+
+	/*ModelConfig config;
+	auto device = Compute::DeviceRegistry::instance().createDevice( compute_type );
+	auto model = [&]() -> std::unique_ptr<Gpt2Model<float, Compute::ComputeDevice>> {
+		switch ( device->getDeviceType() ) {
+			case Compute::DeviceType::Cuda:
+				return createGpt2Model<float, Compute::CudaDevice>( config, B, T );
+			default:
+				return createGpt2Model<float, Compute::CpuDevice>( config, B, T );
+		}
+	}();*/
+
+	// Set device context once before creating model
+	Compute::DeviceContext::instance().setDevice( compute_type );
+
+	// Create model - it will use whatever device is currently set
+	ModelConfig config;
+	auto model = std::make_unique<Gpt2Model<float>>( config, B, T );
+
+        
+	model->fromCheckpoint("data/models/gpt2/gpt2_124M.bin");
 	model->print();
 
 	// build DataLoaders for both train and val

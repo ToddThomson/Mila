@@ -39,6 +39,8 @@ export import Dnn.TensorTraits;
 export import Dnn.TensorHelpers;
 
 export import Compute.ComputeDevice;
+export import Compute.DeviceRegistry;
+export import Compute.DeviceType;
 export import Compute.CpuDevice;
 export import Compute.CudaDevice;
 export import Compute.DeviceContext;
@@ -68,7 +70,7 @@ namespace Mila {
     /// Gets the Mila API version.
     /// </summary>
     export Version GetAPIVersion() {
-        return Version{0, 9, 60, "alpha", 1 };
+        return Version{0, 9, 61, "alpha", 1 };
     }
 
 	export void setDevice( const std::string& name ) {

@@ -16,6 +16,7 @@ import Dnn.TensorHelpers;
 
 import Compute.DeviceType;
 import Compute.OperationBase;
+import Compute.OperationProperties;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
@@ -27,14 +28,14 @@ export namespace Mila::Dnn
 	using namespace Mila::Dnn::Compute;
 
 	export
-	template<typename TInput, typename TCompute = TInput, typename TDevice = CpuDevice>
-		requires ValidTensorTypes<TInput, TCompute> && std::is_base_of_v<Compute::ComputeDevice, TDevice>
-	class Encoder : public Module<TInput, TCompute, TDevice> {
+	template<typename TInput, typename TCompute = TInput, Compute::DeviceType TDeviceType = Compute::DeviceType::Cuda>
+		requires ValidTensorTypes<TInput, TCompute>
+	class Encoder : public Module<TInput, TCompute, TDeviceType> {
 	public:
-		using MR = TDevice::MR;
+		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::CpuMemoryResource>;
 
 		/**
-		* @brief Construct a new Encoder object.
+		* @brief Construct a new Encoder module.
 		*
 		* @param name The name of the module.
 		* @param input_shape The shape of the input tensor. The input shape is (B,T) of integers, holding
@@ -65,7 +66,7 @@ export namespace Mila::Dnn
 		* @return Tensor<float, MR> The output tensor.
 		*/
 		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute, MR>& output ) {
-			operation_->forward( input, parameters_, output, output_state_ );
+			operation_->forward( input, parameters_, properties_, output, output_state_ );
 		}
 
 		void save( mz_zip_archive& zip ) const override {
@@ -114,8 +115,9 @@ export namespace Mila::Dnn
 		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_; ///< The Encoder parameters
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_{ nullptr }; ///< The output attributes. Not used in this module.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_{ nullptr }; ///< The scalars. Not used in this module.
+		OperationProperties properties_; ///< The operation properties.
 
-		std::shared_ptr<Dnn::Compute::UnaryOperation<int, float, TDevice>> operation_{ nullptr }; ///< The operation.
+		std::shared_ptr<Dnn::Compute::UnaryOperation<int, float, TDeviceType>> operation_{ nullptr }; ///< The operation.
 
 		void initializeTensors() {
 			wte_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ vocab_len_, channels_ } );
@@ -136,21 +138,13 @@ export namespace Mila::Dnn
 		* @brief Create the operation.
 		*/
 		void createOperation() {
-
-			// REVIEW: I haven't decided on creating the output on the first call to the forward pass...
-			// output is (B,T,C). At each position (b,t), a C dimensional vector summarizing token & position
-			//auto B = input_shape_[ 0 ];
-			//auto T = input_shape_[ 1 ];
-
-			//output_ = Tensor<float, MR>( std::vector<size_t>( { B, T, channels_ } ) );
-
-			if constexpr ( std::is_same_v<TDevice, Compute::CpuDevice> ) {
-				auto base_operation = OperationRegistry<int, float, CpuDevice>::instance().createOperation( DeviceType::Cpu, "Cpu::EncoderOp" );
-				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<int, float, CpuDevice>>(base_operation);
+			if constexpr ( TDeviceType == DeviceType::Cpu ) {
+				auto base_operation = OperationRegistry<int, float, DeviceType::Cpu>::instance().createOperation( DeviceType::Cpu, "Cpu::EncoderOp" );
+				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<int, float, DeviceType::Cpu>>(base_operation);
 			}
 			else {
-				auto base_operation = OperationRegistry<int, float, CudaDevice>::instance().createOperation( DeviceType::Cuda, "Cuda::EncoderOp" );
-				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<int, float, CudaDevice>>(base_operation);
+				auto base_operation = OperationRegistry<int, float, DeviceType::Cuda>::instance().createOperation( DeviceType::Cuda, "Cuda::EncoderOp" );
+				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<int, float, DeviceType::Cuda>>(base_operation);
 			}
 		}
 	};

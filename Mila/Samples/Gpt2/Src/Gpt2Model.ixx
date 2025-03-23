@@ -13,13 +13,13 @@ module;
 #include <memory>
 #include <type_traits>
 
-export module Gpt2.Gpt2Model;
+export module Gpt2App.Gpt2Model;
 
 import Mila;
 
-import Gpt2.Gpt2Config;
+import Gpt2App.Gpt2Config;
 
-namespace Mila::Dnn::Gpt2
+namespace Gpt2App
 {
 	using namespace Mila::Dnn;
 
@@ -98,15 +98,23 @@ namespace Mila::Dnn::Gpt2
 	};
 
 	export
-	template<typename TCompute = float, typename TDevice = Compute::CudaDevice>
-		requires ValidTensorType<TCompute> && std::is_base_of_v<Compute::ComputeDevice, TDevice>
+	template<typename TCompute = float, Compute::DeviceType TDevice = Compute::DeviceType::Cuda>
+		requires ValidTensorType<TCompute>
 	class Gpt2Model : public ModelBase {
 	public:
-		using MR_INPUT = std::conditional_t<std::is_same_v<TDevice, Compute::CudaDevice>, CudaPinnedMemoryResource, CpuMemoryResource>;
-		using MR = std::conditional_t<std::is_same_v<TDevice, Compute::CudaDevice>, CudaMemoryResource, CpuMemoryResource>;
+		using MR = std::conditional_t<
+			TDevice == Compute::DeviceType::Cuda,
+			Compute::CudaMemoryResource,
+			Compute::CpuMemoryResource>;
+		using MR_INPUT = std::conditional_t<
+			TDevice == Compute::DeviceType::Cuda,
+			Compute::CudaPinnedMemoryResource,
+			Compute::CpuMemoryResource>;
 
-		Gpt2Model( const ModelConfig& config, size_t batch_size, size_t sequence_length, bool is_training = true )
+		Gpt2Model( const ModelConfig& config, size_t batch_size, size_t sequence_length, Compute::DeviceType device_type = DeviceType::Cuda, bool is_training = true )
 			: config_( config ), batch_size_( batch_size ), seq_len_( sequence_length ), is_training_( is_training ) {
+			// Get device type from context once at construction
+			device_type_ = Compute::DeviceContext::instance().getDevice()->getDeviceType();
 
 			// Initialize the model parameters and activations
 			// TODO: Will be removed once the model save/load is implemented
@@ -832,7 +840,7 @@ namespace Mila::Dnn::Gpt2
 		// other run state configuration
 		size_t batch_size_{ 0 }; // the batch size (B) of current forward pass
 		size_t seq_len_{ 0 }; // the sequence length (T) of current forward pass
-
+		Compute::DeviceType device_type_{ Compute::DeviceType::Cuda };
 		bool is_training_{ true };
 
 		Tensor<int> inputs_; // the input tokens for the current forward pass

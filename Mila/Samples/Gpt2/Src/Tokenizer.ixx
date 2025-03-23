@@ -8,9 +8,9 @@ module;
 #include <stdexcept>
 #include <cctype>
 
-export module Gpt2.Tokenizer;
+export module Gpt2App.Gpt2Tokenizer;
 
-namespace Mila::Dnn::Gpt2
+namespace Gpt2App
 {
 	/// @brief Size of the GPT-2 tokenizer header.
 	constexpr int Gpt2TokenizerHeaderSize = 256;
