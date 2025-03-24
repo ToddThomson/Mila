@@ -12,6 +12,7 @@ import Dnn.TensorTraits;
 import Compute.DeviceType; 
 import Compute.ComputeDevice;
 import Compute.OperationBase;
+import Compute.OperationAttributes;
 import Compute.OperationType;  
 import Compute.MemoryResource;  
 import Compute.CpuMemoryResource;  
@@ -44,6 +45,7 @@ namespace Mila::Dnn::Compute
 		* @param input1 The first input tensor.
 		* @param input2 The second input tensor.
 		* @param parameters The parameters for the operation.
+		* @param attributes The attributes for the operation (if any).
 		* @param output The output tensor.
 		* @param output_state Cache for the output tensors.
 		*/
@@ -51,6 +53,7 @@ namespace Mila::Dnn::Compute
 			const Tensor<TInput, MR>& input1,
 			const Tensor<TInput, MR>& input2,
 			const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& parameters,
+			const OperationAttributes& attributes,
 			Tensor<TCompute, MR>& output,
 			std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& output_state ) const = 0;
 	};

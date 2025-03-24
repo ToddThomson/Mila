@@ -16,8 +16,7 @@ PUBLIC
 		"Src/Tokenizer.ixx" 
 )
 
-target_link_libraries( Gpt2App PRIVATE Mila )
-#target_link_libraries( TrainGpt2 PRIVATE Mila Thrust::Thrust CUDA::nvml CUDA::cublas CUDA::cublasLt)  
+target_link_libraries( Gpt2App PRIVATE Mila CUDA::cudart )
 
 add_custom_command(
     TARGET Gpt2App POST_BUILD

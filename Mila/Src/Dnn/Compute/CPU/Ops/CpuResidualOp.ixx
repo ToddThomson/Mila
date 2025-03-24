@@ -13,6 +13,7 @@ export module Compute.CpuResidualOp;
 import Dnn.Tensor;
 import Compute.DeviceType;
 import Compute.OperationType;
+import Compute.OperationAttributes;
 import Compute.OperationBase;
 import Compute.BinaryOperation;
 import Compute.OperationRegistry;
@@ -33,6 +34,7 @@ namespace Mila::Dnn::Compute
             const Tensor<T, CpuMemoryResource>& input_a,
             const Tensor<T, CpuMemoryResource>& input_b,
             const std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& parameters,
+			const OperationAttributes& attributes,
             Tensor<T, CpuMemoryResource>& output,
             std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& output_cache ) const override {
 			auto A = input_a.data();

@@ -18,7 +18,7 @@ import Compute.CpuDevice;
 import Compute.CudaDevice;
 
 import Compute.OperationBase;
-import Compute.OperationProperties;
+import Compute.OperationAttributes;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
@@ -109,7 +109,7 @@ export namespace Mila::Dnn
 		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_ = {}; ///< The parameters. 
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_ = {}; ///< The output attributes.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_ = {}; ///< The scalars.
-		OperationProperties properties_; ///< The operation properties.
+		OperationAttributes properties_; ///< The operation properties.
 
 		std::shared_ptr<Dnn::Compute::UnaryOperation<TInput, TCompute, TDeviceType>> operation_{ nullptr }; ///< The operation.
 
@@ -136,7 +136,7 @@ export namespace Mila::Dnn
 				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<float, float, DeviceType::Cpu>>(base_operation);
 			}
 			else {
-				auto base_operation = OperationRegistry<float, float, DeviceType::Cuda>::instance().createOperation( DeviceType::Cuda, "Cuda::AttentionOp" );
+				auto base_operation = OperationRegistry<float, float, DeviceType::Cuda>::instance().createOperation( DeviceType::Cuda, "Cuda::MultiHeadAttentionOp" );
 				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<float, float, DeviceType::Cuda>>(base_operation);
 			}
 		}

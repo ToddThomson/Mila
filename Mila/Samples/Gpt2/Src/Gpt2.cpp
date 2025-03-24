@@ -115,78 +115,19 @@ int main( int argc, char* argv[] ) {
 	}
 	std::cout << std::endl;
 
-	//auto device = Mila::getDevice();
-	//std::cout << "The current Compute Device is: " << device->getName() << std::endl;
-
-	//bool use_cuda = (device->getDeviceType() == DeviceType::Cuda);
-
-	// build the GPT-2 model from a checkpoint
-
-	// TJT: This is a bit confusing. The model is initialized with a config object, but then the model is loaded from a checkpoint.
-    //ModelConfig config;
-
-	/*std::unique_ptr<Gpt2Model<float, std::conditional_t<std::same_as<std::string_view, decltype("CUDA")>,
-		Compute::CudaDevice,
-		Compute::CpuDevice>>> model;
-
-	if ( compute_type == "CUDA" ) {
-		model = createAndSetupModel<Compute::CudaDevice>( config, B, T );
-	}
-	else {
-		model = createAndSetupModel<Compute::CpuDevice>( config, B, T );
-	}*/
-
-	// Then in main(), replace the if-else block with:
-	/*using ModelType = Gpt2Model<float, std::conditional_t<
-		isMatchingDevice<Compute::CudaDevice>( compute_type ),
-		Compute::CudaDevice,
-		Compute::CpuDevice>>;
-
-	auto model = createGpt2Model<float,
-		std::conditional_t<
-		isMatchingDevice<Compute::CudaDevice>( compute_type ),
-		Compute::CudaDevice,
-		Compute::CpuDevice>>(config, B, T);*/
-
-	// In main(), replace the current model initialization with:
-	/*ModelConfig config;
-	auto model = [&]() {
-		if ( compute_type == "CUDA" ) {
-			return createGpt2Model<float, Compute::CudaDevice>( config, B, T );
-		}
-		return createGpt2Model<float, Compute::CpuDevice>( config, B, T );
-	}();*/
-
-	/*ModelConfig config;
-	auto device = Mila::Dnn::Compute::DeviceRegistry::instance().createDevice( compute_type );
-	auto model = [&]() {
-		if ( device->getDeviceType() == Compute::DeviceType::Cuda ) {
-			return createGpt2Model<float, Compute::CudaDevice>( config, B, T );
-		}
-		return createGpt2Model<float, Compute::CpuDevice>( config, B, T );
-	}();*/
-
-	/*ModelConfig config;
-	auto device = Compute::DeviceRegistry::instance().createDevice( compute_type );
-	auto model = [&]() -> std::unique_ptr<Gpt2Model<float, Compute::ComputeDevice>> {
-		switch ( device->getDeviceType() ) {
-			case Compute::DeviceType::Cuda:
-				return createGpt2Model<float, Compute::CudaDevice>( config, B, T );
-			default:
-				return createGpt2Model<float, Compute::CpuDevice>( config, B, T );
-		}
-	}();*/
+	Compute::DeviceType device_type = Compute::toDeviceType( compute_type );
 
 	// Set device context once before creating model
-	Compute::DeviceContext::instance().setDevice( compute_type );
+	//Compute::DeviceContext::instance().setDevice( compute_type );
 
 	// Create model - it will use whatever device is currently set
 	ModelConfig config;
 	auto model = std::make_unique<Gpt2Model<float>>( config, B, T );
-
-        
 	model->fromCheckpoint("data/models/gpt2/gpt2_124M.bin");
 	model->print();
+
+	// Use the model MR for tensor types
+	using MR = typename decltype(model)::element_type::MR;
 
 	// build DataLoaders for both train and val
 	auto train_loader = Gpt2DataLoader<int>( train_data_pattern, B, T, 0, 1, true );
@@ -207,7 +148,7 @@ int main( int argc, char* argv[] ) {
 
 	// Cpu Tensor for generating samples from the model.
 	uint64_t rng_state = 1337;
-	Tensor<int, Compute::CudaPinnedMemoryResource> gen_tokens( std::vector<size_t>( { B, T } ) );
+	Tensor<int, MR> gen_tokens( std::vector<size_t>( { B, T } ) );
 
 	// Training loop
 	for ( int step = 0; step <= 40; step++ ) {
@@ -245,8 +186,8 @@ int main( int argc, char* argv[] ) {
 				// we re-calculate the forward pass for all of (B,T) positions from scratch
 				// but the inference here is just for sanity checking anyway
 				// and we can maybe optimize a bit more later, with careful tests
-				Tensor<int,Compute::CudaPinnedMemoryResource> empty_targets;
-				//model->forward( gen_tokens, empty_targets );
+				Tensor<int> empty_targets;
+				model->forward( gen_tokens, empty_targets );
 
 				// furthermore, below we're only using b=0 (i.e. the first row) of all B rows
 				// we're in principle running B "inference streams" in parallel here

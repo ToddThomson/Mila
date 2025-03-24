@@ -11,6 +11,8 @@ module;
 #include <array>
 #include <format>
 #include <memory>
+#include <string>
+#include <cuda_runtime.h>
 #include <type_traits>
 
 export module Gpt2App.Gpt2Model;
@@ -106,11 +108,7 @@ namespace Gpt2App
 			TDevice == Compute::DeviceType::Cuda,
 			Compute::CudaMemoryResource,
 			Compute::CpuMemoryResource>;
-		using MR_INPUT = std::conditional_t<
-			TDevice == Compute::DeviceType::Cuda,
-			Compute::CudaPinnedMemoryResource,
-			Compute::CpuMemoryResource>;
-
+		
 		Gpt2Model( const ModelConfig& config, size_t batch_size, size_t sequence_length, Compute::DeviceType device_type = DeviceType::Cuda, bool is_training = true )
 			: config_( config ), batch_size_( batch_size ), seq_len_( sequence_length ), is_training_( is_training ) {
 			// Get device type from context once at construction
@@ -231,6 +229,17 @@ namespace Gpt2App
 			//v_memory_ = nullptr;
 		}
 
+		//void copyToTensor()
+
+		void copyDataToTensor( std::vector<float>& source, Tensor<float, MR>& destination ) {
+			if constexpr ( std::is_same_v<MR, Compute::CpuMemoryResource> ) {
+				std::copy( source.begin(), source.end(), destination.data() );
+			}
+			else {
+				cudaMemcpy( destination.data(), source.data(), source.size() * sizeof( float ), cudaMemcpyHostToDevice );
+			}
+		}
+
 		void initializeParameterTensors() {
 			// TJT: This is a temporary function to initialize the parameter tensors
 			//      with the values read from the checkpoint file. This will be replaced
@@ -239,31 +248,23 @@ namespace Gpt2App
 			// Encoder paramters...
 			auto enc_parameters = encoder_->getParameterTensors();
 			auto wte = enc_parameters[ "wte" ];
-			std::copy( params_.wte.begin(), params_.wte.end(), wte->data() );
+			copyDataToTensor( params_.wte, *wte );
 
 			auto wpe = enc_parameters[ "wpe" ];
-			std::copy( params_.wpe.begin(), params_.wpe.end(), wpe->data() );
+			copyDataToTensor( params_.wpe, *wpe );
 
 			// The wte tensor is also used in the fc_f layer as the weight tensor
 			auto fc_f_parameters = fc_f_->getParameterTensors();
 			auto fc_f_weight = fc_f_parameters[ "weight" ];
 			assert( fc_f_weight->size() == param_sizes_[ 0 ] && "Size mismatch between weight and fc_fw" );
-			std::copy( params_.wte.begin(), params_.wte.end(), fc_f_weight->data() );
-
-			std::cout << fc_f_weight->toString( true ) << std::endl;
+			copyDataToTensor( params_.wte, *fc_f_weight );
 
 			// lnf layer
 			auto ln_f_parameters = ln_f_->getParameterTensors();
 			auto lnf_weight = ln_f_parameters[ "weight" ];
-			std::copy( params_.lnfw.begin(), params_.lnfw.end() , lnf_weight->data() );
+			copyDataToTensor( params_.lnfw, *lnf_weight );
 			auto lnf_bias = ln_f_parameters[ "bias" ];
-			std::copy( params_.lnfb.begin(), params_.lnfb.end() , lnf_bias->data() );
-
-			// TJT: There is a bug here. Still investigating...
-			// 
-			//std::cout << fc_f_weight->toString(true) << std::endl;
-			//std::copy( params_.wte.begin(), params_.wte.end(), fc_f_weight->data() );
-			//std::cout << fc_f_weight->toString(true) << std::endl;
+			copyDataToTensor( params_.lnfb, *lnf_bias );
 
 			// Transformer layer parameters...
 			for ( size_t l = 0; l < config_.num_layers; l++ ) {
@@ -274,18 +275,19 @@ namespace Gpt2App
 						// ln1 layer
 						auto ln_1_parameters = module->getParameterTensors();
 						auto weight = ln_1_parameters[ "weight" ];
-						std::copy( params_.ln1w.begin() + (l * weight->size()), params_.ln1w.begin() + (l * weight->size()) + weight->size(), weight->data() );
+						//copyDataToTensor( params_.ln1w, *fc_f_weight );
+						//std::copy( params_.ln1w.begin() + (l * weight->size()), params_.ln1w.begin() + (l * weight->size()) + weight->size(), weight->data() );
 						auto bias = ln_1_parameters[ "bias" ];
-						std::copy( params_.ln1b.begin() + (l * bias->size()), params_.ln1b.begin() + (l * bias->size()) + bias->size(), bias->data() );
+						//std::copy( params_.ln1b.begin() + (l * bias->size()), params_.ln1b.begin() + (l * bias->size()) + bias->size(), bias->data() );
 					}
 
 					if ( module_index == 1 ) {
 						// linear layer
 						auto qkv_parameters = module->getParameterTensors();
 						auto weight = qkv_parameters[ "weight" ];
-						std::copy( params_.qkvw.begin() + (l * weight->size()), params_.qkvw.begin() + (l * weight->size()) + weight->size(), weight->data() );
+						//std::copy( params_.qkvw.begin() + (l * weight->size()), params_.qkvw.begin() + (l * weight->size()) + weight->size(), weight->data() );
 						auto bias = qkv_parameters[ "bias" ];
-						std::copy( params_.qkvb.begin() + (l * bias->size()), params_.qkvb.begin() + (l * bias->size()) + bias->size(), bias->data() );
+						//std::copy( params_.qkvb.begin() + (l * bias->size()), params_.qkvb.begin() + (l * bias->size()) + bias->size(), bias->data() );
 					}
 
 					if ( module_index == 2 ) {
@@ -297,10 +299,10 @@ namespace Gpt2App
 						auto fc_proj_parameters = module->getParameterTensors();
 						auto weight = fc_proj_parameters[ "weight" ];
 						assert( (weight->size() * 12) == param_sizes_[ 6 ] && "Size mismatch between weight and fcprojw" );
-						std::copy( params_.attprojw.begin() + (l * weight->size()), params_.attprojw.begin() + (l * weight->size()) + weight->size(), weight->data() );
+						//std::copy( params_.attprojw.begin() + (l * weight->size()), params_.attprojw.begin() + (l * weight->size()) + weight->size(), weight->data() );
 						auto bias = fc_proj_parameters[ "bias" ];
 						assert( (bias->size() * 12) == param_sizes_[ 7 ] && "Size mismatch between bias and fcprojw" );
-						std::copy( params_.attprojb.begin() + (l * bias->size()), params_.attprojb.begin() + (l * bias->size()) + bias->size(), bias->data() );
+						//std::copy( params_.attprojb.begin() + (l * bias->size()), params_.attprojb.begin() + (l * bias->size()) + bias->size(), bias->data() );
 					}
 
 					if ( module_index == 4 ) {
@@ -311,9 +313,9 @@ namespace Gpt2App
 						// ln2 layer
 						auto ln_2_parameters = module->getParameterTensors();
 						auto weight = ln_2_parameters[ "weight" ];
-						std::copy( params_.ln2w.begin() + (l * weight->size()), params_.ln2w.begin() + (l * weight->size()) + weight->size(), weight->data() );
+						//std::copy( params_.ln2w.begin() + (l * weight->size()), params_.ln2w.begin() + (l * weight->size()) + weight->size(), weight->data() );
 						auto bias = ln_2_parameters[ "bias" ];
-						std::copy( params_.ln2b.begin() + (l * bias->size()), params_.ln2b.begin() + (l * bias->size()) + bias->size(), bias->data() );
+						//std::copy( params_.ln2b.begin() + (l * bias->size()), params_.ln2b.begin() + (l * bias->size()) + bias->size(), bias->data() );
 					}
 
 					int mlp_index = 0;
@@ -323,9 +325,9 @@ namespace Gpt2App
 							if ( mlp_index == 0 ) {
 								auto fc_1_parameters = mlp_module->getParameterTensors();
 								auto weight = fc_1_parameters[ "weight" ];
-								std::copy( params_.fcw.begin() + (l * weight->size()), params_.fcw.begin() + (l * weight->size()) + weight->size(), weight->data() );
+								//std::copy( params_.fcw.begin() + (l * weight->size()), params_.fcw.begin() + (l * weight->size()) + weight->size(), weight->data() );
 								auto bias = fc_1_parameters[ "bias" ];
-								std::copy( params_.fcb.begin() + (l * bias->size()), params_.fcb.begin() + (l * bias->size()) + bias->size(), bias->data() );
+								//std::copy( params_.fcb.begin() + (l * bias->size()), params_.fcb.begin() + (l * bias->size()) + bias->size(), bias->data() );
 							}
 							
 							if ( mlp_index == 1 ) {
@@ -335,9 +337,9 @@ namespace Gpt2App
 							if ( mlp_index == 2 ) {
 								auto fcproj_parameters = mlp_module->getParameterTensors();
 								auto weight = fcproj_parameters[ "weight" ];
-								std::copy( params_.fcprojw.begin() + (l * weight->size()), params_.fcprojw.begin() + (l * weight->size()) + weight->size(), weight->data() );
+								//std::copy( params_.fcprojw.begin() + (l * weight->size()), params_.fcprojw.begin() + (l * weight->size()) + weight->size(), weight->data() );
 								auto bias = fcproj_parameters[ "bias" ];
-								std::copy( params_.fcprojb.begin() + (l * bias->size()), params_.fcprojb.begin() + (l * bias->size()) + bias->size(), bias->data() );
+								//std::copy( params_.fcprojb.begin() + (l * bias->size()), params_.fcprojb.begin() + (l * bias->size()) + bias->size(), bias->data() );
 							}
 
 							mlp_index++;

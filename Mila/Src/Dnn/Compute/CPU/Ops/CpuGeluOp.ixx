@@ -37,7 +37,7 @@ namespace Mila::Dnn::Compute
 		void forward(
 			const Tensor<float, CpuMemoryResource>& input,
 			const std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& parameters,
-			const OperationProperties& properties,
+			const OperationAttributes& properties,
 			Tensor<T, CpuMemoryResource>& output,
 			std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& output_cache ) const override {
 			// (approximate) GeLU elementwise non-linearity in the MLP block of Transformer

@@ -31,31 +31,34 @@ namespace Mila::Dnn::Compute
 		void forward(
 			const Tensor<TInput, CudaMemoryResource>& input,
 			const std::vector<std::shared_ptr<Tensor<TInput, CudaMemoryResource>>>& parameters,
+			const OperationAttributes& attributes,
 			Tensor<TOutput, CudaMemoryResource>& output,
 			std::vector<std::shared_ptr<Tensor<TOutput, CudaMemoryResource>>>& output_state ) const override {
 
-			auto X = input.data();
-			auto Y = output.data();
+			const float* X = input.data();
+			float* Y = output.data();
 
-			auto weight = parameters[ 0 ]->data();
-			auto bias = parameters[ 1 ]->data();
+			const float* weight = parameters[ 0 ]->data();
+			const float* bias = parameters[ 1 ]->data();
+
+			float* mean = output_state[ 0 ]->data();
+			float* rstd = output_state[ 1 ]->data();
 
 			int B = input.shape()[ 0 ];
 			int T = input.shape()[ 1 ];
 			int C = input.shape()[ 2 ];
-			int OC = output.shape()[ 2 ];
 
-			cuda_layernorm_forward( Y, X, weight, bias, B, T, C, OC );
+			cuda_layernorm_forward( Y, mean, rstd, X, weight, bias, B, T, C );
 		}
 
 		static void registerOperation() {
-			OperationRegistry<float, float, DeviceType::Cuda>::instance().registerOperation( DeviceType::Cuda, "Cuda::LayerNormOp", []() -> std::unique_ptr<OperationBase<float, float, CudaDevice>> {
+			OperationRegistry<float, float, DeviceType::Cuda>::instance().registerOperation( DeviceType::Cuda, "Cuda::LayerNormOp", []() -> std::unique_ptr<OperationBase<float, float, DeviceType::Cuda>> {
 				return std::make_unique<CudaLayerNormOp<float>>();
 			} );
 		}
 
 		std::string getName() const override {
-			return "Cuda::FullyConnectedOp";
+			return "Cuda::LayerNormOp";
 		}
 	};
 }

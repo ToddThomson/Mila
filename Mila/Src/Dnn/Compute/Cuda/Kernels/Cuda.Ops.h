@@ -12,8 +12,20 @@ void cuda_gelu_forward(
     const float* inp,
     int N ); //, cudaStream_t stream );
 
+void cuda_layernorm_forward(
+    float* out,
+    float* mean, float* rstd,
+    const float* inp,
+    const float* weight, const float* bias,
+    int B, int T, int C );
+
 void cuda_matmul_forward(
     float* out,
     const float* inp,
     const float* weight, const float* bias,
     int B, int T, int C, int OC );
+
+void cuda_residual_forward(
+    float* out,
+    const float* inp1, const float* inp2,
+    int N );

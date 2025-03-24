@@ -32,7 +32,7 @@ namespace Mila::Dnn::Compute
 		void forward(
 			const Tensor<int, CpuMemoryResource>& input,
 			const std::vector<std::shared_ptr<Tensor<float, CpuMemoryResource>>>& parameters,
-			const OperationProperties& properties,
+			const OperationAttributes& properties,
 			Tensor<float, CpuMemoryResource>& output,
 			std::vector<std::shared_ptr<Tensor<float, CpuMemoryResource>>>& output_cache ) const override {
 			auto X = input.data();

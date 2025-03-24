@@ -5,7 +5,7 @@ module;
 
 #include "Kernels/Cuda.Ops.h"
 
-export module Compute.CudaMultiHeadAttentionOp;
+export module Compute.CudaMHAOp;
 
 import Dnn.Tensor;
 import Compute.OperationBase;
@@ -25,12 +25,12 @@ namespace Mila::Dnn::Compute
 		template<typename TInput, typename TOutput = TInput>
 	class CudaMultiHeadAttentionOp : public UnaryOperation<TInput, TOutput, DeviceType::Cuda> {
 	public:
-
 		CudaMultiHeadAttentionOp() : UnaryOperation<TInput, TOutput, DeviceType::Cuda>( DeviceType::Cuda, OperationType::MultiHeadAttentionOp ) {}
 
 		void forward(
 			const Tensor<TInput, CudaMemoryResource>& input,
 			const std::vector<std::shared_ptr<Tensor<TInput, CudaMemoryResource>>>& parameters,
+			const OperationAttributes& attributes,
 			Tensor<TOutput, CudaMemoryResource>& output,
 			std::vector<std::shared_ptr<Tensor<TOutput, CudaMemoryResource>>>& output_state ) const override {
 
@@ -45,17 +45,17 @@ namespace Mila::Dnn::Compute
 			int C = input.shape()[ 2 ];
 			int OC = output.shape()[ 2 ];
 
-			cuda_mha_forward( Y, X, weight, bias, B, T, C, OC );
+			//cuda_mha_forward( Y, X, weight, bias, B, T, C, OC );
 		}
 
 		static void registerOperation() {
-			OperationRegistry<float, float, DeviceType::Cuda>::instance().registerOperation( DeviceType::Cuda, "Cuda::MultiHeadAttentionOp", []() -> std::unique_ptr<OperationBase<float, float, CudaDevice>> {
+			OperationRegistry<float, float, DeviceType::Cuda>::instance().registerOperation( DeviceType::Cuda, "Cuda::MultiHeadAttentionOp", []() -> std::unique_ptr<OperationBase<float, float, DeviceType::Cuda>> {
 				return std::make_unique<CudaMultiHeadAttentionOp<float>>();
 			} );
 		}
 
 		std::string getName() const override {
-			return "Cuda::FullyConnectedOp";
+			return "Cuda::MultiHeadAttentionOp";
 		}
 	};
 }

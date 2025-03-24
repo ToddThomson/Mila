@@ -98,4 +98,64 @@ namespace Modules::Tests
         std::string output = this->encoder_->toString();
         EXPECT_NE( output.find( "Encoder: enc_1" ), std::string::npos );
     }
+
+    TYPED_TEST( EncoderTests, initialization_check ) {
+        // Verify parameter shapes
+        auto params = this->encoder_->getParameterTensors(); // Or your method for retrieving tensors
+        ASSERT_EQ( params.size(), 2u ); // Should have wte_ and wpe_
+        auto wteShape = params[ "wte" ]->shape();
+        auto wpeShape = params[ "wpe" ]->shape();
+
+        EXPECT_EQ( wteShape.size(), 2u );
+        EXPECT_EQ( wteShape[ 0 ], this->vocab_len_ );
+        EXPECT_EQ( wteShape[ 1 ], this->channels_ );
+
+        EXPECT_EQ( wpeShape.size(), 2u );
+        EXPECT_EQ( wpeShape[ 0 ], this->max_seq_len_ );
+        EXPECT_EQ( wpeShape[ 1 ], this->channels_ );
+    }
+
+    TYPED_TEST( EncoderTests, training_mode_toggle ) {
+        // Initially false
+        EXPECT_FALSE( this->encoder_->isTraining() );
+
+        // Turn training on
+        this->encoder_->setTraining( true );
+        EXPECT_TRUE( this->encoder_->isTraining() );
+
+        // Toggle back off
+        this->encoder_->setTraining( false );
+        EXPECT_FALSE( this->encoder_->isTraining() );
+    }
+
+    //TYPED_TEST( EncoderTests, save_load ) {
+    //    // Mock or create your zip archive
+    //    mz_zip_archive zip{};
+    //    memset( &zip, 0, sizeof( zip ) );
+
+    //    // Initialize (this is just a demonstration; configure as needed)
+    //    // Example: mz_zip_writer_init_heap(&zip, 0, 0);
+
+    //    // Save
+    //    EXPECT_NO_THROW( this->encoder_->save( zip ) );
+
+    //    // Load
+    //    EXPECT_NO_THROW( this->encoder_->load( zip ) );
+
+    //    // Cleanup
+    //    // Example: mz_zip_writer_end(&zip);
+    //}
+
+    TYPED_TEST( EncoderTests, edge_case_zero_dimensions ) {
+        // Build an encoder with zero channels to confirm it doesn't crash
+        auto zeroEncoder = std::make_unique<Encoder<int, float, TypeParam::value>>( "enc_zero", /*channels=*/0,
+            this->max_seq_len_,
+            this->vocab_len_ );
+        // Attempt forward
+        Tensor<int, typename TypeParam::MR> inputZero( { this->batch_size_, this->sequence_length_ } );
+        Tensor<float, typename TypeParam::MR> outputZero( { this->batch_size_, this->sequence_length_, 0 } );
+        EXPECT_NO_THROW( zeroEncoder->forward( inputZero, outputZero ) );
+        // Check output size correctness
+        EXPECT_EQ( outputZero.size(), 0u );
+    }
 }

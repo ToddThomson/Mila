@@ -27,12 +27,12 @@ namespace Mila::Dnn::Compute
 	template<typename TInput, typename TOutput = TInput>
 	class CudaSoftmaxOp : public UnaryOperation<TInput, TOutput, DeviceType::Cuda> {
 	public:
-
 		CudaSoftmaxOp() : UnaryOperation<TInput, TOutput, DeviceType::Cuda>( DeviceType::Cuda, OperationType::SoftmaxOp ) {}
 
 		void forward(
 			const Tensor<TInput, CudaMemoryResource>& input,
 			const std::vector<std::shared_ptr<Tensor<TInput, CudaMemoryResource>>>& parameters,
+			const OperationAttributes& attributes,
 			Tensor<TOutput, CudaMemoryResource>& output,
 			std::vector<std::shared_ptr<Tensor<TOutput, CudaMemoryResource>>>& output_state ) const override {
 
@@ -40,7 +40,7 @@ namespace Mila::Dnn::Compute
 			auto Y = output.data();
 			int N = input.size();
 
-			cuda_softmax_forward( Y, X, N );
+			//cuda_softmax_forward( Y, X, N );
 		}
 
 		static void registerOperation() {

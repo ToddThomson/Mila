@@ -17,7 +17,7 @@ import Dnn.TensorTraits;
 import Compute.ComputeDevice;
 import Compute.DeviceType;
 import Compute.OperationBase;
-import Compute.OperationProperties;
+import Compute.OperationAttributes;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
@@ -160,7 +160,7 @@ namespace Mila::Dnn
 
 		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_; ///< The parameters.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_; ///< The output attributes.
-		OperationProperties properties_; ///< The operation properties.
+		OperationAttributes properties_; ///< The operation properties.
 
 		std::shared_ptr<Dnn::Compute::UnaryOperation<TInput, TCompute, TDeviceType>> operation_; ///< The operation.
 

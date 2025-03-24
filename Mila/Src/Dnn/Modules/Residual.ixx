@@ -20,6 +20,7 @@ import Compute.CpuDevice;
 
 import Compute.DeviceType;
 import Compute.OperationBase;
+import Compute.OperationAttributes;
 import Compute.BinaryOperation;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
@@ -54,7 +55,7 @@ export namespace Mila::Dnn
 		 * @return Tensor<float,MR> The output tensor.
 		 */
 		void forward( const Tensor<TInput, MR>& input_a, const Tensor<TInput, MR>& input_b, Tensor<TInput, MR>& output ) {
-			operation_->forward( input_a, input_b, parameters_, output, output_state_ );
+			operation_->forward( input_a, input_b, parameters_, attributes_, output, output_state_ );
 		}
 
 		void save( mz_zip_archive& zip ) const override {
@@ -93,7 +94,7 @@ export namespace Mila::Dnn
 	private:
 		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_{ nullptr }; ///< The parameters. Not used in this module.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_{ nullptr }; ///< The output attributes. Not used in this module.
-		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_{ nullptr }; ///< The scalars. Not used in this module.
+		OperationAttributes attributes_; ///< The attributes.
 
 		std::shared_ptr<Dnn::Compute::BinaryOperation<TInput, TCompute, TDeviceType>> operation_{ nullptr }; ///< The operation.
 

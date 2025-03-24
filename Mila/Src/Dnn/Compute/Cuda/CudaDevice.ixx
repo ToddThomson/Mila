@@ -25,7 +25,6 @@ namespace Mila::Dnn::Compute
 		using PINNED_MR = CudaPinnedMemoryResource;
 		using MANAGED_MR = CudaManagedMemoryResource;
 
-
 		explicit CudaDevice( int device_id = 0 ) 
 			: device_id_( setDevice( device_id )), props_( Cuda::DeviceProps( device_id_ ) ) {
 		}

@@ -32,7 +32,7 @@ namespace Mila::Dnn::Compute
 		void forward(
 			const Tensor<int, CpuMemoryResource>& input,
 			const std::vector<std::shared_ptr<Tensor<float, CpuMemoryResource>>>& parameters,
-			const OperationProperties& properties,
+			const OperationAttributes& attributes,
 			Tensor<float, CpuMemoryResource>& output,
 			std::vector<std::shared_ptr<Tensor<float, CpuMemoryResource>>>& output_cache ) const override {
 		//void forward( float* losses, float* probs, const Tensor<int, CpuMemoryResource>& targets, int B, int T, int Vp ) {

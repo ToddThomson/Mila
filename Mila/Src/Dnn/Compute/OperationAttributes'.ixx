@@ -3,7 +3,7 @@ module;
 #include <string>
 #include <any>
 
-export module Compute.OperationProperties;
+export module Compute.OperationAttributes;
 
 namespace Mila::Dnn::Compute
 {
@@ -11,7 +11,7 @@ namespace Mila::Dnn::Compute
 	* @brief Common operation properties that are frequently used
 	*/
 	export
-	struct OperationProperties {
+	struct OperationAttributes {
 		// Common properties with default values
 		int64_t axis = -1;      // Used by Softmax, LayerNorm, etc.
 		float epsilon = 1e-5f;  // Used by LayerNorm, etc.

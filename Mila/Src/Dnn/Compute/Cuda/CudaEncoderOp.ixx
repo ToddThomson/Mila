@@ -31,7 +31,7 @@ namespace Mila::Dnn::Compute
 		void forward(
 			const Tensor<int, CudaMemoryResource>& input,
 			const std::vector<std::shared_ptr<Tensor<TOutput, CudaMemoryResource>>>& parameters,
-			const OperationProperties& properties,
+			const OperationAttributes& properties,
 			Tensor<TOutput, CudaMemoryResource>& output,
 			std::vector<std::shared_ptr<Tensor<TOutput, CudaMemoryResource>>>& output_state ) const override {
 

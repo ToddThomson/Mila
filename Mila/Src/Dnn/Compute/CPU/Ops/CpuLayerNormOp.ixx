@@ -11,10 +11,12 @@ export module Compute.CpuLayerNormOp;
 
 import Dnn.Tensor;
 import Compute.OperationBase;
+import Compute.OperationAttributes;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.OperationType;
+import Compute.CpuMemoryResource;
 import Compute.MemoryResource;
 import Compute.CpuDevice;
 
@@ -42,11 +44,11 @@ namespace Mila::Dnn::Compute
          * @param output_state Vector of output state tensors (mean and rstd).
          */
         void forward(
-            const Tensor<float>& input,
-            const std::vector<std::shared_ptr<Tensor<float>>>& parameters,
-			const OperationProperties& properties,
-            Tensor<float>& output,
-            std::vector<std::shared_ptr<Tensor<float>>>& output_state ) const override {
+            const Tensor<float, CpuMemoryResource>& input,
+            const std::vector<std::shared_ptr<Tensor<float, CpuMemoryResource>>>& parameters,
+			const OperationAttributes& attributes,
+            Tensor<float, CpuMemoryResource>& output,
+            std::vector<std::shared_ptr<Tensor<float, CpuMemoryResource>>>& output_state ) const override {
 
             const float* X = input.data();
             float* Y = output.data();

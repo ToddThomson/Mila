@@ -1,6 +1,8 @@
 #define _USE_MATH_DEFINES
 #include <math.h>
 #include <cassert>
+#include <cuda_runtime.h>
+#include "device_launch_parameters.h"
 #include "Cuda.Utils.h"
 
 __device__ inline float4 add_float4( const float4& a, const float4& b ) {

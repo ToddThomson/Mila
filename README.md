@@ -2,7 +2,7 @@
 Mila Deep Neural Net library
 
 ## Prerelease Notice
-Mila, version 0.9.61-alpha is currently an early, experimental, preview release.
+Mila, version 0.9.62-alpha is currently an early, experimental, preview release.
 
 ## Description
 Achilles Mila Deep Neural Network library provides an API to model, train and evaluate
@@ -18,20 +18,16 @@ Deep Neural Networks. Mila utilizes the NVIDIA CUDA runtime for high-performance
   *
  
 ## What's New
+Mila, Version 0.9.62-alpha.1 changes:
+- Added new CUDA kernel files for layer normalization, residual operations, and softmax operations.
+- Introduced `OperationAttributes` to replace `OperationProperties` for better attribute management.
+- Refactored `Gpt2.cpp` to streamline device management and model initialization.
+- Enhanced `Gpt2Model.ixx` with improved tensor data handling methods.
+- Updated `Tensor` class with new methods for memory resource accessibility and data copying.
+- Revised `README.md` to reflect version 0.9.62-alpha and document recent changes.
+- Improved performance in CUDA kernels using cooperative groups.
+- Added and modified tests to ensure compatibility with new features.
 
-Mila, Version 0.9.61-alpha.1 changes:
-Refactor GPT-2 components and update device handling
-
-- Updated CMakeLists.txt to include new source files for Gpt2App and removed CudaSoftmaxOp.
-- Moved Gpt2DataLoader class to a new file and removed content from DataLoader.ixx.
-- Changed module exports in Gpt2Model and Tokenizer to Gpt2App namespace.
-- Created ModelConfig.ixx for model configuration parameters.
-- Restructured TrainGpt2.cpp for command-line parsing and model initialization.
-- Introduced OperationProperties.ixx for common operation properties.
-- Updated README.md for version 0.9.61-alpha and recent changes.
-- Replaced Compute::CpuDevice and Compute::CudaDevice with Compute::DeviceType for better device management.
-- Updated tests in multiple files to ensure compatibility with the new DeviceType system.
-* 
 
 ## Mila Build Instructions
 Mila uses CMake build. To build Mila, follow the steps below:

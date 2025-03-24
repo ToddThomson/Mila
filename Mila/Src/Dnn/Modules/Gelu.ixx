@@ -18,7 +18,7 @@ import Compute.ComputeDevice;
 import Compute.CpuDevice;
 
 import Compute.OperationBase;
-import Compute.OperationProperties;
+import Compute.OperationAttributes;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
@@ -95,7 +95,7 @@ export namespace Mila::Dnn
 	private:
 		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_{ nullptr }; ///< The parameters. Not used in this module.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_{ nullptr }; ///< The output cache. Not used in this module.
-		OperationProperties properties_; ///< The operation properties.
+		OperationAttributes properties_; ///< The operation properties.
 
 		std::shared_ptr<Dnn::Compute::UnaryOperation<TInput, TCompute, TDeviceType>> operation_{ nullptr }; ///< The operation.
 

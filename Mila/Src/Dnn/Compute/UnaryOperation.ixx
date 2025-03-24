@@ -13,7 +13,7 @@ import Compute.DeviceType;
 import Compute.ComputeDevice;
 import Compute.OperationBase;
 import Compute.OperationType;  
-import Compute.OperationProperties;
+import Compute.OperationAttributes;
 import Compute.MemoryResource;  
 import Compute.CpuMemoryResource;  
 import Compute.CudaMemoryResource;
@@ -50,7 +50,7 @@ namespace Mila::Dnn::Compute
 		virtual void forward(
 			const Tensor<TInput, MR>& input,
 			const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& parameters,
-			const OperationProperties& properties,
+			const OperationAttributes& properties,
 			Tensor<TCompute, MR>& output,
 			std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& output_state ) const = 0;
 	};

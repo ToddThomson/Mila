@@ -43,7 +43,7 @@ namespace Mila::Dnn
 
 	std::atomic<size_t> UniqueIdGenerator::counter_{ 0 };
 
-	export template<typename T, typename TMemoryResource = Compute::CpuMemoryResource>
+	export template<typename T, typename TMemoryResource = Compute::CudaMemoryResource>
 		requires ValidTensorType<T> && std::is_base_of_v<Compute::MemoryResource, TMemoryResource>
 	class Tensor {
 	public:
@@ -86,26 +86,10 @@ namespace Mila::Dnn
 			data_type_ = tensor_type_of( data_ptr_.get() );
 		}
 
-
 		Tensor()
 			: uid_{ set_uid() }, shape_(), strides_( computeStrides( shape_ ) ), size_() {
 			allocateBuffer( T{} );
 		}
-
-		/*Tensor( float const& scalar )
-			: scalar_value_( scalar ), is_scalar_( true ), shape_{ 1 }, strides_{ 1 }, data_type_( TensorType::kFP32 ){
-		}
-
-		Tensor( half const& scalar )
-			: scalar_value_( scalar ), is_scalar_( true ), shape_{ 1 }, strides_{ 1 }, data_type_( TensorType::kFP16 ) {
-		}
-
-		Tensor( int32_t const& scalar )
-			: scalar_value_( scalar ), is_scalar_( true ), shape_{ 1 }, strides_{ 1 }, data_type_( TensorType::kINT32 ) {}
-
-		Tensor( int64_t const& scalar )
-			: scalar_value_( scalar ), is_scalar_( true ), shape_{ 1 }, strides_{ 1 }, data_type_( TensorType::kINT64 ) {
-		}*/
 
 		template<typename NewTMemoryResource>
 		Tensor<T, NewTMemoryResource> to() const {
@@ -146,6 +130,71 @@ namespace Mila::Dnn
 			return new_tensor;
 		}
 
+		template<typename HostAccessibleMR = Compute::CpuMemoryResource>
+		Tensor<T, HostAccessibleMR> toHostAccessible() const {
+			if constexpr ( std::is_same_v<TMemoryResource, Compute::CpuMemoryResource> ||
+				std::is_same_v<TMemoryResource, Compute::CudaPinnedMemoryResource> ||
+				std::is_same_v<TMemoryResource, Compute::CudaManagedMemoryResource> ) {
+				// Create a shallow copy if the memory is already host-accessible
+				Tensor<T, TMemoryResource> result( *this );
+				return result.template to<HostAccessibleMR>();
+			}
+			else {
+				// Create a new host-accessible tensor and copy the data
+				return this->template to<HostAccessibleMR>();
+			}
+		}
+
+		T at( const std::vector<size_t>& indices ) const {
+			if constexpr ( is_host_accessible<TMemoryResource>() ) {
+				size_t index = computeIndex( indices );
+				return buffer_->data()[ index ];
+			}
+			else {
+				auto host_tensor = to<Compute::CpuMemoryResource>();
+				return host_tensor.at( indices );
+			}
+		}
+
+		void set( const std::vector<size_t>& indices, T value ) {
+			if constexpr ( is_host_accessible<TMemoryResource>() ) {
+				size_t index = computeIndex( indices );
+				buffer_->data()[ index ] = value;
+			}
+			else {
+				auto host_tensor = to<Compute::CpuMemoryResource>();
+				host_tensor.set( indices, value );
+				*this = host_tensor.template to<TMemoryResource>();
+			}
+		}
+
+		template<typename SrcMemoryResource>
+		void copyFrom( const Tensor<T, SrcMemoryResource>& src ) {
+			if ( shape_ != src.shape() ) {
+				throw std::runtime_error( "Cannot copy from tensor with different shape." );
+			}
+
+			if constexpr ( is_host_accessible<TMemoryResource>() &&
+				is_host_accessible<SrcMemoryResource>() ) {
+				// Both are host accessible, direct copy
+				std::copy( src.data(), src.data() + size_, buffer_->data() );
+			}
+			else if constexpr ( is_host_accessible<TMemoryResource>() &&
+				!is_host_accessible<SrcMemoryResource>() ) {
+				// Destination is host accessible, source is device
+				auto host_src = src.template to<Compute::CpuMemoryResource>();
+				std::copy( host_src.data(), host_src.data() + size_, buffer_->data() );
+			}
+			else if constexpr ( !is_host_accessible<TMemoryResource>() &&
+				is_host_accessible<SrcMemoryResource>() ) {
+				// Destination is device, source is host accessible
+				*this = src.template to<TMemoryResource>();
+			}
+			else {
+				// Both are device, use CUDA copy
+				cudaMemcpy( data(), src.data(), size_ * sizeof( T ), cudaMemcpyDeviceToDevice );
+			}
+		}
 		void reshape( const std::vector<size_t>& new_shape ) {
 			size_t new_size = computeSize( new_shape );
 			if ( !empty() && (new_size != size_) ) {
@@ -162,7 +211,12 @@ namespace Mila::Dnn
 		}
 
 		auto vectorSpan() {
-			return std::mdspan<T, Extent1d>( buffer_->data(), size_ );
+			if constexpr ( is_host_accessible<TMemoryResource>() ) {
+				return std::mdspan<T, Extent1d>( buffer_->data(), size_ );
+			}
+			else {
+				throw std::runtime_error( "vectorSpan() requires host-accessible memory. Use to<CpuMemoryResource>() first." );
+			}
 		}
 
 		auto matrixSpan( const std::vector<size_t>& shape ) {
@@ -173,16 +227,14 @@ namespace Mila::Dnn
 			if ( total_size > size_ ) {
 				throw std::runtime_error( "matrixSpan: The specified shape exceeds the tensor size." );
 			}
-			return std::mdspan<T, Extent2d>( buffer_->data(), shape[ 0 ], shape[ 1 ] );
-		}
 
-		/*T_ELEM& at( const std::vector<size_t>& indices ) {
-			size_t offset = 0;
-			for ( size_t i = 0; i < indices.size(); ++i ) {
-				offset += indices[ i ] * strides_[ i ];
+			if constexpr ( is_host_accessible<TMemoryResource>() ) {
+				return std::mdspan<T, Extent2d>( buffer_->data(), shape[ 0 ], shape[ 1 ] );
 			}
-			return data()[ offset ];
-		}*/
+			else {
+				throw std::runtime_error( "matrixSpan() requires host-accessible memory. Use to<CpuMemoryResource>() first." );
+			}
+		}
 
 		template<typename... Args>
 		T& operator[]( Args... args ) {
@@ -191,11 +243,29 @@ namespace Mila::Dnn
 			if ( num_args != shape_.size() ) {
 				throw std::runtime_error( "operator[]: Number of indices must match the tensor rank." );
 			}
+
+			// Validate indices are within bounds
+			std::vector<size_t> indices = { static_cast<size_t>(args)... };
+
+			for ( size_t i = 0; i < indices.size(); ++i ) {
+				if ( indices[ i ] >= shape_[ i ] ) {
+					throw std::out_of_range( "operator[]: Index " + std::to_string( indices[ i ] ) +
+						" is out of range for dimension " + std::to_string( i ) +
+						" with size " + std::to_string( shape_[ i ] ) );
+				}
+			}
+
 			size_t index = computeIndex( { static_cast<size_t>(args)... } );
 			if ( index >= size_ ) {
 				throw std::out_of_range( "operator[]: Index out of range." );
 			}
-			return buffer_->data()[ index ];
+
+			if constexpr ( is_host_accessible<TMemoryResource>() ) {
+				return buffer_->data()[ index ];
+			}
+			else {
+				throw std::runtime_error( "Direct tensor access requires host-accessible memory. Use to<CpuMemoryResource>() first." );
+			}
 		}
 
 		template<typename... Args>
@@ -205,6 +275,17 @@ namespace Mila::Dnn
 			if ( num_args != shape_.size() ) {
 				throw std::runtime_error( "operator[]: Number of indices must match the tensor rank." );
 			}
+			// Validate indices are within bounds
+			std::vector<size_t> indices = { static_cast<size_t>(args)... };
+
+			for ( size_t i = 0; i < indices.size(); ++i ) {
+				if ( indices[ i ] >= shape_[ i ] ) {
+					throw std::out_of_range( "operator[]: Index " + std::to_string( indices[ i ] ) +
+						" is out of range for dimension " + std::to_string( i ) +
+						" with size " + std::to_string( shape_[ i ] ) );
+				}
+			}
+
 			size_t index = computeIndex( { static_cast<size_t>(args)... } );
 			if ( index >= size_ ) {
 				throw std::out_of_range( "operator[]: Index out of range." );
@@ -233,17 +314,6 @@ namespace Mila::Dnn
 			return shape_.size();
 		}
 
-		/*template<typename TValue>
-		TValue scalar() const {
-			if ( is_scalar_ && scalar_value_.has_value() ) {
-				auto scalar_var = scalar_value_.value();
-				return std::get<TValue>(scalar_var);
-			}
-			else {
-				throw std::runtime_error( "Tensor does not hold a scalar value." );
-			}
-		}*/
-
 		T* data() {
 			return buffer_->data();
 		}
@@ -253,13 +323,26 @@ namespace Mila::Dnn
 		}
 
 		void fill( const T& value ) {
-			if constexpr ( std::is_same_v<TMemoryResource, Compute::CpuMemoryResource> || std::is_same_v<TMemoryResource, Compute::CudaManagedMemoryResource> ) {
+			if constexpr ( is_host_accessible<TMemoryResource>() ) {
+				// Direct fill for host-accessible memory
 				std::fill( buffer_->data(), buffer_->data() + size_, value );
 			}
 			else {
-				// TODO: Implement fill for other memory resources
-				throw std::runtime_error( "Fill is only supported for CPU and Managed memory." );
+				// Create a temporary host tensor, fill it, then copy back
+				auto host_tensor = to<Compute::CpuMemoryResource>();
+				host_tensor.fill( value );
+				*this = host_tensor.template to<TMemoryResource>();
 			}
+		}
+
+		template <typename MR = TMemoryResource>
+		static constexpr bool is_host_accessible() {
+			return MR::is_cpu_accessible;
+		}
+
+		template <typename MR = TMemoryResource>
+		static constexpr bool is_device_accessible() {
+			return MR::is_cuda_accessible;
 		}
 
 		std::string	getName() const {
@@ -294,10 +377,22 @@ namespace Mila::Dnn
 			oss << " Type: " << to_string( data_type_ ) << std::endl;
 
 			if ( showBuffer ) {
-				oss << outputBuffer( 0, 0 );
+				oss << getBufferString( 0, 0 );
 			}
 
 			return oss.str();
+		}
+
+		std::string getBufferString( size_t start_index = 0, size_t depth = 0 ) const {
+			if constexpr ( is_host_accessible<TMemoryResource>() ) {
+				return outputBuffer( start_index, depth );
+			}
+			else {
+				auto host_tensor = to<Compute::CpuMemoryResource>();
+				// Now we need a way to get buffer content without calling private method
+				// We'll use a different approach: recursively get string representation
+				return host_tensor.getBufferString( start_index, depth );
+			}
 		}
 
 		friend std::ostream& operator<<( std::ostream& os, const Tensor& tensor ) {
@@ -316,7 +411,6 @@ namespace Mila::Dnn
 			: uid_( other.uid_ ), name_( other.name_ ), shape_( other.shape_ ), strides_( other.strides_ ),
 			size_( other.size_ ), data_type_( other.data_type_ ), buffer_( other.buffer_ ) {}
 		
-		
         /**
         * @brief Move constructor.
         *
@@ -327,8 +421,6 @@ namespace Mila::Dnn
 		Tensor( Tensor&& other ) noexcept
 			: uid_( std::move( other.uid_ ) ),
 			name_( std::move( other.name_ ) ),
-			scalar_value_( std::move( other.scalar_value_ ) ),
-			is_scalar_( other.is_scalar_ ),
 			size_( other.size_ ),
 			data_type_( other.data_type_ ),
 			shape_( std::move( other.shape_ ) ),
@@ -388,8 +480,6 @@ namespace Mila::Dnn
 	private:
 		std::string uid_;
 		std::string name_;
-		std::optional<scalar_t> scalar_value_{ std::nullopt };
-		bool is_scalar_{ false };
 		size_t size_{ 0 };
 		TensorType data_type_;
 		std::vector<size_t> shape_{};
@@ -458,6 +548,9 @@ namespace Mila::Dnn
 			}
 			return index;
 		}
+		// Inside the Tensor class
+
+		
 
 		std::string set_uid() {
 			return "tensor_" + std::to_string( UniqueIdGenerator::getNextId() );

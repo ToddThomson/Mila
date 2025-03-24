@@ -4,8 +4,12 @@ add_library( Mila STATIC
 	"Src/Dnn/Compute/Cuda/Kernels/Cuda.Utils.h"	
 	"Src/Dnn/Compute/Cuda/Kernels/Cuda.Ops.h"
 	"Src/Dnn/Compute/Cuda/Kernels/Cuda.Encoder.cu"
+	"Src/Dnn/Compute/Cuda/Kernels/CudaLayerNorm.cu"
 	"Src/Dnn/Compute/Cuda/Kernels/Cuda.MatMul.cu"
+	#"Src/Dnn/Compute/Cuda/Kernels/CudaMHA.cu"
 	"Src/Dnn/Compute/Cuda/Kernels/Cuda.Gelu.cu"
+	"Src/Dnn/Compute/Cuda/Kernels/CudaResidual.cu"
+	#"Src/Dnn/Compute/Cuda/Kernels/CudaSoftmax.cu"
 )
 
 set_target_properties( Mila PROPERTIES
@@ -108,7 +112,14 @@ PUBLIC
 		"Src/Dnn/Compute/Backend.ixx"
 		"Src/Dnn/Compute/Cuda/CudaComputeResource.ixx"
 		"Src/Dnn/Compute/Cuda/CudaGeluOp.ixx" 
- "Src/Dnn/Compute/Cuda/CudaSoftmaxOp.ixx" "Src/Dnn/Compute/Cuda/CudaLayerNormOp.ixx" "Src/Dnn/Compute/Cuda/CudaEncoderOp.ixx" "Src/Dnn/Compute/Cuda/CudaMultiHeadAttentionOp.ixx" "Src/Dnn/ModelBase.ixx" "Src/Dnn/Compute/OperationProperties.ixx")
+		"Src/Dnn/Compute/Cuda/CudaSoftmaxOp.ixx" 
+		"Src/Dnn/Compute/Cuda/CudaLayerNormOp.ixx" 
+		"Src/Dnn/Compute/Cuda/CudaEncoderOp.ixx" 
+		"Src/Dnn/Compute/Cuda/CudaMultiHeadAttentionOp.ixx" 
+		"Src/Dnn/ModelBase.ixx" 
+		"Src/Dnn/Compute/OperationAttributes'.ixx"
+		"Src/Dnn/Compute/Cuda/CudaResidualOp.ixx"
+)
 
 target_link_libraries( Mila PRIVATE CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
 

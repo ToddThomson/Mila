@@ -16,7 +16,7 @@ import Dnn.TensorHelpers;
 
 import Compute.DeviceType;
 import Compute.OperationBase;
-import Compute.OperationProperties;
+import Compute.OperationAttributes;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
@@ -66,7 +66,7 @@ export namespace Mila::Dnn
 		* @return Tensor<float, MR> The output tensor.
 		*/
 		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute, MR>& output ) {
-			operation_->forward( input, parameters_, properties_, output, output_state_ );
+			operation_->forward( input, parameters_, attributes_, output, output_state_ );
 		}
 
 		void save( mz_zip_archive& zip ) const override {
@@ -114,8 +114,7 @@ export namespace Mila::Dnn
 
 		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_; ///< The Encoder parameters
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_{ nullptr }; ///< The output attributes. Not used in this module.
-		std::vector<std::shared_ptr<Tensor<float, MR>>> scalars_{ nullptr }; ///< The scalars. Not used in this module.
-		OperationProperties properties_; ///< The operation properties.
+		OperationAttributes attributes_; ///< The operation properties.
 
 		std::shared_ptr<Dnn::Compute::UnaryOperation<int, float, TDeviceType>> operation_{ nullptr }; ///< The operation.
 

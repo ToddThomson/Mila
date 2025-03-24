@@ -21,7 +21,7 @@ import Compute.CpuDevice;
 
 import Compute.OperationBase;
 import Compute.UnaryOperation;
-import Compute.OperationProperties;
+import Compute.OperationAttributes;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
@@ -78,7 +78,7 @@ export namespace Mila::Dnn
 		* @return std::shared_ptr<Tensor<float>> The output tensor.
 		*/
 		void forward( const Tensor<TInput, MR>& input, Tensor<TInput, MR>& output ) {
-			operation_->forward( input, parameters_, properties_, output, output_state_ );
+			operation_->forward( input, parameters_, attributes_, output, output_state_ );
 		}
 
 		// TODO: Implement the backward pass.
@@ -127,7 +127,7 @@ export namespace Mila::Dnn
 
 		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_ = { nullptr }; ///< The parameters. Not used in this module.
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_ = { nullptr }; ///< The output attributes. Not used in this module.
-		OperationProperties properties_{ .axis = axis_ }; ///< The operation properties.
+		OperationAttributes attributes_{ .axis = axis_ }; ///< The operation properties.
 		
 		std::shared_ptr<Dnn::Compute::UnaryOperation<TInput, TPrecision, TDeviceType>> operation_{ nullptr }; ///< The operation.
 
