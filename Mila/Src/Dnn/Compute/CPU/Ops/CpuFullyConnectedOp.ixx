@@ -30,16 +30,16 @@ namespace Mila::Dnn::Compute
         CpuFullyConnectedOp() : UnaryOperation<TInput, TOutput, DeviceType::Cpu>( DeviceType::Cpu, OperationType::FullyConnectedOp ) {}
 
         void forward(
-            const Tensor<TInput, CpuMemoryResource>& input,
-            const std::vector<std::shared_ptr<Tensor<TOutput, CpuMemoryResource>>>& parameters_,
+            const Tensor<TInput, HostMemoryResource>& input,
+            const std::vector<std::shared_ptr<Tensor<TOutput, HostMemoryResource>>>& parameters_,
             const OperationAttributes& properties,
-            Tensor<TOutput, CpuMemoryResource>& output,
-            std::vector<std::shared_ptr<Tensor<TOutput, CpuMemoryResource>>>& output_state ) const override {
+            Tensor<TOutput, HostMemoryResource>& output,
+            std::vector<std::shared_ptr<Tensor<TOutput, HostMemoryResource>>>& output_state ) const override {
             auto X = input.data();
             auto Y = output.data();
 
             auto weight = parameters_[ 0 ];
-            std::shared_ptr<Tensor<TOutput, CpuMemoryResource>> bias = { nullptr };
+            std::shared_ptr<Tensor<TOutput, HostMemoryResource>> bias = { nullptr };
 
             if ( parameters_.size() == 2 ) {
                 bias = parameters_[ 1 ];
@@ -126,10 +126,10 @@ namespace Mila::Dnn::Compute
 
     private:
         void forward_naive(
-            const Tensor<float, CpuMemoryResource>& input,
-            const std::shared_ptr<Tensor<float, CpuMemoryResource>>& weight, 
-            const std::shared_ptr < Tensor<float, CpuMemoryResource>>& bias,
-            Tensor<float, CpuMemoryResource>& output,
+            const Tensor<float, HostMemoryResource>& input,
+            const std::shared_ptr<Tensor<float, HostMemoryResource>>& weight, 
+            const std::shared_ptr < Tensor<float, HostMemoryResource>>& bias,
+            Tensor<float, HostMemoryResource>& output,
             int B, int T, int C, int OC ) const {
             
             // The most naive implementation of matrix multiplication

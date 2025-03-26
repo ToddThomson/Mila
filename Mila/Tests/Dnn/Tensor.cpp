@@ -17,19 +17,15 @@ namespace Tensors::Tests {
         }
     };
 
-
-    // Basic Construction Tests
-    //----------------------------------------------------------------------------------------
     TEST( TensorTest, Cpu_DefaultConstructor ) {
-        Tensor<float, Compute::CpuMemoryResource> tensor;
-        auto device = Compute::DeviceContext::instance().getDevice();
+        Tensor<float, Compute::HostMemoryResource> tensor;
         EXPECT_TRUE( tensor.empty() );
         EXPECT_EQ( tensor.size(), 0 );
         EXPECT_EQ( tensor.rank(), 0 );
     }
 
     TEST( TensorTest, Cuda_DefaultConstructor ) {
-        Tensor<float, Compute::CudaMemoryResource> tensor;
+        Tensor<float, Compute::DeviceMemoryResource> tensor;
         EXPECT_TRUE( tensor.empty() );
         EXPECT_EQ( tensor.size(), 0 );
         EXPECT_EQ( tensor.rank(), 0 );
@@ -38,7 +34,7 @@ namespace Tensors::Tests {
     TEST( TensorTest, ConstructorWithShape ) {
         auto device = Compute::DeviceContext::instance().getDevice();
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::CudaMemoryResource> tensor( shape );
+        Tensor<float, Compute::DeviceMemoryResource> tensor( shape );
         EXPECT_FALSE( tensor.empty() );
         EXPECT_EQ( tensor.size(), 6 );
         EXPECT_EQ( tensor.rank(), 2 );
@@ -59,7 +55,7 @@ namespace Tensors::Tests {
         // Test case 1: 1D tensor with shape {5} and value 1
         std::vector<size_t> shape1D = { 5 };
         int value1D = 1;
-        Tensor<int, Compute::CpuMemoryResource> tensor1D( shape1D, value1D );
+        Tensor<int, Compute::HostMemoryResource> tensor1D( shape1D, value1D );
         EXPECT_EQ( tensor1D.size(), 5 );
         EXPECT_EQ( tensor1D.shape(), shape1D );
         for ( size_t i = 0; i < tensor1D.size(); ++i ) {
@@ -69,7 +65,7 @@ namespace Tensors::Tests {
         // Test case 2: 2D tensor with shape {3, 3} and value 2.5
         std::vector<size_t> shape2D = { 3, 3 };
         float value2D = 2.5f;
-        Tensor<float, Compute::CpuMemoryResource> tensor2D( shape2D, value2D );
+        Tensor<float, Compute::HostMemoryResource> tensor2D( shape2D, value2D );
         EXPECT_EQ( tensor2D.size(), 9 );
         EXPECT_EQ( tensor2D.shape(), shape2D );
         for ( size_t i = 0; i < shape2D[ 0 ]; ++i ) {
@@ -81,7 +77,7 @@ namespace Tensors::Tests {
         // Test case 3: 3D tensor with shape {2, 2, 2} and value -1
         std::vector<size_t> shape3D = { 2, 2, 2 };
         int value3D = -1;
-        Tensor<int, Compute::CpuMemoryResource> tensor3D( shape3D, value3D );
+        Tensor<int, Compute::HostMemoryResource> tensor3D( shape3D, value3D );
         EXPECT_EQ( tensor3D.size(), 8 );
         EXPECT_EQ( tensor3D.shape(), shape3D );
         for ( size_t i = 0; i < shape3D[ 0 ]; ++i ) {
@@ -96,44 +92,44 @@ namespace Tensors::Tests {
     // Memory Resource Tests
     //----------------------------------------------------------------------------------------
     TEST( TensorTest, CpuMemoryResourceProperties ) {
-        Tensor<float, Compute::CpuMemoryResource> tensor( { 2, 3 } );
+        Tensor<float, Compute::HostMemoryResource> tensor( { 2, 3 } );
         // Use reflection to test properties
-        EXPECT_TRUE( (Tensor<float, Compute::CpuMemoryResource>::is_host_accessible()) );
-        EXPECT_FALSE( (Tensor<float, Compute::CpuMemoryResource>::is_device_accessible()) );
+        EXPECT_TRUE( (Tensor<float, Compute::HostMemoryResource>::is_host_accessible()) );
+        EXPECT_FALSE( (Tensor<float, Compute::HostMemoryResource>::is_device_accessible()) );
     }
 
     TEST( TensorTest, CudaMemoryResourceProperties ) {
         // Use reflection to test properties
-        EXPECT_FALSE( (Tensor<float, Compute::CudaMemoryResource>::is_host_accessible()) );
-        EXPECT_TRUE( (Tensor<float, Compute::CudaMemoryResource>::is_device_accessible()) );
+        EXPECT_FALSE( (Tensor<float, Compute::DeviceMemoryResource>::is_host_accessible()) );
+        EXPECT_TRUE( (Tensor<float, Compute::DeviceMemoryResource>::is_device_accessible()) );
     }
 
     TEST( TensorTest, PinnedMemoryResourceProperties ) {
         // Use reflection to test properties
-        EXPECT_TRUE( (Tensor<float, Compute::CudaPinnedMemoryResource>::is_host_accessible()) );
-        EXPECT_TRUE( (Tensor<float, Compute::CudaPinnedMemoryResource>::is_device_accessible()) );
+        EXPECT_TRUE( (Tensor<float, Compute::PinnedMemoryResource>::is_host_accessible()) );
+        EXPECT_TRUE( (Tensor<float, Compute::PinnedMemoryResource>::is_device_accessible()) );
     }
 
     TEST( TensorTest, ManagedMemoryResourceProperties ) {
         // Use reflection to test properties
-        EXPECT_TRUE( (Tensor<float, Compute::CudaManagedMemoryResource>::is_host_accessible()) );
-        EXPECT_TRUE( (Tensor<float, Compute::CudaManagedMemoryResource>::is_device_accessible()) );
+        EXPECT_TRUE( (Tensor<float, Compute::ManagedMemoryResource>::is_host_accessible()) );
+        EXPECT_TRUE( (Tensor<float, Compute::ManagedMemoryResource>::is_device_accessible()) );
     }
 
     // Conversion between Memory Types
     //----------------------------------------------------------------------------------------
     TEST( TensorTest, ConvertCpuToCuda ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::CpuMemoryResource> cpu_tensor( shape, 3.14f );
+        Tensor<float, Compute::HostMemoryResource> cpu_tensor( shape, 3.14f );
 
         // Convert to CUDA
-        auto cuda_tensor = cpu_tensor.to<Compute::CudaMemoryResource>();
+        auto cuda_tensor = cpu_tensor.to<Compute::DeviceMemoryResource>();
 
         EXPECT_EQ( cuda_tensor.shape(), shape );
         EXPECT_EQ( cuda_tensor.size(), 6 );
 
         // Convert back to CPU for validation
-        auto cpu_tensor2 = cuda_tensor.to<Compute::CpuMemoryResource>();
+        auto cpu_tensor2 = cuda_tensor.to<Compute::HostMemoryResource>();
         for ( size_t i = 0; i < shape[ 0 ]; ++i ) {
             for ( size_t j = 0; j < shape[ 1 ]; ++j ) {
                 EXPECT_FLOAT_EQ( ( cpu_tensor2[ i, j ] ), 3.14f );
@@ -143,10 +139,10 @@ namespace Tensors::Tests {
 
     TEST( TensorTest, ConvertCudaToCpu ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::CudaMemoryResource> cuda_tensor( shape, 2.71f );
+        Tensor<float, Compute::DeviceMemoryResource> cuda_tensor( shape, 2.71f );
 
         // Convert to CPU
-        auto cpu_tensor = cuda_tensor.to<Compute::CpuMemoryResource>();
+        auto cpu_tensor = cuda_tensor.to<Compute::HostMemoryResource>();
 
         EXPECT_EQ( cpu_tensor.shape(), shape );
         EXPECT_EQ( cpu_tensor.size(), 6 );
@@ -161,7 +157,7 @@ namespace Tensors::Tests {
 
     TEST( TensorTest, ToHostAccessible ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::CudaMemoryResource> cuda_tensor( shape, 1.23f );
+        Tensor<float, Compute::DeviceMemoryResource> cuda_tensor( shape, 1.23f );
 
         // Convert to host-accessible (should be CPU by default)
         auto host_tensor = cuda_tensor.toHostAccessible();
@@ -181,7 +177,7 @@ namespace Tensors::Tests {
     //----------------------------------------------------------------------------------------
     TEST( TensorTest, Reshape ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::CpuMemoryResource> tensor( shape );
+        Tensor<float, Compute::HostMemoryResource> tensor( shape );
         std::vector<size_t> new_shape = { 3, 2 };
         tensor.reshape( new_shape );
         EXPECT_EQ( tensor.shape(), new_shape );
@@ -189,7 +185,7 @@ namespace Tensors::Tests {
     }
 
     TEST( TensorTest, ReshapeEmptyTensor ) {
-        Tensor<float, Compute::CpuMemoryResource> tensor;
+        Tensor<float, Compute::HostMemoryResource> tensor;
         std::vector<size_t> new_shape = { 2, 3 };
         tensor.reshape( new_shape );
         EXPECT_EQ( tensor.shape(), new_shape );
@@ -199,14 +195,14 @@ namespace Tensors::Tests {
 
     TEST( TensorTest, ReshapeInvalidSize ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::CpuMemoryResource> tensor( shape );
+        Tensor<float, Compute::HostMemoryResource> tensor( shape );
         std::vector<size_t> new_shape = { 4, 4 }; // Different total size
         EXPECT_THROW( tensor.reshape( new_shape ), std::runtime_error );
     }
 
     TEST( TensorTest, Fill ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::CpuMemoryResource> tensor( shape );
+        Tensor<float, Compute::HostMemoryResource> tensor( shape );
         tensor.fill( 3.1415f );
         for ( size_t i = 0; i < tensor.shape()[ 0 ]; ++i ) {
             for ( size_t j = 0; j < tensor.shape()[ 1 ]; ++j ) {
@@ -218,11 +214,11 @@ namespace Tensors::Tests {
 
     TEST( TensorTest, FillWithCudaTensor ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::CudaMemoryResource> tensor( shape );
+        Tensor<float, Compute::DeviceMemoryResource> tensor( shape );
         tensor.fill( 3.1415f );
 
         // Convert to CPU to check values
-        auto cpu_tensor = tensor.to<Compute::CpuMemoryResource>();
+        auto cpu_tensor = tensor.to<Compute::HostMemoryResource>();
         for ( size_t i = 0; i < cpu_tensor.shape()[ 0 ]; ++i ) {
             for ( size_t j = 0; j < cpu_tensor.shape()[ 1 ]; ++j ) {
                 auto val = cpu_tensor[ i, j ];
@@ -235,14 +231,14 @@ namespace Tensors::Tests {
     //----------------------------------------------------------------------------------------
     TEST( TensorTest, OperatorIndex1D ) {
         std::vector<size_t> shape = { 6 };
-        Tensor<float, Compute::CpuMemoryResource> tensor( shape );
+        Tensor<float, Compute::HostMemoryResource> tensor( shape );
         tensor[ 0 ] = 1.0f;
         EXPECT_EQ( tensor[ 0 ], 1.0f );
     }
 
     TEST( TensorTest, OperatorIndex2D ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::CpuMemoryResource> tensor( shape );
+        Tensor<float, Compute::HostMemoryResource> tensor( shape );
         tensor.fill( 3.14f );
         tensor[ 0, 1 ] = 1.0f;
         auto val = tensor[ 0, 1 ];
@@ -251,28 +247,34 @@ namespace Tensors::Tests {
 
     TEST( TensorTest, OperatorIndexOutOfBounds ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::CpuMemoryResource> tensor( shape );
+        Tensor<float, Compute::HostMemoryResource> tensor( shape );
         EXPECT_THROW( ( tensor[ 2, 0 ] ), std::out_of_range );
         EXPECT_THROW( ( tensor[ 0, 3 ] ), std::out_of_range );
     }
 
     TEST( TensorTest, AtMethod ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::CpuMemoryResource> tensor( shape, 5.0f );
+        Tensor<float, Compute::HostMemoryResource> tensor( shape, 5.0f );
         auto val = tensor.at( { 0, 1 } );
         EXPECT_FLOAT_EQ( val, 5.0f );
+
+        EXPECT_THROW( (tensor.at( { 2, 0 } ) ), std::out_of_range);
+        EXPECT_THROW( (tensor.at( { 0, 3 } ) ), std::out_of_range);
     }
 
     TEST( TensorTest, SetMethod ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::CpuMemoryResource> tensor( shape );
+        Tensor<float, Compute::HostMemoryResource> tensor( shape );
         tensor.set( { 0, 1 }, 7.5f );
         EXPECT_FLOAT_EQ( ( tensor[ 0, 1 ] ), 7.5f );
+
+        EXPECT_THROW( (tensor.set( { 2, 0 }, 7.5f ) ), std::out_of_range);
+        EXPECT_THROW( (tensor.set( { 0, 3 }, 7.5f ) ), std::out_of_range);
     }
 
     TEST( TensorTest, AtAndSetWithCudaTensor ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::CudaMemoryResource> tensor( shape, 3.0f );
+        Tensor<float, Compute::DeviceMemoryResource> tensor( shape, 3.0f );
 
         // Get value using at (should work by creating a CPU copy)
         auto val = tensor.at( { 0, 1 } );
@@ -290,20 +292,20 @@ namespace Tensors::Tests {
     //----------------------------------------------------------------------------------------
     TEST( TensorTest, VectorSpan ) {
         std::vector<size_t> shape = { 6 };
-        Tensor<float, Compute::CpuMemoryResource> tensor( shape );
+        Tensor<float, Compute::HostMemoryResource> tensor( shape );
         auto span = tensor.vectorSpan();
         EXPECT_EQ( span.extent( 0 ), 6 );
     }
 
     TEST( TensorTest, CudaTensorVectorSpanThrows ) {
         std::vector<size_t> shape = { 6 };
-        Tensor<float, Compute::CudaMemoryResource> tensor( shape );
+        Tensor<float, Compute::DeviceMemoryResource> tensor( shape );
         EXPECT_THROW( tensor.vectorSpan(), std::runtime_error );
     }
 
     TEST( TensorTest, MatrixSpan ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::CpuMemoryResource> tensor( shape );
+        Tensor<float, Compute::HostMemoryResource> tensor( shape );
         auto span = tensor.matrixSpan( shape );
         EXPECT_EQ( span.extent( 0 ), 2 );
         EXPECT_EQ( span.extent( 1 ), 3 );
@@ -311,14 +313,14 @@ namespace Tensors::Tests {
 
     TEST( TensorTest, MatrixSpanWithInvalidShape ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::CpuMemoryResource> tensor( shape );
+        Tensor<float, Compute::HostMemoryResource> tensor( shape );
         EXPECT_THROW( tensor.matrixSpan( { 7 } ), std::runtime_error ); // Wrong dimensions
         EXPECT_THROW( tensor.matrixSpan( { 3, 3 } ), std::runtime_error ); // Exceeds size
     }
 
     TEST( TensorTest, CudaTensorMatrixSpanThrows ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::CudaMemoryResource> tensor( shape );
+        Tensor<float, Compute::DeviceMemoryResource> tensor( shape );
         EXPECT_THROW( tensor.matrixSpan( shape ), std::runtime_error );
     }
 
@@ -326,8 +328,8 @@ namespace Tensors::Tests {
     //----------------------------------------------------------------------------------------
     TEST( TensorTest, CopyFrom ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::CpuMemoryResource> src( shape, 1.0f );
-        Tensor<float, Compute::CpuMemoryResource> dst( shape );
+        Tensor<float, Compute::HostMemoryResource> src( shape, 1.0f );
+        Tensor<float, Compute::HostMemoryResource> dst( shape );
 
         dst.copyFrom( src );
 
@@ -340,8 +342,8 @@ namespace Tensors::Tests {
 
     TEST( TensorTest, CopyFromCudaToCpu ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::CudaMemoryResource> src( shape, 2.0f );
-        Tensor<float, Compute::CpuMemoryResource> dst( shape );
+        Tensor<float, Compute::DeviceMemoryResource> src( shape, 2.0f );
+        Tensor<float, Compute::HostMemoryResource> dst( shape );
 
         dst.copyFrom( src );
 
@@ -354,13 +356,13 @@ namespace Tensors::Tests {
 
     TEST( TensorTest, CopyFromCpuToCuda ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::CpuMemoryResource> src( shape, 3.0f );
-        Tensor<float, Compute::CudaMemoryResource> dst( shape );
+        Tensor<float, Compute::HostMemoryResource> src( shape, 3.0f );
+        Tensor<float, Compute::DeviceMemoryResource> dst( shape );
 
         dst.copyFrom( src );
 
         // Convert back to CPU to verify
-        auto cpu_dst = dst.to<Compute::CpuMemoryResource>();
+        auto cpu_dst = dst.to<Compute::HostMemoryResource>();
         for ( size_t i = 0; i < shape[ 0 ]; ++i ) {
             for ( size_t j = 0; j < shape[ 1 ]; ++j ) {
                 EXPECT_FLOAT_EQ( ( cpu_dst[ i, j ] ), 3.0f );
@@ -369,8 +371,8 @@ namespace Tensors::Tests {
     }
 
     TEST( TensorTest, CopyFromDifferentShapes ) {
-        Tensor<float, Compute::CpuMemoryResource> src( { 3, 2 }, 1.0f );
-        Tensor<float, Compute::CpuMemoryResource> dst( { 2, 3 } );
+        Tensor<float, Compute::HostMemoryResource> src( { 3, 2 }, 1.0f );
+        Tensor<float, Compute::HostMemoryResource> dst( { 2, 3 } );
 
         EXPECT_THROW( dst.copyFrom( src ), std::runtime_error );
     }
@@ -379,20 +381,20 @@ namespace Tensors::Tests {
     //----------------------------------------------------------------------------------------
     TEST( TensorTest, Strides ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::CpuMemoryResource> tensor( shape );
+        Tensor<float, Compute::HostMemoryResource> tensor( shape );
         std::vector<size_t> expected_strides = { 3, 1 };
         EXPECT_EQ( tensor.strides(), expected_strides );
     }
 
     TEST( TensorTest, Strides3D ) {
         std::vector<size_t> shape = { 2, 3, 4 };
-        Tensor<float, Compute::CpuMemoryResource> tensor( shape );
+        Tensor<float, Compute::HostMemoryResource> tensor( shape );
         std::vector<size_t> expected_strides = { 12, 4, 1 };
         EXPECT_EQ( tensor.strides(), expected_strides );
     }
 
     TEST( TensorTest, GetName ) {
-        Tensor<float, Compute::CpuMemoryResource> tensor;
+        Tensor<float, Compute::HostMemoryResource> tensor;
         EXPECT_TRUE( tensor.getName().empty() );
 
         // Set and get name
@@ -401,13 +403,13 @@ namespace Tensors::Tests {
     }
 
     TEST( TensorTest, SetEmptyNameThrows ) {
-        Tensor<float, Compute::CpuMemoryResource> tensor;
+        Tensor<float, Compute::HostMemoryResource> tensor;
         EXPECT_THROW( tensor.setName( "" ), std::invalid_argument );
     }
 
     TEST( TensorTest, GetUID ) {
-        Tensor<float, Compute::CpuMemoryResource> tensor1;
-        Tensor<float, Compute::CpuMemoryResource> tensor2;
+        Tensor<float, Compute::HostMemoryResource> tensor1;
+        Tensor<float, Compute::HostMemoryResource> tensor2;
 
         // Each tensor should have a unique ID
         EXPECT_NE( tensor1.get_uid(), tensor2.get_uid() );
@@ -415,7 +417,7 @@ namespace Tensors::Tests {
 
     TEST( TensorTest, ToString ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::CpuMemoryResource> tensor( shape );
+        Tensor<float, Compute::HostMemoryResource> tensor( shape );
         tensor.fill( 1.0f );
         tensor.setName( "test_tensor" );
 
@@ -432,7 +434,7 @@ namespace Tensors::Tests {
 
     TEST( TensorTest, ToStringWithCudaTensor ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::CudaMemoryResource> tensor( shape, 1.0f );
+        Tensor<float, Compute::DeviceMemoryResource> tensor( shape, 1.0f );
 
         std::string output = tensor.toString();
         EXPECT_NE( output.find( "Tensor:" ), std::string::npos );
@@ -445,10 +447,10 @@ namespace Tensors::Tests {
 
     // Copy & Move Construction
     //----------------------------------------------------------------------------------------
-    TEST( TensorTest, CopyConstructor ) {
+    TEST( TensorTest, CopyConstructor_Shallow ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::CpuMemoryResource> original( shape, 3.14f );
-        Tensor<float, Compute::CpuMemoryResource> copy( original );
+        Tensor<float, Compute::HostMemoryResource> original( shape, 3.14f );
+        Tensor<float, Compute::HostMemoryResource> copy( original );
 
         EXPECT_EQ( copy.shape(), original.shape() );
         EXPECT_EQ( copy.size(), original.size() );
@@ -459,18 +461,19 @@ namespace Tensors::Tests {
             }
         }
 
-        // Modify the copy and verify it doesn't affect the original
+		// The original and copy should share the same data
         copy[ 0, 0 ] = 0.0f;
+
         EXPECT_FLOAT_EQ( ( copy[ 0, 0 ] ), 0.0f );
-        EXPECT_FLOAT_EQ( ( original[ 0, 0 ] ), 3.14f );
+        EXPECT_FLOAT_EQ( ( original[ 0, 0 ] ), 0.0f );
     }
 
     TEST( TensorTest, MoveConstructor ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::CpuMemoryResource> original( shape, 3.14f );
+        Tensor<float, Compute::HostMemoryResource> original( shape, 3.14f );
         std::string original_uid = original.get_uid();
 
-        Tensor<float, Compute::CpuMemoryResource> moved( std::move( original ) );
+        Tensor<float, Compute::HostMemoryResource> moved( std::move( original ) );
 
         EXPECT_EQ( moved.shape(), shape );
         EXPECT_EQ( moved.size(), 6 );
@@ -483,8 +486,8 @@ namespace Tensors::Tests {
 
     TEST( TensorTest, CopyAssignment ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::CpuMemoryResource> original( shape, 3.14f );
-        Tensor<float, Compute::CpuMemoryResource> copy;
+        Tensor<float, Compute::HostMemoryResource> original( shape, 3.14f );
+        Tensor<float, Compute::HostMemoryResource> copy;
 
         copy = original;
 
@@ -500,10 +503,10 @@ namespace Tensors::Tests {
 
     TEST( TensorTest, MoveAssignment ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::CpuMemoryResource> original( shape, 3.14f );
+        Tensor<float, Compute::HostMemoryResource> original( shape, 3.14f );
         std::string original_uid = original.get_uid();
 
-        Tensor<float, Compute::CpuMemoryResource> moved;
+        Tensor<float, Compute::HostMemoryResource> moved;
         moved = std::move( original );
 
         EXPECT_EQ( moved.shape(), shape );
@@ -523,8 +526,8 @@ namespace Tensors::Tests {
         for ( int i = 0; i < 6; i++ ) data_ptr[ i ] = static_cast<float>( i );
 
         std::shared_ptr<float> data_ptr_float( data_ptr, data_ptr.get() );
-        Tensor<float, Compute::CpuMemoryResource> tensor( shape, data_ptr_float );
-        //Tensor<float, Compute::CpuMemoryResource> tensor( shape, data_ptr );
+        Tensor<float, Compute::HostMemoryResource> tensor( shape, data_ptr_float );
+        //Tensor<float, Compute::HostMemoryResource> tensor( shape, data_ptr );
 
         EXPECT_EQ( tensor.shape(), shape );
         EXPECT_EQ( tensor.size(), 6 );
@@ -546,7 +549,7 @@ namespace Tensors::Tests {
         std::vector<size_t> shape = { 2, 3 };
         std::shared_ptr<float> null_ptr;
 
-        EXPECT_THROW( ( Tensor<float, Compute::CpuMemoryResource>( shape, null_ptr ) ), std::invalid_argument );
+        EXPECT_THROW( ( Tensor<float, Compute::HostMemoryResource>( shape, null_ptr ) ), std::invalid_argument );
     }
     
 }

@@ -40,7 +40,7 @@ namespace Mila::Dnn
         requires ValidTensorTypes<TInput, TCompute>
     class Module {
     public:
-        using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::CpuMemoryResource>;
+        using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::DeviceMemoryResource, Compute::HostMemoryResource>;
 
         virtual ~Module() = default;
 

@@ -15,7 +15,7 @@ namespace Dnn::Compute::Tests
     };
    
     TEST( DeviceRegistryTests, ListDevices ) {
-        auto device_count = Cuda::GetDeviceCount();
+        auto device_count = GetDeviceCount();
 		int expected_device_count = 1 + device_count;
         auto devices = list_devices();
         EXPECT_EQ( devices.size(), expected_device_count );

@@ -29,11 +29,11 @@ namespace Mila::Dnn::Compute
 		CudaEncoderOp() : UnaryOperation<int, TOutput, DeviceType::Cuda>( DeviceType::Cuda, OperationType::EncoderOp ) {}
 
 		void forward(
-			const Tensor<int, CudaMemoryResource>& input,
-			const std::vector<std::shared_ptr<Tensor<TOutput, CudaMemoryResource>>>& parameters,
+			const Tensor<int, DeviceMemoryResource>& input,
+			const std::vector<std::shared_ptr<Tensor<TOutput, DeviceMemoryResource>>>& parameters,
 			const OperationAttributes& properties,
-			Tensor<TOutput, CudaMemoryResource>& output,
-			std::vector<std::shared_ptr<Tensor<TOutput, CudaMemoryResource>>>& output_state ) const override {
+			Tensor<TOutput, DeviceMemoryResource>& output,
+			std::vector<std::shared_ptr<Tensor<TOutput, DeviceMemoryResource>>>& output_state ) const override {
 
 			auto X = input.data();
 			auto Y = output.data();

@@ -106,8 +106,8 @@ namespace Gpt2App
 	public:
 		using MR = std::conditional_t<
 			TDevice == Compute::DeviceType::Cuda,
-			Compute::CudaMemoryResource,
-			Compute::CpuMemoryResource>;
+			Compute::DeviceMemoryResource,
+			Compute::HostMemoryResource>;
 		
 		Gpt2Model( const ModelConfig& config, size_t batch_size, size_t sequence_length, Compute::DeviceType device_type = DeviceType::Cuda, bool is_training = true )
 			: config_( config ), batch_size_( batch_size ), seq_len_( sequence_length ), is_training_( is_training ) {
@@ -155,7 +155,7 @@ namespace Gpt2App
 			return acts_;
 		}
 
-		const Tensor<TCompute,Compute::CpuMemoryResource>& getProbabilities() const {
+		const Tensor<TCompute,Compute::HostMemoryResource>& getProbabilities() const {
 			return smax_probs_output_;
 		}
 
@@ -232,7 +232,7 @@ namespace Gpt2App
 		//void copyToTensor()
 
 		void copyDataToTensor( std::vector<float>& source, Tensor<float, MR>& destination ) {
-			if constexpr ( std::is_same_v<MR, Compute::CpuMemoryResource> ) {
+			if constexpr ( std::is_same_v<MR, Compute::HostMemoryResource> ) {
 				std::copy( source.begin(), source.end(), destination.data() );
 			}
 			else {
@@ -485,7 +485,7 @@ namespace Gpt2App
 				targets_ = targets;
 			}*/
 
-			encoder_->forward( inputs.to<Compute::CudaMemoryResource>(), encoder_output_);
+			encoder_->forward( inputs.to<Compute::DeviceMemoryResource>(), encoder_output_);
 			//std::cout << encoder_output_.toString( true ) << std::endl;
 
 			// Forward pass through the transformer layers...

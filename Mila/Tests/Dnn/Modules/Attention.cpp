@@ -56,8 +56,8 @@ namespace Modules::Tests
     //}
 
     TEST_F( AttentionTests, Cpu_TestForward ) {
-        Tensor<float, Compute::CpuMemoryResource> input( { cpu_batch_size_, sequence_length_,  3 * channels_ } );
-        Tensor<float, Compute::CpuMemoryResource> output( { cpu_batch_size_, sequence_length_,  3 * channels_ } );
+        Tensor<float, Compute::HostMemoryResource> input( { cpu_batch_size_, sequence_length_,  3 * channels_ } );
+        Tensor<float, Compute::HostMemoryResource> output( { cpu_batch_size_, sequence_length_,  3 * channels_ } );
         cpu_attention->forward( input, output );
         EXPECT_EQ( output.size(), cpu_batch_size_ * sequence_length_ *  ( 3 * channels_ ) );
     }

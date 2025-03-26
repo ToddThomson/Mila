@@ -13,11 +13,11 @@ namespace Mila::Dnn::Compute
     /**
      * @brief A memory resource that allocates memory on a CUDA device.
      */
-    export class CudaMemoryResource : public MemoryResource {
+    export class DeviceMemoryResource : public MemoryResource {
 
     public:
-        static constexpr bool is_cpu_accessible = false;
-        static constexpr bool is_cuda_accessible = CudaAccessible::is_cuda_accessible;
+        static constexpr bool is_host_accessible = false;
+        static constexpr bool is_device_accessible = DeviceAccessible::is_device_accessible;
 
     protected:
         /**
@@ -55,7 +55,7 @@ namespace Mila::Dnn::Compute
          * @return false otherwise.
          */
         bool do_is_equal( const std::pmr::memory_resource& other ) const noexcept override {
-            return dynamic_cast<const CudaMemoryResource*>(&other) != nullptr;
+            return dynamic_cast<const DeviceMemoryResource*>(&other) != nullptr;
         }
     };
 }

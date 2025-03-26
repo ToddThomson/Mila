@@ -26,7 +26,7 @@ namespace Mila::Dnn
         requires ValidTensorTypes<TInput, TCompute>
     class MLP : public Module<TInput, TCompute, TDeviceType> {
     public:
-		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::CpuMemoryResource>;
+		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::DeviceMemoryResource, Compute::HostMemoryResource>;
 
 		MLP( std::string name, const std::vector<size_t>& input_shape, size_t output_channels, bool has_bias = true, bool is_training = false )
 			: input_shape_{ input_shape }, output_channels_{ output_channels } {

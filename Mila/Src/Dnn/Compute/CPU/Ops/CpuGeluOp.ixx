@@ -35,11 +35,11 @@ namespace Mila::Dnn::Compute
 		CpuGeluOp() : UnaryOperation<float, float, DeviceType::Cpu>( DeviceType::Cpu, OperationType::GeluOp ) {}
 
 		void forward(
-			const Tensor<float, CpuMemoryResource>& input,
-			const std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& parameters,
+			const Tensor<float, HostMemoryResource>& input,
+			const std::vector<std::shared_ptr<Tensor<T, HostMemoryResource>>>& parameters,
 			const OperationAttributes& properties,
-			Tensor<T, CpuMemoryResource>& output,
-			std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& output_cache ) const override {
+			Tensor<T, HostMemoryResource>& output,
+			std::vector<std::shared_ptr<Tensor<T, HostMemoryResource>>>& output_cache ) const override {
 			// (approximate) GeLU elementwise non-linearity in the MLP block of Transformer
 
 			const T* X = input.data();

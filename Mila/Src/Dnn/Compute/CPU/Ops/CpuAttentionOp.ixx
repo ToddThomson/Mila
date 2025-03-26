@@ -31,11 +31,11 @@ namespace Mila::Dnn::Compute
 
         CpuAttentionOp() : UnaryOperation<TInput, TCompute, DeviceType::Cpu>(DeviceType::Cpu, OperationType::MultiHeadAttentionOp) {}
     
-        void forward( const Tensor<TInput, CpuMemoryResource>& input,
-            const std::vector<std::shared_ptr<Tensor<TCompute, CpuMemoryResource>>>& parameters,
+        void forward( const Tensor<TInput, HostMemoryResource>& input,
+            const std::vector<std::shared_ptr<Tensor<TCompute, HostMemoryResource>>>& parameters,
 			const OperationAttributes& properties,
-            Tensor<TCompute, CpuMemoryResource>& output,
-            std::vector<std::shared_ptr<Tensor<TCompute, CpuMemoryResource>>>& output_cache ) const override {
+            Tensor<TCompute, HostMemoryResource>& output,
+            std::vector<std::shared_ptr<Tensor<TCompute, HostMemoryResource>>>& output_cache ) const override {
 
 			auto X = input.data();
 			auto Y = output.data();

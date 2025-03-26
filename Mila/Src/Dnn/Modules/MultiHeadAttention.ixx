@@ -34,7 +34,7 @@ export namespace Mila::Dnn
 		requires ValidTensorTypes<TInput, TCompute>
     class MultiHeadAttention : public Module<TInput, TCompute, TDeviceType> {
 	public:
-		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::CpuMemoryResource>;
+		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::DeviceMemoryResource, Compute::HostMemoryResource>;
 
 		MultiHeadAttention( std::string name, const std::vector<size_t>& input_shape, size_t num_heads, bool is_training = false )
 			: input_shape_{ input_shape }, num_heads_{ num_heads } {

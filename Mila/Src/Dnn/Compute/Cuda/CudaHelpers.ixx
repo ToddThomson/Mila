@@ -1,6 +1,5 @@
 module;
 #include <stdio.h>
-#include <stdlib.h>
 #include <stdexcept>
 #include <cuda_runtime.h>
 
@@ -8,35 +7,25 @@ export module Cuda.Helpers;
 
 import Cuda.Error;
 
-namespace Mila::Dnn::Compute::Cuda
+namespace Mila::Dnn::Compute
 {
     // convenience function for calculating grid/block dimensions for kernels
     export constexpr int ceil_div( int M, int N ) {
         return (M + N - 1) / N;
     }
-
-    // CUDA error checking
-    export inline void cudaCheck( cudaError_t error, const char* file, int line ) {
-        if ( error != cudaSuccess ) {
-            printf( "[CUDA ERROR] at file %s:%d:\n%s\n", file, line,
-                cudaGetErrorString( error ) );
-            exit( EXIT_FAILURE );
+    
+    export inline void cudaCheckStatus( cudaError_t status )
+    {
+        if ( status != cudaSuccess ) {
+            throw CudaError( status );
         }
     }
 
-    export inline void cudaCheck( cudaError_t error ) {
-        cudaCheck( error, __FILE__, __LINE__ );
-    }
-
-    export inline void cudaCheckStatus( cudaError_t status_ )
+    export inline void cudaCheckLastError()
     {
-        switch ( status_ ) {
-            case cudaSuccess:
-                return;
-
-            default:
-                cudaGetLastError();
-                throw CudaError( status_ );
+        cudaError_t error = cudaGetLastError();
+        if ( error != cudaSuccess ) {
+            throw CudaError( error );
         }
     }
 

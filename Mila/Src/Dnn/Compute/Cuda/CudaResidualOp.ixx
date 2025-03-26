@@ -30,12 +30,12 @@ namespace Mila::Dnn::Compute
 		CudaResidualOp() : BinaryOperation<TInput, TOutput, DeviceType::Cuda>( DeviceType::Cuda, OperationType::ResidualOp ) {}
 
 		void forward(
-			const Tensor<TInput, CudaMemoryResource>& input1,
-			const Tensor<TInput, CudaMemoryResource>& input2,
-			const std::vector<std::shared_ptr<Tensor<TInput, CudaMemoryResource>>>& parameters,
+			const Tensor<TInput, DeviceMemoryResource>& input1,
+			const Tensor<TInput, DeviceMemoryResource>& input2,
+			const std::vector<std::shared_ptr<Tensor<TInput, DeviceMemoryResource>>>& parameters,
 			const OperationAttributes& properties,
-			Tensor<TOutput, CudaMemoryResource>& output,
-			std::vector<std::shared_ptr<Tensor<TOutput, CudaMemoryResource>>>& output_state ) const override {
+			Tensor<TOutput, DeviceMemoryResource>& output,
+			std::vector<std::shared_ptr<Tensor<TOutput, DeviceMemoryResource>>>& output_state ) const override {
 
 			auto X1 = input1.data();
 			auto X2 = input2.data();

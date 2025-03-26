@@ -14,15 +14,15 @@ import Compute.CudaMemoryResource;
 
 namespace Mila::Dnn
 {
-	export template<typename T, typename MR = Compute::CpuMemoryResource> 
+	export template<typename T, typename MR = Compute::HostMemoryResource> 
 		requires std::is_base_of_v<Compute::MemoryResource, MR>
 	void random( Tensor<float, MR>& tensor, float min, float max ) {
 		std::random_device rd;
 		std::mt19937 gen( 42 ); // rd() );
 		std::uniform_real_distribution<float> dis( min, max );
 
-		if constexpr ( std::is_same_v<MR, Compute::CudaMemoryResource> ) {
-			auto temp = tensor.to<Compute::CpuMemoryResource>();
+		if constexpr ( std::is_same_v<MR, Compute::DeviceMemoryResource> ) {
+			auto temp = tensor.to<Compute::HostMemoryResource>();
 			auto v = temp.vectorSpan();
 			for ( size_t i = 0; i < temp.size(); ++i ) {
 				temp[ i ] = dis( gen );
@@ -44,8 +44,8 @@ namespace Mila::Dnn
 		std::mt19937 gen( 42 ); // TJT: revert back to rd() );
 		std::uniform_real_distribution<float> dis( -limit, limit );
 
-		if constexpr ( std::is_same_v<MR, Compute::CudaMemoryResource> ) {
-			auto temp = tensor.to<Compute::CpuMemoryResource>();
+		if constexpr ( std::is_same_v<MR, Compute::DeviceMemoryResource> ) {
+			auto temp = tensor.to<Compute::HostMemoryResource>();
 			auto v = temp.vectorSpan();
 			for ( size_t i = 0; i < temp.size(); ++i ) {
 				v[ i ] = dis( gen );

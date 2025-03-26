@@ -64,8 +64,8 @@ namespace Modules::Tests
 
     TEST_F( LayerNormTests, Cpu_TestForward ) {
 		std::vector<size_t> io_shape = { 1, 2, 3 };
-        Tensor<float, Compute::CpuMemoryResource> input( io_shape );
-        Tensor<float, Compute::CpuMemoryResource> output( io_shape );
+        Tensor<float, Compute::HostMemoryResource> input( io_shape );
+        Tensor<float, Compute::HostMemoryResource> output( io_shape );
 
         input.data()[ 0 ] = 1.0f;
         input.data()[ 1 ] = 2.0f;

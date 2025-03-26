@@ -46,7 +46,7 @@ export namespace Mila::Dnn
 		requires ValidTensorTypes<TInput, TPrecision>
 	class Softmax : public Module<TInput, TPrecision, TDeviceType> {
 	public:
-		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::CpuMemoryResource>;
+		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::DeviceMemoryResource, Compute::HostMemoryResource>;
 
 		/**
 		* @brief Construct a new Softmax module.

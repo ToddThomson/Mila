@@ -30,11 +30,11 @@ namespace Mila::Dnn::Compute
 		CpuEncoderOp() : UnaryOperation<int, float, DeviceType::Cpu>( DeviceType::Cpu, OperationType::EncoderOp ) {}
 
 		void forward(
-			const Tensor<int, CpuMemoryResource>& input,
-			const std::vector<std::shared_ptr<Tensor<float, CpuMemoryResource>>>& parameters,
+			const Tensor<int, HostMemoryResource>& input,
+			const std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>>& parameters,
 			const OperationAttributes& properties,
-			Tensor<float, CpuMemoryResource>& output,
-			std::vector<std::shared_ptr<Tensor<float, CpuMemoryResource>>>& output_cache ) const override {
+			Tensor<float, HostMemoryResource>& output,
+			std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>>& output_cache ) const override {
 			auto X = input.data();
 			auto Y =  output.data();
 
@@ -59,7 +59,7 @@ namespace Mila::Dnn::Compute
 			}
 		}
 
-		void backward( float* dwte, float* dwpe, float* dout, const Tensor<int,CpuMemoryResource>& inp, int B, int T, int C ) {
+		void backward( float* dwte, float* dwpe, float* dout, const Tensor<int,HostMemoryResource>& inp, int B, int T, int C ) {
 			for ( int b = 0; b < B; b++ ) {
 				for ( int t = 0; t < T; t++ ) {
 					float* dout_bt = dout + b * T * C + t * C;

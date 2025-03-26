@@ -34,8 +34,8 @@
 //    auto cpu_softmax = Softmax<float>(
 //        "Cpu_softmax", cpu_input_shape );
 //
-//    Tensor<float, Compute::CpuMemoryResource> input( cpu_input_shape );
-//    random<float, Compute::CpuMemoryResource>( input, 0.0f, 5.0f );
+//    Tensor<float, Compute::HostMemoryResource> input( cpu_input_shape );
+//    random<float, Compute::HostMemoryResource>( input, 0.0f, 5.0f );
 //
 //	input.print();
 //
@@ -64,7 +64,7 @@
 //    }
 //
 //    //std::cout << "Cuda output: " << std::endl;
-//    //auto from_cuda_output2 = output2->to<Compute::CpuMemoryResource>();
+//    //auto from_cuda_output2 = output2->to<Compute::HostMemoryResource>();
 //    //from_cuda_output2.print();
 //
 //	return 0;

@@ -14,7 +14,7 @@ namespace Modules::Tests
     struct DeviceTypeWrapper {
         static constexpr Compute::DeviceType value = TDeviceType;
         // Add the MR type that's used in the tests
-        using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::CpuMemoryResource>;
+        using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::DeviceMemoryResource, Compute::HostMemoryResource>;
     };
 
     // Specific type definitions for CPU and CUDA

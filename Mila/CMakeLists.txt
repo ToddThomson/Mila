@@ -119,7 +119,7 @@ PUBLIC
 		"Src/Dnn/ModelBase.ixx" 
 		"Src/Dnn/Compute/OperationAttributes'.ixx"
 		"Src/Dnn/Compute/Cuda/CudaResidualOp.ixx"
-)
+ "Src/Dnn/Models/Gpt2/Gpt2DataLoader.ixx")
 
 target_link_libraries( Mila PRIVATE CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
 

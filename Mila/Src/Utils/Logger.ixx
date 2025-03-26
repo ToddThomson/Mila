@@ -1,6 +1,3 @@
-// ----------------------------------------------------------------------------
-// Logger class definition
-
 module;
 #include <fstream>
 #include <iostream>
@@ -44,10 +41,9 @@ namespace Mila::Dnn
 
         }
 
-
     private:
 
         std::ofstream logfile_;
         int flush_every_{ 20 }; // every how many steps to flush the log
     };
-} // namespace Mila::Dnn
+}

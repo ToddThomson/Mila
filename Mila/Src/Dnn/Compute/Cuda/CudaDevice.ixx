@@ -21,12 +21,12 @@ namespace Mila::Dnn::Compute
 {
 	export class CudaDevice : public ComputeDevice {
 	public:
-		using MR = CudaMemoryResource;
-		using PINNED_MR = CudaPinnedMemoryResource;
-		using MANAGED_MR = CudaManagedMemoryResource;
+		using MR = DeviceMemoryResource;
+		using PINNED_MR = PinnedMemoryResource;
+		using MANAGED_MR = ManagedMemoryResource;
 
 		explicit CudaDevice( int device_id = 0 ) 
-			: device_id_( setDevice( device_id )), props_( Cuda::DeviceProps( device_id_ ) ) {
+			: device_id_( setDevice( device_id )), props_( DeviceProps( device_id_ ) ) {
 		}
 
 		constexpr DeviceType getDeviceType() const override {
@@ -37,7 +37,7 @@ namespace Mila::Dnn::Compute
 			return "CUDA:" + std::to_string( device_id_ );
 		}
 
-		const Cuda::DeviceProps& getProperties() const
+		const DeviceProps& getProperties() const
 		{
 			return props_;
 		}
@@ -56,7 +56,7 @@ namespace Mila::Dnn::Compute
 
 	private:
 		int device_id_;
-		Cuda::DeviceProps props_;
+		DeviceProps props_;
 		static bool registered_;
 
 		int setDevice( int device_id ) {

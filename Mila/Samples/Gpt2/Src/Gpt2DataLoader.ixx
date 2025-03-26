@@ -57,7 +57,7 @@ namespace Gpt2App
     * @brief Class for loading and managing data for distributed training.
     */
     export
-    template<typename TData = int, typename TMemoryResource = Compute::CudaPinnedMemoryResource>
+    template<typename TData = int, typename TMemoryResource = Compute::PinnedMemoryResource>
         requires ValidTensorType<TData> && std::is_base_of_v<Compute::MemoryResource, TMemoryResource>
     class Gpt2DataLoader {
     public:
@@ -120,31 +120,39 @@ namespace Gpt2App
                 prepare_intra_shard_indices_();
             }
         }
-
+        
         /**
-        * @brief Load a batch of data.
+        * @brief Load a batch of data into the input and target Tensors.
         */
         void load_batch() {
-            assert( !should_shuffle_ || (should_shuffle_ && !intra_shard_indices_.empty() ) );
+            assert( !should_shuffle_ || (should_shuffle_ && !intra_shard_indices_.empty()) );
             assert( current_sample_idx_ < shard_num_samples_ );
 
+            // Calculate the correct offset based on shuffling mode
             size_t idx = should_shuffle_ ? intra_shard_indices_[ current_sample_idx_ ] : current_sample_idx_;
             size_t global_batch_offset_bytes = idx * total_batch_size_bytes_;
             int64_t current_offset = header_bytes_ + global_batch_offset_bytes + local_batch_offset_bytes_;
 
             size_t B = batch_size_;
             size_t T = token_seq_len_;
-            
-            // read B*T+1 uint16_t tokens from the file into buffer
-            tokens_file_.seekg( (int)current_offset );
-            tokens_file_.read( reinterpret_cast<char*>( buffer_.data() ), ( B * T + 1 ) * sizeof(uint16_t) );
-            
-            // Decode the buffer into inputs and targets tensors of shape (B,T)
-            for ( int i = 0; i < B; i++ ) {
-                for ( int j = 0; j < T; j++ ) {
-					// TODO: validate read buffer values are within the expected range
-                    inputs_[ i, j ] = (int)buffer_[ i * T + j ];
-                    targets_[ i, j ] = (int)buffer_[ i * T + j + 1 ];
+
+            tokens_file_.seekg( static_cast<std::streampos>(current_offset) );
+
+            if ( !tokens_file_.good() ) {
+                throw std::runtime_error( "Failed to seek to position in token file" );
+            }
+
+            tokens_file_.read( reinterpret_cast<char*>(buffer_.data()), (B * T + 1) * sizeof( int ) );
+
+            if ( tokens_file_.gcount() != (B * T + 1) * sizeof( int ) ) {
+                throw std::runtime_error( "Failed to read complete batch from token file" );
+            }
+
+            // Decode the buffer into input and target Tensors of shape (B,T)
+            for ( size_t i = 0; i < B; i++ ) {
+                for ( size_t j = 0; j < T; j++ ) {
+                    inputs_[ i, j ] = static_cast<int>( buffer_[ i * T + j ] );
+                    targets_[ i, j ] = static_cast<int>( buffer_[ i * T + j + 1 ] );
                 }
             }
         }
@@ -243,8 +251,7 @@ namespace Gpt2App
             // printf("Gpt2DataLoader: filename_pattern: %s\n", filename_pattern);
             // printf("Gpt2DataLoader: Found %ld tokens across %zu shards\n", ntok_total, glob_result_.gl_pathc);
 
-            // allocate all the space we'll need
-            buffer_.resize( (batch_size_ * token_seq_len_ + 1));
+            buffer_.reshape( { batch_size_ * token_seq_len_ + 1 } );
             inputs_.reshape( { batch_size_, token_seq_len_ } );
             targets_.reshape( { batch_size_, token_seq_len_ } );
             
@@ -406,7 +413,7 @@ namespace Gpt2App
         /**
         * @brief Buffer to read data from file.
         */
-        std::vector<uint16_t> buffer_;
+        Tensor<int, TMemoryResource> buffer_;
 
         /**
         * @brief Input tokens into transformer.

@@ -36,7 +36,7 @@ export namespace Mila::Dnn
 		requires ValidTensorTypes<TInput, TCompute>
 	class Residual : public Module<TInput, TCompute, TDeviceType> {
 	public:
-		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::CpuMemoryResource>;
+		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::DeviceMemoryResource, Compute::HostMemoryResource>;
 
 		Residual( std::string name, bool is_training = false ) {
 			this->setTraining( is_training );

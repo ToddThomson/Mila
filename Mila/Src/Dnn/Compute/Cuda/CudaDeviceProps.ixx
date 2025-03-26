@@ -10,7 +10,7 @@ export module Cuda.DeviceProps;
 
 import Cuda.Helpers;
 
-namespace Mila::Dnn::Compute::Cuda 
+namespace Mila::Dnn::Compute
 {
 	export class DeviceProps
 	{

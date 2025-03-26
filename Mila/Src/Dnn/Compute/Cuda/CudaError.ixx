@@ -4,42 +4,110 @@ module;
 #include <ostream>
 #include <sstream>
 #include <cuda_runtime.h>
+#include <source_location>
 
 export module Cuda.Error;
 
-namespace Mila::Dnn::Compute::Cuda {
+namespace Mila::Dnn::Compute {
 
+    /**
+     * @brief Exception class for CUDA runtime errors.
+     * 
+     * This class wraps CUDA runtime API errors with additional context information
+     * such as the file, line, and function where the error occurred. It inherits
+     * from std::runtime_error and provides methods to access error details.
+     */
     export class CudaError : public std::runtime_error
     {
     public:
-
-        CudaError( cudaError_t status )
-            : std::runtime_error( get_message( status ) ), cuda_error_( status )
+        /**
+         * @brief Constructs a new CudaError exception.
+         * 
+         * @param status The CUDA error status code.
+         * @param location Source location information (automatically populated by default).
+         */
+        CudaError(
+            cudaError_t status,
+            const std::source_location& location = std::source_location::current()
+        ) : std::runtime_error(getMessage(status, location)),
+            cuda_error_(status),
+            file_(location.file_name()),
+            line_(location.line()),
+            function_(location.function_name())
         {
         }
 
-        cudaError_t Error() const noexcept
+        /**
+         * @brief Gets the CUDA error code.
+         * 
+         * @return cudaError_t The original CUDA error status.
+         */
+        cudaError_t getError() const noexcept
         {
             return cuda_error_;
         }
 
-    private:
-
-        cudaError_t cuda_error_ = cudaSuccess;
-
-        static std::string get_message( cudaError_t status )
+        /**
+         * @brief Gets the filename where the error occurred.
+         * 
+         * @return const char* Pointer to the filename string.
+         */
+        const char* getFile() const noexcept
         {
-            const char* name = cudaGetErrorName( status );
-            const char* desc = cudaGetErrorString( status );
+            return file_;
+        }
 
-            if ( !name )
+        /**
+         * @brief Gets the line number where the error occurred.
+         * 
+         * @return uint32_t The line number in the source file.
+         */
+        uint32_t getLine() const noexcept
+        {
+            return line_;
+        }
+
+        /**
+         * @brief Gets the function name where the error occurred.
+         * 
+         * @return const char* Pointer to the function name string.
+         */
+        const char* getFunction() const noexcept
+        {
+            return function_;
+        }
+
+    private:
+        cudaError_t cuda_error_ = cudaSuccess; ///< The CUDA error code
+        const char* file_;                     ///< Source file where the error occurred
+        uint32_t line_;                        ///< Line number where the error occurred
+        const char* function_;                 ///< Function name where the error occurred
+
+        /**
+         * @brief Generates a detailed error message from a CUDA error.
+         * 
+         * @param status The CUDA error status code.
+         * @param location Source location information.
+         * @return std::string A formatted error message with context information.
+         */
+        static std::string getMessage(
+            cudaError_t status,
+            const std::source_location& location
+        )
+        {
+            const char* name = cudaGetErrorName(status);
+            const char* desc = cudaGetErrorString(status);
+
+            if (!name)
                 name = "<unknown error>";
 
             std::ostringstream ss;
             ss << "CUDA runtime API error "
-                << name << " (" << static_cast<unsigned>(status) << ")";
+               << name << " (" << static_cast<unsigned>(status) << ")"
+               << " at " << location.file_name() << ":" << location.line()
+               << " in " << location.function_name();
             
-            if ( desc && *desc )
+            if (desc && *desc)
                 ss << ":\n" << desc;
 
             return ss.str();

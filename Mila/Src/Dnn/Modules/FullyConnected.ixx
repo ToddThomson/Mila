@@ -42,7 +42,7 @@ export namespace Mila::Dnn
 		requires ValidTensorTypes<TInput, TCompute>
 	class FullyConnected : public Module<TInput, TCompute, TDeviceType> {
 	public:
-		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::CpuMemoryResource>;
+		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::DeviceMemoryResource, Compute::HostMemoryResource>;
 		
 		FullyConnected(
 			std::string name,

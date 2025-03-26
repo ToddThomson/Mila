@@ -35,9 +35,9 @@ namespace Modules::Tests
     }
 
     TEST_F( SoftmaxTest, Cpu_TestForward ) {
-        auto input = Tensor<float, CpuMemoryResource>( io_shape );
-        auto output = Tensor<float, CpuMemoryResource>( io_shape );
-        random<float, Compute::CpuMemoryResource>( input, -5.0f, 5.0f );
+        auto input = Tensor<float, HostMemoryResource>( io_shape );
+        auto output = Tensor<float, HostMemoryResource>( io_shape );
+        random<float, Compute::HostMemoryResource>( input, -5.0f, 5.0f );
 
         softmax->forward( input, output );
 

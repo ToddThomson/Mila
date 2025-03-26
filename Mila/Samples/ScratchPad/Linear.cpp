@@ -17,7 +17,7 @@
 //        std::vector<size_t> cpu_input_shape = { cpu_batch_size, sequence_length, channels };
 //        std::vector<size_t> cuda_input_shape = { cuda_batch_size, sequence_length, channels };
 //
-//		auto A = std::shared_ptr<Tensor<float, Compute::CpuMemoryResource>>( cpu_input_shape );
+//		auto A = std::shared_ptr<Tensor<float, Compute::HostMemoryResource>>( cpu_input_shape );
 //
 //        //size_t output_channels = 3 * channels;
 //
@@ -26,8 +26,8 @@
 //        //auto cuda_linear = Linear<float, float, Compute::DeviceMemoryResource>(
 //        //    "cuda_linear_2", cuda_input_shape, output_channels );
 //
-//        //Tensor<float, Compute::CpuMemoryResource> input( cpu_input_shape );
-//        //random<float, Compute::CpuMemoryResource>( input, 0.0f, 5.0f );
+//        //Tensor<float, Compute::HostMemoryResource> input( cpu_input_shape );
+//        //random<float, Compute::HostMemoryResource>( input, 0.0f, 5.0f );
 //
 //        //auto cuda_input = input.to<Compute::DeviceMemoryResource>();
 //
@@ -38,7 +38,7 @@
 //        ////output.print();
 //
 //        //std::cout << "Cuda output: " << std::endl;
-//        ////auto from_cuda_output2 = output2.to<Compute::CpuMemoryResource>();
+//        ////auto from_cuda_output2 = output2.to<Compute::HostMemoryResource>();
 //        ////from_cuda_output2.print();
 //    }
 //}

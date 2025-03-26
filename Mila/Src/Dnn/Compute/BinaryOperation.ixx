@@ -35,7 +35,7 @@ namespace Mila::Dnn::Compute
 		requires ValidTensorTypes<TInput, TCompute>
 	class BinaryOperation : public OperationBase<TInput, TCompute, TDeviceType> {
 	public:
-		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::CpuMemoryResource>;
+		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::DeviceMemoryResource, Compute::HostMemoryResource>;
 
 		using OperationBase<TInput, TCompute, TDeviceType>::OperationBase;
 

@@ -30,12 +30,12 @@ namespace Mila::Dnn::Compute
 		CpuCrossEntropyOp() : UnaryOperation<int, float, DeviceType::Cpu>( DeviceType::Cpu, OperationType::CrossEntropyOp ) {}
 
 		void forward(
-			const Tensor<int, CpuMemoryResource>& input,
-			const std::vector<std::shared_ptr<Tensor<float, CpuMemoryResource>>>& parameters,
+			const Tensor<int, HostMemoryResource>& input,
+			const std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>>& parameters,
 			const OperationAttributes& attributes,
-			Tensor<float, CpuMemoryResource>& output,
-			std::vector<std::shared_ptr<Tensor<float, CpuMemoryResource>>>& output_cache ) const override {
-		//void forward( float* losses, float* probs, const Tensor<int, CpuMemoryResource>& targets, int B, int T, int Vp ) {
+			Tensor<float, HostMemoryResource>& output,
+			std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>>& output_cache ) const override {
+		//void forward( float* losses, float* probs, const Tensor<int, HostMemoryResource>& targets, int B, int T, int Vp ) {
 			// output: losses is (B,T) of the individual losses at each position
 			// input: probs are (B,T,Vp) of the probabilities
 			// input: targets is (B,T) of integers giving the correct index in logits
@@ -57,7 +57,7 @@ namespace Mila::Dnn::Compute
 			}
 		}
 
-		void crossentropy_softmax_backward( float* dlogits, float* dlosses, float* probs, const Mila::Dnn::Tensor<int,CpuMemoryResource>& targets,
+		void crossentropy_softmax_backward( float* dlogits, float* dlosses, float* probs, const Mila::Dnn::Tensor<int,HostMemoryResource>& targets,
 			int B, int T, int V, int Vp ) {
 			// backwards through both softmax and crossentropy
 			for ( int b = 0; b < B; b++ ) {

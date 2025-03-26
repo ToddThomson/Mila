@@ -10,11 +10,11 @@ namespace MilaLib::Models::Tests
 {
     using namespace Mila::Dnn;
 
-    class CpuDummyModule : public Module<float, float, Compute::CpuMemoryResource> {
+    class CpuDummyModule : public Module<float, float, Compute::HostMemoryResource> {
     public:
         CpuDummyModule( const std::string& name ) : name_( name ) {}
 
-        Tensor<float,Compute::CpuMemoryResource>&& forward( const HostTensor<float>& input ) override {
+        Tensor<float,Compute::HostMemoryResource>&& forward( const HostTensor<float>& input ) override {
 			auto output = HostTensor<float>( input.shape() );
             return std::move( output );
         }
@@ -29,7 +29,7 @@ namespace MilaLib::Models::Tests
     };
 
     template<typename TInput, typename TCompute>
-    class CpuTestModel : public Model<TInput, TCompute, Compute::CpuMemoryResource> {
+    class CpuTestModel : public Model<TInput, TCompute, Compute::HostMemoryResource> {
     public:
         std::string name() const override {
             return "TestModel";

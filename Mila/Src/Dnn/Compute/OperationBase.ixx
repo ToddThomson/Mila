@@ -35,7 +35,7 @@ template <typename TInput, typename TCompute, Compute::DeviceType TDeviceType = 
 	requires ValidTensorTypes<TInput, TCompute>
 class OperationBase {  
 public:
-	using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::CpuMemoryResource>;
+	using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::DeviceMemoryResource, Compute::HostMemoryResource>;
 
 	/**  
 	* @brief Constructs an OperationBase object.

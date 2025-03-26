@@ -34,7 +34,7 @@ export namespace Mila::Dnn
 		requires ValidTensorTypes<TInput, TCompute>
 	class Gelu : public Module<TInput, TCompute, TDeviceType> {
 	public:
-		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::CpuMemoryResource>;
+		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::DeviceMemoryResource, Compute::HostMemoryResource>;
 		
 		Gelu( std::string name, bool is_training = false )
 		{

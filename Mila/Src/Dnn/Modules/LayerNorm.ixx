@@ -32,14 +32,14 @@ namespace Mila::Dnn
 	* @brief Layer Normalization module.
 	*
 	* @tparam T Data type of the tensor.
-	* @tparam TDevice Memory resource type (CpuMemoryResource or DeviceMemoryResource).
+	* @tparam TDevice Memory resource type (HostMemoryResource or DeviceMemoryResource).
 	*/
 	export
 	template<typename TInput, typename TCompute = TInput, Compute::DeviceType TDeviceType = Compute::DeviceType::Cuda>
 		requires ValidTensorTypes<TInput, TCompute>
 	class LayerNorm : public Module<TInput, TCompute, TDeviceType> {
 	public:
-		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::CpuMemoryResource>;
+		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::DeviceMemoryResource, Compute::HostMemoryResource>;
 
         /**
         * @brief Construct a new LayerNorm object.

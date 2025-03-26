@@ -43,7 +43,7 @@ namespace Mila::Dnn
 		requires ValidTensorTypes<TInput, TCompute>
 	class Model {
 	public:
-		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::CpuMemoryResource>;
+		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::DeviceMemoryResource, Compute::HostMemoryResource>;
 
 		/**
 		* @brief Constructs a new Model object.
@@ -51,7 +51,7 @@ namespace Mila::Dnn
 		* Initializes CUDA stream if the memory resource is a device memory resource.
 		*/
 		Model() {
-			if constexpr ( std::is_same_v<MR, Compute::CudaMemoryResource> ) {
+			if constexpr ( std::is_same_v<MR, Compute::DeviceMemoryResource> ) {
 				cudaStreamCreate( &stream_ );
 			}
 		}
@@ -62,7 +62,7 @@ namespace Mila::Dnn
 		* Destroys CUDA stream if the memory resource is a device memory resource.
 		*/
 		~Model() {
-			if constexpr ( std::is_same_v<MR, Compute::CudaMemoryResource> ) {
+			if constexpr ( std::is_same_v<MR, Compute::DeviceMemoryResource> ) {
 				cudaStreamDestroy( stream_ );
 			}
 		}

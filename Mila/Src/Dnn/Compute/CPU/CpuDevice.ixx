@@ -16,7 +16,7 @@ namespace Mila::Dnn::Compute
 {
 	export class CpuDevice : public ComputeDevice {
 	public:
-		using MR = CpuMemoryResource;
+		using MR = HostMemoryResource;
 
 		static void registerDevice() {
 			DeviceRegistry::instance().registerDevice( "CPU", []() -> std::shared_ptr<ComputeDevice> {

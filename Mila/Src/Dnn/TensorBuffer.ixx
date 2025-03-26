@@ -11,6 +11,7 @@ export module Dnn.TensorBuffer;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaMemoryResource;
+import Cuda.Helpers;
 
 namespace Mila::Dnn
 {
@@ -23,7 +24,7 @@ namespace Mila::Dnn
 
 		template<typename MR>
 		constexpr size_t get_alignment() {
-			if constexpr ( std::is_same_v<MR, Compute::CudaMemoryResource> ) {
+			if constexpr ( std::is_same_v<MR, Compute::DeviceMemoryResource> ) {
 				return CUDA_WARP_SIZE * sizeof( float ); // Typical tensor element size
 			}
 			else {
@@ -52,10 +53,10 @@ namespace Mila::Dnn
 	 * Example usage:
 	 * @code
 	 * // Create a CPU buffer with 100 floats initialized to 0.0f
-	 * TensorBuffer<float, Compute::CpuMemoryResource> cpuBuffer(100, 0.0f);
+	 * TensorBuffer<float, Compute::HostMemoryResource> cpuBuffer(100, 0.0f);
 	 *
 	 * // Create a GPU buffer with 100 floats
-	 * TensorBuffer<float, Compute::CudaMemoryResource> gpuBuffer(100);
+	 * TensorBuffer<float, Compute::DeviceMemoryResource> gpuBuffer(100);
 	 * @endcode
 	 */
 	export template <typename T, typename MR> 
@@ -129,12 +130,13 @@ namespace Mila::Dnn
 			if ( data_ ) {
 				// Copy existing data if needed
 				size_t copy_size = std::min( size_, new_size ) * sizeof( T );
-				if constexpr ( std::is_same_v<MR, Compute::CpuMemoryResource> ) {
+				if constexpr ( std::is_same_v<MR, Compute::HostMemoryResource> ) {
 					std::memcpy( new_data, data_, copy_size );
 				}
 				else {
-					cudaMemcpy( new_data, data_, copy_size, cudaMemcpyDeviceToDevice );
+					Compute::cudaCheckStatus( cudaMemcpy( new_data, data_, copy_size, cudaMemcpyDeviceToDevice ) );
 				}
+				
 				mr_->deallocate( data_, (size_ * sizeof( T ) + alignment - 1) & ~(alignment - 1) );
 			}
 
@@ -184,7 +186,7 @@ namespace Mila::Dnn
 		* @param value Value to initialize the buffer with.
 		*/
 		void fillBuffer( T value = T{} ) {
-			if constexpr ( std::is_same_v<MR, Compute::CpuMemoryResource> ) {
+			if constexpr ( std::is_same_v<MR, Compute::HostMemoryResource> ) {
 				if constexpr ( sizeof( T ) >= 4 && std::is_trivially_copyable_v<T> ) {
 					// Use aligned operations for larger trivially copyable types
 				#if defined(__AVX512F__)
@@ -203,12 +205,9 @@ namespace Mila::Dnn
 					std::fill( data_, data_ + size_, value );
 				}
 			}
-			else if constexpr ( std::is_same_v<MR, Compute::CudaMemoryResource> ) {
+			else if constexpr ( std::is_same_v<MR, Compute::DeviceMemoryResource> ) {
 				std::vector<T> temp( size_, value );
-				if ( cudaMemcpy( data_, temp.data(), size_ * sizeof( T ),
-					cudaMemcpyHostToDevice ) != cudaSuccess ) {
-					throw std::runtime_error( "cudaMemcpy failed during fillBuffer." );
-				}
+				Compute::cudaCheckStatus( cudaMemcpy( data_, temp.data(), size_ * sizeof( T ), cudaMemcpyHostToDevice ) );
 			}
 		}
 	};

@@ -6,7 +6,6 @@ module;
 #include <variant>  
 #include <memory>
 #include <mdspan>
-#include <optional>
 #include <type_traits>
 #include <cuda_fp16.h>
 #include <atomic>
@@ -43,7 +42,7 @@ namespace Mila::Dnn
 
 	std::atomic<size_t> UniqueIdGenerator::counter_{ 0 };
 
-	export template<typename T, typename TMemoryResource = Compute::CudaMemoryResource>
+	export template<typename T, typename TMemoryResource = Compute::DeviceMemoryResource>
 		requires ValidTensorType<T> && std::is_base_of_v<Compute::MemoryResource, TMemoryResource>
 	class Tensor {
 	public:
@@ -91,50 +90,64 @@ namespace Mila::Dnn
 			allocateBuffer( T{} );
 		}
 
-		template<typename NewTMemoryResource>
-		Tensor<T, NewTMemoryResource> to() const {
-			static_assert(std::is_base_of_v<Compute::MemoryResource, NewTMemoryResource>, "NewTMemoryResource must be derived from Compute::MemoryResource");
+		/**
+		* @brief Converts this tensor to use a different memory resource.
+		*
+		* This method creates a new tensor with the same shape and data but using a different memory resource.
+		* The data is copied from the current tensor to the new tensor using the appropriate memory transfer
+		* mechanism based on the source and destination memory resource types.
+		*
+		* @tparam TNewMR The target memory resource type.
+		* @return Tensor<T, TNewMR> A new tensor with the specified memory resource type.
+		* @throws std::runtime_error If a CUDA memory transfer operation fails.
+		*/
+		template<typename TNewMR>
+		Tensor<T, TNewMR> to() const {
+			static_assert(std::is_base_of_v<Compute::MemoryResource, TNewMR>,
+				"NewTMemoryResource must be derived from Compute::MemoryResource");
 
-			// Create a new tensor with the same shape and the new memory resource
-			Tensor<T, NewTMemoryResource> new_tensor( shape_ );
+			Tensor<T, TNewMR> new_tensor( shape_ );
 
-			// Copy data from the current tensor to the new tensor
-			if constexpr ( std::is_same_v<TMemoryResource, Compute::CpuMemoryResource> && std::is_same_v<NewTMemoryResource, Compute::CudaMemoryResource> ) {
-				cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyHostToDevice );
+			if ( !name_.empty() ) {
+				new_tensor.setName( name_ );
 			}
-			else if constexpr ( std::is_same_v<TMemoryResource, Compute::CudaMemoryResource> && std::is_same_v<NewTMemoryResource, Compute::CpuMemoryResource> ) {
-				cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyDeviceToHost );
+
+			if ( size_ == 0 ) {
+				return new_tensor;
 			}
-			else if constexpr ( std::is_same_v<TMemoryResource, Compute::CpuMemoryResource> && std::is_same_v<NewTMemoryResource, Compute::CudaPinnedMemoryResource> ) {
-				cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyHostToHost );
+
+			// Determine the appropriate copy method based on memory resource types
+			cudaError_t status = cudaSuccess;
+
+			if constexpr ( is_device_accessible<TMemoryResource>() && is_device_accessible<TNewMR>() ) {
+				status = cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyDeviceToDevice );
 			}
-			else if constexpr ( std::is_same_v<TMemoryResource, Compute::CudaPinnedMemoryResource> && std::is_same_v<NewTMemoryResource, Compute::CpuMemoryResource> ) {
-				cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyHostToHost );
+			else if constexpr ( is_host_accessible<TMemoryResource>() && is_device_accessible<TNewMR>() ) {
+				status = cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyHostToDevice );
 			}
-			else if constexpr ( std::is_same_v<TMemoryResource, Compute::CudaMemoryResource> && std::is_same_v<NewTMemoryResource, Compute::CudaPinnedMemoryResource> ) {
-				cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyDeviceToHost );
-			}
-			else if constexpr ( std::is_same_v<TMemoryResource, Compute::CudaPinnedMemoryResource> && std::is_same_v<NewTMemoryResource, Compute::CudaMemoryResource> ) {
-				cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyHostToDevice );
-			}
-			else if constexpr ( std::is_same_v<TMemoryResource, Compute::CpuMemoryResource> && std::is_same_v<NewTMemoryResource, Compute::CudaManagedMemoryResource> ) {
-				cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyHostToDevice );
-			}
-			else if constexpr ( std::is_same_v<TMemoryResource, Compute::CudaManagedMemoryResource> && std::is_same_v<NewTMemoryResource, Compute::CpuMemoryResource> ) {
-				cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyDeviceToHost );
+			else if constexpr ( is_device_accessible<TMemoryResource>() && is_host_accessible<TNewMR>() ) {
+				status = cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyDeviceToHost );
 			}
 			else {
+				// Host to host transfer (use standard copy)
 				std::copy( this->data(), this->data() + size_, new_tensor.data() );
+				return new_tensor;
+			}
+
+			// Check for CUDA errors
+			if ( status != cudaSuccess ) {
+				throw std::runtime_error( "CUDA memory transfer failed: " +
+					std::string( cudaGetErrorString( status ) ) );
 			}
 
 			return new_tensor;
 		}
 
-		template<typename HostAccessibleMR = Compute::CpuMemoryResource>
+		template<typename HostAccessibleMR = Compute::HostMemoryResource>
 		Tensor<T, HostAccessibleMR> toHostAccessible() const {
-			if constexpr ( std::is_same_v<TMemoryResource, Compute::CpuMemoryResource> ||
-				std::is_same_v<TMemoryResource, Compute::CudaPinnedMemoryResource> ||
-				std::is_same_v<TMemoryResource, Compute::CudaManagedMemoryResource> ) {
+			if constexpr ( std::is_same_v<TMemoryResource, Compute::HostMemoryResource> ||
+				std::is_same_v<TMemoryResource, Compute::PinnedMemoryResource> ||
+				std::is_same_v<TMemoryResource, Compute::ManagedMemoryResource> ) {
 				// Create a shallow copy if the memory is already host-accessible
 				Tensor<T, TMemoryResource> result( *this );
 				return result.template to<HostAccessibleMR>();
@@ -146,55 +159,114 @@ namespace Mila::Dnn
 		}
 
 		T at( const std::vector<size_t>& indices ) const {
+			validateIndices( indices, "at()" );
+
 			if constexpr ( is_host_accessible<TMemoryResource>() ) {
 				size_t index = computeIndex( indices );
 				return buffer_->data()[ index ];
 			}
 			else {
-				auto host_tensor = to<Compute::CpuMemoryResource>();
+				auto host_tensor = to<Compute::HostMemoryResource>();
 				return host_tensor.at( indices );
 			}
 		}
 
 		void set( const std::vector<size_t>& indices, T value ) {
+			validateIndices( indices, "set()" );
+
 			if constexpr ( is_host_accessible<TMemoryResource>() ) {
 				size_t index = computeIndex( indices );
 				buffer_->data()[ index ] = value;
 			}
 			else {
-				auto host_tensor = to<Compute::CpuMemoryResource>();
+				auto host_tensor = to<Compute::HostMemoryResource>();
 				host_tensor.set( indices, value );
 				*this = host_tensor.template to<TMemoryResource>();
 			}
 		}
 
+		/**
+		* @brief Copies data from another tensor into this tensor.
+		*
+		* This method copies the contents of the source tensor to this tensor. Both tensors must have
+		* the same shape. The data is copied using the appropriate memory transfer mechanism based on
+		* the source and destination memory resource types.
+		*
+		* @tparam SrcMemoryResource The memory resource type of the source tensor.
+		* @param src The source tensor to copy data from.
+		* @throws std::runtime_error If the shapes don't match or if a CUDA memory transfer operation fails.
+		*/
 		template<typename SrcMemoryResource>
 		void copyFrom( const Tensor<T, SrcMemoryResource>& src ) {
 			if ( shape_ != src.shape() ) {
 				throw std::runtime_error( "Cannot copy from tensor with different shape." );
 			}
 
-			if constexpr ( is_host_accessible<TMemoryResource>() &&
-				is_host_accessible<SrcMemoryResource>() ) {
-				// Both are host accessible, direct copy
-				std::copy( src.data(), src.data() + size_, buffer_->data() );
+			if ( size_ == 0 ) {
+				return;
 			}
-			else if constexpr ( is_host_accessible<TMemoryResource>() &&
-				!is_host_accessible<SrcMemoryResource>() ) {
-				// Destination is host accessible, source is device
-				auto host_src = src.template to<Compute::CpuMemoryResource>();
+
+			// Determine the appropriate copy method based on memory resource types
+			if constexpr ( is_device_accessible<TMemoryResource>() && is_device_accessible<SrcMemoryResource>() ) {
+				cudaError_t status = cudaMemcpy( data(), src.data(), size_ * sizeof( T ), cudaMemcpyDeviceToDevice );
+				if ( status != cudaSuccess ) {
+					throw std::runtime_error( "CUDA memory transfer failed: " +
+						std::string( cudaGetErrorString( status ) ) );
+				}
+			}
+			else if constexpr ( is_host_accessible<TMemoryResource>() && is_device_accessible<SrcMemoryResource>() ) {
+				// Host destination, device source - need to bring to host first
+				auto host_src = src.template to<Compute::HostMemoryResource>();
 				std::copy( host_src.data(), host_src.data() + size_, buffer_->data() );
 			}
-			else if constexpr ( !is_host_accessible<TMemoryResource>() &&
-				is_host_accessible<SrcMemoryResource>() ) {
-				// Destination is device, source is host accessible
-				*this = src.template to<TMemoryResource>();
+			else if constexpr ( is_device_accessible<TMemoryResource>() && is_host_accessible<SrcMemoryResource>() ) {
+				// Device destination, host source
+				cudaError_t status = cudaMemcpy( data(), src.data(), size_ * sizeof( T ), cudaMemcpyHostToDevice );
+				if ( status != cudaSuccess ) {
+					throw std::runtime_error( "CUDA memory transfer failed: " +
+						std::string( cudaGetErrorString( status ) ) );
+				}
 			}
 			else {
-				// Both are device, use CUDA copy
-				cudaMemcpy( data(), src.data(), size_ * sizeof( T ), cudaMemcpyDeviceToDevice );
+				// Host to host transfer (use standard copy)
+				std::copy( src.data(), src.data() + size_, buffer_->data() );
+			}
+
+			// Copy name if source has one and this tensor doesn't
+			if ( name_.empty() && !src.getName().empty() ) {
+				setName( src.getName() );
 			}
 		}
+
+		/**
+		* @brief Creates a deep copy of this tensor.
+		*
+		* Unlike the copy constructor which shares the underlying buffer,
+		* this method creates a completely independent copy with its own data buffer.
+		*
+		* @return Tensor<T, TMemoryResource> A deep copy of this tensor
+		*/
+		Tensor<T, TMemoryResource> clone() const {
+			// Create a new tensor with the same shape
+			Tensor<T, TMemoryResource> result( shape_ );
+
+			// Copy data from the current tensor to the new tensor
+			if ( size_ > 0 ) {
+				if constexpr ( is_host_accessible<TMemoryResource>() ) {
+					std::copy( data(), data() + size_, result.data() );
+				}
+				else {
+					cudaMemcpy( result.data(), data(), size_ * sizeof( T ), cudaMemcpyDeviceToDevice );
+				}
+			}
+
+			if ( !name_.empty() ) {
+				result.setName( name_ );
+			}
+
+			return result;
+		}
+
 		void reshape( const std::vector<size_t>& new_shape ) {
 			size_t new_size = computeSize( new_shape );
 			if ( !empty() && (new_size != size_) ) {
@@ -329,7 +401,7 @@ namespace Mila::Dnn
 			}
 			else {
 				// Create a temporary host tensor, fill it, then copy back
-				auto host_tensor = to<Compute::CpuMemoryResource>();
+				auto host_tensor = to<Compute::HostMemoryResource>();
 				host_tensor.fill( value );
 				*this = host_tensor.template to<TMemoryResource>();
 			}
@@ -337,12 +409,12 @@ namespace Mila::Dnn
 
 		template <typename MR = TMemoryResource>
 		static constexpr bool is_host_accessible() {
-			return MR::is_cpu_accessible;
+			return MR::is_host_accessible;
 		}
 
 		template <typename MR = TMemoryResource>
 		static constexpr bool is_device_accessible() {
-			return MR::is_cuda_accessible;
+			return MR::is_device_accessible;
 		}
 
 		std::string	getName() const {
@@ -388,7 +460,7 @@ namespace Mila::Dnn
 				return outputBuffer( start_index, depth );
 			}
 			else {
-				auto host_tensor = to<Compute::CpuMemoryResource>();
+				auto host_tensor = to<Compute::HostMemoryResource>();
 				// Now we need a way to get buffer content without calling private method
 				// We'll use a different approach: recursively get string representation
 				return host_tensor.getBufferString( start_index, depth );
@@ -401,13 +473,15 @@ namespace Mila::Dnn
 		}
 
 		/**
-		* @brief Copy constructor.
+		* @brief Copy constructor (creates a shallow copy).
 		*
-		* This constructor creates a new tensor by copying the contents of the given tensor.
+		* This constructor creates a new tensor that shares the underlying data buffer with
+		* the original tensor. Modifications to one tensor's data will affect the other.
+		* For a deep, independent copy, use the clone() method instead.
 		*
-		* @param other The tensor to copy from.
+		 * @param other The tensor to copy from.
 		*/
-		Tensor( const Tensor& other ) 
+		Tensor( const Tensor& other )
 			: uid_( other.uid_ ), name_( other.name_ ), shape_( other.shape_ ), strides_( other.strides_ ),
 			size_( other.size_ ), data_type_( other.data_type_ ), buffer_( other.buffer_ ) {}
 		
@@ -550,22 +624,73 @@ namespace Mila::Dnn
 		}
 		// Inside the Tensor class
 
-		
+		void validateIndices( const std::vector<size_t>& indices, const std::string& method_name ) const {
+			if ( indices.size() != shape_.size() ) {
+				throw std::runtime_error( method_name + ": Number of indices must match the tensor rank." );
+			}
+
+			for ( size_t i = 0; i < indices.size(); ++i ) {
+				if ( indices[ i ] >= shape_[ i ] ) {
+					throw std::out_of_range( method_name + ": Index " + std::to_string( indices[ i ] ) +
+						" is out of range for dimension " + std::to_string( i ) +
+						" with size " + std::to_string( shape_[ i ] ) );
+				}
+			}
+		}
 
 		std::string set_uid() {
 			return "tensor_" + std::to_string( UniqueIdGenerator::getNextId() );
 		}
 	};
 
-	export template <typename T>
-		using CpuTensor = Tensor<T, Compute::CpuMemoryResource>;
+    /**
+    * @brief Tensor type that uses host (CPU) memory.
+    *
+    * HostTensor is a specialized tensor that allocates and stores data in regular
+    * host memory that is accessible by the CPU. This is suitable for data that 
+    * needs to be frequently accessed by the host and doesn't require GPU acceleration.
+    *
+    * @tparam T The data type of the tensor elements.
+    */
+    export template <typename T>
+    using HostTensor = Tensor<T, Compute::HostMemoryResource>;
 
-	export template <class T>
-		using CudaTensor = Tensor<T, Compute::CudaMemoryResource>;
+    /**
+    * @brief Tensor type that uses device (GPU) memory.
+    *
+    * DeviceTensor is a specialized tensor that allocates and stores data in GPU memory.
+    * This type is optimized for operations performed on the GPU and provides the best
+    * performance for CUDA accelerated computations, but the data is not directly
+    * accessible from CPU code.
+    *
+    * @tparam T The data type of the tensor elements.
+    */
+    export template <class T>
+    using DeviceTensor = Tensor<T, Compute::DeviceMemoryResource>;
 
-	export template <class T>
-		using PinnedTensor = Tensor<T, Compute::CudaPinnedMemoryResource>;
+    /**
+    * @brief Tensor type that uses pinned (page-locked) host memory.
+    *
+    * PinnedTensor is a specialized tensor that allocates and stores data in pinned memory,
+    * which is host memory that is locked to prevent paging. This memory type enables faster
+    * transfers between CPU and GPU compared to regular host memory, but consumes a limited
+    * resource that should be used judiciously.
+    *
+    * @tparam T The data type of the tensor elements.
+    */
+    export template <class T>
+    using PinnedTensor = Tensor<T, Compute::PinnedMemoryResource>;
 
-	export template <class T>
-		using UniversalTensor = Tensor<T, Compute::CudaManagedMemoryResource>;
+    /**
+    * @brief Tensor type that uses CUDA managed memory accessible from both CPU and GPU.
+    *
+    * UniversalTensor is a specialized tensor that allocates and stores data in CUDA managed memory,
+    * which provides a single memory space accessible by both CPU and GPU. The CUDA runtime
+    * automatically migrates data between host and device as needed. This offers programming
+    * convenience at the cost of potentially lower performance compared to explicitly managed memory.
+    *
+    * @tparam T The data type of the tensor elements.
+    */
+    export template <class T>
+    using UniversalTensor = Tensor<T, Compute::ManagedMemoryResource>;
 }

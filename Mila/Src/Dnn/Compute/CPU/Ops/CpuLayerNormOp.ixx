@@ -44,11 +44,11 @@ namespace Mila::Dnn::Compute
          * @param output_state Vector of output state tensors (mean and rstd).
          */
         void forward(
-            const Tensor<float, CpuMemoryResource>& input,
-            const std::vector<std::shared_ptr<Tensor<float, CpuMemoryResource>>>& parameters,
+            const Tensor<float, HostMemoryResource>& input,
+            const std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>>& parameters,
 			const OperationAttributes& attributes,
-            Tensor<float, CpuMemoryResource>& output,
-            std::vector<std::shared_ptr<Tensor<float, CpuMemoryResource>>>& output_state ) const override {
+            Tensor<float, HostMemoryResource>& output,
+            std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>>& output_state ) const override {
 
             const float* X = input.data();
             float* Y = output.data();

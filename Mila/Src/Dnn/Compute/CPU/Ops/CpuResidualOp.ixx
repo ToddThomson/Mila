@@ -31,12 +31,12 @@ namespace Mila::Dnn::Compute
         CpuResidualOp() : BinaryOperation<float, float , DeviceType::Cpu>( DeviceType::Cpu, OperationType::ResidualOp ) {}
 
         void forward(
-            const Tensor<T, CpuMemoryResource>& input_a,
-            const Tensor<T, CpuMemoryResource>& input_b,
-            const std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& parameters,
+            const Tensor<T, HostMemoryResource>& input_a,
+            const Tensor<T, HostMemoryResource>& input_b,
+            const std::vector<std::shared_ptr<Tensor<T, HostMemoryResource>>>& parameters,
 			const OperationAttributes& attributes,
-            Tensor<T, CpuMemoryResource>& output,
-            std::vector<std::shared_ptr<Tensor<T, CpuMemoryResource>>>& output_cache ) const override {
+            Tensor<T, HostMemoryResource>& output,
+            std::vector<std::shared_ptr<Tensor<T, HostMemoryResource>>>& output_cache ) const override {
 			auto A = input_a.data();
             auto B = input_b.data();
 			auto Y = output.data();

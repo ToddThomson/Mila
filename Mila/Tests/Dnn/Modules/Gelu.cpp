@@ -47,15 +47,15 @@ namespace Modules::Tests
     }
 
     TEST_F( GeluTests, Cpu_TestForward ) {
-        Tensor<float, Compute::CpuMemoryResource> input( cpu_io_shape_ );
-        Tensor<float, Compute::CpuMemoryResource> output( cpu_io_shape_ );
+        Tensor<float, Compute::HostMemoryResource> input( cpu_io_shape_ );
+        Tensor<float, Compute::HostMemoryResource> output( cpu_io_shape_ );
         cpu_gelu->forward( input, output );
         EXPECT_EQ( output.size(), input.size() );
     }
 
     TEST_F( GeluTests, Cuda_TestForward ) {
-        Tensor<float, Compute::CudaMemoryResource> input( cuda_io_shape_ );
-        Tensor<float, Compute::CudaMemoryResource> output( cuda_io_shape_ );
+        Tensor<float, Compute::DeviceMemoryResource> input( cuda_io_shape_ );
+        Tensor<float, Compute::DeviceMemoryResource> output( cuda_io_shape_ );
         cuda_gelu->forward( input, output );
         EXPECT_EQ( output.size(), input.size() );
     }

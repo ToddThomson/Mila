@@ -2,7 +2,7 @@
 Mila Deep Neural Net library
 
 ## Prerelease Notice
-Mila, version 0.9.62-alpha is currently an early, experimental, preview release.
+Mila, version 0.9.63-alpha is currently an early, preview release.
 
 ## Description
 Achilles Mila Deep Neural Network library provides an API to model, train and evaluate
@@ -18,16 +18,8 @@ Deep Neural Networks. Mila utilizes the NVIDIA CUDA runtime for high-performance
   *
  
 ## What's New
-Mila, Version 0.9.62-alpha.1 changes:
-- Added new CUDA kernel files for layer normalization, residual operations, and softmax operations.
-- Introduced `OperationAttributes` to replace `OperationProperties` for better attribute management.
-- Refactored `Gpt2.cpp` to streamline device management and model initialization.
-- Enhanced `Gpt2Model.ixx` with improved tensor data handling methods.
-- Updated `Tensor` class with new methods for memory resource accessibility and data copying.
-- Revised `README.md` to reflect version 0.9.62-alpha and document recent changes.
-- Improved performance in CUDA kernels using cooperative groups.
-- Added and modified tests to ensure compatibility with new features.
-
+- Refactor memory management and add Gpt2DataLoader
+- Updated memory resource types across the codebase to unify CPU and GPU handling. Introduced `Gpt2DataLoader` with logging and multi-threaded data reading capabilities. Adjusted related files and tests to ensure compatibility with new resource types. Incremented version to 0.9.63-alpha.1.
 
 ## Mila Build Instructions
 Mila uses CMake build. To build Mila, follow the steps below:

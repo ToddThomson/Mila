@@ -62,15 +62,15 @@ namespace Modules::Tests
     }
 
     TEST_F( FullyConnectedTests, Cpu_TestForward ) {
-        Tensor<float, Compute::CpuMemoryResource> input( { cpu_batch_size_, sequence_length_, channels_ } );
-        Tensor<float, Compute::CpuMemoryResource> output( { cpu_batch_size_, sequence_length_, 4 * channels_ } );
+        Tensor<float, Compute::HostMemoryResource> input( { cpu_batch_size_, sequence_length_, channels_ } );
+        Tensor<float, Compute::HostMemoryResource> output( { cpu_batch_size_, sequence_length_, 4 * channels_ } );
         cpu_linear->forward( input, output );
         EXPECT_EQ( output.size(), cpu_batch_size_ * sequence_length_ * output_channels_ );
     }
 
     /*TEST_F( FullyConnectedTests, Cuda_TestForward ) {
-        Tensor<float, Compute::CudaMemoryResource> input( { batch_size_, sequence_length_, channels_ } );
-        Tensor<float, Compute::CudaMemoryResource> output( { batch_size_, sequence_length_, 4 * channels_ } );
+        Tensor<float, Compute::DeviceMemoryResource> input( { batch_size_, sequence_length_, channels_ } );
+        Tensor<float, Compute::DeviceMemoryResource> output( { batch_size_, sequence_length_, 4 * channels_ } );
         cuda_linear->forward( input, output );
         EXPECT_EQ( output.size(), batch_size_ * sequence_length_ * output_channels_ );
     }*/

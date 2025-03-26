@@ -8,7 +8,7 @@ namespace Dnn::Compute::Tests
     using namespace Mila::Dnn::Compute;
 
     TEST( DeviceHelpersTests, ListDevices ) {
-        auto device_count = Cuda::GetDeviceCount();
+        auto device_count = GetDeviceCount();
         int expected_device_count = 1 + device_count;
         std::vector<std::string> devices = list_devices();
         EXPECT_EQ( devices.size(), expected_device_count );

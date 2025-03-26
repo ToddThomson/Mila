@@ -29,11 +29,11 @@ namespace Mila::Dnn::Compute
 		CudaLayerNormOp() : UnaryOperation<TInput, TOutput, DeviceType::Cuda>( DeviceType::Cuda, OperationType::LayerNormOp ) {}
 
 		void forward(
-			const Tensor<TInput, CudaMemoryResource>& input,
-			const std::vector<std::shared_ptr<Tensor<TInput, CudaMemoryResource>>>& parameters,
+			const Tensor<TInput, DeviceMemoryResource>& input,
+			const std::vector<std::shared_ptr<Tensor<TInput, DeviceMemoryResource>>>& parameters,
 			const OperationAttributes& attributes,
-			Tensor<TOutput, CudaMemoryResource>& output,
-			std::vector<std::shared_ptr<Tensor<TOutput, CudaMemoryResource>>>& output_state ) const override {
+			Tensor<TOutput, DeviceMemoryResource>& output,
+			std::vector<std::shared_ptr<Tensor<TOutput, DeviceMemoryResource>>>& output_state ) const override {
 
 			const float* X = input.data();
 			float* Y = output.data();

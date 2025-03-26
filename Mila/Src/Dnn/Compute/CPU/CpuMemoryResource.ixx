@@ -13,17 +13,17 @@ namespace Mila::Dnn::Compute
 	/**
 	* @brief A memory resource for CPU memory allocation.
 	*/
-	export class CpuMemoryResource : public MemoryResource {
+	export class HostMemoryResource : public MemoryResource {
 	public:
 		/**
 		* @brief Indicates if the memory resource is accessible by the CPU.
 		*/
-		static constexpr bool is_cpu_accessible = CpuAccessible::is_cpu_accessible;
+		static constexpr bool is_host_accessible = HostAccessible::is_host_accessible;
 
 		/**
 		* @brief Indicates if the memory resource is accessible by CUDA.
 		*/
-		static constexpr bool is_cuda_accessible = false;
+		static constexpr bool is_device_accessible = false;
 
 	protected:
 		/**
