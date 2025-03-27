@@ -29,6 +29,8 @@ import Mila.Version;
 export import Cuda.Error;
 export import Cuda.Helpers;
 
+export import Utils.Logger;
+
 export import Dnn.Module;
 export import Dnn.Model;
 export import Dnn.ModelBase;
@@ -63,6 +65,8 @@ export import Dnn.Modules.Softmax;
 export import Dnn.Blocks.MLP;
 export import Dnn.Blocks.TransformerBlock;
 
+export import Dnn.Gpt2.DatasetReader;
+
 import Compute.Operations;
 
 namespace Mila {
@@ -70,7 +74,7 @@ namespace Mila {
     /// Gets the Mila API version.
     /// </summary>
     export Version GetAPIVersion() {
-        return Version{0, 9, 63, "alpha", 1 };
+        return Version{0, 9, 64, "alpha", 1 };
     }
 
 	export void setDevice( const std::string& name ) {

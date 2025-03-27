@@ -51,7 +51,6 @@ add_subdirectory( Mila )
  
 enable_testing()  
  
-# Add MilaTest directory  
 if (MILA_ENABLE_TESTING)  
 add_subdirectory(Mila/Tests)  
 endif()  

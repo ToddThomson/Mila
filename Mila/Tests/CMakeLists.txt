@@ -45,13 +45,9 @@ add_executable( MilaTests
     "Dnn/Modules/Layernorm.cpp"
     "Dnn/Modules/Residual.cpp"
     "Dnn/Modules/Softmax.cpp"
-    
- "Dnn/Modules/Encoder.cpp")
+    "Dnn/Modules/Encoder.cpp" 
 
-set_target_properties( MilaTests 
-    PROPERTIES
-      _THRUST_HOST CPP
-      _THRUST_DEVICE CUDA
+    "Dnn/Models/Gpt2/DatasetReader.cpp"
 )
 
 # TODO: Add globally 
@@ -67,7 +63,7 @@ if(MILA_ENABLE_OPENMP)
 	endif()
 endif()  
 
-target_link_libraries( MilaTests PRIVATE Mila gtest Thrust::Thrust CUDA::cudart )
+target_link_libraries( MilaTests PRIVATE Mila gtest CUDA::cudart )
 
 add_custom_command(
     TARGET MilaTests POST_BUILD

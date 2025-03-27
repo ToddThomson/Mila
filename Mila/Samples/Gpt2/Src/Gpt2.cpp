@@ -9,7 +9,7 @@
 #include <variant>
 
 import Mila;
-import Utils.Logger;
+import Utils.StepLogger;
 
 import Gpt2App.Gpt2DataLoader;
 import Gpt2App.Gpt2Tokenizer;
@@ -106,7 +106,7 @@ int main( int argc, char* argv[] ) {
 	std::cout << "+-----------------------+---------------------------------------------------------+\n";
 
 	// set up the Logger
-	Mila::Dnn::Logger logger( output_log_file );
+	Mila::Utils::StepLogger logger( output_log_file );
 
 	auto devices = Compute::list_devices();
 	std::cout << "Available compute devices: ";

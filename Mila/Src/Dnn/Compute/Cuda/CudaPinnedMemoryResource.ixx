@@ -2,6 +2,10 @@ module;
 #include <cuda_runtime.h>
 #include <memory_resource>
 #include <stdexcept>
+#include <string>
+#include <cuda_runtime_api.h>
+#include <driver_types.h>
+#include <exception>
 
 export module Compute.CudaPinnedMemoryResource;
 
@@ -34,11 +38,16 @@ namespace Mila::Dnn::Compute
             }
 
             void* ptr = nullptr;
+            cudaError_t error = cudaMallocHost( &ptr, n );
 
-            if ( cudaMallocHost( &ptr, n ) != cudaSuccess )
+            if ( error != cudaSuccess ) {
+                std::string errorMsg = "CUDA pinned memory allocation failed: " +
+                    std::string( cudaGetErrorString( error ) ) +
+                    " (size: " + std::to_string( n ) + " bytes)";
                 throw std::bad_alloc();
+            }
 
-            return ptr;
+			return ptr;
         }
 
         /**
@@ -49,7 +58,9 @@ namespace Mila::Dnn::Compute
          * @param alignment The alignment of the memory to deallocate.
          */
         void do_deallocate( void* ptr, std::size_t, std::size_t alignment = alignof(std::max_align_t) ) override {
-            cudaFreeHost( ptr );
+            if ( ptr != nullptr ) {
+                cudaFreeHost( ptr );
+            }
         }
 
         /**

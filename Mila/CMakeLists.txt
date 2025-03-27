@@ -1,5 +1,4 @@
-﻿# CMake project for Mila Library
-
+﻿
 add_library( Mila STATIC
 	"Src/Dnn/Compute/Cuda/Kernels/Cuda.Utils.h"	
 	"Src/Dnn/Compute/Cuda/Kernels/Cuda.Ops.h"
@@ -45,25 +44,34 @@ PUBLIC
 		
 		# Helpers
 		"Src/Helpers/Memory.ixx"
-		"Src/Utils/Logger.ixx"
+		"Src/Utils/TrainingLogger.ixx"
 		
-		# Dnn
+		# Tensors
 		"Src/Dnn/Tensor.ixx"
 		"Src/Dnn/TensorBuffer.ixx"
 		"Src/Dnn/TensorType.ixx" 
 		"Src/Dnn/TensorTraits.ixx" 
 		"Src/Dnn/TensorHelpers.ixx"
+		# Modules
 		"Src/Dnn/Model.ixx" 
 		"Src/Dnn/Module.ixx" 
 		"Src/Dnn/Modules/LayerNorm.ixx"
-		"Src/Dnn/Modules/FullyConnected.ixx" 
-		 
+		"Src/Dnn/Modules/FullyConnected.ixx"
+		"Src/Dnn/Modules/Gelu.ixx"
+		"Src/Dnn/Modules/MultiHeadAttention.ixx"
+		"Src/Dnn/Modules/Residual.ixx"
+		"Src/Dnn/Modules/Softmax.ixx"
+		"Src/Dnn/Modules/Encoder.ixx"
+		"Src/Dnn/Modules/Blocks/MLP.ixx"
+		"Src/Dnn/Modules/Blocks/TransformerBlock.ixx"
+		#Dnn Compute
 		"Src/Dnn/Compute/DeviceType.ixx"
 		"Src/Dnn/Compute/DeviceRegistry.ixx"
 		"Src/Dnn/Compute/ComputeDevice.ixx"  
 		"Src/Dnn/Compute/DeviceHelpers.ixx" 
 		"Src/Dnn/Compute/OperationBase.ixx" 
 		"Src/Dnn/Compute/OperationType.ixx"
+		"Src/Dnn/Compute/OperationAttributes.ixx"
 		"Src/Dnn/Compute/UnaryOperation.ixx" 
 		"Src/Dnn/Compute/BinaryOperation.ixx"
 		"Src/Dnn/Compute/DeviceContext.ixx"
@@ -90,36 +98,33 @@ PUBLIC
 		"Src/Dnn/Compute/Cuda/CudaError.ixx"
 		"Src/Dnn/Compute/Cuda/CudaHelpers.ixx"
 		"Src/Dnn/Compute/Cuda/CudaDevice.ixx"
-		"Src/Dnn/Compute/Cuda/CudaFullyConnectedOp.ixx"
 		"Src/Dnn/Compute/Cuda/CudaOperations.ixx"
 		"Src/Dnn/Compute/Cuda/CudaDeviceProps.ixx"
 		"Src/Dnn/Compute/Cuda/CudaMemoryResource.ixx"
 		"Src/Dnn/Compute/Cuda/CudaManagedMemoryResource.ixx"
 		"Src/Dnn/Compute/Cuda/CudaPinnedMemoryResource.ixx"
-		
+		# CUDA Ops
+		"Src/Dnn/Compute/Cuda/CudaFullyConnectedOp.ixx"
+		"Src/Dnn/Compute/Cuda/CudaResidualOp.ixx"
+		"Src/Dnn/Compute/Cuda/CudaGeluOp.ixx" 
+		"Src/Dnn/Compute/Cuda/CudaSoftmaxOp.ixx" 
+		"Src/Dnn/Compute/Cuda/CudaLayerNormOp.ixx"
+		"Src/Dnn/Compute/Cuda/CudaMultiHeadAttentionOp.ixx" 
+		"Src/Dnn/Compute/Cuda/CudaEncoderOp.ixx" 
 		# Data
-		"Src/Data/DataLoaderBase.ixx" 
+		"Src/Data/DataLoaderBase.ixx"
+		"Src/Dnn/Models/Gpt2/Gpt2DatasetReader.ixx"
+
 		"Src/Dnn/Compute/CPU/CpuComputeResource.ixx"
-		"Src/Dnn/Modules/Gelu.ixx"
-		"Src/Dnn/Modules/MultiHeadAttention.ixx"
-		"Src/Dnn/Modules/Residual.ixx"
-		"Src/Dnn/Modules/Softmax.ixx"
-		"Src/Dnn/Modules/Encoder.ixx"
-		"Src/Dnn/Modules/Blocks/MLP.ixx"
-		"Src/Dnn/Modules/Blocks/TransformerBlock.ixx"
-		
 		"Src/Dnn/Graph.ixx"
 		"Src/Dnn/Compute/Backend.ixx"
 		"Src/Dnn/Compute/Cuda/CudaComputeResource.ixx"
-		"Src/Dnn/Compute/Cuda/CudaGeluOp.ixx" 
-		"Src/Dnn/Compute/Cuda/CudaSoftmaxOp.ixx" 
-		"Src/Dnn/Compute/Cuda/CudaLayerNormOp.ixx" 
-		"Src/Dnn/Compute/Cuda/CudaEncoderOp.ixx" 
-		"Src/Dnn/Compute/Cuda/CudaMultiHeadAttentionOp.ixx" 
 		"Src/Dnn/ModelBase.ixx" 
-		"Src/Dnn/Compute/OperationAttributes'.ixx"
-		"Src/Dnn/Compute/Cuda/CudaResidualOp.ixx"
- "Src/Dnn/Models/Gpt2/Gpt2DataLoader.ixx")
+		
+		# Utils
+		"Src/Utils/Logger.ixx"
+		"Src/Utils/DefaultLogger.ixx"
+)
 
 target_link_libraries( Mila PRIVATE CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
 
