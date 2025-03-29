@@ -18,19 +18,23 @@ Deep Neural Networks. Mila utilizes the NVIDIA CUDA runtime for high-performance
   *
  
 ## What's New
-Update Mila library and enhance logging mechanisms
+Update build configuration and enhance logging system
 
-- Updated CMakeLists.txt to include new source files, libraries, and changed project version to 0.9.64-alpha.1.
-- Replaced Logger with StepLogger in Gpt2.cpp for improved logging.
-- Enhanced error handling in CudaPinnedMemoryResource.ixx.
-- Added OperationAttributes.ixx for common DNN operation properties.
-- Removed Gpt2DataLoader.ixx as part of a refactor.
-- Introduced DatasetReader.ixx for efficient data loading with multi-threading.
-- Added DefaultLogger.ixx and TrainingLogger.ixx for flexible logging strategies.
-- Created DatasetReader.cpp with unit tests to ensure functionality.
-
-
-
+- Disabled `MILA_ENABLE_SAMPLES` in CMake and added version parsing from `Version.txt`.
+- Commented out `Mila/Samples` and `Benches` in `enable_testing()`.
+- Modified `add_library` for `Mila` to include additional source files and set C++ standards.
+- Commented out model creation and inference steps in `Gpt2.cpp` for debugging.
+- Changed template parameters in `Gpt2Model.ixx` from `TCompute` to `TPrecision`.
+- Refactored `CpuAttentionOp.ixx` and `CpuCrossEntropyOp.ixx` for generic template structures.
+- Enhanced `OperationRegistry` for flexible operation registration based on input/output types.
+- Introduced `DefaultLogger` class for improved logging with timestamps and source location.
+- Created `Version.h.in` and `Version.ixx` for better version management.
+- Updated `Encoder` and `FullyConnected` classes to use template parameters for type safety.
+- Refactored test files to support new template structures for comprehensive testing.
+- Organized `Cuda` and `Cpu` operations into separate registration classes.
+- Updated `Mila` module with new initialization functions and logging setup.
+- Incremented version number in `Version.txt` to `0.9.65-alpha.1`.
+- 
 ## Mila Build Instructions
 Mila uses CMake build. To build Mila, follow the steps below:
 

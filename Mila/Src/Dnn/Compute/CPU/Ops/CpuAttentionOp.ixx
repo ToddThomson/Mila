@@ -24,18 +24,18 @@ using namespace Mila::Dnn;
 namespace Mila::Dnn::Compute
 {
     export
-    template<typename TInput, typename TCompute = TInput>
-        requires ValidTensorTypes<TInput, TCompute>
-    class CpuAttentionOp : public UnaryOperation<TInput, TCompute, DeviceType::Cpu> {
+    template<typename TInput = float, typename TPrecision = float>
+        requires ValidTensorTypes<TInput, TPrecision>
+    class CpuAttentionOp : public UnaryOperation<TInput, TPrecision, DeviceType::Cpu> {
     public:
 
-        CpuAttentionOp() : UnaryOperation<TInput, TCompute, DeviceType::Cpu>(DeviceType::Cpu, OperationType::MultiHeadAttentionOp) {}
+        CpuAttentionOp() : UnaryOperation<TInput, TPrecision, DeviceType::Cpu>(DeviceType::Cpu, OperationType::MultiHeadAttentionOp) {}
     
         void forward( const Tensor<TInput, HostMemoryResource>& input,
-            const std::vector<std::shared_ptr<Tensor<TCompute, HostMemoryResource>>>& parameters,
+            const std::vector<std::shared_ptr<Tensor<TPrecision, HostMemoryResource>>>& parameters,
 			const OperationAttributes& properties,
-            Tensor<TCompute, HostMemoryResource>& output,
-            std::vector<std::shared_ptr<Tensor<TCompute, HostMemoryResource>>>& output_cache ) const override {
+            Tensor<TPrecision, HostMemoryResource>& output,
+            std::vector<std::shared_ptr<Tensor<TPrecision, HostMemoryResource>>>& output_cache ) const override {
 
 			auto X = input.data();
 			auto Y = output.data();
@@ -155,9 +155,12 @@ namespace Mila::Dnn::Compute
         }
         
         static void registerOperation() {
-            OperationRegistry<float, float, DeviceType::Cpu>::instance().registerOperation( DeviceType::Cpu, "Cpu::AttentionOp", []() -> std::unique_ptr<OperationBase<float, float, DeviceType::Cpu>> {
-                return std::make_unique<CpuAttentionOp<float>>();
-            } );
+            // Registration
+            OperationRegistry::instance().registerOperation<float, float, DeviceType::Cpu>(
+                "Cpu::MultiHeadAttentionOp",
+                []() -> std::unique_ptr<OperationBase<float, float, DeviceType::Cpu>> {
+                return std::make_unique<CpuAttentionOp<float, float>>();
+            });
         }
 
         std::string getName() const override {

@@ -49,9 +49,11 @@ namespace Mila::Dnn::Compute
 		}
 
 		static void registerOperation() {
-			OperationRegistry<float, float, DeviceType::Cuda>::instance().registerOperation( DeviceType::Cuda, "Cuda::MultiHeadAttentionOp", []() -> std::unique_ptr<OperationBase<float, float, DeviceType::Cuda>> {
-				return std::make_unique<CudaMultiHeadAttentionOp<float>>();
-			} );
+			OperationRegistry::instance().registerOperation<float, float, DeviceType::Cuda>(
+				"Cuda::MHAOp",
+				[]() -> std::unique_ptr<OperationBase<float, float, DeviceType::Cuda>> {
+				return std::make_unique<CudaMultiHeadAttentionOp<float, float>>();
+			});
 		}
 
 		std::string getName() const override {

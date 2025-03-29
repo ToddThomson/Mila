@@ -23,6 +23,7 @@ module;
 #include <string>
 #include <sstream>
 #include <iostream>
+#include "Version.h"
 
 export module Mila.Version;
 

@@ -335,7 +335,7 @@ namespace Mila::Dnn::Gpt2
          */
         void log( const std::string& message, int level ) {
             if ( config_.logger ) {
-                config_.logger->log( message, level );
+                // FIME: config_.logger->log( message );
             }
         }
 

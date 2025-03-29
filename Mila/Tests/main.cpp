@@ -4,7 +4,7 @@ import Mila;
 
 int main( int argc, char** argv ) {
 	// TODO: Static device registration should be automatic
-	Mila::Initialize();
+	Mila::initialize();
 	
 	::testing::InitGoogleTest( &argc, argv );
 	return RUN_ALL_TESTS();

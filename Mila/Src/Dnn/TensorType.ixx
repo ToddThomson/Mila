@@ -6,7 +6,6 @@ module;
 #include <cuda_fp8.h>
 #include <stdexcept>
 
-
 export module Dnn.TensorType;
 
 namespace Mila::Dnn
@@ -18,6 +17,8 @@ namespace Mila::Dnn
 		FP8, // nv_float8
         INT16, // int16_t
         INT32, // int32_t
+        UINT16,  // uint16_t
+        UINT32,  // uint32_t
     };
 
     // Given a datatype enum, returns the underlying number of bytes
@@ -36,6 +37,11 @@ namespace Mila::Dnn
             return sizeof( int16_t );
         case TensorType::INT32:
             return sizeof( int );
+		case TensorType::UINT16:
+			return sizeof( uint16_t );
+		case TensorType::UINT32:
+			return sizeof( uint32_t );
+
         default:
             throw std::runtime_error("Unknown tensor type");
         }
@@ -46,7 +52,9 @@ namespace Mila::Dnn
     export TensorType tensor_type_of( half* val ) { return TensorType::FP16; };
     export TensorType tensor_type_of( int16_t* val ) { return TensorType::INT16; };
     export TensorType tensor_type_of( int* val ) { return TensorType::INT32; };
-    
+    export TensorType tensor_type_of( uint16_t* val ) { return TensorType::UINT16; };
+    export TensorType tensor_type_of( uint32_t* val ) { return TensorType::UINT32; };
+
 
     export std::string to_string( TensorType type ) {
         switch ( type ) {
@@ -58,6 +66,11 @@ namespace Mila::Dnn
                 return "INT16";
             case TensorType::INT32:
                 return "INT32";
+			case TensorType::UINT16:
+				return "UINT16";
+			case TensorType::UINT32:
+				return "UINT32";
+
             default:
                 return "Unknown Tensor type";
         }

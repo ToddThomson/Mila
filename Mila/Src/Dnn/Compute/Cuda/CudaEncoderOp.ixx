@@ -4,6 +4,7 @@ module;
 #include <string>
 
 #include "Kernels/Cuda.Ops.h"
+#include <cuda_fp16.h>
 
 export module Compute.CudaEncoderOp;
 
@@ -22,18 +23,18 @@ using namespace Mila::Dnn;
 namespace Mila::Dnn::Compute
 {
 	export
-	template<typename TOutput = float>
-	class CudaEncoderOp : public UnaryOperation<int, TOutput, DeviceType::Cuda> {
+	template<typename TInput = uint16_t, typename TPrecision = half>
+	class CudaEncoderOp : public UnaryOperation<TInput, TPrecision, DeviceType::Cuda> {
 	public:
 
-		CudaEncoderOp() : UnaryOperation<int, TOutput, DeviceType::Cuda>( DeviceType::Cuda, OperationType::EncoderOp ) {}
+		CudaEncoderOp() : UnaryOperation<TInput, TPrecision, DeviceType::Cuda>( DeviceType::Cuda, OperationType::EncoderOp ) {}
 
 		void forward(
-			const Tensor<int, DeviceMemoryResource>& input,
-			const std::vector<std::shared_ptr<Tensor<TOutput, DeviceMemoryResource>>>& parameters,
+			const Tensor<TInput, DeviceMemoryResource>& input,
+			const std::vector<std::shared_ptr<Tensor<TPrecision, DeviceMemoryResource>>>& parameters,
 			const OperationAttributes& properties,
-			Tensor<TOutput, DeviceMemoryResource>& output,
-			std::vector<std::shared_ptr<Tensor<TOutput, DeviceMemoryResource>>>& output_state ) const override {
+			Tensor<TPrecision, DeviceMemoryResource>& output,
+			std::vector<std::shared_ptr<Tensor<TPrecision, DeviceMemoryResource>>>& output_state ) const override {
 
 			auto X = input.data();
 			auto Y = output.data();
@@ -45,13 +46,13 @@ namespace Mila::Dnn::Compute
 			int T = input.shape()[ 1 ];
 			int C = wte->shape()[ 1 ];
 
-			cuda_encoder_forward( Y, X, wte->data(), wpe->data(), B, T, C);
+			// FIXME: cuda_encoder_forward( Y, X, wte->data(), wpe->data(), B, T, C);
 		}
 
 		static void registerOperation() {
-			OperationRegistry<int, float, DeviceType::Cuda>::instance().registerOperation( DeviceType::Cuda, "Cuda::EncoderOp", []() -> std::unique_ptr<OperationBase<int, float, DeviceType::Cuda>> {
+			/*OperationRegistry<int, float, DeviceType::Cuda>::instance().registerOperation( DeviceType::Cuda, "Cuda::EncoderOp", []() -> std::unique_ptr<OperationBase<int, float, DeviceType::Cuda>> {
 				return std::make_unique<CudaEncoderOp<float>>();
-			} );
+			} );*/
 		}
 
 		std::string getName() const override {

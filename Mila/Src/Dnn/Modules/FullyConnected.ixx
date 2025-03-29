@@ -38,9 +38,9 @@ export namespace Mila::Dnn
     * @tparam TDevice The device type used for computation.
     */
 	export
-	template<typename TInput, typename TCompute = TInput, Compute::DeviceType TDeviceType = DeviceType::Cuda>
-		requires ValidTensorTypes<TInput, TCompute>
-	class FullyConnected : public Module<TInput, TCompute, TDeviceType> {
+	template<typename TInput, typename TPrecision = TInput, Compute::DeviceType TDeviceType = DeviceType::Cuda>
+		requires ValidTensorTypes<TInput, TPrecision>
+	class FullyConnected : public Module<TInput, TPrecision, TDeviceType> {
 	public:
 		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::DeviceMemoryResource, Compute::HostMemoryResource>;
 		
@@ -76,7 +76,7 @@ export namespace Mila::Dnn
 		 * @param input The input tensor.
 		 * @return std::shared_ptr<Tensor<float>> The output tensor.
 		 */
-		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute,MR>& output ) {
+		void forward( const Tensor<TInput, MR>& input, Tensor<TPrecision,MR>& output ) {
 			operation_->forward( input, parameters_, properties_, output, output_state_ );
 		}
 
@@ -127,7 +127,7 @@ export namespace Mila::Dnn
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_ = {}; ///< The output state.
 		OperationAttributes properties_; ///< The operation properties.
 
-		std::shared_ptr<Dnn::Compute::UnaryOperation<TInput, TCompute, TDeviceType>> operation_{ nullptr }; ///< The operation.
+		std::unique_ptr<Dnn::Compute::UnaryOperation<TInput, TPrecision, TDeviceType>> operation_{ nullptr }; ///< The operation.
         
 		void initializeTensors() {
 			// Initialize the weight tensor using xavier distribution
@@ -151,11 +151,11 @@ export namespace Mila::Dnn
 		 */
 		void createOperation() {
 			if constexpr ( TDeviceType == DeviceType::Cpu ) {
-				auto base_operation = OperationRegistry<float, float, DeviceType::Cpu>::instance().createOperation( DeviceType::Cpu, "Cpu::FullyConnectedOp" );
+				auto base_operation = OperationRegistry::instance().createOperation<float, float, DeviceType::Cpu>( "Cpu::FullyConnectedOp" );
 				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<float, float, DeviceType::Cpu>>(base_operation);
 			}
 			else {
-				auto base_operation = OperationRegistry<float, float, DeviceType::Cuda>::instance().createOperation( DeviceType::Cuda, "Cuda::FullyConnectedOp" );
+				auto base_operation = OperationRegistry::instance().createOperation<float, float, DeviceType::Cuda>( "Cuda::FullyConnectedOp" );
 				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<float, float, DeviceType::Cuda>>(base_operation);
 			}
 		}

@@ -9,7 +9,7 @@ add_library( Mila STATIC
 	"Src/Dnn/Compute/Cuda/Kernels/Cuda.Gelu.cu"
 	"Src/Dnn/Compute/Cuda/Kernels/CudaResidual.cu"
 	#"Src/Dnn/Compute/Cuda/Kernels/CudaSoftmax.cu"
-)
+ )
 
 set_target_properties( Mila PROPERTIES
 	CXX_STANDARD_REQUIRED ON
@@ -76,7 +76,7 @@ PUBLIC
 		"Src/Dnn/Compute/BinaryOperation.ixx"
 		"Src/Dnn/Compute/DeviceContext.ixx"
 		"Src/Dnn/Compute/OperationRegistry.ixx"
-		"Src/Dnn/Compute/Operations.ixx"  
+		"Src/Dnn/Compute/OperationsRegistrar.ixx"  
 		"Src/Dnn/Compute/ComputeResource.ixx"
 		"Src/Dnn/Compute/MemoryResource.ixx"
 		"Src/Dnn/Compute/MemoryResourceProperties.ixx"
@@ -124,20 +124,32 @@ PUBLIC
 		# Utils
 		"Src/Utils/Logger.ixx"
 		"Src/Utils/DefaultLogger.ixx"
-)
+ "Src/Dnn/Compute/OperationAutoRegister.ixx" "Src/Dnn/Compute/OpRegistry.ixx" "Src/LoggingManager.ixx")
 
 target_link_libraries( Mila PRIVATE CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
 
-# Get the current date and time
-string(TIMESTAMP BUILD_DATE "%Y-%m-%d")
-string(TIMESTAMP BUILD_TIME "%H:%M:%S")
+# Parse the version from Version.txt
+file(READ "${CMAKE_SOURCE_DIR}/Version.txt" VERSION_CONTENT)
 
-# Write the version file
+# Parse the version components using regular expressions
+string(REGEX MATCH "([0-9]+)\\.([0-9]+)\\.([0-9]+)-([a-zA-Z]+)\\.([0-9]+)" VERSION_MATCH ${VERSION_CONTENT})
+
+if(VERSION_MATCH)
+  set(MILA_VERSION_MAJOR ${CMAKE_MATCH_1})
+  set(MILA_VERSION_MINOR ${CMAKE_MATCH_2})
+  set(MILA_VERSION_PATCH ${CMAKE_MATCH_3})
+  set(MILA_VERSION_PRERELEASE_TAG ${CMAKE_MATCH_4})
+  set(MILA_VERSION_PRERELEASE ${CMAKE_MATCH_5})
+else()
+  message(FATAL_ERROR "Failed to parse version from Version.txt")
+endif()
+
+# Configure the Version.h file from Version.h.in template
 configure_file(
-    ${CMAKE_SOURCE_DIR}/Mila/Src/Version.h.in
-    ${CMAKE_BINARY_DIR}/Mila/Version.h
-    @ONLY
+  "${CMAKE_SOURCE_DIR}/Mila/Src/Version.h.in"
+  "${CMAKE_BINARY_DIR}/Mila/Src/Version.h"
+  @ONLY
 )
 
-# Include the generated version file
-include_directories(${CMAKE_BINARY_DIR})
+include_directories(${CMAKE_BINARY_DIR}/Mila/Src)
+target_include_directories(Mila PRIVATE ${CMAKE_BINARY_DIR}/Mila/Src)

@@ -24,6 +24,7 @@ using namespace Mila::Dnn;
 namespace Mila::Dnn::Compute
 {
 	export
+		template<typename TInput = float, typename TPrecision = float>
 	class CpuCrossEntropyOp : public UnaryOperation<int, float, DeviceType::Cpu> {
 	public:
 
@@ -78,9 +79,11 @@ namespace Mila::Dnn::Compute
 		}
 
 		static void registerOperation() {
-			OperationRegistry<int, float, DeviceType::Cpu>::instance().registerOperation( DeviceType::Cpu, "Cpu::CrossEntropyOp", []() -> std::unique_ptr<OperationBase<int, float, DeviceType::Cpu>> {
+			/*OperationRegistry::instance().registerOperation<float, float, DeviceType::Cpu>(
+				"Cpu::CrossEntropyOp",
+				[]() -> std::unique_ptr<OperationBase<float, float, DeviceType::Cpu>> {
 				return std::make_unique<CpuCrossEntropyOp>();
-			} );
+			});*/
 		}
 
 		std::string getName() const override {

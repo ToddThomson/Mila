@@ -5,7 +5,7 @@ module;
 #include <iostream>
 #include <sstream>
 #include <type_traits>
-#include <unordered_map>
+#include <cuda_fp16.h>
 
 export module Dnn.Modules.Encoder;
 
@@ -27,10 +27,24 @@ export namespace Mila::Dnn
 {
 	using namespace Mila::Dnn::Compute;
 
-	export
-	template<typename TInput, typename TCompute = TInput, Compute::DeviceType TDeviceType = Compute::DeviceType::Cuda>
-		requires ValidTensorTypes<TInput, TCompute>
-	class Encoder : public Module<TInput, TCompute, TDeviceType> {
+	/**
+	* @class Encoder
+	* @brief An encoder module that provides token and positional embeddings.
+	*
+	* The Encoder transforms input token IDs into continuous vector representations by:
+	* 1. Looking up token embeddings from a vocabulary table (wte)
+	* 2. Adding positional embeddings (wpe) based on sequence position
+	*
+	* This implementation supports both CPU and CUDA execution depending on the template parameter.
+	 *
+	* @tparam TInput The input data type (typically int for token IDs)
+	* @tparam TCompute The computation data type (typically float)
+	* @tparam TDeviceType The device type to run computations on (CPU or CUDA)
+	*/
+	export 
+	template<typename TInput = uint16_t, typename TPrecision = half, Compute::DeviceType TDeviceType = Compute::DeviceType::Cuda>
+		requires ValidTensorTypes<TInput, TPrecision>
+	class Encoder : public Module<TInput, TPrecision, TDeviceType> {
 	public:
 		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::DeviceMemoryResource, Compute::HostMemoryResource>;
 
@@ -65,7 +79,7 @@ export namespace Mila::Dnn
 		* @param input The input tensor.
 		* @return Tensor<float, MR> The output tensor.
 		*/
-		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute, MR>& output ) {
+		void forward( const Tensor<TInput, MR>& input, Tensor<TPrecision, MR>& output ) {
 			operation_->forward( input, parameters_, attributes_, output, output_state_ );
 		}
 
@@ -107,22 +121,29 @@ export namespace Mila::Dnn
 		size_t vocab_len_; ///< The length of the vocabulary.
 
 		// wte is (V,C) of token embeddings, short for "weight token embeddings"
-		std::shared_ptr<Tensor<float, MR>> wte_{ nullptr };
+		std::shared_ptr<Tensor<TPrecision, MR >> wte_{nullptr};
 
 		// wpe is (maxT,C) of position embeddings, short for "weight positional embedding"
 		std::shared_ptr<Tensor<float, MR>> wpe_{ nullptr };
 
-		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_; ///< The Encoder parameters
-		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_{ nullptr }; ///< The output attributes. Not used in this module.
+		std::vector<std::shared_ptr<Tensor<TPrecision, MR>>> parameters_; ///< The Encoder parameters
+		std::vector<std::shared_ptr<Tensor<TPrecision, MR>>> output_state_{ nullptr }; ///< The output attributes. Not used in this module.
 		OperationAttributes attributes_; ///< The operation properties.
 
-		std::shared_ptr<Dnn::Compute::UnaryOperation<int, float, TDeviceType>> operation_{ nullptr }; ///< The operation.
+		std::shared_ptr<Dnn::Compute::UnaryOperation<TInput, TPrecision, TDeviceType>> operation_{ nullptr }; ///< The operation.
 
+		/**
+		* @brief Initialize the token and positional embedding tensors.
+		*
+		* Creates and initializes the wte (word token embeddings) tensor of shape (vocab_len_, channels_)
+		* and the wpe (word position embeddings) tensor of shape (max_seq_len_, channels_).
+		* Both tensors are initialized using Xavier initialization.
+		*/
 		void initializeTensors() {
-			wte_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ vocab_len_, channels_ } );
+			wte_ = std::make_shared<Tensor<TPrecision, MR>>( std::vector<size_t>{ vocab_len_, channels_ } );
 			wte_->setName( this->getName() + ".wte" );
 			xavier<float, MR>( *wte_, vocab_len_, channels_ );
-			wpe_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ max_seq_len_, channels_ } );
+			wpe_ = std::make_shared<Tensor<TPrecision, MR>>( std::vector<size_t>{ max_seq_len_, channels_ } );
 			xavier<float, MR>( *wpe_, max_seq_len_, channels_ );
 			wpe_->setName( this->getName() + ".wpe" );
 
@@ -138,12 +159,12 @@ export namespace Mila::Dnn
 		*/
 		void createOperation() {
 			if constexpr ( TDeviceType == DeviceType::Cpu ) {
-				auto base_operation = OperationRegistry<int, float, DeviceType::Cpu>::instance().createOperation( DeviceType::Cpu, "Cpu::EncoderOp" );
-				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<int, float, DeviceType::Cpu>>(base_operation);
+				auto base_op = OperationRegistry::instance().createOperation<TInput, TPrecision, DeviceType::Cpu>( "Cpu::EncoderOp" );
+				operation_ = std::static_pointer_cast<Dnn::Compute::UnaryOperation<TInput, TPrecision, DeviceType::Cpu>>(base_op);
 			}
 			else {
-				auto base_operation = OperationRegistry<int, float, DeviceType::Cuda>::instance().createOperation( DeviceType::Cuda, "Cuda::EncoderOp" );
-				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<int, float, DeviceType::Cuda>>(base_operation);
+				auto base_op = OperationRegistry::instance().createOperation<TInput, TPrecision, DeviceType::Cuda>( "Cuda::EncoderOp" );
+				operation_ = std::static_pointer_cast<Dnn::Compute::UnaryOperation<TInput, TPrecision, DeviceType::Cuda>>(base_op);
 			}
 		}
 	};

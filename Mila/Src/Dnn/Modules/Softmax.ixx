@@ -129,17 +129,16 @@ export namespace Mila::Dnn
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_ = { nullptr }; ///< The output attributes. Not used in this module.
 		OperationAttributes attributes_{ .axis = axis_ }; ///< The operation properties.
 		
-		std::shared_ptr<Dnn::Compute::UnaryOperation<TInput, TPrecision, TDeviceType>> operation_{ nullptr }; ///< The operation.
+		std::unique_ptr<Dnn::Compute::UnaryOperation<TInput, TPrecision, TDeviceType>> operation_{ nullptr }; ///< The operation.
 
 		/**
 		* @brief Create the operation.
 		*/
 		void createOperation() {
-			auto base_operation = OperationRegistry<TInput, TPrecision, TDeviceType>::instance().createOperation(
-				TDeviceType,
+			/*auto base_operation = OperationRegistry::instance().createOperation<TInput, TPrecision, DeviceType>(
 				(TDeviceType == DeviceType::Cpu) ? "Cpu::SoftmaxOp" : "Cuda::SoftmaxOp"
 			);
-			operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<TInput, TPrecision, TDeviceType>>(base_operation);
+			operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<TInput, TPrecision, TDeviceType>>(base_operation);*/
 		}
 	};
 }

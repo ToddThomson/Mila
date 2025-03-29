@@ -25,28 +25,28 @@ using namespace Mila::Dnn;
 namespace Mila::Dnn::Compute
 {
     export
-    template<typename T>
+        template<typename TInput = float, typename TPrecision = float>
     class CpuResidualOp :public BinaryOperation<float, float, DeviceType::Cpu> {
     public:
-        CpuResidualOp() : BinaryOperation<float, float , DeviceType::Cpu>( DeviceType::Cpu, OperationType::ResidualOp ) {}
+        CpuResidualOp() : BinaryOperation<float, float, DeviceType::Cpu>( DeviceType::Cpu, OperationType::ResidualOp ) {}
 
         void forward(
-            const Tensor<T, HostMemoryResource>& input_a,
-            const Tensor<T, HostMemoryResource>& input_b,
-            const std::vector<std::shared_ptr<Tensor<T, HostMemoryResource>>>& parameters,
-			const OperationAttributes& attributes,
-            Tensor<T, HostMemoryResource>& output,
-            std::vector<std::shared_ptr<Tensor<T, HostMemoryResource>>>& output_cache ) const override {
-			auto A = input_a.data();
+            const Tensor<float, HostMemoryResource>& input_a,
+            const Tensor<float, HostMemoryResource>& input_b,
+            const std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>>& parameters,
+            const OperationAttributes& attributes,
+            Tensor<float, HostMemoryResource>& output,
+            std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>>& output_cache ) const override {
+            auto A = input_a.data();
             auto B = input_b.data();
-			auto Y = output.data();
-			auto N = input_a.size();
-            
-		#pragma omp parallel for
+            auto Y = output.data();
+            auto N = input_a.size();
+
+        #pragma omp parallel for
             for ( int i = 0; i < N; i++ ) {
-				Y[ i ] = A[ i ] + B[ i ];
+                Y[ i ] = A[ i ] + B[ i ];
             }
-		}
+        }
 
         void backward( float* dinp1, float* dinp2, float* dout, int N ) {
             for ( int i = 0; i < N; i++ ) {
@@ -56,8 +56,11 @@ namespace Mila::Dnn::Compute
         }
 
         static void registerOperation() {
-            OperationRegistry<float, float, DeviceType::Cpu>::instance().registerOperation( DeviceType::Cpu, "Cpu::ResidualOp", []() -> std::unique_ptr<OperationBase<float, float, DeviceType::Cpu>> {
-                return std::make_unique<CpuResidualOp<float>>();
+            // Registration
+            OperationRegistry::instance().registerOperation<float, float, DeviceType::Cpu>(
+                "Cpu::ResidualOp",
+                []() -> std::unique_ptr<OperationBase<float, float, DeviceType::Cpu>> {
+                return std::make_unique<CpuResidualOp<float, float>>();
             } );
         }
 

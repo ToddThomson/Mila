@@ -21,6 +21,7 @@
 module;
 #include <iostream>
 #include <memory>
+#include "Version.h"
 
 export module Mila;
 
@@ -30,6 +31,7 @@ export import Cuda.Error;
 export import Cuda.Helpers;
 
 export import Utils.Logger;
+import Utils.DefaultLogger;
 
 export import Dnn.Module;
 export import Dnn.Model;
@@ -67,27 +69,71 @@ export import Dnn.Blocks.TransformerBlock;
 
 export import Dnn.Gpt2.DatasetReader;
 
-import Compute.Operations;
+import Compute.OperationsRegistrar;
 
-namespace Mila {
-    /// <summary>
-    /// Gets the Mila API version.
-    /// </summary>
-    export Version GetAPIVersion() {
-        return Version{0, 9, 64, "alpha", 1 };
+namespace Mila
+{
+    namespace detail
+    {
+        std::shared_ptr<Utils::DefaultLogger> g_defaultLogger;
     }
 
-	export void setDevice( const std::string& name ) {
-		Dnn::Compute::DeviceContext::instance().setDevice( name );
-	}
+    void initializeLogger( Utils::LogLevel level = Utils::LogLevel::Info ) {
+        detail::g_defaultLogger = std::make_shared<Utils::DefaultLogger>( level );
+        Utils::Logger::setDefaultLogger( detail::g_defaultLogger.get() );
+    }
+
+    /// <summary>
+    /// Gets the current Mila API version.
+    /// </summary>
+    /// <returns>A Version object containing the version information</returns>
+    export Version getAPIVersion() {
+        return Version{
+                MILA_VERSION_MAJOR,
+                MILA_VERSION_MINOR,
+                MILA_VERSION_PATCH,
+                MILA_VERSION_PRERELEASE_TAG,
+                MILA_VERSION_PRERELEASE
+        };
+    }
+
+    export void setDevice( const std::string& name ) {
+        Dnn::Compute::DeviceContext::instance().setDevice( name );
+    }
 
     export std::shared_ptr<Dnn::Compute::ComputeDevice> getDevice() {
         return Dnn::Compute::DeviceContext::instance().getDevice();
     }
 
-    // TJT: Remove. Ensure the static instance is referenced to trigger the constructor
-    export void Initialize() {
-        Dnn::Compute::Operations::instance();
-		Dnn::Compute::DeviceContext::instance();
+    /// <summary>
+    /// Initializes the Mila framework.
+    /// Must be called before using any other Mila functionality.
+    /// </summary>
+    /// <returns>True if initialization succeeded, false otherwise</returns>
+    export bool initialize() {
+        try {
+            initializeLogger( Utils::LogLevel::Info );
+
+			// Initialize operations and device context
+            Dnn::Compute::OperationsRegistrar::instance();
+            Dnn::Compute::DeviceContext::instance();
+
+            Utils::Logger::info( "Mila framework initialized successfully" );
+            return true;
+        }
+        catch ( const std::exception& e ) {
+            // Fall back to std::cerr if logger isn't initialized yet
+            std::cerr << "Mila initialization failed: " << e.what() << std::endl;
+            return false;
+        }
+    }
+
+    export void shutdown() {
+        Utils::Logger::info( "Shutting down Mila framework" );
+
+        detail::g_defaultLogger.reset();
+        Utils::Logger::setDefaultLogger( nullptr );
+
+        // TODO: Add other cleanup code here...
     }
 }

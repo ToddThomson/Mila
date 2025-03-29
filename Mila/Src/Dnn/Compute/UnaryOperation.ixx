@@ -1,6 +1,7 @@
 module;
 #include <memory>  
-#include <vector>  
+#include <vector>
+#include <string>
 #include <type_traits>  
 
 export module Compute.UnaryOperation;
@@ -31,13 +32,15 @@ namespace Mila::Dnn::Compute
 	* @tparam TMemoryResource The memory resource type, must be derived from MemoryResource.
 	*/
 	export
-		template <typename TInput, typename TCompute, Compute::DeviceType TDeviceType = Compute::DeviceType::Cuda>
-		requires ValidTensorTypes<TInput, TCompute>
-	class UnaryOperation : public OperationBase<TInput, TCompute, TDeviceType> {
+		template <typename TInput, typename TPrecision, Compute::DeviceType TDeviceType = Compute::DeviceType::Cuda>
+		requires ValidTensorTypes<TInput, TPrecision>
+	class UnaryOperation : public OperationBase<TInput, TPrecision, TDeviceType> {
 	public:
 		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::DeviceMemoryResource, Compute::HostMemoryResource>;
 
-		using OperationBase<TInput, TCompute, TDeviceType>::OperationBase;
+		using OperationBase<TInput, TPrecision, TDeviceType>::OperationBase;
+
+		
 
 		/**
 		* @brief Executes the forward pass of a unary operation.
@@ -49,9 +52,9 @@ namespace Mila::Dnn::Compute
 		*/
 		virtual void forward(
 			const Tensor<TInput, MR>& input,
-			const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& parameters,
+			const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
 			const OperationAttributes& properties,
-			Tensor<TCompute, MR>& output,
-			std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& output_state ) const = 0;
+			Tensor<TPrecision, MR>& output,
+			std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const = 0;
 	};
 }

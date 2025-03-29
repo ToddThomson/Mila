@@ -100,8 +100,8 @@ namespace Gpt2App
 	};
 
 	export
-	template<typename TCompute = float, Compute::DeviceType TDevice = Compute::DeviceType::Cuda>
-		requires ValidTensorType<TCompute>
+	template<typename TPrecision = float, Compute::DeviceType TDevice = Compute::DeviceType::Cuda>
+		requires ValidTensorType<TPrecision>
 	class Gpt2Model : public ModelBase {
 	public:
 		using MR = std::conditional_t<
@@ -127,24 +127,24 @@ namespace Gpt2App
 			size_t NH = config_.num_heads;
 
 			encoder_ = std::make_unique<Encoder<int, float, TDevice>>( "gpt2.enc", C, config_.max_seq_len, config_.padded_vocab_size );
-			encoder_output_ = Tensor<TCompute, MR>( std::vector<size_t>( { B,T,C } ));
+			encoder_output_ = Tensor<TPrecision, MR>( std::vector<size_t>( { B,T,C } ));
 
 			auto tf_io_shape = std::vector<size_t>( { batch_size_, seq_len_, C } );
-			tf_output_ = Tensor<TCompute, MR>( tf_io_shape );
+			tf_output_ = Tensor<TPrecision, MR>( tf_io_shape );
 
 			for ( size_t l = 0; l < config_.num_layers; l++ ) {
 				std::string layer_name = std::format( "gpt2.tf_{}", l );
-				tf_layers_.emplace_back( std::make_unique<TransformerBlock<TCompute, TCompute, TDevice>>( layer_name, tf_io_shape, NH ) );
+				tf_layers_.emplace_back( std::make_unique<TransformerBlock<TPrecision, TPrecision, TDevice>>( layer_name, tf_io_shape, NH ) );
 			}
 
-			ln_f_ = std::make_unique<LayerNorm<TCompute, TCompute, TDevice>>( "gpt2.ln_f", tf_io_shape );
-			ln_f_output_ = Tensor<TCompute, MR>( tf_io_shape );
+			ln_f_ = std::make_unique<LayerNorm<TPrecision, TPrecision, TDevice>>( "gpt2.ln_f", tf_io_shape );
+			ln_f_output_ = Tensor<TPrecision, MR>( tf_io_shape );
 
-			fc_f_ = std::make_unique<FullyConnected<TCompute, TCompute, TDevice>>( "gpt2.fc_f", C, Vp, /* has_bias */ false );
-			fc_logits_output_ = Tensor<TCompute, MR>( std::vector<size_t>( { B, T, Vp } ) );
+			fc_f_ = std::make_unique<FullyConnected<TPrecision, TPrecision, TDevice>>( "gpt2.fc_f", C, Vp, /* has_bias */ false );
+			fc_logits_output_ = Tensor<TPrecision, MR>( std::vector<size_t>( { B, T, Vp } ) );
 
-			smax_ = std::make_unique<Softmax<TCompute, TCompute, TDevice>>( "gpt2.smax" );
-			smax_probs_output_ = Tensor<TCompute, MR>( std::vector<size_t>( { B, T, Vp } ) );
+			smax_ = std::make_unique<Softmax<TPrecision, TPrecision, TDevice>>( "gpt2.smax" );
+			smax_probs_output_ = Tensor<TPrecision, MR>( std::vector<size_t>( { B, T, Vp } ) );
 		}
 
 		float get_mean_loss() const {
@@ -155,7 +155,7 @@ namespace Gpt2App
 			return acts_;
 		}
 
-		const Tensor<TCompute,Compute::HostMemoryResource>& getProbabilities() const {
+		const Tensor<TPrecision,Compute::HostMemoryResource>& getProbabilities() const {
 			return smax_probs_output_;
 		}
 
@@ -556,7 +556,7 @@ namespace Gpt2App
 			//}
 		}
 
-		int sampleMult( const Tensor<TCompute, MR>& probabilities, int n, int t, float coin ) {
+		int sampleMult( const Tensor<TPrecision, MR>& probabilities, int n, int t, float coin ) {
 			// Below we're only using b=0 (i.e. the first row) of all B rows
 			// we're in principle running B "inference streams" in parallel here
 			// but only using position 0
@@ -810,11 +810,11 @@ namespace Gpt2App
 		std::unique_ptr<FullyConnected<float, float, TDevice>> fc_f_{ nullptr };
 		std::unique_ptr<Softmax<float, float, TDevice>> smax_{ nullptr };
 
-		Tensor<TCompute, MR> encoder_output_;
-		Tensor<TCompute, MR> tf_output_;
-		Tensor<TCompute, MR> ln_f_output_;
-		Tensor<TCompute, MR> fc_logits_output_;
-		Tensor<TCompute, MR> smax_probs_output_;
+		Tensor<TPrecision, MR> encoder_output_;
+		Tensor<TPrecision, MR> tf_output_;
+		Tensor<TPrecision, MR> ln_f_output_;
+		Tensor<TPrecision, MR> fc_logits_output_;
+		Tensor<TPrecision, MR> smax_probs_output_;
 
 		ModelConfig config_;
 

@@ -13,7 +13,7 @@ set(CMAKE_CUDA_STANDARD_REQUIRED ON)
  
 option(MILA_ENABLE_TESTING "Enable Mila Library tests." ON)  
 option(MILA_ENABLE_GPT2_TESTING "Enable GPT2 tests." OFF )  
-option(MILA_ENABLE_SAMPLES "Enable Mila Library samples." ON )
+option(MILA_ENABLE_SAMPLES "Enable Mila Library samples." OFF )
 option(MILA_ENABLE_NVBENCH "Enable NvBench." OFF )
 option(MILA_ENABLE_OPENMP "Enable OpenMP support." ON )
 
@@ -56,9 +56,9 @@ add_subdirectory(Mila/Tests)
 endif()  
  
 if (MILA_ENABLE_SAMPLES)  
-add_subdirectory(Mila/Samples)  
+#add_subdirectory(Mila/Samples)  
 endif()
 
 if (MILA_ENABLE_NVBENCH )
-add_subdirectory( Benches )
+#add_subdirectory( Benches )
 endif()

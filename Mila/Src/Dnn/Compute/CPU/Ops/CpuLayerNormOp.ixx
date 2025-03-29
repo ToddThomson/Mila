@@ -28,6 +28,7 @@ namespace Mila::Dnn::Compute
      * @brief CPU implementation of the Layer Normalization operation.
      */
     export
+        template<typename TInput = float, typename TPrecision = float>
     class CpuLayerNormOp : public UnaryOperation<float, float, DeviceType::Cpu> {
     public:
         /**
@@ -166,9 +167,11 @@ namespace Mila::Dnn::Compute
          * @brief Registers the Layer Normalization operation in the operation registry.
          */
         static void registerOperation() {
-            OperationRegistry<float, float, DeviceType::Cpu>::instance().registerOperation( DeviceType::Cpu, "Cpu::LayerNormOp", []() -> std::unique_ptr<OperationBase<float, float, DeviceType::Cpu>> {
+            /*OperationRegistry::instance().registerOperation<float, float, DeviceType::Cpu>(
+                "Cpu::LayerNormOp",
+                []() -> std::unique_ptr<OperationBase<float, float, DeviceType::Cpu>> {
                 return std::make_unique<CpuLayerNormOp>();
-                } );
+            } );*/
         }
 
         /**

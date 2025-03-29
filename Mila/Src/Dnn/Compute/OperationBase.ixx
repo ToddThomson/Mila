@@ -31,8 +31,8 @@ namespace Mila::Dnn::Compute
 * @tparam TMemoryResource The memory resource type, must be derived from MemoryResource.  
 */  
 export  
-template <typename TInput, typename TCompute, Compute::DeviceType TDeviceType = Compute::DeviceType::Cuda>
-	requires ValidTensorTypes<TInput, TCompute>
+template <typename TInput, typename TPrecision, Compute::DeviceType TDeviceType>
+	requires ValidTensorTypes<TInput, TPrecision>
 class OperationBase {  
 public:
 	using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::DeviceMemoryResource, Compute::HostMemoryResource>;
@@ -101,8 +101,8 @@ public:
 	*/  
 	virtual void backward(  
 		const Tensor<TInput, MR>& grad,  
-		const std::vector<std::shared_ptr<Tensor<TCompute, MR>>>& parameters,  
-		std::vector<std::shared_ptr<Tensor<TCompute,MR>>>& output_grads ) const {  
+		const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,  
+		std::vector<std::shared_ptr<Tensor<TPrecision,MR>>>& output_grads ) const {  
 		// Default implementation for backward pass  
 		throw std::runtime_error( "Operation does not support backward pass." );  
 	};  

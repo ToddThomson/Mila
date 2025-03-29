@@ -24,32 +24,32 @@ int main() {
 
     std::cout << "The current Compute Device is: " << Mila::getDevice()->getName() << std::endl;
 
-    size_t batch_size = 2;
-    size_t sequence_length = 2;
-    size_t channels = 4;
-	size_t num_heads = 4;
+ //   size_t batch_size = 2;
+ //   size_t sequence_length = 2;
+ //   size_t channels = 4;
+	//size_t num_heads = 4;
 
-    std::vector<size_t> input_shape = std::vector<size_t>{ batch_size, sequence_length, channels };
-    std::vector<size_t> output_shape = std::vector<size_t>{ batch_size, sequence_length, channels };
+ //   std::vector<size_t> input_shape = std::vector<size_t>{ batch_size, sequence_length, channels };
+ //   std::vector<size_t> output_shape = std::vector<size_t>{ batch_size, sequence_length, channels };
 
-    auto transformer_block = TransformerBlock<float>( "tf", input_shape, num_heads);
-	std::cout << transformer_block << std::endl;
+ //   auto transformer_block = TransformerBlock<float>( "tf", input_shape, num_heads);
+	//std::cout << transformer_block << std::endl;
 
-    Tensor<float> X( input_shape );
-	X.setName( "tf.X" );
+ //   Tensor<float> X( input_shape );
+	//X.setName( "tf.X" );
 
-    random<float>( X, 0.0f, 5.0f );
+ //   random<float>( X, 0.0f, 5.0f );
 
-    Tensor<float> Y( output_shape );
-	Y.setName( "tf.Y" );
+ //   Tensor<float> Y( output_shape );
+	//Y.setName( "tf.Y" );
 
-	std::cout << ">>> TransformerBlock input: " << std::endl;
-	std::cout << X;
+	//std::cout << ">>> TransformerBlock input: " << std::endl;
+	//std::cout << X;
 
-    //transformer_block.forward( X, Y );
+ //   //transformer_block.forward( X, Y );
 
-    std::cout << ">>> TransformerBlock output: " << std::endl;
-    std::cout << Y;
+ //   std::cout << ">>> TransformerBlock output: " << std::endl;
+ //   std::cout << Y;
 
 	return 0;
 }

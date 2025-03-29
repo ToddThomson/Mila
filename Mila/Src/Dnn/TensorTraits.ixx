@@ -32,6 +32,17 @@ namespace Mila::Dnn
         static constexpr TensorType value = TensorType::INT32;
     };
 
+    template <>
+    struct TensorTypeTrait<uint16_t> {
+        static constexpr TensorType value = TensorType::UINT16;
+    };
+
+    template <>
+    struct TensorTypeTrait<uint32_t> {
+        static constexpr TensorType value = TensorType::UINT32;
+    };
+
+
     export template <typename T>
     concept ValidTensorType = requires {
         { TensorTypeTrait<T>::value } -> std::convertible_to<TensorType>;

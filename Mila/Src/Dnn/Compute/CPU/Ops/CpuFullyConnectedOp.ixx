@@ -23,23 +23,24 @@ namespace Mila::Dnn::Compute
     using namespace Mila::Dnn;
 
     export
-    template<typename TInput, typename TOutput = TInput>
-    class CpuFullyConnectedOp : public UnaryOperation<TInput, TOutput, DeviceType::Cpu> {
+    template<typename TInput, typename TPrecision = TInput>
+    class CpuFullyConnectedOp : public UnaryOperation<TInput, TPrecision, DeviceType::Cpu> {
     public:
 
-        CpuFullyConnectedOp() : UnaryOperation<TInput, TOutput, DeviceType::Cpu>( DeviceType::Cpu, OperationType::FullyConnectedOp ) {}
+        CpuFullyConnectedOp() 
+            : UnaryOperation<TInput, TPrecision, DeviceType::Cpu>( DeviceType::Cpu, OperationType::FullyConnectedOp ) {}
 
         void forward(
             const Tensor<TInput, HostMemoryResource>& input,
-            const std::vector<std::shared_ptr<Tensor<TOutput, HostMemoryResource>>>& parameters_,
+            const std::vector<std::shared_ptr<Tensor<TPrecision, HostMemoryResource>>>& parameters_,
             const OperationAttributes& properties,
-            Tensor<TOutput, HostMemoryResource>& output,
-            std::vector<std::shared_ptr<Tensor<TOutput, HostMemoryResource>>>& output_state ) const override {
+            Tensor<TPrecision, HostMemoryResource>& output,
+            std::vector<std::shared_ptr<Tensor<TPrecision, HostMemoryResource>>>& output_state ) const override {
             auto X = input.data();
             auto Y = output.data();
 
             auto weight = parameters_[ 0 ];
-            std::shared_ptr<Tensor<TOutput, HostMemoryResource>> bias = { nullptr };
+            std::shared_ptr<Tensor<TPrecision, HostMemoryResource>> bias = { nullptr };
 
             if ( parameters_.size() == 2 ) {
                 bias = parameters_[ 1 ];
@@ -115,9 +116,13 @@ namespace Mila::Dnn::Compute
         }
 
         static void registerOperation() {
-            OperationRegistry<float, float, DeviceType::Cpu>::instance().registerOperation( DeviceType::Cpu, "Cpu::FullyConnectedOp", []() -> std::unique_ptr<OperationBase<float, float, DeviceType::Cpu>> {
-                return std::make_unique<CpuFullyConnectedOp<float>>();
-            } );
+            // Registration
+            OperationRegistry::instance().registerOperation<float, float, DeviceType::Cpu>(
+                "Cpu::FullyConnectedOp",
+                []() -> std::unique_ptr<OperationBase<float, float, DeviceType::Cpu>> {
+                return std::make_unique<CpuFullyConnectedOp<float, float>>();
+            }
+            );
         }
 
         std::string getName() const override {

@@ -122,12 +122,12 @@ int main( int argc, char* argv[] ) {
 
 	// Create model - it will use whatever device is currently set
 	ModelConfig config;
-	auto model = std::make_unique<Gpt2Model<float>>( config, B, T );
-	model->fromCheckpoint("data/models/gpt2/gpt2_124M.bin");
-	model->print();
+	//auto model = std::make_unique<Gpt2Model<float>>( config, B, T );
+	//model->fromCheckpoint("data/models/gpt2/gpt2_124M.bin");
+	//model->print();
 
 	// Use the model MR for tensor types
-	using MR = typename decltype(model)::element_type::MR;
+	//using MR = typename decltype(model)::element_type::MR;
 
 	// build DataLoaders for both train and val
 	auto train_loader = Gpt2DataLoader<int>( train_data_pattern, B, T, 0, 1, true );
@@ -187,7 +187,7 @@ int main( int argc, char* argv[] ) {
 				// but the inference here is just for sanity checking anyway
 				// and we can maybe optimize a bit more later, with careful tests
 				Tensor<int> empty_targets;
-				model->forward( gen_tokens, empty_targets );
+				//model->forward( gen_tokens, empty_targets );
 
 				// furthermore, below we're only using b=0 (i.e. the first row) of all B rows
 				// we're in principle running B "inference streams" in parallel here

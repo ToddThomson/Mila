@@ -43,9 +43,9 @@ namespace Mila::Dnn::Compute
 		}
 
 		static void registerOperation() {
-			OperationRegistry<float, float, DeviceType::Cuda>::instance().registerOperation( DeviceType::Cuda, "Cuda::GeluOp", []() -> std::unique_ptr<OperationBase<float, float, DeviceType::Cuda>> {
+			/*OperationRegistry<float, float, DeviceType::Cuda>::instance().registerOperation( DeviceType::Cuda, "Cuda::GeluOp", []() -> std::unique_ptr<OperationBase<float, float, DeviceType::Cuda>> {
 				return std::make_unique<CudaGeluOp<float>>();
-			} );
+			} );*/
 		}
 
 		std::string getName() const override {
