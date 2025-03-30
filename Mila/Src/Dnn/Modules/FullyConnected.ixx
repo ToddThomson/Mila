@@ -127,7 +127,7 @@ export namespace Mila::Dnn
 		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_ = {}; ///< The output state.
 		OperationAttributes properties_; ///< The operation properties.
 
-		std::unique_ptr<Dnn::Compute::UnaryOperation<TInput, TPrecision, TDeviceType>> operation_{ nullptr }; ///< The operation.
+		std::shared_ptr<Dnn::Compute::UnaryOperation<TInput, TPrecision, TDeviceType>> operation_{ nullptr }; ///< The operation.
         
 		void initializeTensors() {
 			// Initialize the weight tensor using xavier distribution
@@ -151,12 +151,12 @@ export namespace Mila::Dnn
 		 */
 		void createOperation() {
 			if constexpr ( TDeviceType == DeviceType::Cpu ) {
-				auto base_operation = OperationRegistry::instance().createOperation<float, float, DeviceType::Cpu>( "Cpu::FullyConnectedOp" );
-				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<float, float, DeviceType::Cpu>>(base_operation);
+				auto base_op = OperationRegistry::instance().createOperation<TInput, TPrecision, DeviceType::Cpu>( "Cpu::FullyConnectedOp" );
+				operation_ = std::static_pointer_cast<Dnn::Compute::UnaryOperation<TInput, TPrecision, DeviceType::Cpu>>(base_op);
 			}
 			else {
-				auto base_operation = OperationRegistry::instance().createOperation<float, float, DeviceType::Cuda>( "Cuda::FullyConnectedOp" );
-				operation_ = std::dynamic_pointer_cast<Dnn::Compute::UnaryOperation<float, float, DeviceType::Cuda>>(base_operation);
+				auto base_op = OperationRegistry::instance().createOperation<TInput, TPrecision, DeviceType::Cuda>( "Cuda::FullyConnectedOp" );
+				operation_ = std::static_pointer_cast<Dnn::Compute::UnaryOperation<TInput, TPrecision, DeviceType::Cuda>>(base_op);
 			}
 		}
 	};

@@ -13,7 +13,6 @@ import Dnn.Module;
 import Dnn.Tensor;
 import Dnn.TensorTraits;
 import Dnn.TensorHelpers;
-
 import Compute.DeviceType;
 import Compute.OperationBase;
 import Compute.OperationAttributes;

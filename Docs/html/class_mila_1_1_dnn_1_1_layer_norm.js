@@ -1,0 +1,26 @@
+var class_mila_1_1_dnn_1_1_layer_norm =
+[
+    [ "MR", "class_mila_1_1_dnn_1_1_layer_norm.html#ab96302e6797e85e2654ff34392a5d8da", null ],
+    [ "LayerNorm", "class_mila_1_1_dnn_1_1_layer_norm.html#a8a1849fe66e55fb3c086661e590e64d6", null ],
+    [ "createOperation", "class_mila_1_1_dnn_1_1_layer_norm.html#add5d808349e4a8ee60447a6739545db7", null ],
+    [ "forward", "class_mila_1_1_dnn_1_1_layer_norm.html#a020c4e56c216596acf217105ba81385f", null ],
+    [ "getBias", "class_mila_1_1_dnn_1_1_layer_norm.html#ad7616bc29f922e321552d6f67f52ba40", null ],
+    [ "getWeight", "class_mila_1_1_dnn_1_1_layer_norm.html#a6a54464bb7b0596a3c7d33e0878a4bb7", null ],
+    [ "initializeTensors", "class_mila_1_1_dnn_1_1_layer_norm.html#a5d5224eb2e7235b7dbb7a14513b11bde", null ],
+    [ "load", "class_mila_1_1_dnn_1_1_layer_norm.html#a5ccd1ec0f1ef3f3d70a10d6fabcefa46", null ],
+    [ "parameterCount", "class_mila_1_1_dnn_1_1_layer_norm.html#abf339ab2b66839e9b356e3e6c1586485", null ],
+    [ "save", "class_mila_1_1_dnn_1_1_layer_norm.html#a239f1ebf13fec1265d1d8d26e720b117", null ],
+    [ "toString", "class_mila_1_1_dnn_1_1_layer_norm.html#a416e79a91da6c073e5aedeb4f0e62245", null ],
+    [ "axis_", "class_mila_1_1_dnn_1_1_layer_norm.html#a2860415cd495f3e02648407826eb20b1", null ],
+    [ "bias_", "class_mila_1_1_dnn_1_1_layer_norm.html#a3286de3c5838fab290958f9b6d9637a7", null ],
+    [ "epsilon_", "class_mila_1_1_dnn_1_1_layer_norm.html#aab31f7db365120be65e3b59ed51b367d", null ],
+    [ "has_bias_", "class_mila_1_1_dnn_1_1_layer_norm.html#a236b4383254bdcd16b05149a8910c754", null ],
+    [ "input_shape_", "class_mila_1_1_dnn_1_1_layer_norm.html#a58634c2c40b13fce94fc8529fff393b1", null ],
+    [ "mean_", "class_mila_1_1_dnn_1_1_layer_norm.html#a44da92c83cc096adc40ef4af692a6c3b", null ],
+    [ "operation_", "class_mila_1_1_dnn_1_1_layer_norm.html#acbd9cf0245137b65979462d822127bbd", null ],
+    [ "output_state_", "class_mila_1_1_dnn_1_1_layer_norm.html#a559ef3283a055071a380ed0b1a73f4b8", null ],
+    [ "parameters_", "class_mila_1_1_dnn_1_1_layer_norm.html#a4ce62cd5ed888224cf0b51c26704fe13", null ],
+    [ "properties_", "class_mila_1_1_dnn_1_1_layer_norm.html#ac7abf91898a639f922f4a4f347852036", null ],
+    [ "rstd_", "class_mila_1_1_dnn_1_1_layer_norm.html#a1b4fd5b5b7205098358da2761396f8ee", null ],
+    [ "weight_", "class_mila_1_1_dnn_1_1_layer_norm.html#a59819b943b99c696796e8f5a744e9f81", null ]
+];

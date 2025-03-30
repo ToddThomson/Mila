@@ -1,3 +1,8 @@
+/**
+ * @file CpuLayerNormOp.ixx
+ * @brief Implementation of the CPU-based Layer Normalization operation for neural networks.
+ */
+
 module;
 #include <cmath>
 #include <vector>
@@ -25,29 +30,46 @@ namespace Mila::Dnn::Compute
     using namespace Mila::Dnn;
 
     /**
-     * @brief CPU implementation of the Layer Normalization operation.
+     * @brief CPU implementation of the Layer Normalization operation for neural networks.
+     *
+     * This class provides a CPU-based implementation of the Layer Normalization operation,
+     * which normalizes inputs across the features dimension for each sample in a batch.
+     * Layer normalization helps stabilize training by reducing internal covariate shift
+     * and is commonly used in transformer architectures and other deep neural networks.
+     *
+     * The operation normalizes each input vector independently, unlike batch normalization
+     * which normalizes across the batch dimension.
+     *
+     * @tparam TInput The data type of the input tensor elements.
+     * @tparam TPrecision The data type used for computation and output (defaults to the input type).
      */
     export
         template<typename TInput = float, typename TPrecision = float>
     class CpuLayerNormOp : public UnaryOperation<float, float, DeviceType::Cpu> {
     public:
         /**
-         * @brief Constructor for CpuLayerNormOp.
+         * @brief Constructs a new CPU Layer Normalization operation.
+         *
+         * Initializes the operation with the CPU device type and LayerNormOp operation type.
          */
         CpuLayerNormOp() : UnaryOperation<float, float, DeviceType::Cpu>( DeviceType::Cpu, OperationType::LayerNormOp ) {}
 
         /**
-         * @brief Forward pass for the Layer Normalization operation.
-         * 
-         * @param input Input tensor.
-         * @param parameters Vector of parameters (weight and bias).
-         * @param output Output tensor.
-         * @param output_state Vector of output state tensors (mean and rstd).
+         * @brief Performs the forward pass of the Layer Normalization operation.
+         *
+         * Normalizes each input vector across the feature dimension, then applies
+         * a learnable scaling factor and bias.
+         *
+         * @param input Input tensor of shape [B, T, C] where B is batch size, T is sequence length, and C is feature dimension.
+         * @param parameters Vector of parameter tensors [weight, bias] where weight and bias are of shape [C].
+         * @param attributes Additional attributes for the operation.
+         * @param output Output tensor of the same shape as input, containing the normalized values.
+         * @param output_state Cache for intermediate results [mean, rstd] used in the backward pass.
          */
         void forward(
             const Tensor<float, HostMemoryResource>& input,
             const std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>>& parameters,
-			const OperationAttributes& attributes,
+            const OperationAttributes& attributes,
             Tensor<float, HostMemoryResource>& output,
             std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>>& output_state ) const override {
 
@@ -108,25 +130,28 @@ namespace Mila::Dnn::Compute
         }
 
         /**
-         * @brief Backward pass for the Layer Normalization operation.
-         * 
-         * @param dinp Gradient of the input.
-         * @param dweight Gradient of the weight.
-         * @param dbias Gradient of the bias.
-         * @param dout Gradient of the output.
-         * @param inp Input tensor.
-         * @param weight Weight tensor.
-         * @param mean Mean tensor.
-         * @param rstd Reciprocal of the standard deviation tensor.
+         * @brief Performs the backward pass of the Layer Normalization operation.
+         *
+         * Computes gradients with respect to inputs, weights, and biases based
+         * on the output gradient and the forward pass results.
+         *
+         * @param dinp Pointer to the gradient buffer for input.
+         * @param dweight Pointer to the gradient buffer for weight parameters.
+         * @param dbias Pointer to the gradient buffer for bias parameters.
+         * @param dout Pointer to the gradient buffer from the output.
+         * @param inp Pointer to the original input values.
+         * @param weight Pointer to the weight parameters.
+         * @param mean Pointer to the mean values computed during forward pass.
+         * @param rstd Pointer to the reciprocal standard deviation values computed during forward pass.
          * @param B Batch size.
          * @param T Sequence length.
-         * @param C Number of channels.
+         * @param C Number of features/channels.
          */
-        void backward( 
-            float* dinp, 
-            float* dweight, float* dbias, 
-            float* dout, 
-            float* inp, float* weight, float* mean, float* rstd, 
+        void backward(
+            float* dinp,
+            float* dweight, float* dbias,
+            float* dout,
+            float* inp, float* weight, float* mean, float* rstd,
             int B, int T, int C ) {
             for ( int b = 0; b < B; b++ ) {
                 for ( int t = 0; t < T; t++ ) {
@@ -164,23 +189,61 @@ namespace Mila::Dnn::Compute
         }
 
         /**
-         * @brief Registers the Layer Normalization operation in the operation registry.
-         */
-        static void registerOperation() {
-            /*OperationRegistry::instance().registerOperation<float, float, DeviceType::Cpu>(
-                "Cpu::LayerNormOp",
-                []() -> std::unique_ptr<OperationBase<float, float, DeviceType::Cpu>> {
-                return std::make_unique<CpuLayerNormOp>();
-            } );*/
-        }
-
-        /**
-         * @brief Gets the name of the operation.
-         * 
-         * @return The name of the operation.
+         * @brief Gets the name of this operation.
+         *
+         * @return std::string The name of the operation ("Cpu::LayerNormOp").
          */
         std::string getName() const override {
             return "Cpu::LayerNormOp";
         }
+
+        /**
+         * @brief Gets the class name of this operation.
+         *
+         * @return const std::string& The class name of the operation.
+         */
+        static const std::string& className() {
+            static std::string name = "Cpu::LayerNormOp";
+            return name;
+        }
+    };
+
+    /**
+     * @brief Class responsible for registering the CpuLayerNormOp operation.
+     *
+     * The CpuLayerNormOpRegistrar class registers the CpuLayerNormOp operation with the OperationRegistry.
+     * It associates the operation name "Cpu::LayerNormOp" with a factory function that creates
+     * instances of CpuLayerNormOp.
+     */
+    export class CpuLayerNormOpRegistrar {
+    public:
+        /**
+         * @brief Registers the CpuLayerNormOp operation with the OperationRegistry.
+         *
+         * This function registers the CpuLayerNormOp operation for the CPU device type
+         * with the OperationRegistry. It associates the operation name "Cpu::LayerNormOp"
+         * with a factory function that creates instances of CpuLayerNormOp.
+         */
+        static void registerOperations() {
+            const std::string opName = "Cpu::LayerNormOp";
+
+            OperationRegistry::instance().registerOperation<float, float, DeviceType::Cpu>(
+                opName,
+                []() -> std::shared_ptr<OperationBase<float, float, DeviceType::Cpu>> {
+                    return std::make_shared<CpuLayerNormOp<float, float>>();
+                }
+            );
+        }
+
+        /**
+         * @brief Self-registration mechanism that registers the operation during startup.
+         *
+         * This static member ensures the operation is registered when the program starts
+         * without requiring explicit registration calls.
+         */
+        static inline bool isRegistered = []() {
+            registerOperations();
+            return true;
+            }();
     };
 }

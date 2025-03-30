@@ -1,3 +1,8 @@
+/**
+ * @file CpuAttentionOp.ixx
+ * @brief Implementation of the CPU-based attention operation for neural networks.
+ */
+
 module;
 #include <string>
 #include <memory>
@@ -23,22 +28,56 @@ using namespace Mila::Dnn;
 
 namespace Mila::Dnn::Compute
 {
+    /**
+     * @brief CPU implementation of the Multi-Head Attention operation for neural networks.
+     *
+     * This class provides a CPU-based implementation of the Multi-Head Attention operation,
+     * which is a key component of transformer architectures. The operation performs
+     * scaled dot-product attention with multiple attention heads operating in parallel,
+     * allowing the model to jointly attend to information from different representation
+     * subspaces at different positions.
+     *
+     * The implementation handles the full attention process:
+     * - Query-Key dot products
+     * - Scaling
+     * - Softmax computation
+     * - Attention weighting of values
+     *
+     * @tparam TInput The data type of the input tensor elements.
+     * @tparam TPrecision The data type used for computation and output (defaults to the input type).
+     */
     export
-    template<typename TInput = float, typename TPrecision = float>
+        template<typename TInput = float, typename TPrecision = float>
         requires ValidTensorTypes<TInput, TPrecision>
     class CpuAttentionOp : public UnaryOperation<TInput, TPrecision, DeviceType::Cpu> {
     public:
+        /**
+         * @brief Constructs a new CPU Attention operation.
+         *
+         * Initializes the operation with the CPU device type and MultiHeadAttentionOp operation type.
+         */
+        CpuAttentionOp() : UnaryOperation<TInput, TPrecision, DeviceType::Cpu>( DeviceType::Cpu, OperationType::MultiHeadAttentionOp ) {}
 
-        CpuAttentionOp() : UnaryOperation<TInput, TPrecision, DeviceType::Cpu>(DeviceType::Cpu, OperationType::MultiHeadAttentionOp) {}
-    
+        /**
+         * @brief Performs the forward pass of the Multi-Head Attention operation.
+         *
+         * Computes attention scores between queries and keys, applies softmax to get attention weights,
+         * and uses these weights to compute a weighted sum of value vectors.
+         *
+         * @param input Input tensor of shape [B, T, 3*C] containing concatenated query, key, and value vectors.
+         * @param parameters Additional parameters (not used in this operation).
+         * @param properties Additional attributes for the operation.
+         * @param output Output tensor of shape [B, T, C] containing the attention output.
+         * @param output_cache Cache for intermediate results [preatt, att] that are used in the backward pass.
+         */
         void forward( const Tensor<TInput, HostMemoryResource>& input,
             const std::vector<std::shared_ptr<Tensor<TPrecision, HostMemoryResource>>>& parameters,
-			const OperationAttributes& properties,
+            const OperationAttributes& properties,
             Tensor<TPrecision, HostMemoryResource>& output,
             std::vector<std::shared_ptr<Tensor<TPrecision, HostMemoryResource>>>& output_cache ) const override {
 
-			auto X = input.data();
-			auto Y = output.data();
+            auto X = input.data();
+            auto Y = output.data();
 
             auto preatt = output_cache[ 0 ];
             auto att = output_cache[ 1 ];
@@ -92,11 +131,10 @@ namespace Mila::Dnn::Compute
                         }
 
                         float* out_bth = Y + b * T * C + t * C + h * hs;
-                        for ( int i = 0; i < hs; i++ ) 
-                        { 
+                        for ( int i = 0; i < hs; i++ ) {
                             out_bth[ i ] = 0.0f;
                         }
-                        
+
                         for ( int t2 = 0; t2 <= t; t2++ ) {
                             const float* value_t2 = X + b * T * C3 + t2 * C3 + h * hs + C * 2;
                             float att_btht2 = att_bth[ t2 ];
@@ -109,6 +147,23 @@ namespace Mila::Dnn::Compute
             }
         }
 
+        /**
+         * @brief Performs the backward pass of the Multi-Head Attention operation.
+         *
+         * Computes gradients with respect to inputs (query, key, value vectors),
+         * pre-softmax attention scores, and attention weights based on the output gradient.
+         *
+         * @param dinp Pointer to the gradient buffer for the input (query, key, value).
+         * @param dpreatt Pointer to the gradient buffer for pre-softmax attention scores.
+         * @param datt Pointer to the gradient buffer for attention weights.
+         * @param dout Pointer to the gradient buffer from the output.
+         * @param inp Pointer to the original input values (query, key, value).
+         * @param att Pointer to the attention weights computed during forward pass.
+         * @param B Batch size.
+         * @param T Sequence length.
+         * @param C Feature dimension (divided by 3 for query, key, value).
+         * @param NH Number of attention heads.
+         */
         void backward( float* dinp, float* dpreatt, float* datt, float* dout, float* inp, float* att, int B, int T, int C, int NH ) {
             int C3 = C * 3;
             int hs = C / NH;
@@ -153,18 +208,63 @@ namespace Mila::Dnn::Compute
                 }
             }
         }
-        
-        static void registerOperation() {
-            // Registration
-            OperationRegistry::instance().registerOperation<float, float, DeviceType::Cpu>(
-                "Cpu::MultiHeadAttentionOp",
-                []() -> std::unique_ptr<OperationBase<float, float, DeviceType::Cpu>> {
-                return std::make_unique<CpuAttentionOp<float, float>>();
-            });
-        }
 
+        /**
+         * @brief Gets the name of this operation.
+         *
+         * @return std::string The name of the operation ("Cpu::AttentionOp").
+         */
         std::string getName() const override {
             return "Cpu::AttentionOp";
         }
+
+        /**
+         * @brief Gets the class name of this operation.
+         *
+         * @return const std::string& The class name of the operation.
+         */
+        static const std::string& className() {
+            static std::string name = "Cpu::MultiHeadAttentionOp";
+            return name;
+        }
+    };
+
+    /**
+     * @brief Class responsible for registering the CpuAttentionOp operation.
+     *
+     * The CpuAttentionOpRegistrar class registers the CpuAttentionOp operation with the OperationRegistry.
+     * It associates the operation name "Cpu::MultiHeadAttentionOp" with a factory function that creates
+     * instances of CpuAttentionOp.
+     */
+    export class CpuAttentionOpRegistrar {
+    public:
+        /**
+         * @brief Registers the CpuAttentionOp operation with the OperationRegistry.
+         *
+         * This function registers the CpuAttentionOp operation for the CPU device type
+         * with the OperationRegistry. It associates the operation name "Cpu::MultiHeadAttentionOp"
+         * with a factory function that creates instances of CpuAttentionOp.
+         */
+        static void registerOperations() {
+            const std::string opName = "Cpu::MultiHeadAttentionOp";
+
+            OperationRegistry::instance().registerOperation<float, float, DeviceType::Cpu>(
+                opName,
+                []() -> std::shared_ptr<OperationBase<float, float, DeviceType::Cpu>> {
+                    return std::make_shared<CpuAttentionOp<float, float>>();
+                }
+            );
+        }
+
+        /**
+         * @brief Self-registration mechanism that registers the operation during startup.
+         *
+         * This static member ensures the operation is registered when the program starts
+         * without requiring explicit registration calls.
+         */
+        static inline bool isRegistered = []() {
+            registerOperations();
+            return true;
+            }();
     };
 }

@@ -1,3 +1,7 @@
+/**
+ * @file DeviceType.ixx
+ * @brief Device type definitions and conversion utilities for compute devices.
+ */
 module;
 #include <stdexcept>
 #include <algorithm>
@@ -7,11 +11,24 @@ export module Compute.DeviceType;
 
 namespace Mila::Dnn::Compute
 {
+    /**
+     * @brief Enumeration of supported compute device types.
+     * 
+     * Defines the types of compute devices that can be used for
+     * tensor operations and neural network computations.
+     */
     export enum class DeviceType {
-        Cpu,
-        Cuda,
+        Cpu,    ///< CPU device type
+        Cuda,   ///< CUDA GPU device type
     };
 
+    /**
+     * @brief Converts a DeviceType to its string representation.
+     * 
+     * @param device_type The device type to convert.
+     * @return std::string The string representation of the device type ("CPU" or "CUDA").
+     * @throws std::runtime_error If the device type is invalid.
+     */
     export std::string deviceToString( DeviceType device_type ) {
         switch ( device_type ) {
             case DeviceType::Cpu: return "CPU";
@@ -21,6 +38,18 @@ namespace Mila::Dnn::Compute
         }
     };
 
+    /**
+     * @brief Converts a string to the corresponding DeviceType.
+     * 
+     * Performs case-insensitive matching to convert device type strings
+     * to the corresponding enum value.
+     * 
+     * @param device_type The string representation of the device type.
+     * @return DeviceType The corresponding device type enum value.
+     * @throws std::runtime_error If the string does not represent a valid device type.
+     *                            Valid options are: "CPU", "CUDA", "AUTO".
+     * @note "AUTO" option is currently commented out in implementation.
+     */
     export DeviceType toDeviceType( std::string device_type ) {
         // Convert to uppercase for case-insensitive comparison
         std::transform( device_type.begin(), device_type.end(),

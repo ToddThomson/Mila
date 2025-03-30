@@ -13,13 +13,8 @@ import Compute.DeviceType;
 import Compute.ComputeDevice;
 import Compute.OperationBase;
 import Compute.OperationAttributes;
-import Compute.OperationType;  
 import Compute.MemoryResource;  
 import Compute.CpuMemoryResource;  
-import Compute.CudaMemoryResource;
-
-import Compute.ComputeResource;
-import Compute.CpuComputeResource;
 import Compute.CudaMemoryResource;
 
 namespace Mila::Dnn::Compute
@@ -27,8 +22,9 @@ namespace Mila::Dnn::Compute
 	/**
 	* @brief Abstract class for binary operations.
 	*
-	* @tparam T The data type of the tensor elements.
-	* @tparam TMemoryResource The memory resource type, must be derived from MemoryResource.
+	* @tparam TInput The data type of the input tensor elements.
+	* @tparam TCompute The data type of the output and computation tensor elements.
+	* @tparam TDeviceType The device type (CPU or CUDA) for execution.
 	*/
 	export
 	template <typename TInput, typename TCompute, Compute::DeviceType TDeviceType = Compute::DeviceType::Cuda>
@@ -36,7 +32,6 @@ namespace Mila::Dnn::Compute
 	class BinaryOperation : public OperationBase<TInput, TCompute, TDeviceType> {
 	public:
 		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::DeviceMemoryResource, Compute::HostMemoryResource>;
-
 		using OperationBase<TInput, TCompute, TDeviceType>::OperationBase;
 
 		/**

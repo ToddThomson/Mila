@@ -39,12 +39,12 @@ add_executable( MilaTests
     "Dnn/Compute/DeviceHelpers.cpp" 
     "Dnn/Compute/DeviceContext.cpp"
     
-    #"Dnn/Modules/FullyConnected.cpp"
+    "Dnn/Modules/FullyConnected.cpp"
     "Dnn/Modules/Gelu.cpp" 
-    #"Dnn/Modules/Attention.cpp" 
-    #"Dnn/Modules/Layernorm.cpp"
-    #"Dnn/Modules/Residual.cpp"
-    #"Dnn/Modules/Softmax.cpp"
+    "Dnn/Modules/Attention.cpp" 
+    "Dnn/Modules/Layernorm.cpp"
+    "Dnn/Modules/Residual.cpp"
+    "Dnn/Modules/Softmax.cpp"
     "Dnn/Modules/Encoder.cpp" 
 
     #"Dnn/Models/Gpt2/DatasetReader.cpp"

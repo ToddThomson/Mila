@@ -17,7 +17,6 @@ import Compute.OperationType;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
-import Compute.AutoRegisterOp;
 import Compute.MemoryResource;
 import Compute.CpuDevice;
 

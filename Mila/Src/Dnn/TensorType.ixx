@@ -1,3 +1,8 @@
+/**
+ * @file TensorType.ixx
+ * @brief Defines tensor data types and related utility functions.
+ */
+
 module;
 #include <cstdint>
 #include <string>
@@ -10,67 +15,127 @@ export module Dnn.TensorType;
 
 namespace Mila::Dnn
 {
+    /**
+     * @brief Enumeration of supported tensor data types.
+     *
+     * This enumeration defines the different numeric data types that can be
+     * used for tensor elements in the neural network framework. It supports
+     * various precision floating point and integer formats.
+     */
     export enum class TensorType {
-        FP32, // float
-        FP16, // half
-        BF16, // nv_bfloat16
-		FP8, // nv_float8
-        INT16, // int16_t
-        INT32, // int32_t
-        UINT16,  // uint16_t
-        UINT32,  // uint32_t
+        FP32,   ///< 32-bit floating point (float)
+        FP16,   ///< 16-bit floating point (half)
+        BF16,   ///< 16-bit brain floating point (nv_bfloat16)
+        FP8,    ///< 8-bit floating point (nv_float8)
+        INT16,  ///< 16-bit signed integer (int16_t)
+        INT32,  ///< 32-bit signed integer (int32_t)
+        UINT16, ///< 16-bit unsigned integer (uint16_t)
+        UINT32, ///< 32-bit unsigned integer (uint32_t)
     };
 
-    // Given a datatype enum, returns the underlying number of bytes
-    // for a scalar of that type
+    /**
+     * @brief Returns the size in bytes of a specific tensor data type.
+     *
+     * Given a tensor type enumeration value, this function returns the number of
+     * bytes required to store a single scalar element of that type.
+     *
+     * @param type The tensor data type
+     * @return size_t The size in bytes of the specified data type
+     * @throws std::runtime_error If the type is not recognized
+     */
     export size_t sizeof_tensor_type( TensorType type ) {
         switch ( type ) {
-        case TensorType::FP32:
-            return sizeof( float );
-        case TensorType::FP16:
-            return sizeof( half );
-        case TensorType::BF16:
-            return sizeof( nv_bfloat16 );
-        case TensorType::FP8:
-			return sizeof( __nv_fp8_e4m3 );
-        case TensorType::INT16:
-            return sizeof( int16_t );
-        case TensorType::INT32:
-            return sizeof( int );
-		case TensorType::UINT16:
-			return sizeof( uint16_t );
-		case TensorType::UINT32:
-			return sizeof( uint32_t );
+            case TensorType::FP32:
+                return sizeof( float );
+            case TensorType::FP16:
+                return sizeof( half );
+            case TensorType::BF16:
+                return sizeof( nv_bfloat16 );
+            case TensorType::FP8:
+                return sizeof( __nv_fp8_e4m3 );
+            case TensorType::INT16:
+                return sizeof( int16_t );
+            case TensorType::INT32:
+                return sizeof( int );
+            case TensorType::UINT16:
+                return sizeof( uint16_t );
+            case TensorType::UINT32:
+                return sizeof( uint32_t );
 
-        default:
-            throw std::runtime_error("Unknown tensor type");
+            default:
+                throw std::runtime_error( "Unknown tensor type" );
         }
     };
 
-    // TODO: FP8 BFLOAT16
+    /**
+     * @brief Determines the tensor type for a float pointer.
+     * @param val Pointer to a float value
+     * @return TensorType Always returns TensorType::FP32
+     */
     export TensorType tensor_type_of( float* val ) { return TensorType::FP32; };
+
+    /**
+     * @brief Determines the tensor type for a half pointer.
+     * @param val Pointer to a half value
+     * @return TensorType Always returns TensorType::FP16
+     */
     export TensorType tensor_type_of( half* val ) { return TensorType::FP16; };
+
+    /**
+     * @brief Determines the tensor type for an int16_t pointer.
+     * @param val Pointer to an int16_t value
+     * @return TensorType Always returns TensorType::INT16
+     */
     export TensorType tensor_type_of( int16_t* val ) { return TensorType::INT16; };
+
+    /**
+     * @brief Determines the tensor type for an int pointer.
+     * @param val Pointer to an int value
+     * @return TensorType Always returns TensorType::INT32
+     */
     export TensorType tensor_type_of( int* val ) { return TensorType::INT32; };
+
+    /**
+     * @brief Determines the tensor type for a uint16_t pointer.
+     * @param val Pointer to a uint16_t value
+     * @return TensorType Always returns TensorType::UINT16
+     */
     export TensorType tensor_type_of( uint16_t* val ) { return TensorType::UINT16; };
+
+    /**
+     * @brief Determines the tensor type for a uint32_t pointer.
+     * @param val Pointer to a uint32_t value
+     * @return TensorType Always returns TensorType::UINT32
+     */
     export TensorType tensor_type_of( uint32_t* val ) { return TensorType::UINT32; };
 
-
+    /**
+     * @brief Converts a tensor type to its string representation.
+     *
+     * This function provides a human-readable string representation of each
+     * tensor data type, which can be used for logging, debugging, or serialization.
+     *
+     * @param type The tensor data type
+     * @return std::string The string representation of the tensor type
+     */
     export std::string to_string( TensorType type ) {
         switch ( type ) {
             case TensorType::FP32:
                 return "FP32";
             case TensorType::FP16:
                 return "FP16";
+            case TensorType::BF16:
+                return "BF16";
+            case TensorType::FP8:
+                return "FP8";
             case TensorType::INT16:
                 return "INT16";
             case TensorType::INT32:
                 return "INT32";
-			case TensorType::UINT16:
-				return "UINT16";
-			case TensorType::UINT32:
-				return "UINT32";
-
+            case TensorType::UINT16:
+                return "UINT16";
+            case TensorType::UINT32:
+                return "UINT32";
             default:
                 return "Unknown Tensor type";
         }

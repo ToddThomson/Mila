@@ -6,7 +6,6 @@ module;
 #include <sstream>
 #include <type_traits>
 #include <cstdint>
-#include <map>
 
 export module Dnn.Modules.Softmax;
 
