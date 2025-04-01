@@ -1,5 +1,5 @@
 /**
- * @file CpuAttentionOp.ixx
+ * @file CpuMultiHeadAttention.ixx
  * @brief Implementation of the CPU-based attention operation for neural networks.
  */
 
@@ -49,14 +49,14 @@ namespace Mila::Dnn::Compute
     export
         template<typename TInput = float, typename TPrecision = float>
         requires ValidTensorTypes<TInput, TPrecision>
-    class CpuAttentionOp : public UnaryOperation<TInput, TPrecision, DeviceType::Cpu> {
+    class CpuMultiHeadAttentionOp: public UnaryOperation<TInput, TPrecision, DeviceType::Cpu> {
     public:
         /**
          * @brief Constructs a new CPU Attention operation.
          *
          * Initializes the operation with the CPU device type and MultiHeadAttentionOp operation type.
          */
-        CpuAttentionOp() : UnaryOperation<TInput, TPrecision, DeviceType::Cpu>( DeviceType::Cpu, OperationType::MultiHeadAttentionOp ) {}
+        CpuMultiHeadAttentionOp() : UnaryOperation<TInput, TPrecision, DeviceType::Cpu>( DeviceType::Cpu, OperationType::MultiHeadAttentionOp ) {}
 
         /**
          * @brief Performs the forward pass of the Multi-Head Attention operation.
@@ -230,20 +230,20 @@ namespace Mila::Dnn::Compute
     };
 
     /**
-     * @brief Class responsible for registering the CpuAttentionOp operation.
+     * @brief Class responsible for registering the CpuMultiHeadAttention operation.
      *
-     * The CpuAttentionOpRegistrar class registers the CpuAttentionOp operation with the OperationRegistry.
+     * The CpuAttentionOpRegistrar class registers the CpuMultiHeadAttention operation with the OperationRegistry.
      * It associates the operation name "Cpu::MultiHeadAttentionOp" with a factory function that creates
-     * instances of CpuAttentionOp.
+     * instances of CpuMultiHeadAttention.
      */
-    export class CpuAttentionOpRegistrar {
+    export class CpuMultiHeadAttentionOpRegistrar {
     public:
         /**
-         * @brief Registers the CpuAttentionOp operation with the OperationRegistry.
+         * @brief Registers the CpuMultiHeadAttention operation with the OperationRegistry.
          *
-         * This function registers the CpuAttentionOp operation for the CPU device type
+         * This function registers the CpuMultiHeadAttention operation for the CPU device type
          * with the OperationRegistry. It associates the operation name "Cpu::MultiHeadAttentionOp"
-         * with a factory function that creates instances of CpuAttentionOp.
+         * with a factory function that creates instances of CpuMultiHeadAttention.
          */
         static void registerOperations() {
             const std::string opName = "Cpu::MultiHeadAttentionOp";
@@ -251,7 +251,7 @@ namespace Mila::Dnn::Compute
             OperationRegistry::instance().registerOperation<float, float, DeviceType::Cpu>(
                 opName,
                 []() -> std::shared_ptr<OperationBase<float, float, DeviceType::Cpu>> {
-                    return std::make_shared<CpuAttentionOp<float, float>>();
+                    return std::make_shared<CpuMultiHeadAttentionOp<float, float>>();
                 }
             );
         }

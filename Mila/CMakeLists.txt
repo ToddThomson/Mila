@@ -86,7 +86,7 @@ PUBLIC
 		"Src/Dnn/Compute/CPU/CpuDevice.ixx" 
 		"Src/Dnn/Compute/CPU/Ops/CpuEncoderOp.ixx" 
 		"Src/Dnn/Compute/CPU/Ops/CpuLayerNormOp.ixx" 
-		"Src/Dnn/Compute/CPU/Ops/CpuAttentionOp.ixx" 
+		"Src/Dnn/Compute/CPU/Ops/CpuMutiHeadAttentionOp.ixx" 
 		"Src/Dnn/Compute/CPU/Ops/CpuResidualOp.ixx" 
 		"Src/Dnn/Compute/CPU/Ops/CpuFullyConnectedOp.ixx"
 		"Src/Dnn/Compute/CPU/Ops/CpuSoftmaxOp.ixx"

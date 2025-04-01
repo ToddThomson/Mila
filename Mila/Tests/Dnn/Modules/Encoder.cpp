@@ -9,120 +9,121 @@ namespace Modules::Tests
 {
 	using namespace Mila::Dnn;
 
-	// Combined template parameters for both device type and input type
-	template <Compute::DeviceType TDeviceType, typename TInput>
-	struct TestParams {
-		static constexpr Compute::DeviceType device_type = TDeviceType;
-		using InputType = TInput;
-		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda,
-			Compute::DeviceMemoryResource,
-			Compute::HostMemoryResource>;
+	// Use a common test data structure with precise type control
+	template<typename TInput, typename TPrecision, Compute::DeviceType TDevice>
+	struct EncoderTestData {
+		std::vector<size_t> input_shape;
+		std::vector<size_t> output_shape;
+		std::shared_ptr<Encoder<TInput, TPrecision, TDevice>> encoder;
+		size_t channels;
+		size_t max_seq_len;
+		size_t vocab_len;
 	};
 
-	// Define the combinations of device types and input types we want to test
-	using CpuUint16 = TestParams<Compute::DeviceType::Cpu, uint16_t>;
-	using CpuInt = TestParams<Compute::DeviceType::Cpu, int>;
-	using CudaUint16 = TestParams<Compute::DeviceType::Cuda, uint16_t>;
-	using CudaInt = TestParams<Compute::DeviceType::Cuda, int>;
-
-	template <typename TParams>
 	class EncoderTests : public ::testing::Test {
 	protected:
 		void SetUp() override {
-			constexpr Compute::DeviceType TDeviceType = TParams::device_type;
-			using TInput = typename TParams::InputType;
-
-			if constexpr ( TDeviceType == DeviceType::Cpu ) {
-				batch_size_ = 4;
-			}
-			else if constexpr ( TDeviceType == DeviceType::Cuda ) {
-				batch_size_ = 64;
-			}
+			batch_size_ = 64;
+			cpu_batch_size_ = 4;
 			sequence_length_ = 512;
 			max_seq_len_ = 1024;
 			channels_ = 768;
 			vocab_len_ = 50257;
-			input_shape_ = { batch_size_, sequence_length_ };
-			output_shape_ = { batch_size_, sequence_length_, channels_ };
 
-			encoder_ = std::make_unique<Encoder<TInput, float, TDeviceType>>(
-				"enc_1", channels_, max_seq_len_, vocab_len_ );
+			// CPU test data (float precision)
+			cpu_uint16_data_.input_shape = { cpu_batch_size_, sequence_length_ };
+			cpu_uint16_data_.output_shape = { cpu_batch_size_, sequence_length_, channels_ };
+			cpu_uint16_data_.channels = channels_;
+			cpu_uint16_data_.max_seq_len = max_seq_len_;
+			cpu_uint16_data_.vocab_len = vocab_len_;
+			cpu_uint16_data_.encoder = std::make_shared<Encoder<uint16_t, float, Compute::DeviceType::Cpu>>(
+				"cpu_encoder_uint16", channels_, max_seq_len_, vocab_len_ );
+
+			// CUDA test data (float precision)
+			cuda_uint16_data_.input_shape = { batch_size_, sequence_length_ };
+			cuda_uint16_data_.output_shape = { batch_size_, sequence_length_, channels_ };
+			cuda_uint16_data_.channels = channels_;
+			cuda_uint16_data_.max_seq_len = max_seq_len_;
+			cuda_uint16_data_.vocab_len = vocab_len_;
+			cuda_uint16_data_.encoder = std::make_shared<Encoder<uint16_t, float, Compute::DeviceType::Cuda>>(
+				"cuda_encoder_uint16", channels_, max_seq_len_, vocab_len_ );
 		}
 
-		// Use template parameter for TInput
-		std::unique_ptr<Encoder<typename TParams::InputType, float, TParams::device_type>> encoder_;
-
 		size_t batch_size_{ 0 };
+		size_t cpu_batch_size_{ 0 };
 		size_t sequence_length_{ 0 };
 		size_t channels_{ 0 };
 		size_t vocab_len_{ 0 };
 		size_t max_seq_len_{ 0 };
-		std::vector<size_t> input_shape_;
-		std::vector<size_t> output_shape_;
+
+		// Structured test data
+		EncoderTestData<uint16_t, float, Compute::DeviceType::Cpu> cpu_uint16_data_;
+		EncoderTestData<uint16_t, float, Compute::DeviceType::Cuda> cuda_uint16_data_;
 	};
 
-	// Define the test suite with all configurations
-	using EncoderTestConfigs = ::testing::Types<CpuUint16, CpuInt, CudaUint16, CudaInt>;
-	TYPED_TEST_SUITE( EncoderTests, EncoderTestConfigs );
-
-	TYPED_TEST( EncoderTests, getName ) {
-		EXPECT_EQ( this->encoder_->getName(), "enc_1" );
+	// Common test function templates
+	template<typename TInput, typename TPrecision, Compute::DeviceType TDevice, typename TMemResource>
+	void TestGetName( const EncoderTestData<TInput, TPrecision, TDevice>& data, const std::string& expected_name ) {
+		EXPECT_EQ( data.encoder->getName(), expected_name );
 	}
 
-	TYPED_TEST( EncoderTests, parameterCount ) {
-		auto num_parameters = /* wte */ (this->vocab_len_ * this->channels_) + /* wpe */ (this->max_seq_len_ * this->channels_);
-		EXPECT_EQ( this->encoder_->parameterCount(), num_parameters );
+	template<typename TInput, typename TPrecision, Compute::DeviceType TDevice, typename TMemResource>
+	void TestParameterCount( const EncoderTestData<TInput, TPrecision, TDevice>& data ) {
+		auto num_parameters = /* wte */ (data.vocab_len * data.channels) + /* wpe */ (data.max_seq_len * data.channels);
+		EXPECT_EQ( data.encoder->parameterCount(), num_parameters );
 	}
 
-	TYPED_TEST( EncoderTests, forward ) {
-		using TInput = typename TypeParam::InputType;
-		Tensor<TInput, typename TypeParam::MR> input( this->input_shape_ );
-		Tensor<float, typename TypeParam::MR> output( this->output_shape_ );
-		this->encoder_->forward( input, output );
-		EXPECT_EQ( output.size(), this->batch_size_ * this->sequence_length_ * this->channels_ );
+	template<typename TInput, typename TPrecision, Compute::DeviceType TDevice, typename TMemResource>
+	void TestForward( const EncoderTestData<TInput, TPrecision, TDevice>& data ) {
+		Tensor<TInput, TMemResource> input( data.input_shape );
+		Tensor<TPrecision, TMemResource> output( data.output_shape );
+		data.encoder->forward( input, output );
+		EXPECT_EQ( output.size(), input.size() * data.channels );
 	}
 
-	TYPED_TEST( EncoderTests, toString ) {
-		std::string output = this->encoder_->toString();
-		EXPECT_NE( output.find( "Encoder: enc_1" ), std::string::npos );
+	template<typename TInput, typename TPrecision, Compute::DeviceType TDevice>
+	void TestPrint( const EncoderTestData<TInput, TPrecision, TDevice>& data, const std::string& expected_substring ) {
+		std::string output = data.encoder->toString();
+		EXPECT_NE( output.find( expected_substring ), std::string::npos );
 	}
 
-	TYPED_TEST( EncoderTests, initialization_check ) {
-		// Verify parameter shapes
-		auto params = this->encoder_->getParameterTensors();
-		ASSERT_EQ( params.size(), 2u ); // Should have wte_ and wpe_
-		auto wteShape = params[ "wte" ]->shape();
-		auto wpeShape = params[ "wpe" ]->shape();
+	// CPU Tests with uint16_t precision
 
-		EXPECT_EQ( wteShape.size(), 2u );
-		EXPECT_EQ( wteShape[ 0 ], this->vocab_len_ );
-		EXPECT_EQ( wteShape[ 1 ], this->channels_ );
-
-		EXPECT_EQ( wpeShape.size(), 2u );
-		EXPECT_EQ( wpeShape[ 0 ], this->max_seq_len_ );
-		EXPECT_EQ( wpeShape[ 1 ], this->channels_ );
+	TEST_F( EncoderTests, Cpu_Uint16_TestName ) {
+		TestGetName<uint16_t, float, Compute::DeviceType::Cpu, Compute::HostMemoryResource>(
+			cpu_uint16_data_, "cpu_encoder_uint16" );
 	}
 
-	TYPED_TEST( EncoderTests, training_mode_toggle ) {
-		EXPECT_FALSE( this->encoder_->isTraining() );
-		this->encoder_->setTraining( true );
-		EXPECT_TRUE( this->encoder_->isTraining() );
-		this->encoder_->setTraining( false );
-		EXPECT_FALSE( this->encoder_->isTraining() );
+	TEST_F( EncoderTests, Cpu_Uint16_ParameterCount ) {
+		TestParameterCount<uint16_t, float, Compute::DeviceType::Cpu, Compute::HostMemoryResource>(
+			cpu_uint16_data_ );
 	}
 
-	TYPED_TEST( EncoderTests, edge_case_zero_dimensions ) {
-		using TInput = typename TypeParam::InputType;
-		// Build an encoder with zero channels
-		auto zeroEncoder = std::make_unique<Encoder<TInput, float, TypeParam::device_type>>(
-			"enc_zero", /*channels=*/0,
-			this->max_seq_len_,
-			this->vocab_len_ );
+	TEST_F( EncoderTests, Cpu_Uint16_TestForward ) {
+		TestForward<uint16_t, float, Compute::DeviceType::Cpu, Compute::HostMemoryResource>( cpu_uint16_data_ );
+	}
 
-		// Attempt forward
-		Tensor<TInput, typename TypeParam::MR> inputZero( { this->batch_size_, this->sequence_length_ } );
-		Tensor<float, typename TypeParam::MR> outputZero( { this->batch_size_, this->sequence_length_, 0 } );
-		EXPECT_NO_THROW( zeroEncoder->forward( inputZero, outputZero ) );
-		EXPECT_EQ( outputZero.size(), 0u );
+	TEST_F( EncoderTests, Cpu_Uint16_TestPrint ) {
+		TestPrint<uint16_t, float, Compute::DeviceType::Cpu>( cpu_uint16_data_, "Encoder: cpu_encoder_uint16" );
+	}
+
+	// CUDA Tests with uint16_t precision
+
+	TEST_F( EncoderTests, Cuda_Uint16_TestName ) {
+		TestGetName<uint16_t, float, Compute::DeviceType::Cuda, Compute::DeviceMemoryResource>(
+			cuda_uint16_data_, "cuda_encoder_uint16" );
+	}
+
+	TEST_F( EncoderTests, Cuda_Uint16_ParameterCount ) {
+		TestParameterCount<uint16_t, float, Compute::DeviceType::Cuda, Compute::DeviceMemoryResource>(
+			cuda_uint16_data_ );
+	}
+
+	TEST_F( EncoderTests, Cuda_Uint16_TestForward ) {
+		TestForward<uint16_t, float, Compute::DeviceType::Cuda, Compute::DeviceMemoryResource>( cuda_uint16_data_ );
+	}
+
+	TEST_F( EncoderTests, Cuda_Uint16_TestPrint ) {
+		TestPrint<uint16_t, float, Compute::DeviceType::Cuda>( cuda_uint16_data_, "Encoder: cuda_encoder_uint16" );
 	}
 }

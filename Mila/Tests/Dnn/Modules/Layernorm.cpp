@@ -90,10 +90,6 @@ namespace Modules::Tests
         EXPECT_EQ( output.size(), input.size() );
     }
 
-    TEST( CpuLayerNormOpTest, ForwardSimple3DInput ) {
-        
-    }
-
     /*TEST_F( LayerNormTests, Cuda_TestForward ) {
         MilaDnn::Tensor<float, MilaDnn::Compute::DeviceMemoryResource> input( { batch_size_, sequence_length_, channels_ } );
         auto output = cuda_linear->forward( std::make_shared<MilaDnn::Tensor<float, MilaDnn::Compute::DeviceMemoryResource>>( input ) );

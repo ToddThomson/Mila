@@ -1,7 +1,7 @@
 export module Compute.OperationsRegistrar;
 
-import Compute.CpuEncoderOp;
-import Compute.CpuGeluOp;
+import Compute.CpuOperations;
+import Compute.CudaOperations;
 
 namespace Mila::Dnn::Compute
 {
@@ -38,8 +38,23 @@ namespace Mila::Dnn::Compute
 		* @brief Initialize the compute operations.
 		*/
 		static void registerOperations() {
+			// TJT: This rather ugly way of registering operations
+			// is good enough for now. I will revisit
 			CpuEncoderOpRegistrar::registerOperations();
 			CpuGeluOpRegistrar::registerOperations();
+			CpuFullyConnectedOpRegistrar::registerOperations();
+			CpuLayerNormOpRegistrar::registerOperations();
+			CpuMultiHeadAttentionOpRegistrar::registerOperations();
+			CpuResidualOpRegistrar::registerOperations();
+			CpuSoftmaxOpRegistrar::registerOperations();
+
+			CudaEncoderOpRegistrar::registerOperations();
+			CudaGeluOpRegistrar::registerOperations();
+			CudaFullyConnectedOpRegistrar::registerOperations();
+			CudaLayerNormOpRegistrar::registerOperations();
+			CudaMultiHeadAttentionOpRegistrar::registerOperations();
+			CudaResidualOpRegistrar::registerOperations();
+			CudaSoftmaxOpRegistrar::registerOperations();
 		}
 
 		static inline bool is_initialized_ = false;
