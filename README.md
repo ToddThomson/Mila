@@ -128,8 +128,4 @@ We welcome contributions from the community. If you are interested in contributi
 4. Push your changes to your forked repository.
 5. Create a pull request to the `main` branch of the original repository.
 
-Please ensure that your code adheres to the project's coding standards and includes appropriate tests. For more detailed guidelines, refer to the [Contribution guidelines placeholder].
-
-## Contributing
-
-We welcome contributions from the community. If you are interested in contributing to Mila, please read our [contribution guidelines](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+Please ensure that your code adheres to the project's coding standards and includes appropriate tests. For more detailed guidelines, refer to the [contribution guidelines](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
