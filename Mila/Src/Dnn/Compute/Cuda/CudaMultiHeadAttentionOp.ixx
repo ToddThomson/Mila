@@ -64,12 +64,12 @@ namespace Mila::Dnn::Compute
 		 *
 		 * The computation is performed on the GPU using CUDA kernels for optimal performance.
 		 *
-		 * @param input Input tensor of shape [B, T, C] containing the input sequence, where B is batch size,
-		 *              T is sequence length, and C is the input feature dimension.
+		 * @param input Input tensor of shape [B, TElementType, C] containing the input sequence, where B is batch size,
+		 *              TElementType is sequence length, and C is the input feature dimension.
 		 * @param parameters Vector of parameter tensors [weight, bias], where weight contains the query, key,
 		 *                   value projections and output projection, and bias contains the corresponding biases.
 		 * @param attributes Additional attributes for the operation, such as number of attention heads.
-		 * @param output Output tensor of shape [B, T, OC] containing the attention output, where OC is the
+		 * @param output Output tensor of shape [B, TElementType, OC] containing the attention output, where OC is the
 		 *               output feature dimension.
 		 * @param output_state Cache for intermediate results like attention scores and weights for
 		 *                     potential use in backward pass or visualization.
@@ -92,7 +92,7 @@ namespace Mila::Dnn::Compute
 			int C = input.shape()[ 2 ];
 			int OC = output.shape()[ 2 ];
 
-			//cuda_mha_forward( Y, X, weight, bias, B, T, C, OC );
+			//cuda_mha_forward( Y, X, weight, bias, B, TElementType, C, OC );
 		}
 
 		/**

@@ -64,10 +64,10 @@ namespace Mila::Dnn::Compute
          * Computes attention scores between queries and keys, applies softmax to get attention weights,
          * and uses these weights to compute a weighted sum of value vectors.
          *
-         * @param input Input tensor of shape [B, T, 3*C] containing concatenated query, key, and value vectors.
+         * @param input Input tensor of shape [B, TElementType, 3*C] containing concatenated query, key, and value vectors.
          * @param parameters Additional parameters (not used in this operation).
          * @param properties Additional attributes for the operation.
-         * @param output Output tensor of shape [B, T, C] containing the attention output.
+         * @param output Output tensor of shape [B, TElementType, C] containing the attention output.
          * @param output_cache Cache for intermediate results [preatt, att] that are used in the backward pass.
          */
         void forward( const Tensor<TInput, HostMemoryResource>& input,
@@ -160,7 +160,7 @@ namespace Mila::Dnn::Compute
          * @param inp Pointer to the original input values (query, key, value).
          * @param att Pointer to the attention weights computed during forward pass.
          * @param B Batch size.
-         * @param T Sequence length.
+         * @param TElementType Sequence length.
          * @param C Feature dimension (divided by 3 for query, key, value).
          * @param NH Number of attention heads.
          */

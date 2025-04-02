@@ -77,7 +77,7 @@ namespace Mila::Dnn::Compute
 			 * @param dout Output gradient
 			 * @param input Input token indices tensor
 			 * @param B Batch size
-			 * @param T Sequence length
+			 * @param TElementType Sequence length
 			 * @param C Embedding dimension
 			 */
 			void backward( float* dwte, float* dwpe, float* dout, const Tensor<TInput, HostMemoryResource>& input, int B, int T, int C ) {

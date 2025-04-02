@@ -36,10 +36,10 @@ namespace Mila::Dnn::Compute
 			const OperationAttributes& attributes,
 			Tensor<float, HostMemoryResource>& output,
 			std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>>& output_cache ) const override {
-		//void forward( float* losses, float* probs, const Tensor<int, HostMemoryResource>& targets, int B, int T, int Vp ) {
-			// output: losses is (B,T) of the individual losses at each position
-			// input: probs are (B,T,Vp) of the probabilities
-			// input: targets is (B,T) of integers giving the correct index in logits
+		//void forward( float* losses, float* probs, const Tensor<int, HostMemoryResource>& targets, int B, int TElementType, int Vp ) {
+			// output: losses is (B,TElementType) of the individual losses at each position
+			// input: probs are (B,TElementType,Vp) of the probabilities
+			// input: targets is (B,TElementType) of integers giving the correct index in logits
 			auto B = input.shape()[ 0 ];
 			auto T = input.shape()[ 1 ];
 			auto Vp = parameters[ 0 ]->shape()[ 2 ];

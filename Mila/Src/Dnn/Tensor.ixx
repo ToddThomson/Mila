@@ -42,8 +42,8 @@ namespace Mila::Dnn
 
 	std::atomic<size_t> UniqueIdGenerator::counter_{ 0 };
 
-	export template<typename T, typename TMemoryResource = Compute::DeviceMemoryResource>
-		requires ValidTensorType<T> && std::is_base_of_v<Compute::MemoryResource, TMemoryResource>
+	export template<typename TElementType, typename TMemoryResource = Compute::DeviceMemoryResource>
+		requires ValidTensorType<TElementType> && std::is_base_of_v<Compute::MemoryResource, TMemoryResource>
 	class Tensor {
 	public:
 		using scalar_t = std::variant<int64_t, int32_t, half, float>;
@@ -57,12 +57,12 @@ namespace Mila::Dnn
         * @brief Constructs a tensor with the given shape and initializes it with the specified value.
         *
         * This constructor initializes the tensor with the provided shape and fills it with the given value.
-        * If no value is provided, the tensor is initialized with the default value of the type T.
+        * If no value is provided, the tensor is initialized with the default value of the type TElementType.
         *
         * @param shape The shape of the tensor.
-        * @param value The value to initialize the tensor with. Defaults to the default value of type T.
+        * @param value The value to initialize the tensor with. Defaults to the default value of type TElementType.
         */
-		Tensor( const std::vector<size_t>& shape, T value = T{} )
+		Tensor( const std::vector<size_t>& shape, TElementType value = TElementType{} )
 			: uid_{ set_uid() }, shape_( shape ), strides_( computeStrides( shape ) ), size_( computeSize( shape ) ) {
 			allocateBuffer( value );
 		}
@@ -76,18 +76,18 @@ namespace Mila::Dnn
 		* @param shape The shape of the tensor.
 		* @param data_ptr Shared pointer to the allocated memory.
 		*/
-		Tensor( const std::vector<size_t>& shape, std::shared_ptr<T> data_ptr )
-			: uid_{ set_uid() }, shape_( shape ), strides_( computeStrides( shape ) ), size_( computeSize( shape ) ), data_ptr_( data_ptr ) {
-			if ( !data_ptr_ ) {
+		Tensor( const std::vector<size_t>& shape, std::shared_ptr<TElementType> data_ptr )
+			: uid_{ set_uid() }, shape_( shape ), strides_( computeStrides( shape ) ), size_( computeSize( shape ) ), external_memory_ptr_( data_ptr ) {
+			if ( !external_memory_ptr_ ) {
 				throw std::invalid_argument( "data_ptr cannot be null." );
 			}
-			buffer_ = std::make_shared<TensorBuffer<T, TMemoryResource>>( size_, data_ptr_.get() );
-			data_type_ = tensor_type_of( data_ptr_.get() );
+			buffer_ = std::make_shared<TensorBuffer<TElementType, TMemoryResource>>( size_, external_memory_ptr_.get() );
+			data_type_ = tensor_type_of( external_memory_ptr_.get() );
 		}
 
 		Tensor()
 			: uid_{ set_uid() }, shape_(), strides_( computeStrides( shape_ ) ), size_() {
-			allocateBuffer( T{} );
+			allocateBuffer( TElementType{} );
 		}
 
 		/**
@@ -98,15 +98,15 @@ namespace Mila::Dnn
 		* mechanism based on the source and destination memory resource types.
 		*
 		* @tparam TNewMR The target memory resource type.
-		* @return Tensor<T, TNewMR> A new tensor with the specified memory resource type.
+		* @return Tensor<TElementType, TNewMR> A new tensor with the specified memory resource type.
 		* @throws std::runtime_error If a CUDA memory transfer operation fails.
 		*/
 		template<typename TNewMR>
-		Tensor<T, TNewMR> to() const {
+		Tensor<TElementType, TNewMR> to() const {
 			static_assert(std::is_base_of_v<Compute::MemoryResource, TNewMR>,
 				"NewTMemoryResource must be derived from Compute::MemoryResource");
 
-			Tensor<T, TNewMR> new_tensor( shape_ );
+			Tensor<TElementType, TNewMR> new_tensor( shape_ );
 
 			if ( !name_.empty() ) {
 				new_tensor.setName( name_ );
@@ -120,13 +120,13 @@ namespace Mila::Dnn
 			cudaError_t status = cudaSuccess;
 
 			if constexpr ( is_device_accessible<TMemoryResource>() && is_device_accessible<TNewMR>() ) {
-				status = cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyDeviceToDevice );
+				status = cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( TElementType ), cudaMemcpyDeviceToDevice );
 			}
 			else if constexpr ( is_host_accessible<TMemoryResource>() && is_device_accessible<TNewMR>() ) {
-				status = cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyHostToDevice );
+				status = cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( TElementType ), cudaMemcpyHostToDevice );
 			}
 			else if constexpr ( is_device_accessible<TMemoryResource>() && is_host_accessible<TNewMR>() ) {
-				status = cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( T ), cudaMemcpyDeviceToHost );
+				status = cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( TElementType ), cudaMemcpyDeviceToHost );
 			}
 			else {
 				// Host to host transfer (use standard copy)
@@ -144,12 +144,12 @@ namespace Mila::Dnn
 		}
 
 		template<typename HostAccessibleMR = Compute::HostMemoryResource>
-		Tensor<T, HostAccessibleMR> toHostAccessible() const {
+		Tensor<TElementType, HostAccessibleMR> toHostAccessible() const {
 			if constexpr ( std::is_same_v<TMemoryResource, Compute::HostMemoryResource> ||
 				std::is_same_v<TMemoryResource, Compute::PinnedMemoryResource> ||
 				std::is_same_v<TMemoryResource, Compute::ManagedMemoryResource> ) {
 				// Create a shallow copy if the memory is already host-accessible
-				Tensor<T, TMemoryResource> result( *this );
+				Tensor<TElementType, TMemoryResource> result( *this );
 				return result.template to<HostAccessibleMR>();
 			}
 			else {
@@ -158,7 +158,7 @@ namespace Mila::Dnn
 			}
 		}
 
-		T at( const std::vector<size_t>& indices ) const {
+		TElementType at( const std::vector<size_t>& indices ) const {
 			validateIndices( indices, "at()" );
 
 			if constexpr ( is_host_accessible<TMemoryResource>() ) {
@@ -171,7 +171,7 @@ namespace Mila::Dnn
 			}
 		}
 
-		void set( const std::vector<size_t>& indices, T value ) {
+		void set( const std::vector<size_t>& indices, TElementType value ) {
 			validateIndices( indices, "set()" );
 
 			if constexpr ( is_host_accessible<TMemoryResource>() ) {
@@ -197,7 +197,7 @@ namespace Mila::Dnn
 		* @throws std::runtime_error If the shapes don't match or if a CUDA memory transfer operation fails.
 		*/
 		template<typename SrcMemoryResource>
-		void copyFrom( const Tensor<T, SrcMemoryResource>& src ) {
+		void copyFrom( const Tensor<TElementType, SrcMemoryResource>& src ) {
 			if ( shape_ != src.shape() ) {
 				throw std::runtime_error( "Cannot copy from tensor with different shape." );
 			}
@@ -208,7 +208,7 @@ namespace Mila::Dnn
 
 			// Determine the appropriate copy method based on memory resource types
 			if constexpr ( is_device_accessible<TMemoryResource>() && is_device_accessible<SrcMemoryResource>() ) {
-				cudaError_t status = cudaMemcpy( data(), src.data(), size_ * sizeof( T ), cudaMemcpyDeviceToDevice );
+				cudaError_t status = cudaMemcpy( data(), src.data(), size_ * sizeof( TElementType ), cudaMemcpyDeviceToDevice );
 				if ( status != cudaSuccess ) {
 					throw std::runtime_error( "CUDA memory transfer failed: " +
 						std::string( cudaGetErrorString( status ) ) );
@@ -221,7 +221,7 @@ namespace Mila::Dnn
 			}
 			else if constexpr ( is_device_accessible<TMemoryResource>() && is_host_accessible<SrcMemoryResource>() ) {
 				// Device destination, host source
-				cudaError_t status = cudaMemcpy( data(), src.data(), size_ * sizeof( T ), cudaMemcpyHostToDevice );
+				cudaError_t status = cudaMemcpy( data(), src.data(), size_ * sizeof( TElementType ), cudaMemcpyHostToDevice );
 				if ( status != cudaSuccess ) {
 					throw std::runtime_error( "CUDA memory transfer failed: " +
 						std::string( cudaGetErrorString( status ) ) );
@@ -244,11 +244,11 @@ namespace Mila::Dnn
 		* Unlike the copy constructor which shares the underlying buffer,
 		* this method creates a completely independent copy with its own data buffer.
 		*
-		* @return Tensor<T, TMemoryResource> A deep copy of this tensor
+		* @return Tensor<TElementType, TMemoryResource> A deep copy of this tensor
 		*/
-		Tensor<T, TMemoryResource> clone() const {
+		Tensor<TElementType, TMemoryResource> clone() const {
 			// Create a new tensor with the same shape
-			Tensor<T, TMemoryResource> result( shape_ );
+			Tensor<TElementType, TMemoryResource> result( shape_ );
 
 			// Copy data from the current tensor to the new tensor
 			if ( size_ > 0 ) {
@@ -256,7 +256,7 @@ namespace Mila::Dnn
 					std::copy( data(), data() + size_, result.data() );
 				}
 				else {
-					cudaMemcpy( result.data(), data(), size_ * sizeof( T ), cudaMemcpyDeviceToDevice );
+					cudaMemcpy( result.data(), data(), size_ * sizeof( TElementType ), cudaMemcpyDeviceToDevice );
 				}
 			}
 
@@ -284,7 +284,7 @@ namespace Mila::Dnn
 
 		auto vectorSpan() {
 			if constexpr ( is_host_accessible<TMemoryResource>() ) {
-				return std::mdspan<T, Extent1d>( buffer_->data(), size_ );
+				return std::mdspan<TElementType, Extent1d>( buffer_->data(), size_ );
 			}
 			else {
 				throw std::runtime_error( "vectorSpan() requires host-accessible memory. Use to<CpuMemoryResource>() first." );
@@ -301,7 +301,7 @@ namespace Mila::Dnn
 			}
 
 			if constexpr ( is_host_accessible<TMemoryResource>() ) {
-				return std::mdspan<T, Extent2d>( buffer_->data(), shape[ 0 ], shape[ 1 ] );
+				return std::mdspan<TElementType, Extent2d>( buffer_->data(), shape[ 0 ], shape[ 1 ] );
 			}
 			else {
 				throw std::runtime_error( "matrixSpan() requires host-accessible memory. Use to<CpuMemoryResource>() first." );
@@ -309,7 +309,7 @@ namespace Mila::Dnn
 		}
 
 		template<typename... Args>
-		T& operator[]( Args... args ) {
+		TElementType& operator[]( Args... args ) {
 			static_assert(sizeof...(args) > 0, "operator[]: At least one index must be provided.");
 			const size_t num_args = sizeof...(args);
 			if ( num_args != shape_.size() ) {
@@ -341,7 +341,7 @@ namespace Mila::Dnn
 		}
 
 		template<typename... Args>
-		const T& operator[]( Args... args ) const {
+		const TElementType& operator[]( Args... args ) const {
 			static_assert(sizeof...(args) > 0, "operator[]: At least one index must be provided.");
 			const size_t num_args = sizeof...(args);
 			if ( num_args != shape_.size() ) {
@@ -386,15 +386,15 @@ namespace Mila::Dnn
 			return shape_.size();
 		}
 
-		T* data() {
+		TElementType* data() {
 			return buffer_->data();
 		}
 
-		const T* data() const {
+		const TElementType* data() const {
 			return buffer_->data();
 		}
 
-		void fill( const T& value ) {
+		void fill( const TElementType& value ) {
 			if constexpr ( is_host_accessible<TMemoryResource>() ) {
 				// Direct fill for host-accessible memory
 				std::fill( buffer_->data(), buffer_->data() + size_, value );
@@ -558,11 +558,11 @@ namespace Mila::Dnn
 		TensorType data_type_;
 		std::vector<size_t> shape_{};
 		std::vector<size_t> strides_{};
-		std::shared_ptr<TensorBuffer<T, TMemoryResource>> buffer_{ nullptr };
-		std::shared_ptr<T> data_ptr_{ nullptr }; // Shared pointer to external memory (non-owning)
+		std::shared_ptr<TensorBuffer<TElementType, TMemoryResource>> buffer_{ nullptr };
+		std::shared_ptr<TElementType> external_memory_ptr_{ nullptr }; // Shared pointer to external memory (non-owning)
 
-		void allocateBuffer( T value ) {
-			buffer_ = std::make_shared<TensorBuffer<T, TMemoryResource>>( size_, value );
+		void allocateBuffer( TElementType value ) {
+			buffer_ = std::make_shared<TensorBuffer<TElementType, TMemoryResource>>( size_, value );
 			data_type_ = tensor_type_of( buffer_->data() );
 		}
 
@@ -650,7 +650,7 @@ namespace Mila::Dnn
     * host memory that is accessible by the CPU. This is suitable for data that 
     * needs to be frequently accessed by the host and doesn't require GPU acceleration.
     *
-    * @tparam T The data type of the tensor elements.
+    * @tparam TElementType The data type of the tensor elements.
     */
     export template <typename T>
     using HostTensor = Tensor<T, Compute::HostMemoryResource>;
@@ -663,7 +663,7 @@ namespace Mila::Dnn
     * performance for CUDA accelerated computations, but the data is not directly
     * accessible from CPU code.
     *
-    * @tparam T The data type of the tensor elements.
+    * @tparam TElementType The data type of the tensor elements.
     */
     export template <class T>
     using DeviceTensor = Tensor<T, Compute::DeviceMemoryResource>;
@@ -676,7 +676,7 @@ namespace Mila::Dnn
     * transfers between CPU and GPU compared to regular host memory, but consumes a limited
     * resource that should be used judiciously.
     *
-    * @tparam T The data type of the tensor elements.
+    * @tparam TElementType The data type of the tensor elements.
     */
     export template <class T>
     using PinnedTensor = Tensor<T, Compute::PinnedMemoryResource>;
@@ -689,7 +689,7 @@ namespace Mila::Dnn
     * automatically migrates data between host and device as needed. This offers programming
     * convenience at the cost of potentially lower performance compared to explicitly managed memory.
     *
-    * @tparam T The data type of the tensor elements.
+    * @tparam TElementType The data type of the tensor elements.
     */
     export template <class T>
     using UniversalTensor = Tensor<T, Compute::ManagedMemoryResource>;

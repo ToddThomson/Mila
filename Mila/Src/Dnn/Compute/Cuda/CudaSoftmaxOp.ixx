@@ -61,11 +61,11 @@ namespace Mila::Dnn::Compute
 		 * The implementation includes numerical stability improvements by subtracting
 		 * the maximum value before applying the exponential function.
 		 *
-		 * @param input Input tensor containing logits of shape [B, T, V], where B is batch size,
-		 *              T is sequence length, and V is vocabulary size.
+		 * @param input Input tensor containing logits of shape [B, TElementType, V], where B is batch size,
+		 *              TElementType is sequence length, and V is vocabulary size.
 		 * @param parameters Additional parameters (not used in this operation).
 		 * @param attributes Additional attributes for the operation.
-		 * @param output Output tensor of shape [B, T, V] to store the resulting probability distribution.
+		 * @param output Output tensor of shape [B, TElementType, V] to store the resulting probability distribution.
 		 * @param output_state Cache for intermediate results (not used in this operation).
 		 */
 		void forward(

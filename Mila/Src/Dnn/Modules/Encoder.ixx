@@ -129,8 +129,8 @@ export namespace Mila::Dnn
 		* 1. Looking up token embeddings from the embedding table (wte)
 		* 2. Adding positional embeddings (wpe) based on token position
 		*
-		* @param input The input tensor containing token IDs with shape (B,T).
-		* @param output The output tensor that will contain embeddings with shape (B,T,C).
+		* @param input The input tensor containing token IDs with shape (B,TElementType).
+		* @param output The output tensor that will contain embeddings with shape (B,TElementType,C).
 		*/
 		void forward( const Tensor<TInput, MR>& input, Tensor<TPrecision, MR>& output ) {
 			operation_->forward( input, parameters_, attributes_, output, output_state_ );

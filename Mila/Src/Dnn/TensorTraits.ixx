@@ -22,7 +22,7 @@ namespace Mila::Dnn
 	 * intentionally undefined; specializations must be provided for each
 	 * supported type.
 	 *
-	 * @tparam T The C++ type to map to a tensor type
+	 * @tparam TElementType The C++ type to map to a tensor type
 	 */
 	template <typename T>
 	struct TensorTypeTrait;
@@ -78,11 +78,11 @@ namespace Mila::Dnn
 	/**
 	 * @brief Concept that constrains types to those that have a valid tensor type mapping.
 	 *
-	 * This concept ensures that a type T has a corresponding TensorTypeTrait
+	 * This concept ensures that a type TElementType has a corresponding TensorTypeTrait
 	 * specialization and that the trait provides a value that is convertible to
 	 * the TensorType enumeration.
 	 *
-	 * @tparam T The type to check for valid tensor type mapping
+	 * @tparam TElementType The type to check for valid tensor type mapping
 	 */
 	export template <typename T>
 		concept ValidTensorType = requires {

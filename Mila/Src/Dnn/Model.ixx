@@ -35,7 +35,7 @@ namespace Mila::Dnn
 	/**
 	* @brief A class representing a neural network model.
 	*
-	* @tparam T The data type used for the model's parameters and computations.
+	* @tparam TElementType The data type used for the model's parameters and computations.
 	* @tparam MemoryResource The memory resource type used for memory management.
 	*/
 	export
@@ -101,7 +101,7 @@ namespace Mila::Dnn
 		}
 
 		std::shared_ptr<Tensor<TInput, MR>> gelu( std::string name, std::shared_ptr<Tensor<TInput, MR>> input ) {
-			/*auto output = std::make_shared<Tensor<TInput, MR>>( std::vector<T>( input->value.size() ) );
+			/*auto output = std::make_shared<Tensor<TInput, MR>>( std::vector<TElementType>( input->value.size() ) );
 			tensor_map[ output->getID() ] = output;*/
 
 			auto node = std::make_shared<Gelu<TInput, TCompute, TDeviceType>>( input );
@@ -114,7 +114,7 @@ namespace Mila::Dnn
 			std::shared_ptr<Tensor<TInput, MR>> input,
 			std::vector<size_t> normalized_shape ) {
 
-			/*auto output = std::make_shared<Tensor<TInput,MR>>( std::vector<T>() );
+			/*auto output = std::make_shared<Tensor<TInput,MR>>( std::vector<TElementType>() );
 			tensor_map[ output->getID() ] = output;*/
 
 			auto node = std::make_shared<LayerNorm<TInput, TCompute, TDeviceType>>( name, normalized_shape );
@@ -128,7 +128,7 @@ namespace Mila::Dnn
 			std::shared_ptr<Tensor<TInput, MR>> weight,
 			std::shared_ptr<Tensor<TInput, MR>> bias ) {
 
-			/*auto output = std::make_shared<Tensor<TInput,MR>>( std::vector<T>() );
+			/*auto output = std::make_shared<Tensor<TInput,MR>>( std::vector<TElementType>() );
 			tensor_map[ output->getID() ] = output;*/
 
 			auto node = std::make_shared<FullyConnected<TInput, TCompute, TDeviceType>>( input, weight, bias );
@@ -233,7 +233,7 @@ namespace Mila::Dnn
 		* @brief Accesses a module by its index.
 		*
 		* @param index The index of the module.
-		* @return std::shared_ptr<Module<T>> A shared pointer to the module.
+		* @return std::shared_ptr<Module<TElementType>> A shared pointer to the module.
 		* @throws std::out_of_range if the index is out of range.
 		*/
 		std::shared_ptr<Module<TInput, TCompute, TDeviceType>> operator[]( size_t index ) const {
@@ -247,7 +247,7 @@ namespace Mila::Dnn
 		* @brief Accesses a module by its name.
 		*
 		* @param name The name of the module.
-		* @return std::shared_ptr<Module<T>> A shared pointer to the module.
+		* @return std::shared_ptr<Module<TElementType>> A shared pointer to the module.
 		* @throws std::out_of_range if no module with the given name is found.
 		*/
 		std::shared_ptr<Module<TInput, TCompute, TDeviceType>> operator[]( const std::string& name ) const {

@@ -63,11 +63,11 @@ namespace Mila::Dnn::Compute
 			 *
 			 * The computation is performed on the GPU using CUDA kernels for optimal performance.
 			 *
-			 * @param input Input tensor of shape [B, T] containing token IDs, where B is batch size and T is sequence length.
+			 * @param input Input tensor of shape [B, TElementType] containing token IDs, where B is batch size and TElementType is sequence length.
 			 * @param parameters Vector of parameter tensors [wte, wpe] where wte is of shape [V, C] (vocabulary size × embedding dimension)
 			 *                   and wpe is of shape [maxT, C] (maximum sequence length × embedding dimension).
 			 * @param properties Additional attributes for the operation.
-			 * @param output Output tensor of shape [B, T, C] containing the resulting embeddings.
+			 * @param output Output tensor of shape [B, TElementType, C] containing the resulting embeddings.
 			 * @param output_state Cache for intermediate results (not used in this operation).
 			 */
 			void forward(
@@ -87,7 +87,7 @@ namespace Mila::Dnn::Compute
 				int T = input.shape()[ 1 ];
 				int C = wte->shape()[ 1 ];
 
-				// FIXME: cuda_encoder_forward( Y, X, wte->data(), wpe->data(), B, T, C);
+				// FIXME: cuda_encoder_forward( Y, X, wte->data(), wpe->data(), B, TElementType, C);
 			}
 
 			/**

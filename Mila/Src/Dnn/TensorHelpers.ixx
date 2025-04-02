@@ -26,7 +26,7 @@ namespace Mila::Dnn
 	 * It handles both host and device memory resources appropriately, copying
 	 * data to the host for initialization if needed.
 	 *
-	 * @tparam T The element data type of the tensor (typically float)
+	 * @tparam TElementType The element data type of the tensor (typically float)
 	 * @tparam MR The memory resource type used by the tensor
 	 * @param tensor The tensor to initialize with random values
 	 * @param min The minimum value for the random distribution
@@ -68,7 +68,7 @@ namespace Mila::Dnn
 	 * The distribution range is [-limit, limit] where:
 	 * limit = sqrt(6 / (input_size + output_size))
 	 *
-	 * @tparam T The element data type of the tensor (typically float)
+	 * @tparam TElementType The element data type of the tensor (typically float)
 	 * @tparam MR The memory resource type used by the tensor
 	 * @param tensor The tensor to initialize with Xavier initialization
 	 * @param input_size The size of the input dimension

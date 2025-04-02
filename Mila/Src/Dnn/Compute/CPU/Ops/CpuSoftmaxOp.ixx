@@ -4,13 +4,14 @@
  */
 
 module;
-#include <string>  
-#include <memory>  
-#include <vector>  
+#include <string>
+#include <memory>
+#include <vector>
+#include <stdexcept>
 #include <cmath>  
 #ifdef USE_OMP
 #include <omp.h>
-#endif  
+#endif
 
 export module Compute.CpuSoftmaxOp;
 
@@ -37,7 +38,6 @@ namespace Mila::Dnn::Compute
      * @tparam TCompute The data type used for computation and output (defaults to the input type).
      */
     export
-        template <typename TInput, typename TCompute = TInput>
     class CpuSoftmaxOp final : public UnaryOperation<float, float, DeviceType::Cpu> {
     public:
         /**
@@ -69,44 +69,114 @@ namespace Mila::Dnn::Compute
             const float* logits = input.data();
             float* probs = output.data();
 
-            int B = input.shape()[ 0 ];
-            int T = input.shape()[ 1 ];
-            int V = input.shape()[ 2 ];  // 50257;
-            int Vp = input.shape()[ 2 ];
+            // Get the axis parameter from operation properties
+            int64_t axis = properties.axis;
 
-            for ( int b = 0; b < B; b++ ) {
-                for ( int t = 0; t < T; t++ ) {
-                    // probs <- softmax(logits)  
-                    const float* logits_bt = logits + b * T * Vp + t * Vp;
-                    float* probs_bt = probs + b * T * Vp + t * Vp;
+            // Convert negative axis to positive for easier handling
+            const int64_t ndim = input.shape().size();
+            if ( axis < 0 ) {
+                axis = ndim + axis;
+            }
 
-                    // maxval is only calculated and subtracted for numerical stability
-                    float maxval = -10000.0f; // TODO something better
-                    for ( int i = 0; i < V; i++ ) {
-                        if ( logits_bt[ i ] > maxval ) {
-                            maxval = logits_bt[ i ];
+            // Validate the axis is within bounds
+            if ( axis < 0 || axis >= ndim ) {
+                throw std::runtime_error( "Softmax axis out of bounds" );
+            }
+
+            // Determine the shapes needed for the computation
+            int64_t outer_size = 1;
+            for ( int64_t i = 0; i < axis; ++i ) {
+                outer_size *= input.shape()[ i ];
+            }
+
+            const int64_t dim_size = input.shape()[ axis ];
+
+            int64_t inner_size = 1;
+            for ( int64_t i = axis + 1; i < ndim; ++i ) {
+                inner_size *= input.shape()[ i ];
+            }
+
+            // Compute softmax for each slice along the specified axis
+            for ( int64_t outer = 0; outer < outer_size; ++outer ) {
+                for ( int64_t inner = 0; inner < inner_size; ++inner ) {
+                    // Calculate the starting position for this slice
+                    const float* slice_input = logits + (outer * dim_size * inner_size) + inner;
+                    float* slice_output = probs + (outer * dim_size * inner_size) + inner;
+
+                    // Find the maximum value for numerical stability
+                    float max_val = -std::numeric_limits<float>::infinity();
+                    for ( int64_t i = 0; i < dim_size; ++i ) {
+                        float val = slice_input[ i * inner_size ];
+                        if ( val > max_val ) {
+                            max_val = val;
                         }
                     }
 
+                    // Compute exp(x - max_val) and sum
                     float sum = 0.0f;
-                    for ( int i = 0; i < V; i++ ) {
-                        probs_bt[ i ] = expf( logits_bt[ i ] - maxval );
-                        sum += probs_bt[ i ];
+                    for ( int64_t i = 0; i < dim_size; ++i ) {
+                        float val = std::exp( slice_input[ i * inner_size ] - max_val );
+                        slice_output[ i * inner_size ] = val;
+                        sum += val;
                     }
 
-                    // note we only loop to V, leaving the padded dimensions  
-                    for ( int i = 0; i < V; i++ ) {
-                        probs_bt[ i ] /= sum;
-                    }
-
-                    // for extra super safety we may wish to include this too,  
-                    // forcing the probabilities here to be zero, but it shouldn't matter  
-                    for ( int i = V; i < Vp; i++ ) {
-                        probs_bt[ i ] = 0.0f;
+                    // Normalize by sum
+                    for ( int64_t i = 0; i < dim_size; ++i ) {
+                        slice_output[ i * inner_size ] /= sum;
                     }
                 }
             }
         }
+
+
+        //void forward_old (
+        //    const Tensor<float, HostMemoryResource>& input,
+        //    const std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>>& parameters,
+        //    const OperationAttributes& properties,
+        //    Tensor<float, HostMemoryResource>& output,
+        //    std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>>& output_cache ) const override {
+
+        //    const float* logits = input.data();
+        //    float* probs = output.data();
+
+        //    int B = input.shape()[ 0 ];
+        //    int TElementType = input.shape()[ 1 ];
+        //    int V = input.shape()[ 2 ];  // 50257;
+        //    int Vp = input.shape()[ 2 ];
+
+        //    for ( int b = 0; b < B; b++ ) {
+        //        for ( int t = 0; t < TElementType; t++ ) {
+        //            // probs <- softmax(logits)  
+        //            const float* logits_bt = logits + b * TElementType * Vp + t * Vp;
+        //            float* probs_bt = probs + b * TElementType * Vp + t * Vp;
+
+        //            // maxval is only calculated and subtracted for numerical stability
+        //            float maxval = -10000.0f; // TODO something better
+        //            for ( int i = 0; i < V; i++ ) {
+        //                if ( logits_bt[ i ] > maxval ) {
+        //                    maxval = logits_bt[ i ];
+        //                }
+        //            }
+
+        //            float sum = 0.0f;
+        //            for ( int i = 0; i < V; i++ ) {
+        //                probs_bt[ i ] = expf( logits_bt[ i ] - maxval );
+        //                sum += probs_bt[ i ];
+        //            }
+
+        //            // note we only loop to V, leaving the padded dimensions  
+        //            for ( int i = 0; i < V; i++ ) {
+        //                probs_bt[ i ] /= sum;
+        //            }
+
+        //            // for extra super safety we may wish to include this too,  
+        //            // forcing the probabilities here to be zero, but it shouldn't matter  
+        //            for ( int i = V; i < Vp; i++ ) {
+        //                probs_bt[ i ] = 0.0f;
+        //            }
+        //        }
+        //    }
+        //}
 
         /**
          * @brief Gets the name of this operation.
@@ -149,7 +219,7 @@ namespace Mila::Dnn::Compute
             OperationRegistry::instance().registerOperation<float, float, DeviceType::Cpu>(
                 opName,
                 []() -> std::shared_ptr<OperationBase<float, float, DeviceType::Cpu>> {
-                    return std::make_shared<CpuSoftmaxOp<float, float>>();
+                    return std::make_shared<CpuSoftmaxOp>();
                 }
             );
         }

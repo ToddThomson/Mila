@@ -85,12 +85,12 @@ __global__ void __launch_bounds__( 16 * 16 ) matmul_forward_kernel4(
     /**
      * @brief Performs the forward pass of the matrix multiplication operation.
      * 
-     * @param out Pointer to the output matrix (B, T, OC).
-     * @param inp Pointer to the input matrix (B, T, C).
+     * @param out Pointer to the output matrix (B, TElementType, OC).
+     * @param inp Pointer to the input matrix (B, TElementType, C).
      * @param weight Pointer to the weight matrix (OC, C).
      * @param bias Pointer to the bias vector (OC).
      * @param B Batch size.
-     * @param T Sequence length.
+     * @param TElementType Sequence length.
      * @param C Number of input channels.
      * @param OC Number of output channels (N * C.
      */

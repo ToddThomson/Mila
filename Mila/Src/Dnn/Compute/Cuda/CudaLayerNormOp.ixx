@@ -62,12 +62,12 @@ namespace Mila::Dnn::Compute
 		 *
 		 * The computation is performed on the GPU using CUDA kernels for optimal performance.
 		 *
-		 * @param input Input tensor of shape [B, T, C] to be normalized, where B is batch size,
-		 *              T is sequence length, and C is feature dimension.
+		 * @param input Input tensor of shape [B, TElementType, C] to be normalized, where B is batch size,
+		 *              TElementType is sequence length, and C is feature dimension.
 		 * @param parameters Vector of parameter tensors [weight, bias] where weight (gamma) and
 		 *                   bias (beta) are both of shape [C].
 		 * @param attributes Additional attributes for the operation.
-		 * @param output Output tensor of shape [B, T, C] containing the normalized values.
+		 * @param output Output tensor of shape [B, TElementType, C] containing the normalized values.
 		 * @param output_state Vector containing tensors for intermediate results [mean, rstd],
 		 *                     where mean is the mean values and rstd is the reciprocal of standard deviation.
 		 */

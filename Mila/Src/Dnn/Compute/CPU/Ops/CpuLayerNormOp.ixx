@@ -60,7 +60,7 @@ namespace Mila::Dnn::Compute
          * Normalizes each input vector across the feature dimension, then applies
          * a learnable scaling factor and bias.
          *
-         * @param input Input tensor of shape [B, T, C] where B is batch size, T is sequence length, and C is feature dimension.
+         * @param input Input tensor of shape [B, TElementType, C] where B is batch size, TElementType is sequence length, and C is feature dimension.
          * @param parameters Vector of parameter tensors [weight, bias] where weight and bias are of shape [C].
          * @param attributes Additional attributes for the operation.
          * @param output Output tensor of the same shape as input, containing the normalized values.
@@ -82,7 +82,7 @@ namespace Mila::Dnn::Compute
             float* mean = output_state[ 0 ]->data();
             float* rstd = output_state[ 1 ]->data();
 
-            // B: batch size, T: sequence length, C: number of channels
+            // B: batch size, TElementType: sequence length, C: number of channels
             int B = input.shape()[ 0 ];
             int T = input.shape()[ 1 ];
             int C = input.shape()[ 2 ];
@@ -144,7 +144,7 @@ namespace Mila::Dnn::Compute
          * @param mean Pointer to the mean values computed during forward pass.
          * @param rstd Pointer to the reciprocal standard deviation values computed during forward pass.
          * @param B Batch size.
-         * @param T Sequence length.
+         * @param TElementType Sequence length.
          * @param C Number of features/channels.
          */
         void backward(

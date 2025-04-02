@@ -117,7 +117,7 @@ export namespace Mila::Dnn
 			auto batch_size = input_shape_[ 0 ];
 			auto sequence_length = input_shape_[ 1 ];
 
-			// preatt, att are( B, NH, T, T ). NH = number of heads, T = sequence length
+			// preatt, att are( B, NH, TElementType, TElementType ). NH = number of heads, TElementType = sequence length
 			pre_attn_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ batch_size, num_heads_, sequence_length, sequence_length } );
 			pre_attn_->setName( this->getName() + ".pre_attn" );
 

@@ -65,7 +65,7 @@ namespace Mila::Dnn
 	 * either in CPU or GPU memory based on the memory resource type. It supports
 	 * both owned and externally managed memory.
 	 *
-	 * @tparam T The type of the elements stored in the buffer.
+	 * @tparam TElementType The type of the elements stored in the buffer.
 	 * @tparam MR The memory resource type that determines where and how memory is allocated.
 	 *           Must derive from Compute::MemoryResource.
 	 *
@@ -103,7 +103,7 @@ namespace Mila::Dnn
 		 * initializes all elements to the provided value.
 		 *
 		 * @param size The number of elements in the buffer.
-		 * @param value Value to initialize the buffer with (default: default-constructed T).
+		 * @param value Value to initialize the buffer with (default: default-constructed TElementType).
 		 *
 		 * @throws std::overflow_error If size is too large, causing overflow in aligned size calculation.
 		 * @throws std::bad_alloc If memory allocation fails.
@@ -218,7 +218,7 @@ namespace Mila::Dnn
 		/**
 		 * @brief Gets a pointer to the buffer's data.
 		 *
-		 * @return T* A pointer to the data stored in the buffer.
+		 * @return TElementType* A pointer to the data stored in the buffer.
 		 */
 		T* data() {
 			return data_;
@@ -264,7 +264,7 @@ namespace Mila::Dnn
 		 * This method fills the buffer with the specified value, using different
 		 * approaches depending on whether the buffer is in CPU or GPU memory.
 		 *
-		 * @param value Value to initialize the buffer with (default: default-constructed T).
+		 * @param value Value to initialize the buffer with (default: default-constructed TElementType).
 		 *
 		 * @note For CPU memory, SIMD optimizations may be used for larger trivially copyable types.
 		 * @note For GPU memory, a temporary host buffer is created and copied to the device.

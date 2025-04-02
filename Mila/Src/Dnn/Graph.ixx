@@ -22,14 +22,14 @@ export module Dnn.Graph;
 //    public:*/
 //
 //    //    // Register a node and return its output tensor
-//    //    std::shared_ptr<Tensor<TInput,MR>> registerNode( std::shared_ptr<Node<T>> node ) {
+//    //    std::shared_ptr<Tensor<TInput,MR>> registerNode( std::shared_ptr<Node<TElementType>> node ) {
 //    //        nodes.push_back( node );
 //    //        return tensor_map[ node->output_id ];  // Return associated tensor
 //    //    }
 //
 //    //    // Topological sorting to determine execution order
 //    //    void build() {
-//    //        std::unordered_set<std::shared_ptr<Node<T>>> visited;
+//    //        std::unordered_set<std::shared_ptr<Node<TElementType>>> visited;
 //    //        execution_order.clear();
 //
 //    //        for ( auto& node : nodes ) {
@@ -39,7 +39,7 @@ export module Dnn.Graph;
 //    //        }
 //    //    }
 //
-//    //    void dfs( std::shared_ptr<Node<T>> node, std::unordered_set<std::shared_ptr<Node<T>>>& visited ) {
+//    //    void dfs( std::shared_ptr<Node<TElementType>> node, std::unordered_set<std::shared_ptr<Node<TElementType>>>& visited ) {
 //    //        visited.insert( node );
 //    //        for ( const auto& input_id : node->input_ids ) {
 //    //            if ( tensor_map.count( input_id ) ) {
@@ -60,7 +60,7 @@ export module Dnn.Graph;
 //    //    }
 //
 //    //    // Execute backward pass
-//    //    void backward( const std::shared_ptr<Tensor<T>>& loss ) {
+//    //    void backward( const std::shared_ptr<Tensor<TElementType>>& loss ) {
 //    //        loss->grad.assign( loss->value.size(), 1.0 );
 //    //        for ( auto it = execution_order.rbegin(); it != execution_order.rend(); ++it ) {
 //    //            (*it)->backward( tensor_map );
@@ -68,38 +68,38 @@ export module Dnn.Graph;
 //    //    }
 //
 //    //private:
-//    //    std::unordered_map<std::string, std::shared_ptr<Tensor<T>>> tensor_map;
-//    //    std::vector<std::shared_ptr<Node<T>>> nodes;
-//    //    std::vector<std::shared_ptr<Node<T>>> execution_order;
+//    //    std::unordered_map<std::string, std::shared_ptr<Tensor<TElementType>>> tensor_map;
+//    //    std::vector<std::shared_ptr<Node<TElementType>>> nodes;
+//    //    std::vector<std::shared_ptr<Node<TElementType>>> execution_order;
 //    };
 //
 //
 //    //export
-//    //    template <typename T>
+//    //    template <typename TElementType>
 //    //class CudaGraph {
-//    //    std::vector<std::shared_ptr<Node<T>>> execution_order;
-//    //    std::unordered_map<std::string, std::shared_ptr<Tensor<T>>> tensor_map;
+//    //    std::vector<std::shared_ptr<Node<TElementType>>> execution_order;
+//    //    std::unordered_map<std::string, std::shared_ptr<Tensor<TElementType>>> tensor_map;
 //    //    cudaGraph_t cuda_graph;
 //    //    cudaGraphExec_t cuda_graph_exec;
 //    //    bool cuda_graph_initialized = false;
 //
 //    //public:
-//    //    std::shared_ptr<Tensor<T>> tensor( size_t size ) {
-//    //        auto t = std::make_shared<Tensor<T>>( size );
+//    //    std::shared_ptr<Tensor<TElementType>> tensor( size_t size ) {
+//    //        auto t = std::make_shared<Tensor<TElementType>>( size );
 //    //        tensor_map[ t->getID() ] = t;
 //    //        return t;
 //    //    }
 //
 //    //    // Create a FullyConnected layer
-//    //    std::shared_ptr<Tensor<T>> linear( std::shared_ptr<Tensor<T>> input,
-//    //        std::shared_ptr<Tensor<T>> weight,
-//    //        std::shared_ptr<Tensor<T>> bias ) {
-//    //        auto node = std::make_shared<FullyConnected<T>>( input, weight, bias );
+//    //    std::shared_ptr<Tensor<TElementType>> linear( std::shared_ptr<Tensor<TElementType>> input,
+//    //        std::shared_ptr<Tensor<TElementType>> weight,
+//    //        std::shared_ptr<Tensor<TElementType>> bias ) {
+//    //        auto node = std::make_shared<FullyConnected<TElementType>>( input, weight, bias );
 //    //        return registerNode( node );
 //    //    }
 //
-//    //    std::shared_ptr<Tensor<T>> gelu( std::shared_ptr<Tensor<T>> input ) {
-//    //        auto node = std::make_shared<GELU<T>>( input );
+//    //    std::shared_ptr<Tensor<TElementType>> gelu( std::shared_ptr<Tensor<TElementType>> input ) {
+//    //        auto node = std::make_shared<GELU<TElementType>>( input );
 //    //        return registerNode( node );
 //    //    }
 //

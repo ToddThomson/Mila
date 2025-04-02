@@ -60,10 +60,10 @@ namespace Mila::Dnn::Compute
          * and stores the result in the output tensor. Uses loop unrolling for performance optimization
          * when possible, otherwise falls back to a naive implementation.
          *
-         * @param input Input tensor of shape [B, T, C] where B is batch size, T is sequence length, and C is input feature dimension.
+         * @param input Input tensor of shape [B, TElementType, C] where B is batch size, TElementType is sequence length, and C is input feature dimension.
          * @param parameters Vector of parameter tensors [weight, bias] where weight is of shape [OC, C] and bias (optional) is of shape [OC].
          * @param properties Additional attributes for the operation.
-         * @param output Output tensor of shape [B, T, OC] where OC is output feature dimension.
+         * @param output Output tensor of shape [B, TElementType, OC] where OC is output feature dimension.
          * @param output_state Cache for intermediate results (not used in this operation).
          */
         void forward(
@@ -131,7 +131,7 @@ namespace Mila::Dnn::Compute
          * @param inp Pointer to the original input values.
          * @param weight Pointer to the weight parameters.
          * @param B Batch size.
-         * @param T Sequence length.
+         * @param TElementType Sequence length.
          * @param C Input feature dimension.
          * @param OC Output feature dimension.
          */
@@ -199,7 +199,7 @@ namespace Mila::Dnn::Compute
          * @param bias Bias tensor (optional).
          * @param output Output tensor.
          * @param B Batch size.
-         * @param T Sequence length.
+         * @param TElementType Sequence length.
          * @param C Input feature dimension.
          * @param OC Output feature dimension.
          */

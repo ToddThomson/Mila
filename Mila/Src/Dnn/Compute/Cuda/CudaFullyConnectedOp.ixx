@@ -58,10 +58,10 @@ namespace Mila::Dnn::Compute
 		 * and stores the result in the output tensor. The computation is performed on the GPU
 		 * using CUDA kernels for optimal performance.
 		 *
-		 * @param input Input tensor of shape [B, T, C] where B is batch size, T is sequence length, and C is input feature dimension.
+		 * @param input Input tensor of shape [B, TElementType, C] where B is batch size, TElementType is sequence length, and C is input feature dimension.
 		 * @param parameters Vector of parameter tensors [weight, bias] where weight is of shape [OC, C] and bias is of shape [OC].
 		 * @param properties Additional attributes for the operation.
-		 * @param output Output tensor of shape [B, T, OC] where OC is output feature dimension.
+		 * @param output Output tensor of shape [B, TElementType, OC] where OC is output feature dimension.
 		 * @param output_state Cache for intermediate results (not used in this operation).
 		 */
 		void forward(
