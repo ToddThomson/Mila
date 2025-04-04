@@ -105,6 +105,15 @@ namespace Mila::Dnn
 		}
 
 		/**
+		* @brief Gets whether the module has a bias tensor.
+		*
+		* @return bool True if the module has a bias tensor, false otherwise.
+		*/
+		bool hasBias() const {
+			return has_bias_;
+		}
+
+		/**
 		 * @brief Gets the number of trainable parameters in this module.
 		 *
 		 * Counts the total number of trainable parameters, which includes
@@ -113,8 +122,13 @@ namespace Mila::Dnn
 		 * @return size_t The total number of parameters.
 		 */
 		size_t parameterCount() const override {
-			return weight_->size() + bias_->size();
+			size_t count = weight_->size();
+			if ( has_bias_ ) {
+				count += bias_->size();
+			}
+			return count;
 		}
+
 
 		/**
 		 * @brief Performs the forward pass of the Layer Normalization operation.

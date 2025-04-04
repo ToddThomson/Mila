@@ -75,7 +75,11 @@ namespace Mila::Dnn::Compute
 			auto Y = output.data();
 
 			auto weight = parameters[ 0 ]->data();
-			auto bias = parameters[ 1 ]->data();
+			float* bias = { nullptr };
+
+			if ( parameters.size() == 2 ) {
+				bias = parameters[ 1 ]->data();
+			}
 
 			int B = input.shape()[ 0 ];
 			int T = input.shape()[ 1 ];

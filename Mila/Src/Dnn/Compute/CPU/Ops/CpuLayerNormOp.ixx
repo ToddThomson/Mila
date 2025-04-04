@@ -73,11 +73,11 @@ namespace Mila::Dnn::Compute
             Tensor<float, HostMemoryResource>& output,
             std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>>& output_state ) const override {
 
-            const float* X = input.data();
-            float* Y = output.data();
+            const float* X = input.raw_data();
+            float* Y = output.raw_data();
 
-            const float* weight = parameters[ 0 ]->data();
-            const float* bias = parameters[ 1 ]->data();
+            const float* weight = parameters[ 0 ]->raw_data();
+            const float* bias = parameters[ 1 ]->raw_data();
 
             float* mean = output_state[ 0 ]->data();
             float* rstd = output_state[ 1 ]->data();
@@ -98,7 +98,7 @@ namespace Mila::Dnn::Compute
                     // calculate the mean
                     float m = 0.0f;
                     for ( int i = 0; i < C; i++ ) {
-                        m += input.data()[ input_offset + i ];
+                        m += input.raw_data()[ input_offset + i ];
                     }
                     m = m / C;
 

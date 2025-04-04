@@ -53,8 +53,8 @@ int main( int argc, char* argv[] ) {
 	using namespace Gpt2App;
 	using namespace Mila::Dnn;
 
-	Mila::Initialize();
-	std::cout << "Mila version: " << Mila::GetAPIVersion().ToString() << std::endl;
+	Mila::initialize();
+	std::cout << "Mila version: " << Mila::getAPIVersion().ToString() << std::endl;
 
 	// read in the (optional) command line arguments
 	std::string train_data_pattern = "data/datasets/tinyshakespeare/tiny_shakespeare_train.bin";
@@ -148,7 +148,7 @@ int main( int argc, char* argv[] ) {
 
 	// Cpu Tensor for generating samples from the model.
 	uint64_t rng_state = 1337;
-	Tensor<int, MR> gen_tokens( std::vector<size_t>( { B, T } ) );
+	//Tensor<int, MR> gen_tokens( std::vector<size_t>( { B, T } ) );
 
 	// Training loop
 	for ( int step = 0; step <= 40; step++ ) {
@@ -176,7 +176,7 @@ int main( int argc, char* argv[] ) {
 			// fill up gen_tokens with the GPT2_EOT, which kicks off the generation
 			for ( int b = 0; b < B; ++b ) {
 				for ( int t = 0; t < T; ++t ) {
-					gen_tokens[ b, t ] = tokenizer.get_eot_token();
+					//gen_tokens[ b, t ] = tokenizer.get_eot_token();
 				}
 			}
 			// now sample from the model autoregressively
@@ -186,7 +186,7 @@ int main( int argc, char* argv[] ) {
 				// we re-calculate the forward pass for all of (B,T) positions from scratch
 				// but the inference here is just for sanity checking anyway
 				// and we can maybe optimize a bit more later, with careful tests
-				Tensor<int> empty_targets;
+				//Tensor<int> empty_targets;
 				//model->forward( gen_tokens, empty_targets );
 
 				// furthermore, below we're only using b=0 (i.e. the first row) of all B rows
@@ -229,8 +229,8 @@ int main( int argc, char* argv[] ) {
 		auto end_time = std::chrono::steady_clock::now();
 		double time_elapsed_s = std::chrono::duration<double>( end_time - start_time ).count();
 		//total_sum_iteration_time_s += time_elapsed_s;
-		auto log_msg = std::format( "step {}/{}: train loss {} ({} ms)\n", step + 1, train_num_batches, model->get_mean_loss(), time_elapsed_s * 1000 );
-		logger.log_step( step + 1, log_msg );
+//		auto log_msg = std::format( "step {}/{}: train loss {} ({} ms)\n", step + 1, train_num_batches, model->get_mean_loss(), time_elapsed_s * 1000 );
+		//logger.log_step( step + 1, log_msg );
 	}
 	return 0;
 }

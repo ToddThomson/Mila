@@ -10,6 +10,8 @@ module;
 
 export module Dnn.Graph;
 
+// TJT: This is a placeholder for the Graph class. It will be implemented in a future release.
+
 //import Dnn.Module;
 //import Dnn.Tensor;
 //

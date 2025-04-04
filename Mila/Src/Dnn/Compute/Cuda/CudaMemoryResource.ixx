@@ -1,12 +1,16 @@
 module;
 #include <cuda_runtime.h>
 #include <memory_resource>
-#include <stdexcept>
+#include <string>
+#include <iostream>
+#include <cassert>
 
 export module Compute.CudaMemoryResource;
 
 import Compute.MemoryResource;
 import Compute.MemoryResourceProperties;
+import Cuda.BadAlloc;
+import Cuda.Error;
 
 namespace Mila::Dnn::Compute
 {
@@ -31,8 +35,14 @@ namespace Mila::Dnn::Compute
         [[nodiscard]] void* do_allocate( std::size_t n, std::size_t alignment ) override {
             if ( n == 0 ) return nullptr;
             void* ptr = nullptr;
-            if ( cudaMalloc( &ptr, n ) != cudaSuccess )
-                throw std::bad_alloc();
+
+            if ( cudaMalloc( &ptr, n ) != cudaSuccess ) {
+                std::string errorMsg = "CUDA device memory allocation failed: " +
+                    std::string( cudaGetErrorString( cudaGetLastError() ) ) +
+                    " (size: " + std::to_string( n ) + " bytes)";
+                throw CudaBadAlloc( errorMsg );
+            }
+            
             return ptr;
         }
 
@@ -44,7 +54,15 @@ namespace Mila::Dnn::Compute
          * @param alignment The alignment of the memory to deallocate.
          */
         void do_deallocate( void* ptr, std::size_t, std::size_t ) override {
-            cudaFree( ptr );
+			assert( ptr != nullptr );
+            
+            if ( cudaFree( ptr ) != cudaSuccess ) {
+                std::string errorMsg = "CUDA device memory deallocation failed: " +
+                    std::string( cudaGetErrorString( cudaGetLastError() ) ) +
+					" (ptr: " + std::to_string( reinterpret_cast<std::uintptr_t>(ptr) ) + ")";
+				std::cerr << errorMsg << std::endl;
+                throw std::runtime_error( errorMsg );
+            }
         }
 
         /**

@@ -11,9 +11,9 @@ int main() {
 
     using namespace Mila::Dnn;
 
-    Mila::Initialize();
+    Mila::initialize();
 
-    std::cout << "Mila version: " << Mila::GetAPIVersion().ToString() << std::endl;
+    std::cout << "Mila version: " << Mila::getAPIVersion().ToString() << std::endl;
 
     auto devices = Compute::list_devices();
     std::cout << "Available compute devices: ";

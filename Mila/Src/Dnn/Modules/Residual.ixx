@@ -4,13 +4,7 @@
  */
 
 module;
-//#include <miniz.h>
 #include <sstream>
-//#include <memory>
-//#include <vector>
-//#include <string>
-//#include <iostream>
-//#include <ostream>
 #include <type_traits>
 
 export module Dnn.Modules.Residual;
@@ -18,13 +12,7 @@ export module Dnn.Modules.Residual;
 import Dnn.Module;
 import Dnn.Tensor;
 import Dnn.TensorTraits;
-import Dnn.TensorHelpers;
-
-import Compute.ComputeDevice;
-import Compute.CpuDevice;
-
 import Compute.DeviceType;
-import Compute.OperationBase;
 import Compute.OperationAttributes;
 import Compute.BinaryOperation;
 import Compute.OperationRegistry;

@@ -22,27 +22,15 @@ across multiple GPUs and compute nodes, with automatic optimization for various 
    * Optimized data processing pipelines
 
 ## What's New
-- Enhanced unit testing framework with comprehensive test coverage for neural network modules:
-  - Added extensive tests for FullyConnected layers including bias/no-bias configurations
-  - Implemented edge case testing for LayerNorm module with various input dimensions
-  - Added numerical stability tests for all modules to ensure robust training
-  - Implemented CPU/CUDA equivalence testing to guarantee consistent results across hardware
-  
-- Improved model architecture components:
-  - Added support for training/inference mode switching for all layer types
-  - Implemented parameter save/load functionality for model persistence
-  - Enhanced type safety with template parameters across module implementations
-  
-- Optimized performance for GPU computing:
-  - Added deterministic operation guarantees for CUDA implementations
-  - Improved memory management in tensor operations
-  - Enhanced numerical stability for large models with potentially extreme values
-  
-- Documentation and code quality improvements:
-  - Updated Doxygen comments throughout codebase for better API documentation
-  - Unified test structure across all modules for maintainability
-  - Version updated to 0.9.68-alpha.1
-  - 
+
+* Improved CUDA error handling with detailed error messages and source location tracking
+* Optimized tensor operations for device memory with single-element access
+* Enhanced memory management for GPU tensors with efficient transfer operations
+* Added comprehensive documentation with Doxygen comments
+* Standardized naming conventions across the codebase
+* Performance improvements for device-to-host and host-to-device memory transfers
+* Expanded tensor API with better type safety and memory access patterns
+
 ## Mila Build Instructions
 Mila uses CMake build. To build Mila, follow the steps below:  
 

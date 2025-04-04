@@ -17,6 +17,7 @@ export module Dnn.Tensor;
 
 import Dnn.TensorType;  
 import Dnn.TensorBuffer; 
+import Dnn.TensorPtr;
 import Dnn.TensorTraits;
 
 import Compute.ComputeDevice;
@@ -166,8 +167,19 @@ namespace Mila::Dnn
 				return buffer_->data()[ index ];
 			}
 			else {
-				auto host_tensor = to<Compute::HostMemoryResource>();
-				return host_tensor.at( indices );
+				// Get a single element directly instead of copying the entire tensor
+				TElementType result;
+				size_t index = computeIndex( indices );
+
+				cudaError_t status = cudaMemcpy( &result, buffer_->data() + index,
+					sizeof( TElementType ), cudaMemcpyDeviceToHost );
+
+				if ( status != cudaSuccess ) {
+					throw std::runtime_error( "CUDA memory transfer failed in at(): " +
+						std::string( cudaGetErrorString( status ) ) );
+				}
+
+				return result;
 			}
 		}
 
@@ -179,11 +191,19 @@ namespace Mila::Dnn
 				buffer_->data()[ index ] = value;
 			}
 			else {
-				auto host_tensor = to<Compute::HostMemoryResource>();
-				host_tensor.set( indices, value );
-				*this = host_tensor.template to<TMemoryResource>();
+				// Set a single element directly instead of copying the entire tensor
+				size_t index = computeIndex( indices );
+
+				cudaError_t status = cudaMemcpy( buffer_->data() + index, &value,
+					sizeof( TElementType ), cudaMemcpyHostToDevice );
+
+				if ( status != cudaSuccess ) {
+					throw std::runtime_error( "CUDA memory transfer failed in set(): " +
+						std::string( cudaGetErrorString( status ) ) );
+				}
 			}
 		}
+
 
 		/**
 		* @brief Copies data from another tensor into this tensor.
@@ -208,7 +228,10 @@ namespace Mila::Dnn
 
 			// Determine the appropriate copy method based on memory resource types
 			if constexpr ( is_device_accessible<TMemoryResource>() && is_device_accessible<SrcMemoryResource>() ) {
-				cudaError_t status = cudaMemcpy( data(), src.data(), size_ * sizeof( TElementType ), cudaMemcpyDeviceToDevice );
+				// Device to device transfer - use raw pointers for CUDA operations
+				cudaError_t status = cudaMemcpy( raw_data(), src.raw_data(),
+					size_ * sizeof( TElementType ),
+					cudaMemcpyDeviceToDevice );
 				if ( status != cudaSuccess ) {
 					throw std::runtime_error( "CUDA memory transfer failed: " +
 						std::string( cudaGetErrorString( status ) ) );
@@ -217,11 +240,13 @@ namespace Mila::Dnn
 			else if constexpr ( is_host_accessible<TMemoryResource>() && is_device_accessible<SrcMemoryResource>() ) {
 				// Host destination, device source - need to bring to host first
 				auto host_src = src.template to<Compute::HostMemoryResource>();
-				std::copy( host_src.data(), host_src.data() + size_, buffer_->data() );
+				std::copy( host_src.raw_data(), host_src.raw_data() + size_, raw_data() );
 			}
 			else if constexpr ( is_device_accessible<TMemoryResource>() && is_host_accessible<SrcMemoryResource>() ) {
 				// Device destination, host source
-				cudaError_t status = cudaMemcpy( data(), src.data(), size_ * sizeof( TElementType ), cudaMemcpyHostToDevice );
+				cudaError_t status = cudaMemcpy( raw_data(), src.raw_data(),
+					size_ * sizeof( TElementType ),
+					cudaMemcpyHostToDevice );
 				if ( status != cudaSuccess ) {
 					throw std::runtime_error( "CUDA memory transfer failed: " +
 						std::string( cudaGetErrorString( status ) ) );
@@ -229,7 +254,7 @@ namespace Mila::Dnn
 			}
 			else {
 				// Host to host transfer (use standard copy)
-				std::copy( src.data(), src.data() + size_, buffer_->data() );
+				std::copy( src.raw_data(), src.raw_data() + size_, raw_data() );
 			}
 
 			// Copy name if source has one and this tensor doesn't
@@ -237,6 +262,7 @@ namespace Mila::Dnn
 				setName( src.getName() );
 			}
 		}
+
 
 		/**
 		* @brief Creates a deep copy of this tensor.
@@ -358,11 +384,18 @@ namespace Mila::Dnn
 				}
 			}
 
-			size_t index = computeIndex( { static_cast<size_t>(args)... } );
+			size_t index = computeIndex( { static_cast<size_t>( args )... } );
 			if ( index >= size_ ) {
 				throw std::out_of_range( "operator[]: Index out of range." );
 			}
-			return buffer_->data()[ index ];
+
+			// Add the same check as in the non-const version
+			if constexpr ( is_host_accessible<TMemoryResource>() ) {
+				return buffer_->data()[ index ];
+			}
+			else {
+				throw std::runtime_error( "Direct tensor access requires host-accessible memory. Use to<HostMemoryResource>() first." );
+			}
 		}
 
 		// Properties..
@@ -386,11 +419,61 @@ namespace Mila::Dnn
 			return shape_.size();
 		}
 
-		TElementType* data() {
+		/**
+		* @brief Gets a pointer to the tensor data with memory type safety.
+		*
+		* Returns a memory-type-aware pointer that prevents unsafe host access
+		* to device memory at compile time.
+		*
+		* @return A TensorPtr wrapper that enforces memory access safety
+		*/
+		auto data() {
+			if constexpr ( is_host_accessible<TMemoryResource>() ) {
+				return HostPtr<TElementType>( buffer_->data() );
+			}
+			else {
+				return DevicePtr<TElementType>( buffer_->data() );
+			}
+		}
+
+		/**
+		 * @brief Gets a const pointer to the tensor data with memory type safety.
+		 *
+		 * Returns a memory-type-aware pointer that prevents unsafe host access
+		 * to device memory at compile time.
+		 *
+		 * @return A const TensorPtr wrapper that enforces memory access safety
+		 */
+		auto data() const {
+			if constexpr ( is_host_accessible<TMemoryResource>() ) {
+				return HostPtr<const TElementType>( buffer_->data() );
+			}
+			else {
+				return DevicePtr<const TElementType>( buffer_->data() );
+			}
+		}
+
+		/**
+		 * @brief Gets a raw pointer to the tensor data for use in CUDA kernels.
+		 *
+		 * This method is intended for internal use by CUDA operation implementations.
+		 * Use with caution as it bypasses memory type safety.
+		 *
+		 * @return Raw pointer to the tensor data
+		 */
+		TElementType* raw_data() {
 			return buffer_->data();
 		}
 
-		const TElementType* data() const {
+		/**
+		 * @brief Gets a const raw pointer to the tensor data for use in CUDA kernels.
+		 *
+		 * This method is intended for internal use by CUDA operation implementations.
+		 * Use with caution as it bypasses memory type safety.
+		 *
+		 * @return Const raw pointer to the tensor data
+		 */
+		const TElementType* raw_data() const {
 			return buffer_->data();
 		}
 
@@ -622,7 +705,6 @@ namespace Mila::Dnn
 			}
 			return index;
 		}
-		// Inside the Tensor class
 
 		void validateIndices( const std::vector<size_t>& indices, const std::string& method_name ) const {
 			if ( indices.size() != shape_.size() ) {
@@ -643,54 +725,103 @@ namespace Mila::Dnn
 		}
 	};
 
-    /**
-    * @brief Tensor type that uses host (CPU) memory.
-    *
-    * HostTensor is a specialized tensor that allocates and stores data in regular
-    * host memory that is accessible by the CPU. This is suitable for data that 
-    * needs to be frequently accessed by the host and doesn't require GPU acceleration.
-    *
-    * @tparam TElementType The data type of the tensor elements.
-    */
-    export template <typename T>
-    using HostTensor = Tensor<T, Compute::HostMemoryResource>;
+	/**
+ * @brief Tensor type that uses host (CPU) memory.
+ *
+ * HostTensor stores data in regular CPU memory that is directly accessible from host code.
+ * This type is suitable for:
+ * - Data that needs frequent host-side access
+ * - Input/output data processing
+ * - Debugging and inspection of tensor contents
+ * - Operations that primarily run on CPU
+ *
+ * Memory safety:
+ * - Safe to access directly through data() method, operator[], at() method
+ * - Direct dereference operations will work correctly
+ * - No memory transfers required for host access
+ *
+ * Performance considerations:
+ * - Fast host access, but slower for GPU operations
+ * - Requires memory transfers when used with GPU operations
+ *
+ * @tparam T The data type of the tensor elements.
+ */
+	export template <typename T>
+		using HostTensor = Tensor<T, Compute::HostMemoryResource>;
 
-    /**
-    * @brief Tensor type that uses device (GPU) memory.
-    *
-    * DeviceTensor is a specialized tensor that allocates and stores data in GPU memory.
-    * This type is optimized for operations performed on the GPU and provides the best
-    * performance for CUDA accelerated computations, but the data is not directly
-    * accessible from CPU code.
-    *
-    * @tparam TElementType The data type of the tensor elements.
-    */
-    export template <class T>
-    using DeviceTensor = Tensor<T, Compute::DeviceMemoryResource>;
+	/**
+	 * @brief Tensor type that uses device (GPU) memory.
+	 *
+	 * DeviceTensor stores data in GPU memory for optimal performance with CUDA operations.
+	 * This type is suitable for:
+	 * - Neural network weights, activations, and gradients
+	 * - Data used in compute-intensive GPU operations
+	 * - Performance-critical processing paths
+	 *
+	 * Memory safety:
+	 * - Cannot be directly accessed from host code
+	 * - Attempting direct element access will trigger runtime errors
+	 * - Must use to<HostMemoryResource>() to create a host-accessible copy
+	 * - Safe for use with CUDA kernels through raw_data() method
+	 *
+	 * Performance considerations:
+	 * - Fastest for GPU operations
+	 * - Requires explicit memory transfers for host access
+	 * - Most efficient when kept on device throughout processing
+	 *
+	 * @tparam T The data type of the tensor elements.
+	 */
+	export template <class T>
+		using DeviceTensor = Tensor<T, Compute::DeviceMemoryResource>;
 
-    /**
-    * @brief Tensor type that uses pinned (page-locked) host memory.
-    *
-    * PinnedTensor is a specialized tensor that allocates and stores data in pinned memory,
-    * which is host memory that is locked to prevent paging. This memory type enables faster
-    * transfers between CPU and GPU compared to regular host memory, but consumes a limited
-    * resource that should be used judiciously.
-    *
-    * @tparam TElementType The data type of the tensor elements.
-    */
-    export template <class T>
-    using PinnedTensor = Tensor<T, Compute::PinnedMemoryResource>;
+	/**
+	 * @brief Tensor type that uses pinned (page-locked) host memory.
+	 *
+	 * PinnedTensor stores data in page-locked host memory that cannot be swapped to disk.
+	 * This type is suitable for:
+	 * - Data that needs to be frequently transferred between CPU and GPU
+	 * - Input tensors that will be copied to GPU
+	 * - Output tensors that need to be read back from GPU
+	 *
+	 * Memory safety:
+	 * - Safe to access directly from host code (data(), operator[], at())
+	 * - Provides direct dereference operations like HostTensor
+	 * - No runtime safety issues for host access
+	 *
+	 * Performance considerations:
+	 * - Faster host-device transfers than regular host memory
+	 * - Consumes a limited system resource (pinned memory)
+	 * - Should be used judiciously as excessive use can degrade system performance
+	 * - Host access is typically slower than regular host memory
+	 *
+	 * @tparam T The data type of the tensor elements.
+	 */
+	export template <class T>
+		using PinnedTensor = Tensor<T, Compute::PinnedMemoryResource>;
 
-    /**
-    * @brief Tensor type that uses CUDA managed memory accessible from both CPU and GPU.
-    *
-    * UniversalTensor is a specialized tensor that allocates and stores data in CUDA managed memory,
-    * which provides a single memory space accessible by both CPU and GPU. The CUDA runtime
-    * automatically migrates data between host and device as needed. This offers programming
-    * convenience at the cost of potentially lower performance compared to explicitly managed memory.
-    *
-    * @tparam TElementType The data type of the tensor elements.
-    */
-    export template <class T>
-    using UniversalTensor = Tensor<T, Compute::ManagedMemoryResource>;
+	/**
+	 * @brief Tensor type that uses CUDA managed memory accessible from both CPU and GPU.
+	 *
+	 * UniversalTensor uses CUDA's Unified Memory, which is automatically migrated between
+	 * host and device as needed by the CUDA runtime. This type is suitable for:
+	 * - Data that needs to be accessed from both host and device code
+	 * - Prototyping and development where memory management simplicity is preferred
+	 * - Cases where optimal data placement isn't known in advance
+	 *
+	 * Memory safety:
+	 * - Safe to access from both host and device code
+	 * - No explicit memory transfers needed
+	 * - Provides the simplest programming model with automatic data migration
+	 *
+	 * Performance considerations:
+	 * - More convenient but typically lower performance than explicit memory management
+	 * - Access patterns that frequently alternate between CPU and GPU may cause thrashing
+	 * - Best used with CUDA devices that support hardware page faulting (Pascal or newer)
+	 * - May incur overhead from the runtime system managing page migrations
+	 *
+	 * @tparam T The data type of the tensor elements.
+	 */
+	export template <class T>
+		using UniversalTensor = Tensor<T, Compute::ManagedMemoryResource>;
+
 }

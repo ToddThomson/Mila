@@ -66,8 +66,8 @@ namespace Mila::Dnn::Compute
             Tensor<float, HostMemoryResource>& output,
             std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>>& output_cache ) const override {
 
-            const float* logits = input.data();
-            float* probs = output.data();
+            const float* logits = input.raw_data();
+            float* probs = output.raw_data();
 
             // Get the axis parameter from operation properties
             int64_t axis = properties.axis;

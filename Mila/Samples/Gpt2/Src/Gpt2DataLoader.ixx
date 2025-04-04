@@ -142,7 +142,7 @@ namespace Gpt2App
                 throw std::runtime_error( "Failed to seek to position in token file" );
             }
 
-            tokens_file_.read( reinterpret_cast<char*>(buffer_.data()), (B * T + 1) * sizeof( int ) );
+            tokens_file_.read( reinterpret_cast<char*>(buffer_.raw_data()), (B * T + 1) * sizeof( int ) );
 
             if ( tokens_file_.gcount() != (B * T + 1) * sizeof( int ) ) {
                 throw std::runtime_error( "Failed to read complete batch from token file" );

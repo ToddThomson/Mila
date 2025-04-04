@@ -9,6 +9,7 @@ module;
 export module Cuda.DeviceProps;
 
 import Cuda.Helpers;
+import Cuda.Error;
 
 namespace Mila::Dnn::Compute
 {
@@ -18,7 +19,7 @@ namespace Mila::Dnn::Compute
 
         DeviceProps( int deviceId )
         {
-            CUDA_CALL( cudaGetDeviceProperties( &props_, deviceId ) );
+            cudaCheckStatus( cudaGetDeviceProperties( &props_, deviceId ) );
         }
 
         const cudaDeviceProp* GetProperties() const

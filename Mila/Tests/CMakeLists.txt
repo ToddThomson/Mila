@@ -34,7 +34,7 @@ add_executable( MilaTests
     "main.cpp" 
     "Dnn/Tensor.cpp"
     "Dnn/TensorBuffer.cpp" 
-    #"Dnn/Model.cpp"
+    "Dnn/Model.cpp"
     "Dnn/Compute/Device.cpp" 
     "Dnn/Compute/DeviceHelpers.cpp" 
     "Dnn/Compute/DeviceContext.cpp"

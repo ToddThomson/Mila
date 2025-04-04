@@ -76,8 +76,8 @@ namespace Mila::Dnn::Compute
             Tensor<TPrecision, HostMemoryResource>& output,
             std::vector<std::shared_ptr<Tensor<TPrecision, HostMemoryResource>>>& output_cache ) const override {
 
-            auto X = input.data();
-            auto Y = output.data();
+            auto X = input.raw_data();
+            auto Y = output.raw_data();
 
             auto preatt = output_cache[ 0 ];
             auto att = output_cache[ 1 ];
@@ -96,8 +96,8 @@ namespace Mila::Dnn::Compute
                 for ( int t = 0; t < T; t++ ) {
                     for ( int h = 0; h < NH; h++ ) {
                         const float* query_t = X + b * T * C3 + t * C3 + h * hs;
-                        float* preatt_bth = preatt->data() + b * NH * T * T + h * T * T + t * T;
-                        float* att_bth = att->data() + b * NH * T * T + h * T * T + t * T;
+                        float* preatt_bth = preatt->raw_data() + b * NH * T * T + h * T * T + t * T;
+                        float* att_bth = att->raw_data() + b * NH * T * T + h * T * T + t * T;
 
                         float maxval = -10000.0f;
                         for ( int t2 = 0; t2 <= t; t2++ ) {

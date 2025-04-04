@@ -68,18 +68,18 @@ namespace Mila::Dnn::Compute
          */
         void forward(
             const Tensor<TInput, HostMemoryResource>& input,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, HostMemoryResource>>>& parameters_,
+            const std::vector<std::shared_ptr<Tensor<TPrecision, HostMemoryResource>>>& parameters,
             const OperationAttributes& properties,
             Tensor<TPrecision, HostMemoryResource>& output,
             std::vector<std::shared_ptr<Tensor<TPrecision, HostMemoryResource>>>& output_state ) const override {
-            auto X = input.data();
-            auto Y = output.data();
+            auto X = input.raw_data();
+            auto Y = output.raw_data();
 
-            auto weight = parameters_[ 0 ];
+            auto weight = parameters[ 0 ];
             std::shared_ptr<Tensor<TPrecision, HostMemoryResource>> bias = { nullptr };
 
-            if ( parameters_.size() == 2 ) {
-                bias = parameters_[ 1 ];
+            if ( parameters.size() == 2 ) {
+                bias = parameters[ 1 ];
             }
 
             int B = input.shape()[ 0 ];
@@ -103,7 +103,7 @@ namespace Mila::Dnn::Compute
                     }
 
                     for ( int i = 0; i < C; i++ ) {
-                        float w = weight->data()[ i + o * C ];
+                        float w = weight->raw_data()[ i + o * C ];
                         for ( int ibt = 0; ibt < LOOP_UNROLL; ibt++ ) {
                             int bt = obt + ibt;
                             result[ ibt ] += X[ bt * C + i ] * w;
@@ -219,11 +219,11 @@ namespace Mila::Dnn::Compute
                 for ( int t = 0; t < T; t++ ) {
                     int bt = b * T + t;
                     for ( int o = 0; o < OC; o++ ) {
-                        float val = (bias ? bias->data()[ o ] : 0.0f);
+                        float val = (bias ? bias->raw_data()[ o ] : 0.0f);
                         for ( int i = 0; i < C; i++ ) {
-                            val += input.data()[ bt * C + i ] * weight->data()[ o * C + i ];
+                            val += input.raw_data()[ bt * C + i ] * weight->raw_data()[ o * C + i ];
                         }
-                        output.data()[ bt * OC + o ] = val;
+                        output.raw_data()[ bt * OC + o ] = val;
                     }
                 }
             }

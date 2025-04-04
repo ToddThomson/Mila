@@ -7,6 +7,7 @@ module;
 #include <memory>
 #include <vector>
 #include <limits>
+#include <iostream>
 #include <stdexcept>
 #include <cuda_runtime.h>
 #include <type_traits>
@@ -14,9 +15,10 @@ module;
 export module Dnn.TensorBuffer;
 
 import Compute.MemoryResource;
+import Compute.MemoryResourceTracker;
 import Compute.CpuMemoryResource;
 import Compute.CudaMemoryResource;
-import Cuda.Helpers;
+import Cuda.Error;
 
 namespace Mila::Dnn
 {
@@ -84,7 +86,7 @@ namespace Mila::Dnn
 	 * TensorBuffer<float, Compute::DeviceMemoryResource> gpuBuffer(100);
 	 * @endcode
 	 */
-	export template <typename T, typename MR>
+	export template <typename T, typename MR, bool TrackMemory = true>
 		requires std::is_base_of_v<Compute::MemoryResource, MR>
 	class TensorBuffer {
 	public:
@@ -109,12 +111,21 @@ namespace Mila::Dnn
 		 * @throws std::bad_alloc If memory allocation fails.
 		 */
 		explicit TensorBuffer( size_t size, T value = T{} )
-			: size_( size ), mr_( std::make_unique<MR>() ) {
+			: size_( size ), mr_( createMemoryResource() ) {
+			if ( size_ == 0 ) {
+				data_ = nullptr;
+				return;
+			}
+
 			// Check for overflow
 			if ( size_ > (std::numeric_limits<size_t>::max() - alignment + 1) / sizeof( T ) ) {
 				throw std::overflow_error( "Size too large, causing overflow in aligned_size calculation." );
 			}
 			size_t aligned_size = (size_ * sizeof( T ) + alignment - 1) & ~(alignment - 1);
+			
+			std::cout << "Allocated buffer of size: " << aligned_size
+				<< " (Total: " << Compute::MemoryStats::currentUsage << ")" << std::endl;
+
 			data_ = static_cast<T*>(mr_->allocate( aligned_size, alignment ));
 
 			fillBuffer( value );
@@ -146,7 +157,10 @@ namespace Mila::Dnn
 		 * managed memory, it will not deallocate anything.
 		 */
 		~TensorBuffer() {
-			if ( mr_ ) {
+			if ( mr_ && data_ ) {
+				std::cout << "Deallocating buffer of size: " << size_ * sizeof( T )
+					<< " (Total: " << Compute::MemoryStats::currentUsage << ")" << std::endl;
+
 				mr_->deallocate( data_, size_ * sizeof( T ) );
 			}
 		}
@@ -173,6 +187,18 @@ namespace Mila::Dnn
 			if ( !mr_ ) {
 				throw std::runtime_error( "Cannot resize an externally managed buffer." );
 			}
+
+			// Special case for resizing to zero
+			if ( new_size == 0 ) {
+				if ( data_ ) {
+					size_t old_aligned_size = (size_ * sizeof( T ) + alignment - 1) & ~(alignment - 1);
+					mr_->deallocate( data_, old_aligned_size );
+					data_ = nullptr;
+				}
+				size_ = 0;
+				return;
+			}
+
 			// Check for overflow
 			if ( new_size > (std::numeric_limits<size_t>::max() - alignment + 1) / sizeof( T ) ) {
 				throw std::overflow_error( "New size too large, causing overflow in aligned_size calculation." );
@@ -191,13 +217,14 @@ namespace Mila::Dnn
 					Compute::cudaCheckStatus( cudaMemcpy( new_data, data_, copy_size, cudaMemcpyDeviceToDevice ) );
 				}
 
-				mr_->deallocate( data_, (size_ * sizeof( T ) + alignment - 1) & ~(alignment - 1) );
+				size_t old_aligned_size = (size_ * sizeof( T ) + alignment - 1) & ~(alignment - 1);
+				mr_->deallocate( data_, old_aligned_size );
 			}
 
 			data_ = new_data;
 			size_ = new_size;
 
-			// Fill remaining space if expanding
+			// Fill remaining space if expanding from a previous non-zero size
 			if ( new_size > size_ ) {
 				fillBuffer();
 			}
@@ -258,6 +285,17 @@ namespace Mila::Dnn
 		 */
 		std::unique_ptr<Compute::MemoryResource> mr_{ nullptr };
 
+
+		std::unique_ptr<Compute::MemoryResource> createMemoryResource() {
+			if constexpr ( TrackMemory ) {
+				auto resource = std::make_unique<MR>();
+				return std::make_unique<Compute::TrackedMemoryResource>( resource.release() );
+			}
+			else {
+				return std::make_unique<MR>();
+			}
+		}
+
 		/**
 		 * @brief Initializes the buffer with a specified value.
 		 *
@@ -270,28 +308,22 @@ namespace Mila::Dnn
 		 * @note For GPU memory, a temporary host buffer is created and copied to the device.
 		 */
 		void fillBuffer( T value = T{} ) {
-			if constexpr ( std::is_same_v<MR, Compute::HostMemoryResource> ) {
-				if constexpr ( sizeof( T ) >= 4 && std::is_trivially_copyable_v<T> ) {
-					// Use aligned operations for larger trivially copyable types
-				#if defined(__AVX512F__)
-				// Use AVX-512 operations
-				// Implementation depends on your specific needs
-					std::fill( data_, data_ + size_, value );
-				#elif defined(__AVX2__)
-				// Use AVX2 operations
-					std::fill( data_, data_ + size_, value );
-				#else
-				// Fall back to standard fill
-					std::fill( data_, data_ + size_, value );
-				#endif
-				}
-				else {
-					std::fill( data_, data_ + size_, value );
-				}
+			if ( size_ == 0 ) {
+				return;
 			}
-			else if constexpr ( std::is_same_v<MR, Compute::DeviceMemoryResource> ) {
+
+			if constexpr ( MR::is_host_accessible ) {
+				std::fill( data_, data_ + size_, value );
+			}
+			else if constexpr ( MR::is_device_accessible && !MR::is_host_accessible ) {
 				std::vector<T> temp( size_, value );
 				Compute::cudaCheckStatus( cudaMemcpy( data_, temp.data(), size_ * sizeof( T ), cudaMemcpyHostToDevice ) );
+			}
+			// FUTURE: Fallback for any other possible memory resource types
+			else {
+				// This could be a custom memory resource or a future addition
+				// Consider a more generic approach or a warning/error
+				std::cerr << "Warning: fillBuffer not implemented for this memory resource type" << std::endl;
 			}
 		}
 	};

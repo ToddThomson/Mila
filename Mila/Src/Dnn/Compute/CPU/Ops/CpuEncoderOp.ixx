@@ -44,8 +44,8 @@ namespace Mila::Dnn::Compute
 				const OperationAttributes& properties,
 				Tensor<float, HostMemoryResource>& output,
 				std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>>& output_cache ) const override {
-				auto X = input.data();
-				auto Y = output.data();
+				auto X = input.raw_data();
+				auto Y = output.raw_data();
 
 				auto wte = parameters[ 0 ];
 				auto wpe = parameters[ 1 ];
@@ -59,8 +59,8 @@ namespace Mila::Dnn::Compute
 					for ( int t = 0; t < T; t++ ) {
 						float* out_bt = Y + b * T * C + t * C;
 						TInput ix = X[ b * T + t ];
-						float* wte_ix = wte->data() + ix * C;
-						float* wpe_t = wpe->data() + t * C;
+						float* wte_ix = wte->raw_data() + ix * C;
+						float* wpe_t = wpe->raw_data() + t * C;
 
 						for ( int i = 0; i < C; i++ ) {
 							out_bt[ i ] = wte_ix[ i ] + wpe_t[ i ];

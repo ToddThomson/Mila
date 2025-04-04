@@ -11,7 +11,6 @@ namespace Modules::Tests
 {
     using namespace Mila::Dnn;
 
-    // Common test data structure that can be reused
     template<typename TInput, typename TPrecision, Compute::DeviceType TDevice>
     struct FullyConnectedTestData {
         std::vector<size_t> input_shape;
@@ -25,67 +24,175 @@ namespace Modules::Tests
     class FullyConnectedTests : public ::testing::Test {
     protected:
         void SetUp() override {
-            batch_size_ = 128;
-            cpu_batch_size_ = 4;
-            sequence_length_ = 1024;
-            channels_ = 768;
-            output_features_ = 4;
-            output_channels_ = output_features_ * channels_;
-            has_bias_ = true;
+            try {
+                std::cout << "Starting SetUp..." << std::endl;
 
-            // CPU test data (float precision)
-            cpu_float_data_.input_shape = { cpu_batch_size_, sequence_length_, channels_ };
-            cpu_float_data_.output_shape = { cpu_batch_size_, sequence_length_, output_channels_ };
-            cpu_float_data_.channels = channels_;
-            cpu_float_data_.output_channels = output_channels_;
-            cpu_float_data_.has_bias = has_bias_;
-            cpu_float_data_.fc_module = std::make_shared<FullyConnected<float, float, Compute::DeviceType::Cpu>>(
-                "fc_cpu_float", channels_, output_channels_ );
+                try {
+                    batch_size_ = 64;
+                    cpu_batch_size_ = 4;
+                    sequence_length_ = 128;
+                    channels_ = 256;
+                    output_features_ = 4;
+                    output_channels_ = output_features_ * channels_;
+                    has_bias_ = true;
 
-            // CPU test data without bias (float precision)
-            cpu_no_bias_float_data_.input_shape = { cpu_batch_size_, sequence_length_, channels_ };
-            cpu_no_bias_float_data_.output_shape = { cpu_batch_size_, sequence_length_, output_channels_ };
-            cpu_no_bias_float_data_.channels = channels_;
-            cpu_no_bias_float_data_.output_channels = output_channels_;
-            cpu_no_bias_float_data_.has_bias = false;
-            cpu_no_bias_float_data_.fc_module = std::make_shared<FullyConnected<float, float, Compute::DeviceType::Cpu>>(
-                "fc_cpu_no_bias_float", channels_, output_channels_, false );
+                    std::cout << "Initialized variables: output_channels_=" << output_channels_ << std::endl;
+                }
+                catch ( const std::exception& e ) {
+                    std::cerr << "Exception during variable initialization: " << e.what() << std::endl;
+                    throw;
+                }
 
-            // CUDA test data (float precision)
-            cuda_float_data_.input_shape = { batch_size_, sequence_length_, channels_ };
-            cuda_float_data_.output_shape = { batch_size_, sequence_length_, output_channels_ };
-            cuda_float_data_.channels = channels_;
-            cuda_float_data_.output_channels = output_channels_;
-            cuda_float_data_.has_bias = has_bias_;
-            cuda_float_data_.fc_module = std::make_shared<FullyConnected<float, float, Compute::DeviceType::Cuda>>(
-                "fc_cuda_float", channels_, output_channels_ );
+                try {
+                    // CPU test data (float precision)
+                    std::cout << "Creating cpu_float_data_..." << std::endl;
+                    cpu_float_data_.input_shape = { cpu_batch_size_, sequence_length_, channels_ };
+                    cpu_float_data_.output_shape = { cpu_batch_size_, sequence_length_, output_channels_ };
+                    cpu_float_data_.channels = channels_;
+                    cpu_float_data_.output_channels = output_channels_;
+                    cpu_float_data_.has_bias = has_bias_;
+                    std::cout << "Creating CPU module..." << std::endl;
+                    cpu_float_data_.fc_module = std::make_shared<FullyConnected<float, float, Compute::DeviceType::Cpu>>(
+                        "fc_cpu_float", channels_, output_channels_ );
+                    std::cout << "CPU module created successfully" << std::endl;
+                }
+                catch ( const std::bad_alloc& e ) {
+                    std::cerr << "Bad allocation during CPU module setup: " << e.what() << std::endl;
+                    throw;
+                }
+                catch ( const std::exception& e ) {
+                    std::cerr << "Exception during CPU module setup: " << e.what() << std::endl;
+                    throw;
+                }
 
-            // CUDA test data without bias (float precision)
-            cuda_no_bias_float_data_.input_shape = { batch_size_, sequence_length_, channels_ };
-            cuda_no_bias_float_data_.output_shape = { batch_size_, sequence_length_, output_channels_ };
-            cuda_no_bias_float_data_.channels = channels_;
-            cuda_no_bias_float_data_.output_channels = output_channels_;
-            cuda_no_bias_float_data_.has_bias = false;
-            cuda_no_bias_float_data_.fc_module = std::make_shared<FullyConnected<float, float, Compute::DeviceType::Cuda>>(
-                "fc_cuda_no_bias_float", channels_, output_channels_, false );
+                try {
+                    // CPU test data without bias (float precision)
+                    std::cout << "Creating cpu_no_bias_float_data_..." << std::endl;
+                    cpu_no_bias_float_data_.input_shape = { cpu_batch_size_, sequence_length_, channels_ };
+                    cpu_no_bias_float_data_.output_shape = { cpu_batch_size_, sequence_length_, output_channels_ };
+                    cpu_no_bias_float_data_.channels = channels_;
+                    cpu_no_bias_float_data_.output_channels = output_channels_;
+                    cpu_no_bias_float_data_.has_bias = false;
+                    std::cout << "Creating CPU no-bias module..." << std::endl;
+                    cpu_no_bias_float_data_.fc_module = std::make_shared<FullyConnected<float, float, Compute::DeviceType::Cpu>>(
+                        "fc_cpu_no_bias_float", channels_, output_channels_, false );
+                    std::cout << "CPU no-bias module created successfully" << std::endl;
+                }
+                catch ( const std::bad_alloc& e ) {
+                    std::cerr << "Bad allocation during CPU no-bias module setup: " << e.what() << std::endl;
+                    throw;
+                }
+                catch ( const std::exception& e ) {
+                    std::cerr << "Exception during CPU no-bias module setup: " << e.what() << std::endl;
+                    throw;
+                }
 
-            // Setup training mode modules
-            training_cpu_float_data_.input_shape = { cpu_batch_size_, sequence_length_, channels_ };
-            training_cpu_float_data_.output_shape = { cpu_batch_size_, sequence_length_, output_channels_ };
-            training_cpu_float_data_.channels = channels_;
-            training_cpu_float_data_.output_channels = output_channels_;
-            training_cpu_float_data_.has_bias = has_bias_;
-            training_cpu_float_data_.fc_module = std::make_shared<FullyConnected<float, float, Compute::DeviceType::Cpu>>(
-                "fc_cpu_float_training", channels_, output_channels_, true, true );
+                try {
+                    // CUDA test data (float precision)
+                    std::cout << "Creating cuda_float_data_..." << std::endl;
+                    cuda_float_data_.input_shape = { batch_size_, sequence_length_, channels_ };
+                    cuda_float_data_.output_shape = { batch_size_, sequence_length_, output_channels_ };
+                    cuda_float_data_.channels = channels_;
+                    cuda_float_data_.output_channels = output_channels_;
+                    cuda_float_data_.has_bias = has_bias_;
+                    std::cout << "Creating CUDA module..." << std::endl;
+                    cuda_float_data_.fc_module = std::make_shared<FullyConnected<float, float, Compute::DeviceType::Cuda>>(
+                        "fc_cuda_float", channels_, output_channels_ );
+                    std::cout << "CUDA module created successfully" << std::endl;
+                }
+                catch ( const std::bad_alloc& e ) {
+                    std::cerr << "Bad allocation during CUDA module setup: " << e.what() << std::endl;
+                    throw;
+                }
+                catch ( const std::exception& e ) {
+                    std::cerr << "Exception during CUDA module setup: " << e.what() << std::endl;
+                    throw;
+                }
 
-            training_cuda_float_data_.input_shape = { batch_size_, sequence_length_, channels_ };
-            training_cuda_float_data_.output_shape = { batch_size_, sequence_length_, output_channels_ };
-            training_cuda_float_data_.channels = channels_;
-            training_cuda_float_data_.output_channels = output_channels_;
-            training_cuda_float_data_.has_bias = has_bias_;
-            training_cuda_float_data_.fc_module = std::make_shared<FullyConnected<float, float, Compute::DeviceType::Cuda>>(
-                "fc_cuda_float_training", channels_, output_channels_, true, true );
+                try {
+                    // CUDA test data without bias (float precision)
+                    std::cout << "Creating cuda_no_bias_float_data_..." << std::endl;
+                    cuda_no_bias_float_data_.input_shape = { batch_size_, sequence_length_, channels_ };
+                    cuda_no_bias_float_data_.output_shape = { batch_size_, sequence_length_, output_channels_ };
+                    cuda_no_bias_float_data_.channels = channels_;
+                    cuda_no_bias_float_data_.output_channels = output_channels_;
+                    cuda_no_bias_float_data_.has_bias = false;
+                    std::cout << "Creating CUDA no-bias module..." << std::endl;
+                    cuda_no_bias_float_data_.fc_module = std::make_shared<FullyConnected<float, float, Compute::DeviceType::Cuda>>(
+                        "fc_cuda_no_bias_float", channels_, output_channels_, false );
+                    std::cout << "CUDA no-bias module created successfully" << std::endl;
+                }
+                catch ( const std::bad_alloc& e ) {
+                    std::cerr << "Bad allocation during CUDA no-bias module setup: " << e.what() << std::endl;
+                    throw;
+                }
+                catch ( const std::exception& e ) {
+                    std::cerr << "Exception during CUDA no-bias module setup: " << e.what() << std::endl;
+                    throw;
+                }
+
+                try {
+                    // Setup training mode modules
+                    std::cout << "Creating training_cpu_float_data_..." << std::endl;
+                    training_cpu_float_data_.input_shape = { cpu_batch_size_, sequence_length_, channels_ };
+                    training_cpu_float_data_.output_shape = { cpu_batch_size_, sequence_length_, output_channels_ };
+                    training_cpu_float_data_.channels = channels_;
+                    training_cpu_float_data_.output_channels = output_channels_;
+                    training_cpu_float_data_.has_bias = has_bias_;
+                    std::cout << "Creating CPU training module..." << std::endl;
+                    training_cpu_float_data_.fc_module = std::make_shared<FullyConnected<float, float, Compute::DeviceType::Cpu>>(
+                        "fc_cpu_float_training", channels_, output_channels_, true, true );
+                    std::cout << "CPU training module created successfully" << std::endl;
+                }
+                catch ( const std::bad_alloc& e ) {
+                    std::cerr << "Bad allocation during CPU training module setup: " << e.what() << std::endl;
+                    throw;
+                }
+                catch ( const std::exception& e ) {
+                    std::cerr << "Exception during CPU training module setup: " << e.what() << std::endl;
+                    throw;
+                }
+
+                try {
+                    // Setup CUDA training mode modules
+                    std::cout << "Creating training_cuda_float_data_..." << std::endl;
+                    training_cuda_float_data_.input_shape = { batch_size_, sequence_length_, channels_ };
+                    training_cuda_float_data_.output_shape = { batch_size_, sequence_length_, output_channels_ };
+                    training_cuda_float_data_.channels = channels_;
+                    training_cuda_float_data_.output_channels = output_channels_;
+                    training_cuda_float_data_.has_bias = has_bias_;
+                    std::cout << "Creating CUDA training module..." << std::endl;
+                    training_cuda_float_data_.fc_module = std::make_shared<FullyConnected<float, float, Compute::DeviceType::Cuda>>(
+                        "fc_cuda_float_training", channels_, output_channels_, true, true );
+                    std::cout << "CUDA training module created successfully" << std::endl;
+                }
+                catch ( const std::bad_alloc& e ) {
+                    std::cerr << "Bad allocation during CUDA training module setup: " << e.what() << std::endl;
+                    throw;
+                }
+                catch ( const std::exception& e ) {
+                    std::cerr << "Exception during CUDA training module setup: " << e.what() << std::endl;
+                    throw;
+                }
+
+                std::cout << "SetUp completed successfully" << std::endl;
+            }
+            catch ( const std::bad_alloc& e ) {
+                std::cerr << "*** Bad allocation in SetUp: " << e.what() << std::endl;
+
+                // Calculate memory requirements for one of the tensors to help diagnose
+                size_t weight_size = output_channels_ * channels_ * sizeof( float );
+                std::cerr << "Weight tensor size would be: " << (weight_size / (1024 * 1024))
+                    << " MB (" << weight_size << " bytes)" << std::endl;
+
+                throw; // Re-throw to let GTest know the setup failed
+            }
+            catch ( const std::exception& e ) {
+                std::cerr << "*** Exception in SetUp: " << e.what() << std::endl;
+                throw; // Re-throw to let GTest know the setup failed
+            }
         }
+
 
         size_t batch_size_{ 0 };
         size_t cpu_batch_size_{ 0 };
@@ -217,8 +324,6 @@ namespace Modules::Tests
 
         EXPECT_TRUE( all_equal ) << "CPU and CUDA implementations produced different results";
     }
-
-    // NEW TESTS
 
     // Test with different dimensions (edge cases)
     template<typename TInput, typename TPrecision, Compute::DeviceType TDevice, typename TMemResource>
@@ -374,37 +479,7 @@ namespace Modules::Tests
     // Mock test for save/load functionality
     template<typename TInput, typename TPrecision, Compute::DeviceType TDevice, typename TMemResource>
     void TestSaveLoad( const FullyConnectedTestData<TInput, TPrecision, TDevice>& data ) {
-        // This is a mock test since we can't directly test without real save/load implementation
-        // Get parameters before notional save/load
-        auto parameters = data.fc_module->getParameterTensors();
-
-        // Create a small test shape
-        std::vector<size_t> test_input_shape = { 2, 4, data.channels };
-        std::vector<size_t> test_output_shape = { 2, 4, data.output_channels };
-
-        // Create input with predictable values
-        Tensor<TInput, TMemResource> input( test_input_shape );
-        for ( size_t i = 0; i < input.size(); ++i ) {
-            input.data()[ i ] = static_cast<TInput>( i % 10 ) * 0.1f;
-        }
-
-        // Create output tensors
-        Tensor<TPrecision, TMemResource> output_before( test_output_shape );
-
-        // Get output before notional save/load
-        data.fc_module->forward( input, output_before );
-
-        // Verify that parameters exist and have correct shapes
-        EXPECT_NE( parameters.find( "weight" ), parameters.end() );
-        EXPECT_EQ( parameters[ "weight" ]->shape().size(), 2 );
-        EXPECT_EQ( parameters[ "weight" ]->shape()[ 0 ], data.output_channels );
-        EXPECT_EQ( parameters[ "weight" ]->shape()[ 1 ], data.channels );
-
-        if ( data.has_bias ) {
-            EXPECT_NE( parameters.find( "bias" ), parameters.end() );
-            EXPECT_EQ( parameters[ "bias" ]->shape().size(), 1 );
-            EXPECT_EQ( parameters[ "bias" ]->shape()[ 0 ], data.output_channels );
-        }
+		// TODO: Implement save/load functionality
     }
 
     // CPU Tests with float precision

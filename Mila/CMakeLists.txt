@@ -113,19 +113,19 @@ PUBLIC
 		"Src/Dnn/Compute/Cuda/CudaMultiHeadAttentionOp.ixx" 
 		"Src/Dnn/Compute/Cuda/CudaEncoderOp.ixx" 
 		# Data
-		"Src/Data/DataLoaderBase.ixx"
+		"Src/Data/DataLoader.ixx"
 		"Src/Dnn/Models/Gpt2/Gpt2DatasetReader.ixx"
 
 		"Src/Dnn/Compute/CPU/CpuComputeResource.ixx"
 		"Src/Dnn/Graph.ixx"
 		"Src/Dnn/Compute/Backend.ixx"
 		"Src/Dnn/Compute/Cuda/CudaComputeResource.ixx"
-		"Src/Dnn/ModelBase.ixx" 
+		 
 		
 		# Utils
 		"Src/Utils/Logger.ixx"
 		"Src/Utils/DefaultLogger.ixx"
-   )
+    "Src/Dnn/ModelCallback.ixx" "Src/Dnn/Compute/Cuda/CudaBadAlloc.ixx" "Src/Dnn/Compute/MemoryResourceTracker.ixx" "Src/Dnn/TensorPtr.ixx")
 
 target_link_libraries( Mila PRIVATE CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
 

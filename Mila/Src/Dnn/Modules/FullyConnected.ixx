@@ -1,7 +1,13 @@
+/**
+ * @file FullyConnected.ixx
+ * @brief Implementation of the Fully Connected (Linear) module for neural networks.
+ */
+
 module;
 #include <memory>
 #include <vector>
 #include <string>
+#include <optional>
 #include <iostream>
 #include <sstream>
 #include <type_traits>
@@ -28,22 +34,42 @@ export namespace Mila::Dnn
 {
 	using namespace Mila::Dnn::Compute;
 
-    /**
-    * @brief A class representing a fully-connected module.
-    * The module performs the following operation:
-    * output = input * weight + bias
-    *
-    * @tparam TInput The data type of the input tensor.
-    * @tparam TPrecision The data type used for computation.
-    * @tparam TDevice The device type used for computation.
-    */
+	/**
+	* @brief A class representing a fully-connected module.
+	*
+	* The fully-connected module (also known as a linear or dense layer) performs
+	* a linear transformation of the input data. The operation is defined as:
+	* output = input * weight + bias
+	*
+	* This is a fundamental building block in neural networks that connects
+	* every input neuron to every output neuron with learnable weights.
+	*
+	* @tparam TInput The data type of the input tensor elements.
+	* @tparam TPrecision The data type used for computation and output (defaults to the input type).
+	* @tparam TDeviceType The device type where the computation will be performed (CPU or CUDA).
+	*/
 	export
-	template<typename TInput, typename TPrecision = TInput, Compute::DeviceType TDeviceType = DeviceType::Cuda>
+		template<typename TInput, typename TPrecision = TInput, Compute::DeviceType TDeviceType = DeviceType::Cuda>
 		requires ValidTensorTypes<TInput, TPrecision>
 	class FullyConnected : public Module<TInput, TPrecision, TDeviceType> {
 	public:
+		/**
+		 * @brief Memory resource type based on the device type.
+		 *
+		 * This alias resolves to either DeviceMemoryResource for CUDA devices
+		 * or HostMemoryResource for CPU devices.
+		 */
 		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::DeviceMemoryResource, Compute::HostMemoryResource>;
-		
+
+		/**
+		 * @brief Constructs a new FullyConnected module.
+		 *
+		 * @param name The name of the module for identification purposes.
+		 * @param input_channels The number of input features/channels.
+		 * @param output_channels The number of output features/channels.
+		 * @param has_bias Whether to include a bias term in the transformation (defaults to true).
+		 * @param is_training Whether the module is initially in training mode (defaults to false).
+		 */
 		FullyConnected(
 			std::string name,
 			size_t input_channels,
@@ -58,10 +84,13 @@ export namespace Mila::Dnn
 		}
 
 		/**
-		* @brief Get the number of parameters.
-		*
-		* @return size_t The number of parameters.
-		*/
+		 * @brief Gets the number of trainable parameters in this module.
+		 *
+		 * Counts the total number of trainable parameters, which includes
+		 * the weight tensor and, if present, the bias tensor.
+		 *
+		 * @return size_t The total number of parameters.
+		 */
 		size_t parameterCount() const override {
 			size_t num_params = weight_->size();
 			if ( has_bias_ ) {
@@ -71,22 +100,76 @@ export namespace Mila::Dnn
 		}
 
 		/**
-		 * @brief Perform the forward pass.
+		 * @brief Gets the weight tensor used for the linear transformation.
 		 *
-		 * @param input The input tensor.
-		 * @return std::shared_ptr<Tensor<float>> The output tensor.
+		 * The weight tensor is used in the matrix multiplication operation:
+		 * output = input * weight + bias
+		 *
+		 * @return std::shared_ptr<Tensor<float, MR>> Shared pointer to the weight tensor.
 		 */
-		void forward( const Tensor<TInput, MR>& input, Tensor<TPrecision,MR>& output ) {
+		std::shared_ptr<Tensor<TPrecision, MR>> getWeight() {
+			return weight_;
+		}
+
+		/**
+		 * @brief Gets the bias tensor used after the linear transformation.
+		 *
+		 * The bias tensor is added after the matrix multiplication with weights.
+		 * If the module was configured without bias, returns std::nullopt.
+		 *
+		 * @return std::optional<std::shared_ptr<Tensor<float, MR>>> Optional containing
+		 *         the bias tensor if available, otherwise std::nullopt.
+		 */
+		std::optional<std::shared_ptr<Tensor<TPrecision, MR>>> getBias() {
+			if ( !has_bias_ ) {
+				return std::nullopt;
+			}
+			return bias_;
+		}
+
+		/**
+		 * @brief Gets whether the module has a bias tensor.
+		 *
+		 * @return bool True if the module has a bias tensor, false otherwise.
+		 */
+		bool hasBias() const {
+			return has_bias_;
+		}
+
+		/**
+		 * @brief Performs the forward pass of the FullyConnected operation.
+		 *
+		 * Applies the linear transformation to the input tensor:
+		 * output = input * weight + bias
+		 *
+		 * @param input The input tensor to be transformed.
+		 * @param output The output tensor where the results will be stored.
+		 */
+		void forward( const Tensor<TInput, MR>& input, Tensor<TPrecision, MR>& output ) {
 			operation_->forward( input, parameters_, properties_, output, output_state_ );
 		}
 
+		/**
+		 * @brief Saves the module state to a ZIP archive.
+		 *
+		 * Serializes the trainable parameters (weight, bias) to the provided archive.
+		 *
+		 * @param zip The ZIP archive to save the module state to.
+		 */
 		void save( mz_zip_archive& zip ) const override {
 			// Save the state of the parameters
-			for ( const auto& [name,tensor] : this->getParameterTensors() ) {
+			for ( const auto& [name, tensor] : this->getParameterTensors() ) {
 				// Save tensor data to zip archive
 			}
 		}
 
+		/**
+		 * @brief Loads the module state from a ZIP archive.
+		 *
+		 * Deserializes the trainable parameters (weight, bias) from the provided archive.
+		 *
+		 * @param zip The ZIP archive to load the module state from.
+		 */
 		void load( mz_zip_archive& zip ) override {
 			for ( const auto& [name, tensor] : this->getParameterTensors() ) {
 				// Load tensor data from zip archive
@@ -94,10 +177,12 @@ export namespace Mila::Dnn
 		}
 
 		/**
-		* @brief Convert the module information to string.
-		*
-		* @return std::string Module information as string.
-		*/
+		 * @brief Converts the module information to a human-readable string.
+		 *
+		 * Includes detailed information about the module configuration and parameters.
+		 *
+		 * @return std::string A string representation of the module information.
+		 */
 		std::string toString() const override {
 			std::ostringstream oss;
 			oss << "--------------------" << std::endl;
@@ -116,19 +201,62 @@ export namespace Mila::Dnn
 		//}
 
 	private:
-		size_t input_channels_{ 0 }; ///< The number of input channels.
-		size_t output_channels_{ 0 }; ///< The number of output channels.
-		bool has_bias_{ true }; ///< Whether the module has a bias tensor. Default is true.
+		/**
+		 * @brief The number of input features/channels.
+		 */
+		size_t input_channels_{ 0 };
 
-		std::shared_ptr<Tensor<float, MR>> weight_{ nullptr };  ///< The weight tensor.
-		std::shared_ptr<Tensor<float, MR>> bias_{ nullptr }; ///< The bias tensor.
+		/**
+		 * @brief The number of output features/channels.
+		 */
+		size_t output_channels_{ 0 };
 
-		std::vector<std::shared_ptr<Tensor<float, MR>>> parameters_ = {}; ///< The parameters.
-		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_ = {}; ///< The output state.
-		OperationAttributes properties_; ///< The operation properties.
+		/**
+		 * @brief Whether the module has a bias tensor. Default is true.
+		 */
+		bool has_bias_{ true };
 
-		std::shared_ptr<Dnn::Compute::UnaryOperation<TInput, TPrecision, TDeviceType>> operation_{ nullptr }; ///< The operation.
-        
+		/**
+		 * @brief The weight tensor for the linear transformation.
+		 *
+		 * Shape is [output_channels_, input_channels_].
+		 */
+		std::shared_ptr<Tensor<TPrecision, MR>> weight_{ nullptr };
+
+		/**
+		 * @brief The bias tensor added after the matrix multiplication.
+		 *
+		 * Shape is [output_channels_].
+		 */
+		std::shared_ptr<Tensor<TPrecision, MR>> bias_{ nullptr };
+
+		/**
+		 * @brief The trainable parameters for this module (weight and bias).
+		 */
+		std::vector<std::shared_ptr<Tensor<TPrecision, MR>>> parameters_ = {};
+
+		/**
+		 * @brief Cache of intermediate tensors needed for backward pass.
+		 */
+		std::vector<std::shared_ptr<Tensor<float, MR>>> output_state_ = {};
+
+		/**
+		 * @brief The operation attributes, may include additional configuration.
+		 */
+		OperationAttributes properties_;
+
+		/**
+		 * @brief The underlying operation that implements the FullyConnected transformation.
+		 */
+		std::shared_ptr<Dnn::Compute::UnaryOperation<TInput, TPrecision, TDeviceType>> operation_{ nullptr };
+
+		/**
+		 * @brief Initializes the tensors needed for the FullyConnected operation.
+		 *
+		 * Creates and initializes:
+		 * - weight tensor (initialized with Xavier/Glorot distribution)
+		 * - bias tensor (initialized to zeros if has_bias_ is true)
+		 */
 		void initializeTensors() {
 			// Initialize the weight tensor using xavier distribution
 			weight_ = std::make_shared<Tensor<float, MR>>( std::vector<size_t>{ output_channels_, input_channels_ } );
@@ -145,9 +273,13 @@ export namespace Mila::Dnn
 				this->parameter_map_[ "bias" ] = bias_;
 			}
 		}
-		
+
 		/**
-		 * @brief Create the operation.
+		 * @brief Creates the appropriate FullyConnected operation based on device type.
+		 *
+		 * This method initializes the operation_ member with the appropriate implementation
+		 * of FullyConnected for either CPU or CUDA, as determined by the TDeviceType
+		 * template parameter.
 		 */
 		void createOperation() {
 			if constexpr ( TDeviceType == DeviceType::Cpu ) {

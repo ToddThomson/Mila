@@ -70,9 +70,9 @@ namespace Mila::Dnn::Compute
             const OperationAttributes& attributes,
             Tensor<float, HostMemoryResource>& output,
             std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>>& output_cache ) const override {
-            auto A = input_a.data();
-            auto B = input_b.data();
-            auto Y = output.data();
+            auto A = input_a.raw_data();
+            auto B = input_b.raw_data();
+            auto Y = output.raw_data();
             auto N = input_a.size();
 
         #pragma omp parallel for

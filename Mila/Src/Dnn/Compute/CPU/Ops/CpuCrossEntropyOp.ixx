@@ -44,9 +44,9 @@ namespace Mila::Dnn::Compute
 			auto T = input.shape()[ 1 ];
 			auto Vp = parameters[ 0 ]->shape()[ 2 ];
 
-			auto losses = output.data();
-			auto probs = parameters[ 0 ]->data();
-			auto targets = input.data();
+			auto losses = output.raw_data();
+			auto probs = parameters[ 0 ]->raw_data();
+			auto targets = input.raw_data();
 
 			for ( int b = 0; b < B; b++ ) {
 				for ( int t = 0; t < T; t++ ) {

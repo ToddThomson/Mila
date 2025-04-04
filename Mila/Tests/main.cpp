@@ -30,11 +30,9 @@ int main( int argc, char** argv ) {
 
     ::testing::InitGoogleTest( &argc, argv );
 
-    // Option 1: Stop on first failure (built-in)
     // testing::GTEST_FLAG(break_on_failure) = true;
 
-    // Option 2: Set a custom failure threshold
-    const int MAX_FAILURES = 3; // Adjust number as needed
+    const int MAX_FAILURES = 10;
     auto& listeners = testing::UnitTest::GetInstance()->listeners();
     listeners.Append( new FailureThresholdListener( MAX_FAILURES ) );
 

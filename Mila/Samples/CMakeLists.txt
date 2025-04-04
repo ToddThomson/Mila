@@ -1,6 +1,5 @@
-# CMake project for Mila examples
+# CMake project for Mila Samples
 
-# Add executable
 add_subdirectory( Gpt2 )
 add_subdirectory( LayerNorm )
 add_subdirectory( ScratchPad )

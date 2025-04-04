@@ -35,7 +35,6 @@ import Utils.DefaultLogger;
 
 export import Dnn.Module;
 export import Dnn.Model;
-export import Dnn.ModelBase;
 
 export import Dnn.Tensor;
 export import Dnn.TensorBuffer; // TJT: Remove after testing

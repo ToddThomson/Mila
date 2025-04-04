@@ -36,4 +36,4 @@ namespace Mila::Helpers
 	export void* mallocCheck( size_t size ) {
 		return malloc_check( size, __FILE__, __LINE__ );
 	}
-} // namespace Mila::Helpers
+}

@@ -39,8 +39,8 @@ namespace Mila::Dnn::Compute
 			std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>>& output_cache ) const override {
 			// (approximate) GeLU elementwise non-linearity in the MLP block of Transformer
 
-			const float* X = input.data();
-			float* Y = output.data();
+			const float* X = input.raw_data();
+			float* Y = output.raw_data();
 			const int N = input.size();
 
 			for ( int i = 0; i < N; i++ ) {

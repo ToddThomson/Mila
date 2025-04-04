@@ -13,48 +13,23 @@ namespace Mila::Dnn::Compute
     export constexpr int ceil_div( int M, int N ) {
         return (M + N - 1) / N;
     }
-    
-    export inline void cudaCheckStatus( cudaError_t status )
-    {
-        if ( status != cudaSuccess ) {
-            throw CudaError( status );
-        }
-    }
-
-    export inline void cudaCheckLastError()
-    {
-        cudaError_t error = cudaGetLastError();
-        if ( error != cudaSuccess ) {
-            throw CudaError( error );
-        }
-    }
-
-    export template <typename T>
-        inline void CUDA_CALL( T status_ )
-    {
-        return cudaCheckStatus( status_ );
-    }
 
     export int GetDriverVersion() {
         int driverVersion;
-
         cudaCheckStatus( cudaDriverGetVersion( &driverVersion ) );
-
         return driverVersion;
     };
 
     export int GetRuntimeVersion() {
         int runtimeVersion;
         cudaCheckStatus( cudaRuntimeGetVersion( &runtimeVersion ) );
-
         return runtimeVersion;
     };
 
     export inline int GetDeviceCount()
     {
         int devCount;
-        CUDA_CALL( cudaGetDeviceCount( &devCount ) );
-
+        cudaCheckStatus( cudaGetDeviceCount( &devCount ) );
         return devCount;
     };
 
@@ -74,8 +49,8 @@ namespace Mila::Dnn::Compute
             throw std::out_of_range( "Device id out of range." );
         }
 
-        int computeMode = -1,
-            CUDA_CALL( cudaDeviceGetAttribute( &computeMode, cudaDevAttrComputeMode, deviceId ) );
+        int computeMode = -1;
+        cudaCheckStatus( cudaDeviceGetAttribute( &computeMode, cudaDevAttrComputeMode, deviceId ) );
 
         if ( computeMode == cudaComputeModeProhibited ) {
             throw std::runtime_error( "Device is running in Compute ModeProhibited." );
@@ -205,9 +180,9 @@ namespace Mila::Dnn::Compute
         while ( current_device < devCount ) {
             int computeMode = -1, major = 0, minor = 0;
 
-            CUDA_CALL( cudaDeviceGetAttribute( &computeMode, cudaDevAttrComputeMode, current_device ) );
-            CUDA_CALL( cudaDeviceGetAttribute( &major, cudaDevAttrComputeCapabilityMajor, current_device ) );
-            CUDA_CALL( cudaDeviceGetAttribute( &minor, cudaDevAttrComputeCapabilityMinor, current_device ) );
+            cudaCheckStatus( cudaDeviceGetAttribute( &computeMode, cudaDevAttrComputeMode, current_device ) );
+            cudaCheckStatus( cudaDeviceGetAttribute( &major, cudaDevAttrComputeCapabilityMajor, current_device ) );
+            cudaCheckStatus( cudaDeviceGetAttribute( &minor, cudaDevAttrComputeCapabilityMinor, current_device ) );
 
             // If this GPU is not running on Compute Mode prohibited,
             // then we can add it to the list
@@ -220,7 +195,7 @@ namespace Mila::Dnn::Compute
                 }
 
                 int multiProcessorCount = 0, clockRate = 0;
-                CUDA_CALL( cudaDeviceGetAttribute( &multiProcessorCount, cudaDevAttrMultiProcessorCount, current_device ) );
+                cudaCheckStatus( cudaDeviceGetAttribute( &multiProcessorCount, cudaDevAttrMultiProcessorCount, current_device ) );
                 cudaError_t result = cudaDeviceGetAttribute( &clockRate, cudaDevAttrClockRate, current_device );
 
                 if ( result != cudaSuccess ) {
@@ -230,8 +205,7 @@ namespace Mila::Dnn::Compute
                         clockRate = 1;
                     }
                     else {
-                        throw CudaError(
-                            result );
+                        throw CudaError( result );
                     }
                 }
                 uint64_t compute_perf = (uint64_t)multiProcessorCount * sm_per_multiproc * clockRate;
@@ -255,7 +229,7 @@ namespace Mila::Dnn::Compute
         return max_perf_device;
     };
 
-    export inline int findCudaDevice( int deviceId = -1 )
+    export inline int FindCudaDevice( int deviceId = -1 )
     {
         int device_count = GetDeviceCount();
 

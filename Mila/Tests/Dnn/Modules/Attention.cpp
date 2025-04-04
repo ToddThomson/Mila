@@ -158,9 +158,6 @@ namespace Modules::Tests
         EXPECT_TRUE( all_equal ) << "CPU and CUDA implementations produced different results";
     }
 
-    // Add these function templates to your existing common test functions section
-
-// Test with different head counts
     template<typename TInput, typename TPrecision, Compute::DeviceType TDevice, typename TMemResource>
     void TestDifferentHeadCounts( const AttentionTestData<TInput, TPrecision, TDevice>& data ) {
         std::vector<size_t> head_counts = { 1, 4, 8, 16 };
