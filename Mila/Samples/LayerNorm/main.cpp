@@ -21,7 +21,7 @@ int main() {
     }
     std::cout << std::endl;
 
-    std::cout << "The current Compute Device is: " << Mila::getDevice()->getName() << std::endl;
+    //std::cout << "The current Compute Device is: " << Mila::getDevice()->getName() << std::endl;
 
  //   auto layernorm_model = Model<float>();
 

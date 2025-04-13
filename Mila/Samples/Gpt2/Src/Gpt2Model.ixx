@@ -99,18 +99,17 @@ namespace Gpt2App
 		std::vector<float> losses; ///< Losses (B, T)
 	};
 
-	export
-	template<typename TPrecision = float, Compute::DeviceType TDeviceType = Compute::DeviceType::Cuda>
+	export template<typename TPrecision = float>
 		requires ValidTensorType<TPrecision>
-	class Gpt2Model : public Model<float, TPrecision, TDeviceType> {
+	class Gpt2Model : public Model<float, TPrecision> {
 	public:
-		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda,
-			Compute::DeviceMemoryResource,
-			Compute::HostMemoryResource>;
+		using MR = typename Module<float, TPrecision>::MR;
 		
-		Gpt2Model( const ModelConfig& config, size_t batch_size, size_t sequence_length, Compute::DeviceType device_type = DeviceType::Cuda, bool is_training = true )
-			: config_( config ), batch_size_( batch_size ), seq_len_( sequence_length ), is_training_( is_training ) {
-			// Get device type from context once at construction
+		Gpt2Model( const ModelConfig& config, size_t batch_size, size_t sequence_length,
+			std::shared_ptr<Compute::DeviceContext> context = nullptr,
+			bool is_training = true )
+			: config_( config ), batch_size_( batch_size ), seq_len_( sequence_length ),
+			device_context_( context ? context : std::make_shared<Compute::DeviceContext>() ), is_training_( is_training ) {
 			device_type_ = Compute::DeviceContext::instance().getDeviceType()->geDeviceType();
 
 			// Initialize the model parameters and activations
@@ -125,7 +124,7 @@ namespace Gpt2App
 			size_t Vp = config_.padded_vocab_size;
 			size_t NH = config_.num_heads;
 
-			encoder_ = std::make_unique<Encoder<int, float, TDeviceType>>( "gpt2.enc", C, config_.max_seq_len, config_.padded_vocab_size );
+			encoder_ = std::make_unique<Encoder<int, float>>( "gpt2.enc", C, config_.max_seq_len, config_.padded_vocab_size, device_context_, is_training_ );
 			encoder_output_ = Tensor<TPrecision, MR>( std::vector<size_t>( { B,T,C } ));
 
 			auto tf_io_shape = std::vector<size_t>( { batch_size_, seq_len_, C } );
@@ -133,16 +132,16 @@ namespace Gpt2App
 
 			for ( size_t l = 0; l < config_.num_layers; l++ ) {
 				std::string layer_name = std::format( "gpt2.tf_{}", l );
-				tf_layers_.emplace_back( std::make_unique<TransformerBlock<TPrecision, TPrecision, TDeviceType>>( layer_name, tf_io_shape, NH ) );
+				tf_layers_.emplace_back( std::make_unique<TransformerBlock<TPrecision, TPrecision>>( layer_name, tf_io_shape, NH ) );
 			}
 
-			ln_f_ = std::make_unique<LayerNorm<TPrecision, TPrecision, TDeviceType>>( "gpt2.ln_f", tf_io_shape );
+			ln_f_ = std::make_unique<LayerNorm<TPrecision, TPrecision>>( "gpt2.ln_f", tf_io_shape );
 			ln_f_output_ = Tensor<TPrecision, MR>( tf_io_shape );
 
-			fc_f_ = std::make_unique<FullyConnected<TPrecision, TPrecision, TDeviceType>>( "gpt2.fc_f", C, Vp, /* has_bias */ false );
+			fc_f_ = std::make_unique<FullyConnected<TPrecision, TPrecision>>( "gpt2.fc_f", C, Vp, /* has_bias */ false );
 			fc_logits_output_ = Tensor<TPrecision, MR>( std::vector<size_t>( { B, T, Vp } ) );
 
-			smax_ = std::make_unique<Softmax<TPrecision, TPrecision, TDeviceType>>( "gpt2.smax" );
+			smax_ = std::make_unique<Softmax<TPrecision, TPrecision>>( "gpt2.smax" );
 			smax_probs_output_ = Tensor<TPrecision, MR>( std::vector<size_t>( { B, T, Vp } ) );
 		}
 
@@ -803,11 +802,11 @@ namespace Gpt2App
 			std::fill( grads_acts_.losses.begin(), grads_acts_.losses.end(), 0 );
 		}
 		
-		std::unique_ptr<Encoder<int, float, TDeviceType>> encoder_{ nullptr };
-		std::vector<std::unique_ptr<TransformerBlock<float, float, TDeviceType>>> tf_layers_;
-		std::unique_ptr<LayerNorm<float, float, TDeviceType>> ln_f_{ nullptr };
-		std::unique_ptr<FullyConnected<float, float, TDeviceType>> fc_f_{ nullptr };
-		std::unique_ptr<Softmax<float, float, TDeviceType>> smax_{ nullptr };
+		std::unique_ptr<Encoder<int, float>> encoder_{ nullptr };
+		std::vector<std::unique_ptr<TransformerBlock<float, float>>> tf_layers_;
+		std::unique_ptr<LayerNorm<float, float>> ln_f_{ nullptr };
+		std::unique_ptr<FullyConnected<float, float>> fc_f_{ nullptr };
+		std::unique_ptr<Softmax<float, float>> smax_{ nullptr };
 
 		Tensor<TPrecision, MR> encoder_output_;
 		Tensor<TPrecision, MR> tf_output_;

@@ -32,7 +32,6 @@ namespace Tensors::Tests {
     }
 
     TEST( TensorTest, ConstructorWithShape ) {
-        auto device = Compute::DeviceContext::instance().getDevice();
         std::vector<size_t> shape = { 2, 3 };
         Tensor<float, Compute::DeviceMemoryResource> tensor( shape );
         EXPECT_FALSE( tensor.empty() );

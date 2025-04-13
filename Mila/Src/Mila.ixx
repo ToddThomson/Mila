@@ -54,6 +54,7 @@ export import Compute.CpuMemoryResource;
 export import Compute.CudaMemoryResource;
 export import Compute.CudaManagedMemoryResource;
 export import Compute.CudaPinnedMemoryResource;
+export import Compute.DynamicMemoryResource;
 
 export import Dnn.Modules.Attention;
 export import Dnn.Modules.Encoder;
@@ -69,6 +70,7 @@ export import Dnn.Blocks.TransformerBlock;
 export import Dnn.Gpt2.DatasetReader;
 
 import Compute.OperationsRegistrar;
+import Compute.DeviceRegistrar;
 
 namespace Mila
 {
@@ -96,14 +98,6 @@ namespace Mila
         };
     }
 
-    export void setDevice( const std::string& name ) {
-        Dnn::Compute::DeviceContext::instance().setDevice( name );
-    }
-
-    export std::shared_ptr<Dnn::Compute::ComputeDevice> getDevice() {
-        return Dnn::Compute::DeviceContext::instance().getDevice();
-    }
-
     /// <summary>
     /// Initializes the Mila framework.
     /// Must be called before using any other Mila functionality.
@@ -113,9 +107,9 @@ namespace Mila
         try {
             initializeLogger( Utils::LogLevel::Info );
 
-			// Initialize operations and device context
+			// Initialize operations and devices
             Dnn::Compute::OperationsRegistrar::instance();
-            Dnn::Compute::DeviceContext::instance();
+            Dnn::Compute::DeviceRegistrar::instance();
 
             Utils::Logger::info( "Mila framework initialized successfully" );
             return true;

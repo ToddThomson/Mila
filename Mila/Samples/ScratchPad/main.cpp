@@ -22,7 +22,7 @@ int main() {
     }
     std::cout << std::endl;
 
-    std::cout << "The current Compute Device is: " << Mila::getDevice()->getName() << std::endl;
+    //std::cout << "The current Compute Device is: " << Mila::getDevice()->getName() << std::endl;
 
  //   size_t batch_size = 2;
  //   size_t sequence_length = 2;

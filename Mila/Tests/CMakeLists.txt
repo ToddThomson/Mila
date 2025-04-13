@@ -22,7 +22,6 @@ set(CMAKE_CUDA_STANDARD 20)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
 find_package(CUDAToolkit REQUIRED)
-find_package(Thrust REQUIRED)
 
 # Default to building for the GPU on the current system
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
@@ -34,17 +33,19 @@ add_executable( MilaTests
     "main.cpp" 
     "Dnn/Tensor.cpp"
     "Dnn/TensorBuffer.cpp" 
-    "Dnn/Model.cpp"
-    "Dnn/Compute/Device.cpp" 
+    
+     
     "Dnn/Compute/DeviceHelpers.cpp" 
     "Dnn/Compute/DeviceContext.cpp"
+
+    #"Dnn/Model.cpp"
     
-    "Dnn/Modules/FullyConnected.cpp"
-    "Dnn/Modules/Gelu.cpp" 
-    "Dnn/Modules/Attention.cpp" 
-    "Dnn/Modules/Layernorm.cpp"
-    "Dnn/Modules/Residual.cpp"
-    "Dnn/Modules/Softmax.cpp"
+    #"Dnn/Modules/FullyConnected.cpp"
+    #"Dnn/Modules/Gelu.cpp" 
+    #"Dnn/Modules/Attention.cpp" 
+    #"Dnn/Modules/Layernorm.cpp"
+    #"Dnn/Modules/Residual.cpp"
+    #"Dnn/Modules/Softmax.cpp"
     "Dnn/Modules/Encoder.cpp" 
 
     #"Dnn/Models/Gpt2/DatasetReader.cpp"

@@ -1,0 +1,29 @@
+name: Documentation
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-documentation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install Doxygen
+        run: sudo apt-get install -y doxygen graphviz
+        
+      - name: Configure CMake
+        run: cmake -B ${{github.workspace}}/build
+        
+      - name: Generate Documentation
+        run: cmake --build ${{github.workspace}}/build --target docs
+        
+      - name: Deploy to GitHub Pages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: ${{github.workspace}}/docs
+          branch: gh-pages

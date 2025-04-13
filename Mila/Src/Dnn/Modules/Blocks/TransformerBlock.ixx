@@ -13,9 +13,11 @@ import Dnn.Tensor;
 import Dnn.TensorTraits;
 import Compute.ComputeDevice;
 import Compute.DeviceType;
+import Compute.DeviceContext;
 import Compute.CpuDevice;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
+import Compute.CudaMemoryResource;
 import Dnn.Module;
 import Dnn.Modules.LayerNorm;
 import Dnn.Modules.FullyConnected;
@@ -25,143 +27,271 @@ import Dnn.Blocks.MLP;
 
 namespace Mila::Dnn
 {
-	export
-	template<typename TInput, typename TCompute = TInput, Compute::DeviceType TDeviceType = Compute::DeviceType::Cuda>
-		requires ValidTensorTypes<TInput, TCompute>
-	class TransformerBlock : public Module<TInput, TCompute, TDeviceType> {
-	public:
-		using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::DeviceMemoryResource, Compute::HostMemoryResource>;
+    export
+        template<typename TInput, typename TCompute = TInput>
+        requires ValidTensorTypes<TInput, TCompute>
+    class TransformerBlock : public Module<TInput, TCompute> {
+    public:
+        /**
+         * @brief Constructs a new TransformerBlock module with the default device context.
+         *
+         * @param name The name of the module for identification purposes.
+         * @param input_shape The shape of the input tensor, must be of rank 3 [batch_size, sequence_length, channels].
+         * @param num_heads The number of attention heads to use.
+         * @param is_training Whether the module is initially in training mode. Default is false.
+         * @throws std::invalid_argument If the input shape doesn't have rank 3.
+         */
+        TransformerBlock( std::string name, const std::vector<size_t>& input_shape, const size_t num_heads, bool is_training = false )
+            : Module<TInput, TCompute>(),
+            input_shape_{ validate_shape( input_shape ) },
+            num_heads_{ num_heads } {
+            this->setName( name );
+            this->setTraining( is_training );
 
-		TransformerBlock( std::string name, const std::vector<size_t>& input_shape, const size_t num_heads, bool is_training = false )
-			: input_shape_{ validate_shape( input_shape ) }, num_heads_{ num_heads } {
-			this->setName( name );
-			this->setTraining( is_training );
+            initializeModules();
+        }
 
-			auto B = input_shape_[ 0 ];
-			auto T = input_shape_[ 1 ];
-			auto C = input_shape_[ 2 ];
+        /**
+         * @brief Constructs a new TransformerBlock module with a specific device context.
+         *
+         * @param name The name of the module for identification purposes.
+         * @param input_shape The shape of the input tensor, must be of rank 3 [batch_size, sequence_length, channels].
+         * @param num_heads The number of attention heads to use.
+         * @param context The device context to use for this module.
+         * @param is_training Whether the module is initially in training mode. Default is false.
+         * @throws std::invalid_argument If the input shape doesn't have rank 3.
+         */
+        TransformerBlock( std::string name, const std::vector<size_t>& input_shape, const size_t num_heads,
+            std::shared_ptr<DeviceContext> context, bool is_training = false )
+            : Module<TInput, TCompute>( context ),
+            input_shape_{ validate_shape( input_shape ) },
+            num_heads_{ num_heads } {
+            this->setName( name );
+            this->setTraining( is_training );
 
-            ln_1_ = std::make_shared<LayerNorm<TInput, TCompute, TDeviceType>>( this->getName() + ".ln_1", input_shape_ );
-            fc_qkv_ = std::make_shared<FullyConnected<TInput, TCompute, TDeviceType>>( this->getName() + ".fc_qkv", C, 3 * C );
-            attn_ = std::make_shared<MultiHeadAttention<TInput, TCompute, TDeviceType>>( this->getName() + ".attn", input_shape_, num_heads_ );
-			fc_attn_proj_ = std::make_shared<FullyConnected<TInput, TCompute, TDeviceType>>( this->getName() + ".fc_attn_proj", C, C );
-			res_1_ = std::make_shared<Residual<TInput, TCompute, TDeviceType>>( this->getName() + ".res_1" );
-            ln_2_ = std::make_shared<LayerNorm<TInput, TCompute, TDeviceType>>( this->getName() + ".ln_2", input_shape_ );
-            mlp_ = std::make_shared<MLP<TInput, TCompute, TDeviceType>>( this->getName() + ".mlp", input_shape_, 4 * C);
-            res_2_ = std::make_shared<Residual<TInput, TCompute, TDeviceType>>( this->getName() + ".res_2" );
+            initializeModules();
+        }
 
-			this->addModule( ln_1_ );
-			this->addModule( fc_qkv_ ); // qkv
-			this->addModule( attn_ ); // attn
-			this->addModule( fc_attn_proj_ ); // fc_proj
-			this->addModule( res_1_ ); // residual
-			this->addModule( ln_2_ );
-			this->addModule( mlp_ );
-			this->addModule( res_2_ );
+        /**
+         * @brief Performs the forward pass of the TransformerBlock.
+         *
+         * The forward pass consists of the following sequence:
+         * 1. Layer normalization 1
+         * 2. QKV projection
+         * 3. Multi-head attention
+         * 4. Attention output projection
+         * 5. Residual connection 1 (add attention output to input)
+         * 6. Layer normalization 2
+         * 7. MLP block
+         * 8. Residual connection 2 (add MLP output to previous residual output)
+         *
+         * @param input The input tensor to be processed.
+         * @param output The output tensor where the results will be stored.
+         */
+        template<typename TMR>
+        void forward( const Tensor<TInput, TMR>& input, Tensor<TCompute, TMR>& output ) {
+            ln_1_->forward( input, ln_1_output_ );
+            fc_qkv_->forward( ln_1_output_, fc_qkv_output_ );
+            attn_->forward( fc_qkv_output_, attn_output_ );
+            fc_attn_proj_->forward( attn_output_, fc_attn_proj_output_ );
+            res_1_->forward( input, fc_attn_proj_output_, res_1_output_ );
+            ln_2_->forward( res_1_output_, ln_2_output_ );
+            mlp_->forward( ln_2_output_, mlp_output_ );
+            res_2_->forward( res_1_output_, mlp_output_, output );
+        }
 
-			// Pre-allocate output tensors for the Transformer block layers
-			ln_1_output_ = Tensor<TCompute, MR>( input_shape_ );
-			fc_qkv_output_ = Tensor<TCompute, MR>( { B, T, 3 * C } );
-			attn_output_ = Tensor<TCompute, MR>( input_shape_ );
-			fc_attn_proj_output_ = Tensor<TCompute, MR>( { B, T, C } );
-			res_1_output_ = Tensor<TCompute, MR>( input_shape_ );
-			ln_2_output_ = Tensor<TCompute, MR>( input_shape_ );
-			mlp_output_ = Tensor<TCompute, MR>( input_shape_ );
-			res_2_output_ = Tensor<TCompute, MR>( input_shape_ );
-		}
+        /**
+         * @brief Gets the number of trainable parameters in this module.
+         *
+         * Counts the total number of parameters in all sub-modules.
+         *
+         * @return size_t The total number of parameters.
+         */
+        size_t parameterCount() const override {
+            size_t total_parameters = 0;
+            for ( const auto& module : this->getModules() ) {
+                total_parameters += module->parameterCount();
+            }
+            return total_parameters;
+        }
 
-		void forward( const Tensor<TInput, MR>& input, Tensor<TCompute,MR>& output ) {
-			ln_1_->forward( input, ln_1_output_ );
-			//std::cout << ln_1_output_.toString( true ) << std::endl;
+        /**
+         * @brief Saves the module state to a ZIP archive.
+         *
+         * Serializes all sub-module states to the provided archive.
+         *
+         * @param zip The ZIP archive to save the module state to.
+         */
+        void save( mz_zip_archive& zip ) const override {
+            // Save the state of the child modules
+            for ( const auto& module : this->getModules() ) {
+                module->save( zip );
+            }
+        }
 
-			fc_qkv_->forward( ln_1_output_, fc_qkv_output_ );
-			//std::cout << "fc1_output_" << std::endl;
-			//fc1_output_.print();
+        /**
+         * @brief Loads the module state from a ZIP archive.
+         *
+         * Deserializes all sub-module states from the provided archive.
+         *
+         * @param zip The ZIP archive to load the module state from.
+         */
+        void load( mz_zip_archive& zip ) override {
+            for ( const auto& module : this->getModules() ) {
+                module->load( zip );
+            }
+        }
 
-			attn_->forward( fc_qkv_output_, attn_output_ );
-			//std::cout << "attn_output_" << std::endl;
-			//attn_output_.print();
+        /**
+         * @brief Converts the module information to a human-readable string.
+         *
+         * @return std::string A string representation of the module information.
+         */
+        std::string toString() const override {
+            std::ostringstream oss;
+            oss << "====================" << std::endl;
+            oss << "Transformer: " << this->getName();
+            oss << ", Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
+            oss << "Parameter count: " << parameterCount() << std::endl;
+            oss << "Sub-Modules..." << std::endl;
 
-			fc_attn_proj_->forward( attn_output_, fc_attn_proj_output_ );
+            for ( const auto& [name, module] : this->getNamedModules() ) {
+                oss << *module;
+            }
 
-			res_1_->forward( input, fc_attn_proj_output_, res_1_output_ );
-			//std::cout << "residual_output_" << std::endl;
-			//residual_output_.print();
-			
-			ln_2_->forward( res_1_output_, ln_2_output_ );
-			//std::cout << "ln2_output_" << std::endl;
-			//ln2_output_.print();
+            return oss.str();
+        }
 
-			mlp_->forward( ln_2_output_, mlp_output_ );
-			//std::cout << "mlp_output_" << std::endl;
-			//output.print();
+    protected:
+        /**
+         * @brief Called when the device context changes.
+         *
+         * Recreates sub-modules and output tensors for the new device.
+         */
+        void onDeviceChanged() override {
+            initializeModules();
+        }
 
-			res_2_->forward( res_1_output_, mlp_output_, output );
-		}
+    private:
+        std::vector<size_t> input_shape_; ///< The input shape.
+        size_t num_heads_; ///< The number of attention heads.
 
-		size_t parameterCount() const override {
-			size_t total_parameters = 0;
-			for ( const auto& module : this->getSubModules() ) {
-				total_parameters += module->parameterCount();
-			}
-			return total_parameters;
-		}
+        // Sub-modules
+        std::shared_ptr<LayerNorm<TInput, TCompute>> ln_1_{ nullptr };
+        std::shared_ptr<FullyConnected<TInput, TCompute>> fc_qkv_{ nullptr };
+        std::shared_ptr<MultiHeadAttention<TInput, TCompute>> attn_{ nullptr };
+        std::shared_ptr<FullyConnected<TInput, TCompute>> fc_attn_proj_{ nullptr };
+        std::shared_ptr<Residual<TInput, TCompute>> res_1_{ nullptr };
+        std::shared_ptr<LayerNorm<TInput, TCompute>> ln_2_{ nullptr };
+        std::shared_ptr<MLP<TInput, TCompute>> mlp_{ nullptr };
+        std::shared_ptr<Residual<TInput, TCompute>> res_2_{ nullptr };
 
-		void save( mz_zip_archive& zip ) const override {
-			// Save the state of the child modules
-			for ( const auto& module : this->getSubModules() ) {
-				module->save( zip );
-			}
-		}
+        // Intermediate tensors
+        Tensor<TCompute, typename Module<TInput, TCompute>::MR> ln_1_output_;
+        Tensor<TCompute, typename Module<TInput, TCompute>::MR> fc_qkv_output_;
+        Tensor<TCompute, typename Module<TInput, TCompute>::MR> attn_output_;
+        Tensor<TCompute, typename Module<TInput, TCompute>::MR> fc_attn_proj_output_;
+        Tensor<TCompute, typename Module<TInput, TCompute>::MR> res_1_output_;
+        Tensor<TCompute, typename Module<TInput, TCompute>::MR> ln_2_output_;
+        Tensor<TCompute, typename Module<TInput, TCompute>::MR> mlp_output_;
+        Tensor<TCompute, typename Module<TInput, TCompute>::MR> res_2_output_;
 
-		void load( mz_zip_archive& zip ) override {
-			for ( const auto& module : this->getSubModules() ) {
-				module->load( zip );
-			}
-		}
+        /**
+         * @brief Validates the input shape for the transformer block.
+         *
+         * @param shape The shape to validate.
+         * @return The validated shape.
+         * @throws std::invalid_argument If the shape doesn't have rank 3.
+         */
+        std::vector<size_t> validate_shape( const std::vector<size_t>& shape ) {
+            if ( shape.size() != 3 ) {
+                throw std::invalid_argument( "The input shape must have rank of 3." );
+            }
 
-		std::string toString() const override {
-			std::ostringstream oss;
-			oss << "====================" << std::endl;
-			oss << "Transformer: " << this->getName() << std::endl;
-			oss << "Parameter count: " << parameterCount() << std::endl;
-			oss << "Sub-Modules..." << std::endl;
+            return shape;
+        }
 
-			for ( const auto& module : this->getSubModules() ) {
-				oss << *module;
-			}
+        /**
+         * @brief Initializes the sub-modules and output tensors for the transformer block.
+         */
+        void initializeModules() {
+            // Clear existing modules if any
+            for ( const auto& [name, _] : this->getNamedModules() ) {
+                this->removeModule( name );
+            }
 
-			return oss.str();
-		}
+            auto B = input_shape_[ 0 ]; // Batch size
+            auto T = input_shape_[ 1 ]; // Sequence length
+            auto C = input_shape_[ 2 ]; // Number of channels
 
-	private:
-		std::vector<size_t> input_shape_; ///< The input shape.
-		size_t num_heads_; ///< The number of attention heads.
+            // Create new modules with the current device context
+            ln_1_ = std::make_shared<LayerNorm<TInput, TCompute>>(
+                this->getName() + ".ln_1", input_shape_ );
 
-		std::shared_ptr<LayerNorm<TInput, TCompute, TDeviceType>> ln_1_{ nullptr };
-		std::shared_ptr<FullyConnected<TInput, TCompute, TDeviceType>> fc_qkv_{ nullptr };
-		std::shared_ptr<MultiHeadAttention<TInput, TCompute, TDeviceType>> attn_{ nullptr };
-		std::shared_ptr<FullyConnected<TInput, TCompute, TDeviceType>> fc_attn_proj_{ nullptr };
-		std::shared_ptr<Residual<TInput, TCompute, TDeviceType>> res_1_{ nullptr };
-		std::shared_ptr<LayerNorm<TInput, TCompute, TDeviceType>> ln_2_{ nullptr };
-		std::shared_ptr<MLP<TInput, TCompute, TDeviceType>> mlp_{ nullptr };
-		std::shared_ptr<Residual<TInput, TCompute, TDeviceType>> res_2_{ nullptr };
+            fc_qkv_ = std::make_shared<FullyConnected<TInput, TCompute>>(
+                this->getName() + ".fc_qkv", C, 3 * C );
 
-		Tensor<TCompute, MR> ln_1_output_;
-		Tensor<TCompute, MR> fc_qkv_output_;
-		Tensor<TCompute, MR> attn_output_;
-		Tensor<TCompute, MR> fc_attn_proj_output_;
-		Tensor<TCompute, MR> res_1_output_;
-		Tensor<TCompute, MR> ln_2_output_;
-		Tensor<TCompute, MR> mlp_output_;
-		Tensor<TCompute, MR> res_2_output_;
+            attn_ = std::make_shared<MultiHeadAttention<TInput, TCompute>>(
+                this->getName() + ".attn", input_shape_, num_heads_ );
 
-		std::vector<size_t> validate_shape( const std::vector<size_t>& shape ) {
-			if ( shape.size() != 3 ) {
-				throw std::invalid_argument( "The input shape must have rank of 3." );
-			}
+            fc_attn_proj_ = std::make_shared<FullyConnected<TInput, TCompute>>(
+                this->getName() + ".fc_attn_proj", C, C );
 
-			return shape;
-		}
-	};
+            res_1_ = std::make_shared<Residual<TInput, TCompute>>(
+                this->getName() + ".res_1" );
+
+            ln_2_ = std::make_shared<LayerNorm<TInput, TCompute>>(
+                this->getName() + ".ln_2", input_shape_ );
+
+            mlp_ = std::make_shared<MLP<TInput, TCompute>>(
+                this->getName() + ".mlp", input_shape_, 4 * C );
+
+            res_2_ = std::make_shared<Residual<TInput, TCompute>>(
+                this->getName() + ".res_2" );
+
+            // Propagate device context to sub-modules
+            ln_1_->setDeviceContext( this->getDeviceContext() );
+            fc_qkv_->setDeviceContext( this->getDeviceContext() );
+            attn_->setDeviceContext( this->getDeviceContext() );
+            fc_attn_proj_->setDeviceContext( this->getDeviceContext() );
+            res_1_->setDeviceContext( this->getDeviceContext() );
+            ln_2_->setDeviceContext( this->getDeviceContext() );
+            mlp_->setDeviceContext( this->getDeviceContext() );
+            res_2_->setDeviceContext( this->getDeviceContext() );
+
+            // Add sub-modules to the TransformerBlock
+            this->addModule( "ln_1", ln_1_ );
+            this->addModule( "fc_qkv", fc_qkv_ );
+            this->addModule( "attn", attn_ );
+            this->addModule( "fc_attn_proj", fc_attn_proj_ );
+            this->addModule( "res_1", res_1_ );
+            this->addModule( "ln_2", ln_2_ );
+            this->addModule( "mlp", mlp_ );
+            this->addModule( "res_2", res_2_ );
+
+            // Create output tensors for the intermediate steps
+            auto device_type = this->getDeviceContext()->getDevice()->getDeviceType();
+
+            if ( device_type == DeviceType::Cpu ) {
+                ln_1_output_ = Tensor<TCompute, Compute::HostMemoryResource>( input_shape_ );
+                fc_qkv_output_ = Tensor<TCompute, Compute::HostMemoryResource>( { B, T, 3 * C } );
+                attn_output_ = Tensor<TCompute, Compute::HostMemoryResource>( input_shape_ );
+                fc_attn_proj_output_ = Tensor<TCompute, Compute::HostMemoryResource>( { B, T, C } );
+                res_1_output_ = Tensor<TCompute, Compute::HostMemoryResource>( input_shape_ );
+                ln_2_output_ = Tensor<TCompute, Compute::HostMemoryResource>( input_shape_ );
+                mlp_output_ = Tensor<TCompute, Compute::HostMemoryResource>( input_shape_ );
+                res_2_output_ = Tensor<TCompute, Compute::HostMemoryResource>( input_shape_ );
+            }
+            else {
+                ln_1_output_ = Tensor<TCompute, Compute::DeviceMemoryResource>( input_shape_ );
+                fc_qkv_output_ = Tensor<TCompute, Compute::DeviceMemoryResource>( { B, T, 3 * C } );
+                attn_output_ = Tensor<TCompute, Compute::DeviceMemoryResource>( input_shape_ );
+                fc_attn_proj_output_ = Tensor<TCompute, Compute::DeviceMemoryResource>( { B, T, C } );
+                res_1_output_ = Tensor<TCompute, Compute::DeviceMemoryResource>( input_shape_ );
+                ln_2_output_ = Tensor<TCompute, Compute::DeviceMemoryResource>( input_shape_ );
+                mlp_output_ = Tensor<TCompute, Compute::DeviceMemoryResource>( input_shape_ );
+                res_2_output_ = Tensor<TCompute, Compute::DeviceMemoryResource>( input_shape_ );
+            }
+        }
+    };
 }

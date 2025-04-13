@@ -142,9 +142,7 @@ namespace Mila::Dnn::Compute
      * @param location Source location information (automatically populated by default).
      * @throws CudaError if the last error is not cudaSuccess.
      */
-    export inline void cudaCheckLastError(
-        const std::source_location& location = std::source_location::current()
-    ) {
+    export inline void cudaCheckLastError( const std::source_location& location = std::source_location::current() ) {
         cudaError_t error = cudaGetLastError();
         if ( error != cudaSuccess ) {
             throw CudaError( error, location );

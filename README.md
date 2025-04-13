@@ -2,7 +2,7 @@
 Mila Deep Neural Network Library
 
 ## Prerelease Notice
-Mila, version 0.9.69-alpha is currently an early, preview release.
+Mila, version 0.9.71-alpha is currently an early, preview release.
 
 ## Description
 Achilles Mila Deep Neural Network library provides a comprehensive API to model, train and evaluate 
@@ -23,13 +23,16 @@ across multiple GPUs and compute nodes, with automatic optimization for various 
 
 ## What's New
 
-* Improved CUDA error handling with detailed error messages and source location tracking
-* Optimized tensor operations for device memory with single-element access
-* Enhanced memory management for GPU tensors with efficient transfer operations
-* Added comprehensive documentation with Doxygen comments
-* Standardized naming conventions across the codebase
-* Performance improvements for device-to-host and host-to-device memory transfers
-* Expanded tensor API with better type safety and memory access patterns
+* Added automatic documentation generation with GitHub Actions workflow
+* Implemented improved memory resource tracking for better debugging
+* Enhanced CUDA operations with optimized matrix multiplication and bias activation
+* Added support for transformer block architecture with full encoder implementation
+* Integrated dynamic memory resources for better GPU memory management
+* Improved device context helpers for simplified device selection and management
+* Added comprehensive API documentation with Doxygen integration
+* Expanded tensor operations with better type safety and efficient memory access patterns
+* Fixed numerical stability issues in LayerNorm and Softmax operations
+* Added support for building with Ninja generator for faster compilation
 
 ## Mila Build Instructions
 Mila uses CMake build. To build Mila, follow the steps below:  
