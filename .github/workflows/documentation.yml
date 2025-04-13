@@ -24,7 +24,7 @@ jobs:
         with:
           cuda: '12.8.1'
           method: 'network'
-          sub-packages: '["nvcc", "cudart", "cublas", "cublaslt", "nvml"]'
+          #sub-packages: '["nvcc", "cudart", "cublas", "cublaslt", "nvml"]'
       
       - name: Verify CUDA installation
         run: |
