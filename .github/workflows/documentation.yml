@@ -18,16 +18,21 @@ jobs:
           sudo apt-get install -y doxygen graphviz build-essential cmake ninja-build
           sudo apt-get install -y libgtest-dev
       
-      - name: Install CUDA Toolkit
+      # Use NVIDIA's CUDA action instead of manual installation
+      - name: Setup CUDA
+        uses: Jimver/cuda-toolkit@v0.2.14
+        with:
+          cuda: '12.8.0'
+          method: 'network'
+          sub-packages: '["nvcc", "cudart", "cublas", "cublaslt", "nvml"]'
+      
+      - name: Verify CUDA installation
         run: |
-          wget https://developer.download.nvidia.com/compute/cuda/12.8.0/local_installers/cuda-repo-ubuntu2204-12-8-local_12.8.0-535.161.07-1_amd64.deb
-          sudo dpkg -i cuda-repo-ubuntu2204-12-8-local_12.8.0-535.161.07-1_amd64.deb
-          sudo cp /var/cuda-repo-ubuntu2204-12-8-local/cuda-*-keyring.gpg /usr/share/keyrings/
-          sudo apt-get update
-          sudo apt-get -y install cuda-toolkit-12-8
-          echo "CUDA_HOME=/usr/local/cuda-12.8" >> $GITHUB_ENV
-          echo "PATH=/usr/local/cuda-12.8/bin:$PATH" >> $GITHUB_ENV
-          echo "LD_LIBRARY_PATH=/usr/local/cuda-12.8/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+          nvcc --version
+          echo "CUDA_PATH: $CUDA_PATH"
+          ls -la $CUDA_PATH/bin
+          ls -la $CUDA_PATH/lib64 || echo "lib64 not found"
+          ls -la $CUDA_PATH/lib || echo "lib not found"
       
       - name: Install miniz dependency
         run: |
@@ -38,8 +43,15 @@ jobs:
           sudo cmake --install build
         
       - name: Configure CMake
-        run: cmake -B ${{github.workspace}}/build -G Ninja -DCMAKE_BUILD_TYPE=Release
-        
+        run: |
+          cmake -B ${{github.workspace}}/build -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_CUDA_COMPILER=$CUDA_PATH/bin/nvcc \
+                -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler" \
+                -DMILA_ENABLE_CUDA=OFF
+        env:
+          CUDACXX: ${{ env.CUDA_PATH }}/bin/nvcc
+          
       - name: Generate Documentation
         run: cmake --build ${{github.workspace}}/build --target docs
         
