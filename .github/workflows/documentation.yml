@@ -22,7 +22,7 @@ jobs:
       - name: Setup CUDA
         uses: Jimver/cuda-toolkit@v0.2.14
         with:
-          cuda: '12.8.0'
+          cuda: '12.2.0'
           method: 'network'
           sub-packages: '["nvcc", "cudart", "cublas", "cublaslt", "nvml"]'
       
