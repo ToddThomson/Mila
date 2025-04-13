@@ -12,17 +12,39 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       
-      - name: Install Doxygen
-        run: sudo apt-get install -y doxygen graphviz
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y doxygen graphviz build-essential cmake ninja-build
+          sudo apt-get install -y libgtest-dev
+      
+      - name: Install CUDA Toolkit
+        run: |
+          wget https://developer.download.nvidia.com/compute/cuda/12.8.0/local_installers/cuda-repo-ubuntu2204-12-8-local_12.8.0-535.161.07-1_amd64.deb
+          sudo dpkg -i cuda-repo-ubuntu2204-12-8-local_12.8.0-535.161.07-1_amd64.deb
+          sudo cp /var/cuda-repo-ubuntu2204-12-8-local/cuda-*-keyring.gpg /usr/share/keyrings/
+          sudo apt-get update
+          sudo apt-get -y install cuda-toolkit-12-8
+          echo "CUDA_HOME=/usr/local/cuda-12.8" >> $GITHUB_ENV
+          echo "PATH=/usr/local/cuda-12.8/bin:$PATH" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=/usr/local/cuda-12.8/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+      
+      - name: Install miniz dependency
+        run: |
+          git clone https://github.com/richgel999/miniz.git
+          cd miniz
+          cmake -B build -G Ninja
+          cmake --build build --config Release
+          sudo cmake --install build
         
       - name: Configure CMake
-        run: cmake -B ${{github.workspace}}/build
+        run: cmake -B ${{github.workspace}}/build -G Ninja -DCMAKE_BUILD_TYPE=Release
         
       - name: Generate Documentation
         run: cmake --build ${{github.workspace}}/build --target docs
         
       - name: Deploy to GitHub Pages
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: JamesIves/github-pages-deploy-action@v4
         with:
           folder: ${{github.workspace}}/docs
