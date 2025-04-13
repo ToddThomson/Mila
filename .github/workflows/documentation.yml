@@ -48,7 +48,7 @@ jobs:
                 -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_CUDA_COMPILER=$CUDA_PATH/bin/nvcc \
                 -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler" \
-                -DMILA_ENABLE_CUDA=OFF
+                -DCMAKE_CXX_SCAN_FOR_MODULES=YES
         env:
           CUDACXX: ${{ env.CUDA_PATH }}/bin/nvcc
           
