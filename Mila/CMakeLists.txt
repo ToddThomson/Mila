@@ -1,5 +1,4 @@
-﻿
-add_library( Mila STATIC
+﻿add_library( Mila STATIC
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/Cuda.Utils.h"
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/Cuda.Ops.h"
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/Cuda.Encoder.cu"
@@ -24,6 +23,15 @@ find_package(miniz REQUIRED)
 
 target_include_directories( Mila INTERFACE ${miniz_SOURCE_DIR})
 target_link_libraries( Mila PRIVATE miniz)
+
+# Add explicit compiler-specific module flags
+if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+  add_compile_options(/std:c++latest)
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  add_compile_options(-fmodules-ts)
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-fmodules)
+endif()
 
 if(MILA_ENABLE_OPENMP)
 	find_package(OpenMP REQUIRED)
