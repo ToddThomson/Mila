@@ -1,0 +1,12 @@
+<map id="Src/Dnn/Compute/ComputeDevice.ixx" name="Src/Dnn/Compute/ComputeDevice.ixx">
+<area shape="rect" id="Node000001" title="Abstract interface for compute devices in the ML framework." alt="" coords="5,5,272,31"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="60,152,119,177"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="133,32,108,80,95,139,89,138,103,78,128,30"/>
+<area shape="rect" id="Node000003" href="$DeviceType_8ixx.html" title="Device type definitions and conversion utilities for compute devices." alt="" coords="117,79,277,104"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="150,29,181,67,177,70,146,33"/>
+<area shape="poly" id="edge5_Node000003_Node000002" title=" " alt="" coords="181,106,120,147,117,142,179,102"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="149,152,235,177"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="199,105,197,139,191,138,194,104"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="260,152,345,177"/>
+<area shape="poly" id="edge4_Node000003_Node000005" title=" " alt="" coords="216,102,276,142,273,147,213,106"/>
+</map>

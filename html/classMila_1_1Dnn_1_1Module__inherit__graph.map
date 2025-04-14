@@ -1,0 +1,29 @@
+<map id="Mila::Dnn::Module&lt; TInput, TPrecision, TDeviceType &gt;" name="Mila::Dnn::Module&lt; TInput, TPrecision, TDeviceType &gt;">
+<area shape="rect" id="Node000001" title="Abstract base class for all modules in the Mila DNN framework." alt="" coords="5,382,156,437"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Block.html" title=" " alt="" coords="210,5,417,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="82,368,91,301,111,217,126,173,146,130,171,91,202,55,218,43,222,48,206,59,176,94,151,133,131,175,116,218,96,302,87,369"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Block.html" title="A module class that can contain and manage child modules." alt="" coords="214,69,413,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="85,368,98,312,120,245,154,178,176,147,202,119,219,107,222,112,206,123,180,150,159,180,125,247,103,313,91,369"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Encoder.html" title="An encoder module that provides token and positional embeddings." alt="" coords="235,134,392,189"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="94,368,111,328,134,283,165,238,202,199,233,180,236,185,206,203,169,242,139,286,115,331,99,370"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1FullyConnected.html" title="A class representing a fully&#45;connected module." alt="" coords="217,213,409,253"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="104,369,145,314,172,287,203,263,226,251,228,256,205,268,176,291,149,318,108,372"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1FusedModule.html" title=" " alt="" coords="224,278,403,333"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="142,373,203,343,233,330,235,335,205,348,145,378"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1Gelu.html" title="Gaussian Error Linear Unit (GELU) activation function module." alt="" coords="222,357,405,397"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="169,395,221,387,222,393,170,400"/>
+<area shape="rect" id="Node000009" href="$classMila_1_1Dnn_1_1LayerNorm.html" title="Layer Normalization module." alt="" coords="229,421,397,461"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="170,419,230,427,229,432,169,424"/>
+<area shape="rect" id="Node000010" href="$classMila_1_1Dnn_1_1Model.html" title="A class representing a neural network model." alt="" coords="217,485,409,525"/>
+<area shape="poly" id="edge9_Node000001_Node000010" title=" " alt="" coords="142,441,205,471,238,483,236,488,203,476,140,446"/>
+<area shape="rect" id="Node000011" href="$classMila_1_1Dnn_1_1MultiHeadAttention.html" title=" " alt="" coords="204,549,423,589"/>
+<area shape="poly" id="edge10_Node000001_Node000011" title=" " alt="" coords="112,446,153,493,178,515,205,535,229,547,227,552,203,540,175,520,149,496,108,449"/>
+<area shape="rect" id="Node000012" href="$classMila_1_1Dnn_1_1Residual.html" title="Residual connection module for neural networks." alt="" coords="235,614,392,669"/>
+<area shape="poly" id="edge11_Node000001_Node000012" title=" " alt="" coords="100,448,142,525,171,565,206,599,236,617,233,622,202,603,167,568,137,528,96,451"/>
+<area shape="rect" id="Node000013" href="$classMila_1_1Dnn_1_1Softmax.html" title="Softmax module for neural networks." alt="" coords="229,693,397,733"/>
+<area shape="poly" id="edge12_Node000001_Node000013" title=" " alt="" coords="92,449,105,501,128,563,161,625,182,653,206,678,230,694,228,698,202,682,178,657,156,628,123,565,100,503,87,451"/>
+<area shape="rect" id="Node000014" href="$classMila_1_1Dnn_1_1TransformerBlock.html" title=" " alt="" coords="210,757,417,797"/>
+<area shape="poly" id="edge13_Node000001_Node000014" title=" " alt="" coords="88,450,98,514,118,593,133,634,153,674,177,711,206,743,222,755,219,759,202,747,173,714,148,677,129,636,113,595,92,515,83,451"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1MLP.html" title=" " alt="" coords="471,69,669,109"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="426,87,470,87,470,92,426,92"/>
+</map>

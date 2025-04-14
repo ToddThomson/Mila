@@ -1,0 +1,57 @@
+<map id="Src/Dnn/Compute/DynamicMemoryResource.ixx" name="Src/Dnn/Compute/DynamicMemoryResource.ixx">
+<area shape="rect" id="Node000001" title=" " alt="" coords="413,5,664,45"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="241,93,309,119"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="476,48,323,93,321,88,475,43"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="333,93,425,119"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="502,48,416,90,413,85,499,43"/>
+<area shape="rect" id="Node000004" href="$DeviceType_8ixx.html" title="Device type definitions and conversion utilities for compute devices." alt="" coords="5,167,165,192"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="525,47,488,86,464,105,437,121,400,131,335,143,179,168,179,162,334,138,399,126,435,116,461,101,485,82,522,44"/>
+<area shape="rect" id="Node000008" href="$CudaMemoryResource_8ixx.html" title=" " alt="" coords="500,93,732,119"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="559,44,597,82,593,85,555,47"/>
+<area shape="rect" id="Node000020" href="$MemoryResource_8ixx.html" title="Defines a common memory resource abstraction for the compute framework." alt="" coords="1135,167,1334,192"/>
+<area shape="poly" id="edge33_Node000001_Node000020" title=" " alt="" coords="625,43,1169,161,1168,166,624,48"/>
+<area shape="rect" id="Node000021" href="$CpuMemoryResource_8ixx.html" title=" " alt="" coords="1191,93,1415,119"/>
+<area shape="poly" id="edge27_Node000001_Node000021" title=" " alt="" coords="665,37,1178,89,1177,95,664,42"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="130,240,217,265"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="101,190,150,229,147,233,98,194"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="20,240,105,265"/>
+<area shape="poly" id="edge5_Node000004_Node000006" title=" " alt="" coords="84,193,73,228,68,226,79,192"/>
+<area shape="rect" id="Node000007" title=" " alt="" coords="388,240,447,265"/>
+<area shape="poly" id="edge6_Node000004_Node000007" title=" " alt="" coords="148,189,375,237,374,242,147,195"/>
+<area shape="poly" id="edge10_Node000008_Node000007" title=" " alt="" coords="574,121,525,140,478,169,451,198,431,229,427,226,446,195,474,165,523,135,572,116"/>
+<area shape="rect" id="Node000009" title=" " alt="" coords="241,240,364,265"/>
+<area shape="poly" id="edge8_Node000008_Node000009" title=" " alt="" coords="500,120,394,139,351,152,323,169,314,181,308,196,304,226,299,226,303,194,309,178,320,165,349,147,393,134,499,115"/>
+<area shape="rect" id="Node000010" title=" " alt="" coords="1165,240,1305,265"/>
+<area shape="poly" id="edge9_Node000008_Node000010" title=" " alt="" coords="652,116,784,164,810,178,836,189,918,211,1002,226,1151,244,1150,249,1001,232,917,216,834,195,807,183,782,169,651,121"/>
+<area shape="rect" id="Node000011" title=" " alt="" coords="333,167,413,192"/>
+<area shape="poly" id="edge11_Node000008_Node000011" title=" " alt="" coords="578,121,426,165,425,160,576,116"/>
+<area shape="rect" id="Node000012" title=" " alt="" coords="720,240,795,265"/>
+<area shape="poly" id="edge12_Node000008_Node000012" title=" " alt="" coords="619,119,625,153,633,173,643,190,673,216,708,233,706,238,670,220,639,194,628,175,620,155,614,120"/>
+<area shape="rect" id="Node000013" title=" " alt="" coords="189,167,259,192"/>
+<area shape="poly" id="edge13_Node000008_Node000013" title=" " alt="" coords="547,121,278,169,273,170,272,165,277,164,546,116"/>
+<area shape="rect" id="Node000014" href="$CudaError_8ixx.html" title="CUDA error handling utilities and exception class." alt="" coords="488,167,579,192"/>
+<area shape="poly" id="edge14_Node000008_Node000014" title=" " alt="" coords="604,121,559,160,556,155,601,117"/>
+<area shape="rect" id="Node000017" href="$CudaBadAlloc_8ixx.html" title=" " alt="" coords="654,167,770,192"/>
+<area shape="poly" id="edge21_Node000008_Node000017" title=" " alt="" coords="633,117,687,156,684,160,630,121"/>
+<area shape="rect" id="Node000019" href="$MemoryResourceProperties_8ixx.html" title=" " alt="" coords="846,167,1111,192"/>
+<area shape="poly" id="edge24_Node000008_Node000019" title=" " alt="" coords="675,116,907,161,906,167,674,121"/>
+<area shape="poly" id="edge25_Node000008_Node000020" title=" " alt="" coords="716,116,1122,162,1121,168,715,121"/>
+<area shape="poly" id="edge15_Node000014_Node000005" title=" " alt="" coords="489,192,231,242,230,237,487,187"/>
+<area shape="poly" id="edge16_Node000014_Node000007" title=" " alt="" coords="516,194,449,235,447,230,513,190"/>
+<area shape="poly" id="edge19_Node000014_Node000009" title=" " alt="" coords="497,195,354,239,352,233,495,189"/>
+<area shape="poly" id="edge18_Node000014_Node000012" title=" " alt="" coords="570,189,709,233,707,238,569,195"/>
+<area shape="rect" id="Node000015" title=" " alt="" coords="619,240,695,265"/>
+<area shape="poly" id="edge17_Node000014_Node000015" title=" " alt="" coords="555,190,627,231,624,235,552,194"/>
+<area shape="rect" id="Node000016" title=" " alt="" coords="471,240,595,265"/>
+<area shape="poly" id="edge20_Node000014_Node000016" title=" " alt="" coords="536,192,536,226,531,226,531,192"/>
+<area shape="poly" id="edge22_Node000017_Node000007" title=" " alt="" coords="662,195,461,242,460,237,660,189"/>
+<area shape="rect" id="Node000018" title=" " alt="" coords="937,240,1023,265"/>
+<area shape="poly" id="edge23_Node000017_Node000018" title=" " alt="" coords="756,189,924,234,923,239,754,195"/>
+<area shape="poly" id="edge26_Node000020_Node000010" title=" " alt="" coords="1237,192,1237,226,1232,226,1232,192"/>
+<area shape="poly" id="edge28_Node000021_Node000010" title=" " alt="" coords="1332,116,1358,130,1382,148,1396,169,1397,181,1392,193,1377,210,1359,224,1319,241,1317,236,1356,219,1373,206,1387,191,1391,180,1391,171,1378,152,1355,135,1329,121"/>
+<area shape="poly" id="edge30_Node000021_Node000018" title=" " alt="" coords="1318,117,1334,132,1348,152,1356,173,1354,184,1349,194,1333,203,1304,212,1222,227,1037,249,1037,243,1221,222,1303,206,1331,198,1345,190,1349,182,1350,174,1344,154,1330,136,1315,121"/>
+<area shape="poly" id="edge31_Node000021_Node000019" title=" " alt="" coords="1251,121,1045,166,1044,161,1250,116"/>
+<area shape="poly" id="edge32_Node000021_Node000020" title=" " alt="" coords="1293,121,1257,158,1253,155,1290,117"/>
+<area shape="rect" id="Node000022" title=" " alt="" coords="1459,167,1538,192"/>
+<area shape="poly" id="edge29_Node000021_Node000022" title=" " alt="" coords="1335,116,1455,159,1453,164,1333,121"/>
+</map>

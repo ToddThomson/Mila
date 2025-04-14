@@ -1,0 +1,12 @@
+var searchData=
+[
+  ['malloc_5fcheck_0',['malloc_check',['../namespaceMila_1_1Helpers.html#a1d2601ccb3af99ec60ac69c794ba40d2',1,'Mila::Helpers']]],
+  ['malloccheck_1',['mallocCheck',['../namespaceMila_1_1Helpers.html#af59acfcdabb30de5f0911ff0969d37b8',1,'Mila::Helpers']]],
+  ['manual_5fseed_2',['manual_seed',['../rand_8h.html#ab64d400dcc18bac40a0c38b316caa406',1,'rand.h']]],
+  ['matrixspan_3',['matrixSpan',['../classMila_1_1Dnn_1_1Tensor.html#a71d1e8b0dea1f50d72cee714c122422f',1,'Mila::Dnn::Tensor']]],
+  ['mlp_4',['mlp',['../classMila_1_1Dnn_1_1MLP.html#ad64b2aad4e744e18c13b2339f85288a1',1,'Mila::Dnn::MLP::MLP(std::string name, const std::vector&lt; size_t &gt; &amp;input_shape, size_t output_channels, bool has_bias=true, bool is_training=false)'],['../classMila_1_1Dnn_1_1MLP.html#ab29f80cf0bf91f1083c18e9915839476',1,'Mila::Dnn::MLP::MLP(std::string name, const std::vector&lt; size_t &gt; &amp;input_shape, size_t output_channels, std::shared_ptr&lt; DeviceContext &gt; context, bool has_bias=true, bool is_training=false)']]],
+  ['model_5',['model',['../classMila_1_1Dnn_1_1Model.html#ac6966e5c8c01216155226d77ed13deac',1,'Mila::Dnn::Model::Model()'],['../classMila_1_1Dnn_1_1Model.html#a48398c738e076d0f8489814af57481ff',1,'Mila::Dnn::Model::Model(std::shared_ptr&lt; Compute::DeviceContext &gt; context)'],['../classMila_1_1Dnn_1_1Model.html#a5c5b9da5bc1dd77c06e9ba295470dc1e',1,'Mila::Dnn::Model::Model(const std::string &amp;device_name)']]],
+  ['module_6',['module',['../classMila_1_1Dnn_1_1Module.html#aeb47261dfe69cc9677698049bc0984eb',1,'Mila::Dnn::Module::Module(const std::string &amp;device_name)'],['../classMila_1_1Dnn_1_1Module.html#a4a74c01fc6985741089a57b73d85ff4e',1,'Mila::Dnn::Module::Module(std::shared_ptr&lt; DeviceContext &gt; context)']]],
+  ['movefrom_7',['moveFrom',['../classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#aa9c7afccb46ad4b1afbe83bc5d861b32',1,'Mila::Dnn::Compute::DeviceContext']]],
+  ['multiheadattention_8',['multiheadattention',['../classMila_1_1Dnn_1_1MultiHeadAttention.html#a58ae467f0970a61cde9eb5cde29f65eb',1,'Mila::Dnn::MultiHeadAttention::MultiHeadAttention(std::string name, const std::vector&lt; size_t &gt; &amp;input_shape, size_t num_heads, bool is_training=false)'],['../classMila_1_1Dnn_1_1MultiHeadAttention.html#ae4b291c891a6189ee2fc54243c0cc65c',1,'Mila::Dnn::MultiHeadAttention::MultiHeadAttention(std::string name, const std::vector&lt; size_t &gt; &amp;input_shape, size_t num_heads, std::shared_ptr&lt; DeviceContext &gt; context, bool is_training=false)']]]
+];

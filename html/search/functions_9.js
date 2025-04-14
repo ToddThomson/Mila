@@ -1,0 +1,23 @@
+var searchData=
+[
+  ['info_0',['info',['../classMila_1_1Utils_1_1Logger.html#a667a007ea672cdcb563a82cb7c591316',1,'Mila::Utils::Logger']]],
+  ['info_5ffmt_1',['info_fmt',['../classMila_1_1Utils_1_1Logger.html#ac77d89f29afd957ba628bb70c9b2709b',1,'Mila::Utils::Logger']]],
+  ['init_5fidentity_5fpermutation_2',['init_identity_permutation',['../rand_8h.html#a482d97a202658d17d5a9617b7f881890',1,'rand.h']]],
+  ['initialize_3',['initialize',['../namespaceMila.html#ac1c8c92713876b9b24bab076b32af11d',1,'Mila']]],
+  ['initialize_5fdataset_4',['initialize_dataset',['../classMila_1_1Dnn_1_1Gpt2_1_1DatasetReader.html#ab11045457f4f74e62434b7f9bb3dbf3a',1,'Mila::Dnn::Gpt2::DatasetReader']]],
+  ['initializedevice_5',['initializeDevice',['../classMila_1_1Dnn_1_1Model.html#ad00ad47605c0c21f9e85cb9f6b86ebf0',1,'Mila::Dnn::Model']]],
+  ['initializedeviceresources_6',['initializeDeviceResources',['../classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#a439bcf09aae78c73d84fd6bc5b3d4469',1,'Mila::Dnn::Compute::DeviceContext']]],
+  ['initializelogger_7',['initializeLogger',['../namespaceMila.html#ad2501178c2a251a9cd9010f9e62c3367',1,'Mila']]],
+  ['initializemodules_8',['initializemodules',['../classMila_1_1Dnn_1_1MLP.html#a644e016713b736997bb330f117aca8a3',1,'Mila::Dnn::MLP::initializeModules()'],['../classMila_1_1Dnn_1_1TransformerBlock.html#a2366fc64f94afcfbd97c63c655e0b770',1,'Mila::Dnn::TransformerBlock::initializeModules()']]],
+  ['initializetensors_9',['initializetensors',['../classMila_1_1Dnn_1_1Encoder.html#a5692506e3736b3e9478f7f06cc53f27c',1,'Mila::Dnn::Encoder::initializeTensors()'],['../classMila_1_1Dnn_1_1FullyConnected.html#a056d331facb7f149cfee170d2a641e74',1,'Mila::Dnn::FullyConnected::initializeTensors()'],['../classMila_1_1Dnn_1_1LayerNorm.html#a2b14eb4257f428d7e16fe24535d5a5d9',1,'Mila::Dnn::LayerNorm::initializeTensors()'],['../classMila_1_1Dnn_1_1MultiHeadAttention.html#a8c50438f8877f2383f06a57116baa1cd',1,'Mila::Dnn::MultiHeadAttention::initializeTensors()']]],
+  ['instance_10',['instance',['../classMila_1_1Dnn_1_1Compute_1_1DeviceRegistrar.html#a4819824a7fcb01a9e5bd263868d8eb5a',1,'Mila::Dnn::Compute::DeviceRegistrar::instance()'],['../classMila_1_1Dnn_1_1Compute_1_1DeviceRegistry.html#a7fad4212ab870e74917da2abcaf77938',1,'Mila::Dnn::Compute::DeviceRegistry::instance()'],['../classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a56e3658d8b09dd388ca379aefcdeb17f',1,'Mila::Dnn::Compute::OperationRegistry::instance()'],['../classMila_1_1Dnn_1_1Compute_1_1OperationsRegistrar.html#ae14b3144cca6b6fb56bdcb1ba1eaed39',1,'Mila::Dnn::Compute::OperationsRegistrar::instance()']]],
+  ['is_5faligned_11',['is_aligned',['../classMila_1_1Dnn_1_1TensorBuffer.html#af0864454519f83435c203384e7e5e30e',1,'Mila::Dnn::TensorBuffer']]],
+  ['is_5fdevice_5faccessible_12',['is_device_accessible',['../classMila_1_1Dnn_1_1Tensor.html#a435734ca4cf488379e69ca7823604bee',1,'Mila::Dnn::Tensor::is_device_accessible()'],['../classMila_1_1Dnn_1_1Compute_1_1DynamicMemoryResource.html#a491246cadecfc99f1b47c6fb271a1b55',1,'Mila::Dnn::Compute::DynamicMemoryResource::is_device_accessible()']]],
+  ['is_5fdevice_5favailable_13',['is_device_available',['../namespaceMila_1_1Dnn_1_1Compute.html#a2d798d9115da6e494461cc620309537c',1,'Mila::Dnn::Compute']]],
+  ['is_5fhost_5faccessible_14',['is_host_accessible',['../classMila_1_1Dnn_1_1Tensor.html#a506ec4f7a3834dc8a7729f09e94587ca',1,'Mila::Dnn::Tensor::is_host_accessible()'],['../classMila_1_1Dnn_1_1Compute_1_1DynamicMemoryResource.html#a7e13bb65a916dbc246a7dbdffe5f1226',1,'Mila::Dnn::Compute::DynamicMemoryResource::is_host_accessible()']]],
+  ['iscudadevice_15',['isCudaDevice',['../classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#aa0be82bb15781cc2d3239b7cea4da717',1,'Mila::Dnn::Compute::DeviceContext']]],
+  ['isdevicetype_16',['isDeviceType',['../classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#a4105deade514dfadccff3d9b21a6c4ed',1,'Mila::Dnn::Compute::DeviceContext']]],
+  ['isenabled_17',['isenabled',['../classMila_1_1Utils_1_1DefaultLogger.html#a237aad3bb15f75b9e580f72ce9f5e1cf',1,'Mila::Utils::DefaultLogger::isEnabled()'],['../classMila_1_1Utils_1_1Logger.html#a8f60fc25c6fa7b404b0b910239670992',1,'Mila::Utils::Logger::isEnabled()']]],
+  ['istraining_18',['isTraining',['../classMila_1_1Dnn_1_1Module.html#a6bad38d107262dab1a5267c2db7593fa',1,'Mila::Dnn::Module']]],
+  ['istype_19',['isType',['../structMila_1_1Dnn_1_1Compute_1_1OperationAttributes.html#a804df5c71b50388b0efe7cebb1f53750',1,'Mila::Dnn::Compute::OperationAttributes']]]
+];

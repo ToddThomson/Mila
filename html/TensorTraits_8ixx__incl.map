@@ -1,0 +1,22 @@
+<map id="Src/Dnn/Core/TensorTraits.ixx" name="Src/Dnn/Core/TensorTraits.ixx">
+<area shape="rect" id="Node000001" title="Provides type traits for mapping C++ types to tensor data types." alt="" coords="42,5,253,31"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="5,79,68,104"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="131,33,68,73,65,69,128,28"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="55,152,157,177"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="147,32,116,139,110,138,141,30"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="144,79,236,104"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="157,30,178,66,174,68,152,32"/>
+<area shape="rect" id="Node000005" href="$TensorType_8ixx.html" title="Defines tensor data types and related utility functions." alt="" coords="260,79,384,104"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="176,28,282,71,280,76,174,33"/>
+<area shape="poly" id="edge7_Node000005_Node000003" title=" " alt="" coords="288,107,155,150,153,145,286,101"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="181,152,247,177"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="306,106,245,147,242,142,303,102"/>
+<area shape="rect" id="Node000007" title=" " alt="" coords="271,152,330,177"/>
+<area shape="poly" id="edge6_Node000005_Node000007" title=" " alt="" coords="321,105,311,140,305,138,316,104"/>
+<area shape="rect" id="Node000008" title=" " alt="" coords="354,152,455,177"/>
+<area shape="poly" id="edge8_Node000005_Node000008" title=" " alt="" coords="337,102,382,141,379,145,334,106"/>
+<area shape="rect" id="Node000009" title=" " alt="" coords="479,152,573,177"/>
+<area shape="poly" id="edge9_Node000005_Node000009" title=" " alt="" coords="356,102,481,145,479,150,354,107"/>
+<area shape="rect" id="Node000010" title=" " alt="" coords="597,152,684,177"/>
+<area shape="poly" id="edge10_Node000005_Node000010" title=" " alt="" coords="374,101,585,148,583,153,373,107"/>
+</map>

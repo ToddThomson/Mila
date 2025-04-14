@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Softmax&lt; TInput, TPrecision &gt;" name="Mila::Dnn::Softmax&lt; TInput, TPrecision &gt;">
+<area shape="rect" id="Node000001" title="Softmax module for neural networks." alt="" coords="5,108,173,148"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Module.html" title="Abstract base class for all modules in the Mila DNN framework." alt="" coords="14,5,165,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="92,74,92,108,87,108,87,74"/>
+</map>

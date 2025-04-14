@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Encoder&lt; TInput, TPrecision, TDeviceType &gt;" name="Mila::Dnn::Encoder&lt; TInput, TPrecision, TDeviceType &gt;">
+<area shape="rect" id="Node000001" title="An encoder module that provides token and positional embeddings." alt="" coords="5,108,163,163"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Module.html" title="Abstract base class for all modules in the Mila DNN framework." alt="" coords="9,5,159,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="87,74,87,108,81,108,81,74"/>
+</map>

@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::Compute::CudaDevice" name="Mila::Dnn::Compute::CudaDevice">
+<area shape="rect" id="Node000001" title="Class representing a CUDA compute device." alt="" coords="92,108,243,148"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1ComputeDevice.html" title="Abstract interface for compute devices (CPU, CUDA, etc.)." alt="" coords="5,5,156,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="108,54,153,106,149,110,104,58"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceProps.html" title=" " alt="" coords="180,5,331,45"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="232,58,186,110,182,106,228,54"/>
+</map>

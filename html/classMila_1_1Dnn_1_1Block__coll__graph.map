@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Block&lt; TInput, TPrecision, TDeviceType &gt;" name="Mila::Dnn::Block&lt; TInput, TPrecision, TDeviceType &gt;">
+<area shape="rect" id="Node000001" title="A module class that can contain and manage child modules." alt="" coords="5,108,204,148"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Module.html" title="Abstract base class for all modules in the Mila DNN framework." alt="" coords="29,5,180,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="107,74,107,108,102,108,102,74"/>
+</map>

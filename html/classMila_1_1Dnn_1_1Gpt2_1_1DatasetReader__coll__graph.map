@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Gpt2::DatasetReader" name="Mila::Dnn::Gpt2::DatasetReader">
+<area shape="rect" id="Node000001" title="High&#45;performance data loading class for GPT&#45;2 tokenized datasets with multi&#45;threaded processing." alt="" coords="5,108,188,148"/>
+<area shape="rect" id="Node000002" href="$structMila_1_1Dnn_1_1Gpt2_1_1DatasetReader_1_1Config.html" title="Configuration parameters for the DatasetReader." alt="" coords="5,5,188,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="99,59,99,108,94,108,94,59"/>
+</map>

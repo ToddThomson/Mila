@@ -1,0 +1,16 @@
+<map id="Src/Dnn/Compute/MemoryResourceTracker.ixx" name="Src/Dnn/Compute/MemoryResourceTracker.ixx">
+<area shape="rect" id="Node000001" title=" " alt="" coords="70,5,324,45"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="190,167,330,192"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="87,48,50,60,21,76,13,85,9,94,9,105,16,117,40,134,80,147,176,166,175,171,78,153,38,138,12,120,4,107,3,94,8,82,18,72,47,55,85,43"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="26,93,93,119"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="165,48,93,89,90,84,163,43"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="117,93,181,119"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="188,47,166,83,161,80,183,44"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="205,93,285,119"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="211,44,233,80,228,83,206,47"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="310,93,407,119"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="237,43,323,85,321,90,234,48"/>
+<area shape="rect" id="Node000007" href="$MemoryResource_8ixx.html" title="Defines a common memory resource abstraction for the compute framework." alt="" coords="431,93,630,119"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="277,43,469,88,468,93,276,48"/>
+<area shape="poly" id="edge7_Node000007_Node000002" title=" " alt="" coords="487,121,317,166,316,161,486,116"/>
+</map>

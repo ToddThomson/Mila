@@ -1,0 +1,28 @@
+var classMila_1_1Dnn_1_1LayerNorm =
+[
+    [ "LayerNorm", "classMila_1_1Dnn_1_1LayerNorm.html#afd60382a5cd304aa5d21bb6bd214d355", null ],
+    [ "LayerNorm", "classMila_1_1Dnn_1_1LayerNorm.html#a9947f6e752e3d8d2bdec226be41f325a", null ],
+    [ "createOperation", "classMila_1_1Dnn_1_1LayerNorm.html#a1f1b45de2676fbe7e0fc1c10e88e4971", null ],
+    [ "forward", "classMila_1_1Dnn_1_1LayerNorm.html#ac15d4709c15ac73f713bd34785a99640", null ],
+    [ "getBias", "classMila_1_1Dnn_1_1LayerNorm.html#ae297d3e169ff497d0599d4321bc68719", null ],
+    [ "getWeight", "classMila_1_1Dnn_1_1LayerNorm.html#a2085fb531f4cbfd56514d30c90e85655", null ],
+    [ "hasBias", "classMila_1_1Dnn_1_1LayerNorm.html#a8a8f5544a493aa626f1151e7b41e2f92", null ],
+    [ "initializeTensors", "classMila_1_1Dnn_1_1LayerNorm.html#a2b14eb4257f428d7e16fe24535d5a5d9", null ],
+    [ "load", "classMila_1_1Dnn_1_1LayerNorm.html#a909b84b98a64fa0f9c2b135875951a5a", null ],
+    [ "onDeviceChanged", "classMila_1_1Dnn_1_1LayerNorm.html#a158a1fa95ca17bcf2227023a767645f3", null ],
+    [ "parameterCount", "classMila_1_1Dnn_1_1LayerNorm.html#a2d820c30f244165e6074a5824ef4b0b4", null ],
+    [ "save", "classMila_1_1Dnn_1_1LayerNorm.html#a8305599f09454593ba40099d07839535", null ],
+    [ "toString", "classMila_1_1Dnn_1_1LayerNorm.html#a8ac68d99d268b02ff95ce6a888389070", null ],
+    [ "axis_", "classMila_1_1Dnn_1_1LayerNorm.html#a4106188dbbdf44a7ab590b8248f00c47", null ],
+    [ "bias_", "classMila_1_1Dnn_1_1LayerNorm.html#af77c70a85adf84236bab3e74bc825e8c", null ],
+    [ "epsilon_", "classMila_1_1Dnn_1_1LayerNorm.html#a81b376d03daeba389f643e20ce7fd1de", null ],
+    [ "has_bias_", "classMila_1_1Dnn_1_1LayerNorm.html#ac94610018509316f4466696828533708", null ],
+    [ "input_shape_", "classMila_1_1Dnn_1_1LayerNorm.html#ae1c3e0ef04ecfe12faf5d8170d93c3cd", null ],
+    [ "mean_", "classMila_1_1Dnn_1_1LayerNorm.html#a2e62e26faced2983fac21158debeef22", null ],
+    [ "operation_", "classMila_1_1Dnn_1_1LayerNorm.html#a2fa2a5c53432233f026e1f1d37a5451a", null ],
+    [ "output_state_", "classMila_1_1Dnn_1_1LayerNorm.html#abffec0422ae59c834aee34b0eaa625c4", null ],
+    [ "parameters_", "classMila_1_1Dnn_1_1LayerNorm.html#aad42c0ea688e0aadb6f7b52937fe10d5", null ],
+    [ "properties_", "classMila_1_1Dnn_1_1LayerNorm.html#af7fa1a2a61c3235b9ba99072d2352bf7", null ],
+    [ "rstd_", "classMila_1_1Dnn_1_1LayerNorm.html#a074dd872b29e7a13b58168a72d0bd8e2", null ],
+    [ "weight_", "classMila_1_1Dnn_1_1LayerNorm.html#afb6a7e6f06b3b0688ed94ed025778ad7", null ]
+];

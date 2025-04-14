@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Compute::TrackedMemoryResource" name="Mila::Dnn::Compute::TrackedMemoryResource">
+<area shape="rect" id="Node000001" title="A memory resource wrapper that tracks allocation and deallocation statistics." alt="" coords="5,79,199,119"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="34,5,170,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="105,44,105,79,99,79,99,44"/>
+</map>
