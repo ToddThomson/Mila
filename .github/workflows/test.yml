@@ -9,19 +9,21 @@ on:
       - master
 
 jobs:
+  setup:
+    uses: ./setup.yml@master
+
   test:
+    needs: setup
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Install Dependencies
+      - name: Configure CMake
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-14 g++-14 ninja-build
-      - name: Setup CUDA
-        uses: Jimver/cuda-toolkit@v0.2.23
-        with:
-          cuda: '12.8.1'
-          method: 'network'
+          cmake -B build -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_CUDA_COMPILER=$CUDA_PATH/bin/nvcc \
+              -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler"
+      - name: Build Project
+        run: cmake --build build --config Release
       - name: Run Tests
         working-directory: build
         run: ctest -C Release

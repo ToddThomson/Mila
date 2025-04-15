@@ -10,10 +10,10 @@ on:
 
 jobs:
   documentation:
-    uses: ./common-setup.yml@master
+    uses: ./setup.yml@master
 
   generate-docs:
-    needs: documentation
+    needs: setup
     runs-on: ubuntu-latest
     steps:
       - name: Configure CMake

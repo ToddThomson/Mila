@@ -10,7 +10,7 @@ on:
 
 jobs:
   setup:
-    uses: ./common-setup.yml@master
+    uses: ./setup.yml@master
 
   build:
     needs: setup
