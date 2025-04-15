@@ -101,7 +101,12 @@ Mila uses CMake build. To build Mila, follow the steps below:
 * GTest framework for unit testing
 
 ## Documentation
-Comprehensive documentation is available in the Docs folder, generated from Doxygen comments.
+Comprehensive Online documentation is available:
+
+- **Online Documentation**: The complete API reference is hosted on GitHub Pages at [https://toddthomson.github.io/mila](https://toddthomson.github.io/mila)
+
+The documentation includes class references, usage examples, and architecture guides. It is automatically updated through our GitHub Actions workflow whenever changes are pushed to the master branch.
+
 
 ## License
 Mila is licensed under the Apache License 2.0. You may obtain a copy of the License at
