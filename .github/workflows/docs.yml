@@ -1,4 +1,4 @@
-name: Documentation
+name: Build Mila Documentation
 
 on:
   push:
@@ -10,7 +10,7 @@ on:
 
 jobs:
   documentation:
-    uses: ./setup.yml@master
+    uses: .github/workflows/setup.yml@master
 
   generate-docs:
     needs: setup

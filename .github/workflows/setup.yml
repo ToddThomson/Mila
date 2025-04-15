@@ -1,4 +1,4 @@
-name: Common Setup
+name: Common Mila Build Setup
 
 on:
   workflow_call:

@@ -10,7 +10,7 @@ on:
 
 jobs:
   setup:
-    uses: ./setup.yml@master
+    uses: .github/workflows/setup.yml@master
 
   test:
     needs: setup
