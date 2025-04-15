@@ -1,3 +1,4 @@
+[![Mila CI Pipeline](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml/badge.svg?branch=master)](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml)
 # Mila
 Mila Deep Neural Network Library
 

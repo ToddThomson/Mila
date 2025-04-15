@@ -11,6 +11,8 @@ on:
 jobs:
   setup:
     runs-on: ubuntu-latest
+    outputs:
+      cuda_path: ${{ steps.cuda-path.outputs.cuda_path }}
     steps:
       - uses: actions/checkout@v4
       - name: Install GCC 14
@@ -57,34 +59,86 @@ jobs:
           cmake -B build -G Ninja
           cmake --build build --config Release
           sudo cmake --install build
+      - name: Set CUDA path as output
+        id: cuda-path
+        run: echo "cuda_path=$(echo $CUDA_PATH)" >> $GITHUB_OUTPUT
+      # Create a file with all necessary environment variables
+      - name: Create environment file
+        run: |
+          echo "CUDA_PATH=$CUDA_PATH" > cuda_env.txt
+          echo "LD_LIBRARY_PATH=$CUDA_PATH/lib64:$CUDA_PATH/lib:$LD_LIBRARY_PATH" >> cuda_env.txt
+      # Upload the environment file as an artifact
+      - name: Upload CUDA environment
+        uses: actions/upload-artifact@v4
+        with:
+          name: cuda-env
+          path: cuda_env.txt
+          retention-days: 1
 
   build:
     needs: setup
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+      # Download the CUDA environment artifact
+      - name: Download CUDA environment
+        uses: actions/download-artifact@v4
+        with:
+          name: cuda-env
+      # Source the environment file
+      - name: Set CUDA environment
+        run: |
+          set -a
+          source cuda_env.txt
+          set +a
+          echo "CUDA_PATH=$CUDA_PATH"
+      # Install minimal dependencies needed just for building
+      - name: Install minimal build dependencies
+        run: sudo apt-get install -y ninja-build
+      # Configure with CUDA path from the setup job
       - name: Configure CMake
         run: |
           cmake -B build -G Ninja \
               -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_CUDA_COMPILER=$CUDA_PATH/bin/nvcc \
+              -DCMAKE_CUDA_COMPILER=${{ needs.setup.outputs.cuda_path }}/bin/nvcc \
+              -DCUDAToolkit_ROOT=${{ needs.setup.outputs.cuda_path }} \
               -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler"
       - name: Build Mila
         run: cmake --build build --config Release
+      # Upload build artifacts for later jobs
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: build/
+          retention-days: 1
 
   test:
-    needs: build
+    needs: [setup, build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - name: Configure CMake
+      - uses: actions/checkout@v4
+      # Download the CUDA environment
+      - name: Download CUDA environment
+        uses: actions/download-artifact@v4
+        with:
+          name: cuda-env
+      # Source the environment file
+      - name: Set CUDA environment
         run: |
-          cmake -B build -G Ninja \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_CUDA_COMPILER=$CUDA_PATH/bin/nvcc \
-              -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler"
-      - name: Build Project
-        run: cmake --build build --config Release
+          set -a
+          source cuda_env.txt
+          set +a
+      # Download build artifacts
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: build
+      # Install minimal dependencies needed for testing
+      - name: Install minimal test dependencies
+        run: sudo apt-get install -y libgtest-dev
+      # Run tests using the already built artifacts
       - name: Run Tests
         working-directory: build
         run: ctest -C Release
@@ -93,14 +147,29 @@ jobs:
     needs: setup
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+      # Download the CUDA environment
+      - name: Download CUDA environment
+        uses: actions/download-artifact@v4
+        with:
+          name: cuda-env
+      # Source the environment file
+      - name: Set CUDA environment
+        run: |
+          set -a
+          source cuda_env.txt
+          set +a
+      # Install minimal dependencies needed for docs
+      - name: Install documentation dependencies
+        run: sudo apt-get install -y doxygen graphviz ninja-build
+      # Configure with CUDA path from setup job
       - name: Configure CMake
         run: |
-          # Set environment variables for C++ modules scanning
           export CMAKE_CXX_SCAN_FOR_MODULES=AUTO  
           cmake -B build -G Ninja \
               -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_CUDA_COMPILER=$CUDA_PATH/bin/nvcc \
+              -DCMAKE_CUDA_COMPILER=${{ needs.setup.outputs.cuda_path }}/bin/nvcc \
+              -DCUDAToolkit_ROOT=${{ needs.setup.outputs.cuda_path }} \
               -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler" \
               -DCMAKE_CXX_SCAN_FOR_MODULES=AUTO
       - name: Generate Documentation
