@@ -10,7 +10,7 @@ on:
 
 jobs:
   documentation:
-    uses: .github/workflows/setup.yml@master
+    uses: ./.github/workflows/setup.yml@master
 
   generate-docs:
     needs: setup
