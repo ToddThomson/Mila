@@ -119,9 +119,9 @@ Unless required by applicable law or agreed to in writing, software distributed 
 We welcome contributions from the community. If you are interested in contributing to Mila, please follow these steps:
 
 1. Fork the repository on GitHub.
-2. Create a new branch from the `main` branch.
+2. Create a new branch from the `master` branch.
 3. Make your changes and commit them with clear and concise messages.
 4. Push your changes to your forked repository.
-5. Create a pull request to the `main` branch of the original repository.
+5. Create a pull request to the `master` branch of the original repository.
 
 Please ensure that your code adheres to the project's coding standards and includes appropriate tests. For more detailed guidelines, refer to the [contribution guidelines](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.

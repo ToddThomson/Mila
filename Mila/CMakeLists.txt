@@ -176,11 +176,10 @@ configure_file(
 include_directories(${CMAKE_BINARY_DIR}/Mila/Src)
 target_include_directories(Mila PRIVATE ${CMAKE_BINARY_DIR}/Mila/Src)
 
-# Doxygen configuration
 if(DOXYGEN_FOUND)
     # Set Doxygen options
-    set(DOXYGEN_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/docs)
-    set(DOXYGEN_PROJECT_NAME "Mila")
+    set(DOXYGEN_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/docs)
+    set(DOXYGEN_PROJECT_NAME ".")
     set(DOXYGEN_PROJECT_BRIEF "Deep Neural Network Library")
     set(DOXYGEN_EXTRACT_ALL YES)
     set(DOXYGEN_EXTRACT_PRIVATE YES)
@@ -197,7 +196,6 @@ if(DOXYGEN_FOUND)
     set(DOXYGEN_QT_AUTOBRIEF YES)
     set(DOXYGEN_WARN_NO_PARAMDOC YES)
     
-    # Add Doxygen documentation build target
     doxygen_add_docs(docs
         ${CMAKE_SOURCE_DIR}/README.md
         ${CMAKE_SOURCE_DIR}/Mila/Src
@@ -205,6 +203,7 @@ if(DOXYGEN_FOUND)
     )
 	set_property(TARGET docs PROPERTY FOLDER "Docs")
     message(STATUS "Doxygen documentation target 'docs' created")
+	message(STATUS "Documentation will be generated in: ${CMAKE_BINARY_DIR}/docs")
 else()
     message(WARNING "Doxygen not found - Documentation will not be built")
 endif()

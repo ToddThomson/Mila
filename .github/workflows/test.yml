@@ -1,0 +1,27 @@
+name: Test Mila Library
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-14 g++-14 ninja-build
+      - name: Setup CUDA
+        uses: Jimver/cuda-toolkit@v0.2.23
+        with:
+          cuda: '12.8.1'
+          method: 'network'
+      - name: Run Tests
+        working-directory: build
+        run: ctest -C Release

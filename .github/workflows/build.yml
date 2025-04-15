@@ -1,0 +1,26 @@
+name: Build Mila Library
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  setup:
+    uses: ./common-setup.yml@master
+
+  build:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure CMake
+        run: |
+          cmake -B build -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_CUDA_COMPILER=$CUDA_PATH/bin/nvcc \
+              -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler"
+      - name: Build Mila
+        run: cmake --build build --config Release
