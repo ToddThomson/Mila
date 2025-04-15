@@ -1,0 +1,113 @@
+name: Mila CI Pipeline
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install GCC 14
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y software-properties-common
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          sudo apt-get install -y gcc-14 g++-14
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 140
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 140
+          sudo update-alternatives --set gcc /usr/bin/gcc-14
+          sudo update-alternatives --set g++ /usr/bin/g++-14
+          gcc --version
+          g++ --version
+      - name: Install CMake 3.31.7
+        run: |
+          wget https://github.com/Kitware/CMake/releases/download/v3.31.7/cmake-3.31.7-linux-x86_64.tar.gz
+          tar -xzf cmake-3.31.7-linux-x86_64.tar.gz
+          sudo cp -r cmake-3.31.7-linux-x86_64/bin/* /usr/local/bin/
+          sudo cp -r cmake-3.31.7-linux-x86_64/share/* /usr/local/share/
+          cmake --version
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y doxygen graphviz build-essential ninja-build
+          sudo apt-get install -y libgtest-dev
+      - name: Setup CUDA
+        uses: Jimver/cuda-toolkit@v0.2.23
+        with:
+          cuda: '12.8.1'
+          method: 'network'
+      - name: Verify CUDA installation
+        run: |
+          nvcc --version
+          echo "CUDA_PATH: $CUDA_PATH"
+          ls -la $CUDA_PATH/bin
+          ls -la $CUDA_PATH/lib64 || echo "lib64 not found"
+          ls -la $CUDA_PATH/lib || echo "lib not found"
+      - name: Install miniz dependency
+        run: |
+          git clone https://github.com/richgel999/miniz.git
+          cd miniz
+          cmake -B build -G Ninja
+          cmake --build build --config Release
+          sudo cmake --install build
+
+  build:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Configure CMake
+        run: |
+          cmake -B build -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_CUDA_COMPILER=$CUDA_PATH/bin/nvcc \
+              -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler"
+      - name: Build Mila
+        run: cmake --build build --config Release
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Configure CMake
+        run: |
+          cmake -B build -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_CUDA_COMPILER=$CUDA_PATH/bin/nvcc \
+              -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler"
+      - name: Build Project
+        run: cmake --build build --config Release
+      - name: Run Tests
+        working-directory: build
+        run: ctest -C Release
+
+  docs:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Configure CMake
+        run: |
+          # Set environment variables for C++ modules scanning
+          export CMAKE_CXX_SCAN_FOR_MODULES=AUTO  
+          cmake -B build -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_CUDA_COMPILER=$CUDA_PATH/bin/nvcc \
+              -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler" \
+              -DCMAKE_CXX_SCAN_FOR_MODULES=AUTO
+      - name: Generate Documentation
+        run: cmake --build ${{github.workspace}}/build --target docs
+      - name: Deploy to GitHub Pages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: ${{github.workspace}}/docs
+          branch: gh-pages
