@@ -12,6 +12,7 @@
  )
 
 set_target_properties( Mila PROPERTIES
+	CXX_STANDARD 23
 	CXX_STANDARD_REQUIRED ON
 	CXX_EXTENSIONS OFF )
 
@@ -27,6 +28,7 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
   add_compile_options(/std:c++latest)
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   add_compile_options(-fmodules-ts)
+  add_compile_options(-std=c++23)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-fmodules)
 endif()
