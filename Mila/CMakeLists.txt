@@ -15,10 +15,8 @@ set_target_properties( Mila PROPERTIES
 	CXX_STANDARD_REQUIRED ON
 	CXX_EXTENSIONS OFF )
 
-# TODO: Add globally 
 target_compile_features( Mila PUBLIC cxx_std_23 )
 
-find_package(Doxygen REQUIRED)
 find_package(miniz REQUIRED)  
 
 target_include_directories( Mila INTERFACE ${miniz_SOURCE_DIR})
@@ -176,34 +174,13 @@ configure_file(
 include_directories(${CMAKE_BINARY_DIR}/Mila/Src)
 target_include_directories(Mila PRIVATE ${CMAKE_BINARY_DIR}/Mila/Src)
 
-if(DOXYGEN_FOUND)
-    # Set Doxygen options
-    set(DOXYGEN_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/docs)
-    set(DOXYGEN_PROJECT_NAME ".")
-    set(DOXYGEN_PROJECT_BRIEF "Deep Neural Network Library")
-    set(DOXYGEN_EXTRACT_ALL YES)
-    set(DOXYGEN_EXTRACT_PRIVATE YES)
-    set(DOXYGEN_EXTRACT_PACKAGE YES)
-    set(DOXYGEN_EXTRACT_STATIC YES)
-    set(DOXYGEN_EXTRACT_LOCAL_METHODS YES)
-    set(DOXYGEN_RECURSIVE YES)
-    set(DOXYGEN_USE_MDFILE_AS_MAINPAGE ${CMAKE_SOURCE_DIR}/README.md)
-    set(DOXYGEN_GENERATE_HTML YES)
-    set(DOXYGEN_GENERATE_TREEVIEW YES)
-    set(DOXYGEN_SORT_BRIEF_DOCS YES)
-    set(DOXYGEN_SORT_MEMBERS_CTORS_1ST YES)
-    set(DOXYGEN_JAVADOC_AUTOBRIEF YES)
-    set(DOXYGEN_QT_AUTOBRIEF YES)
-    set(DOXYGEN_WARN_NO_PARAMDOC YES)
-    
-    doxygen_add_docs(docs
-        ${CMAKE_SOURCE_DIR}/README.md
-        ${CMAKE_SOURCE_DIR}/Mila/Src
-        COMMENT "Generating API documentation with Doxygen"
-    )
-	set_property(TARGET docs PROPERTY FOLDER "Docs")
-    message(STATUS "Doxygen documentation target 'docs' created")
-	message(STATUS "Documentation will be generated in: ${CMAKE_BINARY_DIR}/docs")
-else()
-    message(WARNING "Doxygen not found - Documentation will not be built")
+add_subdirectory( Docs )
+
+if (MILA_ENABLE_TESTING)  
+enable_testing()
+add_subdirectory( Tests) 
+endif()  
+ 
+if (MILA_ENABLE_SAMPLES)  
+#add_subdirectory(Mila/Samples)  
 endif()

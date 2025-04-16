@@ -28,6 +28,11 @@ jobs:
           sudo update-alternatives --set g++ /usr/bin/g++-14
           gcc --version
           g++ --version
+
+      - name: Install libstdc++ development files
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libstdc++-14-dev
           
       - name: Install CMake 3.31.7
         run: |
@@ -74,6 +79,9 @@ jobs:
               -DCMAKE_CUDA_COMPILER=$CUDA_PATH/bin/nvcc \
               -DCUDAToolkit_ROOT=$CUDA_PATH \
               -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler" \
+              -DCMAKE_CXX_STANDARD=23 \
+              -DCMAKE_CXX_STANDARD_REQUIRED=ON \
+              -DCMAKE_CXX_EXTENSIONS=OFF \
               -DCMAKE_CXX_SCAN_FOR_MODULES=AUTO
               
       - name: Build Mila

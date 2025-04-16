@@ -46,18 +46,8 @@ if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
    set(CMAKE_CUDA_ARCHITECTURES native)  
 endif()  
 
-# The Mila library  
-add_subdirectory( Mila )  
- 
-enable_testing()  
- 
-if (MILA_ENABLE_TESTING)  
-add_subdirectory(Mila/Tests)  
-endif()  
- 
-if (MILA_ENABLE_SAMPLES)  
-#add_subdirectory(Mila/Samples)  
-endif()
+# The Mila library and Doxygen docs
+add_subdirectory( Mila )
 
 if (MILA_ENABLE_NVBENCH )
 #add_subdirectory( Benches )
