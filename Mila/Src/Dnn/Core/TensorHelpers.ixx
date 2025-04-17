@@ -34,25 +34,26 @@ namespace Mila::Dnn
 	 *
 	 * @note Uses a fixed seed (42) for reproducible results rather than truly random values
 	 */
-	export template<typename T, typename MR = Compute::HostMemoryResource>
-		requires std::is_base_of_v<Compute::MemoryResource, MR>
-	void random( Tensor<float, MR>& tensor, float min, float max ) {
+	export template<typename TElementType, typename MR = Compute::HostMemoryResource>
+		requires ValidTensorType<TElementType>&& std::is_base_of_v<Compute::MemoryResource, MR>
+	void random( Tensor<TElementType, MR>& tensor, TElementType min, TElementType max ) {
 		std::random_device rd;
-		std::mt19937 gen( 42 ); // rd() );
-		std::uniform_real_distribution<float> dis( min, max );
+		std::mt19937 gen( 42 ); // TODO: rd() );
+		std::uniform_real_distribution<TElementType> dis( min, max );
 
 		if constexpr ( std::is_same_v<MR, Compute::DeviceMemoryResource> ) {
 			auto temp = tensor.to<Compute::HostMemoryResource>();
-			auto v = temp.vectorSpan();
+
+			TElementType* temp_data = temp.raw_data();
 			for ( size_t i = 0; i < temp.size(); ++i ) {
-				temp[ i ] = dis( gen );
+				temp_data[ i ] = dis( gen );
 			}
 			tensor = temp.to<MR>();
 		}
 		else {
-			auto v = tensor.vectorSpan();
+			TElementType* tensor_data = tensor.raw_data();
 			for ( size_t i = 0; i < tensor.size(); ++i ) {
-				v[ i ] = dis( gen );
+				tensor_data[ i ] = dis( gen );
 			}
 		}
 	}
@@ -77,25 +78,27 @@ namespace Mila::Dnn
 	 * @note Uses a fixed seed (42) for reproducible results rather than truly random values
 	 * @see http://proceedings.mlr.press/v9/glorot10a/glorot10a.pdf
 	 */
-	export template<typename T, typename MR> requires std::is_base_of_v<Compute::MemoryResource, MR>
-		void xavier( Tensor<float, MR>& tensor, size_t input_size, size_t output_size ) {
+	export template<typename TElementType, typename MR>
+		requires ValidTensorType<TElementType>&& std::is_base_of_v<Compute::MemoryResource, MR>
+	void xavier( Tensor<TElementType, MR>& tensor, size_t input_size, size_t output_size ) {
 		float limit = std::sqrt( 6.0 / (input_size + output_size) );
 		std::random_device rd;
 		std::mt19937 gen( 42 ); // TJT: revert back to rd() );
-		std::uniform_real_distribution<float> dis( -limit, limit );
+		std::uniform_real_distribution<TElementType> dis( -limit, limit );
 
 		if constexpr ( std::is_same_v<MR, Compute::DeviceMemoryResource> ) {
 			auto temp = tensor.to<Compute::HostMemoryResource>();
-			auto v = temp.vectorSpan();
+
+			TElementType* temp_data = temp.raw_data();
 			for ( size_t i = 0; i < temp.size(); ++i ) {
-				v[ i ] = dis( gen );
+				temp_data[ i ] = dis( gen );
 			}
 			tensor = temp.to<MR>();
 		}
 		else {
-			auto v = tensor.vectorSpan();
+			TElementType* tensor_data = tensor.raw_data();
 			for ( size_t i = 0; i < tensor.size(); ++i ) {
-				v[ i ] = dis( gen );
+				tensor_data[ i ] = dis( gen );
 			}
 		}
 	}

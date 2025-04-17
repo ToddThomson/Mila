@@ -5,7 +5,7 @@ module;
 #include <iomanip>
 #include <variant>  
 #include <memory>
-#include <mdspan>
+//#include <mdspan>
 #include <type_traits>
 #include <cuda_fp16.h>
 #include <atomic>
@@ -50,10 +50,10 @@ namespace Mila::Dnn
 	public:
 		using scalar_t = std::variant<int64_t, int32_t, half, float>;
 
-		using Extent1d = std::dextents<size_t, 1>;
+		/*using Extent1d = std::dextents<size_t, 1>;
 		using Extent2d = std::dextents<size_t, 2>;
 		using Extent3d = std::dextents<size_t, 3>;
-		using Extent4d = std::dextents<size_t, 4>;
+		using Extent4d = std::dextents<size_t, 4>;*/
 
         /**
         * @brief Constructs a tensor with the given shape and initializes it with the specified value.
@@ -309,16 +309,18 @@ namespace Mila::Dnn
 			}
 		}
 
-		auto vectorSpan() {
+		// TJT: std::mdspan is not available in the GNU C++ compiler so these convenience methods are commented out for now.
+
+		/*auto vectorSpan() {
 			if constexpr ( is_host_accessible<TMemoryResource>() ) {
 				return std::mdspan<TElementType, Extent1d>( buffer_->data(), size_ );
 			}
 			else {
 				throw std::runtime_error( "vectorSpan() requires host-accessible memory. Use to<CpuMemoryResource>() first." );
 			}
-		}
+		}*/
 
-		auto matrixSpan( const std::vector<size_t>& shape ) {
+		/*auto matrixSpan( const std::vector<size_t>& shape ) {
 			if ( shape.size() != 2 ) {
 				throw std::runtime_error( "matrixSpan: The shape must have exactly 2 dimensions." );
 			}
@@ -333,7 +335,7 @@ namespace Mila::Dnn
 			else {
 				throw std::runtime_error( "matrixSpan() requires host-accessible memory. Use to<CpuMemoryResource>() first." );
 			}
-		}
+		}*/
 
 		template<typename... Args>
 		TElementType& operator[]( Args... args ) {

@@ -1,3 +1,5 @@
+// TODO: To be eliminated. Only used by Gpt2DataLoader.
+
 /*
 Mersenne Twisters implementation, numerically identical to torch.
 

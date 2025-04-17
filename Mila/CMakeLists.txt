@@ -146,7 +146,7 @@ PUBLIC
 		"Src/Dnn/Compute/DynamicMemoryResource.ixx"
 		"Src/Dnn/Compute/DeviceContextHelpers.ixx"
 		"Src/Dnn/Modules/Block.ixx"
-)
+ "Src/Core/RandomGenerator.ixx")
 
 target_link_libraries( Mila PRIVATE CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
 

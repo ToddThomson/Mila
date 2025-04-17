@@ -289,39 +289,39 @@ namespace Tensors::Tests {
 
     // Memory Slices/Views
     //----------------------------------------------------------------------------------------
-    TEST( TensorTest, VectorSpan ) {
+    /*TEST( TensorTest, VectorSpan ) {
         std::vector<size_t> shape = { 6 };
         Tensor<float, Compute::HostMemoryResource> tensor( shape );
         auto span = tensor.vectorSpan();
         EXPECT_EQ( span.extent( 0 ), 6 );
-    }
+    }*/
 
-    TEST( TensorTest, CudaTensorVectorSpanThrows ) {
+    /*TEST( TensorTest, CudaTensorVectorSpanThrows ) {
         std::vector<size_t> shape = { 6 };
         Tensor<float, Compute::DeviceMemoryResource> tensor( shape );
         EXPECT_THROW( tensor.vectorSpan(), std::runtime_error );
-    }
+    }*/
 
-    TEST( TensorTest, MatrixSpan ) {
+    /*TEST( TensorTest, MatrixSpan ) {
         std::vector<size_t> shape = { 2, 3 };
         Tensor<float, Compute::HostMemoryResource> tensor( shape );
         auto span = tensor.matrixSpan( shape );
         EXPECT_EQ( span.extent( 0 ), 2 );
         EXPECT_EQ( span.extent( 1 ), 3 );
-    }
+    }*/
 
-    TEST( TensorTest, MatrixSpanWithInvalidShape ) {
-        std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::HostMemoryResource> tensor( shape );
-        EXPECT_THROW( tensor.matrixSpan( { 7 } ), std::runtime_error ); // Wrong dimensions
-        EXPECT_THROW( tensor.matrixSpan( { 3, 3 } ), std::runtime_error ); // Exceeds size
-    }
+    //TEST( TensorTest, MatrixSpanWithInvalidShape ) {
+    //    std::vector<size_t> shape = { 2, 3 };
+    //    Tensor<float, Compute::HostMemoryResource> tensor( shape );
+    //    EXPECT_THROW( tensor.matrixSpan( { 7 } ), std::runtime_error ); // Wrong dimensions
+    //    EXPECT_THROW( tensor.matrixSpan( { 3, 3 } ), std::runtime_error ); // Exceeds size
+    //}
 
-    TEST( TensorTest, CudaTensorMatrixSpanThrows ) {
+    /*TEST( TensorTest, CudaTensorMatrixSpanThrows ) {
         std::vector<size_t> shape = { 2, 3 };
         Tensor<float, Compute::DeviceMemoryResource> tensor( shape );
         EXPECT_THROW( tensor.matrixSpan( shape ), std::runtime_error );
-    }
+    }*/
 
     // Data Copy Tests
     //----------------------------------------------------------------------------------------

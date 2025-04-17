@@ -19,6 +19,7 @@
  * DEALINGS IN THE SOFTWARE.
  */
 module;
+#include <string>
 #include <iostream>
 #include <memory>
 #include "Version.h"
@@ -32,6 +33,8 @@ export import Cuda.Helpers;
 
 export import Utils.Logger;
 import Utils.DefaultLogger;
+
+export import Core.RandomGenerator;
 
 export import Dnn.Module;
 export import Dnn.Model;
@@ -102,12 +105,22 @@ namespace Mila
     /// Initializes the Mila framework.
     /// Must be called before using any other Mila functionality.
     /// </summary>
+    /// <param name="randomSeed">Random seed for reproducibility (0 = use non-deterministic seed)</param>
     /// <returns>True if initialization succeeded, false otherwise</returns>
-    export bool initialize() {
+    export bool initialize( unsigned int randomSeed = 0 ) {
         try {
             initializeLogger( Utils::LogLevel::Info );
 
-			// Initialize operations and devices
+            // Initialize random generator with provided seed
+            Core::RandomGenerator::getInstance().setSeed( randomSeed );
+            if ( randomSeed != 0 ) {
+                Utils::Logger::info( "Initialized random generator with seed: " + std::to_string( randomSeed ) );
+            }
+            else {
+                Utils::Logger::info( "Initialized random generator with non-deterministic seed." );
+            }
+
+            // Initialize operations and devices
             Dnn::Compute::OperationsRegistrar::instance();
             Dnn::Compute::DeviceRegistrar::instance();
 
