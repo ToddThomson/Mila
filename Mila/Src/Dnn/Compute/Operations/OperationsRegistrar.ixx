@@ -41,22 +41,22 @@ namespace Mila::Dnn::Compute
 			// TJT: This rather ugly way of registering operations
 			// is good enough for now. I will revisit
 			CpuEncoderOpRegistrar::registerOperations();
-			//CpuGeluOpRegistrar::registerOperations();
-			//CpuFullyConnectedOpRegistrar::registerOperations();
-			//CpuLayerNormOpRegistrar::registerOperations();
-			//CpuMultiHeadAttentionOpRegistrar::registerOperations();
-			//CpuResidualOpRegistrar::registerOperations();
-			//CpuSoftmaxOpRegistrar::registerOperations();
+			CpuGeluOpRegistrar::registerOperations();
+			CpuFullyConnectedOpRegistrar::registerOperations();
+			CpuLayerNormOpRegistrar::registerOperations();
+			CpuMultiHeadAttentionOpRegistrar::registerOperations();
+			CpuResidualOpRegistrar::registerOperations();
+			CpuSoftmaxOpRegistrar::registerOperations();
 
-			//CudaEncoderOpRegistrar::registerOperations();
-			//CudaGeluOpRegistrar::registerOperations();
-			//CudaFullyConnectedOpRegistrar::registerOperations();
-			//CudaLayerNormOpRegistrar::registerOperations();
-			//CudaMultiHeadAttentionOpRegistrar::registerOperations();
-			//CudaResidualOpRegistrar::registerOperations();
-			//CudaSoftmaxOpRegistrar::registerOperations();
+			CudaEncoderOpRegistrar::registerOperations();
+			CudaGeluOpRegistrar::registerOperations();
+			CudaFullyConnectedOpRegistrar::registerOperations();
+			CudaLayerNormOpRegistrar::registerOperations();
+			CudaMultiHeadAttentionOpRegistrar::registerOperations();
+			CudaResidualOpRegistrar::registerOperations();
+			CudaSoftmaxOpRegistrar::registerOperations();
 
-			//CudaMatMulBiasGeluOpRegistrar::registerOperations();
+			CudaMatMulBiasGeluOpRegistrar::registerOperations();
 		}
 
 		static inline bool is_initialized_ = false;

@@ -80,8 +80,6 @@ __global__ void __launch_bounds__( 16 * 16 ) matmul_forward_kernel4(
     }
 };
 
-//class Cuda_MatMul_kernel {
-//public:
     /**
      * @brief Performs the forward pass of the matrix multiplication operation.
      * 
@@ -94,9 +92,11 @@ __global__ void __launch_bounds__( 16 * 16 ) matmul_forward_kernel4(
      * @param C Number of input channels.
      * @param OC Number of output channels (N * C.
      */
-    void cuda_matmul_forward( float* out,
-        const float* inp, const float* weight, const float* bias,
-        int B, int T, int C, int OC ) {
+    void cuda_matmul_forward( 
+        float* out, const float* inp, 
+        const float* weight, const float* bias,
+        int B, int T, int C, int OC,
+        cudaStream_t stream ) {
         
         int sqrt_block_size = 16;
 

@@ -9,6 +9,7 @@ module;
 
 export module Dnn.Blocks.TransformerBlock;
 
+import Dnn.ModuleBlock;
 import Dnn.Tensor;
 import Dnn.TensorTraits;
 import Compute.ComputeDevice;
@@ -27,10 +28,12 @@ import Dnn.Blocks.MLP;
 
 namespace Mila::Dnn
 {
+	using namespace Mila::Dnn::Compute;
+
     export
-        template<typename TInput, typename TCompute = TInput>
-        requires ValidTensorTypes<TInput, TCompute>
-    class TransformerBlock : public Module<TInput, TCompute> {
+        template<typename TInput, typename TPrecision = TInput, DeviceType TDeviceType = DeviceType::Cuda>
+        requires ValidTensorTypes<TInput, TPrecision>
+    class TransformerBlock : public Block<TInput, TPrecision, TDeviceType> {
     public:
         /**
          * @brief Constructs a new TransformerBlock module with the default device context.
@@ -42,7 +45,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If the input shape doesn't have rank 3.
          */
         TransformerBlock( std::string name, const std::vector<size_t>& input_shape, const size_t num_heads, bool is_training = false )
-            : Module<TInput, TCompute>(),
+            : Module<TInput, TPrecision>(),
             input_shape_{ validate_shape( input_shape ) },
             num_heads_{ num_heads } {
             this->setName( name );
@@ -63,7 +66,7 @@ namespace Mila::Dnn
          */
         TransformerBlock( std::string name, const std::vector<size_t>& input_shape, const size_t num_heads,
             std::shared_ptr<DeviceContext> context, bool is_training = false )
-            : Module<TInput, TCompute>( context ),
+            : Module<TInput, TPrecision>( context ),
             input_shape_{ validate_shape( input_shape ) },
             num_heads_{ num_heads } {
             this->setName( name );
@@ -89,7 +92,7 @@ namespace Mila::Dnn
          * @param output The output tensor where the results will be stored.
          */
         template<typename TMR>
-        void forward( const Tensor<TInput, TMR>& input, Tensor<TCompute, TMR>& output ) {
+        void forward( const Tensor<TInput, TMR>& input, Tensor<TPrecision, TMR>& output ) {
             ln_1_->forward( input, ln_1_output_ );
             fc_qkv_->forward( ln_1_output_, fc_qkv_output_ );
             attn_->forward( fc_qkv_output_, attn_output_ );
@@ -177,24 +180,24 @@ namespace Mila::Dnn
         size_t num_heads_; ///< The number of attention heads.
 
         // Sub-modules
-        std::shared_ptr<LayerNorm<TInput, TCompute>> ln_1_{ nullptr };
-        std::shared_ptr<FullyConnected<TInput, TCompute>> fc_qkv_{ nullptr };
-        std::shared_ptr<MultiHeadAttention<TInput, TCompute>> attn_{ nullptr };
-        std::shared_ptr<FullyConnected<TInput, TCompute>> fc_attn_proj_{ nullptr };
-        std::shared_ptr<Residual<TInput, TCompute>> res_1_{ nullptr };
-        std::shared_ptr<LayerNorm<TInput, TCompute>> ln_2_{ nullptr };
-        std::shared_ptr<MLP<TInput, TCompute>> mlp_{ nullptr };
-        std::shared_ptr<Residual<TInput, TCompute>> res_2_{ nullptr };
+        std::shared_ptr<LayerNorm<TInput, TPrecision>> ln_1_{ nullptr };
+        std::shared_ptr<FullyConnected<TInput, TPrecision>> fc_qkv_{ nullptr };
+        std::shared_ptr<MultiHeadAttention<TInput, TPrecision>> attn_{ nullptr };
+        std::shared_ptr<FullyConnected<TInput, TPrecision>> fc_attn_proj_{ nullptr };
+        std::shared_ptr<Residual<TInput, TPrecision>> res_1_{ nullptr };
+        std::shared_ptr<LayerNorm<TInput, TPrecision>> ln_2_{ nullptr };
+        std::shared_ptr<MLP<TInput, TPrecision>> mlp_{ nullptr };
+        std::shared_ptr<Residual<TInput, TPrecision>> res_2_{ nullptr };
 
         // Intermediate tensors
-        Tensor<TCompute, typename Module<TInput, TCompute>::MR> ln_1_output_;
-        Tensor<TCompute, typename Module<TInput, TCompute>::MR> fc_qkv_output_;
-        Tensor<TCompute, typename Module<TInput, TCompute>::MR> attn_output_;
-        Tensor<TCompute, typename Module<TInput, TCompute>::MR> fc_attn_proj_output_;
-        Tensor<TCompute, typename Module<TInput, TCompute>::MR> res_1_output_;
-        Tensor<TCompute, typename Module<TInput, TCompute>::MR> ln_2_output_;
-        Tensor<TCompute, typename Module<TInput, TCompute>::MR> mlp_output_;
-        Tensor<TCompute, typename Module<TInput, TCompute>::MR> res_2_output_;
+        Tensor<TPrecision, typename Module<TInput, TPrecision>::MR> ln_1_output_;
+        Tensor<TPrecision, typename Module<TInput, TPrecision>::MR> fc_qkv_output_;
+        Tensor<TPrecision, typename Module<TInput, TPrecision>::MR> attn_output_;
+        Tensor<TPrecision, typename Module<TInput, TPrecision>::MR> fc_attn_proj_output_;
+        Tensor<TPrecision, typename Module<TInput, TPrecision>::MR> res_1_output_;
+        Tensor<TPrecision, typename Module<TInput, TPrecision>::MR> ln_2_output_;
+        Tensor<TPrecision, typename Module<TInput, TPrecision>::MR> mlp_output_;
+        Tensor<TPrecision, typename Module<TInput, TPrecision>::MR> res_2_output_;
 
         /**
          * @brief Validates the input shape for the transformer block.
@@ -225,28 +228,28 @@ namespace Mila::Dnn
             auto C = input_shape_[ 2 ]; // Number of channels
 
             // Create new modules with the current device context
-            ln_1_ = std::make_shared<LayerNorm<TInput, TCompute>>(
+            ln_1_ = std::make_shared<LayerNorm<TInput, TPrecision>>(
                 this->getName() + ".ln_1", input_shape_ );
 
-            fc_qkv_ = std::make_shared<FullyConnected<TInput, TCompute>>(
+            fc_qkv_ = std::make_shared<FullyConnected<TInput, TPrecision>>(
                 this->getName() + ".fc_qkv", C, 3 * C );
 
-            attn_ = std::make_shared<MultiHeadAttention<TInput, TCompute>>(
+            attn_ = std::make_shared<MultiHeadAttention<TInput, TPrecision>>(
                 this->getName() + ".attn", input_shape_, num_heads_ );
 
-            fc_attn_proj_ = std::make_shared<FullyConnected<TInput, TCompute>>(
+            fc_attn_proj_ = std::make_shared<FullyConnected<TInput, TPrecision>>(
                 this->getName() + ".fc_attn_proj", C, C );
 
-            res_1_ = std::make_shared<Residual<TInput, TCompute>>(
+            res_1_ = std::make_shared<Residual<TInput, TPrecision>>(
                 this->getName() + ".res_1" );
 
-            ln_2_ = std::make_shared<LayerNorm<TInput, TCompute>>(
+            ln_2_ = std::make_shared<LayerNorm<TInput, TPrecision>>(
                 this->getName() + ".ln_2", input_shape_ );
 
-            mlp_ = std::make_shared<MLP<TInput, TCompute>>(
+            mlp_ = std::make_shared<MLP<TInput, TPrecision>>(
                 this->getName() + ".mlp", input_shape_, 4 * C );
 
-            res_2_ = std::make_shared<Residual<TInput, TCompute>>(
+            res_2_ = std::make_shared<Residual<TInput, TPrecision>>(
                 this->getName() + ".res_2" );
 
             // Propagate device context to sub-modules
@@ -273,24 +276,24 @@ namespace Mila::Dnn
             auto device_type = this->getDeviceContext()->getDevice()->getDeviceType();
 
             if ( device_type == DeviceType::Cpu ) {
-                ln_1_output_ = Tensor<TCompute, Compute::HostMemoryResource>( input_shape_ );
-                fc_qkv_output_ = Tensor<TCompute, Compute::HostMemoryResource>( { B, T, 3 * C } );
-                attn_output_ = Tensor<TCompute, Compute::HostMemoryResource>( input_shape_ );
-                fc_attn_proj_output_ = Tensor<TCompute, Compute::HostMemoryResource>( { B, T, C } );
-                res_1_output_ = Tensor<TCompute, Compute::HostMemoryResource>( input_shape_ );
-                ln_2_output_ = Tensor<TCompute, Compute::HostMemoryResource>( input_shape_ );
-                mlp_output_ = Tensor<TCompute, Compute::HostMemoryResource>( input_shape_ );
-                res_2_output_ = Tensor<TCompute, Compute::HostMemoryResource>( input_shape_ );
+                ln_1_output_ = Tensor<TPrecision, Compute::HostMemoryResource>( input_shape_ );
+                fc_qkv_output_ = Tensor<TPrecision, Compute::HostMemoryResource>( { B, T, 3 * C } );
+                attn_output_ = Tensor<TPrecision, Compute::HostMemoryResource>( input_shape_ );
+                fc_attn_proj_output_ = Tensor<TPrecision, Compute::HostMemoryResource>( { B, T, C } );
+                res_1_output_ = Tensor<TPrecision, Compute::HostMemoryResource>( input_shape_ );
+                ln_2_output_ = Tensor<TPrecision, Compute::HostMemoryResource>( input_shape_ );
+                mlp_output_ = Tensor<TPrecision, Compute::HostMemoryResource>( input_shape_ );
+                res_2_output_ = Tensor<TPrecision, Compute::HostMemoryResource>( input_shape_ );
             }
             else {
-                ln_1_output_ = Tensor<TCompute, Compute::DeviceMemoryResource>( input_shape_ );
-                fc_qkv_output_ = Tensor<TCompute, Compute::DeviceMemoryResource>( { B, T, 3 * C } );
-                attn_output_ = Tensor<TCompute, Compute::DeviceMemoryResource>( input_shape_ );
-                fc_attn_proj_output_ = Tensor<TCompute, Compute::DeviceMemoryResource>( { B, T, C } );
-                res_1_output_ = Tensor<TCompute, Compute::DeviceMemoryResource>( input_shape_ );
-                ln_2_output_ = Tensor<TCompute, Compute::DeviceMemoryResource>( input_shape_ );
-                mlp_output_ = Tensor<TCompute, Compute::DeviceMemoryResource>( input_shape_ );
-                res_2_output_ = Tensor<TCompute, Compute::DeviceMemoryResource>( input_shape_ );
+                ln_1_output_ = Tensor<TPrecision, Compute::DeviceMemoryResource>( input_shape_ );
+                fc_qkv_output_ = Tensor<TPrecision, Compute::DeviceMemoryResource>( { B, T, 3 * C } );
+                attn_output_ = Tensor<TPrecision, Compute::DeviceMemoryResource>( input_shape_ );
+                fc_attn_proj_output_ = Tensor<TPrecision, Compute::DeviceMemoryResource>( { B, T, C } );
+                res_1_output_ = Tensor<TPrecision, Compute::DeviceMemoryResource>( input_shape_ );
+                ln_2_output_ = Tensor<TPrecision, Compute::DeviceMemoryResource>( input_shape_ );
+                mlp_output_ = Tensor<TPrecision, Compute::DeviceMemoryResource>( input_shape_ );
+                res_2_output_ = Tensor<TPrecision, Compute::DeviceMemoryResource>( input_shape_ );
             }
         }
     };

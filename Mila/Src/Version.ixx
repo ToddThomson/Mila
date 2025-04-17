@@ -27,7 +27,7 @@ module;
 
 export module Mila.Version;
 
-export namespace Mila
+namespace Mila
 {
     /// <summary>
     /// Semantic Version data.

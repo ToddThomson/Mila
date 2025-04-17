@@ -59,6 +59,19 @@ export import Compute.CudaManagedMemoryResource;
 export import Compute.CudaPinnedMemoryResource;
 export import Compute.DynamicMemoryResource;
 
+export import Compute.OperationRegistry;
+export import Compute.OperationAttributes;
+
+export import Compute.CpuGeluOp;
+
+export import Compute.CudaGeluOp;
+export import Compute.CudaSoftmaxOp;
+//export import Compute.CudaMultiHeadAttentionOp;
+export import Compute.CudaMatMulOp;
+export import Compute.CudaLayerNormOp;
+export import Compute.CudaResidualOp;
+
+
 export import Dnn.Modules.Attention;
 export import Dnn.Modules.Encoder;
 export import Dnn.Modules.Gelu;

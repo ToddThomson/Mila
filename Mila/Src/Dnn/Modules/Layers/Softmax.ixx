@@ -30,7 +30,7 @@ import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaMemoryResource;
 
-export namespace Mila::Dnn
+namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
 

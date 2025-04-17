@@ -9,7 +9,7 @@ __global__ void residual_forward_kernel( float* out, const float* input_1, const
     }
 }
 
-void cuda_residual_forward( float* out, const float* inp1, const float* inp2, int N ) {
+void cuda_residual_forward( float* out, const float* inp1, const float* inp2, int N, cudaStream_t stream ) {
     const int block_size = 256;
     const int grid_size = ceil_div( N, block_size );
 

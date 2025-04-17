@@ -102,10 +102,8 @@ namespace Mila::Dnn::Compute
 
             int axis = properties.axis;
 
-            // Get CUDA stream from device context
             cudaStream_t stream = this->getDeviceContext()->getStream();
 
-            // Call CUDA kernel with stream
             cuda_softmax_forward( Y, X, N, axis, stream );
         }
 

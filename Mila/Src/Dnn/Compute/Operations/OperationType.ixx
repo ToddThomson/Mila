@@ -9,7 +9,7 @@ module;
 
 export module Compute.OperationType;
 
-export namespace Mila::Dnn::Compute
+namespace Mila::Dnn::Compute
 {
 	/**
 	 * @brief Enumeration of all supported neural network operation types.

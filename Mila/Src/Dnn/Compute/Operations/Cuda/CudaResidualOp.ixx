@@ -98,8 +98,6 @@ namespace Mila::Dnn::Compute
             int N = input1.size();
 
             cudaStream_t stream = this->getDeviceContext()->getStream();
-
-            // Call CUDA kernel with stream
             cuda_residual_forward( Y, X1, X2, N, stream );
         }
 

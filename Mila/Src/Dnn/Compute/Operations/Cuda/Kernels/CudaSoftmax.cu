@@ -26,7 +26,8 @@ __global__ void softmax_forward_kernel1( float* out, const float* inp, int N, in
         }
     }
 }
-void cuda_softmax_forward( float* output, const float* input, int N, int C ) {
+
+void cuda_softmax_forward( float* output, const float* input, int N, int C, cudaStream_t stream ) {
     const int block_size = 512;
     const int grid_size = ceil_div( N, block_size );
     

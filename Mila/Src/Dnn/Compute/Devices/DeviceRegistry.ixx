@@ -31,7 +31,7 @@ export module Compute.DeviceRegistry;
 
 import Compute.ComputeDevice;
 
-export namespace Mila::Dnn::Compute
+namespace Mila::Dnn::Compute
 {
     /**
      * @brief Registry for compute device creation and management.

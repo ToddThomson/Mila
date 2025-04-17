@@ -49,7 +49,7 @@ add_executable( MilaTests
     "Dnn/Modules/Encoder.cpp" 
 
     #"Dnn/Models/Gpt2/DatasetReader.cpp"
-)
+    "Dnn/Compute/Operations/Cuda/CudaGeluOpTests.cpp")
 
 # TODO: Add globally 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )

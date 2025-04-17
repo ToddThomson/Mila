@@ -28,7 +28,7 @@ import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
 
-export namespace Mila::Dnn
+namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
 
@@ -289,9 +289,6 @@ export namespace Mila::Dnn
         * For CUDA device, creates a "Cuda::EncoderOp" operation.
         */
         void createOperation() {
-            // Get the device type from the context
-            auto device_type = this->getDeviceContext()->getDevice()->getDeviceType();
-
             if ( operation_ ) {
                 operation_.reset(); // Clear existing operation
             }
@@ -299,13 +296,13 @@ export namespace Mila::Dnn
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
                 auto base_op = OperationRegistry::instance().createOperation<TInput, TPrecision, DeviceType::Cpu>(
                     "Cpu::EncoderOp",
-                    this->getDeviceContext() ); // Pass the module's context
+                    this->getDeviceContext() );
                 operation_ = std::static_pointer_cast<Dnn::Compute::UnaryOperation<TInput, TPrecision, DeviceType::Cpu>>(base_op);
             }
             else {
                 auto base_op = OperationRegistry::instance().createOperation<TInput, TPrecision, DeviceType::Cuda>(
                     "Cuda::EncoderOp",
-                    this->getDeviceContext() ); // Pass the module's context
+                    this->getDeviceContext() );
                 operation_ = std::static_pointer_cast<Dnn::Compute::UnaryOperation<TInput, TPrecision, DeviceType::Cuda>>(base_op);
             }
         }

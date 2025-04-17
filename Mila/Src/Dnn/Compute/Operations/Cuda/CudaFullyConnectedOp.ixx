@@ -110,7 +110,6 @@ namespace Mila::Dnn::Compute
 
             cudaStream_t stream = this->getDeviceContext()->getStream();
 
-            // Call CUDA kernel with stream
             cuda_matmul_forward( Y, X, weight, bias, B, T, C, OC, stream );
         }
 

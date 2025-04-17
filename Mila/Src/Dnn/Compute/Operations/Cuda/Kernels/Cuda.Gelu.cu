@@ -27,10 +27,12 @@ __global__ void gelu_backward_kernel( float* dinp, const float* inp, const float
     }
 }
 
-void cuda_gelu_forward( float* out, const float* inp, int N ) {
+void cuda_gelu_forward( float* out, const float* inp, int N, cudaStream_t stream ) {
     const int block_size = 128;
     const int grid_size = ceil_div( N, block_size );
-    gelu_forward_kernel << <grid_size, block_size >> > (out, inp, N);
+    
+    gelu_forward_kernel <<<grid_size, block_size>>> (out, inp, N);
+    
     cudaCheck( cudaGetLastError() );
 }
 

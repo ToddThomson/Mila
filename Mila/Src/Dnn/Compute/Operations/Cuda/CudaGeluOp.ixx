@@ -95,10 +95,8 @@ namespace Mila::Dnn::Compute
             auto Y = output.data();
             int N = input.size();
 
-            // Get CUDA stream from device context
             cudaStream_t stream = this->getDeviceContext()->getStream();
 
-            // Call CUDA kernel with stream
             cuda_gelu_forward( Y, X, N, stream );
         }
 
@@ -141,7 +139,7 @@ namespace Mila::Dnn::Compute
             cudaStream_t stream = this->getDeviceContext()->getStream();
 
             // Call CUDA kernel with stream
-            cuda_gelu_backward( dX, X, dY, N, stream );
+            // FIXME: cuda_gelu_backward( dX, X, dY, N, stream );
         }
 
         /**
