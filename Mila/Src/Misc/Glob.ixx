@@ -7,6 +7,7 @@ module;
 #include <stdlib.h>
 #include <regex>
 #include <time.h>
+#include <cstring>
 
 export module Misc.Glob;
 

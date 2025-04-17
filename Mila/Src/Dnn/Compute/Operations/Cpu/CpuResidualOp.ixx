@@ -43,9 +43,7 @@ namespace Mila::Dnn::Compute
      * @tparam TInput The data type of the input tensor elements.
      * @tparam TPrecision The data type used for computation and output (defaults to the input type).
      */
-    export
-        template<typename TInput = float, typename TPrecision = float>
-    class CpuResidualOp : public BinaryOperation<float, float, DeviceType::Cpu> {
+    export class CpuResidualOp : public BinaryOperation<float, float, DeviceType::Cpu> {
     public:
         using MR = typename CpuDevice::MR;
 
@@ -205,8 +203,8 @@ namespace Mila::Dnn::Compute
                 opName,
                 "Default",  // Default empty variant for backward compatibility
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, float, DeviceType::Cpu>> {
-                    return context ? std::make_shared<CpuResidualOp<float, float>>( context )
-                        : std::make_shared<CpuResidualOp<float, float>>();
+                    return context ? std::make_shared<CpuResidualOp>( context )
+                        : std::make_shared<CpuResidualOp>();
                 }
             );
         }

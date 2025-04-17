@@ -45,15 +45,13 @@ namespace Mila::Dnn::Compute
      * @tparam TInput The data type of the input tensor elements.
      * @tparam TPrecision The data type used for computation and output (defaults to the input type).
      */
-    export
-        template<typename TInput = float, typename TPrecision = float>
-    class CpuLayerNormOp : public UnaryOperation<TInput, TPrecision, DeviceType::Cpu> {
+    export class CpuLayerNormOp : public UnaryOperation<float, float, DeviceType::Cpu> {
     public:
         using MR = typename CpuDevice::MR;
         /**
          * @brief Constructs a new CPU Layer Normalization operation with the default device context.
          */
-        CpuLayerNormOp() : UnaryOperation<TInput, TPrecision, DeviceType::Cpu>( OperationType::LayerNormOp ) {
+        CpuLayerNormOp() : UnaryOperation<float, float, DeviceType::Cpu>( OperationType::LayerNormOp ) {
 
         }
 
@@ -64,7 +62,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the context is not for a CPU device.
          */
         CpuLayerNormOp( std::shared_ptr<DeviceContext> context )
-            : UnaryOperation<TInput, TPrecision, DeviceType::Cpu>( OperationType::LayerNormOp, context ) {
+            : UnaryOperation<float, float, DeviceType::Cpu>( OperationType::LayerNormOp, context ) {
             if ( !context->isDeviceType( DeviceType::Cpu ) ) {
                 throw std::runtime_error( "CpuLayerNormOp requires a CPU device context." );
             }
@@ -83,11 +81,11 @@ namespace Mila::Dnn::Compute
          * @param output_state Cache for intermediate results [mean, rstd] used in the backward pass.
          */
         void forward(
-            const Tensor<TInput, MR>& input,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
+            const Tensor<float, MR>& input,
+            const std::vector<std::shared_ptr<Tensor<float, MR>>>& parameters,
             const OperationAttributes& attributes,
-            Tensor<TPrecision, MR>& output,
-            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const override {
+            Tensor<float, MR>& output,
+            std::vector<std::shared_ptr<Tensor<float, MR>>>& output_state ) const override {
 
             // Verify we're operating on CPU memory
             if ( this->getDeviceContext()->getDevice()->getDeviceType() != DeviceType::Cpu ) {
@@ -248,8 +246,8 @@ namespace Mila::Dnn::Compute
                 opName,
                 "Default",  // Default empty variant for backward compatibility
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, float, DeviceType::Cpu>> {
-                    return context ? std::make_shared<CpuLayerNormOp<float, float>>( context )
-                        : std::make_shared<CpuLayerNormOp<float, float>>();
+                    return context ? std::make_shared<CpuLayerNormOp>( context )
+                        : std::make_shared<CpuLayerNormOp>();
                 }
             );
         }

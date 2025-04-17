@@ -8,6 +8,7 @@ module;
 #include <omp.h>
 #endif
 #include <iostream>
+#include <stdexcept>
 
 export module Compute.CpuGeluOp;
 
