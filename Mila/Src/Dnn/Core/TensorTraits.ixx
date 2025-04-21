@@ -7,6 +7,7 @@ module;
 #include <vector>
 #include <cuda_fp16.h>
 #include <type_traits>
+#include <cstdint>
 
 export module Dnn.TensorTraits;
 

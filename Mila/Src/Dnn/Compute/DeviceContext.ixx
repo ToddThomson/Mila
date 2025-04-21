@@ -118,7 +118,26 @@ namespace Mila::Dnn::Compute
         cublasLtHandle_t getCublasLtHandle() {
             std::lock_guard<std::mutex> lock( handle_mutex_ );
             if ( !cublasLtHandle_ && isCudaDevice() ) {
-                cublasLtCreate( &cublasLtHandle_ );
+                cublasStatus_t status = cublasLtCreate( &cublasLtHandle_ );
+                if ( status != CUBLAS_STATUS_SUCCESS ) {
+                    // Set handle to nullptr to ensure we don't return an invalid handle
+                    cublasLtHandle_ = nullptr;
+
+                    // Convert cuBLAS error to a readable message
+                    const char* errorMsg;
+                    switch ( status ) {
+                        case CUBLAS_STATUS_NOT_INITIALIZED:
+                            errorMsg = "CUBLAS library not initialized";
+                            break;
+                        case CUBLAS_STATUS_ALLOC_FAILED:
+                            errorMsg = "Resource allocation failed";
+                            break;
+                        default:
+                            errorMsg = "Unknown cuBLASLt error";
+                            break;
+                    }
+                    throw std::runtime_error( std::string( "Failed to create cuBLASLt handle: " ) + errorMsg );
+                }
             }
             return cublasLtHandle_;
         }

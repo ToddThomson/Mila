@@ -142,7 +142,7 @@ namespace Mila::Dnn::Compute
          * and can have multiple variants for specialized implementations.
          *
          * @tparam TInput The input tensor element type.
-         * @tparam TPrecision The output tensor element type.
+         * @tparam TDataType The output tensor element type.
          * @tparam TDeviceType The device type for the operation.
          * @param operation_name The name of the operation.
          * @param variant The variant of the operation.
@@ -176,7 +176,7 @@ namespace Mila::Dnn::Compute
          * can provide better performance by reducing memory traffic and enabling more
          * aggressive compiler optimizations.
          *
-         * @tparam TPrecision The precision type of the operation.
+         * @tparam TDataType The precision type of the operation.
          * @param operation_types The sequence of operation types to fuse.
          * @param fused_op_name The name of the fused operation.
          * @param variant The variant of the operation (defaults to "Default").
@@ -223,12 +223,12 @@ namespace Mila::Dnn::Compute
          * If a variant-specific implementation is not found, it falls back to the default variant.
          *
          * @tparam TInput The input tensor element type.
-         * @tparam TPrecision The output tensor element type.
+         * @tparam TDataType The output tensor element type.
          * @tparam TDeviceType The device type for the operation.
          * @param operation_name The name of the operation.
          * @param context The device context to use for the operation.
          * @param variant The variant of the operation (defaults to "Default").
-         * @return std::shared_ptr<OperationBase<TInput, TPrecision, TDeviceType>> The created operation.
+         * @return std::shared_ptr<OperationBase<TInput, TDataType, TDeviceType>> The created operation.
          * @throws std::runtime_error If the type combination, device type, or operation name is invalid.
          * @throws std::invalid_argument If the context is null.
          */

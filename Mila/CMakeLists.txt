@@ -27,8 +27,7 @@ target_link_libraries( Mila PRIVATE miniz)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
   add_compile_options(/std:c++latest)
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-  add_compile_options(-fmodules-ts)
-  add_compile_options(-std=c++23)
+  add_compile_options(-fmodules-ts -std=c++23)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-fmodules)
 endif()
@@ -121,7 +120,8 @@ PUBLIC
 		"Src/Dnn/Compute/Operations/Cuda/CudaSoftmaxOp.ixx" 
 		"Src/Dnn/Compute/Operations/Cuda/CudaLayerNormOp.ixx"
 		"Src/Dnn/Compute/Operations/Cuda/CudaMultiHeadAttentionOp.ixx" 
-		"Src/Dnn/Compute/Operations/Cuda/CudaEncoderOp.ixx" 
+		"Src/Dnn/Compute/Operations/Cuda/CudaEncoderOp.ixx"
+		"Src/Dnn/Compute/Operations/Cuda/CublasLtMatMulBias.ixx"
 		# Data
 		"Src/Data/DataLoader.ixx"
 		"Src/Dnn/Models/Gpt2/Gpt2DatasetReader.ixx"
@@ -146,7 +146,8 @@ PUBLIC
 		"Src/Dnn/Compute/DynamicMemoryResource.ixx"
 		"Src/Dnn/Compute/DeviceContextHelpers.ixx"
 		"Src/Dnn/Modules/Block.ixx"
- "Src/Core/RandomGenerator.ixx")
+		"Src/Core/RandomGenerator.ixx"
+ "Src/Dnn/Compute/Operations/Cuda/CudaDataTypeTraits.ixx" "Src/Dnn/Core/ActivationType.ixx" "Src/Dnn/Compute/Cuda/CublasLtError.ixx")
 
 target_link_libraries( Mila PRIVATE CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
 
@@ -180,9 +181,9 @@ add_subdirectory( Docs )
 
 if (MILA_ENABLE_TESTING)  
 enable_testing()
-add_subdirectory( Tests) 
+add_subdirectory(Tests) 
 endif()  
  
 if (MILA_ENABLE_SAMPLES)  
-#add_subdirectory(Mila/Samples)  
+add_subdirectory(Samples)  
 endif()

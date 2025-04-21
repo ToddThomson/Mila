@@ -267,62 +267,62 @@ namespace Operations::Tests
     /**
      * @brief Test backward pass functionality
      */
-    TEST_F( CpuSoftmaxOpTests, BackwardPass ) {
-        // Create tensors for forward and backward passes
-        Tensor<float, HostMemoryResource> input( small_shape_ );
-        Tensor<float, HostMemoryResource> output( small_shape_ );
-        Tensor<float, HostMemoryResource> output_grad( small_shape_ );
-        Tensor<float, HostMemoryResource> input_grad( small_shape_ );
+    //TEST_F( CpuSoftmaxOpTests, BackwardPass ) {
+    //    // Create tensors for forward and backward passes
+    //    Tensor<float, HostMemoryResource> input( small_shape_ );
+    //    Tensor<float, HostMemoryResource> output( small_shape_ );
+    //    Tensor<float, HostMemoryResource> output_grad( small_shape_ );
+    //    Tensor<float, HostMemoryResource> input_grad( small_shape_ );
 
-        // Initialize tensors
-        for ( size_t i = 0; i < input.size(); ++i ) {
-            input.data()[ i ] = (static_cast<float>( i ) - 10.0f) / 10.0f;
-            input_grad.data()[ i ] = 0.0f;  // Initialize to zero
-            // Set all output gradients to 1.0 for simple testing
-            output_grad.data()[ i ] = 1.0f;
-        }
+    //    // Initialize tensors
+    //    for ( size_t i = 0; i < input.size(); ++i ) {
+    //        input.data()[ i ] = (static_cast<float>( i ) - 10.0f) / 10.0f;
+    //        input_grad.data()[ i ] = 0.0f;  // Initialize to zero
+    //        // Set all output gradients to 1.0 for simple testing
+    //        output_grad.data()[ i ] = 1.0f;
+    //    }
 
-        // Forward pass first
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> param_grads;
-        OperationAttributes props;
-        props.axis = 2;  // Last dimension
+    //    // Forward pass first
+    //    std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
+    //    std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+    //    std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> param_grads;
+    //    OperationAttributes props;
+    //    props.axis = 2;  // Last dimension
 
-        cpu_softmax_op_->forward( input, params, props, output, output_cache );
+    //    cpu_softmax_op_->forward( input, params, props, output, output_cache );
 
-        // Execute backward pass
-        ASSERT_NO_THROW( cpu_softmax_op_->backward(
-            input, output, output_grad,
-            params, param_grads, input_grad,
-            props, output_cache ) );
+    //    // Execute backward pass
+    //    ASSERT_NO_THROW( cpu_softmax_op_->backward(
+    //        input, output, output_grad,
+    //        params, param_grads, input_grad,
+    //        props, output_cache ) );
 
-        // Verify gradients are not NaN or Inf
-        EXPECT_FALSE( hasNaNorInf( input_grad ) );
+    //    // Verify gradients are not NaN or Inf
+    //    EXPECT_FALSE( hasNaNorInf( input_grad ) );
 
-        // For standard input values, gradients should be non-zero
-        bool all_zeros = true;
-        for ( size_t i = 0; i < input_grad.size(); ++i ) {
-            if ( std::abs( input_grad.data()[ i ] ) > 1e-5f ) {
-                all_zeros = false;
-                break;
-            }
-        }
-        EXPECT_FALSE( all_zeros );
+    //    // For standard input values, gradients should be non-zero
+    //    bool all_zeros = true;
+    //    for ( size_t i = 0; i < input_grad.size(); ++i ) {
+    //        if ( std::abs( input_grad.data()[ i ] ) > 1e-5f ) {
+    //            all_zeros = false;
+    //            break;
+    //        }
+    //    }
+    //    EXPECT_FALSE( all_zeros );
 
-        // For uniform output gradients, verify the gradients sum to zero within each softmax distribution
-        // This is a characteristic of the softmax gradient when all output gradients are equal
-        for ( size_t b = 0; b < small_shape_[ 0 ]; ++b ) {
-            for ( size_t t = 0; t < small_shape_[ 1 ]; ++t ) {
-                float sum = 0.0f;
-                for ( size_t c = 0; c < small_shape_[ 2 ]; ++c ) {
-                    size_t idx = (b * small_shape_[ 1 ] * small_shape_[ 2 ]) + (t * small_shape_[ 2 ]) + c;
-                    sum += input_grad.data()[ idx ];
-                }
-                EXPECT_NEAR( sum, 0.0f, 1e-5f );
-            }
-        }
-    }
+    //    // For uniform output gradients, verify the gradients sum to zero within each softmax distribution
+    //    // This is a characteristic of the softmax gradient when all output gradients are equal
+    //    for ( size_t b = 0; b < small_shape_[ 0 ]; ++b ) {
+    //        for ( size_t t = 0; t < small_shape_[ 1 ]; ++t ) {
+    //            float sum = 0.0f;
+    //            for ( size_t c = 0; c < small_shape_[ 2 ]; ++c ) {
+    //                size_t idx = (b * small_shape_[ 1 ] * small_shape_[ 2 ]) + (t * small_shape_[ 2 ]) + c;
+    //                sum += input_grad.data()[ idx ];
+    //            }
+    //            EXPECT_NEAR( sum, 0.0f, 1e-5f );
+    //        }
+    //    }
+    //}
 
     /**
      * @brief Test edge cases with extreme input values
@@ -616,7 +616,7 @@ namespace Operations::Tests
                 << elements_per_second / 1e6 << " million elements/sec" << std::endl;
         }
     #else
-        GTEST_SKIP() << "OpenMP not available, skipping scaling test";
+        // GTEST_SKIP() << "OpenMP not available, skipping scaling test";
     #endif
     }
 

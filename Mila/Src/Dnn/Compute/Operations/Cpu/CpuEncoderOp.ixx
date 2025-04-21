@@ -39,7 +39,7 @@ namespace Mila::Dnn::Compute
      * which combines token embeddings and positional embeddings.
      *
      * @tparam TInput The data type of the input tensor elements (typically int for token indices).
-     * @tparam TPrecision The data type used for computation and output (typically float).
+     * @tparam TDataType The data type used for computation and output (typically float).
      */
     export
         template<typename TInput = int>
@@ -147,14 +147,14 @@ namespace Mila::Dnn::Compute
 			// TODO backward pass implementation
             
         //    int B = input.shape()[ 0 ];
-        //    int T = input.shape()[ 1 ];
+        //    int TDataType = input.shape()[ 1 ];
         //    int C = wte->shape()[ 1 ];
 
         //#pragma omp parallel for collapse(2)
         //    for ( int b = 0; b < B; b++ ) {
-        //        for ( int t = 0; t < T; t++ ) {
-        //            float* dout_bt = dout + b * T * C + t * C;
-        //            TInput ix = input[ b * T + t ];
+        //        for ( int t = 0; t < TDataType; t++ ) {
+        //            float* dout_bt = dout + b * TDataType * C + t * C;
+        //            TInput ix = input[ b * TDataType + t ];
         //            float* dwte_ix = dwte + ix * C;
         //            float* dwpe_t = dwpe + t * C;
 
@@ -198,13 +198,21 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cpu::EncoderOp";
 
-            // Register with device context-aware operation registry
             OperationRegistry::instance().registerOperation<int, float, DeviceType::Cpu>(
                 opName,
                 "Default",
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<int, float, DeviceType::Cpu>> {
                     return context ? std::make_shared<CpuEncoderOp<int>>( context )
                         : std::make_shared<CpuEncoderOp<int>>();
+                }
+            );
+
+            OperationRegistry::instance().registerOperation<uint16_t, float, DeviceType::Cpu>(
+                opName,
+                "Default",
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<uint16_t, float, DeviceType::Cpu>> {
+                    return context ? std::make_shared<CpuEncoderOp<uint16_t>>( context )
+                        : std::make_shared<CpuEncoderOp<uint16_t>>();
                 }
             );
         }

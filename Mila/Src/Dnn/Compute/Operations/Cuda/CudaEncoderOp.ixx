@@ -42,7 +42,7 @@ namespace Mila::Dnn::Compute
      * supporting both integer and half-precision floating-point operations.
      *
      * @tparam TInput The data type of the input tensor elements (typically uint16_t or int for token IDs).
-     * @tparam TPrecision The data type used for computation and output (typically half or float).
+     * @tparam TDataType The data type used for computation and output (typically half or float).
      */
     export
         template<typename TInput = uint16_t, typename TPrecision = half>
@@ -81,11 +81,11 @@ namespace Mila::Dnn::Compute
              *
              * The computation is performed on the GPU using CUDA kernels for optimal performance.
              *
-             * @param input Input tensor of shape [B, T] containing token IDs, where B is batch size and T is sequence length.
+             * @param input Input tensor of shape [B, TDataType] containing token IDs, where B is batch size and TDataType is sequence length.
              * @param parameters Vector of parameter tensors [wte, wpe] where wte is of shape [V, C] (vocabulary size × embedding dimension)
              *                   and wpe is of shape [maxT, C] (maximum sequence length × embedding dimension).
              * @param properties Additional attributes for the operation.
-             * @param output Output tensor of shape [B, T, C] containing the resulting embeddings.
+             * @param output Output tensor of shape [B, TDataType, C] containing the resulting embeddings.
              * @param output_cache Cache for intermediate results (not used in this operation).
              */
             void forward(
@@ -114,7 +114,7 @@ namespace Mila::Dnn::Compute
                 cudaStream_t stream = this->getDeviceContext()->getStream();
 
                 // FIXME: Pass the stream to the kernel
-                // cuda_encoder_forward(Y, X, wte->data(), wpe->data(), B, T, C, stream);
+                // cuda_encoder_forward(Y, X, wte->data(), wpe->data(), B, TDataType, C, stream);
             }
 
             /**
@@ -184,30 +184,30 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cuda::EncoderOp";
 
-            // Register float precision version with device context awareness
+            // Register float precision version
             OperationRegistry::instance().registerOperation<uint16_t, float, DeviceType::Cuda>(
                 opName,
-                "float",
+                "Default",
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<uint16_t, float, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaEncoderOp<uint16_t, float>>( context )
                         : std::make_shared<CudaEncoderOp<uint16_t, float>>();
                 }
             );
 
-            // Register half precision version with device context awareness
+            // Register half precision version
             OperationRegistry::instance().registerOperation<uint16_t, half, DeviceType::Cuda>(
                 opName,
-                "half",
+                "Default",
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<uint16_t, half, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaEncoderOp<uint16_t, half>>( context )
                         : std::make_shared<CudaEncoderOp<uint16_t, half>>();
                 }
             );
 
-            // Register int input version with device context awareness
+            // Register int input version
             OperationRegistry::instance().registerOperation<int, float, DeviceType::Cuda>(
                 opName,
-                "int_float",
+                "Default",
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<int, float, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaEncoderOp<int, float>>( context )
                         : std::make_shared<CudaEncoderOp<int, float>>();

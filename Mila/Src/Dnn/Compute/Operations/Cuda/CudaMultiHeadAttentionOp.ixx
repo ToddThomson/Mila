@@ -45,7 +45,7 @@ namespace Mila::Dnn::Compute
      * The implementation is optimized for NVIDIA GPUs using CUDA for high-performance computation.
      *
      * @tparam TInput The data type of the input tensor elements.
-     * @tparam TPrecision The data type of the output tensor elements (defaults to the input type).
+     * @tparam TDataType The data type of the output tensor elements (defaults to the input type).
      */
     export
         template<typename TInput, typename TPrecision = TInput>
@@ -67,9 +67,6 @@ namespace Mila::Dnn::Compute
          */
         CudaMultiHeadAttentionOp( std::shared_ptr<DeviceContext> context )
             : UnaryOperation<TInput, TPrecision, DeviceType::Cuda>( OperationType::MultiHeadAttentionOp, context ) {
-            if ( !context->isDeviceType( DeviceType::Cuda ) ) {
-                throw std::runtime_error( "CudaMultiHeadAttentionOp requires a CUDA device context." );
-            }
         }
 
         /**
@@ -81,12 +78,12 @@ namespace Mila::Dnn::Compute
          *
          * The computation is performed on the GPU using CUDA kernels for optimal performance.
          *
-         * @param input Input tensor of shape [B, T, C] containing the input sequence, where B is batch size,
-         *              T is sequence length, and C is the input feature dimension.
+         * @param input Input tensor of shape [B, TDataType, C] containing the input sequence, where B is batch size,
+         *              TDataType is sequence length, and C is the input feature dimension.
          * @param parameters Vector of parameter tensors [weight, bias], where weight contains the query, key,
          *                   value projections and output projection, and bias contains the corresponding biases.
          * @param properties Additional attributes for the operation, such as number of attention heads.
-         * @param output Output tensor of shape [B, T, OC] containing the attention output, where OC is the
+         * @param output Output tensor of shape [B, TDataType, OC] containing the attention output, where OC is the
          *               output feature dimension.
          * @param output_cache Cache for intermediate results like attention scores and weights for
          *                     potential use in backward pass or visualization.
@@ -97,11 +94,6 @@ namespace Mila::Dnn::Compute
             const OperationAttributes& properties,
             Tensor<TPrecision, MR>& output,
             std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const override {
-
-            // Verify we're operating on CUDA memory
-            if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cuda ) ) {
-                throw std::runtime_error( "CudaMultiHeadAttentionOp::forward can only be executed on CUDA memory" );
-            }
 
             auto X = input.data();
             auto Y = output.data();
@@ -124,11 +116,10 @@ namespace Mila::Dnn::Compute
                 attn_weights = output_cache[ 1 ]->data();
             }
 
-            // Get CUDA stream from device context
+            // Get CUDA stream from device context and call the kernel
             cudaStream_t stream = this->getDeviceContext()->getStream();
 
-            // Call CUDA kernel with stream
-            // cuda_mha_forward(Y, X, weight, bias, attn_scores, attn_weights, B, T, C, OC, num_heads, stream);
+            //cuda_attention_forward(Y, X, weight, bias, attn_scores, attn_weights, B, TDataType, C, OC, num_heads, stream);
         }
 
         /**
@@ -154,11 +145,6 @@ namespace Mila::Dnn::Compute
             Tensor<TInput, MR>& input_gradient,
             const OperationAttributes& properties,
             const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const {
-
-            // Verify we're operating on CUDA memory
-            if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cuda ) ) {
-                throw std::runtime_error( "CudaMultiHeadAttentionOp::backward can only be executed on CUDA memory" );
-            }
 
             // Extract dimensions
             int B = input.shape()[ 0 ];
@@ -192,7 +178,7 @@ namespace Mila::Dnn::Compute
 
             // Call CUDA backward kernels with stream
             // cuda_mha_backward(dX, dW, dBias, X, W, bias, dY, attn_scores, attn_weights, 
-            //                   B, T, C, OC, num_heads, stream);
+            //                   B, TDataType, C, OC, num_heads, stream);
         }
 
         /**

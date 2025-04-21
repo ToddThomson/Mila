@@ -41,7 +41,7 @@ namespace Mila::Dnn::Compute
      * NVIDIA GPUs using CUDA for high-performance computation.
      *
      * @tparam TInput The data type of the input tensor elements.
-     * @tparam TPrecision The data type of the output tensor elements (defaults to the input type).
+     * @tparam TDataType The data type of the output tensor elements (defaults to the input type).
      */
     export
         template<typename TInput, typename TPrecision = TInput>
@@ -78,12 +78,12 @@ namespace Mila::Dnn::Compute
          *
          * The computation is performed on the GPU using CUDA kernels for optimal performance.
          *
-         * @param input Input tensor of shape [B, T, C] to be normalized, where B is batch size,
-         *              T is sequence length, and C is feature dimension.
+         * @param input Input tensor of shape [B, TDataType, C] to be normalized, where B is batch size,
+         *              TDataType is sequence length, and C is feature dimension.
          * @param parameters Vector of parameter tensors [weight, bias] where weight (gamma) and
          *                   bias (beta) are both of shape [C].
          * @param properties Additional attributes for the operation.
-         * @param output Output tensor of shape [B, T, C] containing the normalized values.
+         * @param output Output tensor of shape [B, TDataType, C] containing the normalized values.
          * @param output_cache Vector containing tensors for intermediate results [mean, rstd],
          *                     where mean is the mean values and rstd is the reciprocal of standard deviation.
          */
@@ -93,11 +93,6 @@ namespace Mila::Dnn::Compute
             const OperationAttributes& properties,
             Tensor<TPrecision, MR>& output,
             std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const override {
-
-            // Verify we're operating on CUDA memory
-            if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cuda ) ) {
-                throw std::runtime_error( "CudaLayerNormOp::forward can only be executed on CUDA memory" );
-            }
 
             const float* X = input.data();
             float* Y = output.data();
@@ -152,7 +147,6 @@ namespace Mila::Dnn::Compute
             int T = input.shape()[ 1 ];
             int C = input.shape()[ 2 ];
 
-            // Extract tensors
             const float* X = input.data();
             const float* dY = output_gradient.data();
             float* dX = input_gradient.data();
@@ -163,15 +157,11 @@ namespace Mila::Dnn::Compute
 
             const float* mean = output_cache[ 0 ]->data();
             const float* rstd = output_cache[ 1 ]->data();
-
-            // Get epsilon from properties (if provided) or use default
             float epsilon = properties.epsilon;
 
-            // Get CUDA stream from device context
             cudaStream_t stream = this->getDeviceContext()->getStream();
 
-            // Call CUDA kernel with stream
-            cuda_layernorm_backward( dX, dweight, dbias, dY, X, weight, mean, rstd, B, T, C, stream );
+            //cuda_layernorm_backward( dX, dweight, dbias, dY, X, weight, mean, rstd, B, TDataType, C, stream );
         }
 
         /**

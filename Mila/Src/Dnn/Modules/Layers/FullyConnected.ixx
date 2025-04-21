@@ -47,7 +47,7 @@ namespace Mila::Dnn
     * every input neuron to every output neuron with learnable weights.
     *
     * @tparam TInput The data type of the input tensor elements.
-    * @tparam TPrecision The data type used for computation and output (defaults to the input type).
+    * @tparam TDataType The data type used for computation and output (defaults to the input type).
     */
     export
         template<typename TInput, typename TPrecision = TInput>
@@ -128,7 +128,7 @@ namespace Mila::Dnn
          * The weight tensor is used in the matrix multiplication operation:
          * output = input * weight + bias
          *
-         * @return std::shared_ptr<Tensor<TPrecision>> Shared pointer to the weight tensor.
+         * @return std::shared_ptr<Tensor<TDataType>> Shared pointer to the weight tensor.
          */
         template<typename TMR>
         std::shared_ptr<Tensor<TPrecision, TMR>> getWeight() {
@@ -141,7 +141,7 @@ namespace Mila::Dnn
          * The bias tensor is added after the matrix multiplication with weights.
          * If the module was configured without bias, returns std::nullopt.
          *
-         * @return std::optional<std::shared_ptr<Tensor<TPrecision>>> Optional containing
+         * @return std::optional<std::shared_ptr<Tensor<TDataType>>> Optional containing
          *         the bias tensor if available, otherwise std::nullopt.
          */
         template<typename TMR>

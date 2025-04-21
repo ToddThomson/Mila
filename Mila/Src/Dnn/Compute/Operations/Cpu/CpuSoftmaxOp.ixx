@@ -38,7 +38,7 @@ namespace Mila::Dnn::Compute
      * final activation function of a neural network.
      *
      * @tparam TInput The data type of the input tensor elements.
-     * @tparam TPrecision The data type used for computation and output (defaults to the input type).
+     * @tparam TDataType The data type used for computation and output (defaults to the input type).
      */
     export class CpuSoftmaxOp : public UnaryOperation<float, float, DeviceType::Cpu> {
     public:
@@ -82,73 +82,73 @@ namespace Mila::Dnn::Compute
             Tensor<float, MR>& output,
             std::vector<std::shared_ptr<Tensor<float, MR>>>& output_cache ) const override {
 
-        //    // Verify we're operating on CPU memory
-        //    if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cpu ) ) {
-        //        throw std::runtime_error( "CpuSoftmaxOp::forward can only be executed on CPU memory" );
-        //    }
+            // Verify we're operating on CPU memory
+            if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cpu ) ) {
+                throw std::runtime_error( "CpuSoftmaxOp::forward can only be executed on CPU memory" );
+            }
 
-        //    const float* logits = input.raw_data();
-        //    float* probs = output.raw_data();
+            const float* logits = input.raw_data();
+            float* probs = output.raw_data();
 
-        //    // Get the axis parameter from operation properties
-        //    int64_t axis = properties.axis;
+            // Get the axis parameter from operation properties
+            int64_t axis = properties.axis;
 
-        //    // Convert negative axis to positive for easier handling
-        //    const int64_t ndim = input.shape().size();
-        //    if ( axis < 0 ) {
-        //        axis = ndim + axis;
-        //    }
+            // Convert negative axis to positive for easier handling
+            const int64_t ndim = input.shape().size();
+            if ( axis < 0 ) {
+                axis = ndim + axis;
+            }
 
-        //    // Validate the axis is within bounds
-        //    if ( axis < 0 || axis >= ndim ) {
-        //        throw std::runtime_error( "Softmax axis out of bounds" );
-        //    }
+            // Validate the axis is within bounds
+            if ( axis < 0 || axis >= ndim ) {
+                throw std::runtime_error( "Softmax axis out of bounds" );
+            }
 
-        //    // Determine the shapes needed for the computation
-        //    int64_t outer_size = 1;
-        //    for ( int64_t i = 0; i < axis; ++i ) {
-        //        outer_size *= input.shape()[ i ];
-        //    }
+            // Determine the shapes needed for the computation
+            int64_t outer_size = 1;
+            for ( int64_t i = 0; i < axis; ++i ) {
+                outer_size *= input.shape()[ i ];
+            }
 
-        //    const int64_t dim_size = input.shape()[ axis ];
+            const int64_t dim_size = input.shape()[ axis ];
 
-        //    int64_t inner_size = 1;
-        //    for ( int64_t i = axis + 1; i < ndim; ++i ) {
-        //        inner_size *= input.shape()[ i ];
-        //    }
+            int64_t inner_size = 1;
+            for ( int64_t i = axis + 1; i < ndim; ++i ) {
+                inner_size *= input.shape()[ i ];
+            }
 
-        //    // Compute softmax for each slice along the specified axis
-        //#pragma omp parallel for collapse(2) if(outer_size * inner_size > 100)
-        //    for ( int64_t outer = 0; outer < outer_size; ++outer ) {
-        //        for ( int64_t inner = 0; inner < inner_size; ++inner ) {
-        //            // Calculate the starting position for this slice
-        //            const float* slice_input = logits + (outer * dim_size * inner_size) + inner;
-        //            float* slice_output = probs + (outer * dim_size * inner_size) + inner;
+            // Compute softmax for each slice along the specified axis
+        #pragma omp parallel for collapse(2) if(outer_size * inner_size > 100)
+            for ( int64_t outer = 0; outer < outer_size; ++outer ) {
+                for ( int64_t inner = 0; inner < inner_size; ++inner ) {
+                    // Calculate the starting position for this slice
+                    const float* slice_input = logits + (outer * dim_size * inner_size) + inner;
+                    float* slice_output = probs + (outer * dim_size * inner_size) + inner;
 
-        //            // Find the maximum value for numerical stability
-        //            float max_val = -std::numeric_limits<float>::infinity();
-        //            for ( int64_t i = 0; i < dim_size; ++i ) {
-        //                float val = static_cast<float>( slice_input[ i * inner_size ] );
-        //                if ( val > max_val ) {
-        //                    max_val = val;
-        //                }
-        //            }
+                    // Find the maximum value for numerical stability
+                    float max_val = -std::numeric_limits<float>::infinity();
+                    for ( int64_t i = 0; i < dim_size; ++i ) {
+                        float val = static_cast<float>( slice_input[ i * inner_size ] );
+                        if ( val > max_val ) {
+                            max_val = val;
+                        }
+                    }
 
-        //            // Compute exp(x - max_val) and sum
-        //            float sum = 0.0f;
-        //            for ( int64_t i = 0; i < dim_size; ++i ) {
-        //                float val = std::exp( static_cast<float>( slice_input[ i * inner_size ] ) - max_val );
-        //                slice_output[ i * inner_size ] = val;
-        //                sum += val;
-        //            }
+                    // Compute exp(x - max_val) and sum
+                    float sum = 0.0f;
+                    for ( int64_t i = 0; i < dim_size; ++i ) {
+                        float val = std::exp( static_cast<float>( slice_input[ i * inner_size ] ) - max_val );
+                        slice_output[ i * inner_size ] = val;
+                        sum += val;
+                    }
 
-        //            // Normalize by sum
-        //            float inv_sum = 1.0f / sum;
-        //            for ( int64_t i = 0; i < dim_size; ++i ) {
-        //                slice_output[ i * inner_size ] *= inv_sum;
-        //            }
-        //        }
-        //    }
+                    // Normalize by sum
+                    float inv_sum = 1.0f / sum;
+                    for ( int64_t i = 0; i < dim_size; ++i ) {
+                        slice_output[ i * inner_size ] *= inv_sum;
+                    }
+                }
+            }
         }
 
         /**

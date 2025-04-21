@@ -64,10 +64,13 @@ namespace Mila::Dnn
         * @param shape The shape of the tensor.
         * @param value The value to initialize the tensor with. Defaults to the default value of type TElementType.
         */
-		Tensor( const std::vector<size_t>& shape, TElementType value = TElementType{} )
+		explicit Tensor( const std::vector<size_t>& shape, TElementType value = TElementType{} )
 			: uid_{ set_uid() }, shape_( shape ), strides_( computeStrides( shape ) ), size_( computeSize( shape ) ) {
 			allocateBuffer( value );
 		}
+
+		/*Tensor( std::initializer_list<size_t> shape, TElementType value = TElementType{} )
+			: Tensor( std::vector<size_t>( shape ), value ) {}*/
 
 		/**
 		* @brief Constructs a tensor with the given shape and a shared pointer to allocated memory.
@@ -565,8 +568,6 @@ namespace Mila::Dnn
 			}
 			else {
 				auto host_tensor = to<Compute::HostMemoryResource>();
-				// Now we need a way to get buffer content without calling private method
-				// We'll use a different approach: recursively get string representation
 				return host_tensor.getBufferString( start_index, depth );
 			}
 		}
@@ -765,7 +766,7 @@ namespace Mila::Dnn
  * - Fast host access, but slower for GPU operations
  * - Requires memory transfers when used with GPU operations
  *
- * @tparam T The data type of the tensor elements.
+ * @tparam TPrecision The data type of the tensor elements.
  */
 	export template <typename T>
 		using HostTensor = Tensor<T, Compute::HostMemoryResource>;
@@ -790,7 +791,7 @@ namespace Mila::Dnn
 	 * - Requires explicit memory transfers for host access
 	 * - Most efficient when kept on device throughout processing
 	 *
-	 * @tparam T The data type of the tensor elements.
+	 * @tparam TPrecision The data type of the tensor elements.
 	 */
 	export template <class T>
 		using DeviceTensor = Tensor<T, Compute::DeviceMemoryResource>;
@@ -815,7 +816,7 @@ namespace Mila::Dnn
 	 * - Should be used judiciously as excessive use can degrade system performance
 	 * - Host access is typically slower than regular host memory
 	 *
-	 * @tparam T The data type of the tensor elements.
+	 * @tparam TPrecision The data type of the tensor elements.
 	 */
 	export template <class T>
 		using PinnedTensor = Tensor<T, Compute::PinnedMemoryResource>;
@@ -840,7 +841,7 @@ namespace Mila::Dnn
 	 * - Best used with CUDA devices that support hardware page faulting (Pascal or newer)
 	 * - May incur overhead from the runtime system managing page migrations
 	 *
-	 * @tparam T The data type of the tensor elements.
+	 * @tparam TPrecision The data type of the tensor elements.
 	 */
 	export template <class T>
 		using UniversalTensor = Tensor<T, Compute::ManagedMemoryResource>;

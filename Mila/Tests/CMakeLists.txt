@@ -49,7 +49,7 @@ add_executable( MilaTests
     "Dnn/Modules/Encoder.cpp" 
 
     #"Dnn/Models/Gpt2/DatasetReader.cpp"
-    "Dnn/Compute/Operations/Cuda/CudaGeluOpTests.cpp" "Dnn/Compute/Operations/Cpu/CpuGeluOpTests.cpp" "Dnn/Compute/Operations/Cpu/CpuFullyConnectedOpTests.cpp" "Dnn/Compute/Operations/Cpu/CpuEncoderOpTests.cpp" "Dnn/Compute/Operations/Cpu/CpuLayerNormTests.cpp" "Dnn/Compute/Operations/Cpu/CpuResidualOpTests.cpp" "Dnn/Compute/Operations/Cpu/CpuSoftmaxOpTests.cpp")
+    "Dnn/Compute/Operations/Cuda/CudaGeluOpTests.cpp" "Dnn/Compute/Operations/Cpu/CpuGeluOpTests.cpp" "Dnn/Compute/Operations/Cpu/CpuFullyConnectedOpTests.cpp" "Dnn/Compute/Operations/Cpu/CpuEncoderOpTests.cpp" "Dnn/Compute/Operations/Cpu/CpuLayerNormTests.cpp" "Dnn/Compute/Operations/Cpu/CpuResidualOpTests.cpp" "Dnn/Compute/Operations/Cpu/CpuSoftmaxOpTests.cpp" "Dnn/Compute/Operations/Cuda/CudaMatMulBiasOpTests.cpp" "Dnn/Compute/Operations/Cuda/CudaResidualOpTests.cpp" "Dnn/Compute/Operations/Cuda/CudaSoftmaxOpTests.cpp" "Dnn/Compute/Operations/Cuda/CudaEncoderOpTests.cpp" "Dnn/Compute/Operations/Cuda/CudaLayerNormOpTests.cpp" "Dnn/Compute/Operations/Cuda/CudaMultHeadAttentionOpTests.cpp")
 
 # TODO: Add globally 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )

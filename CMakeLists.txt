@@ -12,22 +12,20 @@ set(CMAKE_CUDA_STANDARD 20)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
  
 option(MILA_ENABLE_TESTING "Enable Mila Library tests." ON)  
-option(MILA_ENABLE_GPT2_TESTING "Enable GPT2 tests." OFF )  
-option(MILA_ENABLE_SAMPLES "Enable Mila Library samples." OFF )
-option(MILA_ENABLE_NVBENCH "Enable NvBench." OFF )
-option(MILA_ENABLE_OPENMP "Enable OpenMP support." ON )
+option(MILA_ENABLE_GPT2_TESTING "Enable GPT2 tests." OFF)  
+option(MILA_ENABLE_SAMPLES "Enable Mila Library samples." ON)
+option(MILA_ENABLE_OPENMP "Enable OpenMP support." OFF)
 
-# Include CPM.cmake
+# Use CPM to manage dependencies
 include(Cmake/CPM.cmake)
 
-# Use CPM to download miniz
 CPMAddPackage(
     NAME miniz
     GITHUB_REPOSITORY richgel999/miniz
     GIT_TAG 3.0.2
 )
 
-find_package(CUDAToolkit)  
+find_package(CUDAToolkit REQUIRED)  
 find_package(miniz REQUIRED)  
 
 if(MILA_ENABLE_OPENMP)
@@ -37,18 +35,16 @@ if(MILA_ENABLE_OPENMP)
 		add_link_options( -openmp:llvm )
 	else()
 		add_compile_options( ${OpenMP_CXX_FLAGS})
-		add_link_options( OpenMP::OpendMP_CXX)
+		add_link_options( OpenMP::OpenMP_CXX)
 	endif()
 endif()  
  
 # Default to building for the GPU on the current system  
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)  
    set(CMAKE_CUDA_ARCHITECTURES native)  
-endif()  
+endif()
+
+enable_testing()
 
 # The Mila library and Doxygen docs
 add_subdirectory( Mila )
-
-if (MILA_ENABLE_NVBENCH )
-#add_subdirectory( Benches )
-endif()

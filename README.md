@@ -3,7 +3,7 @@
 Mila Deep Neural Network Library
 
 ## Prerelease Notice
-Mila, version 0.9.71-alpha is currently an early, preview release.
+Mila, version 0.9.72-alpha is currently an early, preview release.
 
 ## Description
 Achilles Mila Deep Neural Network library provides a comprehensive API to model, train and evaluate 

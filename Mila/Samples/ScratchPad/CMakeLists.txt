@@ -1,12 +1,6 @@
-# CMakeList.txt : CMake project for Mila examples
+# CMakeList.txt : CMake project for Mila ScratchPad
 
 # Add executable
 add_executable(ScratchPad "main.cpp" "Linear.cpp" "LayerNorm.cpp"  "Softmax.cpp")
 
-set_target_properties( ScratchPad
-    PROPERTIES
-      _THRUST_HOST CPP
-      _THRUST_DEVICE CUDA
-)
-
-target_link_libraries(ScratchPad PRIVATE Mila Thrust::Thrust CUDA::cudart )
+target_link_libraries(ScratchPad PRIVATE Mila CUDA::cudart )

@@ -43,7 +43,7 @@ namespace Mila::Dnn::Compute
      * which normalizes across the batch dimension.
      *
      * @tparam TInput The data type of the input tensor elements.
-     * @tparam TPrecision The data type used for computation and output (defaults to the input type).
+     * @tparam TDataType The data type used for computation and output (defaults to the input type).
      */
     export class CpuLayerNormOp : public UnaryOperation<float, float, DeviceType::Cpu> {
     public:
@@ -74,7 +74,7 @@ namespace Mila::Dnn::Compute
          * Normalizes each input vector across the feature dimension, then applies
          * a learnable scaling factor and bias.
          *
-         * @param input Input tensor of shape [B, T, C] where B is batch size, T is sequence length, and C is feature dimension.
+         * @param input Input tensor of shape [B, TDataType, C] where B is batch size, TDataType is sequence length, and C is feature dimension.
          * @param parameters Vector of parameter tensors [weight, bias] where weight and bias are of shape [C].
          * @param attributes Additional attributes for the operation.
          * @param output Output tensor of the same shape as input, containing the normalized values.
@@ -101,7 +101,7 @@ namespace Mila::Dnn::Compute
             float* mean = output_state[ 0 ]->data();
             float* rstd = output_state[ 1 ]->data();
 
-            // B: batch size, T: sequence length, C: number of channels
+            // B: batch size, TDataType: sequence length, C: number of channels
             int B = input.shape()[ 0 ];
             int T = input.shape()[ 1 ];
             int C = input.shape()[ 2 ];
@@ -162,7 +162,7 @@ namespace Mila::Dnn::Compute
          * @param mean Pointer to the mean values computed during forward pass.
          * @param rstd Pointer to the reciprocal standard deviation values computed during forward pass.
          * @param B Batch size.
-         * @param T Sequence length.
+         * @param TDataType Sequence length.
          * @param C Number of features/channels.
          */
         void backward(

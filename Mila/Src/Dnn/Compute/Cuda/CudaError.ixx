@@ -20,7 +20,6 @@ export module Cuda.Error;
 
 namespace Mila::Dnn::Compute
 {
-
     /**
      * @brief Exception class for CUDA runtime errors.
      *

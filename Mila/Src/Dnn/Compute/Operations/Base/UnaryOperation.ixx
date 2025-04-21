@@ -12,7 +12,7 @@
  * input and output tensors, as well as different device types (e.g., CPU, CUDA).
  *
  * @tparam TInput The data type of the input tensor elements.
- * @tparam TPrecision The data type of the output tensor elements.
+ * @tparam TDataType The data type of the output tensor elements.
  * @tparam TDevice The device type (e.g., CPU, CUDA) on which the operation is executed.
  *
  * @see OperationBase
@@ -51,7 +51,7 @@ namespace Mila::Dnn::Compute
     * correctness and flexibility in derived classes.
     *
     * @tparam TInput The data type of the input tensor elements.
-    * @tparam TPrecision The data type of the output tensor elements.
+    * @tparam TDataType The data type of the output tensor elements.
     * @tparam TDevice The device type (e.g., CPU, CUDA) on which the operation is executed.
     */
     export template <typename TInput, typename TPrecision, DeviceType TDeviceType = DeviceType::Cuda>

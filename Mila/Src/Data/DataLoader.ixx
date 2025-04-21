@@ -10,7 +10,7 @@ namespace Mila::Data
 	* @brief Template for data loaders used in training and evaluation.
 	*
 	* @tparam TInput The input data type.
-	* @tparam TPrecision The precision type for computations.
+	* @tparam TDataType The precision type for computations.
 	* @tparam TDeviceType The device type (CPU or CUDA).
 	*/
 	export template<typename TInput, typename TPrecision, Compute::DeviceType TDeviceType = Compute::DeviceType::Cuda>

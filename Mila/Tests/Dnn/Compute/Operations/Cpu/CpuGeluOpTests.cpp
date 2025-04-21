@@ -410,7 +410,7 @@ namespace Operations::Tests
                 << elements_per_second / 1e6 << " million elements/sec" << std::endl;
         }
     #else
-        GTEST_SKIP() << "OpenMP not available, skipping scaling test";
+        // GTEST_SKIP() << "OpenMP not available, skipping scaling test";
     #endif
     }
 }

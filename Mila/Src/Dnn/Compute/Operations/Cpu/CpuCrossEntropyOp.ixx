@@ -40,7 +40,7 @@ namespace Mila::Dnn::Compute
      * of the correct class given the predicted probabilities.
      *
      * @tparam TInput The data type of the input tensor elements (typically int for class indices).
-     * @tparam TPrecision The data type used for computation and output (typically float).
+     * @tparam TDataType The data type used for computation and output (typically float).
      */
     export
         template<typename TInput = int, typename TPrecision = float>
@@ -74,10 +74,10 @@ namespace Mila::Dnn::Compute
          *
          * Computes the negative log likelihood of the correct class for each sample.
          *
-         * @param input Input tensor containing target class indices of shape [B, T].
-         * @param parameters Parameters tensor containing probabilities of shape [B, T, V].
+         * @param input Input tensor containing target class indices of shape [B, TDataType].
+         * @param parameters Parameters tensor containing probabilities of shape [B, TDataType, V].
          * @param attributes Additional attributes for the operation.
-         * @param output Output tensor to store the cross entropy losses of shape [B, T].
+         * @param output Output tensor to store the cross entropy losses of shape [B, TDataType].
          * @param output_cache Cache for storing intermediate results (used in backward pass).
          */
         void forward(
@@ -174,7 +174,7 @@ namespace Mila::Dnn::Compute
          * @param probs Original probability values.
          * @param targets Target class indices.
          * @param B Batch size.
-         * @param T Sequence length.
+         * @param TDataType Sequence length.
          * @param V Vocabulary size (without padding).
          * @param Vp Padded vocabulary size.
          */

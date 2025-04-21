@@ -11,7 +11,7 @@
  * input and output tensors, as well as different device types (e.g., CPU, CUDA).
  *
  * @tparam TInput The data type of the input tensor elements.
- * @tparam TPrecision The data type of the output and computation tensor elements.
+ * @tparam TDataType The data type of the output and computation tensor elements.
  * @tparam TDevice The device type (e.g., CPU, CUDA) on which the operation is executed.
  *
  * @see UnaryOperation
@@ -44,7 +44,7 @@ namespace Mila::Dnn::Compute
     * @brief Abstract class for binary operations.
     *
     * @tparam TInput The data type of the input tensor elements.
-    * @tparam TPrecision The data type of the output and computation tensor elements.
+    * @tparam TDataType The data type of the output and computation tensor elements.
     * @tparam TDevice The device type (e.g., CPU, CUDA) on which the operation is executed.
     */
     export

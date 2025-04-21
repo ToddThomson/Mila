@@ -101,10 +101,7 @@ __global__ void reduce_add_sum_kernel(floatX* dst, const float* src, size_t n, s
     }
 }
 
-// ----------------------------------------------------------------------------
-// kernel launchers
-
-// Wrapper around cublasLtMatmul that is meant to support everything we need in llm.c
+// Wrapper around cublasLtMatmul
 // https://docs.nvidia.com/cuda/cublas/#cublasltmatmul
 void matmul_cublaslt(floatX* d, const floatX* a, const floatX* b, const floatX* bias,
                      int m, int n, int k, cudaStream_t stream=0, bool transA=true, bool transB=false,

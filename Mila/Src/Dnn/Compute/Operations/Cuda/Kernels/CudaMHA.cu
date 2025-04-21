@@ -1,9 +1,10 @@
 
-void attention_forward( 
+void cuda_attention_forward( 
     float* out, 
     float* qkvr, float* att,
     const float* inp,
-    int B, int T, int C, int NH ) {
+    int B, int T, int C, int NH,
+    cudaStream_t stream ) {
     // Note: `inp` is not needed for backward pass, so we re-use it as a scratch buffer.
     // Its contents will be overwritten by this function.
     const int block_size = 256;

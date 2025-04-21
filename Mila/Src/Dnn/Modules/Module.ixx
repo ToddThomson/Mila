@@ -36,7 +36,7 @@ namespace Mila::Dnn
      * use the Block class.
      *
      * @tparam TInput Data type of the input tensor elements.
-     * @tparam TPrecision Data type of the compute tensor elements, defaults to TInput.
+     * @tparam TDataType Data type of the compute tensor elements, defaults to TInput.
      */
     export
         template<typename TInput, typename TPrecision = TInput, DeviceType TDeviceType = DeviceType::Cuda>
@@ -182,7 +182,7 @@ namespace Mila::Dnn
          * training via gradient descent or other optimization algorithms.
          *
          * @tparam TMR Memory resource type (defaults to the module's MR type).
-         * @return const std::unordered_map<std::string, std::shared_ptr<Tensor<TPrecision, MR>>>&
+         * @return const std::unordered_map<std::string, std::shared_ptr<Tensor<TDataType, MR>>>&
          *         Map of parameter names to tensor pointers.
          */
         template<typename TMR = MR>
@@ -197,7 +197,7 @@ namespace Mila::Dnn
          * forward/backward passes (e.g., running mean and variance in batch normalization).
          *
          * @tparam TMR Memory resource type (defaults to the module's MR type).
-         * @return const std::unordered_map<std::string, std::shared_ptr<Tensor<TPrecision, MR>>>&
+         * @return const std::unordered_map<std::string, std::shared_ptr<Tensor<TDataType, MR>>>&
          *         Map of state names to tensor pointers.
          */
         template<typename TMR = MR>

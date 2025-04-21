@@ -42,7 +42,7 @@ namespace Mila::Dnn
      * architectures, including transformers, as an alternative to ReLU.
      *
      * @tparam TInput The data type of the input tensor elements.
-     * @tparam TPrecision The data type used for computation and output (defaults to the input type).
+     * @tparam TDataType The data type used for computation and output (defaults to the input type).
      */
     export
         template<typename TInput, typename TPrecision = TInput>

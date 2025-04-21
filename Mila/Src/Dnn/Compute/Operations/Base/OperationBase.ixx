@@ -15,7 +15,7 @@ namespace Mila::Dnn::Compute
     * @brief Base class for all compute operations.
     *
     * @tparam TInput The data type of the input tensor elements.
-    * @tparam TPrecision The data type of the precision tensor elements.
+    * @tparam TDataType The data type of the precision tensor elements.
     */
     export template <typename TInput, typename TPrecision, DeviceType TDeviceType>
         requires ValidTensorTypes<TInput, TPrecision>

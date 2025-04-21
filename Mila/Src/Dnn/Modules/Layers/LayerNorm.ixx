@@ -45,7 +45,7 @@ namespace Mila::Dnn
      * y = ((x - mean) / sqrt(variance + epsilon)) * weight + bias
      *
      * @tparam TInput The data type of the input tensor elements.
-     * @tparam TPrecision The data type used for computation and output (defaults to the input type).
+     * @tparam TDataType The data type used for computation and output (defaults to the input type).
      */
     export
         template<typename TInput, typename TPrecision = TInput>
@@ -109,7 +109,7 @@ namespace Mila::Dnn
          *
          * The weight tensor is applied as a scale factor to the normalized values.
          *
-         * @return std::shared_ptr<Tensor<TPrecision>> Shared pointer to the weight tensor.
+         * @return std::shared_ptr<Tensor<TDataType>> Shared pointer to the weight tensor.
          */
         template<typename TMR>
         std::shared_ptr<Tensor<TPrecision, TMR>> getWeight() {
@@ -121,7 +121,7 @@ namespace Mila::Dnn
          *
          * The bias tensor is added after normalization and scaling.
          *
-         * @return std::shared_ptr<Tensor<TPrecision>> Shared pointer to the bias tensor.
+         * @return std::shared_ptr<Tensor<TDataType>> Shared pointer to the bias tensor.
          */
         template<typename TMR>
         std::shared_ptr<Tensor<TPrecision, TMR>> getBias() {

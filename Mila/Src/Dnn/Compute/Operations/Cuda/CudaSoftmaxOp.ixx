@@ -40,10 +40,10 @@ namespace Mila::Dnn::Compute
      * computation, especially for large vocabulary sizes typical in language models.
      *
      * @tparam TInput The data type of the input tensor elements.
-     * @tparam TPrecision The data type of the output tensor elements (defaults to the input type).
+     * @tparam TDataType The data type of the output tensor elements (defaults to the input type).
      */
-    export
-        template<typename TInput, typename TPrecision = TInput>
+    export template<typename TInput, typename TPrecision = TInput>
+        requires (std::is_same_v<TPrecision, float> || std::is_same_v<TPrecision, half>)
     class CudaSoftmaxOp : public UnaryOperation<TInput, TPrecision, DeviceType::Cuda> {
     public:
         using MR = typename CudaDevice::MR;
@@ -77,11 +77,11 @@ namespace Mila::Dnn::Compute
          * The implementation includes numerical stability improvements by subtracting
          * the maximum value before applying the exponential function.
          *
-         * @param input Input tensor containing logits of shape [B, T, V], where B is batch size,
-         *              T is sequence length, and V is vocabulary size.
+         * @param input Input tensor containing logits of shape [B, TDataType, V], where B is batch size,
+         *              TDataType is sequence length, and V is vocabulary size.
          * @param parameters Additional parameters (not used in this operation).
          * @param properties Additional attributes for the operation.
-         * @param output Output tensor of shape [B, T, V] to store the resulting probability distribution.
+         * @param output Output tensor of shape [B, TDataType, V] to store the resulting probability distribution.
          * @param output_cache Cache for intermediate results (not used in this operation).
          */
         void forward(
@@ -151,7 +151,7 @@ namespace Mila::Dnn::Compute
             cudaStream_t stream = this->getDeviceContext()->getStream();
 
             // Call CUDA kernel with stream
-            cuda_softmax_backward( dX, dY, Y, N, axis, stream );
+            //cuda_softmax_backward( dX, dY, Y, N, axis, stream );
         }
 
         /**

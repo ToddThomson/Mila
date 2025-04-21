@@ -91,6 +91,9 @@ namespace Operations::Tests
         OperationAttributes props;
 
         ASSERT_NO_THROW( cpu_residual_op_->forward( input_a, input_b, params, props, output, output_cache ) );
+		std::cerr << input_a.toString( true ) << std::endl;
+		std::cerr << input_b.toString( true ) << std::endl;
+		std::cerr << output.toString( true ) << std::endl;
 
         // Verify output has correct values (element-wise addition)
         for ( size_t i = 0; i < output.size(); ++i ) {
@@ -478,7 +481,7 @@ namespace Operations::Tests
                 << elements_per_second / 1e6 << " million elements/sec" << std::endl;
         }
     #else
-        GTEST_SKIP() << "OpenMP not available, skipping scaling test";
+        // GTEST_SKIP() << "OpenMP not available, skipping scaling test";
     #endif
     }
 }

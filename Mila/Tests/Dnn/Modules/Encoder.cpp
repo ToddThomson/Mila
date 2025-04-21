@@ -131,13 +131,25 @@ namespace Modules::Tests
         Tensor<TPrecision, MR> output( data.output_shape );
 
         // Fill input with token IDs
-        for ( size_t i = 0; i < input.size(); ++i ) {
-            input.data()[ i ] = static_cast<TInput>( i % 100 ); // Use a range of token IDs
+        if constexpr ( TDeviceType == DeviceType::Cpu ) {
+            // Direct access for CPU memory
+            for ( size_t i = 0; i < input.size(); ++i ) {
+                input.data()[ i ] = static_cast<TInput>( i % 100 ); // Use a range of token IDs
+            }
+        }
+        else {
+            // For device memory, create a host tensor, fill it, then copy to device
+            Tensor<TInput, HostMemoryResource> host_input( data.input_shape );
+            for ( size_t i = 0; i < host_input.size(); ++i ) {
+                host_input.data()[ i ] = static_cast<TInput>( i % 100 ); // Use a range of token IDs
+            }
+            input.copyFrom( host_input );
         }
 
         data.getEncoder()->forward( input, output );
         EXPECT_EQ( output.size(), input.size() * data.channels );
     }
+
 
     template<typename TInput, typename TPrecision, DeviceType TDeviceType>
     void TestPrint( const EncoderTestData<TInput, TPrecision, TDeviceType>& data, const std::string& expected_substring ) {

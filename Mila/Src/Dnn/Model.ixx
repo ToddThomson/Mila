@@ -51,7 +51,7 @@ namespace Mila::Dnn
     * @brief A class representing a neural network model.
     *
     * @tparam TInput The input data type for the model.
-    * @tparam TPrecision The precision type used for model computations, defaults to input type.
+    * @tparam TDataType The precision type used for model computations, defaults to input type.
     */
     export
         template<typename TInput, typename TPrecision = TInput>

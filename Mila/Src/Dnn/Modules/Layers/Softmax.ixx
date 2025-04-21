@@ -46,7 +46,7 @@ namespace Mila::Dnn
      * allowing them to be interpreted as probabilities for classification tasks.
      *
      * @tparam TInput The data type of the input tensor elements.
-     * @tparam TPrecision The data type used for internal precision calculations, defaults to TInput.
+     * @tparam TDataType The data type used for internal precision calculations, defaults to TInput.
      */
     export
         template<typename TInput, typename TPrecision = TInput>

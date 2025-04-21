@@ -268,7 +268,7 @@ namespace Mila::Dnn
 		 * @brief Gets the aligned size of the buffer in bytes.
 		 *
 		 * This is the actual memory size allocated, which may be larger than
-		 * size() * sizeof(T) due to alignment padding.
+		 * size() * sizeof(TPrecision) due to alignment padding.
 		 *
 		 * @return size_t The aligned size in bytes.
 		 */

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+  <!-- Configuration for GoogleTest -->
+  <GoogleTest>
+    <HtmlOutput>true</HtmlOutput>
+    <OutputDirectory>TestResults</OutputDirectory>
+    <VerbosityLevel>detailed</VerbosityLevel>
+  </GoogleTest>
+
+  <!-- Configuration for loggers -->
+  <LoggerRunSettings>
+    <Loggers>
+      <Logger friendlyName="console" enabled="True">
+        <Configuration>
+          <Verbosity>detailed</Verbosity>
+        </Configuration>
+      </Logger>
+      <Logger friendlyName="trx" enabled="True">
+        <Configuration>
+          <LogFileName>TestResults.trx</LogFileName>
+        </Configuration>
+      </Logger>
+    </Loggers>
+  </LoggerRunSettings>
+
+  <!-- MSTest adapter settings -->
+  <RunConfiguration>
+    <ResultsDirectory>.\TestResults</ResultsDirectory>
+    <TestSessionTimeout>10000</TestSessionTimeout>
+    <CollectSourceInformation>true</CollectSourceInformation>
+  </RunConfiguration>
+</RunSettings>

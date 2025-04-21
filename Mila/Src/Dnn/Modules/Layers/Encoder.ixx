@@ -45,7 +45,7 @@ namespace Mila::Dnn
     * representation of tokens that subsequent layers will process.
     *
     * @tparam TInput The input data type (typically uint16_t or int for token IDs)
-    * @tparam TPrecision The computation data type (typically float or half)
+    * @tparam TDataType The computation data type (typically float or half)
     */
     export
         template<typename TInput = uint16_t, typename TPrecision = half, DeviceType TDeviceType = DeviceType::Cuda>
@@ -140,8 +140,8 @@ namespace Mila::Dnn
         * 1. Looking up token embeddings from the embedding table (wte)
         * 2. Adding positional embeddings (wpe) based on token position
         *
-        * @param input The input tensor containing token IDs with shape (B,T).
-        * @param output The output tensor that will contain embeddings with shape (B,T,C).
+        * @param input The input tensor containing token IDs with shape (B,TDataType).
+        * @param output The output tensor that will contain embeddings with shape (B,TDataType,C).
         */
         void forward( const Tensor<TInput, MR>& input, Tensor<TPrecision, MR>& output ) {
             operation_->forward( input, parameters_, attributes_, output, output_state_ );

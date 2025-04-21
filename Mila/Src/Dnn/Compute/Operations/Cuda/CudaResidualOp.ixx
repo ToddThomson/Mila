@@ -22,10 +22,9 @@ import Compute.MemoryResource;
 import Compute.CudaMemoryResource;
 import Compute.CudaDevice;
 
-using namespace Mila::Dnn;
-
 namespace Mila::Dnn::Compute
 {
+    using namespace Mila::Dnn;
     /**
      * @brief CUDA implementation of the residual operation for neural networks.
      *
@@ -37,7 +36,7 @@ namespace Mila::Dnn::Compute
      * using CUDA for high-performance computation.
      *
      * @tparam TInput The data type of the input tensor elements.
-     * @tparam TPrecision The data type of the output tensor elements (defaults to the input type).
+     * @tparam TDataType The data type of the output tensor elements (defaults to the input type).
      */
     export
         template<typename TInput, typename TPrecision = TInput>
@@ -144,7 +143,7 @@ namespace Mila::Dnn::Compute
             cudaStream_t stream = this->getDeviceContext()->getStream();
 
             // For residual connection, the gradient just flows through to both inputs
-            cuda_residual_backward( dX1, dX2, dY, N, stream );
+            // FIXME: cuda_residual_backward( dX1, dX2, dY, N, stream );
         }
 
         /**

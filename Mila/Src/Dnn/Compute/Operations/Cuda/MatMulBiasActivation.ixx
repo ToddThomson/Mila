@@ -26,9 +26,9 @@ import Compute.CudaMemoryResource;
 
 // Forward declaration of CUDA kernel function from FusedMatMulBiasGelu.cu
 //extern "C" {
-//    template <typename T>
+//    template <typename TDataType>
 //    void launchFusedMatmulBiasGelu(
-//        const T* A, const T* B, const T* bias, T* C,
+//        const TDataType* A, const TDataType* B, const TDataType* bias, TDataType* C,
 //        size_t M, size_t K, size_t N,
 //        cublasLtHandle_t ltHandle, cudaStream_t stream );
 //}
@@ -47,10 +47,9 @@ namespace Mila::Dnn::Compute
      * computation of the fused operation.
      *
      * @tparam TInput The data type of the input tensor elements.
-     * @tparam TPrecision The data type for computation and output (defaults to the input type).
+     * @tparam TDataType The data type for computation and output (defaults to the input type).
      */
-    export
-        template<typename TInput, typename TPrecision = TInput>
+    export template<typename TInput, typename TPrecision = TInput>
         requires (std::is_same_v<TPrecision, float> || std::is_same_v<TPrecision, half>)
     class CudaMatMulBiasGeluOp : public UnaryOperation<TInput, TPrecision, DeviceType::Cuda> {
     public:
@@ -71,10 +70,6 @@ namespace Mila::Dnn::Compute
          */
         CudaMatMulBiasGeluOp( std::shared_ptr<DeviceContext> context )
             : UnaryOperation<TInput, TPrecision, CudaDevice>( OperationType::FusedOp, context ) {
-            // Ensure the device is CUDA-compatible
-            if ( context->getDevice()->getDeviceType() != DeviceType::Cuda ) {
-                throw std::runtime_error( "CudaMatMulBiasGeluOp requires a CUDA device context" );
-            }
         }
 
         /**
@@ -100,12 +95,6 @@ namespace Mila::Dnn::Compute
             Tensor<TPrecision, MR>& output,
             std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const override {
 
-            // Verify we're operating on CUDA memory
-            if ( this->getDeviceContext()->getDevice()->getDeviceType() != DeviceType::Cuda ) {
-                throw std::runtime_error( "CudaMatMulBiasGeluOp::forward can only be executed on CUDA memory" );
-            }
-
-            // Validate parameters
             if ( parameters.size() < 2 ) {
                 throw std::runtime_error( "CudaMatMulBiasGeluOp requires at least 2 parameters (weights and bias)" );
             }
@@ -113,15 +102,8 @@ namespace Mila::Dnn::Compute
             const auto& weights = *parameters[ 0 ];
             const auto& bias = *parameters[ 1 ];
 
-            // Get device context
             auto device_context = this->getDeviceContext();
-            auto cuda_device = std::dynamic_pointer_cast<CudaDevice>(device_context->getDevice());
-
-            if ( !cuda_device ) {
-                throw std::runtime_error( "Failed to get CUDA device from context" );
-            }
-
-            // Get stream and handle
+            
             cudaStream_t stream = device_context->getStream();
             cublasLtHandle_t cuda_handle = device_context->getCublasLtHandle();
 
@@ -138,9 +120,9 @@ namespace Mila::Dnn::Compute
             size_t K = input_shape[ 2 ];
             size_t N = weights_shape[ 1 ];
 
-            /* FIXME: launchFusedMatmulBiasGelu(
+            launchFusedMatmulBiasGelu(
                 input_data, weights_data, bias_data, output_data,
-                M, K, N, cuda_handle, stream );*/
+                M, K, N, cuda_handle, stream );
         }
 
         /**
@@ -167,27 +149,14 @@ namespace Mila::Dnn::Compute
             const OperationAttributes& properties,
             const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const {
 
-            // Verify we're operating on CUDA memory
-            if ( !this->getDeviceContext()->isCudaDevice() ) {
-                throw std::runtime_error( "CudaMatMulBiasGeluOp::backward can only be executed on CUDA memory" );
-            }
-
-            // Validate parameters
             if ( parameters.size() < 2 || parameter_gradients.size() < 2 ) {
                 throw std::runtime_error( "CudaMatMulBiasGeluOp backward requires weights, bias and their gradients" );
             }
 
-            // Get device context
             auto device_context = this->getDeviceContext();
-            auto cuda_device = std::dynamic_pointer_cast<CudaDevice>(device_context->getDevice());
-
-            if ( !cuda_device ) {
-                throw std::runtime_error( "Failed to get CUDA device from context" );
-            }
-
-            // Get stream and handle
+            
             cudaStream_t stream = device_context->getStream();
-            cublasHandle_t cublas_handle = cuda_device->getCublasHandle();
+            cublasHandle_t cublas_handle = device_context->getCublasHandle();
 
             // Extract tensors
             const auto* X = input.data();

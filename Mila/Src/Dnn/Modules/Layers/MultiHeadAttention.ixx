@@ -183,7 +183,7 @@ namespace Mila::Dnn
             // Get device type for proper tensor creation
             auto device_type = this->getDeviceContext()->getDevice()->getDeviceType();
 
-            // preatt, att are (B, NH, T, T). NH = number of heads, T = sequence length
+            // preatt, att are (B, NH, TDataType, TDataType). NH = number of heads, TDataType = sequence length
             if ( device_type == DeviceType::Cpu ) {
                 pre_attn_ = std::make_shared<Tensor<TPrecision, Compute::HostMemoryResource>>(
                     std::vector<size_t>{batch_size, num_heads_, sequence_length, sequence_length} );

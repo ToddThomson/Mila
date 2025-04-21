@@ -13,7 +13,7 @@ namespace Mila::Dnn
     /**
      * @brief Base tensor pointer class that wraps a raw pointer with memory-type safety.
      *
-     * @tparam T Element type
+     * @tparam TPrecision Element type
      * @tparam IsHostAccessible Whether the pointer points to host-accessible memory
      */
     export template <typename T, bool IsHostAccessible>
@@ -32,7 +32,7 @@ namespace Mila::Dnn
             /**
              * @brief Gets the raw pointer (explicit conversion)
              *
-             * @return T* Raw pointer
+             * @return TPrecision* Raw pointer
              */
             T* get() const noexcept {
                 return ptr_;
@@ -110,10 +110,10 @@ namespace Mila::Dnn
     /**
      * @brief Gets a raw pointer from a TensorPtr (similar to thrust::raw_pointer_cast)
      *
-     * @tparam T Element type
+     * @tparam TPrecision Element type
      * @tparam IsHostAccessible Whether the pointer is host-accessible
      * @param ptr TensorPtr to convert
-     * @return T* Raw pointer
+     * @return TPrecision* Raw pointer
      */
     export template <typename T, bool IsHostAccessible>
         T* raw_pointer_cast( const TensorPtr<T, IsHostAccessible>& ptr ) noexcept {

@@ -28,7 +28,7 @@ namespace Mila::Dnn
      * built by composing simpler modules.
      *
      * @tparam TInput Data type of the input tensor elements.
-     * @tparam TPrecision Data type of the compute tensor elements, defaults to TInput.
+     * @tparam TDataType Data type of the compute tensor elements, defaults to TInput.
      * @tparam TDeviceType The device type for computation.
      */
     export template<typename TInput, typename TPrecision = TInput, DeviceType TDeviceType = DeviceType::Cuda>
@@ -114,7 +114,7 @@ namespace Mila::Dnn
          * @brief Get a specific sub-module by name.
          *
          * @param name The name of the sub-module to retrieve.
-         * @return std::shared_ptr<Module<TInput, TPrecision>> The requested module.
+         * @return std::shared_ptr<Module<TInput, TDataType>> The requested module.
          * @throws std::out_of_range If no module with the given name exists.
          */
         std::shared_ptr<Module<TInput, TPrecision, TDeviceType>> getModule( const std::string& name ) const {
@@ -138,7 +138,7 @@ namespace Mila::Dnn
         /**
          * @brief Get all sub-modules contained in this module.
          *
-         * @return const std::vector<std::shared_ptr<Module<TInput, TPrecision>>>&
+         * @return const std::vector<std::shared_ptr<Module<TInput, TDataType>>>&
          *         Vector of child module pointers.
          */
         const std::vector<std::shared_ptr<Module<TInput, TPrecision, TDeviceType>>>& getModules() const {
@@ -148,7 +148,7 @@ namespace Mila::Dnn
         /**
          * @brief Get all named sub-modules contained in this module.
          *
-         * @return const std::unordered_map<std::string, std::shared_ptr<Module<TInput, TPrecision>>>&
+         * @return const std::unordered_map<std::string, std::shared_ptr<Module<TInput, TDataType>>>&
          *         Map of child module names to pointers.
          */
         const std::unordered_map<std::string, std::shared_ptr<Module<TInput, TPrecision, TDeviceType>>>& getNamedModules() const {
