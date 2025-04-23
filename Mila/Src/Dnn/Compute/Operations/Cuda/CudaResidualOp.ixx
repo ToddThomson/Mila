@@ -59,10 +59,6 @@ namespace Mila::Dnn::Compute
          */
         CudaResidualOp( std::shared_ptr<DeviceContext> context )
             : BinaryOperation<TInput, TPrecision, DeviceType::Cuda>( OperationType::ResidualOp, context ) {
-            // Ensure the device is CUDA-compatible
-            if ( !context->isDeviceType( DeviceType::Cuda ) ) {
-                throw std::runtime_error( "CudaResidualOp requires a CUDA device context" );
-            }
         }
 
         /**
@@ -86,14 +82,9 @@ namespace Mila::Dnn::Compute
             Tensor<TPrecision, MR>& output,
             std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const override {
 
-            // Verify we're operating on CUDA memory
-            if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cuda ) ) {
-                throw std::runtime_error( "CudaResidualOp::forward can only be executed on CUDA memory" );
-            }
-
-            auto X1 = input1.data();
-            auto X2 = input2.data();
-            auto Y = output.data();
+            auto X1 = input1.raw_data();
+            auto X2 = input2.raw_data();
+            auto Y = output.raw_data();
             int N = input1.size();
 
             cudaStream_t stream = this->getDeviceContext()->getStream();

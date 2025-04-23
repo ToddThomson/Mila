@@ -66,9 +66,6 @@ namespace Mila::Dnn::Compute
          */
         CpuFullyConnectedOp( std::shared_ptr<DeviceContext> context )
             : UnaryOperation<TInput, TPrecision, DeviceType::Cpu>( OperationType::FullyConnectedOp, context ) {
-            if ( !context->isDeviceType( DeviceType::Cpu ) ) {
-                throw std::runtime_error( "CpuFullyConnectedOp requires a CPU device context." );
-            }
         }
 
         /**
@@ -90,11 +87,6 @@ namespace Mila::Dnn::Compute
             const OperationAttributes& properties,
             Tensor<TPrecision, MR>& output,
             std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const override {
-
-            // Verify we're operating on CPU memory
-            if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cpu ) ) {
-                throw std::runtime_error( "CpuFullyConnectedOp::forward can only be executed on a CPU device" );
-            }
 
             auto X = input.raw_data();
             auto Y = output.raw_data();

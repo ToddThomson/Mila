@@ -4,9 +4,15 @@
 #include <cuda_runtime.h>
 
 
-void cuda_encoder_forward(
+void cuda_encoder_forward_fp32(
     float* out, const int* inp,
     const float* wte, const float* wpe,
+    int B, int T, int C,
+    cudaStream_t stream );
+
+void cuda_encoder_forward_fp16(
+    half* out, const int* inp,
+    const half* wte, const half* wpe,
     int B, int T, int C,
     cudaStream_t stream );
 

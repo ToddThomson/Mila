@@ -63,9 +63,6 @@ namespace Mila::Dnn::Compute
          */
         CudaLayerNormOp( std::shared_ptr<DeviceContext> context )
             : UnaryOperation<TInput, TPrecision, DeviceType::Cuda>( OperationType::LayerNormOp, context ) {
-            if ( !context->isDeviceType( DeviceType::Cuda ) ) {
-                throw std::runtime_error( "CudaLayerNormOp requires a CUDA device context" );
-            }
         }
 
         /**

@@ -21,8 +21,7 @@ namespace Mila::Dnn::Compute
      * combining frequently used properties as direct members for efficiency and
      * an extensible map for less common properties.
      */
-    export
-        struct OperationAttributes {
+    export struct OperationAttributes {
         /**
          * @brief Default constructor with default values.
          */

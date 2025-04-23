@@ -48,10 +48,6 @@ namespace Mila::Dnn::Compute
          */
         CpuGeluOp( std::shared_ptr<DeviceContext> context )
             : UnaryOperation<float, float, DeviceType::Cpu>( OperationType::GeluOp, context ) {
-            // Ensure the device is CPU-compatible
-            if ( !context->isDeviceType( DeviceType::Cpu ) ) {
-                throw std::runtime_error( "CpuGeluOp requires a CPU device context." );
-            }
         }
 
         /**

@@ -64,9 +64,7 @@ namespace Mila::Dnn::Compute
          */
         CpuCrossEntropyOp( std::shared_ptr<DeviceContext> context )
             : UnaryOperation<TInput, TPrecision, DeviceType::Cpu>( OperationType::CrossEntropyOp, context ) {
-            if ( !context->isDeviceType( DeviceType::Cpu ) ) {
-                throw std::runtime_error( "CpuCrossEntropyOp requires a CPU device context." );
-            }
+
         }
 
         /**

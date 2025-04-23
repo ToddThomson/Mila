@@ -6,7 +6,7 @@
 
 import Mila;
 
-namespace TensorBuffers::Tests
+namespace Core::TensorBuffers::Tests
 {
     using namespace Mila::Dnn;
 

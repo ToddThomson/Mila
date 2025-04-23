@@ -58,9 +58,6 @@ namespace Mila::Dnn::Compute
          */
         CpuSoftmaxOp( std::shared_ptr<DeviceContext> context )
             : UnaryOperation<float, float, DeviceType::Cpu>( OperationType::SoftmaxOp, context ) {
-            if ( !context->isDeviceType( DeviceType::Cpu ) ) {
-                throw std::runtime_error( "CpuSoftmaxOp requires a CPU device context." );
-            }
         }
 
         /**

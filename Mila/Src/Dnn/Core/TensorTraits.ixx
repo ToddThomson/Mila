@@ -34,6 +34,7 @@ namespace Mila::Dnn
 	template <>
 	struct TensorTypeTrait<float> {
 		static constexpr TensorType value = TensorType::FP32;
+		static constexpr bool is_float_type = true;
 	};
 
 	/**
@@ -42,6 +43,7 @@ namespace Mila::Dnn
 	template <>
 	struct TensorTypeTrait<half> {
 		static constexpr TensorType value = TensorType::FP16;
+		static constexpr bool is_float_type = true;
 	};
 
 	/**
@@ -50,6 +52,7 @@ namespace Mila::Dnn
 	template <>
 	struct TensorTypeTrait<int16_t> {
 		static constexpr TensorType value = TensorType::INT16;
+		static constexpr bool is_float_type = false;
 	};
 
 	/**
@@ -58,6 +61,7 @@ namespace Mila::Dnn
 	template <>
 	struct TensorTypeTrait<int> {
 		static constexpr TensorType value = TensorType::INT32;
+		static constexpr bool is_float_type = false;
 	};
 
 	/**
@@ -66,6 +70,7 @@ namespace Mila::Dnn
 	template <>
 	struct TensorTypeTrait<uint16_t> {
 		static constexpr TensorType value = TensorType::UINT16;
+		static constexpr bool is_float_type = false;
 	};
 
 	/**
@@ -74,6 +79,7 @@ namespace Mila::Dnn
 	template <>
 	struct TensorTypeTrait<uint32_t> {
 		static constexpr TensorType value = TensorType::UINT32;
+		static constexpr bool is_float_type = false;
 	};
 
 	/**
@@ -89,6 +95,17 @@ namespace Mila::Dnn
 		concept ValidTensorType = requires {
 			{ TensorTypeTrait<T>::value } -> std::convertible_to<TensorType>;
 	};
+
+	/**
+	 * @brief Concept that constrains types to valid floating-point tensor types.
+	 *
+	 * This concept ensures that a type T has a corresponding TensorTypeTrait specialization
+	 * and that the trait indicates it's a floating-point type (float or half).
+	 *
+	 * @tparam T The type to check for valid floating-point tensor type
+	 */
+	export template <typename T>
+		concept ValidFloatTensorType = ValidTensorType<T> && TensorTypeTrait<T>::is_float_type;
 
 	/**
 	 * @brief Concept that verifies both input and compute types have valid tensor type mappings.

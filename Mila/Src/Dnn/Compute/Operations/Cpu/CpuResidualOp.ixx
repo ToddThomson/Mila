@@ -63,9 +63,6 @@ namespace Mila::Dnn::Compute
          */
         CpuResidualOp( std::shared_ptr<DeviceContext> context )
             : BinaryOperation<float, float, DeviceType::Cpu>( OperationType::ResidualOp, context ) {
-            if ( !context->isDeviceType( DeviceType::Cpu ) ) {
-                throw std::runtime_error( "CpuResidualOp requires a CPU device context." );
-            }
         }
 
         /**
@@ -88,31 +85,12 @@ namespace Mila::Dnn::Compute
             Tensor<float, MR>& output,
             std::vector<std::shared_ptr<Tensor<float, MR>>>& output_cache ) const override {
 
-            if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cpu ) ) {
-                throw std::runtime_error( "CpuResidualOp::forward can only be executed on CPU memory" );
-            }
-
-            /*auto A = input_a.raw_data();
+            auto A = input_a.raw_data();
             auto B = input_b.raw_data();
             auto Y = output.raw_data();
-            auto N = input_a.size();*/
+            auto N = input_a.size();
 
-            // Cast to raw C++ pointers
-            const float* A = static_cast<const float*>(input_a.raw_data());
-            const float* B = static_cast<const float*>(input_b.raw_data());
-            float* Y = static_cast<float*>(output.raw_data());
-            
-            // Convert size_t to int for OpenMP loop
-            int N = static_cast<int>(input_a.size());
-
-        #ifdef USE_OMP
-            int num_threads = omp_get_max_threads();
-            std::cout << "OpenMP max threads: " << num_threads << std::endl;
-        #else
-            std::cout << "OpenMP not enabled" << std::endl;
-        #endif
-
-        #pragma omp parallel for
+            #pragma omp parallel for
             for ( int i = 0; i < N; i++ ) {
                 Y[ i ] = A[ i ] + B[ i ];
             }

@@ -41,9 +41,7 @@ namespace Mila::Dnn::Compute
      * @tparam TInput The data type of the input tensor elements (typically int for token indices).
      * @tparam TDataType The data type used for computation and output (typically float).
      */
-    export
-        template<typename TInput = int>
-    class CpuEncoderOp : public UnaryOperation<TInput, float, DeviceType::Cpu> {
+    export class CpuEncoderOp : public UnaryOperation<int, float, DeviceType::Cpu> {
     public:
         using MR = typename CpuDevice::MR;
 
@@ -52,7 +50,7 @@ namespace Mila::Dnn::Compute
          *
          * Initializes the operation with a CPU device context.
          */
-        CpuEncoderOp() : UnaryOperation<TInput, float, DeviceType::Cpu>( OperationType::EncoderOp ) {}
+        CpuEncoderOp() : UnaryOperation<int, float, DeviceType::Cpu>( OperationType::EncoderOp ) {}
 
         /**
          * @brief Constructs a new CPU Encoder operation with a specific device context.
@@ -61,10 +59,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the context is not for a CPU device.
          */
         CpuEncoderOp( std::shared_ptr<DeviceContext> context )
-            : UnaryOperation<TInput, float, DeviceType::Cpu>( OperationType::EncoderOp, context ) {
-            if ( !context->isDeviceType( DeviceType::Cpu ) ) {
-                throw std::runtime_error( "CpuEncoderOp requires a CPU device context." );
-            }
+            : UnaryOperation<int, float, DeviceType::Cpu>( OperationType::EncoderOp, context ) {
         }
 
         /**
@@ -79,16 +74,13 @@ namespace Mila::Dnn::Compute
          * @param output_cache Cache for storing intermediate results (used in backward pass).
          */
         void forward(
-            const Tensor<TInput, MR>& input,
+            const Tensor<int, MR>& input,
             const std::vector<std::shared_ptr<Tensor<float, MR>>>& parameters,
             const OperationAttributes& attributes,
             Tensor<float, MR>& output,
             std::vector<std::shared_ptr<Tensor<float, MR>>>& output_cache ) const override {
 
-            // Verify we're operating on CPU memory
-            if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cpu ) ) {
-                throw std::runtime_error( "CpuEncoderOp::forward can only be executed on CPU memory" );
-            }
+			// TODO: Argument validation
 
             auto X = input.raw_data();
             auto Y = output.raw_data();
@@ -100,11 +92,11 @@ namespace Mila::Dnn::Compute
             int T = input.shape()[ 1 ];
             int C = wte->shape()[ 1 ];
 
-        #pragma omp parallel for collapse(2)
+            #pragma omp parallel for collapse(2)
             for ( int b = 0; b < B; b++ ) {
                 for ( int t = 0; t < T; t++ ) {
                     float* out_bt = Y + b * T * C + t * C;
-                    TInput ix = X[ b * T + t ];
+                    int ix = X[ b * T + t ];
                     float* wte_ix = wte->raw_data() + ix * C;
                     float* wpe_t = wpe->raw_data() + t * C;
 
@@ -130,19 +122,14 @@ namespace Mila::Dnn::Compute
          * @param output_cache Cache tensors from forward pass.
          */
         void backward(
-            const Tensor<TInput, MR>& input,
+            const Tensor<int, MR>& input,
             const Tensor<float, MR>& output,
             const Tensor<float, MR>& output_gradient,
             const std::vector<std::shared_ptr<Tensor<float, MR>>>& parameters,
             std::vector<std::shared_ptr<Tensor<float, MR>>>& parameter_gradients,
-            Tensor<TInput, MR>& input_gradient,
+            Tensor<int, MR>& input_gradient,
             const OperationAttributes& attributes,
             const std::vector<std::shared_ptr<Tensor<float, MR>>>& output_cache ) const {
-
-            // Verify we're operating on CPU memory
-            if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cpu ) ) {
-                throw std::runtime_error( "CpuEncoderOp::backward can only be executed on CPU memory" );
-            }
 
 			// TODO backward pass implementation
             
@@ -202,17 +189,8 @@ namespace Mila::Dnn::Compute
                 opName,
                 "Default",
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<int, float, DeviceType::Cpu>> {
-                    return context ? std::make_shared<CpuEncoderOp<int>>( context )
-                        : std::make_shared<CpuEncoderOp<int>>();
-                }
-            );
-
-            OperationRegistry::instance().registerOperation<uint16_t, float, DeviceType::Cpu>(
-                opName,
-                "Default",
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<uint16_t, float, DeviceType::Cpu>> {
-                    return context ? std::make_shared<CpuEncoderOp<uint16_t>>( context )
-                        : std::make_shared<CpuEncoderOp<uint16_t>>();
+                    return context ? std::make_shared<CpuEncoderOp>( context )
+                        : std::make_shared<CpuEncoderOp>();
                 }
             );
         }

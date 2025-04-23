@@ -44,16 +44,16 @@ namespace Mila::Dnn
     * The encoder is a fundamental component in transformer architectures, providing the initial
     * representation of tokens that subsequent layers will process.
     *
-    * @tparam TInput The input data type (typically uint16_t or int for token IDs)
-    * @tparam TDataType The computation data type (typically float or half)
+    * @tparam TPrecision The computation data type (must be a floating-point type like float or half)
+    * @tparam TDeviceType The device type (CPU or CUDA)
     */
     export
-        template<typename TInput = uint16_t, typename TPrecision = half, DeviceType TDeviceType = DeviceType::Cuda>
-        requires ValidTensorTypes<TInput, TPrecision>
-    class Encoder : public Module<TInput, TPrecision, TDeviceType> {
+        template<typename TPrecision = float, DeviceType TDeviceType = DeviceType::Cuda>
+        requires ValidFloatTensorType<TPrecision>
+    class Encoder : public Module<int, TPrecision, TDeviceType> {
     public:
         using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::DeviceMemoryResource, Compute::HostMemoryResource>;
-        using ModuleBase = Module<TInput, TPrecision, TDeviceType>; ///< Base class type for the module
+        using ModuleBase = Module<int, TPrecision, TDeviceType>; ///< Base class type for the module
 
         /**
         * @brief Construct a new Encoder module with a device name.
@@ -143,7 +143,7 @@ namespace Mila::Dnn
         * @param input The input tensor containing token IDs with shape (B,TDataType).
         * @param output The output tensor that will contain embeddings with shape (B,TDataType,C).
         */
-        void forward( const Tensor<TInput, MR>& input, Tensor<TPrecision, MR>& output ) {
+        void forward( const Tensor<int, MR>& input, Tensor<TPrecision, MR>& output ) {
             operation_->forward( input, parameters_, attributes_, output, output_state_ );
         }
 
@@ -246,7 +246,7 @@ namespace Mila::Dnn
         /**
          * The computational operation that implements the encoder logic.
          */
-        std::shared_ptr<UnaryOperation<TInput, TPrecision, TDeviceType>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<int, TPrecision, TDeviceType>> operation_{ nullptr };
 
         /**
         * @brief Initialize the token and positional embedding tensors.
@@ -265,11 +265,11 @@ namespace Mila::Dnn
 
             wte_ = std::make_shared<Tensor<TPrecision, MR>>( std::vector<size_t>{ vocab_len_, channels_ } );
             wte_->setName( this->getName() + ".wte" );
-            xavier<float, MR>( *wte_, vocab_len_, channels_ );
+            xavier<TPrecision, MR>( *wte_, vocab_len_, channels_ );
 
             wpe_ = std::make_shared<Tensor<TPrecision, MR>>( std::vector<size_t>{ max_seq_len_, channels_ } );
             wpe_->setName( this->getName() + ".wpe" );
-            xavier<float, MR>( *wpe_, max_seq_len_, channels_ );
+            xavier<TPrecision, MR>( *wpe_, max_seq_len_, channels_ );
 
             // Add tensors to parameters list and map
             parameters_.emplace_back( wte_ );
@@ -294,16 +294,16 @@ namespace Mila::Dnn
             }
 
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createOperation<TInput, TPrecision, DeviceType::Cpu>(
+                auto base_op = OperationRegistry::instance().createOperation<int, TPrecision, DeviceType::Cpu>(
                     "Cpu::EncoderOp",
                     this->getDeviceContext() );
-                operation_ = std::static_pointer_cast<Dnn::Compute::UnaryOperation<TInput, TPrecision, DeviceType::Cpu>>(base_op);
+                operation_ = std::static_pointer_cast<Dnn::Compute::UnaryOperation<int, TPrecision, DeviceType::Cpu>>(base_op);
             }
             else {
-                auto base_op = OperationRegistry::instance().createOperation<TInput, TPrecision, DeviceType::Cuda>(
+                auto base_op = OperationRegistry::instance().createOperation<int, TPrecision, DeviceType::Cuda>(
                     "Cuda::EncoderOp",
                     this->getDeviceContext() );
-                operation_ = std::static_pointer_cast<Dnn::Compute::UnaryOperation<TInput, TPrecision, DeviceType::Cuda>>(base_op);
+                operation_ = std::static_pointer_cast<Dnn::Compute::UnaryOperation<int, TPrecision, DeviceType::Cuda>>(base_op);
             }
         }
     };

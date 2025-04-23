@@ -75,7 +75,7 @@ PUBLIC
 		"Src/Dnn/Modules/Blocks/MLP.ixx"
 		"Src/Dnn/Modules/Blocks/TransformerBlock.ixx"
 		#Dnn Compute
-		"Src/Dnn/Compute/DeviceType.ixx"
+		"Src/Dnn/Compute/Devices/DeviceType.ixx"
 		"Src/Dnn/Compute/Devices/DeviceRegistry.ixx"
 		"Src/Dnn/Compute/ComputeDevice.ixx"  
 		"Src/Dnn/Compute/Devices/DeviceHelpers.ixx" 
@@ -84,7 +84,7 @@ PUBLIC
 		"Src/Dnn/Compute/Operations/OperationAttributes.ixx"
 		"Src/Dnn/Compute/Operations/Base/UnaryOperation.ixx" 
 		"Src/Dnn/Compute/Operations/Base/BinaryOperation.ixx"
-		"Src/Dnn/Compute/DeviceContext.ixx"
+		"Src/Dnn/Compute/Devices/DeviceContext.ixx"
 		"Src/Dnn/Compute/Operations/OperationRegistry.ixx"
 		"Src/Dnn/Compute/Operations/OperationsRegistrar.ixx"  
 		"Src/Dnn/Compute/ComputeResource.ixx"
@@ -144,7 +144,7 @@ PUBLIC
 		"Src/Dnn/Compute/Operations/Cuda/MatMulBiasActivation.ixx"
 		"Src/Dnn/Compute/Devices/DeviceRegistrar.ixx" 
 		"Src/Dnn/Compute/DynamicMemoryResource.ixx"
-		"Src/Dnn/Compute/DeviceContextHelpers.ixx"
+		"Src/Dnn/Compute/Devices/DeviceContextHelpers.ixx"
 		"Src/Dnn/Modules/Block.ixx"
 		"Src/Core/RandomGenerator.ixx"
  "Src/Dnn/Compute/Operations/Cuda/CudaDataTypeTraits.ixx" "Src/Dnn/Core/ActivationType.ixx" "Src/Dnn/Compute/Cuda/CublasLtError.ixx")

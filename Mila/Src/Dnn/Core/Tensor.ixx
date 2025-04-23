@@ -208,6 +208,187 @@ namespace Mila::Dnn
 			}
 		}
 
+		/**
+* @brief Converts a float tensor to half precision.
+*
+* This method creates a new tensor with the same shape but with half precision elements.
+* The conversion is performed in a type-safe manner, handling both host and device memory appropriately.
+*
+* @tparam T The original element type (must be float)
+* @tparam TMR The memory resource type
+* @return Tensor<half, TMR> A new tensor with half precision values
+* @throws std::runtime_error If the source tensor is not of float type or if a CUDA operation fails
+*/
+		template<typename T = TElementType, typename TMR = TMemoryResource>
+		std::enable_if_t<std::is_same_v<T, float>, Tensor<half, TMR>> toHalf() const {
+			Tensor<half, TMR> result( shape_ );
+
+			if ( !name_.empty() ) {
+				result.setName( name_ + "_half" );
+			}
+
+			if ( size_ == 0 ) {
+				return result;
+			}
+
+			// For host-accessible memory, perform explicit conversion
+			if constexpr ( is_host_accessible<TMR>() ) {
+				// Create temporary host tensors if needed
+				if constexpr ( !is_host_accessible<TMemoryResource>() ) {
+					auto host_tensor = this->template to<Compute::HostMemoryResource>();
+					auto host_result = Tensor<half, Compute::HostMemoryResource>( shape_ );
+
+					// Convert float to half on host
+					for ( size_t i = 0; i < size_; ++i ) {
+						host_result.raw_data()[ i ] = __float2half( host_tensor.raw_data()[ i ] );
+					}
+
+					// Copy back to device if needed
+					result.copyFrom( host_result );
+				}
+				else {
+					// Direct host-to-host conversion
+					for ( size_t i = 0; i < size_; ++i ) {
+						result.raw_data()[ i ] = __float2half( this->raw_data()[ i ] );
+					}
+				}
+			}
+			// For device memory, use optimized CUDA conversion
+			else {
+				cudaError_t status = cudaSuccess;
+
+				// If the source is not already on device, we need to bring it there first
+				if constexpr ( !is_device_accessible<TMemoryResource>() ) {
+					auto device_tensor = this->template to<Compute::DeviceMemoryResource>();
+					// TODO: Use CUDA kernel for float to half conversion
+					// For now, we'll use a host intermediary
+					auto host_tensor = device_tensor.template to<Compute::HostMemoryResource>();
+					auto host_result = Tensor<half, Compute::HostMemoryResource>( shape_ );
+
+					// Convert float to half on host
+					for ( size_t i = 0; i < size_; ++i ) {
+						host_result.raw_data()[ i ] = __float2half( host_tensor.raw_data()[ i ] );
+					}
+
+					// Copy back to device
+					result.copyFrom( host_result );
+				}
+				else {
+					// Both source and destination are on device
+					// TODO: Use CUDA kernel for float to half conversion
+					// For now, fallback to host intermediary
+					auto host_tensor = this->template to<Compute::HostMemoryResource>();
+					auto host_result = Tensor<half, Compute::HostMemoryResource>( shape_ );
+
+					// Convert float to half on host
+					for ( size_t i = 0; i < size_; ++i ) {
+						host_result.raw_data()[ i ] = __float2half( host_tensor.raw_data()[ i ] );
+					}
+
+					// Copy back to device
+					result.copyFrom( host_result );
+				}
+
+				if ( status != cudaSuccess ) {
+					throw std::runtime_error( "CUDA float to half conversion failed: " +
+						std::string( cudaGetErrorString( status ) ) );
+				}
+			}
+
+			return result;
+		}
+
+		/**
+		* @brief Converts a half precision tensor to float.
+		*
+		* This method creates a new tensor with the same shape but with float precision elements.
+		* The conversion is performed in a type-safe manner, handling both host and device memory appropriately.
+		*
+		* @tparam T The original element type (must be half)
+		* @tparam TMR The memory resource type
+		* @return Tensor<float, TMR> A new tensor with float precision values
+		* @throws std::runtime_error If the source tensor is not of half type or if a CUDA operation fails
+		*/
+		template<typename T = TElementType, typename TMR = TMemoryResource>
+		std::enable_if_t<std::is_same_v<T, half>, Tensor<float, TMR>> toFloat() const {
+			Tensor<float, TMR> result( shape_ );
+
+			if ( !name_.empty() ) {
+				result.setName( name_ + "_float" );
+			}
+
+			if ( size_ == 0 ) {
+				return result;
+			}
+
+			// For host-accessible memory, perform explicit conversion
+			if constexpr ( is_host_accessible<TMR>() ) {
+				// Create temporary host tensors if needed
+				if constexpr ( !is_host_accessible<TMemoryResource>() ) {
+					auto host_tensor = this->template to<Compute::HostMemoryResource>();
+					auto host_result = Tensor<float, Compute::HostMemoryResource>( shape_ );
+
+					// Convert half to float on host
+					for ( size_t i = 0; i < size_; ++i ) {
+						host_result.raw_data()[ i ] = __half2float( host_tensor.raw_data()[ i ] );
+					}
+
+					// Copy back to device if needed
+					result.copyFrom( host_result );
+				}
+				else {
+					// Direct host-to-host conversion
+					for ( size_t i = 0; i < size_; ++i ) {
+						result.raw_data()[ i ] = __half2float( this->raw_data()[ i ] );
+					}
+				}
+			}
+			// For device memory, use optimized CUDA conversion
+			else {
+				cudaError_t status = cudaSuccess;
+
+				// If the source is not already on device, we need to bring it there first
+				if constexpr ( !is_device_accessible<TMemoryResource>() ) {
+					auto device_tensor = this->template to<Compute::DeviceMemoryResource>();
+					// TODO: Use CUDA kernel for half to float conversion
+					// For now, we'll use a host intermediary
+					auto host_tensor = device_tensor.template to<Compute::HostMemoryResource>();
+					auto host_result = Tensor<float, Compute::HostMemoryResource>( shape_ );
+
+					// Convert half to float on host
+					for ( size_t i = 0; i < size_; ++i ) {
+						host_result.raw_data()[ i ] = __half2float( host_tensor.raw_data()[ i ] );
+					}
+
+					// Copy back to device
+					result.copyFrom( host_result );
+				}
+				else {
+					// Both source and destination are on device
+					// TODO: Use CUDA kernel for half to float conversion
+					// For now, fallback to host intermediary
+					auto host_tensor = this->template to<Compute::HostMemoryResource>();
+					auto host_result = Tensor<float, Compute::HostMemoryResource>( shape_ );
+
+					// Convert half to float on host
+					for ( size_t i = 0; i < size_; ++i ) {
+						host_result.raw_data()[ i ] = __half2float( host_tensor.raw_data()[ i ] );
+					}
+
+					// Copy back to device
+					result.copyFrom( host_result );
+				}
+
+				if ( status != cudaSuccess ) {
+					throw std::runtime_error( "CUDA half to float conversion failed: " +
+						std::string( cudaGetErrorString( status ) ) );
+				}
+			}
+
+			return result;
+		}
+
+
 
 		/**
 		* @brief Copies data from another tensor into this tensor.
@@ -266,7 +447,6 @@ namespace Mila::Dnn
 				setName( src.getName() );
 			}
 		}
-
 
 		/**
 		* @brief Creates a deep copy of this tensor.
@@ -676,7 +856,14 @@ namespace Mila::Dnn
             if ( depth == shape_.size() - 1 ) {
                 for ( size_t i = 0; i < shape_[ depth ]; ++i ) {
                     if ( i < 3 || i >= shape_[ depth ] - 3 ) {
-                        oss << std::setw( 10 ) << buffer_->data()[ index + i ] << " ";
+						TElementType value = buffer_->data()[ index + i ];
+
+						if constexpr ( std::is_same_v<TElementType, half> ) {
+							oss << std::setw( 10 ) << static_cast<float>( __half2float( value ) ) << " ";
+						}
+						else {
+							oss << std::setw( 10 ) << value << " ";
+						}
                     }
                     else if ( i == 3 ) {
                         oss << "... ";

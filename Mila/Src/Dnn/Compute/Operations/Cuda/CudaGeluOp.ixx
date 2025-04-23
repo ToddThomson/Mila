@@ -61,9 +61,6 @@ namespace Mila::Dnn::Compute
          */
         CudaGeluOp( std::shared_ptr<DeviceContext> context )
             : UnaryOperation<TInput, TPrecision, DeviceType::Cuda>( OperationType::GeluOp, context ) {
-            if ( !context->isDeviceType( DeviceType::Cuda ) ) {
-                throw std::runtime_error( "CudaGeluOp requires a CUDA device context" );
-            }
         }
 
         /**

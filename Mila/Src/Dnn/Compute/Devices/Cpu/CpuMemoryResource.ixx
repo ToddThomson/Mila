@@ -1,7 +1,13 @@
 module;
 #include <memory_resource>
-#include <malloc.h>
 #include <exception>
+
+#ifdef _WIN32
+#include <malloc.h>  // For _aligned_malloc and _aligned_free
+#else
+#include <cstdlib>   // For std::aligned_alloc and std::free
+#endif
+
 
 export module Compute.CpuMemoryResource;
 

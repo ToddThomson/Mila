@@ -643,7 +643,7 @@ namespace Operations::Tests
     /**
      * @brief Test with mismatched input shapes
      */
-    TEST_F( CudaResidualOpTests, MismatchedShapes ) {
+    TEST_F( CudaResidualOpTests, Forward_MismatchedShapes ) {
         // Create tensors with different shapes
         std::vector<size_t> shape1 = { 2, 3, 4 };
         std::vector<size_t> shape2 = { 2, 3, 5 };  // Different last dimension

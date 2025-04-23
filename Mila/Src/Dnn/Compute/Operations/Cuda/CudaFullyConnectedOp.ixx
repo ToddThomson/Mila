@@ -65,9 +65,6 @@ namespace Mila::Dnn::Compute
          */
         CudaFullyConnectedOp( std::shared_ptr<DeviceContext> context )
             : UnaryOperation<TInput, TPrecision, DeviceType::Cuda>( OperationType::FullyConnectedOp, context ) {
-            if ( !context->isDeviceType( DeviceType::Cuda ) ) {
-                throw std::runtime_error( "CudaFullyConnectedOp requires a CUDA device context" );
-            }
         }
 
         /**

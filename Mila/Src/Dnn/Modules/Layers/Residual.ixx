@@ -189,7 +189,6 @@ namespace Mila::Dnn
          * The operation performs element-wise addition of the two input tensors.
          */
         void createOperation() {
-            // Get the device type from the context
             auto device_type = this->getDeviceContext()->getDevice()->getDeviceType();
 
             if ( operation_ ) {

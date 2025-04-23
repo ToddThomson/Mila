@@ -72,9 +72,6 @@ namespace Mila::Dnn::Compute
          */
         CpuMultiHeadAttentionOp( std::shared_ptr<DeviceContext> context )
             : UnaryOperation<TInput, TPrecision, DeviceType::Cpu>( OperationType::MultiHeadAttentionOp, context ) {
-            if ( !context->isDeviceType( DeviceType::Cpu ) ) {
-                throw std::runtime_error( "CpuMultiHeadAttentionOp requires a CPU device context" );
-            }
         }
 
         /**

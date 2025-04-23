@@ -63,9 +63,6 @@ namespace Mila::Dnn::Compute
          */
         CpuLayerNormOp( std::shared_ptr<DeviceContext> context )
             : UnaryOperation<float, float, DeviceType::Cpu>( OperationType::LayerNormOp, context ) {
-            if ( !context->isDeviceType( DeviceType::Cpu ) ) {
-                throw std::runtime_error( "CpuLayerNormOp requires a CPU device context." );
-            }
         }
 
         /**
