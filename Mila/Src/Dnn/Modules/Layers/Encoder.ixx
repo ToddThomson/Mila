@@ -48,12 +48,12 @@ namespace Mila::Dnn
     * @tparam TDeviceType The device type (CPU or CUDA)
     */
     export
-        template<typename TPrecision = float, DeviceType TDeviceType = DeviceType::Cuda>
+        template<typename TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
         requires ValidFloatTensorType<TPrecision>
-    class Encoder : public Module<int, TPrecision, TDeviceType> {
+    class Encoder : public Module<TPrecision, int, TDeviceType> {
     public:
         using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::DeviceMemoryResource, Compute::HostMemoryResource>;
-        using ModuleBase = Module<int, TPrecision, TDeviceType>; ///< Base class type for the module
+        using ModuleBase = Module<TPrecision, int, TDeviceType>; ///< Base class type for the module
 
         /**
         * @brief Construct a new Encoder module with a device name.
@@ -246,7 +246,7 @@ namespace Mila::Dnn
         /**
          * The computational operation that implements the encoder logic.
          */
-        std::shared_ptr<UnaryOperation<int, TPrecision, TDeviceType>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TPrecision, int, TDeviceType>> operation_{ nullptr };
 
         /**
         * @brief Initialize the token and positional embedding tensors.
@@ -290,20 +290,20 @@ namespace Mila::Dnn
         */
         void createOperation() {
             if ( operation_ ) {
-                operation_.reset(); // Clear existing operation
+                operation_.reset();
             }
 
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createOperation<int, TPrecision, DeviceType::Cpu>(
+                auto base_op = OperationRegistry::instance().createOperation<TPrecision, int, DeviceType::Cpu>(
                     "Cpu::EncoderOp",
                     this->getDeviceContext() );
-                operation_ = std::static_pointer_cast<Dnn::Compute::UnaryOperation<int, TPrecision, DeviceType::Cpu>>(base_op);
+                operation_ = std::static_pointer_cast<Dnn::Compute::UnaryOperation<TPrecision, int, DeviceType::Cpu>>(base_op);
             }
             else {
-                auto base_op = OperationRegistry::instance().createOperation<int, TPrecision, DeviceType::Cuda>(
+                auto base_op = OperationRegistry::instance().createOperation<TPrecision, int, DeviceType::Cuda>(
                     "Cuda::EncoderOp",
                     this->getDeviceContext() );
-                operation_ = std::static_pointer_cast<Dnn::Compute::UnaryOperation<int, TPrecision, DeviceType::Cuda>>(base_op);
+                operation_ = std::static_pointer_cast<Dnn::Compute::UnaryOperation<TPrecision, int, DeviceType::Cuda>>(base_op);
             }
         }
     };

@@ -39,16 +39,16 @@ namespace Mila::Dnn
      *
      * The operation performed is: output = input_a + input_b
      *
-     * @tparam TInput The data type of the input tensor elements.
+     * @tparam TPrecision The data type of the input tensor elements.
      * @tparam TDataType The data type used for computation and output (defaults to the input type).
      */
     export
-        template<typename TInput, typename TPrecision = TInput, DeviceType TDeviceType = DeviceType::Cuda>
-        requires ValidTensorTypes<TInput, TPrecision>
-    class Residual : public Module<TInput, TPrecision, TDeviceType> {
+        template<typename TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
+        requires ValidFloatTensorType<TPrecision>
+    class Residual : public Module<TPrecision, TPrecision, TDeviceType> {
     public:
 		using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, HostMemoryResource, DeviceMemoryResource>;
-		using ModuleBase = Module<TInput, TPrecision, TDeviceType>;
+		using ModuleBase = Module<TPrecision, TPrecision, TDeviceType>;
 
         /**
          * @brief Constructs a new Residual connection module with the default device context.
@@ -97,7 +97,7 @@ namespace Mila::Dnn
          * @param input_b The second input tensor (typically the function output).
          * @param output The output tensor where the results will be stored.
          */
-        void forward( const Tensor<TInput, MR>& input_a, const Tensor<TInput, MR>& input_b, Tensor<TPrecision, MR>& output ) {
+        void forward( const Tensor<TPrecision, MR>& input_a, const Tensor<TPrecision, MR>& input_b, Tensor<TPrecision, MR>& output ) {
             operation_->forward( input_a, input_b, parameters_, attributes_, output, output_state_ );
         }
 
@@ -178,7 +178,7 @@ namespace Mila::Dnn
          * For residual connections, this operation performs element-wise addition
          * between the two input tensors.
          */
-        std::shared_ptr<BinaryOperation<TInput, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<BinaryOperation<TPrecision, TPrecision>> operation_{ nullptr };
 
         /**
          * @brief Creates the appropriate Residual operation based on the current device context.
@@ -196,12 +196,12 @@ namespace Mila::Dnn
             }
 
             if ( device_type == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createOperation<TInput, TPrecision, DeviceType::Cpu>( "Cpu::ResidualOp" );
-                operation_ = std::static_pointer_cast<BinaryOperation<TInput, TPrecision>>(base_op);
+                auto base_op = OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cpu>( "Cpu::ResidualOp" );
+                operation_ = std::static_pointer_cast<BinaryOperation<TPrecision, TPrecision>>(base_op);
             }
             else {
-                auto base_op = OperationRegistry::instance().createOperation<TInput, TPrecision, DeviceType::Cuda>( "Cuda::ResidualOp" );
-                operation_ = std::static_pointer_cast<BinaryOperation<TInput, TPrecision>>(base_op);
+                auto base_op = OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cuda>( "Cuda::ResidualOp" );
+                operation_ = std::static_pointer_cast<BinaryOperation<TPrecision, TPrecision>>(base_op);
             }
         }
     };

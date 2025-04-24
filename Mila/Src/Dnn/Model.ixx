@@ -27,6 +27,7 @@ import Dnn.ModelCallback;
 
 namespace Mila::Dnn
 {
+	using namespace Mila::Dnn::Compute;
     using namespace Mila::Data;
 
     /**
@@ -53,16 +54,15 @@ namespace Mila::Dnn
     * @tparam TInput The input data type for the model.
     * @tparam TDataType The precision type used for model computations, defaults to input type.
     */
-    export
-        template<typename TInput, typename TPrecision = TInput>
+	export template<typename TPrecision, typename TInput = TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
         requires ValidTensorTypes<TInput, TPrecision>
-    class Model : public Module<TInput, TPrecision> {
+    class Model : public Module<TPrecision, TInput, TDeviceType> {
     public:
         /**
         * @brief Constructs a new Model object with the default device context.
         */
         Model()
-            : Module<TInput, TPrecision>() {
+            : Module<TPrecision, TInput, TDeviceType>() {
             initializeDevice();
         }
 
@@ -71,8 +71,8 @@ namespace Mila::Dnn
         *
         * @param context The device context to use for this model.
         */
-        Model( std::shared_ptr<Compute::DeviceContext> context )
-            : Module<TInput, TPrecision>( context ) {
+        Model( std::shared_ptr<DeviceContext> context )
+            : Module<TPrecision, TInput, TDeviceType>( context ) {
             initializeDevice();
         }
 
@@ -82,7 +82,7 @@ namespace Mila::Dnn
         * @param device_name The name of the device to use (e.g., "CUDA:0", "CPU").
         */
         Model( const std::string& device_name )
-            : Module<TInput, TPrecision>( std::make_shared<Compute::DeviceContext>( device_name ) ) {
+            : Module<TPrecision, TInput, TDeviceType>( std::make_shared<Compute::DeviceContext>( device_name ) ) {
             initializeDevice();
         }
 

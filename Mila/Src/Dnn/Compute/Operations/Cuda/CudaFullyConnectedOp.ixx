@@ -10,7 +10,7 @@ module;
 #include <string>
 #include <stdexcept>
 #include <exception>
-#include "Kernels/Cuda.Ops.h"
+#include "Kernels/CudaOps.h"
 
 export module Compute.CudaMatMulOp;
 
@@ -32,6 +32,41 @@ using namespace Mila::Dnn;
 
 namespace Mila::Dnn::Compute
 {
+	/**
+	 * @brief Namespace for CUDA matrix multiplication implementation details.
+	 *
+	 * This namespace contains the implementation details for the CUDA matrix multiplication operation,
+	 * including specialized templates for different data types (float, half).
+	 */
+    namespace Detail
+    {
+        // Primary template - will cause a compile error if no specialization exists
+        template <typename T>
+        struct cuda_matmul_impl;
+        // Specialization for float
+        template <>
+        struct cuda_matmul_impl<float> {
+            static inline void forward( float* Y, const float* X,
+                const float* weight, const float* bias,
+                int B, int T, int C, int OC,
+                cudaStream_t stream ) {
+                cuda_matmul_forward_fp32( Y, X, weight, bias, B, T, C, OC, stream );
+            }
+        };
+
+        // Specialization for half
+        template <>
+        struct cuda_matmul_impl<half> {
+            static inline void forward( half* Y, const half* X,
+                const half* weight, const half* bias,
+                int B, int T, int C, int OC,
+                cudaStream_t stream ) {
+                cuda_matmul_forward_fp16( Y, X, weight, bias, B, T, C, OC, stream );
+            }
+        };
+        // Specialization for __nv_fp8_e4m3
+    }
+
     /**
      * @brief CUDA implementation of the Fully Connected operation for neural networks.
      *
@@ -43,11 +78,11 @@ namespace Mila::Dnn::Compute
      * The implementation delegates the actual matrix multiplication to optimized CUDA kernels
      * that may leverage libraries like cuBLAS or custom implementations for maximum performance.
      *
-     * @tparam TInput The data type of the input tensor elements.
+     * @tparam TPrecision The data type of the input tensor elements.
      * @tparam TDataType The data type of the output tensor elements (defaults to the input type).
      */
-    export template<typename TInput, typename TPrecision = TInput>
-    class CudaFullyConnectedOp : public UnaryOperation<TInput, TPrecision, DeviceType::Cuda> {
+    export template<typename TPrecision>
+    class CudaFullyConnectedOp : public UnaryOperation<TPrecision> {
     public:
         using MR = typename CudaDevice::MR;
         /**
@@ -55,7 +90,7 @@ namespace Mila::Dnn::Compute
          *
          * Initializes the operation with a CUDA device context (defaults to CUDA:0).
          */
-        CudaFullyConnectedOp() : UnaryOperation<TInput, TPrecision, DeviceType::Cuda>( OperationType::FullyConnectedOp ) {}
+        CudaFullyConnectedOp() : UnaryOperation<TPrecision>( OperationType::FullyConnectedOp ) {}
 
         /**
          * @brief Constructs a new CUDA Fully Connected operation with a specific device context.
@@ -64,7 +99,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the context is not for a CUDA device.
          */
         CudaFullyConnectedOp( std::shared_ptr<DeviceContext> context )
-            : UnaryOperation<TInput, TPrecision, DeviceType::Cuda>( OperationType::FullyConnectedOp, context ) {
+            : UnaryOperation<TPrecision>( OperationType::FullyConnectedOp, context ) {
         }
 
         /**
@@ -81,8 +116,8 @@ namespace Mila::Dnn::Compute
          * @param output_cache Cache for intermediate results (not used in this operation).
          */
         void forward(
-            const Tensor<TInput, MR>& input,
-            const std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameters,
+            const Tensor<TPrecision, MR>& input,
+            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
             const OperationAttributes& properties,
             Tensor<TPrecision, MR>& output,
             std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const override {
@@ -91,7 +126,7 @@ namespace Mila::Dnn::Compute
             auto Y = output.raw_data();
 
             auto weight = parameters[ 0 ]->raw_data();
-            float* bias = nullptr;
+            TPrecision* bias = nullptr;
 
             if ( parameters.size() == 2 ) {
                 bias = parameters[ 1 ]->raw_data();
@@ -118,7 +153,7 @@ namespace Mila::Dnn::Compute
             }
 
             // Fallback to custom cuda kernel...
-            cuda_matmul_forward( Y, X, weight, bias, B, T, C, OC, stream );
+            Detail::cuda_matmul_impl<TPrecision>::forward( Y, X, weight, bias, B, T, C, OC, stream );
         }
 
         /**
@@ -136,12 +171,12 @@ namespace Mila::Dnn::Compute
          * @param output_cache Cache tensors from forward pass.
          */
         void backward(
-            const Tensor<TInput, MR>& input,
+            const Tensor<TPrecision, MR>& input,
             const Tensor<TPrecision, MR>& output,
             const Tensor<TPrecision, MR>& output_gradient,
-            const std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameters,
-            std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameter_gradients,
-            Tensor<TInput, MR>& input_gradient,
+            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
+            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameter_gradients,
+            Tensor<TPrecision, MR>& input_gradient,
             const OperationAttributes& properties,
             const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const {
 
@@ -204,27 +239,23 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cuda::FullyConnectedOp";
 
-            // Updated to use device context-aware registration
             OperationRegistry::instance().registerOperation<float, float, DeviceType::Cuda>(
                 opName,
-                "Default",  // Default empty variant for backward compatibility
+                "float_precision",
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, float, DeviceType::Cuda>> {
-                    return context ? std::make_shared<CudaFullyConnectedOp<float, float>>( context )
-                        : std::make_shared<CudaFullyConnectedOp<float, float>>();
+                    return context ? std::make_shared<CudaFullyConnectedOp<float>>( context )
+                        : std::make_shared<CudaFullyConnectedOp<float>>();
                 }
             );
 
-            // Add additional precision variants if needed, for example:
-            /*
-            OperationRegistry::instance().registerOperation<float, half, DeviceType::Cuda>(
+            OperationRegistry::instance().registerOperation<half, half, DeviceType::Cuda>(
                 opName,
                 "half_precision",
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, half, DeviceType::Cuda>> {
-                    return context ? std::make_shared<CudaFullyConnectedOp<float, half>>( context )
-                        : std::make_shared<CudaFullyConnectedOp<float, half>>();
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<half, half, DeviceType::Cuda>> {
+                    return context ? std::make_shared<CudaFullyConnectedOp<half>>( context )
+                        : std::make_shared<CudaFullyConnectedOp<half>>();
                 }
             );
-            */
         }
 
         /**

@@ -76,6 +76,37 @@ namespace Mila::Dnn::Compute
 			return props_;
 		}
 
+		bool isFp16Supported() {
+			int major, minor;
+			cudaDeviceGetAttribute( &major, cudaDevAttrComputeCapabilityMajor, device_id_ );
+			cudaDeviceGetAttribute( &minor, cudaDevAttrComputeCapabilityMinor, device_id_ );
+			// Ampere architecture or newer is required for FP16
+			return (major >= 8);
+		}
+
+		/**
+		 * @brief Checks if the device supports FP8 precision.
+		 *
+		 * @return bool True if FP8 is supported, false otherwise.
+		 */
+		bool isFp8Supported() {
+			int major, minor;
+			cudaDeviceGetAttribute( &major, cudaDevAttrComputeCapabilityMajor, device_id_ );
+			cudaDeviceGetAttribute( &minor, cudaDevAttrComputeCapabilityMinor, device_id_ );
+
+			// Hopper architecture or newer is required for FP8
+			return (major >= 9);
+		}
+
+		bool isFp4Supported() {
+			int major, minor;
+			cudaDeviceGetAttribute( &major, cudaDevAttrComputeCapabilityMajor, device_id_ );
+			cudaDeviceGetAttribute( &minor, cudaDevAttrComputeCapabilityMinor, device_id_ );
+			// Hopper architecture or newer is required for FP4
+			return (major >= 9);
+		}
+
+
 		/**
 		 * @brief Registers all available CUDA devices with the DeviceRegistry.
 		 *

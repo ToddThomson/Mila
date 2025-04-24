@@ -209,16 +209,16 @@ namespace Mila::Dnn
 		}
 
 		/**
-* @brief Converts a float tensor to half precision.
-*
-* This method creates a new tensor with the same shape but with half precision elements.
-* The conversion is performed in a type-safe manner, handling both host and device memory appropriately.
-*
-* @tparam T The original element type (must be float)
-* @tparam TMR The memory resource type
-* @return Tensor<half, TMR> A new tensor with half precision values
-* @throws std::runtime_error If the source tensor is not of float type or if a CUDA operation fails
-*/
+		* @brief Converts a float tensor to half precision.
+		*
+		* This method creates a new tensor with the same shape but with half precision elements.
+		* The conversion is performed in a type-safe manner, handling both host and device memory appropriately.
+		*
+		* @tparam T The original element type (must be float)
+		* @tparam TMR The memory resource type
+		* @return Tensor<half, TMR> A new tensor with half precision values
+		* @throws std::runtime_error If the source tensor is not of float type or if a CUDA operation fails
+		*/
 		template<typename T = TElementType, typename TMR = TMemoryResource>
 		std::enable_if_t<std::is_same_v<T, float>, Tensor<half, TMR>> toHalf() const {
 			Tensor<half, TMR> result( shape_ );
@@ -387,8 +387,6 @@ namespace Mila::Dnn
 
 			return result;
 		}
-
-
 
 		/**
 		* @brief Copies data from another tensor into this tensor.

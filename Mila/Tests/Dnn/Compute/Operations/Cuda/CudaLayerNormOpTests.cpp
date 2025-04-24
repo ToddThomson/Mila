@@ -34,7 +34,7 @@ namespace Operations::Tests
             large_shape_ = { 16, 32, 128 };  // Large shape for stress tests
 
             // Create CUDA LayerNorm operation with specific context
-            cuda_layernorm_op_ = std::make_shared<CudaLayerNormOp<float, float>>( cuda_context_ );
+            cuda_layernorm_op_ = std::make_shared<CudaLayerNormOp<float>>( cuda_context_ );
 
             // Get CPU LayerNorm op for comparison
             auto cpu_op = OperationRegistry::instance().createOperation<float, float, DeviceType::Cpu>(
@@ -239,7 +239,7 @@ namespace Operations::Tests
 
         std::shared_ptr<DeviceContext> cuda_context_;
         std::shared_ptr<DeviceContext> cpu_context_;
-        std::shared_ptr<CudaLayerNormOp<float, float>> cuda_layernorm_op_;
+        std::shared_ptr<CudaLayerNormOp<float>> cuda_layernorm_op_;
         std::shared_ptr<UnaryOperation<float, float, DeviceType::Cpu>> cpu_layernorm_op_;
 
         // Test shapes
@@ -259,7 +259,7 @@ namespace Operations::Tests
      * @brief Test constructor without explicit device context
      */
     TEST_F( CudaLayerNormOpTests, DefaultConstructor ) {
-        auto op = std::make_shared<CudaLayerNormOp<float, float>>();
+        auto op = std::make_shared<CudaLayerNormOp<float>>();
         EXPECT_EQ( op->getName(), "Cuda::LayerNormOp" );
     }
 
@@ -267,7 +267,7 @@ namespace Operations::Tests
      * @brief Test constructor with non-CUDA device context throws exception
      */
     TEST_F( CudaLayerNormOpTests, ConstructorWithNonCudaContext ) {
-        EXPECT_THROW( ( std::make_shared<CudaLayerNormOp<float, float>>( cpu_context_ ) ), std::runtime_error );
+        EXPECT_THROW( ( std::make_shared<CudaLayerNormOp<float>>( cpu_context_ ) ), std::runtime_error );
     }
 
     /**

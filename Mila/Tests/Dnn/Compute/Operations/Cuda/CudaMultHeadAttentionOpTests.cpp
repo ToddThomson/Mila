@@ -34,7 +34,7 @@ namespace Operations::Tests
             large_shape_ = { 16, 64, 256 };  // Large shape for stress tests
 
             // Create CUDA MHA operation with specific context
-            cuda_mha_op_ = std::make_shared<CudaMultiHeadAttentionOp<float, float>>( cuda_context_ );
+            cuda_mha_op_ = std::make_shared<CudaMultiHeadAttentionOp<float>>( cuda_context_ );
 
             // Get CPU MHA op for comparison (assume it's registered)
             auto cpu_op = OperationRegistry::instance().createOperation<float, float, DeviceType::Cpu>(
@@ -189,7 +189,7 @@ namespace Operations::Tests
 
         std::shared_ptr<DeviceContext> cuda_context_;
         std::shared_ptr<DeviceContext> cpu_context_;
-        std::shared_ptr<CudaMultiHeadAttentionOp<float, float>> cuda_mha_op_;
+        std::shared_ptr<CudaMultiHeadAttentionOp<float>> cuda_mha_op_;
         std::shared_ptr<UnaryOperation<float, float, DeviceType::Cpu>> cpu_mha_op_;
 
         // Test shapes
@@ -209,7 +209,7 @@ namespace Operations::Tests
      * @brief Test constructor without explicit device context
      */
     TEST_F( CudaMultiHeadAttentionOpTests, DefaultConstructor ) {
-        auto op = std::make_shared<CudaMultiHeadAttentionOp<float, float>>();
+        auto op = std::make_shared<CudaMultiHeadAttentionOp<float>>();
         EXPECT_EQ( op->getName(), "Cuda::MultiHeadAttentionOp" );
     }
 
@@ -217,7 +217,7 @@ namespace Operations::Tests
      * @brief Test constructor with non-CUDA device context throws exception
      */
     TEST_F( CudaMultiHeadAttentionOpTests, ConstructorWithNonCudaContext ) {
-        EXPECT_THROW( (std::make_shared<CudaMultiHeadAttentionOp<float, float>>( cpu_context_ )), std::runtime_error );
+        EXPECT_THROW( (std::make_shared<CudaMultiHeadAttentionOp<float>>( cpu_context_ )), std::runtime_error );
     }
 
     /**

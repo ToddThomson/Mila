@@ -8,7 +8,7 @@ module;
 #include <memory>
 #include <string>
 #include <stdexcept>
-#include "Kernels/Cuda.Ops.h"
+#include "Kernels/CudaOps.h"
 
 export module Compute.CudaLayerNormOp;
 
@@ -40,12 +40,12 @@ namespace Mila::Dnn::Compute
      * learnable scale (gamma) and shift (beta) parameters. The implementation is optimized for
      * NVIDIA GPUs using CUDA for high-performance computation.
      *
-     * @tparam TInput The data type of the input tensor elements.
+     * @tparam TPrecision The data type of the input tensor elements.
      * @tparam TDataType The data type of the output tensor elements (defaults to the input type).
      */
     export
-        template<typename TInput, typename TPrecision = TInput>
-    class CudaLayerNormOp : public UnaryOperation<TInput, TPrecision, DeviceType::Cuda> {
+        template<typename TPrecision>
+    class CudaLayerNormOp : public UnaryOperation<TPrecision> {
     public:
         using MR = typename CudaDevice::MR;
         /**
@@ -53,7 +53,7 @@ namespace Mila::Dnn::Compute
          *
          * Initializes the operation with a CUDA device context (defaults to CUDA:0).
          */
-        CudaLayerNormOp() : UnaryOperation<TInput, TPrecision, DeviceType::Cuda>( OperationType::LayerNormOp ) {}
+        CudaLayerNormOp() : UnaryOperation<TPrecision>( OperationType::LayerNormOp ) {}
 
         /**
          * @brief Constructs a new CUDA Layer Normalization operation with a specific device context.
@@ -62,7 +62,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the context is not for a CUDA device.
          */
         CudaLayerNormOp( std::shared_ptr<DeviceContext> context )
-            : UnaryOperation<TInput, TPrecision, DeviceType::Cuda>( OperationType::LayerNormOp, context ) {
+            : UnaryOperation<TPrecision>( OperationType::LayerNormOp, context ) {
         }
 
         /**
@@ -85,8 +85,8 @@ namespace Mila::Dnn::Compute
          *                     where mean is the mean values and rstd is the reciprocal of standard deviation.
          */
         void forward(
-            const Tensor<TInput, MR>& input,
-            const std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameters,
+            const Tensor<TPrecision, MR>& input,
+            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
             const OperationAttributes& properties,
             Tensor<TPrecision, MR>& output,
             std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const override {
@@ -125,12 +125,12 @@ namespace Mila::Dnn::Compute
          * @param output_cache Cache tensors from forward pass [mean, rstd].
          */
         void backward(
-            const Tensor<TInput, MR>& input,
+            const Tensor<TPrecision, MR>& input,
             const Tensor<TPrecision, MR>& output,
             const Tensor<TPrecision, MR>& output_gradient,
-            const std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameters,
-            std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameter_gradients,
-            Tensor<TInput, MR>& input_gradient,
+            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
+            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameter_gradients,
+            Tensor<TPrecision, MR>& input_gradient,
             const OperationAttributes& properties,
             const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const {
 
@@ -195,8 +195,8 @@ namespace Mila::Dnn::Compute
                 opName,
                 "Default",  // Default empty variant for backward compatibility
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, float, DeviceType::Cuda>> {
-                    return context ? std::make_shared<CudaLayerNormOp<float, float>>( context )
-                        : std::make_shared<CudaLayerNormOp<float, float>>();
+                    return context ? std::make_shared<CudaLayerNormOp<float>>( context )
+                        : std::make_shared<CudaLayerNormOp<float>>();
                 }
             );
 

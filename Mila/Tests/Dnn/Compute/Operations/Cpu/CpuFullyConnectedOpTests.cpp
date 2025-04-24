@@ -60,7 +60,7 @@ namespace Operations::Tests
             large_bias_shape_ = { large_out_features_ };
 
             // Create CPU FullyConnected operation with specific context
-            cpu_fc_op_ = std::make_shared<CpuFullyConnectedOp<float>>( cpu_context_ );
+            cpu_fc_op_ = std::make_shared<CpuFullyConnectedOp>( cpu_context_ );
         }
 
         // Helper method to check for NaNs or Infs
@@ -104,7 +104,7 @@ namespace Operations::Tests
         }
 
         std::shared_ptr<DeviceContext> cpu_context_;
-        std::shared_ptr<CpuFullyConnectedOp<float>> cpu_fc_op_;
+        std::shared_ptr<CpuFullyConnectedOp> cpu_fc_op_;
 
         // Test dimensions
         size_t small_batch_, small_seq_len_, small_in_features_, small_out_features_;
@@ -437,7 +437,7 @@ namespace Operations::Tests
     TEST_F( CpuFullyConnectedOpTests, DeviceTypeMismatch ) {
         // Try to create with CUDA:0 if available, otherwise skip the test
         try {
-            EXPECT_THROW( CpuFullyConnectedOp<float>( std::make_shared<DeviceContext>( "CUDA:0" ) ), std::runtime_error );
+            EXPECT_THROW( CpuFullyConnectedOp( std::make_shared<DeviceContext>( "CUDA:0" ) ), std::runtime_error );
         }
         catch ( const std::exception& e ) {
             GTEST_SKIP() << "CUDA device not available, skipping device mismatch test: " << e.what();

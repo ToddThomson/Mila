@@ -24,12 +24,12 @@ namespace Mila::Dnn
 {
 	using namespace Mila::Dnn::Compute;
 
-    export template<typename TInput, typename TPrecision = TInput, DeviceType TDeviceType = DeviceType::Cuda>
-        requires ValidTensorTypes<TInput, TPrecision>
-    class MLP : public Block<TInput, TPrecision,TDeviceType> {
+    export template<typename TPrecision, typename TInput = TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
+        requires ValidFloatTensorType<TPrecision>
+    class MLP : public BlockModule<TPrecision, TInput, TDeviceType> {
     public:
         using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::DeviceMemoryResource, Compute::HostMemoryResource>;
-        using Base = Block<TInput, TPrecision, TDeviceType>; ///< Base class type for the module block
+        using Base = BlockModule<TPrecision, TInput, TDeviceType>; ///< Base class type for the module block
 
         /**
          * @brief Constructs a new MLP module with the default device context.
@@ -67,7 +67,7 @@ namespace Mila::Dnn
          */
         MLP( std::string name, const std::vector<size_t>& input_shape, size_t output_channels,
             std::shared_ptr<DeviceContext> context, bool has_bias = true, bool is_training = false )
-            : Module<TInput, TPrecision>( context ),
+            : Module<TPrecision, TInput, TDeviceType>( context ),
             input_shape_{ input_shape },
             output_channels_{ output_channels } {
             this->setName( name );

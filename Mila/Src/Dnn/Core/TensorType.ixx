@@ -26,7 +26,8 @@ namespace Mila::Dnn
         FP32,   ///< 32-bit floating point (float)
         FP16,   ///< 16-bit floating point (half)
         BF16,   ///< 16-bit brain floating point (nv_bfloat16)
-        FP8,    ///< 8-bit floating point (nv_float8)
+        FP8,    ///< 8-bit floating point (__nv_fp8_e4m3) - 4 exponent bits, 3 mantissa bits
+        FP4,    ///< 4-bit floating point (future support)
         INT16,  ///< 16-bit signed integer (int16_t)
         INT32,  ///< 32-bit signed integer (int32_t)
         UINT16, ///< 16-bit unsigned integer (uint16_t)
@@ -52,7 +53,15 @@ namespace Mila::Dnn
             case TensorType::BF16:
                 return sizeof( nv_bfloat16 );
             case TensorType::FP8:
+                // NVIDIA CUDA offers different FP8 formats:
+                // - __nv_fp8_e4m3: 4 exponent bits, 3 mantissa bits, plus sign bit
+                // - __nv_fp8_e5m2: 5 exponent bits, 2 mantissa bits, plus sign bit
+                // Currently using e4m3 format as it has better precision for typical neural network values
                 return sizeof( __nv_fp8_e4m3 );
+            case TensorType::FP4:
+                // Placeholder for future FP4 support
+                // Actual size may depend on NVIDIA's implementation
+                return 1; // Assuming 1 byte storage for now
             case TensorType::INT16:
                 return sizeof( int16_t );
             case TensorType::INT32:
@@ -61,7 +70,6 @@ namespace Mila::Dnn
                 return sizeof( uint16_t );
             case TensorType::UINT32:
                 return sizeof( uint32_t );
-
             default:
                 throw std::runtime_error( "Unknown tensor type" );
         }
@@ -80,6 +88,20 @@ namespace Mila::Dnn
      * @return TensorType Always returns TensorType::FP16
      */
     export TensorType tensor_type_of( half* val ) { return TensorType::FP16; };
+
+    /**
+     * @brief Determines the tensor type for an nv_bfloat16 pointer.
+     * @param val Pointer to an nv_bfloat16 value
+     * @return TensorType Always returns TensorType::BF16
+     */
+    export TensorType tensor_type_of( nv_bfloat16* val ) { return TensorType::BF16; };
+
+    /**
+     * @brief Determines the tensor type for an __nv_fp8_e4m3 pointer.
+     * @param val Pointer to an __nv_fp8_e4m3 value
+     * @return TensorType Always returns TensorType::FP8
+     */
+    export TensorType tensor_type_of( __nv_fp8_e4m3* val ) { return TensorType::FP8; };
 
     /**
      * @brief Determines the tensor type for an int16_t pointer.
@@ -128,6 +150,8 @@ namespace Mila::Dnn
                 return "BF16";
             case TensorType::FP8:
                 return "FP8";
+            case TensorType::FP4:
+                return "FP4";
             case TensorType::INT16:
                 return "INT16";
             case TensorType::INT32:

@@ -7,7 +7,8 @@ module;
 #include <vector>
 #include <iostream>
 #include <memory>
-#include "Kernels/Cuda.Ops.h"
+#include "Kernels/CudaOps.h"
+#include <type_traits>
 
 export module Compute.CudaSoftmaxOp;
 
@@ -27,6 +28,45 @@ using namespace Mila::Dnn;
 
 namespace Mila::Dnn::Compute
 {
+	/**
+	 * @brief Namespace for CUDA softmax implementation details.
+	 *
+	 * This namespace contains the implementation details for the CUDA softmax operation,
+	 * including specialized templates for different data types (float, half).
+	 */
+    namespace Detail
+    {
+        // Primary template - will cause a compile error if no specialization exists
+        template <typename T>
+        struct cuda_softmax_impl;
+
+        // Specialization for float
+        template <>
+        struct cuda_softmax_impl<float> {
+            static inline void forward( float* Y, const float* X, int N, int C, cudaStream_t stream ) {
+                cuda_softmax_forward_fp32( Y, X, N, C, stream );
+            }
+        };
+
+        // Specialization for half
+        template <>
+        struct cuda_softmax_impl<half> {
+            static inline void forward( half* Y, const half* X, int N, int C, cudaStream_t stream ) {
+                cuda_softmax_forward_fp16( Y, X, N, C, stream );
+            }
+        };
+
+        // FUTURE: FP8 support
+        /*
+        template <>
+        struct cuda_softmax_impl<__nv_fp8_e4m3> {
+            static inline void forward(__nv_fp8_e4m3* Y, const __nv_fp8_e4m3* X, int N, int C, cudaStream_t stream) {
+                cuda_softmax_forward_fp8(Y, X, N, C, stream);
+            }
+        };
+        */
+    }
+
     /**
      * @brief CUDA implementation of the softmax operation for neural networks.
      *
@@ -42,9 +82,9 @@ namespace Mila::Dnn::Compute
      * @tparam TInput The data type of the input tensor elements.
      * @tparam TDataType The data type of the output tensor elements (defaults to the input type).
      */
-    export template<typename TInput, typename TPrecision = TInput>
+    export template<typename TPrecision>
         requires (std::is_same_v<TPrecision, float> || std::is_same_v<TPrecision, half>)
-    class CudaSoftmaxOp : public UnaryOperation<TInput, TPrecision, DeviceType::Cuda> {
+    class CudaSoftmaxOp : public UnaryOperation<TPrecision> {
     public:
         using MR = typename CudaDevice::MR;
         /**
@@ -52,7 +92,7 @@ namespace Mila::Dnn::Compute
          *
          * Initializes the operation with a CUDA device context (defaults to CUDA:0).
          */
-        CudaSoftmaxOp() : UnaryOperation<TInput, TPrecision, DeviceType::Cuda>( OperationType::SoftmaxOp ) {}
+        CudaSoftmaxOp() : UnaryOperation<TPrecision>( OperationType::SoftmaxOp ) {}
 
         /**
          * @brief Constructs a new CUDA Softmax operation with a specific device context.
@@ -61,7 +101,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the context is not for a CUDA device.
          */
         CudaSoftmaxOp( std::shared_ptr<DeviceContext> context )
-            : UnaryOperation<TInput, TPrecision, DeviceType::Cuda>( OperationType::SoftmaxOp, context ) {
+            : UnaryOperation<TPrecision>( OperationType::SoftmaxOp, context ) {
         }
 
         /**
@@ -82,26 +122,21 @@ namespace Mila::Dnn::Compute
          * @param output_cache Cache for intermediate results (not used in this operation).
          */
         void forward(
-            const Tensor<TInput, MR>& input,
-            const std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameters,
+            const Tensor<TPrecision, MR>& input,
+            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
             const OperationAttributes& properties,
             Tensor<TPrecision, MR>& output,
             std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const override {
 
-            // Verify we're operating on CUDA memory
-            if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cuda ) ) {
-                throw std::runtime_error( "CudaSoftmaxOp::forward can only be executed on CUDA memory" );
-            }
-
-            auto X = input.data();
-            auto Y = output.data();
-            int N = input.size();
+            auto X = input.raw_data();
+            auto Y = output.raw_data();
+            int N = input.shape()[ 0 ];  // Batch size
+            int C = input.shape()[ 2 ];  // Feature dimension size (vocabulary size)
 
             int axis = properties.axis;
-
             cudaStream_t stream = this->getDeviceContext()->getStream();
 
-            cuda_softmax_forward( Y, X, N, axis, stream );
+            Detail::cuda_softmax_impl<TPrecision>::forward( Y, X, N, C, stream );
         }
 
         /**
@@ -121,24 +156,19 @@ namespace Mila::Dnn::Compute
          * @param output_cache Cache tensors from forward pass.
          */
         void backward(
-            const Tensor<TInput, MR>& input,
+            const Tensor<TPrecision, MR>& input,
             const Tensor<TPrecision, MR>& output,
             const Tensor<TPrecision, MR>& output_gradient,
-            const std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameters,
-            std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameter_gradients,
-            Tensor<TInput, MR>& input_gradient,
+            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
+            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameter_gradients,
+            Tensor<TPrecision, MR>& input_gradient,
             const OperationAttributes& properties,
             const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const {
-
-            // Verify we're operating on CUDA memory
-            if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cuda ) ) {
-                throw std::runtime_error( "CudaSoftmaxOp::backward can only be executed on CUDA memory" );
-            }
 
             // Extract tensors
             const TPrecision* Y = output.data();
             const TPrecision* dY = output_gradient.data();
-            TInput* dX = input_gradient.data();
+            TPrecision* dX = input_gradient.data();
             int N = input.size();
 
             // Get the axis parameter from properties
@@ -183,24 +213,23 @@ namespace Mila::Dnn::Compute
             // Updated to use device context-aware registration
             OperationRegistry::instance().registerOperation<float, float, DeviceType::Cuda>(
                 opName,
-                "Default",  // Default empty variant for backward compatibility
+                "Default",
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, float, DeviceType::Cuda>> {
-                    return context ? std::make_shared<CudaSoftmaxOp<float, float>>( context )
-                        : std::make_shared<CudaSoftmaxOp<float, float>>();
+                    return context ? std::make_shared<CudaSoftmaxOp<float>>( context )
+                        : std::make_shared<CudaSoftmaxOp<float>>();
                 }
             );
 
             // Add additional precision variants if needed, for example:
-            /*
-            OperationRegistry::instance().registerOperation<float, half, DeviceType::Cuda>(
+            
+            OperationRegistry::instance().registerOperation<half, half, DeviceType::Cuda>(
                 opName,
                 "half_precision",
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, half, DeviceType::Cuda>> {
-                    return context ? std::make_shared<CudaSoftmaxOp<float, half>>( context )
-                        : std::make_shared<CudaSoftmaxOp<float, half>>();
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<half, half, DeviceType::Cuda>> {
+                    return context ? std::make_shared<CudaSoftmaxOp<half>>( context )
+                        : std::make_shared<CudaSoftmaxOp<half>>();
                 }
             );
-            */
         }
 
         /**

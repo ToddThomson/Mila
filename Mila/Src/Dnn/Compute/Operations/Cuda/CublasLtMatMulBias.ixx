@@ -14,20 +14,20 @@ namespace Mila::Dnn::Compute
     /**
     * @brief cuBLASLt implementation of matrix multiplication with bias addition
     *
-    * @tparam TDataType Data type for computation (float, half, etc.)
+    * @tparam TPrecision Data type for computation (float, half, etc.)
     * @param out Output tensor data pointer
     * @param inp Input tensor data pointer
     * @param weight Weight tensor data pointer
     * @param bias Bias tensor data pointer (can be nullptr)
     * @param B Batch size
-    * @param TDataType Sequence length
+    * @param TPrecision Sequence length
     * @param C Input channels
     * @param OC Output channels
     * @param stream CUDA stream
     */
-    export template <typename TDataType>
+    export template <typename TPrecision>
     void cublaslt_matmul_forward(
-        TDataType* out, const TDataType* inp, const TDataType* weight, const TDataType* bias,
+        TPrecision* out, const TPrecision* inp, const TPrecision* weight, const TPrecision* bias,
         int B, int T, int C, int OC,
         cudaStream_t stream,
         cublasLtHandle_t cublasLtHandle ) {
@@ -39,12 +39,12 @@ namespace Mila::Dnn::Compute
         }
 
         // Get CUDA data type for the given C++ type
-        constexpr cudaDataType_t cuda_data_type = CudaDataTypeMap<TDataType>::value;
-        constexpr cublasComputeType_t compute_type = CudaDataTypeMap<TDataType>::compute_type;
+        constexpr cudaDataType_t cuda_data_type = CudaDataTypeMap<TPrecision>::value;
+        constexpr cublasComputeType_t compute_type = CudaDataTypeMap<TPrecision>::compute_type;
 
         // Scale factors - use the same type as the computation
-        const TDataType alpha = static_cast<TDataType>(1.0f);
-        const TDataType beta = static_cast<TDataType>(0.0f);
+        const TPrecision alpha = static_cast<TPrecision>(1.0f);
+        const TPrecision beta = static_cast<TPrecision>(0.0f);
 
         // Create the operation descriptor
         cublasLtMatmulDesc_t operationDesc;
@@ -139,11 +139,11 @@ namespace Mila::Dnn::Compute
     //// Explicit instantiations for supported types
     //template void cublaslt_matmul_forward<float>(
     //    float* out, const float* inp, const float* weight, const float* bias,
-    //    int B, int TDataType, int C, int OC, cudaStream_t stream );
+    //    int B, int TPrecision, int C, int OC, cudaStream_t stream );
     //
     //template void cublaslt_matmul_forward<half>(
     //    half* out, const half* inp, const half* weight, const half* bias,
-    //    int B, int TDataType, int C, int OC, cudaStream_t stream );
+    //    int B, int TPrecision, int C, int OC, cudaStream_t stream );
 
     // Can add more instantiations for other types as needed
 }

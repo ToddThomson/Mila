@@ -49,9 +49,9 @@ namespace Mila::Dnn
      * @tparam TDataType The data type used for internal precision calculations, defaults to TInput.
      */
     export
-        template<typename TInput, typename TPrecision = TInput>
-        requires ValidTensorTypes<TInput, TPrecision>
-    class Softmax final : public Module<TInput, TPrecision> {
+        template< typename TPrecision, typename TInput = TPrecision>
+        requires ValidFloatTensorTypes<TPrecision, TInput>
+    class Softmax : public Module<TPrecision, TInput> {
     public:
         /**
          * @brief Construct a new Softmax module with the default device context.
@@ -61,7 +61,7 @@ namespace Mila::Dnn
          * @param is_training Whether the module is in training mode. Default is false.
          */
         Softmax( std::string name, int64_t axis = -1, bool is_training = false )
-            : Module<TInput, TPrecision>(),
+            : Module<TPrecision, TInput>(),
             axis_{ axis } {
             this->setTraining( is_training );
             this->setName( name );
@@ -77,7 +77,7 @@ namespace Mila::Dnn
          * @param is_training Whether the module is in training mode. Default is false.
          */
         Softmax( std::string name, std::shared_ptr<DeviceContext> context, int64_t axis = -1, bool is_training = false )
-            : Module<TInput, TPrecision>( context ),
+            : Module<TPrecision, TInput>( context ),
             axis_{ axis } {
             this->setTraining( is_training );
             this->setName( name );
@@ -175,14 +175,14 @@ namespace Mila::Dnn
          *
          * The Softmax activation has no parameters, so this is an empty vector.
          */
-        std::vector<std::shared_ptr<Tensor<TPrecision, typename Module<TInput, TPrecision>::MR>>> parameters_;
+        std::vector<std::shared_ptr<Tensor<TPrecision, typename Module<TPrecision, TInput>::MR>>> parameters_;
 
         /**
          * @brief The output state.
          *
          * Storage for intermediate results that might be needed for the backward pass.
          */
-        std::vector<std::shared_ptr<Tensor<TPrecision, typename Module<TInput, TPrecision>::MR>>> output_state_;
+        std::vector<std::shared_ptr<Tensor<TPrecision, typename Module<TPrecision, TInput>::MR>>> output_state_;
 
         /**
          * @brief The operation attributes.
@@ -194,7 +194,7 @@ namespace Mila::Dnn
         /**
          * @brief The underlying unary operation that implements the softmax function.
          */
-        std::shared_ptr<UnaryOperation<TInput, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TPrecision, TInput>> operation_{ nullptr };
 
         /**
          * @brief Create the appropriate softmax operation based on the current device context.
@@ -214,12 +214,12 @@ namespace Mila::Dnn
             }
 
             if ( device_type == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createOperation<TInput, TPrecision, DeviceType::Cpu>( "Cpu::SoftmaxOp" );
-                operation_ = std::static_pointer_cast<UnaryOperation<TInput, TPrecision>>(base_op);
+                auto base_op = OperationRegistry::instance().createOperation<TPrecision, TInput, DeviceType::Cpu>( "Cpu::SoftmaxOp" );
+                operation_ = std::static_pointer_cast<UnaryOperation<TPrecision, TInput>>(base_op);
             }
             else {
-                auto base_op = OperationRegistry::instance().createOperation<TInput, TPrecision, DeviceType::Cuda>( "Cuda::SoftmaxOp" );
-                operation_ = std::static_pointer_cast<UnaryOperation<TInput, TPrecision>>(base_op);
+                auto base_op = OperationRegistry::instance().createOperation<TPrecision, TInput, DeviceType::Cuda>( "Cuda::SoftmaxOp" );
+                operation_ = std::static_pointer_cast<UnaryOperation<TPrecision, TInput>>(base_op);
             }
         }
     };

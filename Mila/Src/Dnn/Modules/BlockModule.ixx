@@ -31,32 +31,32 @@ namespace Mila::Dnn
      * @tparam TDataType Data type of the compute tensor elements, defaults to TInput.
      * @tparam TDeviceType The device type for computation.
      */
-    export template<typename TInput, typename TPrecision = TInput, DeviceType TDeviceType = DeviceType::Cuda>
-        requires ValidTensorTypes<TInput, TPrecision>
-    class Block : public Module<TInput, TPrecision, TDeviceType> {
+    export template<typename TPrecision, typename TInput = TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
+        requires ValidTensorTypes<TPrecision, TInput>
+    class BlockModule : public Module<TPrecision, TInput, TDeviceType> {
     public:
         /**
          * @brief Default constructor.
          */
-        Block()
-            : Module<TInput, TPrecision, TDeviceType>() {}
+        BlockModule()
+            : Module<TPrecision, TInput, TDeviceType>() {}
 
         /**
          * @brief Constructor with device name.
          */
-        explicit Block( const std::string& device_name )
-            : Module<TInput, TPrecision, TDeviceType>( device_name ) {}
+        explicit BlockModule( const std::string& device_name )
+            : Module<TPrecision, TInput, TDeviceType>( device_name ) {}
 
         /**
          * @brief Constructor with device context.
          */
-        explicit Block( std::shared_ptr<DeviceContext> context )
-            : Module<TInput, TPrecision, TDeviceType>( context ) {}
+        explicit BlockModule( std::shared_ptr<DeviceContext> context )
+            : Module<TPrecision, TInput, TDeviceType>( context ) {}
 
         /**
          * @brief Virtual destructor.
          */
-        virtual ~Block() = default;
+        virtual ~BlockModule() = default;
 
         /**
          * @brief Add a named child module to this module.
@@ -67,7 +67,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If the module pointer is null.
          * @return Reference to this module for method chaining.
          */
-        Block& addModule( const std::string& name, std::shared_ptr<Module<TInput, TPrecision, TDeviceType>> module ) {
+        BlockModule& addModule( const std::string& name, std::shared_ptr<Module<TPrecision, TInput, TDeviceType>> module ) {
             if ( name.empty() ) {
                 throw std::invalid_argument( "Sub-module name cannot be empty." );
             }
@@ -100,7 +100,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If the module pointer is null.
          * @return Reference to this module for method chaining.
          */
-        Block& addModule( std::shared_ptr<Module<TInput, TPrecision, TDeviceType>> module ) {
+        BlockModule& addModule( std::shared_ptr<Module<TPrecision, TInput, TDeviceType>> module ) {
             if ( !module ) {
                 throw std::invalid_argument( "Cannot add null module." );
             }
@@ -117,7 +117,7 @@ namespace Mila::Dnn
          * @return std::shared_ptr<Module<TInput, TDataType>> The requested module.
          * @throws std::out_of_range If no module with the given name exists.
          */
-        std::shared_ptr<Module<TInput, TPrecision, TDeviceType>> getModule( const std::string& name ) const {
+        std::shared_ptr<Module<TPrecision, TInput, TDeviceType>> getModule( const std::string& name ) const {
             auto it = child_module_map_.find( name );
             if ( it == child_module_map_.end() ) {
                 throw std::out_of_range( "No module named '" + name + "' found." );
@@ -141,7 +141,7 @@ namespace Mila::Dnn
          * @return const std::vector<std::shared_ptr<Module<TInput, TDataType>>>&
          *         Vector of child module pointers.
          */
-        const std::vector<std::shared_ptr<Module<TInput, TPrecision, TDeviceType>>>& getModules() const {
+        const std::vector<std::shared_ptr<Module<TPrecision, TInput, TDeviceType>>>& getModules() const {
             return child_modules_;
         }
 
@@ -151,7 +151,7 @@ namespace Mila::Dnn
          * @return const std::unordered_map<std::string, std::shared_ptr<Module<TInput, TDataType>>>&
          *         Map of child module names to pointers.
          */
-        const std::unordered_map<std::string, std::shared_ptr<Module<TInput, TPrecision, TDeviceType>>>& getNamedModules() const {
+        const std::unordered_map<std::string, std::shared_ptr<Module<TPrecision, TInput, TDeviceType>>>& getNamedModules() const {
             return child_module_map_;
         }
 
@@ -189,7 +189,7 @@ namespace Mila::Dnn
          * @return bool True if a module was replaced, false if no module with that name existed.
          * @throws std::invalid_argument If the replacement module pointer is null.
          */
-        bool replaceModule( const std::string& name, std::shared_ptr<Module<TInput, TPrecision, TDeviceType>> module ) {
+        bool replaceModule( const std::string& name, std::shared_ptr<Module<TPrecision, TInput, TDeviceType>> module ) {
             if ( !module ) {
                 throw std::invalid_argument( "Cannot replace with null module." );
             }
@@ -225,7 +225,7 @@ namespace Mila::Dnn
          * @param is_training True if the module is in training mode, false for inference mode.
          */
         void setTraining( bool is_training ) override {
-            Module<TInput, TPrecision, TDeviceType>::setTraining( is_training );
+            Module<TPrecision, TInput, TDeviceType>::setTraining( is_training );
 
             // Propagate to all sub-modules
             for ( auto& module : child_modules_ ) {
@@ -301,9 +301,9 @@ namespace Mila::Dnn
 
     private:
         /** @brief Child modules in the order they were added (ordered) */
-        std::vector<std::shared_ptr<Module<TInput, TPrecision, TDeviceType>>> child_modules_;
+        std::vector<std::shared_ptr<Module<TPrecision, TInput, TDeviceType>>> child_modules_;
 
         /** @brief Named child modules for efficient lookup by name */
-        std::unordered_map<std::string, std::shared_ptr<Module<TInput, TPrecision, TDeviceType>>> child_module_map_;
+        std::unordered_map<std::string, std::shared_ptr<Module<TPrecision, TInput, TDeviceType>>> child_module_map_;
     };
 }

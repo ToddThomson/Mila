@@ -6,7 +6,7 @@
 
 import Mila;
 
-namespace Core::Tensors::Tests{
+namespace Core::Tests{
 
     using namespace Mila::Dnn;
     

@@ -2,21 +2,6 @@
  * @file UnaryOperation.ixx
  * @brief Abstract base class for unary operations in the compute framework.
  *
- * This file defines the `UnaryOperation` class, which serves as an interface
- * for operations that take a single input tensor and produce a single output tensor.
- * Derived classes must implement the `forward()` method to define the forward
- * computation for the operation. Optionally, they can override the `backward()` method
- * to define the backward computation.
- *
- * The `UnaryOperation` class is templated to support various data types for
- * input and output tensors, as well as different device types (e.g., CPU, CUDA).
- *
- * @tparam TInput The data type of the input tensor elements.
- * @tparam TDataType The data type of the output tensor elements.
- * @tparam TDevice The device type (e.g., CPU, CUDA) on which the operation is executed.
- *
- * @see OperationBase
- * @see BinaryOperation
  */
 
 module;
@@ -50,14 +35,23 @@ namespace Mila::Dnn::Compute
     * Additional methods for shape validation and parameter initialization are provided to ensure
     * correctness and flexibility in derived classes.
     *
-    * @tparam TInput The data type of the input tensor elements.
-    * @tparam TDataType The data type of the output tensor elements.
-    * @tparam TDevice The device type (e.g., CPU, CUDA) on which the operation is executed.
+    * @tparam TPrecision The data type used for computation and output tensor elements.
+    * @tparam TInput The data type of the input tensor elements. Defaults to TPrecision,
+    *         but can be specified differently for operations like Encoder that require
+    *         a different input type (e.g., int) than the computation type (e.g., float).
+    * @tparam TDeviceType The device type (e.g., CPU, CUDA) on which the operation is executed.
     */
-    export template <typename TInput, typename TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
-		requires ValidTensorTypes<TInput, TPrecision>
-    class UnaryOperation : public OperationBase<TInput, TPrecision, TDeviceType> {
+    export template <typename TPrecision, typename TInput = TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
+		requires ValidFloatTensorType<TPrecision> && ValidTensorType<TInput>
+    class UnaryOperation : public OperationBase<TPrecision, TInput, TDeviceType> {
     public:
+        /**
+        * @brief Memory resource type based on device type.
+        *
+        * This type alias automatically selects the appropriate memory resource type
+        * based on the device type. For CUDA devices, it uses DeviceMemoryResource;
+        * for CPU devices, it uses HostMemoryResource.
+        */
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, DeviceMemoryResource, HostMemoryResource>;
 
         /**
@@ -66,7 +60,7 @@ namespace Mila::Dnn::Compute
         * @param operation_type The type of the operation.
         */
         UnaryOperation( OperationType operation_type )
-            : OperationBase<TInput, TPrecision, TDeviceType>( operation_type, CreateCompatibleContext<TDeviceType>() ) {}
+            : OperationBase<TPrecision, TInput, TDeviceType>( operation_type, CreateCompatibleContext<TDeviceType>() ) {}
 
         /**
         * @brief Constructs a UnaryOperation with the specified operation type and device context.
@@ -75,7 +69,7 @@ namespace Mila::Dnn::Compute
         * @param context The device context to use for this operation.
         */
         UnaryOperation( OperationType operation_type, std::shared_ptr<DeviceContext> context )
-            : OperationBase<TInput, TPrecision, TDeviceType>( operation_type, ValidateContext<TDeviceType>( context ) ) {}
+            : OperationBase<TPrecision, TInput, TDeviceType>( operation_type, ValidateContext<TDeviceType>( context ) ) {}
 
         /**
         * @brief Virtual destructor for proper cleanup of derived classes.

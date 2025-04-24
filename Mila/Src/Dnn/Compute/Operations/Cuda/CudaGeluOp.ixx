@@ -8,7 +8,8 @@ module;
 #include <memory>
 #include <iostream>
 #include <cuda_fp16.h>
-#include "Kernels/Cuda.Ops.h"
+#include "Kernels/CudaOps.h"
+#include <stdexcept>
 
 export module Compute.CudaGeluOp;
 
@@ -26,6 +27,27 @@ import Compute.CudaDevice;
 
 namespace Mila::Dnn::Compute
 {
+    namespace Detail
+    {
+		// Primary template - will cause a compile error if no specialization exists
+		template <typename TPrecision>
+		struct cuda_gelu_impl;
+		// Specialization for float
+		template <>
+		struct cuda_gelu_impl<float> {
+			static inline void forward( float* Y, const float* X, int N, cudaStream_t stream ) {
+				cuda_gelu_forward_fp32( Y, X, N, stream );
+			}
+		};
+		// Specialization for half
+		template <>
+		struct cuda_gelu_impl<half> {
+			static inline void forward( half* Y, const half* X, int N, cudaStream_t stream ) {
+				cuda_gelu_forward_fp16( Y, X, N, stream );
+			}
+		};
+    }
+
     using namespace Mila::Dnn;
 
     /**
@@ -38,11 +60,11 @@ namespace Mila::Dnn::Compute
      * The implementation leverages CUDA for GPU acceleration, providing efficient computation
      * for large neural network models.
      *
-     * @tparam TInput The data type of the input tensor elements.
+     * @tparam TPrecision The data type of the input tensor elements.
      * @tparam TDataType The data type used for computation and output (defaults to the input type).
      */
-    export template<typename TInput, typename TPrecision = TInput>
-    class CudaGeluOp : public UnaryOperation<TInput, TPrecision, DeviceType::Cuda> {
+    export template<typename TPrecision>
+    class CudaGeluOp : public UnaryOperation<TPrecision> {
     public:
         using MR = typename CudaDevice::MR;
 
@@ -51,7 +73,7 @@ namespace Mila::Dnn::Compute
          *
          * Initializes the operation with a CUDA device context (defaults to CUDA:0).
          */
-        CudaGeluOp() : UnaryOperation<TInput, TPrecision, DeviceType::Cuda>( OperationType::GeluOp ) {}
+        CudaGeluOp() : UnaryOperation<TPrecision>( OperationType::GeluOp ) {}
 
         /**
          * @brief Constructs a new CUDA GELU operation with a specific device context.
@@ -60,7 +82,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the context is not for a CUDA device.
          */
         CudaGeluOp( std::shared_ptr<DeviceContext> context )
-            : UnaryOperation<TInput, TPrecision, DeviceType::Cuda>( OperationType::GeluOp, context ) {
+            : UnaryOperation<TPrecision>( OperationType::GeluOp, context ) {
         }
 
         /**
@@ -76,8 +98,8 @@ namespace Mila::Dnn::Compute
          * @param output_cache Cache for intermediate results (not used in this operation).
          */
         void forward(
-            const Tensor<TInput, MR>& input,
-            const std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameters,
+            const Tensor<TPrecision, MR>& input,
+            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
             const OperationAttributes& properties,
             Tensor<TPrecision, MR>& output,
             std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const override {
@@ -93,7 +115,7 @@ namespace Mila::Dnn::Compute
 
             cudaStream_t stream = this->getDeviceContext()->getStream();
 
-            cuda_gelu_forward( Y, X, N, stream );
+            Detail::cuda_gelu_impl<TPrecision>::forward( Y, X, N, stream );
         }
 
         /**
@@ -111,12 +133,12 @@ namespace Mila::Dnn::Compute
          * @param output_cache Cache tensors from forward pass.
          */
         void backward(
-            const Tensor<TInput, MR>& input,
+            const Tensor<TPrecision, MR>& input,
             const Tensor<TPrecision, MR>& output,
             const Tensor<TPrecision, MR>& output_gradient,
-            const std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameters,
-            std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameter_gradients,
-            Tensor<TInput, MR>& input_gradient,
+            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
+            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameter_gradients,
+            Tensor<TPrecision, MR>& input_gradient,
             const OperationAttributes& properties,
             const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const {
 
@@ -126,9 +148,9 @@ namespace Mila::Dnn::Compute
             }
 
             // Get tensor data pointers
-            const TInput* X = input.data();
+            const TPrecision* X = input.data();
             const TPrecision* dY = output_gradient.data();
-            TInput* dX = input_gradient.data();
+            TPrecision* dX = input_gradient.data();
             int N = input.size();
 
             // Get CUDA stream from device context
@@ -169,22 +191,21 @@ namespace Mila::Dnn::Compute
             // Updated to use device context-aware registration
             OperationRegistry::instance().registerOperation<float, float, DeviceType::Cuda>(
                 opName,
-                "Default",  // Default empty variant for backward compatibility
+                "float_precision",  // Default empty variant for backward compatibility
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, float, DeviceType::Cuda>> {
-                    return context ? std::make_shared<CudaGeluOp<float, float>>( context )
-                        : std::make_shared<CudaGeluOp<float, float>>();
+                    return context ? std::make_shared<CudaGeluOp<float>>( context )
+                        : std::make_shared<CudaGeluOp<float>>();
                 }
             );
 
-            /* FIXME: FP16 Precision is not supported yet
-            OperationRegistry::instance().registerOperation<float, half, DeviceType::Cuda>(
+            OperationRegistry::instance().registerOperation<half, half, DeviceType::Cuda>(
                 opName,
                 "half_precision",
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, half, DeviceType::Cuda>> {
-                    return context ? std::make_shared<CudaGeluOp<float, half>>( context )
-                        : std::make_shared<CudaGeluOp<float, half>>();
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<half, half, DeviceType::Cuda>> {
+                    return context ? std::make_shared<CudaGeluOp<half>>( context )
+                        : std::make_shared<CudaGeluOp<half>>();
                 }
-            );*/
+            );
         }
 
         /**

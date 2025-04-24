@@ -6,17 +6,17 @@
 
 import Mila;
 
-namespace Core::TensorBuffers::Tests
+namespace Core::Tests
 {
     using namespace Mila::Dnn;
 
-    class TensorBufferTest : public ::testing::Test {
+    class TensorBufferTests : public ::testing::Test {
     protected:
         void SetUp() override {}
         void TearDown() override {}
     };
 
-    TEST_F( TensorBufferTest, CpuBufferConstruction ) {
+    TEST_F( TensorBufferTests, CpuBufferConstruction ) {
         // Default construction with size
         Mila::Dnn::TensorBuffer<float, Mila::Dnn::Compute::HostMemoryResource> buffer( 100 );
         EXPECT_EQ( buffer.size(), 100 );
@@ -30,7 +30,7 @@ namespace Core::TensorBuffers::Tests
         }
     }
 
-    TEST_F( TensorBufferTest, CpuBufferResize ) {
+    TEST_F( TensorBufferTests, CpuBufferResize ) {
         Mila::Dnn::TensorBuffer<int, Mila::Dnn::Compute::HostMemoryResource> buffer( 50 );
 
         // Resize larger
@@ -46,7 +46,7 @@ namespace Core::TensorBuffers::Tests
         EXPECT_EQ( buffer.size(), 0 );
     }
 
-    TEST_F( TensorBufferTest, CpuBufferExternalMemory ) {
+    TEST_F( TensorBufferTests, CpuBufferExternalMemory ) {
         std::vector<double> external_data( 100, 3.14 );
         Mila::Dnn::TensorBuffer<double, Mila::Dnn::Compute::HostMemoryResource> buffer(
             external_data.size(), external_data.data() );
@@ -58,7 +58,7 @@ namespace Core::TensorBuffers::Tests
         EXPECT_THROW( buffer.resize( 50 ), std::runtime_error );
     }
 
-    TEST_F( TensorBufferTest, VerifyAlignment ) {
+    TEST_F( TensorBufferTests, VerifyAlignment ) {
         TensorBuffer<float, Compute::HostMemoryResource> cpu_buffer( 100 );
         EXPECT_TRUE( cpu_buffer.is_aligned() );
 
@@ -67,7 +67,7 @@ namespace Core::TensorBuffers::Tests
     }
 
     // CUDA Buffer Tests
-    TEST_F( TensorBufferTest, CudaBufferConstruction ) {
+    TEST_F( TensorBufferTests, CudaBufferConstruction ) {
         // Basic construction
         Mila::Dnn::TensorBuffer<float, Mila::Dnn::Compute::DeviceMemoryResource> buffer( 100 );
         EXPECT_EQ( buffer.size(), 100 );
@@ -84,7 +84,7 @@ namespace Core::TensorBuffers::Tests
         }
     }
 
-    TEST_F( TensorBufferTest, CudaBufferResize ) {
+    TEST_F( TensorBufferTests, CudaBufferResize ) {
         Mila::Dnn::TensorBuffer<int, Mila::Dnn::Compute::DeviceMemoryResource> buffer( 50 );
         auto original_ptr = buffer.data();
 
@@ -98,7 +98,7 @@ namespace Core::TensorBuffers::Tests
         EXPECT_EQ( buffer.size(), 25 );
     }
 
-    TEST_F( TensorBufferTest, ExceptionHandling ) {
+    TEST_F( TensorBufferTests, ExceptionHandling ) {
         // Null external pointer
         EXPECT_THROW( (Mila::Dnn::TensorBuffer<int, Mila::Dnn::Compute::HostMemoryResource>( 100, nullptr )), std::invalid_argument );
 
@@ -114,7 +114,7 @@ namespace Core::TensorBuffers::Tests
     }
 
     // Type Traits Tests
-    TEST_F( TensorBufferTest, DifferentTypes ) {
+    TEST_F( TensorBufferTests, DifferentTypes ) {
         // Test with different types
         Mila::Dnn::TensorBuffer<int, Mila::Dnn::Compute::HostMemoryResource> int_buffer( 10 );
         Mila::Dnn::TensorBuffer<double, Mila::Dnn::Compute::HostMemoryResource> double_buffer( 10 );
@@ -126,7 +126,7 @@ namespace Core::TensorBuffers::Tests
     }
 
     // Performance Test (optional)
-    TEST_F( TensorBufferTest, LargeBufferPerformance ) {
+    TEST_F( TensorBufferTests, LargeBufferPerformance ) {
         constexpr size_t large_size = 10000000;
 
         auto start = std::chrono::high_resolution_clock::now();
@@ -137,7 +137,7 @@ namespace Core::TensorBuffers::Tests
         EXPECT_LT( duration.count(), 1000 ); // Should allocate within 1 second
     }
 
-    TEST_F( TensorBufferTest, CpuMemoryResource_DefaultInitialization ) {
+    TEST_F( TensorBufferTests, CpuMemoryResource_DefaultInitialization ) {
         std::vector<size_t> shape = { 2, 3 };
         Tensor<float, Compute::HostMemoryResource> tensor( shape );
         EXPECT_EQ( tensor.size(), 6 );
@@ -149,7 +149,7 @@ namespace Core::TensorBuffers::Tests
         }
     }
 
-    TEST_F( TensorBufferTest, CudaMemoryResource_DefaultInitialization ) {
+    TEST_F( TensorBufferTests, CudaMemoryResource_DefaultInitialization ) {
         std::vector<size_t> shape = { 2, 3 };
         Tensor<float, Compute::DeviceMemoryResource> tensor( shape );
         EXPECT_EQ( tensor.size(), 6 );
@@ -164,7 +164,7 @@ namespace Core::TensorBuffers::Tests
         }
     }
 
-    TEST_F( TensorBufferTest, CpuMemoryResource_ValueInitialization ) {
+    TEST_F( TensorBufferTests, CpuMemoryResource_ValueInitialization ) {
         std::vector<size_t> shape = { 5, 723 };
         Tensor<int, Compute::HostMemoryResource> tensor(shape, 5);
         for ( size_t i = 0; i < 5; ++i ) {
@@ -175,7 +175,7 @@ namespace Core::TensorBuffers::Tests
         }
     }
 
-    TEST_F( TensorBufferTest, CudaMemoryResource_ValueInitialization ) {
+    TEST_F( TensorBufferTests, CudaMemoryResource_ValueInitialization ) {
         std::vector<size_t> shape = { 5, 723 };
         Tensor<float, Compute::DeviceMemoryResource> tensor( shape, 3.1415f );
 

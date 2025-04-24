@@ -3,7 +3,7 @@
 #include "device_launch_parameters.h"
 #include <cooperative_groups.h>
 #include <cooperative_groups/reduce.h>
-#include "Cuda.Utils.h"
+#include "CudaUtils.h"
 
 namespace cg = cooperative_groups;
 

@@ -87,7 +87,7 @@ int main() {
         }
 
         // Cast to the correct operation types
-        auto cuda_fc_op = std::dynamic_pointer_cast<CudaFullyConnectedOp<float, float>>(cuda_op_base);
+        auto cuda_fc_op = std::dynamic_pointer_cast<CudaFullyConnectedOp<float>>(cuda_op_base);
         auto cpu_fc_op = std::dynamic_pointer_cast<UnaryOperation<float, float, DeviceType::Cpu>>(cpu_op_base);
 
         if ( !cuda_fc_op || !cpu_fc_op ) {

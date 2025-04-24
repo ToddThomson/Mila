@@ -6,7 +6,7 @@
 module;
 #include <vector>
 #include <iostream>
-#include "Kernels/Cuda.Ops.h"
+#include "Kernels/CudaOps.h"
 
 export module Compute.CudaResidualOp;
 
@@ -25,6 +25,36 @@ import Compute.CudaDevice;
 namespace Mila::Dnn::Compute
 {
     using namespace Mila::Dnn;
+
+	/**
+	 * @brief Namespace for CUDA residual implementation details.
+	 *
+	 * This namespace contains the implementation details for the CUDA residual operation,
+	 * including specialized templates for different data types (float, half).
+	 */
+	namespace Detail
+	{
+		// Primary template - will cause a compile error if no specialization exists
+		template <typename TPrecision>
+		struct cuda_residual_impl;
+
+		// Specialization for float
+		template <>
+		struct cuda_residual_impl<float> {
+			static inline void forward( float* Y, const float* X1, const float* X2, int N, cudaStream_t stream ) {
+				cuda_residual_forward_fp32( Y, X1, X2, N, stream );
+			}
+		};
+
+		// Specialization for half
+		template <>
+		struct cuda_residual_impl<half> {
+			static inline void forward( half* Y, const half* X1, const half* X2, int N, cudaStream_t stream ) {
+				cuda_residual_forward_fp16( Y, X1, X2, N, stream );
+			}
+		};
+	}
+
     /**
      * @brief CUDA implementation of the residual operation for neural networks.
      *
@@ -35,12 +65,12 @@ namespace Mila::Dnn::Compute
      * vanishing gradient problem. The implementation is optimized for NVIDIA GPUs
      * using CUDA for high-performance computation.
      *
-     * @tparam TInput The data type of the input tensor elements.
+     * @tparam TPrecision The data type of the input tensor elements.
      * @tparam TDataType The data type of the output tensor elements (defaults to the input type).
      */
-    export
-        template<typename TInput, typename TPrecision = TInput>
-    class CudaResidualOp : public BinaryOperation<TInput, TPrecision, DeviceType::Cuda> {
+	export template<typename TPrecision>
+		requires (std::is_same_v<TPrecision, float> || std::is_same_v<TPrecision, half>)
+    class CudaResidualOp : public BinaryOperation<TPrecision> {
     public:
         using MR = typename CudaDevice::MR;
 
@@ -49,7 +79,7 @@ namespace Mila::Dnn::Compute
          *
          * Initializes the operation with a CUDA device context (defaults to CUDA:0).
          */
-        CudaResidualOp() : BinaryOperation<TInput, TPrecision, DeviceType::Cuda>( OperationType::ResidualOp ) {}
+        CudaResidualOp() : BinaryOperation<TPrecision>( OperationType::ResidualOp ) {}
 
         /**
          * @brief Constructs a new CUDA Residual operation with a specific device context.
@@ -58,7 +88,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the context is not for a CUDA device.
          */
         CudaResidualOp( std::shared_ptr<DeviceContext> context )
-            : BinaryOperation<TInput, TPrecision, DeviceType::Cuda>( OperationType::ResidualOp, context ) {
+            : BinaryOperation<TPrecision>( OperationType::ResidualOp, context ) {
         }
 
         /**
@@ -75,9 +105,9 @@ namespace Mila::Dnn::Compute
          * @param output_cache Cache for intermediate results (not used in this operation).
          */
         void forward(
-            const Tensor<TInput, MR>& input1,
-            const Tensor<TInput, MR>& input2,
-            const std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameters,
+            const Tensor<TPrecision, MR>& input1,
+            const Tensor<TPrecision, MR>& input2,
+            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
             const OperationAttributes& properties,
             Tensor<TPrecision, MR>& output,
             std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const override {
@@ -88,7 +118,8 @@ namespace Mila::Dnn::Compute
             int N = input1.size();
 
             cudaStream_t stream = this->getDeviceContext()->getStream();
-            cuda_residual_forward( Y, X1, X2, N, stream );
+            
+            Detail::cuda_residual_impl<TPrecision>::forward( Y, X1, X2, N, stream );
         }
 
         /**
@@ -109,14 +140,14 @@ namespace Mila::Dnn::Compute
          * @param output_cache Cache tensors from forward pass (not used in this operation).
          */
         void backward(
-            const Tensor<TInput, MR>& input1,
-            const Tensor<TInput, MR>& input2,
+            const Tensor<TPrecision, MR>& input1,
+            const Tensor<TPrecision, MR>& input2,
             const Tensor<TPrecision, MR>& output,
             const Tensor<TPrecision, MR>& output_gradient,
-            const std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameters,
-            std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameter_gradients,
-            Tensor<TInput, MR>& input1_gradient,
-            Tensor<TInput, MR>& input2_gradient,
+            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
+            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameter_gradients,
+            Tensor<TPrecision, MR>& input1_gradient,
+            Tensor<TPrecision, MR>& input2_gradient,
             const OperationAttributes& properties,
             const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const {
 
@@ -127,8 +158,8 @@ namespace Mila::Dnn::Compute
 
             // Extract tensors
             const TPrecision* dY = output_gradient.data();
-            TInput* dX1 = input1_gradient.data();
-            TInput* dX2 = input2_gradient.data();
+            TPrecision* dX1 = input1_gradient.data();
+            TPrecision* dX2 = input2_gradient.data();
             int N = input1.size();
 
             cudaStream_t stream = this->getDeviceContext()->getStream();
@@ -166,27 +197,23 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cuda::ResidualOp";
 
-            // Updated to use device context-aware registration
             OperationRegistry::instance().registerOperation<float, float, DeviceType::Cuda>(
                 opName,
-                "Default",  // Default empty variant for backward compatibility
+                "float_precision",
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, float, DeviceType::Cuda>> {
-                    return context ? std::make_shared<CudaResidualOp<float, float>>( context )
-                        : std::make_shared<CudaResidualOp<float, float>>();
+                    return context ? std::make_shared<CudaResidualOp<float>>( context )
+                        : std::make_shared<CudaResidualOp<float>>();
                 }
             );
 
-            // Add additional precision variants if needed, for example:
-            /*
-            OperationRegistry::instance().registerOperation<float, half, DeviceType::Cuda>(
+            OperationRegistry::instance().registerOperation<half, half, DeviceType::Cuda>(
                 opName,
                 "half_precision",
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, half, DeviceType::Cuda>> {
-                    return context ? std::make_shared<CudaResidualOp<float, half>>( context )
-                        : std::make_shared<CudaResidualOp<float, half>>();
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<half, half, DeviceType::Cuda>> {
+                    return context ? std::make_shared<CudaResidualOp<half>>( context )
+                        : std::make_shared<CudaResidualOp<half>>();
                 }
             );
-            */
         }
 
         /**

@@ -108,6 +108,20 @@ namespace Mila::Dnn
 		concept ValidFloatTensorType = ValidTensorType<T> && TensorTypeTrait<T>::is_float_type;
 
 	/**
+	* @brief Concept that verifies both types are valid floating-point tensor types.
+	*
+	* This concept ensures that both template parameters represent valid floating-point
+	* tensor types (float or half). It's used primarily with operations and modules that
+	* require floating-point data types for both precision and input calculations.
+	*
+	* @tparam TPrecision The precision tensor element type (must be a floating-point type)
+	* @tparam TInput The input tensor element type (must be a floating-point type)
+	*/
+	export template <typename TPrecision, typename TInput>
+		concept ValidFloatTensorTypes = ValidFloatTensorType<TPrecision> && ValidFloatTensorType<TInput>;
+
+
+	/**
 	 * @brief Concept that verifies both input and compute types have valid tensor type mappings.
 	 *
 	 * This concept is used primarily with template operations and modules that work with
@@ -116,6 +130,6 @@ namespace Mila::Dnn
 	 * @tparam TInput The input tensor element type
 	 * @tparam TCompute The computation tensor element type
 	 */
-	export template <typename TInput, typename TCompute>
-		concept ValidTensorTypes = ValidTensorType<TInput> && ValidTensorType<TCompute>;
+	export template <typename TPrecision, typename TInput>
+		concept ValidTensorTypes = ValidTensorType<TPrecision> && ValidTensorType<TInput>;
 }

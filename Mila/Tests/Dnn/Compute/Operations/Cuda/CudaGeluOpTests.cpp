@@ -38,7 +38,7 @@ namespace Operations::Tests
             large_shape_ = { 32, 64, 128 };
 
             // Create CUDA GELU operation with specific context
-            cuda_gelu_op_ = std::make_shared<CudaGeluOp<float, float>>( cuda_context_ );
+            cuda_gelu_op_ = std::make_shared<CudaGeluOp<float>>( cuda_context_ );
 
             // Get CPU GELU op for comparison
             auto cpu_op = OperationRegistry::instance().createOperation<float, float, DeviceType::Cpu>(
@@ -77,7 +77,7 @@ namespace Operations::Tests
 
         std::shared_ptr<DeviceContext> cuda_context_;
         std::shared_ptr<DeviceContext> cpu_context_;
-        std::shared_ptr<CudaGeluOp<float, float>> cuda_gelu_op_;
+        std::shared_ptr<CudaGeluOp<float>> cuda_gelu_op_;
         std::shared_ptr<UnaryOperation<float, float, DeviceType::Cpu>> cpu_gelu_op_;
 
         std::vector<size_t> small_shape_;

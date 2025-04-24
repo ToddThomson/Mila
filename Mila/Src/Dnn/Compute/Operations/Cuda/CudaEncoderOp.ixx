@@ -4,12 +4,12 @@
  */
 
 module;
+#include <cuda_fp16.h>
 #include <vector>
 #include <memory>
 #include <string>
 #include <stdexcept>
-#include "Kernels/Cuda.Ops.h"
-#include <cuda_fp16.h>
+#include "Kernels/CudaOps.h"
 
 export module Compute.CudaEncoderOp;
 
@@ -25,10 +25,31 @@ import Compute.MemoryResource;
 import Compute.CudaMemoryResource;
 import Compute.CudaDevice;
 
-using namespace Mila::Dnn;
-
 namespace Mila::Dnn::Compute
 {
+    namespace Detail
+    {
+		// Primary template - will cause a compile error if no specialization exists
+		template <typename TPrecision>
+		struct cuda_encoder_impl;
+
+		// Specialization for float
+		template <>
+		struct cuda_encoder_impl<float> {
+			static inline void forward( float* Y, const int* X, const float* wte, const float* wpe, int B, int T, int C, cudaStream_t stream ) {
+				cuda_encoder_forward_fp32( Y, X, wte, wpe, B, T, C, stream );
+			}
+		};
+		// Specialization for half
+		template <>
+		struct cuda_encoder_impl<half> {
+			static inline void forward( half* Y, const int* X, const half* wte, const half* wpe, int B, int T, int C, cudaStream_t stream ) {
+				cuda_encoder_forward_fp16( Y, X, wte, wpe, B, T, C, stream );
+			}
+		};
+    }
+
+    using namespace Mila::Dnn;
     /**
      * @brief CUDA implementation of the Encoder operation for transformer models.
      *
@@ -46,7 +67,7 @@ namespace Mila::Dnn::Compute
      */
     export template<typename TPrecision>
 		requires std::is_same_v<TPrecision, half> || std::is_same_v<TPrecision, float>
-    class CudaEncoderOp : public UnaryOperation<int, TPrecision, DeviceType::Cuda> {
+    class CudaEncoderOp : public UnaryOperation<TPrecision, int, DeviceType::Cuda> {
         public:
             using MR = typename CudaDevice::MR;
 
@@ -55,7 +76,7 @@ namespace Mila::Dnn::Compute
              *
              * Initializes the operation with a CUDA device context (defaults to CUDA:0).
              */
-            CudaEncoderOp() : UnaryOperation<int, TPrecision, DeviceType::Cuda>( OperationType::EncoderOp ) {}
+            CudaEncoderOp() : UnaryOperation<TPrecision, int, DeviceType::Cuda>( OperationType::EncoderOp ) {}
 
             /**
              * @brief Constructs a new CUDA Encoder operation with a specific device context.
@@ -64,7 +85,7 @@ namespace Mila::Dnn::Compute
              * @throws std::runtime_error If the context is not for a CUDA device.
              */
             CudaEncoderOp( std::shared_ptr<DeviceContext> context )
-                : UnaryOperation<int, TPrecision, DeviceType::Cuda>( OperationType::EncoderOp, context ) {
+                : UnaryOperation<TPrecision, int, DeviceType::Cuda>( OperationType::EncoderOp, context ) {
             }
 
             /**
@@ -104,15 +125,7 @@ namespace Mila::Dnn::Compute
 
                 // Get CUDA stream from device context
                 cudaStream_t stream = this->getDeviceContext()->getStream();
-                
-                if constexpr ( std::is_same_v<TPrecision, float> ) {
-                    // Use the float precision kernel
-                    //cuda_encoder_forward_fp32( Y, X, wte->raw_data(), wpe->raw_data(), B, T, C, stream );
-                }
-                else if constexpr ( std::is_same_v<TPrecision, half> ) {
-                    // Use the half precision kernel
-                    //cuda_encoder_forward_fp16( Y, X, wte->raw_data(), wpe->raw_data(), B, T, C, stream );
-                }
+				Detail::cuda_encoder_impl<TPrecision>::forward( Y, X, wte->raw_data(), wpe->raw_data(), B, T, C, stream );
             }
 
             /**
@@ -183,32 +196,22 @@ namespace Mila::Dnn::Compute
             const std::string opName = "Cuda::EncoderOp";
 
             // Register float precision version
-            OperationRegistry::instance().registerOperation<int, float, DeviceType::Cuda>(
+            OperationRegistry::instance().registerOperation<float, int, DeviceType::Cuda>(
                 opName,
-                "Default",
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<int, float, DeviceType::Cuda>> {
+                "Float_Precision",
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, int, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaEncoderOp<float>>( context )
                         : std::make_shared<CudaEncoderOp<float>>();
                 }
             );
 
             // Register half precision version
-            OperationRegistry::instance().registerOperation<int, half, DeviceType::Cuda>(
+            OperationRegistry::instance().registerOperation<half, int, DeviceType::Cuda>(
                 opName,
-                "Default",
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<int, half, DeviceType::Cuda>> {
+                "Half_Precision",
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<half, int, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaEncoderOp<half>>( context )
                         : std::make_shared<CudaEncoderOp<half>>();
-                }
-            );
-
-            // Register int input version
-            OperationRegistry::instance().registerOperation<int, float, DeviceType::Cuda>(
-                opName,
-                "Default",
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<int, float, DeviceType::Cuda>> {
-                    return context ? std::make_shared<CudaEncoderOp<float>>( context )
-                        : std::make_shared<CudaEncoderOp<float>>();
                 }
             );
         }

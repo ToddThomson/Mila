@@ -31,10 +31,12 @@ namespace Mila::Dnn
 	using namespace Mila::Dnn::Compute;
 
     export
-        template<typename TInput, typename TPrecision = TInput, DeviceType TDeviceType = DeviceType::Cuda>
-        requires ValidTensorTypes<TInput, TPrecision>
-    class TransformerBlock : public Block<TInput, TPrecision, TDeviceType> {
+        template<typename TPrecision, typename TInput = TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
+		requires ValidFloatTensorType<TPrecision> && ValidTensorType<TInput>
+    class TransformerBlock : public BlockModule<TPrecision, TInput, TDeviceType> {
     public:
+		using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, DeviceMemoryResource, HostMemoryResource>;
+
         /**
          * @brief Constructs a new TransformerBlock module with the default device context.
          *
@@ -45,7 +47,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If the input shape doesn't have rank 3.
          */
         TransformerBlock( std::string name, const std::vector<size_t>& input_shape, const size_t num_heads, bool is_training = false )
-            : Module<TInput, TPrecision>(),
+            : Module<TPrecision, TInput, TDeviceType>(),
             input_shape_{ validate_shape( input_shape ) },
             num_heads_{ num_heads } {
             this->setName( name );
@@ -66,7 +68,7 @@ namespace Mila::Dnn
          */
         TransformerBlock( std::string name, const std::vector<size_t>& input_shape, const size_t num_heads,
             std::shared_ptr<DeviceContext> context, bool is_training = false )
-            : Module<TInput, TPrecision>( context ),
+            : Module<TPrecision, TInput, TDeviceType>( context ),
             input_shape_{ validate_shape( input_shape ) },
             num_heads_{ num_heads } {
             this->setName( name );
@@ -184,20 +186,20 @@ namespace Mila::Dnn
         std::shared_ptr<FullyConnected<TInput, TPrecision>> fc_qkv_{ nullptr };
         std::shared_ptr<MultiHeadAttention<TInput, TPrecision>> attn_{ nullptr };
         std::shared_ptr<FullyConnected<TInput, TPrecision>> fc_attn_proj_{ nullptr };
-        std::shared_ptr<Residual<TInput, TPrecision>> res_1_{ nullptr };
-        std::shared_ptr<LayerNorm<TInput, TPrecision>> ln_2_{ nullptr };
-        std::shared_ptr<MLP<TInput, TPrecision>> mlp_{ nullptr };
-        std::shared_ptr<Residual<TInput, TPrecision>> res_2_{ nullptr };
+        std::shared_ptr<Residual<TPrecision>> res_1_{ nullptr };
+        std::shared_ptr<LayerNorm<TPrecision>> ln_2_{ nullptr };
+        std::shared_ptr<MLP<TPrecision>> mlp_{ nullptr };
+        std::shared_ptr<Residual<TPrecision>> res_2_{ nullptr };
 
         // Intermediate tensors
-        Tensor<TPrecision, typename Module<TInput, TPrecision>::MR> ln_1_output_;
-        Tensor<TPrecision, typename Module<TInput, TPrecision>::MR> fc_qkv_output_;
-        Tensor<TPrecision, typename Module<TInput, TPrecision>::MR> attn_output_;
-        Tensor<TPrecision, typename Module<TInput, TPrecision>::MR> fc_attn_proj_output_;
-        Tensor<TPrecision, typename Module<TInput, TPrecision>::MR> res_1_output_;
-        Tensor<TPrecision, typename Module<TInput, TPrecision>::MR> ln_2_output_;
-        Tensor<TPrecision, typename Module<TInput, TPrecision>::MR> mlp_output_;
-        Tensor<TPrecision, typename Module<TInput, TPrecision>::MR> res_2_output_;
+        Tensor<TPrecision, MR> ln_1_output_;
+        Tensor<TPrecision, MR> fc_qkv_output_;
+        Tensor<TPrecision, MR> attn_output_;
+        Tensor<TPrecision, MR> fc_attn_proj_output_;
+        Tensor<TPrecision, MR> res_1_output_;
+        Tensor<TPrecision, MR> ln_2_output_;
+        Tensor<TPrecision, MR> mlp_output_;
+        Tensor<TPrecision, MR> res_2_output_;
 
         /**
          * @brief Validates the input shape for the transformer block.

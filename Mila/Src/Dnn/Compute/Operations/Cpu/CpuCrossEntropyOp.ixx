@@ -42,9 +42,7 @@ namespace Mila::Dnn::Compute
      * @tparam TInput The data type of the input tensor elements (typically int for class indices).
      * @tparam TDataType The data type used for computation and output (typically float).
      */
-    export
-        template<typename TInput = int, typename TPrecision = float>
-    class CpuCrossEntropyOp : public UnaryOperation<TInput, TPrecision, DeviceType::Cpu> {
+    export class CpuCrossEntropyOp : public UnaryOperation<float, int, DeviceType::Cpu> {
     public:
         using MR = typename CpuDevice::MR;
         /**
@@ -52,8 +50,7 @@ namespace Mila::Dnn::Compute
          *
          * Initializes the operation with a CPU device context.
          */
-        CpuCrossEntropyOp() : UnaryOperation<TInput, TPrecision, DeviceType::Cpu>( OperationType::CrossEntropyOp ) {
-
+        CpuCrossEntropyOp() : UnaryOperation<float, int, DeviceType::Cpu>( OperationType::CrossEntropyOp ) {
         }
 
         /**
@@ -63,7 +60,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the context is not for a CPU device.
          */
         CpuCrossEntropyOp( std::shared_ptr<DeviceContext> context )
-            : UnaryOperation<TInput, TPrecision, DeviceType::Cpu>( OperationType::CrossEntropyOp, context ) {
+            : UnaryOperation<float, int, DeviceType::Cpu>( OperationType::CrossEntropyOp, context ) {
 
         }
 
@@ -79,16 +76,11 @@ namespace Mila::Dnn::Compute
          * @param output_cache Cache for storing intermediate results (used in backward pass).
          */
         void forward(
-            const Tensor<TInput, MR>& input,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
+            const Tensor<int, MR>& input,
+            const std::vector<std::shared_ptr<Tensor<float, MR>>>& parameters,
             const OperationAttributes& attributes,
-            Tensor<TPrecision, MR>& output,
-            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const override {
-
-            // Verify we're operating on CPU memory
-            if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cpu ) ) {
-                throw std::runtime_error( "CpuCrossEntropyOp::forward can only be executed on CPU memory" );
-            }
+            Tensor<float, MR>& output,
+            std::vector<std::shared_ptr<Tensor<float, MR>>>& output_cache ) const override {
 
             auto B = input.shape()[ 0 ];
             auto T = input.shape()[ 1 ];
@@ -98,13 +90,13 @@ namespace Mila::Dnn::Compute
             auto probs = parameters[ 0 ]->raw_data();
             auto targets = input.raw_data();
 
-            const TPrecision epsilon = 1e-10f; // Small value to prevent log(0)
+            const float epsilon = 1e-10f; // Small value to prevent log(0)
 
         #pragma omp parallel for collapse(2) if(B * T > 100)
             for ( int b = 0; b < B; b++ ) {
                 for ( int t = 0; t < T; t++ ) {
                     // loss = -log(probs[target])
-                    TPrecision* probs_bt = probs + b * T * Vp + t * Vp;
+                    float* probs_bt = probs + b * T * Vp + t * Vp;
                     int ix = targets[ b * T + t ];
                     // Ensure index is valid and add epsilon to avoid log(0)
                     if ( ix >= 0 && ix < Vp ) {
@@ -133,14 +125,14 @@ namespace Mila::Dnn::Compute
          * @param output_cache Cache tensors from forward pass.
          */
         void backward(
-            const Tensor<TInput, MR>& input,
-            const Tensor<TPrecision, MR>& output,
-            const Tensor<TPrecision, MR>& output_gradient,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
-            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameter_gradients,
-            Tensor<TInput, MR>& input_gradient,
+            const Tensor<int, MR>& input,
+            const Tensor<float, MR>& output,
+            const Tensor<float, MR>& output_gradient,
+            const std::vector<std::shared_ptr<Tensor<float, MR>>>& parameters,
+            std::vector<std::shared_ptr<Tensor<float, MR>>>& parameter_gradients,
+            Tensor<int, MR>& input_gradient,
             const OperationAttributes& attributes,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const {
+            const std::vector<std::shared_ptr<Tensor<float, MR>>>& output_cache ) const {
 
             // Verify we're operating on CPU memory
             if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cpu ) ) {
@@ -154,9 +146,9 @@ namespace Mila::Dnn::Compute
                 auto Vp = parameters[ 0 ]->shape()[ 2 ];
                 auto V = attributes.get<int>( "vocab_size", Vp ); // Actual vocabulary size (without padding)
 
-                TPrecision* dlogits = parameter_gradients[ 0 ]->raw_data();
-                const TPrecision* dlosses = output_gradient.raw_data();
-                const TPrecision* probs = parameters[ 0 ]->raw_data();
+                float* dlogits = parameter_gradients[ 0 ]->raw_data();
+                const float* dlosses = output_gradient.raw_data();
+                const float* probs = parameters[ 0 ]->raw_data();
 
                 backward_impl( dlogits, dlosses, probs, input, B, T, V, Vp );
             }
@@ -177,19 +169,19 @@ namespace Mila::Dnn::Compute
          * @param Vp Padded vocabulary size.
          */
         void backward_impl(
-            TPrecision* dlogits,
-            const TPrecision* dlosses,
-            const TPrecision* probs,
-            const Tensor<TInput, HostMemoryResource>& targets,
+            float* dlogits,
+            const float* dlosses,
+            const float* probs,
+            const Tensor<int, HostMemoryResource>& targets,
             int B, int T, int V, int Vp ) const {
 
             // Backwards through both softmax and crossentropy
         #pragma omp parallel for collapse(2) if(B * T > 100)
             for ( int b = 0; b < B; b++ ) {
                 for ( int t = 0; t < T; t++ ) {
-                    TPrecision* dlogits_bt = dlogits + b * T * Vp + t * Vp;
-                    const TPrecision* probs_bt = probs + b * T * Vp + t * Vp;
-                    TPrecision dloss = dlosses[ b * T + t ];
+                    float* dlogits_bt = dlogits + b * T * Vp + t * Vp;
+                    const float* probs_bt = probs + b * T * Vp + t * Vp;
+                    float dloss = dlosses[ b * T + t ];
                     int ix = targets.raw_data()[ b * T + t ];
 
                     // Only process valid indices
@@ -197,8 +189,8 @@ namespace Mila::Dnn::Compute
                         // Note we only loop to V, leaving the padded dimensions
                         // of dlogits untouched, so gradient there stays at zero
                         for ( int i = 0; i < V; i++ ) {
-                            TPrecision p = probs_bt[ i ];
-                            TPrecision indicator = i == ix ? 1.0f : 0.0f;
+                            float p = probs_bt[ i ];
+                            float indicator = i == ix ? 1.0f : 0.0f;
                             dlogits_bt[ i ] += (p - indicator) * dloss;
                         }
                     }
@@ -236,12 +228,12 @@ namespace Mila::Dnn::Compute
             const std::string opName = "Cpu::CrossEntropyOp";
 
             // Updated to use device context-aware registration
-            OperationRegistry::instance().registerOperation<int, float, DeviceType::Cpu>(
+            OperationRegistry::instance().registerOperation<float, int, DeviceType::Cpu>(
                 opName,
                 "Default",  // Default empty variant for backward compatibility
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<int, float, DeviceType::Cpu>> {
-                    return context ? std::make_shared<CpuCrossEntropyOp<int, float>>( context )
-                        : std::make_shared<CpuCrossEntropyOp<int, float>>();
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, int, DeviceType::Cpu>> {
+                    return context ? std::make_shared<CpuCrossEntropyOp>( context )
+                        : std::make_shared<CpuCrossEntropyOp>();
                 }
             );
         }

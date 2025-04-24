@@ -205,8 +205,8 @@ namespace Operations::Cpu::Tests
         CpuEncoderOpRegistrar::registerOperations();
 
         // Retrieve operation from registry
-        auto op_int = OperationRegistry::instance().createOperation<int, float, DeviceType::Cpu>(
-            "Cpu::EncoderOp", cpu_context_, "Default" );
+        auto op_int = OperationRegistry::instance().createOperation<float, int, DeviceType::Cpu>(
+            "Cpu::EncoderOp", cpu_context_, "float" );
 
         // Verify operation is created correctly
         ASSERT_NE( op_int, nullptr );

@@ -60,7 +60,7 @@ namespace Operations::Tests
             large_bias_shape_ = { large_out_features_ };
 
             // Create CUDA FullyConnected operation with specific context
-            cuda_fc_op_ = std::make_shared<CudaFullyConnectedOp<float, float>>( cuda_context_ );
+            cuda_fc_op_ = std::make_shared<CudaFullyConnectedOp<float>>( cuda_context_ );
 
             // Get CPU FullyConnected op for comparison
             auto cpu_op = OperationRegistry::instance().createOperation<float, float, DeviceType::Cpu>(
@@ -128,7 +128,7 @@ namespace Operations::Tests
 
         std::shared_ptr<DeviceContext> cuda_context_;
         std::shared_ptr<DeviceContext> cpu_context_;
-        std::shared_ptr<CudaFullyConnectedOp<float, float>> cuda_fc_op_;
+        std::shared_ptr<CudaFullyConnectedOp<float>> cuda_fc_op_;
         std::shared_ptr<UnaryOperation<float, float, DeviceType::Cpu>> cpu_fc_op_;
 
         // Test dimensions
@@ -599,7 +599,7 @@ namespace Operations::Tests
      */
     TEST_F( CudaFullyConnectedOpTests, DeviceTypeMismatch ) {
         // Attempt to create a CudaFullyConnectedOp with a CPU context
-        EXPECT_THROW( (CudaFullyConnectedOp<float, float>( cpu_context_ )), std::runtime_error );
+        EXPECT_THROW( (CudaFullyConnectedOp<float>( cpu_context_ )), std::runtime_error );
 
         // Create tensors on CPU memory
         Tensor<float, HostMemoryResource> cpu_input( small_input_shape_ );

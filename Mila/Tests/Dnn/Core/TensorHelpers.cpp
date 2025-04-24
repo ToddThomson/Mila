@@ -7,7 +7,7 @@
 
 import Mila;
 
-namespace Core::TensorHelpers::Tests
+namespace Core::Tests
 {
     using namespace Mila::Dnn;
 
@@ -18,7 +18,7 @@ namespace Core::TensorHelpers::Tests
 
     // Random Initialization Tests
     //----------------------------------------------------------------------------------------
-    TEST( TensorTest, Random_Float_CPU ) {
+    TEST( TensorHelpersTests, Random_Float_CPU ) {
         std::vector<size_t> shape = { 100, 100 };
         Tensor<float, Compute::HostMemoryResource> tensor( shape );
 
@@ -53,7 +53,7 @@ namespace Core::TensorHelpers::Tests
         EXPECT_GT( actual_max, max_val - 0.2f );
     }
 
-    TEST( TensorTest, Random_Float_CUDA ) {
+    TEST( TensorHelpersTests, Random_Float_CUDA ) {
         std::vector<size_t> shape = { 100, 100 };
         Tensor<float, Compute::DeviceMemoryResource> tensor( shape );
 
@@ -91,7 +91,7 @@ namespace Core::TensorHelpers::Tests
         EXPECT_GT( actual_max, max_val - 0.3f );
     }
 
-    TEST( TensorTest, Random_Half_CPU ) {
+    TEST( TensorHelpersTests, Random_Half_CPU ) {
         std::vector<size_t> shape = { 100, 100 };
         Tensor<half, Compute::HostMemoryResource> tensor( shape );
 
@@ -127,7 +127,7 @@ namespace Core::TensorHelpers::Tests
         EXPECT_GT( actual_max, 0.8f );
     }
 
-    TEST( TensorTest, Random_Half_CUDA ) {
+    TEST( TensorHelpersTests, Random_Half_CUDA ) {
         std::vector<size_t> shape = { 100, 100 };
         Tensor<half, Compute::DeviceMemoryResource> tensor( shape );
 
@@ -168,7 +168,7 @@ namespace Core::TensorHelpers::Tests
 
     // Xavier Initialization Tests
     //----------------------------------------------------------------------------------------
-    TEST( TensorTest, Xavier_Float_CPU ) {
+    TEST( TensorHelpersTests, Xavier_Float_CPU ) {
         std::vector<size_t> shape = { 100, 100 };
         Tensor<float, Compute::HostMemoryResource> tensor( shape );
 
@@ -206,7 +206,7 @@ namespace Core::TensorHelpers::Tests
         EXPECT_GT( actual_max, 0.6f * limit );
     }
 
-    TEST( TensorTest, Xavier_Float_CUDA ) {
+    TEST( TensorHelpersTests, Xavier_Float_CUDA ) {
         std::vector<size_t> shape = { 100, 100 };
         Tensor<float, Compute::DeviceMemoryResource> tensor( shape );
 
@@ -247,7 +247,7 @@ namespace Core::TensorHelpers::Tests
         EXPECT_GT( actual_max, 0.6f * limit );
     }
 
-    TEST( TensorTest, Xavier_Half_CPU ) {
+    TEST( TensorHelpersTests, Xavier_Half_CPU ) {
         std::vector<size_t> shape = { 100, 100 };
         Tensor<half, Compute::HostMemoryResource> tensor( shape );
 
@@ -286,7 +286,7 @@ namespace Core::TensorHelpers::Tests
         EXPECT_GT( actual_max, 0.5f * limit );
     }
 
-    TEST( TensorTest, Xavier_Half_CUDA ) {
+    TEST( TensorHelpersTests, Xavier_Half_CUDA ) {
         std::vector<size_t> shape = { 100, 100 };
         Tensor<half, Compute::DeviceMemoryResource> tensor( shape );
 

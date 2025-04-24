@@ -1,11 +1,11 @@
 ﻿add_library( Mila STATIC
-	"Src/Dnn/Compute/Operations/Cuda/Kernels/Cuda.Utils.h"
-	"Src/Dnn/Compute/Operations/Cuda/Kernels/Cuda.Ops.h"
-	"Src/Dnn/Compute/Operations/Cuda/Kernels/Cuda.Encoder.cu"
+	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaUtils.h"
+	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaOps.h"
+	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaEncoder.cu"
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaLayerNorm.cu"
-	"Src/Dnn/Compute/Operations/Cuda/Kernels/Cuda.MatMul.cu"
+	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaMatMul.cu"
 	#"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaMHA.cu"
-	"Src/Dnn/Compute/Operations/Cuda/Kernels/Cuda.Gelu.cu"
+	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaGelu.cu"
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaResidual.cu"
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaSoftmax.cu"
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/FusedMatMulBiasGelu.cu"
@@ -145,7 +145,7 @@ PUBLIC
 		"Src/Dnn/Compute/Devices/DeviceRegistrar.ixx" 
 		"Src/Dnn/Compute/DynamicMemoryResource.ixx"
 		"Src/Dnn/Compute/Devices/DeviceContextHelpers.ixx"
-		"Src/Dnn/Modules/Block.ixx"
+		"Src/Dnn/Modules/BlockModule.ixx"
 		"Src/Core/RandomGenerator.ixx"
  "Src/Dnn/Compute/Operations/Cuda/CudaDataTypeTraits.ixx" "Src/Dnn/Core/ActivationType.ixx" "Src/Dnn/Compute/Cuda/CublasLtError.ixx")
 

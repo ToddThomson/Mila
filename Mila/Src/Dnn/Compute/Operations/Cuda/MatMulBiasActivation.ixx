@@ -46,12 +46,12 @@ namespace Mila::Dnn::Compute
      * The implementation is optimized for NVIDIA GPUs using cuBLASLt for high-performance
      * computation of the fused operation.
      *
-     * @tparam TInput The data type of the input tensor elements.
+     * @tparam TPrecision The data type of the input tensor elements.
      * @tparam TDataType The data type for computation and output (defaults to the input type).
      */
-    export template<typename TInput, typename TPrecision = TInput>
+    export template<typename TPrecision>
         requires (std::is_same_v<TPrecision, float> || std::is_same_v<TPrecision, half>)
-    class CudaMatMulBiasGeluOp : public UnaryOperation<TInput, TPrecision, DeviceType::Cuda> {
+    class CudaMatMulBiasGeluOp : public UnaryOperation<TPrecision> {
     public:
 		using MR = typename CudaDevice::MR;
 
@@ -60,7 +60,7 @@ namespace Mila::Dnn::Compute
          *
          * Initializes the operation with a CUDA device context (defaults to CUDA:0).
          */
-        CudaMatMulBiasGeluOp() : UnaryOperation<TInput, TPrecision, DeviceType::Cuda>( OperationType::FusedOp ) {}
+        CudaMatMulBiasGeluOp() : UnaryOperation<TPrecision>( OperationType::FusedOp ) {}
 
         /**
          * @brief Constructs a new CUDA MatMul-Bias-GELU fused operation with a specific device context.
@@ -69,7 +69,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the context is not for a CUDA device.
          */
         CudaMatMulBiasGeluOp( std::shared_ptr<DeviceContext> context )
-            : UnaryOperation<TInput, TPrecision, CudaDevice>( OperationType::FusedOp, context ) {
+            : UnaryOperation<TPrecision>( OperationType::FusedOp, context ) {
         }
 
         /**
@@ -89,8 +89,8 @@ namespace Mila::Dnn::Compute
          * @param output_cache Cache for intermediate results (not used in this operation).
          */
         void forward(
-            const Tensor<TInput, MR>& input,
-            const std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameters,
+            const Tensor<TPrecision, MR>& input,
+            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
             const OperationAttributes& properties,
             Tensor<TPrecision, MR>& output,
             std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const override {
@@ -140,12 +140,12 @@ namespace Mila::Dnn::Compute
          * @param output_cache Cache tensors from forward pass.
          */
         void backward(
-            const Tensor<TInput, MR>& input,
+            const Tensor<TPrecision, MR>& input,
             const Tensor<TPrecision, MR>& output,
             const Tensor<TPrecision, MR>& output_gradient,
-            const std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameters,
-            std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameter_gradients,
-            Tensor<TInput, MR>& input_gradient,
+            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
+            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameter_gradients,
+            Tensor<TPrecision, MR>& input_gradient,
             const OperationAttributes& properties,
             const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const {
 

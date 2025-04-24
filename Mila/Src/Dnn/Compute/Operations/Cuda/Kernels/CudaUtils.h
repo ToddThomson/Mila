@@ -6,11 +6,10 @@
 #include <string>
 #include <source_location>
 
-// convenience function for calculating grid/block dimensions for kernels
+// Convenience function for calculating grid/block dimensions for kernels
 constexpr int ceil_div(int M, int N) {
     return (M + N - 1) / N;
 }
-
 
 class CudaException : public std::runtime_error {
 public:

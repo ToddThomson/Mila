@@ -39,8 +39,8 @@ namespace Mila::Dnn
      * @tparam TDataType Data type of the compute tensor elements, defaults to TInput.
      */
     export
-        template<typename TInput, typename TPrecision = TInput, DeviceType TDeviceType = DeviceType::Cuda>
-        requires ValidTensorTypes<TInput, TPrecision>
+        template<typename TPrecision, typename TInput = TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
+        requires ValidFloatTensorType<TPrecision> && ValidTensorType<TInput>
     class Module {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, DeviceMemoryResource, HostMemoryResource>;

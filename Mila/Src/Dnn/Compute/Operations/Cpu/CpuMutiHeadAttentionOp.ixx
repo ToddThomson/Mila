@@ -46,12 +46,10 @@ namespace Mila::Dnn::Compute
      * - Softmax computation
      * - Attention weighting of values
      *
-     * @tparam TInput The data type of the input tensor elements.
+     * @tparam float The data type of the input tensor elements.
      * @tparam TDataType The data type used for computation and output (defaults to the input type).
      */
-    export
-        template<typename TInput = float, typename TPrecision = float>
-    class CpuMultiHeadAttentionOp : public UnaryOperation<TInput, TPrecision, DeviceType::Cpu> {
+    export class CpuMultiHeadAttentionOp : public UnaryOperation<float, float, DeviceType::Cpu> {
     public:
         using MR = typename CpuDevice::MR;
 
@@ -60,7 +58,7 @@ namespace Mila::Dnn::Compute
          *
          * Initializes the operation with a CPU device context.
          */
-        CpuMultiHeadAttentionOp() : UnaryOperation<TInput, TPrecision, DeviceType::Cpu>( OperationType::MultiHeadAttentionOp ) {
+        CpuMultiHeadAttentionOp() : UnaryOperation<float, float, DeviceType::Cpu>( OperationType::MultiHeadAttentionOp ) {
 
         }
 
@@ -71,7 +69,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the context is not for a CPU device.
          */
         CpuMultiHeadAttentionOp( std::shared_ptr<DeviceContext> context )
-            : UnaryOperation<TInput, TPrecision, DeviceType::Cpu>( OperationType::MultiHeadAttentionOp, context ) {
+            : UnaryOperation<float, float, DeviceType::Cpu>( OperationType::MultiHeadAttentionOp, context ) {
         }
 
         /**
@@ -87,11 +85,11 @@ namespace Mila::Dnn::Compute
          * @param output_cache Cache for intermediate results [preatt, att] that are used in the backward pass.
          */
         void forward(
-            const Tensor<TInput, MR>& input,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
+            const Tensor<float, MR>& input,
+            const std::vector<std::shared_ptr<Tensor<float, MR>>>& parameters,
             const OperationAttributes& properties,
-            Tensor<TPrecision, MR>& output,
-            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const override {
+            Tensor<float, MR>& output,
+            std::vector<std::shared_ptr<Tensor<float, MR>>>& output_cache ) const override {
 
             // Verify we're operating on CPU memory
             if ( this->getDeviceContext()->getDevice()->getDeviceType() != DeviceType::Cpu ) {
@@ -185,14 +183,14 @@ namespace Mila::Dnn::Compute
          * @param output_cache Cache tensors [preatt, att] from forward pass.
          */
         void backward(
-            const Tensor<TInput, MR>& input,
-            const Tensor<TPrecision, MR>& output,
-            const Tensor<TPrecision, MR>& output_gradient,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
-            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameter_gradients,
-            Tensor<TInput, MR>& input_gradient,
+            const Tensor<float, MR>& input,
+            const Tensor<float, MR>& output,
+            const Tensor<float, MR>& output_gradient,
+            const std::vector<std::shared_ptr<Tensor<float, MR>>>& parameters,
+            std::vector<std::shared_ptr<Tensor<float, MR>>>& parameter_gradients,
+            Tensor<float, MR>& input_gradient,
             const OperationAttributes& properties,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const {
+            const std::vector<std::shared_ptr<Tensor<float, MR>>>& output_cache ) const {
 
             // Verify we're operating on CPU memory
             if ( this->getDeviceContext()->getDevice()->getDeviceType() != DeviceType::Cpu ) {
@@ -311,8 +309,8 @@ namespace Mila::Dnn::Compute
                 opName,
                 "Default",  // Default empty variant for backward compatibility
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, float, DeviceType::Cpu>> {
-                    return context ? std::make_shared<CpuMultiHeadAttentionOp<float, float>>( context )
-                        : std::make_shared<CpuMultiHeadAttentionOp<float, float>>();
+                    return context ? std::make_shared<CpuMultiHeadAttentionOp>( context )
+                        : std::make_shared<CpuMultiHeadAttentionOp>();
                 }
             );
         }

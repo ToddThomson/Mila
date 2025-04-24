@@ -45,9 +45,9 @@ namespace Mila::Dnn
      * @tparam TDataType The data type used for computation and output (defaults to the input type).
      */
     export
-        template<typename TInput, typename TPrecision = TInput>
-        requires ValidTensorTypes<TInput, TPrecision>
-    class Gelu : public Module<TInput, TPrecision> {
+        template< typename TPrecision, typename TInput = TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
+        requires ValidFloatTensorType<TPrecision> 
+    class Gelu : public Module<TPrecision> {
     public:
         /**
          * @brief Constructs a new Gelu activation module with the default device context.

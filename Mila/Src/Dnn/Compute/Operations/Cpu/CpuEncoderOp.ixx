@@ -41,7 +41,7 @@ namespace Mila::Dnn::Compute
      * @tparam TInput The data type of the input tensor elements (typically int for token indices).
      * @tparam TDataType The data type used for computation and output (typically float).
      */
-    export class CpuEncoderOp : public UnaryOperation<int, float, DeviceType::Cpu> {
+    export class CpuEncoderOp : public UnaryOperation<float, int, DeviceType::Cpu> {
     public:
         using MR = typename CpuDevice::MR;
 
@@ -50,7 +50,7 @@ namespace Mila::Dnn::Compute
          *
          * Initializes the operation with a CPU device context.
          */
-        CpuEncoderOp() : UnaryOperation<int, float, DeviceType::Cpu>( OperationType::EncoderOp ) {}
+        CpuEncoderOp() : UnaryOperation<float, int, DeviceType::Cpu>( OperationType::EncoderOp ) {}
 
         /**
          * @brief Constructs a new CPU Encoder operation with a specific device context.
@@ -59,7 +59,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the context is not for a CPU device.
          */
         CpuEncoderOp( std::shared_ptr<DeviceContext> context )
-            : UnaryOperation<int, float, DeviceType::Cpu>( OperationType::EncoderOp, context ) {
+            : UnaryOperation<float, int, DeviceType::Cpu>( OperationType::EncoderOp, context ) {
         }
 
         /**
@@ -185,10 +185,10 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cpu::EncoderOp";
 
-            OperationRegistry::instance().registerOperation<int, float, DeviceType::Cpu>(
+            OperationRegistry::instance().registerOperation<float, int, DeviceType::Cpu>(
                 opName,
                 "Default",
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<int, float, DeviceType::Cpu>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, int, DeviceType::Cpu>> {
                     return context ? std::make_shared<CpuEncoderOp>( context )
                         : std::make_shared<CpuEncoderOp>();
                 }

@@ -42,11 +42,10 @@ namespace Mila::Dnn::Compute
      * The implementation includes both a performance-optimized version with loop
      * unrolling and a naive fallback implementation for special cases.
      *
-     * @tparam TInput The data type of the input tensor elements.
+     * @tparam float The data type of the input tensor elements.
      * @tparam TDataType The data type used for computation and output (defaults to the input type).
      */
-    export template<typename TInput, typename TPrecision = TInput>
-    class CpuFullyConnectedOp : public UnaryOperation<TInput, TPrecision, DeviceType::Cpu> {
+    export class CpuFullyConnectedOp : public UnaryOperation<float, float, DeviceType::Cpu> {
     public:
         using MR = typename CpuDevice::MR;
         /**
@@ -54,7 +53,7 @@ namespace Mila::Dnn::Compute
          *
          * Initializes the operation with the CPU device type.
          */
-        CpuFullyConnectedOp() : UnaryOperation<TInput, TPrecision, DeviceType::Cpu>( OperationType::FullyConnectedOp ) {
+        CpuFullyConnectedOp() : UnaryOperation<float, float, DeviceType::Cpu>( OperationType::FullyConnectedOp ) {
 
         }
 
@@ -65,7 +64,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the context is not for a CPU device.
          */
         CpuFullyConnectedOp( std::shared_ptr<DeviceContext> context )
-            : UnaryOperation<TInput, TPrecision, DeviceType::Cpu>( OperationType::FullyConnectedOp, context ) {
+            : UnaryOperation<float, float, DeviceType::Cpu>( OperationType::FullyConnectedOp, context ) {
         }
 
         /**
@@ -82,17 +81,17 @@ namespace Mila::Dnn::Compute
          * @param output_state Cache for intermediate results (not used in this operation).
          */
         void forward(
-            const Tensor<TInput, MR>& input,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
+            const Tensor<float, MR>& input,
+            const std::vector<std::shared_ptr<Tensor<float, MR>>>& parameters,
             const OperationAttributes& properties,
-            Tensor<TPrecision, MR>& output,
-            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const override {
+            Tensor<float, MR>& output,
+            std::vector<std::shared_ptr<Tensor<float, MR>>>& output_state ) const override {
 
             auto X = input.raw_data();
             auto Y = output.raw_data();
 
             auto weight = parameters[ 0 ];
-            std::shared_ptr<Tensor<TPrecision, MR>> bias{ nullptr };
+            std::shared_ptr<Tensor<float, MR>> bias{ nullptr };
 
             if ( parameters.size() == 2 ) {
                 bias = parameters[ 1 ];
@@ -217,10 +216,10 @@ namespace Mila::Dnn::Compute
          */
         template<typename TMR>
         void forward_naive(
-            const Tensor<TInput, TMR>& input,
-            const std::shared_ptr<Tensor<TPrecision, TMR>>& weight,
-            const std::shared_ptr<Tensor<TPrecision, TMR>>& bias,
-            Tensor<TPrecision, TMR>& output,
+            const Tensor<float, TMR>& input,
+            const std::shared_ptr<Tensor<float, TMR>>& weight,
+            const std::shared_ptr<Tensor<float, TMR>>& bias,
+            Tensor<float, TMR>& output,
             int B, int T, int C, int OC ) const {
 
             // The most naive implementation of matrix multiplication
@@ -267,8 +266,8 @@ namespace Mila::Dnn::Compute
                 opName,
                 "Default",  // Default variant for backward compatibility
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, float, DeviceType::Cpu>> {
-                    return context ? std::make_shared<CpuFullyConnectedOp<float, float>>( context )
-                        : std::make_shared<CpuFullyConnectedOp<float, float>>();
+                    return context ? std::make_shared<CpuFullyConnectedOp>( context )
+                        : std::make_shared<CpuFullyConnectedOp>();
                 }
             );
         }

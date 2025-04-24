@@ -151,12 +151,12 @@ namespace Mila::Dnn::Compute
          * @note The creator function should return a valid operation instance when called with
          *       a device context. The operation will be owned by a shared_ptr.
          */
-        template<typename TInput, typename TPrecision, DeviceType TDeviceType>
-            requires ValidTensorTypes<TInput, TPrecision>
+        template<typename TPrecision, typename TInput = TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
+            requires ValidFloatTensorType<TPrecision> && ValidTensorType<TInput>
         void registerOperation(
             const std::string& operation_name,
             const std::string& variant,
-            std::function<std::shared_ptr<OperationBase<TInput, TPrecision, TDeviceType>>( std::shared_ptr<DeviceContext> )> creator ) {
+            std::function<std::shared_ptr<OperationBase<TPrecision, TInput, TDeviceType>>( std::shared_ptr<DeviceContext> )> creator ) {
 
             TypeID type_id{
                 std::type_index( typeid(TInput) ),
@@ -232,9 +232,9 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the type combination, device type, or operation name is invalid.
          * @throws std::invalid_argument If the context is null.
          */
-        template<typename TInput, typename TPrecision, DeviceType TDeviceType>
-            requires ValidTensorTypes<TInput, TPrecision>
-        std::shared_ptr<OperationBase<TInput, TPrecision, TDeviceType>> createOperation(
+        template<typename TPrecision, typename TInput = TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
+			requires ValidFloatTensorType<TPrecision>&& ValidTensorType<TInput>
+        std::shared_ptr<OperationBase<TPrecision, TInput, TDeviceType>> createOperation(
             const std::string& operation_name,
             std::shared_ptr<DeviceContext> context,
             const std::string& variant = "Default" ) const {
@@ -251,7 +251,7 @@ namespace Mila::Dnn::Compute
                 // If variant-specific operation not found, try with default variant as fallback
                 if ( variant != "Default" ) {
                     try {
-                        return createOperation<TInput, TPrecision, TDeviceType>( operation_name, context, "Default" );
+                        return createOperation<TPrecision, TInput, TDeviceType>( operation_name, context, "Default" );
                     }
                     catch ( const std::runtime_error& ) {
                         // Fall through to the original error if the fallback also fails
@@ -277,7 +277,7 @@ namespace Mila::Dnn::Compute
                 throw std::invalid_argument( "DeviceContext cannot be null when creating an operation" );
             }
 
-            return std::static_pointer_cast<OperationBase<TInput, TPrecision, TDeviceType>>(op_it->second( context ));
+            return std::static_pointer_cast<OperationBase<TPrecision, TInput, TDeviceType>>(op_it->second( context ));
         }
 
         /**

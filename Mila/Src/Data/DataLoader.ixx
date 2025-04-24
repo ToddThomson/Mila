@@ -13,9 +13,9 @@ namespace Mila::Data
 	* @tparam TDataType The precision type for computations.
 	* @tparam TDeviceType The device type (CPU or CUDA).
 	*/
-	export template<typename TInput, typename TPrecision, Compute::DeviceType TDeviceType = Compute::DeviceType::Cuda>
-		class DataLoader {
-		public:
+	export template<typename TPrecision, typename TInput, Compute::DeviceType TDeviceType = Compute::DeviceType::Cuda>
+	class DataLoader {
+	public:
 			virtual ~DataLoader() = default;
 
 			/**
