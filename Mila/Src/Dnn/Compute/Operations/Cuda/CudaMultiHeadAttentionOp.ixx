@@ -28,6 +28,61 @@ using namespace Mila::Dnn;
 
 namespace Mila::Dnn::Compute
 {
+    namespace Detail
+    {
+        /**
+         * @brief Implementation details for CUDA-based Multi-Head Attention operations.
+         *
+         * This namespace contains specialized implementations of Multi-Head Attention
+         * operations for different data types (float, half) using CUDA kernels.
+         * The implementations are optimized for NVIDIA GPUs for high-performance computation
+         * of attention mechanisms in transformer architectures.
+         */
+
+         // Primary template - will cause a compile error if no specialization exists
+        template <typename T>
+        struct cuda_mha_impl;
+
+        // Specialization for float
+        template <>
+        struct cuda_mha_impl<float> {
+            static inline void forward( float* out,
+                float* qkvr, float* att,
+                const float* inp,
+                int B, int T, int C, int NH,
+                cudaStream_t stream ) {
+                
+                cuda_mha_forward_fp32( out, qkvr, att, inp, B, T, C, NH, stream );
+            }
+
+            static inline void backward(/* Parameters to be added when backward implementation is ready */ ) {
+                // Implementation will be added when cuda_attention_backward is available
+            }
+        };
+
+        // Specialization for half
+        template <>
+        struct cuda_mha_impl<half> {
+            static inline void forward( half* out,
+                half* qkvr, half* att,
+                const half* inp,
+                int B, int T, int C, int NH,
+                cudaStream_t stream ) {
+                // Assuming there's a half-precision version available
+                // cuda_attention_forward_fp16(out, qkvr, att, inp, B, T, C, NH, stream);
+
+                // If no half-precision specific implementation exists yet:
+                // TODO: Implement half-precision version or add a conversion wrapper
+            }
+
+            static inline void backward(/* Parameters to be added when backward implementation is ready */ ) {
+                // Implementation will be added when cuda_attention_backward is available for half precision
+            }
+        };
+    }
+
+
+
     /**
      * @brief CUDA implementation of the Multi-Head Attention operation for transformer models.
      *
@@ -115,10 +170,9 @@ namespace Mila::Dnn::Compute
                 attn_weights = output_cache[ 1 ]->data();
             }
 
-            // Get CUDA stream from device context and call the kernel
             cudaStream_t stream = this->getDeviceContext()->getStream();
 
-            //cuda_attention_forward(Y, X, weight, bias, attn_scores, attn_weights, B, T, C, OC, num_heads, stream);
+            //Detail::cuda_mha_impl<TPrecision>::forward( Y, X, weight, bias, attn_scores, attn_weights, B, T, C, OC, num_heads, stream);
         }
 
         /**
@@ -211,7 +265,7 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerOperation<float, float, DeviceType::Cuda>(
                 opName,
-                "float_precision",
+                "Default",
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, float, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaMultiHeadAttentionOp<float>>( context )
                         : std::make_shared<CudaMultiHeadAttentionOp<float>>();
@@ -220,7 +274,7 @@ namespace Mila::Dnn::Compute
             
             OperationRegistry::instance().registerOperation<half, half, DeviceType::Cuda>(
                 opName,
-                "half_precision",
+                "Default",
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<half, half, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaMultiHeadAttentionOp<half>>( context )
                         : std::make_shared<CudaMultiHeadAttentionOp<half>>();

@@ -135,22 +135,29 @@ namespace Mila::Dnn::Compute
         }
 
         /**
-         * @brief Register an operation creator for a specific device type.
-         *
-         * This method registers a factory function for creating operations with specific
-         * type parameters and for a specific device type. Operations are identified by name
-         * and can have multiple variants for specialized implementations.
-         *
-         * @tparam TInput The input tensor element type.
-         * @tparam TDataType The output tensor element type.
-         * @tparam TDeviceType The device type for the operation.
-         * @param operation_name The name of the operation.
-         * @param variant The variant of the operation.
-         * @param creator The function that creates the operation with a device context.
-         *
-         * @note The creator function should return a valid operation instance when called with
-         *       a device context. The operation will be owned by a shared_ptr.
-         */
+        * @brief Register an operation creator for a specific device type.
+        *
+        * This method registers a factory function for creating operations with specific
+        * type parameters and for a specific device type. Operations are identified by name
+        * and can have multiple variants for specialized implementations.
+        *
+        * @tparam TPrecision The precision used for computation (typically float or half).
+        * @tparam TInput The input tensor element type (defaults to TPrecision).
+        * @tparam TDeviceType The device type for the operation (defaults to CUDA).
+        * @param operation_name The name of the operation.
+        * @param variant The implementation variant name. Use "Default" for the standard implementation
+        *                and descriptive names like "Optimized", "LowMemory", or "Vectorized" for
+        *                algorithmic variants that have the same template parameters but different
+        *                internal implementations.
+        * @param creator The function that creates the operation with a device context.
+        *
+        * @note The creator function should return a valid operation instance when called with
+        *       a device context. The operation will be owned by a shared_ptr.
+        * @note When multiple variants exist for the same operation and types, the system will use
+        *       exact variant matches first, falling back to the "Default" variant if the requested
+        *       variant is not found.
+        */
+
         template<typename TPrecision, typename TInput = TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
             requires ValidFloatTensorType<TPrecision> && ValidTensorType<TInput>
         void registerOperation(
@@ -216,22 +223,25 @@ namespace Mila::Dnn::Compute
         }
 
         /**
-         * @brief Create an operation based on the type information, device type, and operation name.
-         *
-         * This method creates an operation instance with the specified parameters. It looks up
-         * the appropriate factory function in the registry and calls it with the provided device context.
-         * If a variant-specific implementation is not found, it falls back to the default variant.
-         *
-         * @tparam TInput The input tensor element type.
-         * @tparam TDataType The output tensor element type.
-         * @tparam TDeviceType The device type for the operation.
-         * @param operation_name The name of the operation.
-         * @param context The device context to use for the operation.
-         * @param variant The variant of the operation (defaults to "Default").
-         * @return std::shared_ptr<OperationBase<TInput, TDataType, TDeviceType>> The created operation.
-         * @throws std::runtime_error If the type combination, device type, or operation name is invalid.
-         * @throws std::invalid_argument If the context is null.
-         */
+        * @brief Create an operation based on the type information, device type, and operation name.
+        *
+        * This method creates an operation instance with the specified parameters. It looks up
+        * the appropriate factory function in the registry and calls it with the provided device context.
+        * If a variant-specific implementation is not found, it falls back to the default variant.
+        *
+        * @tparam TPrecision The precision used for computation (typically float or half).
+        * @tparam TInput The input tensor element type (defaults to TPrecision).
+        * @tparam TDeviceType The device type for the operation (defaults to CUDA).
+        * @param operation_name The name of the operation.
+        * @param context The device context to use for the operation.
+        * @param variant The implementation variant name to request. Specify "Default" to use the standard
+        *                implementation, or a specific variant name to request specialized implementations.
+        *                The system will fall back to the "Default" variant if the requested variant is not
+        *                available for the specified types.
+        * @return std::shared_ptr<OperationBase<TPrecision, TInput, TDeviceType>> The created operation.
+        * @throws std::runtime_error If the type combination, device type, or operation name is invalid.
+        * @throws std::invalid_argument If the context is null.
+        */
         template<typename TPrecision, typename TInput = TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
 			requires ValidFloatTensorType<TPrecision>&& ValidTensorType<TInput>
         std::shared_ptr<OperationBase<TPrecision, TInput, TDeviceType>> createOperation(

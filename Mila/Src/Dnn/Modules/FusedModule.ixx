@@ -13,10 +13,9 @@ import Compute.CudaMemoryResource;
 
 namespace Mila::Dnn
 {
-    export
-    template<typename TInput, typename TPrecision = TInput, Compute::DeviceType TDeviceType = Compute::DeviceType::Cuda>
-        requires ValidTensorTypes<TInput, TPrecision>
-    class FusedModule : public Module<TInput, TPrecision, TDeviceType> {
+    export template<typename TPrecision, typename TInput = TPrecision, Compute::DeviceType TDeviceType = Compute::DeviceType::Cuda>
+        requires ValidTensorTypes<TPrecision, TInput>
+    class FusedModule : public Module<TPrecision, TInput, TDeviceType> {
     public:
         explicit FusedModule( std::shared_ptr<FusedOp> op ) : op_( std::move( op ) ) {}
 

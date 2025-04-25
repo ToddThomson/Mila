@@ -191,7 +191,7 @@ namespace Mila::Dnn::Compute
             // Updated to use device context-aware registration
             OperationRegistry::instance().registerOperation<float, float, DeviceType::Cuda>(
                 opName,
-                "float_precision",  // Default empty variant for backward compatibility
+                "Default",
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, float, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaGeluOp<float>>( context )
                         : std::make_shared<CudaGeluOp<float>>();
@@ -200,7 +200,7 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerOperation<half, half, DeviceType::Cuda>(
                 opName,
-                "half_precision",
+                "Default",
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<half, half, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaGeluOp<half>>( context )
                         : std::make_shared<CudaGeluOp<half>>();

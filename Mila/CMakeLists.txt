@@ -3,12 +3,15 @@
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaOps.h"
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaEncoder.cu"
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaLayerNorm.cu"
-	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaMatMul.cu"
+
+	"Src/Dnn/Compute/Operations/Cuda/Kernels/MatMul/CudaMatMulFp32.cu"
+	"Src/Dnn/Compute/Operations/Cuda/Kernels/MatMul/CudaMatMulFp16.cu"
+	"Src/Dnn/Compute/Operations/Cuda/Kernels/MatMul/FusedMatMulBiasGelu.cu"
 	#"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaMHA.cu"
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaGelu.cu"
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaResidual.cu"
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaSoftmax.cu"
-	"Src/Dnn/Compute/Operations/Cuda/Kernels/FusedMatMulBiasGelu.cu"
+	
  )
 
 set_target_properties( Mila PROPERTIES

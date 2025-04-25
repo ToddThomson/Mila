@@ -29,24 +29,33 @@ namespace Mila::Dnn::Compute
 {
     namespace Detail
     {
-		// Primary template - will cause a compile error if no specialization exists
-		template <typename TPrecision>
-		struct cuda_encoder_impl;
+        /**
+         * @brief Primary template for precision-specific CUDA encoder implementations.
+         *
+         * @tparam TPrecision The floating-point precision type (float or half)
+         */
+        template <typename TPrecision>
+        struct cuda_encoder_impl;
 
-		// Specialization for float
-		template <>
-		struct cuda_encoder_impl<float> {
-			static inline void forward( float* Y, const int* X, const float* wte, const float* wpe, int B, int T, int C, cudaStream_t stream ) {
-				cuda_encoder_forward_fp32( Y, X, wte, wpe, B, T, C, stream );
-			}
-		};
-		// Specialization for half
-		template <>
-		struct cuda_encoder_impl<half> {
-			static inline void forward( half* Y, const int* X, const half* wte, const half* wpe, int B, int T, int C, cudaStream_t stream ) {
-				cuda_encoder_forward_fp16( Y, X, wte, wpe, B, T, C, stream );
-			}
-		};
+        /**
+         * @brief Single-precision (float) specialization for CUDA encoder operations.
+         */
+        template <>
+        struct cuda_encoder_impl<float> {
+            static inline void forward( float* Y, const int* X, const float* wte, const float* wpe, int B, int T, int C, cudaStream_t stream ) {
+                cuda_encoder_forward_fp32( Y, X, wte, wpe, B, T, C, stream );
+            }
+        };
+
+        /**
+         * @brief Half-precision (half) specialization for CUDA encoder operations.
+         */
+        template <>
+        struct cuda_encoder_impl<half> {
+            static inline void forward( half* Y, const int* X, const half* wte, const half* wpe, int B, int T, int C, cudaStream_t stream ) {
+                cuda_encoder_forward_fp16( Y, X, wte, wpe, B, T, C, stream );
+            }
+        };
     }
 
     using namespace Mila::Dnn;
@@ -123,9 +132,9 @@ namespace Mila::Dnn::Compute
                 int T = input.shape()[ 1 ];
                 int C = wte->shape()[ 1 ];
 
-                // Get CUDA stream from device context
                 cudaStream_t stream = this->getDeviceContext()->getStream();
-				Detail::cuda_encoder_impl<TPrecision>::forward( Y, X, wte->raw_data(), wpe->raw_data(), B, T, C, stream );
+
+                Detail::cuda_encoder_impl<TPrecision>::forward( Y, X, wte->raw_data(), wpe->raw_data(), B, T, C, stream );
             }
 
             /**
@@ -198,7 +207,7 @@ namespace Mila::Dnn::Compute
             // Register float precision version
             OperationRegistry::instance().registerOperation<float, int, DeviceType::Cuda>(
                 opName,
-                "Float_Precision",
+                "Default",
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, int, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaEncoderOp<float>>( context )
                         : std::make_shared<CudaEncoderOp<float>>();
@@ -208,7 +217,7 @@ namespace Mila::Dnn::Compute
             // Register half precision version
             OperationRegistry::instance().registerOperation<half, int, DeviceType::Cuda>(
                 opName,
-                "Half_Precision",
+                "Default",
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<half, int, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaEncoderOp<half>>( context )
                         : std::make_shared<CudaEncoderOp<half>>();

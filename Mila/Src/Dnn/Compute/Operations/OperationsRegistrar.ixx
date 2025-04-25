@@ -49,13 +49,13 @@ namespace Mila::Dnn::Compute
 			CpuSoftmaxOpRegistrar::registerOperations();
 
 			CudaEncoderOpRegistrar::registerOperations();
-			/*CudaGeluOpRegistrar::registerOperations();
+			CudaGeluOpRegistrar::registerOperations();
 			CudaFullyConnectedOpRegistrar::registerOperations();
 			CudaLayerNormOpRegistrar::registerOperations();
 			CudaMultiHeadAttentionOpRegistrar::registerOperations();
 			CudaResidualOpRegistrar::registerOperations();
 			CudaSoftmaxOpRegistrar::registerOperations();
-			CudaMatMulBiasGeluOpRegistrar::registerOperations();*/
+			CudaMatMulBiasGeluOpRegistrar::registerOperations();
 		}
 
 		static inline bool is_initialized_ = false;

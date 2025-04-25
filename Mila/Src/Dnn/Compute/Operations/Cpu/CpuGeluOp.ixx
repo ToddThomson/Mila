@@ -148,7 +148,6 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cpu::GeluOp";
 
-            // Updated to use device context-aware registration
             OperationRegistry::instance().registerOperation<float, float, DeviceType::Cpu>(
                 opName,
                 "Default",

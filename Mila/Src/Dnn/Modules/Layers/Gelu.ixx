@@ -41,11 +41,11 @@ namespace Mila::Dnn
      * This activation function is used in many state-of-the-art neural network
      * architectures, including transformers, as an alternative to ReLU.
      *
-     * @tparam TInput The data type of the input tensor elements.
+     * @tparam TPrecision The data type of the input tensor elements.
      * @tparam TDataType The data type used for computation and output (defaults to the input type).
      */
     export
-        template< typename TPrecision, typename TInput = TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
+        template< typename TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
         requires ValidFloatTensorType<TPrecision> 
     class Gelu : public Module<TPrecision> {
     public:
@@ -56,7 +56,7 @@ namespace Mila::Dnn
          * @param is_training Whether the module is being used in training mode (defaults to false).
          */
         Gelu( std::string name, bool is_training = false )
-            : Module<TInput, TPrecision>()
+            : Module<TPrecision>()
         {
             this->setTraining( is_training );
             this->setName( name );
@@ -71,7 +71,7 @@ namespace Mila::Dnn
          * @param is_training Whether the module is being used in training mode (defaults to false).
          */
         Gelu( std::string name, std::shared_ptr<DeviceContext> context, bool is_training = false )
-            : Module<TInput, TPrecision>( context )
+            : Module<TPrecision, TPrecision>( context )
         {
             this->setTraining( is_training );
             this->setName( name );
@@ -98,7 +98,7 @@ namespace Mila::Dnn
          * @param output The output tensor where the results will be stored.
          */
         template<typename TMR>
-        void forward( const Tensor<TInput, TMR>& input, Tensor<TPrecision, TMR>& output ) {
+        void forward( const Tensor<TPrecision, TMR>& input, Tensor<TPrecision, TMR>& output ) {
             operation_->forward( input, parameters_, properties_, output, output_state_ );
         }
 
@@ -156,14 +156,14 @@ namespace Mila::Dnn
          *
          * The GELU activation has no parameters, so this is an empty vector.
          */
-        std::vector<std::shared_ptr<Tensor<TPrecision, typename Module<TInput, TPrecision>::MR>>> parameters_;
+        std::vector<std::shared_ptr<Tensor<TPrecision, typename Module<TPrecision, TPrecision>::MR>>> parameters_;
 
         /**
          * @brief The output cache.
          *
          * Storage for intermediate results that might be needed for the backward pass.
          */
-        std::vector<std::shared_ptr<Tensor<TPrecision, typename Module<TInput, TPrecision>::MR>>> output_state_;
+        std::vector<std::shared_ptr<Tensor<TPrecision, typename Module<TPrecision, TPrecision>::MR>>> output_state_;
 
         /**
          * @brief The operation properties.
@@ -177,7 +177,7 @@ namespace Mila::Dnn
          *
          * This pointer will be updated based on the current device context.
          */
-        std::shared_ptr<UnaryOperation<TInput, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TPrecision, TPrecision>> operation_{ nullptr };
 
         /**
          * @brief Creates the appropriate GELU operation based on the current device context.
@@ -194,12 +194,12 @@ namespace Mila::Dnn
             }
 
             if ( device_type == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createOperation<TInput, TPrecision, DeviceType::Cpu>( "Cpu::GeluOp" );
-                operation_ = std::static_pointer_cast<UnaryOperation<TInput, TPrecision>>(base_op);
+                auto base_op = OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cpu>( "Cpu::GeluOp" );
+                operation_ = std::static_pointer_cast<UnaryOperation<TPrecision, TPrecision>>(base_op);
             }
             else {
-                auto base_op = OperationRegistry::instance().createOperation<TInput, TPrecision, DeviceType::Cuda>( "Cuda::GeluOp" );
-                operation_ = std::static_pointer_cast<UnaryOperation<TInput, TPrecision>>(base_op);
+                auto base_op = OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cuda>( "Cuda::GeluOp" );
+                operation_ = std::static_pointer_cast<UnaryOperation<TPrecision, TPrecision>>(base_op);
             }
         }
     };

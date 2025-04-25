@@ -28,6 +28,41 @@ using namespace Mila::Dnn;
 
 namespace Mila::Dnn::Compute
 {
+	/**
+	 * @brief Namespace for CUDA layer normalization implementation details.
+	 *
+	 * This namespace contains the implementation details for the CUDA layer normalization operation,
+	 * including specialized templates for different data types (float, half).
+	 */
+	namespace Detail
+	{
+		// Primary template - will cause a compile error if no specialization exists
+		template <typename T>
+		struct cuda_layernorm_impl;
+		// Specialization for float
+		template <>
+		struct cuda_layernorm_impl<float> {
+			static inline void forward( float* Y, const float* X,
+				const float* weight, const float* bias,
+				float* mean, float* rstd,
+				int B, int T, int C, float epsilon, 
+                cudaStream_t stream ) {
+				cuda_layernorm_forward_fp32( Y, mean, rstd, X, weight, bias, B, T, C, epsilon, stream );
+			}
+		};
+		// Specialization for half
+		template <>
+		struct cuda_layernorm_impl<half> {
+			static inline void forward( half* Y, const half* X,
+				const half* weight, const half* bias,
+				half* mean, half* rstd,
+				int B, int T, int C, float epsilon, 
+                cudaStream_t stream ) {
+				cuda_layernorm_forward_fp16( Y, mean, rstd, X, weight, bias, B, T, C, epsilon, stream );
+			}
+		};
+	}
+
     /**
      * @brief CUDA implementation of the Layer Normalization operation for neural networks.
      *
@@ -91,14 +126,14 @@ namespace Mila::Dnn::Compute
             Tensor<TPrecision, MR>& output,
             std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const override {
 
-            const float* X = input.data();
-            float* Y = output.data();
+            const TPrecision* X = input.raw_data();
+            TPrecision* Y = output.raw_data();
 
-            const float* weight = parameters[ 0 ]->data();
-            const float* bias = parameters[ 1 ]->data();
+            const TPrecision* weight = parameters[ 0 ]->raw_data();
+            const TPrecision* bias = parameters[ 1 ]->raw_data();
 
-            float* mean = output_cache[ 0 ]->data();
-            float* rstd = output_cache[ 1 ]->data();
+            TPrecision* mean = output_cache[ 0 ]->raw_data();
+            TPrecision* rstd = output_cache[ 1 ]->raw_data();
 
             int B = input.shape()[ 0 ];
             int T = input.shape()[ 1 ];
@@ -107,7 +142,7 @@ namespace Mila::Dnn::Compute
 
             cudaStream_t stream = this->getDeviceContext()->getStream();
 
-            cuda_layernorm_forward( Y, mean, rstd, X, weight, bias, B, T, C, /* TODO epsilon, */ stream );
+            Detail::cuda_layernorm_impl<TPrecision>::forward( Y, X, weight, bias, mean, rstd, B, T, C, epsilon, stream );
         }
 
         /**
@@ -190,27 +225,23 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cuda::LayerNormOp";
 
-            // Updated to use device context-aware registration
             OperationRegistry::instance().registerOperation<float, float, DeviceType::Cuda>(
                 opName,
-                "Default",  // Default empty variant for backward compatibility
+                "Default",
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, float, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaLayerNormOp<float>>( context )
                         : std::make_shared<CudaLayerNormOp<float>>();
                 }
             );
 
-            // Add additional precision variants if needed, for example:
-            /*
-            OperationRegistry::instance().registerOperation<float, half, DeviceType::Cuda>(
+            OperationRegistry::instance().registerOperation<half, half, DeviceType::Cuda>(
                 opName,
-                "half_precision",
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, half, DeviceType::Cuda>> {
-                    return context ? std::make_shared<CudaLayerNormOp<float, half>>( context )
-                        : std::make_shared<CudaLayerNormOp<float, half>>();
+                "Default",
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<half, half, DeviceType::Cuda>> {
+                    return context ? std::make_shared<CudaLayerNormOp<half>>( context )
+                        : std::make_shared<CudaLayerNormOp<half>>();
                 }
             );
-            */
         }
 
         /**

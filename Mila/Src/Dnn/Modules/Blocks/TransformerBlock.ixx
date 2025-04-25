@@ -182,10 +182,10 @@ namespace Mila::Dnn
         size_t num_heads_; ///< The number of attention heads.
 
         // Sub-modules
-        std::shared_ptr<LayerNorm<TInput, TPrecision>> ln_1_{ nullptr };
-        std::shared_ptr<FullyConnected<TInput, TPrecision>> fc_qkv_{ nullptr };
-        std::shared_ptr<MultiHeadAttention<TInput, TPrecision>> attn_{ nullptr };
-        std::shared_ptr<FullyConnected<TInput, TPrecision>> fc_attn_proj_{ nullptr };
+        std::shared_ptr<LayerNorm<TPrecision>> ln_1_{ nullptr };
+        std::shared_ptr<FullyConnected<TPrecision>> fc_qkv_{ nullptr };
+        std::shared_ptr<MultiHeadAttention<TPrecision>> attn_{ nullptr };
+        std::shared_ptr<FullyConnected<TPrecision>> fc_attn_proj_{ nullptr };
         std::shared_ptr<Residual<TPrecision>> res_1_{ nullptr };
         std::shared_ptr<LayerNorm<TPrecision>> ln_2_{ nullptr };
         std::shared_ptr<MLP<TPrecision>> mlp_{ nullptr };
@@ -230,28 +230,28 @@ namespace Mila::Dnn
             auto C = input_shape_[ 2 ]; // Number of channels
 
             // Create new modules with the current device context
-            ln_1_ = std::make_shared<LayerNorm<TInput, TPrecision>>(
+            ln_1_ = std::make_shared<LayerNorm<TPrecision>>(
                 this->getName() + ".ln_1", input_shape_ );
 
-            fc_qkv_ = std::make_shared<FullyConnected<TInput, TPrecision>>(
+            fc_qkv_ = std::make_shared<FullyConnected<TPrecision>>(
                 this->getName() + ".fc_qkv", C, 3 * C );
 
-            attn_ = std::make_shared<MultiHeadAttention<TInput, TPrecision>>(
+            attn_ = std::make_shared<MultiHeadAttention<TPrecision>>(
                 this->getName() + ".attn", input_shape_, num_heads_ );
 
-            fc_attn_proj_ = std::make_shared<FullyConnected<TInput, TPrecision>>(
+            fc_attn_proj_ = std::make_shared<FullyConnected<TPrecision>>(
                 this->getName() + ".fc_attn_proj", C, C );
 
-            res_1_ = std::make_shared<Residual<TInput, TPrecision>>(
+            res_1_ = std::make_shared<Residual<TPrecision>>(
                 this->getName() + ".res_1" );
 
-            ln_2_ = std::make_shared<LayerNorm<TInput, TPrecision>>(
+            ln_2_ = std::make_shared<LayerNorm<TPrecision>>(
                 this->getName() + ".ln_2", input_shape_ );
 
-            mlp_ = std::make_shared<MLP<TInput, TPrecision>>(
+            mlp_ = std::make_shared<MLP<TPrecision>>(
                 this->getName() + ".mlp", input_shape_, 4 * C );
 
-            res_2_ = std::make_shared<Residual<TInput, TPrecision>>(
+            res_2_ = std::make_shared<Residual<TPrecision>>(
                 this->getName() + ".res_2" );
 
             // Propagate device context to sub-modules
@@ -277,26 +277,15 @@ namespace Mila::Dnn
             // Create output tensors for the intermediate steps
             auto device_type = this->getDeviceContext()->getDevice()->getDeviceType();
 
-            if ( device_type == DeviceType::Cpu ) {
-                ln_1_output_ = Tensor<TPrecision, Compute::HostMemoryResource>( input_shape_ );
-                fc_qkv_output_ = Tensor<TPrecision, Compute::HostMemoryResource>( { B, T, 3 * C } );
-                attn_output_ = Tensor<TPrecision, Compute::HostMemoryResource>( input_shape_ );
-                fc_attn_proj_output_ = Tensor<TPrecision, Compute::HostMemoryResource>( { B, T, C } );
-                res_1_output_ = Tensor<TPrecision, Compute::HostMemoryResource>( input_shape_ );
-                ln_2_output_ = Tensor<TPrecision, Compute::HostMemoryResource>( input_shape_ );
-                mlp_output_ = Tensor<TPrecision, Compute::HostMemoryResource>( input_shape_ );
-                res_2_output_ = Tensor<TPrecision, Compute::HostMemoryResource>( input_shape_ );
-            }
-            else {
-                ln_1_output_ = Tensor<TPrecision, Compute::DeviceMemoryResource>( input_shape_ );
-                fc_qkv_output_ = Tensor<TPrecision, Compute::DeviceMemoryResource>( { B, T, 3 * C } );
-                attn_output_ = Tensor<TPrecision, Compute::DeviceMemoryResource>( input_shape_ );
-                fc_attn_proj_output_ = Tensor<TPrecision, Compute::DeviceMemoryResource>( { B, T, C } );
-                res_1_output_ = Tensor<TPrecision, Compute::DeviceMemoryResource>( input_shape_ );
-                ln_2_output_ = Tensor<TPrecision, Compute::DeviceMemoryResource>( input_shape_ );
-                mlp_output_ = Tensor<TPrecision, Compute::DeviceMemoryResource>( input_shape_ );
-                res_2_output_ = Tensor<TPrecision, Compute::DeviceMemoryResource>( input_shape_ );
-            }
+            // Create output tensors for the intermediate steps
+            ln_1_output_ = Tensor<TPrecision, MR>( input_shape_ );
+            fc_qkv_output_ = Tensor<TPrecision, MR>( { B, T, 3 * C } );
+            attn_output_ = Tensor<TPrecision, MR>( input_shape_ );
+            fc_attn_proj_output_ = Tensor<TPrecision, MR>( { B, T, C } );
+            res_1_output_ = Tensor<TPrecision, MR>( input_shape_ );
+            ln_2_output_ = Tensor<TPrecision, MR>( input_shape_ );
+            mlp_output_ = Tensor<TPrecision, MR>( input_shape_ );
+            res_2_output_ = Tensor<TPrecision, MR>( input_shape_ );
         }
     };
 }

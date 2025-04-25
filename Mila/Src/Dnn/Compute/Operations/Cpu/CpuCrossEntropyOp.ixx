@@ -230,7 +230,7 @@ namespace Mila::Dnn::Compute
             // Updated to use device context-aware registration
             OperationRegistry::instance().registerOperation<float, int, DeviceType::Cpu>(
                 opName,
-                "Default",  // Default empty variant for backward compatibility
+                "Default",
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, int, DeviceType::Cpu>> {
                     return context ? std::make_shared<CpuCrossEntropyOp>( context )
                         : std::make_shared<CpuCrossEntropyOp>();

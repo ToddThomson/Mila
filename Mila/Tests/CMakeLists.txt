@@ -39,7 +39,7 @@ add_executable( MilaTests
 
     #"Dnn/Model.cpp"
     
-    #"Dnn/Modules/FullyConnected.cpp"
+    "Dnn/Modules/FullyConnected.cpp"
     #"Dnn/Modules/Gelu.cpp" 
     #"Dnn/Modules/Attention.cpp" 
     #"Dnn/Modules/Layernorm.cpp"

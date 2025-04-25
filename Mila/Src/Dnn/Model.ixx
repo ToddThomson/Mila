@@ -58,6 +58,8 @@ namespace Mila::Dnn
         requires ValidTensorTypes<TInput, TPrecision>
     class Model : public Module<TPrecision, TInput, TDeviceType> {
     public:
+        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, DeviceMemoryResource, HostMemoryResource>; ///< Memory resource type
+
         /**
         * @brief Constructs a new Model object with the default device context.
         */
@@ -338,8 +340,8 @@ namespace Mila::Dnn
             auto device_type = this->getDeviceContext()->getDevice()->getDeviceType();
 
             // Initialize tensors for input and target data
-            Tensor<TInput, typename Module<TInput, TPrecision>::MR> inputs;
-            Tensor<TInput, typename Module<TInput, TPrecision>::MR> targets;
+            Tensor<TInput, MR> inputs;
+            Tensor<TInput, MR> targets;
 
             // Metrics to track during training
             std::unordered_map<std::string, float> metrics;
@@ -488,8 +490,8 @@ namespace Mila::Dnn
             setTrainingMode( false );
 
             // Initialize tensors for input and target data
-            Tensor<TInput, typename Module<TInput, TPrecision>::MR> inputs;
-            Tensor<TInput, typename Module<TInput, TPrecision>::MR> targets;
+            Tensor<TInput, MR> inputs;
+            Tensor<TInput, MR> targets;
 
             // Evaluation metrics
             float total_loss = 0.0f;
@@ -599,12 +601,12 @@ namespace Mila::Dnn
         /**
         * @brief The most recent input tensor provided to forward().
         */
-        Tensor<TInput, typename Module<TInput, TPrecision>::MR> last_inputs_;
+        Tensor<TInput, MR> last_inputs_;
 
         /**
         * @brief The most recent target tensor provided to forward().
         */
-        Tensor<TInput, typename Module<TInput, TPrecision>::MR> last_targets_;
+        Tensor<TInput, MR> last_targets_;
 
     private:
         /**

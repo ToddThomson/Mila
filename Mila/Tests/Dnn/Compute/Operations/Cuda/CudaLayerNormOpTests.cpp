@@ -374,7 +374,9 @@ namespace Operations::Tests
         cuda_layernorm_op_->forward( cuda_input, cuda_params, cuda_props, cuda_output, cuda_output_cache );
 
         // Execute CPU LayerNorm operation
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> cpu_params = { std::make_shared<Tensor<float, HostMemoryResource>>( cpu_weight ), std::make_shared<Tensor<float, HostMemoryResource>>( cpu_bias ) };
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> cpu_params = { 
+            std::make_shared<Tensor<float, HostMemoryResource>>( cpu_weight ),
+            std::make_shared<Tensor<float, HostMemoryResource>>( cpu_bias ) };
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> cpu_output_cache;
         OperationAttributes cpu_props;
         cpu_props.epsilon = 1e-5f;

@@ -304,10 +304,9 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cpu::MultiHeadAttentionOp";
 
-            // Update to use the new device context-aware registration method
             OperationRegistry::instance().registerOperation<float, float, DeviceType::Cpu>(
                 opName,
-                "Default",  // Default empty variant for backward compatibility
+                "Default",
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, float, DeviceType::Cpu>> {
                     return context ? std::make_shared<CpuMultiHeadAttentionOp>( context )
                         : std::make_shared<CpuMultiHeadAttentionOp>();

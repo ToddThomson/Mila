@@ -1,5 +1,5 @@
 
-void cuda_attention_forward( 
+void cuda_mha_forward_fp32( 
     float* out, 
     float* qkvr, float* att,
     const float* inp,
@@ -22,7 +22,9 @@ void cuda_attention_forward(
     v = qkvr + 2 * B * T * C;
     int total_threads = B * NH * T * HS;
     int num_blocks = ceil_div( total_threads, block_size );
+    
     permute_kernel << <num_blocks, block_size >> > (q, k, v, inp, B, T, NH, HS);
+    
     cudaCheck( cudaGetLastError() );
 
     // batched matrix multiply with cuBLAS

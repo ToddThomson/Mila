@@ -30,10 +30,9 @@ namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
 
-    export
-        template<typename TInput, typename TPrecision = TInput>
-        requires ValidTensorTypes<TInput, TPrecision>
-    class MultiHeadAttention : public Module<TInput, TPrecision> {
+    export template<typename TPrecision, DeviceType TDeviceType =  DeviceType::Cuda>
+        requires ValidTensorType<TPrecision>
+    class MultiHeadAttention : public Module<TPrecision> {
     public:
         /**
          * @brief Constructs a new MultiHeadAttention module with the default device context.
@@ -44,7 +43,7 @@ namespace Mila::Dnn
          * @param is_training Whether the module is initially in training mode. Default is false.
          */
         MultiHeadAttention( std::string name, const std::vector<size_t>& input_shape, size_t num_heads, bool is_training = false )
-            : Module<TInput, TPrecision>(),
+            : Module<TPrecision>(),
             input_shape_{ input_shape },
             num_heads_{ num_heads } {
             this->setTraining( is_training );
@@ -64,7 +63,7 @@ namespace Mila::Dnn
          */
         MultiHeadAttention( std::string name, const std::vector<size_t>& input_shape, size_t num_heads,
             std::shared_ptr<DeviceContext> context, bool is_training = false )
-            : Module<TInput, TPrecision>( context ),
+            : Module<TPrecision>( context ),
             input_shape_{ input_shape },
             num_heads_{ num_heads } {
             this->setTraining( is_training );
@@ -89,7 +88,7 @@ namespace Mila::Dnn
          * @param output The output tensor where the results will be stored.
          */
         template<typename TMR>
-        void forward( const Tensor<TInput, TMR>& input, Tensor<TPrecision, TMR>& output ) {
+        void forward( const Tensor<TPrecision, TMR>& input, Tensor<TPrecision, TMR>& output ) {
             operation_->forward( input, parameters_, properties_, output, output_state_ );
         }
 
@@ -153,22 +152,22 @@ namespace Mila::Dnn
         /**
          * @brief Tensor storing the attention weights after softmax.
          */
-        std::shared_ptr<Tensor<TPrecision, typename Module<TInput, TPrecision>::MR>> attn_{ nullptr };
+        std::shared_ptr<Tensor<TPrecision, typename Module<TPrecision, TPrecision>::MR>> attn_{ nullptr };
 
         /**
          * @brief Tensor storing the pre-softmax attention values.
          */
-        std::shared_ptr<Tensor<TPrecision, typename Module<TInput, TPrecision>::MR>> pre_attn_{ nullptr };
+        std::shared_ptr<Tensor<TPrecision, typename Module<TPrecision, TPrecision>::MR>> pre_attn_{ nullptr };
 
-        std::vector<std::shared_ptr<Tensor<TPrecision, typename Module<TInput, TPrecision>::MR>>> parameters_; ///< The parameters.
-        std::vector<std::shared_ptr<Tensor<TPrecision, typename Module<TInput, TPrecision>::MR>>> output_state_; ///< The output state.
-        std::vector<std::shared_ptr<Tensor<TPrecision, typename Module<TInput, TPrecision>::MR>>> scalars_; ///< The scalars.
+        std::vector<std::shared_ptr<Tensor<TPrecision, typename Module<TPrecision, TPrecision>::MR>>> parameters_; ///< The parameters.
+        std::vector<std::shared_ptr<Tensor<TPrecision, typename Module<TPrecision, TPrecision>::MR>>> output_state_; ///< The output state.
+        std::vector<std::shared_ptr<Tensor<TPrecision, typename Module<TPrecision, TPrecision>::MR>>> scalars_; ///< The scalars.
         OperationAttributes properties_; ///< The operation properties.
 
         /**
          * @brief The underlying operation that implements the multi-head attention.
          */
-        std::shared_ptr<UnaryOperation<TInput, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TPrecision, TPrecision>> operation_{ nullptr };
 
         /**
          * @brief Initializes the tensors needed for the MultiHeadAttention operation.
@@ -223,12 +222,12 @@ namespace Mila::Dnn
             }
 
             if ( device_type == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createOperation<TInput, TPrecision, DeviceType::Cpu>( "Cpu::MultiHeadAttentionOp" );
-                operation_ = std::static_pointer_cast<UnaryOperation<TInput, TPrecision>>(base_op);
+                auto base_op = OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cpu>( "Cpu::MultiHeadAttentionOp" );
+                operation_ = std::static_pointer_cast<UnaryOperation<TPrecision, TPrecision>>(base_op);
             }
             else {
-                auto base_op = OperationRegistry::instance().createOperation<TInput, TPrecision, DeviceType::Cuda>( "Cuda::MultiHeadAttentionOp" );
-                operation_ = std::static_pointer_cast<UnaryOperation<TInput, TPrecision>>(base_op);
+                auto base_op = OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cuda>( "Cuda::MultiHeadAttentionOp" );
+                operation_ = std::static_pointer_cast<UnaryOperation<TPrecision, TPrecision>>(base_op);
             }
         }
     };

@@ -264,7 +264,7 @@ namespace Mila::Dnn::Compute
             // Register float operation
             OperationRegistry::instance().registerOperation<float, float, DeviceType::Cpu>(
                 opName,
-                "Default",  // Default variant for backward compatibility
+                "Default",
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, float, DeviceType::Cpu>> {
                     return context ? std::make_shared<CpuFullyConnectedOp>( context )
                         : std::make_shared<CpuFullyConnectedOp>();

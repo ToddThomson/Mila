@@ -11,6 +11,8 @@ module;
 #include <stdexcept>
 #include <exception>
 #include "Kernels/CudaOps.h"
+#include <cuda_fp16.h>
+#include <type_traits>
 
 export module Compute.CudaMatMulOp;
 
@@ -43,7 +45,7 @@ namespace Mila::Dnn::Compute
         // Primary template - will cause a compile error if no specialization exists
         template <typename T>
         struct cuda_matmul_impl;
-        // Specialization for float
+        
         template <>
         struct cuda_matmul_impl<float> {
             static inline void forward( float* Y, const float* X,
@@ -54,7 +56,6 @@ namespace Mila::Dnn::Compute
             }
         };
 
-        // Specialization for half
         template <>
         struct cuda_matmul_impl<half> {
             static inline void forward( half* Y, const half* X,
@@ -82,6 +83,7 @@ namespace Mila::Dnn::Compute
      * @tparam TDataType The data type of the output tensor elements (defaults to the input type).
      */
     export template<typename TPrecision>
+        requires std::is_same_v<TPrecision, half> || std::is_same_v<TPrecision, float>
     class CudaFullyConnectedOp : public UnaryOperation<TPrecision> {
     public:
         using MR = typename CudaDevice::MR;
@@ -139,7 +141,7 @@ namespace Mila::Dnn::Compute
 
             cudaStream_t stream = this->getDeviceContext()->getStream();
 
-            // Try to use cuBLASLt first if available
+            // Try to use cuBLASLt MatMul first
             try {
                 cublasLtHandle_t cublasLtHandle = this->getDeviceContext()->getCublasLtHandle();
                 if ( cublasLtHandle ) {
@@ -241,21 +243,21 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerOperation<float, float, DeviceType::Cuda>(
                 opName,
-                "float_precision",
+                "Default",
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, float, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaFullyConnectedOp<float>>( context )
                         : std::make_shared<CudaFullyConnectedOp<float>>();
                 }
             );
 
-            OperationRegistry::instance().registerOperation<half, half, DeviceType::Cuda>(
+            /*OperationRegistry::instance().registerOperation<half, half, DeviceType::Cuda>(
                 opName,
-                "half_precision",
+                "Default",
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<half, half, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaFullyConnectedOp<half>>( context )
                         : std::make_shared<CudaFullyConnectedOp<half>>();
                 }
-            );
+            );*/
         }
 
         /**
@@ -264,9 +266,9 @@ namespace Mila::Dnn::Compute
          * This static member ensures the operation is registered when the program starts
          * without requiring explicit registration calls.
          */
-        static inline bool isRegistered = []() {
+        /*static inline bool isRegistered = []() {
             registerOperations();
             return true;
-            }();
+            }();*/
     };
 }

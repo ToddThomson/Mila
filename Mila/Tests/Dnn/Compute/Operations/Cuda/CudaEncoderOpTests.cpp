@@ -399,10 +399,10 @@ namespace Operations::Tests
 
         // Retrieve operations from registry
         auto op_float = OperationRegistry::instance().createOperation<float, int, DeviceType::Cuda>(
-            "Cuda::EncoderOp", cuda_context_, "Default" );
+            "Cuda::EncoderOp", cuda_context_, "Float_Precision" );
 
         auto op_half = OperationRegistry::instance().createOperation<half, int, DeviceType::Cuda>(
-            "Cuda::EncoderOp", cuda_context_, "Default" );
+            "Cuda::EncoderOp", cuda_context_, "Half_Precision" );
 
         // Verify operations are created correctly
         ASSERT_NE( op_float, nullptr );

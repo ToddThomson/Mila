@@ -238,10 +238,9 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cpu::LayerNormOp";
 
-            // Register the operation with the new device context-aware method
             OperationRegistry::instance().registerOperation<float, float, DeviceType::Cpu>(
                 opName,
-                "Default",  // Default empty variant for backward compatibility
+                "Default",
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, float, DeviceType::Cpu>> {
                     return context ? std::make_shared<CpuLayerNormOp>( context )
                         : std::make_shared<CpuLayerNormOp>();

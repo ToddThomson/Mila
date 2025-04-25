@@ -197,12 +197,12 @@ namespace Mila::Dnn
         size_t input_channels_; ///< The number of input channels
         size_t output_channels_; ///< The number of output channels
 
-        std::shared_ptr<FullyConnected<TInput, TPrecision>> fc_1_{ nullptr };
-        std::shared_ptr<Gelu<TInput, TPrecision>> gelu_{ nullptr };
-        std::shared_ptr<FullyConnected<TInput, TPrecision>> fc_proj_{ nullptr };
+        std::shared_ptr<FullyConnected<TPrecision>> fc_1_{ nullptr };
+        std::shared_ptr<Gelu<TPrecision>> gelu_{ nullptr };
+        std::shared_ptr<FullyConnected<TPrecision>> fc_proj_{ nullptr };
 
-        Tensor<TPrecision, typename Module<TInput, TPrecision>::MR> fc_1_output_;
-        Tensor<TPrecision, typename Module<TInput, TPrecision>::MR> gelu_output_;
+        Tensor<TPrecision, MR> fc_1_output_;
+        Tensor<TPrecision, MR> gelu_output_;
 
         /**
          * @brief Initializes the sub-modules and output tensors for the MLP block.
@@ -216,13 +216,13 @@ namespace Mila::Dnn
             }
 
             // Create new modules with the current device context
-            fc_1_ = std::make_shared<FullyConnected<TInput, TPrecision>>(
+            fc_1_ = std::make_shared<FullyConnected<TPrecision>>(
                 this->getName() + ".fc_1", input_channels_, output_channels_, has_bias );
 
-            gelu_ = std::make_shared<Gelu<TInput, TPrecision>>(
+            gelu_ = std::make_shared<Gelu<TPrecision>>(
                 this->getName() + ".gelu" );
 
-            fc_proj_ = std::make_shared<FullyConnected<TInput, TPrecision>>(
+            fc_proj_ = std::make_shared<FullyConnected<TPrecision>>(
                 this->getName() + ".fc_proj", output_channels_, input_channels_, has_bias );
 
             // Propagate device context to sub-modules

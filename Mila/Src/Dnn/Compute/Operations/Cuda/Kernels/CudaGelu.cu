@@ -6,7 +6,7 @@
 
 namespace Mila::Dnn::Compute
 {
-#define GELU_SCALING_FACTOR sqrtf(2.0f / M_PI)
+    #define GELU_SCALING_FACTOR sqrtf(2.0f / M_PI)
 
     __global__ void gelu_forward_fp32_kernel( float* Y, const float* X, int N ) {
         int i = blockIdx.x * blockDim.x + threadIdx.x;

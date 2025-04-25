@@ -1,3 +1,23 @@
+/**
+ * @file CudaOps.h
+ * @brief CUDA kernel function declarations for neural network operations.
+ *
+ * This header file declares CUDA kernel functions that implement various neural network operations
+ * optimized for execution on NVIDIA GPUs. The operations include:
+ * - Encoder operations for embedding input tokens
+ * - GELU activation functions
+ * - Layer normalization
+ * - Matrix multiplication
+ * - Multi-head attention
+ * - Softmax activation
+ * - Residual connections
+ * - Attention mechanisms
+ *
+ * Each operation provides implementations for both single-precision (fp32) and half-precision (fp16)
+ * floating point data types to support different performance and accuracy requirements.
+ * These functions serve as the computational backend for the neural network operations
+ * in the Mila deep learning framework.
+ */
 #pragma once
 
 #include <cublasLt.h>
@@ -6,6 +26,21 @@
 
 namespace Mila::Dnn::Compute
 {
+    // Attention functions
+    void cuda_mha_forward_fp32(
+        float* out,
+        float* qkvr, float* att,
+        const float* inp,
+        int B, int T, int C, int NH,
+        cudaStream_t stream );
+
+    void cuda_mha_forward_fp16(
+        half* out,
+        half* qkvr, half* att,
+        const half* inp,
+        int B, int T, int C, int NH,
+        cudaStream_t stream );
+
     // Encoder functions
     void cuda_encoder_forward_fp32(
         float* out, const int* inp,
@@ -45,6 +80,23 @@ namespace Mila::Dnn::Compute
         const half* dout,
         const int N,
         cudaStream_t stream );
+
+	// LayerNorm functions
+    void cuda_layernorm_forward_fp32(
+        float* out,
+        float* mean, float* rstd,
+        const float* inp,
+        const float* weight, const float* bias,
+		int B, int T, int C, float epsilon,
+        cudaStream_t stream );
+
+    void cuda_layernorm_forward_fp16(
+        half* out,
+        half* mean, half* rstd,
+        const half* inp,
+        const half* weight, const half* bias,
+        int B, int T, int C, float epsilon,
+        cudaStream_t stream );
     
 	// Matmul functions
     void cuda_matmul_forward_fp32(
@@ -55,8 +107,7 @@ namespace Mila::Dnn::Compute
         cudaStream_t stream );
 
 	void cuda_matmul_forward_fp16(
-		half* out,
-		const half* inp,
+		half* out, const half* inp,
 		const half* weight, const half* bias,
 		int B, int T, int C, int OC,
 		cudaStream_t stream );
@@ -87,18 +138,3 @@ namespace Mila::Dnn::Compute
         int N,
         cudaStream_t stream );
 }
-
-void cuda_layernorm_forward(
-    float* out,
-    float* mean, float* rstd,
-    const float* inp,
-    const float* weight, const float* bias,
-    int B, int T, int C,
-    cudaStream_t  stream );
-
-void cuda_attention_forward(
-    float* out,
-    float* qkvr, float* att,
-    const float* inp,
-    int B, int T, int C, int NH,
-    cudaStream_t stream );

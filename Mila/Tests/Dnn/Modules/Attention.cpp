@@ -19,7 +19,7 @@ namespace Modules::Tests
         size_t channels;
         size_t num_heads;
         std::vector<size_t> input_shape;
-        std::shared_ptr<MultiHeadAttention<TInput, TPrecision, TDevice>> attention_module;
+        std::shared_ptr<MultiHeadAttention<TPrecision, TDevice>> attention_module;
     };
 
     class AttentionTests : public ::testing::Test {
