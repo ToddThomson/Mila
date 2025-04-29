@@ -90,8 +90,8 @@ namespace Operations::Tests
      */
     TEST_F( CudaGeluOpTests, BasicFunctionality ) {
         // Create input and output tensors
-        Tensor<float, DeviceMemoryResource> device_input( small_shape_ );
-        Tensor<float, DeviceMemoryResource> device_output( small_shape_ );
+        Tensor<float, CudaMemoryResource> device_input( small_shape_ );
+        Tensor<float, CudaMemoryResource> device_output( small_shape_ );
         Tensor<float, HostMemoryResource> host_input( small_shape_ );
         Tensor<float, HostMemoryResource> host_output( small_shape_ );
 
@@ -104,11 +104,11 @@ namespace Operations::Tests
         device_input.copyFrom( host_input );
 
         // Execute GELU operation
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state;
         OperationAttributes props;
 
-        ASSERT_NO_THROW( cuda_gelu_op_->forward( device_input, params, props, device_output, output_cache ) );
+        ASSERT_NO_THROW( cuda_gelu_op_->forward( device_input, params, props, device_output, output_state ) );
 
         // Copy result back to host
         host_output.copyFrom( device_output );
@@ -130,8 +130,8 @@ namespace Operations::Tests
      */
     TEST_F( CudaGeluOpTests, CudaCpuEquivalence ) {
         // Create input and output tensors
-        Tensor<float, DeviceMemoryResource> cuda_input( medium_shape_ );
-        Tensor<float, DeviceMemoryResource> cuda_output( medium_shape_ );
+        Tensor<float, CudaMemoryResource> cuda_input( medium_shape_ );
+        Tensor<float, CudaMemoryResource> cuda_output( medium_shape_ );
         Tensor<float, HostMemoryResource> cpu_input( medium_shape_ );
         Tensor<float, HostMemoryResource> cpu_output( medium_shape_ );
         Tensor<float, HostMemoryResource> cuda_output_host( medium_shape_ );
@@ -146,18 +146,18 @@ namespace Operations::Tests
         cuda_input.copyFrom( cpu_input );
 
         // Execute CUDA GELU operation
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> cuda_params;
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> cuda_output_cache;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> cuda_params;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> cuda_output_state;
         OperationAttributes cuda_props;
 
-        cuda_gelu_op_->forward( cuda_input, cuda_params, cuda_props, cuda_output, cuda_output_cache );
+        cuda_gelu_op_->forward( cuda_input, cuda_params, cuda_props, cuda_output, cuda_output_state );
 
         // Execute CPU GELU operation
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> cpu_params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> cpu_output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> cpu_output_state;
         OperationAttributes cpu_props;
 
-        cpu_gelu_op_->forward( cpu_input, cpu_params, cpu_props, cpu_output, cpu_output_cache );
+        cpu_gelu_op_->forward( cpu_input, cpu_params, cpu_props, cpu_output, cpu_output_state );
 
         // Copy CUDA result back to host
         cuda_output_host.copyFrom( cuda_output );
@@ -171,10 +171,10 @@ namespace Operations::Tests
      */
     //TEST_F( CudaGeluOpTests, BackwardPass ) {
     //    // Create tensors for forward and backward passes
-    //    Tensor<float, DeviceMemoryResource> input( small_shape_ );
-    //    Tensor<float, DeviceMemoryResource> output( small_shape_ );
-    //    Tensor<float, DeviceMemoryResource> output_grad( small_shape_ );
-    //    Tensor<float, DeviceMemoryResource> input_grad( small_shape_ );
+    //    Tensor<float, CudaMemoryResource> input( small_shape_ );
+    //    Tensor<float, CudaMemoryResource> output( small_shape_ );
+    //    Tensor<float, CudaMemoryResource> output_grad( small_shape_ );
+    //    Tensor<float, CudaMemoryResource> input_grad( small_shape_ );
 
     //    Tensor<float, HostMemoryResource> host_input( small_shape_ );
     //    Tensor<float, HostMemoryResource> host_output_grad( small_shape_ );
@@ -192,17 +192,17 @@ namespace Operations::Tests
     //    output_grad.copyFrom( host_output_grad );
 
     //    // Forward pass first
-    //    std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params;
-    //    std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> output_cache;
+    //    std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params;
+    //    std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state;
     //    OperationAttributes props;
 
-    //    cuda_gelu_op_->forward( input, params, props, output, output_cache );
+    //    cuda_gelu_op_->forward( input, params, props, output, output_state );
 
     //    // Backward pass
-    //    std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> param_grads;
+    //    std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> param_grads;
 
     //    ASSERT_NO_THROW( cuda_gelu_op_->backward(
-    //        input, output, output_grad, params, param_grads, input_grad, props, output_cache ) );
+    //        input, output, output_grad, params, param_grads, input_grad, props, output_state ) );
 
     //    // Copy result back to host
     //    host_input_grad.copyFrom( input_grad );
@@ -229,13 +229,13 @@ namespace Operations::Tests
      */
     TEST_F( CudaGeluOpTests, EdgeCases ) {
         // Create test tensors
-        Tensor<float, DeviceMemoryResource> device_input( small_shape_ );
-        Tensor<float, DeviceMemoryResource> device_output( small_shape_ );
+        Tensor<float, CudaMemoryResource> device_input( small_shape_ );
+        Tensor<float, CudaMemoryResource> device_output( small_shape_ );
         Tensor<float, HostMemoryResource> host_input( small_shape_ );
         Tensor<float, HostMemoryResource> host_output( small_shape_ );
 
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state;
         OperationAttributes props;
 
         // Test 1: All zeros
@@ -244,7 +244,7 @@ namespace Operations::Tests
         }
         device_input.copyFrom( host_input );
 
-        ASSERT_NO_THROW( cuda_gelu_op_->forward( device_input, params, props, device_output, output_cache ) );
+        ASSERT_NO_THROW( cuda_gelu_op_->forward( device_input, params, props, device_output, output_state ) );
 
         host_output.copyFrom( device_output );
         for ( size_t i = 0; i < host_output.size(); ++i ) {
@@ -257,7 +257,7 @@ namespace Operations::Tests
         }
         device_input.copyFrom( host_input );
 
-        ASSERT_NO_THROW( cuda_gelu_op_->forward( device_input, params, props, device_output, output_cache ) );
+        ASSERT_NO_THROW( cuda_gelu_op_->forward( device_input, params, props, device_output, output_state ) );
 
         host_output.copyFrom( device_output );
         for ( size_t i = 0; i < host_output.size(); ++i ) {
@@ -270,7 +270,7 @@ namespace Operations::Tests
         }
         device_input.copyFrom( host_input );
 
-        ASSERT_NO_THROW( cuda_gelu_op_->forward( device_input, params, props, device_output, output_cache ) );
+        ASSERT_NO_THROW( cuda_gelu_op_->forward( device_input, params, props, device_output, output_state ) );
 
         host_output.copyFrom( device_output );
         for ( size_t i = 0; i < host_output.size(); ++i ) {
@@ -283,7 +283,7 @@ namespace Operations::Tests
         }
         device_input.copyFrom( host_input );
 
-        ASSERT_NO_THROW( cuda_gelu_op_->forward( device_input, params, props, device_output, output_cache ) );
+        ASSERT_NO_THROW( cuda_gelu_op_->forward( device_input, params, props, device_output, output_state ) );
 
         host_output.copyFrom( device_output );
         for ( size_t i = 0; i < host_output.size(); ++i ) {
@@ -296,13 +296,13 @@ namespace Operations::Tests
      */
     TEST_F( CudaGeluOpTests, NumericalStability ) {
         // Create test tensors
-        Tensor<float, DeviceMemoryResource> device_input( medium_shape_ );
-        Tensor<float, DeviceMemoryResource> device_output( medium_shape_ );
+        Tensor<float, CudaMemoryResource> device_input( medium_shape_ );
+        Tensor<float, CudaMemoryResource> device_output( medium_shape_ );
         Tensor<float, HostMemoryResource> host_input( medium_shape_ );
         Tensor<float, HostMemoryResource> host_output( medium_shape_ );
 
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state;
         OperationAttributes props;
 
         // Test a variety of values: positive, negative, small, large
@@ -324,7 +324,7 @@ namespace Operations::Tests
         }
 
         device_input.copyFrom( host_input );
-        ASSERT_NO_THROW( cuda_gelu_op_->forward( device_input, params, props, device_output, output_cache ) );
+        ASSERT_NO_THROW( cuda_gelu_op_->forward( device_input, params, props, device_output, output_state ) );
         host_output.copyFrom( device_output );
 
         // Verify no NaN or Inf values
@@ -336,16 +336,16 @@ namespace Operations::Tests
      */
     TEST_F( CudaGeluOpTests, DeterministicBehavior ) {
         // Create test tensors
-        Tensor<float, DeviceMemoryResource> device_input( medium_shape_ );
-        Tensor<float, DeviceMemoryResource> device_output1( medium_shape_ );
-        Tensor<float, DeviceMemoryResource> device_output2( medium_shape_ );
+        Tensor<float, CudaMemoryResource> device_input( medium_shape_ );
+        Tensor<float, CudaMemoryResource> device_output1( medium_shape_ );
+        Tensor<float, CudaMemoryResource> device_output2( medium_shape_ );
         Tensor<float, HostMemoryResource> host_input( medium_shape_ );
         Tensor<float, HostMemoryResource> host_output1( medium_shape_ );
         Tensor<float, HostMemoryResource> host_output2( medium_shape_ );
 
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> output_cache1;
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> output_cache2;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state1;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state2;
         OperationAttributes props;
 
         // Initialize with consistent values
@@ -356,8 +356,8 @@ namespace Operations::Tests
         device_input.copyFrom( host_input );
 
         // Run twice with same input
-        cuda_gelu_op_->forward( device_input, params, props, device_output1, output_cache1 );
-        cuda_gelu_op_->forward( device_input, params, props, device_output2, output_cache2 );
+        cuda_gelu_op_->forward( device_input, params, props, device_output1, output_state1 );
+        cuda_gelu_op_->forward( device_input, params, props, device_output2, output_state2 );
 
         // Copy results back to host
         host_output1.copyFrom( device_output1 );
@@ -379,8 +379,8 @@ namespace Operations::Tests
         }
 
         // Create large test tensors
-        Tensor<float, DeviceMemoryResource> device_input( large_shape_ );
-        Tensor<float, DeviceMemoryResource> device_output( large_shape_ );
+        Tensor<float, CudaMemoryResource> device_input( large_shape_ );
+        Tensor<float, CudaMemoryResource> device_output( large_shape_ );
         Tensor<float, HostMemoryResource> host_input( large_shape_ );
 
         // Fill with random values
@@ -390,8 +390,8 @@ namespace Operations::Tests
 
         device_input.copyFrom( host_input );
 
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state;
         OperationAttributes props;
 
         // Make sure everything is ready
@@ -402,7 +402,7 @@ namespace Operations::Tests
         auto start_time = std::chrono::high_resolution_clock::now();
 
         for ( int i = 0; i < iterations; ++i ) {
-            cuda_gelu_op_->forward( device_input, params, props, device_output, output_cache );
+            cuda_gelu_op_->forward( device_input, params, props, device_output, output_state );
         }
 
         // Wait for all operations to complete

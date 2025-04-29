@@ -28,113 +28,118 @@ namespace Mila::Dnn::Compute
 {
     // Attention functions
     void cuda_mha_forward_fp32(
-        float* out,
+        float* Y,
         float* qkvr, float* att,
-        const float* inp,
+        const float* X,
         int B, int T, int C, int NH,
         cudaStream_t stream );
 
     void cuda_mha_forward_fp16(
-        half* out,
+        half* Y,
         half* qkvr, half* att,
-        const half* inp,
+        const half* X,
         int B, int T, int C, int NH,
         cudaStream_t stream );
 
     // Encoder functions
     void cuda_encoder_forward_fp32(
-        float* out, const int* inp,
+        float* Y, const int* X,
         const float* wte, const float* wpe,
         int B, int T, int C,
         cudaStream_t stream );
 
     void cuda_encoder_forward_fp16(
-        half* out, const int* inp,
+        half* Y, const int* X,
         const half* wte, const half* wpe,
         int B, int T, int C,
         cudaStream_t stream );
 
     // GELU functions
     void cuda_gelu_forward_fp32(
-        float* out,
-        const float* inp,
+        float* Y,
+        const float* X,
         int N,
         cudaStream_t stream );
 
     void cuda_gelu_backward_fp32(
-        float* dinp,
-        const float* inp,
-        const float* dout,
+        float* dX,
+        const float* X,
+        const float* dY,
         const int N,
         cudaStream_t stream );
 
     void cuda_gelu_forward_fp16(
-        half* out,
-        const half* inp,
+        half* Y,
+        const half* X,
         int N,
         cudaStream_t stream );
 
     void cuda_gelu_backward_fp16(
-        half* dinp,
-        const half* inp,
-        const half* dout,
+        half* dX,
+        const half* X,
+        const half* dY,
         const int N,
         cudaStream_t stream );
 
-	// LayerNorm functions
+    // LayerNorm functions
     void cuda_layernorm_forward_fp32(
-        float* out,
+        float* Y,
         float* mean, float* rstd,
-        const float* inp,
+        const float* X,
         const float* weight, const float* bias,
-		int B, int T, int C, float epsilon,
+        int B, int T, int C, float epsilon,
         cudaStream_t stream );
 
     void cuda_layernorm_forward_fp16(
-        half* out,
+        half* Y,
         half* mean, half* rstd,
-        const half* inp,
+        const half* X,
         const half* weight, const half* bias,
         int B, int T, int C, float epsilon,
         cudaStream_t stream );
-    
-	// Matmul functions
+
+    // Matmul functions
     void cuda_matmul_forward_fp32(
-        float* out,
-        const float* inp,
+        float* Y,
+        const float* X,
         const float* weight, const float* bias,
         int B, int T, int C, int OC,
         cudaStream_t stream );
 
-	void cuda_matmul_forward_fp16(
-		half* out, const half* inp,
-		const half* weight, const half* bias,
-		int B, int T, int C, int OC,
-		cudaStream_t stream );
-
-    // Softmax functions
-    void cuda_softmax_forward_fp32(
-        float* output,
-        const float* input,
-        int N, int C,
+    void cuda_matmul_forward_fp16(
+        half* Y, const half* X,
+        const half* weight, const half* bias,
+        int B, int T, int C, int OC,
         cudaStream_t stream );
 
-    void cuda_softmax_forward_fp16(
-        half* output,
-        const half* input,
-        int N, int C,
+    // Softmax functions
+    template <typename TPrecision>
+    void cuda_softmax_forward(
+        TPrecision* Y,
+        const TPrecision* X,
+        int N,
+        int C,
+        cudaStream_t stream );
+
+    template <typename TPrecision>
+    void cuda_softmax_forward_general(
+        TPrecision* Y,
+        const TPrecision* X,
+        int outer_size,
+        int dim_size,
+        int inner_size,
         cudaStream_t stream );
 
     // Residual functions
     void cuda_residual_forward_fp32(
-        float* out,
-        const float* inp1, const float* inp2,
+        float* Y,
+        const float* X1, const float* X2,
         int N,
         cudaStream_t stream );
 
     void cuda_residual_forward_fp16(
-        half* out,
-        const half* inp1, const half* inp2,
+        half* Y,
+        const half* X1, const half* X2,
         int N,
         cudaStream_t stream );
 }

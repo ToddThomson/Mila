@@ -133,10 +133,10 @@ int main() {
         }
 
         // Create CUDA tensors
-        Tensor<float, DeviceMemoryResource> cuda_input( input_shape );
-        auto cuda_weights = std::make_shared<Tensor<float, DeviceMemoryResource>>( weight_shape );
-        auto cuda_bias = std::make_shared<Tensor<float, DeviceMemoryResource>>( bias_shape );
-        Tensor<float, DeviceMemoryResource> cuda_output( output_shape );
+        Tensor<float, CudaMemoryResource> cuda_input( input_shape );
+        auto cuda_weights = std::make_shared<Tensor<float, CudaMemoryResource>>( weight_shape );
+        auto cuda_bias = std::make_shared<Tensor<float, CudaMemoryResource>>( bias_shape );
+        Tensor<float, CudaMemoryResource> cuda_output( output_shape );
 
         // Copy data to CUDA
         cuda_input.copyFrom( host_input );
@@ -148,20 +148,20 @@ int main() {
         auto cpu_bias = std::make_shared<Tensor<float, HostMemoryResource>>( host_bias );
 
         // Operation parameters and cache
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> cuda_params = { cuda_weights, cuda_bias };
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> cuda_output_cache;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> cuda_params = { cuda_weights, cuda_bias };
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> cuda_output_state;
 
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> cpu_params = { cpu_weights, cpu_bias };
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> cpu_output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> cpu_output_state;
 
         OperationAttributes props;
 
         // Execute operations
         std::cout << "Running CUDA FullyConnectedOp..." << std::endl;
-        cuda_fc_op->forward( cuda_input, cuda_params, props, cuda_output, cuda_output_cache );
+        cuda_fc_op->forward( cuda_input, cuda_params, props, cuda_output, cuda_output_state );
 
         std::cout << "Running CPU FullyConnectedOp..." << std::endl;
-        cpu_fc_op->forward( host_input, cpu_params, props, cpu_output, cpu_output_cache );
+        cpu_fc_op->forward( host_input, cpu_params, props, cpu_output, cpu_output_state );
 
         // Copy CUDA result back to host
         cuda_output_host.copyFrom( cuda_output );

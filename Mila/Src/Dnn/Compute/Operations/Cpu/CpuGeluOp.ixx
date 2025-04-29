@@ -60,14 +60,14 @@ namespace Mila::Dnn::Compute
          * @param parameters Parameter tensors (not used in this operation).
          * @param properties Additional operation attributes.
          * @param output The output tensor.
-         * @param output_cache Cache for intermediate results (not used).
+         * @param output_state Cache for intermediate results (not used).
          */
         void forward(
             const Tensor<float, MR>& input,
             const std::vector<std::shared_ptr<Tensor<float, MR>>>& parameters,
             const OperationAttributes& properties,
             Tensor<float, MR>& output,
-            std::vector<std::shared_ptr<Tensor<float, MR>>>& output_cache ) const override {
+            std::vector<std::shared_ptr<Tensor<float, MR>>>& output_state ) const override {
 
             // Verify we're operating on CPU memory
             if ( this->getDeviceContext()->getDevice()->getDeviceType() != DeviceType::Cpu ) {

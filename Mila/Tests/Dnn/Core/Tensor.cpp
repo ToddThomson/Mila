@@ -25,7 +25,7 @@ namespace Core::Tests{
     }
 
     TEST( TensorTest, Cuda_DefaultConstructor ) {
-        Tensor<float, Compute::DeviceMemoryResource> tensor;
+        Tensor<float, Compute::CudaMemoryResource> tensor;
         EXPECT_TRUE( tensor.empty() );
         EXPECT_EQ( tensor.size(), 0 );
         EXPECT_EQ( tensor.rank(), 0 );
@@ -33,7 +33,7 @@ namespace Core::Tests{
 
     TEST( TensorTest, ConstructorWithShape ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::DeviceMemoryResource> tensor( shape );
+        Tensor<float, Compute::CudaMemoryResource> tensor( shape );
         EXPECT_FALSE( tensor.empty() );
         EXPECT_EQ( tensor.size(), 6 );
         EXPECT_EQ( tensor.rank(), 2 );
@@ -99,20 +99,20 @@ namespace Core::Tests{
 
     TEST( TensorTest, CudaMemoryResourceProperties ) {
         // Use reflection to test properties
-        EXPECT_FALSE( (Tensor<float, Compute::DeviceMemoryResource>::is_host_accessible()) );
-        EXPECT_TRUE( (Tensor<float, Compute::DeviceMemoryResource>::is_device_accessible()) );
+        EXPECT_FALSE( (Tensor<float, Compute::CudaMemoryResource>::is_host_accessible()) );
+        EXPECT_TRUE( (Tensor<float, Compute::CudaMemoryResource>::is_device_accessible()) );
     }
 
     TEST( TensorTest, PinnedMemoryResourceProperties ) {
         // Use reflection to test properties
-        EXPECT_TRUE( (Tensor<float, Compute::PinnedMemoryResource>::is_host_accessible()) );
-        EXPECT_TRUE( (Tensor<float, Compute::PinnedMemoryResource>::is_device_accessible()) );
+        EXPECT_TRUE( (Tensor<float, Compute::CudaPinnedMemoryResource>::is_host_accessible()) );
+        EXPECT_TRUE( (Tensor<float, Compute::CudaPinnedMemoryResource>::is_device_accessible()) );
     }
 
     TEST( TensorTest, ManagedMemoryResourceProperties ) {
         // Use reflection to test properties
-        EXPECT_TRUE( (Tensor<float, Compute::ManagedMemoryResource>::is_host_accessible()) );
-        EXPECT_TRUE( (Tensor<float, Compute::ManagedMemoryResource>::is_device_accessible()) );
+        EXPECT_TRUE( (Tensor<float, Compute::CudaManagedMemoryResource>::is_host_accessible()) );
+        EXPECT_TRUE( (Tensor<float, Compute::CudaManagedMemoryResource>::is_device_accessible()) );
     }
 
     // Conversion between Memory Types
@@ -122,7 +122,7 @@ namespace Core::Tests{
         Tensor<float, Compute::HostMemoryResource> cpu_tensor( shape, 3.14f );
 
         // Convert to CUDA
-        auto cuda_tensor = cpu_tensor.to<Compute::DeviceMemoryResource>();
+        auto cuda_tensor = cpu_tensor.to<Compute::CudaMemoryResource>();
 
         EXPECT_EQ( cuda_tensor.shape(), shape );
         EXPECT_EQ( cuda_tensor.size(), 6 );
@@ -138,7 +138,7 @@ namespace Core::Tests{
 
     TEST( TensorTest, ConvertCudaToCpu ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::DeviceMemoryResource> cuda_tensor( shape, 2.71f );
+        Tensor<float, Compute::CudaMemoryResource> cuda_tensor( shape, 2.71f );
 
         // Convert to CPU
         auto cpu_tensor = cuda_tensor.to<Compute::HostMemoryResource>();
@@ -156,7 +156,7 @@ namespace Core::Tests{
 
     TEST( TensorTest, ToHostAccessible ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::DeviceMemoryResource> cuda_tensor( shape, 1.23f );
+        Tensor<float, Compute::CudaMemoryResource> cuda_tensor( shape, 1.23f );
 
         // Convert to host-accessible (should be CPU by default)
         auto host_tensor = cuda_tensor.toHostAccessible();
@@ -213,7 +213,7 @@ namespace Core::Tests{
 
     TEST( TensorTest, FillWithCudaTensor ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::DeviceMemoryResource> tensor( shape );
+        Tensor<float, Compute::CudaMemoryResource> tensor( shape );
         tensor.fill( 3.1415f );
 
         // Convert to CPU to check values
@@ -273,7 +273,7 @@ namespace Core::Tests{
 
     TEST( TensorTest, AtAndSetWithCudaTensor ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::DeviceMemoryResource> tensor( shape, 3.0f );
+        Tensor<float, Compute::CudaMemoryResource> tensor( shape, 3.0f );
 
         // Get value using at (should work by creating a CPU copy)
         auto val = tensor.at( { 0, 1 } );
@@ -298,7 +298,7 @@ namespace Core::Tests{
 
     /*TEST( TensorTest, CudaTensorVectorSpanThrows ) {
         std::vector<size_t> shape = { 6 };
-        Tensor<float, Compute::DeviceMemoryResource> tensor( shape );
+        Tensor<float, Compute::CudaMemoryResource> tensor( shape );
         EXPECT_THROW( tensor.vectorSpan(), std::runtime_error );
     }*/
 
@@ -319,7 +319,7 @@ namespace Core::Tests{
 
     /*TEST( TensorTest, CudaTensorMatrixSpanThrows ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::DeviceMemoryResource> tensor( shape );
+        Tensor<float, Compute::CudaMemoryResource> tensor( shape );
         EXPECT_THROW( tensor.matrixSpan( shape ), std::runtime_error );
     }*/
 
@@ -341,7 +341,7 @@ namespace Core::Tests{
 
     TEST( TensorTest, CopyFromCudaToCpu ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::DeviceMemoryResource> src( shape, 2.0f );
+        Tensor<float, Compute::CudaMemoryResource> src( shape, 2.0f );
         Tensor<float, Compute::HostMemoryResource> dst( shape );
 
         dst.copyFrom( src );
@@ -356,7 +356,7 @@ namespace Core::Tests{
     TEST( TensorTest, CopyFromCpuToCuda ) {
         std::vector<size_t> shape = { 2, 3 };
         Tensor<float, Compute::HostMemoryResource> src( shape, 3.0f );
-        Tensor<float, Compute::DeviceMemoryResource> dst( shape );
+        Tensor<float, Compute::CudaMemoryResource> dst( shape );
 
         dst.copyFrom( src );
 
@@ -433,7 +433,7 @@ namespace Core::Tests{
 
     TEST( TensorTest, ToStringWithCudaTensor ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::DeviceMemoryResource> tensor( shape, 1.0f );
+        Tensor<float, Compute::CudaMemoryResource> tensor( shape, 1.0f );
 
         std::string output = tensor.toString();
         EXPECT_NE( output.find( "Tensor:" ), std::string::npos );

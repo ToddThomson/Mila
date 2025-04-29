@@ -73,14 +73,14 @@ namespace Mila::Dnn::Compute
          * @param parameters Parameters tensor containing probabilities of shape [B, TDataType, V].
          * @param attributes Additional attributes for the operation.
          * @param output Output tensor to store the cross entropy losses of shape [B, TDataType].
-         * @param output_cache Cache for storing intermediate results (used in backward pass).
+         * @param output_state Cache for storing intermediate results (used in backward pass).
          */
         void forward(
             const Tensor<int, MR>& input,
             const std::vector<std::shared_ptr<Tensor<float, MR>>>& parameters,
             const OperationAttributes& attributes,
             Tensor<float, MR>& output,
-            std::vector<std::shared_ptr<Tensor<float, MR>>>& output_cache ) const override {
+            std::vector<std::shared_ptr<Tensor<float, MR>>>& output_state ) const override {
 
             auto B = input.shape()[ 0 ];
             auto T = input.shape()[ 1 ];
@@ -122,7 +122,7 @@ namespace Mila::Dnn::Compute
          * @param parameter_gradients Gradients for parameters (probabilities).
          * @param input_gradient Gradient of the loss with respect to the input (unused for integer targets).
          * @param attributes Additional attributes for the operation.
-         * @param output_cache Cache tensors from forward pass.
+         * @param output_state Cache tensors from forward pass.
          */
         void backward(
             const Tensor<int, MR>& input,
@@ -132,7 +132,7 @@ namespace Mila::Dnn::Compute
             std::vector<std::shared_ptr<Tensor<float, MR>>>& parameter_gradients,
             Tensor<int, MR>& input_gradient,
             const OperationAttributes& attributes,
-            const std::vector<std::shared_ptr<Tensor<float, MR>>>& output_cache ) const {
+            const std::vector<std::shared_ptr<Tensor<float, MR>>>& output_state ) const {
 
             // Verify we're operating on CPU memory
             if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cpu ) ) {
@@ -172,7 +172,7 @@ namespace Mila::Dnn::Compute
             float* dlogits,
             const float* dlosses,
             const float* probs,
-            const Tensor<int, HostMemoryResource>& targets,
+            const Tensor<int, CpuMemoryResource>& targets,
             int B, int T, int V, int Vp ) const {
 
             // Backwards through both softmax and crossentropy

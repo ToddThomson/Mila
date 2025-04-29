@@ -27,10 +27,10 @@ namespace Mila::Dnn::Compute
          */
         explicit DynamicMemoryResource( Compute::DeviceType device_type = Compute::DeviceType::Cuda ) {
             if ( device_type == Compute::DeviceType::Cuda ) {
-                resource_variant_ = Compute::DeviceMemoryResource{};
+                resource_variant_ = Compute::CudaMemoryResource{};
             }
             else {
-                resource_variant_ = Compute::HostMemoryResource{};
+                resource_variant_ = Compute::CpuMemoryResource{};
             }
         }
 
@@ -101,6 +101,6 @@ namespace Mila::Dnn::Compute
         }
 
     private:
-        std::variant<Compute::HostMemoryResource, Compute::DeviceMemoryResource> resource_variant_;
+        std::variant<Compute::CpuMemoryResource, Compute::CudaMemoryResource> resource_variant_;
     };
 }

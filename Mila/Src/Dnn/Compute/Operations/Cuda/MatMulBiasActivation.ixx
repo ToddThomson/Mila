@@ -86,14 +86,14 @@ namespace Mila::Dnn::Compute
          *                   - parameters[1]: Bias tensor of shape [N]
          * @param properties Additional attributes for the operation.
          * @param output Output tensor of shape [B, S, N] to store the result.
-         * @param output_cache Cache for intermediate results (not used in this operation).
+         * @param output_state Cache for intermediate results (not used in this operation).
          */
         void forward(
             const Tensor<TPrecision, MR>& input,
             const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
             const OperationAttributes& properties,
             Tensor<TPrecision, MR>& output,
-            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const override {
+            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const override {
 
             if ( parameters.size() < 2 ) {
                 throw std::runtime_error( "CudaMatMulBiasGeluOp requires at least 2 parameters (weights and bias)" );
@@ -137,7 +137,7 @@ namespace Mila::Dnn::Compute
          * @param parameter_gradients Gradients for parameters [d_weights, d_bias].
          * @param input_gradient Gradient of the loss with respect to the input.
          * @param properties Additional attributes for the operation.
-         * @param output_cache Cache tensors from forward pass.
+         * @param output_state Cache tensors from forward pass.
          */
         void backward(
             const Tensor<TPrecision, MR>& input,
@@ -147,7 +147,7 @@ namespace Mila::Dnn::Compute
             std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameter_gradients,
             Tensor<TPrecision, MR>& input_gradient,
             const OperationAttributes& properties,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const {
+            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const {
 
             if ( parameters.size() < 2 || parameter_gradients.size() < 2 ) {
                 throw std::runtime_error( "CudaMatMulBiasGeluOp backward requires weights, bias and their gradients" );

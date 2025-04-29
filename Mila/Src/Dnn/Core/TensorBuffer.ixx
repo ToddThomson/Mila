@@ -51,7 +51,7 @@ namespace Mila::Dnn
 		 */
 		template<typename MR>
 		constexpr size_t get_alignment() {
-			if constexpr ( std::is_same_v<MR, Compute::DeviceMemoryResource> ) {
+			if constexpr ( std::is_same_v<MR, Compute::CudaMemoryResource> ) {
 				return CUDA_WARP_SIZE * sizeof( float ); // Typical tensor element size
 			}
 			else {
@@ -83,7 +83,7 @@ namespace Mila::Dnn
 	 * TensorBuffer<float, Compute::HostMemoryResource> cpuBuffer(100, 0.0f);
 	 *
 	 * // Create a GPU buffer with 100 floats
-	 * TensorBuffer<float, Compute::DeviceMemoryResource> gpuBuffer(100);
+	 * TensorBuffer<float, Compute::CudaMemoryResource> gpuBuffer(100);
 	 * @endcode
 	 */
 	export template <typename T, typename MR, bool TrackMemory = true>
@@ -214,7 +214,7 @@ namespace Mila::Dnn
 			if ( data_ ) {
 				// Copy existing data if needed
 				size_t copy_size = std::min( size_, new_size ) * sizeof( T );
-				if constexpr ( std::is_same_v<MR, Compute::HostMemoryResource> ) {
+				if constexpr ( std::is_same_v<MR, Compute::CpuMemoryResource> ) {
 					std::memcpy( new_data, data_, copy_size );
 				}
 				else {

@@ -292,8 +292,8 @@ namespace Operations::Tests
      */
     TYPED_TEST( CudaSoftmaxOpPrecisionTests, BasicFunctionalityLastAxis ) {
         // Create input and output tensors
-        Tensor<float, DeviceMemoryResource> device_input( this->small_shape_ );
-        Tensor<TypeParam, DeviceMemoryResource> device_output( this->small_shape_ );
+        Tensor<float, CudaMemoryResource> device_input( this->small_shape_ );
+        Tensor<TypeParam, CudaMemoryResource> device_output( this->small_shape_ );
 
         Tensor<float, HostMemoryResource> host_input( this->small_shape_ );
         Tensor<float, HostMemoryResource> host_output( this->small_shape_ );
@@ -308,13 +308,13 @@ namespace Operations::Tests
         device_input.copyFrom( host_input );
 
         // Execute operation
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<TypeParam, DeviceMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params;
+        std::vector<std::shared_ptr<Tensor<TypeParam, CudaMemoryResource>>> output_state;
         OperationAttributes props;
         props.axis = 2;  // Last dimension
 
         ASSERT_NO_THROW( this->cuda_softmax_op_->forward(
-            device_input, params, props, device_output, output_cache ) );
+            device_input, params, props, device_output, output_state ) );
 
         // Copy result back to host (convert to float if needed)
         if constexpr ( std::is_same_v<TypeParam, float> ) {
@@ -322,7 +322,7 @@ namespace Operations::Tests
         }
         else {
             // Need to convert half to float for comparison
-            Tensor<float, DeviceMemoryResource> float_output( this->small_shape_ );
+            Tensor<float, CudaMemoryResource> float_output( this->small_shape_ );
             // Use appropriate conversion kernel or helper function
             // This is a placeholder - actual implementation would depend on your project's utility functions
             // convert_half_to_float(float_output.data(), device_output.data(), float_output.size(), this->cuda_context_->getStream());
@@ -347,8 +347,8 @@ namespace Operations::Tests
      */
     TYPED_TEST( CudaSoftmaxOpPrecisionTests, NegativeAxisIndex ) {
         // Create input and output tensors
-        Tensor<float, DeviceMemoryResource> device_input( this->small_shape_ );
-        Tensor<TypeParam, DeviceMemoryResource> device_output( this->small_shape_ );
+        Tensor<float, CudaMemoryResource> device_input( this->small_shape_ );
+        Tensor<TypeParam, CudaMemoryResource> device_output( this->small_shape_ );
 
         Tensor<float, HostMemoryResource> host_input( this->small_shape_ );
         Tensor<float, HostMemoryResource> host_output( this->small_shape_ );
@@ -363,13 +363,13 @@ namespace Operations::Tests
         device_input.copyFrom( host_input );
 
         // Execute operation with negative axis (-1 refers to the last dimension)
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<TypeParam, DeviceMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params;
+        std::vector<std::shared_ptr<Tensor<TypeParam, CudaMemoryResource>>> output_state;
         OperationAttributes props;
         props.axis = -1;  // Last dimension, equivalent to 2 for 3D tensor
 
         ASSERT_NO_THROW( this->cuda_softmax_op_->forward(
-            device_input, params, props, device_output, output_cache ) );
+            device_input, params, props, device_output, output_state ) );
 
         // Copy result back to host (convert if needed)
         if constexpr ( std::is_same_v<TypeParam, float> ) {
@@ -377,7 +377,7 @@ namespace Operations::Tests
         }
         else {
             // Need to convert half to float for comparison
-            Tensor<float, DeviceMemoryResource> float_output( this->small_shape_ );
+            Tensor<float, CudaMemoryResource> float_output( this->small_shape_ );
             // convert_half_to_float(float_output.data(), device_output.data(), float_output.size(), this->cuda_context_->getStream());
             host_output.copyFrom( float_output );
         }
@@ -400,8 +400,8 @@ namespace Operations::Tests
      */
     TYPED_TEST( CudaSoftmaxOpPrecisionTests, MiddleAxisFunctionality ) {
         // Create input and output tensors
-        Tensor<float, DeviceMemoryResource> device_input( this->small_shape_ );
-        Tensor<TypeParam, DeviceMemoryResource> device_output( this->small_shape_ );
+        Tensor<float, CudaMemoryResource> device_input( this->small_shape_ );
+        Tensor<TypeParam, CudaMemoryResource> device_output( this->small_shape_ );
 
         Tensor<float, HostMemoryResource> host_input( this->small_shape_ );
         Tensor<float, HostMemoryResource> host_output( this->small_shape_ );
@@ -416,13 +416,13 @@ namespace Operations::Tests
         device_input.copyFrom( host_input );
 
         // Execute operation with middle axis
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<TypeParam, DeviceMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params;
+        std::vector<std::shared_ptr<Tensor<TypeParam, CudaMemoryResource>>> output_state;
         OperationAttributes props;
         props.axis = 1;  // Middle dimension (sequence_length)
 
         ASSERT_NO_THROW( this->cuda_softmax_op_->forward(
-            device_input, params, props, device_output, output_cache ) );
+            device_input, params, props, device_output, output_state ) );
 
         // Copy result back to host (convert if needed)
         if constexpr ( std::is_same_v<TypeParam, float> ) {
@@ -430,7 +430,7 @@ namespace Operations::Tests
         }
         else {
             // Need to convert half to float for comparison
-            Tensor<float, DeviceMemoryResource> float_output( this->small_shape_ );
+            Tensor<float, CudaMemoryResource> float_output( this->small_shape_ );
             // convert_half_to_float(float_output.data(), device_output.data(), float_output.size(), this->cuda_context_->getStream());
             host_output.copyFrom( float_output );
         }
@@ -453,8 +453,8 @@ namespace Operations::Tests
      */
     TYPED_TEST( CudaSoftmaxOpPrecisionTests, FirstAxisFunctionality ) {
         // Create input and output tensors
-        Tensor<float, DeviceMemoryResource> device_input( this->small_shape_ );
-        Tensor<TypeParam, DeviceMemoryResource> device_output( this->small_shape_ );
+        Tensor<float, CudaMemoryResource> device_input( this->small_shape_ );
+        Tensor<TypeParam, CudaMemoryResource> device_output( this->small_shape_ );
 
         Tensor<float, HostMemoryResource> host_input( this->small_shape_ );
         Tensor<float, HostMemoryResource> host_output( this->small_shape_ );
@@ -469,13 +469,13 @@ namespace Operations::Tests
         device_input.copyFrom( host_input );
 
         // Execute operation with first axis
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<TypeParam, DeviceMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params;
+        std::vector<std::shared_ptr<Tensor<TypeParam, CudaMemoryResource>>> output_state;
         OperationAttributes props;
         props.axis = 0;  // First dimension (batch)
 
         ASSERT_NO_THROW( this->cuda_softmax_op_->forward(
-            device_input, params, props, device_output, output_cache ) );
+            device_input, params, props, device_output, output_state ) );
 
         // Copy result back to host (convert if needed)
         if constexpr ( std::is_same_v<TypeParam, float> ) {
@@ -483,7 +483,7 @@ namespace Operations::Tests
         }
         else {
             // Need to convert half to float for comparison
-            Tensor<float, DeviceMemoryResource> float_output( this->small_shape_ );
+            Tensor<float, CudaMemoryResource> float_output( this->small_shape_ );
             // convert_half_to_float(float_output.data(), device_output.data(), float_output.size(), this->cuda_context_->getStream());
             host_output.copyFrom( float_output );
         }
@@ -506,8 +506,8 @@ namespace Operations::Tests
      */
     TYPED_TEST( CudaSoftmaxOpPrecisionTests, TwoDimensionalTensor ) {
         // Create 2D test tensors (batch_size x features)
-        Tensor<float, DeviceMemoryResource> device_input( this->shape_2d_ );
-        Tensor<TypeParam, DeviceMemoryResource> device_output( this->shape_2d_ );
+        Tensor<float, CudaMemoryResource> device_input( this->shape_2d_ );
+        Tensor<TypeParam, CudaMemoryResource> device_output( this->shape_2d_ );
 
         Tensor<float, HostMemoryResource> host_input( this->shape_2d_ );
         Tensor<float, HostMemoryResource> host_output( this->shape_2d_ );
@@ -522,13 +522,13 @@ namespace Operations::Tests
         device_input.copyFrom( host_input );
 
         // Execute operation
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<TypeParam, DeviceMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params;
+        std::vector<std::shared_ptr<Tensor<TypeParam, CudaMemoryResource>>> output_state;
         OperationAttributes props;
         props.axis = 1;  // Features dimension (commonly used for classification)
 
         ASSERT_NO_THROW( this->cuda_softmax_op_->forward(
-            device_input, params, props, device_output, output_cache ) );
+            device_input, params, props, device_output, output_state ) );
 
         // Copy result back to host (convert if needed)
         if constexpr ( std::is_same_v<TypeParam, float> ) {
@@ -536,7 +536,7 @@ namespace Operations::Tests
         }
         else {
             // Need to convert half to float for comparison
-            Tensor<float, DeviceMemoryResource> float_output( this->shape_2d_ );
+            Tensor<float, CudaMemoryResource> float_output( this->shape_2d_ );
             // convert_half_to_float(float_output.data(), device_output.data(), float_output.size(), this->cuda_context_->getStream());
             host_output.copyFrom( float_output );
         }
@@ -559,8 +559,8 @@ namespace Operations::Tests
      */
     TYPED_TEST( CudaSoftmaxOpPrecisionTests, SpecialValues ) {
         // Create input and output tensors
-        Tensor<float, DeviceMemoryResource> device_input( this->small_shape_ );
-        Tensor<TypeParam, DeviceMemoryResource> device_output( this->small_shape_ );
+        Tensor<float, CudaMemoryResource> device_input( this->small_shape_ );
+        Tensor<TypeParam, CudaMemoryResource> device_output( this->small_shape_ );
 
         Tensor<float, HostMemoryResource> host_input( this->small_shape_ );
         Tensor<float, HostMemoryResource> host_output( this->small_shape_ );
@@ -611,13 +611,13 @@ namespace Operations::Tests
             }
 
             // Execute operation
-            std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params;
-            std::vector<std::shared_ptr<Tensor<TypeParam, DeviceMemoryResource>>> output_cache;
+            std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params;
+            std::vector<std::shared_ptr<Tensor<TypeParam, CudaMemoryResource>>> output_state;
             OperationAttributes props;
             props.axis = axis;
 
             ASSERT_NO_THROW( this->cuda_softmax_op_->forward(
-                device_input, params, props, device_output, output_cache ) );
+                device_input, params, props, device_output, output_state ) );
 
             // Copy result back to host (convert if needed)
             if constexpr ( std::is_same_v<TypeParam, float> ) {
@@ -625,7 +625,7 @@ namespace Operations::Tests
             }
             else {
                 // Need to convert half to float for comparison
-                Tensor<float, DeviceMemoryResource> float_output( this->small_shape_ );
+                Tensor<float, CudaMemoryResource> float_output( this->small_shape_ );
                 // convert_half_to_float(float_output.data(), device_output.data(), float_output.size(), this->cuda_context_->getStream());
                 host_output.copyFrom( float_output );
             }
@@ -649,8 +649,8 @@ namespace Operations::Tests
      */
     TYPED_TEST( CudaSoftmaxOpPrecisionTests, NumericalStability ) {
         // Create test tensors
-        Tensor<float, DeviceMemoryResource> device_input( this->medium_shape_ );
-        Tensor<TypeParam, DeviceMemoryResource> device_output( this->medium_shape_ );
+        Tensor<float, CudaMemoryResource> device_input( this->medium_shape_ );
+        Tensor<TypeParam, CudaMemoryResource> device_output( this->medium_shape_ );
 
         Tensor<float, HostMemoryResource> host_input( this->medium_shape_ );
         Tensor<float, HostMemoryResource> host_output( this->medium_shape_ );
@@ -709,13 +709,13 @@ namespace Operations::Tests
             }
 
             // Execute operation
-            std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params;
-            std::vector<std::shared_ptr<Tensor<TypeParam, DeviceMemoryResource>>> output_cache;
+            std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params;
+            std::vector<std::shared_ptr<Tensor<TypeParam, CudaMemoryResource>>> output_state;
             OperationAttributes props;
             props.axis = axis;
 
             ASSERT_NO_THROW( this->cuda_softmax_op_->forward(
-                device_input, params, props, device_output, output_cache ) );
+                device_input, params, props, device_output, output_state ) );
 
             // Copy result back to host (convert if needed)
             if constexpr ( std::is_same_v<TypeParam, float> ) {
@@ -723,7 +723,7 @@ namespace Operations::Tests
             }
             else {
                 // Need to convert half to float for comparison
-                Tensor<float, DeviceMemoryResource> float_output( this->medium_shape_ );
+                Tensor<float, CudaMemoryResource> float_output( this->medium_shape_ );
                 // convert_half_to_float(float_output.data(), device_output.data(), float_output.size(), this->cuda_context_->getStream());
                 host_output.copyFrom( float_output );
             }
@@ -741,8 +741,8 @@ namespace Operations::Tests
      */
     TYPED_TEST( CudaSoftmaxOpPrecisionTests, InvalidAxis ) {
         // Create test tensors
-        Tensor<float, DeviceMemoryResource> device_input( this->small_shape_ );
-        Tensor<TypeParam, DeviceMemoryResource> device_output( this->small_shape_ );
+        Tensor<float, CudaMemoryResource> device_input( this->small_shape_ );
+        Tensor<TypeParam, CudaMemoryResource> device_output( this->small_shape_ );
 
         // Initialize input with test values
         Tensor<float, HostMemoryResource> host_input( this->small_shape_ );
@@ -752,20 +752,20 @@ namespace Operations::Tests
         device_input.copyFrom( host_input );
 
         // Setup for operation execution
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<TypeParam, DeviceMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params;
+        std::vector<std::shared_ptr<Tensor<TypeParam, CudaMemoryResource>>> output_state;
 
         // Test with out-of-bounds positive axis
         OperationAttributes props_pos;
         props_pos.axis = this->small_shape_.size();  // Out of bounds (valid: 0,1,2)
         EXPECT_THROW( this->cuda_softmax_op_->forward(
-            device_input, params, props_pos, device_output, output_cache ), std::runtime_error );
+            device_input, params, props_pos, device_output, output_state ), std::runtime_error );
 
         // Test with out-of-bounds negative axis
         OperationAttributes props_neg;
         props_neg.axis = -static_cast<int>(this->small_shape_.size()) - 1;  // Out of bounds (valid: -1,-2,-3)
         EXPECT_THROW( this->cuda_softmax_op_->forward(
-            device_input, params, props_neg, device_output, output_cache ), std::runtime_error );
+            device_input, params, props_neg, device_output, output_state ), std::runtime_error );
     }
 
     /**
@@ -778,8 +778,8 @@ namespace Operations::Tests
         }
 
         // Create large test tensors
-        Tensor<float, DeviceMemoryResource> device_input( this->large_shape_ );
-        Tensor<TypeParam, DeviceMemoryResource> device_output( this->large_shape_ );
+        Tensor<float, CudaMemoryResource> device_input( this->large_shape_ );
+        Tensor<TypeParam, CudaMemoryResource> device_output( this->large_shape_ );
 
         Tensor<float, HostMemoryResource> host_input( this->large_shape_ );
 
@@ -795,8 +795,8 @@ namespace Operations::Tests
         std::vector<int> test_axes = { 0, 1, 2, -1 };
 
         for ( int axis : test_axes ) {
-            std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params;
-            std::vector<std::shared_ptr<Tensor<TypeParam, DeviceMemoryResource>>> output_cache;
+            std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params;
+            std::vector<std::shared_ptr<Tensor<TypeParam, CudaMemoryResource>>> output_state;
             OperationAttributes props;
             props.axis = axis;
 
@@ -808,7 +808,7 @@ namespace Operations::Tests
             auto start_time = std::chrono::high_resolution_clock::now();
 
             for ( int i = 0; i < iterations; ++i ) {
-                this->cuda_softmax_op_->forward( device_input, params, props, device_output, output_cache );
+                this->cuda_softmax_op_->forward( device_input, params, props, device_output, output_state );
             }
 
             // Wait for all operations to complete
@@ -913,10 +913,10 @@ namespace Operations::Tests
         std::vector<size_t> shape = { 16, 32, 1024 }; // Large shape for significant performance difference
 
         // Create tensors
-        Tensor<float, DeviceMemoryResource> input( shape );
-        Tensor<half, DeviceMemoryResource> input_half( shape );
-        Tensor<float, DeviceMemoryResource> output_fp32( shape );
-        Tensor<half, DeviceMemoryResource> output_fp16( shape );
+        Tensor<float, CudaMemoryResource> input( shape );
+        Tensor<half, CudaMemoryResource> input_half( shape );
+        Tensor<float, CudaMemoryResource> output_fp32( shape );
+        Tensor<half, CudaMemoryResource> output_fp16( shape );
         Tensor<float, HostMemoryResource> host_input( shape );
 
         // Fill with random data
@@ -932,10 +932,10 @@ namespace Operations::Tests
 
         for ( int axis : test_axes ) {
             // Setup parameters
-            std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params;
-            std::vector<std::shared_ptr<Tensor<half, DeviceMemoryResource>>> params_fp16;
-            std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> cache_fp32;
-            std::vector<std::shared_ptr<Tensor<half, DeviceMemoryResource>>> cache_fp16;
+            std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params;
+            std::vector<std::shared_ptr<Tensor<half, CudaMemoryResource>>> params_fp16;
+            std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> cache_fp32;
+            std::vector<std::shared_ptr<Tensor<half, CudaMemoryResource>>> cache_fp16;
             OperationAttributes props;
             props.axis = axis;
 

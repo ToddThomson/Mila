@@ -19,7 +19,7 @@ namespace Mila::Dnn::Compute
 	/**
 	* @brief A memory resource for CPU memory allocation.
 	*/
-	export class HostMemoryResource : public MemoryResource {
+	export class CpuMemoryResource : public MemoryResource {
 	public:
 		/**
 		* @brief Indicates if the memory resource is accessible by the CPU.
@@ -83,4 +83,15 @@ namespace Mila::Dnn::Compute
 			return this == &other;
 		}
 	};
+
+	/**
+	* @brief Alias for CpuMemoryResource that represents host-accessible memory.
+	*
+	* This alias provides a semantic name that describes the memory's accessibility
+	* characteristics rather than its implementation details. Use HostMemoryResource
+	* when you need memory that can be directly accessed from host (CPU) code.
+	*
+	* @see CpuMemoryResource
+	*/
+	export using HostMemoryResource = CpuMemoryResource;
 }

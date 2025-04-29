@@ -34,6 +34,10 @@ namespace Mila::Dnn
         requires ValidTensorType<TPrecision>
     class MultiHeadAttention : public Module<TPrecision> {
     public:
+
+		using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>; ///< Memory resource type based on device type
+		using ModuleBase = Module<TPrecision>; ///< Base class type for the module
+
         /**
          * @brief Constructs a new MultiHeadAttention module with the default device context.
          *
@@ -42,10 +46,9 @@ namespace Mila::Dnn
          * @param num_heads The number of attention heads.
          * @param is_training Whether the module is initially in training mode. Default is false.
          */
-        MultiHeadAttention( std::string name, const std::vector<size_t>& input_shape, size_t num_heads, bool is_training = false )
-            : Module<TPrecision>(),
-            input_shape_{ input_shape },
-            num_heads_{ num_heads } {
+        MultiHeadAttention( std::string name, std::string device_name,
+            const std::vector<size_t>& input_shape, size_t num_heads, bool is_training = false )
+            : ModuleBase( device_name ), input_shape_{ input_shape }, num_heads_{ num_heads } {
             this->setTraining( is_training );
             this->setName( name );
             initializeTensors();
@@ -61,11 +64,9 @@ namespace Mila::Dnn
          * @param context The device context to use for this module.
          * @param is_training Whether the module is initially in training mode. Default is false.
          */
-        MultiHeadAttention( std::string name, const std::vector<size_t>& input_shape, size_t num_heads,
-            std::shared_ptr<DeviceContext> context, bool is_training = false )
-            : Module<TPrecision>( context ),
-            input_shape_{ input_shape },
-            num_heads_{ num_heads } {
+        MultiHeadAttention( std::string name, std::shared_ptr<DeviceContext> context,
+            const std::vector<size_t>& input_shape, size_t num_heads, bool is_training = false )
+            : ModuleBase( context ), input_shape_{ input_shape }, num_heads_{ num_heads } {
             this->setTraining( is_training );
             this->setName( name );
             initializeTensors();
@@ -87,8 +88,7 @@ namespace Mila::Dnn
          * @param input The input tensor to be processed.
          * @param output The output tensor where the results will be stored.
          */
-        template<typename TMR>
-        void forward( const Tensor<TPrecision, TMR>& input, Tensor<TPrecision, TMR>& output ) {
+        void forward( const Tensor<TPrecision, MR>& input, Tensor<TPrecision, MR>& output ) const override {
             operation_->forward( input, parameters_, properties_, output, output_state_ );
         }
 
@@ -134,17 +134,6 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-    protected:
-        /**
-         * @brief Called when the device context changes.
-         *
-         * Recreates tensors and operations for the new device.
-         */
-        void onDeviceChanged() override {
-            initializeTensors();
-            createOperation();
-        }
-
     private:
         std::vector<size_t> input_shape_; ///< The input shape.
         size_t num_heads_{ 0 }; ///< The number of attention heads.
@@ -167,7 +156,7 @@ namespace Mila::Dnn
         /**
          * @brief The underlying operation that implements the multi-head attention.
          */
-        std::shared_ptr<UnaryOperation<TPrecision, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TPrecision, TPrecision, TDeviceType>> operation_{ nullptr };
 
         /**
          * @brief Initializes the tensors needed for the MultiHeadAttention operation.
@@ -184,20 +173,20 @@ namespace Mila::Dnn
 
             // preatt, att are (B, NH, TDataType, TDataType). NH = number of heads, TDataType = sequence length
             if ( device_type == DeviceType::Cpu ) {
-                pre_attn_ = std::make_shared<Tensor<TPrecision, Compute::HostMemoryResource>>(
+                pre_attn_ = std::make_shared<Tensor<TPrecision, Compute::CpuMemoryResource>>(
                     std::vector<size_t>{batch_size, num_heads_, sequence_length, sequence_length} );
                 pre_attn_->setName( this->getName() + ".pre_attn" );
 
-                attn_ = std::make_shared<Tensor<TPrecision, Compute::HostMemoryResource>>(
+                attn_ = std::make_shared<Tensor<TPrecision, Compute::CpuMemoryResource>>(
                     std::vector<size_t>{batch_size, num_heads_, sequence_length, sequence_length} );
                 attn_->setName( this->getName() + ".attn" );
             }
             else {
-                pre_attn_ = std::make_shared<Tensor<TPrecision, Compute::DeviceMemoryResource>>(
+                pre_attn_ = std::make_shared<Tensor<TPrecision, Compute::CudaMemoryResource>>(
                     std::vector<size_t>{batch_size, num_heads_, sequence_length, sequence_length} );
                 pre_attn_->setName( this->getName() + ".pre_attn" );
 
-                attn_ = std::make_shared<Tensor<TPrecision, Compute::DeviceMemoryResource>>(
+                attn_ = std::make_shared<Tensor<TPrecision, Compute::CudaMemoryResource>>(
                     std::vector<size_t>{batch_size, num_heads_, sequence_length, sequence_length} );
                 attn_->setName( this->getName() + ".attn" );
             }
@@ -214,20 +203,17 @@ namespace Mila::Dnn
          * @brief Creates the appropriate MultiHeadAttention operation based on the current device context.
          */
         void createOperation() {
-            // Get the device type from the context
-            auto device_type = this->getDeviceContext()->getDevice()->getDeviceType();
-
-            if ( operation_ ) {
-                operation_.reset(); // Clear existing operation
-            }
-
-            if ( device_type == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cpu>( "Cpu::MultiHeadAttentionOp" );
-                operation_ = std::static_pointer_cast<UnaryOperation<TPrecision, TPrecision>>(base_op);
+            if constexpr ( TDeviceType == DeviceType::Cpu ) {
+                auto base_op = OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cpu>(
+                    "Cpu::MultiHeadAttentionOp",
+                    this->getDeviceContext() );
+                operation_ = std::static_pointer_cast<UnaryOperation<TPrecision, TPrecision, TDeviceType>>(base_op);
             }
             else {
-                auto base_op = OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cuda>( "Cuda::MultiHeadAttentionOp" );
-                operation_ = std::static_pointer_cast<UnaryOperation<TPrecision, TPrecision>>(base_op);
+                auto base_op = OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cuda>(
+                    "Cuda::MultiHeadAttentionOp",
+                    this->getDeviceContext() );
+                operation_ = std::static_pointer_cast<UnaryOperation<TPrecision, TPrecision, TDeviceType>>(base_op);
             }
         }
     };

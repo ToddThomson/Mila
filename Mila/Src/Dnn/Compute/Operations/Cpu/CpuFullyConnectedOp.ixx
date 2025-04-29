@@ -214,12 +214,11 @@ namespace Mila::Dnn::Compute
          * @param C Input feature dimension.
          * @param OC Output feature dimension.
          */
-        template<typename TMR>
         void forward_naive(
-            const Tensor<float, TMR>& input,
-            const std::shared_ptr<Tensor<float, TMR>>& weight,
-            const std::shared_ptr<Tensor<float, TMR>>& bias,
-            Tensor<float, TMR>& output,
+            const Tensor<float, MR>& input,
+            const std::shared_ptr<Tensor<float, MR>>& weight,
+            const std::shared_ptr<Tensor<float, MR>>& bias,
+            Tensor<float, MR>& output,
             int B, int T, int C, int OC ) const {
 
             // The most naive implementation of matrix multiplication

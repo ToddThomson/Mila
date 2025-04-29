@@ -53,7 +53,11 @@ namespace Mila::Dnn::Compute
             // indicating that this data will not be reused soon, and can be streamed through the caches
             // this allows the threads to get more cache-hits for the (shared) weight and bias parameters
             float n = s * (__ldcs( x + c ) - m);
-            __stcs( y + c, n * weight[ c ] + bias[ c ] );
+            float result = n * weight[ c ];
+            if ( bias != nullptr ) {
+				result += bias[ c ];
+            }
+            __stcs( y + c, result );
         }
     }
 
@@ -102,40 +106,40 @@ namespace Mila::Dnn::Compute
             float xval = __half2float( __ldcs( x + c ) );
             float normalized = s * (xval - m);
             float wval = __half2float( weight[ c ] );
-            float bval = __half2float( bias[ c ] );
-            __stcs( y + c, __float2half( normalized * wval + bval ) );
+            float result = normalized * wval;
+            if ( bias != nullptr ) {
+                float bval = __half2float( bias[ c ] );
+                result += bval;
+            }
+            __stcs( y + c, __float2half( result ) );
         }
     }
 
     void cuda_layernorm_forward_fp32(
-        float* Y,
-        float* mean, float* rstd,
-        const float* X,
-        const float* weight, const float* bias,
+        float* Y, float* mean, float* rstd,
+        const float* X, const float* weight, const float* bias,
         int B, int T, int C, float epsilon,
         cudaStream_t stream ) {
         const int block_size = 512;
         const int N = B * T;
         const int grid_size = ceil_div( N * 32, block_size );
 
-        layernorm_forward_fp32_kernel << <grid_size, block_size, 0, stream >> > (
+        layernorm_forward_fp32_kernel <<<grid_size, block_size, 0, stream >>> (
             Y, mean, rstd, X, weight, bias, N, C, epsilon);
 
         cudaCheck( cudaGetLastError() );
     }
 
     void cuda_layernorm_forward_fp16(
-        half* Y,
-        half* mean, half* rstd,
-        const half* X,
-        const half* weight, const half* bias,
+        half* Y, half* mean, half* rstd,
+        const half* X, const half* weight, const half* bias,
         int B, int T, int C, float epsilon,
         cudaStream_t stream ) {
         const int block_size = 512;
         const int N = B * T;
         const int grid_size = ceil_div( N * 32, block_size );
 
-        layernorm_forward_fp16_kernel << <grid_size, block_size, 0, stream >> > (
+        layernorm_forward_fp16_kernel <<<grid_size, block_size, 0, stream >>> (
             Y, mean, rstd, X, weight, bias, N, C, epsilon);
 
         cudaCheck( cudaGetLastError() );

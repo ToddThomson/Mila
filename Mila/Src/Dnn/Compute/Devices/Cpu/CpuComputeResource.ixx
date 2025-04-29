@@ -11,15 +11,15 @@ namespace Mila::Dnn::Compute
     export class HostComputeResource : public ComputeResource {
     public:
 		
-        using MemoryResource = HostMemoryResource;
+        using MemoryResource = CpuMemoryResource;
 
-        HostComputeResource() : memory_resource_( std::make_shared<HostMemoryResource>() ) {}
+        HostComputeResource() : memory_resource_( std::make_shared<CpuMemoryResource>() ) {}
 
-        std::shared_ptr<HostMemoryResource> getMemoryResource() const {
+        std::shared_ptr<CpuMemoryResource> getMemoryResource() const {
             return memory_resource_;
         }
 
     private:
-        std::shared_ptr<HostMemoryResource> memory_resource_;
+        std::shared_ptr<CpuMemoryResource> memory_resource_;
     };
 }

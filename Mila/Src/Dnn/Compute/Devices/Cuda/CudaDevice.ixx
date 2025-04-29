@@ -33,11 +33,11 @@ namespace Mila::Dnn::Compute
 	export class CudaDevice : public ComputeDevice {
 	public:
 		/** @brief Type alias for device memory resource */
-		using MR = DeviceMemoryResource;
+		using MR = CudaMemoryResource;
 		/** @brief Type alias for pinned memory resource */
-		using PINNED_MR = PinnedMemoryResource;
+		using PINNED_MR = CudaPinnedMemoryResource;
 		/** @brief Type alias for managed memory resource */
-		using MANAGED_MR = ManagedMemoryResource;
+		using MANAGED_MR = CudaManagedMemoryResource;
 
 		/**
 		 * @brief Constructs a CudaDevice with specified device ID.

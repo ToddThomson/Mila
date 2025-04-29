@@ -1,6 +1,7 @@
 ﻿add_library( Mila STATIC
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaUtils.h"
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaOps.h"
+
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaEncoder.cu"
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaLayerNorm.cu"
 
@@ -11,7 +12,6 @@
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaGelu.cu"
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaResidual.cu"
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaSoftmax.cu"
-	
  )
 
 set_target_properties( Mila PROPERTIES
@@ -77,6 +77,8 @@ PUBLIC
 		"Src/Dnn/Modules/Layers/Encoder.ixx"
 		"Src/Dnn/Modules/Blocks/MLP.ixx"
 		"Src/Dnn/Modules/Blocks/TransformerBlock.ixx"
+		#Dnn::Compute
+		"Src/Dnn/Compute/MemoryResource.ixx"
 		#Dnn Compute
 		"Src/Dnn/Compute/Devices/DeviceType.ixx"
 		"Src/Dnn/Compute/Devices/DeviceRegistry.ixx"
@@ -91,7 +93,7 @@ PUBLIC
 		"Src/Dnn/Compute/Operations/OperationRegistry.ixx"
 		"Src/Dnn/Compute/Operations/OperationsRegistrar.ixx"  
 		"Src/Dnn/Compute/ComputeResource.ixx"
-		"Src/Dnn/Compute/MemoryResource.ixx"
+		"Src/Dnn/Compute/Devices/Cpu/CpuMemoryResource.ixx"
 		"Src/Dnn/Compute/MemoryResourceProperties.ixx"
 		
 		# Dnn Compute CPU
@@ -105,7 +107,6 @@ PUBLIC
 		"Src/Dnn/Compute/Operations/Cpu/CpuGeluOp.ixx"
 		"Src/Dnn/Compute/Operations/Cpu/CpuCrossEntropyOp.ixx"  
 		"Src/Dnn/Compute/Operations/Cpu/CpuOperations.ixx"
-		"Src/Dnn/Compute/Devices/Cpu/CpuMemoryResource.ixx"
 		
 		# Dnn Compute CUDA
 		"Src/Dnn/Compute/Cuda/CudaError.ixx"
@@ -150,7 +151,11 @@ PUBLIC
 		"Src/Dnn/Compute/Devices/DeviceContextHelpers.ixx"
 		"Src/Dnn/Modules/BlockModule.ixx"
 		"Src/Core/RandomGenerator.ixx"
- "Src/Dnn/Compute/Operations/Cuda/CudaDataTypeTraits.ixx" "Src/Dnn/Core/ActivationType.ixx" "Src/Dnn/Compute/Cuda/CublasLtError.ixx")
+		"Src/Dnn/Compute/Operations/Cuda/CudaDataTypeTraits.ixx"
+		"Src/Dnn/Core/ActivationType.ixx"
+		"Src/Dnn/Compute/Cuda/CublasLtError.ixx"
+		
+)
 
 target_link_libraries( Mila PRIVATE CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
 
@@ -185,7 +190,11 @@ add_subdirectory( Docs )
 if (MILA_ENABLE_TESTING)  
 enable_testing()
 add_subdirectory(Tests) 
-endif()  
+endif()
+
+if (MILA_ENABLE_BENCHMARKS)
+add_subdirectory(Benchmarks)
+endif()
  
 if (MILA_ENABLE_SAMPLES)  
 add_subdirectory(Samples)  

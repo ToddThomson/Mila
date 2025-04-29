@@ -12,7 +12,6 @@ namespace Modules::Tests
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
 
-    // Use a common test data structure with device context
     template<typename TPrecision, DeviceType TDeviceType>
     struct EncoderTestData {
         std::vector<size_t> input_shape;
@@ -28,7 +27,7 @@ namespace Modules::Tests
         std::shared_ptr<Encoder<TPrecision, TDeviceType>> getEncoder() const {
             if ( !encoder ) {
                 encoder = std::make_shared<Encoder<TPrecision, TDeviceType>>(
-                    name, channels, max_seq_len, vocab_len, device_name );
+                    name, device_name, channels, max_seq_len, vocab_len );
             }
             return *encoder;
         }
@@ -114,7 +113,7 @@ namespace Modules::Tests
     void TestForward( const EncoderTestData<TPrecision, TDeviceType>& data ) {
         // Use appropriate memory resource type based on device type
         using MR = typename std::conditional_t<TDeviceType == DeviceType::Cuda,
-            DeviceMemoryResource,
+            CudaMemoryResource,
             HostMemoryResource>;
 
         Tensor<int, MR> input( data.input_shape );
@@ -233,11 +232,11 @@ namespace Modules::Tests
         cpu_float_data_.getEncoder()->forward( host_input, cpu_output );
 
         // Create device input by copying host data
-        Tensor<int, DeviceMemoryResource> device_input( test_input_shape );
+        Tensor<int, CudaMemoryResource> device_input( test_input_shape );
         device_input.copyFrom( host_input );
 
         // Run CUDA encoder
-        Tensor<float, DeviceMemoryResource> cuda_output( test_output_shape );
+        Tensor<float, CudaMemoryResource> cuda_output( test_output_shape );
         cuda_float_data_.getEncoder()->forward( device_input, cuda_output );
 
         // Copy CUDA output back to host for comparison
@@ -283,15 +282,15 @@ namespace Modules::Tests
         }
 
         // Create device input by copying host data
-        Tensor<int, DeviceMemoryResource> device_input( test_input_shape );
+        Tensor<int, CudaMemoryResource> device_input( test_input_shape );
         device_input.copyFrom( host_input );
 
         // Run CUDA float precision encoder
-        Tensor<float, DeviceMemoryResource> cuda_float_output( test_output_shape );
+        Tensor<float, CudaMemoryResource> cuda_float_output( test_output_shape );
         cuda_float_data_.getEncoder()->forward( device_input, cuda_float_output );
 
         // Run CUDA half precision encoder
-        Tensor<half, DeviceMemoryResource> cuda_half_output( test_output_shape );
+        Tensor<half, CudaMemoryResource> cuda_half_output( test_output_shape );
         cuda_half_data_.getEncoder()->forward( device_input, cuda_half_output );
 
         // Copy results back to host for comparison

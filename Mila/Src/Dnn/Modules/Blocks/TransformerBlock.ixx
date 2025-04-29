@@ -35,7 +35,7 @@ namespace Mila::Dnn
 		requires ValidFloatTensorType<TPrecision> && ValidTensorType<TInput>
     class TransformerBlock : public BlockModule<TPrecision, TInput, TDeviceType> {
     public:
-		using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, DeviceMemoryResource, HostMemoryResource>;
+		using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>;
 
         /**
          * @brief Constructs a new TransformerBlock module with the default device context.
@@ -93,8 +93,8 @@ namespace Mila::Dnn
          * @param input The input tensor to be processed.
          * @param output The output tensor where the results will be stored.
          */
-        template<typename TMR>
-        void forward( const Tensor<TInput, TMR>& input, Tensor<TPrecision, TMR>& output ) {
+
+        void forward( const Tensor<TInput, MR>& input, Tensor<TPrecision, MR>& output ) const override {
             ln_1_->forward( input, ln_1_output_ );
             fc_qkv_->forward( ln_1_output_, fc_qkv_output_ );
             attn_->forward( fc_qkv_output_, attn_output_ );
@@ -167,15 +167,15 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-    protected:
-        /**
-         * @brief Called when the device context changes.
-         *
-         * Recreates sub-modules and output tensors for the new device.
-         */
-        void onDeviceChanged() override {
-            initializeModules();
-        }
+    //protected:
+    //    /**
+    //     * @brief Called when the device context changes.
+    //     *
+    //     * Recreates sub-modules and output tensors for the new device.
+    //     */
+    //    void onDeviceChanged() override {
+    //        initializeModules();
+    //    }
 
     private:
         std::vector<size_t> input_shape_; ///< The input shape.
@@ -220,7 +220,6 @@ namespace Mila::Dnn
          * @brief Initializes the sub-modules and output tensors for the transformer block.
          */
         void initializeModules() {
-            // Clear existing modules if any
             for ( const auto& [name, _] : this->getNamedModules() ) {
                 this->removeModule( name );
             }

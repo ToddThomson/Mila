@@ -70,14 +70,14 @@ namespace Mila::Dnn::Compute
          * @param parameters Additional input parameters (not used in this operation).
          * @param properties Additional attributes for the operation.
          * @param output Output tensor to store the resulting probability distribution.
-         * @param output_cache Cache for storing intermediate results (used in backward pass).
+         * @param output_state Cache for storing intermediate results (used in backward pass).
          */
         void forward(
             const Tensor<float, MR>& input,
             const std::vector<std::shared_ptr<Tensor<float, MR>>>& parameters,
             const OperationAttributes& properties,
             Tensor<float, MR>& output,
-            std::vector<std::shared_ptr<Tensor<float, MR>>>& output_cache ) const override {
+            std::vector<std::shared_ptr<Tensor<float, MR>>>& output_state ) const override {
 
             // Verify we're operating on CPU memory
             if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cpu ) ) {
@@ -162,7 +162,7 @@ namespace Mila::Dnn::Compute
          * @param parameter_gradients Gradients for parameters (not used in this operation).
          * @param input_gradient Gradient of the loss with respect to the input.
          * @param properties Additional attributes for the operation.
-         * @param output_cache Cache tensors from forward pass.
+         * @param output_state Cache tensors from forward pass.
          */
         void backward(
             const Tensor<float, MR>& input,
@@ -172,7 +172,7 @@ namespace Mila::Dnn::Compute
             std::vector<std::shared_ptr<Tensor<float, MR>>>& parameter_gradients,
             Tensor<float, MR>& input_gradient,
             const OperationAttributes& properties,
-            const std::vector<std::shared_ptr<Tensor<float, MR>>>& output_cache ) const {
+            const std::vector<std::shared_ptr<Tensor<float, MR>>>& output_state ) const {
 
         //    // Verify we're operating on CPU memory
         //    if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cpu ) ) {

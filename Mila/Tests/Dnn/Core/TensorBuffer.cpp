@@ -62,19 +62,19 @@ namespace Core::Tests
         TensorBuffer<float, Compute::HostMemoryResource> cpu_buffer( 100 );
         EXPECT_TRUE( cpu_buffer.is_aligned() );
 
-        TensorBuffer<float, Compute::DeviceMemoryResource> cuda_buffer( 100 );
+        TensorBuffer<float, Compute::CudaMemoryResource> cuda_buffer( 100 );
         EXPECT_TRUE( cuda_buffer.is_aligned() );
     }
 
     // CUDA Buffer Tests
     TEST_F( TensorBufferTests, CudaBufferConstruction ) {
         // Basic construction
-        Mila::Dnn::TensorBuffer<float, Mila::Dnn::Compute::DeviceMemoryResource> buffer( 100 );
+        Mila::Dnn::TensorBuffer<float, Mila::Dnn::Compute::CudaMemoryResource> buffer( 100 );
         EXPECT_EQ( buffer.size(), 100 );
         EXPECT_NE( buffer.data(), nullptr );
 
         // Construction with initialization
-        Mila::Dnn::TensorBuffer<float, Mila::Dnn::Compute::DeviceMemoryResource> buffer2( 100, 1.0f );
+        Mila::Dnn::TensorBuffer<float, Mila::Dnn::Compute::CudaMemoryResource> buffer2( 100, 1.0f );
         std::vector<float> host_data( 100 );
         cudaMemcpy( host_data.data(), buffer2.data(), 100 * sizeof( float ),
             cudaMemcpyDeviceToHost );
@@ -85,7 +85,7 @@ namespace Core::Tests
     }
 
     TEST_F( TensorBufferTests, CudaBufferResize ) {
-        Mila::Dnn::TensorBuffer<int, Mila::Dnn::Compute::DeviceMemoryResource> buffer( 50 );
+        Mila::Dnn::TensorBuffer<int, Mila::Dnn::Compute::CudaMemoryResource> buffer( 50 );
         auto original_ptr = buffer.data();
 
         // Resize larger
@@ -151,7 +151,7 @@ namespace Core::Tests
 
     TEST_F( TensorBufferTests, CudaMemoryResource_DefaultInitialization ) {
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::DeviceMemoryResource> tensor( shape );
+        Tensor<float, Compute::CudaMemoryResource> tensor( shape );
         EXPECT_EQ( tensor.size(), 6 );
 
 		auto host_tensor = tensor.to<Compute::HostMemoryResource>();
@@ -177,7 +177,7 @@ namespace Core::Tests
 
     TEST_F( TensorBufferTests, CudaMemoryResource_ValueInitialization ) {
         std::vector<size_t> shape = { 5, 723 };
-        Tensor<float, Compute::DeviceMemoryResource> tensor( shape, 3.1415f );
+        Tensor<float, Compute::CudaMemoryResource> tensor( shape, 3.1415f );
 
         auto host_tensor = tensor.to<Compute::HostMemoryResource>();
 

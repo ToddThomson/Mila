@@ -55,7 +55,7 @@ namespace Core::Tests
 
     TEST( TensorHelpersTests, Random_Float_CUDA ) {
         std::vector<size_t> shape = { 100, 100 };
-        Tensor<float, Compute::DeviceMemoryResource> tensor( shape );
+        Tensor<float, Compute::CudaMemoryResource> tensor( shape );
 
         float min_val = -2.5f;
         float max_val = 2.5f;
@@ -129,7 +129,7 @@ namespace Core::Tests
 
     TEST( TensorHelpersTests, Random_Half_CUDA ) {
         std::vector<size_t> shape = { 100, 100 };
-        Tensor<half, Compute::DeviceMemoryResource> tensor( shape );
+        Tensor<half, Compute::CudaMemoryResource> tensor( shape );
 
         half min_val = __float2half( -2.5f );
         half max_val = __float2half( 2.5f );
@@ -208,7 +208,7 @@ namespace Core::Tests
 
     TEST( TensorHelpersTests, Xavier_Float_CUDA ) {
         std::vector<size_t> shape = { 100, 100 };
-        Tensor<float, Compute::DeviceMemoryResource> tensor( shape );
+        Tensor<float, Compute::CudaMemoryResource> tensor( shape );
 
         size_t input_size = 1024;
         size_t output_size = 512;
@@ -288,7 +288,7 @@ namespace Core::Tests
 
     TEST( TensorHelpersTests, Xavier_Half_CUDA ) {
         std::vector<size_t> shape = { 100, 100 };
-        Tensor<half, Compute::DeviceMemoryResource> tensor( shape );
+        Tensor<half, Compute::CudaMemoryResource> tensor( shape );
 
         size_t input_size = 1024;
         size_t output_size = 512;

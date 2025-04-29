@@ -82,14 +82,14 @@ namespace Mila::Dnn::Compute
          * @param parameters Additional parameters (not used in this operation).
          * @param properties Additional attributes for the operation.
          * @param output Output tensor of shape [B, TDataType, C] containing the attention output.
-         * @param output_cache Cache for intermediate results [preatt, att] that are used in the backward pass.
+         * @param output_state Cache for intermediate results [preatt, att] that are used in the backward pass.
          */
         void forward(
             const Tensor<float, MR>& input,
             const std::vector<std::shared_ptr<Tensor<float, MR>>>& parameters,
             const OperationAttributes& properties,
             Tensor<float, MR>& output,
-            std::vector<std::shared_ptr<Tensor<float, MR>>>& output_cache ) const override {
+            std::vector<std::shared_ptr<Tensor<float, MR>>>& output_state ) const override {
 
             // Verify we're operating on CPU memory
             if ( this->getDeviceContext()->getDevice()->getDeviceType() != DeviceType::Cpu ) {
@@ -99,8 +99,8 @@ namespace Mila::Dnn::Compute
             auto X = input.raw_data();
             auto Y = output.raw_data();
 
-            auto preatt = output_cache[ 0 ];
-            auto att = output_cache[ 1 ];
+            auto preatt = output_state[ 0 ];
+            auto att = output_state[ 1 ];
 
             int B = input.shape()[ 0 ];
             int T = input.shape()[ 1 ];
@@ -180,7 +180,7 @@ namespace Mila::Dnn::Compute
          * @param parameter_gradients Gradients for parameters (not used in this operation).
          * @param input_gradient Gradient of the loss with respect to the input.
          * @param properties Additional attributes for the operation.
-         * @param output_cache Cache tensors [preatt, att] from forward pass.
+         * @param output_state Cache tensors [preatt, att] from forward pass.
          */
         void backward(
             const Tensor<float, MR>& input,
@@ -190,7 +190,7 @@ namespace Mila::Dnn::Compute
             std::vector<std::shared_ptr<Tensor<float, MR>>>& parameter_gradients,
             Tensor<float, MR>& input_gradient,
             const OperationAttributes& properties,
-            const std::vector<std::shared_ptr<Tensor<float, MR>>>& output_cache ) const {
+            const std::vector<std::shared_ptr<Tensor<float, MR>>>& output_state ) const {
 
             // Verify we're operating on CPU memory
             if ( this->getDeviceContext()->getDevice()->getDeviceType() != DeviceType::Cpu ) {
@@ -201,8 +201,8 @@ namespace Mila::Dnn::Compute
             float* dout = const_cast<float*>(output_gradient.raw_data());
             float* inp = const_cast<float*>(input.raw_data());
 
-            auto preatt = output_cache[ 0 ];
-            auto att = output_cache[ 1 ];
+            auto preatt = output_state[ 0 ];
+            auto att = output_state[ 1 ];
 
             float* dpreatt = preatt->raw_data();
             float* datt = att->raw_data();

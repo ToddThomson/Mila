@@ -58,13 +58,14 @@ namespace Mila::Dnn
         requires ValidTensorTypes<TInput, TPrecision>
     class Model : public Module<TPrecision, TInput, TDeviceType> {
     public:
-        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, DeviceMemoryResource, HostMemoryResource>; ///< Memory resource type
+        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>; ///< Memory resource type
+		using ModuleBase = Module<TPrecision, TInput, TDeviceType>; ///< Base class type for the module
 
         /**
         * @brief Constructs a new Model object with the default device context.
         */
         Model()
-            : Module<TPrecision, TInput, TDeviceType>() {
+            : ModuleBase() {
             initializeDevice();
         }
 
@@ -74,7 +75,7 @@ namespace Mila::Dnn
         * @param context The device context to use for this model.
         */
         Model( std::shared_ptr<DeviceContext> context )
-            : Module<TPrecision, TInput, TDeviceType>( context ) {
+            : ModuleBase( context ) {
             initializeDevice();
         }
 
@@ -84,7 +85,7 @@ namespace Mila::Dnn
         * @param device_name The name of the device to use (e.g., "CUDA:0", "CPU").
         */
         Model( const std::string& device_name )
-            : Module<TPrecision, TInput, TDeviceType>( std::make_shared<Compute::DeviceContext>( device_name ) ) {
+            : ModuleBase( device_name ) {
             initializeDevice();
         }
 
@@ -216,8 +217,7 @@ namespace Mila::Dnn
         * @throws std::runtime_error if the model has not been built.
         * @return The loss value if targets are provided, otherwise -1.0.
         */
-        template<typename TMR>
-        float forward( const Tensor<TInput, TMR>& inputs, const Tensor<TInput, TMR>& targets = {} ) {
+        float forward( const Tensor<TInput, MR>& inputs, const Tensor<TInput, MR>& targets = {} ) {
             if ( !is_built_ ) {
                 throw std::runtime_error( "Model has not been built. Call build() before forward()." );
             }
@@ -591,12 +591,12 @@ namespace Mila::Dnn
         }
 
     protected:
-        /**
-        * @brief Called when the device context changes.
-        */
-        void onDeviceChanged() override {
-            initializeDevice();
-        }
+        ///**
+        //* @brief Called when the device context changes.
+        //*/
+        //void onDeviceChanged() override {
+        //    initializeDevice();
+        //}
 
         /**
         * @brief The most recent input tensor provided to forward().

@@ -21,7 +21,7 @@
 //        std::cout << "The current Compute Device is: " << Mila::getDevice()->getName() << std::endl;
 //
 //        std::unique_ptr<LayerNorm<float, float, Compute::HostMemoryResource> cpu_layernorm{ nullptr };
-//        //std::unique_ptr<Modules::LayerNorm<float, Compute::DeviceMemoryResource>> cuda_layernorm{ nullptr };
+//        //std::unique_ptr<Modules::LayerNorm<float, Compute::CudaMemoryResource>> cuda_layernorm{ nullptr };
 //
 //        size_t cuda_batch_size = 4;
 //        size_t cpu_batch_size = 4;
@@ -34,13 +34,13 @@
 //        cpu_layernorm = std::make_unique<LayerNorm<float, float,Compute::HostMemoryResource>>(
 //            "Cpu_ln_1", cpu_input_shape );
 //
-//        //cuda_layernorm = std::make_unique<Modules::LayerNorm<float, Compute::DeviceMemoryResource>>(
+//        //cuda_layernorm = std::make_unique<Modules::LayerNorm<float, Compute::CudaMemoryResource>>(
 //        //    "Cuda_ln_1", cuda_input_shape );
 //
 //        Tensor<float, Compute::HostMemoryResource> input( cpu_input_shape );
 //        random<float, Compute::HostMemoryResource>( input, 0.0f, 5.0f );
 //
-//        auto cuda_input = input.to<Compute::DeviceMemoryResource>();
+//        auto cuda_input = input.to<Compute::CudaMemoryResource>();
 //
 //        auto output = cpu_layernorm->forward( input );
 //        //auto output2 = cuda_layernorm->forward( std::make_shared<DeviceTensor<float>>( cuda_input ) );

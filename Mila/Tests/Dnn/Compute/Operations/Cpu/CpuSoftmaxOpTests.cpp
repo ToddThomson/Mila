@@ -145,11 +145,11 @@ namespace Operations::Tests
 
         // Execute Softmax operation with axis=2 (last dimension)
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
         OperationAttributes props;
         props.axis = 2;  // Last dimension
 
-        ASSERT_NO_THROW( cpu_softmax_op_->forward( input, params, props, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_softmax_op_->forward( input, params, props, output, output_state ) );
 
         // Verify output has no NaN or Inf values
         EXPECT_FALSE( hasNaNorInf( output ) );
@@ -195,11 +195,11 @@ namespace Operations::Tests
 
         // Execute Softmax operation with axis=1 (middle dimension)
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
         OperationAttributes props;
         props.axis = 1;  // Middle dimension
 
-        ASSERT_NO_THROW( cpu_softmax_op_->forward( input, params, props, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_softmax_op_->forward( input, params, props, output, output_state ) );
 
         // Verify output has no NaN or Inf values
         EXPECT_FALSE( hasNaNorInf( output ) );
@@ -223,11 +223,11 @@ namespace Operations::Tests
 
         // Execute Softmax operation with axis=-1 (last dimension)
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
         OperationAttributes props;
         props.axis = -1;  // Last dimension
 
-        ASSERT_NO_THROW( cpu_softmax_op_->forward( input, params, props, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_softmax_op_->forward( input, params, props, output, output_state ) );
 
         // Verify output has no NaN or Inf values
         EXPECT_FALSE( hasNaNorInf( output ) );
@@ -251,11 +251,11 @@ namespace Operations::Tests
 
         // Execute Softmax operation with axis=0 (first dimension)
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
         OperationAttributes props;
         props.axis = 0;  // First dimension
 
-        ASSERT_NO_THROW( cpu_softmax_op_->forward( input, params, props, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_softmax_op_->forward( input, params, props, output, output_state ) );
 
         // Verify output has no NaN or Inf values
         EXPECT_FALSE( hasNaNorInf( output ) );
@@ -284,18 +284,18 @@ namespace Operations::Tests
 
     //    // Forward pass first
     //    std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
-    //    std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+    //    std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
     //    std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> param_grads;
     //    OperationAttributes props;
     //    props.axis = 2;  // Last dimension
 
-    //    cpu_softmax_op_->forward( input, params, props, output, output_cache );
+    //    cpu_softmax_op_->forward( input, params, props, output, output_state );
 
     //    // Execute backward pass
     //    ASSERT_NO_THROW( cpu_softmax_op_->backward(
     //        input, output, output_grad,
     //        params, param_grads, input_grad,
-    //        props, output_cache ) );
+    //        props, output_state ) );
 
     //    // Verify gradients are not NaN or Inf
     //    EXPECT_FALSE( hasNaNorInf( input_grad ) );
@@ -333,7 +333,7 @@ namespace Operations::Tests
         Tensor<float, HostMemoryResource> output( small_shape_ );
 
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
         OperationAttributes props;
         props.axis = 2;  // Last dimension
 
@@ -342,7 +342,7 @@ namespace Operations::Tests
             input.data()[ i ] = 0.0f;
         }
 
-        ASSERT_NO_THROW( cpu_softmax_op_->forward( input, params, props, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_softmax_op_->forward( input, params, props, output, output_state ) );
 
         // With all zeros input, softmax should produce uniform distributions
         for ( size_t b = 0; b < small_shape_[ 0 ]; ++b ) {
@@ -369,7 +369,7 @@ namespace Operations::Tests
             }
         }
 
-        ASSERT_NO_THROW( cpu_softmax_op_->forward( input, params, props, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_softmax_op_->forward( input, params, props, output, output_state ) );
 
         // Output should be approximately one-hot encoded
         for ( size_t b = 0; b < small_shape_[ 0 ]; ++b ) {
@@ -392,7 +392,7 @@ namespace Operations::Tests
             input.data()[ i ] = 1.5f;
         }
 
-        ASSERT_NO_THROW( cpu_softmax_op_->forward( input, params, props, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_softmax_op_->forward( input, params, props, output, output_state ) );
 
         // With identical inputs, softmax should produce uniform distributions
         for ( size_t b = 0; b < small_shape_[ 0 ]; ++b ) {
@@ -415,7 +415,7 @@ namespace Operations::Tests
         Tensor<float, HostMemoryResource> output( medium_shape_ );
 
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
         OperationAttributes props;
         props.axis = 2;  // Last dimension
 
@@ -437,7 +437,7 @@ namespace Operations::Tests
             input.data()[ i ] = val;
         }
 
-        ASSERT_NO_THROW( cpu_softmax_op_->forward( input, params, props, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_softmax_op_->forward( input, params, props, output, output_state ) );
 
         // Verify no NaN or Inf values
         EXPECT_FALSE( hasNaNorInf( output ) );
@@ -462,8 +462,8 @@ namespace Operations::Tests
         Tensor<float, HostMemoryResource> output2( medium_shape_ );
 
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache1;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache2;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state1;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state2;
         OperationAttributes props;
         props.axis = 2;  // Last dimension
 
@@ -473,8 +473,8 @@ namespace Operations::Tests
         }
 
         // Run twice with same input
-        cpu_softmax_op_->forward( input, params, props, output1, output_cache1 );
-        cpu_softmax_op_->forward( input, params, props, output2, output_cache2 );
+        cpu_softmax_op_->forward( input, params, props, output1, output_state1 );
+        cpu_softmax_op_->forward( input, params, props, output2, output_state2 );
 
         // Results should be identical
         for ( size_t i = 0; i < output1.size(); ++i ) {
@@ -504,17 +504,17 @@ namespace Operations::Tests
         Tensor<float, HostMemoryResource> output( small_shape_ );
 
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
 
         // Test with out-of-bounds positive axis
         OperationAttributes props_pos;
         props_pos.axis = 3;  // 3-dimensional tensor, so axis 3 is out of bounds
-        EXPECT_THROW( cpu_softmax_op_->forward( input, params, props_pos, output, output_cache ), std::runtime_error );
+        EXPECT_THROW( cpu_softmax_op_->forward( input, params, props_pos, output, output_state ), std::runtime_error );
 
         // Test with out-of-bounds negative axis
         OperationAttributes props_neg;
         props_neg.axis = -4;  // 3-dimensional tensor, so axis -4 is out of bounds
-        EXPECT_THROW( cpu_softmax_op_->forward( input, params, props_neg, output, output_cache ), std::runtime_error );
+        EXPECT_THROW( cpu_softmax_op_->forward( input, params, props_neg, output, output_state ), std::runtime_error );
     }
 
     /**
@@ -536,7 +536,7 @@ namespace Operations::Tests
         }
 
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
         OperationAttributes props;
         props.axis = 2;  // Last dimension
 
@@ -545,7 +545,7 @@ namespace Operations::Tests
         auto start_time = std::chrono::high_resolution_clock::now();
 
         for ( int i = 0; i < iterations; ++i ) {
-            cpu_softmax_op_->forward( input, params, props, output, output_cache );
+            cpu_softmax_op_->forward( input, params, props, output, output_state );
         }
 
         auto end_time = std::chrono::high_resolution_clock::now();
@@ -578,7 +578,7 @@ namespace Operations::Tests
         }
 
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
         OperationAttributes props;
         props.axis = 2;  // Last dimension
 
@@ -603,7 +603,7 @@ namespace Operations::Tests
             auto start_time = std::chrono::high_resolution_clock::now();
 
             for ( int i = 0; i < iterations; ++i ) {
-                cpu_softmax_op_->forward( input, params, props, output, output_cache );
+                cpu_softmax_op_->forward( input, params, props, output, output_state );
             }
 
             auto end_time = std::chrono::high_resolution_clock::now();
@@ -635,11 +635,11 @@ namespace Operations::Tests
         }
 
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
         OperationAttributes props;
         props.axis = 1;  // Features dimension (commonly used for classification)
 
-        ASSERT_NO_THROW( cpu_softmax_op_->forward( input, params, props, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_softmax_op_->forward( input, params, props, output, output_state ) );
 
         // Verify output has no NaN or Inf values
         EXPECT_FALSE( hasNaNorInf( output ) );

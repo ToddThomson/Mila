@@ -103,10 +103,10 @@ namespace Operations::Tests
 
         // Execute GELU operation
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
         OperationAttributes props;
 
-        ASSERT_NO_THROW( cpu_gelu_op_->forward( input, params, props, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_gelu_op_->forward( input, params, props, output, output_state ) );
 
         // Verify output has correct values
         for ( size_t i = 0; i < output.size(); ++i ) {
@@ -140,10 +140,10 @@ namespace Operations::Tests
 
         // Forward pass first
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
         OperationAttributes props;
 
-        cpu_gelu_op_->forward( input, params, props, output, output_cache );
+        cpu_gelu_op_->forward( input, params, props, output, output_state );
 
         // Backward pass using the raw pointers - this is how CpuGeluOp's backward is designed to work
         ASSERT_NO_THROW( cpu_gelu_op_->backward(
@@ -182,7 +182,7 @@ namespace Operations::Tests
         Tensor<float, HostMemoryResource> output( small_shape_ );
 
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
         OperationAttributes props;
 
         // Test 1: All zeros
@@ -190,7 +190,7 @@ namespace Operations::Tests
             input.data()[ i ] = 0.0f;
         }
 
-        ASSERT_NO_THROW( cpu_gelu_op_->forward( input, params, props, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_gelu_op_->forward( input, params, props, output, output_state ) );
 
         for ( size_t i = 0; i < output.size(); ++i ) {
             EXPECT_NEAR( output.data()[ i ], 0.0f, 1e-5f );
@@ -201,7 +201,7 @@ namespace Operations::Tests
             input.data()[ i ] = 100.0f;
         }
 
-        ASSERT_NO_THROW( cpu_gelu_op_->forward( input, params, props, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_gelu_op_->forward( input, params, props, output, output_state ) );
 
         for ( size_t i = 0; i < output.size(); ++i ) {
             EXPECT_NEAR( output.data()[ i ], input.data()[ i ], input.data()[ i ] * 0.01f ); // Within 1%
@@ -212,7 +212,7 @@ namespace Operations::Tests
             input.data()[ i ] = -100.0f;
         }
 
-        ASSERT_NO_THROW( cpu_gelu_op_->forward( input, params, props, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_gelu_op_->forward( input, params, props, output, output_state ) );
 
         for ( size_t i = 0; i < output.size(); ++i ) {
             EXPECT_NEAR( output.data()[ i ], 0.0f, 1e-4f );
@@ -223,7 +223,7 @@ namespace Operations::Tests
             input.data()[ i ] = 1e-5f;
         }
 
-        ASSERT_NO_THROW( cpu_gelu_op_->forward( input, params, props, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_gelu_op_->forward( input, params, props, output, output_state ) );
 
         for ( size_t i = 0; i < output.size(); ++i ) {
             EXPECT_NEAR( output.data()[ i ], 0.5f * input.data()[ i ], 1e-8f );
@@ -239,7 +239,7 @@ namespace Operations::Tests
         Tensor<float, HostMemoryResource> output( medium_shape_ );
 
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
         OperationAttributes props;
 
         // Test a variety of values: positive, negative, small, large
@@ -260,7 +260,7 @@ namespace Operations::Tests
             input.data()[ i ] = val;
         }
 
-        ASSERT_NO_THROW( cpu_gelu_op_->forward( input, params, props, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_gelu_op_->forward( input, params, props, output, output_state ) );
 
         // Verify no NaN or Inf values
         EXPECT_FALSE( hasNaNorInf( output ) );
@@ -276,8 +276,8 @@ namespace Operations::Tests
         Tensor<float, HostMemoryResource> output2( medium_shape_ );
 
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache1;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache2;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state1;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state2;
         OperationAttributes props;
 
         // Initialize with consistent values
@@ -286,8 +286,8 @@ namespace Operations::Tests
         }
 
         // Run twice with same input
-        cpu_gelu_op_->forward( input, params, props, output1, output_cache1 );
-        cpu_gelu_op_->forward( input, params, props, output2, output_cache2 );
+        cpu_gelu_op_->forward( input, params, props, output1, output_state1 );
+        cpu_gelu_op_->forward( input, params, props, output2, output_state2 );
 
         // Results should be identical
         for ( size_t i = 0; i < output1.size(); ++i ) {
@@ -330,7 +330,7 @@ namespace Operations::Tests
         }
 
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
         OperationAttributes props;
 
         // Measure performance over multiple iterations
@@ -338,7 +338,7 @@ namespace Operations::Tests
         auto start_time = std::chrono::high_resolution_clock::now();
 
         for ( int i = 0; i < iterations; ++i ) {
-            cpu_gelu_op_->forward( input, params, props, output, output_cache );
+            cpu_gelu_op_->forward( input, params, props, output, output_state );
         }
 
         auto end_time = std::chrono::high_resolution_clock::now();
@@ -373,7 +373,7 @@ namespace Operations::Tests
         }
 
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
         OperationAttributes props;
 
         // Get number of threads
@@ -397,7 +397,7 @@ namespace Operations::Tests
             auto start_time = std::chrono::high_resolution_clock::now();
 
             for ( int i = 0; i < iterations; ++i ) {
-                cpu_gelu_op_->forward( input, params, props, output, output_cache );
+                cpu_gelu_op_->forward( input, params, props, output, output_state );
             }
 
             auto end_time = std::chrono::high_resolution_clock::now();

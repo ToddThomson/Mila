@@ -102,7 +102,7 @@ namespace Mila::Dnn::Compute
          * @param parameters Additional parameters (not used in this operation).
          * @param properties Additional attributes for the operation.
          * @param output The output tensor where the results will be stored.
-         * @param output_cache Cache for intermediate results (not used in this operation).
+         * @param output_state Cache for intermediate results (not used in this operation).
          */
         void forward(
             const Tensor<TPrecision, MR>& input1,
@@ -110,7 +110,7 @@ namespace Mila::Dnn::Compute
             const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
             const OperationAttributes& properties,
             Tensor<TPrecision, MR>& output,
-            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const override {
+            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const override {
 
             auto X1 = input1.raw_data();
             auto X2 = input2.raw_data();
@@ -137,7 +137,7 @@ namespace Mila::Dnn::Compute
          * @param input1_gradient Gradient of the loss with respect to input1.
          * @param input2_gradient Gradient of the loss with respect to input2.
          * @param properties Additional attributes for the operation.
-         * @param output_cache Cache tensors from forward pass (not used in this operation).
+         * @param output_state Cache tensors from forward pass (not used in this operation).
          */
         void backward(
             const Tensor<TPrecision, MR>& input1,
@@ -149,7 +149,7 @@ namespace Mila::Dnn::Compute
             Tensor<TPrecision, MR>& input1_gradient,
             Tensor<TPrecision, MR>& input2_gradient,
             const OperationAttributes& properties,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const {
+            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const {
 
             // Verify we're operating on CUDA memory
             if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cuda ) ) {
@@ -199,7 +199,7 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerOperation<float, float, DeviceType::Cuda>(
                 opName,
-                "float_precision",
+                "Default",
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, float, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaResidualOp<float>>( context )
                         : std::make_shared<CudaResidualOp<float>>();
@@ -208,7 +208,7 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerOperation<half, half, DeviceType::Cuda>(
                 opName,
-                "half_precision",
+                "Default",
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<half, half, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaResidualOp<half>>( context )
                         : std::make_shared<CudaResidualOp<half>>();

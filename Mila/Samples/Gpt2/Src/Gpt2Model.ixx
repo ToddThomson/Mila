@@ -483,7 +483,7 @@ namespace Gpt2App
 				targets_ = targets;
 			}*/
 
-			encoder_->forward( inputs.to<Compute::DeviceMemoryResource>(), encoder_output_);
+			encoder_->forward( inputs.to<Compute::CudaMemoryResource>(), encoder_output_);
 			//std::cout << encoder_output_.toString( true ) << std::endl;
 
 			// Forward pass through the transformer layers...

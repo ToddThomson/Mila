@@ -81,8 +81,6 @@ namespace Mila::Dnn::Compute
         };
     }
 
-
-
     /**
      * @brief CUDA implementation of the Multi-Head Attention operation for transformer models.
      *
@@ -139,7 +137,7 @@ namespace Mila::Dnn::Compute
          * @param properties Additional attributes for the operation, such as number of attention heads.
          * @param output Output tensor of shape [B, TDataType, OC] containing the attention output, where OC is the
          *               output feature dimension.
-         * @param output_cache Cache for intermediate results like attention scores and weights for
+         * @param output_state Intermediate results like attention scores and weights for
          *                     potential use in backward pass or visualization.
          */
         void forward(
@@ -147,13 +145,13 @@ namespace Mila::Dnn::Compute
             const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
             const OperationAttributes& properties,
             Tensor<TPrecision, MR>& output,
-            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const override {
+            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const override {
 
-            auto X = input.data();
-            auto Y = output.data();
+            auto X = input.raw_data();
+            auto Y = output.raw_data();
 
-            auto weight = parameters[ 0 ]->data();
-            auto bias = parameters[ 1 ]->data();
+            auto weight = parameters[ 0 ]->raw_data();
+            auto bias = parameters[ 1 ]->raw_data();
 
             int B = input.shape()[ 0 ];
             int T = input.shape()[ 1 ];
@@ -165,14 +163,14 @@ namespace Mila::Dnn::Compute
             TPrecision* attn_scores = nullptr;
             TPrecision* attn_weights = nullptr;
 
-            if ( output_cache.size() >= 2 ) {
-                attn_scores = output_cache[ 0 ]->data();
-                attn_weights = output_cache[ 1 ]->data();
+            if ( output_state.size() >= 2 ) {
+                attn_scores = output_state[ 0 ]->data();
+                attn_weights = output_state[ 1 ]->data();
             }
 
             cudaStream_t stream = this->getDeviceContext()->getStream();
 
-            //Detail::cuda_mha_impl<TPrecision>::forward( Y, X, weight, bias, attn_scores, attn_weights, B, T, C, OC, num_heads, stream);
+            //Detail::cuda_mha_impl<TPrecision>::forward( Y, X, weight, bias, attn_scores, attn_weights, B, T, C, OC, num_heads, stream );
         }
 
         /**
@@ -187,7 +185,7 @@ namespace Mila::Dnn::Compute
          * @param parameter_gradients Gradients for parameters [d_weight, d_bias].
          * @param input_gradient Gradient of the loss with respect to the input.
          * @param properties Additional attributes for the operation.
-         * @param output_cache Cache tensors from forward pass (attention scores and weights).
+         * @param output_state Cache tensors from forward pass (attention scores and weights).
          */
         void backward(
             const Tensor<TPrecision, MR>& input,
@@ -197,7 +195,7 @@ namespace Mila::Dnn::Compute
             std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameter_gradients,
             Tensor<TPrecision, MR>& input_gradient,
             const OperationAttributes& properties,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const {
+            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const {
 
             // Extract dimensions
             int B = input.shape()[ 0 ];
@@ -221,9 +219,9 @@ namespace Mila::Dnn::Compute
             // Get cached attention data if available
             const TPrecision* attn_scores = nullptr;
             const TPrecision* attn_weights = nullptr;
-            if ( output_cache.size() >= 2 ) {
-                attn_scores = output_cache[ 0 ]->data();
-                attn_weights = output_cache[ 1 ]->data();
+            if ( output_state.size() >= 2 ) {
+                attn_scores = output_state[ 0 ]->data();
+                attn_weights = output_state[ 1 ]->data();
             }
 
             // Get CUDA stream from device context

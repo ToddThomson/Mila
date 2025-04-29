@@ -34,7 +34,7 @@
     <ClCompile Include="Src\Dnn\Compute\Cuda\CudaHelpers.ixx" />
     <ClCompile Include="Src\Dnn\Compute\Cuda\CudaMatMulOp.ixx" />
     <ClCompile Include="Src\Dnn\Compute\Cuda\CudaOperations.ixx" />
-    <ClCompile Include="Src\Dnn\Compute\Cuda\DeviceMemoryResource.ixx" />
+    <ClCompile Include="Src\Dnn\Compute\Cuda\CudaMemoryResource.ixx" />
     <ClCompile Include="Src\Dnn\Compute\Cuda\ManagedMemoryResource.ixx" />
     <ClCompile Include="Src\Dnn\Compute\Cuda\PinnedMemoryResource.ixx" />
     <ClCompile Include="Src\Dnn\Compute\DeviceContext.ixx" />

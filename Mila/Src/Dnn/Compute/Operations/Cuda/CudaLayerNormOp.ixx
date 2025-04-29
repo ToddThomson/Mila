@@ -39,7 +39,8 @@ namespace Mila::Dnn::Compute
 		// Primary template - will cause a compile error if no specialization exists
 		template <typename T>
 		struct cuda_layernorm_impl;
-		// Specialization for float
+		
+        // Specialization for float
 		template <>
 		struct cuda_layernorm_impl<float> {
 			static inline void forward( float* Y, const float* X,
@@ -50,7 +51,8 @@ namespace Mila::Dnn::Compute
 				cuda_layernorm_forward_fp32( Y, mean, rstd, X, weight, bias, B, T, C, epsilon, stream );
 			}
 		};
-		// Specialization for half
+		
+        // Specialization for half
 		template <>
 		struct cuda_layernorm_impl<half> {
 			static inline void forward( half* Y, const half* X,
@@ -116,7 +118,7 @@ namespace Mila::Dnn::Compute
          *                   bias (beta) are both of shape [C].
          * @param properties Additional attributes for the operation.
          * @param output Output tensor of shape [B, TDataType, C] containing the normalized values.
-         * @param output_cache Vector containing tensors for intermediate results [mean, rstd],
+         * @param output_state Vector containing tensors for intermediate results [mean, rstd],
          *                     where mean is the mean values and rstd is the reciprocal of standard deviation.
          */
         void forward(
@@ -124,16 +126,16 @@ namespace Mila::Dnn::Compute
             const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
             const OperationAttributes& properties,
             Tensor<TPrecision, MR>& output,
-            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const override {
+            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const override {
 
             const TPrecision* X = input.raw_data();
             TPrecision* Y = output.raw_data();
 
             const TPrecision* weight = parameters[ 0 ]->raw_data();
-            const TPrecision* bias = parameters[ 1 ]->raw_data();
+            const TPrecision* bias = (parameters.size() > 1 && parameters[ 1 ]) ? parameters[ 1 ]->raw_data() : nullptr;
 
-            TPrecision* mean = output_cache[ 0 ]->raw_data();
-            TPrecision* rstd = output_cache[ 1 ]->raw_data();
+            TPrecision* mean = output_state[ 0 ]->raw_data();
+            TPrecision* rstd = output_state[ 1 ]->raw_data();
 
             int B = input.shape()[ 0 ];
             int T = input.shape()[ 1 ];
@@ -157,7 +159,7 @@ namespace Mila::Dnn::Compute
          * @param parameter_gradients Gradients for parameters [d_weight, d_bias].
          * @param input_gradient Gradient of the loss with respect to the input.
          * @param properties Additional attributes for the operation.
-         * @param output_cache Cache tensors from forward pass [mean, rstd].
+         * @param output_state Cache tensors from forward pass [mean, rstd].
          */
         void backward(
             const Tensor<TPrecision, MR>& input,
@@ -167,7 +169,7 @@ namespace Mila::Dnn::Compute
             std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameter_gradients,
             Tensor<TPrecision, MR>& input_gradient,
             const OperationAttributes& properties,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const {
+            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const {
 
             // Verify we're operating on CUDA memory
             if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cuda ) ) {
@@ -187,8 +189,8 @@ namespace Mila::Dnn::Compute
             float* dweight = parameter_gradients[ 0 ]->data();
             float* dbias = parameter_gradients[ 1 ]->data();
 
-            const float* mean = output_cache[ 0 ]->data();
-            const float* rstd = output_cache[ 1 ]->data();
+            const float* mean = output_state[ 0 ]->data();
+            const float* rstd = output_state[ 1 ]->data();
             float epsilon = properties.epsilon;
 
             cudaStream_t stream = this->getDeviceContext()->getStream();

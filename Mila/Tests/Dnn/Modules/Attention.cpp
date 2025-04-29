@@ -129,11 +129,11 @@ namespace Modules::Tests
         cpu_test_module->forward( host_input, cpu_output );
 
         // Create device input by copying host data
-        Tensor<TInput, Compute::DeviceMemoryResource> device_input( test_shape );
+        Tensor<TInput, Compute::CudaMemoryResource> device_input( test_shape );
         device_input.copyFrom( host_input );
 
         // Create device output
-        Tensor<TPrecision, Compute::DeviceMemoryResource> cuda_output( test_shape );
+        Tensor<TPrecision, Compute::CudaMemoryResource> cuda_output( test_shape );
         cuda_test_module->forward( device_input, cuda_output );
 
         // Copy CUDA output back to host for comparison
@@ -293,9 +293,9 @@ namespace Modules::Tests
         auto deterministic_module = std::make_shared<MultiHeadAttention<TInput, TPrecision, Compute::DeviceType::Cuda>>(
             "deterministic", shape, 4 );
 
-        Tensor<TInput, Compute::DeviceMemoryResource> input( shape );
-        Tensor<TPrecision, Compute::DeviceMemoryResource> output1( shape );
-        Tensor<TPrecision, Compute::DeviceMemoryResource> output2( shape );
+        Tensor<TInput, Compute::CudaMemoryResource> input( shape );
+        Tensor<TPrecision, Compute::CudaMemoryResource> output1( shape );
+        Tensor<TPrecision, Compute::CudaMemoryResource> output2( shape );
 
         // Fill input with predictable values
         Tensor<TInput, Compute::HostMemoryResource> host_input( shape );
@@ -353,22 +353,22 @@ namespace Modules::Tests
     // CUDA additional tests
 
     TEST_F( AttentionTests, Cuda_Float_DifferentHeadCounts ) {
-        TestDifferentHeadCounts<float, float, Compute::DeviceType::Cuda, Compute::DeviceMemoryResource>(
+        TestDifferentHeadCounts<float, float, Compute::DeviceType::Cuda, Compute::CudaMemoryResource>(
             cuda_float_data_ );
     }
 
     TEST_F( AttentionTests, Cuda_Float_EdgeCases ) {
-        TestEdgeCases<float, float, Compute::DeviceType::Cuda, Compute::DeviceMemoryResource>(
+        TestEdgeCases<float, float, Compute::DeviceType::Cuda, Compute::CudaMemoryResource>(
             cuda_float_data_ );
     }
 
     TEST_F( AttentionTests, Cuda_Float_TrainingModeBehavior ) {
-        TestTrainingModeBehavior<float, float, Compute::DeviceType::Cuda, Compute::DeviceMemoryResource>(
+        TestTrainingModeBehavior<float, float, Compute::DeviceType::Cuda, Compute::CudaMemoryResource>(
             cuda_float_data_ );
     }
 
     TEST_F( AttentionTests, Cuda_Float_NumericalStability ) {
-        TestNumericalStability<float, float, Compute::DeviceType::Cuda, Compute::DeviceMemoryResource>(
+        TestNumericalStability<float, float, Compute::DeviceType::Cuda, Compute::CudaMemoryResource>(
             cuda_float_data_ );
     }
 
@@ -402,19 +402,19 @@ namespace Modules::Tests
     // CUDA Tests with float precision
 
     TEST_F( AttentionTests, Cuda_Float_TestName ) {
-        TestGetName<float, float, Compute::DeviceType::Cuda, Compute::DeviceMemoryResource>(
+        TestGetName<float, float, Compute::DeviceType::Cuda, Compute::CudaMemoryResource>(
             cuda_float_data_, "cuda_attn_float" );
     }
 
     TEST_F( AttentionTests, Cuda_Float_ParameterCount ) {
         // Calculate expected parameter count based on the attention module structure
         size_t expected_count = cuda_float_data_.attention_module->parameterCount();
-        TestParameterCount<float, float, Compute::DeviceType::Cuda, Compute::DeviceMemoryResource>(
+        TestParameterCount<float, float, Compute::DeviceType::Cuda, Compute::CudaMemoryResource>(
             cuda_float_data_, expected_count );
     }
 
     TEST_F( AttentionTests, Cuda_Float_TestForward ) {
-        TestForward<float, float, Compute::DeviceType::Cuda, Compute::DeviceMemoryResource>( cuda_float_data_ );
+        TestForward<float, float, Compute::DeviceType::Cuda, Compute::CudaMemoryResource>( cuda_float_data_ );
     }
 
     TEST_F( AttentionTests, Cuda_Float_TestPrint ) {
@@ -425,19 +425,19 @@ namespace Modules::Tests
 
     /*
     TEST_F(AttentionTests, Cuda_Half_TestName) {
-        TestGetName<float, half, Compute::DeviceType::Cuda, Compute::DeviceMemoryResource>(
+        TestGetName<float, half, Compute::DeviceType::Cuda, Compute::CudaMemoryResource>(
             cuda_half_data_, "cuda_attn_half");
     }
 
     TEST_F(AttentionTests, Cuda_Half_ParameterCount) {
         // Calculate expected parameter count based on the attention module structure
         size_t expected_count = cuda_half_data_.attention_module->parameterCount();
-        TestParameterCount<float, half, Compute::DeviceType::Cuda, Compute::DeviceMemoryResource>(
+        TestParameterCount<float, half, Compute::DeviceType::Cuda, Compute::CudaMemoryResource>(
             cuda_half_data_, expected_count);
     }
 
     TEST_F(AttentionTests, Cuda_Half_TestForward) {
-        TestForward<float, half, Compute::DeviceType::Cuda, Compute::DeviceMemoryResource>(cuda_half_data_);
+        TestForward<float, half, Compute::DeviceType::Cuda, Compute::CudaMemoryResource>(cuda_half_data_);
     }
 
     TEST_F(AttentionTests, Cuda_Half_TestPrint) {

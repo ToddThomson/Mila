@@ -36,7 +36,13 @@ import Utils.DefaultLogger;
 
 export import Core.RandomGenerator;
 
+export import Compute.OperationBase;
+export import Compute.OperationType;
+export import Compute.UnaryOperation;
+export import Compute.BinaryOperation;
+
 export import Dnn.Module;
+export import Dnn.ModuleBlock;
 export import Dnn.Model;
 
 export import Dnn.Tensor;

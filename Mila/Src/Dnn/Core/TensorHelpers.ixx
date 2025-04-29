@@ -35,7 +35,7 @@ namespace Mila::Dnn
  *
  * @note Uses a fixed seed (42) for reproducible results rather than truly random values
  */
-    export template<typename TElementType, typename MR = Compute::HostMemoryResource>
+    export template<typename TElementType, typename MR = Compute::CpuMemoryResource>
         requires ValidTensorType<TElementType>&& std::is_base_of_v<Compute::MemoryResource, MR>
     void random( Tensor<TElementType, MR>& tensor, TElementType min, TElementType max ) {
         std::random_device rd;
@@ -47,7 +47,7 @@ namespace Mila::Dnn
             float max_float = __half2float( max );
             std::uniform_real_distribution<float> dis( min_float, max_float );
 
-            if constexpr ( std::is_same_v<MR, Compute::DeviceMemoryResource> ) {
+            if constexpr ( std::is_same_v<MR, Compute::CudaMemoryResource> ) {
                 auto temp = tensor.template to<Compute::HostMemoryResource>();
 
                 for ( size_t i = 0; i < temp.size(); ++i ) {
@@ -67,7 +67,7 @@ namespace Mila::Dnn
             // Original implementation for float and other types
             std::uniform_real_distribution<TElementType> dis( min, max );
 
-            if constexpr ( std::is_same_v<MR, Compute::DeviceMemoryResource> ) {
+            if constexpr ( std::is_same_v<MR, Compute::CudaMemoryResource> ) {
                 auto temp = tensor.template to<Compute::HostMemoryResource>();
 
                 TElementType* temp_data = temp.raw_data();
@@ -116,7 +116,7 @@ namespace Mila::Dnn
             std::mt19937 gen( 42 ); // TJT: revert back to rd() );
             std::uniform_real_distribution<float> dis( -limit, limit );
 
-            if constexpr ( std::is_same_v<MR, Compute::DeviceMemoryResource> ) {
+            if constexpr ( std::is_same_v<MR, Compute::CudaMemoryResource> ) {
                 auto temp = tensor.template to<Compute::HostMemoryResource>();
 
                 half* temp_data = temp.raw_data();
@@ -140,7 +140,7 @@ namespace Mila::Dnn
             std::mt19937 gen( 42 ); // TJT: revert back to rd() );
             std::uniform_real_distribution<TElementType> dis( -limit, limit );
 
-            if constexpr ( std::is_same_v<MR, Compute::DeviceMemoryResource> ) {
+            if constexpr ( std::is_same_v<MR, Compute::CudaMemoryResource> ) {
                 auto temp = tensor.template to<Compute::HostMemoryResource>();
 
                 TElementType* temp_data = temp.raw_data();

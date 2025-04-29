@@ -39,7 +39,7 @@
 //
 //	input.print();
 //
-//    //auto cuda_input = input.to<Compute::DeviceMemoryResource>();
+//    //auto cuda_input = input.to<Compute::CudaMemoryResource>();
 //
 //    auto output = cpu_softmax.forward( input );
 //    

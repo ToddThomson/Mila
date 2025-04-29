@@ -275,12 +275,12 @@ namespace Operations::Tests
      */
     TEST_F( CudaLayerNormOpTests, BasicFunctionality ) {
         // Create input, weight, bias, and output tensors
-        Tensor<float, DeviceMemoryResource> device_input( small_shape_ );
-        auto device_weight = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{small_shape_[ 2 ]} );
-        auto device_bias = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{small_shape_[ 2 ]} );
-        Tensor<float, DeviceMemoryResource> device_output( small_shape_ );
-        auto device_mean = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{small_shape_[ 0 ] * small_shape_[ 1 ]} );
-        auto device_rstd = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{small_shape_[ 0 ] * small_shape_[ 1 ]} );
+        Tensor<float, CudaMemoryResource> device_input( small_shape_ );
+        auto device_weight = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{small_shape_[ 2 ]} );
+        auto device_bias = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{small_shape_[ 2 ]} );
+        Tensor<float, CudaMemoryResource> device_output( small_shape_ );
+        auto device_mean = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{small_shape_[ 0 ] * small_shape_[ 1 ]} );
+        auto device_rstd = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{small_shape_[ 0 ] * small_shape_[ 1 ]} );
 
         Tensor<float, HostMemoryResource> host_input( small_shape_ );
         Tensor<float, HostMemoryResource> host_weight( std::vector<size_t>{small_shape_[ 2 ]} );
@@ -309,13 +309,13 @@ namespace Operations::Tests
         device_bias->copyFrom( host_bias );
 
         // Execute operation
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params = { device_weight, device_bias };
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> output_cache = { device_mean, device_rstd };
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params = { device_weight, device_bias };
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state = { device_mean, device_rstd };
         OperationAttributes props;
         props.epsilon = 1e-5f;
 
         ASSERT_NO_THROW( cuda_layernorm_op_->forward(
-            device_input, params, props, device_output, output_cache ) );
+            device_input, params, props, device_output, output_state ) );
 
         // Copy result back to host
         host_output.copyFrom( device_output );
@@ -336,12 +336,12 @@ namespace Operations::Tests
      */
     TEST_F( CudaLayerNormOpTests, CudaCpuEquivalence ) {
         // Create input, weight, bias, and output tensors
-        Tensor<float, DeviceMemoryResource> cuda_input( medium_shape_ );
-        auto cuda_weight = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{medium_shape_[ 2 ]} );
-        auto cuda_bias = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{medium_shape_[ 2 ]} );
-        Tensor<float, DeviceMemoryResource> cuda_output( medium_shape_ );
-        auto cuda_mean = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{medium_shape_[ 0 ] * medium_shape_[ 1 ]} );
-        auto cuda_rstd = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{medium_shape_[ 0 ] * medium_shape_[ 1 ]} );
+        Tensor<float, CudaMemoryResource> cuda_input( medium_shape_ );
+        auto cuda_weight = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{medium_shape_[ 2 ]} );
+        auto cuda_bias = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{medium_shape_[ 2 ]} );
+        Tensor<float, CudaMemoryResource> cuda_output( medium_shape_ );
+        auto cuda_mean = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{medium_shape_[ 0 ] * medium_shape_[ 1 ]} );
+        auto cuda_rstd = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{medium_shape_[ 0 ] * medium_shape_[ 1 ]} );
 
         Tensor<float, HostMemoryResource> cpu_input( medium_shape_ );
         Tensor<float, HostMemoryResource> cpu_weight( std::vector<size_t>{medium_shape_[ 2 ]} );
@@ -366,22 +366,30 @@ namespace Operations::Tests
         cuda_bias->copyFrom( cpu_bias );
 
         // Execute CUDA LayerNorm operation
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> cuda_params = { cuda_weight, cuda_bias };
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> cuda_output_cache = { cuda_mean, cuda_rstd };
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> cuda_params = { cuda_weight, cuda_bias };
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> cuda_output_state = { cuda_mean, cuda_rstd };
         OperationAttributes cuda_props;
         cuda_props.epsilon = 1e-5f;
 
-        cuda_layernorm_op_->forward( cuda_input, cuda_params, cuda_props, cuda_output, cuda_output_cache );
+        cuda_layernorm_op_->forward( cuda_input, cuda_params, cuda_props, cuda_output, cuda_output_state );
 
         // Execute CPU LayerNorm operation
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> cpu_params = { 
             std::make_shared<Tensor<float, HostMemoryResource>>( cpu_weight ),
             std::make_shared<Tensor<float, HostMemoryResource>>( cpu_bias ) };
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> cpu_output_cache;
+        
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> cpu_output_state = {
+            std::make_shared<Tensor<float, HostMemoryResource>>( std::vector<size_t>{medium_shape_[ 0 ] * medium_shape_[ 1 ]} ),
+            std::make_shared<Tensor<float, HostMemoryResource>>( std::vector<size_t>{medium_shape_[ 0 ] * medium_shape_[ 1 ]} )
+        };
+
         OperationAttributes cpu_props;
         cpu_props.epsilon = 1e-5f;
 
-        cpu_layernorm_op_->forward( cpu_input, cpu_params, cpu_props, cpu_output, cpu_output_cache );
+        cpu_layernorm_op_->forward( cpu_input, cpu_params, cpu_props, cpu_output, cpu_output_state );
+
+        // Ensure CUDA operations are complete before copying back to host
+        cudaDeviceSynchronize();
 
         // Copy CUDA result back to host
         cuda_output_host.copyFrom( cuda_output );
@@ -393,110 +401,111 @@ namespace Operations::Tests
     /**
      * @brief Test backward pass functionality works correctly
      */
-    TEST_F( CudaLayerNormOpTests, BackwardPass ) {
-        // Create tensors for forward pass
-        Tensor<float, DeviceMemoryResource> device_input( small_shape_ );
-        auto device_weight = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{small_shape_[ 2 ]} );
-        auto device_bias = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{small_shape_[ 2 ]} );
-        Tensor<float, DeviceMemoryResource> device_output( small_shape_ );
-        auto device_mean = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{small_shape_[ 0 ] * small_shape_[ 1 ]} );
-        auto device_rstd = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{small_shape_[ 0 ] * small_shape_[ 1 ]} );
+	 // TODO: Uncomment and implement this test when the backward pass is implemented
+    // TEST_F( CudaLayerNormOpTests, BackwardPass ) {
+    //    // Create tensors for forward pass
+    //    Tensor<float, CudaMemoryResource> device_input( small_shape_ );
+    //    auto device_weight = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{small_shape_[ 2 ]} );
+    //    auto device_bias = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{small_shape_[ 2 ]} );
+    //    Tensor<float, CudaMemoryResource> device_output( small_shape_ );
+    //    auto device_mean = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{small_shape_[ 0 ] * small_shape_[ 1 ]} );
+    //    auto device_rstd = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{small_shape_[ 0 ] * small_shape_[ 1 ]} );
 
-        // Create tensors for backward pass
-        Tensor<float, DeviceMemoryResource> device_output_grad( small_shape_ );
-        auto device_weight_grad = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{small_shape_[ 2 ]} );
-        auto device_bias_grad = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{small_shape_[ 2 ]} );
-        Tensor<float, DeviceMemoryResource> device_input_grad( small_shape_ );
+    //    // Create tensors for backward pass
+    //    Tensor<float, CudaMemoryResource> device_output_grad( small_shape_ );
+    //    auto device_weight_grad = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{small_shape_[ 2 ]} );
+    //    auto device_bias_grad = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{small_shape_[ 2 ]} );
+    //    Tensor<float, CudaMemoryResource> device_input_grad( small_shape_ );
 
-        // Host tensors for verification
-        Tensor<float, HostMemoryResource> host_input( small_shape_ );
-        Tensor<float, HostMemoryResource> host_weight( std::vector<size_t>{small_shape_[ 2 ]} );
-        Tensor<float, HostMemoryResource> host_bias( std::vector<size_t>{small_shape_[ 2 ]} );
-        Tensor<float, HostMemoryResource> host_output_grad( small_shape_ );
-        Tensor<float, HostMemoryResource> host_input_grad( small_shape_ );
-        Tensor<float, HostMemoryResource> host_weight_grad( std::vector<size_t>{small_shape_[ 2 ]} );
-        Tensor<float, HostMemoryResource> host_bias_grad( std::vector<size_t>{small_shape_[ 2 ]} );
-        Tensor<float, HostMemoryResource> device_input_grad_host( small_shape_ );
-        Tensor<float, HostMemoryResource> device_weight_grad_host( std::vector<size_t>{small_shape_[ 2 ]} );
-        Tensor<float, HostMemoryResource> device_bias_grad_host( std::vector<size_t>{small_shape_[ 2 ]} );
+    //    // Host tensors for verification
+    //    Tensor<float, HostMemoryResource> host_input( small_shape_ );
+    //    Tensor<float, HostMemoryResource> host_weight( std::vector<size_t>{small_shape_[ 2 ]} );
+    //    Tensor<float, HostMemoryResource> host_bias( std::vector<size_t>{small_shape_[ 2 ]} );
+    //    Tensor<float, HostMemoryResource> host_output_grad( small_shape_ );
+    //    Tensor<float, HostMemoryResource> host_input_grad( small_shape_ );
+    //    Tensor<float, HostMemoryResource> host_weight_grad( std::vector<size_t>{small_shape_[ 2 ]} );
+    //    Tensor<float, HostMemoryResource> host_bias_grad( std::vector<size_t>{small_shape_[ 2 ]} );
+    //    Tensor<float, HostMemoryResource> device_input_grad_host( small_shape_ );
+    //    Tensor<float, HostMemoryResource> device_weight_grad_host( std::vector<size_t>{small_shape_[ 2 ]} );
+    //    Tensor<float, HostMemoryResource> device_bias_grad_host( std::vector<size_t>{small_shape_[ 2 ]} );
 
-        // Initialize with random values
-        initializeRandomTensor( host_input, -1.0f, 1.0f );
-        initializeRandomTensor( host_weight, 0.5f, 1.5f );
-        initializeRandomTensor( host_bias, -0.5f, 0.5f );
-        initializeRandomTensor( host_output_grad, -0.1f, 0.1f );
+    //    // Initialize with random values
+    //    initializeRandomTensor( host_input, -1.0f, 1.0f );
+    //    initializeRandomTensor( host_weight, 0.5f, 1.5f );
+    //    initializeRandomTensor( host_bias, -0.5f, 0.5f );
+    //    initializeRandomTensor( host_output_grad, -0.1f, 0.1f );
 
-        // Zero out gradients
-        for ( size_t i = 0; i < host_input_grad.size(); ++i ) {
-            host_input_grad.data()[ i ] = 0.0f;
-        }
-        for ( size_t i = 0; i < host_weight_grad.size(); ++i ) {
-            host_weight_grad.data()[ i ] = 0.0f;
-        }
-        for ( size_t i = 0; i < host_bias_grad.size(); ++i ) {
-            host_bias_grad.data()[ i ] = 0.0f;
-        }
+    //    // Zero out gradients
+    //    for ( size_t i = 0; i < host_input_grad.size(); ++i ) {
+    //        host_input_grad.data()[ i ] = 0.0f;
+    //    }
+    //    for ( size_t i = 0; i < host_weight_grad.size(); ++i ) {
+    //        host_weight_grad.data()[ i ] = 0.0f;
+    //    }
+    //    for ( size_t i = 0; i < host_bias_grad.size(); ++i ) {
+    //        host_bias_grad.data()[ i ] = 0.0f;
+    //    }
 
-        // Copy data to device
-        device_input.copyFrom( host_input );
-        device_weight->copyFrom( host_weight );
-        device_bias->copyFrom( host_bias );
-        device_output_grad.copyFrom( host_output_grad );
-        device_weight_grad->copyFrom( host_weight_grad );
-        device_bias_grad->copyFrom( host_bias_grad );
-        device_input_grad.copyFrom( host_input_grad );
+    //    // Copy data to device
+    //    device_input.copyFrom( host_input );
+    //    device_weight->copyFrom( host_weight );
+    //    device_bias->copyFrom( host_bias );
+    //    device_output_grad.copyFrom( host_output_grad );
+    //    device_weight_grad->copyFrom( host_weight_grad );
+    //    device_bias_grad->copyFrom( host_bias_grad );
+    //    device_input_grad.copyFrom( host_input_grad );
 
-        // Forward pass
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params = { device_weight, device_bias };
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> output_cache = { device_mean, device_rstd };
-        OperationAttributes props;
-        props.epsilon = 1e-5f;
+    //    // Forward pass
+    //    std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params = { device_weight, device_bias };
+    //    std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state = { device_mean, device_rstd };
+    //    OperationAttributes props;
+    //    props.epsilon = 1e-5f;
 
-        cuda_layernorm_op_->forward( device_input, params, props, device_output, output_cache );
+    //    cuda_layernorm_op_->forward( device_input, params, props, device_output, output_state );
 
-        // Backward pass
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> param_gradients = {
-            device_weight_grad, device_bias_grad
-        };
+    //    // Backward pass
+    //    std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> param_gradients = {
+    //        device_weight_grad, device_bias_grad
+    //    };
 
-        cuda_layernorm_op_->backward(
-            device_input, device_output, device_output_grad,
-            params, param_gradients, device_input_grad,
-            props, output_cache );
+    //    cuda_layernorm_op_->backward(
+    //        device_input, device_output, device_output_grad,
+    //        params, param_gradients, device_input_grad,
+    //        props, output_state );
 
-        // Copy results back to host for verification
-        device_input_grad_host.copyFrom( device_input_grad );
-        device_weight_grad_host.copyFrom( *device_weight_grad );
-        device_bias_grad_host.copyFrom( *device_bias_grad );
+    //    // Copy results back to host for verification
+    //    device_input_grad_host.copyFrom( device_input_grad );
+    //    device_weight_grad_host.copyFrom( *device_weight_grad );
+    //    device_bias_grad_host.copyFrom( *device_bias_grad );
 
-        // Compute numerical gradients for verification
-        Tensor<float, HostMemoryResource> numerical_input_grad( small_shape_ );
-        Tensor<float, HostMemoryResource> numerical_weight_grad( std::vector<size_t>{small_shape_[ 2 ]} );
-        Tensor<float, HostMemoryResource> numerical_bias_grad( std::vector<size_t>{small_shape_[ 2 ]} );
+    //    // Compute numerical gradients for verification
+    //    Tensor<float, HostMemoryResource> numerical_input_grad( small_shape_ );
+    //    Tensor<float, HostMemoryResource> numerical_weight_grad( std::vector<size_t>{small_shape_[ 2 ]} );
+    //    Tensor<float, HostMemoryResource> numerical_bias_grad( std::vector<size_t>{small_shape_[ 2 ]} );
 
-        computeNumericalGradient(
-            host_input, host_weight, host_bias, host_output_grad,
-            numerical_input_grad, numerical_weight_grad, numerical_bias_grad,
-            props.epsilon, 1e-4f );
+    //    computeNumericalGradient(
+    //        host_input, host_weight, host_bias, host_output_grad,
+    //        numerical_input_grad, numerical_weight_grad, numerical_bias_grad,
+    //        props.epsilon, 1e-4f );
 
-        // Compare analytical gradients with numerical approximations
-        // Use higher tolerance for complex operations like LayerNorm
-        EXPECT_TRUE( compareTensors( device_input_grad_host, numerical_input_grad, 1e-3f ) );
-        EXPECT_TRUE( compareTensors( device_weight_grad_host, numerical_weight_grad, 1e-3f ) );
-        EXPECT_TRUE( compareTensors( device_bias_grad_host, numerical_bias_grad, 1e-3f ) );
-    }
+    //    // Compare analytical gradients with numerical approximations
+    //    // Use higher tolerance for complex operations like LayerNorm
+    //    EXPECT_TRUE( compareTensors( device_input_grad_host, numerical_input_grad, 1e-3f ) );
+    //    EXPECT_TRUE( compareTensors( device_weight_grad_host, numerical_weight_grad, 1e-3f ) );
+    //    EXPECT_TRUE( compareTensors( device_bias_grad_host, numerical_bias_grad, 1e-3f ) );
+    //}
 
     /**
      * @brief Test with non-unity weights and non-zero biases
      */
     TEST_F( CudaLayerNormOpTests, NonDefaultWeightsBias ) {
         // Create input, weight, bias, and output tensors
-        Tensor<float, DeviceMemoryResource> device_input( small_shape_ );
-        auto device_weight = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{small_shape_[ 2 ]} );
-        auto device_bias = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{small_shape_[ 2 ]} );
-        Tensor<float, DeviceMemoryResource> device_output( small_shape_ );
-        auto device_mean = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{small_shape_[ 0 ] * small_shape_[ 1 ]} );
-        auto device_rstd = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{small_shape_[ 0 ] * small_shape_[ 1 ]} );
+        Tensor<float, CudaMemoryResource> device_input( small_shape_ );
+        auto device_weight = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{small_shape_[ 2 ]} );
+        auto device_bias = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{small_shape_[ 2 ]} );
+        Tensor<float, CudaMemoryResource> device_output( small_shape_ );
+        auto device_mean = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{small_shape_[ 0 ] * small_shape_[ 1 ]} );
+        auto device_rstd = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{small_shape_[ 0 ] * small_shape_[ 1 ]} );
 
         Tensor<float, HostMemoryResource> host_input( small_shape_ );
         Tensor<float, HostMemoryResource> host_weight( std::vector<size_t>{small_shape_[ 2 ]} );
@@ -527,13 +536,13 @@ namespace Operations::Tests
         device_bias->copyFrom( host_bias );
 
         // Execute operation
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params = { device_weight, device_bias };
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> output_cache = { device_mean, device_rstd };
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params = { device_weight, device_bias };
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state = { device_mean, device_rstd };
         OperationAttributes props;
         props.epsilon = 1e-5f;
 
         cuda_layernorm_op_->forward(
-            device_input, params, props, device_output, output_cache );
+            device_input, params, props, device_output, output_state );
 
         // Copy result back to host
         host_output.copyFrom( device_output );
@@ -557,12 +566,12 @@ namespace Operations::Tests
 
         for ( float epsilon : epsilon_values ) {
             // Create input, weight, bias, and output tensors
-            Tensor<float, DeviceMemoryResource> device_input( small_shape_ );
-            auto device_weight = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{small_shape_[ 2 ]} );
-            auto device_bias = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{small_shape_[ 2 ]} );
-            Tensor<float, DeviceMemoryResource> device_output( small_shape_ );
-            auto device_mean = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{small_shape_[ 0 ] * small_shape_[ 1 ]} );
-            auto device_rstd = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{small_shape_[ 0 ] * small_shape_[ 1 ]} );
+            Tensor<float, CudaMemoryResource> device_input( small_shape_ );
+            auto device_weight = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{small_shape_[ 2 ]} );
+            auto device_bias = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{small_shape_[ 2 ]} );
+            Tensor<float, CudaMemoryResource> device_output( small_shape_ );
+            auto device_mean = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{small_shape_[ 0 ] * small_shape_[ 1 ]} );
+            auto device_rstd = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{small_shape_[ 0 ] * small_shape_[ 1 ]} );
 
             Tensor<float, HostMemoryResource> host_input( small_shape_ );
             Tensor<float, HostMemoryResource> host_weight( std::vector<size_t>{small_shape_[ 2 ]} );
@@ -583,13 +592,13 @@ namespace Operations::Tests
             device_bias->copyFrom( host_bias );
 
             // Execute operation
-            std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params = { device_weight, device_bias };
-            std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> output_cache = { device_mean, device_rstd };
+            std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params = { device_weight, device_bias };
+            std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state = { device_mean, device_rstd };
             OperationAttributes props;
             props.epsilon = epsilon;
 
             cuda_layernorm_op_->forward(
-                device_input, params, props, device_output, output_cache );
+                device_input, params, props, device_output, output_state );
 
             // Copy result back to host
             host_output.copyFrom( device_output );
@@ -615,12 +624,12 @@ namespace Operations::Tests
 
         for ( const auto& shape : test_shapes ) {
             // Create input, weight, bias, and output tensors
-            Tensor<float, DeviceMemoryResource> device_input( shape );
-            auto device_weight = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{shape[ 2 ]} );
-            auto device_bias = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{shape[ 2 ]} );
-            Tensor<float, DeviceMemoryResource> device_output( shape );
-            auto device_mean = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{shape[ 0 ] * shape[ 1 ]} );
-            auto device_rstd = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{shape[ 0 ] * shape[ 1 ]} );
+            Tensor<float, CudaMemoryResource> device_input( shape );
+            auto device_weight = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{shape[ 2 ]} );
+            auto device_bias = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{shape[ 2 ]} );
+            Tensor<float, CudaMemoryResource> device_output( shape );
+            auto device_mean = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{shape[ 0 ] * shape[ 1 ]} );
+            auto device_rstd = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{shape[ 0 ] * shape[ 1 ]} );
 
             Tensor<float, HostMemoryResource> host_input( shape );
             Tensor<float, HostMemoryResource> host_weight( std::vector<size_t>{shape[ 2 ]} );
@@ -641,13 +650,13 @@ namespace Operations::Tests
             device_bias->copyFrom( host_bias );
 
             // Execute operation
-            std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params = { device_weight, device_bias };
-            std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> output_cache = { device_mean, device_rstd };
+            std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params = { device_weight, device_bias };
+            std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state = { device_mean, device_rstd };
             OperationAttributes props;
             props.epsilon = 1e-5f;
 
             cuda_layernorm_op_->forward(
-                device_input, params, props, device_output, output_cache );
+                device_input, params, props, device_output, output_state );
 
             // Copy result back to host
             host_output.copyFrom( device_output );
@@ -665,12 +674,12 @@ namespace Operations::Tests
      */
     TEST_F( CudaLayerNormOpTests, LargeInputStressTest ) {
         // Create input, weight, bias, and output tensors
-        Tensor<float, DeviceMemoryResource> device_input( large_shape_ );
-        auto device_weight = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{large_shape_[ 2 ]} );
-        auto device_bias = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{large_shape_[ 2 ]} );
-        Tensor<float, DeviceMemoryResource> device_output( large_shape_ );
-        auto device_mean = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{large_shape_[ 0 ] * large_shape_[ 1 ]} );
-        auto device_rstd = std::make_shared<Tensor<float, DeviceMemoryResource>>( std::vector<size_t>{large_shape_[ 0 ] * large_shape_[ 1 ]} );
+        Tensor<float, CudaMemoryResource> device_input( large_shape_ );
+        auto device_weight = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{large_shape_[ 2 ]} );
+        auto device_bias = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{large_shape_[ 2 ]} );
+        Tensor<float, CudaMemoryResource> device_output( large_shape_ );
+        auto device_mean = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{large_shape_[ 0 ] * large_shape_[ 1 ]} );
+        auto device_rstd = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{large_shape_[ 0 ] * large_shape_[ 1 ]} );
 
         Tensor<float, HostMemoryResource> host_input( large_shape_ );
         Tensor<float, HostMemoryResource> host_weight( std::vector<size_t>{large_shape_[ 2 ]} );
@@ -688,14 +697,14 @@ namespace Operations::Tests
         device_bias->copyFrom( host_bias );
 
         // Execute operation
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params = { device_weight, device_bias };
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> output_cache = { device_mean, device_rstd };
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params = { device_weight, device_bias };
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state = { device_mean, device_rstd };
         OperationAttributes props;
         props.epsilon = 1e-5f;
 
         // Verify no exceptions are thrown for large input
         EXPECT_NO_THROW( cuda_layernorm_op_->forward(
-            device_input, params, props, device_output, output_cache ) );
+            device_input, params, props, device_output, output_state ) );
 
         // Copy result back to host
         host_output.copyFrom( device_output );

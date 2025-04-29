@@ -47,7 +47,7 @@ namespace Mila::Dnn
         requires ValidFloatTensorType<TPrecision>
     class Residual : public Module<TPrecision, TPrecision, TDeviceType> {
     public:
-		using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, HostMemoryResource, DeviceMemoryResource>;
+		using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>;
 		using ModuleBase = Module<TPrecision, TPrecision, TDeviceType>;
 
         /**
@@ -56,8 +56,8 @@ namespace Mila::Dnn
          * @param name The name of the module for identification purposes.
          * @param is_training Whether the module is being used in training mode (defaults to false).
          */
-        Residual( std::string name, bool is_training = false )
-            : ModuleBase() {
+        Residual( std::string name, const std::string& device_name, bool is_training = false )
+            : ModuleBase( device_name ) {
             this->setTraining( is_training );
             this->setName( name );
             createOperation();
@@ -70,8 +70,8 @@ namespace Mila::Dnn
          * @param context The device context to use for this module.
          * @param is_training Whether the module is being used in training mode (defaults to false).
          */
-        Residual( std::string name, const std::string& device_name, bool is_training = false )
-            : ModuleBase( device_name ) {
+        Residual( std::string name, std::shared_ptr<DeviceContext> context, bool is_training = false )
+            : ModuleBase( context ) {
             this->setTraining( is_training );
             this->setName( name );
             createOperation();
@@ -139,15 +139,15 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-    protected:
-        /**
-         * @brief Called when the device context changes.
-         *
-         * Recreates operations for the new device.
-         */
-        void onDeviceChanged() override {
-            createOperation();
-        }
+    //protected:
+    //    /**
+    //     * @brief Called when the device context changes.
+    //     *
+    //     * Recreates operations for the new device.
+    //     */
+    //    void onDeviceChanged() override {
+    //        createOperation();
+    //    }
 
     private:
         /**
@@ -178,7 +178,7 @@ namespace Mila::Dnn
          * For residual connections, this operation performs element-wise addition
          * between the two input tensors.
          */
-        std::shared_ptr<BinaryOperation<TPrecision, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<BinaryOperation<TPrecision, TPrecision, TDeviceType>> operation_{ nullptr };
 
         /**
          * @brief Creates the appropriate Residual operation based on the current device context.
@@ -189,19 +189,19 @@ namespace Mila::Dnn
          * The operation performs element-wise addition of the two input tensors.
          */
         void createOperation() {
-            auto device_type = this->getDeviceContext()->getDevice()->getDeviceType();
-
-            if ( operation_ ) {
-                operation_.reset(); // Clear existing operation
-            }
-
-            if ( device_type == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cpu>( "Cpu::ResidualOp" );
-                operation_ = std::static_pointer_cast<BinaryOperation<TPrecision, TPrecision>>(base_op);
+            if constexpr ( TDeviceType == DeviceType::Cpu ) {
+                operation_ = std::static_pointer_cast<BinaryOperation<TPrecision, TPrecision, TDeviceType>>(
+                    OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cpu>(
+                        "Cpu::ResidualOp",
+                        this->getDeviceContext() )
+                );
             }
             else {
-                auto base_op = OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cuda>( "Cuda::ResidualOp" );
-                operation_ = std::static_pointer_cast<BinaryOperation<TPrecision, TPrecision>>(base_op);
+                operation_ = std::static_pointer_cast<BinaryOperation<TPrecision, TPrecision, TDeviceType>>(
+                    OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cuda>(
+                        "Cuda::ResidualOp",
+                        this->getDeviceContext() )
+                );
             }
         }
     };

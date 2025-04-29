@@ -146,10 +146,10 @@ namespace Operations::Tests
 
         // Execute operation
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params = { weights };
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
         OperationAttributes props;
 
-        ASSERT_NO_THROW( cpu_fc_op_->forward( input, params, props, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_fc_op_->forward( input, params, props, output, output_state ) );
 
         // Compute expected output with reference implementation
         referenceFullyConnected( input, *weights, nullptr, expected_output );
@@ -187,10 +187,10 @@ namespace Operations::Tests
 
         // Execute operation
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params = { weights, bias };
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
         OperationAttributes props;
 
-        ASSERT_NO_THROW( cpu_fc_op_->forward( input, params, props, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_fc_op_->forward( input, params, props, output, output_state ) );
 
         // Compute expected output with reference implementation
         referenceFullyConnected( input, *weights, bias.get(), expected_output );
@@ -318,10 +318,10 @@ namespace Operations::Tests
 
         // Execute operation
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params = { weights, bias };
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
         OperationAttributes props;
 
-        ASSERT_NO_THROW( cpu_fc_op_->forward( input, params, props, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_fc_op_->forward( input, params, props, output, output_state ) );
 
         // Compute expected output with reference implementation
         referenceFullyConnected( input, *weights, bias.get(), expected_output );
@@ -383,10 +383,10 @@ namespace Operations::Tests
 
         // Execute operation
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params = { weights, bias };
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
         OperationAttributes props;
 
-        ASSERT_NO_THROW( cpu_fc_op_->forward( input, params, props, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_fc_op_->forward( input, params, props, output, output_state ) );
 
         // Verify no NaN or Inf values
         EXPECT_FALSE( hasNaNorInf( output ) );
@@ -418,12 +418,12 @@ namespace Operations::Tests
 
         // Run twice with same input
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params = { weights, bias };
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache1;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache2;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state1;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state2;
         OperationAttributes props;
 
-        cpu_fc_op_->forward( input, params, props, output1, output_cache1 );
-        cpu_fc_op_->forward( input, params, props, output2, output_cache2 );
+        cpu_fc_op_->forward( input, params, props, output1, output_state1 );
+        cpu_fc_op_->forward( input, params, props, output2, output_state2 );
 
         // Results should be identical
         for ( size_t i = 0; i < output1.size(); ++i ) {
@@ -473,7 +473,7 @@ namespace Operations::Tests
         }
 
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params = { weights, bias };
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
         OperationAttributes props;
 
         // Measure performance over multiple iterations
@@ -481,7 +481,7 @@ namespace Operations::Tests
         auto start_time = std::chrono::high_resolution_clock::now();
 
         for ( int i = 0; i < iterations; ++i ) {
-            cpu_fc_op_->forward( input, params, props, output, output_cache );
+            cpu_fc_op_->forward( input, params, props, output, output_state );
         }
 
         auto end_time = std::chrono::high_resolution_clock::now();
@@ -542,7 +542,7 @@ namespace Operations::Tests
         }
 
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params = { weights, bias };
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
         OperationAttributes props;
 
         // Get number of threads
@@ -567,7 +567,7 @@ namespace Operations::Tests
             auto start_time = std::chrono::high_resolution_clock::now();
 
             for ( int i = 0; i < iterations; ++i ) {
-                cpu_fc_op_->forward( input, params, props, output, output_cache );
+                cpu_fc_op_->forward( input, params, props, output, output_state );
             }
 
             auto end_time = std::chrono::high_resolution_clock::now();

@@ -111,14 +111,14 @@ namespace Mila::Dnn::Compute
              *                   and wpe is of shape [maxT, C] (maximum sequence length × embedding dimension).
              * @param properties Additional attributes for the operation.
              * @param output Output tensor of shape [B, TDataType, C] containing the resulting embeddings.
-             * @param output_cache Cache for intermediate results (not used in this operation).
+             * @param output_state Cache for intermediate results (not used in this operation).
              */
             void forward(
                 const Tensor<int, MR>& input,
                 const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
                 const OperationAttributes& properties,
                 Tensor<TPrecision, MR>& output,
-                std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const override {
+                std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const override {
 
 				// TODO: Argument validation. 
 
@@ -149,7 +149,7 @@ namespace Mila::Dnn::Compute
              * @param parameter_gradients Gradients for parameters (embedding tables).
              * @param input_gradient Gradient of the loss with respect to the input (typically not used for discrete inputs).
              * @param properties Additional attributes for the operation.
-             * @param output_cache Cache tensors from forward pass.
+             * @param output_state Cache tensors from forward pass.
              */
             void backward(
                 const Tensor<int, MR>& input,
@@ -159,7 +159,7 @@ namespace Mila::Dnn::Compute
                 std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameter_gradients,
                 Tensor<int, MR>& input_gradient,
                 const OperationAttributes& properties,
-                const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const {
+                const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const {
 
                 if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cuda ) ) {
                     throw std::runtime_error( "CudaEncoderOp::backward can only be executed on CUDA device" );

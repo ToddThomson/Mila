@@ -24,12 +24,12 @@ namespace Mila::Dnn
 {
 	using namespace Mila::Dnn::Compute;
 
-    export template<typename TPrecision, typename TInput = TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
+    export template<typename TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
         requires ValidFloatTensorType<TPrecision>
-    class MLP : public BlockModule<TPrecision, TInput, TDeviceType> {
+    class MLP : public BlockModule<TPrecision, TPrecision, TDeviceType> {
     public:
-        using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::DeviceMemoryResource, Compute::HostMemoryResource>;
-        using Base = BlockModule<TPrecision, TInput, TDeviceType>; ///< Base class type for the module block
+        using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::HostMemoryResource>;
+        using BlockModuleBase = BlockModule<TPrecision, TPrecision, TDeviceType>; ///< Base class type for the module block
 
         /**
          * @brief Constructs a new MLP module with the default device context.
@@ -40,11 +40,9 @@ namespace Mila::Dnn
          * @param has_bias Whether to include bias terms in linear transformations. Default is true.
          * @param is_training Whether the module is initially in training mode. Default is false.
          */
-        MLP( std::string name, const std::vector<size_t>& input_shape, size_t output_channels,
+        MLP( std::string name, const std::string& device_name, const std::vector<size_t>& input_shape, size_t output_channels,
             bool has_bias = true, bool is_training = false )
-            : Base(),
-            input_shape_{ input_shape },
-            output_channels_{ output_channels } {
+            : BlockModuleBase( device_name ), input_shape_{ input_shape }, output_channels_{ output_channels } {
             this->setName( name );
             this->setTraining( is_training );
 
@@ -65,11 +63,9 @@ namespace Mila::Dnn
          * @param has_bias Whether to include bias terms in linear transformations. Default is true.
          * @param is_training Whether the module is initially in training mode. Default is false.
          */
-        MLP( std::string name, const std::vector<size_t>& input_shape, size_t output_channels,
-            std::shared_ptr<DeviceContext> context, bool has_bias = true, bool is_training = false )
-            : Module<TPrecision, TInput, TDeviceType>( context ),
-            input_shape_{ input_shape },
-            output_channels_{ output_channels } {
+        MLP( std::string name, std::shared_ptr<DeviceContext> context, const std::vector<size_t>& input_shape, size_t output_channels,
+             bool has_bias = true, bool is_training = false )
+            : BlockModuleBase( context ), input_shape_{ input_shape }, output_channels_{ output_channels } {
             this->setName( name );
             this->setTraining( is_training );
 
@@ -89,14 +85,14 @@ namespace Mila::Dnn
          * @param input The input tensor to be processed.
          * @param output The output tensor where the results will be stored.
          */
-        template<typename TMR>
-        void forward( const Tensor<TInput, TMR>& input, Tensor<TPrecision, TMR>& output ) {
+        void forward( const Tensor<TPrecision, MR>& input, Tensor<TPrecision, MR>& output ) {
             // Check if we're in training mode where we need individual operations for backprop
             if ( this->isTraining() ) {
                 // Training mode: use the individual operations
                 fc_1_->forward( input, fc_1_output_ );
                 gelu_->forward( fc_1_output_, gelu_output_ );
                 fc_proj_->forward( gelu_output_, output );
+                
                 return;
             }
 
@@ -180,26 +176,26 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-    protected:
-        /**
-         * @brief Called when the device context changes.
-         *
-         * Recreates sub-modules and output tensors for the new device.
-         */
-        void onDeviceChanged() override {
-            // Recreate the sub-modules with the new device context
-            bool has_bias = fc_1_->hasBias(); // Save bias configuration before recreating
-            initializeModules( has_bias );
-        }
+    //protected:
+    //    /**
+    //     * @brief Called when the device context changes.
+    //     *
+    //     * Recreates sub-modules and output tensors for the new device.
+    //     */
+    //    void onDeviceChanged() override {
+    //        // Recreate the sub-modules with the new device context
+    //        bool has_bias = fc_1_->hasBias(); // Save bias configuration before recreating
+    //        initializeModules( has_bias );
+    //    }
 
     private:
         std::vector<size_t> input_shape_; ///< The input shape.
         size_t input_channels_; ///< The number of input channels
         size_t output_channels_; ///< The number of output channels
 
-        std::shared_ptr<FullyConnected<TPrecision>> fc_1_{ nullptr };
-        std::shared_ptr<Gelu<TPrecision>> gelu_{ nullptr };
-        std::shared_ptr<FullyConnected<TPrecision>> fc_proj_{ nullptr };
+        std::shared_ptr<FullyConnected<TPrecision, TDeviceType>> fc_1_{ nullptr };
+        std::shared_ptr<Gelu<TPrecision, TDeviceType>> gelu_{ nullptr };
+        std::shared_ptr<FullyConnected<TPrecision, TDeviceType>> fc_proj_{ nullptr };
 
         Tensor<TPrecision, MR> fc_1_output_;
         Tensor<TPrecision, MR> gelu_output_;
@@ -216,19 +212,19 @@ namespace Mila::Dnn
             }
 
             // Create new modules with the current device context
-            fc_1_ = std::make_shared<FullyConnected<TPrecision>>(
-                this->getName() + ".fc_1", input_channels_, output_channels_, has_bias );
+            fc_1_ = std::make_shared<FullyConnected<TPrecision, TDeviceType>>(
+                this->getName() + ".fc_1", this->getDeviceContext(), input_channels_, output_channels_, has_bias );
 
-            gelu_ = std::make_shared<Gelu<TPrecision>>(
-                this->getName() + ".gelu" );
+            gelu_ = std::make_shared<Gelu<TPrecision, TDeviceType>>(
+                this->getName() + ".gelu", this->getDeviceContext() );
 
-            fc_proj_ = std::make_shared<FullyConnected<TPrecision>>(
-                this->getName() + ".fc_proj", output_channels_, input_channels_, has_bias );
+            fc_proj_ = std::make_shared<FullyConnected<TPrecision, TDeviceType>>(
+                this->getName() + ".fc_proj", this->getDeviceContext(), output_channels_, input_channels_, has_bias );
 
             // Propagate device context to sub-modules
-            fc_1_->setDeviceContext( this->getDeviceContext() );
+            /*fc_1_->setDeviceContext( this->getDeviceContext() );
             gelu_->setDeviceContext( this->getDeviceContext() );
-            fc_proj_->setDeviceContext( this->getDeviceContext() );
+            fc_proj_->setDeviceContext( this->getDeviceContext() );*/
 
             // Add sub-modules to the MLP block
             this->addModule( "fc_1", fc_1_ );
@@ -242,14 +238,8 @@ namespace Mila::Dnn
             // Create output tensors for the intermediate steps
             auto device_type = this->getDeviceContext()->getDevice()->getDeviceType();
 
-            if ( device_type == DeviceType::Cpu ) {
-                fc_1_output_ = Tensor<TPrecision, Compute::HostMemoryResource>( fc_1_output_shape );
-                gelu_output_ = Tensor<TPrecision, Compute::HostMemoryResource>( fc_1_output_shape );
-            }
-            else {
-                fc_1_output_ = Tensor<TPrecision, Compute::DeviceMemoryResource>( fc_1_output_shape );
-                gelu_output_ = Tensor<TPrecision, Compute::DeviceMemoryResource>( fc_1_output_shape );
-            }
+            fc_1_output_ = Tensor<TPrecision, MR>( fc_1_output_shape );
+            gelu_output_ = Tensor<TPrecision, MR>( fc_1_output_shape );
         }
     };
 }

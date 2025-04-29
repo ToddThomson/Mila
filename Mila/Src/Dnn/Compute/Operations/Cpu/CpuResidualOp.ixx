@@ -75,7 +75,7 @@ namespace Mila::Dnn::Compute
          * @param parameters Additional parameters (not used in this operation).
          * @param attributes Additional attributes for the operation.
          * @param output The output tensor where the results will be stored.
-         * @param output_cache Cache for storing intermediate results (used in backward pass).
+         * @param output_state Cache for storing intermediate results (used in backward pass).
          */
         void forward(
             const Tensor<float, MR>& input_a,
@@ -83,7 +83,7 @@ namespace Mila::Dnn::Compute
             const std::vector<std::shared_ptr<Tensor<float, MR>>>& parameters,
             const OperationAttributes& attributes,
             Tensor<float, MR>& output,
-            std::vector<std::shared_ptr<Tensor<float, MR>>>& output_cache ) const override {
+            std::vector<std::shared_ptr<Tensor<float, MR>>>& output_state ) const override {
 
             auto A = input_a.raw_data();
             auto B = input_b.raw_data();
@@ -111,7 +111,7 @@ namespace Mila::Dnn::Compute
          * @param input_a_gradient Gradient of the loss with respect to input_a.
          * @param input_b_gradient Gradient of the loss with respect to input_b.
          * @param attributes Additional attributes for the operation.
-         * @param output_cache Cache tensors from forward pass.
+         * @param output_state Cache tensors from forward pass.
          */
         void backward(
             const Tensor<float, MR>& input_a,
@@ -123,7 +123,7 @@ namespace Mila::Dnn::Compute
             Tensor<float, MR>& input_a_gradient,
             Tensor<float, MR>& input_b_gradient,
             const OperationAttributes& attributes,
-            const std::vector<std::shared_ptr<Tensor<float, MR>>>& output_cache ) const {
+            const std::vector<std::shared_ptr<Tensor<float, MR>>>& output_state ) const {
 
             if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cpu ) ) {
                 throw std::runtime_error( "CpuResidualOp::backward can only be executed on CPU device." );

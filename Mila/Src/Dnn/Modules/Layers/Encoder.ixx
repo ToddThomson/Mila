@@ -52,7 +52,7 @@ namespace Mila::Dnn
         requires ValidFloatTensorType<TPrecision>
     class Encoder : public Module<TPrecision, int, TDeviceType> {
     public:
-        using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::DeviceMemoryResource, Compute::HostMemoryResource>;
+        using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::HostMemoryResource>;
         using ModuleBase = Module<TPrecision, int, TDeviceType>; ///< Base class type for the module
 
         /**
@@ -65,8 +65,7 @@ namespace Mila::Dnn
         * @param device_name The name of the device to use (e.g., "CPU", "CUDA:0").
         * @param is_training Whether the module is in training mode. Default is false.
         */
-        Encoder( std::string name, size_t channels, size_t max_seq_len, size_t vocab_len,
-            std::string device_name, bool is_training = false )
+        Encoder( std::string name, std::string device_name, size_t channels, size_t max_seq_len, size_t vocab_len, bool is_training = false )
             : ModuleBase( device_name ), channels_{ channels }, max_seq_len_{ max_seq_len }, vocab_len_{ vocab_len } {
             this->setTraining( is_training );
             this->setName( name );
@@ -84,13 +83,27 @@ namespace Mila::Dnn
         * @param context The device context to use for this module. If nullptr, the default context will be used.
         * @param is_training Whether the module is in training mode. Default is false.
         */
-        Encoder( std::string name, size_t channels, size_t max_seq_len, size_t vocab_len,
-            std::shared_ptr<DeviceContext> context, bool is_training = false )
+        Encoder( std::string name, std::shared_ptr<DeviceContext> context, size_t channels, size_t max_seq_len, size_t vocab_len,
+             bool is_training = false )
             : ModuleBase( context ), channels_{ channels }, max_seq_len_{ max_seq_len }, vocab_len_{ vocab_len } {
             this->setTraining( is_training );
             this->setName( name );
             initializeTensors();
             createOperation();
+        }
+
+        /**
+        * @brief Perform the forward pass of the encoder.
+        *
+        * Transforms input token IDs into continuous embeddings by:
+        * 1. Looking up token embeddings from the embedding table (wte)
+        * 2. Adding positional embeddings (wpe) based on token position
+        *
+        * @param input The input tensor containing token IDs with shape (B,TDataType).
+        * @param output The output tensor that will contain embeddings with shape (B,TDataType,C).
+        */
+        void forward( const Tensor<int, MR>& input, Tensor<TPrecision, MR>& output ) {
+            operation_->forward( input, parameters_, attributes_, output, output_state_ );
         }
 
         /**
@@ -133,19 +146,7 @@ namespace Mila::Dnn
             return wte_->size() + wpe_->size();
         }
 
-        /**
-        * @brief Perform the forward pass of the encoder.
-        *
-        * Transforms input token IDs into continuous embeddings by:
-        * 1. Looking up token embeddings from the embedding table (wte)
-        * 2. Adding positional embeddings (wpe) based on token position
-        *
-        * @param input The input tensor containing token IDs with shape (B,TDataType).
-        * @param output The output tensor that will contain embeddings with shape (B,TDataType,C).
-        */
-        void forward( const Tensor<int, MR>& input, Tensor<TPrecision, MR>& output ) {
-            operation_->forward( input, parameters_, attributes_, output, output_state_ );
-        }
+        
 
         /**
         * @brief Save the encoder parameters to a zip archive.
@@ -199,16 +200,16 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-    protected:
-        /**
-         * @brief Called when the device context changes.
-         *
-         * Recreates tensors and operations for the new device.
-         */
-        void onDeviceChanged() override {
-            initializeTensors();
-            createOperation();
-        }
+    //protected:
+    //    /**
+    //     * @brief Called when the device context changes.
+    //     *
+    //     * Recreates tensors and operations for the new device.
+    //     */
+    //    void onDeviceChanged() override {
+    //        initializeTensors();
+    //        createOperation();
+    //    }
 
     private:
         size_t channels_; ///< The embedding dimension size (C).
@@ -289,20 +290,18 @@ namespace Mila::Dnn
         * For CUDA device, creates a "Cuda::EncoderOp" operation.
         */
         void createOperation() {
-            if ( operation_ ) {
-                operation_.reset();
-            }
-
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
                 auto base_op = OperationRegistry::instance().createOperation<TPrecision, int, DeviceType::Cpu>(
                     "Cpu::EncoderOp",
                     this->getDeviceContext() );
+                
                 operation_ = std::static_pointer_cast<Dnn::Compute::UnaryOperation<TPrecision, int, DeviceType::Cpu>>(base_op);
             }
             else {
                 auto base_op = OperationRegistry::instance().createOperation<TPrecision, int, DeviceType::Cuda>(
                     "Cuda::EncoderOp",
                     this->getDeviceContext() );
+                
                 operation_ = std::static_pointer_cast<Dnn::Compute::UnaryOperation<TPrecision, int, DeviceType::Cuda>>(base_op);
             }
         }

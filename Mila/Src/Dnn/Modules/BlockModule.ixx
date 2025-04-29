@@ -35,6 +35,10 @@ namespace Mila::Dnn
         requires ValidTensorTypes<TPrecision, TInput>
     class BlockModule : public Module<TPrecision, TInput, TDeviceType> {
     public:
+
+		using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, HostMemoryResource>; ///< Memory resource type based on device type
+		using ModuleBase = Module<TPrecision, TInput, TDeviceType>; ///< Base class type for the module
+
         /**
          * @brief Default constructor.
          */
@@ -58,6 +62,10 @@ namespace Mila::Dnn
          */
         virtual ~BlockModule() = default;
 
+        //virtual void forward( const Tensor<TPrecision, MR>& input, Tensor<TPrecision, MR>& output ) const = 0;
+
+		// TODO: Add backward virtual function
+
         /**
          * @brief Add a named child module to this module.
          *
@@ -79,9 +87,6 @@ namespace Mila::Dnn
             if ( child_module_map_.find( name ) != child_module_map_.end() ) {
                 throw std::invalid_argument( "Sub-module name '" + name + "' already exists." );
             }
-
-            // Share the device context with the child module
-            module->setDeviceContext( this->getDeviceContext() );
 
             // Add to both map and vector for different access patterns
             child_module_map_[ name ] = module;
@@ -200,11 +205,6 @@ namespace Mila::Dnn
             }
 
             auto old_module = it->second;
-
-            // Share device context with the new module
-            module->setDeviceContext( this->getDeviceContext() );
-
-            // Update in map
             it->second = module;
 
             // Update in vector
@@ -286,18 +286,18 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-    protected:
-        /**
-         * @brief Called when the device context changes.
-         *
-         * Propagates device context changes to all child modules.
-         */
-        void onDeviceChanged() override {
-            // Propagate device context change to all child modules
-            for ( auto& module : child_modules_ ) {
-                module->setDeviceContext( this->getDeviceContext() );
-            }
-        }
+    //protected:
+    //    /**
+    //     * @brief Called when the device context changes.
+    //     *
+    //     * Propagates device context changes to all child modules.
+    //     */
+    //    void onDeviceChanged() override {
+    //        // Propagate device context change to all child modules
+    //        for ( auto& module : child_modules_ ) {
+    //            module->setDeviceContext( this->getDeviceContext() );
+    //        }
+    //    }
 
     private:
         /** @brief Child modules in the order they were added (ordered) */

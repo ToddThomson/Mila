@@ -49,10 +49,14 @@ namespace Mila::Dnn
      * @tparam TDataType The data type used for internal precision calculations, defaults to TInput.
      */
     export
-        template< typename TPrecision, typename TInput = TPrecision>
-        requires ValidFloatTensorTypes<TPrecision, TInput>
-    class Softmax : public Module<TPrecision, TInput> {
+        template< typename TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
+        requires ValidFloatTensorType<TPrecision>
+    class Softmax : public Module<TPrecision> {
     public:
+		
+        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>; ///< Memory resource type based on device type
+		using ModuleBase = Module<TPrecision>; ///< Base class type for the module
+
         /**
          * @brief Construct a new Softmax module with the default device context.
          *
@@ -60,9 +64,8 @@ namespace Mila::Dnn
          * @param axis The dimension along which to apply the softmax operation. Default is -1 (last dimension).
          * @param is_training Whether the module is in training mode. Default is false.
          */
-        Softmax( std::string name, int64_t axis = -1, bool is_training = false )
-            : Module<TPrecision, TInput>(),
-            axis_{ axis } {
+        Softmax( std::string name, const std::string& device_name, int64_t axis = -1, bool is_training = false )
+            : ModuleBase( device_name ), axis_{ axis } {
             this->setTraining( is_training );
             this->setName( name );
             createOperation();
@@ -77,8 +80,7 @@ namespace Mila::Dnn
          * @param is_training Whether the module is in training mode. Default is false.
          */
         Softmax( std::string name, std::shared_ptr<DeviceContext> context, int64_t axis = -1, bool is_training = false )
-            : Module<TPrecision, TInput>( context ),
-            axis_{ axis } {
+            : ModuleBase( context ), axis_{ axis } {
             this->setTraining( is_training );
             this->setName( name );
             createOperation();
@@ -105,8 +107,7 @@ namespace Mila::Dnn
          * @param input The input tensor to apply softmax to.
          * @param output The tensor where softmax results will be stored.
          */
-        template<typename TMR>
-        void forward( const Tensor<TInput, TMR>& input, Tensor<TPrecision, TMR>& output ) {
+        void forward( const Tensor<TPrecision, MR>& input, Tensor<TPrecision, MR>& output ) {
             operation_->forward( input, parameters_, attributes_, output, output_state_ );
         }
 
@@ -151,15 +152,15 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-    protected:
-        /**
-         * @brief Called when the device context changes.
-         *
-         * Recreates operations for the new device.
-         */
-        void onDeviceChanged() override {
-            createOperation();
-        }
+    //protected:
+    //    /**
+    //     * @brief Called when the device context changes.
+    //     *
+    //     * Recreates operations for the new device.
+    //     */
+    //    void onDeviceChanged() override {
+    //        createOperation();
+    //    }
 
     private:
         /**
@@ -175,14 +176,14 @@ namespace Mila::Dnn
          *
          * The Softmax activation has no parameters, so this is an empty vector.
          */
-        std::vector<std::shared_ptr<Tensor<TPrecision, typename Module<TPrecision, TInput>::MR>>> parameters_;
+        std::vector<std::shared_ptr<Tensor<TPrecision, MR>>> parameters_;
 
         /**
          * @brief The output state.
          *
          * Storage for intermediate results that might be needed for the backward pass.
          */
-        std::vector<std::shared_ptr<Tensor<TPrecision, typename Module<TPrecision, TInput>::MR>>> output_state_;
+        std::vector<std::shared_ptr<Tensor<TPrecision, MR>>> output_state_;
 
         /**
          * @brief The operation attributes.
@@ -194,7 +195,7 @@ namespace Mila::Dnn
         /**
          * @brief The underlying unary operation that implements the softmax function.
          */
-        std::shared_ptr<UnaryOperation<TPrecision, TInput>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TPrecision, TPrecision, TDeviceType>> operation_{ nullptr };
 
         /**
          * @brief Create the appropriate softmax operation based on the current device context.
@@ -203,23 +204,23 @@ namespace Mila::Dnn
          * of the softmax operation for either CPU or CUDA, based on the current device context.
          */
         void createOperation() {
+			// TJT: doesn't appear to be right
             // Set the axis in attributes
-            attributes_.setInt64( "axis", axis_ );
+            attributes_.axis =  axis_;
 
-            // Get the device type from the context
-            auto device_type = this->getDeviceContext()->getDevice()->getDeviceType();
+            if constexpr ( TDeviceType == DeviceType::Cpu ) {
+                auto base_op = OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cpu>(
+                    "Cpu::SoftmaxOp",
+                    this->getDeviceContext() );
 
-            if ( operation_ ) {
-                operation_.reset(); // Clear existing operation
-            }
-
-            if ( device_type == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createOperation<TPrecision, TInput, DeviceType::Cpu>( "Cpu::SoftmaxOp" );
-                operation_ = std::static_pointer_cast<UnaryOperation<TPrecision, TInput>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<TPrecision, TPrecision, TDeviceType>>(base_op);
             }
             else {
-                auto base_op = OperationRegistry::instance().createOperation<TPrecision, TInput, DeviceType::Cuda>( "Cuda::SoftmaxOp" );
-                operation_ = std::static_pointer_cast<UnaryOperation<TPrecision, TInput>>(base_op);
+                auto base_op = OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cuda>(
+                    "Cuda::SoftmaxOp",
+                    this->getDeviceContext() );
+
+                operation_ = std::static_pointer_cast<UnaryOperation<TPrecision, TPrecision, TDeviceType>>(base_op);
             }
         }
     };

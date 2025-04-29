@@ -13,7 +13,7 @@ namespace Mila::Dnn::Compute
     /**
      * @brief A memory resource that uses CUDA managed memory.
      */
-    export class ManagedMemoryResource : public MemoryResource {
+    export class CudaManagedMemoryResource : public MemoryResource {
     public:
         static constexpr bool is_host_accessible = HostAccessible::is_host_accessible;
         static constexpr bool is_device_accessible = DeviceAccessible::is_device_accessible;
@@ -54,7 +54,7 @@ namespace Mila::Dnn::Compute
          * @return false otherwise.
          */
         bool do_is_equal( const std::pmr::memory_resource& other ) const noexcept override {
-            return dynamic_cast<const ManagedMemoryResource*>(&other) != nullptr;
+            return dynamic_cast<const CudaManagedMemoryResource*>(&other) != nullptr;
         }
     };
 }

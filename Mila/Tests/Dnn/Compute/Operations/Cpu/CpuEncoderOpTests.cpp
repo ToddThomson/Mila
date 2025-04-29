@@ -109,7 +109,7 @@ namespace Operations::Cpu::Tests
         // Create input and output tensors
         Tensor<int, HostMemoryResource> input( input_shape_ );
         Tensor<float, HostMemoryResource> output( output_shape_ );
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
 
         // Initialize input with token IDs
         for ( size_t i = 0; i < input.size(); ++i ) {
@@ -117,7 +117,7 @@ namespace Operations::Cpu::Tests
         }
 
         // Execute encoder operation
-        ASSERT_NO_THROW( cpu_op_->forward( input, parameters_, attributes_, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_op_->forward( input, parameters_, attributes_, output, output_state ) );
 
         // Verify output has correct values
         for ( size_t b = 0; b < batch_size_; ++b ) {
@@ -166,7 +166,7 @@ namespace Operations::Cpu::Tests
         Tensor<int, HostMemoryResource> input( input_shape_ );
         Tensor<float, HostMemoryResource> output( output_shape_ );
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> empty_params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
 
         // Fill input with token IDs
         for ( size_t i = 0; i < input.size(); ++i ) {
@@ -175,7 +175,7 @@ namespace Operations::Cpu::Tests
 
         // This should throw exception because we need wte and wpe parameters
         // TODO: Arg validation
-        // EXPECT_THROW( cpu_op_->forward( input, empty_params, attributes_, output, output_cache ), std::runtime_error );
+        // EXPECT_THROW( cpu_op_->forward( input, empty_params, attributes_, output, output_state ), std::runtime_error );
     }
 
     /**
@@ -184,7 +184,7 @@ namespace Operations::Cpu::Tests
     TEST_F( CpuEncoderOpTests, OutOfRangeTokenIds ) {
         Tensor<int, HostMemoryResource> input( input_shape_ );
         Tensor<float, HostMemoryResource> output( output_shape_ );
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
 
         // Fill input with out-of-range token IDs
         for ( size_t i = 0; i < input.size(); ++i ) {
@@ -193,7 +193,7 @@ namespace Operations::Cpu::Tests
 
         // This could cause memory access issues if not handled properly
         // TODO: Arg validation
-        // EXPECT_THROW( cpu_op_->forward( input, parameters_, attributes_, output, output_cache ),
+        // EXPECT_THROW( cpu_op_->forward( input, parameters_, attributes_, output, output_state ),
         //    std::runtime_error );
     }
 
@@ -230,11 +230,11 @@ namespace Operations::Cpu::Tests
         }
 
         // Run twice with same input
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache1;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache2;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state1;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state2;
 
-        cpu_op_->forward( input, parameters_, attributes_, output1, output_cache1 );
-        cpu_op_->forward( input, parameters_, attributes_, output2, output_cache2 );
+        cpu_op_->forward( input, parameters_, attributes_, output1, output_state1 );
+        cpu_op_->forward( input, parameters_, attributes_, output2, output_state2 );
 
         // Results should be identical
         for ( size_t i = 0; i < output1.size(); ++i ) {
@@ -262,8 +262,8 @@ namespace Operations::Cpu::Tests
         }
 
         // Forward pass first
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
-        cpu_op_->forward( input, parameters_, attributes_, output, output_cache );
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
+        cpu_op_->forward( input, parameters_, attributes_, output, output_state );
 
         // Create parameter gradients with same shapes as parameters
         auto wte_grad = std::make_shared<Tensor<float, HostMemoryResource>>( wte_->shape() );
@@ -276,7 +276,7 @@ namespace Operations::Cpu::Tests
         // Backward pass - might not be implemented yet, but should have interface ready
         try {
             cpu_op_->backward( input, output, output_grad, parameters_,
-                param_grads, input_grad, attributes_, output_cache );
+                param_grads, input_grad, attributes_, output_state );
 
             // If implemented, check results are non-zero
             bool all_zeros_wte = true;

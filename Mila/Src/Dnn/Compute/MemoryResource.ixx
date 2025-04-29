@@ -20,7 +20,7 @@ namespace Mila::Dnn::Compute
      *
      * @see std::pmr::memory_resource
      * @see HostMemoryResource
-     * @see DeviceMemoryResource
+     * @see CudaMemoryResource
      */
     export using MemoryResource = std::pmr::memory_resource;
 }

@@ -71,14 +71,14 @@ namespace Mila::Dnn::Compute
          * @param parameters Parameters tensor containing embeddings and other parameters.
          * @param attributes Additional attributes for the operation.
          * @param output Output tensor to store the resulting embeddings.
-         * @param output_cache Cache for storing intermediate results (used in backward pass).
+         * @param output_state Cache for storing intermediate results (used in backward pass).
          */
         void forward(
             const Tensor<int, MR>& input,
             const std::vector<std::shared_ptr<Tensor<float, MR>>>& parameters,
             const OperationAttributes& attributes,
             Tensor<float, MR>& output,
-            std::vector<std::shared_ptr<Tensor<float, MR>>>& output_cache ) const override {
+            std::vector<std::shared_ptr<Tensor<float, MR>>>& output_state ) const override {
 
 			// TODO: Argument validation
 
@@ -119,7 +119,7 @@ namespace Mila::Dnn::Compute
          * @param parameter_gradients Gradients for parameters.
          * @param input_gradient Gradient of the loss with respect to the input.
          * @param attributes Additional attributes for the operation.
-         * @param output_cache Cache tensors from forward pass.
+         * @param output_state Cache tensors from forward pass.
          */
         void backward(
             const Tensor<int, MR>& input,
@@ -129,7 +129,7 @@ namespace Mila::Dnn::Compute
             std::vector<std::shared_ptr<Tensor<float, MR>>>& parameter_gradients,
             Tensor<int, MR>& input_gradient,
             const OperationAttributes& attributes,
-            const std::vector<std::shared_ptr<Tensor<float, MR>>>& output_cache ) const {
+            const std::vector<std::shared_ptr<Tensor<float, MR>>>& output_state ) const {
 
 			// TODO backward pass implementation
             

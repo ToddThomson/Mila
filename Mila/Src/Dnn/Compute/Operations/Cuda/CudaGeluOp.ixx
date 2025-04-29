@@ -95,14 +95,14 @@ namespace Mila::Dnn::Compute
          * @param parameters Additional parameters (not used in this operation).
          * @param properties Additional attributes for the operation.
          * @param output Output tensor to store the transformed values.
-         * @param output_cache Cache for intermediate results (not used in this operation).
+         * @param output_state Cache for intermediate results (not used in this operation).
          */
         void forward(
             const Tensor<TPrecision, MR>& input,
             const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
             const OperationAttributes& properties,
             Tensor<TPrecision, MR>& output,
-            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const override {
+            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const override {
 
             // Verify we're operating on CUDA memory
             if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cuda ) ) {
@@ -130,7 +130,7 @@ namespace Mila::Dnn::Compute
          * @param parameter_gradients Gradients for parameters (not used).
          * @param input_gradient Gradient of the loss with respect to the input.
          * @param properties Additional attributes for the operation.
-         * @param output_cache Cache tensors from forward pass.
+         * @param output_state Cache tensors from forward pass.
          */
         void backward(
             const Tensor<TPrecision, MR>& input,
@@ -140,7 +140,7 @@ namespace Mila::Dnn::Compute
             std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameter_gradients,
             Tensor<TPrecision, MR>& input_gradient,
             const OperationAttributes& properties,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const {
+            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const {
 
             // Verify we're operating on CUDA memory
             if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cuda ) ) {

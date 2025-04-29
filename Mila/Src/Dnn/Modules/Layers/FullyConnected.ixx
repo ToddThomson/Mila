@@ -57,9 +57,9 @@ namespace Mila::Dnn
         /**
          * @brief Memory resource type used for tensors, selected based on device type.
          *
-         * Uses DeviceMemoryResource for CUDA devices and HostMemoryResource for CPU.
+         * Uses CudaMemoryResource for CUDA devices and HostMemoryResource for CPU.
          */
-        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, DeviceMemoryResource, HostMemoryResource>;
+        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>;
 		using ModuleBase = Module<TPrecision, TPrecision, TDeviceType>; ///< Base class type for the module
 
         /**
@@ -72,7 +72,7 @@ namespace Mila::Dnn
          * @param is_training Whether the module is initially in training mode (defaults to false).
          */
         FullyConnected(
-            std::string name, size_t input_channels, size_t output_channels, std::string device_name, bool has_bias = true,  bool is_training = false )
+            std::string name, std::string device_name, size_t input_channels, size_t output_channels,  bool has_bias = true,  bool is_training = false )
             : ModuleBase( device_name ), input_channels_{ input_channels }, output_channels_{ output_channels }, has_bias_{ has_bias } {
             this->setTraining( is_training );
             this->setName( name );
@@ -91,7 +91,7 @@ namespace Mila::Dnn
          * @param is_training Whether the module is initially in training mode (defaults to false).
          */
         FullyConnected(
-            std::string name, size_t input_channels, size_t output_channels, std::shared_ptr<DeviceContext> context,
+            std::string name, std::shared_ptr<DeviceContext> context, size_t input_channels, size_t output_channels,
             bool has_bias = true, bool is_training = false )
             : ModuleBase( context ), input_channels_{ input_channels }, output_channels_{ output_channels }, has_bias_{ has_bias } {
             this->setTraining( is_training );
@@ -218,18 +218,18 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-    protected:
-        /**
-         * @brief Called when the device context changes.
-         *
-         * Recreates tensors and operations for the new device to ensure
-         * all resources are properly allocated on the target device.
-         */
-        void onDeviceChanged() override {
-            // Recreate tensors and operations for the new device
-            initializeTensors();
-            createOperation();
-        }
+    //protected:
+    //    /**
+    //     * @brief Called when the device context changes.
+    //     *
+    //     * Recreates tensors and operations for the new device to ensure
+    //     * all resources are properly allocated on the target device.
+    //     */
+    //    void onDeviceChanged() override {
+    //        // Recreate tensors and operations for the new device
+    //        initializeTensors();
+    //        createOperation();
+    //    }
 
     private:
         /**
@@ -349,12 +349,6 @@ namespace Mila::Dnn
          * implementations of the required operations.
          */
         void createOperation() {
-            auto device_type = this->getDeviceContext()->getDevice()->getDeviceType();
-
-            if ( operation_ ) {
-                operation_.reset();
-            }
-
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
                 auto base_op = OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cpu>(
                     "Cpu::FullyConnectedOp",

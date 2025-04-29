@@ -93,10 +93,10 @@ namespace Mila::Dnn::Compute
             float* Y = output.raw_data();
 
             const float* weight = parameters[ 0 ]->raw_data();
-            const float* bias = parameters[ 1 ]->raw_data();
+            const float* bias = (parameters.size() > 1 && parameters[ 1 ]) ? parameters[ 1 ]->raw_data() : nullptr;
 
-            float* mean = output_state[ 0 ]->data();
-            float* rstd = output_state[ 1 ]->data();
+            float* mean = output_state[ 0 ]->raw_data();
+            float* rstd = output_state[ 1 ]->raw_data();
 
             // B: batch size, TDataType: sequence length, C: number of channels
             int B = input.shape()[ 0 ];
@@ -133,7 +133,10 @@ namespace Mila::Dnn::Compute
 
                     for ( int i = 0; i < C; i++ ) {
                         float n = (s * (X[ input_offset + i ] - m)); // normalized output
-                        float o = n * weight[ i ] + bias[ i ]; // scale and shift it
+                        float o = n * weight[ i ];
+                        if ( bias ) {
+                            o += bias[ i ];
+                        }
                         Y[ out_offset + i ] = o;
                     }
 

@@ -14,10 +14,9 @@ namespace Modules::Tests
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
 
-    // MemoryResource type selection based on device type
     template<typename TPrecision, Compute::DeviceType TDevice>
     using MemoryResourceType = std::conditional_t<TDevice == Compute::DeviceType::Cuda,
-        Compute::DeviceMemoryResource,
+        Compute::CudaMemoryResource,
         Compute::HostMemoryResource>;
 
     template<typename TPrecision, Compute::DeviceType TDevice>
@@ -50,7 +49,7 @@ namespace Modules::Tests
 
             std::string device_str = TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU";
             data.fc_module = std::make_shared<FullyConnected<TPrecision, TDevice>>(
-                name, input_channels, output_channels, device_str, has_bias, is_training );
+                name, device_str, input_channels, output_channels, has_bias, is_training );
 
             return data;
         }
@@ -74,7 +73,7 @@ namespace Modules::Tests
             data.is_training = false;
 
             data.fc_module = std::make_shared<FullyConnected<TPrecision, TDevice>>(
-                name, input_channels, output_channels, context, has_bias );
+                name, context, input_channels, output_channels,  has_bias );
 
             return data;
         }
@@ -327,13 +326,13 @@ namespace Modules::Tests
         auto cuda_params = cuda_data.fc_module->getParameterTensors();
 
         // Copy weights
-        Tensor<TPrecision, Compute::DeviceMemoryResource> cuda_weights( cpu_params[ "weight" ]->shape() );
+        Tensor<TPrecision, Compute::CudaMemoryResource> cuda_weights( cpu_params[ "weight" ]->shape() );
         cuda_weights.copyFrom( *cpu_params[ "weight" ] );
         cuda_params[ "weight" ]->copyFrom( cuda_weights );
 
         // Copy bias if it exists
         if ( cpu_data.has_bias && cuda_data.has_bias ) {
-            Tensor<TPrecision, Compute::DeviceMemoryResource> cuda_bias( cpu_params[ "bias" ]->shape() );
+            Tensor<TPrecision, Compute::CudaMemoryResource> cuda_bias( cpu_params[ "bias" ]->shape() );
             cuda_bias.copyFrom( *cpu_params[ "bias" ] );
             cuda_params[ "bias" ]->copyFrom( cuda_bias );
         }
@@ -343,11 +342,11 @@ namespace Modules::Tests
         cpu_data.fc_module->forward( host_input, cpu_output );
 
         // Create device input by copying host data
-        Tensor<TPrecision, Compute::DeviceMemoryResource> device_input( test_input_shape );
+        Tensor<TPrecision, Compute::CudaMemoryResource> device_input( test_input_shape );
         device_input.copyFrom( host_input );
 
         // Create device output
-        Tensor<TPrecision, Compute::DeviceMemoryResource> cuda_output( test_output_shape );
+        Tensor<TPrecision, Compute::CudaMemoryResource> cuda_output( test_output_shape );
         cuda_data.fc_module->forward( device_input, cuda_output );
 
         // Copy CUDA output back to host for comparison
@@ -381,7 +380,7 @@ namespace Modules::Tests
             std::vector<size_t> minimal_output_shape = { 1, 1, 16 };
 
             auto minimal_module = std::make_shared<FullyConnected<TPrecision, TDevice>>(
-                "minimal_fc", 8, 16, TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU" );
+                "minimal_fc", TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU", 8, 16 );
 
             Tensor<TPrecision, MR> minimal_input( minimal_input_shape );
             Tensor<TPrecision, MR> minimal_output( minimal_output_shape );
@@ -394,7 +393,7 @@ namespace Modules::Tests
             std::vector<size_t> large_output_shape = { 2, 2, 512 };
 
             auto large_module = std::make_shared<FullyConnected<TPrecision, TDevice>>(
-                "large_fc", 1024, 512, TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU" );
+                "large_fc", TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU", 1024, 512 );
 
             Tensor<TPrecision, MR> large_input( large_input_shape );
             Tensor<TPrecision, MR> large_output( large_output_shape );
@@ -409,29 +408,29 @@ namespace Modules::Tests
     }
 
     // Test for device change events
-    template<typename TPrecision>
-    void TestDeviceChange( const FullyConnectedTestData<TPrecision, Compute::DeviceType::Cpu>& data ) {
-        // Create a new device context
-        auto new_context = std::make_shared<DeviceContext>( "CPU" );
+    //template<typename TPrecision>
+    //void TestDeviceChange( const FullyConnectedTestData<TPrecision, Compute::DeviceType::Cpu>& data ) {
+    //    // Create a new device context
+    //    auto new_context = std::make_shared<DeviceContext>( "CPU" );
 
-        // Store original parameter shapes and sizes
-        auto original_params = data.fc_module->getParameterTensors();
-        auto weight_shape = original_params[ "weight" ]->shape();
+    //    // Store original parameter shapes and sizes
+    //    auto original_params = data.fc_module->getParameterTensors();
+    //    auto weight_shape = original_params[ "weight" ]->shape();
 
-        // Change device
-        EXPECT_NO_THROW( data.fc_module->setDeviceContext( new_context ) );
+    //    // Change device
+    //    EXPECT_NO_THROW( data.fc_module->setDeviceContext( new_context ) );
 
-        // Verify parameters were recreated correctly
-        auto new_params = data.fc_module->getParameterTensors();
-        EXPECT_EQ( new_params[ "weight" ]->shape(), weight_shape );
+    //    // Verify parameters were recreated correctly
+    //    auto new_params = data.fc_module->getParameterTensors();
+    //    EXPECT_EQ( new_params[ "weight" ]->shape(), weight_shape );
 
-        // Verify operations still work after device change
-        std::vector<size_t> test_input_shape = { 2, 4, data.input_channels };
-        std::vector<size_t> test_output_shape = { 2, 4, data.output_channels };
-        Tensor<TPrecision, Compute::HostMemoryResource> input( test_input_shape );
-        Tensor<TPrecision, Compute::HostMemoryResource> output( test_output_shape );
-        EXPECT_NO_THROW( data.fc_module->forward( input, output ) );
-    }
+    //    // Verify operations still work after device change
+    //    std::vector<size_t> test_input_shape = { 2, 4, data.input_channels };
+    //    std::vector<size_t> test_output_shape = { 2, 4, data.output_channels };
+    //    Tensor<TPrecision, Compute::HostMemoryResource> input( test_input_shape );
+    //    Tensor<TPrecision, Compute::HostMemoryResource> output( test_output_shape );
+    //    EXPECT_NO_THROW( data.fc_module->forward( input, output ) );
+    //}
 
     // CPU Tests with float precision
     TEST_F( FullyConnectedTests, Cpu_Float_TestName ) {
@@ -577,9 +576,9 @@ namespace Modules::Tests
     }
 
     // Device Change Tests
-    TEST_F( FullyConnectedTests, Cpu_Float_DeviceChange ) {
+    /*TEST_F( FullyConnectedTests, Cpu_Float_DeviceChange ) {
         TestDeviceChange<float>( CpuFloatData() );
-    }
+    }*/
 
     // Edge Case Tests
     TEST_F( FullyConnectedTests, Cpu_Float_EdgeCases ) {

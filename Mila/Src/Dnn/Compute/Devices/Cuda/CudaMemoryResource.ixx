@@ -18,7 +18,7 @@ namespace Mila::Dnn::Compute
     /**
      * @brief A memory resource that allocates memory on a CUDA device.
      */
-    export class DeviceMemoryResource : public MemoryResource {
+    export class CudaMemoryResource : public MemoryResource {
 
     public:
         static constexpr bool is_host_accessible = false;
@@ -76,11 +76,25 @@ namespace Mila::Dnn::Compute
          * @brief Checks if this memory resource is equal to another memory resource.
          * 
          * @param other The other memory resource to compare to.
-         * @return true if the other memory resource is a DeviceMemoryResource.
+         * @return true if the other memory resource is a CudaMemoryResource.
          * @return false otherwise.
          */
         bool do_is_equal( const std::pmr::memory_resource& other ) const noexcept override {
-            return dynamic_cast<const DeviceMemoryResource*>(&other) != nullptr;
+            return dynamic_cast<const CudaMemoryResource*>(&other) != nullptr;
         }
     };
+
+    /**
+    * @brief Alias for CudaMemoryResource that represents device-accessible memory.
+    *
+    * This alias provides a semantic name that describes the memory's accessibility
+    * characteristics rather than its implementation details. Use DeviceMemoryResource
+    * when you need memory that can be accessed by CUDA device code and operations.
+    *
+    * This naming follows CUDA conventions where "device" refers to GPU memory,
+    * while maintaining consistency with the architecture's naming pattern.
+    *
+    * @see CudaMemoryResource
+    */
+	export using DeviceMemoryResource = CudaMemoryResource;
 }

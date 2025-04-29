@@ -43,16 +43,32 @@ namespace Mila::Dnn::Compute
         // Specialization for float
         template <>
         struct cuda_softmax_impl<float> {
-            static inline void forward( float* Y, const float* X, int N, int C, cudaStream_t stream ) {
-                cuda_softmax_forward_fp32( Y, X, N, C, stream );
+            static inline void forward_optimized( float* Y, const float* X, int N, int C, cudaStream_t stream ) {
+                cuda_softmax_forward<float>( Y, X, N, C, stream );
+            }
+
+            static inline void forward_general(
+                float* Y, const float* X,
+                int outer_size, int dim_size, int inner_size,
+                cudaStream_t stream )
+            {
+                cuda_softmax_forward_general<float>( Y, X, outer_size, dim_size, inner_size, stream );
             }
         };
 
         // Specialization for half
         template <>
         struct cuda_softmax_impl<half> {
-            static inline void forward( half* Y, const half* X, int N, int C, cudaStream_t stream ) {
-                cuda_softmax_forward_fp16( Y, X, N, C, stream );
+            static inline void forward_optimized( half* Y, const half* X, int N, int C, cudaStream_t stream ) {
+                cuda_softmax_forward<half>( Y, X, N, C, stream );
+            }
+
+            static inline void forward_general(
+                half* Y, const half* X,
+                int outer_size, int dim_size, int inner_size,
+                cudaStream_t stream )
+            {
+                cuda_softmax_forward_general<half>( Y, X, outer_size, dim_size, inner_size, stream );
             }
         };
 
@@ -119,24 +135,60 @@ namespace Mila::Dnn::Compute
          * @param parameters Additional parameters (not used in this operation).
          * @param properties Additional attributes for the operation.
          * @param output Output tensor of shape [B, TDataType, V] to store the resulting probability distribution.
-         * @param output_cache Cache for intermediate results (not used in this operation).
+         * @param output_state Cache for intermediate results (not used in this operation).
          */
         void forward(
             const Tensor<TPrecision, MR>& input,
             const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
             const OperationAttributes& properties,
             Tensor<TPrecision, MR>& output,
-            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const override {
+            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const override {
 
             auto X = input.raw_data();
             auto Y = output.raw_data();
-            int N = input.shape()[ 0 ];  // Batch size
-            int C = input.shape()[ 2 ];  // Feature dimension size (vocabulary size)
+            // Get the axis parameter from operation properties
+            int64_t axis = properties.axis;
 
-            int axis = properties.axis;
-            cudaStream_t stream = this->getDeviceContext()->getStream();
+            // Convert negative axis to positive for easier handling
+            const int64_t ndim = input.shape().size();
+            if ( axis < 0 ) {
+                axis = ndim + axis;
+            }
 
-            Detail::cuda_softmax_impl<TPrecision>::forward( Y, X, N, C, stream );
+            // Validate the axis is within bounds
+            if ( axis < 0 || axis >= ndim ) {
+                throw std::runtime_error( "Softmax axis out of bounds" );
+            }
+
+            // Determine the shapes needed for the computation
+            int64_t outer_size = 1;
+            for ( int64_t i = 0; i < axis; ++i ) {
+                outer_size *= input.shape()[ i ];
+            }
+
+            int64_t dim_size = input.shape()[ axis ];
+
+            int64_t inner_size = 1;
+            for ( int64_t i = axis + 1; i < ndim; ++i ) {
+                inner_size *= input.shape()[ i ];
+            }
+
+            // If axis is the last dimension, we can use the optimized implementation
+            if ( axis == ndim - 1 || inner_size == 1 ) {
+                int N = outer_size;
+                int C = dim_size;
+
+                cudaStream_t stream = this->getDeviceContext()->getStream();
+                
+                Detail::cuda_softmax_impl<TPrecision>::forward_optimized( Y, X, N, C, stream );
+            }
+            else {
+                // For other axes, use the generalized implementation
+                cudaStream_t stream = this->getDeviceContext()->getStream();
+                
+                Detail::cuda_softmax_impl<TPrecision>::forward_general(
+                    Y, X, outer_size, dim_size, inner_size, stream );
+            }
         }
 
         /**
@@ -153,7 +205,7 @@ namespace Mila::Dnn::Compute
          * @param parameter_gradients Gradients for parameters (not used).
          * @param input_gradient Gradient of the loss with respect to the input.
          * @param properties Additional attributes for the operation.
-         * @param output_cache Cache tensors from forward pass.
+         * @param output_state Cache tensors from forward pass.
          */
         void backward(
             const Tensor<TPrecision, MR>& input,
@@ -163,7 +215,7 @@ namespace Mila::Dnn::Compute
             std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameter_gradients,
             Tensor<TPrecision, MR>& input_gradient,
             const OperationAttributes& properties,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const {
+            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const {
 
             // Extract tensors
             const TPrecision* Y = output.data();
@@ -224,7 +276,7 @@ namespace Mila::Dnn::Compute
             
             OperationRegistry::instance().registerOperation<half, half, DeviceType::Cuda>(
                 opName,
-                "half_precision",
+                "Default",
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<half, half, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaSoftmaxOp<half>>( context )
                         : std::make_shared<CudaSoftmaxOp<half>>();

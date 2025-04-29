@@ -17,7 +17,7 @@ namespace Mila::Dnn::Compute
     /**
      * @brief A memory resource that allocates pinned (page-locked) memory using CUDA.
      */
-    export class PinnedMemoryResource : public MemoryResource {
+    export class CudaPinnedMemoryResource : public MemoryResource {
 
     public:
         static constexpr bool is_host_accessible = HostAccessible::is_host_accessible;
@@ -71,7 +71,7 @@ namespace Mila::Dnn::Compute
          * @return false otherwise.
          */
         bool do_is_equal( const std::pmr::memory_resource& other ) const noexcept override {
-            return dynamic_cast<const PinnedMemoryResource*>(&other) != nullptr;
+            return dynamic_cast<const CudaPinnedMemoryResource*>(&other) != nullptr;
         }
     };
 }

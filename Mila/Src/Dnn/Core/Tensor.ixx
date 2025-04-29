@@ -44,7 +44,7 @@ namespace Mila::Dnn
 
 	std::atomic<size_t> UniqueIdGenerator::counter_{ 0 };
 
-	export template<typename TElementType, typename TMemoryResource = Compute::DeviceMemoryResource>
+	export template<typename TElementType, typename TMemoryResource = Compute::CudaMemoryResource>
 		requires ValidTensorType<TElementType> && std::is_base_of_v<Compute::MemoryResource, TMemoryResource>
 	class Tensor {
 	public:
@@ -151,8 +151,8 @@ namespace Mila::Dnn
 		template<typename HostAccessibleMR = Compute::HostMemoryResource>
 		Tensor<TElementType, HostAccessibleMR> toHostAccessible() const {
 			if constexpr ( std::is_same_v<TMemoryResource, Compute::HostMemoryResource> ||
-				std::is_same_v<TMemoryResource, Compute::PinnedMemoryResource> ||
-				std::is_same_v<TMemoryResource, Compute::ManagedMemoryResource> ) {
+				std::is_same_v<TMemoryResource, Compute::CudaPinnedMemoryResource> ||
+				std::is_same_v<TMemoryResource, Compute::CudaManagedMemoryResource> ) {
 				// Create a shallow copy if the memory is already host-accessible
 				Tensor<TElementType, TMemoryResource> result( *this );
 				return result.template to<HostAccessibleMR>();
@@ -259,7 +259,7 @@ namespace Mila::Dnn
 
 				// If the source is not already on device, we need to bring it there first
 				if constexpr ( !is_device_accessible<TMemoryResource>() ) {
-					auto device_tensor = this->template to<Compute::DeviceMemoryResource>();
+					auto device_tensor = this->template to<Compute::CudaMemoryResource>();
 					// TODO: Use CUDA kernel for float to half conversion
 					// For now, we'll use a host intermediary
 					auto host_tensor = device_tensor.template to<Compute::HostMemoryResource>();
@@ -349,7 +349,7 @@ namespace Mila::Dnn
 
 				// If the source is not already on device, we need to bring it there first
 				if constexpr ( !is_device_accessible<TMemoryResource>() ) {
-					auto device_tensor = this->template to<Compute::DeviceMemoryResource>();
+					auto device_tensor = this->template to<Compute::CudaMemoryResource>();
 					// TODO: Use CUDA kernel for half to float conversion
 					// For now, we'll use a host intermediary
 					auto host_tensor = device_tensor.template to<Compute::HostMemoryResource>();
@@ -979,7 +979,7 @@ namespace Mila::Dnn
 	 * @tparam TPrecision The data type of the tensor elements.
 	 */
 	export template <class T>
-		using DeviceTensor = Tensor<T, Compute::DeviceMemoryResource>;
+		using DeviceTensor = Tensor<T, Compute::CudaMemoryResource>;
 
 	/**
 	 * @brief Tensor type that uses pinned (page-locked) host memory.
@@ -1004,7 +1004,7 @@ namespace Mila::Dnn
 	 * @tparam TPrecision The data type of the tensor elements.
 	 */
 	export template <class T>
-		using PinnedTensor = Tensor<T, Compute::PinnedMemoryResource>;
+		using PinnedTensor = Tensor<T, Compute::CudaPinnedMemoryResource>;
 
 	/**
 	 * @brief Tensor type that uses CUDA managed memory accessible from both CPU and GPU.
@@ -1029,6 +1029,9 @@ namespace Mila::Dnn
 	 * @tparam TPrecision The data type of the tensor elements.
 	 */
 	export template <class T>
-		using UniversalTensor = Tensor<T, Compute::ManagedMemoryResource>;
+		using UniversalTensor = Tensor<T, Compute::CudaManagedMemoryResource>;
 
+	// Future backends would add their own aliases
+	// export template <class T>
+	// using MetalTensor = Tensor<T, Compute::MetalMemoryResource>;
 }

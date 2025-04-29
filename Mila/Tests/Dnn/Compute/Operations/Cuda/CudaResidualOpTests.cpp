@@ -115,9 +115,9 @@ namespace Operations::Tests
      */
     TEST_F( CudaResidualOpTests, BasicFunctionality ) {
         // Create input and output tensors
-        Tensor<float, DeviceMemoryResource> device_input1( small_shape_ );
-        Tensor<float, DeviceMemoryResource> device_input2( small_shape_ );
-        Tensor<float, DeviceMemoryResource> device_output( small_shape_ );
+        Tensor<float, CudaMemoryResource> device_input1( small_shape_ );
+        Tensor<float, CudaMemoryResource> device_input2( small_shape_ );
+        Tensor<float, CudaMemoryResource> device_output( small_shape_ );
 
         Tensor<float, HostMemoryResource> host_input1( small_shape_ );
         Tensor<float, HostMemoryResource> host_input2( small_shape_ );
@@ -135,12 +135,12 @@ namespace Operations::Tests
         device_input2.copyFrom( host_input2 );
 
         // Execute operation
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state;
         OperationAttributes props;
 
         ASSERT_NO_THROW( cuda_residual_op_->forward(
-            device_input1, device_input2, params, props, device_output, output_cache ) );
+            device_input1, device_input2, params, props, device_output, output_state ) );
 
         // Copy result back to host
         host_output.copyFrom( device_output );
@@ -157,9 +157,9 @@ namespace Operations::Tests
      */
     TEST_F( CudaResidualOpTests, SpecialValues ) {
         // Create input and output tensors
-        Tensor<float, DeviceMemoryResource> device_input1( small_shape_ );
-        Tensor<float, DeviceMemoryResource> device_input2( small_shape_ );
-        Tensor<float, DeviceMemoryResource> device_output( small_shape_ );
+        Tensor<float, CudaMemoryResource> device_input1( small_shape_ );
+        Tensor<float, CudaMemoryResource> device_input2( small_shape_ );
+        Tensor<float, CudaMemoryResource> device_output( small_shape_ );
 
         Tensor<float, HostMemoryResource> host_input1( small_shape_ );
         Tensor<float, HostMemoryResource> host_input2( small_shape_ );
@@ -195,11 +195,11 @@ namespace Operations::Tests
         device_input2.copyFrom( host_input2 );
 
         // Execute operation
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state;
         OperationAttributes props;
 
-        cuda_residual_op_->forward( device_input1, device_input2, params, props, device_output, output_cache );
+        cuda_residual_op_->forward( device_input1, device_input2, params, props, device_output, output_state );
 
         // Copy result back to host
         host_output.copyFrom( device_output );
@@ -216,9 +216,9 @@ namespace Operations::Tests
      */
     TEST_F( CudaResidualOpTests, CudaCpuEquivalence ) {
         // Create input and output tensors
-        Tensor<float, DeviceMemoryResource> cuda_input1( medium_shape_ );
-        Tensor<float, DeviceMemoryResource> cuda_input2( medium_shape_ );
-        Tensor<float, DeviceMemoryResource> cuda_output( medium_shape_ );
+        Tensor<float, CudaMemoryResource> cuda_input1( medium_shape_ );
+        Tensor<float, CudaMemoryResource> cuda_input2( medium_shape_ );
+        Tensor<float, CudaMemoryResource> cuda_output( medium_shape_ );
 
         Tensor<float, HostMemoryResource> cpu_input1( medium_shape_ );
         Tensor<float, HostMemoryResource> cpu_input2( medium_shape_ );
@@ -237,18 +237,18 @@ namespace Operations::Tests
         cuda_input2.copyFrom( cpu_input2 );
 
         // Execute CUDA Residual operation
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> cuda_params;
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> cuda_output_cache;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> cuda_params;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> cuda_output_state;
         OperationAttributes cuda_props;
 
-        cuda_residual_op_->forward( cuda_input1, cuda_input2, cuda_params, cuda_props, cuda_output, cuda_output_cache );
+        cuda_residual_op_->forward( cuda_input1, cuda_input2, cuda_params, cuda_props, cuda_output, cuda_output_state );
 
         // Execute CPU Residual operation
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> cpu_params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> cpu_output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> cpu_output_state;
         OperationAttributes cpu_props;
 
-        cpu_residual_op_->forward( cpu_input1, cpu_input2, cpu_params, cpu_props, cpu_output, cpu_output_cache );
+        cpu_residual_op_->forward( cpu_input1, cpu_input2, cpu_params, cpu_props, cpu_output, cpu_output_state );
 
         // Copy CUDA result back to host
         cuda_output_host.copyFrom( cuda_output );
@@ -262,12 +262,12 @@ namespace Operations::Tests
      */
     //TEST_F( CudaResidualOpTests, BackwardPass ) {
     //    // Create tensors for forward and backward passes
-    //    Tensor<float, DeviceMemoryResource> input1( small_shape_ );
-    //    Tensor<float, DeviceMemoryResource> input2( small_shape_ );
-    //    Tensor<float, DeviceMemoryResource> output( small_shape_ );
-    //    Tensor<float, DeviceMemoryResource> output_grad( small_shape_ );
-    //    Tensor<float, DeviceMemoryResource> input1_grad( small_shape_ );
-    //    Tensor<float, DeviceMemoryResource> input2_grad( small_shape_ );
+    //    Tensor<float, CudaMemoryResource> input1( small_shape_ );
+    //    Tensor<float, CudaMemoryResource> input2( small_shape_ );
+    //    Tensor<float, CudaMemoryResource> output( small_shape_ );
+    //    Tensor<float, CudaMemoryResource> output_grad( small_shape_ );
+    //    Tensor<float, CudaMemoryResource> input1_grad( small_shape_ );
+    //    Tensor<float, CudaMemoryResource> input2_grad( small_shape_ );
 
     //    Tensor<float, HostMemoryResource> host_input1( small_shape_ );
     //    Tensor<float, HostMemoryResource> host_input2( small_shape_ );
@@ -293,18 +293,18 @@ namespace Operations::Tests
     //    output_grad.copyFrom( host_output_grad );
 
     //    // Forward pass first
-    //    std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params;
-    //    std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> output_cache;
+    //    std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params;
+    //    std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state;
     //    OperationAttributes props;
 
-    //    cuda_residual_op_->forward( input1, input2, params, props, output, output_cache );
+    //    cuda_residual_op_->forward( input1, input2, params, props, output, output_state );
 
     //    // Backward pass
-    //    std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> param_grads;
+    //    std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> param_grads;
 
     //    ASSERT_NO_THROW( cuda_residual_op_->backward(
     //        input1, input2, output, output_grad, params, param_grads,
-    //        input1_grad, input2_grad, props, output_cache ) );
+    //        input1_grad, input2_grad, props, output_state ) );
 
     //    // Copy results back to host
     //    host_input1_grad.copyFrom( input1_grad );
@@ -330,9 +330,9 @@ namespace Operations::Tests
         std::vector<size_t> odd_shape = { 3, 5, 7 };
 
         // Create input and output tensors
-        Tensor<float, DeviceMemoryResource> device_input1( odd_shape );
-        Tensor<float, DeviceMemoryResource> device_input2( odd_shape );
-        Tensor<float, DeviceMemoryResource> device_output( odd_shape );
+        Tensor<float, CudaMemoryResource> device_input1( odd_shape );
+        Tensor<float, CudaMemoryResource> device_input2( odd_shape );
+        Tensor<float, CudaMemoryResource> device_output( odd_shape );
 
         Tensor<float, HostMemoryResource> host_input1( odd_shape );
         Tensor<float, HostMemoryResource> host_input2( odd_shape );
@@ -350,12 +350,12 @@ namespace Operations::Tests
         device_input2.copyFrom( host_input2 );
 
         // Execute operation
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state;
         OperationAttributes props;
 
         ASSERT_NO_THROW( cuda_residual_op_->forward(
-            device_input1, device_input2, params, props, device_output, output_cache ) );
+            device_input1, device_input2, params, props, device_output, output_state ) );
 
         // Copy result back to host
         host_output.copyFrom( device_output );
@@ -372,9 +372,9 @@ namespace Operations::Tests
      */
     TEST_F( CudaResidualOpTests, NumericalStability ) {
         // Create test tensors
-        Tensor<float, DeviceMemoryResource> device_input1( medium_shape_ );
-        Tensor<float, DeviceMemoryResource> device_input2( medium_shape_ );
-        Tensor<float, DeviceMemoryResource> device_output( medium_shape_ );
+        Tensor<float, CudaMemoryResource> device_input1( medium_shape_ );
+        Tensor<float, CudaMemoryResource> device_input2( medium_shape_ );
+        Tensor<float, CudaMemoryResource> device_output( medium_shape_ );
 
         Tensor<float, HostMemoryResource> host_input1( medium_shape_ );
         Tensor<float, HostMemoryResource> host_input2( medium_shape_ );
@@ -421,12 +421,12 @@ namespace Operations::Tests
         device_input2.copyFrom( host_input2 );
 
         // Execute operation
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state;
         OperationAttributes props;
 
         ASSERT_NO_THROW( cuda_residual_op_->forward(
-            device_input1, device_input2, params, props, device_output, output_cache ) );
+            device_input1, device_input2, params, props, device_output, output_state ) );
 
         // Copy result back to host
         host_output.copyFrom( device_output );
@@ -445,10 +445,10 @@ namespace Operations::Tests
      */
     TEST_F( CudaResidualOpTests, DeterministicBehavior ) {
         // Create test tensors
-        Tensor<float, DeviceMemoryResource> device_input1( medium_shape_ );
-        Tensor<float, DeviceMemoryResource> device_input2( medium_shape_ );
-        Tensor<float, DeviceMemoryResource> device_output1( medium_shape_ );
-        Tensor<float, DeviceMemoryResource> device_output2( medium_shape_ );
+        Tensor<float, CudaMemoryResource> device_input1( medium_shape_ );
+        Tensor<float, CudaMemoryResource> device_input2( medium_shape_ );
+        Tensor<float, CudaMemoryResource> device_output1( medium_shape_ );
+        Tensor<float, CudaMemoryResource> device_output2( medium_shape_ );
 
         Tensor<float, HostMemoryResource> host_input1( medium_shape_ );
         Tensor<float, HostMemoryResource> host_input2( medium_shape_ );
@@ -466,13 +466,13 @@ namespace Operations::Tests
         device_input2.copyFrom( host_input2 );
 
         // Run twice with same input
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> output_cache1;
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> output_cache2;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state1;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state2;
         OperationAttributes props;
 
-        cuda_residual_op_->forward( device_input1, device_input2, params, props, device_output1, output_cache1 );
-        cuda_residual_op_->forward( device_input1, device_input2, params, props, device_output2, output_cache2 );
+        cuda_residual_op_->forward( device_input1, device_input2, params, props, device_output1, output_state1 );
+        cuda_residual_op_->forward( device_input1, device_input2, params, props, device_output2, output_state2 );
 
         // Copy results back to host
         host_output1.copyFrom( device_output1 );
@@ -502,9 +502,9 @@ namespace Operations::Tests
         }
 
         // Create large test tensors
-        Tensor<float, DeviceMemoryResource> device_input1( large_shape_ );
-        Tensor<float, DeviceMemoryResource> device_input2( large_shape_ );
-        Tensor<float, DeviceMemoryResource> device_output( large_shape_ );
+        Tensor<float, CudaMemoryResource> device_input1( large_shape_ );
+        Tensor<float, CudaMemoryResource> device_input2( large_shape_ );
+        Tensor<float, CudaMemoryResource> device_output( large_shape_ );
 
         Tensor<float, HostMemoryResource> host_input1( large_shape_ );
         Tensor<float, HostMemoryResource> host_input2( large_shape_ );
@@ -519,8 +519,8 @@ namespace Operations::Tests
         device_input1.copyFrom( host_input1 );
         device_input2.copyFrom( host_input2 );
 
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state;
         OperationAttributes props;
 
         // Make sure everything is ready
@@ -531,7 +531,7 @@ namespace Operations::Tests
         auto start_time = std::chrono::high_resolution_clock::now();
 
         for ( int i = 0; i < iterations; ++i ) {
-            cuda_residual_op_->forward( device_input1, device_input2, params, props, device_output, output_cache );
+            cuda_residual_op_->forward( device_input1, device_input2, params, props, device_output, output_state );
         }
 
         // Wait for all operations to complete
@@ -572,9 +572,9 @@ namespace Operations::Tests
         }
 
         // Create test tensors for CUDA
-        Tensor<float, DeviceMemoryResource> cuda_input1( medium_shape_ );
-        Tensor<float, DeviceMemoryResource> cuda_input2( medium_shape_ );
-        Tensor<float, DeviceMemoryResource> cuda_output( medium_shape_ );
+        Tensor<float, CudaMemoryResource> cuda_input1( medium_shape_ );
+        Tensor<float, CudaMemoryResource> cuda_input2( medium_shape_ );
+        Tensor<float, CudaMemoryResource> cuda_output( medium_shape_ );
 
         // Create test tensors for CPU
         Tensor<float, HostMemoryResource> cpu_input1( medium_shape_ );
@@ -592,10 +592,10 @@ namespace Operations::Tests
         cuda_input2.copyFrom( cpu_input2 );
 
         // Setup params
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> cuda_params;
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> cuda_output_cache;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> cuda_params;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> cuda_output_state;
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> cpu_params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> cpu_output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> cpu_output_state;
         OperationAttributes props;
 
         // Measure CUDA performance
@@ -604,7 +604,7 @@ namespace Operations::Tests
         auto cuda_start_time = std::chrono::high_resolution_clock::now();
 
         for ( int i = 0; i < iterations; ++i ) {
-            cuda_residual_op_->forward( cuda_input1, cuda_input2, cuda_params, props, cuda_output, cuda_output_cache );
+            cuda_residual_op_->forward( cuda_input1, cuda_input2, cuda_params, props, cuda_output, cuda_output_state );
         }
 
         cudaDeviceSynchronize();
@@ -615,7 +615,7 @@ namespace Operations::Tests
         auto cpu_start_time = std::chrono::high_resolution_clock::now();
 
         for ( int i = 0; i < iterations; ++i ) {
-            cpu_residual_op_->forward( cpu_input1, cpu_input2, cpu_params, props, cpu_output, cpu_output_cache );
+            cpu_residual_op_->forward( cpu_input1, cpu_input2, cpu_params, props, cpu_output, cpu_output_state );
         }
 
         auto cpu_end_time = std::chrono::high_resolution_clock::now();
@@ -648,9 +648,9 @@ namespace Operations::Tests
         std::vector<size_t> shape1 = { 2, 3, 4 };
         std::vector<size_t> shape2 = { 2, 3, 5 };  // Different last dimension
 
-        Tensor<float, DeviceMemoryResource> device_input1( shape1 );
-        Tensor<float, DeviceMemoryResource> device_input2( shape2 );
-        Tensor<float, DeviceMemoryResource> device_output( shape1 );
+        Tensor<float, CudaMemoryResource> device_input1( shape1 );
+        Tensor<float, CudaMemoryResource> device_input2( shape2 );
+        Tensor<float, CudaMemoryResource> device_output( shape1 );
 
         // Initialize tensors
         Tensor<float, HostMemoryResource> host_input1( shape1 );
@@ -669,15 +669,15 @@ namespace Operations::Tests
         device_input2.copyFrom( host_input2 );
 
         // Execute operation - should fail due to shape mismatch
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, DeviceMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params;
+        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state;
         OperationAttributes props;
 
         // This should throw an exception due to mismatched input shapes
 
 		// TODO: Review op arg validation. Comment out for now.
         /*EXPECT_THROW( cuda_residual_op_->forward(
-            device_input1, device_input2, params, props, device_output, output_cache ),
+            device_input1, device_input2, params, props, device_output, output_state ),
             std::runtime_error );*/
     }
 }

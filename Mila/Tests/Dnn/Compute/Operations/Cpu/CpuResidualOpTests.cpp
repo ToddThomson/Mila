@@ -87,10 +87,10 @@ namespace Operations::Tests
 
         // Execute residual operation
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
         OperationAttributes props;
 
-        ASSERT_NO_THROW( cpu_residual_op_->forward( input_a, input_b, params, props, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_residual_op_->forward( input_a, input_b, params, props, output, output_state ) );
 		std::cerr << input_a.toString( true ) << std::endl;
 		std::cerr << input_b.toString( true ) << std::endl;
 		std::cerr << output.toString( true ) << std::endl;
@@ -127,11 +127,11 @@ namespace Operations::Tests
 
         // Forward pass first to populate output
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> param_grads;
         OperationAttributes props;
 
-        cpu_residual_op_->forward( input_a, input_b, params, props, output, output_cache );
+        cpu_residual_op_->forward( input_a, input_b, params, props, output, output_state );
 
         // Store initial gradient values for later comparison
         std::vector<float> initial_grad_a( input_a.size() );
@@ -145,7 +145,7 @@ namespace Operations::Tests
         ASSERT_NO_THROW( cpu_residual_op_->backward(
             input_a, input_b, output, output_grad,
             params, param_grads, input_a_grad, input_b_grad,
-            props, output_cache ) );
+            props, output_state ) );
 
         // Verify gradients are not NaN or Inf
         EXPECT_FALSE( hasNaNorInf( input_a_grad ) );
@@ -182,7 +182,7 @@ namespace Operations::Tests
         Tensor<float, HostMemoryResource> output( small_shape_ );
 
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
         OperationAttributes props;
 
         // Test 1: Both inputs are zeros
@@ -191,7 +191,7 @@ namespace Operations::Tests
             input_b.data()[ i ] = 0.0f;
         }
 
-        ASSERT_NO_THROW( cpu_residual_op_->forward( input_a, input_b, params, props, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_residual_op_->forward( input_a, input_b, params, props, output, output_state ) );
 
         for ( size_t i = 0; i < output.size(); ++i ) {
             EXPECT_FLOAT_EQ( output.data()[ i ], 0.0f );
@@ -203,7 +203,7 @@ namespace Operations::Tests
             input_b.data()[ i ] = 0.0f;
         }
 
-        ASSERT_NO_THROW( cpu_residual_op_->forward( input_a, input_b, params, props, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_residual_op_->forward( input_a, input_b, params, props, output, output_state ) );
 
         for ( size_t i = 0; i < output.size(); ++i ) {
             EXPECT_FLOAT_EQ( output.data()[ i ], input_a.data()[ i ] );
@@ -215,7 +215,7 @@ namespace Operations::Tests
             input_b.data()[ i ] = 1e20f;
         }
 
-        ASSERT_NO_THROW( cpu_residual_op_->forward( input_a, input_b, params, props, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_residual_op_->forward( input_a, input_b, params, props, output, output_state ) );
 
         // Result should be well-defined (possibly Inf, but consistent)
         for ( size_t i = 1; i < output.size(); ++i ) {
@@ -228,7 +228,7 @@ namespace Operations::Tests
             input_b.data()[ i ] = 1e-20f;
         }
 
-        ASSERT_NO_THROW( cpu_residual_op_->forward( input_a, input_b, params, props, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_residual_op_->forward( input_a, input_b, params, props, output, output_state ) );
 
         for ( size_t i = 0; i < output.size(); ++i ) {
             EXPECT_FLOAT_EQ( output.data()[ i ], 2e-20f );
@@ -240,7 +240,7 @@ namespace Operations::Tests
             input_b.data()[ i ] = -static_cast<float>( i );
         }
 
-        ASSERT_NO_THROW( cpu_residual_op_->forward( input_a, input_b, params, props, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_residual_op_->forward( input_a, input_b, params, props, output, output_state ) );
 
         for ( size_t i = 0; i < output.size(); ++i ) {
             EXPECT_NEAR( output.data()[ i ], 0.0f, 1e-5f );
@@ -257,7 +257,7 @@ namespace Operations::Tests
         Tensor<float, HostMemoryResource> output( medium_shape_ );
 
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
         OperationAttributes props;
 
         // Fill with different patterns
@@ -269,7 +269,7 @@ namespace Operations::Tests
             input_b.data()[ i ] = static_cast<float>( i );
         }
 
-        ASSERT_NO_THROW( cpu_residual_op_->forward( input_a, input_b, params, props, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_residual_op_->forward( input_a, input_b, params, props, output, output_state ) );
 
         // Verify results
         for ( size_t i = 0; i < output.size(); ++i ) {
@@ -286,7 +286,7 @@ namespace Operations::Tests
             input_b.data()[ i ] = cosf( static_cast<float>( i ) * 0.1f );
         }
 
-        ASSERT_NO_THROW( cpu_residual_op_->forward( input_a, input_b, params, props, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_residual_op_->forward( input_a, input_b, params, props, output, output_state ) );
 
         // Verify results
         for ( size_t i = 0; i < output.size(); ++i ) {
@@ -305,7 +305,7 @@ namespace Operations::Tests
         Tensor<float, HostMemoryResource> output( medium_shape_ );
 
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
         OperationAttributes props;
 
         // Test a variety of values: positive, negative, small, large
@@ -327,7 +327,7 @@ namespace Operations::Tests
             input_b.data()[ i ] = val_b;
         }
 
-        ASSERT_NO_THROW( cpu_residual_op_->forward( input_a, input_b, params, props, output, output_cache ) );
+        ASSERT_NO_THROW( cpu_residual_op_->forward( input_a, input_b, params, props, output, output_state ) );
 
         // Verify results
         for ( size_t i = 0; i < output.size(); ++i ) {
@@ -347,8 +347,8 @@ namespace Operations::Tests
         Tensor<float, HostMemoryResource> output2( medium_shape_ );
 
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache1;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache2;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state1;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state2;
         OperationAttributes props;
 
         // Initialize with consistent values
@@ -358,8 +358,8 @@ namespace Operations::Tests
         }
 
         // Run twice with same input
-        cpu_residual_op_->forward( input_a, input_b, params, props, output1, output_cache1 );
-        cpu_residual_op_->forward( input_a, input_b, params, props, output2, output_cache2 );
+        cpu_residual_op_->forward( input_a, input_b, params, props, output1, output_state1 );
+        cpu_residual_op_->forward( input_a, input_b, params, props, output2, output_state2 );
 
         // Results should be identical
         for ( size_t i = 0; i < output1.size(); ++i ) {
@@ -401,7 +401,7 @@ namespace Operations::Tests
         }
 
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
         OperationAttributes props;
 
         // Measure performance over multiple iterations
@@ -409,7 +409,7 @@ namespace Operations::Tests
         auto start_time = std::chrono::high_resolution_clock::now();
 
         for ( int i = 0; i < iterations; ++i ) {
-            cpu_residual_op_->forward( input_a, input_b, params, props, output, output_cache );
+            cpu_residual_op_->forward( input_a, input_b, params, props, output, output_state );
         }
 
         auto end_time = std::chrono::high_resolution_clock::now();
@@ -444,7 +444,7 @@ namespace Operations::Tests
         }
 
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
-        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_cache;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
         OperationAttributes props;
 
         // Get number of threads
@@ -468,7 +468,7 @@ namespace Operations::Tests
             auto start_time = std::chrono::high_resolution_clock::now();
 
             for ( int i = 0; i < iterations; ++i ) {
-                cpu_residual_op_->forward( input_a, input_b, params, props, output, output_cache );
+                cpu_residual_op_->forward( input_a, input_b, params, props, output, output_state );
             }
 
             auto end_time = std::chrono::high_resolution_clock::now();

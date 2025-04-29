@@ -115,14 +115,14 @@ namespace Mila::Dnn::Compute
          * @param parameters Vector of parameter tensors [weight, bias] where weight is of shape [OC, C] and bias is of shape [OC].
          * @param properties Additional attributes for the operation.
          * @param output Output tensor of shape [B, TDataType, OC] where OC is output feature dimension.
-         * @param output_cache Cache for intermediate results (not used in this operation).
+         * @param output_state Cache for intermediate results (not used in this operation).
          */
         void forward(
             const Tensor<TPrecision, MR>& input,
             const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
             const OperationAttributes& properties,
             Tensor<TPrecision, MR>& output,
-            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const override {
+            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const override {
 
             auto X = input.raw_data();
             auto Y = output.raw_data();
@@ -170,7 +170,7 @@ namespace Mila::Dnn::Compute
          * @param parameter_gradients Gradients for parameters [d_weight, d_bias].
          * @param input_gradient Gradient of the loss with respect to the input.
          * @param properties Additional attributes for the operation.
-         * @param output_cache Cache tensors from forward pass.
+         * @param output_state Cache tensors from forward pass.
          */
         void backward(
             const Tensor<TPrecision, MR>& input,
@@ -180,7 +180,7 @@ namespace Mila::Dnn::Compute
             std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameter_gradients,
             Tensor<TPrecision, MR>& input_gradient,
             const OperationAttributes& properties,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_cache ) const {
+            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const {
 
             // Verify we're operating on CUDA memory
             if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cuda ) ) {

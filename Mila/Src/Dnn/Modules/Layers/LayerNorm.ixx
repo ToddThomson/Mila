@@ -47,14 +47,13 @@ namespace Mila::Dnn
      * @tparam TPrecision The data type of the input tensor elements.
      * @tparam TDataType The data type used for computation and output (defaults to the input type).
      */
-    export
-        template<typename TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
+    export template<typename TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
         requires ValidTensorType<TPrecision>
-    class LayerNorm : public Module<TPrecision> {
+    class LayerNorm : public Module<TPrecision, TPrecision, TDeviceType> {
     public:
 
-		using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, DeviceMemoryResource, HostMemoryResource>; ///< Memory resource type based on device type
-
+		using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>; ///< Memory resource type based on device type
+		using ModuleBase = Module<TPrecision, TPrecision, TDeviceType>; ///< Base class type for the module
         /**
          * @brief Constructs a new LayerNorm object with the default device context.
          *
@@ -65,15 +64,8 @@ namespace Mila::Dnn
          * @param is_training Whether the module is initially in training mode. Default is false.
          */
         LayerNorm(
-            std::string name,
-            const std::vector<size_t>& input_shape,
-            int64_t axis = -1,
-            bool has_bias = true,
-            bool is_training = false )
-            : Module<TPrecision>(),
-            input_shape_{ input_shape },
-            axis_{ axis },
-            has_bias_{ has_bias } {
+            std::string name, std::string device_name, const std::vector<size_t>& input_shape, int64_t axis = -1, bool has_bias = true, bool is_training = false )
+            : ModuleBase( device_name), input_shape_{ input_shape }, axis_{ axis }, has_bias_{ has_bias } {
             this->setTraining( is_training );
             this->setName( name );
             initializeTensors();
@@ -91,16 +83,9 @@ namespace Mila::Dnn
          * @param is_training Whether the module is initially in training mode. Default is false.
          */
         LayerNorm(
-            std::string name,
-            const std::vector<size_t>& input_shape,
-            std::shared_ptr<DeviceContext> context,
-            int64_t axis = -1,
-            bool has_bias = true,
-            bool is_training = false )
-            : Module<TPrecision>( context ),
-            input_shape_{ input_shape },
-            axis_{ axis },
-            has_bias_{ has_bias } {
+            std::string name, std::shared_ptr<DeviceContext> context,
+            const std::vector<size_t>& input_shape, int64_t axis = -1, bool has_bias = true, bool is_training = false )
+            : ModuleBase( context ), input_shape_{ input_shape }, axis_{ axis }, has_bias_{ has_bias } {
             this->setTraining( is_training );
             this->setName( name );
             initializeTensors();
@@ -232,18 +217,6 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-    protected:
-        /**
-         * @brief Called when the device context changes.
-         *
-         * Recreates tensors and operations for the new device.
-         */
-        void onDeviceChanged() override {
-            // Recreate tensors and operations for the new device
-            initializeTensors();
-            createOperation();
-        }
-
     private:
         /**
          * @brief The shape of the input tensor to be normalized.
@@ -308,7 +281,7 @@ namespace Mila::Dnn
         /**
          * @brief The underlying operation that implements Layer Normalization.
          */
-        std::shared_ptr<UnaryOperation<TPrecision, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TPrecision, TPrecision, TDeviceType>> operation_{ nullptr };
 
         /**
          * @brief Initializes the tensors needed for the Layer Normalization operation.
@@ -333,49 +306,24 @@ namespace Mila::Dnn
             auto sequence_length = input_shape_[ 1 ];
             auto channels = input_shape_[ 2 ];
 
-            // Initialize tensors based on device type
-            if ( device_type == DeviceType::Cpu ) {
-                // Create CPU tensors
-                weight_ = std::make_shared<Tensor<TPrecision, Compute::HostMemoryResource>>(
-                    std::vector<size_t>{channels}, static_cast<TPrecision>(1.0f) );
-                weight_->setName( this->getName() + ".weight" );
+            weight_ = std::make_shared<Tensor<TPrecision, MR>>(
+                std::vector<size_t>{channels}, static_cast<TPrecision>(1.0f) );
+            weight_->setName( this->getName() + ".weight" );
 
-                if ( has_bias_ ) {
-                    bias_ = std::make_shared<Tensor<TPrecision, Compute::HostMemoryResource>>(
-                        std::vector<size_t>{channels} );
-                    bias_->setName( this->getName() + ".bias" );
-                }
-
-                mean_ = std::make_shared<Tensor<TPrecision, Compute::HostMemoryResource>>(
-                    std::vector<size_t>{batch_size, sequence_length} );
-                mean_->setName( this->getName() + ".mean" );
-
-                rstd_ = std::make_shared<Tensor<TPrecision, Compute::HostMemoryResource>>(
-                    std::vector<size_t>{batch_size, sequence_length} );
-                rstd_->setName( this->getName() + ".rstd" );
-            }
-            else {
-                // Create CUDA tensors
-                weight_ = std::make_shared<Tensor<TPrecision, Compute::DeviceMemoryResource>>(
-                    std::vector<size_t>{channels}, static_cast<TPrecision>(1.0f) );
-                weight_->setName( this->getName() + ".weight" );
-
-                if ( has_bias_ ) {
-                    bias_ = std::make_shared<Tensor<TPrecision, Compute::DeviceMemoryResource>>(
-                        std::vector<size_t>{channels} );
-                    bias_->setName( this->getName() + ".bias" );
-                }
-
-                mean_ = std::make_shared<Tensor<TPrecision, Compute::DeviceMemoryResource>>(
-                    std::vector<size_t>{batch_size, sequence_length} );
-                mean_->setName( this->getName() + ".mean" );
-
-                rstd_ = std::make_shared<Tensor<TPrecision, Compute::DeviceMemoryResource>>(
-                    std::vector<size_t>{batch_size, sequence_length} );
-                rstd_->setName( this->getName() + ".rstd" );
+            if ( has_bias_ ) {
+                bias_ = std::make_shared<Tensor<TPrecision, MR>>(
+                    std::vector<size_t>{channels} );
+                bias_->setName( this->getName() + ".bias" );
             }
 
-            // Add tensors to parameters list and map
+            mean_ = std::make_shared<Tensor<TPrecision, MR>>(
+                std::vector<size_t>{batch_size, sequence_length} );
+            mean_->setName( this->getName() + ".mean" );
+
+            rstd_ = std::make_shared<Tensor<TPrecision, MR>>(
+                std::vector<size_t>{batch_size, sequence_length} );
+            rstd_->setName( this->getName() + ".rstd" );
+
             parameters_.emplace_back( weight_ );
             this->parameter_map_[ "weight" ] = weight_;
 
@@ -392,8 +340,8 @@ namespace Mila::Dnn
             this->state_map_[ "rstd" ] = rstd_;
 
             // Set epsilon in the properties
-            properties_.setFloat( "epsilon", epsilon_ );
-            properties_.setInt64( "axis", axis_ );
+            properties_.epsilon = epsilon_;
+            properties_.axis = axis_;
         }
 
         /**
@@ -403,20 +351,19 @@ namespace Mila::Dnn
          * of Layer Normalization for either CPU or CUDA, based on the current device context.
          */
         void createOperation() {
-            // Get the device type from the context
-            auto device_type = this->getDeviceContext()->getDevice()->getDeviceType();
+            if constexpr ( TDeviceType == DeviceType::Cpu ) {
+                auto base_op = OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cpu>(
+                    "Cpu::LayerNormOp",
+                    this->getDeviceContext() );
 
-            if ( operation_ ) {
-                operation_.reset(); // Clear existing operation
-            }
-
-            if ( device_type == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cpu>( "Cpu::LayerNormOp" );
-                operation_ = std::static_pointer_cast<UnaryOperation<TPrecision, TPrecision>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<TPrecision, TPrecision, TDeviceType>>(base_op);
             }
             else {
-                auto base_op = OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cuda>( "Cuda::LayerNormOp" );
-                operation_ = std::static_pointer_cast<UnaryOperation<TPrecision, TPrecision>>(base_op);
+                auto base_op = OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cuda>(
+                    "Cuda::LayerNormOp",
+                    this->getDeviceContext() );
+
+                operation_ = std::static_pointer_cast<UnaryOperation<TPrecision, TPrecision, TDeviceType>>(base_op);
             }
         }
     };

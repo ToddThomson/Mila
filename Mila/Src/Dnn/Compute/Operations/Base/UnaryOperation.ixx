@@ -49,10 +49,10 @@ namespace Mila::Dnn::Compute
         * @brief Memory resource type based on device type.
         *
         * This type alias automatically selects the appropriate memory resource type
-        * based on the device type. For CUDA devices, it uses DeviceMemoryResource;
+        * based on the device type. For CUDA devices, it uses CudaMemoryResource;
         * for CPU devices, it uses HostMemoryResource.
         */
-        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, DeviceMemoryResource, HostMemoryResource>;
+        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, HostMemoryResource>;
 
         /**
         * @brief Constructs a UnaryOperation with the specified operation type.

@@ -43,7 +43,7 @@ namespace Mila::Dnn
         requires ValidFloatTensorType<TPrecision> && ValidTensorType<TInput>
     class Module {
     public:
-        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, DeviceMemoryResource, HostMemoryResource>;
+        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>;
 
         /**
         * @brief Constructor with device name.
@@ -79,6 +79,8 @@ namespace Mila::Dnn
          */
         virtual ~Module() = default;
 
+		//virtual void forward( const Tensor<TInput, MR>& input, Tensor<TPrecision, MR>& output ) = 0;
+
         /**
          * @brief Get the device context for this module.
          *
@@ -91,48 +93,16 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Set a new device context for this module.
-         *
-         * This updates the current device context and may trigger resource reallocation
-         * for tensors and operations based on the new device. If the device type changes
-         * (e.g., from CPU to CUDA or vice versa), the onDeviceChanged() method is called
-         * to handle migration of resources.
-         *
-         * @param context The new device context.
-         * @throws std::invalid_argument If the provided context is nullptr.
-         */
-        void setDeviceContext( std::shared_ptr<Compute::DeviceContext> context ) {
-            if ( !context ) {
-                throw std::invalid_argument( "DeviceContext cannot be nullptr. Please provide a valid DeviceContext." );
-            }
-
-            bool device_changed = false;
-
-            // Check if device has changed
-            if ( device_context_ &&
-                device_context_->getDevice()->getDeviceType() != context->getDevice()->getDeviceType() ) {
-                device_changed = true;
-            }
-
-            device_context_ = context;
-
-            if ( device_changed ) {
-                // When device changes, we should migrate tensors and operations
-                onDeviceChanged();
-            }
-        }
-
-        /**
          * @brief Helper function to get a memory resource for the current device.
          *
          * This method returns a DynamicMemoryResource instance configured for the current device context.
          *
          * @return MR The DynamicMemoryResource appropriate for the current device context.
          */
-        MR getMemoryResource() const {
+        /*MR getMemoryResource() const {
             auto device_type = device_context_->getDevice()->getDeviceType();
             return MR( device_type );
-        }
+        }*/
 
         /**
          * @brief Set the training mode of the module.
@@ -181,11 +151,9 @@ namespace Mila::Dnn
          * Parameter tensors represent learnable weights that are updated during
          * training via gradient descent or other optimization algorithms.
          *
-         * @tparam TMR Memory resource type (defaults to the module's MR type).
          * @return const std::unordered_map<std::string, std::shared_ptr<Tensor<TDataType, MR>>>&
          *         Map of parameter names to tensor pointers.
          */
-        template<typename TMR = MR>
         const auto& getParameterTensors() const {
             return parameter_map_;
         }
@@ -200,7 +168,6 @@ namespace Mila::Dnn
          * @return const std::unordered_map<std::string, std::shared_ptr<Tensor<TDataType, MR>>>&
          *         Map of state names to tensor pointers.
          */
-        template<typename TMR = MR>
         const auto& getStateTensors() const {
             return state_map_;
         }
@@ -284,22 +251,6 @@ namespace Mila::Dnn
 
         /** @brief Map of state names to state tensors */
         std::unordered_map<std::string, std::shared_ptr<Tensor<TPrecision, MR>>> state_map_ = {};
-
-        /**
-         * @brief Called when the device context changes.
-         *
-         * This method is invoked whenever setDeviceContext() is called with a device
-         * that has a different type than the current one. Derived classes should
-         * override this method to handle device-specific resource migration, such as
-         * recreating tensors and operations for the new device.
-         *
-         * The base implementation does nothing since the Module class has no
-         * device-specific resources of its own.
-         */
-        virtual void onDeviceChanged() {
-            // Base implementation does nothing
-            // Derived classes should override to handle tensor migration
-        }
 
         /**
          * @brief Helper method to convert parameters to string representation.
