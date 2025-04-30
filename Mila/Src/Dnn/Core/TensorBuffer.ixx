@@ -162,7 +162,7 @@ namespace Mila::Dnn
 		 */
 		~TensorBuffer() {
 			if ( mr_ && data_ ) {
-				std::cout << "Deallocating buffer of size: " << aligned_size_
+				std::cout << "~TensorBuffer() calling deallocate of aligned size: " << aligned_size_
 					<< " (Total: " << Compute::MemoryStats::currentUsage << ")" << std::endl;
 
 				mr_->deallocate( data_, aligned_size_ );

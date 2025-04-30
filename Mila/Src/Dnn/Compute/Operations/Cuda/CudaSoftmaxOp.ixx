@@ -24,10 +24,10 @@ import Compute.MemoryResource;
 import Compute.CudaMemoryResource;
 import Compute.CudaDevice;
 
-using namespace Mila::Dnn;
-
 namespace Mila::Dnn::Compute
 {
+    using namespace Mila::Dnn;
+
 	/**
 	 * @brief Namespace for CUDA softmax implementation details.
 	 *
@@ -103,6 +103,7 @@ namespace Mila::Dnn::Compute
     class CudaSoftmaxOp : public UnaryOperation<TPrecision> {
     public:
         using MR = typename CudaDevice::MR;
+        
         /**
          * @brief Constructs a new CUDA Softmax operation with the default device context.
          *
@@ -272,9 +273,7 @@ namespace Mila::Dnn::Compute
                 }
             );
 
-            // Add additional precision variants if needed, for example:
-            
-            OperationRegistry::instance().registerOperation<half, half, DeviceType::Cuda>(
+           OperationRegistry::instance().registerOperation<half, half, DeviceType::Cuda>(
                 opName,
                 "Default",
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<half, half, DeviceType::Cuda>> {

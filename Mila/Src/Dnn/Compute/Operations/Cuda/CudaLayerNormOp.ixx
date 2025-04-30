@@ -80,8 +80,7 @@ namespace Mila::Dnn::Compute
      * @tparam TPrecision The data type of the input tensor elements.
      * @tparam TDataType The data type of the output tensor elements (defaults to the input type).
      */
-    export
-        template<typename TPrecision>
+    export template<typename TPrecision>
     class CudaLayerNormOp : public UnaryOperation<TPrecision> {
     public:
         using MR = typename CudaDevice::MR;

@@ -19,6 +19,7 @@
  * DEALINGS IN THE SOFTWARE.
  */
 module;
+#include <cuda_fp16.h>
 #include <string>
 #include <iostream>
 #include <memory>

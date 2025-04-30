@@ -106,11 +106,11 @@ namespace Mila::Dnn::Compute
         int B, int T, int C, int OC,
         cudaStream_t stream );
 
-    void cuda_matmul_forward_fp16(
+    /*void cuda_matmul_forward_fp16(
         half* Y, const half* X,
         const half* weight, const half* bias,
         int B, int T, int C, int OC,
-        cudaStream_t stream );
+        cudaStream_t stream );*/
 
     // Softmax functions
     template <typename TPrecision>

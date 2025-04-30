@@ -176,18 +176,6 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-    //protected:
-    //    /**
-    //     * @brief Called when the device context changes.
-    //     *
-    //     * Recreates sub-modules and output tensors for the new device.
-    //     */
-    //    void onDeviceChanged() override {
-    //        // Recreate the sub-modules with the new device context
-    //        bool has_bias = fc_1_->hasBias(); // Save bias configuration before recreating
-    //        initializeModules( has_bias );
-    //    }
-
     private:
         std::vector<size_t> input_shape_; ///< The input shape.
         size_t input_channels_; ///< The number of input channels
@@ -221,11 +209,6 @@ namespace Mila::Dnn
             fc_proj_ = std::make_shared<FullyConnected<TPrecision, TDeviceType>>(
                 this->getName() + ".fc_proj", this->getDeviceContext(), output_channels_, input_channels_, has_bias );
 
-            // Propagate device context to sub-modules
-            /*fc_1_->setDeviceContext( this->getDeviceContext() );
-            gelu_->setDeviceContext( this->getDeviceContext() );
-            fc_proj_->setDeviceContext( this->getDeviceContext() );*/
-
             // Add sub-modules to the MLP block
             this->addModule( "fc_1", fc_1_ );
             this->addModule( "gelu", gelu_ );
@@ -236,8 +219,6 @@ namespace Mila::Dnn
             fc_1_output_shape.back() = output_channels_;
 
             // Create output tensors for the intermediate steps
-            auto device_type = this->getDeviceContext()->getDevice()->getDeviceType();
-
             fc_1_output_ = Tensor<TPrecision, MR>( fc_1_output_shape );
             gelu_output_ = Tensor<TPrecision, MR>( fc_1_output_shape );
         }

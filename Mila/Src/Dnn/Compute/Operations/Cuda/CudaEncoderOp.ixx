@@ -27,6 +27,8 @@ import Compute.CudaDevice;
 
 namespace Mila::Dnn::Compute
 {
+    using namespace Mila::Dnn;
+
     namespace Detail
     {
         /**
@@ -58,7 +60,6 @@ namespace Mila::Dnn::Compute
         };
     }
 
-    using namespace Mila::Dnn;
     /**
      * @brief CUDA implementation of the Encoder operation for transformer models.
      *

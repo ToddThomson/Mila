@@ -6,7 +6,7 @@
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaLayerNorm.cu"
 
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/MatMul/CudaMatMulFp32.cu"
-	"Src/Dnn/Compute/Operations/Cuda/Kernels/MatMul/CudaMatMulFp16.cu"
+	#"Src/Dnn/Compute/Operations/Cuda/Kernels/MatMul/CudaMatMulFp16.cu"
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/MatMul/FusedMatMulBiasGelu.cu"
 	#"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaMHA.cu"
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaGelu.cu"

@@ -6,7 +6,6 @@
 module;
 #include <iostream>
 #include <string>
-
 #include <cuda_runtime.h>
 
 export module Compute.CudaDevice;
@@ -27,8 +26,9 @@ namespace Mila::Dnn::Compute
 	 * @brief Class representing a CUDA compute device.
 	 *
 	 * This class provides an interface to interact with NVIDIA CUDA-capable GPUs
-	 * within the Mila framework. It handles device initialization, properties
-	 * retrieval, and registration in the DeviceRegistry.
+	 * within the Mila framework. It handles device properties retrieval and
+	 * registration in the DeviceRegistry. Device activation is managed by the
+	 * DeviceContext class.
 	 */
 	export class CudaDevice : public ComputeDevice {
 	public:
@@ -42,11 +42,19 @@ namespace Mila::Dnn::Compute
 		/**
 		 * @brief Constructs a CudaDevice with specified device ID.
 		 *
-		 * @param device_id The CUDA device ID to initialize (default: 0).
-		 * @throws std::runtime_error If device cannot be set.
+		 * @param device_id The CUDA device ID to initialize.
 		 */
-		explicit CudaDevice( int device_id = 0 )
-			: device_id_( setDevice( device_id ) ), props_( DeviceProps( device_id_ ) ) {}
+		explicit CudaDevice( int device_id )
+			: device_id_( device_id ), props_( DeviceProps( device_id_ ) ) {}
+
+		/**
+		 * @brief Gets the CUDA device ID.
+		 *
+		 * @return int The device ID for this CUDA device.
+		 */
+		int getDeviceId() const {
+			return device_id_;
+		}
 
 		/**
 		 * @brief Gets the type of this compute device.
@@ -76,6 +84,11 @@ namespace Mila::Dnn::Compute
 			return props_;
 		}
 
+		/**
+		 * @brief Checks if the device supports FP16 precision.
+		 *
+		 * @return bool True if FP16 is supported, false otherwise.
+		 */
 		bool isFp16Supported() {
 			int major, minor;
 			cudaDeviceGetAttribute( &major, cudaDevAttrComputeCapabilityMajor, device_id_ );
@@ -98,6 +111,11 @@ namespace Mila::Dnn::Compute
 			return (major >= 9);
 		}
 
+		/**
+		 * @brief Checks if the device supports FP4 precision.
+		 *
+		 * @return bool True if FP4 is supported, false otherwise.
+		 */
 		bool isFp4Supported() {
 			int major, minor;
 			cudaDeviceGetAttribute( &major, cudaDevAttrComputeCapabilityMajor, device_id_ );
@@ -106,19 +124,24 @@ namespace Mila::Dnn::Compute
 			return (major >= 9);
 		}
 
-
 		/**
-		 * @brief Registers all available CUDA devices with the DeviceRegistry.
-		 *
-		 * This method discovers all CUDA devices in the system and registers them
-		 * with the DeviceRegistry for later instantiation. It performs the registration
-		 * only once, even if called multiple times.
-		 */
+		* @brief Registers all available CUDA devices with the DeviceRegistry.
+		*
+		* This method discovers all CUDA devices in the system and registers them
+		* with the DeviceRegistry for later instantiation. It performs the registration
+		* only once, even if called multiple times.
+		*/
 		static void registerDevices() {
 			if ( registered_ ) return;
 
 			int deviceCount = 0;
-			cudaGetDeviceCount( &deviceCount );
+
+			cudaError_t error = cudaGetDeviceCount( &deviceCount );
+
+			if ( error != cudaSuccess ) {
+				// FIXME: Utils::Logger::warning( "Failed to get CUDA device count: {}", cudaGetErrorString( error ) );
+				return;
+			}
 
 			for ( int i = 0; i < deviceCount; i++ ) {
 				std::string name = "CUDA:" + std::to_string( i );
@@ -137,23 +160,6 @@ namespace Mila::Dnn::Compute
 		DeviceProps props_;
 		/** @brief Flag indicating if devices have been registered */
 		static inline bool registered_{ false };
-
-		/**
-		 * @brief Sets the current CUDA device.
-		 *
-		 * @param device_id The CUDA device ID to set.
-		 * @return int The device ID that was set.
-		 * @throws std::runtime_error If the device cannot be set.
-		 */
-		int setDevice( int device_id ) {
-			cudaError_t error = cudaSetDevice( device_id );
-			if ( error != cudaSuccess ) {
-				std::string errorMsg = "Failed to set CUDA device " + std::to_string( device_id ) +
-					": " + cudaGetErrorString( error );
-				throw std::runtime_error( errorMsg );
-			}
-			return device_id;
-		}
 	};
 
 	//export bool CudaDevice::registered_ = (CudaDevice::registerDevices(), true);

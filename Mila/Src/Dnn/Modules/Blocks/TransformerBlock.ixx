@@ -167,16 +167,6 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-    //protected:
-    //    /**
-    //     * @brief Called when the device context changes.
-    //     *
-    //     * Recreates sub-modules and output tensors for the new device.
-    //     */
-    //    void onDeviceChanged() override {
-    //        initializeModules();
-    //    }
-
     private:
         std::vector<size_t> input_shape_; ///< The input shape.
         size_t num_heads_; ///< The number of attention heads.

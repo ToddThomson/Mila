@@ -6,6 +6,7 @@
 module;
 #include <string>
 #include <memory>
+#include <cuda_runtime.h>
 
 export module Compute.DeviceRegistrar;
 
@@ -53,10 +54,40 @@ namespace Mila::Dnn::Compute
          * @brief Register all available compute devices.
          */
         static void registerDevices() {
-            CpuDevice::registerDevice();
-            CudaDevice::registerDevices();
+            registerCpuDevices();
+            registerCudaDevices();
         }
 
+		/**
+		 * @brief Register CPU device.
+		 */
+		static void registerCpuDevices() {
+			DeviceRegistry::instance().registerDevice( "CPU", []() {
+				return std::make_shared<CpuDevice>();
+				} );
+		}
+
+		/**
+		 * @brief Register all available CUDA devices.
+		 */
+		static void registerCudaDevices() {
+			int deviceCount = 0;
+			cudaError_t error = cudaGetDeviceCount( &deviceCount );
+			if ( error != cudaSuccess ) {
+				// Handle error (e.g., log it)
+				return;
+			}
+			for ( int i = 0; i < deviceCount; i++ ) {
+				std::string name = "CUDA:" + std::to_string( i );
+				DeviceRegistry::instance().registerDevice( name, [i]() {
+					return std::make_shared<CudaDevice>( i );
+					} );
+			}
+		}
+		
+        /**
+		 * @brief Flag indicating whether devices have been initialized.
+		 */
         static inline bool is_initialized_ = false;
     };
 }

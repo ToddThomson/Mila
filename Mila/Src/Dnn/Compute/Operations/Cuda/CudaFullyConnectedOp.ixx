@@ -5,13 +5,13 @@
 
 module;
 #include <cublasLt.h>
+#include <cuda_fp16.h>
 #include <vector>
 #include <memory>
 #include <string>
 #include <stdexcept>
 #include <exception>
 #include "Kernels/CudaOps.h"
-#include <cuda_fp16.h>
 #include <type_traits>
 
 export module Compute.CudaMatMulOp;
@@ -30,10 +30,10 @@ import Compute.CudaDevice;
 import Compute.CublasLtMatMulBias;
 import Utils.Logger;
 
-using namespace Mila::Dnn;
-
 namespace Mila::Dnn::Compute
 {
+    using namespace Mila::Dnn;
+
 	/**
 	 * @brief Namespace for CUDA matrix multiplication implementation details.
 	 *
@@ -62,10 +62,11 @@ namespace Mila::Dnn::Compute
                 const half* weight, const half* bias,
                 int B, int T, int C, int OC,
                 cudaStream_t stream ) {
-                cuda_matmul_forward_fp16( Y, X, weight, bias, B, T, C, OC, stream );
+                //cuda_matmul_forward_fp16( Y, X, weight, bias, B, T, C, OC, stream );
             }
         };
-        // Specialization for __nv_fp8_e4m3
+        
+        // TODO: Specialization for __nv_fp8_e4m3
     }
 
     /**
@@ -87,6 +88,7 @@ namespace Mila::Dnn::Compute
     class CudaFullyConnectedOp : public UnaryOperation<TPrecision> {
     public:
         using MR = typename CudaDevice::MR;
+
         /**
          * @brief Constructs a new CUDA Fully Connected operation with the default device context.
          *
@@ -250,14 +252,15 @@ namespace Mila::Dnn::Compute
                 }
             );
 
-            /*OperationRegistry::instance().registerOperation<half, half, DeviceType::Cuda>(
+            // FIXME: 
+            OperationRegistry::instance().registerOperation<half, half, DeviceType::Cuda>(
                 opName,
                 "Default",
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<half, half, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaFullyConnectedOp<half>>( context )
                         : std::make_shared<CudaFullyConnectedOp<half>>();
                 }
-            );*/
+            );
         }
 
         /**

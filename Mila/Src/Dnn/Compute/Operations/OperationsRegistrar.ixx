@@ -1,3 +1,13 @@
+module;
+#include <string>
+#include <functional>
+#include <unordered_map>
+#include <memory>
+#include <type_traits>
+#include <utility>      // This contains std::_Tuple_get implementations
+#include <tuple>        // Additional tuple utilities
+#include <cuda_fp16.h>
+
 export module Compute.OperationsRegistrar;
 
 import Compute.CpuOperations;
@@ -38,8 +48,8 @@ namespace Mila::Dnn::Compute
 		* @brief Initialize the compute operations.
 		*/
 		static void registerOperations() {
-			// TJT: This rather ugly way of registering operations
-			// is good enough for now. I will revisit
+			// TJT: This is rather an ugly way of registering operations but it is all I can think of for now.
+			// Ts good enough for now. I will revisit
 			CpuEncoderOpRegistrar::registerOperations();
 			CpuGeluOpRegistrar::registerOperations();
 			CpuFullyConnectedOpRegistrar::registerOperations();
