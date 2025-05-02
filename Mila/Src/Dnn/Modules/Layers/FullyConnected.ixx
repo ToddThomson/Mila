@@ -218,19 +218,6 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-    //protected:
-    //    /**
-    //     * @brief Called when the device context changes.
-    //     *
-    //     * Recreates tensors and operations for the new device to ensure
-    //     * all resources are properly allocated on the target device.
-    //     */
-    //    void onDeviceChanged() override {
-    //        // Recreate tensors and operations for the new device
-    //        initializeTensors();
-    //        createOperation();
-    //    }
-
     private:
         /**
          * @brief The number of input features/channels.

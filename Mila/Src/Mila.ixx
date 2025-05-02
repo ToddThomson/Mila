@@ -52,6 +52,8 @@ export import Dnn.TensorTraits;
 export import Dnn.TensorHelpers;
 export import Dnn.ActivationTypes;
 
+export import Data.DataLoader;
+
 export import Compute.ComputeDevice;
 export import Compute.DeviceRegistry;
 export import Compute.DeviceType;

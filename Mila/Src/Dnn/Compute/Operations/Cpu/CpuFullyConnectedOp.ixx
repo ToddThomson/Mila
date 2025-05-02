@@ -87,6 +87,12 @@ namespace Mila::Dnn::Compute
             Tensor<float, MR>& output,
             std::vector<std::shared_ptr<Tensor<float, MR>>>& output_state ) const override {
 
+			auto outer_dims = input.rank() - 1;
+            
+            if ( outer_dims <= 0 ) {
+                throw std::runtime_error( "FullyConnectedOp requires input tensor with at least 2 dimensions" );
+            }
+
             auto X = input.raw_data();
             auto Y = output.raw_data();
 
@@ -96,38 +102,42 @@ namespace Mila::Dnn::Compute
             if ( parameters.size() == 2 ) {
                 bias = parameters[ 1 ];
             }
+            
+            int C = input.shape().back();
+            int OC = output.shape().back();
 
-            int B = input.shape()[ 0 ];
-            int T = input.shape()[ 1 ];
-            int C = input.shape()[ 2 ]; // input features
-            int OC = output.shape()[ 2 ]; // output features
+            size_t outer_size = 1;
+            for ( size_t i = 0; i < outer_dims; i++ ) {
+                outer_size *= input.shape()[ i ];
+            }
 
             const int LOOP_UNROLL = 8;
-            if ( B * T % LOOP_UNROLL != 0 ) {
+            if ( outer_size % LOOP_UNROLL != 0 ) {
                 // TJT: Write a unit test for this case
-                forward_naive( input, weight, bias, output, B, T, C, OC );
+                forward_naive( input, weight, bias, output, outer_size, C, OC );
                 return;
             }
 
+            // Optimized implementation with loop unrolling
         #pragma omp parallel for
-            for ( int obt = 0; obt < B * T; obt += LOOP_UNROLL ) {
+            for ( int out_idx = 0; out_idx < outer_size; out_idx += LOOP_UNROLL ) {
                 for ( int o = 0; o < OC; o++ ) {
                     float result[ LOOP_UNROLL ];
-                    for ( int ibt = 0; ibt < LOOP_UNROLL; ibt++ ) {
-                        result[ ibt ] = (bias ? bias->data()[ o ] : 0.0f);
+                    for ( int i_idx = 0; i_idx < LOOP_UNROLL; i_idx++ ) {
+                        result[ i_idx ] = (bias ? bias->data()[ o ] : 0.0f);
                     }
 
                     for ( int i = 0; i < C; i++ ) {
                         float w = weight->raw_data()[ i + o * C ];
-                        for ( int ibt = 0; ibt < LOOP_UNROLL; ibt++ ) {
-                            int bt = obt + ibt;
-                            result[ ibt ] += X[ bt * C + i ] * w;
+                        for ( int i_idx = 0; i_idx < LOOP_UNROLL; i_idx++ ) {
+                            int idx = out_idx + i_idx;
+                            result[ i_idx ] += X[ idx * C + i ] * w;
                         }
                     }
 
-                    for ( int ibt = 0; ibt < LOOP_UNROLL; ibt++ ) {
-                        int bt = obt + ibt;
-                        Y[ bt * OC + o ] = result[ ibt ];
+                    for ( int i_idx = 0; i_idx < LOOP_UNROLL; i_idx++ ) {
+                        int idx = out_idx + i_idx;
+                        Y[ idx * OC + o ] = result[ i_idx ];
                     }
                 }
             }
@@ -219,23 +229,17 @@ namespace Mila::Dnn::Compute
             const std::shared_ptr<Tensor<float, MR>>& weight,
             const std::shared_ptr<Tensor<float, MR>>& bias,
             Tensor<float, MR>& output,
-            int B, int T, int C, int OC ) const {
+            int outer_size, int C, int OC ) const {
 
-            // The most naive implementation of matrix multiplication
-            // this serves as an algorithmic reference, and as a fallback for
-            // unfriendly input shapes inside matmul_forward(), below.
-
-        #pragma omp parallel for collapse(2)
-            for ( int b = 0; b < B; b++ ) {
-                for ( int t = 0; t < T; t++ ) {
-                    int bt = b * T + t;
-                    for ( int o = 0; o < OC; o++ ) {
-                        float val = (bias ? bias->raw_data()[ o ] : 0.0f);
-                        for ( int i = 0; i < C; i++ ) {
-                            val += input.raw_data()[ bt * C + i ] * weight->raw_data()[ o * C + i ];
-                        }
-                        output.raw_data()[ bt * OC + o ] = val;
+            // Simple implementation of matrix multiplication
+        #pragma omp parallel for
+            for ( int idx = 0; idx < outer_size; idx++ ) {
+                for ( int o = 0; o < OC; o++ ) {
+                    float val = (bias ? bias->raw_data()[ o ] : 0.0f);
+                    for ( int i = 0; i < C; i++ ) {
+                        val += input.raw_data()[ idx * C + i ] * weight->raw_data()[ o * C + i ];
                     }
+                    output.raw_data()[ idx * OC + o ] = val;
                 }
             }
         }

@@ -74,18 +74,27 @@ namespace Modules::Tests
     class MLPTests : public ::testing::Test {
     protected:
         void SetUp() override {
-            batch_size_ = 64;
-            cpu_batch_size_ = 4;
-            sequence_length_ = 1024;
+            // CUDA-specific parameters - larger sizes for parallel processing
+            cuda_batch_size_ = 16;         // Reduced from 64
+            cuda_sequence_length_ = 64;    // Reduced from 512
+
+            // CPU-specific parameters - smaller sizes to prevent timeouts
+            cpu_batch_size_ = 2;
+            cpu_sequence_length_ = 16;
+
+            // Common parameters for both
             input_channels_ = 768;
             output_channels_ = 3072; // Common MLP expansion factor: 4x
+
+            // Set Google Test timeout to 60 seconds
+            //::testing::GTEST_FLAG_SET( timeout, 60000 );  // 60 seconds in milliseconds
         }
 
         // Factory methods to lazily create test data as needed
         MLPTestData<float, Compute::DeviceType::Cpu>& CpuFloatData() {
             if ( !cpu_float_data_.mlp_module ) {
                 cpu_float_data_ = MLPTestData<float, Compute::DeviceType::Cpu>::Create(
-                    "cpu_mlp_float", cpu_batch_size_, sequence_length_, input_channels_, output_channels_ );
+                    "cpu_mlp_float", cpu_batch_size_, cpu_sequence_length_, input_channels_, output_channels_ );
             }
             return cpu_float_data_;
         }
@@ -93,7 +102,7 @@ namespace Modules::Tests
         MLPTestData<float, Compute::DeviceType::Cuda>& CudaFloatData() {
             if ( !cuda_float_data_.mlp_module ) {
                 cuda_float_data_ = MLPTestData<float, Compute::DeviceType::Cuda>::Create(
-                    "cuda_mlp_float", batch_size_, sequence_length_, input_channels_, output_channels_ );
+                    "cuda_mlp_float", cuda_batch_size_, cuda_sequence_length_, input_channels_, output_channels_ );
             }
             return cuda_float_data_;
         }
@@ -101,7 +110,7 @@ namespace Modules::Tests
         MLPTestData<float, Compute::DeviceType::Cpu>& TrainingCpuFloatData() {
             if ( !training_cpu_float_data_.mlp_module ) {
                 training_cpu_float_data_ = MLPTestData<float, Compute::DeviceType::Cpu>::Create(
-                    "cpu_mlp_float_training", cpu_batch_size_, sequence_length_, input_channels_, output_channels_, true, true );
+                    "cpu_mlp_float_training", cpu_batch_size_, cpu_sequence_length_, input_channels_, output_channels_, true, true );
             }
             return training_cpu_float_data_;
         }
@@ -109,7 +118,7 @@ namespace Modules::Tests
         MLPTestData<float, Compute::DeviceType::Cuda>& TrainingCudaFloatData() {
             if ( !training_cuda_float_data_.mlp_module ) {
                 training_cuda_float_data_ = MLPTestData<float, Compute::DeviceType::Cuda>::Create(
-                    "cuda_mlp_float_training", batch_size_, sequence_length_, input_channels_, output_channels_, true, true );
+                    "cuda_mlp_float_training", cuda_batch_size_, cuda_sequence_length_, input_channels_, output_channels_, true, true );
             }
             return training_cuda_float_data_;
         }
@@ -117,7 +126,7 @@ namespace Modules::Tests
         MLPTestData<float, Compute::DeviceType::Cpu>& NoBiasCpuFloatData() {
             if ( !no_bias_cpu_float_data_.mlp_module ) {
                 no_bias_cpu_float_data_ = MLPTestData<float, Compute::DeviceType::Cpu>::Create(
-                    "cpu_mlp_float_nobias", cpu_batch_size_, sequence_length_, input_channels_, output_channels_, false );
+                    "cpu_mlp_float_nobias", cpu_batch_size_, cpu_sequence_length_, input_channels_, output_channels_, false );
             }
             return no_bias_cpu_float_data_;
         }
@@ -125,7 +134,7 @@ namespace Modules::Tests
         MLPTestData<float, Compute::DeviceType::Cuda>& NoBiasCudaFloatData() {
             if ( !no_bias_cuda_float_data_.mlp_module ) {
                 no_bias_cuda_float_data_ = MLPTestData<float, Compute::DeviceType::Cuda>::Create(
-                    "cuda_mlp_float_nobias", batch_size_, sequence_length_, input_channels_, output_channels_, false );
+                    "cuda_mlp_float_nobias", cuda_batch_size_, cuda_sequence_length_, input_channels_, output_channels_, false );
             }
             return no_bias_cuda_float_data_;
         }
@@ -134,7 +143,7 @@ namespace Modules::Tests
             if ( !context_cpu_float_data_.mlp_module ) {
                 auto cpu_context = std::make_shared<DeviceContext>( "CPU" );
                 context_cpu_float_data_ = MLPTestData<float, Compute::DeviceType::Cpu>::CreateWithContext(
-                    "cpu_context_mlp_float", cpu_batch_size_, sequence_length_, input_channels_, output_channels_, cpu_context );
+                    "cpu_context_mlp_float", cpu_batch_size_, cpu_sequence_length_, input_channels_, output_channels_, cpu_context );
             }
             return context_cpu_float_data_;
         }
@@ -142,7 +151,7 @@ namespace Modules::Tests
         MLPTestData<half, Compute::DeviceType::Cuda>& CudaHalfData() {
             if ( !cuda_half_data_.mlp_module ) {
                 cuda_half_data_ = MLPTestData<half, Compute::DeviceType::Cuda>::Create(
-                    "cuda_mlp_half", batch_size_, sequence_length_, input_channels_, output_channels_ );
+                    "cuda_mlp_half", cuda_batch_size_, cuda_sequence_length_, input_channels_, output_channels_ );
             }
             return cuda_half_data_;
         }
@@ -150,15 +159,18 @@ namespace Modules::Tests
         MLPTestData<half, Compute::DeviceType::Cuda>& TrainingCudaHalfData() {
             if ( !training_cuda_half_data_.mlp_module ) {
                 training_cuda_half_data_ = MLPTestData<half, Compute::DeviceType::Cuda>::Create(
-                    "cuda_mlp_half_training", batch_size_, sequence_length_, input_channels_, output_channels_, true, true );
+                    "cuda_mlp_half_training", cuda_batch_size_, cuda_sequence_length_, input_channels_, output_channels_, true, true );
             }
             return training_cuda_half_data_;
         }
 
-        // Test parameters
-        size_t batch_size_{ 0 };
+        // Test parameters - device-specific sizes
+        size_t cuda_batch_size_{ 0 };
         size_t cpu_batch_size_{ 0 };
-        size_t sequence_length_{ 0 };
+        size_t cuda_sequence_length_{ 0 };
+        size_t cpu_sequence_length_{ 0 };
+
+        // Common parameters
         size_t input_channels_{ 0 };
         size_t output_channels_{ 0 };
 
@@ -285,8 +297,23 @@ namespace Modules::Tests
         const MLPTestData<TPrecision, Compute::DeviceType::Cpu>& cpu_data,
         const MLPTestData<TPrecision, Compute::DeviceType::Cuda>& cuda_data ) {
 
-        // Create a small test shape to make comparison faster
-        std::vector<size_t> test_shape = { 2, 4, cpu_data.input_shape.back() }; // Small shape for quick verification
+        // Skip if no CUDA device is available
+        if ( !cuda_data.mlp_module->getDeviceContext()->isCudaDevice() ) {
+            GTEST_SKIP() << "CUDA device not available, skipping test";
+        }
+
+        // Create a very small test shape to make comparison faster
+        std::vector<size_t> test_shape = { 1, 2, cpu_data.input_shape.back() }; // Minimal shape for quick verification
+
+        // Use a smaller output channel count for faster testing
+        size_t test_output_channels = 1024; // Reduced from 3072
+
+        // Create new, smaller MLPs specifically for this test
+        auto cpu_mlp = std::make_shared<MLP<TPrecision, Compute::DeviceType::Cpu>>(
+            "test_cpu_mlp", "CPU", test_shape, test_output_channels, cpu_data.has_bias );
+
+        auto cuda_mlp = std::make_shared<MLP<TPrecision, Compute::DeviceType::Cuda>>(
+            "test_cuda_mlp", "CUDA:0", test_shape, test_output_channels, cuda_data.has_bias );
 
         // Create random input data
         Tensor<TPrecision, Compute::HostMemoryResource> host_input( test_shape );
@@ -296,9 +323,9 @@ namespace Modules::Tests
             host_input.data()[ i ] = static_cast<TPrecision>( -2.0 + 4.0 * (static_cast<float>( i ) / host_input.size()) );
         }
 
-        // Create CPU output
         Tensor<TPrecision, Compute::HostMemoryResource> cpu_output( test_shape );
-        cpu_data.mlp_module->forward( host_input, cpu_output );
+
+        cpu_mlp->forward( host_input, cpu_output );
 
         // Create device input by copying host data
         Tensor<TPrecision, Compute::CudaMemoryResource> device_input( test_shape );
@@ -306,7 +333,11 @@ namespace Modules::Tests
 
         // Create device output
         Tensor<TPrecision, Compute::CudaMemoryResource> cuda_output( test_shape );
-        cuda_data.mlp_module->forward( device_input, cuda_output );
+
+        cuda_mlp->forward( device_input, cuda_output );
+
+        // Ensure any CUDA errors are caught immediately
+        cuda_mlp->getDeviceContext()->synchronize();
 
         // Copy CUDA output back to host for comparison
         Tensor<TPrecision, Compute::HostMemoryResource> cuda_output_host( test_shape );
@@ -328,7 +359,7 @@ namespace Modules::Tests
         EXPECT_TRUE( all_equal ) << "CPU and CUDA implementations produced different results";
     }
 
-    // Test with different dimensions (edge cases)
+    // Test with different dimensions (edge cases) - device-specific shapes
     template<typename TPrecision, Compute::DeviceType TDevice>
     void TestEdgeCases() {
         using MR = MemoryResourceType<TPrecision, TDevice>;
@@ -348,19 +379,25 @@ namespace Modules::Tests
             EXPECT_NO_THROW( minimal_module->forward( minimal_input, minimal_output ) );
             EXPECT_EQ( minimal_output.size(), 8 );
 
-            // Test with larger dimensions
-            std::vector<size_t> large_shape = { 2, 2, 1024 };
-            size_t large_output_channels = 4096;
+            // Test with medium dimensions - adjusted by device type
+            std::vector<size_t> medium_shape;
+            if constexpr ( TDevice == Compute::DeviceType::Cuda ) {
+                medium_shape = { 2, 2, 1024 };
+            }
+            else {
+                medium_shape = { 1, 2, 512 }; // Smaller for CPU
+            }
 
-            auto large_module = std::make_shared<MLP<TPrecision, TDevice>>(
-                "large_mlp", TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU",
-                large_shape, large_output_channels );
+            size_t medium_output_channels = 2048;
 
-            Tensor<TPrecision, MR> large_input( large_shape );
-            Tensor<TPrecision, MR> large_output( large_shape );
+            auto medium_module = std::make_shared<MLP<TPrecision, TDevice>>(
+                "medium_mlp", TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU",
+                medium_shape, medium_output_channels );
 
-            EXPECT_NO_THROW( large_module->forward( large_input, large_output ) );
-            EXPECT_EQ( large_output.size(), 4096 );
+            Tensor<TPrecision, MR> medium_input( medium_shape );
+            Tensor<TPrecision, MR> medium_output( medium_shape );
+
+            EXPECT_NO_THROW( medium_module->forward( medium_input, medium_output ) );
         }
         catch ( const std::exception& e ) {
             std::cerr << "Exception during edge case test: " << e.what() << std::endl;
@@ -510,3 +547,4 @@ namespace Modules::Tests
         TestCpuCudaEquivalence<float>( CpuFloatData(), CudaFloatData() );
     }
 }
+

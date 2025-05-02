@@ -86,7 +86,7 @@ namespace Mila::Dnn
 	 * TensorBuffer<float, Compute::CudaMemoryResource> gpuBuffer(100);
 	 * @endcode
 	 */
-	export template <typename T, typename MR, bool TrackMemory = true>
+	export template <typename T, typename MR, bool TrackMemory = false>
 		requires std::is_base_of_v<Compute::MemoryResource, MR>
 	class TensorBuffer {
 	public:
@@ -124,13 +124,14 @@ namespace Mila::Dnn
 
 			aligned_size_ = calculateAlignedSize( size_ );
 
-			std::cout << "Allocating buffer of size: " << size_ << " with aligned size: " << aligned_size_ << std::endl;
-
 			data_ = static_cast<T*>(mr_->allocate( aligned_size_, alignment ));
 
-			std::cout << "Allocated buffer of size: " << aligned_size_
-				<< " Pointer: " << std::hex << reinterpret_cast<uintptr_t>( data_ ) << std::dec
-				<< " (Total: " << Compute::MemoryStats::currentUsage << ")" << std::endl;
+			if constexpr ( TrackMemory ) {
+				std::cout << "Allocated buffer of " << size_ << " elements ( " << size_ * sizeof( T )
+					<< " bytes ), aligned to " << aligned_size_ << " bytes" << std::endl
+					<< " Pointer: " << std::hex << reinterpret_cast<uintptr_t>(data_) << std::dec
+					<< " (Total: " << Compute::MemoryStats::currentUsage << ")" << std::endl;
+			}
 
 			fillBuffer( value );
 		}
@@ -162,8 +163,13 @@ namespace Mila::Dnn
 		 */
 		~TensorBuffer() {
 			if ( mr_ && data_ ) {
-				std::cout << "~TensorBuffer() calling deallocate of aligned size: " << aligned_size_
-					<< " (Total: " << Compute::MemoryStats::currentUsage << ")" << std::endl;
+				if constexpr ( TrackMemory ) {
+					std::cout << "Deallocating buffer of " << size_ << " elements ( "
+						<< size_ * sizeof( T ) << " bytes ), aligned to " << aligned_size_
+						<< " bytes" << std::endl
+						<< " Pointer: " << std::hex << reinterpret_cast<uintptr_t>(data_) << std::dec
+						<< " (Total: " << Compute::MemoryStats::currentUsage << ")" << std::endl;
+				}
 
 				mr_->deallocate( data_, aligned_size_ );
 			}

@@ -475,6 +475,61 @@ namespace Mila::Dnn
 			return result;
 		}
 
+		/**
+		 * @brief Flattens the tensor to a 2D tensor by combining all dimensions except the last one.
+		 *
+		 * This method reshapes the tensor from [D1, D2, ..., Dn-1, Dn] to [D1*D2*...*Dn-1, Dn].
+		 * This is particularly useful for operations that treat all but the last dimension as batch dimensions,
+		 * such as Fully Connected operations.
+		 *
+		 * @return A reference to this tensor after flattening.
+		 */
+		Tensor<TElementType, TMemoryResource>& flatten() {
+			if ( shape().size() <= 1 ) {
+				return *this; // Already flat or scalar
+			}
+
+			// Calculate the product of all dimensions except the last
+			size_t flat_dim = 1;
+			for ( size_t i = 0; i < shape().size() - 1; i++ ) {
+				flat_dim *= shape()[ i ];
+			}
+
+			// The new shape is [flat_dim, last_dim]
+			std::vector<size_t> new_shape = { flat_dim, shape().back() };
+			reshape( new_shape );
+
+			return *this;
+		}
+
+		/**
+		 * @brief Creates a flattened copy of this tensor.
+		 *
+		 * Similar to flatten(), but returns a new tensor instead of modifying this one.
+		 *
+		 * @return A new tensor with flattened shape.
+		 */
+		Tensor<TElementType, TMemoryResource> flattened() const {
+			if ( shape().size() <= 1 ) {
+				return *this; // Already flat or scalar
+			}
+
+			// Calculate the product of all dimensions except the last
+			size_t flat_dim = 1;
+			for ( size_t i = 0; i < shape().size() - 1; i++ ) {
+				flat_dim *= shape()[ i ];
+			}
+
+			// The new shape is [flat_dim, last_dim]
+			std::vector<size_t> new_shape = { flat_dim, shape().back() };
+
+			// Create a shallow copy and reshape it
+			Tensor<TElementType, TMemoryResource> result( *this );
+			result.reshape( new_shape );
+
+			return result;
+		}
+
 		void reshape( const std::vector<size_t>& new_shape ) {
 			size_t new_size = computeSize( new_shape );
 			if ( !empty() && (new_size != size_) ) {

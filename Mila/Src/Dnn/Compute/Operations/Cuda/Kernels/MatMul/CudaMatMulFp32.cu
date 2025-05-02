@@ -216,7 +216,7 @@ namespace Mila::Dnn::Compute
             dim3 blockDim( sqrt_block_size, sqrt_block_size );
 
             // Use the scalar kernel that doesn't rely on float4
-            matmul_forward_fp32_scalar_kernel << <gridDim, blockDim, 0, stream >> > (Y, X, weight, bias, C, OC);
+            matmul_forward_fp32_scalar_kernel <<<gridDim, blockDim, 0, stream >>> (Y, X, weight, bias, C, OC);
         }
         else {
             // Use optimized kernel for aligned dimensions
