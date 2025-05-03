@@ -27,13 +27,13 @@ namespace Mila::Dnn::Compute
     */
     export template <typename TPrecision>
     void cublaslt_matmul_forward(
-        TPrecision* out, const TPrecision* inp, const TPrecision* weight, const TPrecision* bias,
-        int B, int T, int C, int OC,
+        TPrecision* Y, const TPrecision* X, const TPrecision* weight, const TPrecision* bias,
+        int outer_size, int C, int OC,
         cudaStream_t stream,
         cublasLtHandle_t cublasLtHandle ) {
 
         // Check alignment (some modes work unaligned but it always best to be aligned for performance)
-        if ( ((uintptr_t)out % 16) != 0 || ((uintptr_t)inp % 16) != 0 || ((uintptr_t)weight % 16) != 0 || ((uintptr_t)bias % 16) != 0 ) {
+        if ( ((uintptr_t)Y % 16) != 0 || ((uintptr_t)X % 16) != 0 || ((uintptr_t)weight % 16) != 0 || ((uintptr_t)bias % 16) != 0 ) {
             printf( "All cuBLASLt pointers must be aligned!\n" );
             exit( EXIT_FAILURE );
         }
@@ -64,8 +64,8 @@ namespace Mila::Dnn::Compute
         // Create matrix descriptors (rows, cols, leading dimension)
 		// m,n,k  = OC, B*T, C
         cublasLtCheckStatus( cublasLtMatrixLayoutCreate( &weightLayout, cuda_data_type, C, OC, C ) ); // OC, C, OC ) ); // [m, k, m] for non transposed, [k, m, k]
-        cublasLtCheckStatus( cublasLtMatrixLayoutCreate( &inputLayout, cuda_data_type, C, B*T, C ) );
-        cublasLtCheckStatus( cublasLtMatrixLayoutCreate( &outputLayout, cuda_data_type, OC, B*T, OC ) );
+        cublasLtCheckStatus( cublasLtMatrixLayoutCreate( &inputLayout, cuda_data_type, C, outer_size, C ) );
+        cublasLtCheckStatus( cublasLtMatrixLayoutCreate( &outputLayout, cuda_data_type, OC, outer_size, OC ) );
 
         // Set bias vector if provided
         if ( bias != nullptr ) {
@@ -110,12 +110,12 @@ namespace Mila::Dnn::Compute
             &alpha,                // alpha scaling factor
             weight,                // A matrix (weight)
             weightLayout,          // A matrix layout
-            inp,                   // B matrix (input)
+            X,                   // B matrix (input)
             inputLayout,           // B matrix layout
             &beta,                 // beta scaling factor
             nullptr,               // C matrix for accumulation (not used here)
             outputLayout,          // C matrix layout
-            out,                   // D matrix (output)
+            Y,                   // D matrix (output)
             outputLayout,          // D matrix layout
             &heuristicResult.algo, // Algorithm to use from heuristic result
             nullptr,               // Workspace (using default)

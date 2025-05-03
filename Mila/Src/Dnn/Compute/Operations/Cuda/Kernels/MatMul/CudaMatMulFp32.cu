@@ -202,17 +202,17 @@ namespace Mila::Dnn::Compute
      */
     void cuda_matmul_forward_fp32(
         float* Y, const float* X, const float* weight, const float* bias,
-        int B, int T, int C, int OC,
+        int outer_size, int C, int OC,
         cudaStream_t stream ) {
 
         int sqrt_block_size = 16;
 
         // Use scalar kernel if dimensions don't meet requirements for optimized kernel
         if ( C % 4 != 0 || OC % 4 != 0 ||
-            B * T < 128 || OC < 128 ||  // Size requirements
+            outer_size < 128 || OC < 128 ||  // Size requirements
             C < 32 ) {                  // Minimum size for chunking
             // Use a safe implementation for non-aligned dimensions
-            dim3 gridDim( ceil_div( B * T, sqrt_block_size ), ceil_div( OC, sqrt_block_size ) );
+            dim3 gridDim( ceil_div( outer_size, sqrt_block_size ), ceil_div( OC, sqrt_block_size ) );
             dim3 blockDim( sqrt_block_size, sqrt_block_size );
 
             // Use the scalar kernel that doesn't rely on float4
@@ -220,7 +220,7 @@ namespace Mila::Dnn::Compute
         }
         else {
             // Use optimized kernel for aligned dimensions
-            dim3 gridDim( ceil_div( B * T, 8 * sqrt_block_size ), ceil_div( OC, 8 * sqrt_block_size ) );
+            dim3 gridDim( ceil_div( outer_size, 8 * sqrt_block_size ), ceil_div( OC, 8 * sqrt_block_size ) );
             dim3 blockDim( sqrt_block_size, sqrt_block_size );
 
             matmul_forward_fp32_vectorized_kernel << <gridDim, blockDim, 0, stream >> > (Y, X, weight, bias, C, OC);

@@ -7,6 +7,7 @@ import Dnn.Tensor;
 import Compute.DeviceType;
 import Compute.MemoryResource;
 import Compute.CudaMemoryResource;
+import Compute.CudaPinnedMemoryResource;
 import Compute.CpuMemoryResource;
 
 namespace Mila::Data
@@ -17,15 +18,14 @@ namespace Mila::Data
     /**
     * @brief Template for data loaders used in training and evaluation.
     *
-    * @tparam TPrecision The precision type for computations.
+    * @tparam TInput The precision type for computations.
     * @tparam TDeviceType The device type (CPU or CUDA).
     */
-    export template<typename TPrecision, Compute::DeviceType TDeviceType = Compute::DeviceType::Cuda>
+    export template<typename TInput, typename TMemoryResource>
+        requires ValidFloatTensorType<TInput> &&
+            (std::is_same_v<TMemoryResource, CudaPinnedMemoryResource> || std::is_same_v<TMemoryResource, CpuMemoryResource>)
     class DataLoader {
     public:
-        using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda,
-            CudaMemoryResource,
-            HostMemoryResource>;
 
         DataLoader( size_t batch_size ) : batch_size_( batch_size ), current_batch_( 0 ) {}
 
@@ -54,13 +54,37 @@ namespace Mila::Data
         * @param targets The tensor to store target data.
         * @return True if there was data to load, false if end of dataset.
         */
-        virtual bool nextBatch( Tensor<TPrecision, MR>& inputs, Tensor<TPrecision, MR>& targets ) = 0;
+        virtual void nextBatch() = 0;
 
         /**
         * @brief Get the current batch index.
         * @return The current batch index.
         */
         size_t currentBatch() const { return current_batch_; }
+
+        /**
+        * @brief Get the input tensor.
+        * @return Reference to the input tensor.
+        */
+        virtual Tensor<TInput, TMemoryResource>& inputs() = 0;
+
+        /**
+        * @brief Get the input tensor (const version).
+        * @return Const reference to the input tensor.
+        */
+        virtual const Tensor<TInput, TMemoryResource>& inputs() const = 0;
+
+        /**
+        * @brief Get the target tensor.
+        * @return Reference to the target tensor.
+        */
+        virtual Tensor<TInput, TMemoryResource>& targets() = 0;
+
+        /**
+        * @brief Get the target tensor (const version).
+        * @return Const reference to the target tensor.
+        */
+        virtual const Tensor<TInput, TMemoryResource>& targets() const = 0;
 
     protected:
         size_t batch_size_;     // Size of each batch

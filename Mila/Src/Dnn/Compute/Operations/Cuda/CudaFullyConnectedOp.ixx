@@ -50,9 +50,9 @@ namespace Mila::Dnn::Compute
         struct cuda_matmul_impl<float> {
             static inline void forward( float* Y, const float* X,
                 const float* weight, const float* bias,
-                int B, int T, int C, int OC,
+                int outer_size, int C, int OC,
                 cudaStream_t stream ) {
-                cuda_matmul_forward_fp32( Y, X, weight, bias, B, T, C, OC, stream );
+                cuda_matmul_forward_fp32( Y, X, weight, bias, outer_size, C, OC, stream );
             }
         };
 
@@ -60,9 +60,9 @@ namespace Mila::Dnn::Compute
         struct cuda_matmul_impl<half> {
             static inline void forward( half* Y, const half* X,
                 const half* weight, const half* bias,
-                int B, int T, int C, int OC,
+                int outer_size, int C, int OC,
                 cudaStream_t stream ) {
-                //cuda_matmul_forward_fp16( Y, X, weight, bias, B, T, C, OC, stream );
+                cuda_matmul_forward_fp16( Y, X, weight, bias, outer_size, C, OC, stream );
             }
         };
         
@@ -126,20 +126,30 @@ namespace Mila::Dnn::Compute
             Tensor<TPrecision, MR>& output,
             std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const override {
 
+            auto outer_dims = input.rank() - 1;
+
+            if ( outer_dims <= 0 ) {
+                throw std::runtime_error( "FullyConnectedOp requires input tensor with at least 2 dimensions" );
+            }
+
             auto X = input.raw_data();
             auto Y = output.raw_data();
 
-            auto weight = parameters[ 0 ]->raw_data();
-            TPrecision* bias = nullptr;
+            auto weight = parameters[ 0 ];
+            std::shared_ptr<Tensor<TPrecision, MR>> bias{ nullptr };
 
             if ( parameters.size() == 2 ) {
-                bias = parameters[ 1 ]->raw_data();
+                bias = parameters[ 1 ];
             }
 
-            int B = input.shape()[ 0 ];
-            int T = input.shape()[ 1 ];
-            int C = input.shape()[ 2 ];
-            int OC = output.shape()[ 2 ];
+			int C = input.shape().back(); // Input channels/features
+			int OC = output.shape().back(); // Output channels/features
+
+			// Get the flattened input tensor outer size
+            int outer_size = 1;
+            for ( int i = 0; i < outer_dims; i++ ) {
+                outer_size *= input.shape()[ i ];
+            }
 
             cudaStream_t stream = this->getDeviceContext()->getStream();
 
@@ -147,7 +157,7 @@ namespace Mila::Dnn::Compute
             try {
                 cublasLtHandle_t cublasLtHandle = this->getDeviceContext()->getCublasLtHandle();
                 if ( cublasLtHandle ) {
-                    cublaslt_matmul_forward<TPrecision>( Y, X, weight, bias, B, T, C, OC, stream, cublasLtHandle );
+                    cublaslt_matmul_forward<TPrecision>( Y, X, weight->raw_data(), bias ? bias->raw_data(): nullptr, outer_size, C, OC, stream, cublasLtHandle);
                     
                     return;
                 }
@@ -157,7 +167,7 @@ namespace Mila::Dnn::Compute
             }
 
             // Fallback to custom cuda kernel...
-            Detail::cuda_matmul_impl<TPrecision>::forward( Y, X, weight, bias, B, T, C, OC, stream );
+            //Detail::cuda_matmul_impl<TPrecision>::forward( Y, X, weight->raw_data(), bias ? bias->raw_data() : nullptr, outer_size, C, OC, stream);
         }
 
         /**

@@ -59,8 +59,10 @@ namespace Gpt2App
     export
     template<typename TData = int, typename TMemoryResource = Compute::PinnedMemoryResource>
         requires ValidTensorType<TData> && std::is_base_of_v<Compute::MemoryResource, TMemoryResource>
-    class Gpt2DataLoader {
+    class Gpt2DataLoader : public DataLoader<TPrecision, TDevice> {
     public:
+        using MR = typename DataLoader<TPrecision, TDeviceType>::MR;
+        using BaseLoader = DataLoader<TPrecision, TDeviceType>;
 
         /**
         * @brief Constructor for Gpt2DataLoader.

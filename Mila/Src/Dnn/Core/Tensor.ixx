@@ -48,6 +48,7 @@ namespace Mila::Dnn
 		requires ValidTensorType<TElementType> && std::is_base_of_v<Compute::MemoryResource, TMemoryResource>
 	class Tensor {
 	public:
+		using MR = TMemoryResource;
 		using scalar_t = std::variant<int64_t, int32_t, half, float>;
 
 		/*using Extent1d = std::dextents<size_t, 1>;

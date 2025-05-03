@@ -52,7 +52,8 @@ namespace Mila::Utils
             localtime_r( &time_t_now, &tm_buf );
         #endif
 
-            oss << std::put_time( &tm_buf, "%Y-%m-%d %H:%M:%S" );
+            // More concise timestamp format: HH:MM:SS.mmm
+            oss << std::put_time( &tm_buf, "%H:%M:%S" );
             oss << '.' << std::setfill( '0' ) << std::setw( 3 ) << now_ms.count() << " ";
             return oss.str();
         }
@@ -61,11 +62,22 @@ namespace Mila::Utils
         std::string getLocationInfo( const std::source_location& location ) const {
             if ( !includeSourceLocation_ ) return "";
 
-            return std::format( "{}({}):{}: ",
-                location.file_name(),
-                location.line(),
-                location.function_name() );
+            // Extract just the filename without path
+            std::string_view full_path( location.file_name() );
+            size_t last_slash = full_path.find_last_of( "/\\" );
+            std::string_view filename = (last_slash == std::string_view::npos) ?
+                full_path : full_path.substr( last_slash + 1 );
+
+            // Extract just the function name without namespace/class prefixes if desired
+            std::string_view func_name( location.function_name() );
+            size_t last_colon = func_name.find_last_of( ":" );
+            std::string_view short_func = (last_colon == std::string_view::npos) ?
+                func_name : func_name.substr( last_colon + 1 );
+
+            // Concise format: filename:line:function
+            return std::format( "{}:{}:{}: ", filename, location.line(), short_func );
         }
+
 
         // Internal log implementation
         void logImpl( std::string_view message, LogLevel level, const std::source_location& location ) {
