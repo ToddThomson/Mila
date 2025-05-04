@@ -30,13 +30,13 @@ namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
 
-    export template<typename TPrecision, DeviceType TDeviceType =  DeviceType::Cuda>
+    export template<typename TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
         requires ValidTensorType<TPrecision>
-    class MultiHeadAttention : public Module<TPrecision> {
+    class MultiHeadAttention : public Module<TPrecision, TPrecision, TDeviceType> {
     public:
 
 		using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>; ///< Memory resource type based on device type
-		using ModuleBase = Module<TPrecision>; ///< Base class type for the module
+		using ModuleBase = Module<TPrecision, TPrecision, TDeviceType>; ///< Base class type for the module
 
         /**
          * @brief Constructs a new MultiHeadAttention module with the default device context.
@@ -88,7 +88,7 @@ namespace Mila::Dnn
          * @param input The input tensor to be processed.
          * @param output The output tensor where the results will be stored.
          */
-        void forward( const Tensor<TPrecision, MR>& input, Tensor<TPrecision, MR>& output ) const override {
+        void forward( const Tensor<TPrecision, MR>& input, Tensor<TPrecision, MR>& output ) {
             operation_->forward( input, parameters_, properties_, output, output_state_ );
         }
 
@@ -141,16 +141,16 @@ namespace Mila::Dnn
         /**
          * @brief Tensor storing the attention weights after softmax.
          */
-        std::shared_ptr<Tensor<TPrecision, typename Module<TPrecision, TPrecision>::MR>> attn_{ nullptr };
+        std::shared_ptr<Tensor<TPrecision, MR>> attn_{ nullptr };
 
         /**
          * @brief Tensor storing the pre-softmax attention values.
          */
-        std::shared_ptr<Tensor<TPrecision, typename Module<TPrecision, TPrecision>::MR>> pre_attn_{ nullptr };
+        std::shared_ptr<Tensor<TPrecision, MR>> pre_attn_{ nullptr };
 
-        std::vector<std::shared_ptr<Tensor<TPrecision, typename Module<TPrecision, TPrecision>::MR>>> parameters_; ///< The parameters.
-        std::vector<std::shared_ptr<Tensor<TPrecision, typename Module<TPrecision, TPrecision>::MR>>> output_state_; ///< The output state.
-        std::vector<std::shared_ptr<Tensor<TPrecision, typename Module<TPrecision, TPrecision>::MR>>> scalars_; ///< The scalars.
+        std::vector<std::shared_ptr<Tensor<TPrecision, MR>>> parameters_; ///< The parameters.
+        std::vector<std::shared_ptr<Tensor<TPrecision, MR>>> output_state_; ///< The output state.
+        
         OperationAttributes properties_; ///< The operation properties.
 
         /**
@@ -168,35 +168,20 @@ namespace Mila::Dnn
             auto batch_size = input_shape_[ 0 ];
             auto sequence_length = input_shape_[ 1 ];
 
-            // Get device type for proper tensor creation
-            auto device_type = this->getDeviceContext()->getDevice()->getDeviceType();
+            pre_attn_ = std::make_shared<Tensor<TPrecision, MR>>(
+                std::vector<size_t>{batch_size, num_heads_, sequence_length, sequence_length} );
+            pre_attn_->setName( this->getName() + ".pre_attn" );
 
-            // preatt, att are (B, NH, TDataType, TDataType). NH = number of heads, TDataType = sequence length
-            if ( device_type == DeviceType::Cpu ) {
-                pre_attn_ = std::make_shared<Tensor<TPrecision, Compute::CpuMemoryResource>>(
-                    std::vector<size_t>{batch_size, num_heads_, sequence_length, sequence_length} );
-                pre_attn_->setName( this->getName() + ".pre_attn" );
-
-                attn_ = std::make_shared<Tensor<TPrecision, Compute::CpuMemoryResource>>(
-                    std::vector<size_t>{batch_size, num_heads_, sequence_length, sequence_length} );
-                attn_->setName( this->getName() + ".attn" );
-            }
-            else {
-                pre_attn_ = std::make_shared<Tensor<TPrecision, Compute::CudaMemoryResource>>(
-                    std::vector<size_t>{batch_size, num_heads_, sequence_length, sequence_length} );
-                pre_attn_->setName( this->getName() + ".pre_attn" );
-
-                attn_ = std::make_shared<Tensor<TPrecision, Compute::CudaMemoryResource>>(
-                    std::vector<size_t>{batch_size, num_heads_, sequence_length, sequence_length} );
-                attn_->setName( this->getName() + ".attn" );
-            }
+            attn_ = std::make_shared<Tensor<TPrecision, MR>>(
+                std::vector<size_t>{batch_size, num_heads_, sequence_length, sequence_length} );
+            attn_->setName( this->getName() + ".attn" );
 
             // Add state tensors
             output_state_.emplace_back( pre_attn_ );
             output_state_.emplace_back( attn_ );
 
             // Set number of heads in properties
-            properties_.setInt64( "num_heads", static_cast<int64_t>(num_heads_) );
+            properties_.num_heads = num_heads_;
         }
 
         /**

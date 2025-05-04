@@ -30,12 +30,12 @@ namespace Mila::Dnn
 {
 	using namespace Mila::Dnn::Compute;
 
-    export
-        template<typename TPrecision, typename TInput = TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
-		requires ValidFloatTensorType<TPrecision> && ValidTensorType<TInput>
-    class TransformerBlock : public BlockModule<TPrecision, TInput, TDeviceType> {
+    export template<typename TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
+		requires ValidFloatTensorType<TPrecision>
+    class TransformerBlock : public BlockModule<TPrecision, TPrecision, TDeviceType> {
     public:
 		using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>;
+		using BlockModuleBase = BlockModule<TPrecision, TPrecision, TDeviceType>; ///< Base class type for the module block
 
         /**
          * @brief Constructs a new TransformerBlock module with the default device context.
@@ -46,10 +46,8 @@ namespace Mila::Dnn
          * @param is_training Whether the module is initially in training mode. Default is false.
          * @throws std::invalid_argument If the input shape doesn't have rank 3.
          */
-        TransformerBlock( std::string name, const std::vector<size_t>& input_shape, const size_t num_heads, bool is_training = false )
-            : Module<TPrecision, TInput, TDeviceType>(),
-            input_shape_{ validate_shape( input_shape ) },
-            num_heads_{ num_heads } {
+        TransformerBlock( std::string name, const std::string& device_name, const std::vector<size_t>& input_shape, const size_t num_heads, bool is_training = false )
+            : BlockModuleBase( device_name ), input_shape_{ validate_shape( input_shape ) }, num_heads_{ num_heads } {
             this->setName( name );
             this->setTraining( is_training );
 
@@ -66,11 +64,9 @@ namespace Mila::Dnn
          * @param is_training Whether the module is initially in training mode. Default is false.
          * @throws std::invalid_argument If the input shape doesn't have rank 3.
          */
-        TransformerBlock( std::string name, const std::vector<size_t>& input_shape, const size_t num_heads,
-            std::shared_ptr<DeviceContext> context, bool is_training = false )
-            : Module<TPrecision, TInput, TDeviceType>( context ),
-            input_shape_{ validate_shape( input_shape ) },
-            num_heads_{ num_heads } {
+        TransformerBlock( std::string name, std::shared_ptr<DeviceContext> context, 
+            const std::vector<size_t>& input_shape, const size_t num_heads, bool is_training = false )
+            : BlockModuleBase( context ), input_shape_{ validate_shape( input_shape ) }, num_heads_{ num_heads } {
             this->setName( name );
             this->setTraining( is_training );
 
@@ -94,15 +90,15 @@ namespace Mila::Dnn
          * @param output The output tensor where the results will be stored.
          */
 
-        void forward( const Tensor<TInput, MR>& input, Tensor<TPrecision, MR>& output ) const override {
-            ln_1_->forward( input, ln_1_output_ );
+        void forward( const Tensor<TPrecision, MR>& input, Tensor<TPrecision, MR>& output ) {
+            /*ln_1_->forward( input, ln_1_output_ );
             fc_qkv_->forward( ln_1_output_, fc_qkv_output_ );
             attn_->forward( fc_qkv_output_, attn_output_ );
             fc_attn_proj_->forward( attn_output_, fc_attn_proj_output_ );
             res_1_->forward( input, fc_attn_proj_output_, res_1_output_ );
             ln_2_->forward( res_1_output_, ln_2_output_ );
             mlp_->forward( ln_2_output_, mlp_output_ );
-            res_2_->forward( res_1_output_, mlp_output_, output );
+            res_2_->forward( res_1_output_, mlp_output_, output );*/
         }
 
         /**
@@ -172,14 +168,14 @@ namespace Mila::Dnn
         size_t num_heads_; ///< The number of attention heads.
 
         // Sub-modules
-        std::shared_ptr<LayerNorm<TPrecision>> ln_1_{ nullptr };
-        std::shared_ptr<FullyConnected<TPrecision>> fc_qkv_{ nullptr };
-        std::shared_ptr<MultiHeadAttention<TPrecision>> attn_{ nullptr };
-        std::shared_ptr<FullyConnected<TPrecision>> fc_attn_proj_{ nullptr };
-        std::shared_ptr<Residual<TPrecision>> res_1_{ nullptr };
-        std::shared_ptr<LayerNorm<TPrecision>> ln_2_{ nullptr };
-        std::shared_ptr<MLP<TPrecision>> mlp_{ nullptr };
-        std::shared_ptr<Residual<TPrecision>> res_2_{ nullptr };
+        std::shared_ptr<LayerNorm<TPrecision, TDeviceType>> ln_1_{ nullptr };
+        std::shared_ptr<FullyConnected<TPrecision, TDeviceType>> fc_qkv_{ nullptr };
+        std::shared_ptr<MultiHeadAttention<TPrecision, TDeviceType>> attn_{ nullptr };
+        std::shared_ptr<FullyConnected<TPrecision, TDeviceType>> fc_attn_proj_{ nullptr };
+        std::shared_ptr<Residual<TPrecision, TDeviceType>> res_1_{ nullptr };
+        std::shared_ptr<LayerNorm<TPrecision, TDeviceType>> ln_2_{ nullptr };
+        std::shared_ptr<MLP<TPrecision, TDeviceType>> mlp_{ nullptr };
+        std::shared_ptr<Residual<TPrecision, TDeviceType>> res_2_{ nullptr };
 
         // Intermediate tensors
         Tensor<TPrecision, MR> ln_1_output_;
@@ -219,39 +215,29 @@ namespace Mila::Dnn
             auto C = input_shape_[ 2 ]; // Number of channels
 
             // Create new modules with the current device context
-            ln_1_ = std::make_shared<LayerNorm<TPrecision>>(
-                this->getName() + ".ln_1", input_shape_ );
+            ln_1_ = std::make_shared<LayerNorm<TPrecision, TDeviceType>>(
+                this->getName() + ".ln_1", this->getDeviceContext(), input_shape_ );
 
-            fc_qkv_ = std::make_shared<FullyConnected<TPrecision>>(
-                this->getName() + ".fc_qkv", C, 3 * C );
+            fc_qkv_ = std::make_shared<FullyConnected<TPrecision, TDeviceType>>(
+                this->getName() + ".fc_qkv", this->getDeviceContext(), C, 3 * C );
 
-            attn_ = std::make_shared<MultiHeadAttention<TPrecision>>(
-                this->getName() + ".attn", input_shape_, num_heads_ );
+            attn_ = std::make_shared<MultiHeadAttention<TPrecision, TDeviceType>>(
+                this->getName() + ".attn", this->getDeviceContext(), input_shape_, num_heads_ );
 
-            fc_attn_proj_ = std::make_shared<FullyConnected<TPrecision>>(
-                this->getName() + ".fc_attn_proj", C, C );
+            fc_attn_proj_ = std::make_shared<FullyConnected<TPrecision, TDeviceType>>(
+                this->getName() + ".fc_attn_proj", this->getDeviceContext(), C, C );
 
-            res_1_ = std::make_shared<Residual<TPrecision>>(
-                this->getName() + ".res_1" );
+            res_1_ = std::make_shared<Residual<TPrecision, TDeviceType>>(
+                this->getName() + ".res_1", this->getDeviceContext() );
 
-            ln_2_ = std::make_shared<LayerNorm<TPrecision>>(
-                this->getName() + ".ln_2", input_shape_ );
+            ln_2_ = std::make_shared<LayerNorm<TPrecision, TDeviceType>>(
+                this->getName() + ".ln_2", this->getDeviceContext(), input_shape_ );
 
-            mlp_ = std::make_shared<MLP<TPrecision>>(
-                this->getName() + ".mlp", input_shape_, 4 * C );
+            mlp_ = std::make_shared<MLP<TPrecision, TDeviceType>>(
+                this->getName() + ".mlp", this->getDeviceContext(), input_shape_, 4 * C );
 
-            res_2_ = std::make_shared<Residual<TPrecision>>(
-                this->getName() + ".res_2" );
-
-            // Propagate device context to sub-modules
-            ln_1_->setDeviceContext( this->getDeviceContext() );
-            fc_qkv_->setDeviceContext( this->getDeviceContext() );
-            attn_->setDeviceContext( this->getDeviceContext() );
-            fc_attn_proj_->setDeviceContext( this->getDeviceContext() );
-            res_1_->setDeviceContext( this->getDeviceContext() );
-            ln_2_->setDeviceContext( this->getDeviceContext() );
-            mlp_->setDeviceContext( this->getDeviceContext() );
-            res_2_->setDeviceContext( this->getDeviceContext() );
+            res_2_ = std::make_shared<Residual<TPrecision, TDeviceType>>(
+                this->getName() + ".res_2", this->getDeviceContext() );
 
             // Add sub-modules to the TransformerBlock
             this->addModule( "ln_1", ln_1_ );
@@ -262,9 +248,6 @@ namespace Mila::Dnn
             this->addModule( "ln_2", ln_2_ );
             this->addModule( "mlp", mlp_ );
             this->addModule( "res_2", res_2_ );
-
-            // Create output tensors for the intermediate steps
-            auto device_type = this->getDeviceContext()->getDevice()->getDeviceType();
 
             // Create output tensors for the intermediate steps
             ln_1_output_ = Tensor<TPrecision, MR>( input_shape_ );

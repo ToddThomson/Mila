@@ -51,11 +51,11 @@ namespace Mila::Dnn
     export
         template< typename TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
         requires ValidFloatTensorType<TPrecision>
-    class Softmax : public Module<TPrecision> {
+    class Softmax : public Module<TPrecision, TPrecision, TDeviceType> {
     public:
 		
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>; ///< Memory resource type based on device type
-		using ModuleBase = Module<TPrecision>; ///< Base class type for the module
+		using ModuleBase = Module<TPrecision, TPrecision, TDeviceType>; ///< Base class type for the module
 
         /**
          * @brief Construct a new Softmax module with the default device context.

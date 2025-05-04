@@ -49,7 +49,6 @@ namespace Mila::Dnn
             // Infer the number of input channels from the input shape
             input_channels_ = input_shape.back();
 
-            // Initialize the sub-modules and output tensors
             initializeModules( has_bias );
         }
 
@@ -72,7 +71,6 @@ namespace Mila::Dnn
             // Infer the number of input channels from the input shape
             input_channels_ = input_shape.back();
 
-            // Initialize the sub-modules and output tensors
             initializeModules( has_bias );
         }
 

@@ -45,6 +45,13 @@ namespace Mila::Dnn::Compute
          */
         int64_t axis = -1;
 
+		/**
+		 * @brief Number of attention heads for operations like MultiHeadAttention.
+		 *
+		 * This is a common attribute for attention-based operations.
+		 */
+        int num_heads = 0;
+
         /**
          * @brief Small constant added for numerical stability.
          *

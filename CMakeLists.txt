@@ -23,7 +23,7 @@ include(Cmake/CPM.cmake)
 CPMAddPackage(
     NAME miniz
     GITHUB_REPOSITORY richgel999/miniz
-    GIT_TAG 3.0.2
+    GIT_TAG master
 )
 
 find_package(CUDAToolkit REQUIRED)  

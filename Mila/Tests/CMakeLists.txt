@@ -65,7 +65,7 @@ add_executable( MilaTests
     "Dnn/Compute/Operations/Cuda/CudaMultHeadAttentionOpTests.cpp"
     "Dnn/Compute/Operations/Cuda/CudaResidualOpTests.cpp"
     #"Dnn/Compute/Operations/Cuda/CudaSoftmaxOpTests.cpp"
-     "Dnn/Modules/Blocks/MLP.cpp")
+     "Dnn/Modules/Blocks/MLP.cpp" "Dnn/Modules/Blocks/TransformerBlock.cpp")
 
 # TODO: Add globally 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
