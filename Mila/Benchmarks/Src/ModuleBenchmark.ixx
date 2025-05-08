@@ -94,7 +94,7 @@ namespace Mila::Benchmark
                 for ( size_t i = 0; i < inputShape_.size(); ++i ) {
                     oss << inputShape_[ i ];
                     if ( i < inputShape_.size() - 1 ) {
-                        oss << "×";
+                        oss << "x";
                     }
                 }
                 oss << "]";

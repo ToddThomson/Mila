@@ -206,20 +206,20 @@ namespace Mila::Dnn::Compute
             const std::string opName = "Cuda::EncoderOp";
 
             // Register float precision version
-            OperationRegistry::instance().registerOperation<float, int, DeviceType::Cuda>(
+            OperationRegistry::instance().registerUnaryOperation<float, int, DeviceType::Cuda>(
                 opName,
                 "Default",
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, int, DeviceType::Cuda>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<float, int, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaEncoderOp<float>>( context )
                         : std::make_shared<CudaEncoderOp<float>>();
                 }
             );
 
             // Register half precision version
-            OperationRegistry::instance().registerOperation<half, int, DeviceType::Cuda>(
+            OperationRegistry::instance().registerUnaryOperation<half, int, DeviceType::Cuda>(
                 opName,
                 "Default",
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<half, int, DeviceType::Cuda>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<half, int, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaEncoderOp<half>>( context )
                         : std::make_shared<CudaEncoderOp<half>>();
                 }

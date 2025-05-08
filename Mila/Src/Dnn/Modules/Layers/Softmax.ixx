@@ -209,14 +209,14 @@ namespace Mila::Dnn
             attributes_.axis =  axis_;
 
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cpu>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<TPrecision, TPrecision, DeviceType::Cpu>(
                     "Cpu::SoftmaxOp",
                     this->getDeviceContext() );
 
                 operation_ = std::static_pointer_cast<UnaryOperation<TPrecision, TPrecision, TDeviceType>>(base_op);
             }
             else {
-                auto base_op = OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cuda>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<TPrecision, TPrecision, DeviceType::Cuda>(
                     "Cuda::SoftmaxOp",
                     this->getDeviceContext() );
 

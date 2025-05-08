@@ -12,6 +12,7 @@
  * - Softmax activation
  * - Residual connections
  * - Attention mechanisms
+ * - Fused Softmax Cross Entropy operations
  *
  * Each operation provides implementations for both single-precision (fp32) and half-precision (fp16)
  * floating point data types to support different performance and accuracy requirements.
@@ -130,6 +131,29 @@ namespace Mila::Dnn::Compute
         int inner_size,
         cudaStream_t stream );
 
+    // SoftmaxCrossEntropy functions
+    template <typename TPrecision>
+    void cuda_softmax_crossentropy_forward(
+        TPrecision* losses,
+        TPrecision* probs,
+        const TPrecision* logits,
+        const int* targets,
+        int batch_size,
+        int seq_len,
+        int vocab_size,
+        cudaStream_t stream );
+
+    template <typename TPrecision>
+    void cuda_softmax_crossentropy_backward(
+        TPrecision* dlogits,
+        const TPrecision* dlosses,
+        const TPrecision* probs,
+        const int* targets,
+        int batch_size,
+        int seq_len,
+        int vocab_size,
+        cudaStream_t stream );
+
     // Residual functions
     void cuda_residual_forward_fp32(
         float* Y,
@@ -142,4 +166,6 @@ namespace Mila::Dnn::Compute
         const half* X1, const half* X2,
         int N,
         cudaStream_t stream );
+
+
 }

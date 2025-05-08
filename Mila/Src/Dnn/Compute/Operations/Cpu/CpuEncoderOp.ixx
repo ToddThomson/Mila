@@ -185,10 +185,10 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cpu::EncoderOp";
 
-            OperationRegistry::instance().registerOperation<float, int, DeviceType::Cpu>(
+            OperationRegistry::instance().registerUnaryOperation<float, int, DeviceType::Cpu>(
                 opName,
                 "Default",
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, int, DeviceType::Cpu>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<float, int, DeviceType::Cpu>> {
                     return context ? std::make_shared<CpuEncoderOp>( context )
                         : std::make_shared<CpuEncoderOp>();
                 }

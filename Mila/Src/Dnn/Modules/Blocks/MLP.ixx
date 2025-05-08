@@ -104,6 +104,32 @@ namespace Mila::Dnn
             fc_proj_->forward( gelu_output_, output );
         }
 
+		/**
+		 * @brief Performs the backward pass of the MLP block.
+		 *
+		 * Computes gradients for the input tensor based on the output gradients.
+		 *
+		 * @param input The input tensor to be processed.
+		 * @param output The output tensor where the results will be stored.
+		 */
+		void backward( const Tensor<TPrecision, MR>& input, const Tensor<TPrecision, MR>& output ) {
+			// Check if we're in training mode where we need individual operations for backprop
+			if ( this->isTraining() ) {
+				// Training mode: use the individual operations
+				fc_proj_->backward( gelu_output_, output );
+				gelu_->backward( fc_1_output_, gelu_output_ );
+				fc_1_->backward( input, fc_1_output_ );
+				return;
+			}
+			// Inference mode: try to use fused operations
+			// Note: This is a simplified version, as the fused operation lookup needs to be adapted
+			// to work with the new device context approach
+			// For now, just use the individual operations (can be optimized later)
+			fc_proj_->backward( gelu_output_, output );
+			gelu_->backward( fc_1_output_, gelu_output_ );
+			fc_1_->backward( input, fc_1_output_ );
+		}
+
         /**
          * @brief Gets the number of trainable parameters in this module.
          *

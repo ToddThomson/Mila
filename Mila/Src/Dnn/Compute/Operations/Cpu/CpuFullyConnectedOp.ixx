@@ -48,6 +48,7 @@ namespace Mila::Dnn::Compute
     export class CpuFullyConnectedOp : public UnaryOperation<float, float, DeviceType::Cpu> {
     public:
         using MR = typename CpuDevice::MR;
+
         /**
          * @brief Constructs a new CPU Fully Connected operation with the default device context.
          *
@@ -160,43 +161,43 @@ namespace Mila::Dnn::Compute
          * @param C Input feature dimension.
          * @param OC Output feature dimension.
          */
-        void backward( float* dinp, float* dweight, float* dbias, const float* dout, const float* inp, const float* weight,
+        void backward(
+            Tensor<float, MR>& input_grad,
+			const std::vector<std::shared_ptr<Tensor<float, MR>>>& parameter_grads,
+            const Tensor<float,MR>& output_grad,
+            const Tensor<float,MR> input,
+            const Tensor<float,MR> weight,
             int B, int T, int C, int OC ) {
 
-            // Verify we're operating on CPU memory
-            if ( this->getDeviceContext()->getDevice()->getDeviceType() != DeviceType::Cpu ) {
-                throw std::runtime_error( "CpuFullyConnectedOp::backward can only be executed on CPU memory" );
-            }
-
-        #pragma omp parallel for collapse(2)
-            for ( int b = 0; b < B; b++ ) {
-                for ( int t = 0; t < T; t++ ) {
-                    const float* dout_bt = dout + b * T * OC + t * OC;
-                    float* dinp_bt = dinp + b * T * C + t * C;
-                    for ( int o = 0; o < OC; o++ ) {
-                        const float* wrow = weight + o * C;
-                        float d = dout_bt[ o ];
-                        for ( int i = 0; i < C; i++ ) {
-                            dinp_bt[ i ] += wrow[ i ] * d;
-                        }
-                    }
-                }
-            }
-        #pragma omp parallel for
-            for ( int o = 0; o < OC; o++ ) {
-                for ( int b = 0; b < B; b++ ) {
-                    for ( int t = 0; t < T; t++ ) {
-                        const float* dout_bt = dout + b * T * OC + t * OC;
-                        const float* inp_bt = inp + b * T * C + t * C;
-                        float* dwrow = dweight + o * C;
-                        float d = dout_bt[ o ];
-                        if ( dbias != NULL ) { dbias[ o ] += d; }
-                        for ( int i = 0; i < C; i++ ) {
-                            dwrow[ i ] += inp_bt[ i ] * d;
-                        }
-                    }
-                }
-            }
+        //#pragma omp parallel for collapse(2)
+        //    for ( int b = 0; b < B; b++ ) {
+        //        for ( int t = 0; t < T; t++ ) {
+        //            const float* dout_bt = output_grad + b * T * OC + t * OC;
+        //            float* dinp_bt = input_grad + b * T * C + t * C;
+        //            for ( int o = 0; o < OC; o++ ) {
+        //                const float* wrow = weight + o * C;
+        //                float d = dout_bt[ o ];
+        //                for ( int i = 0; i < C; i++ ) {
+        //                    dinp_bt[ i ] += wrow[ i ] * d;
+        //                }
+        //            }
+        //        }
+        //    }
+        //#pragma omp parallel for
+        //    for ( int o = 0; o < OC; o++ ) {
+        //        for ( int b = 0; b < B; b++ ) {
+        //            for ( int t = 0; t < T; t++ ) {
+        //                const float* dout_bt = output_grad + b * T * OC + t * OC;
+        //                const float* inp_bt = input + b * T * C + t * C;
+        //                float* dwrow = weight_grad + o * C;
+        //                float d = dout_bt[ o ];
+        //                if ( dbias_grad != NULL ) { dbias[ o ] += d; }
+        //                for ( int i = 0; i < C; i++ ) {
+        //                    dwrow[ i ] += inp_bt[ i ] * d;
+        //                }
+        //            }
+        //        }
+        //    }
         }
 
         /**
@@ -265,10 +266,10 @@ namespace Mila::Dnn::Compute
             const std::string opName = "Cpu::FullyConnectedOp";
 
             // Register float operation
-            OperationRegistry::instance().registerOperation<float, float, DeviceType::Cpu>(
+            OperationRegistry::instance().registerUnaryOperation<float, float, DeviceType::Cpu>(
                 opName,
                 "Default",
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, float, DeviceType::Cpu>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<float, float, DeviceType::Cpu>> {
                     return context ? std::make_shared<CpuFullyConnectedOp>( context )
                         : std::make_shared<CpuFullyConnectedOp>();
                 }

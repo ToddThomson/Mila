@@ -112,5 +112,37 @@ namespace Mila::Dnn::Compute
             std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_grads ) const {
             throw std::runtime_error( "Operation does not support backward pass." );
         }
+
+        /**
+         * @brief Executes the backward pass of a unary operation with full gradient computation.
+         *
+         * This comprehensive backward method is designed for operations that need to compute:
+         * 1. Gradients with respect to inputs (for backpropagation)
+         * 2. Gradients with respect to parameters (for optimization)
+         *
+         * Derived classes may override this method to define the backward computation.
+         * The default implementation throws an exception, indicating that the operation
+         * does not support this type of backward pass.
+         *
+         * @param input Input tensor from the forward pass.
+         * @param output_grad Gradient of the loss with respect to the output.
+         * @param parameters Parameters tensor from forward pass (e.g., weights, biases).
+         * @param parameter_grads Output tensor for parameter gradients.
+         * @param input_gradient Output tensor for gradients with respect to input.
+         * @param properties Additional properties for the operation.
+         * @param output_state Cache tensors from forward pass.
+         * 
+         * @throws std::runtime_error If the operation does not support this backward pass.
+         */
+        virtual void backward(
+            const Tensor<TInput, MR>& input,
+            const Tensor<TPrecision, MR>& output_grad,
+            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
+            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameter_grads,
+            Tensor<TInput, MR>& input_grad,
+            const OperationAttributes& properties,
+            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const {
+            throw std::runtime_error( "Operation does not support full gradient backward pass." );
+        }
     };
 }

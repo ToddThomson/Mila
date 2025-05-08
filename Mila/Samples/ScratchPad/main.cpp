@@ -76,9 +76,9 @@ int main() {
         auto cpu_context = std::make_shared<DeviceContext>( "CPU" );
 
         // Create operations from registry
-        auto cuda_op_base = OperationRegistry::instance().createOperation<float, float, DeviceType::Cuda>(
+        auto cuda_op_base = OperationRegistry::instance().createUnaryOperation<float, float, DeviceType::Cuda>(
             "Cuda::FullyConnectedOp", cuda_context );
-        auto cpu_op_base = OperationRegistry::instance().createOperation<float, float, DeviceType::Cpu>(
+        auto cpu_op_base = OperationRegistry::instance().createUnaryOperation<float, float, DeviceType::Cpu>(
             "Cpu::FullyConnectedOp", cpu_context );
 
         if ( !cuda_op_base || !cpu_op_base ) {

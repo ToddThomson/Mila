@@ -127,14 +127,13 @@ PUBLIC
 		"Src/Dnn/Compute/Operations/Cuda/CudaEncoderOp.ixx"
 		"Src/Dnn/Compute/Operations/Cuda/CublasLtMatMulBias.ixx"
 		# Data
-		"Src/Data/DataLoader.ixx"
+		"Src/Dnn/Data/DataLoader.ixx"
 		"Src/Dnn/Models/Gpt2/Gpt2DatasetReader.ixx"
 
 		"Src/Dnn/Compute/Devices/Cpu/CpuComputeResource.ixx"
 		"Src/Dnn/Graph.ixx"
 		"Src/Dnn/Compute/ComputeResourceHelpers.ixx"
 		"Src/Dnn/Compute/Cuda/CudaComputeResource.ixx"
-		 
 		
 		# Utils
 		"Src/Utils/Logger.ixx"
@@ -155,7 +154,9 @@ PUBLIC
 		"Src/Dnn/Core/ActivationType.ixx"
 		"Src/Dnn/Compute/Cuda/CublasLtError.ixx"
 		
-)
+		"Src/Dnn/Modules/Layers/CrossEntropy.ixx"
+		#"Src/Dnn/Compute/Operations/Cuda/FusedSoftmaxCrossEntropyOp.ixx"
+		"Src/Dnn/Core/PrecisionConfig.ixx")
 
 target_link_libraries( Mila PRIVATE CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
 

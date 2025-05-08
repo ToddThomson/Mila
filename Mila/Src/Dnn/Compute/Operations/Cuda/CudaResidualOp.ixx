@@ -197,19 +197,19 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cuda::ResidualOp";
 
-            OperationRegistry::instance().registerOperation<float, float, DeviceType::Cuda>(
+            OperationRegistry::instance().registerBinaryOperation<float, float, float, DeviceType::Cuda>(
                 opName,
                 "Default",
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, float, DeviceType::Cuda>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<BinaryOperation<float, float, float, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaResidualOp<float>>( context )
                         : std::make_shared<CudaResidualOp<float>>();
                 }
             );
 
-            OperationRegistry::instance().registerOperation<half, half, DeviceType::Cuda>(
+            OperationRegistry::instance().registerBinaryOperation<half, half, half, DeviceType::Cuda>(
                 opName,
                 "Default",
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<half, half, DeviceType::Cuda>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<BinaryOperation<half, half, half, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaResidualOp<half>>( context )
                         : std::make_shared<CudaResidualOp<half>>();
                 }

@@ -28,7 +28,7 @@ import Dnn.ModelCallback;
 namespace Mila::Dnn
 {
 	using namespace Mila::Dnn::Compute;
-    using namespace Mila::Data;
+    using namespace Mila::Dnn::Data;
 
     /**
     * @brief Configuration for training a model.

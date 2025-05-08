@@ -26,7 +26,7 @@ namespace Mila::Benchmark
             std::vector<BenchmarkResult> results;
 
             std::cout << "Running " << benchmarks_.size() << " benchmarks with "
-                << iterations << " iterations each...\n" << std::endl;
+                << iterations << " iterations each..." << std::endl << std::endl;
 
             // Header
             std::cout << std::left << std::setw( 40 ) << "Benchmark" << " | "

@@ -76,7 +76,7 @@ namespace Mila::Dnn
             : ModuleBase( device_name ), input_channels_{ input_channels }, output_channels_{ output_channels }, has_bias_{ has_bias } {
             this->setTraining( is_training );
             this->setName( name );
-            initializeTensors();
+            initializeParameters();
             createOperation();
         }
 
@@ -96,8 +96,48 @@ namespace Mila::Dnn
             : ModuleBase( context ), input_channels_{ input_channels }, output_channels_{ output_channels }, has_bias_{ has_bias } {
             this->setTraining( is_training );
             this->setName( name );
-            initializeTensors();
+            
+            initializeParameters();
+            initializeParameterGradients();
+            
             createOperation();
+        }
+
+        /**
+         * @brief Performs the forward pass of the FullyConnected operation.
+         *
+         * Applies the linear transformation to the input tensor:
+         * output = input * weight + bias (if bias is enabled)
+         *
+         * @param input The input tensor to be transformed.
+         * @param output The output tensor where the results will be stored.
+         */
+        void forward( const Tensor<TPrecision, MR>& input, Tensor<TPrecision, MR>& output ) {
+            operation_->forward( input, parameters_, properties_, output, output_state_ );
+        }
+
+        /**
+        * @brief Performs the backward pass of the FullyConnected operation.
+        *
+        * Computes gradients for the input tensor and parameters based on the output gradients.
+        *
+        * @param input The input tensor from the forward pass.
+        * @param output_grad The gradient of loss with respect to the output.
+        * @param input_grad The tensor to store gradients with respect to input.
+        */
+        void backward(
+            const Tensor<TPrecision, MR>& input,
+            const Tensor<TPrecision, MR>& output_grad,
+            Tensor<TPrecision, MR>& input_grad ) {
+            operation_->backward(
+                input,            // Input tensor
+                output_grad,      // Gradient from next layer
+                parameters_,      // Original parameters (weight, bias)
+                parameter_grads_, // Gradient tensors for parameters
+                input_grad,       // Gradient to propagate to previous layer
+                properties_,      // Operation properties
+                output_state_     // Cached tensors from forward pass
+            );
         }
 
         /**
@@ -149,18 +189,7 @@ namespace Mila::Dnn
             return has_bias_;
         }
 
-        /**
-         * @brief Performs the forward pass of the FullyConnected operation.
-         *
-         * Applies the linear transformation to the input tensor:
-         * output = input * weight + bias (if bias is enabled)
-         *
-         * @param input The input tensor to be transformed.
-         * @param output The output tensor where the results will be stored.
-         */
-        void forward( const Tensor<TPrecision, MR>& input, Tensor<TPrecision, MR>& output ) {
-            operation_->forward( input, parameters_, properties_, output, output_state_ );
-        }
+        
 
         /**
          * @brief Serializes the module state to a ZIP archive.
@@ -266,6 +295,9 @@ namespace Mila::Dnn
          */
         std::vector<std::shared_ptr<Tensor<TPrecision, MR>>> parameters_;
 
+
+		std::vector<std::shared_ptr<Tensor<TPrecision, MR>>> parameter_grads_;
+
         /**
          * @brief Cache of intermediate tensors needed for backward pass.
          *
@@ -300,7 +332,7 @@ namespace Mila::Dnn
          * The tensors are created on the appropriate device (CPU or CUDA)
          * based on the current device context.
          */
-        void initializeTensors() {
+        void initializeParameters() {
             parameters_.clear();
             this->parameter_map_.clear();
 
@@ -326,6 +358,18 @@ namespace Mila::Dnn
             }
         }
 
+		void initializeParameterGradients() {
+            auto weight_grad = std::make_shared<Tensor<TPrecision, MR>>( std::vector<size_t>{output_channels_, input_channels_} );
+            weight_grad->setName( this->getName() + ".weight_grad" );
+            parameter_grads_.push_back( weight_grad );
+
+			if ( has_bias_ ) {
+				auto bias_grad = std::make_shared<Tensor<TPrecision, MR>>( std::vector<size_t>{output_channels_} );
+				bias_grad->setName( this->getName() + ".bias_grad" );
+                parameter_grads_.emplace_back( bias_ );
+			}
+		}
+
         /**
          * @brief Creates the appropriate FullyConnected operation based on the current device context.
          *
@@ -337,13 +381,13 @@ namespace Mila::Dnn
          */
         void createOperation() {
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cpu>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<TPrecision, TPrecision, DeviceType::Cpu>(
                     "Cpu::FullyConnectedOp",
                     this->getDeviceContext() );
                 operation_ = std::static_pointer_cast<Dnn::Compute::UnaryOperation<TPrecision, TPrecision, DeviceType::Cpu>>(base_op);
             }
             else {
-                auto base_op = OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cuda>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<TPrecision, TPrecision, DeviceType::Cuda>(
                     "Cuda::FullyConnectedOp",
                     this->getDeviceContext() );
                 operation_ = std::static_pointer_cast<Dnn::Compute::UnaryOperation<TPrecision, TPrecision, DeviceType::Cuda>>(base_op);

@@ -31,6 +31,8 @@ export module Compute.OperationRegistry;
 
 import Dnn.TensorTraits;
 import Compute.OperationBase;
+import Compute.UnaryOperation;
+import Compute.BinaryOperation;
 import Compute.OperationType;
 import Compute.DeviceType;
 import Compute.DeviceContext;
@@ -73,16 +75,17 @@ namespace Mila::Dnn::Compute
     export class OperationRegistry {
     public:
         /**
-         * @brief Type ID structure to uniquely identify operations based on input type, output type, and device type.
-         *
-         * This structure serves as a composite key for the operation registry, enabling
-         * precise lookup of operations based on their type parameters and target device.
-         */
+        * @brief Type ID structure to uniquely identify operations based on precision type, input types, and device type.
+        *
+        * This structure serves as a composite key for the operation registry, enabling
+        * precise lookup of operations based on their type parameters and target device.
+        */
         struct TypeID {
-            std::type_index input_type;    ///< Type index of the input tensor element type
-            std::type_index output_type;   ///< Type index of the output tensor element type
-            DeviceType device_type;        ///< Target device type for the operation
-            std::string variant;           ///< Variant name for specialized implementations
+            std::type_index precision_type;  ///< Type index of the precision/output tensor element type
+            std::type_index input1_type;     ///< Type index of the first input tensor element type
+            std::type_index input2_type;     ///< Type index of the second input tensor element type (for binary operations)
+            DeviceType device_type;          ///< Target device type for the operation
+            std::string variant;             ///< Variant name for specialized implementations
 
             /**
              * @brief Equality comparison operator for TypeID.
@@ -91,20 +94,21 @@ namespace Mila::Dnn::Compute
              * @return bool True if all fields match, false otherwise
              */
             bool operator==( const TypeID& other ) const {
-                return input_type == other.input_type &&
-                    output_type == other.output_type &&
+                return precision_type == other.precision_type &&
+                    input1_type == other.input1_type &&
+                    input2_type == other.input2_type &&
                     device_type == other.device_type &&
                     variant == other.variant;
             }
         };
 
         /**
-         * @brief Hash function for TypeID to use in unordered_map.
-         *
-         * This functor provides a hash function for TypeID instances, enabling their
-         * use as keys in unordered_map containers. The hash combines the hashes of
-         * each field with bit shifts to reduce collisions.
-         */
+ * @brief Hash function for TypeID to use in unordered_map.
+ *
+ * This functor provides a hash function for TypeID instances, enabling their
+ * use as keys in unordered_map containers. The hash combines the hashes of
+ * each field with bit shifts to reduce collisions.
+ */
         struct TypeIDHash {
             /**
              * @brief Calculate a hash value for a TypeID.
@@ -113,11 +117,12 @@ namespace Mila::Dnn::Compute
              * @return std::size_t The calculated hash value
              */
             std::size_t operator()( const TypeID& id ) const {
-                std::size_t h1 = std::hash<std::type_index>{}(id.input_type);
-                std::size_t h2 = std::hash<std::type_index>{}(id.output_type);
-                std::size_t h3 = std::hash<DeviceType>{}(id.device_type);
-                std::size_t h4 = std::hash<std::string>{}(id.variant);
-                return h1 ^ (h2 << 1) ^ (h3 << 2) ^ (h4 << 3);
+                std::size_t h1 = std::hash<std::type_index>{}(id.precision_type);
+                std::size_t h2 = std::hash<std::type_index>{}(id.input1_type);
+                std::size_t h3 = std::hash<std::type_index>{}(id.input2_type);
+                std::size_t h4 = std::hash<DeviceType>{}(id.device_type);
+                std::size_t h5 = std::hash<std::string>{}(id.variant);
+                return h1 ^ (h2 << 1) ^ (h3 << 2) ^ (h4 << 3) ^ (h5 << 4);
             }
         };
 
@@ -135,44 +140,79 @@ namespace Mila::Dnn::Compute
         }
 
         /**
-        * @brief Register an operation creator for a specific device type.
-        *
-        * This method registers a factory function for creating operations with specific
-        * type parameters and for a specific device type. Operations are identified by name
-        * and can have multiple variants for specialized implementations.
-        *
-        * @tparam TPrecision The precision used for computation (typically float or half).
-        * @tparam TInput The input tensor element type (defaults to TPrecision).
-        * @tparam TDeviceType The device type for the operation (defaults to CUDA).
-        * @param operation_name The name of the operation.
-        * @param variant The implementation variant name. Use "Default" for the standard implementation
-        *                and descriptive names like "Optimized", "LowMemory", or "Vectorized" for
-        *                algorithmic variants that have the same template parameters but different
-        *                internal implementations.
-        * @param creator The function that creates the operation with a device context.
-        *
-        * @note The creator function should return a valid operation instance when called with
-        *       a device context. The operation will be owned by a shared_ptr.
-        * @note When multiple variants exist for the same operation and types, the system will use
-        *       exact variant matches first, falling back to the "Default" variant if the requested
-        *       variant is not found.
-        */
-
+         * @brief Register a unary operation creator for a specific device type.
+         *
+         * This method registers a factory function for unary operations with specific
+         * type parameters and for a specific device type.
+         *
+         * @tparam TPrecision The precision used for computation (typically float or half).
+         * @tparam TInput The input tensor element type (defaults to TPrecision).
+         * @tparam TDeviceType The device type for the operation (defaults to CUDA).
+         * @param operation_name The name of the operation.
+         * @param variant The implementation variant name.
+         * @param creator The function that creates the unary operation.
+         */
         template<typename TPrecision, typename TInput = TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
-            requires ValidFloatTensorType<TPrecision> && ValidTensorType<TInput>
-        void registerOperation(
+            requires ValidFloatTensorType<TPrecision>&& ValidTensorType<TInput>
+        void registerUnaryOperation(
             const std::string& operation_name,
             const std::string& variant,
-            std::function<std::shared_ptr<OperationBase<TPrecision, TInput, TDeviceType>>( std::shared_ptr<DeviceContext> )> creator ) {
+            std::function<std::shared_ptr<UnaryOperation<TPrecision, TInput, TDeviceType>>( std::shared_ptr<DeviceContext> )> creator ) {
 
+            // Create a TypeID for lookup
             TypeID type_id{
-                std::type_index( typeid(TInput) ),
                 std::type_index( typeid(TPrecision) ),
+                std::type_index( typeid(TInput) ),
+                std::type_index( typeid(TInput) ),  // For unary ops, input2_type is the same as input1_type
                 TDeviceType,
                 variant
             };
 
-            registry_[ type_id ][ operation_name ] = std::move( creator );
+            // Convert UnaryOperation creator to GenericCreator
+            auto genericCreator = [creator]( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<void> {
+                return creator( context );
+                };
+
+            // Store in registry
+            registry_[ type_id ][ operation_name ] = std::move( genericCreator );
+        }
+
+        /**
+         * @brief Register a binary operation creator for a specific device type.
+         *
+         * This method registers a factory function for binary operations with specific
+         * type parameters and for a specific device type.
+         *
+         * @tparam TPrecision The precision used for computation (typically float or half).
+         * @tparam TInput The input tensor element type (defaults to TPrecision).
+         * @tparam TDeviceType The device type for the operation (defaults to CUDA).
+         * @param operation_name The name of the operation.
+         * @param variant The implementation variant name.
+         * @param creator The function that creates the binary operation.
+         */
+        template<typename TPrecision, typename TInput1 = TPrecision, typename TInput2 = TInput1, DeviceType TDeviceType = DeviceType::Cuda>
+            requires ValidFloatTensorType<TPrecision>&& ValidTensorType<TInput1>
+        void registerBinaryOperation(
+            const std::string& operation_name,
+            const std::string& variant,
+            std::function<std::shared_ptr<BinaryOperation<TPrecision, TInput1, TInput2, TDeviceType>>( std::shared_ptr<DeviceContext> )> creator ) {
+
+            // Create a TypeID for lookup
+            TypeID type_id{
+                std::type_index( typeid(TPrecision) ),
+                std::type_index( typeid(TInput1) ),
+                std::type_index( typeid(TInput2) ),
+                TDeviceType,
+                variant
+            };
+
+            // Convert BinaryOperation creator to GenericCreator
+            auto genericCreator = [creator]( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<void> {
+                return creator( context );
+                };
+
+            // Store in registry
+            registry_[ type_id ][ operation_name ] = std::move( genericCreator );
         }
 
         /**
@@ -190,7 +230,7 @@ namespace Mila::Dnn::Compute
          *
          * @note Fused operations must be registered with their metadata before they can be
          *       discovered during module execution. The actual implementation should be
-         *       registered separately using registerOperation().
+         *       registered separately using registerUnaryOperation or registerBinaryOperation.
          */
         template<typename TPrecision>
         void registerFusedOperation(
@@ -223,45 +263,43 @@ namespace Mila::Dnn::Compute
         }
 
         /**
-        * @brief Create an operation based on the type information, device type, and operation name.
-        *
-        * This method creates an operation instance with the specified parameters. It looks up
-        * the appropriate factory function in the registry and calls it with the provided device context.
-        * If a variant-specific implementation is not found, it falls back to the default variant.
-        *
-        * @tparam TPrecision The precision used for computation (typically float or half).
-        * @tparam TInput The input tensor element type (defaults to TPrecision).
-        * @tparam TDeviceType The device type for the operation (defaults to CUDA).
-        * @param operation_name The name of the operation.
-        * @param context The device context to use for the operation.
-        * @param variant The implementation variant name to request. Specify "Default" to use the standard
-        *                implementation, or a specific variant name to request specialized implementations.
-        *                The system will fall back to the "Default" variant if the requested variant is not
-        *                available for the specified types.
-        * @return std::shared_ptr<OperationBase<TPrecision, TInput, TDeviceType>> The created operation.
-        * @throws std::runtime_error If the type combination, device type, or operation name is invalid.
-        * @throws std::invalid_argument If the context is null.
-        */
+         * @brief Create a unary operation based on the type information, device type, and operation name.
+         *
+         * This method creates a unary operation instance with the specified parameters.
+         * If a variant-specific implementation is not found, it falls back to the default variant.
+         *
+         * @tparam TPrecision The precision used for computation (typically float or half).
+         * @tparam TInput The input tensor element type (defaults to TPrecision).
+         * @tparam TDeviceType The device type for the operation (defaults to CUDA).
+         * @param operation_name The name of the operation.
+         * @param context The device context to use for the operation.
+         * @param variant The implementation variant name (defaults to "Default").
+         * @return std::shared_ptr<UnaryOperation<TPrecision, TInput, TDeviceType>> The created unary operation.
+         * @throws std::runtime_error If the type combination, device type, or operation name is invalid.
+         * @throws std::invalid_argument If the context is null.
+         */
         template<typename TPrecision, typename TInput = TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
-			requires ValidFloatTensorType<TPrecision>&& ValidTensorType<TInput>
-        std::shared_ptr<OperationBase<TPrecision, TInput, TDeviceType>> createOperation(
+            requires ValidFloatTensorType<TPrecision>&& ValidTensorType<TInput>
+        std::shared_ptr<UnaryOperation<TPrecision, TInput, TDeviceType>> createUnaryOperation(
             const std::string& operation_name,
             std::shared_ptr<DeviceContext> context,
             const std::string& variant = "Default" ) const {
 
             TypeID type_id{
-                std::type_index( typeid(TInput) ),
                 std::type_index( typeid(TPrecision) ),
+                std::type_index( typeid(TInput) ),
+                std::type_index( typeid(TInput) ),  // For unary ops, input2_type is the same as input1_type
                 TDeviceType,
                 variant
             };
 
+            // Find the operation in the registry
             auto type_it = registry_.find( type_id );
             if ( type_it == registry_.end() ) {
                 // If variant-specific operation not found, try with default variant as fallback
                 if ( variant != "Default" ) {
                     try {
-                        return createOperation<TPrecision, TInput, TDeviceType>( operation_name, context, "Default" );
+                        return createUnaryOperation<TPrecision, TInput, TDeviceType>( operation_name, context, "Default" );
                     }
                     catch ( const std::runtime_error& ) {
                         // Fall through to the original error if the fallback also fails
@@ -269,7 +307,7 @@ namespace Mila::Dnn::Compute
                 }
 
                 throw std::runtime_error( std::format(
-                    "createOperation: No operations registered for types, Input:{}, Output:{}, Device:{}, Variant:{}",
+                    "createUnaryOperation: No operations registered for types, Input:{}, Output:{}, Device:{}, Variant:{}",
                     typeid(TInput).name(), typeid(TPrecision).name(),
                     TDeviceType == DeviceType::Cpu ? "CPU" : "CUDA", variant
                 ) );
@@ -278,7 +316,7 @@ namespace Mila::Dnn::Compute
             auto op_it = type_it->second.find( operation_name );
             if ( op_it == type_it->second.end() ) {
                 throw std::runtime_error( std::format(
-                    "createOperation: Operation not found: {}",
+                    "createUnaryOperation: Operation not found: {}",
                     operation_name
                 ) );
             }
@@ -287,7 +325,74 @@ namespace Mila::Dnn::Compute
                 throw std::invalid_argument( "DeviceContext cannot be null when creating an operation" );
             }
 
-            return std::static_pointer_cast<OperationBase<TPrecision, TInput, TDeviceType>>(op_it->second( context ));
+            return std::static_pointer_cast<UnaryOperation<TPrecision, TInput, TDeviceType>>(op_it->second( context ));
+        }
+
+        /**
+         * @brief Create a binary operation based on the type information, device type, and operation name.
+         *
+         * This method creates a binary operation instance with the specified parameters.
+         * If a variant-specific implementation is not found, it falls back to the default variant.
+         *
+         * @tparam TPrecision The precision used for computation (typically float or half).
+         * @tparam TInput The input tensor element type (defaults to TPrecision).
+         * @tparam TDeviceType The device type for the operation (defaults to CUDA).
+         * @param operation_name The name of the operation.
+         * @param context The device context to use for the operation.
+         * @param variant The implementation variant name (defaults to "Default").
+         * @return std::shared_ptr<BinaryOperation<TPrecision, TInput, TDeviceType>> The created binary operation.
+         * @throws std::runtime_error If the type combination, device type, or operation name is invalid.
+         * @throws std::invalid_argument If the context is null.
+         */
+        template<typename TPrecision, typename TInput1 = TPrecision, typename TInput2 = TInput1, DeviceType TDeviceType = DeviceType::Cuda>
+            requires ValidFloatTensorType<TPrecision>&& ValidTensorTypes<TInput1, TInput2>
+        std::shared_ptr<BinaryOperation<TPrecision, TInput1, TInput2, TDeviceType>> createBinaryOperation(
+            const std::string& operation_name,
+            std::shared_ptr<DeviceContext> context,
+            const std::string& variant = "Default" ) const {
+
+            // Create a TypeID for lookup
+            TypeID type_id{
+                std::type_index( typeid(TPrecision) ),
+                std::type_index( typeid(TInput1) ),
+                std::type_index( typeid(TInput2) ),
+                TDeviceType,
+                variant
+            };
+
+            // Find the operation in the registry
+            auto type_it = registry_.find( type_id );
+            if ( type_it == registry_.end() ) {
+                // If variant-specific operation not found, try with default variant as fallback
+                if ( variant != "Default" ) {
+                    try {
+                        return createBinaryOperation<TPrecision, TInput1, TInput2, TDeviceType>( operation_name, context, "Default" );
+                    }
+                    catch ( const std::runtime_error& ) {
+                        // Fall through to the original error if the fallback also fails
+                    }
+                }
+
+                throw std::runtime_error( std::format(
+                    "createBinaryOperation: No operations registered for types, Precision: {}, Input1:{}, Input2:{}, Device:{}, Variant:{}",
+                    typeid(TPrecision).name(), typeid(TInput1).name(), typeid(TInput2).name(),
+                    TDeviceType == DeviceType::Cpu ? "CPU" : "CUDA", variant
+                ) );
+            }
+
+            auto op_it = type_it->second.find( operation_name );
+            if ( op_it == type_it->second.end() ) {
+                throw std::runtime_error( std::format(
+                    "createBinaryOperation: Operation not found: {}",
+                    operation_name
+                ) );
+            }
+
+            if ( !context ) {
+                throw std::invalid_argument( "DeviceContext cannot be null when creating an operation" );
+            }
+
+            return std::static_pointer_cast<BinaryOperation<TPrecision, TInput1, TInput2, TDeviceType>>(op_it->second( context ));
         }
 
         /**

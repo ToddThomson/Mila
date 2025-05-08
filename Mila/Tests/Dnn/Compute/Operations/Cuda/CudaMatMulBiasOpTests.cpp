@@ -63,7 +63,7 @@ namespace Operations::Tests
             cuda_fc_op_ = std::make_shared<CudaFullyConnectedOp<float>>( cuda_context_ );
 
             // Get CPU FullyConnected op for comparison
-            auto cpu_op = OperationRegistry::instance().createOperation<float, float, DeviceType::Cpu>(
+            auto cpu_op = OperationRegistry::instance().createUnaryOperation<float, float, DeviceType::Cpu>(
                 "Cpu::FullyConnectedOp", cpu_context_ );
             cpu_fc_op_ = std::static_pointer_cast<UnaryOperation<float, float, DeviceType::Cpu>>(cpu_op);
         }

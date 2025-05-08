@@ -398,10 +398,10 @@ namespace Operations::Tests
         CudaEncoderOpRegistrar::registerOperations();
 
         // Retrieve operations from registry
-        auto op_float = OperationRegistry::instance().createOperation<float, int, DeviceType::Cuda>(
+        auto op_float = OperationRegistry::instance().createUnaryOperation<float, int, DeviceType::Cuda>(
             "Cuda::EncoderOp", cuda_context_, "Float_Precision" );
 
-        auto op_half = OperationRegistry::instance().createOperation<half, int, DeviceType::Cuda>(
+        auto op_half = OperationRegistry::instance().createUnaryOperation<half, int, DeviceType::Cuda>(
             "Cuda::EncoderOp", cuda_context_, "Half_Precision" );
 
         // Verify operations are created correctly

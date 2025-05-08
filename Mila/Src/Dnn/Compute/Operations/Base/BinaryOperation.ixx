@@ -47,9 +47,9 @@ namespace Mila::Dnn::Compute
     * @tparam TDataType The data type of the output and computation tensor elements.
     * @tparam TDevice The device type (e.g., CPU, CUDA) on which the operation is executed.
     */
-    export template <typename TPrecision, typename TInput = TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
-        requires ValidFloatTensorType<TPrecision> && ValidTensorType<TInput>
-    class BinaryOperation : public OperationBase<TPrecision, TInput, TDeviceType> {
+    export template <typename TPrecision, typename TInput1 = TPrecision, typename TInput2 = TInput1, DeviceType TDeviceType = DeviceType::Cuda>
+        requires ValidFloatTensorType<TPrecision> && ValidTensorType<TInput1>
+    class BinaryOperation : public OperationBase<TPrecision, TInput1, TDeviceType> {
     public:
         /**
         * @brief Memory resource type based on device type.
@@ -67,7 +67,7 @@ namespace Mila::Dnn::Compute
         * @param operation_type The type of the operation.
         */
         BinaryOperation( OperationType operation_type )
-            : OperationBase<TPrecision, TInput, TDeviceType>( operation_type, CreateCompatibleContext<TDeviceType>() ) {}
+            : OperationBase<TPrecision, TInput1, TDeviceType>( operation_type, CreateCompatibleContext<TDeviceType>() ) {}
 
         /**
          * @brief Constructs a BinaryOperation with the specified operation type and device context.
@@ -78,7 +78,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the provided context is incompatible with TDevice.
          */
         BinaryOperation( OperationType operation_type, std::shared_ptr<DeviceContext> context )
-            : OperationBase<TPrecision, TInput, TDeviceType>( operation_type, ValidateContext<TDeviceType>( context ) ) {}
+            : OperationBase<TPrecision, TInput1, TDeviceType>( operation_type, ValidateContext<TDeviceType>( context ) ) {}
 
         /**
         * @brief Virtual destructor for proper cleanup of derived classes.
@@ -96,8 +96,8 @@ namespace Mila::Dnn::Compute
         * @param output_state Cache for the output tensors.
         */
         virtual void forward(
-            const Tensor<TInput, MR>& input1,
-            const Tensor<TInput, MR>& input2,
+            const Tensor<TInput1, MR>& input1,
+            const Tensor<TInput2, MR>& input2,
             const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
             const OperationAttributes& attributes,
             Tensor<TPrecision, MR>& output,

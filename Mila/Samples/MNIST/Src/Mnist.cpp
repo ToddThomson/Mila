@@ -97,7 +97,7 @@ bool parseCommandLine( int argc, char** argv, MnistConfig& config ) {
 
 // Cross-entropy loss function for classification
 template<typename TPrecision>
-float computeCrossEntropyLoss( const Tensor<TPrecision, HostMemoryResource>& logits, const Tensor<TPrecision, HostMemoryResource>& targets ) {
+float softmaxCrossEntropyLoss( const Tensor<TPrecision, HostMemoryResource>& logits, const Tensor<TPrecision, HostMemoryResource>& targets ) {
 
     // Apply softmax and compute cross-entropy loss
     size_t batch_size = logits.shape()[ 0 ];
@@ -217,12 +217,17 @@ void runMnistTrainingLoop(
 
 			logits.copyFrom( output );
 
-            float batch_loss = computeCrossEntropyLoss( logits, target_batch );
+            float batch_loss = softmaxCrossEntropyLoss( logits, target_batch );
             float batch_acc = computeAccuracy( logits, target_batch );
 
             epoch_loss += batch_loss;
             epoch_acc += batch_acc;
             batches++;
+
+			// Now perform the Backward pass and update parameters
+			//model->backward( logits, target_batch );
+			// sgdUpdate( model->getParameters(), model->getGradients(), config.learningRate );
+
 
             if ( batches % 100 == 0 || batches == train_loader.numBatches() ) {
                 std::cout << "Epoch " << (epoch + 1) << " [" << batches << "/"
@@ -256,7 +261,7 @@ void runMnistTrainingLoop(
 
             logits.copyFrom( output );
 
-            test_loss += computeCrossEntropyLoss( logits, target_batch );
+            test_loss += softmaxCrossEntropyLoss( logits, target_batch );
             test_acc += computeAccuracy( logits, target_batch );
             
             test_batches++;

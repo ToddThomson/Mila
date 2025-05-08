@@ -100,11 +100,11 @@ namespace Mila::Benchmark
 
             std::string name() const override {
                 std::ostringstream oss;
-                oss << "Block::" << moduleName_ << " [";
+                oss << moduleName_ << " [";
                 for ( size_t i = 0; i < inputShape_.size(); ++i ) {
                     oss << inputShape_[ i ];
                     if ( i < inputShape_.size() - 1 ) {
-                        oss << "×";
+                        oss << "x";
                     }
                 }
                 oss << "]";

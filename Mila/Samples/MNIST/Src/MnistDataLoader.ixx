@@ -15,7 +15,7 @@ namespace Mila::Mnist
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
-    using namespace Mila::Data;
+    using namespace Mila::Dnn::Data;
 
     namespace fs = std::filesystem;
 
@@ -27,9 +27,9 @@ namespace Mila::Mnist
     export template<typename TInput, typename TMemoryResource>
         requires ValidFloatTensorType<TInput> && 
             ( std::is_same_v<TMemoryResource, CudaPinnedMemoryResource> || std::is_same_v<TMemoryResource, CpuMemoryResource> )
-    class MnistDataLoader : public DataLoader<TInput, TMemoryResource> {
+    class MnistDataLoader : public DataLoader<TInput, TInput, TMemoryResource> {
     public:
-        using BaseLoader = DataLoader<TInput, TMemoryResource>;
+        using BaseLoader = DataLoader<TInput, TInput, TMemoryResource>;
 
         MnistDataLoader( const std::string& data_dir, size_t batch_size, bool is_training )
             : BaseLoader( batch_size ), is_training_( is_training ) {

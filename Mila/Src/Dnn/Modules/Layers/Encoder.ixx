@@ -291,14 +291,14 @@ namespace Mila::Dnn
         */
         void createOperation() {
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createOperation<TPrecision, int, DeviceType::Cpu>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<TPrecision, int, DeviceType::Cpu>(
                     "Cpu::EncoderOp",
                     this->getDeviceContext() );
                 
                 operation_ = std::static_pointer_cast<Dnn::Compute::UnaryOperation<TPrecision, int, DeviceType::Cpu>>(base_op);
             }
             else {
-                auto base_op = OperationRegistry::instance().createOperation<TPrecision, int, DeviceType::Cuda>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<TPrecision, int, DeviceType::Cuda>(
                     "Cuda::EncoderOp",
                     this->getDeviceContext() );
                 

@@ -37,7 +37,7 @@ namespace Operations::Tests
             cuda_mha_op_ = std::make_shared<CudaMultiHeadAttentionOp<float>>( cuda_context_ );
 
             // Get CPU MHA op for comparison (assume it's registered)
-            auto cpu_op = OperationRegistry::instance().createOperation<float, float, DeviceType::Cpu>(
+            auto cpu_op = OperationRegistry::instance().createUnaryOperation<float, float, DeviceType::Cpu>(
                 "Cpu::MultiHeadAttentionOp", cpu_context_ );
             cpu_mha_op_ = std::static_pointer_cast<UnaryOperation<float, float, DeviceType::Cpu>>(cpu_op);
         }

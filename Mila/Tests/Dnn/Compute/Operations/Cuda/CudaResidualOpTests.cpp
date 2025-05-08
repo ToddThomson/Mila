@@ -42,9 +42,9 @@ namespace Operations::Tests
             cuda_residual_op_ = std::make_shared<CudaResidualOp<float>>( cuda_context_ );
 
             // Get CPU Residual op for comparison
-            auto cpu_op = OperationRegistry::instance().createOperation<float, float, DeviceType::Cpu>(
+            auto cpu_op = OperationRegistry::instance().createBinaryOperation<float, float, float, DeviceType::Cpu>(
                 "Cpu::ResidualOp", cpu_context_ );
-            cpu_residual_op_ = std::static_pointer_cast<BinaryOperation<float, float, DeviceType::Cpu>>(cpu_op);
+            cpu_residual_op_ = std::static_pointer_cast<BinaryOperation<float, float, float, DeviceType::Cpu>>(cpu_op);
         }
 
         // Helper method to calculate reference residual result (A + B)
@@ -95,7 +95,7 @@ namespace Operations::Tests
         std::shared_ptr<DeviceContext> cuda_context_;
         std::shared_ptr<DeviceContext> cpu_context_;
         std::shared_ptr<CudaResidualOp<float>> cuda_residual_op_;
-        std::shared_ptr<BinaryOperation<float, float, DeviceType::Cpu>> cpu_residual_op_;
+        std::shared_ptr<BinaryOperation<float, float, float, DeviceType::Cpu>> cpu_residual_op_;
 
         // Test shapes
         std::vector<size_t> small_shape_;

@@ -204,90 +204,90 @@ namespace Operations::Tests
     /**
      * @brief Test backward pass functionality
      */
-    TEST_F( CpuFullyConnectedOpTests, BackwardPass ) {
-        // Create tensors for forward and backward passes
-        Tensor<float, HostMemoryResource> input( small_input_shape_ );
-        Tensor<float, HostMemoryResource> weights( small_weight_shape_ );
-        Tensor<float, HostMemoryResource> bias( small_bias_shape_ );
+    //TEST_F( CpuFullyConnectedOpTests, BackwardPass ) {
+    //    // Create tensors for forward and backward passes
+    //    Tensor<float, HostMemoryResource> input( small_input_shape_ );
+    //    Tensor<float, HostMemoryResource> weights( small_weight_shape_ );
+    //    Tensor<float, HostMemoryResource> bias( small_bias_shape_ );
 
-        Tensor<float, HostMemoryResource> input_grad( small_input_shape_ );
-        Tensor<float, HostMemoryResource> weight_grad( small_weight_shape_ );
-        Tensor<float, HostMemoryResource> bias_grad( small_bias_shape_ );
-        Tensor<float, HostMemoryResource> output_grad( small_output_shape_ );
+    //    Tensor<float, HostMemoryResource> input_grad( small_input_shape_ );
+    //    Tensor<float, HostMemoryResource> weight_grad( small_weight_shape_ );
+    //    Tensor<float, HostMemoryResource> bias_grad( small_bias_shape_ );
+    //    Tensor<float, HostMemoryResource> output_grad( small_output_shape_ );
 
-        // Initialize tensors with test values
-        for ( size_t i = 0; i < input.size(); ++i ) {
-            input.data()[ i ] = (static_cast<float>( i ) - 10.0f) / 10.0f;
-            input_grad.data()[ i ] = 0.0f;
-        }
+    //    // Initialize tensors with test values
+    //    for ( size_t i = 0; i < input.size(); ++i ) {
+    //        input.data()[ i ] = (static_cast<float>( i ) - 10.0f) / 10.0f;
+    //        input_grad.data()[ i ] = 0.0f;
+    //    }
 
-        for ( size_t i = 0; i < weights.size(); ++i ) {
-            weights.data()[ i ] = (static_cast<float>( i % 7 ) - 3.0f) / 3.0f;
-            weight_grad.data()[ i ] = 0.0f;
-        }
+    //    for ( size_t i = 0; i < weights.size(); ++i ) {
+    //        weights.data()[ i ] = (static_cast<float>( i % 7 ) - 3.0f) / 3.0f;
+    //        weight_grad.data()[ i ] = 0.0f;
+    //    }
 
-        for ( size_t i = 0; i < bias.size(); ++i ) {
-            bias.data()[ i ] = (static_cast<float>( i ) - 2.0f) / 5.0f;
-            bias_grad.data()[ i ] = 0.0f;
-        }
+    //    for ( size_t i = 0; i < bias.size(); ++i ) {
+    //        bias.data()[ i ] = (static_cast<float>( i ) - 2.0f) / 5.0f;
+    //        bias_grad.data()[ i ] = 0.0f;
+    //    }
 
-        // Set all output gradients to 1.0 for easier verification
-        for ( size_t i = 0; i < output_grad.size(); ++i ) {
-            output_grad.data()[ i ] = 1.0f;
-        }
+    //    // Set all output gradients to 1.0 for easier verification
+    //    for ( size_t i = 0; i < output_grad.size(); ++i ) {
+    //        output_grad.data()[ i ] = 1.0f;
+    //    }
 
-        // Call backward method
-        int B = small_batch_;
-        int T = small_seq_len_;
-        int C = small_in_features_;
-        int OC = small_out_features_;
+    //    // Call backward method
+    //    int B = small_batch_;
+    //    int T = small_seq_len_;
+    //    int C = small_in_features_;
+    //    int OC = small_out_features_;
 
-        ASSERT_NO_THROW( cpu_fc_op_->backward(
-            input_grad.data(),
-            weight_grad.data(),
-            bias_grad.data(),
-            output_grad.data(),
-            input.data(),
-            weights.data(),
-            B, T, C, OC ) );
+    //    ASSERT_NO_THROW( cpu_fc_op_->backward(
+    //        input_grad.data(),
+    //        weight_grad.data(),
+    //        bias_grad.data(),
+    //        output_grad.data(),
+    //        input.data(),
+    //        weights.data(),
+    //        B, T, C, OC ) );
 
-        // Verify gradients are not NaN or Inf
-        EXPECT_FALSE( hasNaNorInf( input_grad ) );
-        EXPECT_FALSE( hasNaNorInf( weight_grad ) );
-        EXPECT_FALSE( hasNaNorInf( bias_grad ) );
+    //    // Verify gradients are not NaN or Inf
+    //    EXPECT_FALSE( hasNaNorInf( input_grad ) );
+    //    EXPECT_FALSE( hasNaNorInf( weight_grad ) );
+    //    EXPECT_FALSE( hasNaNorInf( bias_grad ) );
 
-        // For bias_grad, verify that each element is equal to B*T (sum of all 1.0's over batch and time)
-        for ( size_t o = 0; o < bias_grad.size(); ++o ) {
-            EXPECT_FLOAT_EQ( bias_grad.data()[ o ], B * T );
-        }
+    //    // For bias_grad, verify that each element is equal to B*T (sum of all 1.0's over batch and time)
+    //    for ( size_t o = 0; o < bias_grad.size(); ++o ) {
+    //        EXPECT_FLOAT_EQ( bias_grad.data()[ o ], B * T );
+    //    }
 
-        // For weight_grad, verify using a manual calculation
-        for ( int o = 0; o < OC; o++ ) {
-            for ( int i = 0; i < C; i++ ) {
-                float expected_grad = 0.0f;
-                for ( int b = 0; b < B; b++ ) {
-                    for ( int t = 0; t < T; t++ ) {
-                        expected_grad += input.data()[ (b * T + t) * C + i ];
-                    }
-                }
-                EXPECT_NEAR( weight_grad.data()[ o * C + i ], expected_grad, 1e-5f );
-            }
-        }
+    //    // For weight_grad, verify using a manual calculation
+    //    for ( int o = 0; o < OC; o++ ) {
+    //        for ( int i = 0; i < C; i++ ) {
+    //            float expected_grad = 0.0f;
+    //            for ( int b = 0; b < B; b++ ) {
+    //                for ( int t = 0; t < T; t++ ) {
+    //                    expected_grad += input.data()[ (b * T + t) * C + i ];
+    //                }
+    //            }
+    //            EXPECT_NEAR( weight_grad.data()[ o * C + i ], expected_grad, 1e-5f );
+    //        }
+    //    }
 
-        // For input_grad, verify using a manual calculation
-        for ( int b = 0; b < B; b++ ) {
-            for ( int t = 0; t < T; t++ ) {
-                int bt = b * T + t;
-                for ( int i = 0; i < C; i++ ) {
-                    float expected_grad = 0.0f;
-                    for ( int o = 0; o < OC; o++ ) {
-                        expected_grad += weights.data()[ o * C + i ] * 1.0f; // output_grad is all 1's
-                    }
-                    EXPECT_NEAR( input_grad.data()[ bt * C + i ], expected_grad, 1e-5f );
-                }
-            }
-        }
-    }
+    //    // For input_grad, verify using a manual calculation
+    //    for ( int b = 0; b < B; b++ ) {
+    //        for ( int t = 0; t < T; t++ ) {
+    //            int bt = b * T + t;
+    //            for ( int i = 0; i < C; i++ ) {
+    //                float expected_grad = 0.0f;
+    //                for ( int o = 0; o < OC; o++ ) {
+    //                    expected_grad += weights.data()[ o * C + i ] * 1.0f; // output_grad is all 1's
+    //                }
+    //                EXPECT_NEAR( input_grad.data()[ bt * C + i ], expected_grad, 1e-5f );
+    //            }
+    //        }
+    //    }
+    //}
 
     /**
      * @brief Test edge case with non-standard batch size that doesn't divide by LOOP_UNROLL

@@ -178,7 +178,7 @@ namespace Mila::Dnn
          * For residual connections, this operation performs element-wise addition
          * between the two input tensors.
          */
-        std::shared_ptr<BinaryOperation<TPrecision, TPrecision, TDeviceType>> operation_{ nullptr };
+        std::shared_ptr<BinaryOperation<TPrecision, TPrecision, TPrecision, TDeviceType>> operation_{ nullptr };
 
         /**
          * @brief Creates the appropriate Residual operation based on the current device context.
@@ -190,15 +190,15 @@ namespace Mila::Dnn
          */
         void createOperation() {
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                operation_ = std::static_pointer_cast<BinaryOperation<TPrecision, TPrecision, TDeviceType>>(
-                    OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cpu>(
+                operation_ = std::static_pointer_cast<BinaryOperation<TPrecision, TPrecision, TPrecision, TDeviceType>>(
+                    OperationRegistry::instance().createBinaryOperation<TPrecision, TPrecision, TPrecision, DeviceType::Cpu>(
                         "Cpu::ResidualOp",
                         this->getDeviceContext() )
                 );
             }
             else {
-                operation_ = std::static_pointer_cast<BinaryOperation<TPrecision, TPrecision, TDeviceType>>(
-                    OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cuda>(
+                operation_ = std::static_pointer_cast<BinaryOperation<TPrecision, TPrecision, TPrecision, TDeviceType>>(
+                    OperationRegistry::instance().createBinaryOperation<TPrecision, TPrecision, TPrecision, DeviceType::Cuda>(
                         "Cuda::ResidualOp",
                         this->getDeviceContext() )
                 );

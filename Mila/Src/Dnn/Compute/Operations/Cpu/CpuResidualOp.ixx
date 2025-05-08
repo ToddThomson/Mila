@@ -44,16 +44,17 @@ namespace Mila::Dnn::Compute
      * @tparam TInput The data type of the input tensor elements.
      * @tparam TDataType The data type used for computation and output (defaults to the input type).
      */
-    export class CpuResidualOp : public BinaryOperation<float, float, DeviceType::Cpu> {
+    export class CpuResidualOp : public BinaryOperation<float, float, float, DeviceType::Cpu> {
     public:
         using MR = typename CpuDevice::MR;
+        using OperationBase = BinaryOperation<float, float, float, DeviceType::Cpu>;
 
         /**
          * @brief Constructs a new CPU Residual operation with the default device context.
          *
          * Initializes the operation with a CPU device context.
          */
-        CpuResidualOp() : BinaryOperation<float, float, DeviceType::Cpu>( OperationType::ResidualOp ) {}
+        CpuResidualOp() : OperationBase( OperationType::ResidualOp ) {}
 
         /**
          * @brief Constructs a new CPU Residual operation with a specific device context.
@@ -62,7 +63,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the context is not for a CPU device.
          */
         CpuResidualOp( std::shared_ptr<DeviceContext> context )
-            : BinaryOperation<float, float, DeviceType::Cpu>( OperationType::ResidualOp, context ) {
+            : OperationBase( OperationType::ResidualOp, context ) {
         }
 
         /**
@@ -191,10 +192,10 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cpu::ResidualOp";
 
-            OperationRegistry::instance().registerOperation<float, float, DeviceType::Cpu>(
+            OperationRegistry::instance().registerBinaryOperation<float, float, float, DeviceType::Cpu>(
                 opName,
                 "Default",
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, float, DeviceType::Cpu>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<BinaryOperation<float, float, float, DeviceType::Cpu>> {
                     return context ? std::make_shared<CpuResidualOp>( context )
                         : std::make_shared<CpuResidualOp>();
                 }

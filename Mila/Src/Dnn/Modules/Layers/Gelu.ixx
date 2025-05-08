@@ -188,7 +188,7 @@ namespace Mila::Dnn
          */
         void createOperation() {
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cpu>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<TPrecision, TPrecision, DeviceType::Cpu>(
                     "Cpu::GeluOp",
                     this->getDeviceContext() );
                 
@@ -196,7 +196,7 @@ namespace Mila::Dnn
             }
             else 
             {
-                auto base_op = OperationRegistry::instance().createOperation<TPrecision, TPrecision, DeviceType::Cuda>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<TPrecision, TPrecision, DeviceType::Cuda>(
                     "Cuda::GeluOp",
                     this->getDeviceContext() );
                 

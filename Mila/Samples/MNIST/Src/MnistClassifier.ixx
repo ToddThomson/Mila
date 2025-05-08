@@ -45,8 +45,10 @@ namespace Mila::Mnist
             mlp2_->forward( hidden1_, hidden2_ );
 
             // Output layer: hidden2 -> output (logits)
-            output_layer_->forward( hidden2_, output );
+            output_fc_layer_->forward( hidden2_, output );
         }
+
+        //void backward();
 
         size_t parameterCount() const override {
             size_t total = 0;
@@ -90,7 +92,7 @@ namespace Mila::Mnist
         // Network layers
         std::shared_ptr<MLP<TPrecision, TDeviceType>> mlp1_;
         std::shared_ptr<MLP<TPrecision, TDeviceType>> mlp2_;
-        std::shared_ptr<FullyConnected<TPrecision, TDeviceType>> output_layer_;
+        std::shared_ptr<FullyConnected<TPrecision, TDeviceType>> output_fc_layer_;
 
         // Intermediate tensors for activations
         Tensor<TPrecision, MR> hidden1_;
@@ -125,7 +127,7 @@ namespace Mila::Mnist
 
             // Layer 3: Hidden2 (64) -> Output (10)
             // Output layer for classification
-            output_layer_ = std::make_shared<FullyConnected<TPrecision, TDeviceType>>(
+            output_fc_layer_ = std::make_shared<FullyConnected<TPrecision, TDeviceType>>(
                 this->getName() + ".output",
                 this->getDeviceContext(),
                 64,                    // Input features
@@ -136,7 +138,7 @@ namespace Mila::Mnist
             // Register modules
             this->addModule( "mlp1", mlp1_ );
             this->addModule( "mlp2", mlp2_ );
-            this->addModule( "output", output_layer_ );
+            this->addModule( "output", output_fc_layer_ );
 
             // Initialize intermediate tensors
             hidden1_ = Tensor<TPrecision, MR>( { input_shape_[ 0 ], 128 } );

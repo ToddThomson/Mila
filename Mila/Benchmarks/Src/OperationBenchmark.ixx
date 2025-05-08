@@ -101,7 +101,7 @@ namespace Mila::Benchmark
 
                 // Determine if operation is UnaryOperation or BinaryOperation
                 auto unaryOp = std::dynamic_pointer_cast<UnaryOperation<TPrecision, TPrecision, TDeviceType>>(operation_);
-                auto binaryOp = std::dynamic_pointer_cast<BinaryOperation<TPrecision, TPrecision, TDeviceType>>(operation_);
+                auto binaryOp = std::dynamic_pointer_cast<BinaryOperation<TPrecision, TPrecision, TPrecision, TDeviceType>>(operation_);
 
                 // Measure time
                 result.time_ms = measureExecutionTime( [this, unaryOp, binaryOp]() {
@@ -144,7 +144,7 @@ namespace Mila::Benchmark
                 for ( size_t i = 0; i < inputShape_.size(); ++i ) {
                     oss << inputShape_[ i ];
                     if ( i < inputShape_.size() - 1 ) {
-                        oss << "×";
+                        oss << "x";
                     }
                 }
                 oss << "]";

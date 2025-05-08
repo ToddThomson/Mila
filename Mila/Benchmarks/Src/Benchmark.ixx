@@ -18,12 +18,13 @@ namespace Mila::Benchmark
 {
     export struct BenchmarkResult {
         std::string name;
-        double time_ms;                 // Execution time in milliseconds
-        double throughput_elements;     // Elements processed per second
-        double throughput_gflops;       // GFLOPS (if applicable)
-        size_t elementCount;            // Number of elements processed
-        size_t iterations;              // Number of iterations performed
-        std::string deviceName;         // Device used for benchmark
+        double time_ms = 0.0;                 // Execution time in milliseconds
+        double throughput_elements = 0.0;     // Elements processed per second
+        double throughput_gflops = 0.0;       // GFLOPS (if applicable)
+        size_t elementCount = 0;              // Number of elements processed
+        size_t iterations = 0;                // Number of iterations performed
+        std::string deviceName;               // Device used for benchmark
+        double totalRunTimeMs = 0.0;          // Total run time in milliseconds
 
         std::string toString() const {
             std::ostringstream oss;
@@ -37,6 +38,9 @@ namespace Mila::Benchmark
                 oss << throughput_elements / 1e6 << " M elem/s";
 
             oss << " | " << deviceName;
+            if ( iterations != 0 ) {
+                oss << " | " << iterations << " iters";
+            }
             return oss.str();
         }
     };
@@ -45,7 +49,7 @@ namespace Mila::Benchmark
     public:
         virtual ~Benchmark() = default;
 
-        virtual BenchmarkResult run( size_t iterations ) = 0;
+        virtual BenchmarkResult run( size_t requestedIterations ) = 0;
 
         virtual std::string name() const = 0;
 
@@ -72,3 +76,4 @@ namespace Mila::Benchmark
         std::shared_ptr<Dnn::Compute::DeviceContext> deviceContext_;
     };
 }
+

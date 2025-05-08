@@ -37,7 +37,7 @@ namespace Operations::Tests
             cuda_layernorm_op_ = std::make_shared<CudaLayerNormOp<float>>( cuda_context_ );
 
             // Get CPU LayerNorm op for comparison
-            auto cpu_op = OperationRegistry::instance().createOperation<float, float, DeviceType::Cpu>(
+            auto cpu_op = OperationRegistry::instance().createUnaryOperation<float, float, DeviceType::Cpu>(
                 "Cpu::LayerNormOp", cpu_context_ );
             cpu_layernorm_op_ = std::static_pointer_cast<UnaryOperation<float, float, DeviceType::Cpu>>(cpu_op);
         }

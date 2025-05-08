@@ -134,11 +134,6 @@ namespace Mila::Dnn::Compute
             const OperationAttributes& attributes,
             const std::vector<std::shared_ptr<Tensor<float, MR>>>& output_state ) const {
 
-            // Verify we're operating on CPU memory
-            if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cpu ) ) {
-                throw std::runtime_error( "CpuCrossEntropyOp::backward can only be executed on CPU memory" );
-            }
-
             // For combined softmax-crossentropy backward pass
             if ( parameter_gradients.size() > 0 ) {
                 auto B = input.shape()[ 0 ];
@@ -228,10 +223,10 @@ namespace Mila::Dnn::Compute
             const std::string opName = "Cpu::CrossEntropyOp";
 
             // Updated to use device context-aware registration
-            OperationRegistry::instance().registerOperation<float, int, DeviceType::Cpu>(
+            OperationRegistry::instance().registerUnaryOperation<float, int, DeviceType::Cpu>(
                 opName,
                 "Default",
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<OperationBase<float, int, DeviceType::Cpu>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<float, int, DeviceType::Cpu>> {
                     return context ? std::make_shared<CpuCrossEntropyOp>( context )
                         : std::make_shared<CpuCrossEntropyOp>();
                 }

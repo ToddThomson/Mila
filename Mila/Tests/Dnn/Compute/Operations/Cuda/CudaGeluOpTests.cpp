@@ -41,7 +41,7 @@ namespace Operations::Tests
             cuda_gelu_op_ = std::make_shared<CudaGeluOp<float>>( cuda_context_ );
 
             // Get CPU GELU op for comparison
-            auto cpu_op = OperationRegistry::instance().createOperation<float, float, DeviceType::Cpu>(
+            auto cpu_op = OperationRegistry::instance().createUnaryOperation<float, float, DeviceType::Cpu>(
                 "Cpu::GeluOp", cpu_context_ );
             cpu_gelu_op_ = std::static_pointer_cast<UnaryOperation<float, float, DeviceType::Cpu>>(cpu_op);
         }
