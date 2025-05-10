@@ -216,7 +216,7 @@ namespace Mila::Benchmark
                 if ( def.operationType == "geluOp" ) {
                     if ( runCpu ) {
                         for ( const auto& shape : cpuShapes ) {
-                            auto cpuGeluOp = std::static_pointer_cast<OperationBase<float, float, DeviceType::Cpu>>(
+                            auto cpuGeluOp = std::static_pointer_cast<OperationBase<float, float, float, DeviceType::Cpu>>(
                                 std::make_shared<CpuGeluOp>( cpuContext ));
                             manager.addBenchmark( std::make_unique<OperationBenchmark<float, DeviceType::Cpu>>(
                                 cpuGeluOp, "Cpu::" + def.name, shape, cpuContext ) );
@@ -225,7 +225,7 @@ namespace Mila::Benchmark
 
                     if ( runCuda ) {
                         for ( const auto& shape : cudaShapes ) {
-                            auto cudaGeluOp = std::static_pointer_cast<OperationBase<float, float, DeviceType::Cuda>>(
+                            auto cudaGeluOp = std::static_pointer_cast<OperationBase<float, float, float, DeviceType::Cuda>>(
                                 std::make_shared<CudaGeluOp<float>>( cudaContext ));
                             manager.addBenchmark( std::make_unique<OperationBenchmark<float, DeviceType::Cuda>>(
                                 cudaGeluOp, "Cuda::" + def.name, shape, cudaContext ) );

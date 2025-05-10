@@ -20,12 +20,10 @@ namespace Mila::Benchmark
     export template<typename TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
         class OperationBenchmark : public Benchmark {
         public:
-            // Memory resource type based on device type
-            using MR = std::conditional_t<TDeviceType == DeviceType::Cuda,
-                CudaMemoryResource,
-                HostMemoryResource>;
 
-            OperationBenchmark( std::shared_ptr<OperationBase<TPrecision, TPrecision, TDeviceType>> operation,
+            using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, HostMemoryResource>;
+
+            OperationBenchmark( std::shared_ptr<OperationBase<TPrecision, TPrecision, TPrecision, TDeviceType>> operation,
                 std::string opName,
                 std::vector<size_t> inputShape,
                 std::shared_ptr<DeviceContext> context )
@@ -156,7 +154,7 @@ namespace Mila::Benchmark
                 Tensor<TPrecision, CudaMemoryResource>,
                 Tensor<TPrecision, HostMemoryResource>>;
 
-            std::shared_ptr<OperationBase<TPrecision, TPrecision, TDeviceType>> operation_;
+            std::shared_ptr<OperationBase<TPrecision, TPrecision, TPrecision, TDeviceType>> operation_;
             std::string opName_;
             std::vector<size_t> inputShape_;
             InputTensor input_;

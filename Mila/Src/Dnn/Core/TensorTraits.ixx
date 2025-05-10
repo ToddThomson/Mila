@@ -5,9 +5,11 @@
 
 module;
 #include <vector>
-#include <cuda_fp16.h>
 #include <type_traits>
 #include <cstdint>
+#include <cuda_fp16.h>
+#include <cuda_bf16.h>
+#include <cuda_fp8.h>
 
 export module Dnn.TensorTraits;
 
@@ -43,6 +45,45 @@ namespace Mila::Dnn
 	template <>
 	struct TensorTypeTrait<half> {
 		static constexpr TensorType value = TensorType::FP16;
+		static constexpr bool is_float_type = true;
+	};
+
+    /**
+     * @brief Specialization of TensorTypeTrait for NVIDIA bfloat16 type.
+     *
+     * This specialization maps the nv_bfloat16 type to the TensorType::BF16
+     * enumeration value. It also indicates that this type is a floating-point
+     * type.
+     */
+    template <>
+    struct TensorTypeTrait<nv_bfloat16> {
+		static constexpr TensorType value = TensorType::BF16;
+		static constexpr bool is_float_type = true;
+    };
+
+	/**
+ * @brief Specialization of TensorTypeTrait for 8-bit floating point type.
+ *
+ * This specialization maps the NVIDIA FP8 type (__nv_fp8_e4m3) to the TensorType::FP8
+ * enumeration value. It uses the variant with 4 exponent bits and 3 mantissa bits,
+ * which is commonly used in neural network computations.
+ */
+	template <>
+	struct TensorTypeTrait<__nv_fp8_e4m3> {
+		static constexpr TensorType value = TensorType::FP8;
+		static constexpr bool is_float_type = true;
+	};
+
+	/**
+	 * @brief Specialization of TensorTypeTrait for alternative 8-bit floating point type.
+	 *
+	 * This specialization maps the alternative NVIDIA FP8 type (__nv_fp8_e5m2) to the TensorType::FP8
+	 * enumeration value. This variant has 5 exponent bits and 2 mantissa bits, which provides
+	 * a different range/precision tradeoff compared to e4m3.
+	 */
+	template <>
+	struct TensorTypeTrait<__nv_fp8_e5m2> {
+		static constexpr TensorType value = TensorType::FP8;
 		static constexpr bool is_float_type = true;
 	};
 

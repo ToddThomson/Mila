@@ -48,6 +48,8 @@ namespace Mila::Dnn::Compute
     export class CpuLayerNormOp : public UnaryOperation<float, float, DeviceType::Cpu> {
     public:
         using MR = typename CpuDevice::MR;
+		using OperationBase = UnaryOperation<float, float, DeviceType::Cpu>;
+
         /**
          * @brief Constructs a new CPU Layer Normalization operation with the default device context.
          */

@@ -145,23 +145,22 @@ namespace Mila::Dnn::Compute
          * This method registers a factory function for unary operations with specific
          * type parameters and for a specific device type.
          *
-         * @tparam TPrecision The precision used for computation (typically float or half).
-         * @tparam TInput The input tensor element type (defaults to TPrecision).
+         * @tparam TOutput The precision used for computation (typically float or half).
+         * @tparam TInput The input tensor element type (defaults to TOutput).
          * @tparam TDeviceType The device type for the operation (defaults to CUDA).
          * @param operation_name The name of the operation.
          * @param variant The implementation variant name.
          * @param creator The function that creates the unary operation.
          */
-        template<typename TPrecision, typename TInput = TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
-            requires ValidFloatTensorType<TPrecision>&& ValidTensorType<TInput>
+        template<typename TOutput, typename TInput = TOutput, DeviceType TDeviceType = DeviceType::Cuda>
+            requires ValidFloatTensorType<TOutput> && ValidTensorType<TInput>
         void registerUnaryOperation(
             const std::string& operation_name,
             const std::string& variant,
-            std::function<std::shared_ptr<UnaryOperation<TPrecision, TInput, TDeviceType>>( std::shared_ptr<DeviceContext> )> creator ) {
+            std::function<std::shared_ptr<UnaryOperation<TOutput, TInput, TDeviceType>>( std::shared_ptr<DeviceContext> )> creator ) {
 
-            // Create a TypeID for lookup
             TypeID type_id{
-                std::type_index( typeid(TPrecision) ),
+                std::type_index( typeid(TOutput) ),
                 std::type_index( typeid(TInput) ),
                 std::type_index( typeid(TInput) ),  // For unary ops, input2_type is the same as input1_type
                 TDeviceType,
@@ -173,7 +172,6 @@ namespace Mila::Dnn::Compute
                 return creator( context );
                 };
 
-            // Store in registry
             registry_[ type_id ][ operation_name ] = std::move( genericCreator );
         }
 
@@ -183,23 +181,22 @@ namespace Mila::Dnn::Compute
          * This method registers a factory function for binary operations with specific
          * type parameters and for a specific device type.
          *
-         * @tparam TPrecision The precision used for computation (typically float or half).
-         * @tparam TInput The input tensor element type (defaults to TPrecision).
+         * @tparam TOutput The precision used for computation (typically float or half).
+         * @tparam TInput The input tensor element type (defaults to TOutput).
          * @tparam TDeviceType The device type for the operation (defaults to CUDA).
          * @param operation_name The name of the operation.
          * @param variant The implementation variant name.
          * @param creator The function that creates the binary operation.
          */
-        template<typename TPrecision, typename TInput1 = TPrecision, typename TInput2 = TInput1, DeviceType TDeviceType = DeviceType::Cuda>
-            requires ValidFloatTensorType<TPrecision>&& ValidTensorType<TInput1>
+        template<typename TOutput, typename TInput1 = TOutput, typename TInput2 = TInput1, DeviceType TDeviceType = DeviceType::Cuda>
+            requires ValidFloatTensorType<TOutput>&& ValidTensorTypes<TInput1, TInput2>
         void registerBinaryOperation(
             const std::string& operation_name,
             const std::string& variant,
-            std::function<std::shared_ptr<BinaryOperation<TPrecision, TInput1, TInput2, TDeviceType>>( std::shared_ptr<DeviceContext> )> creator ) {
+            std::function<std::shared_ptr<BinaryOperation<TOutput, TInput1, TInput2, TDeviceType>>( std::shared_ptr<DeviceContext> )> creator ) {
 
-            // Create a TypeID for lookup
             TypeID type_id{
-                std::type_index( typeid(TPrecision) ),
+                std::type_index( typeid(TOutput) ),
                 std::type_index( typeid(TInput1) ),
                 std::type_index( typeid(TInput2) ),
                 TDeviceType,
@@ -211,7 +208,6 @@ namespace Mila::Dnn::Compute
                 return creator( context );
                 };
 
-            // Store in registry
             registry_[ type_id ][ operation_name ] = std::move( genericCreator );
         }
 
@@ -232,7 +228,7 @@ namespace Mila::Dnn::Compute
          *       discovered during module execution. The actual implementation should be
          *       registered separately using registerUnaryOperation or registerBinaryOperation.
          */
-        template<typename TPrecision>
+        template<typename TOutput>
         void registerFusedOperation(
             const std::vector<OperationType>& operation_types,
             const std::string& fused_op_name,
@@ -255,7 +251,7 @@ namespace Mila::Dnn::Compute
             FusedOpMeta meta{
                 module_types,
                 fused_op_name,
-                std::type_index( typeid(TPrecision) ),
+                std::type_index( typeid(TOutput) ),
                 variant
             };
 
@@ -268,25 +264,25 @@ namespace Mila::Dnn::Compute
          * This method creates a unary operation instance with the specified parameters.
          * If a variant-specific implementation is not found, it falls back to the default variant.
          *
-         * @tparam TPrecision The precision used for computation (typically float or half).
-         * @tparam TInput The input tensor element type (defaults to TPrecision).
+         * @tparam TOutput The precision used for computation (typically float or half).
+         * @tparam TInput The input tensor element type (defaults to TOutput).
          * @tparam TDeviceType The device type for the operation (defaults to CUDA).
          * @param operation_name The name of the operation.
          * @param context The device context to use for the operation.
          * @param variant The implementation variant name (defaults to "Default").
-         * @return std::shared_ptr<UnaryOperation<TPrecision, TInput, TDeviceType>> The created unary operation.
+         * @return std::shared_ptr<UnaryOperation<TOutput, TInput, TDeviceType>> The created unary operation.
          * @throws std::runtime_error If the type combination, device type, or operation name is invalid.
          * @throws std::invalid_argument If the context is null.
          */
-        template<typename TPrecision, typename TInput = TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
-            requires ValidFloatTensorType<TPrecision>&& ValidTensorType<TInput>
-        std::shared_ptr<UnaryOperation<TPrecision, TInput, TDeviceType>> createUnaryOperation(
+        template<typename TOutput, typename TInput = TOutput, DeviceType TDeviceType = DeviceType::Cuda>
+            requires ValidFloatTensorType<TOutput> && ValidTensorType<TInput>
+        std::shared_ptr<UnaryOperation<TOutput, TInput, TDeviceType>> createUnaryOperation(
             const std::string& operation_name,
             std::shared_ptr<DeviceContext> context,
             const std::string& variant = "Default" ) const {
 
             TypeID type_id{
-                std::type_index( typeid(TPrecision) ),
+                std::type_index( typeid(TOutput) ),
                 std::type_index( typeid(TInput) ),
                 std::type_index( typeid(TInput) ),  // For unary ops, input2_type is the same as input1_type
                 TDeviceType,
@@ -299,7 +295,7 @@ namespace Mila::Dnn::Compute
                 // If variant-specific operation not found, try with default variant as fallback
                 if ( variant != "Default" ) {
                     try {
-                        return createUnaryOperation<TPrecision, TInput, TDeviceType>( operation_name, context, "Default" );
+                        return createUnaryOperation<TOutput, TInput, TDeviceType>( operation_name, context, "Default" );
                     }
                     catch ( const std::runtime_error& ) {
                         // Fall through to the original error if the fallback also fails
@@ -308,7 +304,7 @@ namespace Mila::Dnn::Compute
 
                 throw std::runtime_error( std::format(
                     "createUnaryOperation: No operations registered for types, Input:{}, Output:{}, Device:{}, Variant:{}",
-                    typeid(TInput).name(), typeid(TPrecision).name(),
+                    typeid(TInput).name(), typeid(TOutput).name(),
                     TDeviceType == DeviceType::Cpu ? "CPU" : "CUDA", variant
                 ) );
             }
@@ -325,7 +321,7 @@ namespace Mila::Dnn::Compute
                 throw std::invalid_argument( "DeviceContext cannot be null when creating an operation" );
             }
 
-            return std::static_pointer_cast<UnaryOperation<TPrecision, TInput, TDeviceType>>(op_it->second( context ));
+            return std::static_pointer_cast<UnaryOperation<TOutput, TInput, TDeviceType>>(op_it->second( context ));
         }
 
         /**
@@ -334,39 +330,37 @@ namespace Mila::Dnn::Compute
          * This method creates a binary operation instance with the specified parameters.
          * If a variant-specific implementation is not found, it falls back to the default variant.
          *
-         * @tparam TPrecision The precision used for computation (typically float or half).
-         * @tparam TInput The input tensor element type (defaults to TPrecision).
+         * @tparam TOutput The precision used for computation (typically float or half).
+         * @tparam TInput The input tensor element type (defaults to TOutput).
          * @tparam TDeviceType The device type for the operation (defaults to CUDA).
          * @param operation_name The name of the operation.
          * @param context The device context to use for the operation.
          * @param variant The implementation variant name (defaults to "Default").
-         * @return std::shared_ptr<BinaryOperation<TPrecision, TInput, TDeviceType>> The created binary operation.
+         * @return std::shared_ptr<BinaryOperation<TOutput, TInput, TDeviceType>> The created binary operation.
          * @throws std::runtime_error If the type combination, device type, or operation name is invalid.
          * @throws std::invalid_argument If the context is null.
          */
-        template<typename TPrecision, typename TInput1 = TPrecision, typename TInput2 = TInput1, DeviceType TDeviceType = DeviceType::Cuda>
-            requires ValidFloatTensorType<TPrecision>&& ValidTensorTypes<TInput1, TInput2>
-        std::shared_ptr<BinaryOperation<TPrecision, TInput1, TInput2, TDeviceType>> createBinaryOperation(
+        template<typename TOutput, typename TInput1 = TOutput, typename TInput2 = TInput1, DeviceType TDeviceType = DeviceType::Cuda>
+            requires ValidFloatTensorType<TOutput>&& ValidTensorTypes<TInput1, TInput2>
+        std::shared_ptr<BinaryOperation<TOutput, TInput1, TInput2, TDeviceType>> createBinaryOperation(
             const std::string& operation_name,
             std::shared_ptr<DeviceContext> context,
             const std::string& variant = "Default" ) const {
 
-            // Create a TypeID for lookup
             TypeID type_id{
-                std::type_index( typeid(TPrecision) ),
+                std::type_index( typeid(TOutput) ),
                 std::type_index( typeid(TInput1) ),
                 std::type_index( typeid(TInput2) ),
                 TDeviceType,
                 variant
             };
 
-            // Find the operation in the registry
             auto type_it = registry_.find( type_id );
             if ( type_it == registry_.end() ) {
                 // If variant-specific operation not found, try with default variant as fallback
                 if ( variant != "Default" ) {
                     try {
-                        return createBinaryOperation<TPrecision, TInput1, TInput2, TDeviceType>( operation_name, context, "Default" );
+                        return createBinaryOperation<TOutput, TInput1, TInput2, TDeviceType>( operation_name, context, "Default" );
                     }
                     catch ( const std::runtime_error& ) {
                         // Fall through to the original error if the fallback also fails
@@ -375,7 +369,7 @@ namespace Mila::Dnn::Compute
 
                 throw std::runtime_error( std::format(
                     "createBinaryOperation: No operations registered for types, Precision: {}, Input1:{}, Input2:{}, Device:{}, Variant:{}",
-                    typeid(TPrecision).name(), typeid(TInput1).name(), typeid(TInput2).name(),
+                    typeid(TOutput).name(), typeid(TInput1).name(), typeid(TInput2).name(),
                     TDeviceType == DeviceType::Cpu ? "CPU" : "CUDA", variant
                 ) );
             }
@@ -392,7 +386,7 @@ namespace Mila::Dnn::Compute
                 throw std::invalid_argument( "DeviceContext cannot be null when creating an operation" );
             }
 
-            return std::static_pointer_cast<BinaryOperation<TPrecision, TInput1, TInput2, TDeviceType>>(op_it->second( context ));
+            return std::static_pointer_cast<BinaryOperation<TOutput, TInput1, TInput2, TDeviceType>>(op_it->second( context ));
         }
 
         /**

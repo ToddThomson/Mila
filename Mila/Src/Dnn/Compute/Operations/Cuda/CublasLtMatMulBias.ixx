@@ -1,6 +1,8 @@
 module;
 #include <cublasLt.h>
-//#include <cuda_fp16.h>
+#include <cuda_fp16.h>
+#include <cuda_bf16.h>
+#include <cuda_fp8.h>
 #include <type_traits>
 
 export module Compute.CublasLtMatMulBias;
@@ -11,6 +13,9 @@ import Utils.Logger;
 
 namespace Mila::Dnn::Compute
 {
+    template <typename T>
+    constexpr bool always_false = false;
+
     /**
     * @brief cuBLASLt implementation of matrix multiplication with bias addition
     *
@@ -25,9 +30,10 @@ namespace Mila::Dnn::Compute
     * @param OC Output channels
     * @param stream CUDA stream
     */
-    export template <typename TPrecision>
+    export template <typename TDataType, typename TCompute = float>
+		requires std::is_same_v<TDataType, float> || std::is_same_v<TDataType, half> || std::is_same_v<TDataType, __nv_bfloat16> || std::is_same_v<TDataType, __nv_fp8_e4m3>
     void cublaslt_matmul_forward(
-        TPrecision* Y, const TPrecision* X, const TPrecision* weight, const TPrecision* bias,
+        TDataType* Y, const TDataType* X, const TDataType* weight, const TDataType* bias,
         int outer_size, int C, int OC,
         cudaStream_t stream,
         cublasLtHandle_t cublasLtHandle ) {
@@ -38,17 +44,58 @@ namespace Mila::Dnn::Compute
             exit( EXIT_FAILURE );
         }
 
-        // Get CUDA data type for the given C++ type
-        constexpr cudaDataType_t cuda_data_type = CudaDataTypeMap<TPrecision>::value;
-        constexpr cublasComputeType_t compute_type = CudaDataTypeMap<TPrecision>::compute_type;
+        // Determine CUDA datatype
+        cudaDataType_t cuda_data_type;
+        if constexpr ( std::is_same_v<TDataType, float> ) {
+            cuda_data_type = CUDA_R_32F;
+        }
+        else if constexpr ( std::is_same_v<TDataType, half> ) {
+            cuda_data_type = CUDA_R_16F;
+        }
+        else if constexpr ( std::is_same_v<TDataType, __nv_bfloat16> ) {
+            cuda_data_type = CUDA_R_16BF;
+        }
+		else if constexpr ( std::is_same_v<TDataType, __nv_fp8_e4m3> ) {
+			cuda_data_type = CUDA_R_8F_E4M3;
+		}
+		else {
+            static_assert(always_false<TDataType>, "Unsupported data type");
+        }
 
-        // Scale factors - use the same type as the computation
-        const TPrecision alpha = static_cast<TPrecision>(1.0f);
-        const TPrecision beta = static_cast<TPrecision>(0.0f);
+        // Determine computation type based on template parameter or config
+        cublasComputeType_t compute_type;
+
+        // Use TCompute template parameter to determine compute type
+        if constexpr ( std::is_same_v<TCompute, float> ) {
+            if constexpr ( std::is_same_v<TDataType, half> ) {
+                compute_type = CUBLAS_COMPUTE_32F_FAST_16F;
+            }
+            else if constexpr ( std::is_same_v<TDataType, __nv_bfloat16> ) {
+                compute_type = CUBLAS_COMPUTE_32F_FAST_16BF;
+            }
+            else {
+                compute_type = CUBLAS_COMPUTE_32F;
+            }
+        }
+        else if constexpr ( std::is_same_v<TCompute, half> ) {
+            compute_type = CUBLAS_COMPUTE_16F;
+        }
+        else {
+            static_assert(always_false<TCompute>, "Unsupported compute type");
+        }
+
+        // Scale factors should match the compute type
+        using ScaleType = std::conditional_t<std::is_same_v<TCompute, float>, float, TDataType>;
+        const ScaleType alpha = static_cast<ScaleType>(1.0f);
+        const ScaleType beta = static_cast<ScaleType>(0.0f);
+
+        cublasLtMatmulDesc_t operationDesc;
+        cublasLtCheckStatus( cublasLtMatmulDescCreate( &operationDesc, compute_type,
+            std::is_same_v<TCompute, float> ? CUDA_R_32F : cuda_data_type ) );
 
         // Create the operation descriptor
-        cublasLtMatmulDesc_t operationDesc;
-        cublasLtCheckStatus( cublasLtMatmulDescCreate( &operationDesc, compute_type, cuda_data_type ) );
+        //cublasLtMatmulDesc_t operationDesc;
+        //cublasLtCheckStatus( cublasLtMatmulDescCreate( &operationDesc, compute_type, cuda_data_type ) );
 
 		bool transA = true; // Transpose for weight
 		bool transB = false; // Transpose for input

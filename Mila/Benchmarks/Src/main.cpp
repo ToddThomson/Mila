@@ -385,7 +385,7 @@ int main( int argc, char* argv[] ) {
             if ( config.runCpu ) {
                 for ( const auto& shape : cpuBenchmarkShapes ) {
                     // CPU GeluOp
-                    auto cpuGeluOp = std::static_pointer_cast<OperationBase<float, float, DeviceType::Cpu>>(
+                    auto cpuGeluOp = std::static_pointer_cast<OperationBase<float, float, float, DeviceType::Cpu>>(
                         std::make_shared<CpuGeluOp>( cpuContext ));
                     manager.addBenchmark( std::make_unique<OperationBenchmark<float, DeviceType::Cpu>>(
                         cpuGeluOp, "Cpu::GeluOp", shape, cpuContext ) );
@@ -395,7 +395,7 @@ int main( int argc, char* argv[] ) {
             if ( config.runCuda ) {
                 for ( const auto& shape : cudaBenchmarkShapes ) {
                     // CUDA GeluOp
-                    auto cudaGeluOp = std::static_pointer_cast<OperationBase<float, float, DeviceType::Cuda>>(
+                    auto cudaGeluOp = std::static_pointer_cast<OperationBase<float, float, float, DeviceType::Cuda>>(
                         std::make_shared<CudaGeluOp<float>>( cudaContext ));
                     manager.addBenchmark( std::make_unique<OperationBenchmark<float, DeviceType::Cuda>>(
                         cudaGeluOp, "Cuda::GeluOp", shape, cudaContext ) );

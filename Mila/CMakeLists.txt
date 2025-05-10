@@ -156,7 +156,7 @@ PUBLIC
 		
 		"Src/Dnn/Modules/Layers/CrossEntropy.ixx"
 		#"Src/Dnn/Compute/Operations/Cuda/FusedSoftmaxCrossEntropyOp.ixx"
-		"Src/Dnn/Core/PrecisionConfig.ixx")
+		"Src/Dnn/Core/PrecisionConfig.ixx" "Src/Dnn/Compute/ComputePrecision.ixx")
 
 target_link_libraries( Mila PRIVATE CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
 

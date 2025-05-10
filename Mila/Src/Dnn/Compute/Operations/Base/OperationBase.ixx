@@ -12,6 +12,7 @@ export module Compute.OperationBase;
 import Dnn.TensorTraits;
 import Compute.DeviceType; 
 import Compute.DeviceContext;
+import Compute.Precision;
 import Compute.OperationType;  
 
 namespace Mila::Dnn::Compute
@@ -24,14 +25,16 @@ namespace Mila::Dnn::Compute
      * (CPU, CUDA, etc). Specific operations inherit from this class and implement their
      * specialized behavior while adhering to a consistent interface.
      *
-     * @tparam TPrecision The data type used for computation precision (e.g., float, half, etc.).
-     *                    Must satisfy ValidFloatTensorType constraint.
-     * @tparam TInput The data type of the input tensor elements, defaults to TPrecision.
-     *                Must satisfy ValidTensorType constraint.
+     * @tparam TOutput The data type of the output tensor elements.
+     *                 Must satisfy ValidFloatTensorType constraint.
+     * @tparam TInput1 The data type of the first input tensor elements, defaults to TOutput.
+     *                 Must satisfy ValidTensorType constraint.
+     * @tparam TInput2 The data type of the second input tensor elements, defaults to TInput1.
+     *                 Must satisfy ValidTensorType constraint.
      * @tparam TDeviceType The target device type for the operation, defaults to CUDA.
      */
-    export template <typename TPrecision, typename TInput = TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
-        requires ValidFloatTensorType<TPrecision> && ValidTensorType<TInput>
+    export template <typename TOutput, typename TInput1 = TOutput, typename TInput2 = TInput1, DeviceType TDeviceType = DeviceType::Cuda>
+        requires ValidFloatTensorType<TOutput>&& ValidTensorTypes<TInput1, TInput2>
     class OperationBase {
     public:
         /**
@@ -43,8 +46,20 @@ namespace Mila::Dnn::Compute
          * @param operation_type The type of the operation (from OperationType enum).
          * @param context The device context to use for this operation.
          */
+        OperationBase( OperationType operation_type,  ComputePrecision compute_precision, std::shared_ptr<DeviceContext> context )
+            : operation_type_( operation_type ), compute_precision_( compute_precision ), device_context_( context ) {}
+
+        /**
+         * @brief Constructs an OperationBase object with a specific device context and default compute precision.
+         *
+         * Initializes the operation with the specified operation type and device context,
+         * using the default compute precision (same as output tensor type).
+         *
+         * @param operation_type The type of the operation (from OperationType enum).
+         * @param context The device context to use for this operation.
+         */
         OperationBase( OperationType operation_type, std::shared_ptr<DeviceContext> context )
-            : operation_type_( operation_type ), device_context_( context ) {}
+            : operation_type_( operation_type ), compute_precision_( ComputePrecision::Default ), device_context_( context ) {}
 
         /**
          * @brief Virtual destructor for the OperationBase class.
@@ -99,8 +114,20 @@ namespace Mila::Dnn::Compute
             return operation_type_;
         }
 
+        /**
+         * @brief Gets the compute precision for this operation.
+         *
+         * Returns the precision that should be used for internal computations.
+         *
+         * @return ComputePrecision The enumeration value specifying the computation precision.
+         */
+        ComputePrecision getComputePrecision() const {
+            return compute_precision_;
+        }
+
     private:
         OperationType operation_type_; ///< The operation type identifier.
+		ComputePrecision compute_precision_; ///< The precision for internal computation.
         std::shared_ptr<DeviceContext> device_context_; ///< The device context for execution.
     };
 }

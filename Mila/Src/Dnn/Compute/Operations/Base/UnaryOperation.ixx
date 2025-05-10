@@ -35,15 +35,15 @@ namespace Mila::Dnn::Compute
     * Additional methods for shape validation and parameter initialization are provided to ensure
     * correctness and flexibility in derived classes.
     *
-    * @tparam TPrecision The data type used for computation and output tensor elements.
-    * @tparam TInput The data type of the input tensor elements. Defaults to TPrecision,
+    * @tparam TOutput The data type of the output tensor elements.
+    * @tparam TInput The data type of the input tensor elements. Defaults to TOutput,
     *         but can be specified differently for operations like Encoder that require
-    *         a different input type (e.g., int) than the computation type (e.g., float).
+    *         a different input type (e.g., int) than the output type (e.g., float).
     * @tparam TDeviceType The device type (e.g., CPU, CUDA) on which the operation is executed.
     */
-    export template <typename TPrecision, typename TInput = TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
-		requires ValidFloatTensorType<TPrecision> && ValidTensorType<TInput>
-    class UnaryOperation : public OperationBase<TPrecision, TInput, TDeviceType> {
+    export template <typename TOutput, typename TInput = TOutput, DeviceType TDeviceType = DeviceType::Cuda>
+        requires ValidFloatTensorType<TOutput>&& ValidTensorType<TInput>
+    class UnaryOperation : public OperationBase<TOutput, TInput, TInput, TDeviceType> {
     public:
         /**
         * @brief Memory resource type based on device type.
@@ -60,7 +60,16 @@ namespace Mila::Dnn::Compute
         * @param operation_type The type of the operation.
         */
         UnaryOperation( OperationType operation_type )
-            : OperationBase<TPrecision, TInput, TDeviceType>( operation_type, CreateCompatibleContext<TDeviceType>() ) {}
+            : OperationBase<TOutput, TInput, TInput, TDeviceType>( operation_type, CreateCompatibleContext<TDeviceType>() ) {}
+
+        /**
+        * @brief Constructs a UnaryOperation with the specified operation type and compute precision.
+        *
+        * @param operation_type The type of the operation.
+        * @param compute_precision The precision to use for internal computations.
+        */
+        UnaryOperation( OperationType operation_type, ComputePrecision compute_precision )
+            : OperationBase<TOutput, TInput, TInput, TDeviceType>( operation_type, compute_precision, CreateCompatibleContext<TDeviceType>() ) {}
 
         /**
         * @brief Constructs a UnaryOperation with the specified operation type and device context.
@@ -69,7 +78,17 @@ namespace Mila::Dnn::Compute
         * @param context The device context to use for this operation.
         */
         UnaryOperation( OperationType operation_type, std::shared_ptr<DeviceContext> context )
-            : OperationBase<TPrecision, TInput, TDeviceType>( operation_type, ValidateContext<TDeviceType>( context ) ) {}
+            : OperationBase<TOutput, TInput, TInput, TDeviceType>( operation_type, ValidateContext<TDeviceType>( context ) ) {}
+
+        /**
+        * @brief Constructs a UnaryOperation with the specified operation type, compute precision, and device context.
+        *
+        * @param operation_type The type of the operation.
+        * @param compute_precision The precision to use for internal computations.
+        * @param context The device context to use for this operation.
+        */
+        UnaryOperation( OperationType operation_type, ComputePrecision compute_precision, std::shared_ptr<DeviceContext> context )
+            : OperationBase<TOutput, TInput, TInput, TDeviceType>( operation_type, compute_precision, ValidateContext<TDeviceType>( context ) ) {}
 
         /**
         * @brief Virtual destructor for proper cleanup of derived classes.
@@ -89,10 +108,10 @@ namespace Mila::Dnn::Compute
         */
         virtual void forward(
             const Tensor<TInput, MR>& input,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
+            const std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& parameters,
             const OperationAttributes& properties,
-            Tensor<TPrecision, MR>& output,
-            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const = 0;
+            Tensor<TOutput, MR>& output,
+            std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const = 0;
 
         /**
         * @brief Executes the backward pass of a unary operation.
@@ -108,8 +127,8 @@ namespace Mila::Dnn::Compute
         */
         virtual void backward(
             const Tensor<TInput, MR>& grad,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
-            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_grads ) const {
+            const std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& parameters,
+            std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_grads ) const {
             throw std::runtime_error( "Operation does not support backward pass." );
         }
 
@@ -131,17 +150,17 @@ namespace Mila::Dnn::Compute
          * @param input_gradient Output tensor for gradients with respect to input.
          * @param properties Additional properties for the operation.
          * @param output_state Cache tensors from forward pass.
-         * 
+         *
          * @throws std::runtime_error If the operation does not support this backward pass.
          */
         virtual void backward(
             const Tensor<TInput, MR>& input,
-            const Tensor<TPrecision, MR>& output_grad,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
-            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameter_grads,
+            const Tensor<TOutput, MR>& output_grad,
+            const std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& parameters,
+            std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& parameter_grads,
             Tensor<TInput, MR>& input_grad,
             const OperationAttributes& properties,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const {
+            const std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const {
             throw std::runtime_error( "Operation does not support full gradient backward pass." );
         }
     };
