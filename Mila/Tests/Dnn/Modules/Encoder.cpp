@@ -12,75 +12,175 @@ namespace Modules::Tests
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
 
-    template<typename TPrecision, DeviceType TDeviceType>
+    // Memory resource selector based on device type
+    template<DeviceType TDevice, typename TPrecision>
+    using MemoryResourceType = std::conditional_t<TDevice == Compute::DeviceType::Cuda,
+        Compute::CudaMemoryResource,
+        Compute::HostMemoryResource>;
+
+    // Test data structure for Encoder tests
+    template<DeviceType TDevice, typename TInput = int, typename TOutput = float, typename TPrecision = TOutput>
     struct EncoderTestData {
         std::vector<size_t> input_shape;
         std::vector<size_t> output_shape;
-        mutable std::optional<std::shared_ptr<Encoder<TPrecision, TPrecision, TPrecision, TDeviceType>>> encoder;
-        std::string device_name;
+        std::shared_ptr<Encoder<TDevice, TInput, TOutput, TPrecision>> encoder_module;
         size_t channels;
         size_t max_seq_len;
         size_t vocab_len;
-        std::string name;
+        bool is_training;
 
-        // Lazy initialization method
-        std::shared_ptr<Encoder<TPrecision, TDeviceType>> getEncoder() const {
-            if ( !encoder ) {
-                encoder = std::make_shared<Encoder<TPrecision, TDeviceType>>(
-                    name, device_name, channels, max_seq_len, vocab_len );
-            }
-            return *encoder;
+        // Make the test data structure self-initializing
+        static EncoderTestData Create(
+            const std::string& name,
+            size_t batch_size,
+            size_t sequence_length,
+            size_t channels,
+            size_t max_seq_len,
+            size_t vocab_len,
+            bool is_training = false )
+        {
+            EncoderTestData data;
+            data.input_shape = { batch_size, sequence_length };
+            data.output_shape = { batch_size, sequence_length, channels };
+            data.channels = channels;
+            data.max_seq_len = max_seq_len;
+            data.vocab_len = vocab_len;
+            data.is_training = is_training;
+
+            std::string device_str = TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU";
+            data.encoder_module = std::make_shared<Encoder<TDevice, TInput, TOutput, TPrecision>>(
+                name, device_str, channels, max_seq_len, vocab_len, is_training );
+
+            return data;
+        }
+
+        // Overload for creating with device context
+        static EncoderTestData CreateWithContext(
+            const std::string& name,
+            size_t batch_size,
+            size_t sequence_length,
+            size_t channels,
+            size_t max_seq_len,
+            size_t vocab_len,
+            std::shared_ptr<DeviceContext> context,
+            bool is_training = false )
+        {
+            EncoderTestData data;
+            data.input_shape = { batch_size, sequence_length };
+            data.output_shape = { batch_size, sequence_length, channels };
+            data.channels = channels;
+            data.max_seq_len = max_seq_len;
+            data.vocab_len = vocab_len;
+            data.is_training = is_training;
+
+            data.encoder_module = std::make_shared<Encoder<TDevice, TInput, TOutput, TPrecision>>(
+                name, context, channels, max_seq_len, vocab_len, is_training );
+
+            return data;
         }
     };
 
     class EncoderTests : public ::testing::Test {
     protected:
         void SetUp() override {
+            // Initialize test parameters only
             batch_size_ = 64;
             cpu_batch_size_ = 4;
             sequence_length_ = 512;
             max_seq_len_ = 1024;
             channels_ = 768;
             vocab_len_ = 50257;
-
-            cpu_device_name_ = "CPU";
-            cuda_device_name_ = "CUDA:0";
-
-            // CPU test data with float precision - defer encoder creation
-            cpu_float_data_.input_shape = { cpu_batch_size_, sequence_length_ };
-            cpu_float_data_.output_shape = { cpu_batch_size_, sequence_length_, channels_ };
-            cpu_float_data_.channels = channels_;
-            cpu_float_data_.max_seq_len = max_seq_len_;
-            cpu_float_data_.vocab_len = vocab_len_;
-            cpu_float_data_.device_name = cpu_device_name_;
-            cpu_float_data_.name = "cpu_encoder_float";
-
-            // CUDA test data with float precision - defer encoder creation
-            cuda_float_data_.input_shape = { batch_size_, sequence_length_ };
-            cuda_float_data_.output_shape = { batch_size_, sequence_length_, channels_ };
-            cuda_float_data_.channels = channels_;
-            cuda_float_data_.max_seq_len = max_seq_len_;
-            cuda_float_data_.vocab_len = vocab_len_;
-            cuda_float_data_.device_name = cuda_device_name_;
-            cuda_float_data_.name = "cuda_encoder_float";
-
-            // CUDA test data with half precision - defer encoder creation
-            cuda_half_data_.input_shape = { batch_size_, sequence_length_ };
-            cuda_half_data_.output_shape = { batch_size_, sequence_length_, channels_ };
-            cuda_half_data_.channels = channels_;
-            cuda_half_data_.max_seq_len = max_seq_len_;
-            cuda_half_data_.vocab_len = vocab_len_;
-            cuda_half_data_.device_name = cuda_device_name_;
-            cuda_half_data_.name = "cuda_encoder_half";
+            // Modules will be created on demand
         }
 
         void TearDown() override {
-            // Explicitly reset encoders to release resources earlier
-            if ( cpu_float_data_.encoder ) cpu_float_data_.encoder.reset();
-            if ( cuda_float_data_.encoder ) cuda_float_data_.encoder.reset();
-            if ( cuda_half_data_.encoder ) cuda_half_data_.encoder.reset();
+            // Clean up resources explicitly
+            cpu_float_data_.encoder_module.reset();
+            training_cpu_float_data_.encoder_module.reset();
+            context_cpu_float_data_.encoder_module.reset();
+            cuda_float_data_.encoder_module.reset();
+            training_cuda_float_data_.encoder_module.reset();
+            cuda_half_data_.encoder_module.reset();
+            training_cuda_half_data_.encoder_module.reset();
+            mixed_precision_data_.encoder_module.reset();
         }
 
+        // Factory methods to lazily create test data as needed
+        EncoderTestData<Compute::DeviceType::Cpu, int, float>& CpuFloatData() {
+            if ( !cpu_float_data_.encoder_module ) {
+                cpu_float_data_ = EncoderTestData<Compute::DeviceType::Cpu, int, float>::Create(
+                    "cpu_encoder_float", cpu_batch_size_, sequence_length_,
+                    channels_, max_seq_len_, vocab_len_ );
+            }
+            return cpu_float_data_;
+        }
+
+        EncoderTestData<Compute::DeviceType::Cuda, int, float>& CudaFloatData() {
+            if ( !cuda_float_data_.encoder_module ) {
+                cuda_float_data_ = EncoderTestData<Compute::DeviceType::Cuda, int, float>::Create(
+                    "cuda_encoder_float", batch_size_, sequence_length_,
+                    channels_, max_seq_len_, vocab_len_ );
+            }
+            return cuda_float_data_;
+        }
+
+        EncoderTestData<Compute::DeviceType::Cpu, int, float>& TrainingCpuFloatData() {
+            if ( !training_cpu_float_data_.encoder_module ) {
+                training_cpu_float_data_ = EncoderTestData<Compute::DeviceType::Cpu, int, float>::Create(
+                    "cpu_encoder_float_training", cpu_batch_size_, sequence_length_,
+                    channels_, max_seq_len_, vocab_len_, true );
+            }
+            return training_cpu_float_data_;
+        }
+
+        EncoderTestData<Compute::DeviceType::Cuda, int, float>& TrainingCudaFloatData() {
+            if ( !training_cuda_float_data_.encoder_module ) {
+                training_cuda_float_data_ = EncoderTestData<Compute::DeviceType::Cuda, int, float>::Create(
+                    "cuda_encoder_float_training", batch_size_, sequence_length_,
+                    channels_, max_seq_len_, vocab_len_, true );
+            }
+            return training_cuda_float_data_;
+        }
+
+        EncoderTestData<Compute::DeviceType::Cpu, int, float>& ContextCpuFloatData() {
+            if ( !context_cpu_float_data_.encoder_module ) {
+                auto cpu_context = std::make_shared<DeviceContext>( "CPU" );
+                context_cpu_float_data_ = EncoderTestData<Compute::DeviceType::Cpu, int, float>::CreateWithContext(
+                    "cpu_context_encoder_float", cpu_batch_size_, sequence_length_,
+                    channels_, max_seq_len_, vocab_len_, cpu_context );
+            }
+            return context_cpu_float_data_;
+        }
+
+        EncoderTestData<Compute::DeviceType::Cuda, int, half>& CudaHalfData() {
+            if ( !cuda_half_data_.encoder_module ) {
+                cuda_half_data_ = EncoderTestData<Compute::DeviceType::Cuda, int, half>::Create(
+                    "cuda_encoder_half", batch_size_, sequence_length_,
+                    channels_, max_seq_len_, vocab_len_ );
+            }
+            return cuda_half_data_;
+        }
+
+        EncoderTestData<Compute::DeviceType::Cuda, int, half>& TrainingCudaHalfData() {
+            if ( !training_cuda_half_data_.encoder_module ) {
+                training_cuda_half_data_ = EncoderTestData<Compute::DeviceType::Cuda, int, half>::Create(
+                    "cuda_encoder_half_training", batch_size_, sequence_length_,
+                    channels_, max_seq_len_, vocab_len_, true );
+            }
+            return training_cuda_half_data_;
+        }
+
+        // Test for mixed precision (int input, half output on CUDA)
+        EncoderTestData<Compute::DeviceType::Cuda, int, half, float>& MixedPrecisionData() {
+            if ( !mixed_precision_data_.encoder_module ) {
+                mixed_precision_data_ = EncoderTestData<Compute::DeviceType::Cuda, int, half, float>::Create(
+                    "cuda_encoder_mixed", batch_size_, sequence_length_,
+                    channels_, max_seq_len_, vocab_len_ );
+            }
+            return mixed_precision_data_;
+        }
+
+        // Test parameters
         size_t batch_size_{ 0 };
         size_t cpu_batch_size_{ 0 };
         size_t sequence_length_{ 0 };
@@ -88,128 +188,95 @@ namespace Modules::Tests
         size_t vocab_len_{ 0 };
         size_t max_seq_len_{ 0 };
 
-        std::string cpu_device_name_;
-        std::string cuda_device_name_;
+        // Test data objects - initialized on demand
+        EncoderTestData<Compute::DeviceType::Cpu, int, float> cpu_float_data_;
+        EncoderTestData<Compute::DeviceType::Cpu, int, float> training_cpu_float_data_;
+        EncoderTestData<Compute::DeviceType::Cpu, int, float> context_cpu_float_data_;
 
-        // Structured test data
-        EncoderTestData<float, DeviceType::Cpu> cpu_float_data_;
-        EncoderTestData<float, DeviceType::Cuda> cuda_float_data_;
-        EncoderTestData<half, DeviceType::Cuda> cuda_half_data_;
+        EncoderTestData<Compute::DeviceType::Cuda, int, float> cuda_float_data_;
+        EncoderTestData<Compute::DeviceType::Cuda, int, float> training_cuda_float_data_;
+
+        EncoderTestData<Compute::DeviceType::Cuda, int, half> cuda_half_data_;
+        EncoderTestData<Compute::DeviceType::Cuda, int, half> training_cuda_half_data_;
+
+        // Mixed precision test data
+        EncoderTestData<Compute::DeviceType::Cuda, int, half, float> mixed_precision_data_;
     };
 
     // Common test function templates
-    template<typename TPrecision, DeviceType TDeviceType>
-    void TestGetName( const EncoderTestData<TPrecision, TDeviceType>& data, const std::string& expected_name ) {
-        EXPECT_EQ( data.getEncoder()->getName(), expected_name );
+    template<DeviceType TDevice, typename TInput = int, typename TOutput = float, typename TPrecision = TOutput>
+    void TestGetName( const EncoderTestData<TDevice, TInput, TOutput, TPrecision>& data, const std::string& expected_name ) {
+        EXPECT_EQ( data.encoder_module->getName(), expected_name );
     }
 
-    template<typename TPrecision, DeviceType TDeviceType>
-    void TestParameterCount( const EncoderTestData<TPrecision, TDeviceType>& data ) {
+    template<DeviceType TDevice, typename TInput = int, typename TOutput = float, typename TPrecision = TOutput>
+    void TestParameterCount( const EncoderTestData<TDevice, TInput, TOutput, TPrecision>& data ) {
         auto num_parameters = /* wte */ (data.vocab_len * data.channels) + /* wpe */ (data.max_seq_len * data.channels);
-        EXPECT_EQ( data.getEncoder()->parameterCount(), num_parameters );
+        EXPECT_EQ( data.encoder_module->parameterCount(), num_parameters );
     }
 
-    template<typename TPrecision, DeviceType TDeviceType>
-    void TestForward( const EncoderTestData<TPrecision, TDeviceType>& data ) {
-        // Use appropriate memory resource type based on device type
-        using MR = typename std::conditional_t<TDeviceType == DeviceType::Cuda,
-            CudaMemoryResource,
-            HostMemoryResource>;
+    template<DeviceType TDevice, typename TInput = int, typename TOutput = float, typename TPrecision = TOutput>
+    void TestForward( const EncoderTestData<TDevice, TInput, TOutput, TPrecision>& data ) {
+        using MR = MemoryResourceType<TDevice, TPrecision>;
 
-        Tensor<int, MR> input( data.input_shape );
-        Tensor<TPrecision, MR> output( data.output_shape );
+        Tensor<TInput, MR> input( data.input_shape );
+        Tensor<TOutput, MR> output( data.output_shape );
 
         // Fill input with token IDs
-        if constexpr ( TDeviceType == DeviceType::Cpu ) {
+        if constexpr ( TDevice == Compute::DeviceType::Cpu ) {
             // Direct access for CPU memory
             for ( size_t i = 0; i < input.size(); ++i ) {
-                input.data()[ i ] = static_cast<int>( i % 100 ); // Use a range of token IDs
+                input.data()[ i ] = static_cast<TInput>( i % 100 ); // Use a range of token IDs
             }
         }
         else {
             // For device memory, create a host tensor, fill it, then copy to device
-            Tensor<int, HostMemoryResource> host_input( data.input_shape );
+            Tensor<TInput, HostMemoryResource> host_input( data.input_shape );
             for ( size_t i = 0; i < host_input.size(); ++i ) {
-                host_input.data()[ i ] = static_cast<int>( i % 100 ); // Use a range of token IDs
+                host_input.data()[ i ] = static_cast<TInput>( i % 100 ); // Use a range of token IDs
             }
             input.copyFrom( host_input );
         }
 
-        data.getEncoder()->forward( input, output );
+        data.encoder_module->forward( input, output );
         EXPECT_EQ( output.size(), input.size() * data.channels );
     }
 
-    template<typename TPrecision, DeviceType TDeviceType>
-    void TestPrint( const EncoderTestData<TPrecision, TDeviceType>& data, const std::string& expected_substring ) {
-        std::string output = data.getEncoder()->toString();
+    template<DeviceType TDevice, typename TInput = int, typename TOutput = float, typename TPrecision = TOutput>
+    void TestPrint( const EncoderTestData<TDevice, TInput, TOutput, TPrecision>& data, const std::string& expected_substring ) {
+        std::string output = data.encoder_module->toString();
         EXPECT_NE( output.find( expected_substring ), std::string::npos );
     }
 
-    // CPU Tests with float precision
-    TEST_F( EncoderTests, Cpu_Float_TestName ) {
-        TestGetName( cpu_float_data_, "cpu_encoder_float" );
+    template<DeviceType TDevice, typename TInput = int, typename TOutput = float, typename TPrecision = TOutput>
+    void TestTrainingMode( const EncoderTestData<TDevice, TInput, TOutput, TPrecision>& data, bool expected_mode ) {
+        EXPECT_EQ( data.encoder_module->isTraining(), expected_mode );
     }
 
-    TEST_F( EncoderTests, Cpu_Float_ParameterCount ) {
-        TestParameterCount( cpu_float_data_ );
+    template<DeviceType TDevice, typename TInput = int, typename TOutput = float, typename TPrecision = TOutput>
+    void TestDeviceType( const EncoderTestData<TDevice, TInput, TOutput, TPrecision>& data ) {
+        auto device_context = data.encoder_module->getDeviceContext();
+        EXPECT_NE( device_context, nullptr );
+        auto device = device_context->getDevice();
+        EXPECT_NE( device, nullptr );
+        EXPECT_EQ( device->getDeviceType(), TDevice );
     }
 
-    TEST_F( EncoderTests, Cpu_Float_TestForward ) {
-        TestForward( cpu_float_data_ );
+    template<DeviceType TDevice, typename TInput = int, typename TOutput = float, typename TPrecision = TOutput>
+    void TestDimensions( const EncoderTestData<TDevice, TInput, TOutput, TPrecision>& data ) {
+        EXPECT_EQ( data.encoder_module->getChannels(), data.channels );
+        EXPECT_EQ( data.encoder_module->getVocabularyLength(), data.vocab_len );
+        EXPECT_EQ( data.encoder_module->getMaxSequenceLength(), data.max_seq_len );
     }
 
-    TEST_F( EncoderTests, Cpu_Float_TestPrint ) {
-        TestPrint( cpu_float_data_, "Encoder: cpu_encoder_float" );
-    }
+    // Function to test equivalence of CPU and CUDA outputs
+    template<typename TInput = int, typename TOutput = float, typename TPrecision = TOutput>
+    void TestCpuCudaEquivalence(
+        const EncoderTestData<Compute::DeviceType::Cpu, TInput, TOutput, TPrecision>& cpu_data,
+        const EncoderTestData<Compute::DeviceType::Cuda, TInput, TOutput, TPrecision>& cuda_data ) {
 
-    // CUDA Tests with float precision
-    TEST_F( EncoderTests, Cuda_Float_TestName ) {
-        TestGetName( cuda_float_data_, "cuda_encoder_float" );
-    }
-
-    TEST_F( EncoderTests, Cuda_Float_ParameterCount ) {
-        TestParameterCount( cuda_float_data_ );
-    }
-
-    TEST_F( EncoderTests, Cuda_Float_TestForward ) {
         try {
-            TestForward( cuda_float_data_ );
-        }
-        catch ( const std::exception& e ) {
-            GTEST_SKIP() << "Skipping CUDA test due to exception: " << e.what();
-        }
-    }
-
-    TEST_F( EncoderTests, Cuda_Float_TestPrint ) {
-        TestPrint( cuda_float_data_, "Encoder: cuda_encoder_float" );
-    }
-
-    // CUDA Tests with half precision
-    TEST_F( EncoderTests, Cuda_Half_TestName ) {
-        TestGetName( cuda_half_data_, "cuda_encoder_half" );
-    }
-
-    TEST_F( EncoderTests, Cuda_Half_ParameterCount ) {
-        TestParameterCount( cuda_half_data_ );
-    }
-
-    TEST_F( EncoderTests, Cuda_Half_TestForward ) {
-        try {
-            TestForward( cuda_half_data_ );
-        }
-        catch ( const std::exception& e ) {
-            GTEST_SKIP() << "Skipping CUDA test due to exception: " << e.what();
-        }
-    }
-
-    TEST_F( EncoderTests, Cuda_Half_TestPrint ) {
-        TestPrint( cuda_half_data_, "Encoder: cuda_encoder_half" );
-    }
-
-    // Test for CUDA-CPU equivalence with float precision (where CUDA is available)
-    TEST_F( EncoderTests, Cpu_Cuda_Float_Output_Equivalence ) {
-        // Skip this test if CUDA is not available
-        try {
+            // Check if CUDA is available
             DeviceContext context( "CUDA:0" );
         }
         catch ( const std::exception& ) {
@@ -219,28 +286,28 @@ namespace Modules::Tests
 
         // Create small test shapes for quick comparison
         std::vector<size_t> test_input_shape = { 2, 4 }; // Small shape for verification
-        std::vector<size_t> test_output_shape = { 2, 4, channels_ };
+        std::vector<size_t> test_output_shape = { 2, 4, cpu_data.channels };
 
         // Create and fill host input data
-        Tensor<int, HostMemoryResource> host_input( test_input_shape );
+        Tensor<TInput, HostMemoryResource> host_input( test_input_shape );
         for ( size_t i = 0; i < host_input.size(); ++i ) {
-            host_input.data()[ i ] = static_cast<int>( i % 100 );
+            host_input.data()[ i ] = static_cast<TInput>( i % 100 );
         }
 
         // Run CPU encoder
-        Tensor<float, HostMemoryResource> cpu_output( test_output_shape );
-        cpu_float_data_.getEncoder()->forward( host_input, cpu_output );
+        Tensor<TOutput, HostMemoryResource> cpu_output( test_output_shape );
+        cpu_data.encoder_module->forward( host_input, cpu_output );
 
         // Create device input by copying host data
-        Tensor<int, CudaMemoryResource> device_input( test_input_shape );
+        Tensor<TInput, CudaMemoryResource> device_input( test_input_shape );
         device_input.copyFrom( host_input );
 
         // Run CUDA encoder
-        Tensor<float, CudaMemoryResource> cuda_output( test_output_shape );
-        cuda_float_data_.getEncoder()->forward( device_input, cuda_output );
+        Tensor<TOutput, CudaMemoryResource> cuda_output( test_output_shape );
+        cuda_data.encoder_module->forward( device_input, cuda_output );
 
         // Copy CUDA output back to host for comparison
-        Tensor<float, HostMemoryResource> cuda_output_host( test_output_shape );
+        Tensor<TOutput, HostMemoryResource> cuda_output_host( test_output_shape );
         cuda_output_host.copyFrom( cuda_output );
 
         // Compare outputs with tolerance
@@ -248,12 +315,12 @@ namespace Modules::Tests
         bool all_equal = true;
 
         for ( size_t i = 0; i < cpu_output.size(); ++i ) {
-            float diff = std::abs( cpu_output.data()[ i ] - cuda_output_host.data()[ i ] );
+            float diff = std::abs( static_cast<float>( cpu_output.data()[ i ] ) - static_cast<float>( cuda_output_host.data()[ i ] ) );
             if ( diff > epsilon ) {
                 std::cout << "Difference at index " << i << ": CPU=" << cpu_output.data()[ i ]
                     << ", CUDA=" << cuda_output_host.data()[ i ] << ", diff=" << diff << std::endl;
-                    all_equal = false;
-                    break;
+                all_equal = false;
+                break;
             }
         }
 
@@ -261,37 +328,41 @@ namespace Modules::Tests
     }
 
     // Test for CUDA float vs half precision accuracy
-    TEST_F( EncoderTests, Cuda_Float_Half_Precision_Comparison ) {
-        // Skip this test if CUDA is not available
+    template<typename TInput = int>
+    void TestPrecisionComparison(
+        const EncoderTestData<Compute::DeviceType::Cuda, TInput, float>& float_data,
+        const EncoderTestData<Compute::DeviceType::Cuda, TInput, half>& half_data ) {
+
         try {
+            // Check if CUDA is available
             DeviceContext context( "CUDA:0" );
         }
         catch ( const std::exception& ) {
-            GTEST_SKIP() << "CUDA device not available, skipping CUDA float-half precision test";
+            GTEST_SKIP() << "CUDA device not available, skipping precision comparison test";
             return;
         }
 
         // Create small test shapes for quick comparison
         std::vector<size_t> test_input_shape = { 2, 4 }; // Small shape for verification
-        std::vector<size_t> test_output_shape = { 2, 4, channels_ };
+        std::vector<size_t> test_output_shape = { 2, 4, float_data.channels };
 
         // Create and fill host input data
-        Tensor<int, HostMemoryResource> host_input( test_input_shape );
+        Tensor<TInput, HostMemoryResource> host_input( test_input_shape );
         for ( size_t i = 0; i < host_input.size(); ++i ) {
-            host_input.data()[ i ] = static_cast<int>( i % 100 );
+            host_input.data()[ i ] = static_cast<TInput>( i % 100 );
         }
 
         // Create device input by copying host data
-        Tensor<int, CudaMemoryResource> device_input( test_input_shape );
+        Tensor<TInput, CudaMemoryResource> device_input( test_input_shape );
         device_input.copyFrom( host_input );
 
         // Run CUDA float precision encoder
         Tensor<float, CudaMemoryResource> cuda_float_output( test_output_shape );
-        cuda_float_data_.getEncoder()->forward( device_input, cuda_float_output );
+        float_data.encoder_module->forward( device_input, cuda_float_output );
 
         // Run CUDA half precision encoder
         Tensor<half, CudaMemoryResource> cuda_half_output( test_output_shape );
-        cuda_half_data_.getEncoder()->forward( device_input, cuda_half_output );
+        half_data.encoder_module->forward( device_input, cuda_half_output );
 
         // Copy results back to host for comparison
         Tensor<float, HostMemoryResource> float_output_host( test_output_shape );
@@ -333,12 +404,179 @@ namespace Modules::Tests
             << "More than 10% of values show significant differences between float and half precision";
     }
 
-    // Additional tests for added methods
-    TEST_F( EncoderTests, GetDimensions ) {
-        auto encoder = cpu_float_data_.getEncoder();
+    // Test edge cases
+    template<DeviceType TDevice, typename TInput = int, typename TOutput = float, typename TPrecision = TOutput>
+    void TestEdgeCases() {
+        using MR = MemoryResourceType<TDevice, TPrecision>;
+        std::string device_str = TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU";
 
-        EXPECT_EQ( encoder->getChannels(), channels_ );
-        EXPECT_EQ( encoder->getVocabularyLength(), vocab_len_ );
-        EXPECT_EQ( encoder->getMaxSequenceLength(), max_seq_len_ );
+        try {
+            // Test with minimal sizes
+            std::vector<size_t> minimal_input_shape = { 1, 1 };
+            std::vector<size_t> minimal_output_shape = { 1, 1, 32 };
+
+            auto minimal_module = std::make_shared<Encoder<TDevice, TInput, TOutput, TPrecision>>(
+                "minimal_encoder", device_str, 32, 16, 100 );
+
+            Tensor<TInput, MR> minimal_input( minimal_input_shape );
+            Tensor<TOutput, MR> minimal_output( minimal_output_shape );
+
+            // Fill input with valid token IDs
+            for ( size_t i = 0; i < minimal_input.size(); ++i ) {
+                minimal_input.data()[ i ] = static_cast<TInput>( i % 100 );
+            }
+
+            EXPECT_NO_THROW( minimal_module->forward( minimal_input, minimal_output ) );
+            EXPECT_EQ( minimal_output.size(), 32 );
+        }
+        catch ( const std::exception& e ) {
+            std::cerr << "Exception during edge case test: " << e.what() << std::endl;
+            throw;
+        }
+    }
+
+    // CPU Tests with float precision
+    TEST_F( EncoderTests, Cpu_Float_TestName ) {
+        TestGetName<Compute::DeviceType::Cpu, int, float>( CpuFloatData(), "cpu_encoder_float" );
+    }
+
+    TEST_F( EncoderTests, Cpu_Float_ParameterCount ) {
+        TestParameterCount<Compute::DeviceType::Cpu, int, float>( CpuFloatData() );
+    }
+
+    TEST_F( EncoderTests, Cpu_Float_TestForward ) {
+        TestForward<Compute::DeviceType::Cpu, int, float>( CpuFloatData() );
+    }
+
+    TEST_F( EncoderTests, Cpu_Float_TestPrint ) {
+        TestPrint<Compute::DeviceType::Cpu, int, float>( CpuFloatData(), "Encoder: cpu_encoder_float" );
+    }
+
+    TEST_F( EncoderTests, Cpu_Float_DeviceType ) {
+        TestDeviceType<Compute::DeviceType::Cpu, int, float>( CpuFloatData() );
+    }
+
+    TEST_F( EncoderTests, Cpu_Float_TrainingMode ) {
+        TestTrainingMode<Compute::DeviceType::Cpu, int, float>( CpuFloatData(), false );
+    }
+
+    TEST_F( EncoderTests, Cpu_Float_TestDimensions ) {
+        TestDimensions<Compute::DeviceType::Cpu, int, float>( CpuFloatData() );
+    }
+
+    // CPU Training Mode Tests
+    TEST_F( EncoderTests, Cpu_Training_Float_TrainingMode ) {
+        TestTrainingMode<Compute::DeviceType::Cpu, int, float>( TrainingCpuFloatData(), true );
+    }
+
+    // Context Construction Tests
+    TEST_F( EncoderTests, Context_Cpu_Float_DeviceType ) {
+        TestDeviceType<Compute::DeviceType::Cpu, int, float>( ContextCpuFloatData() );
+    }
+
+    TEST_F( EncoderTests, Context_Cpu_Float_Forward ) {
+        TestForward<Compute::DeviceType::Cpu, int, float>( ContextCpuFloatData() );
+    }
+
+    // CUDA Tests with float precision
+    TEST_F( EncoderTests, Cuda_Float_TestName ) {
+        TestGetName<Compute::DeviceType::Cuda, int, float>( CudaFloatData(), "cuda_encoder_float" );
+    }
+
+    TEST_F( EncoderTests, Cuda_Float_ParameterCount ) {
+        TestParameterCount<Compute::DeviceType::Cuda, int, float>( CudaFloatData() );
+    }
+
+    TEST_F( EncoderTests, Cuda_Float_TestForward ) {
+        try {
+            TestForward<Compute::DeviceType::Cuda, int, float>( CudaFloatData() );
+        }
+        catch ( const std::exception& e ) {
+            GTEST_SKIP() << "Skipping CUDA test due to exception: " << e.what();
+        }
+    }
+
+    TEST_F( EncoderTests, Cuda_Float_TestPrint ) {
+        TestPrint<Compute::DeviceType::Cuda, int, float>( CudaFloatData(), "Encoder: cuda_encoder_float" );
+    }
+
+    TEST_F( EncoderTests, Cuda_Float_DeviceType ) {
+        TestDeviceType<Compute::DeviceType::Cuda, int, float>( CudaFloatData() );
+    }
+
+    TEST_F( EncoderTests, Cuda_Float_TrainingMode ) {
+        TestTrainingMode<Compute::DeviceType::Cuda, int, float>( CudaFloatData(), false );
+    }
+
+    TEST_F( EncoderTests, Cuda_Training_Float_TrainingMode ) {
+        TestTrainingMode<Compute::DeviceType::Cuda, int, float>( TrainingCudaFloatData(), true );
+    }
+
+    // CUDA Tests with half precision
+    TEST_F( EncoderTests, Cuda_Half_TestName ) {
+        TestGetName<Compute::DeviceType::Cuda, int, half>( CudaHalfData(), "cuda_encoder_half" );
+    }
+
+    TEST_F( EncoderTests, Cuda_Half_ParameterCount ) {
+        TestParameterCount<Compute::DeviceType::Cuda, int, half>( CudaHalfData() );
+    }
+
+    TEST_F( EncoderTests, Cuda_Half_TestForward ) {
+        try {
+            TestForward<Compute::DeviceType::Cuda, int, half>( CudaHalfData() );
+        }
+        catch ( const std::exception& e ) {
+            GTEST_SKIP() << "Skipping CUDA test due to exception: " << e.what();
+        }
+    }
+
+    TEST_F( EncoderTests, Cuda_Half_TestPrint ) {
+        TestPrint<Compute::DeviceType::Cuda, int, half>( CudaHalfData(), "Encoder: cuda_encoder_half" );
+    }
+
+    TEST_F( EncoderTests, Cuda_Half_TrainingMode ) {
+        TestTrainingMode<Compute::DeviceType::Cuda, int, half>( CudaHalfData(), false );
+    }
+
+    TEST_F( EncoderTests, Cuda_Training_Half_TrainingMode ) {
+        TestTrainingMode<Compute::DeviceType::Cuda, int, half>( TrainingCudaHalfData(), true );
+    }
+
+    // Mixed Precision Tests
+    TEST_F( EncoderTests, Cuda_MixedPrecision_TestForward ) {
+        try {
+            TestForward<Compute::DeviceType::Cuda, int, half, float>( MixedPrecisionData() );
+        }
+        catch ( const std::exception& e ) {
+            GTEST_SKIP() << "Skipping CUDA mixed precision test due to exception: " << e.what();
+        }
+    }
+
+    TEST_F( EncoderTests, Cuda_MixedPrecision_TestName ) {
+        TestGetName<Compute::DeviceType::Cuda, int, half, float>( MixedPrecisionData(), "cuda_encoder_mixed" );
+    }
+
+    // Edge Case Tests
+    TEST_F( EncoderTests, Cpu_Float_EdgeCases ) {
+        TestEdgeCases<Compute::DeviceType::Cpu, int, float>();
+    }
+
+    TEST_F( EncoderTests, Cuda_Float_EdgeCases ) {
+        try {
+            TestEdgeCases<Compute::DeviceType::Cuda, int, float>();
+        }
+        catch ( const std::exception& e ) {
+            GTEST_SKIP() << "Skipping CUDA edge cases test due to exception: " << e.what();
+        }
+    }
+
+    // CPU-CUDA Equivalence Test
+    TEST_F( EncoderTests, Cpu_Cuda_Forward_Output_Equivalence ) {
+        TestCpuCudaEquivalence<int, float>( CpuFloatData(), CudaFloatData() );
+    }
+
+    // CUDA Float-Half Precision Comparison
+    TEST_F( EncoderTests, Cuda_Float_Half_Precision_Comparison ) {
+        TestPrecisionComparison<int>( CudaFloatData(), CudaHalfData() );
     }
 }

@@ -44,7 +44,7 @@ namespace Mila::Dnn
      */
     export template<DeviceType TDeviceType = DeviceType::Cuda,
         typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
-        requires ValidFloatTensorTypes<TInput, TOutput>&& ValidTensorType<TInput>&& ValidPrecisionType<TPrecision>
+        requires ValidTensorType<TInput> && ValidFloatTensorType<TOutput> && ValidTensorType<TInput>&& ValidPrecisionType<TPrecision>
     class Module {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>;
@@ -268,10 +268,10 @@ namespace Mila::Dnn
 
     protected:
         /** @brief Map of parameter names to parameter tensors */
-        std::unordered_map<std::string, std::shared_ptr<Tensor<TPrecision, MR>>> parameter_map_ = {};
+        std::unordered_map<std::string, std::shared_ptr<Tensor<TOutput, MR>>> parameter_map_ = {};
 
         /** @brief Map of state names to state tensors */
-        std::unordered_map<std::string, std::shared_ptr<Tensor<TPrecision, MR>>> state_map_ = {};
+        std::unordered_map<std::string, std::shared_ptr<Tensor<TOutput, MR>>> state_map_ = {};
 
         /**
          * @brief Helper method to convert parameters to string representation.

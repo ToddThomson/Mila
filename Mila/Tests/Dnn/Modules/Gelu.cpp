@@ -11,15 +11,17 @@ namespace Modules::Tests
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
 
-    template<typename TPrecision, Compute::DeviceType TDevice>
+    // Memory resource selector based on device type
+    template<DeviceType TDevice, typename TPrecision>
     using MemoryResourceType = std::conditional_t<TDevice == Compute::DeviceType::Cuda,
         Compute::CudaMemoryResource,
         Compute::HostMemoryResource>;
 
-    template<typename TPrecision, Compute::DeviceType TDevice>
+    // Test data structure for Gelu tests
+    template<DeviceType TDevice, typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
     struct GeluTestData {
         std::vector<size_t> shape;
-        std::shared_ptr<Gelu<TPrecision, TPrecision, TPrecision, TDevice>> gelu_module;
+        std::shared_ptr<Gelu<TDevice, TInput, TOutput, TPrecision>> gelu_module;
         bool is_training;
 
         // Make the test data structure self-initializing
@@ -35,7 +37,7 @@ namespace Modules::Tests
             data.is_training = is_training;
 
             std::string device_str = TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU";
-            data.gelu_module = std::make_shared<Gelu<TPrecision, TDevice>>(
+            data.gelu_module = std::make_shared<Gelu<TDevice, TInput, TOutput, TPrecision>>(
                 name, device_str, is_training );
 
             return data;
@@ -54,7 +56,7 @@ namespace Modules::Tests
             data.shape = { batch_size, sequence_length, channels };
             data.is_training = is_training;
 
-            data.gelu_module = std::make_shared<Gelu<TPrecision, TDevice>>(
+            data.gelu_module = std::make_shared<Gelu<TDevice, TInput, TOutput, TPrecision>>(
                 name, context, is_training );
 
             return data;
@@ -73,61 +75,70 @@ namespace Modules::Tests
         }
 
         // Factory methods to lazily create test data as needed
-        GeluTestData<float, Compute::DeviceType::Cpu>& CpuFloatData() {
+        GeluTestData<Compute::DeviceType::Cpu, float>& CpuFloatData() {
             if ( !cpu_float_data_.gelu_module ) {
-                cpu_float_data_ = GeluTestData<float, Compute::DeviceType::Cpu>::Create(
+                cpu_float_data_ = GeluTestData<Compute::DeviceType::Cpu, float>::Create(
                     "cpu_gelu_float", cpu_batch_size_, sequence_length_, channels_ );
             }
             return cpu_float_data_;
         }
 
-        GeluTestData<float, Compute::DeviceType::Cuda>& CudaFloatData() {
+        GeluTestData<Compute::DeviceType::Cuda, float>& CudaFloatData() {
             if ( !cuda_float_data_.gelu_module ) {
-                cuda_float_data_ = GeluTestData<float, Compute::DeviceType::Cuda>::Create(
+                cuda_float_data_ = GeluTestData<Compute::DeviceType::Cuda, float>::Create(
                     "cuda_gelu_float", batch_size_, sequence_length_, channels_ );
             }
             return cuda_float_data_;
         }
 
-        GeluTestData<float, Compute::DeviceType::Cpu>& TrainingCpuFloatData() {
+        GeluTestData<Compute::DeviceType::Cpu, float>& TrainingCpuFloatData() {
             if ( !training_cpu_float_data_.gelu_module ) {
-                training_cpu_float_data_ = GeluTestData<float, Compute::DeviceType::Cpu>::Create(
+                training_cpu_float_data_ = GeluTestData<Compute::DeviceType::Cpu, float>::Create(
                     "cpu_gelu_float_training", cpu_batch_size_, sequence_length_, channels_, true );
             }
             return training_cpu_float_data_;
         }
 
-        GeluTestData<float, Compute::DeviceType::Cuda>& TrainingCudaFloatData() {
+        GeluTestData<Compute::DeviceType::Cuda, float>& TrainingCudaFloatData() {
             if ( !training_cuda_float_data_.gelu_module ) {
-                training_cuda_float_data_ = GeluTestData<float, Compute::DeviceType::Cuda>::Create(
+                training_cuda_float_data_ = GeluTestData<Compute::DeviceType::Cuda, float>::Create(
                     "cuda_gelu_float_training", batch_size_, sequence_length_, channels_, true );
             }
             return training_cuda_float_data_;
         }
 
-        GeluTestData<float, Compute::DeviceType::Cpu>& ContextCpuFloatData() {
+        GeluTestData<Compute::DeviceType::Cpu, float>& ContextCpuFloatData() {
             if ( !context_cpu_float_data_.gelu_module ) {
                 auto cpu_context = std::make_shared<DeviceContext>( "CPU" );
-                context_cpu_float_data_ = GeluTestData<float, Compute::DeviceType::Cpu>::CreateWithContext(
+                context_cpu_float_data_ = GeluTestData<Compute::DeviceType::Cpu, float>::CreateWithContext(
                     "cpu_context_gelu_float", cpu_batch_size_, sequence_length_, channels_, cpu_context );
             }
             return context_cpu_float_data_;
         }
 
-        GeluTestData<half, Compute::DeviceType::Cuda>& CudaHalfData() {
+        GeluTestData<Compute::DeviceType::Cuda, half>& CudaHalfData() {
             if ( !cuda_half_data_.gelu_module ) {
-                cuda_half_data_ = GeluTestData<half, Compute::DeviceType::Cuda>::Create(
+                cuda_half_data_ = GeluTestData<Compute::DeviceType::Cuda, half>::Create(
                     "cuda_gelu_half", batch_size_, sequence_length_, channels_ );
             }
             return cuda_half_data_;
         }
 
-        GeluTestData<half, Compute::DeviceType::Cuda>& TrainingCudaHalfData() {
+        GeluTestData<Compute::DeviceType::Cuda, half>& TrainingCudaHalfData() {
             if ( !training_cuda_half_data_.gelu_module ) {
-                training_cuda_half_data_ = GeluTestData<half, Compute::DeviceType::Cuda>::Create(
+                training_cuda_half_data_ = GeluTestData<Compute::DeviceType::Cuda, half>::Create(
                     "cuda_gelu_half_training", batch_size_, sequence_length_, channels_, true );
             }
             return training_cuda_half_data_;
+        }
+
+        // Test for mixed precision (input float, output half)
+        GeluTestData<Compute::DeviceType::Cuda, float, half>& MixedPrecisionData() {
+            if ( !mixed_precision_data_.gelu_module ) {
+                mixed_precision_data_ = GeluTestData<Compute::DeviceType::Cuda, float, half>::Create(
+                    "cuda_gelu_mixed", batch_size_, sequence_length_, channels_ );
+            }
+            return mixed_precision_data_;
         }
 
         // Test parameters
@@ -137,51 +148,58 @@ namespace Modules::Tests
         size_t channels_{ 0 };
 
         // Test data objects - initialized on demand
-        GeluTestData<float, Compute::DeviceType::Cpu> cpu_float_data_;
-        GeluTestData<float, Compute::DeviceType::Cpu> context_cpu_float_data_;
-        GeluTestData<float, Compute::DeviceType::Cpu> training_cpu_float_data_;
+        GeluTestData<Compute::DeviceType::Cpu, float> cpu_float_data_;
+        GeluTestData<Compute::DeviceType::Cpu, float> context_cpu_float_data_;
+        GeluTestData<Compute::DeviceType::Cpu, float> training_cpu_float_data_;
 
-        GeluTestData<float, Compute::DeviceType::Cuda> cuda_float_data_;
-        GeluTestData<float, Compute::DeviceType::Cuda> training_cuda_float_data_;
+        GeluTestData<Compute::DeviceType::Cuda, float> cuda_float_data_;
+        GeluTestData<Compute::DeviceType::Cuda, float> training_cuda_float_data_;
 
-        GeluTestData<half, Compute::DeviceType::Cuda> cuda_half_data_;
-        GeluTestData<half, Compute::DeviceType::Cuda> training_cuda_half_data_;
+        GeluTestData<Compute::DeviceType::Cuda, half> cuda_half_data_;
+        GeluTestData<Compute::DeviceType::Cuda, half> training_cuda_half_data_;
+
+        // Mixed precision test data (float input to half output)
+        GeluTestData<Compute::DeviceType::Cuda, float, half> mixed_precision_data_;
     };
 
     // Common test function templates
-    template<typename TPrecision, Compute::DeviceType TDevice>
-    void TestGetName( const GeluTestData<TPrecision, TDevice>& data, const std::string& expected_name ) {
+    template<DeviceType TDevice, typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
+    void TestGetName( const GeluTestData<TDevice, TInput, TOutput, TPrecision>& data, const std::string& expected_name ) {
         EXPECT_EQ( data.gelu_module->getName(), expected_name );
     }
 
-    template<typename TPrecision, Compute::DeviceType TDevice>
-    void TestParameterCount( const GeluTestData<TPrecision, TDevice>& data, size_t expected_count ) {
+    template<DeviceType TDevice, typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
+    void TestParameterCount( const GeluTestData<TDevice, TInput, TOutput, TPrecision>& data, size_t expected_count ) {
         EXPECT_EQ( data.gelu_module->parameterCount(), expected_count );
     }
 
-    template<typename TPrecision, Compute::DeviceType TDevice>
-    void TestForward( const GeluTestData<TPrecision, TDevice>& data ) {
-        using MR = MemoryResourceType<TPrecision, TDevice>;
+    template<DeviceType TDevice, typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
+    void TestForward( const GeluTestData<TDevice, TInput, TOutput, TPrecision>& data ) {
+        using MR = MemoryResourceType<TDevice, TPrecision>;
 
-        Tensor<TPrecision, MR> input( data.shape );
-        Tensor<TPrecision, MR> output( data.shape );
+        Tensor<TInput, MR> input( data.shape );
+        Tensor<TOutput, MR> output( data.shape );
+
+        // Fill with random values between -5.0 and 5.0 to test GELU activation range
+        random<TInput, MR>( input, -5.0f, 5.0f );
+
         data.gelu_module->forward( input, output );
         EXPECT_EQ( output.size(), input.size() );
     }
 
-    template<typename TPrecision, Compute::DeviceType TDevice>
-    void TestPrint( const GeluTestData<TPrecision, TDevice>& data, const std::string& expected_substring ) {
+    template<DeviceType TDevice, typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
+    void TestPrint( const GeluTestData<TDevice, TInput, TOutput, TPrecision>& data, const std::string& expected_substring ) {
         std::string output = data.gelu_module->toString();
         EXPECT_NE( output.find( expected_substring ), std::string::npos );
     }
 
-    template<typename TPrecision, Compute::DeviceType TDevice>
-    void TestTrainingMode( const GeluTestData<TPrecision, TDevice>& data, bool expected_mode ) {
+    template<DeviceType TDevice, typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
+    void TestTrainingMode( const GeluTestData<TDevice, TInput, TOutput, TPrecision>& data, bool expected_mode ) {
         EXPECT_EQ( data.gelu_module->isTraining(), expected_mode );
     }
 
-    template<typename TPrecision, Compute::DeviceType TDevice>
-    void TestDeviceType( const GeluTestData<TPrecision, TDevice>& data ) {
+    template<DeviceType TDevice, typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
+    void TestDeviceType( const GeluTestData<TDevice, TInput, TOutput, TPrecision>& data ) {
         auto device_context = data.gelu_module->getDeviceContext();
         EXPECT_NE( device_context, nullptr );
         auto device = device_context->getDevice();
@@ -190,10 +208,10 @@ namespace Modules::Tests
     }
 
     // Function to test equivalence of CPU and CUDA outputs
-    template<typename TPrecision>
+    template<typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
     void TestCpuCudaEquivalence(
-        const GeluTestData<TPrecision, Compute::DeviceType::Cpu>& cpu_data,
-        const GeluTestData<TPrecision, Compute::DeviceType::Cuda>& cuda_data ) {
+        const GeluTestData<Compute::DeviceType::Cpu, TInput, TOutput, TPrecision>& cpu_data,
+        const GeluTestData<Compute::DeviceType::Cuda, TInput, TOutput, TPrecision>& cuda_data ) {
 
         // Create a small test shape to make comparison faster
         std::vector<size_t> test_shape = { 2, 4, 8 }; // Small shape for quick verification
@@ -231,7 +249,7 @@ namespace Modules::Tests
             if ( diff > epsilon ) {
                 std::cout << "Difference at index " << i << ": CPU=" << cpu_output.data()[ i ]
                     << ", CUDA=" << cuda_output_host.data()[ i ] << ", diff=" << diff << std::endl;
-                    all_equal = false;
+                all_equal = false;
             }
         }
 
@@ -239,15 +257,15 @@ namespace Modules::Tests
     }
 
     // Test with different dimensions (edge cases)
-    template<typename TPrecision, Compute::DeviceType TDevice>
+    template<DeviceType TDevice, typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
     void TestEdgeCases() {
-        using MR = MemoryResourceType<TPrecision, TDevice>;
+        using MR = MemoryResourceType<TDevice, TPrecision>;
 
         try {
             // Test with minimal sizes
             std::vector<size_t> minimal_shape = { 1, 1, 8 };
 
-            auto minimal_module = std::make_shared<Gelu<TPrecision, TDevice>>(
+            auto minimal_module = std::make_shared<Gelu<TDevice, TInput, TOutput, TPrecision>>(
                 "minimal_gelu", TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU" );
 
             Tensor<TPrecision, MR> minimal_input( minimal_shape );
@@ -259,7 +277,7 @@ namespace Modules::Tests
             // Test with larger dimensions
             std::vector<size_t> large_shape = { 2, 2, 1024 };
 
-            auto large_module = std::make_shared<Gelu<TPrecision, TDevice>>(
+            auto large_module = std::make_shared<Gelu<TDevice, TInput, TOutput, TPrecision>>(
                 "large_gelu", TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU" );
 
             Tensor<TPrecision, MR> large_input( large_shape );
@@ -274,124 +292,112 @@ namespace Modules::Tests
         }
     }
 
-    // Test for device change events
-    //template<typename TPrecision>
-    //void TestDeviceChange( const GeluTestData<TPrecision, Compute::DeviceType::Cpu>& data ) {
-    //    // Create a new device context
-    //    auto new_context = std::make_shared<DeviceContext>( "CPU" );
-
-    //    // Change device
-    //    EXPECT_NO_THROW( data.gelu_module->setDeviceContext( new_context ) );
-
-    //    // Verify operations still work after device change
-    //    std::vector<size_t> test_shape = { 2, 4, 8 };
-    //    Tensor<TPrecision, Compute::HostMemoryResource> input( test_shape );
-    //    Tensor<TPrecision, Compute::HostMemoryResource> output( test_shape );
-    //    EXPECT_NO_THROW( data.gelu_module->forward( input, output ) );
-    //}
-
     // CPU Tests with float precision
     TEST_F( GeluTests, Cpu_Float_TestName ) {
-        TestGetName<float, Compute::DeviceType::Cpu>( CpuFloatData(), "cpu_gelu_float" );
+        TestGetName<Compute::DeviceType::Cpu, float>( CpuFloatData(), "cpu_gelu_float" );
     }
 
     TEST_F( GeluTests, Cpu_Float_ParameterCount ) {
-        TestParameterCount<float, Compute::DeviceType::Cpu>( CpuFloatData(), 0 );
+        TestParameterCount<Compute::DeviceType::Cpu, float>( CpuFloatData(), 0 );
     }
 
     TEST_F( GeluTests, Cpu_Float_TestForward ) {
-        TestForward<float, Compute::DeviceType::Cpu>( CpuFloatData() );
+        TestForward<Compute::DeviceType::Cpu, float>( CpuFloatData() );
     }
 
     TEST_F( GeluTests, Cpu_Float_TestPrint ) {
-        TestPrint<float, Compute::DeviceType::Cpu>( CpuFloatData(), "Gelu: cpu_gelu_float" );
+        TestPrint<Compute::DeviceType::Cpu, float>( CpuFloatData(), "Gelu: cpu_gelu_float" );
     }
 
     TEST_F( GeluTests, Cpu_Float_TrainingMode ) {
-        TestTrainingMode<float, Compute::DeviceType::Cpu>( CpuFloatData(), false );
+        TestTrainingMode<Compute::DeviceType::Cpu, float>( CpuFloatData(), false );
     }
 
     TEST_F( GeluTests, Cpu_Float_DeviceType ) {
-        TestDeviceType<float, Compute::DeviceType::Cpu>( CpuFloatData() );
+        TestDeviceType<Compute::DeviceType::Cpu, float>( CpuFloatData() );
     }
 
     // CPU Training Mode Tests
     TEST_F( GeluTests, Cpu_Training_Float_TrainingMode ) {
-        TestTrainingMode<float, Compute::DeviceType::Cpu>( TrainingCpuFloatData(), true );
+        TestTrainingMode<Compute::DeviceType::Cpu, float>( TrainingCpuFloatData(), true );
     }
 
     // CUDA Tests with float precision
     TEST_F( GeluTests, Cuda_Float_TestName ) {
-        TestGetName<float, Compute::DeviceType::Cuda>( CudaFloatData(), "cuda_gelu_float" );
+        TestGetName<Compute::DeviceType::Cuda, float>( CudaFloatData(), "cuda_gelu_float" );
     }
 
     TEST_F( GeluTests, Cuda_Float_ParameterCount ) {
-        TestParameterCount<float, Compute::DeviceType::Cuda>( CudaFloatData(), 0 );
+        TestParameterCount<Compute::DeviceType::Cuda, float>( CudaFloatData(), 0 );
     }
 
     TEST_F( GeluTests, Cuda_Float_TestForward ) {
-        TestForward<float, Compute::DeviceType::Cuda>( CudaFloatData() );
+        TestForward<Compute::DeviceType::Cuda, float>( CudaFloatData() );
     }
 
     TEST_F( GeluTests, Cuda_Float_TestPrint ) {
-        TestPrint<float, Compute::DeviceType::Cuda>( CudaFloatData(), "Gelu: cuda_gelu_float" );
+        TestPrint<Compute::DeviceType::Cuda, float>( CudaFloatData(), "Gelu: cuda_gelu_float" );
     }
 
     TEST_F( GeluTests, Cuda_Float_TrainingMode ) {
-        TestTrainingMode<float, Compute::DeviceType::Cuda>( CudaFloatData(), false );
+        TestTrainingMode<Compute::DeviceType::Cuda, float>( CudaFloatData(), false );
     }
 
     TEST_F( GeluTests, Cuda_Float_DeviceType ) {
-        TestDeviceType<float, Compute::DeviceType::Cuda>( CudaFloatData() );
+        TestDeviceType<Compute::DeviceType::Cuda, float>( CudaFloatData() );
     }
 
     // CUDA Training Mode Tests
     TEST_F( GeluTests, Cuda_Training_Float_TrainingMode ) {
-        TestTrainingMode<float, Compute::DeviceType::Cuda>( TrainingCudaFloatData(), true );
+        TestTrainingMode<Compute::DeviceType::Cuda, float>( TrainingCudaFloatData(), true );
     }
 
     // CUDA Tests with half precision
     TEST_F( GeluTests, Cuda_Half_TestName ) {
-        TestGetName<half, Compute::DeviceType::Cuda>( CudaHalfData(), "cuda_gelu_half" );
+        TestGetName<Compute::DeviceType::Cuda, half>( CudaHalfData(), "cuda_gelu_half" );
     }
 
     TEST_F( GeluTests, Cuda_Half_ParameterCount ) {
-        TestParameterCount<half, Compute::DeviceType::Cuda>( CudaHalfData(), 0 );
+        TestParameterCount<Compute::DeviceType::Cuda, half>( CudaHalfData(), 0 );
     }
 
     TEST_F( GeluTests, Cuda_Half_TestForward ) {
-        TestForward<half, Compute::DeviceType::Cuda>( CudaHalfData() );
+        TestForward<Compute::DeviceType::Cuda, half>( CudaHalfData() );
     }
 
     TEST_F( GeluTests, Cuda_Half_TestPrint ) {
-        TestPrint<half, Compute::DeviceType::Cuda>( CudaHalfData(), "Gelu: cuda_gelu_half" );
+        TestPrint<Compute::DeviceType::Cuda, half>( CudaHalfData(), "Gelu: cuda_gelu_half" );
     }
 
     TEST_F( GeluTests, Cuda_Half_TrainingMode ) {
-        TestTrainingMode<half, Compute::DeviceType::Cuda>( CudaHalfData(), false );
+        TestTrainingMode<Compute::DeviceType::Cuda, half>( CudaHalfData(), false );
+    }
+
+    // Mixed Precision Tests (new in updated module)
+    TEST_F( GeluTests, Cuda_MixedPrecision_TestForward ) {
+        TestForward<Compute::DeviceType::Cuda, float, half>( MixedPrecisionData() );
+    }
+
+    TEST_F( GeluTests, Cuda_MixedPrecision_TestName ) {
+        TestGetName<Compute::DeviceType::Cuda, float, half>( MixedPrecisionData(), "cuda_gelu_mixed" );
     }
 
     // Context Construction Tests
     TEST_F( GeluTests, Context_Cpu_Float_DeviceType ) {
-        TestDeviceType<float, Compute::DeviceType::Cpu>( ContextCpuFloatData() );
+        TestDeviceType<Compute::DeviceType::Cpu, float>( ContextCpuFloatData() );
     }
 
     TEST_F( GeluTests, Context_Cpu_Float_Forward ) {
-        TestForward<float, Compute::DeviceType::Cpu>( ContextCpuFloatData() );
+        TestForward<Compute::DeviceType::Cpu, float>( ContextCpuFloatData() );
     }
-
-    // Device Change Tests
-    /*TEST_F( GeluTests, Cpu_Float_DeviceChange ) {
-        TestDeviceChange<float>( CpuFloatData() );
-    }*/
 
     // Edge Case Tests
     TEST_F( GeluTests, Cpu_Float_EdgeCases ) {
-        TestEdgeCases<float, Compute::DeviceType::Cpu>();
+        TestEdgeCases<Compute::DeviceType::Cpu, float>();
     }
 
     TEST_F( GeluTests, Cuda_Float_EdgeCases ) {
-        TestEdgeCases<float, Compute::DeviceType::Cuda>();
+        TestEdgeCases<Compute::DeviceType::Cuda, float>();
     }
 
     // CPU-CUDA Equivalence Test

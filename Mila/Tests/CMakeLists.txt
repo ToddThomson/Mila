@@ -40,13 +40,13 @@ add_executable( MilaTests
 
     #"Dnn/Model.cpp"
     
-    #"Dnn/Modules/FullyConnected.cpp"
-    #"Dnn/Modules/Gelu.cpp" 
+    "Dnn/Modules/Linear.cpp"
+    "Dnn/Modules/Gelu.cpp" 
     #"Dnn/Modules/Attention.cpp" 
-    #"Dnn/Modules/Layernorm.cpp"
+    "Dnn/Modules/Layernorm.cpp"
     "Dnn/Modules/Residual.cpp"
     "Dnn/Modules/Softmax.cpp"
-    #"Dnn/Modules/Encoder.cpp" 
+    "Dnn/Modules/Encoder.cpp" 
 
     #"Dnn/Models/Gpt2/DatasetReader.cpp"
 

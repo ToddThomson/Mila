@@ -11,15 +11,17 @@ namespace Modules::Tests
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
 
-    template<typename TPrecision, Compute::DeviceType TDevice>
+    // Memory resource selector based on device type
+    template<DeviceType TDevice, typename TPrecision>
     using MemoryResourceType = std::conditional_t<TDevice == Compute::DeviceType::Cuda,
         Compute::CudaMemoryResource,
         Compute::HostMemoryResource>;
 
-    template<typename TPrecision, Compute::DeviceType TDevice>
+    // Test data structure for LayerNorm tests
+    template<DeviceType TDevice, typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
     struct LayerNormTestData {
         std::vector<size_t> shape;
-        std::shared_ptr<LayerNorm<TPrecision, TDevice>> ln_module;
+        std::shared_ptr<LayerNorm<TDevice, TInput, TOutput, TPrecision>> ln_module;
         bool has_bias;
         int64_t axis;
         bool is_training;
@@ -41,7 +43,7 @@ namespace Modules::Tests
             data.is_training = is_training;
 
             std::string device_str = TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU";
-            data.ln_module = std::make_shared<LayerNorm<TPrecision, TDevice>>(
+            data.ln_module = std::make_shared<LayerNorm<TDevice, TInput, TOutput, TPrecision>>(
                 name, device_str, data.shape, axis, has_bias, is_training );
 
             return data;
@@ -64,7 +66,7 @@ namespace Modules::Tests
             data.axis = axis;
             data.is_training = is_training;
 
-            data.ln_module = std::make_shared<LayerNorm<TPrecision, TDevice>>(
+            data.ln_module = std::make_shared<LayerNorm<TDevice, TInput, TOutput, TPrecision>>(
                 name, context, data.shape, axis, has_bias, is_training );
 
             return data;
@@ -85,77 +87,94 @@ namespace Modules::Tests
         }
 
         // Factory methods to lazily create test data as needed
-        LayerNormTestData<float, Compute::DeviceType::Cpu>& CpuFloatData() {
+        LayerNormTestData<Compute::DeviceType::Cpu, float>& CpuFloatData() {
             if ( !cpu_float_data_.ln_module ) {
-                cpu_float_data_ = LayerNormTestData<float, Compute::DeviceType::Cpu>::Create(
+                cpu_float_data_ = LayerNormTestData<Compute::DeviceType::Cpu, float>::Create(
                     "cpu_ln_float", cpu_batch_size_, sequence_length_, channels_, axis_, has_bias_ );
             }
             return cpu_float_data_;
         }
 
-        LayerNormTestData<float, Compute::DeviceType::Cpu>& CpuNoBiasFloatData() {
+        LayerNormTestData<Compute::DeviceType::Cpu, float>& CpuNoBiasFloatData() {
             if ( !cpu_no_bias_float_data_.ln_module ) {
-                cpu_no_bias_float_data_ = LayerNormTestData<float, Compute::DeviceType::Cpu>::Create(
+                cpu_no_bias_float_data_ = LayerNormTestData<Compute::DeviceType::Cpu, float>::Create(
                     "cpu_ln_no_bias_float", cpu_batch_size_, sequence_length_, channels_, axis_, false );
             }
             return cpu_no_bias_float_data_;
         }
 
-        LayerNormTestData<float, Compute::DeviceType::Cuda>& CudaFloatData() {
+        LayerNormTestData<Compute::DeviceType::Cuda, float>& CudaFloatData() {
             if ( !cuda_float_data_.ln_module ) {
-                cuda_float_data_ = LayerNormTestData<float, Compute::DeviceType::Cuda>::Create(
+                cuda_float_data_ = LayerNormTestData<Compute::DeviceType::Cuda, float>::Create(
                     "cuda_ln_float", batch_size_, sequence_length_, channels_, axis_, has_bias_ );
             }
             return cuda_float_data_;
         }
 
-        LayerNormTestData<float, Compute::DeviceType::Cuda>& CudaNoBiasFloatData() {
+        LayerNormTestData<Compute::DeviceType::Cuda, float>& CudaNoBiasFloatData() {
             if ( !cuda_no_bias_float_data_.ln_module ) {
-                cuda_no_bias_float_data_ = LayerNormTestData<float, Compute::DeviceType::Cuda>::Create(
+                cuda_no_bias_float_data_ = LayerNormTestData<Compute::DeviceType::Cuda, float>::Create(
                     "cuda_ln_no_bias_float", batch_size_, sequence_length_, channels_, axis_, false );
             }
             return cuda_no_bias_float_data_;
         }
 
-        LayerNormTestData<float, Compute::DeviceType::Cpu>& TrainingCpuFloatData() {
+        LayerNormTestData<Compute::DeviceType::Cpu, float>& TrainingCpuFloatData() {
             if ( !training_cpu_float_data_.ln_module ) {
-                training_cpu_float_data_ = LayerNormTestData<float, Compute::DeviceType::Cpu>::Create(
+                training_cpu_float_data_ = LayerNormTestData<Compute::DeviceType::Cpu, float>::Create(
                     "cpu_ln_float_training", cpu_batch_size_, sequence_length_, channels_, axis_, has_bias_, true );
             }
             return training_cpu_float_data_;
         }
 
-        LayerNormTestData<float, Compute::DeviceType::Cuda>& TrainingCudaFloatData() {
+        LayerNormTestData<Compute::DeviceType::Cuda, float>& TrainingCudaFloatData() {
             if ( !training_cuda_float_data_.ln_module ) {
-                training_cuda_float_data_ = LayerNormTestData<float, Compute::DeviceType::Cuda>::Create(
+                training_cuda_float_data_ = LayerNormTestData<Compute::DeviceType::Cuda, float>::Create(
                     "cuda_ln_float_training", batch_size_, sequence_length_, channels_, axis_, has_bias_, true );
             }
             return training_cuda_float_data_;
         }
 
-        LayerNormTestData<float, Compute::DeviceType::Cpu>& ContextCpuFloatData() {
+        LayerNormTestData<Compute::DeviceType::Cpu, float>& ContextCpuFloatData() {
             if ( !context_cpu_float_data_.ln_module ) {
                 auto cpu_context = std::make_shared<DeviceContext>( "CPU" );
-                context_cpu_float_data_ = LayerNormTestData<float, Compute::DeviceType::Cpu>::CreateWithContext(
+                context_cpu_float_data_ = LayerNormTestData<Compute::DeviceType::Cpu, float>::CreateWithContext(
                     "cpu_context_ln_float", cpu_batch_size_, sequence_length_, channels_, cpu_context, axis_, has_bias_ );
             }
             return context_cpu_float_data_;
         }
 
-        LayerNormTestData<half, Compute::DeviceType::Cuda>& CudaHalfData() {
+        LayerNormTestData<Compute::DeviceType::Cuda, half>& CudaHalfData() {
             if ( !cuda_half_data_.ln_module ) {
-                cuda_half_data_ = LayerNormTestData<half, Compute::DeviceType::Cuda>::Create(
+                cuda_half_data_ = LayerNormTestData<Compute::DeviceType::Cuda, half>::Create(
                     "cuda_ln_half", batch_size_, sequence_length_, channels_, axis_, has_bias_ );
             }
             return cuda_half_data_;
         }
 
-        LayerNormTestData<half, Compute::DeviceType::Cuda>& CudaNoBiasHalfData() {
+        LayerNormTestData<Compute::DeviceType::Cuda, half>& CudaNoBiasHalfData() {
             if ( !cuda_no_bias_half_data_.ln_module ) {
-                cuda_no_bias_half_data_ = LayerNormTestData<half, Compute::DeviceType::Cuda>::Create(
+                cuda_no_bias_half_data_ = LayerNormTestData<Compute::DeviceType::Cuda, half>::Create(
                     "cuda_ln_no_bias_half", batch_size_, sequence_length_, channels_, axis_, false );
             }
             return cuda_no_bias_half_data_;
+        }
+
+        LayerNormTestData<Compute::DeviceType::Cuda, half>& TrainingCudaHalfData() {
+            if ( !training_cuda_half_data_.ln_module ) {
+                training_cuda_half_data_ = LayerNormTestData<Compute::DeviceType::Cuda, half>::Create(
+                    "cuda_ln_half_training", batch_size_, sequence_length_, channels_, axis_, has_bias_, true );
+            }
+            return training_cuda_half_data_;
+        }
+
+        // Test for mixed precision (input float, output half)
+        LayerNormTestData<Compute::DeviceType::Cuda, float, half>& MixedPrecisionData() {
+            if ( !mixed_precision_data_.ln_module ) {
+                mixed_precision_data_ = LayerNormTestData<Compute::DeviceType::Cuda, float, half>::Create(
+                    "cuda_ln_mixed", batch_size_, sequence_length_, channels_, axis_, has_bias_ );
+            }
+            return mixed_precision_data_;
         }
 
         // Test parameters
@@ -167,27 +186,31 @@ namespace Modules::Tests
         int64_t axis_{ -1 };
 
         // Test data objects - initialized on demand
-        LayerNormTestData<float, Compute::DeviceType::Cpu> cpu_float_data_;
-        LayerNormTestData<float, Compute::DeviceType::Cpu> cpu_no_bias_float_data_;
-        LayerNormTestData<float, Compute::DeviceType::Cpu> context_cpu_float_data_;
-        LayerNormTestData<float, Compute::DeviceType::Cpu> training_cpu_float_data_;
+        LayerNormTestData<Compute::DeviceType::Cpu, float> cpu_float_data_;
+        LayerNormTestData<Compute::DeviceType::Cpu, float> cpu_no_bias_float_data_;
+        LayerNormTestData<Compute::DeviceType::Cpu, float> context_cpu_float_data_;
+        LayerNormTestData<Compute::DeviceType::Cpu, float> training_cpu_float_data_;
 
-        LayerNormTestData<float, Compute::DeviceType::Cuda> cuda_float_data_;
-        LayerNormTestData<float, Compute::DeviceType::Cuda> cuda_no_bias_float_data_;
-        LayerNormTestData<float, Compute::DeviceType::Cuda> training_cuda_float_data_;
+        LayerNormTestData<Compute::DeviceType::Cuda, float> cuda_float_data_;
+        LayerNormTestData<Compute::DeviceType::Cuda, float> cuda_no_bias_float_data_;
+        LayerNormTestData<Compute::DeviceType::Cuda, float> training_cuda_float_data_;
 
-        LayerNormTestData<half, Compute::DeviceType::Cuda> cuda_half_data_;
-        LayerNormTestData<half, Compute::DeviceType::Cuda> cuda_no_bias_half_data_;
+        LayerNormTestData<Compute::DeviceType::Cuda, half> cuda_half_data_;
+        LayerNormTestData<Compute::DeviceType::Cuda, half> cuda_no_bias_half_data_;
+        LayerNormTestData<Compute::DeviceType::Cuda, half> training_cuda_half_data_;
+
+        // Mixed precision test data (float input to half output)
+        LayerNormTestData<Compute::DeviceType::Cuda, float, half> mixed_precision_data_;
     };
 
     // Common test function templates
-    template<typename TPrecision, Compute::DeviceType TDevice>
-    void TestGetName( const LayerNormTestData<TPrecision, TDevice>& data, const std::string& expected_name ) {
+    template<DeviceType TDevice, typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
+    void TestGetName( const LayerNormTestData<TDevice, TInput, TOutput, TPrecision>& data, const std::string& expected_name ) {
         EXPECT_EQ( data.ln_module->getName(), expected_name );
     }
 
-    template<typename TPrecision, Compute::DeviceType TDevice>
-    void TestParameterCount( const LayerNormTestData<TPrecision, TDevice>& data ) {
+    template<DeviceType TDevice, typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
+    void TestParameterCount( const LayerNormTestData<TDevice, TInput, TOutput, TPrecision>& data ) {
         // Determine expected parameter count based on normalization dimension and bias
         size_t channels = data.shape[ 2 ]; // Last dimension is channels
         size_t expected_count = channels; // Weight parameters
@@ -199,42 +222,28 @@ namespace Modules::Tests
         EXPECT_EQ( data.ln_module->parameterCount(), expected_count );
     }
 
-    template<typename TPrecision, Compute::DeviceType TDevice>
-    void TestForward( const LayerNormTestData<TPrecision, TDevice>& data ) {
-        using MR = MemoryResourceType<TPrecision, TDevice>;
+    template<DeviceType TDevice, typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
+    void TestForward( const LayerNormTestData<TDevice, TInput, TOutput, TPrecision>& data ) {
+        using MR = MemoryResourceType<TDevice, TPrecision>;
 
-        Tensor<TPrecision, MR> input( data.shape );
-        Tensor<TPrecision, MR> output( data.shape );
+        Tensor<TInput, MR> input( data.shape );
+        Tensor<TOutput, MR> output( data.shape );
 
-        if constexpr ( TDevice == Compute::DeviceType::Cuda ) {
-            Tensor<TPrecision, Compute::HostMemoryResource> host_input( data.shape );
-
-            // Fill host input with predictable values
-            for ( size_t i = 0; i < host_input.size(); ++i ) {
-                host_input.data()[ i ] = static_cast<TPrecision>( (i % 10) * 0.1f );
-            }
-
-            input.copyFrom( host_input );
-        }
-        else {
-            for ( size_t i = 0; i < input.size(); ++i ) {
-                input.data()[ i ] = static_cast<TPrecision>( (i % 10) * 0.1f );
-            }
-        }
+        // Fill with random values
+        random<TInput, MR>( input, -5.0f, 5.0f );
 
         data.ln_module->forward( input, output );
-
         EXPECT_EQ( output.size(), input.size() );
     }
 
-    template<typename TPrecision, Compute::DeviceType TDevice>
+    template<DeviceType TDevice, typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
     void TestSimpleNormalization() {
-        using MR = MemoryResourceType<TPrecision, TDevice>;
+        using MR = MemoryResourceType<TDevice, TPrecision>;
 
         // Create a small, predictable input
         std::vector<size_t> shape = { 1, 2, 3 };
-        Tensor<TPrecision, MR> input( shape );
-        Tensor<TPrecision, MR> output( shape );
+        Tensor<TInput, MR> input( shape );
+        Tensor<TOutput, MR> output( shape );
 
         // Initialize with known values
         input.data()[ 0 ] = 1.0f;
@@ -246,7 +255,7 @@ namespace Modules::Tests
 
         // Create LayerNorm module with all weights=1 and all biases=0
         std::string device_str = TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU";
-        auto ln = std::make_shared<LayerNorm<TPrecision, TDevice>>(
+        auto ln = std::make_shared<LayerNorm<TDevice, TInput, TOutput, TPrecision>>(
             "test_simple_ln", device_str, shape, -1, true );
 
         // Get weight and bias tensors and set them to known values
@@ -278,19 +287,19 @@ namespace Modules::Tests
         EXPECT_NEAR( output.data()[ 5 ], 1.22474f, tolerance );
     }
 
-    template<typename TPrecision, Compute::DeviceType TDevice>
-    void TestPrint( const LayerNormTestData<TPrecision, TDevice>& data, const std::string& expected_substring ) {
+    template<DeviceType TDevice, typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
+    void TestPrint( const LayerNormTestData<TDevice, TInput, TOutput, TPrecision>& data, const std::string& expected_substring ) {
         std::string output = data.ln_module->toString();
         EXPECT_NE( output.find( expected_substring ), std::string::npos );
     }
 
-    template<typename TPrecision, Compute::DeviceType TDevice>
-    void TestTrainingMode( const LayerNormTestData<TPrecision, TDevice>& data, bool expected_mode ) {
+    template<DeviceType TDevice, typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
+    void TestTrainingMode( const LayerNormTestData<TDevice, TInput, TOutput, TPrecision>& data, bool expected_mode ) {
         EXPECT_EQ( data.ln_module->isTraining(), expected_mode );
     }
 
-    template<typename TPrecision, Compute::DeviceType TDevice>
-    void TestDeviceType( const LayerNormTestData<TPrecision, TDevice>& data ) {
+    template<DeviceType TDevice, typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
+    void TestDeviceType( const LayerNormTestData<TDevice, TInput, TOutput, TPrecision>& data ) {
         auto device_context = data.ln_module->getDeviceContext();
         EXPECT_NE( device_context, nullptr );
         auto device = device_context->getDevice();
@@ -299,10 +308,10 @@ namespace Modules::Tests
     }
 
     // Function to test equivalence of CPU and CUDA outputs
-    template<typename TPrecision>
+    template<typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
     void TestCpuCudaEquivalence(
-        const LayerNormTestData<TPrecision, Compute::DeviceType::Cpu>& cpu_data,
-        const LayerNormTestData<TPrecision, Compute::DeviceType::Cuda>& cuda_data ) {
+        const LayerNormTestData<Compute::DeviceType::Cpu, TInput, TOutput, TPrecision>& cpu_data,
+        const LayerNormTestData<Compute::DeviceType::Cuda, TInput, TOutput, TPrecision>& cuda_data ) {
 
         // Create a small test shape to make comparison faster
         std::vector<size_t> test_shape = { 2, 4, 8 }; // Small shape for quick verification
@@ -311,10 +320,10 @@ namespace Modules::Tests
         std::string cpu_device = "CPU";
         std::string cuda_device = "CUDA:0";
 
-        auto cpu_test_module = std::make_shared<LayerNorm<TPrecision, Compute::DeviceType::Cpu>>(
+        auto cpu_test_module = std::make_shared<LayerNorm<Compute::DeviceType::Cpu, TInput, TOutput, TPrecision>>(
             "cpu_test", cpu_device, test_shape, -1, cpu_data.has_bias );
 
-        auto cuda_test_module = std::make_shared<LayerNorm<TPrecision, Compute::DeviceType::Cuda>>(
+        auto cuda_test_module = std::make_shared<LayerNorm<Compute::DeviceType::Cuda, TInput, TOutput, TPrecision>>(
             "cuda_test", cuda_device, test_shape, -1, cuda_data.has_bias );
 
         // Create random input data
@@ -367,9 +376,9 @@ namespace Modules::Tests
             if ( diff > epsilon ) {
                 std::cout << "Difference at index " << i << ": CPU=" << cpu_output.data()[ i ]
                     << ", CUDA=" << cuda_output_host.data()[ i ] << ", diff=" << diff << std::endl;
-                    all_equal = false;
-                    // Only show first few differences to avoid flooding the output
-                    if ( i > 10 ) break;
+                all_equal = false;
+                // Only show first few differences to avoid flooding the output
+                if ( i > 10 ) break;
             }
         }
 
@@ -377,34 +386,34 @@ namespace Modules::Tests
     }
 
     // Test edge cases with minimal and large shapes
-    template<typename TPrecision, Compute::DeviceType TDevice>
+    template<DeviceType TDevice, typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
     void TestEdgeCases() {
-        using MR = MemoryResourceType<TPrecision, TDevice>;
+        using MR = MemoryResourceType<TDevice, TPrecision>;
         std::string device_str = TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU";
 
         try {
             // Test with minimal shape
             std::vector<size_t> minimal_shape = { 1, 1, 4 };
-            auto minimal_module = std::make_shared<LayerNorm<TPrecision, TDevice>>(
+            auto minimal_module = std::make_shared<LayerNorm<TDevice, TInput, TOutput, TPrecision>>(
                 "minimal", device_str, minimal_shape );
 
-            Tensor<TPrecision, MR> minimal_input( minimal_shape );
-            Tensor<TPrecision, MR> minimal_output( minimal_shape );
+            Tensor<TInput, MR> minimal_input( minimal_shape );
+            Tensor<TOutput, MR> minimal_output( minimal_shape );
 
             // Fill with values
             for ( size_t i = 0; i < minimal_input.size(); ++i ) {
-                minimal_input.data()[ i ] = static_cast<TPrecision>( i + 1 );
+                minimal_input.data()[ i ] = static_cast<TInput>( i + 1 );
             }
 
             EXPECT_NO_THROW( minimal_module->forward( minimal_input, minimal_output ) );
 
             // Test with single value per channel (edge case for normalization)
             std::vector<size_t> single_shape = { 1, 1, 1 };
-            auto single_module = std::make_shared<LayerNorm<TPrecision, TDevice>>(
+            auto single_module = std::make_shared<LayerNorm<TDevice, TInput, TOutput, TPrecision>>(
                 "single", device_str, single_shape );
 
-            Tensor<TPrecision, MR> single_input( single_shape );
-            Tensor<TPrecision, MR> single_output( single_shape );
+            Tensor<TInput, MR> single_input( single_shape );
+            Tensor<TOutput, MR> single_output( single_shape );
 
             single_input.data()[ 0 ] = 42.0f;  // Any value should normalize to 0 since stddev is 0
 
@@ -412,11 +421,11 @@ namespace Modules::Tests
 
             // Test with larger dimensions
             std::vector<size_t> large_shape = { 2, 2, 1024 };
-            auto large_module = std::make_shared<LayerNorm<TPrecision, TDevice>>(
+            auto large_module = std::make_shared<LayerNorm<TDevice, TInput, TOutput, TPrecision>>(
                 "large", device_str, large_shape );
 
-            Tensor<TPrecision, MR> large_input( large_shape );
-            Tensor<TPrecision, MR> large_output( large_shape );
+            Tensor<TInput, MR> large_input( large_shape );
+            Tensor<TOutput, MR> large_output( large_shape );
 
             EXPECT_NO_THROW( large_module->forward( large_input, large_output ) );
             EXPECT_EQ( large_output.size(), 4096 );
@@ -427,12 +436,12 @@ namespace Modules::Tests
         }
     }
 
-    template<typename TPrecision, Compute::DeviceType TDevice>
+    template<DeviceType TDevice, typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
     void TestTrainingModeBehavior(
-        const LayerNormTestData<TPrecision, TDevice>& training_data,
-        const LayerNormTestData<TPrecision, TDevice>& inference_data ) {
+        const LayerNormTestData<TDevice, TInput, TOutput, TPrecision>& training_data,
+        const LayerNormTestData<TDevice, TInput, TOutput, TPrecision>& inference_data ) {
 
-        using MR = MemoryResourceType<TPrecision, TDevice>;
+        using MR = MemoryResourceType<TDevice, TPrecision>;
 
         // Verify training status
         EXPECT_TRUE( training_data.ln_module->isTraining() );
@@ -449,9 +458,9 @@ namespace Modules::Tests
         std::vector<size_t> test_shape = { 2, 3, 4 };
 
         // Create tensor with initial values - using the pattern seen in TestNumericalStability
-        Tensor<TPrecision, MR> input( test_shape, 0.1f );  // Initialize all elements to 0.1f
-        Tensor<TPrecision, MR> train_output( test_shape );
-        Tensor<TPrecision, MR> infer_output( test_shape );
+        Tensor<TInput, MR> input( test_shape, 0.1f );  // Initialize all elements to 0.1f
+        Tensor<TOutput, MR> train_output( test_shape );
+        Tensor<TOutput, MR> infer_output( test_shape );
 
         // Both should be able to process data without errors
         EXPECT_NO_THROW( training_data.ln_module->forward( input, train_output ) );
@@ -462,20 +471,20 @@ namespace Modules::Tests
         inference_data.ln_module->setTraining( false );
     }
 
-    template<typename TPrecision, Compute::DeviceType TDevice>
+    template<DeviceType TDevice, typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
     void TestNumericalStability() {
-        using MR = MemoryResourceType<TPrecision, TDevice>;
+        using MR = MemoryResourceType<TDevice, TPrecision>;
         std::string device_str = TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU";
 
         std::vector<size_t> shape = { 2, 4, 8 };
-        auto stability_module = std::make_shared<LayerNorm<TPrecision, TDevice>>(
+        auto stability_module = std::make_shared<LayerNorm<TDevice, TInput, TOutput, TPrecision>>(
             "stability", device_str, shape );
 
         // Create tensors with initial values
-        Tensor<TPrecision, MR> large_input( shape, 1.0e+4f );  // Initialize all elements with 1.0e+4f
-        Tensor<TPrecision, MR> small_input( shape, 1.0e-6f );  // Initialize all elements with 1.0e-6f
-        Tensor<TPrecision, MR> large_output( shape );
-        Tensor<TPrecision, MR> small_output( shape );
+        Tensor<TInput, MR> large_input( shape, 1.0e+4f );  // Initialize all elements with 1.0e+4f
+        Tensor<TInput, MR> small_input( shape, 1.0e-6f );  // Initialize all elements with 1.0e-6f
+        Tensor<TOutput, MR> large_output( shape );
+        Tensor<TOutput, MR> small_output( shape );
 
         // Run forward passes
         stability_module->forward( large_input, large_output );
@@ -535,32 +544,31 @@ namespace Modules::Tests
         }
     }
 
-
     // Test deterministic behavior (for CUDA implementation)
-    template<typename TPrecision>
+    template<typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
     void TestDeterministicBehavior() {
         std::vector<size_t> shape = { 2, 4, 8 };
-        auto deterministic_module = std::make_shared<LayerNorm<TPrecision, Compute::DeviceType::Cuda>>(
+        auto deterministic_module = std::make_shared<LayerNorm<Compute::DeviceType::Cuda, TInput, TOutput, TPrecision>>(
             "deterministic", "CUDA:0", shape );
 
-        Tensor<TPrecision, Compute::HostMemoryResource> host_input( shape );
+        Tensor<TInput, Compute::HostMemoryResource> host_input( shape );
         for ( size_t i = 0; i < host_input.size(); ++i ) {
-            host_input.data()[ i ] = static_cast<TPrecision>( i * 0.01f );
+            host_input.data()[ i ] = static_cast<TInput>( i * 0.01f );
         }
 
-        Tensor<TPrecision, Compute::CudaMemoryResource> device_input( shape );
+        Tensor<TInput, Compute::CudaMemoryResource> device_input( shape );
         device_input.copyFrom( host_input );
 
-        Tensor<TPrecision, Compute::CudaMemoryResource> output1( shape );
-        Tensor<TPrecision, Compute::CudaMemoryResource> output2( shape );
+        Tensor<TOutput, Compute::CudaMemoryResource> output1( shape );
+        Tensor<TOutput, Compute::CudaMemoryResource> output2( shape );
 
         // Run forward pass twice
         deterministic_module->forward( device_input, output1 );
         deterministic_module->forward( device_input, output2 );
 
         // Copy results back to host for comparison
-        Tensor<TPrecision, Compute::HostMemoryResource> host_output1( shape );
-        Tensor<TPrecision, Compute::HostMemoryResource> host_output2( shape );
+        Tensor<TOutput, Compute::HostMemoryResource> host_output1( shape );
+        Tensor<TOutput, Compute::HostMemoryResource> host_output2( shape );
         host_output1.copyFrom( output1 );
         host_output2.copyFrom( output2 );
 
@@ -580,8 +588,8 @@ namespace Modules::Tests
     }
 
     // Mock test for save/load functionality
-    template<typename TPrecision, Compute::DeviceType TDevice>
-    void TestSaveLoadMockup( const LayerNormTestData<TPrecision, TDevice>& data ) {
+    template<DeviceType TDevice, typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
+    void TestSaveLoadMockup( const LayerNormTestData<TDevice, TInput, TOutput, TPrecision>& data ) {
         // This is a mock test as we don't have actual save/load implemented
         auto weight = data.ln_module->getWeight();
         EXPECT_NE( weight, nullptr );
@@ -596,153 +604,162 @@ namespace Modules::Tests
 
     // CPU Tests with float precision
     TEST_F( LayerNormTests, Cpu_Float_TestName ) {
-        TestGetName<float, Compute::DeviceType::Cpu>( CpuFloatData(), "cpu_ln_float" );
+        TestGetName<Compute::DeviceType::Cpu, float>( CpuFloatData(), "cpu_ln_float" );
     }
 
     TEST_F( LayerNormTests, Cpu_Float_ParameterCount ) {
-        TestParameterCount<float, Compute::DeviceType::Cpu>( CpuFloatData() );
+        TestParameterCount<Compute::DeviceType::Cpu, float>( CpuFloatData() );
     }
 
     TEST_F( LayerNormTests, Cpu_Float_TestForward ) {
-        TestForward<float, Compute::DeviceType::Cpu>( CpuFloatData() );
+        TestForward<Compute::DeviceType::Cpu, float>( CpuFloatData() );
     }
 
     TEST_F( LayerNormTests, Cpu_Float_TestSimpleNormalization ) {
-        TestSimpleNormalization<float, Compute::DeviceType::Cpu>();
+        TestSimpleNormalization<Compute::DeviceType::Cpu, float>();
     }
 
     TEST_F( LayerNormTests, Cpu_Float_TestPrint ) {
-        TestPrint<float, Compute::DeviceType::Cpu>(
+        TestPrint<Compute::DeviceType::Cpu, float>(
             CpuFloatData(), "LayerNorm: cpu_ln_float" );
     }
 
     TEST_F( LayerNormTests, Cpu_Float_DeviceType ) {
-        TestDeviceType<float, Compute::DeviceType::Cpu>( CpuFloatData() );
+        TestDeviceType<Compute::DeviceType::Cpu, float>( CpuFloatData() );
     }
 
     TEST_F( LayerNormTests, Cpu_Float_TrainingMode ) {
-        TestTrainingMode<float, Compute::DeviceType::Cpu>( CpuFloatData(), false );
+        TestTrainingMode<Compute::DeviceType::Cpu, float>( CpuFloatData(), false );
     }
 
     // CPU Tests with no bias
     TEST_F( LayerNormTests, Cpu_Float_NoBias_TestName ) {
-        TestGetName<float, Compute::DeviceType::Cpu>( CpuNoBiasFloatData(), "cpu_ln_no_bias_float" );
+        TestGetName<Compute::DeviceType::Cpu, float>( CpuNoBiasFloatData(), "cpu_ln_no_bias_float" );
     }
 
     TEST_F( LayerNormTests, Cpu_Float_NoBias_ParameterCount ) {
-        TestParameterCount<float, Compute::DeviceType::Cpu>( CpuNoBiasFloatData() );
+        TestParameterCount<Compute::DeviceType::Cpu, float>( CpuNoBiasFloatData() );
     }
 
     TEST_F( LayerNormTests, Cpu_Float_NoBias_TestForward ) {
-        TestForward<float, Compute::DeviceType::Cpu>( CpuNoBiasFloatData() );
+        TestForward<Compute::DeviceType::Cpu, float>( CpuNoBiasFloatData() );
     }
 
     // CPU Training Mode Tests
     TEST_F( LayerNormTests, Cpu_Training_Float_TrainingMode ) {
-        TestTrainingMode<float, Compute::DeviceType::Cpu>( TrainingCpuFloatData(), true );
+        TestTrainingMode<Compute::DeviceType::Cpu, float>( TrainingCpuFloatData(), true );
     }
 
     // Context Construction Tests
     TEST_F( LayerNormTests, Context_Cpu_Float_DeviceType ) {
-        TestDeviceType<float, Compute::DeviceType::Cpu>( ContextCpuFloatData() );
+        TestDeviceType<Compute::DeviceType::Cpu, float>( ContextCpuFloatData() );
     }
 
     TEST_F( LayerNormTests, Context_Cpu_Float_Forward ) {
-        TestForward<float, Compute::DeviceType::Cpu>( ContextCpuFloatData() );
+        TestForward<Compute::DeviceType::Cpu, float>( ContextCpuFloatData() );
     }
 
     // CUDA Tests with float precision
     TEST_F( LayerNormTests, Cuda_Float_TestName ) {
-        TestGetName<float, Compute::DeviceType::Cuda>( CudaFloatData(), "cuda_ln_float" );
+        TestGetName<Compute::DeviceType::Cuda, float>( CudaFloatData(), "cuda_ln_float" );
     }
 
     TEST_F( LayerNormTests, Cuda_Float_ParameterCount ) {
-        TestParameterCount<float, Compute::DeviceType::Cuda>( CudaFloatData() );
+        TestParameterCount<Compute::DeviceType::Cuda, float>( CudaFloatData() );
     }
 
     TEST_F( LayerNormTests, Cuda_Float_TestForward ) {
-        TestForward<float, Compute::DeviceType::Cuda>( CudaFloatData() );
+        TestForward<Compute::DeviceType::Cuda, float>( CudaFloatData() );
     }
 
     TEST_F( LayerNormTests, Cuda_Float_TestPrint ) {
-        TestPrint<float, Compute::DeviceType::Cuda>(
+        TestPrint<Compute::DeviceType::Cuda, float>(
             CudaFloatData(), "LayerNorm: cuda_ln_float" );
     }
 
     TEST_F( LayerNormTests, Cuda_Float_DeviceType ) {
-        TestDeviceType<float, Compute::DeviceType::Cuda>( CudaFloatData() );
+        TestDeviceType<Compute::DeviceType::Cuda, float>( CudaFloatData() );
     }
 
     TEST_F( LayerNormTests, Cuda_Float_TrainingMode ) {
-        TestTrainingMode<float, Compute::DeviceType::Cuda>( CudaFloatData(), false );
+        TestTrainingMode<Compute::DeviceType::Cuda, float>( CudaFloatData(), false );
     }
 
     // CUDA Tests with no bias
     TEST_F( LayerNormTests, Cuda_Float_NoBias_TestName ) {
-        TestGetName<float, Compute::DeviceType::Cuda>( CudaNoBiasFloatData(), "cuda_ln_no_bias_float" );
+        TestGetName<Compute::DeviceType::Cuda, float>( CudaNoBiasFloatData(), "cuda_ln_no_bias_float" );
     }
 
     TEST_F( LayerNormTests, Cuda_Float_NoBias_ParameterCount ) {
-        TestParameterCount<float, Compute::DeviceType::Cuda>( CudaNoBiasFloatData() );
+        TestParameterCount<Compute::DeviceType::Cuda, float>( CudaNoBiasFloatData() );
     }
 
     TEST_F( LayerNormTests, Cuda_Float_NoBias_TestForward ) {
-        TestForward<float, Compute::DeviceType::Cuda>( CudaNoBiasFloatData() );
+        TestForward<Compute::DeviceType::Cuda, float>( CudaNoBiasFloatData() );
     }
 
     // CUDA Tests with half precision
     TEST_F( LayerNormTests, Cuda_Half_TestName ) {
-        TestGetName<half, Compute::DeviceType::Cuda>( CudaHalfData(), "cuda_ln_half" );
+        TestGetName<Compute::DeviceType::Cuda, half>( CudaHalfData(), "cuda_ln_half" );
     }
 
     TEST_F( LayerNormTests, Cuda_Half_ParameterCount ) {
-        TestParameterCount<half, Compute::DeviceType::Cuda>( CudaHalfData() );
+        TestParameterCount<Compute::DeviceType::Cuda, half>( CudaHalfData() );
     }
 
     TEST_F( LayerNormTests, Cuda_Half_TestForward ) {
-        TestForward<half, Compute::DeviceType::Cuda>( CudaHalfData() );
+        TestForward<Compute::DeviceType::Cuda, half>( CudaHalfData() );
     }
 
     TEST_F( LayerNormTests, Cuda_Half_TestPrint ) {
-        TestPrint<half, Compute::DeviceType::Cuda>( CudaHalfData(), "LayerNorm: cuda_ln_half" );
+        TestPrint<Compute::DeviceType::Cuda, half>( CudaHalfData(), "LayerNorm: cuda_ln_half" );
     }
 
     TEST_F( LayerNormTests, Cuda_Half_TrainingMode ) {
-        TestTrainingMode<half, Compute::DeviceType::Cuda>( CudaHalfData(), false );
+        TestTrainingMode<Compute::DeviceType::Cuda, half>( CudaHalfData(), false );
     }
 
     // CUDA Training Mode Tests
     TEST_F( LayerNormTests, Cuda_Training_Float_TrainingMode ) {
-        TestTrainingMode<float, Compute::DeviceType::Cuda>( TrainingCudaFloatData(), true );
+        TestTrainingMode<Compute::DeviceType::Cuda, float>( TrainingCudaFloatData(), true );
+    }
+
+    // Mixed Precision Tests
+    TEST_F( LayerNormTests, Cuda_MixedPrecision_TestForward ) {
+        TestForward<Compute::DeviceType::Cuda, float, half>( MixedPrecisionData() );
+    }
+
+    TEST_F( LayerNormTests, Cuda_MixedPrecision_TestName ) {
+        TestGetName<Compute::DeviceType::Cuda, float, half>( MixedPrecisionData(), "cuda_ln_mixed" );
     }
 
     // Training behavior tests
     TEST_F( LayerNormTests, Cpu_Float_TrainingModeBehavior ) {
-        TestTrainingModeBehavior<float, Compute::DeviceType::Cpu>(
+        TestTrainingModeBehavior<Compute::DeviceType::Cpu, float>(
             TrainingCpuFloatData(), CpuFloatData() );
     }
 
     TEST_F( LayerNormTests, Cuda_Float_TrainingModeBehavior ) {
-        TestTrainingModeBehavior<float, Compute::DeviceType::Cuda>(
+        TestTrainingModeBehavior<Compute::DeviceType::Cuda, float>(
             TrainingCudaFloatData(), CudaFloatData() );
     }
 
     // Edge Case Tests
     TEST_F( LayerNormTests, Cpu_Float_EdgeCases ) {
-        TestEdgeCases<float, Compute::DeviceType::Cpu>();
+        TestEdgeCases<Compute::DeviceType::Cpu, float>();
     }
 
     TEST_F( LayerNormTests, Cuda_Float_EdgeCases ) {
-        TestEdgeCases<float, Compute::DeviceType::Cuda>();
+        TestEdgeCases<Compute::DeviceType::Cuda, float>();
     }
 
     // Numerical stability tests
     TEST_F( LayerNormTests, Cpu_Float_NumericalStability ) {
-        TestNumericalStability<float, Compute::DeviceType::Cpu>();
+        TestNumericalStability<Compute::DeviceType::Cpu, float>();
     }
 
     TEST_F( LayerNormTests, Cuda_Float_NumericalStability ) {
-        TestNumericalStability<float, Compute::DeviceType::Cuda>();
+        TestNumericalStability<Compute::DeviceType::Cuda, float>();
     }
 
     // Deterministic behavior test (CUDA only)
@@ -752,11 +769,11 @@ namespace Modules::Tests
 
     // Mock save/load tests
     TEST_F( LayerNormTests, Cpu_Float_SaveLoad ) {
-        TestSaveLoadMockup<float, Compute::DeviceType::Cpu>( CpuFloatData() );
+        TestSaveLoadMockup<Compute::DeviceType::Cpu, float>( CpuFloatData() );
     }
 
     TEST_F( LayerNormTests, Cuda_Float_SaveLoad ) {
-        TestSaveLoadMockup<float, Compute::DeviceType::Cuda>( CudaFloatData() );
+        TestSaveLoadMockup<Compute::DeviceType::Cuda, float>( CudaFloatData() );
     }
 
     // CPU-CUDA equivalence test

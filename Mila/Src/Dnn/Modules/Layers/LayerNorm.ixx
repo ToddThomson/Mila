@@ -51,9 +51,7 @@ namespace Mila::Dnn
      * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
      */
     export template<DeviceType TDeviceType = DeviceType::Cuda,
-        typename TInput = float,
-        typename TOutput = TInput,
-        typename TPrecision = TOutput>
+        typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
         requires ValidTensorTypes<TInput, TOutput>&& ValidPrecisionType<TPrecision>
     class LayerNorm : public Module<TDeviceType, TInput, TOutput, TPrecision> {
     public:
@@ -156,7 +154,7 @@ namespace Mila::Dnn
          * @param input The input tensor to be normalized.
          * @param output The output tensor where the results will be stored.
          */
-        void forward( const Tensor<TPrecision, MR>& input, Tensor<TPrecision, MR>& output ) {
+        void forward( const Tensor<TInput, MR>& input, Tensor<TOutput, MR>& output ) {
             operation_->forward( input, parameters_, properties_, output, output_state_ );
         }
 
@@ -359,18 +357,18 @@ namespace Mila::Dnn
          */
         void createOperation() {
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<TInput, TOutput, TPrecision, DeviceType::Cpu>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TInput, TOutput, TPrecision>(
                     "Cpu::LayerNormOp",
                     this->getDeviceContext() );
 
-                operation_ = std::static_pointer_cast<UnaryOperation<TInput, TOutput, TPrecision, TDeviceType>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cpu, TInput, TOutput, TPrecision>>(base_op);
             }
             else {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<TInput, TOutput, TPrecision, DeviceType::Cuda>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision>(
                     "Cuda::LayerNormOp",
                     this->getDeviceContext() );
 
-                operation_ = std::static_pointer_cast<UnaryOperation<TInput, TOutput, TPrecision, TDeviceType>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision>>(base_op);
             }
         }
     };

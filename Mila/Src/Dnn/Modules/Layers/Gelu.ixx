@@ -104,7 +104,7 @@ namespace Mila::Dnn
          * @param input The input tensor to apply the activation function to.
          * @param output The output tensor where the results will be stored.
          */
-        void forward( const Tensor<TPrecision, MR>& input, Tensor<TPrecision, MR>& output ) {
+        void forward( const Tensor<TInput, MR>& input, Tensor<TOutput, MR>& output ) {
             operation_->forward( input, parameters_, properties_, output, output_state_ );
         }
 

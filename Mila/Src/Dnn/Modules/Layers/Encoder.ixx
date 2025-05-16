@@ -52,10 +52,8 @@ namespace Mila::Dnn
     */
     export
         template<DeviceType TDeviceType = DeviceType::Cuda,
-        typename TInput = int,
-        typename TOutput = float,
-        typename TPrecision = TOutput>
-        requires ValidTensorType<TInput>&& ValidFloatTensorType<TOutput>&& ValidPrecisionType<TPrecision>
+        typename TInput = int, typename TOutput = float, typename TPrecision = TOutput>
+        requires ValidTensorType<TInput> && ValidFloatTensorType<TOutput> && ValidPrecisionType<TPrecision>
     class Encoder : public Module<TDeviceType, TInput, TOutput, TPrecision> {
     public:
         using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::CpuMemoryResource>;
@@ -213,24 +211,24 @@ namespace Mila::Dnn
          * Token embedding table with shape (V,C), maps token IDs to vector representations.
          * V is the vocabulary size and C is the embedding dimension.
          */
-        std::shared_ptr<Tensor<TPrecision, MR>> wte_{ nullptr };
+        std::shared_ptr<Tensor<TOutput, MR>> wte_{ nullptr };
 
         /**
          * Position embedding table with shape (maxT,C), encodes token position information.
          * maxT is the maximum sequence length and C is the embedding dimension.
          */
-        std::shared_ptr<Tensor<TPrecision, MR>> wpe_{ nullptr };
+        std::shared_ptr<Tensor<TOutput, MR>> wpe_{ nullptr };
 
         /**
          * Vector of parameter tensors that will be used during forward/backward passes.
          * Contains both the token embeddings (wte) and position embeddings (wpe).
          */
-        std::vector<std::shared_ptr<Tensor<TPrecision, MR>>> parameters_;
+        std::vector<std::shared_ptr<Tensor<TOutput, MR>>> parameters_;
 
         /**
          * Output state tensors used for intermediate values. Not used in this module.
          */
-        std::vector<std::shared_ptr<Tensor<TPrecision, MR>>> output_state_;
+        std::vector<std::shared_ptr<Tensor<TOutput, MR>>> output_state_;
 
         /**
          * Operation-specific attributes and configuration.
@@ -257,13 +255,13 @@ namespace Mila::Dnn
             parameters_.clear();
             this->parameter_map_.clear();
 
-            wte_ = std::make_shared<Tensor<TPrecision, MR>>( std::vector<size_t>{vocab_len_, channels_} );
+            wte_ = std::make_shared<Tensor<TOutput, MR>>( std::vector<size_t>{vocab_len_, channels_} );
             wte_->setName( this->getName() + ".wte" );
-            xavier<TPrecision, MR>( *wte_, vocab_len_, channels_ );
+            xavier<TOutput, MR>( *wte_, vocab_len_, channels_ );
 
-            wpe_ = std::make_shared<Tensor<TPrecision, MR>>( std::vector<size_t>{max_seq_len_, channels_} );
+            wpe_ = std::make_shared<Tensor<TOutput, MR>>( std::vector<size_t>{max_seq_len_, channels_} );
             wpe_->setName( this->getName() + ".wpe" );
-            xavier<TPrecision, MR>( *wpe_, max_seq_len_, channels_ );
+            xavier<TOutput, MR>( *wpe_, max_seq_len_, channels_ );
 
             // Add tensors to parameters list and map
             parameters_.emplace_back( wte_ );
@@ -284,18 +282,18 @@ namespace Mila::Dnn
         */
         void createOperation() {
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<TInput, TOutput, TPrecision, DeviceType::Cpu>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TInput, TOutput, TPrecision>(
                     "Cpu::EncoderOp",
                     this->getDeviceContext() );
 
-                operation_ = std::static_pointer_cast<UnaryOperation<TInput, TOutput, TPrecision, TDeviceType>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cpu, TInput, TOutput, TPrecision>>(base_op);
             }
             else {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<TInput, TOutput, TPrecision, DeviceType::Cuda>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision>(
                     "Cuda::EncoderOp",
                     this->getDeviceContext() );
 
-                operation_ = std::static_pointer_cast<UnaryOperation<TInput, TOutput, TPrecision, TDeviceType>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision>>(base_op);
             }
         }
     };
