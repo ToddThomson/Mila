@@ -11,15 +11,15 @@ namespace Modules::Tests
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
 
-    template<typename TPrecision, Compute::DeviceType TDevice>
-    using MemoryResourceType = std::conditional_t<TDevice == Compute::DeviceType::Cuda,
+    template<DeviceType TDeviceType>
+    using MemoryResourceType = std::conditional_t<TDeviceType == DeviceType::Cuda,
         Compute::CudaMemoryResource,
         Compute::CpuMemoryResource>;
 
-    template<typename TPrecision, Compute::DeviceType TDevice>
+    template<DeviceType TDeviceType, typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
     struct ResidualTestData {
         std::vector<size_t> shape;
-        std::shared_ptr<Residual<TPrecision, TDevice>> residual_module;
+        std::shared_ptr<Residual<TDeviceType, TInput, TOutput, TPrecision>> residual_module;
         bool is_training;
 
         static ResidualTestData Create(
@@ -33,9 +33,9 @@ namespace Modules::Tests
             data.shape = { batch_size, sequence_length, channels };
             data.is_training = is_training;
 
-            std::string device_str = TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU";
-            
-            data.residual_module = std::make_shared<Residual<TPrecision, TDevice>>(
+            std::string device_str = TDeviceType == DeviceType::Cuda ? "CUDA:0" : "CPU";
+
+            data.residual_module = std::make_shared<Residual<TDeviceType, TInput, TOutput, TPrecision>>(
                 name, device_str, is_training );
 
             return data;
@@ -54,7 +54,7 @@ namespace Modules::Tests
             data.shape = { batch_size, sequence_length, channels };
             data.is_training = is_training;
 
-            data.residual_module = std::make_shared<Residual<TPrecision, TDevice>>(
+            data.residual_module = std::make_shared<Residual<TDeviceType, TInput, TOutput, TPrecision>>(
                 name, context, is_training );
 
             return data;
@@ -71,58 +71,58 @@ namespace Modules::Tests
         }
 
         // Factory methods to lazily create test data as needed
-        ResidualTestData<float, Compute::DeviceType::Cpu>& CpuFloatData() {
+        ResidualTestData<DeviceType::Cpu>& CpuFloatData() {
             if ( !cpu_float_data_.residual_module ) {
-                cpu_float_data_ = ResidualTestData<float, Compute::DeviceType::Cpu>::Create(
+                cpu_float_data_ = ResidualTestData<DeviceType::Cpu>::Create(
                     "cpu_residual_float", cpu_batch_size_, sequence_length_, channels_ );
             }
             return cpu_float_data_;
         }
 
-        ResidualTestData<float, Compute::DeviceType::Cuda>& CudaFloatData() {
+        ResidualTestData<DeviceType::Cuda>& CudaFloatData() {
             if ( !cuda_float_data_.residual_module ) {
-                cuda_float_data_ = ResidualTestData<float, Compute::DeviceType::Cuda>::Create(
+                cuda_float_data_ = ResidualTestData<DeviceType::Cuda>::Create(
                     "cuda_residual_float", batch_size_, sequence_length_, channels_ );
             }
             return cuda_float_data_;
         }
 
-        ResidualTestData<float, Compute::DeviceType::Cpu>& TrainingCpuFloatData() {
+        ResidualTestData<DeviceType::Cpu>& TrainingCpuFloatData() {
             if ( !training_cpu_float_data_.residual_module ) {
-                training_cpu_float_data_ = ResidualTestData<float, Compute::DeviceType::Cpu>::Create(
+                training_cpu_float_data_ = ResidualTestData<DeviceType::Cpu>::Create(
                     "cpu_residual_float_training", cpu_batch_size_, sequence_length_, channels_, true );
             }
             return training_cpu_float_data_;
         }
 
-        ResidualTestData<float, Compute::DeviceType::Cuda>& TrainingCudaFloatData() {
+        ResidualTestData<DeviceType::Cuda>& TrainingCudaFloatData() {
             if ( !training_cuda_float_data_.residual_module ) {
-                training_cuda_float_data_ = ResidualTestData<float, Compute::DeviceType::Cuda>::Create(
+                training_cuda_float_data_ = ResidualTestData<DeviceType::Cuda>::Create(
                     "cuda_residual_float_training", batch_size_, sequence_length_, channels_, true );
             }
             return training_cuda_float_data_;
         }
 
-        ResidualTestData<float, Compute::DeviceType::Cpu>& ContextCpuFloatData() {
+        ResidualTestData<DeviceType::Cpu>& ContextCpuFloatData() {
             if ( !context_cpu_float_data_.residual_module ) {
                 auto cpu_context = std::make_shared<DeviceContext>( "CPU" );
-                context_cpu_float_data_ = ResidualTestData<float, Compute::DeviceType::Cpu>::CreateWithContext(
+                context_cpu_float_data_ = ResidualTestData<DeviceType::Cpu>::CreateWithContext(
                     "cpu_context_residual_float", cpu_batch_size_, sequence_length_, channels_, cpu_context );
             }
             return context_cpu_float_data_;
         }
 
-        ResidualTestData<half, Compute::DeviceType::Cuda>& CudaHalfData() {
+        ResidualTestData<DeviceType::Cuda, float, float, half>& CudaHalfData() {
             if ( !cuda_half_data_.residual_module ) {
-                cuda_half_data_ = ResidualTestData<half, Compute::DeviceType::Cuda>::Create(
+                cuda_half_data_ = ResidualTestData<DeviceType::Cuda, float, float, half>::Create(
                     "cuda_residual_half", batch_size_, sequence_length_, channels_ );
             }
             return cuda_half_data_;
         }
 
-        ResidualTestData<half, Compute::DeviceType::Cuda>& TrainingCudaHalfData() {
+        ResidualTestData<DeviceType::Cuda, float, float, half>& TrainingCudaHalfData() {
             if ( !training_cuda_half_data_.residual_module ) {
-                training_cuda_half_data_ = ResidualTestData<half, Compute::DeviceType::Cuda>::Create(
+                training_cuda_half_data_ = ResidualTestData<DeviceType::Cuda, float, float, half>::Create(
                     "cuda_residual_half_training", batch_size_, sequence_length_, channels_, true );
             }
             return training_cuda_half_data_;
@@ -135,68 +135,68 @@ namespace Modules::Tests
         size_t channels_{ 0 };
 
         // Test data objects - initialized on demand
-        ResidualTestData<float, Compute::DeviceType::Cpu> cpu_float_data_;
-        ResidualTestData<float, Compute::DeviceType::Cpu> context_cpu_float_data_;
-        ResidualTestData<float, Compute::DeviceType::Cpu> training_cpu_float_data_;
+        ResidualTestData<DeviceType::Cpu> cpu_float_data_;
+        ResidualTestData<DeviceType::Cpu> context_cpu_float_data_;
+        ResidualTestData<DeviceType::Cpu> training_cpu_float_data_;
 
-        ResidualTestData<float, Compute::DeviceType::Cuda> cuda_float_data_;
-        ResidualTestData<float, Compute::DeviceType::Cuda> training_cuda_float_data_;
+        ResidualTestData<DeviceType::Cuda> cuda_float_data_;
+        ResidualTestData<DeviceType::Cuda> training_cuda_float_data_;
 
-        ResidualTestData<half, Compute::DeviceType::Cuda> cuda_half_data_;
-        ResidualTestData<half, Compute::DeviceType::Cuda> training_cuda_half_data_;
+        ResidualTestData<DeviceType::Cuda, float, float, half> cuda_half_data_;
+        ResidualTestData<DeviceType::Cuda, float, float, half> training_cuda_half_data_;
     };
 
     // Common test function templates
-    template<typename TPrecision, Compute::DeviceType TDevice>
-    void TestGetName( const ResidualTestData<TPrecision, TDevice>& data, const std::string& expected_name ) {
+    template<DeviceType TDeviceType, typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
+    void TestGetName( const ResidualTestData<TDeviceType, TInput, TOutput, TPrecision>& data, const std::string& expected_name ) {
         EXPECT_EQ( data.residual_module->getName(), expected_name );
     }
 
-    template<typename TPrecision, Compute::DeviceType TDevice>
-    void TestParameterCount( const ResidualTestData<TPrecision, TDevice>& data, size_t expected_count ) {
+    template<DeviceType TDeviceType, typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
+    void TestParameterCount( const ResidualTestData<TDeviceType, TInput, TOutput, TPrecision>& data, size_t expected_count ) {
         EXPECT_EQ( data.residual_module->parameterCount(), expected_count );
     }
 
-    template<typename TPrecision, Compute::DeviceType TDevice>
-    void TestForward( const ResidualTestData<TPrecision, TDevice>& data ) {
-        using MR = std::conditional_t<TDevice == Compute::DeviceType::Cuda,
+    template<DeviceType TDeviceType, typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
+    void TestForward( const ResidualTestData<TDeviceType, TInput, TOutput, TPrecision>& data ) {
+        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda,
             Compute::CudaMemoryResource,
             Compute::CpuMemoryResource>;
 
-        Tensor<TPrecision, MR> input_a( data.shape, 4.0f );
-        Tensor<TPrecision, MR> input_b( data.shape, 2.0f );
-        Tensor<TPrecision, MR> output( data.shape );
+        Tensor<TInput, MR> input_a( data.shape, 4.0f );
+        Tensor<TInput, MR> input_b( data.shape, 2.0f );
+        Tensor<TOutput, MR> output( data.shape );
 
         data.residual_module->forward( input_a, input_b, output );
-        
+
         EXPECT_EQ( output.size(), input_a.size() );
     }
 
-    template<typename TPrecision, Compute::DeviceType TDevice>
-    void TestPrint( const ResidualTestData<TPrecision, TDevice>& data, const std::string& expected_substring ) {
+    template<DeviceType TDeviceType, typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
+    void TestPrint( const ResidualTestData<TDeviceType, TInput, TOutput, TPrecision>& data, const std::string& expected_substring ) {
         std::string output = data.residual_module->toString();
         EXPECT_NE( output.find( expected_substring ), std::string::npos );
     }
 
-    template<typename TPrecision, Compute::DeviceType TDevice>
-    void TestTrainingMode( const ResidualTestData<TPrecision, TDevice>& data, bool expected_mode ) {
+    template<DeviceType TDeviceType, typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
+    void TestTrainingMode( const ResidualTestData<TDeviceType, TInput, TOutput, TPrecision>& data, bool expected_mode ) {
         EXPECT_EQ( data.residual_module->isTraining(), expected_mode );
     }
 
-    template<typename TPrecision, Compute::DeviceType TDevice>
-    void TestDeviceType( const ResidualTestData<TPrecision, TDevice>& data ) {
+    template<DeviceType TDeviceType, typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
+    void TestDeviceType( const ResidualTestData<TDeviceType, TInput, TOutput, TPrecision>& data ) {
         auto device_context = data.residual_module->getDeviceContext();
         EXPECT_NE( device_context, nullptr );
         auto device = device_context->getDevice();
         EXPECT_NE( device, nullptr );
-        EXPECT_EQ( device->getDeviceType(), TDevice );
+        EXPECT_EQ( device->getDeviceType(), TDeviceType );
     }
 
     // Function to test equivalence of CPU and CUDA outputs
     template<typename TPrecision>
     void TestCpuCudaEquivalence(
-        const ResidualTestData<TPrecision, Compute::DeviceType::Cpu>& cpu_data,
-        const ResidualTestData<TPrecision, Compute::DeviceType::Cuda>& cuda_data ) {
+        const ResidualTestData<DeviceType::Cpu, float, float, TPrecision>& cpu_data,
+        const ResidualTestData<DeviceType::Cuda, float, float, TPrecision>& cuda_data ) {
 
         // Create a small test shape to make comparison faster
         std::vector<size_t> test_shape = { 2, 4, 8 }; // Small shape for quick verification
@@ -238,7 +238,7 @@ namespace Modules::Tests
             if ( diff > epsilon ) {
                 std::cout << "Difference at index " << i << ": CPU=" << cpu_output.data()[ i ]
                     << ", CUDA=" << cuda_output_host.data()[ i ] << ", diff=" << diff << std::endl;
-                    all_equal = false;
+                all_equal = false;
             }
         }
 
@@ -246,16 +246,16 @@ namespace Modules::Tests
     }
 
     // Test with different dimensions (edge cases)
-    template<typename TPrecision, Compute::DeviceType TDevice>
+    template<DeviceType TDeviceType, typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
     void TestEdgeCases() {
-        using MR = MemoryResourceType<TPrecision, TDevice>;
+        using MR = MemoryResourceType<TDeviceType>;
 
         try {
             // Test with minimal sizes
             std::vector<size_t> minimal_shape = { 1, 1, 8 };
 
-            auto minimal_module = std::make_shared<Residual<TPrecision, TDevice>>(
-                "minimal_residual", TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU" );
+            auto minimal_module = std::make_shared<Residual<TDeviceType, TInput, TOutput, TPrecision>>(
+                "minimal_residual", TDeviceType == DeviceType::Cuda ? "CUDA:0" : "CPU" );
 
             Tensor<TPrecision, MR> minimal_input_a( minimal_shape, 1.0f );
             Tensor<TPrecision, MR> minimal_input_b( minimal_shape, 2.0f );
@@ -267,8 +267,8 @@ namespace Modules::Tests
             // Test with larger dimensions
             std::vector<size_t> large_shape = { 2, 2, 1024 };
 
-            auto large_module = std::make_shared<Residual<TPrecision, TDevice>>(
-                "large_residual", TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU" );
+            auto large_module = std::make_shared<Residual<TDeviceType, TInput, TOutput, TPrecision>>(
+                "large_residual", TDeviceType == DeviceType::Cuda ? "CUDA:0" : "CPU" );
 
             Tensor<TPrecision, MR> large_input_a( large_shape, 1.0f );
             Tensor<TPrecision, MR> large_input_b( large_shape, 2.0f );
@@ -285,13 +285,13 @@ namespace Modules::Tests
 
     // Test for device change events
     //template<typename TPrecision>
-    //void TestDeviceChange( const ResidualTestData<TPrecision, Compute::DeviceType::Cpu>& data ) {
+    //void TestDeviceChange( const ResidualTestData<DeviceType::Cpu, float, float, TPrecision>& data ) {
     //    // Create a new device context
     //    auto new_context = std::make_shared<DeviceContext>( "CPU" );
-
+    //
     //    // Change device
     //    EXPECT_NO_THROW( data.residual_module->setDeviceContext( new_context ) );
-
+    //
     //    // Verify operations still work after device change
     //    std::vector<size_t> test_shape = { 2, 4, 8 };
     //    Tensor<TPrecision, Compute::CpuMemoryResource> input_a( test_shape, 1.0f );
@@ -302,106 +302,101 @@ namespace Modules::Tests
 
     // CPU Tests with float precision
     TEST_F( ResidualTests, Cpu_Float_TestName ) {
-        TestGetName<float, Compute::DeviceType::Cpu>( CpuFloatData(), "cpu_residual_float" );
+        TestGetName( CpuFloatData(), "cpu_residual_float" );
     }
 
     TEST_F( ResidualTests, Cpu_Float_ParameterCount ) {
-        TestParameterCount<float, Compute::DeviceType::Cpu>( CpuFloatData(), 0 );
+        TestParameterCount( CpuFloatData(), 0 );
     }
 
     TEST_F( ResidualTests, Cpu_Float_TestForward ) {
-        TestForward<float, Compute::DeviceType::Cpu>( CpuFloatData() );
+        TestForward( CpuFloatData() );
     }
 
     TEST_F( ResidualTests, Cpu_Float_TestPrint ) {
-        TestPrint<float, Compute::DeviceType::Cpu>( CpuFloatData(), "Residual: cpu_residual_float" );
+        TestPrint( CpuFloatData(), "Residual: cpu_residual_float" );
     }
 
     TEST_F( ResidualTests, Cpu_Float_TrainingMode ) {
-        TestTrainingMode<float, Compute::DeviceType::Cpu>( CpuFloatData(), false );
+        TestTrainingMode( CpuFloatData(), false );
     }
 
     TEST_F( ResidualTests, Cpu_Float_DeviceType ) {
-        TestDeviceType<float, Compute::DeviceType::Cpu>( CpuFloatData() );
+        TestDeviceType( CpuFloatData() );
     }
 
     // CPU Training Mode Tests
     TEST_F( ResidualTests, Cpu_Training_Float_TrainingMode ) {
-        TestTrainingMode<float, Compute::DeviceType::Cpu>( TrainingCpuFloatData(), true );
+        TestTrainingMode( TrainingCpuFloatData(), true );
     }
 
     // CUDA Tests with float precision
     TEST_F( ResidualTests, Cuda_Float_TestName ) {
-        TestGetName<float, Compute::DeviceType::Cuda>( CudaFloatData(), "cuda_residual_float" );
+        TestGetName( CudaFloatData(), "cuda_residual_float" );
     }
 
     TEST_F( ResidualTests, Cuda_Float_ParameterCount ) {
-        TestParameterCount<float, Compute::DeviceType::Cuda>( CudaFloatData(), 0 );
+        TestParameterCount( CudaFloatData(), 0 );
     }
 
     TEST_F( ResidualTests, Cuda_Float_TestForward ) {
-        TestForward<float, Compute::DeviceType::Cuda>( CudaFloatData() );
+        TestForward( CudaFloatData() );
     }
 
     TEST_F( ResidualTests, Cuda_Float_TestPrint ) {
-        TestPrint<float, Compute::DeviceType::Cuda>( CudaFloatData(), "Residual: cuda_residual_float" );
+        TestPrint( CudaFloatData(), "Residual: cuda_residual_float" );
     }
 
     TEST_F( ResidualTests, Cuda_Float_TrainingMode ) {
-        TestTrainingMode<float, Compute::DeviceType::Cuda>( CudaFloatData(), false );
+        TestTrainingMode( CudaFloatData(), false );
     }
 
     TEST_F( ResidualTests, Cuda_Float_DeviceType ) {
-        TestDeviceType<float, Compute::DeviceType::Cuda>( CudaFloatData() );
+        TestDeviceType( CudaFloatData() );
     }
 
     // CUDA Training Mode Tests
     TEST_F( ResidualTests, Cuda_Training_Float_TrainingMode ) {
-        TestTrainingMode<float, Compute::DeviceType::Cuda>( TrainingCudaFloatData(), true );
+        TestTrainingMode( TrainingCudaFloatData(), true );
     }
 
     // CUDA Tests with half precision
     TEST_F( ResidualTests, Cuda_Half_TestName ) {
-        TestGetName<half, Compute::DeviceType::Cuda>( CudaHalfData(), "cuda_residual_half" );
+        TestGetName( CudaHalfData(), "cuda_residual_half" );
     }
 
     TEST_F( ResidualTests, Cuda_Half_ParameterCount ) {
-        TestParameterCount<half, Compute::DeviceType::Cuda>( CudaHalfData(), 0 );
+        TestParameterCount( CudaHalfData(), 0 );
     }
 
     TEST_F( ResidualTests, Cuda_Half_TestForward ) {
-        TestForward<half, Compute::DeviceType::Cuda>( CudaHalfData() );
+        TestForward( CudaHalfData() );
     }
 
     TEST_F( ResidualTests, Cuda_Half_TestPrint ) {
-        TestPrint<half, Compute::DeviceType::Cuda>( CudaHalfData(), "Residual: cuda_residual_half" );
+        TestPrint( CudaHalfData(), "Residual: cuda_residual_half" );
     }
 
     TEST_F( ResidualTests, Cuda_Half_TrainingMode ) {
-        TestTrainingMode<half, Compute::DeviceType::Cuda>( CudaHalfData(), false );
+        TestTrainingMode( CudaHalfData(), false );
     }
 
     // Context Construction Tests
     TEST_F( ResidualTests, Context_Cpu_Float_DeviceType ) {
-        TestDeviceType<float, Compute::DeviceType::Cpu>( ContextCpuFloatData() );
+        TestDeviceType( ContextCpuFloatData() );
     }
 
     TEST_F( ResidualTests, Context_Cpu_Float_Forward ) {
-        TestForward<float, Compute::DeviceType::Cpu>( ContextCpuFloatData() );
+        TestForward( ContextCpuFloatData() );
     }
-
-    // Device Change Tests
-    /*TEST_F( ResidualTests, Cpu_Float_DeviceChange ) {
-        TestDeviceChange<float>( CpuFloatData() );
-    }*/
 
     // Edge Case Tests
     TEST_F( ResidualTests, Cpu_Float_EdgeCases ) {
-        TestEdgeCases<float, Compute::DeviceType::Cpu>();
+        TestEdgeCases<DeviceType::Cpu>();
     }
 
     TEST_F( ResidualTests, Cuda_Float_EdgeCases ) {
-        TestEdgeCases<float, Compute::DeviceType::Cuda>();
+        TestEdgeCases<DeviceType::Cuda>();
     }
 
     // CPU-CUDA Equivalence Test

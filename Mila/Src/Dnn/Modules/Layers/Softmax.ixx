@@ -190,7 +190,7 @@ namespace Mila::Dnn
         /**
          * @brief The underlying unary operation that implements the softmax function.
          */
-        std::shared_ptr<UnaryOperation<TInput, TOutput, TPrecision, TDeviceType>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput, TPrecision>> operation_{ nullptr };
 
         /**
          * @brief Create the appropriate softmax operation based on the current device context.
@@ -203,18 +203,18 @@ namespace Mila::Dnn
             attributes_.set( "axis", axis_ );
 
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<TInput, TOutput, TPrecision, DeviceType::Cpu>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TInput, TOutput, TPrecision>(
                     "Cpu::SoftmaxOp",
                     this->getDeviceContext() );
 
-                operation_ = std::static_pointer_cast<UnaryOperation<TInput, TOutput, TPrecision, TDeviceType>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cpu, TInput, TOutput, TPrecision>>(base_op);
             }
             else {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<TInput, TOutput, TPrecision, DeviceType::Cuda>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision>(
                     "Cuda::SoftmaxOp",
                     this->getDeviceContext() );
 
-                operation_ = std::static_pointer_cast<UnaryOperation<TInput, TOutput, TPrecision, TDeviceType>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision>>(base_op);
             }
         }
     };

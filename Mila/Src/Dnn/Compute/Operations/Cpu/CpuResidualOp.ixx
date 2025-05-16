@@ -44,10 +44,10 @@ namespace Mila::Dnn::Compute
      * @tparam TInput The data type of the input tensor elements.
      * @tparam TDataType The data type used for computation and output (defaults to the input type).
      */
-    export class CpuResidualOp : public BinaryOperation<float, float, float, float, DeviceType::Cpu> {
+    export class CpuResidualOp : public BinaryOperation<DeviceType::Cpu, float, float, float, float> {
     public:
         using MR = typename CpuDevice::MR;
-        using OperationBase = BinaryOperation<float, float, float, float, DeviceType::Cpu>;
+        using OperationBase = BinaryOperation<DeviceType::Cpu, float, float, float, float>;
 
         /**
          * @brief Constructs a new CPU Residual operation with the default device context.
@@ -192,9 +192,9 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cpu::ResidualOp";
 
-            OperationRegistry::instance().registerBinaryOperation<float, float, float, float, DeviceType::Cpu>(
+            OperationRegistry::instance().registerBinaryOperation<DeviceType::Cpu, float, float, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<BinaryOperation<float, float, float, float, DeviceType::Cpu>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<BinaryOperation<DeviceType::Cpu, float, float, float, float>> {
                     return context ? std::make_shared<CpuResidualOp>( context )
                         : std::make_shared<CpuResidualOp>();
                 }

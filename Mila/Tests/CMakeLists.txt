@@ -44,7 +44,7 @@ add_executable( MilaTests
     #"Dnn/Modules/Gelu.cpp" 
     #"Dnn/Modules/Attention.cpp" 
     #"Dnn/Modules/Layernorm.cpp"
-    #"Dnn/Modules/Residual.cpp"
+    "Dnn/Modules/Residual.cpp"
     "Dnn/Modules/Softmax.cpp"
     #"Dnn/Modules/Encoder.cpp" 
 

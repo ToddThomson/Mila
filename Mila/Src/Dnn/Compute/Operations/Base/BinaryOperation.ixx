@@ -47,11 +47,14 @@ namespace Mila::Dnn::Compute
      * @tparam TPrecision The computational precision to use, defaults to ComputePrecision::Default.
      * @tparam TDeviceType The target device type for the operation, defaults to DeviceType::Cuda.
      */
-    export template <typename TInput1, typename TInput2 = TInput1, typename TOutput = TInput1,
-        typename TPrecision = TOutput, DeviceType TDeviceType = DeviceType::Cuda>
+    export template <DeviceType TDeviceType = DeviceType::Cuda, typename TInput1 = float, typename TInput2 = TInput1, typename TOutput = TInput1,
+        typename TPrecision = TOutput>
 		requires ValidTensorTypes<TInput1, TInput2>&& ValidFloatTensorType<TOutput>&& ValidPrecisionType<TPrecision>
-    class BinaryOperation : public OperationBase<TInput1, TInput2, TOutput, TPrecision, TDeviceType> {
+    class BinaryOperation : public OperationBase<TDeviceType, TInput1, TInput2, TOutput, TPrecision> {
     public:
+
+		// TODO: Review the need for need for different TInput2 type. Binary operations typically use the same type for both inputs.
+
         /**
          * @brief Memory resource type based on device type.
          *
@@ -72,7 +75,7 @@ namespace Mila::Dnn::Compute
          * @param operation_type The type of the operation from the OperationType enumeration.
          */
         BinaryOperation( OperationType operation_type )
-            : OperationBase<TInput1, TInput2, TOutput, TPrecision, TDeviceType>( operation_type, CreateCompatibleContext<TDeviceType>() ) {}
+            : OperationBase<TDeviceType, TInput1, TInput2, TOutput, TPrecision>( operation_type, CreateCompatibleContext<TDeviceType>() ) {}
 
         /**
          * @brief Constructs a BinaryOperation with the specified operation type and device context.
@@ -86,7 +89,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the provided context is incompatible with TDeviceType.
          */
         BinaryOperation( OperationType operation_type, std::shared_ptr<DeviceContext> context )
-            : OperationBase<TInput1, TInput2, TOutput, TPrecision, TDeviceType>( operation_type, ValidateContext<TDeviceType>( context ) ) {}
+            : OperationBase<TDeviceType, TInput1, TInput2, TOutput, TPrecision>( operation_type, ValidateContext<TDeviceType>( context ) ) {}
 
         /**
          * @brief Virtual destructor for proper cleanup of derived classes.

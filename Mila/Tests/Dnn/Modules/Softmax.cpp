@@ -2,7 +2,7 @@
 #include <memory>
 #include <vector>
 #include <string>
-#include <cuda_fp16.h>  // For half type
+#include <cuda_fp16.h>
 
 import Mila;
 

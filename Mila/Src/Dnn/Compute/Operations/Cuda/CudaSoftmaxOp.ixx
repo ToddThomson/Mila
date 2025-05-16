@@ -98,18 +98,19 @@ namespace Mila::Dnn::Compute
      * @tparam TInput The data type of the input tensor elements.
      * @tparam TDataType The data type of the output tensor elements (defaults to the input type).
      */
-    export template<typename TPrecision>
+    export template<typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
         requires (std::is_same_v<TPrecision, float> || std::is_same_v<TPrecision, half>)
-    class CudaSoftmaxOp : public UnaryOperation<TPrecision> {
+    class CudaSoftmaxOp : public UnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision> {
     public:
         using MR = typename CudaDevice::MR;
+		using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision>;
         
         /**
          * @brief Constructs a new CUDA Softmax operation with the default device context.
          *
          * Initializes the operation with a CUDA device context (defaults to CUDA:0).
          */
-        CudaSoftmaxOp() : UnaryOperation<TPrecision>( OperationType::SoftmaxOp ) {}
+        CudaSoftmaxOp() : UnaryOperationBase( OperationType::SoftmaxOp ) {}
 
         /**
          * @brief Constructs a new CUDA Softmax operation with a specific device context.
@@ -118,7 +119,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the context is not for a CUDA device.
          */
         CudaSoftmaxOp( std::shared_ptr<DeviceContext> context )
-            : UnaryOperation<TPrecision>( OperationType::SoftmaxOp, context ) {
+            : UnaryOperationBase( OperationType::SoftmaxOp, context ) {
         }
 
         /**
@@ -264,17 +265,17 @@ namespace Mila::Dnn::Compute
             const std::string opName = "Cuda::SoftmaxOp";
 
             // Updated to use device context-aware registration
-            OperationRegistry::instance().registerUnaryOperation<float, float, float, DeviceType::Cuda>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, float, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<float, float, float, DeviceType::Cuda>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, float, float>> {
                     return context ? std::make_shared<CudaSoftmaxOp<float>>( context )
                         : std::make_shared<CudaSoftmaxOp<float>>();
                 }
             );
 
-           OperationRegistry::instance().registerUnaryOperation<half, half, half, DeviceType::Cuda>(
+           OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, half, half, half>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<half, half, half, DeviceType::Cuda>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half, half, half>> {
                     return context ? std::make_shared<CudaSoftmaxOp<half>>( context )
                         : std::make_shared<CudaSoftmaxOp<half>>();
                 }

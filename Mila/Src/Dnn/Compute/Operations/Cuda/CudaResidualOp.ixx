@@ -71,11 +71,11 @@ namespace Mila::Dnn::Compute
      * @tparam TCompute The data type used for computation (defaults to TOutput).
      */
     export template<typename TInput, typename TOutput = TInput, typename TCompute = TOutput>
-        requires ValidFloatTensorType<TInput>&& ValidFloatTensorType<TOutput>&& ValidPrecisionType<TCompute>
-    class CudaResidualOp : public BinaryOperation<TInput, TInput, TOutput, TCompute, DeviceType::Cuda> {
+        requires ValidFloatTensorType<TInput> && ValidFloatTensorType<TOutput> && ValidPrecisionType<TCompute>
+    class CudaResidualOp : public BinaryOperation<DeviceType::Cuda, TInput, TInput, TOutput, TCompute> {
     public:
         using MR = typename CudaDevice::MR;
-        using OperationBase = BinaryOperation<TInput, TInput, TOutput, TCompute, DeviceType::Cuda>;
+        using OperationBase = BinaryOperation<DeviceType::Cuda, TInput, TInput, TOutput, TCompute>;
 
         /**
          * @brief Constructs a new CUDA Residual operation with the default device context.
@@ -204,17 +204,17 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cuda::ResidualOp";
 
-            OperationRegistry::instance().registerBinaryOperation<float, float, float, float, DeviceType::Cuda>(
+            OperationRegistry::instance().registerBinaryOperation<DeviceType::Cuda, float, float, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<BinaryOperation<float, float, float, float, DeviceType::Cuda>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, float, float, float, float>> {
                     return context ? std::make_shared<CudaResidualOp<float>>( context )
                         : std::make_shared<CudaResidualOp<float>>();
                 }
             );
 
-            OperationRegistry::instance().registerBinaryOperation<half, half, half, half, DeviceType::Cuda>(
+            OperationRegistry::instance().registerBinaryOperation<DeviceType::Cuda, half, half, half, half>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<BinaryOperation<half, half, half, half, DeviceType::Cuda>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, half, half, half, half>> {
                     return context ? std::make_shared<CudaResidualOp<half>>( context )
                         : std::make_shared<CudaResidualOp<half>>();
                 }

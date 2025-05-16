@@ -66,17 +66,17 @@ namespace Mila::Dnn::Compute
      * @tparam TInput The data type of the input tensor elements (defaults to TOutput).
      */
     export template<typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
-    class CudaGeluOp : public UnaryOperation<TInput, TOutput, TPrecision, DeviceType::Cuda> {
+    class CudaGeluOp : public UnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision> {
         public:
             using MR = typename CudaDevice::MR;
-			using OperationBase = UnaryOperation<TInput, TOutput, TPrecision, DeviceType::Cuda>;
+			using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision>;
 
             /**
              * @brief Constructs a new CUDA GELU operation with the default device context.
              *
              * Initializes the operation with a CUDA device context (defaults to CUDA:0).
              */
-            CudaGeluOp() : UnaryOperation<TInput, TOutput, TPrecision, DeviceType::Cuda>( OperationType::GeluOp ) {}
+            CudaGeluOp() : UnaryOperationBase( OperationType::GeluOp ) {}
 
             /**
              * @brief Constructs a new CUDA GELU operation with a specific device context.
@@ -85,7 +85,7 @@ namespace Mila::Dnn::Compute
              * @throws std::runtime_error If the context is not for a CUDA device.
              */
             CudaGeluOp( std::shared_ptr<DeviceContext> context )
-                : UnaryOperation<TInput, TOutput, TPrecision, DeviceType::Cuda>( OperationType::GeluOp, context ) {}
+                : UnaryOperationBase( OperationType::GeluOp, context ) {}
 
             /**
              * @brief Performs the forward pass of the GELU activation function on CUDA.
@@ -191,18 +191,18 @@ namespace Mila::Dnn::Compute
             const std::string opName = "Cuda::GeluOp";
 
             // Register float-to-float operation
-            OperationRegistry::instance().registerUnaryOperation<float, float, float, DeviceType::Cuda>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, float, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<float, float, float, DeviceType::Cuda>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, float, float>> {
                     return context ? std::make_shared<CudaGeluOp<float, float>>( context )
                         : std::make_shared<CudaGeluOp<float, float>>();
                 }
             );
 
             // Register half-to-half operation
-            OperationRegistry::instance().registerUnaryOperation<half, half, half, DeviceType::Cuda>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, half, half, half>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<half, half, half, DeviceType::Cuda>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half, half, half>> {
                     return context ? std::make_shared<CudaGeluOp<half>>( context )
                         : std::make_shared<CudaGeluOp<half>>();
                 }

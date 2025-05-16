@@ -288,7 +288,7 @@ namespace Mila::Dnn
         /**
          * @brief The underlying operation that implements Layer Normalization.
          */
-        std::shared_ptr<UnaryOperation<TInput, TOutput, TPrecision, TDeviceType>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput, TPrecision>> operation_{ nullptr };
 
         /**
          * @brief Initializes the tensors needed for the Layer Normalization operation.

@@ -31,14 +31,15 @@ namespace Mila::Dnn::Compute
     const float GELU_SCALING_FACTOR = sqrtf( 2.0f / M_PI );
     // REVIEW: constexpr float GELU_SCALING_FACTOR = sqrtf(2.0f / M_PI);
 
-    export class CpuGeluOp : public UnaryOperation<float, float, float, DeviceType::Cpu> {
+    export class CpuGeluOp : public UnaryOperation<DeviceType::Cpu, float, float, float> {
     public:
         using MR = typename CpuDevice::MR;
+		using UnaryOperationBase = UnaryOperation<DeviceType::Cpu, float, float, float>;
 
         /**
          * @brief Constructs a new CpuGeluOp with the default device context.
          */
-        CpuGeluOp() : UnaryOperation<float, float, float, DeviceType::Cpu>( OperationType::GeluOp ) {}
+        CpuGeluOp() : UnaryOperationBase( OperationType::GeluOp ) {}
 
         /**
          * @brief Constructs a new CpuGeluOp with a specific device context.
@@ -47,7 +48,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the context is not for a CPU device.
          */
         CpuGeluOp( std::shared_ptr<DeviceContext> context )
-            : UnaryOperation<float, float, float, DeviceType::Cpu>( OperationType::GeluOp, context ) {
+            : UnaryOperationBase( OperationType::GeluOp, context ) {
         }
 
         /**
@@ -148,9 +149,9 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cpu::GeluOp";
 
-            OperationRegistry::instance().registerUnaryOperation<float, float, float, DeviceType::Cpu>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, float, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<float, float, float, DeviceType::Cpu>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float, float>> {
                     return context ? std::make_shared<CpuGeluOp>( context )
                         : std::make_shared<CpuGeluOp>();
                 }

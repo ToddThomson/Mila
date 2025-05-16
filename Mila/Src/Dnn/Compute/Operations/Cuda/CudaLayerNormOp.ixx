@@ -80,16 +80,18 @@ namespace Mila::Dnn::Compute
      * @tparam TPrecision The data type of the input tensor elements.
      * @tparam TDataType The data type of the output tensor elements (defaults to the input type).
      */
-    export template<typename TPrecision>
-    class CudaLayerNormOp : public UnaryOperation<TPrecision> {
+    export template<typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
+    class CudaLayerNormOp : public UnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision> {
     public:
         using MR = typename CudaDevice::MR;
+		using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision>;
+
         /**
          * @brief Constructs a new CUDA Layer Normalization operation with the default device context.
          *
          * Initializes the operation with a CUDA device context (defaults to CUDA:0).
          */
-        CudaLayerNormOp() : UnaryOperation<TPrecision>( OperationType::LayerNormOp ) {}
+        CudaLayerNormOp() : UnaryOperationBase( OperationType::LayerNormOp ) {}
 
         /**
          * @brief Constructs a new CUDA Layer Normalization operation with a specific device context.
@@ -98,7 +100,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the context is not for a CUDA device.
          */
         CudaLayerNormOp( std::shared_ptr<DeviceContext> context )
-            : UnaryOperation<TPrecision>( OperationType::LayerNormOp, context ) {
+            : UnaryOperationBase( OperationType::LayerNormOp, context ) {
         }
 
         /**
@@ -226,17 +228,17 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cuda::LayerNormOp";
 
-            OperationRegistry::instance().registerUnaryOperation<float, float, float, DeviceType::Cuda>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, float, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<float, float, float, DeviceType::Cuda>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, float, float>> {
                     return context ? std::make_shared<CudaLayerNormOp<float>>( context )
                         : std::make_shared<CudaLayerNormOp<float>>();
                 }
             );
 
-            OperationRegistry::instance().registerUnaryOperation<half, half, half, DeviceType::Cuda>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, half, half, half>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<half, half, half, DeviceType::Cuda>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half, half, half>> {
                     return context ? std::make_shared<CudaLayerNormOp<half>>( context )
                         : std::make_shared<CudaLayerNormOp<half>>();
                 }

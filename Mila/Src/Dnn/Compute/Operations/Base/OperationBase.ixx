@@ -36,8 +36,8 @@ namespace Mila::Dnn::Compute
      * @tparam TPrecision The computational precision to use, defaults to ComputePrecision::Default.
      * @tparam TDeviceType The target device type for the operation, defaults to DeviceType::Cuda.
      */
-    export template <typename TInput1, typename TInput2 = TInput1, typename TOutput = TInput1,
-        typename TPrecision = TOutput, DeviceType TDeviceType = DeviceType::Cuda>
+    export template <DeviceType TDeviceType = DeviceType::Cuda, typename TInput1 = float, typename TInput2 = TInput1, typename TOutput = TInput1,
+        typename TPrecision = TOutput>
         requires ValidTensorTypes<TInput1, TInput2>&& ValidFloatTensorType<TOutput> && ValidPrecisionType<TPrecision>
     class OperationBase {
     public:

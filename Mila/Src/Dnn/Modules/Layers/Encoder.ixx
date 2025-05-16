@@ -240,7 +240,7 @@ namespace Mila::Dnn
         /**
          * The computational operation that implements the encoder logic.
          */
-        std::shared_ptr<UnaryOperation<TInput, TOutput, TPrecision, TDeviceType>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput, TPrecision>> operation_{ nullptr };
 
         /**
         * @brief Initialize the token and positional embedding tensors.

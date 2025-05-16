@@ -42,10 +42,9 @@ namespace Mila::Dnn::Compute
     *         different precision than inputs/outputs.
     * @tparam TDeviceType The device type (e.g., CPU, CUDA) on which the operation is executed.
     */
-    export template <typename TInput, typename TOutput = TInput, typename TCompute = TOutput,
-        DeviceType TDeviceType = DeviceType::Cuda>
+    export template <DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput, typename TCompute = TOutput>
         requires ValidTensorType<TInput>&& ValidFloatTensorType<TOutput>&& ValidPrecisionType<TCompute>
-    class UnaryOperation : public OperationBase<TInput, TInput, TOutput, TCompute, TDeviceType> {
+    class UnaryOperation : public OperationBase<TDeviceType, TInput, TInput, TOutput, TCompute> {
     public:
         /**
         * @brief Memory resource type based on device type.
@@ -64,7 +63,7 @@ namespace Mila::Dnn::Compute
         * @param operation_type The type of the operation.
         */
         UnaryOperation( OperationType operation_type )
-            : OperationBase<TInput, TInput, TOutput, TCompute, TDeviceType>( operation_type, CreateCompatibleContext<TDeviceType>() ) {}
+            : OperationBase<TDeviceType, TInput, TInput, TOutput, TCompute>( operation_type, CreateCompatibleContext<TDeviceType>() ) {}
 
         /**
         * @brief Constructs a UnaryOperation with the specified operation type and device context.
@@ -75,7 +74,7 @@ namespace Mila::Dnn::Compute
         * @param context The device context to use for this operation.
         */
         UnaryOperation( OperationType operation_type, std::shared_ptr<DeviceContext> context )
-            : OperationBase<TInput, TInput, TOutput, TCompute, TDeviceType>( operation_type, ValidateContext<TDeviceType>( context ) ) {}
+            : OperationBase<TDeviceType, TInput, TInput, TOutput, TCompute>( operation_type, ValidateContext<TDeviceType>( context ) ) {}
 
         /**
         * @brief Virtual destructor for proper cleanup of derived classes.

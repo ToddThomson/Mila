@@ -45,10 +45,10 @@ namespace Mila::Dnn::Compute
      * @tparam float The data type of the input tensor elements.
      * @tparam TDataType The data type used for computation and output (defaults to the input type).
      */
-    export class CpuFullyConnectedOp : public UnaryOperation<float, float, float, DeviceType::Cpu> {
+    export class CpuFullyConnectedOp : public UnaryOperation<DeviceType::Cpu, float, float, float> {
     public:
         using MR = typename CpuDevice::MR;
-		using OperationBase = UnaryOperation<float, float, float, DeviceType::Cpu>;
+		using OperationBase = UnaryOperation<DeviceType::Cpu, float, float, float>;
 
         /**
          * @brief Constructs a new CPU Fully Connected operation with the default device context.
@@ -266,10 +266,9 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cpu::FullyConnectedOp";
 
-            // Register float operation
-            OperationRegistry::instance().registerUnaryOperation<float, float, float, DeviceType::Cpu>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, float, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<float, float, float, DeviceType::Cpu>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float, float>> {
                     return context ? std::make_shared<CpuFullyConnectedOp>( context )
                         : std::make_shared<CpuFullyConnectedOp>();
                 }

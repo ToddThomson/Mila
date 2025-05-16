@@ -43,10 +43,10 @@ namespace Mila::Dnn::Compute
      * @tparam TInput The data type of the input tensor elements (typically int for class indices).
      * @tparam TDataType The data type used for computation and output (typically float).
      */
-    export class CpuCrossEntropyOp : public UnaryOperation<int, float, float, DeviceType::Cpu> {
+    export class CpuCrossEntropyOp : public UnaryOperation<DeviceType::Cpu, int, float, float> {
     public:
         using MR = typename CpuDevice::MR;
-		using OperationBase = UnaryOperation<int, float, float, DeviceType::Cpu>;
+		using OperationBase = UnaryOperation<DeviceType::Cpu, int, float, float>;
         /**
          * @brief Constructs a new CPU Cross Entropy operation with the default device context.
          *
@@ -225,9 +225,9 @@ namespace Mila::Dnn::Compute
             const std::string opName = "Cpu::CrossEntropyOp";
 
             // Updated to use device context-aware registration
-            OperationRegistry::instance().registerUnaryOperation<int, float, float, DeviceType::Cpu>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, int, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<int, float, float, DeviceType::Cpu>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, int, float, float>> {
                     return context ? std::make_shared<CpuCrossEntropyOp>( context )
                         : std::make_shared<CpuCrossEntropyOp>();
                 }

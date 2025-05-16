@@ -153,12 +153,11 @@ namespace Mila::Dnn::Compute
          * @param operation_name The name of the operation.
          * @param creator The function that creates the unary operation.
          */
-        template<typename TInput, typename TOutput = TInput, typename TPrecision = TOutput,
-            DeviceType TDeviceType = DeviceType::Cuda>
+        template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
 			requires ValidTensorType<TInput> && ValidFloatTensorType<TOutput> && ValidPrecisionType<TPrecision>
         void registerUnaryOperation(
             const std::string& operation_name,
-            std::function<std::shared_ptr<UnaryOperation<TInput, TOutput, TPrecision, TDeviceType>>( std::shared_ptr<DeviceContext> )> creator ) {
+            std::function<std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput, TPrecision>>( std::shared_ptr<DeviceContext> )> creator ) {
 
             TypeID type_id{
                 std::type_index( typeid(TInput) ),
@@ -190,12 +189,11 @@ namespace Mila::Dnn::Compute
          * @param operation_name The name of the operation.
          * @param creator The function that creates the binary operation.
          */
-        template<typename TInput1, typename TInput2 = TInput1, typename TOutput = float, typename TPrecision = TOutput,
-            DeviceType TDeviceType = DeviceType::Cuda>
+        template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput1 = float, typename TInput2 = TInput1, typename TOutput = float, typename TPrecision = TOutput>
 			requires ValidTensorTypes<TInput1, TInput2> && ValidFloatTensorType<TOutput> && ValidPrecisionType<TPrecision>
         void registerBinaryOperation(
             const std::string& operation_name,
-            std::function<std::shared_ptr<BinaryOperation<TInput1, TInput2, TOutput, TPrecision, TDeviceType>>( std::shared_ptr<DeviceContext> )> creator ) {
+            std::function<std::shared_ptr<BinaryOperation<TDeviceType, TInput2, TOutput, TPrecision>>( std::shared_ptr<DeviceContext> )> creator ) {
 
             TypeID type_id{
                 std::type_index( typeid(TInput1) ),
@@ -276,9 +274,9 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the type combination, device type, or operation name is invalid.
          * @throws std::invalid_argument If the context is null.
          */
-        template<typename TInput, typename TOutput = TInput, typename TPrecision = TOutput, DeviceType TDeviceType = DeviceType::Cuda>
-			requires ValidTensorType<TInput>&& ValidFloatTensorType<TOutput>&& ValidPrecisionType<TPrecision>
-        std::shared_ptr<UnaryOperation<TInput, TOutput, TPrecision, TDeviceType>> createUnaryOperation(
+        template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
+			requires ValidTensorType<TInput> && ValidFloatTensorType<TOutput> && ValidPrecisionType<TPrecision>
+        std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput, TPrecision>> createUnaryOperation(
             const std::string& operation_name,
             std::shared_ptr<DeviceContext> context ) const {
 
@@ -312,7 +310,7 @@ namespace Mila::Dnn::Compute
                 throw std::invalid_argument( "DeviceContext cannot be null when creating an operation" );
             }
 
-            return std::static_pointer_cast<UnaryOperation<TInput, TOutput, TPrecision, TDeviceType>>(op_it->second( context ));
+            return std::static_pointer_cast<UnaryOperation<TDeviceType, TInput, TOutput, TPrecision>>(op_it->second( context ));
         }
 
         /**
@@ -331,10 +329,9 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the type combination, device type, or operation name is invalid.
          * @throws std::invalid_argument If the context is null.
          */
-        template<typename TInput1, typename TInput2 = TInput1, typename TOutput = TInput1, typename TPrecision = TOutput,
-            DeviceType TDeviceType = DeviceType::Cuda>
+        template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput1 = float, typename TInput2 = TInput1, typename TOutput = TInput1, typename TPrecision = TOutput>
 			requires ValidTensorTypes<TInput1, TInput2>&& ValidFloatTensorType<TOutput>&& ValidPrecisionType<TPrecision>
-        std::shared_ptr<BinaryOperation<TInput1, TInput2, TOutput, TPrecision, TDeviceType>> createBinaryOperation(
+        std::shared_ptr<BinaryOperation<TDeviceType, TInput1, TInput2, TOutput, TPrecision>> createBinaryOperation(
             const std::string& operation_name,
             std::shared_ptr<DeviceContext> context ) const {
 
@@ -367,7 +364,7 @@ namespace Mila::Dnn::Compute
                 throw std::invalid_argument( "DeviceContext cannot be null when creating an operation" );
             }
 
-            return std::static_pointer_cast<BinaryOperation<TInput1, TInput2, TOutput, TPrecision, TDeviceType>>(op_it->second( context ));
+            return std::static_pointer_cast<BinaryOperation<TDeviceType, TInput1, TInput2, TOutput, TPrecision>>(op_it->second( context ));
         }
 
         /**

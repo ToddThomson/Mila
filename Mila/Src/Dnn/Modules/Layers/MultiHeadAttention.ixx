@@ -202,7 +202,7 @@ namespace Mila::Dnn
         /**
          * @brief The underlying operation that implements the multi-head attention.
          */
-        std::shared_ptr<UnaryOperation<TInput, TOutput, TPrecision, TDeviceType>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput, TPrecision>> operation_{ nullptr };
 
         /**
          * @brief Initializes the tensors needed for the MultiHeadAttention operation.
@@ -241,16 +241,16 @@ namespace Mila::Dnn
          */
         void createOperation() {
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<TInput, TOutput, TPrecision, DeviceType::Cpu>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TInput, TOutput, TPrecision>(
                     "Cpu::MultiHeadAttentionOp",
                     this->getDeviceContext() );
-                operation_ = std::static_pointer_cast<UnaryOperation<TInput, TOutput, TPrecision, DeviceType::Cpu>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cpu, TInput, TOutput, TPrecision>>(base_op);
             }
             else {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<TInput, TOutput, TPrecision, DeviceType::Cuda>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision>(
                     "Cuda::MultiHeadAttentionOp",
                     this->getDeviceContext() );
-                operation_ = std::static_pointer_cast<UnaryOperation<TInput, TOutput, TPrecision, DeviceType::Cuda>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision>>(base_op);
             }
         }
     };

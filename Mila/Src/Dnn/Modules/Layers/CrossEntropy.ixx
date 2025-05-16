@@ -182,7 +182,7 @@ namespace Mila::Dnn
         /**
          * @brief The underlying unary operation that implements the cross entropy function.
          */
-        std::shared_ptr<UnaryOperation<TLogits, TTargets, TLogits, TDeviceType>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TDeviceType, TLogits, TTargets, TLogits>> operation_{ nullptr };
 
         /**
          * @brief Create the appropriate cross entropy operation based on the current device context.
@@ -195,18 +195,18 @@ namespace Mila::Dnn
             attributes_.set( "vocab_size", vocab_size_ );
 
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<TLogits, TTargets, TLogits, DeviceType::Cpu>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TLogits, TTargets, TLogits>(
                     "Cpu::CrossEntropyOp",
                     this->getDeviceContext() );
 
-                operation_ = std::static_pointer_cast<UnaryOperation<TLogits, TTargets, TLogits, TDeviceType>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cpu, TLogits, TTargets, TLogits>>(base_op);
             }
             else {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<TLogits, TTargets, TLogits, DeviceType::Cuda>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TLogits, TTargets, TLogits>(
                     "Cuda::CrossEntropyOp",
                     this->getDeviceContext() );
 
-                operation_ = std::static_pointer_cast<UnaryOperation<TLogits, TTargets, TLogits, TDeviceType>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cuda, TLogits, TTargets, TLogits>>(base_op);
             }
         }
     };

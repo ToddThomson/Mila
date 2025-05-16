@@ -173,7 +173,7 @@ namespace Mila::Dnn
          *
          * This pointer will be updated based on the current device context.
          */
-        std::shared_ptr<UnaryOperation<TInput, TOutput, TPrecision, TDeviceType>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput, TPrecision>> operation_{ nullptr };
 
         /**
          * @brief Creates the appropriate GELU operation based on the current device context.
@@ -183,18 +183,18 @@ namespace Mila::Dnn
          */
         void createOperation() {
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<TPrecision, TPrecision, TPrecision, DeviceType::Cpu>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TInput, TOutput, TPrecision>(
                     "Cpu::GeluOp",
                     this->getDeviceContext() );
 
-                operation_ = std::static_pointer_cast<UnaryOperation<TInput, TOutput, TPrecision, TDeviceType>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cpu, TInput, TOutput, TPrecision>>(base_op);
             }
             else {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<TPrecision, TPrecision, TPrecision, DeviceType::Cuda>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision>(
                     "Cuda::GeluOp",
                     this->getDeviceContext() );
 
-                operation_ = std::static_pointer_cast<UnaryOperation<TInput, TOutput, TPrecision, TDeviceType>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision>>(base_op);
             }
         }
     };

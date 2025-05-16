@@ -330,7 +330,7 @@ namespace Mila::Dnn
          * This operation performs the actual computation for the linear layer,
          * with different implementations for CPU and CUDA devices.
          */
-        std::shared_ptr<UnaryOperation<TInput, TOutput, TPrecision, TDeviceType>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput, TPrecision>> operation_{ nullptr };
 
         /**
          * @brief Initializes the tensors needed for the Linear operation.
