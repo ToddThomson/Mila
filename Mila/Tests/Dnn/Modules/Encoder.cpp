@@ -16,7 +16,7 @@ namespace Modules::Tests
     struct EncoderTestData {
         std::vector<size_t> input_shape;
         std::vector<size_t> output_shape;
-        mutable std::optional<std::shared_ptr<Encoder<TPrecision, TDeviceType>>> encoder;
+        mutable std::optional<std::shared_ptr<Encoder<TPrecision, TPrecision, TPrecision, TDeviceType>>> encoder;
         std::string device_name;
         size_t channels;
         size_t max_seq_len;

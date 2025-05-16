@@ -12,6 +12,7 @@ module;
 #include <stdexcept>  
 #include <type_traits>  
 #include <sstream>  
+#include <format>  // Added for std::format in error messages
 
 export module Dnn.Module;
 
@@ -22,6 +23,7 @@ import Compute.DeviceContext;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaMemoryResource;
+import Compute.Precision;
 
 namespace Mila::Dnn
 {
@@ -35,12 +37,14 @@ namespace Mila::Dnn
      * device context. For container functionality that supports child modules,
      * use the Block class.
      *
+     * @tparam TDeviceType The device type (CPU or CUDA) on which the module will operate.
      * @tparam TInput Data type of the input tensor elements.
-     * @tparam TDataType Data type of the compute tensor elements, defaults to TInput.
+     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
+     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
      */
-    export
-        template<typename TPrecision, typename TInput = TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
-        requires ValidFloatTensorType<TPrecision> && ValidTensorType<TInput>
+    export template<DeviceType TDeviceType = DeviceType::Cuda,
+        typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
+        requires ValidFloatTensorTypes<TInput, TOutput>&& ValidTensorType<TInput>&& ValidPrecisionType<TPrecision>
     class Module {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>;
@@ -54,32 +58,49 @@ namespace Mila::Dnn
         *
         * @param device_name The name of the device to use (e.g., "CPU", "CUDA:0").
         *        Must be one of the names returned by DeviceRegistry::list_devices().
-        * @throws std::runtime_error If the specified device name is invalid.
+        * @throws std::runtime_error If the specified device name is invalid or doesn't match TDeviceType.
         */
         explicit Module( const std::string& device_name )
-            : device_context_( createContext( device_name ) ) {}
+            : device_context_( createContext( device_name ) ) {
+            // Verify the created context's device type matches TDeviceType
+            if ( device_context_->getDevice()->getDeviceType() != TDeviceType ) {
+                throw std::runtime_error( std::format(
+                    "Device type mismatch: Module template requires {} but device name '{}' corresponds to {}",
+                    deviceToString( TDeviceType ),
+                    device_name,
+                    deviceToString( device_context_->getDevice()->getDeviceType() )
+                ) );
+            }
+        }
 
         /**
          * @brief Constructor with a specific device context.
          *
          * @param context The device context to use for this module.
          * @throws std::invalid_argument If the provided context is nullptr.
+         * @throws std::runtime_error If the context device type doesn't match TDeviceType.
          */
         explicit Module( std::shared_ptr<DeviceContext> context ) {
             if ( !context ) {
                 throw std::invalid_argument( "DeviceContext cannot be nullptr. Please provide a valid DeviceContext." );
             }
+
+            // Verify the provided context's device type matches TDeviceType
+            if ( context->getDevice()->getDeviceType() != TDeviceType ) {
+                throw std::runtime_error( std::format(
+                    "Device type mismatch: Module template requires {} but provided context is for {}",
+                    deviceToString( TDeviceType ),
+                    deviceToString( context->getDevice()->getDeviceType() )
+                ) );
+            }
+
             device_context_ = context;
         }
 
         /**
          * @brief Virtual destructor for proper cleanup in derived classes.
-         *
-         * Ensures that resources are properly released when derived classes are destroyed.
          */
         virtual ~Module() = default;
-
-		//virtual void forward( const Tensor<TInput, MR>& input, Tensor<TPrecision, MR>& output ) = 0;
 
         /**
          * @brief Get the device context for this module.
@@ -99,20 +120,20 @@ namespace Mila::Dnn
          *
          * @return MR The DynamicMemoryResource appropriate for the current device context.
          */
-        /*MR getMemoryResource() const {
-            auto device_type = device_context_->getDevice()->getDeviceType();
-            return MR( device_type );
-        }*/
+         /*MR getMemoryResource() const {
+             auto device_type = device_context_->getDevice()->getDeviceType();
+             return MR( device_type );
+         }*/
 
-        /**
-         * @brief Set the training mode of the module.
-         *
-         * Many modules behave differently during training versus inference
-         * (e.g., dropout, batch normalization). This method only affects this
-         * specific module.
-         *
-         * @param training True if the module is in training mode, false for inference mode.
-         */
+         /**
+          * @brief Set the training mode of the module.
+          *
+          * Many modules behave differently during training versus inference
+          * (e.g., dropout, batch normalization). This method only affects this
+          * specific module.
+          *
+          * @param training True if the module is in training mode, false for inference mode.
+          */
         void setTrainingMode( bool training ) {
             is_training_ = training;
         }
@@ -301,4 +322,24 @@ namespace Mila::Dnn
             return std::make_shared<Compute::DeviceContext>( device_name );
         }
     };
+
+    /**
+     * @brief Type alias for CPU-based modules with customizable tensor types.
+     *
+     * @tparam TInput Data type of the input tensor elements.
+     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
+     * @tparam TCompute Data type used for internal calculations, defaults to TOutput.
+     */
+    export template<typename TInput = float, typename TOutput = TInput, typename TCompute = TOutput>
+        using CpuModule = Module<DeviceType::Cpu, TInput, TOutput, TCompute>;
+
+    /**
+     * @brief Type alias for CUDA-based modules with customizable tensor types.
+     *
+     * @tparam TInput Data type of the input tensor elements.
+     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
+     * @tparam TCompute Data type used for internal calculations, defaults to TOutput.
+     */
+    export template<typename TInput = float, typename TOutput = TInput, typename TCompute = TOutput>
+        using CudaModule = Module<DeviceType::Cuda, TInput, TOutput, TCompute>;
 }

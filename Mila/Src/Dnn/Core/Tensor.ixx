@@ -88,7 +88,7 @@ namespace Mila::Dnn
 				throw std::invalid_argument( "data_ptr cannot be null." );
 			}
 			buffer_ = std::make_shared<TensorBuffer<TElementType, TMemoryResource>>( size_, external_memory_ptr_.get() );
-			data_type_ = tensor_type_of( external_memory_ptr_.get() );
+			//data_type_ = tensor_type_of( external_memory_ptr_.get() );
 		}
 
 		Tensor()
@@ -787,7 +787,7 @@ namespace Mila::Dnn
 			}
 			oss << ")";
 			oss << " Size: " << size_;
-			oss << " Type: " << to_string( data_type_ ) << std::endl;
+			oss << " Type: " << TensorTrait<TElementType>::type_name << std::endl;
 
 			if ( showBuffer ) {
 				oss << getBufferString( 0, 0 );
@@ -822,7 +822,7 @@ namespace Mila::Dnn
 		*/
 		Tensor( const Tensor& other )
 			: uid_( other.uid_ ), name_( other.name_ ), shape_( other.shape_ ), strides_( other.strides_ ),
-			size_( other.size_ ), data_type_( other.data_type_ ), buffer_( other.buffer_ ) {}
+			size_( other.size_ ), buffer_( other.buffer_ ) {}
 		
         /**
         * @brief Move constructor.
@@ -835,12 +835,10 @@ namespace Mila::Dnn
 			: uid_( std::move( other.uid_ ) ),
 			name_( std::move( other.name_ ) ),
 			size_( other.size_ ),
-			data_type_( other.data_type_ ),
 			shape_( std::move( other.shape_ ) ),
 			strides_( std::move( other.strides_ ) ),
 			buffer_( std::move( other.buffer_ ) ) {
 			other.size_ = 0;
-			other.data_type_ = TensorType::FP16;
 		}
 
 		/**
@@ -858,11 +856,9 @@ namespace Mila::Dnn
 				shape_ = std::move( other.shape_ );
 				strides_ = std::move( other.strides_ );
 				size_ = other.size_;
-				data_type_ = other.data_type_;
 				buffer_ = std::move( other.buffer_ );
 
 				other.size_ = 0;
-				other.data_type_ = TensorType::FP16;
 			}
 			return *this;
 		}
@@ -882,7 +878,6 @@ namespace Mila::Dnn
 				shape_ = other.shape_;
 				strides_ = other.strides_;
 				size_ = other.size_;
-				data_type_ = other.data_type_;
 				buffer_ = other.buffer_;
 			}
 			return *this;
@@ -894,7 +889,10 @@ namespace Mila::Dnn
 		std::string uid_;
 		std::string name_;
 		size_t size_{ 0 };
-		TensorType data_type_;
+
+		// TODO: Redundant with template parameter TElementType
+		//TensorType data_type_;
+		
 		std::vector<size_t> shape_{};
 		std::vector<size_t> strides_{};
 		std::shared_ptr<TensorBuffer<TElementType, TMemoryResource>> buffer_{ nullptr };
@@ -902,7 +900,7 @@ namespace Mila::Dnn
 
 		void allocateBuffer( TElementType value ) {
 			buffer_ = std::make_shared<TensorBuffer<TElementType, TMemoryResource>>( size_, value );
-			data_type_ = tensor_type_of( buffer_->data() );
+			//data_type_ = tensor_type_of( buffer_->data() );
 		}
 
         std::string outputBuffer( size_t index, size_t depth ) const {

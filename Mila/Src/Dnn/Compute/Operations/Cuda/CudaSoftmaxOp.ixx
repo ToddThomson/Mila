@@ -264,19 +264,17 @@ namespace Mila::Dnn::Compute
             const std::string opName = "Cuda::SoftmaxOp";
 
             // Updated to use device context-aware registration
-            OperationRegistry::instance().registerUnaryOperation<float, float, DeviceType::Cuda>(
+            OperationRegistry::instance().registerUnaryOperation<float, float, float, DeviceType::Cuda>(
                 opName,
-                "Default",
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<float, float, DeviceType::Cuda>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<float, float, float, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaSoftmaxOp<float>>( context )
                         : std::make_shared<CudaSoftmaxOp<float>>();
                 }
             );
 
-           OperationRegistry::instance().registerUnaryOperation<half, half, DeviceType::Cuda>(
+           OperationRegistry::instance().registerUnaryOperation<half, half, half, DeviceType::Cuda>(
                 opName,
-                "Default",
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<half, half, DeviceType::Cuda>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<half, half, half, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaSoftmaxOp<half>>( context )
                         : std::make_shared<CudaSoftmaxOp<half>>();
                 }

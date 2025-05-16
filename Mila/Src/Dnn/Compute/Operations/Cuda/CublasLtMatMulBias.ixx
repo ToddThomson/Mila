@@ -157,12 +157,12 @@ namespace Mila::Dnn::Compute
             &alpha,                // alpha scaling factor
             weight,                // A matrix (weight)
             weightLayout,          // A matrix layout
-            X,                   // B matrix (input)
+            X,                     // B matrix (input)
             inputLayout,           // B matrix layout
             &beta,                 // beta scaling factor
             nullptr,               // C matrix for accumulation (not used here)
             outputLayout,          // C matrix layout
-            Y,                   // D matrix (output)
+            Y,                     // D matrix (output)
             outputLayout,          // D matrix layout
             &heuristicResult.algo, // Algorithm to use from heuristic result
             nullptr,               // Workspace (using default)

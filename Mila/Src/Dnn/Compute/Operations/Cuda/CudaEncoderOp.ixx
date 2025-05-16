@@ -14,6 +14,8 @@ module;
 export module Compute.CudaEncoderOp;
 
 import Dnn.Tensor;
+import Dnn.TensorTraits;
+import Compute.Precision;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
@@ -34,9 +36,9 @@ namespace Mila::Dnn::Compute
         /**
          * @brief Primary template for precision-specific CUDA encoder implementations.
          *
-         * @tparam TPrecision The floating-point precision type (float or half)
+         * @tparam TOutput The floating-point precision type (float or half)
          */
-        template <typename TPrecision>
+        template <typename TOutput>
         struct cuda_encoder_impl;
 
         /**
@@ -75,18 +77,19 @@ namespace Mila::Dnn::Compute
      * @tparam int The data type of the input tensor elements (typically uint16_t or int for token IDs).
      * @tparam TDataType The data type used for computation and output (typically half or float).
      */
-    export template<typename TPrecision>
-		requires std::is_same_v<TPrecision, half> || std::is_same_v<TPrecision, float>
-    class CudaEncoderOp : public UnaryOperation<TPrecision, int, DeviceType::Cuda> {
+    export template<typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
+		requires ValidFloatTensorTypes<TInput,TOutput> && ValidPrecisionType<TPrecision>
+    class CudaEncoderOp : public UnaryOperation<int, TOutput, TPrecision, DeviceType::Cuda> {
         public:
             using MR = typename CudaDevice::MR;
+			using OperationBase = UnaryOperation<int, TOutput, TPrecision, DeviceType::Cuda>;
 
             /**
              * @brief Constructs a new CUDA Encoder operation with the default device context.
              *
              * Initializes the operation with a CUDA device context (defaults to CUDA:0).
              */
-            CudaEncoderOp() : UnaryOperation<TPrecision, int, DeviceType::Cuda>( OperationType::EncoderOp ) {}
+            CudaEncoderOp() : OperationBase( OperationType::EncoderOp ) {}
 
             /**
              * @brief Constructs a new CUDA Encoder operation with a specific device context.
@@ -95,7 +98,7 @@ namespace Mila::Dnn::Compute
              * @throws std::runtime_error If the context is not for a CUDA device.
              */
             CudaEncoderOp( std::shared_ptr<DeviceContext> context )
-                : UnaryOperation<TPrecision, int, DeviceType::Cuda>( OperationType::EncoderOp, context ) {
+                : OperationBase( OperationType::EncoderOp, context ) {
             }
 
             /**
@@ -116,10 +119,10 @@ namespace Mila::Dnn::Compute
              */
             void forward(
                 const Tensor<int, MR>& input,
-                const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
+                const std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& parameters,
                 const OperationAttributes& properties,
-                Tensor<TPrecision, MR>& output,
-                std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const override {
+                Tensor<TOutput, MR>& output,
+                std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const override {
 
 				// TODO: Argument validation. 
 
@@ -135,7 +138,7 @@ namespace Mila::Dnn::Compute
 
                 cudaStream_t stream = this->getDeviceContext()->getStream();
 
-                Detail::cuda_encoder_impl<TPrecision>::forward( Y, X, wte->raw_data(), wpe->raw_data(), B, T, C, stream );
+                Detail::cuda_encoder_impl<TOutput>::forward( Y, X, wte->raw_data(), wpe->raw_data(), B, T, C, stream );
             }
 
             /**
@@ -154,13 +157,13 @@ namespace Mila::Dnn::Compute
              */
             void backward(
                 const Tensor<int, MR>& input,
-                const Tensor<TPrecision, MR>& output,
-                const Tensor<TPrecision, MR>& output_gradient,
-                const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
-                std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameter_gradients,
+                const Tensor<TOutput, MR>& output,
+                const Tensor<TOutput, MR>& output_gradient,
+                const std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& parameters,
+                std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& parameter_gradients,
                 Tensor<int, MR>& input_gradient,
                 const OperationAttributes& properties,
-                const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const {
+                const std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const {
 
                 if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cuda ) ) {
                     throw std::runtime_error( "CudaEncoderOp::backward can only be executed on CUDA device" );
@@ -206,20 +209,18 @@ namespace Mila::Dnn::Compute
             const std::string opName = "Cuda::EncoderOp";
 
             // Register float precision version
-            OperationRegistry::instance().registerUnaryOperation<float, int, DeviceType::Cuda>(
+            OperationRegistry::instance().registerUnaryOperation<int, float, float, DeviceType::Cuda>(
                 opName,
-                "Default",
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<float, int, DeviceType::Cuda>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<int, float, float, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaEncoderOp<float>>( context )
                         : std::make_shared<CudaEncoderOp<float>>();
                 }
             );
 
             // Register half precision version
-            OperationRegistry::instance().registerUnaryOperation<half, int, DeviceType::Cuda>(
+            OperationRegistry::instance().registerUnaryOperation<int, half, half, DeviceType::Cuda>(
                 opName,
-                "Default",
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<half, int, DeviceType::Cuda>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<int, half, half, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaEncoderOp<half>>( context )
                         : std::make_shared<CudaEncoderOp<half>>();
                 }

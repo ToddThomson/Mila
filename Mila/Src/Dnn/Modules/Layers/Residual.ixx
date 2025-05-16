@@ -4,11 +4,11 @@
  */
 
 module;
+#include <miniz.h>
 #include <sstream>
 #include <vector>
 #include <string>
 #include <memory>
-
 #include <type_traits>
 
 export module Dnn.Modules.Residual;
@@ -39,21 +39,24 @@ namespace Mila::Dnn
      *
      * The operation performed is: output = input_a + input_b
      *
-     * @tparam TPrecision The data type of the input tensor elements.
-     * @tparam TDataType The data type used for computation and output (defaults to the input type).
+     * @tparam TDeviceType The device type (CPU or CUDA) on which the module will operate.
+     * @tparam TInput Data type of the input tensor elements.
+     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
+     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
      */
-    export
-        template<typename TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
-        requires ValidFloatTensorType<TPrecision>
-    class Residual : public Module<TPrecision, TPrecision, TDeviceType> {
+    export template<DeviceType TDeviceType = DeviceType::Cuda,
+        typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
+        requires ValidFloatTensorTypes<TInput, TOutput>&& ValidPrecisionType<TPrecision>
+    class Residual : public Module<TDeviceType, TInput, TOutput, TPrecision> {
     public:
-		using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>;
-		using ModuleBase = Module<TPrecision, TPrecision, TDeviceType>;
+        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>;
+        using ModuleBase = Module<TDeviceType, TInput, TOutput, TPrecision>;
 
         /**
          * @brief Constructs a new Residual connection module with the default device context.
          *
          * @param name The name of the module for identification purposes.
+         * @param device_name The name of the device to use (e.g., "CPU", "CUDA:0").
          * @param is_training Whether the module is being used in training mode (defaults to false).
          */
         Residual( std::string name, const std::string& device_name, bool is_training = false )
@@ -139,16 +142,6 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-    //protected:
-    //    /**
-    //     * @brief Called when the device context changes.
-    //     *
-    //     * Recreates operations for the new device.
-    //     */
-    //    void onDeviceChanged() override {
-    //        createOperation();
-    //    }
-
     private:
         /**
          * @brief The parameters for the operation.
@@ -178,7 +171,7 @@ namespace Mila::Dnn
          * For residual connections, this operation performs element-wise addition
          * between the two input tensors.
          */
-        std::shared_ptr<BinaryOperation<TPrecision, TPrecision, TPrecision, TDeviceType>> operation_{ nullptr };
+        std::shared_ptr<BinaryOperation<TInput, TInput, TOutput, TPrecision, TDeviceType>> operation_{ nullptr };
 
         /**
          * @brief Creates the appropriate Residual operation based on the current device context.
@@ -190,19 +183,39 @@ namespace Mila::Dnn
          */
         void createOperation() {
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                operation_ = std::static_pointer_cast<BinaryOperation<TPrecision, TPrecision, TPrecision, TDeviceType>>(
-                    OperationRegistry::instance().createBinaryOperation<TPrecision, TPrecision, TPrecision, DeviceType::Cpu>(
+                operation_ = std::static_pointer_cast<BinaryOperation<TInput, TInput, TOutput, TPrecision, TDeviceType>>(
+                    OperationRegistry::instance().createBinaryOperation<TInput, TInput, TOutput, TPrecision, DeviceType::Cpu>(
                         "Cpu::ResidualOp",
                         this->getDeviceContext() )
                 );
             }
             else {
-                operation_ = std::static_pointer_cast<BinaryOperation<TPrecision, TPrecision, TPrecision, TDeviceType>>(
-                    OperationRegistry::instance().createBinaryOperation<TPrecision, TPrecision, TPrecision, DeviceType::Cuda>(
+                operation_ = std::static_pointer_cast<BinaryOperation<TInput, TInput, TOutput, TPrecision, TDeviceType>>(
+                    OperationRegistry::instance().createBinaryOperation<TInput, TInput, TOutput, TPrecision, DeviceType::Cuda>(
                         "Cuda::ResidualOp",
                         this->getDeviceContext() )
                 );
             }
         }
     };
+
+    /**
+     * @brief Type alias for CPU-based residual module with customizable tensor types.
+     *
+     * @tparam TInput Data type of the input tensor elements.
+     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
+     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
+     */
+    export template<typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
+        using CpuResidual = Residual<DeviceType::Cpu, TInput, TOutput, TPrecision>;
+
+    /**
+     * @brief Type alias for CUDA-based residual module with customizable tensor types.
+     *
+     * @tparam TInput Data type of the input tensor elements.
+     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
+     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
+     */
+    export template<typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
+        using CudaResidual = Residual<DeviceType::Cuda, TInput, TOutput, TPrecision>;
 }

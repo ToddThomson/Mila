@@ -76,9 +76,9 @@ int main() {
         auto cpu_context = std::make_shared<DeviceContext>( "CPU" );
 
         // Create operations from registry
-        auto cuda_op_base = OperationRegistry::instance().createUnaryOperation<float, float, DeviceType::Cuda>(
+        auto cuda_op_base = OperationRegistry::instance().createUnaryOperation<float>(
             "Cuda::FullyConnectedOp", cuda_context );
-        auto cpu_op_base = OperationRegistry::instance().createUnaryOperation<float, float, DeviceType::Cpu>(
+        auto cpu_op_base = OperationRegistry::instance().createUnaryOperation<float, float, float, DeviceType::Cpu>(
             "Cpu::FullyConnectedOp", cpu_context );
 
         if ( !cuda_op_base || !cpu_op_base ) {
@@ -88,7 +88,7 @@ int main() {
 
         // Cast to the correct operation types
         auto cuda_fc_op = std::dynamic_pointer_cast<CudaFullyConnectedOp<float>>(cuda_op_base);
-        auto cpu_fc_op = std::dynamic_pointer_cast<UnaryOperation<float, float, DeviceType::Cpu>>(cpu_op_base);
+        auto cpu_fc_op = std::dynamic_pointer_cast<UnaryOperation<float, float, float, DeviceType::Cpu>>(cpu_op_base);
 
         if ( !cuda_fc_op || !cpu_fc_op ) {
             std::cerr << "Failed to cast operations to the correct types." << std::endl;
@@ -171,10 +171,10 @@ int main() {
         bool equivalent = compareTensors( cuda_output_host, cpu_output, 1e-4f );
 
         if ( equivalent ) {
-            std::cout << "✓ PASS: CUDA and CPU implementations produce equivalent results!" << std::endl;
+            std::cout << "PASS: CUDA and CPU implementations produce equivalent results!" << std::endl;
         }
         else {
-            std::cout << "✗ FAIL: CUDA and CPU implementations produce different results." << std::endl;
+            std::cout << "FAIL: CUDA and CPU implementations produce different results." << std::endl;
         }
 
         // Print a sample of the outputs

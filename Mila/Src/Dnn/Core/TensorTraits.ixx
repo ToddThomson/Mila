@@ -1,172 +1,193 @@
 /**
  * @file TensorTraits.ixx
- * @brief Provides type traits for mapping C++ types to tensor data types.
+ * @brief Provides type traits for tensor data types with compile-time type information.
  */
 
 module;
 #include <vector>
 #include <type_traits>
 #include <cstdint>
+#include <string_view>
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
 #include <cuda_fp8.h>
 
 export module Dnn.TensorTraits;
 
-import Dnn.TensorType;
-
 namespace Mila::Dnn
 {
 	/**
-	 * @brief Primary template for mapping C++ types to tensor data types.
+	 * @brief Primary template for tensor type traits.
 	 *
-	 * This trait structure provides a mapping between native C++ types and
-	 * the corresponding TensorType enumeration. The primary template is
-	 * intentionally undefined; specializations must be provided for each
-	 * supported type.
+	 * This trait structure provides compile-time information about tensor element types.
+	 * The primary template is intentionally undefined; specializations must be provided
+	 * for each supported type.
 	 *
-	 * @tparam TElementType The C++ type to map to a tensor type
+	 * @tparam T The tensor element type
 	 */
-	template <typename T>
-	struct TensorTypeTrait;
+	export template <typename T>
+	struct TensorTrait;
 
 	/**
-	 * @brief Specialization of TensorTypeTrait for float type.
+	 * @brief Specialization of TensorTrait for float type.
 	 */
 	template <>
-	struct TensorTypeTrait<float> {
-		static constexpr TensorType value = TensorType::FP32;
+	struct TensorTrait<float> {
 		static constexpr bool is_float_type = true;
+		static constexpr bool is_integer_type = false;
+		static constexpr bool is_supported = true;
+		static constexpr std::string_view type_name = "FP32";
+		static constexpr size_t size_in_bytes = sizeof( float );
 	};
 
 	/**
-	 * @brief Specialization of TensorTypeTrait for half-precision float type.
+	 * @brief Specialization of TensorTrait for half-precision float type.
 	 */
 	template <>
-	struct TensorTypeTrait<half> {
-		static constexpr TensorType value = TensorType::FP16;
+	struct TensorTrait<half> {
 		static constexpr bool is_float_type = true;
-	};
-
-    /**
-     * @brief Specialization of TensorTypeTrait for NVIDIA bfloat16 type.
-     *
-     * This specialization maps the nv_bfloat16 type to the TensorType::BF16
-     * enumeration value. It also indicates that this type is a floating-point
-     * type.
-     */
-    template <>
-    struct TensorTypeTrait<nv_bfloat16> {
-		static constexpr TensorType value = TensorType::BF16;
-		static constexpr bool is_float_type = true;
-    };
-
-	/**
- * @brief Specialization of TensorTypeTrait for 8-bit floating point type.
- *
- * This specialization maps the NVIDIA FP8 type (__nv_fp8_e4m3) to the TensorType::FP8
- * enumeration value. It uses the variant with 4 exponent bits and 3 mantissa bits,
- * which is commonly used in neural network computations.
- */
-	template <>
-	struct TensorTypeTrait<__nv_fp8_e4m3> {
-		static constexpr TensorType value = TensorType::FP8;
-		static constexpr bool is_float_type = true;
+		static constexpr bool is_integer_type = false;
+		static constexpr bool is_supported = true;
+		static constexpr std::string_view type_name = "FP16";
+		static constexpr size_t size_in_bytes = sizeof( half );
 	};
 
 	/**
-	 * @brief Specialization of TensorTypeTrait for alternative 8-bit floating point type.
-	 *
-	 * This specialization maps the alternative NVIDIA FP8 type (__nv_fp8_e5m2) to the TensorType::FP8
-	 * enumeration value. This variant has 5 exponent bits and 2 mantissa bits, which provides
-	 * a different range/precision tradeoff compared to e4m3.
+	 * @brief Specialization of TensorTrait for NVIDIA bfloat16 type.
 	 */
 	template <>
-	struct TensorTypeTrait<__nv_fp8_e5m2> {
-		static constexpr TensorType value = TensorType::FP8;
+	struct TensorTrait<nv_bfloat16> {
 		static constexpr bool is_float_type = true;
+		static constexpr bool is_integer_type = false;
+		static constexpr bool is_supported = true;
+		static constexpr std::string_view type_name = "BF16";
+		static constexpr size_t size_in_bytes = sizeof( nv_bfloat16 );
 	};
 
 	/**
-	 * @brief Specialization of TensorTypeTrait for 16-bit signed integer type.
+	 * @brief Specialization of TensorTrait for 8-bit floating point type (e4m3).
 	 */
 	template <>
-	struct TensorTypeTrait<int16_t> {
-		static constexpr TensorType value = TensorType::INT16;
+	struct TensorTrait<__nv_fp8_e4m3> {
+		static constexpr bool is_float_type = true;
+		static constexpr bool is_integer_type = false;
+		static constexpr bool is_supported = true;
+		static constexpr std::string_view type_name = "FP8_E4M3";
+		static constexpr size_t size_in_bytes = sizeof( __nv_fp8_e4m3 );
+	};
+
+	/**
+	 * @brief Specialization of TensorTrait for alternative 8-bit floating point type (e5m2).
+	 */
+	template <>
+	struct TensorTrait<__nv_fp8_e5m2> {
+		static constexpr bool is_float_type = true;
+		static constexpr bool is_integer_type = false;
+		static constexpr bool is_supported = true;
+		static constexpr std::string_view type_name = "FP8_E5M2";
+		static constexpr size_t size_in_bytes = sizeof( __nv_fp8_e5m2 );
+	};
+
+	/**
+	 * @brief Specialization of TensorTrait for 16-bit signed integer type.
+	 */
+	template <>
+	struct TensorTrait<int16_t> {
 		static constexpr bool is_float_type = false;
+		static constexpr bool is_integer_type = true;
+		static constexpr bool is_supported = true;
+		static constexpr std::string_view type_name = "INT16";
+		static constexpr size_t size_in_bytes = sizeof( int16_t );
 	};
 
 	/**
-	 * @brief Specialization of TensorTypeTrait for 32-bit signed integer type.
+	 * @brief Specialization of TensorTrait for 32-bit signed integer type.
 	 */
 	template <>
-	struct TensorTypeTrait<int> {
-		static constexpr TensorType value = TensorType::INT32;
+	struct TensorTrait<int> {
 		static constexpr bool is_float_type = false;
+		static constexpr bool is_integer_type = true;
+		static constexpr bool is_supported = true;
+		static constexpr std::string_view type_name = "INT32";
+		static constexpr size_t size_in_bytes = sizeof( int );
 	};
 
 	/**
-	 * @brief Specialization of TensorTypeTrait for 16-bit unsigned integer type.
+	 * @brief Specialization of TensorTrait for 16-bit unsigned integer type.
 	 */
 	template <>
-	struct TensorTypeTrait<uint16_t> {
-		static constexpr TensorType value = TensorType::UINT16;
+	struct TensorTrait<uint16_t> {
 		static constexpr bool is_float_type = false;
+		static constexpr bool is_integer_type = true;
+		static constexpr bool is_supported = true;
+		static constexpr std::string_view type_name = "UINT16";
+		static constexpr size_t size_in_bytes = sizeof( uint16_t );
 	};
 
 	/**
-	 * @brief Specialization of TensorTypeTrait for 32-bit unsigned integer type.
+	 * @brief Specialization of TensorTrait for 32-bit unsigned integer type.
 	 */
 	template <>
-	struct TensorTypeTrait<uint32_t> {
-		static constexpr TensorType value = TensorType::UINT32;
+	struct TensorTrait<uint32_t> {
 		static constexpr bool is_float_type = false;
+		static constexpr bool is_integer_type = true;
+		static constexpr bool is_supported = true;
+		static constexpr std::string_view type_name = "UINT32";
+		static constexpr size_t size_in_bytes = sizeof( uint32_t );
 	};
 
 	/**
-	 * @brief Concept that constrains types to those that have a valid tensor type mapping.
+	 * @brief Get the string representation of a tensor element type.
 	 *
-	 * This concept ensures that a type TElementType has a corresponding TensorTypeTrait
-	 * specialization and that the trait provides a value that is convertible to
-	 * the TensorType enumeration.
+	 * @tparam T The tensor element type
+	 * @return constexpr std::string_view The type name as a string
+	 */
+	export template <typename T>
+		constexpr std::string_view tensor_type_name() {
+		return TensorTrait<T>::type_name;
+	}
+
+	/**
+	 * @brief Get the size in bytes of a tensor element type.
 	 *
-	 * @tparam TElementType The type to check for valid tensor type mapping
+	 * @tparam T The tensor element type
+	 * @return constexpr size_t Size in bytes
+	 */
+	export template <typename T>
+		constexpr size_t tensor_type_size() {
+		return TensorTrait<T>::size_in_bytes;
+	}
+
+	/**
+	 * @brief Concept that constrains types to those with valid tensor trait specializations.
+	 *
+	 * @tparam T The type to check for valid tensor trait
 	 */
 	export template <typename T>
 		concept ValidTensorType = requires {
-			{ TensorTypeTrait<T>::value } -> std::convertible_to<TensorType>;
+			{ TensorTrait<T>::is_supported } -> std::convertible_to<bool>;
+			requires TensorTrait<T>::is_supported == true;
 	};
 
 	/**
 	 * @brief Concept that constrains types to valid floating-point tensor types.
 	 *
-	 * This concept ensures that a type T has a corresponding TensorTypeTrait specialization
-	 * and that the trait indicates it's a floating-point type (float or half).
-	 *
 	 * @tparam T The type to check for valid floating-point tensor type
 	 */
 	export template <typename T>
-		concept ValidFloatTensorType = ValidTensorType<T> && TensorTypeTrait<T>::is_float_type;
+		concept ValidFloatTensorType = ValidTensorType<T> && TensorTrait<T>::is_float_type;
 
 	/**
-	* @brief Concept that verifies both types are valid floating-point tensor types.
-	*
-	* This concept ensures that both template parameters represent valid floating-point
-	* tensor types (float or half). It's used primarily with operations and modules that
-	* require floating-point data types for both precision and input calculations.
-	*
-	* @tparam TPrecision The precision tensor element type (must be a floating-point type)
-	* @tparam TInput The input tensor element type (must be a floating-point type)
-	*/
+	 * @brief Concept that verifies both types are valid floating-point tensor types.
+	 *
+	 * @tparam TPrecision The precision tensor element type (must be a floating-point type)
+	 * @tparam TInput The input tensor element type (must be a floating-point type)
+	 */
 	export template <typename TPrecision, typename TInput>
 		concept ValidFloatTensorTypes = ValidFloatTensorType<TPrecision> && ValidFloatTensorType<TInput>;
 
-
 	/**
-	 * @brief Concept that verifies both input and compute types have valid tensor type mappings.
-	 *
-	 * This concept is used primarily with template operations and modules that work with
-	 * both input and computation tensor types, ensuring both types have valid mappings.
+	 * @brief Concept that verifies both input and compute types have valid tensor trait mappings.
 	 *
 	 * @tparam TInput The input tensor element type
 	 * @tparam TCompute The computation tensor element type

@@ -40,15 +40,17 @@ namespace Mila::Dnn::Compute
      * @tparam TInput The data type of the input tensor elements.
      * @tparam TDataType The data type used for computation and output (defaults to the input type).
      */
-    export class CpuSoftmaxOp : public UnaryOperation<float, float, DeviceType::Cpu> {
+    export class CpuSoftmaxOp : public UnaryOperation<float, float, float, DeviceType::Cpu> {
     public:
         using MR = typename CpuDevice::MR;
+		using OperationBase = UnaryOperation<float, float, float, DeviceType::Cpu>;
+
         /**
          * @brief Constructs a new CPU Softmax operation with the default device context.
          *
          * Initializes the operation with a CPU device context.
          */
-        CpuSoftmaxOp() : UnaryOperation<float, float, DeviceType::Cpu>( OperationType::SoftmaxOp ) {}
+        CpuSoftmaxOp() : OperationBase( OperationType::SoftmaxOp ) {}
 
         /**
          * @brief Constructs a new CPU Softmax operation with a specific device context.
@@ -57,7 +59,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the context is not for a CPU device.
          */
         CpuSoftmaxOp( std::shared_ptr<DeviceContext> context )
-            : UnaryOperation<float, float, DeviceType::Cpu>( OperationType::SoftmaxOp, context ) {
+            : OperationBase( OperationType::SoftmaxOp, context ) {
         }
 
         /**
@@ -266,10 +268,9 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cpu::SoftmaxOp";
 
-            OperationRegistry::instance().registerUnaryOperation<float, float, DeviceType::Cpu>(
+            OperationRegistry::instance().registerUnaryOperation<float, float, float, DeviceType::Cpu>(
                 opName,
-                "Default",
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<float, float, DeviceType::Cpu>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<float, float, float, DeviceType::Cpu>> {
                     return context ? std::make_shared<CpuSoftmaxOp>( context )
                         : std::make_shared<CpuSoftmaxOp>();
                 }

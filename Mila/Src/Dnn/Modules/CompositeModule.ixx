@@ -7,7 +7,7 @@ module;
 #include <stdexcept>
 #include <sstream>
 
-export module Dnn.ModuleBlock;
+export module Dnn.CompositeModule;
 
 import Dnn.Module;
 import Dnn.Tensor;
@@ -17,54 +17,57 @@ import Compute.DeviceContext;
 
 namespace Mila::Dnn
 {
-	using namespace Mila::Dnn::Compute;
+    using namespace Mila::Dnn::Compute;
 
     /**
      * @brief A module class that can contain and manage child modules.
      *
-     * Block extends the base Module class with functionality to
+     * CompositeModule extends the base Module class with functionality to
      * add, remove, and manage child modules. This is used for composite
      * neural network components like MLPs, transformers, etc. that are
      * built by composing simpler modules.
      *
+     * @tparam TDeviceType The device type (CPU or CUDA) on which the module will operate.
      * @tparam TInput Data type of the input tensor elements.
-     * @tparam TDataType Data type of the compute tensor elements, defaults to TInput.
-     * @tparam TDeviceType The device type for computation.
+     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
+     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
      */
-    export template<typename TPrecision, typename TInput = TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
-        requires ValidTensorTypes<TPrecision, TInput>
-    class BlockModule : public Module<TPrecision, TInput, TDeviceType> {
+    export template<DeviceType TDeviceType = DeviceType::Cuda,
+        typename TInput = float,
+        typename TOutput = TInput,
+        typename TPrecision = TOutput>
+        requires ValidTensorTypes<TInput, TOutput>&& ValidPrecisionType<TPrecision>
+    class CompositeModule : public Module<TDeviceType, TInput, TOutput, TPrecision> {
     public:
-
-		using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, HostMemoryResource>; ///< Memory resource type based on device type
-		using ModuleBase = Module<TPrecision, TInput, TDeviceType>; ///< Base class type for the module
+        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, HostMemoryResource>; ///< Memory resource type based on device type
+        using ModuleBase = Module<TDeviceType, TInput, TOutput, TPrecision>; ///< Base class type for the module
 
         /**
          * @brief Default constructor.
          */
-        BlockModule()
-            : Module<TPrecision, TInput, TDeviceType>() {}
+        CompositeModule()
+            : ModuleBase() {}
 
         /**
          * @brief Constructor with device name.
          */
-        explicit BlockModule( const std::string& device_name )
-            : Module<TPrecision, TInput, TDeviceType>( device_name ) {}
+        explicit CompositeModule( const std::string& device_name )
+            : ModuleBase( device_name ) {}
 
         /**
          * @brief Constructor with device context.
          */
-        explicit BlockModule( std::shared_ptr<DeviceContext> context )
-            : Module<TPrecision, TInput, TDeviceType>( context ) {}
+        explicit CompositeModule( std::shared_ptr<DeviceContext> context )
+            : ModuleBase( context ) {}
 
         /**
          * @brief Virtual destructor.
          */
-        virtual ~BlockModule() = default;
+        virtual ~CompositeModule() = default;
 
-        //virtual void forward( const Tensor<TPrecision, MR>& input, Tensor<TPrecision, MR>& output ) const = 0;
+        //virtual void forward(const Tensor<TPrecision, MR>& input, Tensor<TPrecision, MR>& output) const = 0;
 
-		// TODO: Add backward virtual function
+        // TODO: Add backward virtual function
 
         /**
          * @brief Add a named child module to this module.
@@ -75,7 +78,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If the module pointer is null.
          * @return Reference to this module for method chaining.
          */
-        BlockModule& addModule( const std::string& name, std::shared_ptr<Module<TPrecision, TInput, TDeviceType>> module ) {
+        CompositeModule& addModule( const std::string& name, std::shared_ptr<Module<TDeviceType, TInput, TOutput, TPrecision>> module ) {
             if ( name.empty() ) {
                 throw std::invalid_argument( "Sub-module name cannot be empty." );
             }
@@ -105,7 +108,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If the module pointer is null.
          * @return Reference to this module for method chaining.
          */
-        BlockModule& addModule( std::shared_ptr<Module<TPrecision, TInput, TDeviceType>> module ) {
+        CompositeModule& addModule( std::shared_ptr<Module<TDeviceType, TInput, TOutput, TPrecision>> module ) {
             if ( !module ) {
                 throw std::invalid_argument( "Cannot add null module." );
             }
@@ -119,10 +122,10 @@ namespace Mila::Dnn
          * @brief Get a specific sub-module by name.
          *
          * @param name The name of the sub-module to retrieve.
-         * @return std::shared_ptr<Module<TInput, TDataType>> The requested module.
+         * @return std::shared_ptr<Module<TDeviceType, TInput, TOutput, TPrecision>> The requested module.
          * @throws std::out_of_range If no module with the given name exists.
          */
-        std::shared_ptr<Module<TPrecision, TInput, TDeviceType>> getModule( const std::string& name ) const {
+        std::shared_ptr<Module<TDeviceType, TInput, TOutput, TPrecision>> getModule( const std::string& name ) const {
             auto it = child_module_map_.find( name );
             if ( it == child_module_map_.end() ) {
                 throw std::out_of_range( "No module named '" + name + "' found." );
@@ -143,20 +146,20 @@ namespace Mila::Dnn
         /**
          * @brief Get all sub-modules contained in this module.
          *
-         * @return const std::vector<std::shared_ptr<Module<TInput, TDataType>>>&
+         * @return const std::vector<std::shared_ptr<Module<TDeviceType, TInput, TOutput, TPrecision>>>&
          *         Vector of child module pointers.
          */
-        const std::vector<std::shared_ptr<Module<TPrecision, TInput, TDeviceType>>>& getModules() const {
+        const std::vector<std::shared_ptr<Module<TDeviceType, TInput, TOutput, TPrecision>>>& getModules() const {
             return child_modules_;
         }
 
         /**
          * @brief Get all named sub-modules contained in this module.
          *
-         * @return const std::unordered_map<std::string, std::shared_ptr<Module<TInput, TDataType>>>&
+         * @return const std::unordered_map<std::string, std::shared_ptr<Module<TDeviceType, TInput, TOutput, TPrecision>>>&
          *         Map of child module names to pointers.
          */
-        const std::unordered_map<std::string, std::shared_ptr<Module<TPrecision, TInput, TDeviceType>>>& getNamedModules() const {
+        const std::unordered_map<std::string, std::shared_ptr<Module<TDeviceType, TInput, TOutput, TPrecision>>>& getNamedModules() const {
             return child_module_map_;
         }
 
@@ -194,7 +197,7 @@ namespace Mila::Dnn
          * @return bool True if a module was replaced, false if no module with that name existed.
          * @throws std::invalid_argument If the replacement module pointer is null.
          */
-        bool replaceModule( const std::string& name, std::shared_ptr<Module<TPrecision, TInput, TDeviceType>> module ) {
+        bool replaceModule( const std::string& name, std::shared_ptr<Module<TDeviceType, TInput, TOutput, TPrecision>> module ) {
             if ( !module ) {
                 throw std::invalid_argument( "Cannot replace with null module." );
             }
@@ -225,7 +228,7 @@ namespace Mila::Dnn
          * @param is_training True if the module is in training mode, false for inference mode.
          */
         void setTraining( bool is_training ) override {
-            Module<TPrecision, TInput, TDeviceType>::setTraining( is_training );
+            ModuleBase::setTraining( is_training );
 
             // Propagate to all sub-modules
             for ( auto& module : child_modules_ ) {
@@ -278,7 +281,7 @@ namespace Mila::Dnn
          */
         std::string toString() const override {
             std::ostringstream oss;
-            oss << "ModuleContainer: " << this->getName() << std::endl;
+            oss << "CompositeModule: " << this->getName() << std::endl;
             oss << "Child Modules:" << std::endl;
             for ( const auto& [name, module] : child_module_map_ ) {
                 oss << "  - " << name << ": " << module->toString() << std::endl;
@@ -286,24 +289,18 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-    //protected:
-    //    /**
-    //     * @brief Called when the device context changes.
-    //     *
-    //     * Propagates device context changes to all child modules.
-    //     */
-    //    void onDeviceChanged() override {
-    //        // Propagate device context change to all child modules
-    //        for ( auto& module : child_modules_ ) {
-    //            module->setDeviceContext( this->getDeviceContext() );
-    //        }
-    //    }
-
     private:
         /** @brief Child modules in the order they were added (ordered) */
-        std::vector<std::shared_ptr<Module<TPrecision, TInput, TDeviceType>>> child_modules_;
+        std::vector<std::shared_ptr<Module<TDeviceType, TInput, TOutput, TPrecision>>> child_modules_;
 
         /** @brief Named child modules for efficient lookup by name */
-        std::unordered_map<std::string, std::shared_ptr<Module<TPrecision, TInput, TDeviceType>>> child_module_map_;
+        std::unordered_map<std::string, std::shared_ptr<Module<TDeviceType, TInput, TOutput, TPrecision>>> child_module_map_;
     };
+
+    // Convenient type aliases
+    export template<typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
+        using CpuCompositeModule = CompositeModule<DeviceType::Cpu, TInput, TOutput, TPrecision>;
+
+    export template<typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
+        using CudaCompositeModule = CompositeModule<DeviceType::Cuda, TInput, TOutput, TPrecision>;
 }

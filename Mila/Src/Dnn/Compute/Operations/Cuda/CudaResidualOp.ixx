@@ -11,6 +11,8 @@ module;
 export module Compute.CudaResidualOp;
 
 import Dnn.Tensor;
+import Dnn.TensorTraits;
+import Compute.Precision;
 import Compute.OperationBase;
 import Compute.OperationAttributes;
 import Compute.BinaryOperation;
@@ -26,34 +28,34 @@ namespace Mila::Dnn::Compute
 {
     using namespace Mila::Dnn;
 
-	/**
-	 * @brief Namespace for CUDA residual implementation details.
-	 *
-	 * This namespace contains the implementation details for the CUDA residual operation,
-	 * including specialized templates for different data types (float, half).
-	 */
-	namespace Detail
-	{
-		// Primary template - will cause a compile error if no specialization exists
-		template <typename TPrecision>
-		struct cuda_residual_impl;
+    /**
+     * @brief Namespace for CUDA residual implementation details.
+     *
+     * This namespace contains the implementation details for the CUDA residual operation,
+     * including specialized templates for different data types (float, half).
+     */
+    namespace Detail
+    {
+        // Primary template - will cause a compile error if no specialization exists
+        template <typename TCompute>
+        struct cuda_residual_impl;
 
-		// Specialization for float
-		template <>
-		struct cuda_residual_impl<float> {
-			static inline void forward( float* Y, const float* X1, const float* X2, int N, cudaStream_t stream ) {
-				cuda_residual_forward_fp32( Y, X1, X2, N, stream );
-			}
-		};
+        // Specialization for float
+        template <>
+        struct cuda_residual_impl<float> {
+            static inline void forward( float* Y, const float* X1, const float* X2, int N, cudaStream_t stream ) {
+                cuda_residual_forward_fp32( Y, X1, X2, N, stream );
+            }
+        };
 
-		// Specialization for half
-		template <>
-		struct cuda_residual_impl<half> {
-			static inline void forward( half* Y, const half* X1, const half* X2, int N, cudaStream_t stream ) {
-				cuda_residual_forward_fp16( Y, X1, X2, N, stream );
-			}
-		};
-	}
+        // Specialization for half
+        template <>
+        struct cuda_residual_impl<half> {
+            static inline void forward( half* Y, const half* X1, const half* X2, int N, cudaStream_t stream ) {
+                cuda_residual_forward_fp16( Y, X1, X2, N, stream );
+            }
+        };
+    }
 
     /**
      * @brief CUDA implementation of the residual operation for neural networks.
@@ -62,24 +64,25 @@ namespace Mila::Dnn::Compute
      * which performs element-wise addition of two input tensors.
      * It is commonly used in residual connections in neural network architectures
      * such as ResNet and Transformers to help with gradient flow and mitigate the
-     * vanishing gradient problem. The implementation is optimized for NVIDIA GPUs
-     * using CUDA for high-performance computation.
+     * vanishing gradient problem. The implementation is optimized for NVIDIA GPUs.
      *
-     * @tparam TPrecision The data type of the input tensor elements.
-     * @tparam TDataType The data type of the output tensor elements (defaults to the input type).
+     * @tparam TInput The data type of both input tensor elements.
+     * @tparam TOutput The data type of the output tensor elements (defaults to TInput).
+     * @tparam TCompute The data type used for computation (defaults to TOutput).
      */
-	export template<typename TPrecision>
-		requires (std::is_same_v<TPrecision, float> || std::is_same_v<TPrecision, half>)
-    class CudaResidualOp : public BinaryOperation<TPrecision> {
+    export template<typename TInput, typename TOutput = TInput, typename TCompute = TOutput>
+        requires ValidFloatTensorType<TInput>&& ValidFloatTensorType<TOutput>&& ValidPrecisionType<TCompute>
+    class CudaResidualOp : public BinaryOperation<TInput, TInput, TOutput, TCompute, DeviceType::Cuda> {
     public:
         using MR = typename CudaDevice::MR;
+        using OperationBase = BinaryOperation<TInput, TInput, TOutput, TCompute, DeviceType::Cuda>;
 
         /**
          * @brief Constructs a new CUDA Residual operation with the default device context.
          *
          * Initializes the operation with a CUDA device context (defaults to CUDA:0).
          */
-        CudaResidualOp() : BinaryOperation<TPrecision>( OperationType::ResidualOp ) {}
+        CudaResidualOp() : OperationBase( OperationType::ResidualOp ) {}
 
         /**
          * @brief Constructs a new CUDA Residual operation with a specific device context.
@@ -88,8 +91,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the context is not for a CUDA device.
          */
         CudaResidualOp( std::shared_ptr<DeviceContext> context )
-            : BinaryOperation<TPrecision>( OperationType::ResidualOp, context ) {
-        }
+            : OperationBase( OperationType::ResidualOp, context ) {}
 
         /**
          * @brief Performs the forward pass of the residual operation on CUDA.
@@ -105,12 +107,12 @@ namespace Mila::Dnn::Compute
          * @param output_state Cache for intermediate results (not used in this operation).
          */
         void forward(
-            const Tensor<TPrecision, MR>& input1,
-            const Tensor<TPrecision, MR>& input2,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
+            const Tensor<TInput, MR>& input1,
+            const Tensor<TInput, MR>& input2,
+            const std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameters,
             const OperationAttributes& properties,
-            Tensor<TPrecision, MR>& output,
-            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const override {
+            Tensor<TOutput, MR>& output,
+            std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const override {
 
             auto X1 = input1.raw_data();
             auto X2 = input2.raw_data();
@@ -118,8 +120,21 @@ namespace Mila::Dnn::Compute
             int N = input1.size();
 
             cudaStream_t stream = this->getDeviceContext()->getStream();
-            
-            Detail::cuda_residual_impl<TPrecision>::forward( Y, X1, X2, N, stream );
+
+            if constexpr ( std::is_same_v<TInput, TOutput> && std::is_same_v<TOutput, TCompute> ) {
+                // All types are the same - direct computation
+                Detail::cuda_residual_impl<TCompute>::forward( Y, X1, X2, N, stream );
+            }
+            else {
+                // Handle mixed precision computation
+                // For non-trivial mixed precision, we would need to implement 
+                // type conversion here using cuda_convert_type or similar
+                Detail::cuda_residual_impl<TCompute>::forward(
+                    reinterpret_cast<TCompute*>(Y),
+                    reinterpret_cast<const TCompute*>(X1),
+                    reinterpret_cast<const TCompute*>(X2),
+                    N, stream );
+            }
         }
 
         /**
@@ -140,16 +155,16 @@ namespace Mila::Dnn::Compute
          * @param output_state Cache tensors from forward pass (not used in this operation).
          */
         void backward(
-            const Tensor<TPrecision, MR>& input1,
-            const Tensor<TPrecision, MR>& input2,
-            const Tensor<TPrecision, MR>& output,
-            const Tensor<TPrecision, MR>& output_gradient,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
-            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameter_gradients,
-            Tensor<TPrecision, MR>& input1_gradient,
-            Tensor<TPrecision, MR>& input2_gradient,
+            const Tensor<TInput, MR>& input1,
+            const Tensor<TInput, MR>& input2,
+            const Tensor<TOutput, MR>& output,
+            const Tensor<TOutput, MR>& output_gradient,
+            const std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameters,
+            std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& parameter_gradients,
+            Tensor<TInput, MR>& input1_gradient,
+            Tensor<TInput, MR>& input2_gradient,
             const OperationAttributes& properties,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const {
+            const std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const {
 
             // Verify we're operating on CUDA memory
             if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cuda ) ) {
@@ -157,15 +172,15 @@ namespace Mila::Dnn::Compute
             }
 
             // Extract tensors
-            const TPrecision* dY = output_gradient.data();
-            TPrecision* dX1 = input1_gradient.data();
-            TPrecision* dX2 = input2_gradient.data();
+            const TOutput* dY = output_gradient.data();
+            TInput* dX1 = input1_gradient.data();
+            TInput* dX2 = input2_gradient.data();
             int N = input1.size();
 
             cudaStream_t stream = this->getDeviceContext()->getStream();
 
             // For residual connection, the gradient just flows through to both inputs
-            // FIXME: cuda_residual_backward( dX1, dX2, dY, N, stream );
+            // FIXME: cuda_residual_backward(dX1, dX2, dY, N, stream);
         }
 
         /**
@@ -180,36 +195,26 @@ namespace Mila::Dnn::Compute
 
     /**
      * @brief Class responsible for registering the CudaResidualOp operation.
-     *
-     * The CudaResidualOpRegistrar class registers the CudaResidualOp operation with the OperationRegistry.
-     * It associates the operation name "Cuda::ResidualOp" with a factory function that creates
-     * instances of CudaResidualOp.
      */
     export class CudaResidualOpRegistrar {
     public:
         /**
          * @brief Registers the CudaResidualOp operation with the OperationRegistry.
-         *
-         * This function registers the CudaResidualOp operation for the CUDA device type
-         * with the OperationRegistry. It associates the operation name "Cuda::ResidualOp"
-         * with a factory function that creates instances of CudaResidualOp.
          */
         static void registerOperations() {
             const std::string opName = "Cuda::ResidualOp";
 
-            OperationRegistry::instance().registerBinaryOperation<float, float, float, DeviceType::Cuda>(
+            OperationRegistry::instance().registerBinaryOperation<float, float, float, float, DeviceType::Cuda>(
                 opName,
-                "Default",
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<BinaryOperation<float, float, float, DeviceType::Cuda>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<BinaryOperation<float, float, float, float, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaResidualOp<float>>( context )
                         : std::make_shared<CudaResidualOp<float>>();
                 }
             );
 
-            OperationRegistry::instance().registerBinaryOperation<half, half, half, DeviceType::Cuda>(
+            OperationRegistry::instance().registerBinaryOperation<half, half, half, half, DeviceType::Cuda>(
                 opName,
-                "Default",
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<BinaryOperation<half, half, half, DeviceType::Cuda>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<BinaryOperation<half, half, half, half, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaResidualOp<half>>( context )
                         : std::make_shared<CudaResidualOp<half>>();
                 }
@@ -218,9 +223,6 @@ namespace Mila::Dnn::Compute
 
         /**
          * @brief Self-registration mechanism that registers the operation during startup.
-         *
-         * This static member ensures the operation is registered when the program starts
-         * without requiring explicit registration calls.
          */
         static inline bool isRegistered = []() {
             registerOperations();
@@ -228,4 +230,3 @@ namespace Mila::Dnn::Compute
             }();
     };
 }
-

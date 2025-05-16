@@ -261,19 +261,17 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cuda::MultiHeadAttentionOp";
 
-            OperationRegistry::instance().registerUnaryOperation<float, float, DeviceType::Cuda>(
+            OperationRegistry::instance().registerUnaryOperation<float, float, float, DeviceType::Cuda>(
                 opName,
-                "Default",
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<float, float, DeviceType::Cuda>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<float, float, float, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaMultiHeadAttentionOp<float>>( context )
                         : std::make_shared<CudaMultiHeadAttentionOp<float>>();
                 }
             );
             
-            OperationRegistry::instance().registerUnaryOperation<half, half, DeviceType::Cuda>(
+            OperationRegistry::instance().registerUnaryOperation<half, half, half, DeviceType::Cuda>(
                 opName,
-                "Default",
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<half, half, DeviceType::Cuda>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<half, half, half, DeviceType::Cuda>> {
                     return context ? std::make_shared<CudaMultiHeadAttentionOp<half>>( context )
                         : std::make_shared<CudaMultiHeadAttentionOp<half>>();
                 }

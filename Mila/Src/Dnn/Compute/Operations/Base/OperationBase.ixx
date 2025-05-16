@@ -1,6 +1,8 @@
 /**
  * @file OperationBase.ixx
  * @brief Base class for all compute operations in the Mila neural network framework.
+ * @details Provides a common interface and functionality for neural network operations
+ *          across different device types and precision levels.
  */
 
 module;
@@ -20,60 +22,62 @@ namespace Mila::Dnn::Compute
     /**
      * @brief Base class for all compute operations in the Mila neural network framework.
      *
-     * This abstract base class defines the common interface for all operations that can be
+     * @details This abstract base class defines the common interface for all operations that can be
      * performed in the neural network computation graph, regardless of the device type
      * (CPU, CUDA, etc). Specific operations inherit from this class and implement their
      * specialized behavior while adhering to a consistent interface.
      *
-     * @tparam TOutput The data type of the output tensor elements.
-     *                 Must satisfy ValidFloatTensorType constraint.
-     * @tparam TInput1 The data type of the first input tensor elements, defaults to TOutput.
+     * @tparam TInput1 The data type of the first input tensor elements.
      *                 Must satisfy ValidTensorType constraint.
      * @tparam TInput2 The data type of the second input tensor elements, defaults to TInput1.
      *                 Must satisfy ValidTensorType constraint.
-     * @tparam TDeviceType The target device type for the operation, defaults to CUDA.
+     * @tparam TOutput The data type of the output tensor elements, defaults to TInput1.
+     *                 Must satisfy ValidFloatTensorType constraint.
+     * @tparam TPrecision The computational precision to use, defaults to ComputePrecision::Default.
+     * @tparam TDeviceType The target device type for the operation, defaults to DeviceType::Cuda.
      */
-    export template <typename TOutput, typename TInput1 = TOutput, typename TInput2 = TInput1, DeviceType TDeviceType = DeviceType::Cuda>
-        requires ValidFloatTensorType<TOutput>&& ValidTensorTypes<TInput1, TInput2>
+    export template <typename TInput1, typename TInput2 = TInput1, typename TOutput = TInput1,
+        typename TPrecision = TOutput, DeviceType TDeviceType = DeviceType::Cuda>
+        requires ValidTensorTypes<TInput1, TInput2>&& ValidFloatTensorType<TOutput> && ValidPrecisionType<TPrecision>
     class OperationBase {
     public:
         /**
-         * @brief Constructs an OperationBase object with a specific device context.
+        * @brief Gets the compute precision type used for this operation.
          *
-         * Initializes the operation with the specified operation type and device context.
-         * The device context determines where and how the operation will be executed.
-         *
-         * @param operation_type The type of the operation (from OperationType enum).
-         * @param context The device context to use for this operation.
-         */
-        OperationBase( OperationType operation_type,  ComputePrecision compute_precision, std::shared_ptr<DeviceContext> context )
-            : operation_type_( operation_type ), compute_precision_( compute_precision ), device_context_( context ) {}
-
+        * @details This type alias represents the precision that is used for internal
+        * computations in the operation, determining the numerical accuracy.
+        *
+        * @return The precision type information.
+        */
+        using ComputePrecisionType = TPrecision;
+        
         /**
-         * @brief Constructs an OperationBase object with a specific device context and default compute precision.
+         * @brief Constructs an OperationBase object with a specific device context and compute precision.
          *
-         * Initializes the operation with the specified operation type and device context,
-         * using the default compute precision (same as output tensor type).
+         * @details Initializes the operation with the specified operation type and device context,
+         * using the template parameter-specified compute precision.
          *
          * @param operation_type The type of the operation (from OperationType enum).
-         * @param context The device context to use for this operation.
+         * @param context The device context to use for this operation. Must not be null.
+         * @throw std::invalid_argument May throw if context is null (implementation dependent).
          */
         OperationBase( OperationType operation_type, std::shared_ptr<DeviceContext> context )
-            : operation_type_( operation_type ), compute_precision_( ComputePrecision::Default ), device_context_( context ) {}
+            : operation_type_( operation_type ), device_context_( context ) {}
 
         /**
          * @brief Virtual destructor for the OperationBase class.
          *
-         * Ensures proper cleanup of derived class resources when destroyed through
-         * a base class pointer.
+         * @details Ensures proper cleanup of derived class resources when destroyed through
+         * a base class pointer. Default implementation is sufficient for this base class.
          */
         virtual ~OperationBase() = default;
 
         /**
          * @brief Gets the name of the operation.
          *
-         * This pure virtual function must be implemented by derived classes to return
-         * a unique identifier string for the specific operation type.
+         * @details This pure virtual function must be implemented by derived classes to return
+         * a unique identifier string for the specific operation type. The name should be
+         * descriptive and consistent across framework components.
          *
          * @return std::string A unique name identifying this operation type.
          */
@@ -82,8 +86,9 @@ namespace Mila::Dnn::Compute
         /**
          * @brief Gets the device context associated with this operation.
          *
-         * The device context contains information about the execution environment,
-         * including the device, streams, and memory resources.
+         * @details The device context contains information about the execution environment,
+         * including the device, streams, and memory resources. This context is used for
+         * all device interactions performed by this operation.
          *
          * @return std::shared_ptr<DeviceContext> The device context for this operation.
          */
@@ -94,8 +99,9 @@ namespace Mila::Dnn::Compute
         /**
          * @brief Gets the device type for this operation.
          *
-         * This is a convenience method that retrieves the device type from the
-         * associated device context.
+         * @details This is a convenience method that retrieves the device type from the
+         * associated device context. It delegates to the device context's device to
+         * determine the actual hardware target.
          *
          * @return DeviceType The type of device (CPU, CUDA, etc.) for this operation.
          */
@@ -106,7 +112,8 @@ namespace Mila::Dnn::Compute
         /**
          * @brief Gets the operation type enumeration value.
          *
-         * Returns the operation type that was specified during construction.
+         * @details Returns the operation type that was specified during construction.
+         * This identifies the category of neural network operation being performed.
          *
          * @return OperationType The enumeration value identifying this operation's category.
          */
@@ -115,19 +122,19 @@ namespace Mila::Dnn::Compute
         }
 
         /**
-         * @brief Gets the compute precision for this operation.
-         *
-         * Returns the precision that should be used for internal computations.
-         *
-         * @return ComputePrecision The enumeration value specifying the computation precision.
-         */
-        ComputePrecision getComputePrecision() const {
-            return compute_precision_;
+        * @brief Gets the compute precision type name for this operation.
+        *
+        * @details Returns a string view containing the name of the precision type
+        * used for internal computations. This helps with debugging and logging.
+        *
+        * @return std::string_view The name of the precision type.
+        */
+        std::string_view getComputePrecisionName() const {
+            return precision_type_name<TPrecision>();
         }
 
     private:
-        OperationType operation_type_; ///< The operation type identifier.
-		ComputePrecision compute_precision_; ///< The precision for internal computation.
+        OperationType operation_type_;      ///< The operation type identifier.
         std::shared_ptr<DeviceContext> device_context_; ///< The device context for execution.
     };
 }

@@ -278,7 +278,7 @@ int main( int argc, char* argv[] ) {
             if ( config.runCpu ) {
                 for ( const auto& shape : cpuBenchmarkShapes ) {
                     // CPU Gelu Module
-                    auto cpuGelu = std::make_shared<Gelu<float, DeviceType::Cpu>>(
+                    auto cpuGelu = std::make_shared<CpuGelu<float>>(
                         "Cpu::Gelu", cpuContext );
 
                     auto cpuGeluBench = std::make_unique<ModuleBenchmark<float, float, DeviceType::Cpu>>(
@@ -294,7 +294,7 @@ int main( int argc, char* argv[] ) {
             if ( config.runCuda ) {
                 for ( const auto& shape : cudaBenchmarkShapes ) {
                     // CUDA Gelu Module
-                    auto cudaGelu = std::make_shared<Gelu<float, DeviceType::Cuda>>(
+                    auto cudaGelu = std::make_shared<CudaGelu<float>>(
                         "Cuda::Gelu", cudaContext );
 
                     auto cudaGeluBench = std::make_unique<ModuleBenchmark<float, float, DeviceType::Cuda>>(
@@ -315,10 +315,10 @@ int main( int argc, char* argv[] ) {
                         size_t hidden_features = input_features * 4;  // Common ratio in transformers
 
                         // CPU MLP
-                        auto cpuMLP = std::make_shared<MLP<float, DeviceType::Cpu>>(
+                        auto cpuMLP = std::make_shared<CpuMLP<float>>(
                             "Cpu::MLP", cpuContext, shape, hidden_features, true, false );
 
-                        auto cpuMLPBench = std::make_unique<BlockModuleBenchmark<float, DeviceType::Cpu>>(
+                        auto cpuMLPBench = std::make_unique<BlockModuleBenchmark<DeviceType::Cpu, float>>(
                             cpuMLP,
                             shape,
                             cpuContext

@@ -14,14 +14,14 @@ namespace Mila::Mnist
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
 
-    export template<typename TPrecision, DeviceType TDeviceType>
-    class MnistClassifier : public BlockModule<TPrecision, TPrecision, TDeviceType> {
+    export template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
+    class MnistClassifier : public CompositeModule<TDeviceType, TInput, TOutput, TPrecision> {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, HostMemoryResource>;
-        using BlockModuleBase = BlockModule<TPrecision, TPrecision, TDeviceType>;
+        using CompositeModuleBase = CompositeModule<TDeviceType, TInput, TOutput, TPrecision>;
 
         MnistClassifier( const std::string& name, const std::string& device_name, size_t batch_size )
-            : BlockModuleBase( device_name ) {
+            : CompositeModuleBase( device_name ) {
 
             this->setName( name );
             input_shape_ = { batch_size, static_cast<size_t>(MNIST_IMAGE_SIZE) };
@@ -30,7 +30,7 @@ namespace Mila::Mnist
         }
 
         MnistClassifier( const std::string& name, std::shared_ptr<DeviceContext> context, size_t batch_size )
-            : BlockModuleBase( context ) {
+            : CompositeModuleBase( context ) {
 
             this->setName( name );
             input_shape_ = { batch_size, static_cast<size_t>(MNIST_IMAGE_SIZE) };
@@ -38,7 +38,7 @@ namespace Mila::Mnist
             initializeModules();
         }
 
-        void forward( const Tensor<TPrecision, MR>& input, Tensor<TPrecision, MR>& output ) {
+        void forward( const Tensor<TInput, MR>& input, Tensor<TOutput, MR>& output ) {
             mlp1_->forward( input, hidden1_ );
 
             // Second MLP block: hidden1 -> hidden2
@@ -90,9 +90,9 @@ namespace Mila::Mnist
         std::vector<size_t> input_shape_;
 
         // Network layers
-        std::shared_ptr<MLP<TPrecision, TDeviceType>> mlp1_;
-        std::shared_ptr<MLP<TPrecision, TDeviceType>> mlp2_;
-        std::shared_ptr<FullyConnected<TPrecision, TDeviceType>> output_fc_layer_;
+        std::shared_ptr<MLP<TDeviceType, TInput, TOutput, TPrecision>> mlp1_;
+        std::shared_ptr<MLP<TDeviceType, TInput, TOutput, TPrecision>> mlp2_;
+        std::shared_ptr<Linear<TDeviceType, TInput, TOutput, TPrecision>> output_fc_layer_;
 
         // Intermediate tensors for activations
         Tensor<TPrecision, MR> hidden1_;
@@ -117,7 +117,7 @@ namespace Mila::Mnist
             // Layer 2: Hidden1 (128) -> Hidden2 (64)
             // Create second MLP block
             std::vector<size_t> hidden1_shape = { input_shape_[ 0 ], 128 };
-            mlp2_ = std::make_shared<MLP<TPrecision, TDeviceType>>(
+            mlp2_ = std::make_shared<MLP<TDeviceType, TPrecision>>(
                 this->getName() + ".mlp2",
                 this->getDeviceContext(),
                 hidden1_shape,
@@ -127,7 +127,7 @@ namespace Mila::Mnist
 
             // Layer 3: Hidden2 (64) -> Output (10)
             // Output layer for classification
-            output_fc_layer_ = std::make_shared<FullyConnected<TPrecision, TDeviceType>>(
+            output_fc_layer_ = std::make_shared<Linear<TDeviceType, TPrecision>>(
                 this->getName() + ".output",
                 this->getDeviceContext(),
                 64,                    // Input features

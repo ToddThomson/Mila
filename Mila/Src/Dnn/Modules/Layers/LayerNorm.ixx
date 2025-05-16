@@ -4,6 +4,7 @@
  */
 
 module;
+#include <miniz.h>
 #include <iostream>
 #include <sstream>
 #include <memory>
@@ -44,28 +45,35 @@ namespace Mila::Dnn
      * The operation can be expressed as:
      * y = ((x - mean) / sqrt(variance + epsilon)) * weight + bias
      *
-     * @tparam TPrecision The data type of the input tensor elements.
-     * @tparam TDataType The data type used for computation and output (defaults to the input type).
+     * @tparam TDeviceType The device type (CPU or CUDA) on which to perform computations.
+     * @tparam TInput Data type of the input tensor elements.
+     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
+     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
      */
-    export template<typename TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
-        requires ValidTensorType<TPrecision>
-    class LayerNorm : public Module<TPrecision, TPrecision, TDeviceType> {
+    export template<DeviceType TDeviceType = DeviceType::Cuda,
+        typename TInput = float,
+        typename TOutput = TInput,
+        typename TPrecision = TOutput>
+        requires ValidTensorTypes<TInput, TOutput>&& ValidPrecisionType<TPrecision>
+    class LayerNorm : public Module<TDeviceType, TInput, TOutput, TPrecision> {
     public:
+        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>; ///< Memory resource type based on device type
+        using ModuleBase = Module<TDeviceType, TInput, TOutput, TPrecision>; ///< Base class type for the module
 
-		using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>; ///< Memory resource type based on device type
-		using ModuleBase = Module<TPrecision, TPrecision, TDeviceType>; ///< Base class type for the module
         /**
          * @brief Constructs a new LayerNorm object with the default device context.
          *
          * @param name Name of the module for identification purposes.
+         * @param device_name The name of the device to use for this module.
          * @param input_shape Shape of the input tensor, typically [batch_size, sequence_length, channels].
          * @param axis Axis for normalization. Default is -1 (last dimension).
          * @param has_bias Whether the module should use a bias tensor. Default is true.
          * @param is_training Whether the module is initially in training mode. Default is false.
          */
         LayerNorm(
-            std::string name, std::string device_name, const std::vector<size_t>& input_shape, int64_t axis = -1, bool has_bias = true, bool is_training = false )
-            : ModuleBase( device_name), input_shape_{ input_shape }, axis_{ axis }, has_bias_{ has_bias } {
+            std::string name, std::string device_name, const std::vector<size_t>& input_shape,
+            int64_t axis = -1, bool has_bias = true, bool is_training = false )
+            : ModuleBase( device_name ), input_shape_{ input_shape }, axis_{ axis }, has_bias_{ has_bias } {
             this->setTraining( is_training );
             this->setName( name );
             initializeTensors();
@@ -76,8 +84,8 @@ namespace Mila::Dnn
          * @brief Constructs a new LayerNorm object with a specific device context.
          *
          * @param name Name of the module for identification purposes.
-         * @param input_shape Shape of the input tensor, typically [batch_size, sequence_length, channels].
          * @param context The device context to use for this module.
+         * @param input_shape Shape of the input tensor, typically [batch_size, sequence_length, channels].
          * @param axis Axis for normalization. Default is -1 (last dimension).
          * @param has_bias Whether the module should use a bias tensor. Default is true.
          * @param is_training Whether the module is initially in training mode. Default is false.
@@ -97,9 +105,8 @@ namespace Mila::Dnn
          *
          * The weight tensor is applied as a scale factor to the normalized values.
          *
-         * @return std::shared_ptr<Tensor<TDataType>> Shared pointer to the weight tensor.
+         * @return std::shared_ptr<Tensor<TPrecision, MR>> Shared pointer to the weight tensor.
          */
-
         std::shared_ptr<Tensor<TPrecision, MR>> getWeight() {
             return std::static_pointer_cast<Tensor<TPrecision, MR>>(weight_);
         }
@@ -109,7 +116,7 @@ namespace Mila::Dnn
          *
          * The bias tensor is added after normalization and scaling.
          *
-         * @return std::shared_ptr<Tensor<TDataType>> Shared pointer to the bias tensor.
+         * @return std::shared_ptr<Tensor<TPrecision, MR>> Shared pointer to the bias tensor.
          */
         std::shared_ptr<Tensor<TPrecision, MR>> getBias() {
             return std::static_pointer_cast<Tensor<TPrecision, MR>>(bias_);
@@ -246,7 +253,7 @@ namespace Mila::Dnn
         /**
          * @brief The bias tensor added after normalization and scaling.
          */
-        std::shared_ptr<Tensor<TPrecision,MR>> bias_{ nullptr };
+        std::shared_ptr<Tensor<TPrecision, MR>> bias_{ nullptr };
 
         /**
          * @brief The mean tensor used for normalization.
@@ -281,7 +288,7 @@ namespace Mila::Dnn
         /**
          * @brief The underlying operation that implements Layer Normalization.
          */
-        std::shared_ptr<UnaryOperation<TPrecision, TPrecision, TDeviceType>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TInput, TOutput, TPrecision, TDeviceType>> operation_{ nullptr };
 
         /**
          * @brief Initializes the tensors needed for the Layer Normalization operation.
@@ -339,9 +346,9 @@ namespace Mila::Dnn
             this->state_map_[ "mean" ] = mean_;
             this->state_map_[ "rstd" ] = rstd_;
 
-            // Set epsilon in the properties
-            properties_.epsilon = epsilon_;
-            properties_.axis = axis_;
+            // Set epsilon and axis in the properties
+            properties_.set( "epsilon", epsilon_ );
+            properties_.set( "axis", axis_ );
         }
 
         /**
@@ -352,19 +359,39 @@ namespace Mila::Dnn
          */
         void createOperation() {
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<TPrecision, TPrecision, DeviceType::Cpu>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<TInput, TOutput, TPrecision, DeviceType::Cpu>(
                     "Cpu::LayerNormOp",
                     this->getDeviceContext() );
 
-                operation_ = std::static_pointer_cast<UnaryOperation<TPrecision, TPrecision, TDeviceType>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<TInput, TOutput, TPrecision, TDeviceType>>(base_op);
             }
             else {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<TPrecision, TPrecision, DeviceType::Cuda>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<TInput, TOutput, TPrecision, DeviceType::Cuda>(
                     "Cuda::LayerNormOp",
                     this->getDeviceContext() );
 
-                operation_ = std::static_pointer_cast<UnaryOperation<TPrecision, TPrecision, TDeviceType>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<TInput, TOutput, TPrecision, TDeviceType>>(base_op);
             }
         }
     };
+
+    /**
+     * @brief Type alias for CPU-based layer normalization module with customizable tensor types.
+     *
+     * @tparam TInput Data type of the input tensor elements.
+     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
+     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
+     */
+    export template<typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
+        using CpuLayerNorm = LayerNorm<DeviceType::Cpu, TInput, TOutput, TPrecision>;
+
+    /**
+     * @brief Type alias for CUDA-based layer normalization module with customizable tensor types.
+     *
+     * @tparam TInput Data type of the input tensor elements.
+     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
+     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
+     */
+    export template<typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
+        using CudaLayerNorm = LayerNorm<DeviceType::Cuda, TInput, TOutput, TPrecision>;
 }

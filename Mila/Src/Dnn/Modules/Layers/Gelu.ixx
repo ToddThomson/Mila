@@ -4,6 +4,7 @@
  */
 
 module;
+#include <miniz.h>
 #include <memory>
 #include <vector>
 #include <string>
@@ -41,20 +42,24 @@ namespace Mila::Dnn
      * This activation function is used in many state-of-the-art neural network
      * architectures, including transformers, as an alternative to ReLU.
      *
-     * @tparam TPrecision The data type of the input tensor elements.
-     * @tparam TDataType The data type used for computation and output (defaults to the input type).
+     * @tparam TDeviceType The device type (CPU or CUDA) on which the module will operate.
+     * @tparam TInput The data type of the input tensor elements.
+     * @tparam TOutput The data type of the output tensor elements, defaults to TInput.
+     * @tparam TPrecision The data type used for internal calculations, defaults to TOutput.
      */
-    export template< typename TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
-        requires ValidFloatTensorType<TPrecision> 
-    class Gelu : public Module<TPrecision, TPrecision, TDeviceType> {
+    export template<DeviceType TDeviceType = DeviceType::Cuda,
+        typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
+        requires ValidFloatTensorTypes<TInput, TOutput>&& ValidPrecisionType<TPrecision>
+    class Gelu : public Module<TDeviceType, TInput, TOutput, TPrecision> {
     public:
-		using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>; ///< Memory resource type based on device type
-		using ModuleBase = Module<TPrecision, TPrecision, TDeviceType>; ///< Base class type for the module
-        
+        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>; ///< Memory resource type based on device type
+        using ModuleBase = Module<TDeviceType, TInput, TOutput, TPrecision>; ///< Base class type for the module
+
         /**
          * @brief Constructs a new Gelu activation module with the default device context.
          *
          * @param name The name of the module for identification purposes.
+         * @param device_name The name of the device to use (e.g., "CPU", "CUDA:0").
          * @param is_training Whether the module is being used in training mode (defaults to false).
          */
         Gelu( std::string name, std::string device_name, bool is_training = false )
@@ -141,16 +146,6 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-    //protected:
-    //    /**
-    //     * @brief Called when the device context changes.
-    //     *
-    //     * Recreates the operation for the new device.
-    //     */
-    //    void onDeviceChanged() override {
-    //        createOperation();
-    //    }
-
     private:
         /**
          * @brief The parameters for the operation.
@@ -178,7 +173,7 @@ namespace Mila::Dnn
          *
          * This pointer will be updated based on the current device context.
          */
-        std::shared_ptr<UnaryOperation<TPrecision, TPrecision, TDeviceType>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TInput, TOutput, TPrecision, TDeviceType>> operation_{ nullptr };
 
         /**
          * @brief Creates the appropriate GELU operation based on the current device context.
@@ -188,20 +183,26 @@ namespace Mila::Dnn
          */
         void createOperation() {
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<TPrecision, TPrecision, DeviceType::Cpu>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<TPrecision, TPrecision, TPrecision, DeviceType::Cpu>(
                     "Cpu::GeluOp",
                     this->getDeviceContext() );
-                
-                operation_ = std::static_pointer_cast<UnaryOperation<TPrecision, TPrecision, TDeviceType>>(base_op);
+
+                operation_ = std::static_pointer_cast<UnaryOperation<TInput, TOutput, TPrecision, TDeviceType>>(base_op);
             }
-            else 
-            {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<TPrecision, TPrecision, DeviceType::Cuda>(
+            else {
+                auto base_op = OperationRegistry::instance().createUnaryOperation<TPrecision, TPrecision, TPrecision, DeviceType::Cuda>(
                     "Cuda::GeluOp",
                     this->getDeviceContext() );
-                
-                operation_ = std::static_pointer_cast<UnaryOperation<TPrecision, TPrecision, TDeviceType>>(base_op);
+
+                operation_ = std::static_pointer_cast<UnaryOperation<TInput, TOutput, TPrecision, TDeviceType>>(base_op);
             }
         }
     };
+
+    // Convenient type aliases for common use cases
+    export template<typename T = float>
+        using CpuGelu = Gelu<DeviceType::Cpu, T, T, T>;
+
+    export template<typename T = float>
+        using CudaGelu = Gelu<DeviceType::Cuda, T, T, T>;
 }

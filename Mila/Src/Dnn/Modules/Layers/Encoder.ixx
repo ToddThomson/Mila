@@ -4,6 +4,7 @@
 */
 
 module;
+#include <miniz.h>
 #include <memory>
 #include <vector>
 #include <string>
@@ -44,25 +45,30 @@ namespace Mila::Dnn
     * The encoder is a fundamental component in transformer architectures, providing the initial
     * representation of tokens that subsequent layers will process.
     *
-    * @tparam TPrecision The computation data type (must be a floating-point type like float or half)
-    * @tparam TDeviceType The device type (CPU or CUDA)
+    * @tparam TDeviceType The device type (CPU or CUDA) on which to perform computations.
+    * @tparam TInput The data type of the input token IDs (typically int).
+    * @tparam TOutput The data type of the output embeddings (typically float).
+    * @tparam TPrecision The data type used for internal calculations, defaults to TOutput.
     */
     export
-        template<typename TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
-        requires ValidFloatTensorType<TPrecision>
-    class Encoder : public Module<TPrecision, int, TDeviceType> {
+        template<DeviceType TDeviceType = DeviceType::Cuda,
+        typename TInput = int,
+        typename TOutput = float,
+        typename TPrecision = TOutput>
+        requires ValidTensorType<TInput>&& ValidFloatTensorType<TOutput>&& ValidPrecisionType<TPrecision>
+    class Encoder : public Module<TDeviceType, TInput, TOutput, TPrecision> {
     public:
-        using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::HostMemoryResource>;
-        using ModuleBase = Module<TPrecision, int, TDeviceType>; ///< Base class type for the module
+        using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::CpuMemoryResource>;
+        using ModuleBase = Module<TDeviceType, TInput, TOutput, TPrecision>; ///< Base class type for the module
 
         /**
         * @brief Construct a new Encoder module with a device name.
         *
         * @param name The name of the module for identification.
+        * @param device_name The name of the device to use (e.g., "CPU", "CUDA:0").
         * @param channels The embedding dimension size (C).
         * @param max_seq_len The maximum sequence length supported by the encoder (maxT).
         * @param vocab_len The size of the vocabulary (V).
-        * @param device_name The name of the device to use (e.g., "CPU", "CUDA:0").
         * @param is_training Whether the module is in training mode. Default is false.
         */
         Encoder( std::string name, std::string device_name, size_t channels, size_t max_seq_len, size_t vocab_len, bool is_training = false )
@@ -77,14 +83,14 @@ namespace Mila::Dnn
         * @brief Construct a new Encoder module with a provided device context.
         *
         * @param name The name of the module for identification.
+        * @param context The device context to use for this module. If nullptr, the default context will be used.
         * @param channels The embedding dimension size (C).
         * @param max_seq_len The maximum sequence length supported by the encoder (maxT).
         * @param vocab_len The size of the vocabulary (V).
-        * @param context The device context to use for this module. If nullptr, the default context will be used.
         * @param is_training Whether the module is in training mode. Default is false.
         */
         Encoder( std::string name, std::shared_ptr<DeviceContext> context, size_t channels, size_t max_seq_len, size_t vocab_len,
-             bool is_training = false )
+            bool is_training = false )
             : ModuleBase( context ), channels_{ channels }, max_seq_len_{ max_seq_len }, vocab_len_{ vocab_len } {
             this->setTraining( is_training );
             this->setName( name );
@@ -99,10 +105,10 @@ namespace Mila::Dnn
         * 1. Looking up token embeddings from the embedding table (wte)
         * 2. Adding positional embeddings (wpe) based on token position
         *
-        * @param input The input tensor containing token IDs with shape (B,TDataType).
-        * @param output The output tensor that will contain embeddings with shape (B,TDataType,C).
+        * @param input The input tensor containing token IDs with shape (B,T).
+        * @param output The output tensor that will contain embeddings with shape (B,T,C).
         */
-        void forward( const Tensor<int, MR>& input, Tensor<TPrecision, MR>& output ) {
+        void forward( const Tensor<TInput, MR>& input, Tensor<TOutput, MR>& output ) {
             operation_->forward( input, parameters_, attributes_, output, output_state_ );
         }
 
@@ -145,8 +151,6 @@ namespace Mila::Dnn
         size_t parameterCount() const override {
             return wte_->size() + wpe_->size();
         }
-
-        
 
         /**
         * @brief Save the encoder parameters to a zip archive.
@@ -200,17 +204,6 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-    //protected:
-    //    /**
-    //     * @brief Called when the device context changes.
-    //     *
-    //     * Recreates tensors and operations for the new device.
-    //     */
-    //    void onDeviceChanged() override {
-    //        initializeTensors();
-    //        createOperation();
-    //    }
-
     private:
         size_t channels_; ///< The embedding dimension size (C).
         size_t max_seq_len_; ///< The maximum sequence length the encoder can process (maxT).
@@ -247,7 +240,7 @@ namespace Mila::Dnn
         /**
          * The computational operation that implements the encoder logic.
          */
-        std::shared_ptr<UnaryOperation<TPrecision, int, TDeviceType>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TInput, TOutput, TPrecision, TDeviceType>> operation_{ nullptr };
 
         /**
         * @brief Initialize the token and positional embedding tensors.
@@ -264,11 +257,11 @@ namespace Mila::Dnn
             parameters_.clear();
             this->parameter_map_.clear();
 
-            wte_ = std::make_shared<Tensor<TPrecision, MR>>( std::vector<size_t>{ vocab_len_, channels_ } );
+            wte_ = std::make_shared<Tensor<TPrecision, MR>>( std::vector<size_t>{vocab_len_, channels_} );
             wte_->setName( this->getName() + ".wte" );
             xavier<TPrecision, MR>( *wte_, vocab_len_, channels_ );
 
-            wpe_ = std::make_shared<Tensor<TPrecision, MR>>( std::vector<size_t>{ max_seq_len_, channels_ } );
+            wpe_ = std::make_shared<Tensor<TPrecision, MR>>( std::vector<size_t>{max_seq_len_, channels_} );
             wpe_->setName( this->getName() + ".wpe" );
             xavier<TPrecision, MR>( *wpe_, max_seq_len_, channels_ );
 
@@ -291,19 +284,39 @@ namespace Mila::Dnn
         */
         void createOperation() {
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<TPrecision, int, DeviceType::Cpu>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<TInput, TOutput, TPrecision, DeviceType::Cpu>(
                     "Cpu::EncoderOp",
                     this->getDeviceContext() );
-                
-                operation_ = std::static_pointer_cast<Dnn::Compute::UnaryOperation<TPrecision, int, DeviceType::Cpu>>(base_op);
+
+                operation_ = std::static_pointer_cast<UnaryOperation<TInput, TOutput, TPrecision, TDeviceType>>(base_op);
             }
             else {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<TPrecision, int, DeviceType::Cuda>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<TInput, TOutput, TPrecision, DeviceType::Cuda>(
                     "Cuda::EncoderOp",
                     this->getDeviceContext() );
-                
-                operation_ = std::static_pointer_cast<Dnn::Compute::UnaryOperation<TPrecision, int, DeviceType::Cuda>>(base_op);
+
+                operation_ = std::static_pointer_cast<UnaryOperation<TInput, TOutput, TPrecision, TDeviceType>>(base_op);
             }
         }
     };
+
+    /**
+     * @brief Type alias for CPU-based encoder module with customizable tensor types.
+     *
+     * @tparam TInput Data type of the input token IDs (typically int).
+     * @tparam TOutput Data type of the output embeddings (typically float).
+     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
+     */
+    export template<typename TInput = int, typename TOutput = float, typename TPrecision = TOutput>
+        using CpuEncoder = Encoder<DeviceType::Cpu, TInput, TOutput, TPrecision>;
+
+    /**
+     * @brief Type alias for CUDA-based encoder module with customizable tensor types.
+     *
+     * @tparam TInput Data type of the input token IDs (typically int).
+     * @tparam TOutput Data type of the output embeddings (typically float).
+     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
+     */
+    export template<typename TInput = int, typename TOutput = float, typename TPrecision = TOutput>
+        using CudaEncoder = Encoder<DeviceType::Cuda, TInput, TOutput, TPrecision>;
 }

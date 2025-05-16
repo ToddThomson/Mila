@@ -1,7 +1,6 @@
 /**
  * @file UnaryOperation.ixx
  * @brief Abstract base class for unary operations in the compute framework.
- *
  */
 
 module;
@@ -14,6 +13,7 @@ export module Compute.UnaryOperation;
 
 import Dnn.Tensor;
 import Dnn.TensorTraits;
+import Compute.Precision;
 import Compute.ComputeDevice;
 import Compute.DeviceType;
 import Compute.DeviceContextHelpers;
@@ -35,60 +35,47 @@ namespace Mila::Dnn::Compute
     * Additional methods for shape validation and parameter initialization are provided to ensure
     * correctness and flexibility in derived classes.
     *
-    * @tparam TOutput The data type of the output tensor elements.
-    * @tparam TInput The data type of the input tensor elements. Defaults to TOutput,
-    *         but can be specified differently for operations like Encoder that require
-    *         a different input type (e.g., int) than the output type (e.g., float).
+    * @tparam TInput The data type of the input tensor elements.
+    * @tparam TOutput The data type of the output tensor elements. Defaults to TInput.
+    * @tparam TCompute The data type used for internal computation. Defaults to TOutput.
+    *         This allows for mixed precision operations where computation happens at a
+    *         different precision than inputs/outputs.
     * @tparam TDeviceType The device type (e.g., CPU, CUDA) on which the operation is executed.
     */
-    export template <typename TOutput, typename TInput = TOutput, DeviceType TDeviceType = DeviceType::Cuda>
-        requires ValidFloatTensorType<TOutput>&& ValidTensorType<TInput>
-    class UnaryOperation : public OperationBase<TOutput, TInput, TInput, TDeviceType> {
+    export template <typename TInput, typename TOutput = TInput, typename TCompute = TOutput,
+        DeviceType TDeviceType = DeviceType::Cuda>
+        requires ValidTensorType<TInput>&& ValidFloatTensorType<TOutput>&& ValidPrecisionType<TCompute>
+    class UnaryOperation : public OperationBase<TInput, TInput, TOutput, TCompute, TDeviceType> {
     public:
         /**
         * @brief Memory resource type based on device type.
         *
         * This type alias automatically selects the appropriate memory resource type
         * based on the device type. For CUDA devices, it uses CudaMemoryResource;
-        * for CPU devices, it uses HostMemoryResource.
+        * for CPU devices, it uses CpuMemoryResource.
         */
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, HostMemoryResource>;
 
         /**
         * @brief Constructs a UnaryOperation with the specified operation type.
         *
+        * Creates a compatible device context automatically based on TDeviceType.
+        *
         * @param operation_type The type of the operation.
         */
         UnaryOperation( OperationType operation_type )
-            : OperationBase<TOutput, TInput, TInput, TDeviceType>( operation_type, CreateCompatibleContext<TDeviceType>() ) {}
-
-        /**
-        * @brief Constructs a UnaryOperation with the specified operation type and compute precision.
-        *
-        * @param operation_type The type of the operation.
-        * @param compute_precision The precision to use for internal computations.
-        */
-        UnaryOperation( OperationType operation_type, ComputePrecision compute_precision )
-            : OperationBase<TOutput, TInput, TInput, TDeviceType>( operation_type, compute_precision, CreateCompatibleContext<TDeviceType>() ) {}
+            : OperationBase<TInput, TInput, TOutput, TCompute, TDeviceType>( operation_type, CreateCompatibleContext<TDeviceType>() ) {}
 
         /**
         * @brief Constructs a UnaryOperation with the specified operation type and device context.
+        *
+        * Validates that the provided context is compatible with TDeviceType.
         *
         * @param operation_type The type of the operation.
         * @param context The device context to use for this operation.
         */
         UnaryOperation( OperationType operation_type, std::shared_ptr<DeviceContext> context )
-            : OperationBase<TOutput, TInput, TInput, TDeviceType>( operation_type, ValidateContext<TDeviceType>( context ) ) {}
-
-        /**
-        * @brief Constructs a UnaryOperation with the specified operation type, compute precision, and device context.
-        *
-        * @param operation_type The type of the operation.
-        * @param compute_precision The precision to use for internal computations.
-        * @param context The device context to use for this operation.
-        */
-        UnaryOperation( OperationType operation_type, ComputePrecision compute_precision, std::shared_ptr<DeviceContext> context )
-            : OperationBase<TOutput, TInput, TInput, TDeviceType>( operation_type, compute_precision, ValidateContext<TDeviceType>( context ) ) {}
+            : OperationBase<TInput, TInput, TOutput, TCompute, TDeviceType>( operation_type, ValidateContext<TDeviceType>( context ) ) {}
 
         /**
         * @brief Virtual destructor for proper cleanup of derived classes.
@@ -100,11 +87,11 @@ namespace Mila::Dnn::Compute
         *
         * Derived classes must implement this method to define the forward computation.
         *
-        * @param input The input tensor.
+        * @param input The input tensor to process.
         * @param parameters The parameters for the operation (e.g., weights, biases).
-        * @param properties Additional properties for the operation.
-        * @param output The output tensor.
-        * @param output_state Cache for intermediate results or output tensors.
+        * @param properties Additional properties that configure the operation's behavior.
+        * @param output The output tensor where results will be stored.
+        * @param output_state Cache for intermediate results needed in backward pass.
         */
         virtual void forward(
             const Tensor<TInput, MR>& input,
@@ -116,14 +103,17 @@ namespace Mila::Dnn::Compute
         /**
         * @brief Executes the backward pass of a unary operation.
         *
+        * This is the simplified version of the backward pass that only computes gradients
+        * for the parameters, not for the input.
+        *
         * Derived classes may override this method to define the backward computation.
         * The default implementation throws an exception, indicating that the operation
         * does not support a backward pass.
         *
-        * @param grad The gradient tensor from the next layer.
-        * @param parameters The parameters for the operation (e.g., weights, biases).
-        * @param output_grads Gradients for the output tensors.
-        * @throws std::runtime_error If the operation does not support a backward pass.
+        * @param grad The gradient tensor from the next layer in the network.
+        * @param parameters The parameters used during the forward pass.
+        * @param output_grads Output vector where parameter gradients will be stored.
+        * @throws std::runtime_error If the operation does not support backward pass.
         */
         virtual void backward(
             const Tensor<TInput, MR>& grad,
@@ -133,23 +123,22 @@ namespace Mila::Dnn::Compute
         }
 
         /**
-         * @brief Executes the backward pass of a unary operation with full gradient computation.
+         * @brief Executes the comprehensive backward pass of a unary operation.
          *
-         * This comprehensive backward method is designed for operations that need to compute:
+         * This comprehensive backward method computes:
          * 1. Gradients with respect to inputs (for backpropagation)
          * 2. Gradients with respect to parameters (for optimization)
          *
-         * Derived classes may override this method to define the backward computation.
-         * The default implementation throws an exception, indicating that the operation
-         * does not support this type of backward pass.
+         * This version provides more flexibility for operations that need access to both
+         * the original input and the intermediates from the forward pass to compute gradients.
          *
-         * @param input Input tensor from the forward pass.
-         * @param output_grad Gradient of the loss with respect to the output.
-         * @param parameters Parameters tensor from forward pass (e.g., weights, biases).
-         * @param parameter_grads Output tensor for parameter gradients.
-         * @param input_gradient Output tensor for gradients with respect to input.
-         * @param properties Additional properties for the operation.
-         * @param output_state Cache tensors from forward pass.
+         * @param input The original input tensor from the forward pass.
+         * @param output_grad Gradient of the loss with respect to this operation's output.
+         * @param parameters The parameters used during the forward pass.
+         * @param parameter_grads Output vector where parameter gradients will be stored.
+         * @param input_grad Output tensor where input gradients will be stored.
+         * @param properties The same properties used during the forward pass.
+         * @param output_state Cached tensors from the forward pass.
          *
          * @throws std::runtime_error If the operation does not support this backward pass.
          */

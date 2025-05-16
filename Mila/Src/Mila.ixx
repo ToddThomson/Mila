@@ -41,9 +41,10 @@ export import Compute.OperationBase;
 export import Compute.OperationType;
 export import Compute.UnaryOperation;
 export import Compute.BinaryOperation;
+export import Compute.Precision;
 
 export import Dnn.Module;
-export import Dnn.ModuleBlock;
+export import Dnn.CompositeModule;
 export import Dnn.Model;
 
 export import Dnn.Tensor;
@@ -91,7 +92,7 @@ export import Dnn.Modules.Attention;
 export import Dnn.Modules.Encoder;
 export import Dnn.Modules.Gelu;
 export import Dnn.Modules.LayerNorm;
-export import Dnn.Modules.FullyConnected;
+export import Dnn.Modules.Linear;
 export import Dnn.Modules.Residual;
 export import Dnn.Modules.Softmax;
 

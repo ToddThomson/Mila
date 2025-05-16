@@ -25,8 +25,6 @@ import Compute.DeviceType;
 import Compute.CpuDevice;
 import Compute.DeviceContext;
 
-
-
 using namespace Mila::Dnn;
 
 namespace Mila::Dnn::Compute
@@ -49,16 +47,17 @@ namespace Mila::Dnn::Compute
      * @tparam float The data type of the input tensor elements.
      * @tparam TDataType The data type used for computation and output (defaults to the input type).
      */
-    export class CpuMultiHeadAttentionOp : public UnaryOperation<float, float, DeviceType::Cpu> {
+    export class CpuMultiHeadAttentionOp : public UnaryOperation<float, float, float, DeviceType::Cpu> {
     public:
         using MR = typename CpuDevice::MR;
+		using OperationBase = UnaryOperation<float, float, float, DeviceType::Cpu>;
 
         /**
          * @brief Constructs a new CPU Attention operation with the default device context.
          *
          * Initializes the operation with a CPU device context.
          */
-        CpuMultiHeadAttentionOp() : UnaryOperation<float, float, DeviceType::Cpu>( OperationType::MultiHeadAttentionOp ) {
+        CpuMultiHeadAttentionOp() : OperationBase( OperationType::MultiHeadAttentionOp ) {
 
         }
 
@@ -69,7 +68,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the context is not for a CPU device.
          */
         CpuMultiHeadAttentionOp( std::shared_ptr<DeviceContext> context )
-            : UnaryOperation<float, float, DeviceType::Cpu>( OperationType::MultiHeadAttentionOp, context ) {
+            : OperationBase( OperationType::MultiHeadAttentionOp, context ) {
         }
 
         /**
@@ -304,10 +303,9 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cpu::MultiHeadAttentionOp";
 
-            OperationRegistry::instance().registerUnaryOperation<float, float, DeviceType::Cpu>(
+            OperationRegistry::instance().registerUnaryOperation<float, float, float, DeviceType::Cpu>(
                 opName,
-                "Default",
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<float, float, DeviceType::Cpu>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<float, float, float, DeviceType::Cpu>> {
                     return context ? std::make_shared<CpuMultiHeadAttentionOp>( context )
                         : std::make_shared<CpuMultiHeadAttentionOp>();
                 }

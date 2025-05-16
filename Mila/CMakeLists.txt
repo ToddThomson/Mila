@@ -69,7 +69,7 @@ PUBLIC
 		"Src/Dnn/Model.ixx" 
 		"Src/Dnn/Modules/Module.ixx" 
 		"Src/Dnn/Modules/Layers/LayerNorm.ixx"
-		"Src/Dnn/Modules/Layers/FullyConnected.ixx"
+		"Src/Dnn/Modules/Layers/Linear.ixx"
 		"Src/Dnn/Modules/Layers/Gelu.ixx"
 		"Src/Dnn/Modules/Layers/MultiHeadAttention.ixx"
 		"Src/Dnn/Modules/Layers/Residual.ixx"
@@ -148,7 +148,7 @@ PUBLIC
 		"Src/Dnn/Compute/Devices/DeviceRegistrar.ixx" 
 		"Src/Dnn/Compute/DynamicMemoryResource.ixx"
 		"Src/Dnn/Compute/Devices/DeviceContextHelpers.ixx"
-		"Src/Dnn/Modules/BlockModule.ixx"
+		"Src/Dnn/Modules/CompositeModule.ixx"
 		"Src/Core/RandomGenerator.ixx"
 		"Src/Dnn/Compute/Operations/Cuda/CudaDataTypeTraits.ixx"
 		"Src/Dnn/Core/ActivationType.ixx"
@@ -156,7 +156,8 @@ PUBLIC
 		
 		"Src/Dnn/Modules/Layers/CrossEntropy.ixx"
 		#"Src/Dnn/Compute/Operations/Cuda/FusedSoftmaxCrossEntropyOp.ixx"
-		"Src/Dnn/Core/PrecisionConfig.ixx" "Src/Dnn/Compute/ComputePrecision.ixx")
+		"Src/Dnn/Core/PrecisionConfig.ixx"
+		"Src/Dnn/Compute/ComputePrecision.ixx")
 
 target_link_libraries( Mila PRIVATE CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
 
@@ -194,9 +195,9 @@ add_subdirectory(Tests)
 endif()
 
 if (MILA_ENABLE_BENCHMARKS)
-add_subdirectory(Benchmarks)
+#add_subdirectory(Benchmarks)
 endif()
  
 if (MILA_ENABLE_SAMPLES)  
-add_subdirectory(Samples)  
+#add_subdirectory(Samples)  
 endif()

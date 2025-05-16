@@ -12,7 +12,7 @@ set(CMAKE_CUDA_STANDARD 20)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
  
 option(MILA_ENABLE_TESTING "Enable Mila Library tests." ON)
-option(MILA_ENABLE_BENCHMARKS "Enable Mila Library benchmarks." ON)
+option(MILA_ENABLE_BENCHMARKS "Enable Mila Library benchmarks." OFF)
 option(MILA_ENABLE_GPT2_TESTING "Enable GPT2 tests." OFF)  
 option(MILA_ENABLE_SAMPLES "Enable Mila Library samples." ON)
 option(MILA_ENABLE_OPENMP "Enable OpenMP support." OFF)

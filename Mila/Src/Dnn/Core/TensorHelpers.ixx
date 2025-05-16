@@ -36,7 +36,7 @@ namespace Mila::Dnn
  * @note Uses a fixed seed (42) for reproducible results rather than truly random values
  */
     export template<typename TElementType, typename MR = Compute::CpuMemoryResource>
-        requires ValidTensorType<TElementType>&& std::is_base_of_v<Compute::MemoryResource, MR>
+        requires ValidTensorType<TElementType> && std::is_base_of_v<Compute::MemoryResource, MR>
     void random( Tensor<TElementType, MR>& tensor, TElementType min, TElementType max ) {
         std::random_device rd;
         std::mt19937 gen( 42 ); // TODO: rd() );

@@ -178,11 +178,11 @@ void sgdUpdate( Tensor<TPrecision, MR>& param, Tensor<TPrecision, MR>& grad, flo
     }
 }
 
-template<typename TPrecision, typename THostMR, DeviceType TDeviceType>
+template<DeviceType TDeviceType, typename TPrecision, typename THostMR>
     requires ValidFloatTensorType<TPrecision> &&
         (std::is_same_v<THostMR, CudaPinnedMemoryResource> || std::is_same_v<THostMR, CpuMemoryResource>)
 void runMnistTrainingLoop(
-    std::shared_ptr<MnistClassifier<TPrecision, TDeviceType>>& model,
+    std::shared_ptr<MnistClassifier<TDeviceType, TPrecision, TPrecision, TPrecision>>& model,
     const MnistConfig& config ) {
 	
     using DeviceMR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, HostMemoryResource>;
@@ -300,7 +300,7 @@ int main( int argc, char** argv ) {
                 std::string deviceName = "CUDA:0";
                 std::cout << "Using CUDA device" << std::endl;
 
-                auto model = std::make_shared<MnistClassifier<float, DeviceType::Cuda>>(
+                auto model = std::make_shared<MnistClassifier<DeviceType::Cuda, float>>(
                     "MnistMLP", deviceName, config.batchSize );
 
                 model->setTraining( true );
@@ -320,14 +320,14 @@ int main( int argc, char** argv ) {
             std::cout << "Using CPU device" << std::endl;
 
             std::cout << "Creating model..." << std::endl;
-            auto model = std::make_shared<MnistClassifier<float, DeviceType::Cpu>>(
+            auto model = std::make_shared<MnistClassifier<DeviceType::Cpu, float>>(
                 "MnistMLP", deviceName, config.batchSize );
             
             model->setTraining( true );
 
             std::cout << model->toString() << std::endl;
             
-            runMnistTrainingLoop<float, HostMemoryResource, DeviceType::Cpu>(
+            runMnistTrainingLoop<DeviceType::Cpu, float, HostMemoryResource>(
                 model, config );
         }
 

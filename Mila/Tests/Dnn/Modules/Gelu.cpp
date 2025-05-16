@@ -19,7 +19,7 @@ namespace Modules::Tests
     template<typename TPrecision, Compute::DeviceType TDevice>
     struct GeluTestData {
         std::vector<size_t> shape;
-        std::shared_ptr<Gelu<TPrecision, TDevice>> gelu_module;
+        std::shared_ptr<Gelu<TPrecision, TPrecision, TPrecision, TDevice>> gelu_module;
         bool is_training;
 
         // Make the test data structure self-initializing

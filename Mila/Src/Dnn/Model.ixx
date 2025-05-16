@@ -14,6 +14,7 @@ module;
 export module Dnn.Model;
 
 import Dnn.Module;
+import Dnn.Tensor;
 import Dnn.TensorTraits;
 import Compute.DeviceType;
 import Compute.DeviceContext;
@@ -27,7 +28,7 @@ import Dnn.ModelCallback;
 
 namespace Mila::Dnn
 {
-	using namespace Mila::Dnn::Compute;
+    using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Data;
 
     /**
@@ -51,15 +52,18 @@ namespace Mila::Dnn
     /**
     * @brief A class representing a neural network model.
     *
+    * @tparam TDeviceType The device type (CPU or CUDA) on which to perform computations.
     * @tparam TInput The input data type for the model.
-    * @tparam TDataType The precision type used for model computations, defaults to input type.
+    * @tparam TOutput The output data type for the model, defaults to TInput.
+    * @tparam TPrecision The precision type used for model computations, defaults to TOutput.
     */
-	export template<typename TPrecision, typename TInput = TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
-        requires ValidTensorTypes<TInput, TPrecision>
-    class Model : public Module<TPrecision, TInput, TDeviceType> {
+    export template<DeviceType TDeviceType = DeviceType::Cuda,
+        typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
+        requires ValidTensorTypes<TInput, TOutput>&& ValidPrecisionType<TPrecision>
+    class Model : public Module<TDeviceType, TInput, TOutput, TPrecision> {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>; ///< Memory resource type
-		using ModuleBase = Module<TPrecision, TInput, TDeviceType>; ///< Base class type for the module
+        using ModuleBase = Module<TDeviceType, TInput, TOutput, TPrecision>; ///< Base class type for the module
 
         /**
         * @brief Constructs a new Model object with the default device context.
@@ -217,7 +221,7 @@ namespace Mila::Dnn
         * @throws std::runtime_error if the model has not been built.
         * @return The loss value if targets are provided, otherwise -1.0.
         */
-        float forward( const Tensor<TInput, MR>& inputs, const Tensor<TInput, MR>& targets = {} ) {
+        float forward( const Tensor<TInput, MR>& inputs, const Tensor<TOutput, MR>& targets ) {
             if ( !is_built_ ) {
                 throw std::runtime_error( "Model has not been built. Call build() before forward()." );
             }
@@ -293,7 +297,7 @@ namespace Mila::Dnn
             }
 
             for ( auto& [_, module] : this->getModules() ) {
-                module->setTrainingMode( is_training_ );
+                module->setTraining( is_training_ );
             }
 
             is_built_ = true;
@@ -309,7 +313,7 @@ namespace Mila::Dnn
 
             if ( is_built_ ) {
                 for ( auto& [_, module] : this->getModules() ) {
-                    module->setTrainingMode( is_training_ );
+                    module->setTraining( is_training_ );
                 }
             }
         }
@@ -336,12 +340,9 @@ namespace Mila::Dnn
 
             setTrainingMode( true );
 
-            // Get the appropriate memory resource type
-            auto device_type = this->getDeviceContext()->getDevice()->getDeviceType();
-
             // Initialize tensors for input and target data
             Tensor<TInput, MR> inputs;
-            Tensor<TInput, MR> targets;
+            Tensor<TOutput, MR> targets;
 
             // Metrics to track during training
             std::unordered_map<std::string, float> metrics;
@@ -491,7 +492,7 @@ namespace Mila::Dnn
 
             // Initialize tensors for input and target data
             Tensor<TInput, MR> inputs;
-            Tensor<TInput, MR> targets;
+            Tensor<TOutput, MR> targets;
 
             // Evaluation metrics
             float total_loss = 0.0f;
@@ -530,7 +531,7 @@ namespace Mila::Dnn
         * @return The output tensor.
         */
         template<typename TMR>
-        Tensor<TPrecision, TMR> predict( const Tensor<TInput, TMR>& inputs ) {
+        Tensor<TOutput, TMR> predict( const Tensor<TInput, TMR>& inputs ) {
             setTrainingMode( false );
             forward( inputs );
             // This should be overridden by derived classes to return the actual output
@@ -544,7 +545,7 @@ namespace Mila::Dnn
         * @return The loss value.
         */
         template<typename TMR>
-        float calculateLoss( const Tensor<TInput, TMR>& targets ) {
+        float calculateLoss( const Tensor<TOutput, TMR>& targets ) {
             // This should be overridden by derived classes
             return 0.0f;
         }
@@ -591,13 +592,6 @@ namespace Mila::Dnn
         }
 
     protected:
-        ///**
-        //* @brief Called when the device context changes.
-        //*/
-        //void onDeviceChanged() override {
-        //    initializeDevice();
-        //}
-
         /**
         * @brief The most recent input tensor provided to forward().
         */
@@ -606,7 +600,7 @@ namespace Mila::Dnn
         /**
         * @brief The most recent target tensor provided to forward().
         */
-        Tensor<TInput, MR> last_targets_;
+        Tensor<TOutput, MR> last_targets_;
 
     private:
         /**
@@ -664,4 +658,24 @@ namespace Mila::Dnn
         bool stream_created_{ false }; ///< Flag indicating whether we created the stream.
         Compute::DeviceType old_device_type_{ Compute::DeviceType::Cpu }; ///< Previous device type for cleanup.
     };
+
+    /**
+     * @brief Type alias for CPU-based models with customizable tensor types.
+     *
+     * @tparam TInput Data type of the input tensor elements.
+     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
+     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
+     */
+    export template<typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
+        using CpuModel = Model<DeviceType::Cpu, TInput, TOutput, TPrecision>;
+
+    /**
+     * @brief Type alias for CUDA-based models with customizable tensor types.
+     *
+     * @tparam TInput Data type of the input tensor elements.
+     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
+     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
+     */
+    export template<typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
+        using CudaModel = Model<DeviceType::Cuda, TInput, TOutput, TPrecision>;
 }

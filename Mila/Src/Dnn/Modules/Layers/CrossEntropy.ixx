@@ -4,6 +4,7 @@
  */
 
 module;
+#include <miniz.h>
 #include <memory>
 #include <vector>
 #include <string>
@@ -43,17 +44,18 @@ namespace Mila::Dnn
      * The cross entropy loss for a single example is calculated as:
      * -log(p_i) where p_i is the predicted probability for the correct class i.
      *
+     * @tparam TDeviceType The device type (CPU or CUDA) on which to perform computations.
      * @tparam TLogits The data type of the predicted probabilities (typically float).
      * @tparam TTargets The data type of the target class indices (typically int).
-     * @tparam TDeviceType The device type (CPU or CUDA) on which to perform computations.
      */
-    export
-        template<typename TLogits, typename TTargets = int, DeviceType TDeviceType = DeviceType::Cuda>
+    export template<DeviceType TDeviceType = DeviceType::Cuda,
+        typename TLogits = float,
+        typename TTargets = int>
         requires ValidFloatTensorType<TLogits>
-    class CrossEntropy : public Module<TLogits, TTargets, TDeviceType> {
+    class CrossEntropy : public Module<TDeviceType, TLogits, TTargets, TLogits> {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>; ///< Memory resource type based on device type
-        using ModuleBase = Module<TLogits, TTargets, TDeviceType>; ///< Base class type for the module
+        using ModuleBase = Module<TDeviceType, TLogits, TTargets, TLogits>; ///< Base class type for the module
 
         /**
          * @brief Construct a new CrossEntropy module with the default device context.
@@ -180,7 +182,7 @@ namespace Mila::Dnn
         /**
          * @brief The underlying unary operation that implements the cross entropy function.
          */
-        std::shared_ptr<UnaryOperation<TLogits, TTargets, TDeviceType>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TLogits, TTargets, TLogits, TDeviceType>> operation_{ nullptr };
 
         /**
          * @brief Create the appropriate cross entropy operation based on the current device context.
@@ -193,19 +195,37 @@ namespace Mila::Dnn
             attributes_.set( "vocab_size", vocab_size_ );
 
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<TLogits, TTargets, DeviceType::Cpu>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<TLogits, TTargets, TLogits, DeviceType::Cpu>(
                     "Cpu::CrossEntropyOp",
                     this->getDeviceContext() );
 
-                operation_ = std::static_pointer_cast<UnaryOperation<TLogits, TTargets, TDeviceType>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<TLogits, TTargets, TLogits, TDeviceType>>(base_op);
             }
             else {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<TLogits, TTargets, DeviceType::Cuda>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<TLogits, TTargets, TLogits, DeviceType::Cuda>(
                     "Cuda::CrossEntropyOp",
                     this->getDeviceContext() );
 
-                operation_ = std::static_pointer_cast<UnaryOperation<TLogits, TTargets, TDeviceType>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<TLogits, TTargets, TLogits, TDeviceType>>(base_op);
             }
         }
     };
+
+    /**
+     * @brief Type alias for CPU-based cross entropy module.
+     *
+     * @tparam TLogits Data type of the predicted probabilities (typically float).
+     * @tparam TTargets Data type of the target class indices (typically int).
+     */
+    export template<typename TLogits = float, typename TTargets = int>
+        using CpuCrossEntropy = CrossEntropy<DeviceType::Cpu, TLogits, TTargets>;
+
+    /**
+     * @brief Type alias for CUDA-based cross entropy module.
+     *
+     * @tparam TLogits Data type of the predicted probabilities (typically float).
+     * @tparam TTargets Data type of the target class indices (typically int).
+     */
+    export template<typename TLogits = float, typename TTargets = int>
+        using CudaCrossEntropy = CrossEntropy<DeviceType::Cuda, TLogits, TTargets>;
 }

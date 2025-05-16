@@ -7,15 +7,15 @@ module;
 
 export module Dnn.PrecisionConfig;
 
-// Example of an AMP configuration class you could add
 export class AMPConfig {
 public:
     enum class OpPrecision {
         FP32,           // Use FP32 for everything
         FP16,           // Use FP16 for computation where possible
         BF16,           // Use BF16 for computation where possible
-        Mixed_MatMul,   // Use FP16/BF16 for matrix multiply, FP32 elsewhere
-        Auto            // Let the framework decide based on hardware
+		FP8,            // Use FP8 for computation where possible
+        Auto,           // Let the framework decide based on hardware
+        Default
     };
 
     AMPConfig( OpPrecision precision = OpPrecision::Auto ) : precision_( precision ) {
@@ -78,17 +78,17 @@ public:
         }
 
         // Mixed precision configurations
-        if ( precision_ == OpPrecision::Mixed_MatMul ) {
-            if constexpr ( std::is_same_v<TPrecision, half> ) {
-                return CUBLAS_COMPUTE_32F_FAST_16F;  // FP16 storage with FP32 compute using TensorCores
-            }
-            else if constexpr ( std::is_same_v<TPrecision, __nv_bfloat16> ) {
-                return CUBLAS_COMPUTE_32F_FAST_16BF; // BF16 storage with FP32 compute using TensorCores
-            }
-            else {
-                return CUBLAS_COMPUTE_32F;           // Default to FP32 compute
-            }
-        }
+        //if ( precision_ == OpPrecision::Mixed_MatMul ) {
+        //    if constexpr ( std::is_same_v<TPrecision, half> ) {
+        //        return CUBLAS_COMPUTE_32F_FAST_16F;  // FP16 storage with FP32 compute using TensorCores
+        //    }
+        //    else if constexpr ( std::is_same_v<TPrecision, __nv_bfloat16> ) {
+        //        return CUBLAS_COMPUTE_32F_FAST_16BF; // BF16 storage with FP32 compute using TensorCores
+        //    }
+        //    else {
+        //        return CUBLAS_COMPUTE_32F;           // Default to FP32 compute
+        //    }
+        //}
 
         // Reduced precision configurations (pure FP16/BF16)
         if constexpr ( std::is_same_v<TPrecision, half> ) {

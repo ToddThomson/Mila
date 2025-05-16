@@ -1,4 +1,5 @@
 module;
+#include <miniz.h>
 #include <memory>
 #include <vector>
 #include <string>
@@ -30,18 +31,33 @@ namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
 
-    export template<typename TPrecision, DeviceType TDeviceType = DeviceType::Cuda>
-        requires ValidTensorType<TPrecision>
-    class MultiHeadAttention : public Module<TPrecision, TPrecision, TDeviceType> {
+    /**
+     * @brief Multi-head attention module for transformer architectures.
+     *
+     * This module implements the multi-head attention mechanism, which allows different
+     * parts of the input to attend to different parts of the sequence. This is a core
+     * component of transformer architectures.
+     *
+     * @tparam TDeviceType The device type (CPU or CUDA) on which to perform computations.
+     * @tparam TInput The data type of the input tensor elements.
+     * @tparam TOutput The data type of the output tensor elements, defaults to TInput.
+     * @tparam TPrecision The data type used for internal calculations, defaults to TOutput.
+     */
+    export template<DeviceType TDeviceType = DeviceType::Cuda,
+        typename TInput = float,
+        typename TOutput = TInput,
+        typename TPrecision = TOutput>
+        requires ValidTensorTypes<TInput, TOutput>&& ValidPrecisionType<TPrecision>
+    class MultiHeadAttention : public Module<TDeviceType, TInput, TOutput, TPrecision> {
     public:
-
-		using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>; ///< Memory resource type based on device type
-		using ModuleBase = Module<TPrecision, TPrecision, TDeviceType>; ///< Base class type for the module
+        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>; ///< Memory resource type based on device type
+        using ModuleBase = Module<TDeviceType, TInput, TOutput, TPrecision>; ///< Base class type for the module
 
         /**
          * @brief Constructs a new MultiHeadAttention module with the default device context.
          *
          * @param name The name of the module for identification purposes.
+         * @param device_name The name of the device to use for this module.
          * @param input_shape The shape of the input tensor.
          * @param num_heads The number of attention heads.
          * @param is_training Whether the module is initially in training mode. Default is false.
@@ -59,9 +75,9 @@ namespace Mila::Dnn
          * @brief Constructs a new MultiHeadAttention module with a specific device context.
          *
          * @param name The name of the module for identification purposes.
+         * @param context The device context to use for this module.
          * @param input_shape The shape of the input tensor.
          * @param num_heads The number of attention heads.
-         * @param context The device context to use for this module.
          * @param is_training Whether the module is initially in training mode. Default is false.
          */
         MultiHeadAttention( std::string name, std::shared_ptr<DeviceContext> context,
@@ -135,31 +151,64 @@ namespace Mila::Dnn
         }
 
     private:
-        std::vector<size_t> input_shape_; ///< The input shape.
-        size_t num_heads_{ 0 }; ///< The number of attention heads.
+        /**
+         * @brief The shape of the input tensor.
+         *
+         * Typically in the format [batch_size, sequence_length, embedding_dim].
+         */
+        std::vector<size_t> input_shape_;
+
+        /**
+         * @brief The number of attention heads.
+         *
+         * The embedding dimension is divided into this many heads, allowing the
+         * model to attend to different parts of the sequence simultaneously.
+         */
+        size_t num_heads_{ 0 };
 
         /**
          * @brief Tensor storing the attention weights after softmax.
+         *
+         * Shape: [batch_size, num_heads_, sequence_length, sequence_length]
          */
         std::shared_ptr<Tensor<TPrecision, MR>> attn_{ nullptr };
 
         /**
          * @brief Tensor storing the pre-softmax attention values.
+         *
+         * Shape: [batch_size, num_heads_, sequence_length, sequence_length]
          */
         std::shared_ptr<Tensor<TPrecision, MR>> pre_attn_{ nullptr };
 
-        std::vector<std::shared_ptr<Tensor<TPrecision, MR>>> parameters_; ///< The parameters.
-        std::vector<std::shared_ptr<Tensor<TPrecision, MR>>> output_state_; ///< The output state.
-        
-        OperationAttributes properties_; ///< The operation properties.
+        /**
+         * @brief The parameters for this module.
+         *
+         * MultiHeadAttention typically has no parameters at this level,
+         * as the query, key, and value projections are handled by separate
+         * linear layers in practice.
+         */
+        std::vector<std::shared_ptr<Tensor<TPrecision, MR>>> parameters_;
+
+        /**
+         * @brief Cache for intermediate tensors needed for backward pass.
+         */
+        std::vector<std::shared_ptr<Tensor<TPrecision, MR>>> output_state_;
+
+        /**
+         * @brief Properties that configure the attention operation.
+         */
+        OperationAttributes properties_;
 
         /**
          * @brief The underlying operation that implements the multi-head attention.
          */
-        std::shared_ptr<UnaryOperation<TPrecision, TPrecision, TDeviceType>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TInput, TOutput, TPrecision, TDeviceType>> operation_{ nullptr };
 
         /**
          * @brief Initializes the tensors needed for the MultiHeadAttention operation.
+         *
+         * Creates intermediate tensors for storing attention matrices and sets up
+         * operation properties.
          */
         void initializeTensors() {
             // Clear existing state
@@ -181,26 +230,48 @@ namespace Mila::Dnn
             output_state_.emplace_back( attn_ );
 
             // Set number of heads in properties
-            properties_.num_heads = num_heads_;
+            properties_.set( "num_heads", num_heads_ );
         }
 
         /**
          * @brief Creates the appropriate MultiHeadAttention operation based on the current device context.
+         *
+         * This method selects and initializes the correct implementation (CPU or CUDA)
+         * of the attention operation based on the device type.
          */
         void createOperation() {
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<TPrecision, TPrecision, DeviceType::Cpu>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<TInput, TOutput, TPrecision, DeviceType::Cpu>(
                     "Cpu::MultiHeadAttentionOp",
                     this->getDeviceContext() );
-                operation_ = std::static_pointer_cast<UnaryOperation<TPrecision, TPrecision, TDeviceType>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<TInput, TOutput, TPrecision, DeviceType::Cpu>>(base_op);
             }
             else {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<TPrecision, TPrecision, DeviceType::Cuda>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<TInput, TOutput, TPrecision, DeviceType::Cuda>(
                     "Cuda::MultiHeadAttentionOp",
                     this->getDeviceContext() );
-                operation_ = std::static_pointer_cast<UnaryOperation<TPrecision, TPrecision, TDeviceType>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<TInput, TOutput, TPrecision, DeviceType::Cuda>>(base_op);
             }
         }
     };
-}
 
+    /**
+     * @brief Type alias for CPU-based multi-head attention module with customizable tensor types.
+     *
+     * @tparam TInput Data type of the input tensor elements.
+     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
+     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
+     */
+    export template<typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
+        using CpuMultiHeadAttention = MultiHeadAttention<DeviceType::Cpu, TInput, TOutput, TPrecision>;
+
+    /**
+     * @brief Type alias for CUDA-based multi-head attention module with customizable tensor types.
+     *
+     * @tparam TInput Data type of the input tensor elements.
+     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
+     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
+     */
+    export template<typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
+        using CudaMultiHeadAttention = MultiHeadAttention<DeviceType::Cuda, TInput, TOutput, TPrecision>;
+}
