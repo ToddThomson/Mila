@@ -45,15 +45,12 @@ namespace Mila::Dnn
      * @tparam TOutput The data type of the output tensor elements, defaults to TInput.
      * @tparam TPrecision The data type used for internal calculations, defaults to TOutput.
      */
-    export template<DeviceType TDeviceType = DeviceType::Cuda,
-        typename TInput = float,
-        typename TOutput = TInput,
-        typename TPrecision = TOutput>
-        requires ValidFloatTensorTypes<TInput, TOutput>&& ValidPrecisionType<TPrecision>
-    class TransformerBlock : public CompositeModule<TDeviceType, TInput, TOutput, TPrecision> {
+    export template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput>
+        requires ValidFloatTensorTypes<TInput, TOutput>
+    class TransformerBlock : public CompositeModule<TDeviceType, TInput, TOutput> {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>;
-        using CompositeModuleBase = CompositeModule<TDeviceType, TInput, TOutput, TPrecision>; ///< Base class type for the module
+        using CompositeModuleBase = CompositeModule<TDeviceType, TInput, TOutput>; ///< Base class type for the module
 
         /**
          * @brief Constructs a new TransformerBlock module with the default device context.
@@ -109,7 +106,7 @@ namespace Mila::Dnn
          * @param input The input tensor to be processed.
          * @param output The output tensor where the results will be stored.
          */
-        void forward( const Tensor<TPrecision, MR>& input, Tensor<TPrecision, MR>& output ) {
+        void forward( const Tensor<TInput, MR>& input, Tensor<TOutput, MR>& output ) {
             /*ln_1_->forward(input, ln_1_output_);
             fc_qkv_->forward(ln_1_output_, fc_qkv_output_);
             attn_->forward(fc_qkv_output_, attn_output_);
@@ -187,24 +184,24 @@ namespace Mila::Dnn
         size_t num_heads_; ///< The number of attention heads.
 
         // Sub-modules
-        std::shared_ptr<LayerNorm<TDeviceType, TInput, TOutput, TPrecision>> ln_1_{ nullptr };
-        std::shared_ptr<Linear<TDeviceType, TInput, TOutput, TPrecision>> fc_qkv_{ nullptr };
-        std::shared_ptr<MultiHeadAttention<TDeviceType, TInput, TOutput, TPrecision>> attn_{ nullptr };
-        std::shared_ptr<Linear<TDeviceType, TInput, TOutput, TPrecision>> fc_attn_proj_{ nullptr };
-        std::shared_ptr<Residual<TDeviceType, TInput, TOutput, TPrecision>> res_1_{ nullptr };
-        std::shared_ptr<LayerNorm<TDeviceType, TInput, TOutput, TPrecision>> ln_2_{ nullptr };
-        std::shared_ptr<MLP<TDeviceType, TInput, TOutput, TPrecision>> mlp_{ nullptr };
-        std::shared_ptr<Residual<TDeviceType, TInput, TOutput, TPrecision>> res_2_{ nullptr };
+        std::shared_ptr<LayerNorm<TDeviceType, TInput, TOutput>> ln_1_{ nullptr };
+        std::shared_ptr<Linear<TDeviceType, TInput, TOutput>> fc_qkv_{ nullptr };
+        std::shared_ptr<MultiHeadAttention<TDeviceType, TInput, TOutput>> attn_{ nullptr };
+        std::shared_ptr<Linear<TDeviceType, TInput, TOutput>> fc_attn_proj_{ nullptr };
+        std::shared_ptr<Residual<TDeviceType, TInput, TOutput>> res_1_{ nullptr };
+        std::shared_ptr<LayerNorm<TDeviceType, TInput, TOutput>> ln_2_{ nullptr };
+        std::shared_ptr<MLP<TDeviceType, TInput, TOutput>> mlp_{ nullptr };
+        std::shared_ptr<Residual<TDeviceType, TInput, TOutput>> res_2_{ nullptr };
 
         // Intermediate tensors
-        Tensor<TPrecision, MR> ln_1_output_;
-        Tensor<TPrecision, MR> fc_qkv_output_;
-        Tensor<TPrecision, MR> attn_output_;
-        Tensor<TPrecision, MR> fc_attn_proj_output_;
-        Tensor<TPrecision, MR> res_1_output_;
-        Tensor<TPrecision, MR> ln_2_output_;
-        Tensor<TPrecision, MR> mlp_output_;
-        Tensor<TPrecision, MR> res_2_output_;
+        Tensor<TOutput, MR> ln_1_output_;
+        Tensor<TOutput, MR> fc_qkv_output_;
+        Tensor<TOutput, MR> attn_output_;
+        Tensor<TOutput, MR> fc_attn_proj_output_;
+        Tensor<TOutput, MR> res_1_output_;
+        Tensor<TOutput, MR> ln_2_output_;
+        Tensor<TOutput, MR> mlp_output_;
+        Tensor<TOutput, MR> res_2_output_;
 
         /**
          * @brief Validates the input shape for the transformer block.
@@ -234,28 +231,28 @@ namespace Mila::Dnn
             auto C = input_shape_[ 2 ]; // Number of channels
 
             // Create new modules with the current device context
-            ln_1_ = std::make_shared<LayerNorm<TDeviceType, TInput, TOutput, TPrecision>>(
+            ln_1_ = std::make_shared<LayerNorm<TDeviceType, TInput, TOutput>>(
                 this->getName() + ".ln_1", this->getDeviceContext(), input_shape_ );
 
-            fc_qkv_ = std::make_shared<Linear<TDeviceType, TInput, TOutput, TPrecision>>(
+            fc_qkv_ = std::make_shared<Linear<TDeviceType, TInput, TOutput>>(
                 this->getName() + ".fc_qkv", this->getDeviceContext(), C, 3 * C );
 
-            attn_ = std::make_shared<MultiHeadAttention<TDeviceType, TInput, TOutput, TPrecision>>(
+            attn_ = std::make_shared<MultiHeadAttention<TDeviceType, TInput, TOutput>>(
                 this->getName() + ".attn", this->getDeviceContext(), input_shape_, num_heads_ );
 
-            fc_attn_proj_ = std::make_shared<Linear<TDeviceType, TInput, TOutput, TPrecision>>(
+            fc_attn_proj_ = std::make_shared<Linear<TDeviceType, TInput, TOutput>>(
                 this->getName() + ".fc_attn_proj", this->getDeviceContext(), C, C );
 
-            res_1_ = std::make_shared<Residual<TDeviceType, TInput, TOutput, TPrecision>>(
+            res_1_ = std::make_shared<Residual<TDeviceType, TInput, TOutput>>(
                 this->getName() + ".res_1", this->getDeviceContext() );
 
-            ln_2_ = std::make_shared<LayerNorm<TDeviceType, TInput, TOutput, TPrecision>>(
+            ln_2_ = std::make_shared<LayerNorm<TDeviceType, TInput, TOutput>>(
                 this->getName() + ".ln_2", this->getDeviceContext(), input_shape_ );
 
-            mlp_ = std::make_shared<MLP<TDeviceType, TInput, TOutput, TPrecision>>(
+            mlp_ = std::make_shared<MLP<TDeviceType, TInput, TOutput>>(
                 this->getName() + ".mlp", this->getDeviceContext(), input_shape_, 4 * C );
 
-            res_2_ = std::make_shared<Residual<TDeviceType, TInput, TOutput, TPrecision>>(
+            res_2_ = std::make_shared<Residual<TDeviceType, TInput, TOutput>>(
                 this->getName() + ".res_2", this->getDeviceContext() );
 
             // Add sub-modules to the TransformerBlock
@@ -269,14 +266,14 @@ namespace Mila::Dnn
             this->addModule( "res_2", res_2_ );
 
             // Create output tensors for the intermediate steps
-            ln_1_output_ = Tensor<TPrecision, MR>( input_shape_ );
-            fc_qkv_output_ = Tensor<TPrecision, MR>( { B, T, 3 * C } );
-            attn_output_ = Tensor<TPrecision, MR>( input_shape_ );
-            fc_attn_proj_output_ = Tensor<TPrecision, MR>( { B, T, C } );
-            res_1_output_ = Tensor<TPrecision, MR>( input_shape_ );
-            ln_2_output_ = Tensor<TPrecision, MR>( input_shape_ );
-            mlp_output_ = Tensor<TPrecision, MR>( input_shape_ );
-            res_2_output_ = Tensor<TPrecision, MR>( input_shape_ );
+            ln_1_output_ = Tensor<TOutput, MR>( input_shape_ );
+            fc_qkv_output_ = Tensor<TOutput, MR>( { B, T, 3 * C } );
+            attn_output_ = Tensor<TOutput, MR>( input_shape_ );
+            fc_attn_proj_output_ = Tensor<TOutput, MR>( { B, T, C } );
+            res_1_output_ = Tensor<TOutput, MR>( input_shape_ );
+            ln_2_output_ = Tensor<TOutput, MR>( input_shape_ );
+            mlp_output_ = Tensor<TOutput, MR>( input_shape_ );
+            res_2_output_ = Tensor<TOutput, MR>( input_shape_ );
         }
     };
 
@@ -287,8 +284,8 @@ namespace Mila::Dnn
      * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
      * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
      */
-    export template<typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
-        using CpuTransformerBlock = TransformerBlock<DeviceType::Cpu, TInput, TOutput, TPrecision>;
+    export template<typename TInput = float, typename TOutput = TInput>
+        using CpuTransformerBlock = TransformerBlock<DeviceType::Cpu, TInput, TOutput>;
 
     /**
      * @brief Type alias for CUDA-based transformer block with customizable tensor types.
@@ -297,6 +294,6 @@ namespace Mila::Dnn
      * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
      * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
      */
-    export template<typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
-        using CudaTransformerBlock = TransformerBlock<DeviceType::Cuda, TInput, TOutput, TPrecision>;
+    export template<typename TInput = float, typename TOutput = TInput>
+        using CudaTransformerBlock = TransformerBlock<DeviceType::Cuda, TInput, TOutput>;
 }

@@ -25,6 +25,12 @@ across multiple GPUs and compute nodes, with automatic optimization for various 
 
 ## What's New
 
+* Added ComputePrecision policy framework to support automatic mixed precision operations
+* Enhanced GELU operations with precision-aware implementations for both CPU and CUDA
+* Implemented mixed precision support in operation registry with type-specific operation creation
+* Added float-to-half precision conversion support in CUDA operations for better performance
+* Integrated precision policy propagation from Module level to Operation level
+
 * Added automatic documentation generation with GitHub Actions workflow
 * Implemented improved memory resource tracking for better debugging
 * Enhanced CUDA operations with optimized matrix multiplication and bias activation

@@ -17,6 +17,7 @@ export module Dnn.Modules.Gelu;
 import Dnn.Module;
 import Dnn.Tensor;
 import Dnn.TensorTraits;
+import Compute.Precision;
 import Compute.DeviceType;
 import Compute.DeviceContext;
 import Compute.ComputeDevice;
@@ -47,13 +48,12 @@ namespace Mila::Dnn
      * @tparam TOutput The data type of the output tensor elements, defaults to TInput.
      * @tparam TPrecision The data type used for internal calculations, defaults to TOutput.
      */
-    export template<DeviceType TDeviceType = DeviceType::Cuda,
-        typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
-        requires ValidFloatTensorTypes<TInput, TOutput>&& ValidPrecisionType<TPrecision>
-    class Gelu : public Module<TDeviceType, TInput, TOutput, TPrecision> {
+    export template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput>
+        requires ValidFloatTensorTypes<TInput, TOutput>
+    class Gelu : public Module<TDeviceType, TInput, TOutput> {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>; ///< Memory resource type based on device type
-        using ModuleBase = Module<TDeviceType, TInput, TOutput, TPrecision>; ///< Base class type for the module
+        using ModuleBase = Module<TDeviceType, TInput, TOutput>; ///< Base class type for the module
 
         /**
          * @brief Constructs a new Gelu activation module with the default device context.
@@ -61,9 +61,13 @@ namespace Mila::Dnn
          * @param name The name of the module for identification purposes.
          * @param device_name The name of the device to use (e.g., "CPU", "CUDA:0").
          * @param is_training Whether the module is being used in training mode (defaults to false).
+         * @param precision The compute precision policy to use (default is Auto).
          */
-        Gelu( std::string name, std::string device_name, bool is_training = false )
-            : ModuleBase( device_name )
+        Gelu( std::string name,
+            std::string device_name,
+            bool is_training = false,
+            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
+            : ModuleBase( device_name, precision )
         {
             this->setTraining( is_training );
             this->setName( name );
@@ -76,9 +80,13 @@ namespace Mila::Dnn
          * @param name The name of the module for identification purposes.
          * @param context The device context to use for this module.
          * @param is_training Whether the module is being used in training mode (defaults to false).
+         * @param precision The compute precision policy to use (default is Auto).
          */
-        Gelu( std::string name, std::shared_ptr<DeviceContext> context, bool is_training = false )
-            : ModuleBase( context )
+        Gelu( std::string name,
+            std::shared_ptr<DeviceContext> context,
+            bool is_training = false,
+            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
+            : ModuleBase( context, precision )
         {
             this->setTraining( is_training );
             this->setName( name );
@@ -152,14 +160,14 @@ namespace Mila::Dnn
          *
          * The GELU activation has no parameters, so this is an empty vector.
          */
-        std::vector<std::shared_ptr<Tensor<TPrecision, MR>>> parameters_;
+        std::vector<std::shared_ptr<Tensor<TOutput, MR>>> parameters_;
 
         /**
          * @brief The output cache.
          *
          * Storage for intermediate results that might be needed for the backward pass.
          */
-        std::vector<std::shared_ptr<Tensor<TPrecision, MR>>> output_state_;
+        std::vector<std::shared_ptr<Tensor<TOutput, MR>>> output_state_;
 
         /**
          * @brief The operation properties.
@@ -173,36 +181,41 @@ namespace Mila::Dnn
          *
          * This pointer will be updated based on the current device context.
          */
-        std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput>> operation_{ nullptr };
 
         /**
          * @brief Creates the appropriate GELU operation based on the current device context.
          *
          * This method initializes the operation_ member with the appropriate implementation
          * of the GELU operation for either CPU or CUDA, based on the current device context.
+         * It also passes the compute precision policy to the operation.
          */
         void createOperation() {
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TInput, TOutput, TPrecision>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TInput, TOutput>(
                     "Cpu::GeluOp",
-                    this->getDeviceContext() );
+                    this->getDeviceContext(),
+                    this->getComputePrecision().getPolicy() );
 
-                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cpu, TInput, TOutput, TPrecision>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cpu, TInput, TOutput>>(base_op);
             }
             else {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TInput, TOutput>(
                     "Cuda::GeluOp",
-                    this->getDeviceContext() );
+                    this->getDeviceContext(),
+                    this->getComputePrecision().getPolicy() );
 
-                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cuda, TInput, TOutput>>(base_op);
             }
+
+            // The operation will now have access to the precision policy via getPrecisionPolicy()
         }
     };
 
     // Convenient type aliases for common use cases
     export template<typename T = float>
-        using CpuGelu = Gelu<DeviceType::Cpu, T, T, T>;
+        using CpuGelu = Gelu<DeviceType::Cpu, T, T>;
 
     export template<typename T = float>
-        using CudaGelu = Gelu<DeviceType::Cuda, T, T, T>;
+        using CudaGelu = Gelu<DeviceType::Cuda, T, T>;
 }

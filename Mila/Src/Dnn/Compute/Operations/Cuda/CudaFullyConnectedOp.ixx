@@ -85,12 +85,12 @@ namespace Mila::Dnn::Compute
      * @tparam TOutput The data type of the input tensor elements.
      * @tparam TDataType The data type of the output tensor elements (defaults to the input type).
      */
-    export template<typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
-		requires ValidFloatTensorTypes<TInput, TOutput>&& ValidPrecisionType<TPrecision>
-    class CudaFullyConnectedOp : public UnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision> {
+    export template<typename TInput, typename TOutput = TInput>
+		requires ValidFloatTensorTypes<TInput, TOutput>
+    class CudaFullyConnectedOp : public UnaryOperation<DeviceType::Cuda, TInput, TOutput> {
     public:
         using MR = typename CudaDevice::MR;
-        using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision>;
+        using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TInput, TOutput>;
 
         /**
          * @brief Constructs a new CUDA Fully Connected operation with the default device context.
@@ -256,18 +256,18 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cuda::FullyConnectedOp";
 
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, float, float, float>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, float, float>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float>> {
                     return context ? std::make_shared<CudaFullyConnectedOp<float>>( context )
                         : std::make_shared<CudaFullyConnectedOp<float>>();
                 }
             );
 
             // FIXME: 
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, half, half, half>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, half, half>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half, half, half>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half>> {
                     return context ? std::make_shared<CudaFullyConnectedOp<half>>( context )
                         : std::make_shared<CudaFullyConnectedOp<half>>();
                 }

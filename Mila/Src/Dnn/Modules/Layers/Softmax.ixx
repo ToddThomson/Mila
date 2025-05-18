@@ -51,15 +51,12 @@ namespace Mila::Dnn
      * @tparam TOutput The data type of the output tensor elements, defaults to TInput.
      * @tparam TPrecision The data type used for internal calculations, defaults to TOutput.
      */
-    export template<DeviceType TDeviceType = DeviceType::Cuda,
-        typename TInput = float,
-        typename TOutput = TInput,
-        typename TPrecision = TOutput>
-        requires ValidFloatTensorTypes<TInput, TOutput>&& ValidPrecisionType<TPrecision>
-    class Softmax : public Module<TDeviceType, TInput, TOutput, TPrecision> {
+    export template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput>
+        requires ValidFloatTensorTypes<TInput, TOutput>
+    class Softmax : public Module<TDeviceType, TInput, TOutput> {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>; ///< Memory resource type based on device type
-        using ModuleBase = Module<TDeviceType, TInput, TOutput, TPrecision>; ///< Base class type for the module
+        using ModuleBase = Module<TDeviceType, TInput, TOutput>; ///< Base class type for the module
 
         /**
          * @brief Construct a new Softmax module with the default device context.
@@ -171,14 +168,14 @@ namespace Mila::Dnn
          *
          * The Softmax activation has no parameters, so this is an empty vector.
          */
-        std::vector<std::shared_ptr<Tensor<TPrecision, MR>>> parameters_;
+        std::vector<std::shared_ptr<Tensor<TInput, MR>>> parameters_;
 
         /**
          * @brief The output state.
          *
          * Storage for intermediate results that might be needed for the backward pass.
          */
-        std::vector<std::shared_ptr<Tensor<TPrecision, MR>>> output_state_;
+        std::vector<std::shared_ptr<Tensor<TOutput, MR>>> output_state_;
 
         /**
          * @brief The operation attributes.
@@ -190,7 +187,7 @@ namespace Mila::Dnn
         /**
          * @brief The underlying unary operation that implements the softmax function.
          */
-        std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput>> operation_{ nullptr };
 
         /**
          * @brief Create the appropriate softmax operation based on the current device context.
@@ -203,18 +200,18 @@ namespace Mila::Dnn
             attributes_.set( "axis", axis_ );
 
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TInput, TOutput, TPrecision>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TInput, TOutput>(
                     "Cpu::SoftmaxOp",
                     this->getDeviceContext() );
 
-                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cpu, TInput, TOutput, TPrecision>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cpu, TInput, TOutput>>(base_op);
             }
             else {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TInput, TOutput>(
                     "Cuda::SoftmaxOp",
                     this->getDeviceContext() );
 
-                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cuda, TInput, TOutput>>(base_op);
             }
         }
     };
@@ -224,18 +221,16 @@ namespace Mila::Dnn
      *
      * @tparam TInput Data type of the input tensor elements.
      * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
-     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
      */
-    export template<typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
-        using CpuSoftmax = Softmax<DeviceType::Cpu, TInput, TOutput, TPrecision>;
+    export template<typename TInput = float, typename TOutput = TInput>
+        using CpuSoftmax = Softmax<DeviceType::Cpu, TInput, TOutput>;
 
     /**
      * @brief Type alias for CUDA-based softmax module with customizable tensor types.
      *
      * @tparam TInput Data type of the input tensor elements.
      * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
-     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
      */
-    export template<typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
-        using CudaSoftmax = Softmax<DeviceType::Cuda, TInput, TOutput, TPrecision>;
+    export template<typename TInput = float, typename TOutput = TInput>
+        using CudaSoftmax = Softmax<DeviceType::Cuda, TInput, TOutput>;
 }

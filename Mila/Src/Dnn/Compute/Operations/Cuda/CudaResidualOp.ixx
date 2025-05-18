@@ -70,12 +70,12 @@ namespace Mila::Dnn::Compute
      * @tparam TOutput The data type of the output tensor elements (defaults to TInput).
      * @tparam TCompute The data type used for computation (defaults to TOutput).
      */
-    export template<typename TInput, typename TOutput = TInput, typename TCompute = TOutput>
-        requires ValidFloatTensorType<TInput> && ValidFloatTensorType<TOutput> && ValidPrecisionType<TCompute>
-    class CudaResidualOp : public BinaryOperation<DeviceType::Cuda, TInput, TInput, TOutput, TCompute> {
+    export template<typename TInput, typename TOutput = TInput>
+        requires ValidFloatTensorTypes<TInput, TOutput>
+    class CudaResidualOp : public BinaryOperation<DeviceType::Cuda, TInput, TInput, TOutput> {
     public:
         using MR = typename CudaDevice::MR;
-        using OperationBase = BinaryOperation<DeviceType::Cuda, TInput, TInput, TOutput, TCompute>;
+        using OperationBase = BinaryOperation<DeviceType::Cuda, TInput, TInput, TOutput>;
 
         /**
          * @brief Constructs a new CUDA Residual operation with the default device context.
@@ -121,19 +121,19 @@ namespace Mila::Dnn::Compute
 
             cudaStream_t stream = this->getDeviceContext()->getStream();
 
-            if constexpr ( std::is_same_v<TInput, TOutput> && std::is_same_v<TOutput, TCompute> ) {
+            if constexpr ( std::is_same_v<TInput, TOutput> ) {
                 // All types are the same - direct computation
-                Detail::cuda_residual_impl<TCompute>::forward( Y, X1, X2, N, stream );
+                Detail::cuda_residual_impl<TInput>::forward( Y, X1, X2, N, stream );
             }
             else {
                 // Handle mixed precision computation
                 // For non-trivial mixed precision, we would need to implement 
                 // type conversion here using cuda_convert_type or similar
-                Detail::cuda_residual_impl<TCompute>::forward(
+                /*Detail::cuda_residual_impl<TInput>::forward(
                     reinterpret_cast<TCompute*>(Y),
                     reinterpret_cast<const TCompute*>(X1),
                     reinterpret_cast<const TCompute*>(X2),
-                    N, stream );
+                    N, stream );*/
             }
         }
 
@@ -204,17 +204,17 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cuda::ResidualOp";
 
-            OperationRegistry::instance().registerBinaryOperation<DeviceType::Cuda, float, float, float, float>(
+            OperationRegistry::instance().registerBinaryOperation<DeviceType::Cuda, float, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, float, float, float, float>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, float, float, float>> {
                     return context ? std::make_shared<CudaResidualOp<float>>( context )
                         : std::make_shared<CudaResidualOp<float>>();
                 }
             );
 
-            OperationRegistry::instance().registerBinaryOperation<DeviceType::Cuda, half, half, half, half>(
+            OperationRegistry::instance().registerBinaryOperation<DeviceType::Cuda, half, half, half>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, half, half, half, half>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, half, half, half>> {
                     return context ? std::make_shared<CudaResidualOp<half>>( context )
                         : std::make_shared<CudaResidualOp<half>>();
                 }

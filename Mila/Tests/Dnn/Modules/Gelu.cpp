@@ -12,16 +12,16 @@ namespace Modules::Tests
     using namespace Mila::Dnn::Compute;
 
     // Memory resource selector based on device type
-    template<DeviceType TDevice, typename TPrecision>
+    template<DeviceType TDevice>
     using MemoryResourceType = std::conditional_t<TDevice == Compute::DeviceType::Cuda,
         Compute::CudaMemoryResource,
         Compute::HostMemoryResource>;
 
     // Test data structure for Gelu tests
-    template<DeviceType TDevice, typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
+    template<DeviceType TDevice, typename TInput = float, typename TOutput = TInput>
     struct GeluTestData {
         std::vector<size_t> shape;
-        std::shared_ptr<Gelu<TDevice, TInput, TOutput, TPrecision>> gelu_module;
+        std::shared_ptr<Gelu<TDevice, TInput, TOutput>> gelu_module;
         bool is_training;
 
         // Make the test data structure self-initializing
@@ -37,7 +37,7 @@ namespace Modules::Tests
             data.is_training = is_training;
 
             std::string device_str = TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU";
-            data.gelu_module = std::make_shared<Gelu<TDevice, TInput, TOutput, TPrecision>>(
+            data.gelu_module = std::make_shared<Gelu<TDevice, TInput, TOutput>>(
                 name, device_str, is_training );
 
             return data;
@@ -56,7 +56,7 @@ namespace Modules::Tests
             data.shape = { batch_size, sequence_length, channels };
             data.is_training = is_training;
 
-            data.gelu_module = std::make_shared<Gelu<TDevice, TInput, TOutput, TPrecision>>(
+            data.gelu_module = std::make_shared<Gelu<TDevice, TInput, TOutput>>(
                 name, context, is_training );
 
             return data;
@@ -163,19 +163,19 @@ namespace Modules::Tests
     };
 
     // Common test function templates
-    template<DeviceType TDevice, typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
-    void TestGetName( const GeluTestData<TDevice, TInput, TOutput, TPrecision>& data, const std::string& expected_name ) {
+    template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
+    void TestGetName( const GeluTestData<TDevice, TInput, TOutput>& data, const std::string& expected_name ) {
         EXPECT_EQ( data.gelu_module->getName(), expected_name );
     }
 
-    template<DeviceType TDevice, typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
-    void TestParameterCount( const GeluTestData<TDevice, TInput, TOutput, TPrecision>& data, size_t expected_count ) {
+    template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
+    void TestParameterCount( const GeluTestData<TDevice, TInput, TOutput>& data, size_t expected_count ) {
         EXPECT_EQ( data.gelu_module->parameterCount(), expected_count );
     }
 
-    template<DeviceType TDevice, typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
-    void TestForward( const GeluTestData<TDevice, TInput, TOutput, TPrecision>& data ) {
-        using MR = MemoryResourceType<TDevice, TPrecision>;
+    template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
+    void TestForward( const GeluTestData<TDevice, TInput, TOutput>& data ) {
+        using MR = MemoryResourceType<TDevice>;
 
         Tensor<TInput, MR> input( data.shape );
         Tensor<TOutput, MR> output( data.shape );
@@ -187,19 +187,19 @@ namespace Modules::Tests
         EXPECT_EQ( output.size(), input.size() );
     }
 
-    template<DeviceType TDevice, typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
-    void TestPrint( const GeluTestData<TDevice, TInput, TOutput, TPrecision>& data, const std::string& expected_substring ) {
+    template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
+    void TestPrint( const GeluTestData<TDevice, TInput, TOutput>& data, const std::string& expected_substring ) {
         std::string output = data.gelu_module->toString();
         EXPECT_NE( output.find( expected_substring ), std::string::npos );
     }
 
-    template<DeviceType TDevice, typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
-    void TestTrainingMode( const GeluTestData<TDevice, TInput, TOutput, TPrecision>& data, bool expected_mode ) {
+    template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
+    void TestTrainingMode( const GeluTestData<TDevice, TInput, TOutput>& data, bool expected_mode ) {
         EXPECT_EQ( data.gelu_module->isTraining(), expected_mode );
     }
 
-    template<DeviceType TDevice, typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
-    void TestDeviceType( const GeluTestData<TDevice, TInput, TOutput, TPrecision>& data ) {
+    template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
+    void TestDeviceType( const GeluTestData<TDevice, TInput, TOutput>& data ) {
         auto device_context = data.gelu_module->getDeviceContext();
         EXPECT_NE( device_context, nullptr );
         auto device = device_context->getDevice();
@@ -208,36 +208,36 @@ namespace Modules::Tests
     }
 
     // Function to test equivalence of CPU and CUDA outputs
-    template<typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
+    template<typename TInput, typename TOutput = TInput>
     void TestCpuCudaEquivalence(
-        const GeluTestData<Compute::DeviceType::Cpu, TInput, TOutput, TPrecision>& cpu_data,
-        const GeluTestData<Compute::DeviceType::Cuda, TInput, TOutput, TPrecision>& cuda_data ) {
+        const GeluTestData<Compute::DeviceType::Cpu, TInput, TOutput>& cpu_data,
+        const GeluTestData<Compute::DeviceType::Cuda, TInput, TOutput>& cuda_data ) {
 
         // Create a small test shape to make comparison faster
         std::vector<size_t> test_shape = { 2, 4, 8 }; // Small shape for quick verification
 
         // Create random input data
-        Tensor<TPrecision, Compute::HostMemoryResource> host_input( test_shape );
+        Tensor<TInput, Compute::HostMemoryResource> host_input( test_shape );
 
         // Fill with predictable values between -2.0 and 2.0 to exercise the GELU function
         for ( size_t i = 0; i < host_input.size(); ++i ) {
-            host_input.data()[ i ] = static_cast<TPrecision>( -2.0 + 4.0 * (static_cast<float>( i ) / host_input.size()) );
+            host_input.data()[ i ] = static_cast<TInput>( -2.0 + 4.0 * (static_cast<float>( i ) / host_input.size()) );
         }
 
         // Create CPU output
-        Tensor<TPrecision, Compute::HostMemoryResource> cpu_output( test_shape );
+        Tensor<TOutput, Compute::HostMemoryResource> cpu_output( test_shape );
         cpu_data.gelu_module->forward( host_input, cpu_output );
 
         // Create device input by copying host data
-        Tensor<TPrecision, Compute::CudaMemoryResource> device_input( test_shape );
+        Tensor<TInput, Compute::CudaMemoryResource> device_input( test_shape );
         device_input.copyFrom( host_input );
 
         // Create device output
-        Tensor<TPrecision, Compute::CudaMemoryResource> cuda_output( test_shape );
+        Tensor<TOutput, Compute::CudaMemoryResource> cuda_output( test_shape );
         cuda_data.gelu_module->forward( device_input, cuda_output );
 
         // Copy CUDA output back to host for comparison
-        Tensor<TPrecision, Compute::HostMemoryResource> cuda_output_host( test_shape );
+        Tensor<TOutput, Compute::HostMemoryResource> cuda_output_host( test_shape );
         cuda_output_host.copyFrom( cuda_output );
 
         // Compare outputs with tolerance for floating point differences
@@ -257,19 +257,19 @@ namespace Modules::Tests
     }
 
     // Test with different dimensions (edge cases)
-    template<DeviceType TDevice, typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
+    template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
     void TestEdgeCases() {
-        using MR = MemoryResourceType<TDevice, TPrecision>;
+        using MR = MemoryResourceType<TDevice>;
 
         try {
             // Test with minimal sizes
             std::vector<size_t> minimal_shape = { 1, 1, 8 };
 
-            auto minimal_module = std::make_shared<Gelu<TDevice, TInput, TOutput, TPrecision>>(
+            auto minimal_module = std::make_shared<Gelu<TDevice, TInput, TOutput>>(
                 "minimal_gelu", TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU" );
 
-            Tensor<TPrecision, MR> minimal_input( minimal_shape );
-            Tensor<TPrecision, MR> minimal_output( minimal_shape );
+            Tensor<TInput, MR> minimal_input( minimal_shape );
+            Tensor<TOutput, MR> minimal_output( minimal_shape );
 
             EXPECT_NO_THROW( minimal_module->forward( minimal_input, minimal_output ) );
             EXPECT_EQ( minimal_output.size(), 8 );
@@ -277,11 +277,11 @@ namespace Modules::Tests
             // Test with larger dimensions
             std::vector<size_t> large_shape = { 2, 2, 1024 };
 
-            auto large_module = std::make_shared<Gelu<TDevice, TInput, TOutput, TPrecision>>(
+            auto large_module = std::make_shared<Gelu<TDevice, TInput, TOutput>>(
                 "large_gelu", TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU" );
 
-            Tensor<TPrecision, MR> large_input( large_shape );
-            Tensor<TPrecision, MR> large_output( large_shape );
+            Tensor<TInput, MR> large_input( large_shape );
+            Tensor<TOutput, MR> large_output( large_shape );
 
             EXPECT_NO_THROW( large_module->forward( large_input, large_output ) );
             EXPECT_EQ( large_output.size(), 4096 );

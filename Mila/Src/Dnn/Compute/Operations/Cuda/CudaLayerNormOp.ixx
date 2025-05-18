@@ -80,11 +80,11 @@ namespace Mila::Dnn::Compute
      * @tparam TPrecision The data type of the input tensor elements.
      * @tparam TDataType The data type of the output tensor elements (defaults to the input type).
      */
-    export template<typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
-    class CudaLayerNormOp : public UnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision> {
+    export template<typename TInput = float, typename TOutput = TInput>
+    class CudaLayerNormOp : public UnaryOperation<DeviceType::Cuda, TInput, TOutput> {
     public:
         using MR = typename CudaDevice::MR;
-		using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision>;
+		using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TInput, TOutput>;
 
         /**
          * @brief Constructs a new CUDA Layer Normalization operation with the default device context.
@@ -123,20 +123,20 @@ namespace Mila::Dnn::Compute
          *                     where mean is the mean values and rstd is the reciprocal of standard deviation.
          */
         void forward(
-            const Tensor<TPrecision, MR>& input,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
+            const Tensor<TInput, MR>& input,
+            const std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& parameters,
             const OperationAttributes& properties,
-            Tensor<TPrecision, MR>& output,
-            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const override {
+            Tensor<TOutput, MR>& output,
+            std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const override {
 
-            const TPrecision* X = input.raw_data();
-            TPrecision* Y = output.raw_data();
+            const TInput* X = input.raw_data();
+            TOutput* Y = output.raw_data();
 
-            const TPrecision* weight = parameters[ 0 ]->raw_data();
-            const TPrecision* bias = (parameters.size() > 1 && parameters[ 1 ]) ? parameters[ 1 ]->raw_data() : nullptr;
+            const TOutput* weight = parameters[ 0 ]->raw_data();
+            const TOutput* bias = (parameters.size() > 1 && parameters[ 1 ]) ? parameters[ 1 ]->raw_data() : nullptr;
 
-            TPrecision* mean = output_state[ 0 ]->raw_data();
-            TPrecision* rstd = output_state[ 1 ]->raw_data();
+            TOutput* mean = output_state[ 0 ]->raw_data();
+            TOutput* rstd = output_state[ 1 ]->raw_data();
 
             int B = input.shape()[ 0 ];
             int T = input.shape()[ 1 ];
@@ -145,7 +145,7 @@ namespace Mila::Dnn::Compute
 
             cudaStream_t stream = this->getDeviceContext()->getStream();
 
-            Detail::cuda_layernorm_impl<TPrecision>::forward( Y, X, weight, bias, mean, rstd, B, T, C, epsilon, stream );
+            Detail::cuda_layernorm_impl<TInput>::forward( Y, X, weight, bias, mean, rstd, B, T, C, epsilon, stream );
         }
 
         /**
@@ -163,14 +163,14 @@ namespace Mila::Dnn::Compute
          * @param output_state Cache tensors from forward pass [mean, rstd].
          */
         void backward(
-            const Tensor<TPrecision, MR>& input,
-            const Tensor<TPrecision, MR>& output,
-            const Tensor<TPrecision, MR>& output_gradient,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
-            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameter_gradients,
-            Tensor<TPrecision, MR>& input_gradient,
+            const Tensor<TInput, MR>& input,
+            const Tensor<TOutput, MR>& output,
+            const Tensor<TOutput, MR>& output_gradient,
+            const std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameters,
+            std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameter_gradients,
+            Tensor<TInput, MR>& input_gradient,
             const OperationAttributes& properties,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const {
+            const std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const {
 
             // Verify we're operating on CUDA memory
             if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cuda ) ) {
@@ -228,17 +228,17 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cuda::LayerNormOp";
 
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, float, float, float>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, float, float>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, float>> {
                     return context ? std::make_shared<CudaLayerNormOp<float>>( context )
                         : std::make_shared<CudaLayerNormOp<float>>();
                 }
             );
 
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, half, half, half>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, half, half>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half, half, half>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half, half>> {
                     return context ? std::make_shared<CudaLayerNormOp<half>>( context )
                         : std::make_shared<CudaLayerNormOp<half>>();
                 }

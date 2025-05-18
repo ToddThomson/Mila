@@ -42,10 +42,10 @@ namespace Mila::Dnn::Compute
      * @tparam TInput The data type of the input tensor elements (typically int for token indices).
      * @tparam TDataType The data type used for computation and output (typically float).
      */
-    export class CpuEncoderOp : public UnaryOperation<DeviceType::Cpu, int, float, float> {
+    export class CpuEncoderOp : public UnaryOperation<DeviceType::Cpu, int, float> {
     public:
         using MR = typename CpuDevice::MR;
-		using OperationBase = UnaryOperation<DeviceType::Cpu, int, float, float>;
+		using OperationBase = UnaryOperation<DeviceType::Cpu, int, float>;
 
         /**
          * @brief Constructs a new CPU Encoder operation with the default device context.
@@ -187,9 +187,9 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cpu::EncoderOp";
 
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, int, float, float>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, int, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, int, float, float>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, int, float>> {
                     return context ? std::make_shared<CpuEncoderOp>( context )
                         : std::make_shared<CpuEncoderOp>();
                 }

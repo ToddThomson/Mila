@@ -40,14 +40,15 @@ add_executable( MilaTests
 
     #"Dnn/Model.cpp"
     
-    "Dnn/Modules/Linear.cpp"
+    #"Dnn/Modules/Linear.cpp"
     "Dnn/Modules/Gelu.cpp" 
     #"Dnn/Modules/Attention.cpp" 
-    "Dnn/Modules/Layernorm.cpp"
-    "Dnn/Modules/Residual.cpp"
-    "Dnn/Modules/Softmax.cpp"
-    "Dnn/Modules/Encoder.cpp" 
+    #"Dnn/Modules/Layernorm.cpp"
+    #"Dnn/Modules/Residual.cpp"
+    #"Dnn/Modules/Softmax.cpp"
+    #"Dnn/Modules/Encoder.cpp" 
 
+    #"Dnn/Data/DataLoader.cpp"
     #"Dnn/Models/Gpt2/DatasetReader.cpp"
 
     # Cpu Operations...    
@@ -65,9 +66,9 @@ add_executable( MilaTests
     #"Dnn/Compute/Operations/Cuda/CudaMultHeadAttentionOpTests.cpp"
     #"Dnn/Compute/Operations/Cuda/CudaResidualOpTests.cpp"
     #"Dnn/Compute/Operations/Cuda/CudaSoftmaxOpTests.cpp"
-     #"Dnn/Modules/Blocks/MLP.cpp" 
-     #"Dnn/Modules/Blocks/TransformerBlock.cpp"
-     #"Dnn/Data/DataLoader.cpp"
+     
+    #"Dnn/Modules/Blocks/MLP.cpp" 
+    #"Dnn/Modules/Blocks/TransformerBlock.cpp"
 )
 
 # TODO: Add globally 

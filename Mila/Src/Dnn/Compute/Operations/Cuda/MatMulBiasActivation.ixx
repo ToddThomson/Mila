@@ -49,12 +49,12 @@ namespace Mila::Dnn::Compute
      * @tparam TPrecision The data type of the input tensor elements.
      * @tparam TDataType The data type for computation and output (defaults to the input type).
      */
-    export template<typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
-        requires (std::is_same_v<TPrecision, float> || std::is_same_v<TPrecision, half>)
-    class CudaMatMulBiasGeluOp : public UnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision> {
+    export template<typename TInput = float, typename TOutput = TInput>
+		requires ValidFloatTensorTypes<TInput, TOutput>
+    class CudaMatMulBiasGeluOp : public UnaryOperation<DeviceType::Cuda, TInput, TOutput> {
     public:
 		using MR = typename CudaDevice::MR;
-		using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision>;
+		using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TInput, TOutput>;
 
         /**
          * @brief Constructs a new CUDA MatMul-Bias-GELU fused operation with the default device context.
@@ -90,11 +90,11 @@ namespace Mila::Dnn::Compute
          * @param output_state Cache for intermediate results (not used in this operation).
          */
         void forward(
-            const Tensor<TPrecision, MR>& input,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
+            const Tensor<TInput, MR>& input,
+            const std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& parameters,
             const OperationAttributes& properties,
-            Tensor<TPrecision, MR>& output,
-            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const override {
+            Tensor<TOutput, MR>& output,
+            std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const override {
 
             if ( parameters.size() < 2 ) {
                 throw std::runtime_error( "CudaMatMulBiasGeluOp requires at least 2 parameters (weights and bias)" );
@@ -141,14 +141,14 @@ namespace Mila::Dnn::Compute
          * @param output_state Cache tensors from forward pass.
          */
         void backward(
-            const Tensor<TPrecision, MR>& input,
-            const Tensor<TPrecision, MR>& output,
-            const Tensor<TPrecision, MR>& output_gradient,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
-            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameter_gradients,
-            Tensor<TPrecision, MR>& input_gradient,
+            const Tensor<TInput, MR>& input,
+            const Tensor<TOutput, MR>& output,
+            const Tensor<TOutput, MR>& output_gradient,
+            const std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& parameters,
+            std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& parameter_gradients,
+            Tensor<TInput, MR>& input_gradient,
             const OperationAttributes& properties,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const {
+            const std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const {
 
             if ( parameters.size() < 2 || parameter_gradients.size() < 2 ) {
                 throw std::runtime_error( "CudaMatMulBiasGeluOp backward requires weights, bias and their gradients" );

@@ -48,14 +48,12 @@ namespace Mila::Dnn
      * @tparam TLogits The data type of the predicted probabilities (typically float).
      * @tparam TTargets The data type of the target class indices (typically int).
      */
-    export template<DeviceType TDeviceType = DeviceType::Cuda,
-        typename TLogits = float,
-        typename TTargets = int>
+    export template<DeviceType TDeviceType = DeviceType::Cuda, typename TLogits = float, typename TTargets = int>
         requires ValidFloatTensorType<TLogits>
-    class CrossEntropy : public Module<TDeviceType, TLogits, TTargets, TLogits> {
+    class CrossEntropy : public Module<TDeviceType, TLogits, TTargets> {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>; ///< Memory resource type based on device type
-        using ModuleBase = Module<TDeviceType, TLogits, TTargets, TLogits>; ///< Base class type for the module
+        using ModuleBase = Module<TDeviceType, TLogits, TTargets>; ///< Base class type for the module
 
         /**
          * @brief Construct a new CrossEntropy module with the default device context.
@@ -182,7 +180,7 @@ namespace Mila::Dnn
         /**
          * @brief The underlying unary operation that implements the cross entropy function.
          */
-        std::shared_ptr<UnaryOperation<TDeviceType, TLogits, TTargets, TLogits>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TDeviceType, TLogits, TTargets>> operation_{ nullptr };
 
         /**
          * @brief Create the appropriate cross entropy operation based on the current device context.

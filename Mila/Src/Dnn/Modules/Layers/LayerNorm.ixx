@@ -48,15 +48,14 @@ namespace Mila::Dnn
      * @tparam TDeviceType The device type (CPU or CUDA) on which to perform computations.
      * @tparam TInput Data type of the input tensor elements.
      * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
-     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
+     * @tparam TInput Data type used for internal calculations, defaults to TOutput.
      */
-    export template<DeviceType TDeviceType = DeviceType::Cuda,
-        typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
-        requires ValidTensorTypes<TInput, TOutput>&& ValidPrecisionType<TPrecision>
-    class LayerNorm : public Module<TDeviceType, TInput, TOutput, TPrecision> {
+    export template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput>
+        requires ValidTensorTypes<TInput, TOutput>
+    class LayerNorm : public Module<TDeviceType, TInput, TOutput> {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>; ///< Memory resource type based on device type
-        using ModuleBase = Module<TDeviceType, TInput, TOutput, TPrecision>; ///< Base class type for the module
+        using ModuleBase = Module<TDeviceType, TInput, TOutput>; ///< Base class type for the module
 
         /**
          * @brief Constructs a new LayerNorm object with the default device context.
@@ -103,10 +102,10 @@ namespace Mila::Dnn
          *
          * The weight tensor is applied as a scale factor to the normalized values.
          *
-         * @return std::shared_ptr<Tensor<TPrecision, MR>> Shared pointer to the weight tensor.
+         * @return std::shared_ptr<Tensor<TInput, MR>> Shared pointer to the weight tensor.
          */
-        std::shared_ptr<Tensor<TPrecision, MR>> getWeight() {
-            return std::static_pointer_cast<Tensor<TPrecision, MR>>(weight_);
+        std::shared_ptr<Tensor<TInput, MR>> getWeight() {
+            return std::static_pointer_cast<Tensor<TInput, MR>>(weight_);
         }
 
         /**
@@ -114,10 +113,10 @@ namespace Mila::Dnn
          *
          * The bias tensor is added after normalization and scaling.
          *
-         * @return std::shared_ptr<Tensor<TPrecision, MR>> Shared pointer to the bias tensor.
+         * @return std::shared_ptr<Tensor<TInput, MR>> Shared pointer to the bias tensor.
          */
-        std::shared_ptr<Tensor<TPrecision, MR>> getBias() {
-            return std::static_pointer_cast<Tensor<TPrecision, MR>>(bias_);
+        std::shared_ptr<Tensor<TInput, MR>> getBias() {
+            return std::static_pointer_cast<Tensor<TInput, MR>>(bias_);
         }
 
         /**
@@ -246,19 +245,19 @@ namespace Mila::Dnn
         /**
          * @brief The weight tensor for scaling after normalization.
          */
-        std::shared_ptr<Tensor<TPrecision, MR>> weight_{ nullptr };
+        std::shared_ptr<Tensor<TInput, MR>> weight_{ nullptr };
 
         /**
          * @brief The bias tensor added after normalization and scaling.
          */
-        std::shared_ptr<Tensor<TPrecision, MR>> bias_{ nullptr };
+        std::shared_ptr<Tensor<TInput, MR>> bias_{ nullptr };
 
         /**
          * @brief The mean tensor used for normalization.
          *
          * Stores the mean values computed during the forward pass.
          */
-        std::shared_ptr<Tensor<TPrecision, MR>> mean_{ nullptr };
+        std::shared_ptr<Tensor<TInput, MR>> mean_{ nullptr };
 
         /**
          * @brief The reciprocal standard deviation tensor.
@@ -266,17 +265,17 @@ namespace Mila::Dnn
          * Stores the reciprocal of the standard deviation values (1/sqrt(variance + epsilon))
          * computed during the forward pass.
          */
-        std::shared_ptr<Tensor<TPrecision, MR>> rstd_{ nullptr };
+        std::shared_ptr<Tensor<TInput, MR>> rstd_{ nullptr };
 
         /**
          * @brief The trainable parameters for this module (weight and bias).
          */
-        std::vector<std::shared_ptr<Tensor<TPrecision, MR>>> parameters_;
+        std::vector<std::shared_ptr<Tensor<TInput, MR>>> parameters_;
 
         /**
          * @brief Cache of intermediate tensors needed for backward pass.
          */
-        std::vector<std::shared_ptr<Tensor<TPrecision, MR>>> output_state_;
+        std::vector<std::shared_ptr<Tensor<TInput, MR>>> output_state_;
 
         /**
          * @brief The operation attributes, including epsilon and axis information.
@@ -286,7 +285,7 @@ namespace Mila::Dnn
         /**
          * @brief The underlying operation that implements Layer Normalization.
          */
-        std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput>> operation_{ nullptr };
 
         /**
          * @brief Initializes the tensors needed for the Layer Normalization operation.
@@ -311,21 +310,21 @@ namespace Mila::Dnn
             auto sequence_length = input_shape_[ 1 ];
             auto channels = input_shape_[ 2 ];
 
-            weight_ = std::make_shared<Tensor<TPrecision, MR>>(
-                std::vector<size_t>{channels}, static_cast<TPrecision>(1.0f) );
+            weight_ = std::make_shared<Tensor<TInput, MR>>(
+                std::vector<size_t>{channels}, static_cast<TInput>(1.0f) );
             weight_->setName( this->getName() + ".weight" );
 
             if ( has_bias_ ) {
-                bias_ = std::make_shared<Tensor<TPrecision, MR>>(
+                bias_ = std::make_shared<Tensor<TInput, MR>>(
                     std::vector<size_t>{channels} );
                 bias_->setName( this->getName() + ".bias" );
             }
 
-            mean_ = std::make_shared<Tensor<TPrecision, MR>>(
+            mean_ = std::make_shared<Tensor<TInput, MR>>(
                 std::vector<size_t>{batch_size, sequence_length} );
             mean_->setName( this->getName() + ".mean" );
 
-            rstd_ = std::make_shared<Tensor<TPrecision, MR>>(
+            rstd_ = std::make_shared<Tensor<TInput, MR>>(
                 std::vector<size_t>{batch_size, sequence_length} );
             rstd_->setName( this->getName() + ".rstd" );
 
@@ -357,18 +356,18 @@ namespace Mila::Dnn
          */
         void createOperation() {
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TInput, TOutput, TPrecision>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TInput, TOutput, TInput>(
                     "Cpu::LayerNormOp",
                     this->getDeviceContext() );
 
-                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cpu, TInput, TOutput, TPrecision>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cpu, TInput, TOutput, TInput>>(base_op);
             }
             else {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TInput, TOutput, TInput>(
                     "Cuda::LayerNormOp",
                     this->getDeviceContext() );
 
-                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cuda, TInput, TOutput, TInput>>(base_op);
             }
         }
     };
@@ -378,18 +377,18 @@ namespace Mila::Dnn
      *
      * @tparam TInput Data type of the input tensor elements.
      * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
-     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
+     * @tparam TInput Data type used for internal calculations, defaults to TOutput.
      */
-    export template<typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
-        using CpuLayerNorm = LayerNorm<DeviceType::Cpu, TInput, TOutput, TPrecision>;
+    export template<typename TInput = float, typename TOutput = TInput>
+        using CpuLayerNorm = LayerNorm<DeviceType::Cpu, TInput, TOutput>;
 
     /**
      * @brief Type alias for CUDA-based layer normalization module with customizable tensor types.
      *
      * @tparam TInput Data type of the input tensor elements.
      * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
-     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
+     * @tparam TInput Data type used for internal calculations, defaults to TOutput.
      */
-    export template<typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
-        using CudaLayerNorm = LayerNorm<DeviceType::Cuda, TInput, TOutput, TPrecision>;
+    export template<typename TInput = float, typename TOutput = TInput>
+        using CudaLayerNorm = LayerNorm<DeviceType::Cuda, TInput, TOutput>;
 }

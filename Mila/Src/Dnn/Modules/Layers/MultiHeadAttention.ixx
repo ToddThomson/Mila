@@ -43,15 +43,12 @@ namespace Mila::Dnn
      * @tparam TOutput The data type of the output tensor elements, defaults to TInput.
      * @tparam TPrecision The data type used for internal calculations, defaults to TOutput.
      */
-    export template<DeviceType TDeviceType = DeviceType::Cuda,
-        typename TInput = float,
-        typename TOutput = TInput,
-        typename TPrecision = TOutput>
-        requires ValidTensorTypes<TInput, TOutput>&& ValidPrecisionType<TPrecision>
-    class MultiHeadAttention : public Module<TDeviceType, TInput, TOutput, TPrecision> {
+    export template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
+        requires ValidTensorTypes<TInput, TOutput>
+    class MultiHeadAttention : public Module<TDeviceType, TInput, TOutput> {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>; ///< Memory resource type based on device type
-        using ModuleBase = Module<TDeviceType, TInput, TOutput, TPrecision>; ///< Base class type for the module
+        using ModuleBase = Module<TDeviceType, TInput, TOutput>; ///< Base class type for the module
 
         /**
          * @brief Constructs a new MultiHeadAttention module with the default device context.
@@ -202,7 +199,7 @@ namespace Mila::Dnn
         /**
          * @brief The underlying operation that implements the multi-head attention.
          */
-        std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput>> operation_{ nullptr };
 
         /**
          * @brief Initializes the tensors needed for the MultiHeadAttention operation.

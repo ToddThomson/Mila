@@ -55,15 +55,13 @@ namespace Mila::Dnn
     * @tparam TDeviceType The device type (CPU or CUDA) on which to perform computations.
     * @tparam TInput The input data type for the model.
     * @tparam TOutput The output data type for the model, defaults to TInput.
-    * @tparam TPrecision The precision type used for model computations, defaults to TOutput.
     */
-    export template<DeviceType TDeviceType = DeviceType::Cuda,
-        typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
-        requires ValidTensorTypes<TInput, TOutput>&& ValidPrecisionType<TPrecision>
-    class Model : public Module<TDeviceType, TInput, TOutput, TPrecision> {
+    export template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput>
+        requires ValidTensorTypes<TInput, TOutput>
+    class Model : public Module<TDeviceType, TInput, TOutput> {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>; ///< Memory resource type
-        using ModuleBase = Module<TDeviceType, TInput, TOutput, TPrecision>; ///< Base class type for the module
+        using ModuleBase = Module<TDeviceType, TInput, TOutput>; ///< Base class type for the module
 
         /**
         * @brief Constructs a new Model object with the default device context.
@@ -332,7 +330,7 @@ namespace Mila::Dnn
             TDataLoader& train_loader,
             TDataLoader* val_loader = nullptr,
             const TrainingConfig& config = {},
-            const std::vector<ModelCallback<TInput, TPrecision>*>& callbacks = {}
+            const std::vector<ModelCallback<TInput, TOutput>*>& callbacks = {}
         ) {
             if ( !is_built_ ) {
                 build();
@@ -664,18 +662,16 @@ namespace Mila::Dnn
      *
      * @tparam TInput Data type of the input tensor elements.
      * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
-     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
      */
-    export template<typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
-        using CpuModel = Model<DeviceType::Cpu, TInput, TOutput, TPrecision>;
+    export template<typename TInput = float, typename TOutput = TInput>
+        using CpuModel = Model<DeviceType::Cpu, TInput, TOutput>;
 
     /**
      * @brief Type alias for CUDA-based models with customizable tensor types.
      *
      * @tparam TInput Data type of the input tensor elements.
      * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
-     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
      */
-    export template<typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
-        using CudaModel = Model<DeviceType::Cuda, TInput, TOutput, TPrecision>;
+    export template<typename TInput = float, typename TOutput = TInput>
+        using CudaModel = Model<DeviceType::Cuda, TInput, TOutput>;
 }

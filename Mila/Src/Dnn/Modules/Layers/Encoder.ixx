@@ -51,13 +51,12 @@ namespace Mila::Dnn
     * @tparam TPrecision The data type used for internal calculations, defaults to TOutput.
     */
     export
-        template<DeviceType TDeviceType = DeviceType::Cuda,
-        typename TInput = int, typename TOutput = float, typename TPrecision = TOutput>
-        requires ValidTensorType<TInput> && ValidFloatTensorType<TOutput> && ValidPrecisionType<TPrecision>
-    class Encoder : public Module<TDeviceType, TInput, TOutput, TPrecision> {
+        template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = int, typename TOutput = float>
+        requires ValidTensorType<TInput> && ValidFloatTensorType<TOutput>
+    class Encoder : public Module<TDeviceType, TInput, TOutput> {
     public:
         using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::CpuMemoryResource>;
-        using ModuleBase = Module<TDeviceType, TInput, TOutput, TPrecision>; ///< Base class type for the module
+        using ModuleBase = Module<TDeviceType, TInput, TOutput>; ///< Base class type for the module
 
         /**
         * @brief Construct a new Encoder module with a device name.
@@ -238,7 +237,7 @@ namespace Mila::Dnn
         /**
          * The computational operation that implements the encoder logic.
          */
-        std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput>> operation_{ nullptr };
 
         /**
         * @brief Initialize the token and positional embedding tensors.
@@ -282,18 +281,18 @@ namespace Mila::Dnn
         */
         void createOperation() {
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TInput, TOutput, TPrecision>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TInput, TOutput>(
                     "Cpu::EncoderOp",
                     this->getDeviceContext() );
 
-                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cpu, TInput, TOutput, TPrecision>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cpu, TInput, TOutput>>(base_op);
             }
             else {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TInput, TOutput>(
                     "Cuda::EncoderOp",
                     this->getDeviceContext() );
 
-                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cuda, TInput, TOutput>>(base_op);
             }
         }
     };
@@ -305,8 +304,8 @@ namespace Mila::Dnn
      * @tparam TOutput Data type of the output embeddings (typically float).
      * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
      */
-    export template<typename TInput = int, typename TOutput = float, typename TPrecision = TOutput>
-        using CpuEncoder = Encoder<DeviceType::Cpu, TInput, TOutput, TPrecision>;
+    export template<typename TInput = int, typename TOutput = float>
+        using CpuEncoder = Encoder<DeviceType::Cpu, TInput, TOutput>;
 
     /**
      * @brief Type alias for CUDA-based encoder module with customizable tensor types.
@@ -315,6 +314,6 @@ namespace Mila::Dnn
      * @tparam TOutput Data type of the output embeddings (typically float).
      * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
      */
-    export template<typename TInput = int, typename TOutput = float, typename TPrecision = TOutput>
-        using CudaEncoder = Encoder<DeviceType::Cuda, TInput, TOutput, TPrecision>;
+    export template<typename TInput = int, typename TOutput = float>
+        using CudaEncoder = Encoder<DeviceType::Cuda, TInput, TOutput>;
 }

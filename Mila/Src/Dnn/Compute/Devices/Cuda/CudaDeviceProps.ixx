@@ -22,12 +22,12 @@ namespace Mila::Dnn::Compute
             cudaCheckStatus( cudaGetDeviceProperties( &props_, deviceId ) );
         }
 
-        const cudaDeviceProp* GetProperties() const
+        const cudaDeviceProp* getProperties() const
         {
             return &props_;
         }
 
-        std::string ToString() const
+        std::string toString() const
         {
             // TJT: REVIEW Include CUDA driver and runtime versions
             int driver_version = GetDriverVersion();
@@ -39,23 +39,21 @@ namespace Mila::Dnn::Compute
                 << "Device: " << props_.name << std::endl
                 << " CUDA Driver Version: " << (driver_version / 1000) << ", " << (driver_version % 100) / 10 << std::endl
                 << " CUDA Runtime Version: " << (runtime_version / 1000) << "," << (runtime_version % 100) / 10 << std::endl;
-
             ss << " CUDA Capability Major/Minor version number: " << props_.major << "/" << props_.minor << std::endl;
-
             ss << " Total amount of global memory (bytes): " << props_.totalGlobalMem << std::endl;
 
             return ss.str();
         }
 
-        const std::string GetName() const {
+        const std::string getName() const {
             return props_.name;
         }
 
-        const std::pair<int, int> GetComputeCaps() const {
+        const std::pair<int, int> getComputeCapability() const {
             return std::pair<int, int>( props_.major, props_.minor );
         }
 
-        const size_t GetTotalGlobalMem() const {
+        const size_t getTotalGlobalMem() const {
             return props_.totalGlobalMem;
         }
 

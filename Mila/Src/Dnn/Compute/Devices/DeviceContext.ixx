@@ -115,6 +115,25 @@ namespace Mila::Dnn::Compute
         }
 
         /**
+         * @brief Gets the compute capability of the current CUDA device.
+         *
+         * @return std::pair<int, int> The major and minor versions of the compute capability,
+         *         or {0,0} if the device is not a CUDA device or compute capability couldn't be determined.
+         */
+        std::pair<int, int> getComputeCapability() const {
+            if ( !isCudaDevice() ) {
+                return { 0, 0 };
+            }
+
+            auto cudaDevice = std::dynamic_pointer_cast<CudaDevice>(device_);
+            if ( cudaDevice ) {
+                return cudaDevice->getProperties().getComputeCapability();
+            }
+
+            return { 0, 0 };
+        }
+
+        /**
         * @brief Gets the current device.
         * @return A shared pointer to the current device.
         */

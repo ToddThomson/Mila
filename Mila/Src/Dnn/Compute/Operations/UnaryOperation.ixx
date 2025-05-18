@@ -37,14 +37,11 @@ namespace Mila::Dnn::Compute
     *
     * @tparam TInput The data type of the input tensor elements.
     * @tparam TOutput The data type of the output tensor elements. Defaults to TInput.
-    * @tparam TCompute The data type used for internal computation. Defaults to TOutput.
-    *         This allows for mixed precision operations where computation happens at a
-    *         different precision than inputs/outputs.
     * @tparam TDeviceType The device type (e.g., CPU, CUDA) on which the operation is executed.
     */
-    export template <DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput, typename TCompute = TOutput>
-        requires ValidTensorType<TInput>&& ValidFloatTensorType<TOutput>&& ValidPrecisionType<TCompute>
-    class UnaryOperation : public OperationBase<TDeviceType, TInput, TInput, TOutput, TCompute> {
+    export template <DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput>
+        requires ValidTensorType<TInput>&& ValidFloatTensorType<TOutput>
+    class UnaryOperation : public OperationBase<TDeviceType, TInput, TInput, TOutput> {
     public:
         /**
         * @brief Memory resource type based on device type.
@@ -61,9 +58,11 @@ namespace Mila::Dnn::Compute
         * Creates a compatible device context automatically based on TDeviceType.
         *
         * @param operation_type The type of the operation.
+        * @param precision_policy The compute precision policy to use.
         */
-        UnaryOperation( OperationType operation_type )
-            : OperationBase<TDeviceType, TInput, TInput, TOutput, TCompute>( operation_type, CreateCompatibleContext<TDeviceType>() ) {}
+        UnaryOperation( OperationType operation_type, ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto )
+            : OperationBase<TDeviceType, TInput, TInput, TOutput>(
+                operation_type, CreateCompatibleContext<TDeviceType>(), precision_policy ) {}
 
         /**
         * @brief Constructs a UnaryOperation with the specified operation type and device context.
@@ -72,9 +71,15 @@ namespace Mila::Dnn::Compute
         *
         * @param operation_type The type of the operation.
         * @param context The device context to use for this operation.
+        * @param precision_policy The compute precision policy to use.
         */
-        UnaryOperation( OperationType operation_type, std::shared_ptr<DeviceContext> context )
-            : OperationBase<TDeviceType, TInput, TInput, TOutput, TCompute>( operation_type, ValidateContext<TDeviceType>( context ) ) {}
+        UnaryOperation( OperationType operation_type,
+            std::shared_ptr<DeviceContext> context,
+            ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto )
+            : OperationBase<TDeviceType, TInput, TInput, TOutput>(
+                operation_type,
+                ValidateContext<TDeviceType>( context ),
+                precision_policy ) {}
 
         /**
         * @brief Virtual destructor for proper cleanup of derived classes.

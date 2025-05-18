@@ -33,24 +33,13 @@ namespace Mila::Dnn::Compute
      *                 Must satisfy ValidTensorType constraint.
      * @tparam TOutput The data type of the output tensor elements, defaults to TInput1.
      *                 Must satisfy ValidFloatTensorType constraint.
-     * @tparam TPrecision The computational precision to use, defaults to ComputePrecision::Default.
      * @tparam TDeviceType The target device type for the operation, defaults to DeviceType::Cuda.
      */
-    export template <DeviceType TDeviceType = DeviceType::Cuda, typename TInput1 = float, typename TInput2 = TInput1, typename TOutput = TInput1,
-        typename TPrecision = TOutput>
-        requires ValidTensorTypes<TInput1, TInput2>&& ValidFloatTensorType<TOutput> && ValidPrecisionType<TPrecision>
+    export template <DeviceType TDeviceType = DeviceType::Cuda, typename TInput1 = float, typename TInput2 = TInput1, typename TOutput = TInput1>
+        requires ValidTensorTypes<TInput1, TInput2>&& ValidFloatTensorType<TOutput>
     class OperationBase {
     public:
-        /**
-        * @brief Gets the compute precision type used for this operation.
-         *
-        * @details This type alias represents the precision that is used for internal
-        * computations in the operation, determining the numerical accuracy.
-        *
-        * @return The precision type information.
-        */
-        using ComputePrecisionType = TPrecision;
-        
+
         /**
          * @brief Constructs an OperationBase object with a specific device context and compute precision.
          *
@@ -59,10 +48,12 @@ namespace Mila::Dnn::Compute
          *
          * @param operation_type The type of the operation (from OperationType enum).
          * @param context The device context to use for this operation. Must not be null.
+         * @param precision_policy The compute precision policy to use for this operation.
          * @throw std::invalid_argument May throw if context is null (implementation dependent).
          */
-        OperationBase( OperationType operation_type, std::shared_ptr<DeviceContext> context )
-            : operation_type_( operation_type ), device_context_( context ) {}
+        OperationBase( OperationType operation_type, std::shared_ptr<DeviceContext> context,
+            ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto )
+            : operation_type_( operation_type ), device_context_( context ), precision_policy_( precision_policy ) {}
 
         /**
          * @brief Virtual destructor for the OperationBase class.
@@ -122,19 +113,44 @@ namespace Mila::Dnn::Compute
         }
 
         /**
-        * @brief Gets the compute precision type name for this operation.
-        *
-        * @details Returns a string view containing the name of the precision type
-        * used for internal computations. This helps with debugging and logging.
-        *
-        * @return std::string_view The name of the precision type.
-        */
-        std::string_view getComputePrecisionName() const {
-            return precision_type_name<TPrecision>();
+         * @brief Gets the compute precision policy for this operation.
+         *
+         * @details Returns the precision policy that was specified during construction.
+         * This determines how the operation handles mixed precision computations.
+         *
+         * @return ComputePrecision::Policy The precision policy for this operation.
+         */
+        ComputePrecision::Policy getPrecisionPolicy() const {
+            return precision_policy_;
+        }
+
+        /**
+         * @brief Sets the compute precision policy for this operation.
+         *
+         * @details Updates the precision policy for future computations. This allows
+         * adjusting the precision behavior after the operation is created.
+         *
+         * @param policy The new precision policy to use.
+         */
+        void setPrecisionPolicy( ComputePrecision::Policy policy ) {
+            precision_policy_ = policy;
+        }
+
+        /**
+         * @brief Checks if mixed precision is enabled for this operation.
+         *
+         * @details A convenient method to determine if mixed precision computation
+         * is enabled based on the current precision policy.
+         *
+         * @return bool True if mixed precision is enabled, false otherwise.
+         */
+        bool isMixedPrecisionEnabled() const {
+            return precision_policy_ != ComputePrecision::Policy::Disabled;
         }
 
     private:
         OperationType operation_type_;      ///< The operation type identifier.
         std::shared_ptr<DeviceContext> device_context_; ///< The device context for execution.
+        ComputePrecision::Policy precision_policy_;  ///< The compute precision policy for the operation.
     };
 }

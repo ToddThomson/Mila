@@ -47,10 +47,10 @@ namespace Mila::Dnn::Compute
      * @tparam float The data type of the input tensor elements.
      * @tparam TDataType The data type used for computation and output (defaults to the input type).
      */
-    export class CpuMultiHeadAttentionOp : public UnaryOperation<DeviceType::Cpu, float, float, float> {
+    export class CpuMultiHeadAttentionOp : public UnaryOperation<DeviceType::Cpu, float> {
     public:
         using MR = typename CpuDevice::MR;
-		using OperationBase = UnaryOperation<DeviceType::Cpu, float, float, float>;
+		using OperationBase = UnaryOperation<DeviceType::Cpu, float>;
 
         /**
          * @brief Constructs a new CPU Attention operation with the default device context.
@@ -303,9 +303,9 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cpu::MultiHeadAttentionOp";
 
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, float, float, float>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float, float>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float>> {
                     return context ? std::make_shared<CpuMultiHeadAttentionOp>( context )
                         : std::make_shared<CpuMultiHeadAttentionOp>();
                 }

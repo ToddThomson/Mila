@@ -12,7 +12,7 @@ module;
 #include <stdexcept>  
 #include <type_traits>  
 #include <sstream>  
-#include <format>  // Added for std::format in error messages
+#include <format>
 
 export module Dnn.Module;
 
@@ -40,11 +40,9 @@ namespace Mila::Dnn
      * @tparam TDeviceType The device type (CPU or CUDA) on which the module will operate.
      * @tparam TInput Data type of the input tensor elements.
      * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
-     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
      */
-    export template<DeviceType TDeviceType = DeviceType::Cuda,
-        typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
-        requires ValidTensorType<TInput> && ValidFloatTensorType<TOutput> && ValidTensorType<TInput>&& ValidPrecisionType<TPrecision>
+    export template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput>
+        requires ValidTensorType<TInput> && ValidFloatTensorType<TOutput>
     class Module {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>;
@@ -58,10 +56,11 @@ namespace Mila::Dnn
         *
         * @param device_name The name of the device to use (e.g., "CPU", "CUDA:0").
         *        Must be one of the names returned by DeviceRegistry::list_devices().
+        * @param policy The compute precision policy to use (default is Auto).
         * @throws std::runtime_error If the specified device name is invalid or doesn't match TDeviceType.
         */
-        explicit Module( const std::string& device_name )
-            : device_context_( createContext( device_name ) ) {
+        explicit Module( const std::string& device_name, ComputePrecision::Policy policy = ComputePrecision::Policy::Auto )
+            : device_context_( createContext( device_name ) ), compute_precision_( policy ) {
             // Verify the created context's device type matches TDeviceType
             if ( device_context_->getDevice()->getDeviceType() != TDeviceType ) {
                 throw std::runtime_error( std::format(
@@ -77,10 +76,12 @@ namespace Mila::Dnn
          * @brief Constructor with a specific device context.
          *
          * @param context The device context to use for this module.
+         * @param policy The compute precision policy to use (default is Auto).
          * @throws std::invalid_argument If the provided context is nullptr.
          * @throws std::runtime_error If the context device type doesn't match TDeviceType.
          */
-        explicit Module( std::shared_ptr<DeviceContext> context ) {
+        explicit Module( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy policy = ComputePrecision::Policy::Auto )
+            : compute_precision_( policy ) {
             if ( !context ) {
                 throw std::invalid_argument( "DeviceContext cannot be nullptr. Please provide a valid DeviceContext." );
             }
@@ -111,31 +112,6 @@ namespace Mila::Dnn
          */
         std::shared_ptr<Compute::DeviceContext> getDeviceContext() const {
             return device_context_;
-        }
-
-        /**
-         * @brief Helper function to get a memory resource for the current device.
-         *
-         * This method returns a DynamicMemoryResource instance configured for the current device context.
-         *
-         * @return MR The DynamicMemoryResource appropriate for the current device context.
-         */
-         /*MR getMemoryResource() const {
-             auto device_type = device_context_->getDevice()->getDeviceType();
-             return MR( device_type );
-         }*/
-
-         /**
-          * @brief Set the training mode of the module.
-          *
-          * Many modules behave differently during training versus inference
-          * (e.g., dropout, batch normalization). This method only affects this
-          * specific module.
-          *
-          * @param training True if the module is in training mode, false for inference mode.
-          */
-        void setTrainingMode( bool training ) {
-            is_training_ = training;
         }
 
         /**
@@ -213,6 +189,26 @@ namespace Mila::Dnn
                 throw std::invalid_argument( "Name must not be empty and cannot contain a dot ('.')." );
             }
             name_ = name;
+        }
+
+        /**
+         * @brief Get the compute precision policy for this module.
+         *
+         * @return const ComputePrecision& The compute precision policy
+         */
+        const ComputePrecision& getComputePrecision() const {
+            return compute_precision_;
+        }
+
+        /**
+         * @brief Set the compute precision policy explicitly.
+         *
+         * @param mode The precision mode to use
+         * @return Module& Reference to this module for method chaining
+         */
+        Module& setComputePrecisionMode( ComputePrecision::Policy policy) {
+            compute_precision_.setPolicy( policy );
+            return *this;
         }
 
         /**
@@ -305,6 +301,9 @@ namespace Mila::Dnn
         /** @brief The device context used for this module's computations */
         std::shared_ptr<Compute::DeviceContext> device_context_;
 
+        /** @brief The compute precision policy for this module */
+        ComputePrecision compute_precision_;
+
         /** @brief The name of the module. Cannot be empty and cannot contain a dot ('.') */
         std::string name_;
 
@@ -330,8 +329,8 @@ namespace Mila::Dnn
      * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
      * @tparam TCompute Data type used for internal calculations, defaults to TOutput.
      */
-    export template<typename TInput = float, typename TOutput = TInput, typename TCompute = TOutput>
-        using CpuModule = Module<DeviceType::Cpu, TInput, TOutput, TCompute>;
+    export template<typename TInput = float, typename TOutput = TInput>
+        using CpuModule = Module<DeviceType::Cpu, TInput, TOutput>;
 
     /**
      * @brief Type alias for CUDA-based modules with customizable tensor types.
@@ -340,6 +339,6 @@ namespace Mila::Dnn
      * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
      * @tparam TCompute Data type used for internal calculations, defaults to TOutput.
      */
-    export template<typename TInput = float, typename TOutput = TInput, typename TCompute = TOutput>
-        using CudaModule = Module<DeviceType::Cuda, TInput, TOutput, TCompute>;
+    export template<typename TInput = float, typename TOutput = TInput>
+        using CudaModule = Module<DeviceType::Cuda, TInput, TOutput>;
 }

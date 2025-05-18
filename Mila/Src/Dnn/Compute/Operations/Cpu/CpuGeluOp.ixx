@@ -23,6 +23,7 @@ import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CpuDevice;
+import Compute.Precision;
 
 using namespace Mila::Dnn;
 
@@ -31,25 +32,33 @@ namespace Mila::Dnn::Compute
     const float GELU_SCALING_FACTOR = sqrtf( 2.0f / M_PI );
     // REVIEW: constexpr float GELU_SCALING_FACTOR = sqrtf(2.0f / M_PI);
 
-    export class CpuGeluOp : public UnaryOperation<DeviceType::Cpu, float, float, float> {
+    export class CpuGeluOp : public UnaryOperation<DeviceType::Cpu, float, float> {
     public:
         using MR = typename CpuDevice::MR;
-		using UnaryOperationBase = UnaryOperation<DeviceType::Cpu, float, float, float>;
+        using UnaryOperationBase = UnaryOperation<DeviceType::Cpu, float, float>;
 
         /**
          * @brief Constructs a new CpuGeluOp with the default device context.
+         *
+         * CPU operations always use full precision regardless of policy settings.
+         *
+         * @param precision_policy Ignored for CPU operations, as they always use full precision.
          */
-        CpuGeluOp() : UnaryOperationBase( OperationType::GeluOp ) {}
+        CpuGeluOp( ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Disabled )
+            : UnaryOperationBase( OperationType::GeluOp, ComputePrecision::Policy::Disabled ) {}
 
         /**
          * @brief Constructs a new CpuGeluOp with a specific device context.
          *
+         * CPU operations always use full precision regardless of policy settings.
+         *
          * @param context The device context to use for this operation.
+         * @param precision_policy Ignored for CPU operations, as they always use full precision.
          * @throws std::runtime_error If the context is not for a CPU device.
          */
-        CpuGeluOp( std::shared_ptr<DeviceContext> context )
-            : UnaryOperationBase( OperationType::GeluOp, context ) {
-        }
+        CpuGeluOp( std::shared_ptr<DeviceContext> context,
+            ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Disabled )
+            : UnaryOperationBase( OperationType::GeluOp, context, ComputePrecision::Policy::Disabled ) {}
 
         /**
          * @brief Performs the forward pass of the GELU activation function.
@@ -80,6 +89,8 @@ namespace Mila::Dnn::Compute
             float* Y = output.raw_data();
             const int N = input.size();
 
+            // Use OpenMP for larger tensors
+        #pragma omp parallel for if(N > 1000)
             for ( int i = 0; i < N; i++ ) {
                 float x = X[ i ];
                 float cube = 0.044715f * x * x * x;
@@ -108,6 +119,8 @@ namespace Mila::Dnn::Compute
                 throw std::runtime_error( "CpuGeluOp::backward can only be executed on CPU memory" );
             }
 
+            // Use OpenMP for larger tensors
+        #pragma omp parallel for if(N > 1000)
             for ( int i = 0; i < N; i++ ) {
                 float x = inp[ i ];
                 float cube = 0.044715f * x * x * x;
@@ -118,8 +131,8 @@ namespace Mila::Dnn::Compute
                 float local_grad = 0.5f * (1.0f + tanh_out) + x * 0.5f * sech_out * GELU_SCALING_FACTOR * (1.0f + 3.0f * 0.044715f * x * x);
                 dinp[ i ] += local_grad * dout[ i ];
             }
-        #pragma float_control(pop)
         }
+    #pragma float_control(pop)
 
         /**
          * @brief Gets the name of this operation.
@@ -129,6 +142,18 @@ namespace Mila::Dnn::Compute
         std::string getName() const override {
             return "Cpu::GeluOp";
         }
+
+        /**
+         * @brief CPU operations don't support mixed precision.
+         *
+         * This method overrides the base class implementation to always return false,
+         * indicating that mixed precision is not supported/enabled for CPU operations.
+         *
+         * @return bool Always returns false.
+         */
+        /*bool isMixedPrecisionEnabled() const override {
+            return false;
+        }*/
     };
 
     /**
@@ -149,11 +174,12 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cpu::GeluOp";
 
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, float, float, float>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float, float>> {
-                    return context ? std::make_shared<CpuGeluOp>( context )
-                        : std::make_shared<CpuGeluOp>();
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float>> {
+                    // Always create CpuGeluOp with Disabled precision policy
+                    return context ? std::make_shared<CpuGeluOp>( context, ComputePrecision::Policy::Disabled )
+                        : std::make_shared<CpuGeluOp>( ComputePrecision::Policy::Disabled );
                 }
             );
         }

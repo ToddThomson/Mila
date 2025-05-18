@@ -96,15 +96,15 @@ namespace Mila::Dnn::Compute
      *
      * The implementation is optimized for NVIDIA GPUs using CUDA for high-performance computation.
      *
-     * @tparam TPrecision The data type of the input tensor elements.
+     * @tparam TInput The data type of the input tensor elements.
      * @tparam TDataType The data type of the output tensor elements (defaults to the input type).
      */
-    export template<typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
-		requires ValidFloatTensorType<TPrecision>
-    class CudaMultiHeadAttentionOp : public UnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision> {
+    export template<typename TInput = float, typename TOutput = TInput>
+		requires ValidFloatTensorTypes<TInput, TOutput>
+    class CudaMultiHeadAttentionOp : public UnaryOperation<DeviceType::Cuda, TInput, TOutput> {
     public:
         using MR = typename CudaDevice::MR;
-		using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision>;
+		using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TInput, TOutput>;
         /**
          * @brief Constructs a new CUDA Multi-Head Attention operation with the default device context.
          *
@@ -142,11 +142,11 @@ namespace Mila::Dnn::Compute
          *                     potential use in backward pass or visualization.
          */
         void forward(
-            const Tensor<TPrecision, MR>& input,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
+            const Tensor<TInput, MR>& input,
+            const std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& parameters,
             const OperationAttributes& properties,
-            Tensor<TPrecision, MR>& output,
-            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const override {
+            Tensor<TOutput, MR>& output,
+            std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const override {
 
             auto X = input.raw_data();
             auto Y = output.raw_data();
@@ -161,8 +161,8 @@ namespace Mila::Dnn::Compute
 
             int num_heads = properties.get<int>( "num_heads", 1 );
 
-            TPrecision* attn_scores = nullptr;
-            TPrecision* attn_weights = nullptr;
+            TInput* attn_scores = nullptr;
+            TInput* attn_weights = nullptr;
 
             if ( output_state.size() >= 2 ) {
                 attn_scores = output_state[ 0 ]->data();
@@ -171,7 +171,7 @@ namespace Mila::Dnn::Compute
 
             cudaStream_t stream = this->getDeviceContext()->getStream();
 
-            //Detail::cuda_mha_impl<TPrecision>::forward( Y, X, weight, bias, attn_scores, attn_weights, B, T, C, OC, num_heads, stream );
+            //Detail::cuda_mha_impl<TInput>::forward( Y, X, weight, bias, attn_scores, attn_weights, B, T, C, OC, num_heads, stream );
         }
 
         /**
@@ -189,14 +189,14 @@ namespace Mila::Dnn::Compute
          * @param output_state Cache tensors from forward pass (attention scores and weights).
          */
         void backward(
-            const Tensor<TPrecision, MR>& input,
-            const Tensor<TPrecision, MR>& output,
-            const Tensor<TPrecision, MR>& output_gradient,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
-            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameter_gradients,
-            Tensor<TPrecision, MR>& input_gradient,
+            const Tensor<TInput, MR>& input,
+            const Tensor<TInput, MR>& output,
+            const Tensor<TInput, MR>& output_gradient,
+            const std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameters,
+            std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameter_gradients,
+            Tensor<TInput, MR>& input_gradient,
             const OperationAttributes& properties,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const {
+            const std::vector<std::shared_ptr<Tensor<TInput, MR>>>& output_state ) const {
 
             // Extract dimensions
             int B = input.shape()[ 0 ];
@@ -208,18 +208,18 @@ namespace Mila::Dnn::Compute
             int num_heads = properties.get<int>( "num_heads", 1 );
 
             // Extract tensors
-            const TPrecision* X = input.data();
-            const TPrecision* dY = output_gradient.data();
-            TPrecision* dX = input_gradient.data();
+            const TInput* X = input.data();
+            const TInput* dY = output_gradient.data();
+            TInput* dX = input_gradient.data();
 
-            const TPrecision* W = parameters[ 0 ]->data();
-            const TPrecision* bias = parameters[ 1 ]->data();
-            TPrecision* dW = parameter_gradients[ 0 ]->data();
-            TPrecision* dBias = parameter_gradients[ 1 ]->data();
+            const TInput* W = parameters[ 0 ]->data();
+            const TInput* bias = parameters[ 1 ]->data();
+            TInput* dW = parameter_gradients[ 0 ]->data();
+            TInput* dBias = parameter_gradients[ 1 ]->data();
 
             // Get cached attention data if available
-            const TPrecision* attn_scores = nullptr;
-            const TPrecision* attn_weights = nullptr;
+            const TInput* attn_scores = nullptr;
+            const TInput* attn_weights = nullptr;
             if ( output_state.size() >= 2 ) {
                 attn_scores = output_state[ 0 ]->data();
                 attn_weights = output_state[ 1 ]->data();
@@ -262,17 +262,17 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cuda::MultiHeadAttentionOp";
 
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, float, float, float>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, float, float>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, float>> {
                     return context ? std::make_shared<CudaMultiHeadAttentionOp<float>>( context )
                         : std::make_shared<CudaMultiHeadAttentionOp<float>>();
                 }
             );
             
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, half, half, half>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, half, half>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half, half, half>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half, half>> {
                     return context ? std::make_shared<CudaMultiHeadAttentionOp<half>>( context )
                         : std::make_shared<CudaMultiHeadAttentionOp<half>>();
                 }

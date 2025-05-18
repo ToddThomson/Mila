@@ -77,12 +77,12 @@ namespace Mila::Dnn::Compute
      * @tparam int The data type of the input tensor elements (typically uint16_t or int for token IDs).
      * @tparam TDataType The data type used for computation and output (typically half or float).
      */
-    export template<typename TInput, typename TOutput = TInput, typename TPrecision = TOutput>
-		requires ValidFloatTensorTypes<TInput,TOutput> && ValidPrecisionType<TPrecision>
-    class CudaEncoderOp : public UnaryOperation<DeviceType::Cuda, int, TOutput, TPrecision> {
+    export template<typename TInput, typename TOutput = TInput>
+		requires ValidFloatTensorTypes<TInput,TOutput>
+    class CudaEncoderOp : public UnaryOperation<DeviceType::Cuda, int, TOutput> {
         public:
             using MR = typename CudaDevice::MR;
-			using OperationBase = UnaryOperation<DeviceType::Cuda, int, TOutput, TPrecision>;
+			using OperationBase = UnaryOperation<DeviceType::Cuda, int, TOutput>;
 
             /**
              * @brief Constructs a new CUDA Encoder operation with the default device context.
@@ -208,17 +208,17 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cuda::EncoderOp";
 
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, int, float, float>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, int, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, int, float, float>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, int, float>> {
                     return context ? std::make_shared<CudaEncoderOp<float>>( context )
                         : std::make_shared<CudaEncoderOp<float>>();
                 }
             );
 
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, int, half, half>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, int, half>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, int, half, half>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, int, half>> {
                     return context ? std::make_shared<CudaEncoderOp<half>>( context )
                         : std::make_shared<CudaEncoderOp<half>>();
                 }

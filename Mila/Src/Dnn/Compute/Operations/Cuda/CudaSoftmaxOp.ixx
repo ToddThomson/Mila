@@ -98,12 +98,12 @@ namespace Mila::Dnn::Compute
      * @tparam TInput The data type of the input tensor elements.
      * @tparam TDataType The data type of the output tensor elements (defaults to the input type).
      */
-    export template<typename TInput = float, typename TOutput = TInput, typename TPrecision = TOutput>
-        requires (std::is_same_v<TPrecision, float> || std::is_same_v<TPrecision, half>)
-    class CudaSoftmaxOp : public UnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision> {
+    export template<typename TInput = float, typename TOutput = TInput>
+        requires ValidFloatTensorTypes<TInput, TOutput>
+    class CudaSoftmaxOp : public UnaryOperation<DeviceType::Cuda, TInput, TOutput> {
     public:
         using MR = typename CudaDevice::MR;
-		using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TInput, TOutput, TPrecision>;
+		using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TInput, TOutput>;
         
         /**
          * @brief Constructs a new CUDA Softmax operation with the default device context.
@@ -140,11 +140,11 @@ namespace Mila::Dnn::Compute
          * @param output_state Cache for intermediate results (not used in this operation).
          */
         void forward(
-            const Tensor<TPrecision, MR>& input,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
+            const Tensor<TInput, MR>& input,
+            const std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameters,
             const OperationAttributes& properties,
-            Tensor<TPrecision, MR>& output,
-            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const override {
+            Tensor<TOutput, MR>& output,
+            std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const override {
 
             auto X = input.raw_data();
             auto Y = output.raw_data();
@@ -182,13 +182,13 @@ namespace Mila::Dnn::Compute
 
                 cudaStream_t stream = this->getDeviceContext()->getStream();
                 
-                Detail::cuda_softmax_impl<TPrecision>::forward_optimized( Y, X, N, C, stream );
+                Detail::cuda_softmax_impl<TInput>::forward_optimized( Y, X, N, C, stream );
             }
             else {
                 // For other axes, use the generalized implementation
                 cudaStream_t stream = this->getDeviceContext()->getStream();
                 
-                Detail::cuda_softmax_impl<TPrecision>::forward_general(
+                Detail::cuda_softmax_impl<TInput>::forward_general(
                     Y, X, outer_size, dim_size, inner_size, stream );
             }
         }
@@ -210,19 +210,19 @@ namespace Mila::Dnn::Compute
          * @param output_state Cache tensors from forward pass.
          */
         void backward(
-            const Tensor<TPrecision, MR>& input,
-            const Tensor<TPrecision, MR>& output,
-            const Tensor<TPrecision, MR>& output_gradient,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameters,
-            std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& parameter_gradients,
-            Tensor<TPrecision, MR>& input_gradient,
+            const Tensor<TInput, MR>& input,
+            const Tensor<TInput, MR>& output,
+            const Tensor<TInput, MR>& output_gradient,
+            const std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameters,
+            std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameter_gradients,
+            Tensor<TInput, MR>& input_gradient,
             const OperationAttributes& properties,
-            const std::vector<std::shared_ptr<Tensor<TPrecision, MR>>>& output_state ) const {
+            const std::vector<std::shared_ptr<Tensor<TInput, MR>>>& output_state ) const {
 
             // Extract tensors
-            const TPrecision* Y = output.data();
-            const TPrecision* dY = output_gradient.data();
-            TPrecision* dX = input_gradient.data();
+            const TInput* Y = output.data();
+            const TInput* dY = output_gradient.data();
+            TInput* dX = input_gradient.data();
             int N = input.size();
 
             // Get the axis parameter from properties
@@ -265,17 +265,17 @@ namespace Mila::Dnn::Compute
             const std::string opName = "Cuda::SoftmaxOp";
 
             // Updated to use device context-aware registration
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, float, float, float>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, float, float>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, float>> {
                     return context ? std::make_shared<CudaSoftmaxOp<float>>( context )
                         : std::make_shared<CudaSoftmaxOp<float>>();
                 }
             );
 
-           OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, half, half, half>(
+           OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, half, half>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half, half, half>> {
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half, half>> {
                     return context ? std::make_shared<CudaSoftmaxOp<half>>( context )
                         : std::make_shared<CudaSoftmaxOp<half>>();
                 }
