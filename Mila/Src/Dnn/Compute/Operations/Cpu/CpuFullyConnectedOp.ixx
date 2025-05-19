@@ -55,7 +55,7 @@ namespace Mila::Dnn::Compute
          *
          * Initializes the operation with the CPU device type.
          */
-        CpuFullyConnectedOp() : OperationBase( OperationType::FullyConnectedOp ) {
+        CpuFullyConnectedOp() : OperationBase( OperationType::LinearOp ) {
 
         }
 
@@ -66,7 +66,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the context is not for a CPU device.
          */
         CpuFullyConnectedOp( std::shared_ptr<DeviceContext> context )
-            : OperationBase( OperationType::FullyConnectedOp, context ) {
+            : OperationBase( OperationType::LinearOp, context ) {
         }
 
         /**
@@ -92,7 +92,7 @@ namespace Mila::Dnn::Compute
 			auto outer_dims = input.rank() - 1;
             
             if ( outer_dims <= 0 ) {
-                throw std::runtime_error( "FullyConnectedOp requires input tensor with at least 2 dimensions" );
+                throw std::runtime_error( "LinearOp requires input tensor with at least 2 dimensions" );
             }
 
             auto X = input.raw_data();
@@ -207,7 +207,7 @@ namespace Mila::Dnn::Compute
          * @return std::string The name of the operation ("Cpu::FullyConnectedOp").
          */
         std::string getName() const override {
-            return "Cpu::FullyConnectedOp";
+            return "Cpu::LinearOp";
         }
 
     private:
@@ -264,7 +264,7 @@ namespace Mila::Dnn::Compute
          * with a factory function that creates instances of CpuFullyConnectedOp.
          */
         static void registerOperations() {
-            const std::string opName = "Cpu::FullyConnectedOp";
+            const std::string opName = "Cpu::LinearOp";
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, float, float>(
                 opName,

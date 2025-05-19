@@ -11,6 +11,7 @@ export module Dnn.Blocks.TransformerBlock;
 
 import Dnn.Tensor;
 import Dnn.TensorTraits;
+import Compute.Precision;
 import Compute.ComputeDevice;
 import Compute.DeviceType;
 import Compute.DeviceContext;
@@ -39,18 +40,18 @@ namespace Mila::Dnn
      * - Layer normalization before each sub-block
      *
      * This is the fundamental building block of transformer architectures like BERT and GPT.
+     * Since the transformer is a feed-forward network where layer outputs connect to the next
+     * layer's inputs, a single data type is used throughout the network.
      *
      * @tparam TDeviceType The device type (CPU or CUDA) on which to perform computations.
-     * @tparam TInput The data type of the input tensor elements.
-     * @tparam TOutput The data type of the output tensor elements, defaults to TInput.
-     * @tparam TPrecision The data type used for internal calculations, defaults to TOutput.
+     * @tparam TDataType The data type used for tensor elements throughout the network.
      */
-    export template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput>
-        requires ValidFloatTensorTypes<TInput, TOutput>
-    class TransformerBlock : public CompositeModule<TDeviceType, TInput, TOutput> {
+    export template<DeviceType TDeviceType = DeviceType::Cuda, typename TDataType = float>
+        requires ValidFloatTensorType<TDataType>
+    class TransformerBlock : public CompositeModule<TDeviceType, TDataType> {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>;
-        using CompositeModuleBase = CompositeModule<TDeviceType, TInput, TOutput>; ///< Base class type for the module
+        using CompositeModuleBase = CompositeModule<TDeviceType, TDataType>; ///< Base class type for the module
 
         /**
          * @brief Constructs a new TransformerBlock module with the default device context.
@@ -60,11 +61,13 @@ namespace Mila::Dnn
          * @param input_shape The shape of the input tensor, must be of rank 3 [batch_size, sequence_length, channels].
          * @param num_heads The number of attention heads to use.
          * @param is_training Whether the module is initially in training mode. Default is false.
+         * @param precision The compute precision policy to use (defaults to Auto).
          * @throws std::invalid_argument If the input shape doesn't have rank 3.
          */
         TransformerBlock( std::string name, const std::string& device_name, const std::vector<size_t>& input_shape,
-            const size_t num_heads, bool is_training = false )
-            : CompositeModuleBase( device_name ), input_shape_{ validate_shape( input_shape ) }, num_heads_{ num_heads } {
+            const size_t num_heads, bool is_training = false,
+            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
+            : CompositeModuleBase( device_name, precision ), input_shape_{ validate_shape( input_shape ) }, num_heads_{ num_heads } {
             this->setName( name );
             this->setTraining( is_training );
 
@@ -79,11 +82,13 @@ namespace Mila::Dnn
          * @param input_shape The shape of the input tensor, must be of rank 3 [batch_size, sequence_length, channels].
          * @param num_heads The number of attention heads to use.
          * @param is_training Whether the module is initially in training mode. Default is false.
+         * @param precision The compute precision policy to use (defaults to Auto).
          * @throws std::invalid_argument If the input shape doesn't have rank 3.
          */
         TransformerBlock( std::string name, std::shared_ptr<DeviceContext> context,
-            const std::vector<size_t>& input_shape, const size_t num_heads, bool is_training = false )
-            : CompositeModuleBase( context ), input_shape_{ validate_shape( input_shape ) }, num_heads_{ num_heads } {
+            const std::vector<size_t>& input_shape, const size_t num_heads, bool is_training = false,
+            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
+            : CompositeModuleBase( context, precision ), input_shape_{ validate_shape( input_shape ) }, num_heads_{ num_heads } {
             this->setName( name );
             this->setTraining( is_training );
 
@@ -106,7 +111,7 @@ namespace Mila::Dnn
          * @param input The input tensor to be processed.
          * @param output The output tensor where the results will be stored.
          */
-        void forward( const Tensor<TInput, MR>& input, Tensor<TOutput, MR>& output ) {
+        void forward( const Tensor<TDataType, MR>& input, Tensor<TDataType, MR>& output ) {
             /*ln_1_->forward(input, ln_1_output_);
             fc_qkv_->forward(ln_1_output_, fc_qkv_output_);
             attn_->forward(fc_qkv_output_, attn_output_);
@@ -169,6 +174,7 @@ namespace Mila::Dnn
             oss << "====================" << std::endl;
             oss << "Transformer: " << this->getName();
             oss << ", Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
+            oss << this->getComputePrecision().toString() << std::endl;
             oss << "Parameter count: " << parameterCount() << std::endl;
             oss << "Sub-Modules..." << std::endl;
 
@@ -184,24 +190,24 @@ namespace Mila::Dnn
         size_t num_heads_; ///< The number of attention heads.
 
         // Sub-modules
-        std::shared_ptr<LayerNorm<TDeviceType, TInput, TOutput>> ln_1_{ nullptr };
-        std::shared_ptr<Linear<TDeviceType, TInput, TOutput>> fc_qkv_{ nullptr };
-        std::shared_ptr<MultiHeadAttention<TDeviceType, TInput, TOutput>> attn_{ nullptr };
-        std::shared_ptr<Linear<TDeviceType, TInput, TOutput>> fc_attn_proj_{ nullptr };
-        std::shared_ptr<Residual<TDeviceType, TInput, TOutput>> res_1_{ nullptr };
-        std::shared_ptr<LayerNorm<TDeviceType, TInput, TOutput>> ln_2_{ nullptr };
-        std::shared_ptr<MLP<TDeviceType, TInput, TOutput>> mlp_{ nullptr };
-        std::shared_ptr<Residual<TDeviceType, TInput, TOutput>> res_2_{ nullptr };
+        std::shared_ptr<LayerNorm<TDeviceType, TDataType>> ln_1_{ nullptr };
+        std::shared_ptr<Linear<TDeviceType, TDataType>> fc_qkv_{ nullptr };
+        std::shared_ptr<MultiHeadAttention<TDeviceType, TDataType>> attn_{ nullptr };
+        std::shared_ptr<Linear<TDeviceType, TDataType>> fc_attn_proj_{ nullptr };
+        std::shared_ptr<Residual<TDeviceType, TDataType>> res_1_{ nullptr };
+        std::shared_ptr<LayerNorm<TDeviceType, TDataType>> ln_2_{ nullptr };
+        std::shared_ptr<MLP<TDeviceType, TDataType>> mlp_{ nullptr };
+        std::shared_ptr<Residual<TDeviceType, TDataType>> res_2_{ nullptr };
 
         // Intermediate tensors
-        Tensor<TOutput, MR> ln_1_output_;
-        Tensor<TOutput, MR> fc_qkv_output_;
-        Tensor<TOutput, MR> attn_output_;
-        Tensor<TOutput, MR> fc_attn_proj_output_;
-        Tensor<TOutput, MR> res_1_output_;
-        Tensor<TOutput, MR> ln_2_output_;
-        Tensor<TOutput, MR> mlp_output_;
-        Tensor<TOutput, MR> res_2_output_;
+        Tensor<TDataType, MR> ln_1_output_;
+        Tensor<TDataType, MR> fc_qkv_output_;
+        Tensor<TDataType, MR> attn_output_;
+        Tensor<TDataType, MR> fc_attn_proj_output_;
+        Tensor<TDataType, MR> res_1_output_;
+        Tensor<TDataType, MR> ln_2_output_;
+        Tensor<TDataType, MR> mlp_output_;
+        Tensor<TDataType, MR> res_2_output_;
 
         /**
          * @brief Validates the input shape for the transformer block.
@@ -230,30 +236,36 @@ namespace Mila::Dnn
             auto T = input_shape_[ 1 ]; // Sequence length
             auto C = input_shape_[ 2 ]; // Number of channels
 
-            // Create new modules with the current device context
-            ln_1_ = std::make_shared<LayerNorm<TDeviceType, TInput, TOutput>>(
-                this->getName() + ".ln_1", this->getDeviceContext(), input_shape_ );
+            auto precision = this->getComputePrecision().getPolicy();
 
-            fc_qkv_ = std::make_shared<Linear<TDeviceType, TInput, TOutput>>(
-                this->getName() + ".fc_qkv", this->getDeviceContext(), C, 3 * C );
+            // Create new modules with the current device context and precision policy
+            ln_1_ = std::make_shared<LayerNorm<TDeviceType, TDataType>>(
+                this->getName() + ".ln_1", this->getDeviceContext(), input_shape_, precision );
 
-            attn_ = std::make_shared<MultiHeadAttention<TDeviceType, TInput, TOutput>>(
-                this->getName() + ".attn", this->getDeviceContext(), input_shape_, num_heads_ );
+            fc_qkv_ = std::make_shared<Linear<TDeviceType, TDataType>>(
+                this->getName() + ".fc_qkv", this->getDeviceContext(), C, 3 * C,
+                true, this->isTraining(), precision );
 
-            fc_attn_proj_ = std::make_shared<Linear<TDeviceType, TInput, TOutput>>(
-                this->getName() + ".fc_attn_proj", this->getDeviceContext(), C, C );
+            attn_ = std::make_shared<MultiHeadAttention<TDeviceType, TDataType>>(
+                this->getName() + ".attn", this->getDeviceContext(), input_shape_, num_heads_,
+                this->isTraining(), precision );
 
-            res_1_ = std::make_shared<Residual<TDeviceType, TInput, TOutput>>(
-                this->getName() + ".res_1", this->getDeviceContext() );
+            fc_attn_proj_ = std::make_shared<Linear<TDeviceType, TDataType>>(
+                this->getName() + ".fc_attn_proj", this->getDeviceContext(), C, C,
+                true, this->isTraining(), precision );
 
-            ln_2_ = std::make_shared<LayerNorm<TDeviceType, TInput, TOutput>>(
-                this->getName() + ".ln_2", this->getDeviceContext(), input_shape_ );
+            res_1_ = std::make_shared<Residual<TDeviceType, TDataType>>(
+                this->getName() + ".res_1", this->getDeviceContext(), precision );
 
-            mlp_ = std::make_shared<MLP<TDeviceType, TInput, TOutput>>(
-                this->getName() + ".mlp", this->getDeviceContext(), input_shape_, 4 * C );
+            ln_2_ = std::make_shared<LayerNorm<TDeviceType, TDataType>>(
+                this->getName() + ".ln_2", this->getDeviceContext(), input_shape_, precision );
 
-            res_2_ = std::make_shared<Residual<TDeviceType, TInput, TOutput>>(
-                this->getName() + ".res_2", this->getDeviceContext() );
+            mlp_ = std::make_shared<MLP<TDeviceType, TDataType>>(
+                this->getName() + ".mlp", this->getDeviceContext(), input_shape_, 4 * C,
+                true, this->isTraining(), precision );
+
+            res_2_ = std::make_shared<Residual<TDeviceType, TDataType>>(
+                this->getName() + ".res_2", this->getDeviceContext(), precision );
 
             // Add sub-modules to the TransformerBlock
             this->addModule( "ln_1", ln_1_ );
@@ -266,34 +278,30 @@ namespace Mila::Dnn
             this->addModule( "res_2", res_2_ );
 
             // Create output tensors for the intermediate steps
-            ln_1_output_ = Tensor<TOutput, MR>( input_shape_ );
-            fc_qkv_output_ = Tensor<TOutput, MR>( { B, T, 3 * C } );
-            attn_output_ = Tensor<TOutput, MR>( input_shape_ );
-            fc_attn_proj_output_ = Tensor<TOutput, MR>( { B, T, C } );
-            res_1_output_ = Tensor<TOutput, MR>( input_shape_ );
-            ln_2_output_ = Tensor<TOutput, MR>( input_shape_ );
-            mlp_output_ = Tensor<TOutput, MR>( input_shape_ );
-            res_2_output_ = Tensor<TOutput, MR>( input_shape_ );
+            ln_1_output_ = Tensor<TDataType, MR>( input_shape_ );
+            fc_qkv_output_ = Tensor<TDataType, MR>( { B, T, 3 * C } );
+            attn_output_ = Tensor<TDataType, MR>( input_shape_ );
+            fc_attn_proj_output_ = Tensor<TDataType, MR>( { B, T, C } );
+            res_1_output_ = Tensor<TDataType, MR>( input_shape_ );
+            ln_2_output_ = Tensor<TDataType, MR>( input_shape_ );
+            mlp_output_ = Tensor<TDataType, MR>( input_shape_ );
+            res_2_output_ = Tensor<TDataType, MR>( input_shape_ );
         }
     };
 
     /**
-     * @brief Type alias for CPU-based transformer block with customizable tensor types.
+     * @brief Type alias for CPU-based transformer block with customizable tensor type.
      *
-     * @tparam TInput Data type of the input tensor elements.
-     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
-     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
+     * @tparam TDataType Data type used for tensor elements throughout the network.
      */
-    export template<typename TInput = float, typename TOutput = TInput>
-        using CpuTransformerBlock = TransformerBlock<DeviceType::Cpu, TInput, TOutput>;
+    export template<typename TDataType = float>
+        using CpuTransformerBlock = TransformerBlock<DeviceType::Cpu, TDataType>;
 
     /**
-     * @brief Type alias for CUDA-based transformer block with customizable tensor types.
+     * @brief Type alias for CUDA-based transformer block with customizable tensor type.
      *
-     * @tparam TInput Data type of the input tensor elements.
-     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
-     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
+     * @tparam TDataType Data type used for tensor elements throughout the network.
      */
-    export template<typename TInput = float, typename TOutput = TInput>
-        using CudaTransformerBlock = TransformerBlock<DeviceType::Cuda, TInput, TOutput>;
+    export template<typename TDataType = float>
+        using CudaTransformerBlock = TransformerBlock<DeviceType::Cuda, TDataType>;
 }

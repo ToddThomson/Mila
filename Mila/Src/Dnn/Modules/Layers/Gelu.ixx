@@ -46,7 +46,6 @@ namespace Mila::Dnn
      * @tparam TDeviceType The device type (CPU or CUDA) on which the module will operate.
      * @tparam TInput The data type of the input tensor elements.
      * @tparam TOutput The data type of the output tensor elements, defaults to TInput.
-     * @tparam TPrecision The data type used for internal calculations, defaults to TOutput.
      */
     export template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput>
         requires ValidFloatTensorTypes<TInput, TOutput>
@@ -63,9 +62,7 @@ namespace Mila::Dnn
          * @param is_training Whether the module is being used in training mode (defaults to false).
          * @param precision The compute precision policy to use (default is Auto).
          */
-        Gelu( std::string name,
-            std::string device_name,
-            bool is_training = false,
+        Gelu( std::string name, std::string device_name, bool is_training = false,
             ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
             : ModuleBase( device_name, precision )
         {
@@ -82,9 +79,7 @@ namespace Mila::Dnn
          * @param is_training Whether the module is being used in training mode (defaults to false).
          * @param precision The compute precision policy to use (default is Auto).
          */
-        Gelu( std::string name,
-            std::shared_ptr<DeviceContext> context,
-            bool is_training = false,
+        Gelu( std::string name, std::shared_ptr<DeviceContext> context, bool is_training = false,
             ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
             : ModuleBase( context, precision )
         {
@@ -207,8 +202,6 @@ namespace Mila::Dnn
 
                 operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cuda, TInput, TOutput>>(base_op);
             }
-
-            // The operation will now have access to the precision policy via getPrecisionPolicy()
         }
     };
 

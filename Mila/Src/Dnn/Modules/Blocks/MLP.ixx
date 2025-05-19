@@ -1,11 +1,6 @@
 /**
  * @file MLP.ixx
  * @brief Implementation of Multi-Layer Perceptron (MLP) block for neural networks.
- *
- * This file contains the MLP block implementation commonly used in transformer architectures
- * as the feed-forward network component. The MLP consists of two linear layers with a GELU
- * activation function in between. The implementation supports both CPU and CUDA devices,
- * various precision types, and optimized inference paths.
  */
 
 module;
@@ -42,17 +37,18 @@ namespace Mila::Dnn
      * input -> Linear -> GELU -> Linear -> output
      *
      * This is commonly used in transformer architectures as the feed-forward network.
+     * Since the MLP is a feed-forward network where layer outputs connect to the next
+     * layer's inputs, a single data type is used throughout the network.
      *
      * @tparam TDeviceType The device type (CPU or CUDA) on which to perform computations.
-     * @tparam TInput The data type of the input tensor elements.
-     * @tparam TOutput The data type of the output tensor elements, defaults to TInput.
+     * @tparam TDataType The data type used for tensor elements throughout the network.
      */
-    export template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput>
-        requires ValidFloatTensorTypes<TInput, TOutput>
-    class MLP : public CompositeModule<TDeviceType, TInput, TOutput> {
+    export template<DeviceType TDeviceType = DeviceType::Cuda, typename TDataType = float>
+        requires ValidFloatTensorType<TDataType>
+    class MLP : public CompositeModule<TDeviceType, TDataType> {
     public:
         using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::CpuMemoryResource>;
-        using CompositeModuleBase = CompositeModule<TDeviceType, TInput, TOutput>; ///< Base class type for the module
+        using CompositeModuleBase = CompositeModule<TDeviceType, TDataType>; ///< Base class type for the module
 
         /**
          * @brief Constructs a new MLP module with the default device context.
@@ -63,10 +59,12 @@ namespace Mila::Dnn
          * @param output_channels The number of output channels for the intermediate layer.
          * @param has_bias Whether to include bias terms in linear transformations. Default is true.
          * @param is_training Whether the module is initially in training mode. Default is false.
+         * @param precision The compute precision policy to use (defaults to Auto).
          */
         MLP( std::string name, const std::string& device_name, const std::vector<size_t>& input_shape, size_t output_channels,
-            bool has_bias = true, bool is_training = false )
-            : CompositeModuleBase( device_name ), input_shape_{ input_shape }, output_channels_{ output_channels } {
+            bool has_bias = true, bool is_training = false,
+            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
+            : CompositeModuleBase( device_name, precision ), input_shape_{ input_shape }, output_channels_{ output_channels } {
             this->setName( name );
             this->setTraining( is_training );
 
@@ -85,10 +83,12 @@ namespace Mila::Dnn
          * @param output_channels The number of output channels for the intermediate layer.
          * @param has_bias Whether to include bias terms in linear transformations. Default is true.
          * @param is_training Whether the module is initially in training mode. Default is false.
+         * @param precision The compute precision policy to use (defaults to Auto).
          */
         MLP( std::string name, std::shared_ptr<DeviceContext> context, const std::vector<size_t>& input_shape, size_t output_channels,
-            bool has_bias = true, bool is_training = false )
-            : CompositeModuleBase( context ), input_shape_{ input_shape }, output_channels_{ output_channels } {
+            bool has_bias = true, bool is_training = false,
+            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
+            : CompositeModuleBase( context, precision ), input_shape_{ input_shape }, output_channels_{ output_channels } {
             this->setName( name );
             this->setTraining( is_training );
 
@@ -107,10 +107,8 @@ namespace Mila::Dnn
          * @param input The input tensor to be processed.
          * @param output The output tensor where the results will be stored.
          */
-        void forward( const Tensor<TInput, MR>& input, Tensor<TOutput, MR>& output ) {
-            // Check if we're in training mode where we need individual operations for backprop
+        void forward( const Tensor<TDataType, MR>& input, Tensor<TDataType, MR>& output ) {
             if ( this->isTraining() ) {
-                // Training mode: use the individual operations
                 fc_1_->forward( input, fc_1_output_ );
                 gelu_->forward( fc_1_output_, gelu_output_ );
                 fc_proj_->forward( gelu_output_, output );
@@ -133,14 +131,17 @@ namespace Mila::Dnn
          *
          * Computes gradients for the input tensor based on the output gradients.
          *
-         * @param input The input tensor to be processed.
-         * @param output The output tensor where the results will be stored.
+         * @param input The input tensor from the forward pass.
+         * @param output_grad The gradient of loss with respect to the output.
+         * @param input_grad The tensor to store gradients with respect to input.
          */
-        void backward( const Tensor<TInput, MR>& input, const Tensor<TOutput, MR>& output ) {
+        void backward( const Tensor<TDataType, MR>& input,
+            const Tensor<TDataType, MR>& output_grad,
+            Tensor<TDataType, MR>& input_grad ) {
             // Check if we're in training mode where we need individual operations for backprop
             if ( this->isTraining() ) {
                 // Training mode: use the individual operations
-                fc_proj_->backward( gelu_output_, output );
+                fc_proj_->backward( gelu_output_, output_grad );
                 gelu_->backward( fc_1_output_, gelu_output_ );
                 fc_1_->backward( input, fc_1_output_ );
                 return;
@@ -149,7 +150,7 @@ namespace Mila::Dnn
             // Note: This is a simplified version, as the fused operation lookup needs to be adapted
             // to work with the new device context approach
             // For now, just use the individual operations (can be optimized later)
-            fc_proj_->backward( gelu_output_, output );
+            fc_proj_->backward( gelu_output_, output_grad );
             gelu_->backward( fc_1_output_, gelu_output_ );
             fc_1_->backward( input, fc_1_output_ );
         }
@@ -215,6 +216,7 @@ namespace Mila::Dnn
             oss << ", Input channels: " << input_channels_;
             oss << ", Output channels: " << output_channels_;
             oss << ", Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
+            oss << this->getComputePrecision().toString() << std::endl;
             oss << "Parameter count: " << parameterCount() << std::endl;
             oss << "Sub-Modules..." << std::endl;
             for ( const auto& [name, module] : this->getNamedModules() ) {
@@ -229,12 +231,12 @@ namespace Mila::Dnn
         size_t input_channels_; ///< The number of input channels
         size_t output_channels_; ///< The number of output channels
 
-        std::shared_ptr<Linear<TDeviceType, TInput, TOutput>> fc_1_{ nullptr };
-        std::shared_ptr<Gelu<TDeviceType, TInput, TOutput>> gelu_{ nullptr };
-        std::shared_ptr<Linear<TDeviceType, TInput, TOutput>> fc_proj_{ nullptr };
+        std::shared_ptr<Linear<TDeviceType, TDataType, TDataType>> fc_1_{ nullptr };
+        std::shared_ptr<Gelu<TDeviceType, TDataType, TDataType>> gelu_{ nullptr };
+        std::shared_ptr<Linear<TDeviceType, TDataType, TDataType>> fc_proj_{ nullptr };
 
-        Tensor<TOutput, MR> fc_1_output_;
-        Tensor<TOutput, MR> gelu_output_;
+        Tensor<TDataType, MR> fc_1_output_;
+        Tensor<TDataType, MR> gelu_output_;
 
         /**
          * @brief Initializes the sub-modules and output tensors for the MLP block.
@@ -247,15 +249,19 @@ namespace Mila::Dnn
                 this->removeModule( name );
             }
 
-            // Create new modules with the current device context
-            fc_1_ = std::make_shared<Linear<TDeviceType, TInput, TOutput>>(
-                this->getName() + ".fc_1", this->getDeviceContext(), input_channels_, output_channels_, has_bias );
+            auto precision = this->getComputePrecision().getPolicy();
 
-            gelu_ = std::make_shared<Gelu<TDeviceType, TInput, TOutput>>(
-                this->getName() + ".gelu", this->getDeviceContext() );
+            // Create new modules with the current device context and precision policy
+            fc_1_ = std::make_shared<Linear<TDeviceType, TDataType, TDataType>>(
+                this->getName() + ".fc_1", this->getDeviceContext(), input_channels_, output_channels_,
+                has_bias, this->isTraining(), precision );
 
-            fc_proj_ = std::make_shared<Linear<TDeviceType, TInput, TOutput>>(
-                this->getName() + ".fc_proj", this->getDeviceContext(), output_channels_, input_channels_, has_bias );
+            gelu_ = std::make_shared<Gelu<TDeviceType, TDataType, TDataType>>(
+                this->getName() + ".gelu", this->getDeviceContext(), this->isTraining(), precision );
+
+            fc_proj_ = std::make_shared<Linear<TDeviceType, TDataType, TDataType>>(
+                this->getName() + ".fc_proj", this->getDeviceContext(), output_channels_, input_channels_,
+                has_bias, this->isTraining(), precision );
 
             // Add sub-modules to the MLP block
             this->addModule( "fc_1", fc_1_ );
@@ -267,27 +273,24 @@ namespace Mila::Dnn
             fc_1_output_shape.back() = output_channels_;
 
             // Create output tensors for the intermediate steps
-            fc_1_output_ = Tensor<TOutput, MR>( fc_1_output_shape );
-            gelu_output_ = Tensor<TOutput, MR>( fc_1_output_shape );
+            fc_1_output_ = Tensor<TDataType, MR>( fc_1_output_shape );
+            gelu_output_ = Tensor<TDataType, MR>( fc_1_output_shape );
         }
     };
 
     /**
-     * @brief Type alias for CPU-based MLP module with customizable tensor types.
+     * @brief Type alias for CPU-based MLP module with customizable tensor type.
      *
-     * @tparam TInput Data type of the input tensor elements.
-     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
+     * @tparam TDataType Data type used for tensor elements throughout the network.
      */
-    export template<typename TInput = float, typename TOutput = TInput>
-        using CpuMLP = MLP<DeviceType::Cpu, TInput, TOutput>;
+    export template<typename TDataType = float>
+        using CpuMLP = MLP<DeviceType::Cpu, TDataType>;
 
     /**
-     * @brief Type alias for CUDA-based MLP module with customizable tensor types.
+     * @brief Type alias for CUDA-based MLP module with customizable tensor type.
      *
-     * @tparam TInput Data type of the input tensor elements.
-     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
-     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
+     * @tparam TDataType Data type used for tensor elements throughout the network.
      */
-    export template<typename TInput = float, typename TOutput = TInput>
-        using CudaMLP = MLP<DeviceType::Cuda, TInput, TOutput>;
+    export template<typename TDataType = float>
+        using CudaMLP = MLP<DeviceType::Cuda, TDataType>;
 }

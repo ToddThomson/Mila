@@ -50,10 +50,8 @@ namespace Mila::Dnn
     * @tparam TDeviceType The device type (CPU or CUDA) on which to perform computations.
     * @tparam TInput The data type of the input tensor elements.
     * @tparam TOutput The data type of the output tensor elements, defaults to TInput.
-    * @tparam TPrecision The data type used for internal calculations, defaults to TOutput.
     */
-    export template<DeviceType TDeviceType = DeviceType::Cuda,
-        typename TInput = float, typename TOutput = TInput>
+    export template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput>
         requires ValidFloatTensorTypes<TInput, TOutput>
     class Linear : public Module<TDeviceType, TInput, TOutput> {
     public:
@@ -74,11 +72,15 @@ namespace Mila::Dnn
          * @param output_features The number of output features.
          * @param has_bias Whether to include a bias term in the transformation (defaults to true).
          * @param is_training Whether the module is initially in training mode (defaults to false).
+         * @param precision The compute precision policy to use (defaults to Auto).
+         * @throws std::invalid_argument If input_features or output_features is zero.
          */
         Linear(
             std::string name, std::string device_name, size_t input_features, size_t output_features,
-            bool has_bias = true, bool is_training = false )
-            : ModuleBase( device_name ), input_features_{ input_features }, output_features_{ output_features }, has_bias_{ has_bias } {
+            bool has_bias = true, bool is_training = false,
+            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
+            : ModuleBase( device_name, precision ), input_features_{ input_features }, output_features_{ output_features }, has_bias_{ has_bias } {
+            validateParameters();
             this->setTraining( is_training );
             this->setName( name );
             initializeParameters();
@@ -94,11 +96,15 @@ namespace Mila::Dnn
          * @param output_features The number of output features.
          * @param has_bias Whether to include a bias term in the transformation (defaults to true).
          * @param is_training Whether the module is initially in training mode (defaults to false).
+         * @param precision The compute precision policy to use (defaults to Auto).
+         * @throws std::invalid_argument If input_features or output_features is zero.
          */
         Linear(
             std::string name, std::shared_ptr<DeviceContext> context, size_t input_features, size_t output_features,
-            bool has_bias = true, bool is_training = false )
-            : ModuleBase( context ), input_features_{ input_features }, output_features_{ output_features }, has_bias_{ has_bias } {
+            bool has_bias = true, bool is_training = false,
+            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
+            : ModuleBase( context, precision ), input_features_{ input_features }, output_features_{ output_features }, has_bias_{ has_bias } {
+            validateParameters();
             this->setTraining( is_training );
             this->setName( name );
 
@@ -165,9 +171,9 @@ namespace Mila::Dnn
         * @brief Retrieves the weight tensor for this linear layer.
         *
         * The weight tensor has shape [output_features, input_features] and
-        * is initialized with Xavier/Glorot distribution.
+        * is initialized with Xavier/Glorot uniform distribution.
         *
-        * @return The weight tensor used in the linear transformation.
+        * @return std::shared_ptr<Tensor<TOutput, MR>> The weight tensor used in the linear transformation.
         */
         std::shared_ptr<Tensor<TOutput, MR>> getWeight() {
             return weight_;
@@ -179,7 +185,7 @@ namespace Mila::Dnn
          * The bias tensor has shape [output_features] and is initialized to zeros
          * if bias is enabled in the layer configuration.
          *
-         * @return An optional containing the bias tensor if bias is enabled, otherwise std::nullopt.
+         * @return std::optional<std::shared_ptr<Tensor<TOutput, MR>>> An optional containing the bias tensor if bias is enabled, otherwise std::nullopt.
          */
         std::optional<std::shared_ptr<Tensor<TOutput, MR>>> getBias() {
             return has_bias_ ? std::optional{ bias_ } : std::nullopt;
@@ -201,6 +207,7 @@ namespace Mila::Dnn
          * Note: This method is currently a placeholder and needs implementation.
          *
          * @param zip The ZIP archive to save the module state to.
+         * @throws std::runtime_error If the serialization fails.
          * @todo Implement proper serialization functionality
          */
         void save( mz_zip_archive& zip ) const override {
@@ -218,6 +225,7 @@ namespace Mila::Dnn
          * Note: This method is currently a placeholder and needs implementation.
          *
          * @param zip The ZIP archive to load the module state from.
+         * @throws std::runtime_error If the deserialization fails.
          * @todo Implement proper deserialization functionality
          */
         void load( mz_zip_archive& zip ) override {
@@ -234,6 +242,7 @@ namespace Mila::Dnn
          * - Module name
          * - Input/output features
          * - Device type
+         * - Precision policy
          * - Parameter information
          *
          * @return std::string A string representation of the module information.
@@ -245,6 +254,7 @@ namespace Mila::Dnn
             oss << ", Input features: " << input_features_;
             oss << ", Output features: " << output_features_;
             oss << ", Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
+            oss << this->getComputePrecision().toString() << std::endl;
             oss << this->parametersToString();
 
             return oss.str();
@@ -331,10 +341,23 @@ namespace Mila::Dnn
         std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput>> operation_{ nullptr };
 
         /**
+         * @brief Validates input parameters.
+         *
+         * Ensures that input_features and output_features are greater than zero.
+         *
+         * @throws std::invalid_argument If validation fails.
+         */
+        void validateParameters() {
+            if ( input_features_ == 0 || output_features_ == 0 ) {
+                throw std::invalid_argument( "Input and output features must be greater than zero" );
+            }
+        }
+
+        /**
          * @brief Initializes the tensors needed for the Linear operation.
          *
          * Creates and initializes:
-         * - weight tensor (initialized with Xavier/Glorot distribution)
+         * - weight tensor (initialized with Xavier/Glorot uniform distribution)
          * - bias tensor (initialized to zeros if has_bias_ is true)
          *
          * The tensors are created on the appropriate device (CPU or CUDA)
@@ -344,11 +367,11 @@ namespace Mila::Dnn
             parameters_.clear();
             this->parameter_map_.clear();
 
-            weight_ = std::make_shared<Tensor<TInput, MR>>(
+            weight_ = std::make_shared<Tensor<TOutput, MR>>(
                 std::vector<size_t>{output_features_, input_features_} );
             weight_->setName( this->getName() + ".weight" );
 
-            xavier<TInput, MR>( *weight_, input_features_, output_features_ );
+            xavier<TOutput, MR>( *weight_, input_features_, output_features_ );
 
             if ( has_bias_ ) {
                 bias_ = std::make_shared<Tensor<TOutput, MR>>(
@@ -389,21 +412,23 @@ namespace Mila::Dnn
          *
          * This method initializes the operation_ member with the appropriate implementation
          * of Linear for either CPU or CUDA, based on the current device context.
+         * It also passes the compute precision policy to the operation.
          *
-         * The operation is retrieved from the OperationRegistry which provides device-specific
-         * implementations of the required operations.
+         * @throws std::runtime_error If the operation creation fails.
          */
         void createOperation() {
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
                 auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TInput, TOutput>(
-                    "Cpu::FullyConnectedOp",
-                    this->getDeviceContext() );
+                    "Cpu::LinearOp",
+                    this->getDeviceContext(),
+                    this->getComputePrecision().getPolicy() );
                 operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cpu, TInput, TOutput>>(base_op);
             }
             else {
                 auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TInput, TOutput>(
-                    "Cuda::FullyConnectedOp",
-                    this->getDeviceContext() );
+                    "Cuda::LinearOp",
+                    this->getDeviceContext(),
+                    this->getComputePrecision().getPolicy() );
                 operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cuda, TInput, TOutput>>(base_op);
             }
         }
@@ -414,7 +439,6 @@ namespace Mila::Dnn
      *
      * @tparam TInput Data type of the input tensor elements.
      * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
-     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
      */
     export template<typename TInput = float, typename TOutput = TInput>
         using CpuLinear = Linear<DeviceType::Cpu, TInput, TOutput>;
@@ -424,7 +448,6 @@ namespace Mila::Dnn
      *
      * @tparam TInput Data type of the input tensor elements.
      * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
-     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
      */
     export template<typename TInput = float, typename TOutput = TInput>
         using CudaLinear = Linear<DeviceType::Cuda, TInput, TOutput>;

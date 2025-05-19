@@ -1,3 +1,8 @@
+/**
+ * @file CompositeModule.ixx
+ * @brief Implementation of the composite module pattern for neural network components
+ */
+
 module;
 #include <miniz.h>
 #include <vector>
@@ -28,17 +33,19 @@ namespace Mila::Dnn
      * neural network components like MLPs, transformers, etc. that are
      * built by composing simpler modules.
      *
+     * A single type parameter is used for data consistency across the module,
+     * as the output of one layer becomes the input of the next in a feed-forward
+     * composite architecture.
+     *
      * @tparam TDeviceType The device type (CPU or CUDA) on which the module will operate.
-     * @tparam TInput Data type of the input tensor elements.
-     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
-     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
+     * @tparam TDataType Data type used for both input and output tensor elements.
      */
-    export template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput>
-        requires ValidTensorTypes<TInput, TOutput>
-    class CompositeModule : public Module<TDeviceType, TInput, TOutput> {
+    export template<DeviceType TDeviceType = DeviceType::Cuda, typename TDataType = float>
+        requires ValidTensorType<TDataType>
+    class CompositeModule : public Module<TDeviceType, TDataType, TDataType> {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, HostMemoryResource>; ///< Memory resource type based on device type
-        using ModuleBase = Module<TDeviceType, TInput, TOutput>; ///< Base class type for the module
+        using ModuleBase = Module<TDeviceType, TDataType, TDataType>; ///< Base class type for the module
 
         /**
          * @brief Default constructor.
@@ -48,24 +55,30 @@ namespace Mila::Dnn
 
         /**
          * @brief Constructor with device name.
+         *
+         * @param device_name The device name to use for this module.
+         * @param precision The compute precision policy to use (defaults to Auto).
          */
-        explicit CompositeModule( const std::string& device_name )
-            : ModuleBase( device_name ) {}
+        explicit CompositeModule(
+            const std::string& device_name,
+            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
+            : ModuleBase( device_name, precision ) {}
 
         /**
          * @brief Constructor with device context.
+         *
+         * @param context The device context to use for this module.
+         * @param precision The compute precision policy to use (defaults to Auto).
          */
-        explicit CompositeModule( std::shared_ptr<DeviceContext> context )
-            : ModuleBase( context ) {}
+        explicit CompositeModule(
+            std::shared_ptr<DeviceContext> context,
+            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
+            : ModuleBase( context, precision ) {}
 
         /**
          * @brief Virtual destructor.
          */
         virtual ~CompositeModule() = default;
-
-        //virtual void forward(const Tensor<TPrecision, MR>& input, Tensor<TPrecision, MR>& output) const = 0;
-
-        // TODO: Add backward virtual function
 
         /**
          * @brief Add a named child module to this module.
@@ -76,7 +89,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If the module pointer is null.
          * @return Reference to this module for method chaining.
          */
-        CompositeModule& addModule( const std::string& name, std::shared_ptr<Module<TDeviceType, TInput, TOutput>> module ) {
+        CompositeModule& addModule( const std::string& name, std::shared_ptr<Module<TDeviceType, TDataType, TDataType>> module ) {
             if ( name.empty() ) {
                 throw std::invalid_argument( "Sub-module name cannot be empty." );
             }
@@ -106,7 +119,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If the module pointer is null.
          * @return Reference to this module for method chaining.
          */
-        CompositeModule& addModule( std::shared_ptr<Module<TDeviceType, TInput, TOutput>> module ) {
+        CompositeModule& addModule( std::shared_ptr<Module<TDeviceType, TDataType, TDataType>> module ) {
             if ( !module ) {
                 throw std::invalid_argument( "Cannot add null module." );
             }
@@ -120,10 +133,10 @@ namespace Mila::Dnn
          * @brief Get a specific sub-module by name.
          *
          * @param name The name of the sub-module to retrieve.
-         * @return std::shared_ptr<Module<TDeviceType, TInput, TOutput, TPrecision>> The requested module.
+         * @return std::shared_ptr<Module<TDeviceType, TDataType, TDataType>> The requested module.
          * @throws std::out_of_range If no module with the given name exists.
          */
-        std::shared_ptr<Module<TDeviceType, TInput, TOutput>> getModule( const std::string& name ) const {
+        std::shared_ptr<Module<TDeviceType, TDataType, TDataType>> getModule( const std::string& name ) const {
             auto it = child_module_map_.find( name );
             if ( it == child_module_map_.end() ) {
                 throw std::out_of_range( "No module named '" + name + "' found." );
@@ -144,20 +157,20 @@ namespace Mila::Dnn
         /**
          * @brief Get all sub-modules contained in this module.
          *
-         * @return const std::vector<std::shared_ptr<Module<TDeviceType, TInput, TOutput, TPrecision>>>&
+         * @return const std::vector<std::shared_ptr<Module<TDeviceType, TDataType, TDataType>>>&
          *         Vector of child module pointers.
          */
-        const std::vector<std::shared_ptr<Module<TDeviceType, TInput, TOutput>>>& getModules() const {
+        const std::vector<std::shared_ptr<Module<TDeviceType, TDataType, TDataType>>>& getModules() const {
             return child_modules_;
         }
 
         /**
          * @brief Get all named sub-modules contained in this module.
          *
-         * @return const std::unordered_map<std::string, std::shared_ptr<Module<TDeviceType, TInput, TOutput, TPrecision>>>&
+         * @return const std::unordered_map<std::string, std::shared_ptr<Module<TDeviceType, TDataType, TDataType>>>&
          *         Map of child module names to pointers.
          */
-        const std::unordered_map<std::string, std::shared_ptr<Module<TDeviceType, TInput, TOutput>>>& getNamedModules() const {
+        const std::unordered_map<std::string, std::shared_ptr<Module<TDeviceType, TDataType, TDataType>>>& getNamedModules() const {
             return child_module_map_;
         }
 
@@ -195,7 +208,7 @@ namespace Mila::Dnn
          * @return bool True if a module was replaced, false if no module with that name existed.
          * @throws std::invalid_argument If the replacement module pointer is null.
          */
-        bool replaceModule( const std::string& name, std::shared_ptr<Module<TDeviceType, TInput, TOutput>> module ) {
+        bool replaceModule( const std::string& name, std::shared_ptr<Module<TDeviceType, TDataType, TDataType>> module ) {
             if ( !module ) {
                 throw std::invalid_argument( "Cannot replace with null module." );
             }
@@ -254,6 +267,8 @@ namespace Mila::Dnn
          * @brief Default save implementation for container modules.
          *
          * Saves all child modules. Override if container has its own parameters.
+         *
+         * @param zip The ZIP archive to save the module state to.
          */
         void save( mz_zip_archive& zip ) const override {
             for ( const auto& module : child_modules_ ) {
@@ -265,6 +280,8 @@ namespace Mila::Dnn
          * @brief Default load implementation for container modules.
          *
          * Loads all child modules. Override if container has its own parameters.
+         *
+         * @param zip The ZIP archive to load the module state from.
          */
         void load( mz_zip_archive& zip ) override {
             for ( const auto& module : child_modules_ ) {
@@ -276,10 +293,14 @@ namespace Mila::Dnn
          * @brief Default toString implementation for container modules.
          *
          * Lists all child modules. Override for custom string representation.
+         *
+         * @return std::string A string representation of the module information.
          */
         std::string toString() const override {
             std::ostringstream oss;
             oss << "CompositeModule: " << this->getName() << std::endl;
+            oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
+            oss << this->getComputePrecision().toString() << std::endl;
             oss << "Child Modules:" << std::endl;
             for ( const auto& [name, module] : child_module_map_ ) {
                 oss << "  - " << name << ": " << module->toString() << std::endl;
@@ -289,16 +310,16 @@ namespace Mila::Dnn
 
     private:
         /** @brief Child modules in the order they were added (ordered) */
-        std::vector<std::shared_ptr<Module<TDeviceType, TInput, TOutput>>> child_modules_;
+        std::vector<std::shared_ptr<Module<TDeviceType, TDataType, TDataType>>> child_modules_;
 
         /** @brief Named child modules for efficient lookup by name */
-        std::unordered_map<std::string, std::shared_ptr<Module<TDeviceType, TInput, TOutput>>> child_module_map_;
+        std::unordered_map<std::string, std::shared_ptr<Module<TDeviceType, TDataType, TDataType>>> child_module_map_;
     };
 
     // Convenient type aliases
-    export template<typename TInput = float, typename TOutput = TInput>
-        using CpuCompositeModule = CompositeModule<DeviceType::Cpu, TInput, TOutput>;
+    export template<typename TDataType = float>
+        using CpuCompositeModule = CompositeModule<DeviceType::Cpu, TDataType>;
 
-    export template<typename TInput = float, typename TOutput = TInput>
-        using CudaCompositeModule = CompositeModule<DeviceType::Cuda, TInput, TOutput>;
+    export template<typename TDataType = float>
+        using CudaCompositeModule = CompositeModule<DeviceType::Cuda, TDataType>;
 }

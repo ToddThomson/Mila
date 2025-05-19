@@ -97,7 +97,7 @@ namespace Mila::Dnn::Compute
          *
          * Initializes the operation with a CUDA device context (defaults to CUDA:0).
          */
-        CudaFullyConnectedOp() : UnaryOperationBase( OperationType::FullyConnectedOp ) {}
+        CudaFullyConnectedOp() : UnaryOperationBase( OperationType::LinearOp ) {}
 
         /**
          * @brief Constructs a new CUDA Fully Connected operation with a specific device context.
@@ -106,7 +106,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the context is not for a CUDA device.
          */
         CudaFullyConnectedOp( std::shared_ptr<DeviceContext> context )
-            : UnaryOperationBase( OperationType::FullyConnectedOp, context ) {
+            : UnaryOperationBase( OperationType::LinearOp, context ) {
         }
 
         /**
@@ -254,7 +254,7 @@ namespace Mila::Dnn::Compute
          * with a factory function that creates instances of CudaFullyConnectedOp.
          */
         static void registerOperations() {
-            const std::string opName = "Cuda::FullyConnectedOp";
+            const std::string opName = "Cuda::LinearOp";
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, float, float>(
                 opName,
@@ -264,7 +264,6 @@ namespace Mila::Dnn::Compute
                 }
             );
 
-            // FIXME: 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, half, half>(
                 opName,
                 []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half>> {

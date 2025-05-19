@@ -22,7 +22,7 @@ namespace Mila::Dnn::Compute
 		CrossEntropyOp,        ///< Cross entropy loss operation
 		EncoderOp,             ///< Encoder operation for transformer architecture
 		FusedOp,               ///< Fused operation combining multiple operations for performance optimization
-		FullyConnectedOp,      ///< Fully connected (dense) layer operation
+		LinearOp,			   ///< Linear (fully connected/dense) layer operation
 		GeluOp,                ///< Gaussian Error Linear Unit activation function
 		LayerNormOp,           ///< Layer normalization operation
 		MultiHeadAttentionOp,  ///< Multi-head attention operation for transformers
@@ -45,7 +45,7 @@ namespace Mila::Dnn::Compute
 			case OperationType::CrossEntropyOp: return "CrossEntropyOp";
 			case OperationType::EncoderOp: return "EncoderOp";
 			case OperationType::FusedOp: return "FusedOp";
-			case OperationType::FullyConnectedOp: return "FullyConnectedOp";
+			case OperationType::LinearOp: return "LinearOp";
 			case OperationType::GeluOp: return "GeluOp";
 			case OperationType::LayerNormOp: return "LayerNormOp";
 			case OperationType::MultiHeadAttentionOp: return "MultiHeadAttentionOp";
