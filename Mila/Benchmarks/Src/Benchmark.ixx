@@ -9,6 +9,8 @@ module;
 #include <sstream>
 #include <iostream>
 #include <cuda_runtime.h>
+#include <map>
+#include <any>
 
 export module Mila.Benchmark;
 
@@ -25,6 +27,8 @@ namespace Mila::Benchmark
         size_t iterations = 0;                // Number of iterations performed
         std::string deviceName;               // Device used for benchmark
         double totalRunTimeMs = 0.0;          // Total run time in milliseconds
+        std::string notes;                    // Additional notes about the benchmark
+        std::map<std::string, std::any> properties; // Additional properties
 
         std::string toString() const {
             std::ostringstream oss;
@@ -41,6 +45,30 @@ namespace Mila::Benchmark
             if ( iterations != 0 ) {
                 oss << " | " << iterations << " iters";
             }
+
+            if ( !notes.empty() ) {
+                oss << " | " << notes;
+            }
+
+            return oss.str();
+        }
+
+        // Returns a CSV-formatted string with headers
+        static std::string getCsvHeader() {
+            return "Name,Time(ms),Elements,GFLOPS,ElementsPerSec,Device,Iterations,Notes";
+        }
+
+        // Returns a CSV-formatted row for this result
+        std::string toCsv() const {
+            std::ostringstream oss;
+            oss << std::quoted( name ) << ","
+                << time_ms << ","
+                << elementCount << ","
+                << throughput_gflops << ","
+                << throughput_elements << ","
+                << std::quoted( deviceName ) << ","
+                << iterations << ","
+                << std::quoted( notes );
             return oss.str();
         }
     };
@@ -53,9 +81,25 @@ namespace Mila::Benchmark
 
         virtual std::string name() const = 0;
 
+        // Returns true if this benchmark should run on the current system
+        // (e.g., CUDA benchmarks should not run on systems without CUDA)
+        virtual bool isApplicable() const {
+            return true;
+        }
+
     protected:
         template<typename Func>
         double measureExecutionTime( Func&& func, size_t iterations ) {
+            // Warm-up phase to avoid initial delays
+            for ( size_t i = 0; i < 3; i++ ) {
+                func();
+            }
+
+            if ( deviceContext_->getDevice()->getDeviceType() == Dnn::Compute::DeviceType::Cuda ) {
+                cudaDeviceSynchronize();
+            }
+
+            // Actual measurement phase
             auto start = std::chrono::high_resolution_clock::now();
 
             for ( size_t i = 0; i < iterations; i++ ) {
@@ -76,4 +120,3 @@ namespace Mila::Benchmark
         std::shared_ptr<Dnn::Compute::DeviceContext> deviceContext_;
     };
 }
-

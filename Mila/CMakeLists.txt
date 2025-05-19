@@ -195,7 +195,7 @@ add_subdirectory(Tests)
 endif()
 
 if (MILA_ENABLE_BENCHMARKS)
-#add_subdirectory(Benchmarks)
+add_subdirectory(Benchmarks)
 endif()
  
 if (MILA_ENABLE_SAMPLES)  

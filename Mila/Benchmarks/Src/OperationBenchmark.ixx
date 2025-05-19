@@ -5,6 +5,7 @@ module;
 #include <string>
 #include <stdexcept>
 #include <type_traits>
+#include <sstream>
 
 export module Mila.Benchmark.OperationBenchmark;
 
@@ -16,80 +17,106 @@ namespace Mila::Benchmark
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
 
-    // Benchmark implementation for Operation layer
-    export template<typename TInput, typename TOutput = TInput, typename TPrecision = TOutput, DeviceType TDeviceType = DeviceType::Cuda>
+    /**
+     * @brief Benchmark implementation for Operation layers.
+     *
+     * This benchmark class measures the performance of operation execution
+     * with configurable precision settings.
+     *
+     * @tparam TDeviceType The device type (CPU or CUDA) on which to perform computations.
+     * @tparam TDataType The data type used for tensor elements throughout the operation.
+     */
+    export template<DeviceType TDeviceType = DeviceType::Cuda, typename TDataType = float>
         class OperationBenchmark : public Benchmark {
         public:
-
             using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, HostMemoryResource>;
 
-            OperationBenchmark( std::shared_ptr<OperationBase<TInput, TInput, TOutput, TPrecision, TDeviceType>> operation,
+            /**
+             * @brief Constructs a new OperationBenchmark.
+             *
+             * @param operation The operation to benchmark.
+             * @param opName The name of the operation.
+             * @param inputShape The shape of the input tensor.
+             * @param context The device context to use.
+             * @param precision The compute precision policy to use (defaults to Auto).
+             */
+            OperationBenchmark(
+                std::shared_ptr<OperationBase<TDeviceType, TDataType, TDataType, TDataType>> operation,
                 std::string opName,
                 std::vector<size_t> inputShape,
-                std::shared_ptr<DeviceContext> context )
+                std::shared_ptr<DeviceContext> context,
+                ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
                 : operation_( operation ), opName_( opName ), inputShape_( inputShape ) {
 
                 this->deviceContext_ = context;
 
+                // Update the operation's precision policy
+                operation_->setPrecisionPolicy( precision );
+
+                // Store the precision policy in properties
+                properties_.set( "precision_policy", static_cast<int>(precision) );
+
                 // Create input and output tensors based on device type
                 if constexpr ( TDeviceType == DeviceType::Cuda ) {
-                    input_ = Tensor<TPrecision, CudaMemoryResource>( inputShape_ );
-                    output_ = Tensor<TPrecision, CudaMemoryResource>( inputShape_ );
+                    input_ = Tensor<TDataType, CudaMemoryResource>( inputShape_ );
+                    output_ = Tensor<TDataType, CudaMemoryResource>( inputShape_ );
 
                     // Create host tensor for initialization
-                    Tensor<TPrecision, HostMemoryResource> hostInput( inputShape_ );
+                    Tensor<TDataType, HostMemoryResource> hostInput( inputShape_ );
 
                     // Initialize with random values
                     for ( size_t i = 0; i < hostInput.size(); ++i ) {
-                        hostInput.data()[ i ] = static_cast<TPrecision>( rand() ) / RAND_MAX * 2.0f - 1.0f;
+                        hostInput.data()[ i ] = static_cast<TDataType>( rand() ) / RAND_MAX * 2.0f - 1.0f;
                     }
 
                     // Copy to device
                     input_.copyFrom( hostInput );
                 }
                 else {
-                    input_ = Tensor<TPrecision, HostMemoryResource>( inputShape_ );
-                    output_ = Tensor<TPrecision, HostMemoryResource>( inputShape_ );
+                    input_ = Tensor<TDataType, HostMemoryResource>( inputShape_ );
+                    output_ = Tensor<TDataType, HostMemoryResource>( inputShape_ );
 
                     // Initialize with random values
                     for ( size_t i = 0; i < input_.size(); ++i ) {
-                        input_.data()[ i ] = static_cast<TPrecision>( rand() ) / RAND_MAX * 2.0f - 1.0f;
+                        input_.data()[ i ] = static_cast<TDataType>( rand() ) / RAND_MAX * 2.0f - 1.0f;
                     }
                 }
 
                 // Create second input for binary operations (same shape as first input)
                 if constexpr ( TDeviceType == DeviceType::Cuda ) {
-                    input2_ = Tensor<TPrecision, CudaMemoryResource>( inputShape_ );
+                    input2_ = Tensor<TDataType, CudaMemoryResource>( inputShape_ );
 
                     // Create host tensor for initialization
-                    Tensor<TPrecision, HostMemoryResource> hostInput2( inputShape_ );
+                    Tensor<TDataType, HostMemoryResource> hostInput2( inputShape_ );
 
                     // Initialize with random values
                     for ( size_t i = 0; i < hostInput2.size(); ++i ) {
-                        hostInput2.data()[ i ] = static_cast<TPrecision>( rand() ) / RAND_MAX * 2.0f - 1.0f;
+                        hostInput2.data()[ i ] = static_cast<TDataType>( rand() ) / RAND_MAX * 2.0f - 1.0f;
                     }
 
                     // Copy to device
                     input2_.copyFrom( hostInput2 );
                 }
                 else {
-                    input2_ = Tensor<TPrecision, HostMemoryResource>( inputShape_ );
+                    input2_ = Tensor<TDataType, HostMemoryResource>( inputShape_ );
 
                     // Initialize with random values
                     for ( size_t i = 0; i < input2_.size(); ++i ) {
-                        input2_.data()[ i ] = static_cast<TPrecision>( rand() ) / RAND_MAX * 2.0f - 1.0f;
+                        input2_.data()[ i ] = static_cast<TDataType>( rand() ) / RAND_MAX * 2.0f - 1.0f;
                     }
                 }
 
                 // Initialize parameters and state vectors
-                parameters_ = std::vector<std::shared_ptr<Tensor<TPrecision,
-                    typename std::conditional_t<TDeviceType == DeviceType::Cuda,
-                    CudaMemoryResource, HostMemoryResource>>>>();
-                output_state_ = std::vector<std::shared_ptr<Tensor<TPrecision,
-                    typename std::conditional_t<TDeviceType == DeviceType::Cuda,
-                    CudaMemoryResource, HostMemoryResource>>>>();
+                parameters_ = std::vector<std::shared_ptr<Tensor<TDataType, MR>>>();
+                output_state_ = std::vector<std::shared_ptr<Tensor<TDataType, MR>>>();
             }
 
+            /**
+             * @brief Runs the benchmark for the specified number of iterations.
+             *
+             * @param iterations The number of times to run the operation.
+             * @return BenchmarkResult The results of the benchmark.
+             */
             BenchmarkResult run( size_t iterations ) override {
                 BenchmarkResult result;
                 result.name = name();
@@ -97,9 +124,14 @@ namespace Mila::Benchmark
                 result.elementCount = input_.size();
                 result.deviceName = deviceToString( deviceContext_->getDevice()->getDeviceType() );
 
+                // Include precision policy directly from the operation
+                ComputePrecision::Policy precisionPolicy = operation_->getPrecisionPolicy();
+                result.properties[ "precision_policy" ] = static_cast<int>(precisionPolicy);
+                result.properties[ "mixed_precision_enabled" ] = operation_->isMixedPrecisionEnabled();
+
                 // Determine if operation is UnaryOperation or BinaryOperation
-                auto unaryOp = std::dynamic_pointer_cast<UnaryOperation<TPrecision, TPrecision, TDeviceType>>(operation_);
-                auto binaryOp = std::dynamic_pointer_cast<BinaryOperation<TPrecision, TPrecision, TPrecision, TDeviceType>>(operation_);
+                auto unaryOp = std::dynamic_pointer_cast<UnaryOperation<TDeviceType, TDataType, TDataType>>(operation_);
+                auto binaryOp = std::dynamic_pointer_cast<BinaryOperation<TDeviceType, TDataType, TDataType>>(operation_);
 
                 // Measure time
                 result.time_ms = measureExecutionTime( [this, unaryOp, binaryOp]() {
@@ -133,9 +165,37 @@ namespace Mila::Benchmark
                         (result.time_ms / 1000.0) / 1e9;
                 }
 
+                // Add precision mode to the benchmark result
+                std::string precisionStr;
+                switch ( precisionPolicy ) {
+                    case ComputePrecision::Policy::Auto:
+                        precisionStr = "Auto";
+                        break;
+                    case ComputePrecision::Policy::Performance:
+                        precisionStr = "Performance";
+                        break;
+                    case ComputePrecision::Policy::Accuracy:
+                        precisionStr = "Accuracy";
+                        break;
+                    case ComputePrecision::Policy::Disabled:
+                        precisionStr = "Disabled";
+                        break;
+                    default:
+                        precisionStr = "Unknown";
+                        break;
+                }
+
+                result.notes = "Precision: " + precisionStr +
+                    (operation_->isMixedPrecisionEnabled() ? " (Mixed Precision Enabled)" : " (Mixed Precision Disabled)");
+
                 return result;
             }
 
+            /**
+             * @brief Gets the formatted name of the benchmark.
+             *
+             * @return std::string The name of the benchmark.
+             */
             std::string name() const override {
                 std::ostringstream oss;
                 oss << opName_ << " [";
@@ -146,24 +206,40 @@ namespace Mila::Benchmark
                     }
                 }
                 oss << "]";
+
+                // Add precision info directly from the operation
+                ComputePrecision::Policy precisionPolicy = operation_->getPrecisionPolicy();
+                switch ( precisionPolicy ) {
+                    case ComputePrecision::Policy::Performance:
+                        oss << " (Perf)";
+                        break;
+                    case ComputePrecision::Policy::Accuracy:
+                        oss << " (Accu)";
+                        break;
+                    case ComputePrecision::Policy::Disabled:
+                        oss << " (Dis)";
+                        break;
+                    case ComputePrecision::Policy::Auto:
+                        oss << " (Auto)";
+                        break;
+                }
+
                 return oss.str();
             }
 
         private:
             using InputTensor = std::conditional_t<TDeviceType == DeviceType::Cuda,
-                Tensor<TPrecision, CudaMemoryResource>,
-                Tensor<TPrecision, HostMemoryResource>>;
+                Tensor<TDataType, CudaMemoryResource>,
+                Tensor<TDataType, HostMemoryResource>>;
 
-            std::shared_ptr<OperationBase<TInput, TInput, TOutput, TPrecision, TDeviceType>> operation_;
+            std::shared_ptr<OperationBase<TDeviceType, TDataType, TDataType, TDataType>> operation_;
             std::string opName_;
             std::vector<size_t> inputShape_;
             InputTensor input_;
             InputTensor input2_;  // Second input tensor for binary operations
             InputTensor output_;
-            std::vector<std::shared_ptr<Tensor<TPrecision, typename std::conditional_t<TDeviceType == DeviceType::Cuda,
-                CudaMemoryResource, HostMemoryResource>>>> parameters_;
-            std::vector<std::shared_ptr<Tensor<TPrecision, typename std::conditional_t<TDeviceType == DeviceType::Cuda,
-                CudaMemoryResource, HostMemoryResource>>>> output_state_;
+            std::vector<std::shared_ptr<Tensor<TDataType, MR>>> parameters_;
+            std::vector<std::shared_ptr<Tensor<TDataType, MR>>> output_state_;
             OperationAttributes properties_;
     };
 }

@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cuda_runtime.h>
 #include <filesystem>
+#include <fstream>
 
 import Mila;
 
@@ -38,6 +39,7 @@ struct BenchmarkConfig {
     bool useDefaultShapes = true;
     bool verbose = false;
     std::string reportFormat = "text"; // Options: text, csv, json
+    ComputePrecision::Policy precisionPolicy = ComputePrecision::Policy::Auto;
 };
 
 void printUsage() {
@@ -51,6 +53,7 @@ void printUsage() {
     std::cout << "  --enable-kernels       Enable direct kernel benchmarks\n";
     std::cout << "  --output <file>        Write benchmark results to file\n";
     std::cout << "  --format <format>      Output format: text, csv, json (default: text)\n";
+    std::cout << "  --precision <policy>   Precision policy: auto, performance, accuracy, disabled (default: auto)\n";
     std::cout << "  --shape <dims>         Custom shape to benchmark (comma-separated, e.g. 32,128)\n";
     std::cout << "                         Can be specified multiple times for different shapes\n";
     std::cout << "  --no-default-shapes    Don't use default benchmark shapes\n";
@@ -98,6 +101,24 @@ bool parseCommandLine( int argc, char* argv[], BenchmarkConfig& config ) {
                 std::cerr << "Unknown format: " << format << ". Using default: text" << std::endl;
             }
         }
+        else if ( arg == "--precision" && i + 1 < argc ) {
+            std::string precision = argv[ ++i ];
+            if ( precision == "auto" ) {
+                config.precisionPolicy = ComputePrecision::Policy::Auto;
+            }
+            else if ( precision == "performance" ) {
+                config.precisionPolicy = ComputePrecision::Policy::Performance;
+            }
+            else if ( precision == "accuracy" ) {
+                config.precisionPolicy = ComputePrecision::Policy::Accuracy;
+            }
+            else if ( precision == "disabled" ) {
+                config.precisionPolicy = ComputePrecision::Policy::Disabled;
+            }
+            else {
+                std::cerr << "Unknown precision policy: " << precision << ". Using default: auto" << std::endl;
+            }
+        }
         else if ( arg == "--shape" && i + 1 < argc ) {
             std::string shapeStr = argv[ ++i ];
             std::vector<size_t> shape;
@@ -134,6 +155,26 @@ bool parseCommandLine( int argc, char* argv[], BenchmarkConfig& config ) {
         std::cout << "  Run Operation benchmarks: " << (config.runOperationBenchmarks ? "Yes" : "No") << std::endl;
         std::cout << "  Run Kernel benchmarks: " << (config.runKernelBenchmarks ? "Yes" : "No") << std::endl;
 
+        // Print precision policy
+        std::cout << "  Precision policy: ";
+        switch ( config.precisionPolicy ) {
+            case ComputePrecision::Policy::Auto:
+                std::cout << "Auto";
+                break;
+            case ComputePrecision::Policy::Performance:
+                std::cout << "Performance";
+                break;
+            case ComputePrecision::Policy::Accuracy:
+                std::cout << "Accuracy";
+                break;
+            case ComputePrecision::Policy::Disabled:
+                std::cout << "Disabled";
+                break;
+            default:
+                std::cout << "Unknown";
+        }
+        std::cout << std::endl;
+
         if ( !config.outputFile.empty() ) {
             std::cout << "  Output file: " << config.outputFile << std::endl;
             std::cout << "  Output format: " << config.reportFormat << std::endl;
@@ -162,7 +203,50 @@ bool parseCommandLine( int argc, char* argv[], BenchmarkConfig& config ) {
     return true;
 }
 
+void writeResultsToFile( const std::vector<BenchmarkResult>& results, const std::string& filename,
+    const std::string& format ) {
+    std::ofstream file( filename );
+    if ( !file.is_open() ) {
+        throw std::runtime_error( "Failed to open output file: " + filename );
+    }
 
+    if ( format == "csv" ) {
+        // Write CSV header
+        file << BenchmarkResult::getCsvHeader() << std::endl;
+
+        // Write each result as a CSV row
+        for ( const auto& result : results ) {
+            file << result.toCsv() << std::endl;
+        }
+    }
+    else if ( format == "json" ) {
+        // Write JSON array opening
+        file << "[" << std::endl;
+
+        // Write each result as a JSON object
+        for ( size_t i = 0; i < results.size(); ++i ) {
+            file << "  {" << std::endl;
+            file << "    \"name\": " << std::quoted( results[ i ].name ) << "," << std::endl;
+            file << "    \"time_ms\": " << results[ i ].time_ms << "," << std::endl;
+            file << "    \"throughput_elements\": " << results[ i ].throughput_elements << "," << std::endl;
+            file << "    \"throughput_gflops\": " << results[ i ].throughput_gflops << "," << std::endl;
+            file << "    \"element_count\": " << results[ i ].elementCount << "," << std::endl;
+            file << "    \"iterations\": " << results[ i ].iterations << "," << std::endl;
+            file << "    \"device\": " << std::quoted( results[ i ].deviceName ) << "," << std::endl;
+            file << "    \"notes\": " << std::quoted( results[ i ].notes ) << std::endl;
+            file << "  }" << (i < results.size() - 1 ? "," : "") << std::endl;
+        }
+
+        // Write JSON array closing
+        file << "]" << std::endl;
+    }
+    else {
+        // Default to text format
+        for ( const auto& result : results ) {
+            file << result.toString() << std::endl;
+        }
+    }
+}
 
 int main( int argc, char* argv[] ) {
     try {
@@ -209,7 +293,7 @@ int main( int argc, char* argv[] ) {
 
         BenchmarkManager manager;
 
-        
+
         // Define benchmark shapes - separate shapes for CPU and CUDA
         std::vector<std::vector<size_t>> cpuBenchmarkShapes;
         std::vector<std::vector<size_t>> cudaBenchmarkShapes;
@@ -279,9 +363,9 @@ int main( int argc, char* argv[] ) {
                 for ( const auto& shape : cpuBenchmarkShapes ) {
                     // CPU Gelu Module
                     auto cpuGelu = std::make_shared<CpuGelu<float>>(
-                        "Cpu::Gelu", cpuContext );
+                        "Cpu::Gelu", cpuContext, false, config.precisionPolicy );
 
-                    auto cpuGeluBench = std::make_unique<ModuleBenchmark<float, float, DeviceType::Cpu>>(
+                    auto cpuGeluBench = std::make_unique<ModuleBenchmark<DeviceType::Cpu, float>>(
                         cpuGelu,
                         shape,
                         shape,
@@ -293,11 +377,10 @@ int main( int argc, char* argv[] ) {
 
             if ( config.runCuda ) {
                 for ( const auto& shape : cudaBenchmarkShapes ) {
-                    // CUDA Gelu Module
                     auto cudaGelu = std::make_shared<CudaGelu<float>>(
-                        "Cuda::Gelu", cudaContext );
+                        "Cuda::Gelu", cudaContext, false, config.precisionPolicy );
 
-                    auto cudaGeluBench = std::make_unique<ModuleBenchmark<float, float, DeviceType::Cuda>>(
+                    auto cudaGeluBench = std::make_unique<ModuleBenchmark<DeviceType::Cuda, float>>(
                         cudaGelu,
                         shape,
                         shape,
@@ -316,7 +399,8 @@ int main( int argc, char* argv[] ) {
 
                         // CPU MLP
                         auto cpuMLP = std::make_shared<CpuMLP<float>>(
-                            "Cpu::MLP", cpuContext, shape, hidden_features, true, false );
+                            "Cpu::MLP", cpuContext, shape, hidden_features,
+                            true, false, config.precisionPolicy );
 
                         auto cpuMLPBench = std::make_unique<BlockModuleBenchmark<DeviceType::Cpu, float>>(
                             cpuMLP,
@@ -335,10 +419,11 @@ int main( int argc, char* argv[] ) {
                         size_t hidden_features = input_features * 4;  // Common ratio in transformers
 
                         // CUDA MLP
-                        auto cudaMLP = std::make_shared<MLP<float, DeviceType::Cuda>>(
-                            "Cuda::MLP", cudaContext, shape, hidden_features, true, false );
+                        auto cudaMLP = std::make_shared<CudaMLP<float>>(
+                            "Cuda::MLP", cudaContext, shape, hidden_features,
+                            true, false, config.precisionPolicy );
 
-                        auto cudaMLPBench = std::make_unique<BlockModuleBenchmark<float, DeviceType::Cuda>>(
+                        auto cudaMLPBench = std::make_unique<BlockModuleBenchmark<DeviceType::Cuda, float>>(
                             cudaMLP,
                             shape,
                             cudaContext
@@ -352,10 +437,10 @@ int main( int argc, char* argv[] ) {
             if ( config.runCpu ) {
                 for ( const auto& shape : cpuBenchmarkShapes ) {
                     // CPU Residual
-                    auto cpuResidual = std::make_shared<Residual<float, DeviceType::Cpu>>(
-                        "Cpu::Residual", cpuContext );
+                    auto cpuResidual = std::make_shared<Residual<DeviceType::Cpu, float>>(
+                        "Cpu::Residual", cpuContext, false, config.precisionPolicy );
 
-                    auto cpuResidualBench = std::make_unique<BinaryModuleBenchmark<float, DeviceType::Cpu>>(
+                    auto cpuResidualBench = std::make_unique<BinaryModuleBenchmark<DeviceType::Cpu, float>>(
                         cpuResidual,
                         shape,
                         cpuContext
@@ -367,10 +452,10 @@ int main( int argc, char* argv[] ) {
             if ( config.runCuda ) {
                 for ( const auto& shape : cudaBenchmarkShapes ) {
                     // CUDA Residual
-                    auto cudaResidual = std::make_shared<Residual<float, DeviceType::Cuda>>(
-                        "Cuda::Residual", cudaContext );
+                    auto cudaResidual = std::make_shared<Residual<DeviceType::Cuda, float>>(
+                        "Cuda::Residual", cudaContext, false, config.precisionPolicy );
 
-                    auto cudaResidualBench = std::make_unique<BinaryModuleBenchmark<float, DeviceType::Cuda>>(
+                    auto cudaResidualBench = std::make_unique<BinaryModuleBenchmark<DeviceType::Cuda, float>>(
                         cudaResidual,
                         shape,
                         cudaContext
@@ -384,21 +469,22 @@ int main( int argc, char* argv[] ) {
             // Operation benchmarks (GeluOp, etc.)
             if ( config.runCpu ) {
                 for ( const auto& shape : cpuBenchmarkShapes ) {
-                    // CPU GeluOp
-                    auto cpuGeluOp = std::static_pointer_cast<OperationBase<float, float, float, DeviceType::Cpu>>(
-                        std::make_shared<CpuGeluOp>( cpuContext ));
-                    manager.addBenchmark( std::make_unique<OperationBenchmark<float, DeviceType::Cpu>>(
-                        cpuGeluOp, "Cpu::GeluOp", shape, cpuContext ) );
+                    auto cpuGeluOp = std::static_pointer_cast<OperationBase<DeviceType::Cpu, float>>(
+                        std::make_shared<CpuGeluOp>( cpuContext, config.precisionPolicy ));
+
+                    manager.addBenchmark( std::make_unique<OperationBenchmark<DeviceType::Cpu, float>>(
+                        cpuGeluOp, "Cpu::GeluOp", shape, cpuContext, config.precisionPolicy ) );
                 }
             }
 
             if ( config.runCuda ) {
                 for ( const auto& shape : cudaBenchmarkShapes ) {
                     // CUDA GeluOp
-                    auto cudaGeluOp = std::static_pointer_cast<OperationBase<float, float, float, DeviceType::Cuda>>(
-                        std::make_shared<CudaGeluOp<float>>( cudaContext ));
-                    manager.addBenchmark( std::make_unique<OperationBenchmark<float, DeviceType::Cuda>>(
-                        cudaGeluOp, "Cuda::GeluOp", shape, cudaContext ) );
+                    auto cudaGeluOp = std::static_pointer_cast<OperationBase<DeviceType::Cuda, float>>(
+                        std::make_shared<CudaGeluOp<float>>( cudaContext, config.precisionPolicy ));
+
+                    manager.addBenchmark( std::make_unique<OperationBenchmark<DeviceType::Cuda, float>>(
+                        cudaGeluOp, "Cuda::GeluOp", shape, cudaContext, config.precisionPolicy ) );
                 }
             }
         }
@@ -416,13 +502,11 @@ int main( int argc, char* argv[] ) {
             }
         }
 
-        // Run all benchmarks with the configured settings
-        manager.runAll( config.iterations );
+        auto results = manager.runAll( config.iterations );
 
-        // Write results to file if specified
         if ( !config.outputFile.empty() ) {
             std::cout << "Writing results to " << config.outputFile << std::endl;
-            // TODO: Implement result writing in different formats
+            writeResultsToFile( results, config.outputFile, config.reportFormat );
         }
 
         return 0;

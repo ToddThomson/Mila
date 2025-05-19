@@ -230,18 +230,18 @@ namespace Mila::Dnn::Compute
         }
 
         /**
- * @brief Create a unary operation based on the type information, device type, and operation name.
- *
- * @tparam TDeviceType The device type for the operation (defaults to CUDA).
- * @tparam TInput The input tensor element type.
- * @tparam TOutput The output tensor element type (defaults to TInput).
- * @param operation_name The name of the operation.
- * @param context The device context to use for the operation.
- * @param precision_policy The compute precision policy to use.
- * @return std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput>> The created unary operation.
- * @throws std::runtime_error If the type combination, device type, or operation name is invalid.
- * @throws std::invalid_argument If the context is null.
- */
+         * @brief Create a unary operation based on the type information, device type, and operation name.
+         *
+         * @tparam TDeviceType The device type for the operation (defaults to CUDA).
+         * @tparam TInput The input tensor element type.
+         * @tparam TOutput The output tensor element type (defaults to TInput).
+         * @param operation_name The name of the operation.
+         * @param context The device context to use for the operation.
+         * @param precision_policy The compute precision policy to use.
+         * @return std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput>> The created unary operation.
+         * @throws std::runtime_error If the type combination, device type, or operation name is invalid.
+         * @throws std::invalid_argument If the context is null.
+         */
         template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput>
             requires ValidTensorType<TInput>&& ValidFloatTensorType<TOutput>
         std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput>> createUnaryOperation(
@@ -297,6 +297,7 @@ namespace Mila::Dnn::Compute
          * @tparam TOutput The output tensor element type (defaults to TInput2).
          * @param operation_name The name of the operation.
          * @param context The device context to use for the operation.
+         * @param precision_policy The compute precision policy to use.
          * @return std::shared_ptr<BinaryOperation<TDeviceType, TInput1, TInput2, TOutput>> The created binary operation.
          * @throws std::runtime_error If the type combination, device type, or operation name is invalid.
          * @throws std::invalid_argument If the context is null.
@@ -305,7 +306,8 @@ namespace Mila::Dnn::Compute
             requires ValidTensorTypes<TInput1, TInput2>&& ValidFloatTensorType<TOutput>
         std::shared_ptr<BinaryOperation<TDeviceType, TInput1, TInput2, TOutput>> createBinaryOperation(
             const std::string& operation_name,
-            std::shared_ptr<DeviceContext> context ) const {
+            std::shared_ptr<DeviceContext> context,
+            ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto ) const {
 
             TypeID type_id{
                 std::type_index( typeid(TInput1) ),
@@ -335,7 +337,14 @@ namespace Mila::Dnn::Compute
                 throw std::invalid_argument( "DeviceContext cannot be null when creating an operation" );
             }
 
-            return std::static_pointer_cast<BinaryOperation<TDeviceType, TInput1, TInput2, TOutput>>(op_it->second( context ));
+            auto op = std::static_pointer_cast<BinaryOperation<TDeviceType, TInput1, TInput2, TOutput>>(op_it->second( context ));
+            
+            // Set the precision policy on the operation
+            if ( op ) {
+                op->setPrecisionPolicy( precision_policy );
+            }
+
+            return op;
         }
 
         /**

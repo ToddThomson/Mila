@@ -16,6 +16,7 @@ export module Dnn.Modules.Residual;
 import Dnn.Module;
 import Dnn.Tensor;
 import Dnn.TensorTraits;
+import Compute.Precision;
 import Compute.DeviceType;
 import Compute.DeviceContext;
 import Compute.OperationAttributes;
@@ -42,7 +43,6 @@ namespace Mila::Dnn
      * @tparam TDeviceType The device type (CPU or CUDA) on which the module will operate.
      * @tparam TInput Data type of the input tensor elements.
      * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
-     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
      */
     export template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput>
         requires ValidFloatTensorTypes<TInput, TOutput>
@@ -57,9 +57,11 @@ namespace Mila::Dnn
          * @param name The name of the module for identification purposes.
          * @param device_name The name of the device to use (e.g., "CPU", "CUDA:0").
          * @param is_training Whether the module is being used in training mode (defaults to false).
+         * @param precision The compute precision policy to use (default is Auto).
          */
-        Residual( std::string name, const std::string& device_name, bool is_training = false )
-            : ModuleBase( device_name ) {
+        Residual( std::string name, const std::string& device_name, bool is_training = false,
+            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
+            : ModuleBase( device_name, precision ) {
             this->setTraining( is_training );
             this->setName( name );
             createOperation();
@@ -71,9 +73,11 @@ namespace Mila::Dnn
          * @param name The name of the module for identification purposes.
          * @param context The device context to use for this module.
          * @param is_training Whether the module is being used in training mode (defaults to false).
+         * @param precision The compute precision policy to use (default is Auto).
          */
-        Residual( std::string name, std::shared_ptr<DeviceContext> context, bool is_training = false )
-            : ModuleBase( context ) {
+        Residual( std::string name, std::shared_ptr<DeviceContext> context, bool is_training = false,
+            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
+            : ModuleBase( context, precision ) {
             this->setTraining( is_training );
             this->setName( name );
             createOperation();
@@ -135,8 +139,8 @@ namespace Mila::Dnn
         std::string toString() const override {
             std::ostringstream oss;
             oss << "--------------------" << std::endl;
-            oss << "Residual: " << this->getName();
-            oss << ", Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
+            oss << "Residual: " << this->getName() << std::endl;
+            oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
 
             return oss.str();
         }
@@ -177,23 +181,24 @@ namespace Mila::Dnn
          *
          * This method initializes the operation_ member with the appropriate implementation
          * of the Residual operation for either CPU or CUDA, based on the current device context.
-         *
-         * The operation performs element-wise addition of the two input tensors.
+         * It also passes the compute precision policy to the operation.
          */
         void createOperation() {
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                operation_ = std::static_pointer_cast<BinaryOperation<DeviceType::Cpu, TInput, TInput, TOutput>>(
-                    OperationRegistry::instance().createBinaryOperation<DeviceType::Cpu, TInput, TInput, TOutput>(
-                        "Cpu::ResidualOp",
-                        this->getDeviceContext() )
-                );
+                auto base_op = OperationRegistry::instance().createBinaryOperation<DeviceType::Cpu, TInput, TInput, TOutput>(
+                    "Cpu::ResidualOp",
+                    this->getDeviceContext(),
+                    this->getComputePrecision().getPolicy() );
+
+                operation_ = std::static_pointer_cast<BinaryOperation<DeviceType::Cpu, TInput, TInput, TOutput>>(base_op);
             }
             else {
-                operation_ = std::static_pointer_cast<BinaryOperation<TDeviceType, TInput, TInput, TOutput>>(
-                    OperationRegistry::instance().createBinaryOperation<DeviceType::Cuda, TInput, TInput, TOutput>(
-                        "Cuda::ResidualOp",
-                        this->getDeviceContext() )
-                );
+                auto base_op = OperationRegistry::instance().createBinaryOperation<DeviceType::Cuda, TInput, TInput, TOutput>(
+                    "Cuda::ResidualOp",
+                    this->getDeviceContext(),
+                    this->getComputePrecision().getPolicy() );
+
+                operation_ = std::static_pointer_cast<BinaryOperation<DeviceType::Cuda, TInput, TInput, TOutput>>(base_op);
             }
         }
     };
@@ -203,7 +208,6 @@ namespace Mila::Dnn
      *
      * @tparam TInput Data type of the input tensor elements.
      * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
-     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
      */
     export template<typename TInput = float, typename TOutput = TInput>
         using CpuResidual = Residual<DeviceType::Cpu, TInput, TOutput>;
@@ -213,7 +217,6 @@ namespace Mila::Dnn
      *
      * @tparam TInput Data type of the input tensor elements.
      * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
-     * @tparam TPrecision Data type used for internal calculations, defaults to TOutput.
      */
     export template<typename TInput = float, typename TOutput = TInput>
         using CudaResidual = Residual<DeviceType::Cuda, TInput, TOutput>;

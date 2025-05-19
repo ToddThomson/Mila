@@ -52,7 +52,7 @@ Mila uses CMake build. To build Mila, follow the steps below:
 
 1. **Prerequisites**
    - Visual Studio 2022 or newer with "Desktop development with C++" workload
-   - CUDA Toolkit 12.8
+   - CUDA Toolkit 12.9
    - CMake 3.31 or newer (included with Visual Studio)
 
 2. **Open the Project**
@@ -79,7 +79,7 @@ Mila uses CMake build. To build Mila, follow the steps below:
    - Visual Studio Code
    - C/C++ extension
    - CMake Tools extension
-   - CUDA Toolkit 12.8
+   - CUDA Toolkit 12.9
    - CMake 3.31 or newer
 
 2. **Open the Project**
@@ -104,7 +104,7 @@ Mila uses CMake build. To build Mila, follow the steps below:
    
 ## Required Components
 * C++23 support
-* NVIDIA CUDA Runtime, 12.8
+* NVIDIA CUDA Runtime, 12.9
 * CMake 3.31
 * GTest framework for unit testing, 1.17.0
 

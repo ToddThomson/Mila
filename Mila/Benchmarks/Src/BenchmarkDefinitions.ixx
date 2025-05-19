@@ -35,6 +35,7 @@ namespace Mila::Benchmark
         std::string operationType;   // For operations: "geluOp", etc.
         std::string kernelType;      // For kernels: specific kernel name
         std::vector<int> parameters; // Additional parameters (e.g., hidden features for MLP)
+        std::string precision = "auto"; // Precision policy: "auto", "performance", "accuracy", "disabled"
     };
 
     // Parse shapes from JSON array
@@ -44,6 +45,14 @@ namespace Mila::Benchmark
             shape.push_back( dim.get<size_t>() );
         }
         return shape;
+    }
+
+    // Convert string precision policy to enum
+    ComputePrecision::Policy stringToPrecisionPolicy( const std::string& precision ) {
+        if ( precision == "performance" ) return ComputePrecision::Policy::Performance;
+        if ( precision == "accuracy" ) return ComputePrecision::Policy::Accuracy;
+        if ( precision == "disabled" ) return ComputePrecision::Policy::Disabled;
+        return ComputePrecision::Policy::Auto; // Default
     }
 
     // Load benchmark definitions from JSON file
@@ -81,6 +90,11 @@ namespace Mila::Benchmark
                     def.kernelType = item[ "kernelType" ].get<std::string>();
                 }
 
+                // Load precision policy if present
+                if ( item.contains( "precision" ) ) {
+                    def.precision = item[ "precision" ].get<std::string>();
+                }
+
                 definitions.push_back( def );
             }
         }
@@ -101,18 +115,23 @@ namespace Mila::Benchmark
         std::shared_ptr<DeviceContext> cpuContext,
         std::shared_ptr<DeviceContext> cudaContext,
         bool runCpu,
-        bool runCuda
+        bool runCuda,
+        ComputePrecision::Policy defaultPrecision = ComputePrecision::Policy::Auto
     ) {
         for ( const auto& def : definitions ) {
+            // Get precision policy from definition or use default
+            ComputePrecision::Policy precisionPolicy =
+                def.precision == "auto" ? defaultPrecision : stringToPrecisionPolicy( def.precision );
+
             if ( def.type == "module" ) {
                 // Module benchmarks
                 if ( def.moduleType == "gelu" ) {
                     if ( runCpu ) {
                         for ( const auto& shape : cpuShapes ) {
-                            auto cpuGelu = std::make_shared<Gelu<float, DeviceType::Cpu>>(
-                                "Cpu::" + def.name, cpuContext );
+                            auto cpuGelu = std::make_shared<CpuGelu<float>>(
+                                "Cpu::" + def.name, cpuContext, false, precisionPolicy );
 
-                            auto cpuGeluBench = std::make_unique<ModuleBenchmark<float, float, DeviceType::Cpu>>(
+                            auto cpuGeluBench = std::make_unique<ModuleBenchmark<DeviceType::Cpu, float>>(
                                 cpuGelu,
                                 shape,
                                 shape,
@@ -124,10 +143,10 @@ namespace Mila::Benchmark
 
                     if ( runCuda ) {
                         for ( const auto& shape : cudaShapes ) {
-                            auto cudaGelu = std::make_shared<Gelu<float, DeviceType::Cuda>>(
-                                "Cuda::" + def.name, cudaContext );
+                            auto cudaGelu = std::make_shared<CudaGelu<float>>(
+                                "Cuda::" + def.name, cudaContext, false, precisionPolicy );
 
-                            auto cudaGeluBench = std::make_unique<ModuleBenchmark<float, float, DeviceType::Cuda>>(
+                            auto cudaGeluBench = std::make_unique<ModuleBenchmark<DeviceType::Cuda, float>>(
                                 cudaGelu,
                                 shape,
                                 shape,
@@ -149,10 +168,11 @@ namespace Mila::Benchmark
                                 size_t input_features = shape.back();
                                 size_t hidden_features = input_features * hiddenFeaturesMultiplier;
 
-                                auto cpuMLP = std::make_shared<MLP<float, DeviceType::Cpu>>(
-                                    "Cpu::" + def.name, cpuContext, shape, hidden_features, useGelu, useBias );
+                                auto cpuMLP = std::make_shared<CpuMLP<float>>(
+                                    "Cpu::" + def.name, cpuContext, shape, hidden_features,
+                                    useBias, false, precisionPolicy );
 
-                                auto cpuMLPBench = std::make_unique<BlockModuleBenchmark<float, DeviceType::Cpu>>(
+                                auto cpuMLPBench = std::make_unique<BlockModuleBenchmark<DeviceType::Cpu, float>>(
                                     cpuMLP,
                                     shape,
                                     cpuContext
@@ -168,10 +188,11 @@ namespace Mila::Benchmark
                                 size_t input_features = shape.back();
                                 size_t hidden_features = input_features * hiddenFeaturesMultiplier;
 
-                                auto cudaMLP = std::make_shared<MLP<float, DeviceType::Cuda>>(
-                                    "Cuda::" + def.name, cudaContext, shape, hidden_features, useGelu, useBias );
+                                auto cudaMLP = std::make_shared<CudaMLP<float>>(
+                                    "Cuda::" + def.name, cudaContext, shape, hidden_features,
+                                    useBias, false, precisionPolicy );
 
-                                auto cudaMLPBench = std::make_unique<BlockModuleBenchmark<float, DeviceType::Cuda>>(
+                                auto cudaMLPBench = std::make_unique<BlockModuleBenchmark<DeviceType::Cuda, float>>(
                                     cudaMLP,
                                     shape,
                                     cudaContext
@@ -184,10 +205,10 @@ namespace Mila::Benchmark
                 else if ( def.moduleType == "residual" ) {
                     if ( runCpu ) {
                         for ( const auto& shape : cpuShapes ) {
-                            auto cpuResidual = std::make_shared<Residual<float, DeviceType::Cpu>>(
-                                "Cpu::" + def.name, cpuContext );
+                            auto cpuResidual = std::make_shared<Residual<DeviceType::Cpu, float>>(
+                                "Cpu::" + def.name, cpuContext, false, precisionPolicy );
 
-                            auto cpuResidualBench = std::make_unique<BinaryModuleBenchmark<float, DeviceType::Cpu>>(
+                            auto cpuResidualBench = std::make_unique<BinaryModuleBenchmark<DeviceType::Cpu, float>>(
                                 cpuResidual,
                                 shape,
                                 cpuContext
@@ -198,10 +219,10 @@ namespace Mila::Benchmark
 
                     if ( runCuda ) {
                         for ( const auto& shape : cudaShapes ) {
-                            auto cudaResidual = std::make_shared<Residual<float, DeviceType::Cuda>>(
-                                "Cuda::" + def.name, cudaContext );
+                            auto cudaResidual = std::make_shared<Residual<DeviceType::Cuda, float>>(
+                                "Cuda::" + def.name, cudaContext, false, precisionPolicy );
 
-                            auto cudaResidualBench = std::make_unique<BinaryModuleBenchmark<float, DeviceType::Cuda>>(
+                            auto cudaResidualBench = std::make_unique<BinaryModuleBenchmark<DeviceType::Cuda, float>>(
                                 cudaResidual,
                                 shape,
                                 cudaContext
@@ -216,19 +237,21 @@ namespace Mila::Benchmark
                 if ( def.operationType == "geluOp" ) {
                     if ( runCpu ) {
                         for ( const auto& shape : cpuShapes ) {
-                            auto cpuGeluOp = std::static_pointer_cast<OperationBase<float, float, float, DeviceType::Cpu>>(
-                                std::make_shared<CpuGeluOp>( cpuContext ));
-                            manager.addBenchmark( std::make_unique<OperationBenchmark<float, DeviceType::Cpu>>(
-                                cpuGeluOp, "Cpu::" + def.name, shape, cpuContext ) );
+                            auto cpuGeluOp = std::static_pointer_cast<OperationBase<DeviceType::Cpu, float>>(
+                                std::make_shared<CpuGeluOp>( cpuContext, precisionPolicy ));
+
+                            manager.addBenchmark( std::make_unique<OperationBenchmark<DeviceType::Cpu, float>>(
+                                cpuGeluOp, "Cpu::" + def.name, shape, cpuContext, precisionPolicy ) );
                         }
                     }
 
                     if ( runCuda ) {
                         for ( const auto& shape : cudaShapes ) {
-                            auto cudaGeluOp = std::static_pointer_cast<OperationBase<float, float, float, DeviceType::Cuda>>(
-                                std::make_shared<CudaGeluOp<float>>( cudaContext ));
-                            manager.addBenchmark( std::make_unique<OperationBenchmark<float, DeviceType::Cuda>>(
-                                cudaGeluOp, "Cuda::" + def.name, shape, cudaContext ) );
+                            auto cudaGeluOp = std::static_pointer_cast<OperationBase<DeviceType::Cuda, float>>(
+                                std::make_shared<CudaGeluOp<float>>( cudaContext, precisionPolicy ));
+
+                            manager.addBenchmark( std::make_unique<OperationBenchmark<DeviceType::Cuda, float>>(
+                                cudaGeluOp, "Cuda::" + def.name, shape, cudaContext, precisionPolicy ) );
                         }
                     }
                 }
@@ -251,5 +274,4 @@ namespace Mila::Benchmark
             }
         }
     }
-
 }

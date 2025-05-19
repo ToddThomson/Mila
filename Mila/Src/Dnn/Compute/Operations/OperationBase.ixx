@@ -36,7 +36,7 @@ namespace Mila::Dnn::Compute
      * @tparam TDeviceType The target device type for the operation, defaults to DeviceType::Cuda.
      */
     export template <DeviceType TDeviceType = DeviceType::Cuda, typename TInput1 = float, typename TInput2 = TInput1, typename TOutput = TInput1>
-        requires ValidTensorTypes<TInput1, TInput2>&& ValidFloatTensorType<TOutput>
+        requires ValidTensorTypes<TInput1, TInput2> && ValidFloatTensorType<TOutput>
     class OperationBase {
     public:
 
