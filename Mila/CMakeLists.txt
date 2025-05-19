@@ -199,5 +199,5 @@ if (MILA_ENABLE_BENCHMARKS)
 endif()
  
 if (MILA_ENABLE_SAMPLES)  
-#add_subdirectory(Samples)  
+add_subdirectory(Samples)  
 endif()

@@ -22,6 +22,7 @@ struct MnistConfig {
     size_t epochs = 5;
     float learningRate = 0.01f;
     DeviceType computeDeviceType = DeviceType::Cuda;
+    ComputePrecision::Policy precisionPolicy = ComputePrecision::Policy::Auto;
 };
 
 void printUsage() {
@@ -32,6 +33,7 @@ void printUsage() {
     std::cout << "  --epochs <int>        Number of epochs (default: 5)\n";
     std::cout << "  --learning-rate <float> Learning rate (default: 0.01)\n";
     std::cout << "  --device <string>     Compute device (cpu or cuda, default: cuda)\n";
+    std::cout << "  --precision <string>  Precision policy (auto, performance, accuracy, disabled, default: auto)\n";
     std::cout << "  --help                Show this help message\n";
 }
 
@@ -68,6 +70,24 @@ bool parseCommandLine( int argc, char** argv, MnistConfig& config ) {
                 std::cerr << "Unknown device type: " << device << ". Using default: cuda" << std::endl;
             }
         }
+        else if ( arg == "--precision" && i + 1 < argc ) {
+            std::string precision = argv[ ++i ];
+            if ( precision == "auto" ) {
+                config.precisionPolicy = ComputePrecision::Policy::Auto;
+            }
+            else if ( precision == "performance" ) {
+                config.precisionPolicy = ComputePrecision::Policy::Performance;
+            }
+            else if ( precision == "accuracy" ) {
+                config.precisionPolicy = ComputePrecision::Policy::Accuracy;
+            }
+            else if ( precision == "disabled" ) {
+                config.precisionPolicy = ComputePrecision::Policy::Disabled;
+            }
+            else {
+                std::cerr << "Unknown precision policy: " << precision << ". Using default: auto" << std::endl;
+            }
+        }
         else if ( arg.substr( 0, 2 ) == "--" ) {
             std::cerr << "Unknown option: " << arg << std::endl;
             printUsage();
@@ -82,7 +102,19 @@ bool parseCommandLine( int argc, char** argv, MnistConfig& config ) {
     std::cout << "  Epochs: " << config.epochs << std::endl;
     std::cout << "  Learning rate: " << config.learningRate << std::endl;
     std::cout << "  Device: " << (config.computeDeviceType == DeviceType::Cuda ? "CUDA" : "CPU") << std::endl;
-    std::cout << std::endl;
+    std::cout << "  Precision policy: ";
+
+    switch ( config.precisionPolicy ) {
+        case ComputePrecision::Policy::Auto:
+            std::cout << "Auto"; break;
+        case ComputePrecision::Policy::Performance:
+            std::cout << "Performance"; break;
+        case ComputePrecision::Policy::Accuracy:
+            std::cout << "Accuracy"; break;
+        case ComputePrecision::Policy::Disabled:
+            std::cout << "Disabled"; break;
+    }
+    std::cout << std::endl << std::endl;
 
     // Validate data directory
     if ( !fs::exists( config.dataDir ) ) {
@@ -96,8 +128,8 @@ bool parseCommandLine( int argc, char** argv, MnistConfig& config ) {
 }
 
 // Cross-entropy loss function for classification
-template<typename TPrecision>
-float softmaxCrossEntropyLoss( const Tensor<TPrecision, HostMemoryResource>& logits, const Tensor<TPrecision, HostMemoryResource>& targets ) {
+template<typename TDataType>
+float softmaxCrossEntropyLoss( const Tensor<TDataType, HostMemoryResource>& logits, const Tensor<TDataType, HostMemoryResource>& targets ) {
 
     // Apply softmax and compute cross-entropy loss
     size_t batch_size = logits.shape()[ 0 ];
@@ -132,9 +164,9 @@ float softmaxCrossEntropyLoss( const Tensor<TPrecision, HostMemoryResource>& log
 }
 
 // Compute accuracy for classification
-template<typename TPrecision, typename MR>
-float computeAccuracy( const Tensor<TPrecision, MR>& logits,
-    const Tensor<TPrecision, MR>& targets ) {
+template<typename TDataType, typename MR>
+float computeAccuracy( const Tensor<TDataType, MR>& logits,
+    const Tensor<TDataType, MR>& targets ) {
     size_t batch_size = logits.shape()[ 0 ];
     size_t num_classes = logits.shape()[ 1 ];
     size_t correct = 0;
@@ -171,30 +203,30 @@ float computeAccuracy( const Tensor<TPrecision, MR>& logits,
 }
 
 // Simple SGD optimizer for demonstration
-template<typename TPrecision, typename MR>
-void sgdUpdate( Tensor<TPrecision, MR>& param, Tensor<TPrecision, MR>& grad, float learning_rate ) {
+template<typename TDataType, typename MR>
+void sgdUpdate( Tensor<TDataType, MR>& param, Tensor<TDataType, MR>& grad, float learning_rate ) {
     for ( size_t i = 0; i < param.size(); ++i ) {
         param.data()[ i ] -= learning_rate * grad.data()[ i ];
     }
 }
 
-template<DeviceType TDeviceType, typename TPrecision, typename THostMR>
-    requires ValidFloatTensorType<TPrecision> &&
-        (std::is_same_v<THostMR, CudaPinnedMemoryResource> || std::is_same_v<THostMR, CpuMemoryResource>)
+template<DeviceType TDeviceType, typename TDataType, typename THostMR>
+    requires ValidFloatTensorType<TDataType> &&
+(std::is_same_v<THostMR, CudaPinnedMemoryResource> || std::is_same_v<THostMR, CpuMemoryResource>)
 void runMnistTrainingLoop(
-    std::shared_ptr<MnistClassifier<TDeviceType, TPrecision, TPrecision, TPrecision>>& model,
+    std::shared_ptr<MnistClassifier<TDeviceType, TDataType>>& model,
     const MnistConfig& config ) {
-	
+
     using DeviceMR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, HostMemoryResource>;
 
     MnistDataLoader<float, THostMR> train_loader( config.dataDir, config.batchSize, true );
     MnistDataLoader<float, THostMR> test_loader( config.dataDir, config.batchSize, false );
 
-    Tensor<TPrecision, DeviceMR> input_batch( { train_loader.batchSize(), static_cast<size_t>(MNIST_IMAGE_SIZE) } );
-    Tensor<TPrecision, HostMemoryResource> target_batch( { train_loader.batchSize(), static_cast<size_t>(MNIST_NUM_CLASSES) } );
+    Tensor<TDataType, DeviceMR> input_batch( { train_loader.batchSize(), static_cast<size_t>(MNIST_IMAGE_SIZE) } );
+    Tensor<TDataType, HostMemoryResource> target_batch( { train_loader.batchSize(), static_cast<size_t>(MNIST_NUM_CLASSES) } );
 
-	Tensor<float, HostMemoryResource> logits( { train_loader.batchSize(), static_cast<size_t>(MNIST_NUM_CLASSES) } );
-	Tensor<float, DeviceMR> output( { train_loader.batchSize(), static_cast<size_t>(MNIST_NUM_CLASSES) } );
+    Tensor<TDataType, HostMemoryResource> logits( { train_loader.batchSize(), static_cast<size_t>(MNIST_NUM_CLASSES) } );
+    Tensor<TDataType, DeviceMR> output( { train_loader.batchSize(), static_cast<size_t>(MNIST_NUM_CLASSES) } );
 
     std::cout << "Starting training for " << config.epochs << " epochs..." << std::endl;
 
@@ -209,13 +241,13 @@ void runMnistTrainingLoop(
 
         while ( batches < train_loader.numBatches() ) {
             train_loader.nextBatch();
-            
+
             input_batch.copyFrom( train_loader.inputs() );
             target_batch.copyFrom( train_loader.targets() );
 
             model->forward( input_batch, output );
 
-			logits.copyFrom( output );
+            logits.copyFrom( output );
 
             float batch_loss = softmaxCrossEntropyLoss( logits, target_batch );
             float batch_acc = computeAccuracy( logits, target_batch );
@@ -224,9 +256,9 @@ void runMnistTrainingLoop(
             epoch_acc += batch_acc;
             batches++;
 
-			// Now perform the Backward pass and update parameters
-			//model->backward( logits, target_batch );
-			// sgdUpdate( model->getParameters(), model->getGradients(), config.learningRate );
+            // Now perform the Backward pass and update parameters
+            //model->backward( logits, target_batch );
+            // sgdUpdate( model->getParameters(), model->getGradients(), config.learningRate );
 
 
             if ( batches % 100 == 0 || batches == train_loader.numBatches() ) {
@@ -263,7 +295,7 @@ void runMnistTrainingLoop(
 
             test_loss += softmaxCrossEntropyLoss( logits, target_batch );
             test_acc += computeAccuracy( logits, target_batch );
-            
+
             test_batches++;
         }
 
@@ -301,13 +333,13 @@ int main( int argc, char** argv ) {
                 std::cout << "Using CUDA device" << std::endl;
 
                 auto model = std::make_shared<MnistClassifier<DeviceType::Cuda, float>>(
-                    "MnistMLP", deviceName, config.batchSize );
+                    "MnistMLP", deviceName, config.batchSize, config.precisionPolicy );
 
                 model->setTraining( true );
 
                 std::cout << model->toString() << std::endl;
-                
-                runMnistTrainingLoop<float, CudaPinnedMemoryResource, DeviceType::Cuda>( model, config );
+
+                runMnistTrainingLoop<DeviceType::Cuda, float, CudaPinnedMemoryResource>( model, config );
             }
             catch ( const std::exception& e ) {
                 std::cerr << "CUDA error: " << e.what() << ", falling back to CPU" << std::endl;
@@ -321,12 +353,12 @@ int main( int argc, char** argv ) {
 
             std::cout << "Creating model..." << std::endl;
             auto model = std::make_shared<MnistClassifier<DeviceType::Cpu, float>>(
-                "MnistMLP", deviceName, config.batchSize );
-            
+                "MnistMLP", deviceName, config.batchSize, config.precisionPolicy );
+
             model->setTraining( true );
 
             std::cout << model->toString() << std::endl;
-            
+
             runMnistTrainingLoop<DeviceType::Cpu, float, HostMemoryResource>(
                 model, config );
         }

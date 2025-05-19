@@ -3,7 +3,7 @@
 Mila Deep Neural Network Library
 
 ## Prerelease Notice
-Mila, version 0.9.800-alpha is currently a preview release.
+Mila, version 0.9.8XX-alpha is currently a preview release.
 The Mila API is still too immature for any end-user development. I am working on the API and will be releasing a stable version as soon as possible.
 
 ## Description

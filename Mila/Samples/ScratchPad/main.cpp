@@ -71,14 +71,13 @@ int main() {
     std::cout << "Testing CudaFullyConnectedOp and CpuFullyConnectedOp equivalency..." << std::endl;
 
     try {
-        // Create device contexts
         auto cuda_context = std::make_shared<DeviceContext>( "CUDA:0" );
         auto cpu_context = std::make_shared<DeviceContext>( "CPU" );
 
         // Create operations from registry
         auto cuda_op_base = OperationRegistry::instance().createUnaryOperation<float>(
             "Cuda::FullyConnectedOp", cuda_context );
-        auto cpu_op_base = OperationRegistry::instance().createUnaryOperation<float, float, float, DeviceType::Cpu>(
+        auto cpu_op_base = OperationRegistry::instance().createUnaryOperation<float>(
             "Cpu::FullyConnectedOp", cpu_context );
 
         if ( !cuda_op_base || !cpu_op_base ) {
@@ -88,7 +87,7 @@ int main() {
 
         // Cast to the correct operation types
         auto cuda_fc_op = std::dynamic_pointer_cast<CudaFullyConnectedOp<float>>(cuda_op_base);
-        auto cpu_fc_op = std::dynamic_pointer_cast<UnaryOperation<float, float, float, DeviceType::Cpu>>(cpu_op_base);
+        auto cpu_fc_op = std::dynamic_pointer_cast<UnaryOperation<float>>(cpu_op_base);
 
         if ( !cuda_fc_op || !cpu_fc_op ) {
             std::cerr << "Failed to cast operations to the correct types." << std::endl;
@@ -156,6 +155,9 @@ int main() {
 
         OperationAttributes props;
 
+        // Optional: Set compute precision policy
+        props[ "precision_policy" ] = static_cast<int>(ComputePrecision::Policy::Auto);
+
         // Execute operations
         std::cout << "Running CUDA FullyConnectedOp..." << std::endl;
         cuda_fc_op->forward( cuda_input, cuda_params, props, cuda_output, cuda_output_state );
@@ -188,6 +190,29 @@ int main() {
             std::cout << std::format( "{}\t{:.6f}\t{:.6f}\t{:.6f}", i, cuda_val, cpu_val, diff ) << std::endl;
         }
 
+        // Test MLP with ComputePrecision
+        std::cout << "\n---------------------------------------------------" << std::endl;
+        std::cout << "Testing MLP with ComputePrecision..." << std::endl;
+
+        // Define a simple MLP for testing
+        std::vector<size_t> mlp_input_shape = { 2, 16, 64 };  // Small batch for quick testing
+        size_t mlp_output_channels = 128;
+
+        // Create MLPs with different precision policies
+        auto mlp_auto = std::make_shared<CudaMLP<float>>(
+            "mlp_auto", "CUDA:0", mlp_input_shape, mlp_output_channels,
+            true, false, ComputePrecision::Policy::Auto );
+
+        auto mlp_perf = std::make_shared<CudaMLP<float>>(
+            "mlp_perf", "CUDA:0", mlp_input_shape, mlp_output_channels,
+            true, false, ComputePrecision::Policy::Performance );
+
+        std::cout << "Created MLP instances with different precision policies" << std::endl;
+        std::cout << "Auto precision MLP info: " << std::endl;
+        std::cout << mlp_auto->toString() << std::endl;
+
+        std::cout << "Performance precision MLP info: " << std::endl;
+        std::cout << mlp_perf->toString() << std::endl;
 
     }
     catch ( const std::exception& e ) {
