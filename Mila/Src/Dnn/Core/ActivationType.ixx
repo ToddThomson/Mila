@@ -7,7 +7,7 @@ module;
 #include <string>
 #include <stdexcept>
 
-export module Dnn.ActivationTypes;
+export module Dnn.ActivationType;
 
 namespace Mila::Dnn
 {
@@ -21,7 +21,7 @@ namespace Mila::Dnn
     {
         None,       ///< No activation (identity function)
         Relu,       ///< Rectified Linear Unit: max(0, x)
-        Gelu,       ///< Gaussian Error Linear Unit: x * ?(x) where ? is the standard Gaussian CDF
+        Gelu,       ///< Gaussian Error Linear Unit: x * phi(x) where phi() is the standard Gaussian CDF
         Silu,       ///< Sigmoid Linear Unit (Swish): x * sigmoid(x)
         Tanh,       ///< Hyperbolic Tangent: tanh(x)
         Sigmoid,    ///< Sigmoid function: 1 / (1 + exp(-x))

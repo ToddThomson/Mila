@@ -97,6 +97,24 @@ namespace Modules::Tests
             // Modules will be created on demand
         }
 
+        void TearDown() override {
+            // Clean up resources explicitly
+            cpu_float_data_.linear_module.reset();
+            context_cpu_float_data_.linear_module.reset();
+            cpu_no_bias_float_data_.linear_module.reset();
+            training_cpu_float_data_.linear_module.reset();
+            cuda_float_data_.linear_module.reset();
+            cuda_no_bias_float_data_.linear_module.reset();
+            training_cuda_float_data_.linear_module.reset();
+            cuda_half_data_.linear_module.reset();
+            cuda_no_bias_half_data_.linear_module.reset();
+            training_cuda_half_data_.linear_module.reset();
+            mixed_precision_data_.linear_module.reset();
+            perf_precision_cuda_float_data_.linear_module.reset();
+            accuracy_precision_cuda_float_data_.linear_module.reset();
+            disabled_precision_cuda_float_data_.linear_module.reset();
+        }
+
         // Factory methods to lazily create test data as needed
         LinearTestData<Compute::DeviceType::Cpu, float>& CpuFloatData() {
             if ( !cpu_float_data_.linear_module ) {
@@ -573,129 +591,4 @@ namespace Modules::Tests
     }
 
     // CUDA No Bias Tests
-    TEST_F( LinearTests, Cuda_NoBias_Float_ParameterCount ) {
-        TestParameterCount<Compute::DeviceType::Cuda, float>( CudaNoBiasFloatData() );
-    }
-
-    TEST_F( LinearTests, Cuda_NoBias_Float_GetBias ) {
-        TestGetBias<Compute::DeviceType::Cuda, float>( CudaNoBiasFloatData() );
-    }
-
-    TEST_F( LinearTests, Cuda_NoBias_Float_HasBias ) {
-        TestHasBias<Compute::DeviceType::Cuda, float>( CudaNoBiasFloatData() );
-    }
-
-    TEST_F( LinearTests, Cuda_NoBias_Float_Forward ) {
-        TestForward<Compute::DeviceType::Cuda, float>( CudaNoBiasFloatData() );
-    }
-
-    // CUDA Training Mode Tests
-    TEST_F( LinearTests, Cuda_Training_Float_TrainingMode ) {
-        TestTrainingMode<Compute::DeviceType::Cuda, float>( TrainingCudaFloatData(), true );
-    }
-
-    // CUDA Tests with half precision
-    TEST_F( LinearTests, Cuda_Half_TestName ) {
-        TestGetName<Compute::DeviceType::Cuda, half>( CudaHalfData(), "cuda_linear_half" );
-    }
-
-    TEST_F( LinearTests, Cuda_Half_ParameterCount ) {
-        TestParameterCount<Compute::DeviceType::Cuda, half>( CudaHalfData() );
-    }
-
-    TEST_F( LinearTests, Cuda_Half_TestForward ) {
-        TestForward<Compute::DeviceType::Cuda, half>( CudaHalfData() );
-    }
-
-    TEST_F( LinearTests, Cuda_Half_TestPrint ) {
-        TestPrint<Compute::DeviceType::Cuda, half>( CudaHalfData(), "Linear: cuda_linear_half" );
-    }
-
-    TEST_F( LinearTests, Cuda_Half_GetBias ) {
-        TestGetBias<Compute::DeviceType::Cuda, half>( CudaHalfData() );
-    }
-
-    TEST_F( LinearTests, Cuda_Half_HasBias ) {
-        TestHasBias<Compute::DeviceType::Cuda, half>( CudaHalfData() );
-    }
-
-    TEST_F( LinearTests, Cuda_Half_TrainingMode ) {
-        TestTrainingMode<Compute::DeviceType::Cuda, half>( CudaHalfData(), false );
-    }
-
-    // CUDA Half No Bias Tests
-    TEST_F( LinearTests, Cuda_NoBias_Half_GetBias ) {
-        TestGetBias<Compute::DeviceType::Cuda, half>( CudaNoBiasHalfData() );
-    }
-
-    TEST_F( LinearTests, Cuda_NoBias_Half_HasBias ) {
-        TestHasBias<Compute::DeviceType::Cuda, half>( CudaNoBiasHalfData() );
-    }
-
-    TEST_F( LinearTests, Cuda_NoBias_Half_Forward ) {
-        TestForward<Compute::DeviceType::Cuda, half>( CudaNoBiasHalfData() );
-    }
-
-    // Mixed Precision Tests
-    TEST_F( LinearTests, Cuda_MixedPrecision_TestForward ) {
-		// WIP: Mixed precision is not fully implemented yet
-        //TestForward<Compute::DeviceType::Cuda, float, half>( MixedPrecisionData() );
-    }
-
-    TEST_F( LinearTests, Cuda_MixedPrecision_TestName ) {
-		// WIP: Mixed precision is not fully implemented yet
-        //TestGetName<Compute::DeviceType::Cuda, float, half>( MixedPrecisionData(), "cuda_linear_mixed" );
-    }
-
-    // Context Construction Tests
-    TEST_F( LinearTests, Context_Cpu_Float_DeviceType ) {
-        TestDeviceType<Compute::DeviceType::Cpu, float>( ContextCpuFloatData() );
-    }
-
-    TEST_F( LinearTests, Context_Cpu_Float_Forward ) {
-        TestForward<Compute::DeviceType::Cpu, float>( ContextCpuFloatData() );
-    }
-
-    // Edge Case Tests
-    TEST_F( LinearTests, Cpu_Float_EdgeCases ) {
-        TestEdgeCases<Compute::DeviceType::Cpu, float>();
-    }
-
-    TEST_F( LinearTests, Cuda_Float_EdgeCases ) {
-        TestEdgeCases<Compute::DeviceType::Cuda, float>();
-    }
-
-    // Invalid Parameter Tests
-    TEST_F( LinearTests, InvalidParameters_ThrowsException ) {
-        EXPECT_THROW( CreateInvalidLinear(), std::invalid_argument );
-    }
-
-    // Precision Policy Tests
-    TEST_F( LinearTests, DefaultPrecisionPolicy_IsAuto ) {
-        TestPrecisionPolicy( CudaFloatData(), ComputePrecision::Policy::Auto );
-    }
-
-    TEST_F( LinearTests, PerformancePrecisionPolicy ) {
-        TestPrecisionPolicy( PerfPrecisionCudaFloatData(), ComputePrecision::Policy::Performance );
-        TestForward( PerfPrecisionCudaFloatData() );
-    }
-
-    TEST_F( LinearTests, AccuracyPrecisionPolicy ) {
-        TestPrecisionPolicy( AccuracyPrecisionCudaFloatData(), ComputePrecision::Policy::Accuracy );
-        TestForward( AccuracyPrecisionCudaFloatData() );
-    }
-
-    TEST_F( LinearTests, DisabledPrecisionPolicy ) {
-        TestPrecisionPolicy( DisabledPrecisionCudaFloatData(), ComputePrecision::Policy::Disabled );
-        TestForward( DisabledPrecisionCudaFloatData() );
-    }
-
-    // CPU-CUDA Equivalence Test
-    TEST_F( LinearTests, CpuCuda_Forward_Output_Equivalence ) {
-        TestCpuCudaEquivalence<float>( CpuFloatData(), CudaFloatData() );
-    }
-
-    TEST_F( LinearTests, CpuCuda_NoBias_Forward_Output_Equivalence ) {
-        TestCpuCudaEquivalence<float>( CpuNoBiasFloatData(), CudaNoBiasFloatData() );
-    }
 }

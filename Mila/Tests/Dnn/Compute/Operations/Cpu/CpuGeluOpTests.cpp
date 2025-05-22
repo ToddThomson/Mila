@@ -89,6 +89,49 @@ namespace Operations::Tests
     }
 
     /**
+     * @brief Test that CPU operations always use full precision
+     */
+    TEST_F( CpuGeluOpTests, PrecisionPolicy ) {
+        // Create multiple instances of CpuGeluOp
+        auto gelu1 = std::make_shared<CpuGeluOp>();
+        auto gelu2 = std::make_shared<CpuGeluOp>();
+        auto gelu3 = std::make_shared<CpuGeluOp>();
+
+        // All should work the same since CPU ops always use full precision
+        Tensor<float, HostMemoryResource> input( small_shape_ );
+        Tensor<float, HostMemoryResource> output1( small_shape_ );
+        Tensor<float, HostMemoryResource> output2( small_shape_ );
+        Tensor<float, HostMemoryResource> output3( small_shape_ );
+
+        // Initialize input
+        for ( size_t i = 0; i < input.size(); ++i ) {
+            input.data()[ i ] = (static_cast<float>( i ) - 10.0f) / 10.0f;
+        }
+
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> params;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state1;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state2;
+        std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state3;
+        OperationAttributes props;
+
+        // Execute with different instances
+        ASSERT_NO_THROW( gelu1->forward( input, params, props, output1, output_state1 ) );
+        ASSERT_NO_THROW( gelu2->forward( input, params, props, output2, output_state2 ) );
+        ASSERT_NO_THROW( gelu3->forward( input, params, props, output3, output_state3 ) );
+
+        // Results should be identical 
+        for ( size_t i = 0; i < output1.size(); ++i ) {
+            EXPECT_FLOAT_EQ( output1.data()[ i ], output2.data()[ i ] );
+            EXPECT_FLOAT_EQ( output1.data()[ i ], output3.data()[ i ] );
+        }
+
+        // Verify precision policy is always disabled
+        EXPECT_FALSE( gelu1->isMixedPrecisionEnabled() );
+        EXPECT_FALSE( gelu2->isMixedPrecisionEnabled() );
+        EXPECT_FALSE( gelu3->isMixedPrecisionEnabled() );
+    }
+
+    /**
      * @brief Test basic functionality of CpuGeluOp
      */
     TEST_F( CpuGeluOpTests, BasicFunctionality ) {
@@ -296,8 +339,8 @@ namespace Operations::Tests
     }
 
     /**
- * @brief Test error handling for device type mismatch
- */
+     * @brief Test error handling for device type mismatch
+     */
     TEST_F( CpuGeluOpTests, DeviceTypeMismatch ) {
         // Try to create with CUDA:0 if available, otherwise skip the test
         try {
@@ -310,6 +353,14 @@ namespace Operations::Tests
         }
     }
 
+    /**
+     * @brief Test constructors
+     */
+    TEST_F( CpuGeluOpTests, Constructors ) {
+        // CPU operations should work with both constructor forms
+        ASSERT_NO_THROW( CpuGeluOp() );
+        ASSERT_NO_THROW( CpuGeluOp( cpu_context_ ) );
+    }
 
     /**
      * @brief Test performance with large input

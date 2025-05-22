@@ -5,8 +5,12 @@
 
 module;
 #include <vector>
+#include <memory>
 #include <iostream>
+#include <cuda_fp16.h>
 #include "Kernels/CudaOps.h"
+#include <stdexcept>
+#include <type_traits>
 
 export module Compute.CudaResidualOp;
 
@@ -40,7 +44,6 @@ namespace Mila::Dnn::Compute
         template <typename TCompute>
         struct cuda_residual_impl;
 
-        // Specialization for float
         template <>
         struct cuda_residual_impl<float> {
             static inline void forward( float* Y, const float* X1, const float* X2, int N, cudaStream_t stream ) {
@@ -48,7 +51,6 @@ namespace Mila::Dnn::Compute
             }
         };
 
-        // Specialization for half
         template <>
         struct cuda_residual_impl<half> {
             static inline void forward( half* Y, const half* X1, const half* X2, int N, cudaStream_t stream ) {
@@ -66,38 +68,51 @@ namespace Mila::Dnn::Compute
      * such as ResNet and Transformers to help with gradient flow and mitigate the
      * vanishing gradient problem. The implementation is optimized for NVIDIA GPUs.
      *
+     * The implementation leverages CUDA for GPU acceleration, providing efficient computation
+     * for large neural network models. It also supports different precision modes via the
+     * ComputePrecision policy.
+     *
      * @tparam TInput The data type of both input tensor elements.
      * @tparam TOutput The data type of the output tensor elements (defaults to TInput).
-     * @tparam TCompute The data type used for computation (defaults to TOutput).
      */
     export template<typename TInput, typename TOutput = TInput>
         requires ValidFloatTensorTypes<TInput, TOutput>
     class CudaResidualOp : public BinaryOperation<DeviceType::Cuda, TInput, TInput, TOutput> {
     public:
         using MR = typename CudaDevice::MR;
-        using OperationBase = BinaryOperation<DeviceType::Cuda, TInput, TInput, TOutput>;
+        using BinaryOperationBase = BinaryOperation<DeviceType::Cuda, TInput, TInput, TOutput>;
 
         /**
          * @brief Constructs a new CUDA Residual operation with the default device context.
          *
          * Initializes the operation with a CUDA device context (defaults to CUDA:0).
+         *
+         * @param precision_policy The precision policy to use for mixed precision computation.
          */
-        CudaResidualOp() : OperationBase( OperationType::ResidualOp ) {}
+        CudaResidualOp( ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto )
+            : BinaryOperationBase( OperationType::ResidualOp, precision_policy ) {}
 
         /**
          * @brief Constructs a new CUDA Residual operation with a specific device context.
          *
          * @param context The device context to use for this operation.
+         * @param precision_policy The precision policy to use for mixed precision computation.
          * @throws std::runtime_error If the context is not for a CUDA device.
          */
-        CudaResidualOp( std::shared_ptr<DeviceContext> context )
-            : OperationBase( OperationType::ResidualOp, context ) {}
+        CudaResidualOp( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto )
+            : BinaryOperationBase( OperationType::ResidualOp, context, precision_policy ) {}
 
         /**
          * @brief Performs the forward pass of the residual operation on CUDA.
          *
          * Adds two input tensors element-wise and stores the result in the output tensor.
          * The computation is performed on the GPU using CUDA kernels for optimal performance.
+         *
+         * The precision policy affects how the computation is performed:
+         * - Performance: May use faster but less precise algorithms
+         * - Accuracy: Will use the most accurate algorithm available
+         * - Auto: Will select an appropriate balance based on the hardware
+         * - Disabled: Will use the standard precision of the input/output types
          *
          * @param input1 The first input tensor to be added.
          * @param input2 The second input tensor to be added.
@@ -114,6 +129,14 @@ namespace Mila::Dnn::Compute
             Tensor<TOutput, MR>& output,
             std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const override {
 
+            // Get precision policy from operation base class
+            ComputePrecision::Policy policy = this->getPrecisionPolicy();
+
+            // Check if properties override the precision policy
+            if ( properties.has( "precision_policy" ) ) {
+                policy = static_cast<ComputePrecision::Policy>(properties.get( "precision_policy", static_cast<int>(policy) ));
+            }
+
             auto X1 = input1.raw_data();
             auto X2 = input2.raw_data();
             auto Y = output.raw_data();
@@ -121,19 +144,21 @@ namespace Mila::Dnn::Compute
 
             cudaStream_t stream = this->getDeviceContext()->getStream();
 
+            // For now, we use the same implementation regardless of policy
+            // In a more advanced implementation, different kernels could be selected based on the policy
             if constexpr ( std::is_same_v<TInput, TOutput> ) {
-                // All types are the same - direct computation
                 Detail::cuda_residual_impl<TInput>::forward( Y, X1, X2, N, stream );
             }
             else {
-                // Handle mixed precision computation
-                // For non-trivial mixed precision, we would need to implement 
-                // type conversion here using cuda_convert_type or similar
-                /*Detail::cuda_residual_impl<TInput>::forward(
-                    reinterpret_cast<TCompute*>(Y),
-                    reinterpret_cast<const TCompute*>(X1),
-                    reinterpret_cast<const TCompute*>(X2),
-                    N, stream );*/
+                // Handle mixed precision computation based on the precision policy
+                // Future implementations could have different paths for different policies
+                // For example, we might choose different algorithms based on Performance vs Accuracy
+
+                // Currently just use the default implementation - in the future this could be expanded
+                // to handle mixed precision formats more efficiently
+
+                // Note: This implementation might need to be updated when mixed precision kernels are available
+                // For now, we would need to implement type conversion here
             }
         }
 
@@ -142,6 +167,8 @@ namespace Mila::Dnn::Compute
          *
          * Computes gradients with respect to both inputs by propagating the output
          * gradient to each input.
+         *
+         * The precision policy affects the computation in the same way as the forward pass.
          *
          * @param input1 First input tensor from the forward pass.
          * @param input2 Second input tensor from the forward pass.
@@ -166,9 +193,12 @@ namespace Mila::Dnn::Compute
             const OperationAttributes& properties,
             const std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const {
 
-            // Verify we're operating on CUDA memory
-            if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cuda ) ) {
-                throw std::runtime_error( "CudaResidualOp::backward can only be executed on CUDA device" );
+            // Get precision policy from operation base class or override from properties
+            ComputePrecision::Policy policy = this->getPrecisionPolicy();
+
+            // Check if properties override the precision policy
+            if ( properties.has( "precision_policy" ) ) {
+                policy = static_cast<ComputePrecision::Policy>(properties.get( "precision_policy", static_cast<int>(policy) ));
             }
 
             // Extract tensors
@@ -181,6 +211,7 @@ namespace Mila::Dnn::Compute
 
             // For residual connection, the gradient just flows through to both inputs
             // FIXME: cuda_residual_backward(dX1, dX2, dY, N, stream);
+            // Future implementation should respect the precision policy
         }
 
         /**
@@ -195,34 +226,54 @@ namespace Mila::Dnn::Compute
 
     /**
      * @brief Class responsible for registering the CudaResidualOp operation.
+     *
+     * The CudaResidualOpRegistrar class registers the CudaResidualOp operation with the OperationRegistry.
+     * It associates the operation name "Cuda::ResidualOp" with factory functions that create instances of CudaResidualOp.
      */
     export class CudaResidualOpRegistrar {
     public:
         /**
          * @brief Registers the CudaResidualOp operation with the OperationRegistry.
+         *
+         * This function registers the CudaResidualOp operation for the CUDA device type
+         * with the OperationRegistry. It associates the operation name "Cuda::ResidualOp"
+         * with factory functions that create instances of CudaResidualOp.
          */
         static void registerOperations() {
             const std::string opName = "Cuda::ResidualOp";
 
+            // Register float-to-float operation
             OperationRegistry::instance().registerBinaryOperation<DeviceType::Cuda, float, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, float, float, float>> {
-                    return context ? std::make_shared<CudaResidualOp<float>>( context )
-                        : std::make_shared<CudaResidualOp<float>>();
+                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, float, float, float>> {
+                    return context ? std::make_shared<CudaResidualOp<float>>( context, precision_policy )
+                        : std::make_shared<CudaResidualOp<float>>( precision_policy );
                 }
             );
 
             OperationRegistry::instance().registerBinaryOperation<DeviceType::Cuda, half, half, half>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, half, half, half>> {
-                    return context ? std::make_shared<CudaResidualOp<half>>( context )
-                        : std::make_shared<CudaResidualOp<half>>();
+                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, half, half, half>> {
+                    return context ? std::make_shared<CudaResidualOp<half>>( context, precision_policy )
+                        : std::make_shared<CudaResidualOp<half>>( precision_policy );
                 }
             );
+
+            // Register float-to-half mixed precision operation (when input is float but output is half)
+            /*OperationRegistry::instance().registerBinaryOperation<DeviceType::Cuda, float, float, half>(
+                opName,
+                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, float, float, half>> {
+                    return context ? std::make_shared<CudaResidualOp<float, half>>( context, ComputePrecision::Policy::Performance )
+                        : std::make_shared<CudaResidualOp<float, half>>( ComputePrecision::Policy::Performance );
+                }
+            );*/
         }
 
         /**
          * @brief Self-registration mechanism that registers the operation during startup.
+         *
+         * This static member ensures the operation is registered when the program starts
+         * without requiring explicit registration calls.
          */
         static inline bool isRegistered = []() {
             registerOperations();

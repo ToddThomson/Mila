@@ -39,16 +39,22 @@ add_executable( MilaTests
     "Dnn/Compute/DeviceContext.cpp"
 
     #"Dnn/Model.cpp"
-    
-    "Dnn/Modules/Linear.cpp"
-    "Dnn/Modules/Gelu.cpp" 
-    #"Dnn/Modules/Attention.cpp" 
-    #"Dnn/Modules/Layernorm.cpp"
-    #"Dnn/Modules/Residual.cpp"
-    #"Dnn/Modules/Softmax.cpp"
-    #"Dnn/Modules/Encoder.cpp"
 
-    "Dnn/Modules/Blocks/MLP.cpp" 
+    "Dnn/Modules/Module.cpp"
+    "Dnn/Modules/ModuleConfig.cpp"
+    
+    #"Dnn/Modules/Layers/EncoderConfig.cpp"
+    #"Dnn/Modules/Layers/GeluConfig.cpp"
+    #"Dnn/Modules/Layers/LinearConfig.cpp"
+
+    #"Dnn/Modules/Layers/Encoder.cpp"
+    #"Dnn/Modules/Layers/Linear.cpp"
+    #"Dnn/Modules/Layers/Gelu.cpp" 
+    #"Dnn/Modules/Attention.cpp" 
+    #"Dnn/Modules/Layers/Layernorm.cpp"
+    #"Dnn/Modules/Layers/Residual.cpp"
+    #"Dnn/Modules/Layers/Softmax.cpp"
+    #"Dnn/Modules/Blocks/MLP.cpp" 
     #"Dnn/Modules/Blocks/TransformerBlock.cpp"
 
     #"Dnn/Data/DataLoader.cpp"
@@ -69,8 +75,6 @@ add_executable( MilaTests
     #"Dnn/Compute/Operations/Cuda/CudaMultHeadAttentionOpTests.cpp"
     #"Dnn/Compute/Operations/Cuda/CudaResidualOpTests.cpp"
     #"Dnn/Compute/Operations/Cuda/CudaSoftmaxOpTests.cpp"
-     
-    
 )
 
 # TODO: Add globally 

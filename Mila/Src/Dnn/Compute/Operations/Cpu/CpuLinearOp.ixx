@@ -1,5 +1,5 @@
 /**
- * @file CpuFullyConnectedOp.ixx
+ * @file CpuLinearOp.ixx
  * @brief Implementation of the CPU-based Fully Connected operation for neural networks.
  */
 
@@ -13,7 +13,7 @@ module;
 #include <omp.h>
 #endif
 
-export module Compute.CpuFullyConnectedOp;
+export module Compute.CpuLinearOp;
 
 import Dnn.Tensor;
 import Compute.OperationBase;
@@ -26,6 +26,7 @@ import Compute.OperationAttributes;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CpuDevice;
+import Compute.Precision;
 
 namespace Mila::Dnn::Compute
 {
@@ -45,32 +46,35 @@ namespace Mila::Dnn::Compute
      * @tparam float The data type of the input tensor elements.
      * @tparam TDataType The data type used for computation and output (defaults to the input type).
      */
-    export class CpuFullyConnectedOp : public UnaryOperation<DeviceType::Cpu, float> {
+    export class CpuLinearOp : public UnaryOperation<DeviceType::Cpu, float> {
     public:
         using MR = typename CpuDevice::MR;
-		using OperationBase = UnaryOperation<DeviceType::Cpu, float>;
+        using OperationBase = UnaryOperation<DeviceType::Cpu, float>;
 
         /**
          * @brief Constructs a new CPU Fully Connected operation with the default device context.
          *
-         * Initializes the operation with the CPU device type.
+         * CPU operations always use full precision regardless of policy settings.
+         *
+         * @param precision_policy Ignored for CPU operations, as they always use full precision.
          */
-        CpuFullyConnectedOp() : OperationBase( OperationType::LinearOp ) {
-
-        }
+        CpuLinearOp()
+            : OperationBase( OperationType::LinearOp, ComputePrecision::Policy::Disabled ) {}
 
         /**
          * @brief Constructs a new CPU Fully Connected operation with a specific device context.
          *
+         * CPU operations always use full precision regardless of policy settings.
+         *
          * @param context The device context to use for this operation.
+         * @param precision_policy Ignored for CPU operations, as they always use full precision.
          * @throws std::runtime_error If the context is not for a CPU device.
          */
-        CpuFullyConnectedOp( std::shared_ptr<DeviceContext> context )
-            : OperationBase( OperationType::LinearOp, context ) {
-        }
+        CpuLinearOp( std::shared_ptr<DeviceContext> context )
+            : OperationBase( OperationType::LinearOp, context, ComputePrecision::Policy::Disabled ) {}
 
         /**
-         * @brief Performs the forward pass of the Fully Connected operation.
+         * @brief Performs the forward pass of the Linear operation.
          *
          * Computes the matrix multiplication between input and weights, adds bias if provided,
          * and stores the result in the output tensor. Uses loop unrolling for performance optimization
@@ -89,8 +93,13 @@ namespace Mila::Dnn::Compute
             Tensor<float, MR>& output,
             std::vector<std::shared_ptr<Tensor<float, MR>>>& output_state ) const override {
 
-			auto outer_dims = input.rank() - 1;
-            
+            // Verify we're operating on CPU memory
+            if ( this->getDeviceContext()->getDevice()->getDeviceType() != DeviceType::Cpu ) {
+                throw std::runtime_error( "CpuLinearOp::forward can only be executed on CPU memory" );
+            }
+
+            auto outer_dims = input.rank() - 1;
+
             if ( outer_dims <= 0 ) {
                 throw std::runtime_error( "LinearOp requires input tensor with at least 2 dimensions" );
             }
@@ -104,7 +113,7 @@ namespace Mila::Dnn::Compute
             if ( parameters.size() == 2 ) {
                 bias = parameters[ 1 ];
             }
-            
+
             int C = input.shape().back();
             int OC = output.shape().back();
 
@@ -164,47 +173,52 @@ namespace Mila::Dnn::Compute
          */
         void backward(
             Tensor<float, MR>& input_grad,
-			const std::vector<std::shared_ptr<Tensor<float, MR>>>& parameter_grads,
-            const Tensor<float,MR>& output_grad,
-            const Tensor<float,MR> input,
-            const Tensor<float,MR> weight,
+            const std::vector<std::shared_ptr<Tensor<float, MR>>>& parameter_grads,
+            const Tensor<float, MR>& output_grad,
+            const Tensor<float, MR> input,
+            const Tensor<float, MR> weight,
             int B, int T, int C, int OC ) {
 
-        //#pragma omp parallel for collapse(2)
-        //    for ( int b = 0; b < B; b++ ) {
-        //        for ( int t = 0; t < T; t++ ) {
-        //            const float* dout_bt = output_grad + b * T * OC + t * OC;
-        //            float* dinp_bt = input_grad + b * T * C + t * C;
-        //            for ( int o = 0; o < OC; o++ ) {
-        //                const float* wrow = weight + o * C;
-        //                float d = dout_bt[ o ];
-        //                for ( int i = 0; i < C; i++ ) {
-        //                    dinp_bt[ i ] += wrow[ i ] * d;
-        //                }
-        //            }
-        //        }
-        //    }
-        //#pragma omp parallel for
-        //    for ( int o = 0; o < OC; o++ ) {
-        //        for ( int b = 0; b < B; b++ ) {
-        //            for ( int t = 0; t < T; t++ ) {
-        //                const float* dout_bt = output_grad + b * T * OC + t * OC;
-        //                const float* inp_bt = input + b * T * C + t * C;
-        //                float* dwrow = weight_grad + o * C;
-        //                float d = dout_bt[ o ];
-        //                if ( dbias_grad != NULL ) { dbias[ o ] += d; }
-        //                for ( int i = 0; i < C; i++ ) {
-        //                    dwrow[ i ] += inp_bt[ i ] * d;
-        //                }
-        //            }
-        //        }
-        //    }
+            // Verify we're operating on CPU memory
+            if ( this->getDeviceContext()->getDevice()->getDeviceType() != DeviceType::Cpu ) {
+                throw std::runtime_error( "CpuLinearOp::backward can only be executed on CPU memory" );
+            }
+
+            //#pragma omp parallel for collapse(2)
+            //    for ( int b = 0; b < B; b++ ) {
+            //        for ( int t = 0; t < T; t++ ) {
+            //            const float* dout_bt = output_grad + b * T * OC + t * OC;
+            //            float* dinp_bt = input_grad + b * T * C + t * C;
+            //            for ( int o = 0; o < OC; o++ ) {
+            //                const float* wrow = weight + o * C;
+            //                float d = dout_bt[ o ];
+            //                for ( int i = 0; i < C; i++ ) {
+            //                    dinp_bt[ i ] += wrow[ i ] * d;
+            //                }
+            //            }
+            //        }
+            //    }
+            //#pragma omp parallel for
+            //    for ( int o = 0; o < OC; o++ ) {
+            //        for ( int b = 0; b < B; b++ ) {
+            //            for ( int t = 0; t < T; t++ ) {
+            //                const float* dout_bt = output_grad + b * T * OC + t * OC;
+            //                const float* inp_bt = input + b * T * C + t * C;
+            //                float* dwrow = weight_grad + o * C;
+            //                float d = dout_bt[ o ];
+            //                if ( dbias_grad != NULL ) { dbias[ o ] += d; }
+            //                for ( int i = 0; i < C; i++ ) {
+            //                    dwrow[ i ] += inp_bt[ i ] * d;
+            //                }
+            //            }
+            //        }
+            //    }
         }
 
         /**
          * @brief Gets the name of this operation.
          *
-         * @return std::string The name of the operation ("Cpu::FullyConnectedOp").
+         * @return std::string The name of the operation ("Cpu::LinearOp").
          */
         std::string getName() const override {
             return "Cpu::LinearOp";
@@ -248,29 +262,29 @@ namespace Mila::Dnn::Compute
     };
 
     /**
-     * @brief Class responsible for registering the CpuFullyConnectedOp operation.
+     * @brief Class responsible for registering the CpuLinearOp operation.
      *
-     * The CpuFullyConnectedOpRegistrar class registers the CpuFullyConnectedOp operation with the OperationRegistry.
-     * It associates the operation name "Cpu::FullyConnectedOp" with a factory function that creates
-     * instances of CpuFullyConnectedOp.
+     * The CpuLinearOpRegistrar class registers the CpuLinearOp operation with the OperationRegistry.
+     * It associates the operation name "Cpu::LinearOp" with a factory function that creates
+     * instances of CpuLinearOp.
      */
-    export class CpuFullyConnectedOpRegistrar {
+    export class CpuLinearOpRegistrar {
     public:
         /**
-         * @brief Registers the CpuFullyConnectedOp operation with the OperationRegistry.
+         * @brief Registers the CpuLinearOp operation with the OperationRegistry.
          *
-         * This function registers the CpuFullyConnectedOp operation for the CPU device type
-         * with the OperationRegistry. It associates the operation name "Cpu::FullyConnectedOp"
-         * with a factory function that creates instances of CpuFullyConnectedOp.
+         * This function registers the CpuLinearOp operation for the CPU device type
+         * with the OperationRegistry. It associates the operation name "Cpu::LinearOp"
+         * with a factory function that creates instances of CpuLinearOp.
          */
         static void registerOperations() {
             const std::string opName = "Cpu::LinearOp";
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float>> {
-                    return context ? std::make_shared<CpuFullyConnectedOp>( context )
-                        : std::make_shared<CpuFullyConnectedOp>();
+                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float>> {
+                    return context ? std::make_shared<CpuLinearOp>( context )
+                        : std::make_shared<CpuLinearOp>();
                 }
             );
         }

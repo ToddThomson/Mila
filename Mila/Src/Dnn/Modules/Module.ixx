@@ -15,6 +15,7 @@ module;
 #include <format>
 
 export module Dnn.Module;
+export import :Config;
 
 import Dnn.Tensor;
 import Dnn.TensorTraits;

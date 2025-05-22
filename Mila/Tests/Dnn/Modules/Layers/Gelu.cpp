@@ -2,7 +2,7 @@
 #include <memory>
 #include <vector>
 #include <string>
-#include <cuda_fp16.h>  // For half type
+#include <cuda_fp16.h>
 
 import Mila;
 
@@ -38,7 +38,7 @@ namespace Modules::Tests
 
             std::string device_str = TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU";
             data.gelu_module = std::make_shared<Gelu<TDevice, TInput, TOutput>>(
-                name, device_str, is_training );
+                name, device_str, ComputePrecision::Policy::Auto, is_training );
 
             return data;
         }
@@ -57,7 +57,7 @@ namespace Modules::Tests
             data.is_training = is_training;
 
             data.gelu_module = std::make_shared<Gelu<TDevice, TInput, TOutput>>(
-                name, context, is_training );
+                name, context, ComputePrecision::Policy::Auto, is_training );
 
             return data;
         }
@@ -72,6 +72,17 @@ namespace Modules::Tests
             sequence_length_ = 1024;
             channels_ = 768;
             // Modules will be created on demand
+        }
+
+        void TearDown() override {
+            // Clean up resources explicitly
+            cpu_float_data_.gelu_module.reset();
+            context_cpu_float_data_.gelu_module.reset();
+            training_cpu_float_data_.gelu_module.reset();
+            cuda_float_data_.gelu_module.reset();
+            training_cuda_float_data_.gelu_module.reset();
+            cuda_half_data_.gelu_module.reset();
+            training_cuda_half_data_.gelu_module.reset();
         }
 
         // Factory methods to lazily create test data as needed
@@ -132,15 +143,6 @@ namespace Modules::Tests
             return training_cuda_half_data_;
         }
 
-        // Test for mixed precision (input float, output half)
-        GeluTestData<Compute::DeviceType::Cuda, float, half>& MixedPrecisionData() {
-            if ( !mixed_precision_data_.gelu_module ) {
-                mixed_precision_data_ = GeluTestData<Compute::DeviceType::Cuda, float, half>::Create(
-                    "cuda_gelu_mixed", batch_size_, sequence_length_, channels_ );
-            }
-            return mixed_precision_data_;
-        }
-
         // Test parameters
         size_t batch_size_{ 0 };
         size_t cpu_batch_size_{ 0 };
@@ -159,7 +161,10 @@ namespace Modules::Tests
         GeluTestData<Compute::DeviceType::Cuda, half> training_cuda_half_data_;
 
         // Mixed precision test data (float input to half output)
-        GeluTestData<Compute::DeviceType::Cuda, float, half> mixed_precision_data_;
+        // REVIEW: TInput != TOutput in the Gelu module doesn't make sense? 
+        // TInput and TOutput should be the same type but I need think through this.
+        // 
+        // GeluTestData<Compute::DeviceType::Cuda, float, half> mixed_precision_data_;
     };
 
     // Common test function templates
@@ -265,8 +270,10 @@ namespace Modules::Tests
             // Test with minimal sizes
             std::vector<size_t> minimal_shape = { 1, 1, 8 };
 
+            // Updated constructor order: name, device_name, precision, is_training
             auto minimal_module = std::make_shared<Gelu<TDevice, TInput, TOutput>>(
-                "minimal_gelu", TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU" );
+                "minimal_gelu", TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU",
+                ComputePrecision::Policy::Auto );
 
             Tensor<TInput, MR> minimal_input( minimal_shape );
             Tensor<TOutput, MR> minimal_output( minimal_shape );
@@ -277,8 +284,10 @@ namespace Modules::Tests
             // Test with larger dimensions
             std::vector<size_t> large_shape = { 2, 2, 1024 };
 
+            // Updated constructor order: name, device_name, precision, is_training
             auto large_module = std::make_shared<Gelu<TDevice, TInput, TOutput>>(
-                "large_gelu", TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU" );
+                "large_gelu", TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU",
+                ComputePrecision::Policy::Auto );
 
             Tensor<TInput, MR> large_input( large_shape );
             Tensor<TOutput, MR> large_output( large_shape );
@@ -375,11 +384,11 @@ namespace Modules::Tests
 
     // Mixed Precision Tests (new in updated module)
     TEST_F( GeluTests, Cuda_MixedPrecision_TestForward ) {
-        TestForward<Compute::DeviceType::Cuda, float, half>( MixedPrecisionData() );
+        // REVIEW: TestForward<Compute::DeviceType::Cuda, float, half>( MixedPrecisionData() );
     }
 
     TEST_F( GeluTests, Cuda_MixedPrecision_TestName ) {
-        TestGetName<Compute::DeviceType::Cuda, float, half>( MixedPrecisionData(), "cuda_gelu_mixed" );
+        // REVIEW: TestGetName<Compute::DeviceType::Cuda, float, half>( MixedPrecisionData(), "cuda_gelu_mixed" );
     }
 
     // Context Construction Tests

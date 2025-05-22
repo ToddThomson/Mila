@@ -13,6 +13,7 @@ module;
 #include <type_traits>
 
 export module Dnn.Modules.Gelu;
+export import :Config;
 
 import Dnn.Module;
 import Dnn.Tensor;
@@ -55,36 +56,21 @@ namespace Mila::Dnn
         using ModuleBase = Module<TDeviceType, TInput, TOutput>; ///< Base class type for the module
 
         /**
-         * @brief Constructs a new Gelu activation module with the default device context.
+         * @brief Construct a new Gelu module from configuration.
          *
-         * @param name The name of the module for identification purposes.
-         * @param device_name The name of the device to use (e.g., "CPU", "CUDA:0").
-         * @param is_training Whether the module is being used in training mode (defaults to false).
-         * @param precision The compute precision policy to use (default is Auto).
+         * @param config The configuration for this module
          */
-        Gelu( std::string name, std::string device_name, bool is_training = false,
-            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
-            : ModuleBase( device_name, precision )
-        {
-            this->setTraining( is_training );
-            this->setName( name );
-            createOperation();
-        }
+        explicit Gelu( const GeluConfig& config )
+            : ModuleBase(
+                config.getContext() ? config.getContext() : std::make_shared<DeviceContext>( config.getDeviceName() ),
+                TDeviceType == DeviceType::Cpu ? ComputePrecision::Policy::Disabled : config.getPrecision() ),
+            approximation_method_( config.getApproximationMethod() ) {
 
-        /**
-         * @brief Constructs a new Gelu activation module with a specific device context.
-         *
-         * @param name The name of the module for identification purposes.
-         * @param context The device context to use for this module.
-         * @param is_training Whether the module is being used in training mode (defaults to false).
-         * @param precision The compute precision policy to use (default is Auto).
-         */
-        Gelu( std::string name, std::shared_ptr<DeviceContext> context, bool is_training = false,
-            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
-            : ModuleBase( context, precision )
-        {
-            this->setTraining( is_training );
-            this->setName( name );
+            config.validate();
+
+            this->setName( config.getName() );
+            this->setTraining( config.isTraining() );
+
             createOperation();
         }
 
@@ -109,6 +95,39 @@ namespace Mila::Dnn
          */
         void forward( const Tensor<TInput, MR>& input, Tensor<TOutput, MR>& output ) {
             operation_->forward( input, parameters_, properties_, output, output_state_ );
+        }
+
+        /**
+         * @brief Performs the backward pass of the GELU activation function.
+         *
+         * Computes the gradient of the GELU function with respect to its input.
+         *
+         * @param input The input tensor from the forward pass.
+         * @param output_grad The gradient of loss with respect to the output.
+         * @param input_grad The tensor to store gradients with respect to input.
+         */
+        void backward(
+            const Tensor<TInput, MR>& input,
+            const Tensor<TOutput, MR>& output_grad,
+            Tensor<TInput, MR>& input_grad ) {
+            operation_->backward(
+                input,           // Input tensor
+                output_grad,     // Gradient from next layer
+                parameters_,     // Empty for GELU
+                {},              // No parameter gradients for GELU
+                input_grad,      // Gradient to propagate to previous layer
+                properties_,     // Operation properties
+                output_state_    // Cached tensors from forward pass
+            );
+        }
+
+        /**
+         * @brief Gets the approximation method used by this GELU module.
+         *
+         * @return GeluConfig::ApproximationMethod The method used to approximate the GELU function.
+         */
+        GeluConfig::ApproximationMethod getApproximationMethod() const {
+            return approximation_method_;
         }
 
         /**
@@ -145,11 +164,18 @@ namespace Mila::Dnn
             oss << "--------------------" << std::endl;
             oss << "Gelu: " << this->getName() << std::endl;
             oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
+            oss << "Approximation Method: " << approximationMethodToString( approximation_method_ ) << std::endl;
+            oss << this->getComputePrecision().toString() << std::endl;
 
             return oss.str();
         }
 
     private:
+        /**
+         * @brief The approximation method used for computing GELU.
+         */
+        GeluConfig::ApproximationMethod approximation_method_ = GeluConfig::ApproximationMethod::Tanh;
+
         /**
          * @brief The parameters for the operation.
          *
@@ -179,6 +205,25 @@ namespace Mila::Dnn
         std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput>> operation_{ nullptr };
 
         /**
+         * @brief Converts the approximation method enum to a string representation.
+         *
+         * @param method The approximation method to convert
+         * @return std::string String representation of the method
+         */
+        static std::string approximationMethodToString( GeluConfig::ApproximationMethod method ) {
+            switch ( method ) {
+                case GeluConfig::ApproximationMethod::Exact:
+                    return "Exact";
+                case GeluConfig::ApproximationMethod::Tanh:
+                    return "Tanh";
+                case GeluConfig::ApproximationMethod::Sigmoid:
+                    return "Sigmoid";
+                default:
+                    return "Unknown";
+            }
+        }
+
+        /**
          * @brief Creates the appropriate GELU operation based on the current device context.
          *
          * This method initializes the operation_ member with the appropriate implementation
@@ -186,19 +231,18 @@ namespace Mila::Dnn
          * It also passes the compute precision policy to the operation.
          */
         void createOperation() {
+            // Set approximation method in operation properties
+            properties_[ "approximation_method" ] = static_cast<int>(approximation_method_);
+
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
                 auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TInput, TOutput>(
-                    "Cpu::GeluOp",
-                    this->getDeviceContext(),
-                    this->getComputePrecision().getPolicy() );
+                    "Cpu::GeluOp", this->getDeviceContext(), ComputePrecision::Policy::Disabled );
 
                 operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cpu, TInput, TOutput>>(base_op);
             }
             else {
                 auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TInput, TOutput>(
-                    "Cuda::GeluOp",
-                    this->getDeviceContext(),
-                    this->getComputePrecision().getPolicy() );
+                    "Cuda::GeluOp", this->getDeviceContext(), this->getComputePrecision().getPolicy() );
 
                 operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cuda, TInput, TOutput>>(base_op);
             }

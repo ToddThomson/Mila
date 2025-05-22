@@ -19,11 +19,11 @@ namespace Modules::Tests
         Compute::HostMemoryResource>;
 
     // Test data structure for Encoder tests
-    template<DeviceType TDevice, typename TInput = int, typename TOutput = float, typename TPrecision = TOutput>
+    template<DeviceType TDevice, typename TInput = int, typename TOutput = float>
     struct EncoderTestData {
         std::vector<size_t> input_shape;
         std::vector<size_t> output_shape;
-        std::shared_ptr<Encoder<TDevice, TInput, TOutput, TPrecision>> encoder_module;
+        std::shared_ptr<Encoder<TDevice, TInput, TOutput>> encoder_module;
         size_t channels;
         size_t max_seq_len;
         size_t vocab_len;
@@ -37,7 +37,8 @@ namespace Modules::Tests
             size_t channels,
             size_t max_seq_len,
             size_t vocab_len,
-            bool is_training = false )
+            bool is_training = false,
+            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
         {
             EncoderTestData data;
             data.input_shape = { batch_size, sequence_length };
@@ -48,8 +49,8 @@ namespace Modules::Tests
             data.is_training = is_training;
 
             std::string device_str = TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU";
-            data.encoder_module = std::make_shared<Encoder<TDevice, TInput, TOutput, TPrecision>>(
-                name, device_str, channels, max_seq_len, vocab_len, is_training );
+            data.encoder_module = std::make_shared<Encoder<TDevice, TInput, TOutput>>(
+                name, device_str, channels, max_seq_len, vocab_len, precision, is_training );
 
             return data;
         }
@@ -63,7 +64,8 @@ namespace Modules::Tests
             size_t max_seq_len,
             size_t vocab_len,
             std::shared_ptr<DeviceContext> context,
-            bool is_training = false )
+            bool is_training = false,
+            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
         {
             EncoderTestData data;
             data.input_shape = { batch_size, sequence_length };
@@ -73,8 +75,8 @@ namespace Modules::Tests
             data.vocab_len = vocab_len;
             data.is_training = is_training;
 
-            data.encoder_module = std::make_shared<Encoder<TDevice, TInput, TOutput, TPrecision>>(
-                name, context, channels, max_seq_len, vocab_len, is_training );
+            data.encoder_module = std::make_shared<Encoder<TDevice, TInput, TOutput>>(
+                name, context, channels, max_seq_len, vocab_len, precision, is_training );
 
             return data;
         }
@@ -103,6 +105,12 @@ namespace Modules::Tests
             cuda_half_data_.encoder_module.reset();
             training_cuda_half_data_.encoder_module.reset();
             mixed_precision_data_.encoder_module.reset();
+            perf_precision_cpu_float_data_.encoder_module.reset();
+            accuracy_precision_cpu_float_data_.encoder_module.reset();
+            disabled_precision_cpu_float_data_.encoder_module.reset();
+            perf_precision_cuda_float_data_.encoder_module.reset();
+            accuracy_precision_cuda_float_data_.encoder_module.reset();
+            disabled_precision_cuda_float_data_.encoder_module.reset();
         }
 
         // Factory methods to lazily create test data as needed
@@ -171,13 +179,75 @@ namespace Modules::Tests
         }
 
         // Test for mixed precision (int input, half output on CUDA)
-        EncoderTestData<Compute::DeviceType::Cuda, int, half, float>& MixedPrecisionData() {
+        EncoderTestData<Compute::DeviceType::Cuda, int, half>& MixedPrecisionData() {
             if ( !mixed_precision_data_.encoder_module ) {
-                mixed_precision_data_ = EncoderTestData<Compute::DeviceType::Cuda, int, half, float>::Create(
+                mixed_precision_data_ = EncoderTestData<Compute::DeviceType::Cuda, int, half>::Create(
                     "cuda_encoder_mixed", batch_size_, sequence_length_,
                     channels_, max_seq_len_, vocab_len_ );
             }
             return mixed_precision_data_;
+        }
+
+        // Tests with specific precision policies - CPU
+        EncoderTestData<Compute::DeviceType::Cpu, int, float>& PerfPrecisionCpuFloatData() {
+            if ( !perf_precision_cpu_float_data_.encoder_module ) {
+                perf_precision_cpu_float_data_ = EncoderTestData<Compute::DeviceType::Cpu, int, float>::Create(
+                    "cpu_encoder_perf_precision", cpu_batch_size_, sequence_length_,
+                    channels_, max_seq_len_, vocab_len_, false,
+                    ComputePrecision::Policy::Performance );
+            }
+            return perf_precision_cpu_float_data_;
+        }
+
+        EncoderTestData<Compute::DeviceType::Cpu, int, float>& AccuracyPrecisionCpuFloatData() {
+            if ( !accuracy_precision_cpu_float_data_.encoder_module ) {
+                accuracy_precision_cpu_float_data_ = EncoderTestData<Compute::DeviceType::Cpu, int, float>::Create(
+                    "cpu_encoder_accuracy_precision", cpu_batch_size_, sequence_length_,
+                    channels_, max_seq_len_, vocab_len_, false,
+                    ComputePrecision::Policy::Accuracy );
+            }
+            return accuracy_precision_cpu_float_data_;
+        }
+
+        EncoderTestData<Compute::DeviceType::Cpu, int, float>& DisabledPrecisionCpuFloatData() {
+            if ( !disabled_precision_cpu_float_data_.encoder_module ) {
+                disabled_precision_cpu_float_data_ = EncoderTestData<Compute::DeviceType::Cpu, int, float>::Create(
+                    "cpu_encoder_disabled_precision", cpu_batch_size_, sequence_length_,
+                    channels_, max_seq_len_, vocab_len_, false,
+                    ComputePrecision::Policy::Disabled );
+            }
+            return disabled_precision_cpu_float_data_;
+        }
+
+        // Tests with specific precision policies - CUDA
+        EncoderTestData<Compute::DeviceType::Cuda, int, float>& PerfPrecisionCudaFloatData() {
+            if ( !perf_precision_cuda_float_data_.encoder_module ) {
+                perf_precision_cuda_float_data_ = EncoderTestData<Compute::DeviceType::Cuda, int, float>::Create(
+                    "cuda_encoder_perf_precision", batch_size_, sequence_length_,
+                    channels_, max_seq_len_, vocab_len_, false,
+                    ComputePrecision::Policy::Performance );
+            }
+            return perf_precision_cuda_float_data_;
+        }
+
+        EncoderTestData<Compute::DeviceType::Cuda, int, float>& AccuracyPrecisionCudaFloatData() {
+            if ( !accuracy_precision_cuda_float_data_.encoder_module ) {
+                accuracy_precision_cuda_float_data_ = EncoderTestData<Compute::DeviceType::Cuda, int, float>::Create(
+                    "cuda_encoder_accuracy_precision", batch_size_, sequence_length_,
+                    channels_, max_seq_len_, vocab_len_, false,
+                    ComputePrecision::Policy::Accuracy );
+            }
+            return accuracy_precision_cuda_float_data_;
+        }
+
+        EncoderTestData<Compute::DeviceType::Cuda, int, float>& DisabledPrecisionCudaFloatData() {
+            if ( !disabled_precision_cuda_float_data_.encoder_module ) {
+                disabled_precision_cuda_float_data_ = EncoderTestData<Compute::DeviceType::Cuda, int, float>::Create(
+                    "cuda_encoder_disabled_precision", batch_size_, sequence_length_,
+                    channels_, max_seq_len_, vocab_len_, false,
+                    ComputePrecision::Policy::Disabled );
+            }
+            return disabled_precision_cuda_float_data_;
         }
 
         // Test parameters
@@ -200,24 +270,34 @@ namespace Modules::Tests
         EncoderTestData<Compute::DeviceType::Cuda, int, half> training_cuda_half_data_;
 
         // Mixed precision test data
-        EncoderTestData<Compute::DeviceType::Cuda, int, half, float> mixed_precision_data_;
+        EncoderTestData<Compute::DeviceType::Cuda, int, half> mixed_precision_data_;
+
+        // Precision policy test data - CPU
+        EncoderTestData<Compute::DeviceType::Cpu, int, float> perf_precision_cpu_float_data_;
+        EncoderTestData<Compute::DeviceType::Cpu, int, float> accuracy_precision_cpu_float_data_;
+        EncoderTestData<Compute::DeviceType::Cpu, int, float> disabled_precision_cpu_float_data_;
+
+        // Precision policy test data - CUDA
+        EncoderTestData<Compute::DeviceType::Cuda, int, float> perf_precision_cuda_float_data_;
+        EncoderTestData<Compute::DeviceType::Cuda, int, float> accuracy_precision_cuda_float_data_;
+        EncoderTestData<Compute::DeviceType::Cuda, int, float> disabled_precision_cuda_float_data_;
     };
 
     // Common test function templates
-    template<DeviceType TDevice, typename TInput = int, typename TOutput = float, typename TPrecision = TOutput>
-    void TestGetName( const EncoderTestData<TDevice, TInput, TOutput, TPrecision>& data, const std::string& expected_name ) {
+    template<DeviceType TDevice, typename TInput = int, typename TOutput = float>
+    void TestGetName( const EncoderTestData<TDevice, TInput, TOutput>& data, const std::string& expected_name ) {
         EXPECT_EQ( data.encoder_module->getName(), expected_name );
     }
 
-    template<DeviceType TDevice, typename TInput = int, typename TOutput = float, typename TPrecision = TOutput>
-    void TestParameterCount( const EncoderTestData<TDevice, TInput, TOutput, TPrecision>& data ) {
+    template<DeviceType TDevice, typename TInput = int, typename TOutput = float>
+    void TestParameterCount( const EncoderTestData<TDevice, TInput, TOutput>& data ) {
         auto num_parameters = /* wte */ (data.vocab_len * data.channels) + /* wpe */ (data.max_seq_len * data.channels);
         EXPECT_EQ( data.encoder_module->parameterCount(), num_parameters );
     }
 
-    template<DeviceType TDevice, typename TInput = int, typename TOutput = float, typename TPrecision = TOutput>
-    void TestForward( const EncoderTestData<TDevice, TInput, TOutput, TPrecision>& data ) {
-        using MR = MemoryResourceType<TDevice, TPrecision>;
+    template<DeviceType TDevice, typename TInput = int, typename TOutput = float>
+    void TestForward( const EncoderTestData<TDevice, TInput, TOutput>& data ) {
+        using MR = MemoryResourceType<TDevice, TOutput>;
 
         Tensor<TInput, MR> input( data.input_shape );
         Tensor<TOutput, MR> output( data.output_shape );
@@ -242,19 +322,19 @@ namespace Modules::Tests
         EXPECT_EQ( output.size(), input.size() * data.channels );
     }
 
-    template<DeviceType TDevice, typename TInput = int, typename TOutput = float, typename TPrecision = TOutput>
-    void TestPrint( const EncoderTestData<TDevice, TInput, TOutput, TPrecision>& data, const std::string& expected_substring ) {
+    template<DeviceType TDevice, typename TInput = int, typename TOutput = float>
+    void TestPrint( const EncoderTestData<TDevice, TInput, TOutput>& data, const std::string& expected_substring ) {
         std::string output = data.encoder_module->toString();
         EXPECT_NE( output.find( expected_substring ), std::string::npos );
     }
 
-    template<DeviceType TDevice, typename TInput = int, typename TOutput = float, typename TPrecision = TOutput>
-    void TestTrainingMode( const EncoderTestData<TDevice, TInput, TOutput, TPrecision>& data, bool expected_mode ) {
+    template<DeviceType TDevice, typename TInput = int, typename TOutput = float>
+    void TestTrainingMode( const EncoderTestData<TDevice, TInput, TOutput>& data, bool expected_mode ) {
         EXPECT_EQ( data.encoder_module->isTraining(), expected_mode );
     }
 
-    template<DeviceType TDevice, typename TInput = int, typename TOutput = float, typename TPrecision = TOutput>
-    void TestDeviceType( const EncoderTestData<TDevice, TInput, TOutput, TPrecision>& data ) {
+    template<DeviceType TDevice, typename TInput = int, typename TOutput = float>
+    void TestDeviceType( const EncoderTestData<TDevice, TInput, TOutput>& data ) {
         auto device_context = data.encoder_module->getDeviceContext();
         EXPECT_NE( device_context, nullptr );
         auto device = device_context->getDevice();
@@ -262,18 +342,43 @@ namespace Modules::Tests
         EXPECT_EQ( device->getDeviceType(), TDevice );
     }
 
-    template<DeviceType TDevice, typename TInput = int, typename TOutput = float, typename TPrecision = TOutput>
-    void TestDimensions( const EncoderTestData<TDevice, TInput, TOutput, TPrecision>& data ) {
+    template<DeviceType TDevice, typename TInput = int, typename TOutput = float>
+    void TestDimensions( const EncoderTestData<TDevice, TInput, TOutput>& data ) {
         EXPECT_EQ( data.encoder_module->getChannels(), data.channels );
         EXPECT_EQ( data.encoder_module->getVocabularyLength(), data.vocab_len );
         EXPECT_EQ( data.encoder_module->getMaxSequenceLength(), data.max_seq_len );
     }
 
+    // New test for precision policy
+    template<DeviceType TDevice, typename TInput = int, typename TOutput = float>
+    void TestPrecisionPolicy( const EncoderTestData<TDevice, TInput, TOutput>& data, ComputePrecision::Policy expected_policy ) {
+        EXPECT_EQ( data.encoder_module->getComputePrecision().getPolicy(), expected_policy );
+
+        // Verify toString() contains precision info
+        std::string output = data.encoder_module->toString();
+        std::string policy_string;
+        switch ( expected_policy ) {
+            case ComputePrecision::Policy::Disabled:
+                policy_string = "Disabled";
+                break;
+            case ComputePrecision::Policy::Performance:
+                policy_string = "Performance";
+                break;
+            case ComputePrecision::Policy::Auto:
+                policy_string = "Auto";
+                break;
+            case ComputePrecision::Policy::Accuracy:
+                policy_string = "Accuracy";
+                break;
+        }
+        EXPECT_NE( output.find( policy_string ), std::string::npos );
+    }
+
     // Function to test equivalence of CPU and CUDA outputs
-    template<typename TInput = int, typename TOutput = float, typename TPrecision = TOutput>
+    template<typename TInput = int, typename TOutput = float>
     void TestCpuCudaEquivalence(
-        const EncoderTestData<Compute::DeviceType::Cpu, TInput, TOutput, TPrecision>& cpu_data,
-        const EncoderTestData<Compute::DeviceType::Cuda, TInput, TOutput, TPrecision>& cuda_data ) {
+        const EncoderTestData<Compute::DeviceType::Cpu, TInput, TOutput>& cpu_data,
+        const EncoderTestData<Compute::DeviceType::Cuda, TInput, TOutput>& cuda_data ) {
 
         try {
             // Check if CUDA is available
@@ -405,9 +510,9 @@ namespace Modules::Tests
     }
 
     // Test edge cases
-    template<DeviceType TDevice, typename TInput = int, typename TOutput = float, typename TPrecision = TOutput>
+    template<DeviceType TDevice, typename TInput = int, typename TOutput = float>
     void TestEdgeCases() {
-        using MR = MemoryResourceType<TDevice, TPrecision>;
+        using MR = MemoryResourceType<TDevice, TOutput>;
         std::string device_str = TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU";
 
         try {
@@ -415,7 +520,7 @@ namespace Modules::Tests
             std::vector<size_t> minimal_input_shape = { 1, 1 };
             std::vector<size_t> minimal_output_shape = { 1, 1, 32 };
 
-            auto minimal_module = std::make_shared<Encoder<TDevice, TInput, TOutput, TPrecision>>(
+            auto minimal_module = std::make_shared<Encoder<TDevice, TInput, TOutput>>(
                 "minimal_encoder", device_str, 32, 16, 100 );
 
             Tensor<TInput, MR> minimal_input( minimal_input_shape );
@@ -545,7 +650,7 @@ namespace Modules::Tests
     // Mixed Precision Tests
     TEST_F( EncoderTests, Cuda_MixedPrecision_TestForward ) {
         try {
-            TestForward<Compute::DeviceType::Cuda, int, half, float>( MixedPrecisionData() );
+            TestForward<Compute::DeviceType::Cuda, int, half>( MixedPrecisionData() );
         }
         catch ( const std::exception& e ) {
             GTEST_SKIP() << "Skipping CUDA mixed precision test due to exception: " << e.what();
@@ -553,7 +658,7 @@ namespace Modules::Tests
     }
 
     TEST_F( EncoderTests, Cuda_MixedPrecision_TestName ) {
-        TestGetName<Compute::DeviceType::Cuda, int, half, float>( MixedPrecisionData(), "cuda_encoder_mixed" );
+        TestGetName<Compute::DeviceType::Cuda, int, half>( MixedPrecisionData(), "cuda_encoder_mixed" );
     }
 
     // Edge Case Tests
@@ -578,5 +683,64 @@ namespace Modules::Tests
     // CUDA Float-Half Precision Comparison
     TEST_F( EncoderTests, Cuda_Float_Half_Precision_Comparison ) {
         TestPrecisionComparison<int>( CudaFloatData(), CudaHalfData() );
+    }
+
+    // ComputePrecision Tests - CPU
+    TEST_F( EncoderTests, Cpu_Float_DefaultPrecisionIsAuto ) {
+        TestPrecisionPolicy<Compute::DeviceType::Cpu, int, float>( CpuFloatData(), ComputePrecision::Policy::Disabled );
+    }
+
+    TEST_F( EncoderTests, Cpu_Float_PerformancePrecision ) {
+        TestPrecisionPolicy<Compute::DeviceType::Cpu, int, float>( PerfPrecisionCpuFloatData(), ComputePrecision::Policy::Disabled );
+    }
+
+    TEST_F( EncoderTests, Cpu_Float_AccuracyPrecision ) {
+        TestPrecisionPolicy<Compute::DeviceType::Cpu, int, float>( AccuracyPrecisionCpuFloatData(), ComputePrecision::Policy::Disabled );
+    }
+
+    TEST_F( EncoderTests, Cpu_Float_DisabledPrecision ) {
+        TestPrecisionPolicy<Compute::DeviceType::Cpu, int, float>( DisabledPrecisionCpuFloatData(), ComputePrecision::Policy::Disabled );
+    }
+
+    // ComputePrecision Tests - CUDA
+    TEST_F( EncoderTests, Cuda_Float_DefaultPrecisionIsAuto ) {
+        TestPrecisionPolicy<Compute::DeviceType::Cuda, int, float>( CudaFloatData(), ComputePrecision::Policy::Auto );
+    }
+
+    TEST_F( EncoderTests, Cuda_Float_PerformancePrecision ) {
+        TestPrecisionPolicy<Compute::DeviceType::Cuda, int, float>( PerfPrecisionCudaFloatData(), ComputePrecision::Policy::Performance );
+    }
+
+    TEST_F( EncoderTests, Cuda_Float_AccuracyPrecision ) {
+        TestPrecisionPolicy<Compute::DeviceType::Cuda, int, float>( AccuracyPrecisionCudaFloatData(), ComputePrecision::Policy::Accuracy );
+    }
+
+    TEST_F( EncoderTests, Cuda_Float_DisabledPrecision ) {
+        TestPrecisionPolicy<Compute::DeviceType::Cuda, int, float>( DisabledPrecisionCudaFloatData(), ComputePrecision::Policy::Disabled );
+    }
+
+    // Type alias tests
+    TEST_F( EncoderTests, TypeAliases ) {
+        // Verify that type aliases work correctly
+        std::string name = "type_alias_test";
+        size_t channels = 32;
+        size_t max_seq_len = 64;
+        size_t vocab_len = 100;
+
+        // CpuEncoder
+        auto cpu_encoder = std::make_shared<CpuEncoder<int, float>>(
+            name, "CPU", channels, max_seq_len, vocab_len );
+        EXPECT_EQ( cpu_encoder->getDeviceContext()->getDevice()->getDeviceType(), DeviceType::Cpu );
+
+        try {
+            // CudaEncoder (only test if CUDA is available)
+            DeviceContext context( "CUDA:0" );
+            auto cuda_encoder = std::make_shared<CudaEncoder<int, float>>(
+                name, "CUDA:0", channels, max_seq_len, vocab_len );
+            EXPECT_EQ( cuda_encoder->getDeviceContext()->getDevice()->getDeviceType(), DeviceType::Cuda );
+        }
+        catch ( const std::exception& ) {
+            GTEST_SKIP() << "CUDA device not available, skipping CUDA type alias test";
+        }
     }
 }

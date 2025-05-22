@@ -110,7 +110,8 @@ namespace Mila::Dnn::Compute
          *
          * Initializes the operation with a CUDA device context (defaults to CUDA:0).
          */
-        CudaSoftmaxOp() : UnaryOperationBase( OperationType::SoftmaxOp ) {}
+        CudaSoftmaxOp( ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto )
+            : UnaryOperationBase( OperationType::SoftmaxOp, precision_policy ) {}
 
         /**
          * @brief Constructs a new CUDA Softmax operation with a specific device context.
@@ -118,8 +119,8 @@ namespace Mila::Dnn::Compute
          * @param context The device context to use for this operation.
          * @throws std::runtime_error If the context is not for a CUDA device.
          */
-        CudaSoftmaxOp( std::shared_ptr<DeviceContext> context )
-            : UnaryOperationBase( OperationType::SoftmaxOp, context ) {
+        CudaSoftmaxOp( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto )
+            : UnaryOperationBase( OperationType::SoftmaxOp, context, precision_policy ) {
         }
 
         /**
@@ -264,20 +265,19 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cuda::SoftmaxOp";
 
-            // Updated to use device context-aware registration
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, float>> {
-                    return context ? std::make_shared<CudaSoftmaxOp<float>>( context )
-                        : std::make_shared<CudaSoftmaxOp<float>>();
+                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, float>> {
+                    return context ? std::make_shared<CudaSoftmaxOp<float>>( context, precision_policy )
+                        : std::make_shared<CudaSoftmaxOp<float>>( precision_policy );
                 }
             );
 
            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, half, half>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half, half>> {
-                    return context ? std::make_shared<CudaSoftmaxOp<half>>( context )
-                        : std::make_shared<CudaSoftmaxOp<half>>();
+                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half, half>> {
+                    return context ? std::make_shared<CudaSoftmaxOp<half>>( context, precision_policy )
+                        : std::make_shared<CudaSoftmaxOp<half>>( precision_policy );
                 }
             );
         }

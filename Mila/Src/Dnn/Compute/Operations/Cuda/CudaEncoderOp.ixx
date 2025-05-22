@@ -89,7 +89,8 @@ namespace Mila::Dnn::Compute
              *
              * Initializes the operation with a CUDA device context (defaults to CUDA:0).
              */
-            CudaEncoderOp() : OperationBase( OperationType::EncoderOp ) {}
+            CudaEncoderOp( ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto )
+                : OperationBase( OperationType::EncoderOp, precision_policy ) {}
 
             /**
              * @brief Constructs a new CUDA Encoder operation with a specific device context.
@@ -97,8 +98,8 @@ namespace Mila::Dnn::Compute
              * @param context The device context to use for this operation.
              * @throws std::runtime_error If the context is not for a CUDA device.
              */
-            CudaEncoderOp( std::shared_ptr<DeviceContext> context )
-                : OperationBase( OperationType::EncoderOp, context ) {
+            CudaEncoderOp( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto )
+                : OperationBase( OperationType::EncoderOp, context, precision_policy ) {
             }
 
             /**
@@ -210,17 +211,17 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, int, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, int, float>> {
-                    return context ? std::make_shared<CudaEncoderOp<float>>( context )
-                        : std::make_shared<CudaEncoderOp<float>>();
+                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, int, float>> {
+                    return context ? std::make_shared<CudaEncoderOp<float>>( context, precision_policy )
+                        : std::make_shared<CudaEncoderOp<float>>( precision_policy );
                 }
             );
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, int, half>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, int, half>> {
-                    return context ? std::make_shared<CudaEncoderOp<half>>( context )
-                        : std::make_shared<CudaEncoderOp<half>>();
+                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, int, half>> {
+                    return context ? std::make_shared<CudaEncoderOp<half>>( context, precision_policy )
+                        : std::make_shared<CudaEncoderOp<half>>( precision_policy );
                 }
             );
         }

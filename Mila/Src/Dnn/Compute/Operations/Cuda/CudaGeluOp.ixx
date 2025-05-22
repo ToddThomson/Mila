@@ -74,44 +74,44 @@ namespace Mila::Dnn::Compute
         using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TInput, TOutput>;
 
         /**
-            * @brief Constructs a new CUDA GELU operation with the default device context.
-            *
-            * Initializes the operation with a CUDA device context (defaults to CUDA:0).
-            *
-            * @param precision_policy The precision policy to use for mixed precision computation.
-            */
+        * @brief Constructs a new CUDA GELU operation with the default device context.
+        *
+        * Initializes the operation with a CUDA device context (defaults to CUDA:0).
+        *
+        * @param precision_policy The precision policy to use for mixed precision computation.
+        */
         CudaGeluOp( ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto )
             : UnaryOperationBase( OperationType::GeluOp, precision_policy ) {}
 
         /**
-            * @brief Constructs a new CUDA GELU operation with a specific device context.
-            *
-            * @param context The device context to use for this operation.
-            * @param precision_policy The precision policy to use for mixed precision computation.
-            * @throws std::runtime_error If the context is not for a CUDA device.
-            */
+        * @brief Constructs a new CUDA GELU operation with a specific device context.
+        *
+        * @param context The device context to use for this operation.
+        * @param precision_policy The precision policy to use for mixed precision computation.
+        * @throws std::runtime_error If the context is not for a CUDA device.
+        */
         CudaGeluOp( std::shared_ptr<DeviceContext> context,
             ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto )
             : UnaryOperationBase( OperationType::GeluOp, context, precision_policy ) {}
 
         /**
-            * @brief Performs the forward pass of the GELU activation function on CUDA.
-            *
-            * Computes the GELU transformation of the input elements:
-            * GELU(x) = 0.5 * x * (1 + tanh(sqrt(2/?) * (x + 0.044715 * x^3)))
-            *
-            * The precision policy affects how the computation is performed:
-            * - Performance: May use faster but less precise algorithms
-            * - Accuracy: Will use the most accurate algorithm available
-            * - Auto: Will select an appropriate balance based on the hardware
-            * - Disabled: Will use the standard precision of the input/output types
-            *
-            * @param input Input tensor containing the values to transform.
-            * @param parameters Additional parameters (not used in this operation).
-            * @param properties Additional attributes for the operation.
-            * @param output Output tensor to store the transformed values.
-            * @param output_state Cache for intermediate results (not used in this operation).
-            */
+        * @brief Performs the forward pass of the GELU activation function on CUDA.
+        *
+        * Computes the GELU transformation of the input elements:
+        * GELU(x) = 0.5 * x * (1 + tanh(sqrt(2/?) * (x + 0.044715 * x^3)))
+        *
+        * The precision policy affects how the computation is performed:
+        * - Performance: May use faster but less precise algorithms
+        * - Accuracy: Will use the most accurate algorithm available
+        * - Auto: Will select an appropriate balance based on the hardware
+        * - Disabled: Will use the standard precision of the input/output types
+        *
+        * @param input Input tensor containing the values to transform.
+        * @param parameters Additional parameters (not used in this operation).
+        * @param properties Additional attributes for the operation.
+        * @param output Output tensor to store the transformed values.
+        * @param output_state Cache for intermediate results (not used in this operation).
+        */
         void forward(
             const Tensor<TInput, MR>& input,
             const std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& parameters,
@@ -214,30 +214,19 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cuda::GeluOp";
 
-            // Register float-to-float operation
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, float>> {
-                    return context ? std::make_shared<CudaGeluOp<float, float>>( context )
-                        : std::make_shared<CudaGeluOp<float, float>>();
+                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, float>> {
+                    return context ? std::make_shared<CudaGeluOp<float>>( context, precision_policy )
+                        : std::make_shared<CudaGeluOp<float, float>>( precision_policy );
                 }
             );
 
-            // Register half-to-half operation
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, half, half>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half, half>> {
-                    return context ? std::make_shared<CudaGeluOp<half>>( context )
-                        : std::make_shared<CudaGeluOp<half>>();
-                }
-            );
-
-            // Register float-to-half mixed precision operation (when input is float but output is half)
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, float, half>(
-                opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, half>> {
-                    return context ? std::make_shared<CudaGeluOp<float, half>>( context, ComputePrecision::Policy::Performance )
-                        : std::make_shared<CudaGeluOp<float, half>>( ComputePrecision::Policy::Performance );
+                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half, half>> {
+                    return context ? std::make_shared<CudaGeluOp<half>>( context, precision_policy )
+                        : std::make_shared<CudaGeluOp<half>>( precision_policy );
                 }
             );
         }

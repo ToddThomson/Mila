@@ -26,6 +26,7 @@ import Compute.OperationType;
 import Compute.CpuMemoryResource;
 import Compute.MemoryResource;
 import Compute.CpuDevice;
+import Compute.Precision;
 
 namespace Mila::Dnn::Compute
 {
@@ -42,29 +43,37 @@ namespace Mila::Dnn::Compute
      * The operation normalizes each input vector independently, unlike batch normalization
      * which normalizes across the batch dimension.
      *
+     * CPU operations always use full precision regardless of policy settings.
+     *
      * @tparam TInput The data type of the input tensor elements.
      * @tparam TDataType The data type used for computation and output (defaults to the input type).
      */
     export class CpuLayerNormOp : public UnaryOperation<DeviceType::Cpu, float> {
     public:
         using MR = typename CpuDevice::MR;
-		using OperationBase = UnaryOperation<DeviceType::Cpu, float>;
+        using OperationBase = UnaryOperation<DeviceType::Cpu, float>;
 
         /**
          * @brief Constructs a new CPU Layer Normalization operation with the default device context.
+         *
+         * CPU operations always use full precision regardless of policy settings.
+         *
+         * @param precision_policy Ignored for CPU operations, as they always use full precision.
          */
-        CpuLayerNormOp() : OperationBase( OperationType::LayerNormOp ) {
-        }
+        CpuLayerNormOp()
+            : OperationBase( OperationType::LayerNormOp, ComputePrecision::Policy::Disabled ) {}
 
         /**
          * @brief Constructs a new CPU Layer Normalization operation with a specific device context.
          *
+         * CPU operations always use full precision regardless of policy settings.
+         *
          * @param context The device context to use for this operation.
+         * @param precision_policy Ignored for CPU operations, as they always use full precision.
          * @throws std::runtime_error If the context is not for a CPU device.
          */
         CpuLayerNormOp( std::shared_ptr<DeviceContext> context )
-            : OperationBase( OperationType::LayerNormOp, context ) {
-        }
+            : OperationBase( OperationType::LayerNormOp, context, ComputePrecision::Policy::Disabled ) {}
 
         /**
          * @brief Performs the forward pass of the Layer Normalization operation.
@@ -244,7 +253,7 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float>> {
+                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float>> {
                     return context ? std::make_shared<CpuLayerNormOp>( context )
                         : std::make_shared<CpuLayerNormOp>();
                 }

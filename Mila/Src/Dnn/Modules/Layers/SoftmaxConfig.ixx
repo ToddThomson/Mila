@@ -1,0 +1,65 @@
+/**
+ * @file SoftmaxConfig.ixx
+ * @brief Configuration interface for the Softmax module in the Mila DNN framework.
+ *
+ * Defines the SoftmaxConfig class, providing a type-safe fluent interface for configuring
+ * Softmax activation function modules. Inherits from ModuleConfig CRTP base and adds
+ * Softmax-specific options such as the axis along which to apply the operation.
+ *
+ * Exposed as part of the Softmax module via module partitions.
+ */
+
+module;
+#include <stdexcept>
+#include <cstdint>
+
+export module Dnn.Modules.Softmax:Config;
+
+import Dnn.Module;
+
+namespace Mila::Dnn
+{
+    /**
+     * @brief Configuration class for Softmax module.
+     *
+     * Provides a type-safe fluent interface for configuring Softmax modules.
+     */
+    export class SoftmaxConfig : public ModuleConfig<SoftmaxConfig> {
+    public:
+        /**
+         * @brief Default constructor.
+         */
+        SoftmaxConfig() = default;
+
+        /**
+         * @brief Set the axis along which to apply the softmax operation.
+         *
+         * @param axis Dimension for softmax computation (default: -1 for last dimension)
+         * @return SoftmaxConfig& Reference to this for method chaining
+         */
+        SoftmaxConfig& withAxis( int64_t axis ) {
+            axis_ = axis;
+            return *this;
+        }
+
+        /**
+         * @brief Get the configured axis value.
+         *
+         * @return int64_t The axis along which softmax will be computed
+         */
+        int64_t getAxis() const { return axis_; }
+
+        /**
+         * @brief Validate configuration parameters.
+         *
+         * @throws std::invalid_argument If validation fails
+         */
+        void validate() const {
+            ModuleConfig<SoftmaxConfig>::validate();
+            // No additional validation needed for Softmax
+        }
+
+    private:
+        int64_t axis_ = -1;
+    };
+}

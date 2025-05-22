@@ -15,6 +15,7 @@ module;
 #include <stdexcept>
 
 export module Dnn.Modules.Linear;
+export import :Config;
 
 import Dnn.Module;
 import Dnn.Tensor;
@@ -64,53 +65,29 @@ namespace Mila::Dnn
         using ModuleBase = Module<TDeviceType, TInput, TOutput>; ///< Base class type for the module
 
         /**
-         * @brief Constructs a new Linear module with the default device context.
+         * @brief Construct a new Linear module from configuration.
          *
-         * @param name The name of the module for identification purposes.
-         * @param device_name The name of the device to use for this module.
-         * @param input_features The number of input features.
-         * @param output_features The number of output features.
-         * @param has_bias Whether to include a bias term in the transformation (defaults to true).
-         * @param is_training Whether the module is initially in training mode (defaults to false).
-         * @param precision The compute precision policy to use (defaults to Auto).
-         * @throws std::invalid_argument If input_features or output_features is zero.
+         * @param config The configuration for this module
          */
-        Linear(
-            std::string name, std::string device_name, size_t input_features, size_t output_features,
-            bool has_bias = true, bool is_training = false,
-            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
-            : ModuleBase( device_name, precision ), input_features_{ input_features }, output_features_{ output_features }, has_bias_{ has_bias } {
-            validateParameters();
-            this->setTraining( is_training );
-            this->setName( name );
-            initializeParameters();
-            createOperation();
-        }
+        explicit Linear( const LinearConfig& config )
+            : ModuleBase(
+                config.getContext() ? config.getContext(): std::make_shared<DeviceContext>( config.getDeviceName() ),
+                TDeviceType == DeviceType::Cpu ? ComputePrecision::Policy::Disabled : config.getPrecision() ),
+            input_features_( config.getInputFeatures() ),
+            output_features_( config.getOutputFeatures() ),
+            has_bias_( config.hasBias() ) {
 
-        /**
-         * @brief Constructs a new Linear module with a specific device context.
-         *
-         * @param name The name of the module for identification purposes.
-         * @param context The device context to use for this module.
-         * @param input_features The number of input features.
-         * @param output_features The number of output features.
-         * @param has_bias Whether to include a bias term in the transformation (defaults to true).
-         * @param is_training Whether the module is initially in training mode (defaults to false).
-         * @param precision The compute precision policy to use (defaults to Auto).
-         * @throws std::invalid_argument If input_features or output_features is zero.
-         */
-        Linear(
-            std::string name, std::shared_ptr<DeviceContext> context, size_t input_features, size_t output_features,
-            bool has_bias = true, bool is_training = false,
-            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
-            : ModuleBase( context, precision ), input_features_{ input_features }, output_features_{ output_features }, has_bias_{ has_bias } {
-            validateParameters();
-            this->setTraining( is_training );
-            this->setName( name );
+            config.validate();
+
+            this->setName( config.getName() );
+            this->setTraining( config.isTraining() );
 
             initializeParameters();
-            initializeParameterGradients();
-
+            
+            if ( this->isTraining() ) {
+                initializeParameterGradients();
+            }
+            
             createOperation();
         }
 

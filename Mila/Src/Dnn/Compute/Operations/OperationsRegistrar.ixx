@@ -49,10 +49,10 @@ namespace Mila::Dnn::Compute
 		*/
 		static void registerOperations() {
 			// TJT: This is rather an ugly way of registering operations but it is all I can think of for now.
-			// Ts good enough for now. I will revisit
+			// It's good enough for now. I will revisit
 			CpuEncoderOpRegistrar::registerOperations();
 			CpuGeluOpRegistrar::registerOperations();
-			CpuFullyConnectedOpRegistrar::registerOperations();
+			CpuLinearOpRegistrar::registerOperations();
 			CpuLayerNormOpRegistrar::registerOperations();
 			CpuMultiHeadAttentionOpRegistrar::registerOperations();
 			CpuResidualOpRegistrar::registerOperations();
@@ -60,7 +60,7 @@ namespace Mila::Dnn::Compute
 
 			CudaEncoderOpRegistrar::registerOperations();
 			CudaGeluOpRegistrar::registerOperations();
-			CudaFullyConnectedOpRegistrar::registerOperations();
+			CudaLinearOpRegistrar::registerOperations();
 			CudaLayerNormOpRegistrar::registerOperations();
 			CudaMultiHeadAttentionOpRegistrar::registerOperations();
 			CudaResidualOpRegistrar::registerOperations();

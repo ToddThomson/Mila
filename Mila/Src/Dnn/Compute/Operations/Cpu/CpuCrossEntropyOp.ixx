@@ -52,7 +52,8 @@ namespace Mila::Dnn::Compute
          *
          * Initializes the operation with a CPU device context.
          */
-        CpuCrossEntropyOp() : OperationBase( OperationType::CrossEntropyOp ) {
+        CpuCrossEntropyOp() 
+            : OperationBase( OperationType::CrossEntropyOp, ComputePrecision::Policy::Disabled ) {
         }
 
         /**
@@ -62,7 +63,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the context is not for a CPU device.
          */
         CpuCrossEntropyOp( std::shared_ptr<DeviceContext> context )
-            : OperationBase( OperationType::CrossEntropyOp, context ) {
+            : OperationBase( OperationType::CrossEntropyOp, context, ComputePrecision::Policy::Disabled ) {
 
         }
 
@@ -227,7 +228,7 @@ namespace Mila::Dnn::Compute
             // Updated to use device context-aware registration
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, int, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, int, float>> {
+                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, int, float>> {
                     return context ? std::make_shared<CpuCrossEntropyOp>( context )
                         : std::make_shared<CpuCrossEntropyOp>();
                 }

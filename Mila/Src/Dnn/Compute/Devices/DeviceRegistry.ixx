@@ -100,7 +100,7 @@ namespace Mila::Dnn::Compute
          * @return std::vector<std::string> Vector of registered device type names.
          * @throws std::runtime_error If the registry is not initialized.
          */
-        std::vector<std::string> list_devices() const {
+        std::vector<std::string> listDevices() const {
             std::lock_guard<std::mutex> lock( mutex_ );
             std::vector<std::string> types;
 

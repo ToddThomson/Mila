@@ -27,7 +27,6 @@ namespace Operations::Tests
     class CudaSoftmaxOpPrecisionTests : public ::testing::Test {
     protected:
         void SetUp() override {
-            // Create device contexts for both CPU and CUDA
             cuda_context_ = std::make_shared<DeviceContext>( "CUDA:0" );
             cpu_context_ = std::make_shared<DeviceContext>( "CPU" );
 

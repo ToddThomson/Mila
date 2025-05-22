@@ -44,7 +44,7 @@ namespace Mila::Dnn::Compute
          *
          * @param precision_policy Ignored for CPU operations, as they always use full precision.
          */
-        CpuGeluOp( ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Disabled )
+        CpuGeluOp()
             : UnaryOperationBase( OperationType::GeluOp, ComputePrecision::Policy::Disabled ) {}
 
         /**
@@ -56,8 +56,7 @@ namespace Mila::Dnn::Compute
          * @param precision_policy Ignored for CPU operations, as they always use full precision.
          * @throws std::runtime_error If the context is not for a CPU device.
          */
-        CpuGeluOp( std::shared_ptr<DeviceContext> context,
-            ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Disabled )
+        CpuGeluOp( std::shared_ptr<DeviceContext> context )
             : UnaryOperationBase( OperationType::GeluOp, context, ComputePrecision::Policy::Disabled ) {}
 
         /**
@@ -176,10 +175,9 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float>> {
-                    // Always create CpuGeluOp with Disabled precision policy
-                    return context ? std::make_shared<CpuGeluOp>( context, ComputePrecision::Policy::Disabled )
-                        : std::make_shared<CpuGeluOp>( ComputePrecision::Policy::Disabled );
+                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float>> {
+                    return context ? std::make_shared<CpuGeluOp>( context )
+                        : std::make_shared<CpuGeluOp>();
                 }
             );
         }

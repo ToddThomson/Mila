@@ -1,5 +1,5 @@
 /**
- * @file CudaFullyConnectedOp.ixx
+ * @file CudaLinearOp.ixx
  * @brief Implementation of the CUDA-based Fully Connected operation for neural networks.
  */
 
@@ -87,7 +87,7 @@ namespace Mila::Dnn::Compute
      */
     export template<typename TInput, typename TOutput = TInput>
 		requires ValidFloatTensorTypes<TInput, TOutput>
-    class CudaFullyConnectedOp : public UnaryOperation<DeviceType::Cuda, TInput, TOutput> {
+    class CudaLinearOp : public UnaryOperation<DeviceType::Cuda, TInput, TOutput> {
     public:
         using MR = typename CudaDevice::MR;
         using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TInput, TOutput>;
@@ -97,7 +97,8 @@ namespace Mila::Dnn::Compute
          *
          * Initializes the operation with a CUDA device context (defaults to CUDA:0).
          */
-        CudaFullyConnectedOp() : UnaryOperationBase( OperationType::LinearOp ) {}
+        CudaLinearOp( ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto )
+            : UnaryOperationBase( OperationType::LinearOp, precision_policy ) {}
 
         /**
          * @brief Constructs a new CUDA Fully Connected operation with a specific device context.
@@ -105,8 +106,8 @@ namespace Mila::Dnn::Compute
          * @param context The device context to use for this operation.
          * @throws std::runtime_error If the context is not for a CUDA device.
          */
-        CudaFullyConnectedOp( std::shared_ptr<DeviceContext> context )
-            : UnaryOperationBase( OperationType::LinearOp, context ) {
+        CudaLinearOp( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto )
+            : UnaryOperationBase( OperationType::LinearOp, context, precision_policy ) {
         }
 
         /**
@@ -132,7 +133,7 @@ namespace Mila::Dnn::Compute
             auto outer_dims = input.rank() - 1;
 
             if ( outer_dims <= 0 ) {
-                throw std::runtime_error( "FullyConnectedOp requires input tensor with at least 2 dimensions" );
+                throw std::runtime_error( "LinearOp requires input tensor with at least 2 dimensions" );
             }
 
             auto X = input.raw_data();
@@ -199,7 +200,7 @@ namespace Mila::Dnn::Compute
 
             // Verify we're operating on CUDA memory
             if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cuda ) ) {
-                throw std::runtime_error( "CudaFullyConnectedOp::backward can only be executed on CUDA memory" );
+                throw std::runtime_error( "CudaLinearOp::backward can only be executed on CUDA memory" );
             }
 
             // Extract dimensions
@@ -231,44 +232,44 @@ namespace Mila::Dnn::Compute
         /**
          * @brief Gets the name of this operation.
          *
-         * @return std::string The name of the operation ("Cuda::FullyConnectedOp").
+         * @return std::string The name of the operation ("Cuda::LinearOp").
          */
         std::string getName() const override {
-            return "Cuda::FullyConnectedOp";
+            return "Cuda::LinearOp";
         }
     };
 
     /**
-     * @brief Class responsible for registering the CudaFullyConnectedOp operation.
+     * @brief Class responsible for registering the CudaLinearOp operation.
      *
-     * The CudaFullyConnectedOpRegistrar class registers the CudaFullyConnectedOp operation with the OperationRegistry.
-     * It associates the operation name "Cuda::FullyConnectedOp" with a factory function that creates instances of CudaFullyConnectedOp.
+     * The CudaLinearOpRegistrar class registers the CudaLinearOp operation with the OperationRegistry.
+     * It associates the operation name "Cuda::LinearOp" with a factory function that creates instances of CudaLinearOp.
      */
-    export class CudaFullyConnectedOpRegistrar {
+    export class CudaLinearOpRegistrar {
     public:
         /**
-         * @brief Registers the CudaFullyConnectedOp operation with the OperationRegistry.
+         * @brief Registers the CudaLinearOp operation with the OperationRegistry.
          *
-         * This function registers the CudaFullyConnectedOp operation for the CUDA device type
-         * with the OperationRegistry. It associates the operation name "Cuda::FullyConnectedOp"
-         * with a factory function that creates instances of CudaFullyConnectedOp.
+         * This function registers the CudaLinearOp operation for the CUDA device type
+         * with the OperationRegistry. It associates the operation name "Cuda::LinearOp"
+         * with a factory function that creates instances of CudaLinearOp.
          */
         static void registerOperations() {
             const std::string opName = "Cuda::LinearOp";
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float>> {
-                    return context ? std::make_shared<CudaFullyConnectedOp<float>>( context )
-                        : std::make_shared<CudaFullyConnectedOp<float>>();
+                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float>> {
+                    return context ? std::make_shared<CudaLinearOp<float>>( context, precision_policy )
+                        : std::make_shared<CudaLinearOp<float>>( precision_policy );
                 }
             );
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, half, half>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half>> {
-                    return context ? std::make_shared<CudaFullyConnectedOp<half>>( context )
-                        : std::make_shared<CudaFullyConnectedOp<half>>();
+                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half>> {
+                    return context ? std::make_shared<CudaLinearOp<half>>( context, precision_policy )
+                        : std::make_shared<CudaLinearOp<half>>( precision_policy );
                 }
             );
         }

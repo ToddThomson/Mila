@@ -1,3 +1,8 @@
+/**
+ * @file TransformerBlock.ixx
+ * @brief Implementation of the transformer encoder block for neural networks.
+ */
+
 module;
 #include <memory>
 #include <vector>
@@ -60,14 +65,16 @@ namespace Mila::Dnn
          * @param device_name The name of the device to use for this module.
          * @param input_shape The shape of the input tensor, must be of rank 3 [batch_size, sequence_length, channels].
          * @param num_heads The number of attention heads to use.
+         * @param precision The compute precision policy (CPU operations always use Disabled).
          * @param is_training Whether the module is initially in training mode. Default is false.
-         * @param precision The compute precision policy to use (defaults to Auto).
          * @throws std::invalid_argument If the input shape doesn't have rank 3.
          */
         TransformerBlock( std::string name, const std::string& device_name, const std::vector<size_t>& input_shape,
-            const size_t num_heads, bool is_training = false,
-            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
-            : CompositeModuleBase( device_name, precision ), input_shape_{ validate_shape( input_shape ) }, num_heads_{ num_heads } {
+            const size_t num_heads,
+            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto,
+            bool is_training = false )
+            : CompositeModuleBase( device_name, TDeviceType == DeviceType::Cpu ? ComputePrecision::Policy::Disabled : precision ),
+            input_shape_{ validate_shape( input_shape ) }, num_heads_{ num_heads } {
             this->setName( name );
             this->setTraining( is_training );
 
@@ -81,14 +88,16 @@ namespace Mila::Dnn
          * @param context The device context to use for this module.
          * @param input_shape The shape of the input tensor, must be of rank 3 [batch_size, sequence_length, channels].
          * @param num_heads The number of attention heads to use.
+         * @param precision The compute precision policy (CPU operations always use Disabled).
          * @param is_training Whether the module is initially in training mode. Default is false.
-         * @param precision The compute precision policy to use (defaults to Auto).
          * @throws std::invalid_argument If the input shape doesn't have rank 3.
          */
         TransformerBlock( std::string name, std::shared_ptr<DeviceContext> context,
-            const std::vector<size_t>& input_shape, const size_t num_heads, bool is_training = false,
-            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
-            : CompositeModuleBase( context, precision ), input_shape_{ validate_shape( input_shape ) }, num_heads_{ num_heads } {
+            const std::vector<size_t>& input_shape, const size_t num_heads,
+            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto,
+            bool is_training = false )
+            : CompositeModuleBase( context, TDeviceType == DeviceType::Cpu ? ComputePrecision::Policy::Disabled : precision ),
+            input_shape_{ validate_shape( input_shape ) }, num_heads_{ num_heads } {
             this->setName( name );
             this->setTraining( is_training );
 
@@ -240,29 +249,29 @@ namespace Mila::Dnn
 
             // Create new modules with the current device context and precision policy
             ln_1_ = std::make_shared<LayerNorm<TDeviceType, TDataType>>(
-                this->getName() + ".ln_1", this->getDeviceContext(), input_shape_, precision );
+                this->getName() + ".ln_1", this->getDeviceContext(), input_shape_, -1, true, precision );
 
             fc_qkv_ = std::make_shared<Linear<TDeviceType, TDataType>>(
                 this->getName() + ".fc_qkv", this->getDeviceContext(), C, 3 * C,
-                true, this->isTraining(), precision );
+                true, precision, this->isTraining() );
 
             attn_ = std::make_shared<MultiHeadAttention<TDeviceType, TDataType>>(
                 this->getName() + ".attn", this->getDeviceContext(), input_shape_, num_heads_,
-                this->isTraining(), precision );
+                precision, this->isTraining() );
 
             fc_attn_proj_ = std::make_shared<Linear<TDeviceType, TDataType>>(
                 this->getName() + ".fc_attn_proj", this->getDeviceContext(), C, C,
-                true, this->isTraining(), precision );
+                true, precision, this->isTraining() );
 
             res_1_ = std::make_shared<Residual<TDeviceType, TDataType>>(
                 this->getName() + ".res_1", this->getDeviceContext(), precision );
 
             ln_2_ = std::make_shared<LayerNorm<TDeviceType, TDataType>>(
-                this->getName() + ".ln_2", this->getDeviceContext(), input_shape_, precision );
+                this->getName() + ".ln_2", this->getDeviceContext(), input_shape_, -1, true, precision );
 
             mlp_ = std::make_shared<MLP<TDeviceType, TDataType>>(
                 this->getName() + ".mlp", this->getDeviceContext(), input_shape_, 4 * C,
-                true, this->isTraining(), precision );
+                true, precision, this->isTraining() );
 
             res_2_ = std::make_shared<Residual<TDeviceType, TDataType>>(
                 this->getName() + ".res_2", this->getDeviceContext(), precision );
@@ -287,6 +296,107 @@ namespace Mila::Dnn
             mlp_output_ = Tensor<TDataType, MR>( input_shape_ );
             res_2_output_ = Tensor<TDataType, MR>( input_shape_ );
         }
+
+        // Allow TransformerBlockBuilder to access private members
+        template<DeviceType TDeviceType, typename TDataType>
+        friend class TransformerBlockBuilder;
+    };
+
+    /**
+     * @brief Builder class for creating TransformerBlock modules with a fluent interface.
+     *
+     * This builder provides a flexible and readable way to create and configure TransformerBlock modules.
+     *
+     * @tparam TDeviceType The device type (CPU or CUDA) for the TransformerBlock module.
+     * @tparam TDataType The data type used for tensor elements throughout the network.
+     */
+    export template<DeviceType TDeviceType = DeviceType::Cuda, typename TDataType = float>
+        class TransformerBlockBuilder {
+        public:
+            /**
+             * @brief Constructs a new TransformerBlockBuilder with a name and device name.
+             *
+             * @param name The name for the TransformerBlock module.
+             * @param device_name The device name (e.g., "CPU", "CUDA:0").
+             * @param input_shape The shape of the input tensor, must be of rank 3 [batch_size, sequence_length, channels].
+             * @param num_heads The number of attention heads to use.
+             */
+            TransformerBlockBuilder( std::string name, std::string device_name,
+                const std::vector<size_t>& input_shape, size_t num_heads )
+                : name_( std::move( name ) ),
+                device_name_( std::move( device_name ) ),
+                context_( nullptr ),
+                input_shape_( input_shape ),
+                num_heads_( num_heads ),
+                precision_( ComputePrecision::Policy::Auto ),
+                is_training_( false ) {}
+
+            /**
+             * @brief Constructs a new TransformerBlockBuilder with a name and device context.
+             *
+             * @param name The name for the TransformerBlock module.
+             * @param context The device context to use.
+             * @param input_shape The shape of the input tensor, must be of rank 3 [batch_size, sequence_length, channels].
+             * @param num_heads The number of attention heads to use.
+             */
+            TransformerBlockBuilder( std::string name, std::shared_ptr<DeviceContext> context,
+                const std::vector<size_t>& input_shape, size_t num_heads )
+                : name_( std::move( name ) ),
+                device_name_( "" ),
+                context_( std::move( context ) ),
+                input_shape_( input_shape ),
+                num_heads_( num_heads ),
+                precision_( ComputePrecision::Policy::Auto ),
+                is_training_( false ) {}
+
+            /**
+             * @brief Sets the training mode for the TransformerBlock module.
+             *
+             * @param is_training Whether the module should be in training mode.
+             * @return TransformerBlockBuilder& Reference to this builder for method chaining.
+             */
+            TransformerBlockBuilder& training( bool is_training ) {
+                is_training_ = is_training;
+                return *this;
+            }
+
+            /**
+             * @brief Sets the precision policy for the TransformerBlock module.
+             *
+             * For CPU operations, this will be forced to Disabled regardless of the value provided.
+             *
+             * @param precision The compute precision policy to use.
+             * @return TransformerBlockBuilder& Reference to this builder for method chaining.
+             */
+            TransformerBlockBuilder& withPrecision( ComputePrecision::Policy precision ) {
+                precision_ = precision;
+                return *this;
+            }
+
+            /**
+             * @brief Builds and returns a new TransformerBlock module with the configured settings.
+             *
+             * @return std::shared_ptr<TransformerBlock<TDeviceType, TDataType>> The newly created TransformerBlock module.
+             */
+            std::shared_ptr<TransformerBlock<TDeviceType, TDataType>> build() {
+                if ( context_ ) {
+                    return std::make_shared<TransformerBlock<TDeviceType, TDataType>>(
+                        name_, context_, input_shape_, num_heads_, precision_, is_training_ );
+                }
+                else {
+                    return std::make_shared<TransformerBlock<TDeviceType, TDataType>>(
+                        name_, device_name_, input_shape_, num_heads_, precision_, is_training_ );
+                }
+            }
+
+        private:
+            std::string name_;
+            std::string device_name_;
+            std::shared_ptr<DeviceContext> context_;
+            std::vector<size_t> input_shape_;
+            size_t num_heads_;
+            ComputePrecision::Policy precision_;
+            bool is_training_;
     };
 
     /**
@@ -304,4 +414,20 @@ namespace Mila::Dnn
      */
     export template<typename TDataType = float>
         using CudaTransformerBlock = TransformerBlock<DeviceType::Cuda, TDataType>;
+
+    /**
+     * @brief Type alias for CPU-based transformer block builder with customizable tensor type.
+     *
+     * @tparam TDataType Data type used for tensor elements throughout the network.
+     */
+    export template<typename TDataType = float>
+        using CpuTransformerBlockBuilder = TransformerBlockBuilder<DeviceType::Cpu, TDataType>;
+
+    /**
+     * @brief Type alias for CUDA-based transformer block builder with customizable tensor type.
+     *
+     * @tparam TDataType Data type used for tensor elements throughout the network.
+     */
+    export template<typename TDataType = float>
+        using CudaTransformerBlockBuilder = TransformerBlockBuilder<DeviceType::Cuda, TDataType>;
 }

@@ -4,7 +4,7 @@ export module Compute.CpuOperations;
 export import Compute.CpuAttention;
 export import Compute.CpuCrossEntropyOp;
 export import Compute.CpuEncoderOp;
-export import Compute.CpuFullyConnectedOp;
+export import Compute.CpuLinearOp;
 export import Compute.CpuGeluOp;
 export import Compute.CpuLayerNormOp;
 export import Compute.CpuResidualOp;

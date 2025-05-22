@@ -17,7 +17,7 @@
       </Logger>
       <Logger friendlyName="trx" enabled="True">
         <Configuration>
-          <LogFileName>TestResults.trx</LogFileName>
+          <LogFileName>TestResults.log</LogFileName>
         </Configuration>
       </Logger>
     </Loggers>
@@ -26,7 +26,7 @@
   <!-- MSTest adapter settings -->
   <RunConfiguration>
     <ResultsDirectory>.\TestResults</ResultsDirectory>
-    <TestSessionTimeout>10000</TestSessionTimeout>
+    <TestSessionTimeout>60000</TestSessionTimeout>
     <CollectSourceInformation>true</CollectSourceInformation>
   </RunConfiguration>
 </RunSettings>

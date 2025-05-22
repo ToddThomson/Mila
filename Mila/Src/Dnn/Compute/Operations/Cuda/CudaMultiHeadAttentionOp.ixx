@@ -110,7 +110,8 @@ namespace Mila::Dnn::Compute
          *
          * Initializes the operation with a CUDA device context (defaults to CUDA:0).
          */
-        CudaMultiHeadAttentionOp() : UnaryOperationBase( OperationType::MultiHeadAttentionOp ) {}
+        CudaMultiHeadAttentionOp( ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto )
+            : UnaryOperationBase( OperationType::MultiHeadAttentionOp, precision_policy ) {}
 
         /**
          * @brief Constructs a new CUDA Multi-Head Attention operation with a specific device context.
@@ -118,8 +119,8 @@ namespace Mila::Dnn::Compute
          * @param context The device context to use for this operation.
          * @throws std::runtime_error If the context is not for a CUDA device.
          */
-        CudaMultiHeadAttentionOp( std::shared_ptr<DeviceContext> context )
-            : UnaryOperationBase( OperationType::MultiHeadAttentionOp, context ) {
+        CudaMultiHeadAttentionOp( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto )
+            : UnaryOperationBase( OperationType::MultiHeadAttentionOp, context, precision_policy ) {
         }
 
         /**
@@ -264,17 +265,17 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, float>> {
-                    return context ? std::make_shared<CudaMultiHeadAttentionOp<float>>( context )
-                        : std::make_shared<CudaMultiHeadAttentionOp<float>>();
+                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, float>> {
+                    return context ? std::make_shared<CudaMultiHeadAttentionOp<float>>( context, precision_policy )
+                        : std::make_shared<CudaMultiHeadAttentionOp<float>>( precision_policy );
                 }
             );
             
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, half, half>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half, half>> {
-                    return context ? std::make_shared<CudaMultiHeadAttentionOp<half>>( context )
-                        : std::make_shared<CudaMultiHeadAttentionOp<half>>();
+                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half, half>> {
+                    return context ? std::make_shared<CudaMultiHeadAttentionOp<half>>( context, precision_policy )
+                        : std::make_shared<CudaMultiHeadAttentionOp<half>>( precision_policy );
                 }
             );
             

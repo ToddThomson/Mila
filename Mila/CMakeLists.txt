@@ -54,29 +54,45 @@ PUBLIC
 		"Src/Version.ixx"
 		"Src/Mila.ixx"
 		"Src/Misc/Glob.ixx"
-		
 		# Helpers
 		"Src/Helpers/Memory.ixx"
 		"Src/Utils/TrainingLogger.ixx"
-		
 		# Tensors
 		"Src/Dnn/Core/Tensor.ixx"
 		"Src/Dnn/Core/TensorBuffer.ixx"
 		"Src/Dnn/Core/TensorType.ixx" 
 		"Src/Dnn/Core/TensorTraits.ixx" 
 		"Src/Dnn/Core/TensorHelpers.ixx"
+		# Models
+		"Src/Dnn/Model.ixx"
 		# Modules
-		"Src/Dnn/Model.ixx" 
-		"Src/Dnn/Modules/Module.ixx" 
-		"Src/Dnn/Modules/Layers/LayerNorm.ixx"
-		"Src/Dnn/Modules/Layers/Linear.ixx"
-		"Src/Dnn/Modules/Layers/Gelu.ixx"
-		"Src/Dnn/Modules/Layers/MultiHeadAttention.ixx"
-		"Src/Dnn/Modules/Layers/Residual.ixx"
-		"Src/Dnn/Modules/Layers/Softmax.ixx"
+		"Src/Dnn/Modules/Module.ixx"
+		"Src/Dnn/Modules/ModuleConfig.ixx"
+		# Module Activations
+		"Src/Dnn/Modules/Activations/Gelu.ixx"
+		"Src/Dnn/Modules/Activations/GeluConfig.ixx"
+		# Module Layers
 		"Src/Dnn/Modules/Layers/Encoder.ixx"
+		"Src/Dnn/Modules/Layers/EncoderConfig.ixx"
+		"Src/Dnn/Modules/Layers/Linear.ixx"
+		"Src/Dnn/Modules/Layers/LinearConfig.ixx"
+		"Src/Dnn/Modules/Layers/MultiHeadAttention.ixx"
+		"Src/Dnn/Modules/Layers/MultiHeadAttentionConfig.ixx"
+		"Src/Dnn/Modules/Layers/Residual.ixx"
+		"Src/Dnn/Modules/Layers/ResidualConfig.ixx"
+		"Src/Dnn/Modules/Layers/Softmax.ixx"
+		"Src/Dnn/Modules/Layers/SoftmaxConfig.ixx"
+		# Module Losses
+		"Src/Dnn/Modules/Losses/CrossEntropy.ixx"
+		"Src/Dnn/Modules/Losses/CrossEntropyConfig.ixx"
+		# Module Normalization
+		"Src/Dnn/Modules/Normalization/LayerNorm.ixx"
+		"Src/Dnn/Modules/Normalization/LayerNormConfig.ixx"
+		# Module Blocks
 		"Src/Dnn/Modules/Blocks/MLP.ixx"
+		"Src/Dnn/Modules/Blocks/MLPConfig.ixx" 
 		"Src/Dnn/Modules/Blocks/TransformerBlock.ixx"
+		"Src/Dnn/Modules/Blocks/TransformerBlockConfig.ixx"
 		#Dnn::Compute
 		"Src/Dnn/Compute/MemoryResource.ixx"
 		#Dnn Compute
@@ -95,19 +111,17 @@ PUBLIC
 		"Src/Dnn/Compute/ComputeResource.ixx"
 		"Src/Dnn/Compute/Devices/Cpu/CpuMemoryResource.ixx"
 		"Src/Dnn/Compute/MemoryResourceProperties.ixx"
-		
 		# Dnn Compute CPU
 		"Src/Dnn/Compute/Devices/Cpu/CpuDevice.ixx" 
 		"Src/Dnn/Compute/Operations/Cpu/CpuEncoderOp.ixx" 
 		"Src/Dnn/Compute/Operations/Cpu/CpuLayerNormOp.ixx" 
 		"Src/Dnn/Compute/Operations/Cpu/CpuMutiHeadAttentionOp.ixx" 
 		"Src/Dnn/Compute/Operations/Cpu/CpuResidualOp.ixx" 
-		"Src/Dnn/Compute/Operations/Cpu/CpuFullyConnectedOp.ixx"
+		"Src/Dnn/Compute/Operations/Cpu/CpuLinearOp.ixx"
 		"Src/Dnn/Compute/Operations/Cpu/CpuSoftmaxOp.ixx"
 		"Src/Dnn/Compute/Operations/Cpu/CpuGeluOp.ixx"
 		"Src/Dnn/Compute/Operations/Cpu/CpuCrossEntropyOp.ixx"  
 		"Src/Dnn/Compute/Operations/Cpu/CpuOperations.ixx"
-		
 		# Dnn Compute CUDA
 		"Src/Dnn/Compute/Cuda/CudaError.ixx"
 		"Src/Dnn/Compute/Cuda/CudaHelpers.ixx"
@@ -134,11 +148,9 @@ PUBLIC
 		"Src/Dnn/Graph.ixx"
 		"Src/Dnn/Compute/ComputeResourceHelpers.ixx"
 		"Src/Dnn/Compute/Cuda/CudaComputeResource.ixx"
-		
 		# Utils
 		"Src/Utils/Logger.ixx"
 		"Src/Utils/DefaultLogger.ixx"
-
 		"Src/Dnn/ModelCallback.ixx"
 		"Src/Dnn/Compute/Cuda/CudaBadAlloc.ixx"
 		"Src/Dnn/Compute/MemoryResourceTracker.ixx"
@@ -154,10 +166,13 @@ PUBLIC
 		"Src/Dnn/Core/ActivationType.ixx"
 		"Src/Dnn/Compute/Cuda/CublasLtError.ixx"
 		
-		"Src/Dnn/Modules/Layers/CrossEntropy.ixx"
+
 		#"Src/Dnn/Compute/Operations/Cuda/FusedSoftmaxCrossEntropyOp.ixx"
 		"Src/Dnn/Core/PrecisionConfig.ixx"
-		"Src/Dnn/Compute/ComputePrecision.ixx")
+		"Src/Dnn/Compute/ComputePrecision.ixx"
+		
+
+ "Src/Dnn/Modules/Regularization/DroputConfig.ixx" "Src/Dnn/Modules/Regularization/Dropout.ixx")
 
 target_link_libraries( Mila PRIVATE CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
 
@@ -195,9 +210,9 @@ add_subdirectory(Tests)
 endif()
 
 if (MILA_ENABLE_BENCHMARKS)
-add_subdirectory(Benchmarks)
+#add_subdirectory(Benchmarks)
 endif()
  
 if (MILA_ENABLE_SAMPLES)  
-add_subdirectory(Samples)  
+#add_subdirectory(Samples)  
 endif()

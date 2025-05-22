@@ -54,7 +54,7 @@ namespace Mila::Dnn::Compute
          *
          * Initializes the operation with a CPU device context.
          */
-        CpuResidualOp() : OperationBase( OperationType::ResidualOp ) {}
+        CpuResidualOp() : OperationBase( OperationType::ResidualOp, ComputePrecision::Policy::Disabled ) {}
 
         /**
          * @brief Constructs a new CPU Residual operation with a specific device context.
@@ -63,7 +63,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the context is not for a CPU device.
          */
         CpuResidualOp( std::shared_ptr<DeviceContext> context )
-            : OperationBase( OperationType::ResidualOp, context ) {
+            : OperationBase( OperationType::ResidualOp, context, ComputePrecision::Policy::Disabled ) {
         }
 
         /**
@@ -194,7 +194,7 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerBinaryOperation<DeviceType::Cpu, float, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<BinaryOperation<DeviceType::Cpu, float, float, float>> {
+                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<BinaryOperation<DeviceType::Cpu, float, float, float>> {
                     return context ? std::make_shared<CpuResidualOp>( context )
                         : std::make_shared<CpuResidualOp>();
                 }

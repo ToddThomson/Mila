@@ -1,5 +1,5 @@
 /**
- * @file CpuFullyConnectedOpTests.cpp
+ * @file CpuLinearOpTests.cpp
  * @brief Test suite for the CPU Fully Connected operation.
  */
 
@@ -22,9 +22,9 @@ namespace Operations::Tests
     using namespace Mila::Dnn::Compute;
 
     /**
-     * @brief Test fixture for CpuFullyConnectedOp tests
+     * @brief Test fixture for CpuLinearOp tests
      */
-    class CpuFullyConnectedOpTests : public ::testing::Test {
+    class CpuLinearOpTests : public ::testing::Test {
     protected:
         void SetUp() override {
             cpu_context_ = std::make_shared<DeviceContext>( "CPU" );
@@ -59,8 +59,8 @@ namespace Operations::Tests
             large_weight_shape_ = { large_out_features_, large_in_features_ };
             large_bias_shape_ = { large_out_features_ };
 
-            // Create CPU FullyConnected operation with specific context
-            cpu_fc_op_ = std::make_shared<CpuFullyConnectedOp>( cpu_context_ );
+            // Create CPU Linear operation with specific context
+            cpu_fc_op_ = std::make_shared<CpuLinearOp>( cpu_context_ );
         }
 
         // Helper method to check for NaNs or Infs
@@ -75,7 +75,7 @@ namespace Operations::Tests
         }
 
         // Helper method for reference implementation of fully connected operation
-        void referenceFullyConnected(
+        void referenceLinear(
             const Tensor<float, HostMemoryResource>& input,
             const Tensor<float, HostMemoryResource>& weights,
             const Tensor<float, HostMemoryResource>* bias,
@@ -104,7 +104,7 @@ namespace Operations::Tests
         }
 
         std::shared_ptr<DeviceContext> cpu_context_;
-        std::shared_ptr<CpuFullyConnectedOp> cpu_fc_op_;
+        std::shared_ptr<CpuLinearOp> cpu_fc_op_;
 
         // Test dimensions
         size_t small_batch_, small_seq_len_, small_in_features_, small_out_features_;
@@ -118,16 +118,16 @@ namespace Operations::Tests
     };
 
     /**
-     * @brief Test name property of CpuFullyConnectedOp
+     * @brief Test name property of CpuLinearOp
      */
-    TEST_F( CpuFullyConnectedOpTests, Name ) {
-        EXPECT_EQ( cpu_fc_op_->getName(), "Cpu::FullyConnectedOp" );
+    TEST_F( CpuLinearOpTests, Name ) {
+        EXPECT_EQ( cpu_fc_op_->getName(), "Cpu::LinearOp" );
     }
 
     /**
-     * @brief Test basic functionality of CpuFullyConnectedOp without bias
+     * @brief Test basic functionality of CpuLinearOp without bias
      */
-    TEST_F( CpuFullyConnectedOpTests, BasicFunctionalityWithoutBias ) {
+    TEST_F( CpuLinearOpTests, BasicFunctionalityWithoutBias ) {
         // Create input, weight, and output tensors
         Tensor<float, HostMemoryResource> input( small_input_shape_ );
         auto weights = std::make_shared<Tensor<float, HostMemoryResource>>( small_weight_shape_ );
@@ -152,7 +152,7 @@ namespace Operations::Tests
         ASSERT_NO_THROW( cpu_fc_op_->forward( input, params, props, output, output_state ) );
 
         // Compute expected output with reference implementation
-        referenceFullyConnected( input, *weights, nullptr, expected_output );
+        referenceLinear( input, *weights, nullptr, expected_output );
 
         // Verify output has correct values
         for ( size_t i = 0; i < output.size(); ++i ) {
@@ -161,9 +161,9 @@ namespace Operations::Tests
     }
 
     /**
-     * @brief Test basic functionality of CpuFullyConnectedOp with bias
+     * @brief Test basic functionality of CpuLinearOp with bias
      */
-    TEST_F( CpuFullyConnectedOpTests, BasicFunctionalityWithBias ) {
+    TEST_F( CpuLinearOpTests, BasicFunctionalityWithBias ) {
         // Create input, weight, bias, and output tensors
         Tensor<float, HostMemoryResource> input( small_input_shape_ );
         auto weights = std::make_shared<Tensor<float, HostMemoryResource>>( small_weight_shape_ );
@@ -193,7 +193,7 @@ namespace Operations::Tests
         ASSERT_NO_THROW( cpu_fc_op_->forward( input, params, props, output, output_state ) );
 
         // Compute expected output with reference implementation
-        referenceFullyConnected( input, *weights, bias.get(), expected_output );
+        referenceLinear( input, *weights, bias.get(), expected_output );
 
         // Verify output has correct values
         for ( size_t i = 0; i < output.size(); ++i ) {
@@ -204,7 +204,7 @@ namespace Operations::Tests
     /**
      * @brief Test backward pass functionality
      */
-    //TEST_F( CpuFullyConnectedOpTests, BackwardPass ) {
+    //TEST_F( CpuLinearOpTests, BackwardPass ) {
     //    // Create tensors for forward and backward passes
     //    Tensor<float, HostMemoryResource> input( small_input_shape_ );
     //    Tensor<float, HostMemoryResource> weights( small_weight_shape_ );
@@ -292,7 +292,7 @@ namespace Operations::Tests
     /**
      * @brief Test edge case with non-standard batch size that doesn't divide by LOOP_UNROLL
      */
-    TEST_F( CpuFullyConnectedOpTests, NonStandardBatchSize ) {
+    TEST_F( CpuLinearOpTests, NonStandardBatchSize ) {
         // Create a shape that won't divide evenly by the LOOP_UNROLL factor (which is 8)
         std::vector<size_t> odd_input_shape = { 3, 5, small_in_features_ };
         std::vector<size_t> odd_output_shape = { 3, 5, small_out_features_ };
@@ -324,7 +324,7 @@ namespace Operations::Tests
         ASSERT_NO_THROW( cpu_fc_op_->forward( input, params, props, output, output_state ) );
 
         // Compute expected output with reference implementation
-        referenceFullyConnected( input, *weights, bias.get(), expected_output );
+        referenceLinear( input, *weights, bias.get(), expected_output );
 
         // Verify output matches reference implementation
         for ( size_t i = 0; i < output.size(); ++i ) {
@@ -335,7 +335,7 @@ namespace Operations::Tests
     /**
      * @brief Test numerical stability with varied inputs
      */
-    TEST_F( CpuFullyConnectedOpTests, NumericalStability ) {
+    TEST_F( CpuLinearOpTests, NumericalStability ) {
         // Create test tensors
         Tensor<float, HostMemoryResource> input( medium_input_shape_ );
         auto weights = std::make_shared<Tensor<float, HostMemoryResource>>( medium_weight_shape_ );
@@ -395,7 +395,7 @@ namespace Operations::Tests
     /**
      * @brief Test deterministic behavior (multiple runs should produce same result)
      */
-    TEST_F( CpuFullyConnectedOpTests, DeterministicBehavior ) {
+    TEST_F( CpuLinearOpTests, DeterministicBehavior ) {
         // Create test tensors
         Tensor<float, HostMemoryResource> input( medium_input_shape_ );
         auto weights = std::make_shared<Tensor<float, HostMemoryResource>>( medium_weight_shape_ );
@@ -434,10 +434,10 @@ namespace Operations::Tests
     /**
      * @brief Test error handling for device type mismatch
      */
-    TEST_F( CpuFullyConnectedOpTests, DeviceTypeMismatch ) {
+    TEST_F( CpuLinearOpTests, DeviceTypeMismatch ) {
         // Try to create with CUDA:0 if available, otherwise skip the test
         try {
-            EXPECT_THROW( CpuFullyConnectedOp( std::make_shared<DeviceContext>( "CUDA:0" ) ), std::runtime_error );
+            EXPECT_THROW( CpuLinearOp( std::make_shared<DeviceContext>( "CUDA:0" ) ), std::runtime_error );
         }
         catch ( const std::exception& e ) {
             GTEST_SKIP() << "CUDA device not available, skipping device mismatch test: " << e.what();
@@ -447,7 +447,7 @@ namespace Operations::Tests
     /**
      * @brief Test performance with large input
      */
-    TEST_F( CpuFullyConnectedOpTests, Performance ) {
+    TEST_F( CpuLinearOpTests, Performance ) {
         // Skip test if running in CI environment
         if ( std::getenv( "CI" ) != nullptr ) {
             GTEST_SKIP() << "Skipping performance test in CI environment";
@@ -515,7 +515,7 @@ namespace Operations::Tests
     /**
      * @brief Test with OpenMP (if available)
      */
-    TEST_F( CpuFullyConnectedOpTests, OpenMPScaling ) {
+    TEST_F( CpuLinearOpTests, OpenMPScaling ) {
     #ifdef USE_OMP
         // Skip test if running in CI environment
         if ( std::getenv( "CI" ) != nullptr ) {
@@ -576,7 +576,7 @@ namespace Operations::Tests
             double flops_per_second = static_cast<double>( flops_per_iter * iterations ) /
                 (duration.count() * 1e-6);
 
-            std::cout << "CPU FullyConnected with " << num_threads << " threads: "
+            std::cout << "CPU Linear with " << num_threads << " threads: "
                 << flops_per_second / 1e9 << " GFLOPS" << std::endl;
         }
     #else

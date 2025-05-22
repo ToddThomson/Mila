@@ -45,24 +45,26 @@ namespace Mila::Dnn::Compute
     export class CpuEncoderOp : public UnaryOperation<DeviceType::Cpu, int, float> {
     public:
         using MR = typename CpuDevice::MR;
-		using OperationBase = UnaryOperation<DeviceType::Cpu, int, float>;
+        using OperationBase = UnaryOperation<DeviceType::Cpu, int, float>;
 
         /**
          * @brief Constructs a new CPU Encoder operation with the default device context.
          *
-         * Initializes the operation with a CPU device context.
+         * CPU operations always use full precision regardless of policy settings.
          */
-        CpuEncoderOp() : OperationBase( OperationType::EncoderOp ) {}
+        CpuEncoderOp()
+            : OperationBase( OperationType::EncoderOp, ComputePrecision::Policy::Disabled ) {}
 
         /**
          * @brief Constructs a new CPU Encoder operation with a specific device context.
+         *
+         * CPU operations always use full precision regardless of policy settings.
          *
          * @param context The device context to use for this operation.
          * @throws std::runtime_error If the context is not for a CPU device.
          */
         CpuEncoderOp( std::shared_ptr<DeviceContext> context )
-            : OperationBase( OperationType::EncoderOp, context ) {
-        }
+            : OperationBase( OperationType::EncoderOp, context, ComputePrecision::Policy::Disabled ) {}
 
         /**
          * @brief Performs the forward pass of the encoder operation.
@@ -82,7 +84,10 @@ namespace Mila::Dnn::Compute
             Tensor<float, MR>& output,
             std::vector<std::shared_ptr<Tensor<float, MR>>>& output_state ) const override {
 
-			// TODO: Argument validation
+            // Verify we're operating on CPU memory
+            if ( this->getDeviceContext()->getDevice()->getDeviceType() != DeviceType::Cpu ) {
+                throw std::runtime_error( "CpuEncoderOp::forward can only be executed on CPU memory" );
+            }
 
             auto X = input.raw_data();
             auto Y = output.raw_data();
@@ -94,7 +99,7 @@ namespace Mila::Dnn::Compute
             int T = input.shape()[ 1 ];
             int C = wte->shape()[ 1 ];
 
-            #pragma omp parallel for collapse(2)
+        #pragma omp parallel for collapse(2)
             for ( int b = 0; b < B; b++ ) {
                 for ( int t = 0; t < T; t++ ) {
                     float* out_bt = Y + b * T * C + t * C;
@@ -133,8 +138,13 @@ namespace Mila::Dnn::Compute
             const OperationAttributes& attributes,
             const std::vector<std::shared_ptr<Tensor<float, MR>>>& output_state ) const {
 
-			// TODO backward pass implementation
-            
+            // Verify we're operating on CPU memory
+            if ( this->getDeviceContext()->getDevice()->getDeviceType() != DeviceType::Cpu ) {
+                throw std::runtime_error( "CpuEncoderOp::backward can only be executed on CPU memory" );
+            }
+
+            // TODO backward pass implementation
+
         //    int B = input.shape()[ 0 ];
         //    int TDataType = input.shape()[ 1 ];
         //    int C = wte->shape()[ 1 ];
@@ -189,7 +199,7 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, int, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, int, float>> {
+                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, int, float>> {
                     return context ? std::make_shared<CpuEncoderOp>( context )
                         : std::make_shared<CpuEncoderOp>();
                 }
@@ -202,9 +212,9 @@ namespace Mila::Dnn::Compute
          * This static member ensures the operation is registered when the program starts
          * without requiring explicit registration calls.
          */
-        /*static inline bool isRegistered = []() {
+        static inline bool isRegistered = []() {
             registerOperations();
             return true;
-            }();*/
+            }();
     };
 }

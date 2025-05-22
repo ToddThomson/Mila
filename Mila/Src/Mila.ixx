@@ -51,7 +51,7 @@ export import Dnn.Tensor;
 export import Dnn.TensorBuffer; // TJT: Remove after testing
 export import Dnn.TensorTraits;
 export import Dnn.TensorHelpers;
-export import Dnn.ActivationTypes;
+export import Dnn.ActivationType;
 
 export import Data.DataLoader;
 
@@ -74,9 +74,9 @@ export import Compute.OperationRegistry;
 export import Compute.OperationAttributes;
 
 export import Compute.CpuEncoderOp;
-export import Compute.CpuFullyConnectedOp;
 export import Compute.CpuGeluOp;
 export import Compute.CpuLayerNormOp;
+export import Compute.CpuLinearOp;
 export import Compute.CpuResidualOp;
 export import Compute.CpuSoftmaxOp;
 

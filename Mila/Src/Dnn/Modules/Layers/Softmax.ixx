@@ -14,11 +14,13 @@ module;
 #include <cstdint>
 
 export module Dnn.Modules.Softmax;
+export import :Config;
 
 import Dnn.Module;
 import Dnn.Tensor;
 import Dnn.TensorTraits;
 import Dnn.TensorHelpers;
+import Compute.Precision;
 import Compute.DeviceType;
 import Compute.DeviceContext;
 import Compute.ComputeDevice;
@@ -49,14 +51,32 @@ namespace Mila::Dnn
      * @tparam TDeviceType The device type (CPU or CUDA) on which to perform computations.
      * @tparam TInput The data type of the input tensor elements.
      * @tparam TOutput The data type of the output tensor elements, defaults to TInput.
-     * @tparam TPrecision The data type used for internal calculations, defaults to TOutput.
      */
     export template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput>
         requires ValidFloatTensorTypes<TInput, TOutput>
     class Softmax : public Module<TDeviceType, TInput, TOutput> {
     public:
-        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>; ///< Memory resource type based on device type
-        using ModuleBase = Module<TDeviceType, TInput, TOutput>; ///< Base class type for the module
+        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>;
+        using ModuleBase = Module<TDeviceType, TInput, TOutput>;
+
+        /**
+         * @brief Construct a new Softmax module from configuration.
+         *
+         * @param config The configuration for this module
+         */
+        explicit Softmax( const SoftmaxConfig& config )
+            : ModuleBase(
+                config.getContext() ? config.getContext() : std::make_shared<DeviceContext>( config.getDeviceName() ),
+                TDeviceType == DeviceType::Cpu ? ComputePrecision::Policy::Disabled : config.getPrecision() ),
+            axis_( config.getAxis() ) {
+
+            config.validate();
+
+            this->setName( config.getName() );
+            this->setTraining( config.isTraining() );
+
+            createOperation();
+        }
 
         /**
          * @brief Construct a new Softmax module with the default device context.
@@ -65,11 +85,16 @@ namespace Mila::Dnn
          * @param device_name The name of the device to use for this module.
          * @param axis The dimension along which to apply the softmax operation. Default is -1 (last dimension).
          * @param is_training Whether the module is in training mode. Default is false.
+         * @param precision The compute precision policy (CPU operations always use Disabled).
          */
-        Softmax( std::string name, const std::string& device_name, int64_t axis = -1, bool is_training = false )
-            : ModuleBase( device_name ), axis_( axis ) {
+        Softmax( std::string name, const std::string& device_name, int64_t axis = -1,
+            bool is_training = false,
+            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
+            : ModuleBase( device_name, TDeviceType == DeviceType::Cpu ? ComputePrecision::Policy::Disabled : precision ),
+            axis_( axis ) {
             this->setTraining( is_training );
             this->setName( name );
+
             createOperation();
         }
 
@@ -80,11 +105,16 @@ namespace Mila::Dnn
          * @param context The device context to use for this module.
          * @param axis The dimension along which to apply the softmax operation. Default is -1 (last dimension).
          * @param is_training Whether the module is in training mode. Default is false.
+         * @param precision The compute precision policy (CPU operations always use Disabled).
          */
-        Softmax( std::string name, std::shared_ptr<DeviceContext> context, int64_t axis = -1, bool is_training = false )
-            : ModuleBase( context ), axis_( axis ) {
+        Softmax( std::string name, std::shared_ptr<DeviceContext> context, int64_t axis = -1,
+            bool is_training = false,
+            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
+            : ModuleBase( context, TDeviceType == DeviceType::Cpu ? ComputePrecision::Policy::Disabled : precision ),
+            axis_( axis ) {
             this->setTraining( is_training );
             this->setName( name );
+
             createOperation();
         }
 
@@ -111,6 +141,40 @@ namespace Mila::Dnn
          */
         void forward( const Tensor<TInput, MR>& input, Tensor<TOutput, MR>& output ) {
             operation_->forward( input, parameters_, attributes_, output, output_state_ );
+        }
+
+        /**
+         * @brief Performs the backward pass of the Softmax operation.
+         *
+         * Computes gradients for the input tensor based on the output gradients.
+         *
+         * @param input The input tensor from the forward pass.
+         * @param output_grad The gradient of loss with respect to the output.
+         * @param input_grad The tensor to store gradients with respect to input.
+         */
+        void backward(
+            const Tensor<TInput, MR>& input,
+            const Tensor<TOutput, MR>& output_grad,
+            Tensor<TInput, MR>& input_grad ) {
+
+            operation_->backward(
+                input,           // Input tensor
+                output_grad,     // Gradient from next layer
+                parameters_,     // Empty for Softmax
+                {},              // No parameter gradients for Softmax
+                input_grad,      // Gradient to propagate to previous layer
+                attributes_,     // Operation properties
+                output_state_    // Cached tensors from forward pass
+            );
+        }
+
+        /**
+         * @brief Get the axis used for softmax computation.
+         *
+         * @return int64_t The axis along which softmax is applied
+         */
+        int64_t getAxis() const {
+            return axis_;
         }
 
         /**
@@ -148,89 +212,45 @@ namespace Mila::Dnn
         std::string toString() const override {
             std::ostringstream oss;
             oss << "--------------------" << std::endl;
-            oss << "Softmax: " << this->getName() << ", Dimension: " << axis_;
-            oss << ", Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
+            oss << "Softmax: " << this->getName() << ", Dimension: " << axis_ << std::endl;
+            oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
+            oss << this->getComputePrecision().toString() << std::endl;
 
             return oss.str();
         }
 
     private:
-        /**
-         * @brief The dimension to perform the softmax operation on.
-         *
-         * Default is -1 for the last dimension. Negative values count backward from the end
-         * (-1 means the last dimension, -2 means the second-to-last dimension, etc.).
-         */
         int64_t axis_{ -1 };
-
-        /**
-         * @brief The parameters for the operation.
-         *
-         * The Softmax activation has no parameters, so this is an empty vector.
-         */
         std::vector<std::shared_ptr<Tensor<TInput, MR>>> parameters_;
-
-        /**
-         * @brief The output state.
-         *
-         * Storage for intermediate results that might be needed for the backward pass.
-         */
         std::vector<std::shared_ptr<Tensor<TOutput, MR>>> output_state_;
-
-        /**
-         * @brief The operation attributes.
-         *
-         * Contains the configuration for the softmax operation, such as the axis along which to compute.
-         */
         OperationAttributes attributes_;
-
-        /**
-         * @brief The underlying unary operation that implements the softmax function.
-         */
         std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput>> operation_{ nullptr };
 
-        /**
-         * @brief Create the appropriate softmax operation based on the current device context.
-         *
-         * This method initializes the operation_ member with the appropriate implementation
-         * of the softmax operation for either CPU or CUDA, based on the current device context.
-         */
         void createOperation() {
-            // Set the axis in attributes correctly using the set method
             attributes_.set( "axis", axis_ );
 
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
                 auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TInput, TOutput>(
                     "Cpu::SoftmaxOp",
-                    this->getDeviceContext() );
+                    this->getDeviceContext(),
+                    ComputePrecision::Policy::Disabled ); // Always use Disabled for CPU
 
                 operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cpu, TInput, TOutput>>(base_op);
             }
             else {
                 auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TInput, TOutput>(
                     "Cuda::SoftmaxOp",
-                    this->getDeviceContext() );
+                    this->getDeviceContext(),
+                    this->getComputePrecision().getPolicy() );
 
                 operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cuda, TInput, TOutput>>(base_op);
             }
         }
     };
 
-    /**
-     * @brief Type alias for CPU-based softmax module with customizable tensor types.
-     *
-     * @tparam TInput Data type of the input tensor elements.
-     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
-     */
     export template<typename TInput = float, typename TOutput = TInput>
         using CpuSoftmax = Softmax<DeviceType::Cpu, TInput, TOutput>;
 
-    /**
-     * @brief Type alias for CUDA-based softmax module with customizable tensor types.
-     *
-     * @tparam TInput Data type of the input tensor elements.
-     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
-     */
     export template<typename TInput = float, typename TOutput = TInput>
         using CudaSoftmax = Softmax<DeviceType::Cuda, TInput, TOutput>;
 }

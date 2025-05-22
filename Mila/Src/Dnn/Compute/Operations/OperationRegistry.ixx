@@ -138,12 +138,13 @@ namespace Mila::Dnn::Compute
          * @tparam TOutput The output tensor element type (defaults to TInput).
          * @param operation_name The name of the operation.
          * @param creator The function that creates the unary operation.
+         * @param precision_policy The compute precision policy to use (defaults to Auto).
          */
         template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput>
             requires ValidTensorType<TInput>&& ValidFloatTensorType<TOutput>
         void registerUnaryOperation(
             const std::string& operation_name,
-            std::function<std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput>>( std::shared_ptr<DeviceContext> )> creator ) {
+            std::function<std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput>>( std::shared_ptr<DeviceContext>, ComputePrecision::Policy )> creator ) {
 
             TypeID type_id{
                 std::type_index( typeid(TInput) ),
@@ -152,10 +153,9 @@ namespace Mila::Dnn::Compute
                 TDeviceType
             };
 
-            // Convert UnaryOperation creator to GenericCreator
-            auto genericCreator = [creator]( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<void> {
-                return creator( context );
-                };
+            auto genericCreator = [creator]( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<void> {
+                return creator( context, precision_policy );
+            };
 
             registry_[ type_id ][ operation_name ] = std::move( genericCreator );
         }
@@ -169,12 +169,14 @@ namespace Mila::Dnn::Compute
          * @tparam TOutput The output tensor element type (defaults to TInput2).
          * @param operation_name The name of the operation.
          * @param creator The function that creates the binary operation.
+         * @param precision_policy The compute precision policy to use (defaults to Auto).
          */
         template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput1 = float, typename TInput2 = TInput1, typename TOutput = TInput2>
             requires ValidTensorTypes<TInput1, TInput2>&& ValidFloatTensorType<TOutput>
         void registerBinaryOperation(
             const std::string& operation_name,
-            std::function<std::shared_ptr<BinaryOperation<TDeviceType, TInput1, TInput2, TOutput>>( std::shared_ptr<DeviceContext> )> creator ) {
+            std::function<std::shared_ptr<BinaryOperation<TDeviceType, TInput1, TInput2, TOutput>>( std::shared_ptr<DeviceContext>, ComputePrecision::Policy )> creator,
+            ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto ) {
 
             TypeID type_id{
                 std::type_index( typeid(TInput1) ),
@@ -184,9 +186,9 @@ namespace Mila::Dnn::Compute
             };
 
             // Convert BinaryOperation creator to GenericCreator
-            auto genericCreator = [creator]( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<void> {
-                return creator( context );
-                };
+            auto genericCreator = [creator ]( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<void> {
+                return creator( context, precision_policy );
+            };
 
             registry_[ type_id ][ operation_name ] = std::move( genericCreator );
         }
@@ -278,12 +280,12 @@ namespace Mila::Dnn::Compute
                 throw std::invalid_argument( "DeviceContext cannot be null when creating an operation" );
             }
 
-            auto op = std::static_pointer_cast<UnaryOperation<TDeviceType, TInput, TOutput>>(op_it->second( context ));
+            auto op = std::static_pointer_cast<UnaryOperation<TDeviceType, TInput, TOutput>>(op_it->second( context, precision_policy ));
 
             // Set the precision policy on the operation
-            if ( op ) {
+            /*if ( op ) {
                 op->setPrecisionPolicy( precision_policy );
-            }
+            }*/
 
             return op;
         }
@@ -337,12 +339,12 @@ namespace Mila::Dnn::Compute
                 throw std::invalid_argument( "DeviceContext cannot be null when creating an operation" );
             }
 
-            auto op = std::static_pointer_cast<BinaryOperation<TDeviceType, TInput1, TInput2, TOutput>>(op_it->second( context ));
+            auto op = std::static_pointer_cast<BinaryOperation<TDeviceType, TInput1, TInput2, TOutput>>(op_it->second( context, precision_policy ));
             
             // Set the precision policy on the operation
-            if ( op ) {
+            /*if ( op ) {
                 op->setPrecisionPolicy( precision_policy );
-            }
+            }*/
 
             return op;
         }
@@ -382,7 +384,7 @@ namespace Mila::Dnn::Compute
         /**
          * @brief Type alias for a generic operation creator function.
          */
-        using GenericCreator = std::function<std::shared_ptr<void>( std::shared_ptr<DeviceContext> )>;
+        using GenericCreator = std::function<std::shared_ptr<void>( std::shared_ptr<DeviceContext>, ComputePrecision::Policy )>;
 
         /**
          * @brief List of registered fused operations.

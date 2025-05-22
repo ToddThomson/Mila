@@ -128,8 +128,11 @@ namespace Mila::Benchmark
                 if ( def.moduleType == "gelu" ) {
                     if ( runCpu ) {
                         for ( const auto& shape : cpuShapes ) {
+                            // Updated constructor order: name, context, precision, is_training
                             auto cpuGelu = std::make_shared<CpuGelu<float>>(
-                                "Cpu::" + def.name, cpuContext, false, precisionPolicy );
+                                "Cpu::" + def.name, cpuContext,
+                                precisionPolicy, // Precision before is_training
+                                false );
 
                             auto cpuGeluBench = std::make_unique<ModuleBenchmark<DeviceType::Cpu, float>>(
                                 cpuGelu,
@@ -143,8 +146,11 @@ namespace Mila::Benchmark
 
                     if ( runCuda ) {
                         for ( const auto& shape : cudaShapes ) {
+                            // Updated constructor order: name, context, precision, is_training
                             auto cudaGelu = std::make_shared<CudaGelu<float>>(
-                                "Cuda::" + def.name, cudaContext, false, precisionPolicy );
+                                "Cuda::" + def.name, cudaContext,
+                                precisionPolicy, // Precision before is_training
+                                false );
 
                             auto cudaGeluBench = std::make_unique<ModuleBenchmark<DeviceType::Cuda, float>>(
                                 cudaGelu,
@@ -168,9 +174,12 @@ namespace Mila::Benchmark
                                 size_t input_features = shape.back();
                                 size_t hidden_features = input_features * hiddenFeaturesMultiplier;
 
+                                // Updated constructor order: name, context, input_shape, output_channels, has_bias, precision, is_training
                                 auto cpuMLP = std::make_shared<CpuMLP<float>>(
                                     "Cpu::" + def.name, cpuContext, shape, hidden_features,
-                                    useBias, false, precisionPolicy );
+                                    useBias, // has_bias
+                                    precisionPolicy, // Precision before is_training
+                                    false );
 
                                 auto cpuMLPBench = std::make_unique<BlockModuleBenchmark<DeviceType::Cpu, float>>(
                                     cpuMLP,
@@ -188,9 +197,12 @@ namespace Mila::Benchmark
                                 size_t input_features = shape.back();
                                 size_t hidden_features = input_features * hiddenFeaturesMultiplier;
 
+                                // Updated constructor order: name, context, input_shape, output_channels, has_bias, precision, is_training
                                 auto cudaMLP = std::make_shared<CudaMLP<float>>(
                                     "Cuda::" + def.name, cudaContext, shape, hidden_features,
-                                    useBias, false, precisionPolicy );
+                                    useBias, // has_bias
+                                    precisionPolicy, // Precision before is_training
+                                    false );
 
                                 auto cudaMLPBench = std::make_unique<BlockModuleBenchmark<DeviceType::Cuda, float>>(
                                     cudaMLP,
@@ -205,8 +217,11 @@ namespace Mila::Benchmark
                 else if ( def.moduleType == "residual" ) {
                     if ( runCpu ) {
                         for ( const auto& shape : cpuShapes ) {
+                            // Updated constructor order: name, context, precision, is_training
                             auto cpuResidual = std::make_shared<Residual<DeviceType::Cpu, float>>(
-                                "Cpu::" + def.name, cpuContext, false, precisionPolicy );
+                                "Cpu::" + def.name, cpuContext,
+                                precisionPolicy, // Precision before is_training
+                                false );
 
                             auto cpuResidualBench = std::make_unique<BinaryModuleBenchmark<DeviceType::Cpu, float>>(
                                 cpuResidual,
@@ -219,8 +234,11 @@ namespace Mila::Benchmark
 
                     if ( runCuda ) {
                         for ( const auto& shape : cudaShapes ) {
+                            // Updated constructor order: name, context, precision, is_training
                             auto cudaResidual = std::make_shared<Residual<DeviceType::Cuda, float>>(
-                                "Cuda::" + def.name, cudaContext, false, precisionPolicy );
+                                "Cuda::" + def.name, cudaContext,
+                                precisionPolicy, // Precision before is_training
+                                false );
 
                             auto cudaResidualBench = std::make_unique<BinaryModuleBenchmark<DeviceType::Cuda, float>>(
                                 cudaResidual,

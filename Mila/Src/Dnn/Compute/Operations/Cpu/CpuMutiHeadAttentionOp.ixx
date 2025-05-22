@@ -57,7 +57,8 @@ namespace Mila::Dnn::Compute
          *
          * Initializes the operation with a CPU device context.
          */
-        CpuMultiHeadAttentionOp() : OperationBase( OperationType::MultiHeadAttentionOp ) {
+        CpuMultiHeadAttentionOp()
+            : OperationBase( OperationType::MultiHeadAttentionOp, ComputePrecision::Policy::Disabled ) {
 
         }
 
@@ -68,7 +69,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the context is not for a CPU device.
          */
         CpuMultiHeadAttentionOp( std::shared_ptr<DeviceContext> context )
-            : OperationBase( OperationType::MultiHeadAttentionOp, context ) {
+            : OperationBase( OperationType::MultiHeadAttentionOp, context, ComputePrecision::Policy::Disabled ) {
         }
 
         /**
@@ -305,7 +306,7 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float>> {
+                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float>> {
                     return context ? std::make_shared<CpuMultiHeadAttentionOp>( context )
                         : std::make_shared<CpuMultiHeadAttentionOp>();
                 }
