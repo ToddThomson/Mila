@@ -3,7 +3,7 @@
  * @brief Configuration interface for the MLP block in the Mila DNN framework.
  *
  * Defines the MLPConfig class, providing a type-safe fluent interface for configuring
- * Multi-Layer Perceptron (MLP) blocks. Inherits from ModuleConfig CRTP base and adds
+ * Multi-Layer Perceptron (MLP) blocks. Inherits from ComponentConfig CRTP base and adds
  * MLP-specific options such as input/output dimensions and activation function types.
  */
 
@@ -13,7 +13,7 @@ module;
 
 export module Dnn.Blocks.MLP:Config;
 
-import Dnn.Module;
+import Dnn.ComponentConfig;
 import Dnn.ActivationType;
 
 namespace Mila::Dnn
@@ -21,7 +21,7 @@ namespace Mila::Dnn
     /**
      * @brief Configuration class for MLP block.
      */
-    export class MLPConfig : public ModuleConfig<MLPConfig> {
+    export class MLPConfig : public ComponentConfig<MLPConfig> {
     public:
         /**
          * @brief Constructor with required parameters.
@@ -131,7 +131,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If validation fails
          */
         void validate() const {
-            ModuleConfig<MLPConfig>::validate();
+            ComponentConfig<MLPConfig>::validate();
 
             if ( input_features_ == 0 ) {
                 throw std::invalid_argument( "Input features must be greater than zero" );

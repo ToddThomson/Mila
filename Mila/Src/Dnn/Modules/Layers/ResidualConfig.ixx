@@ -3,7 +3,7 @@
  * @brief Configuration interface for the Residual module in the Mila DNN framework.
  *
  * Defines the ResidualConfig class, providing a type-safe fluent interface for configuring
- * Residual connection modules. Inherits from ModuleConfig CRTP base and adds Residual-specific
+ * Residual connection modules. Inherits from ComponentConfig CRTP base and adds Residual-specific
  * options such as scaling factor and connection type.
  */
 
@@ -14,6 +14,7 @@ module;
 export module Dnn.Modules.Residual:Config;
 
 import Dnn.Module;
+import Dnn.ComponentConfig;
 import Compute.DeviceType;
 
 namespace Mila::Dnn
@@ -23,7 +24,7 @@ namespace Mila::Dnn
     /**
      * @brief Configuration class for Residual connection module.
      */
-    export class ResidualConfig : public ModuleConfig<ResidualConfig> {
+    export class ResidualConfig : public ComponentConfig<ResidualConfig> {
     public:
         enum class ConnectionType {
             Addition,       ///< Simple addition (x + F(x))
@@ -107,7 +108,7 @@ namespace Mila::Dnn
         bool hasInnerModule() const { return inner_module_ptr_ != nullptr; }
 
         void validate() const {
-            ModuleConfig<ResidualConfig>::validate();
+            ComponentConfig<ResidualConfig>::validate();
 
             if ( connection_type_ == ConnectionType::ScaledAddition && scaling_factor_ <= 0.0f ) {
                 throw std::invalid_argument( "Scaling factor must be positive for scaled addition" );

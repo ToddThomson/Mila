@@ -3,7 +3,7 @@
  * @brief Configuration interface for the GELU activation module in the Mila DNN framework.
  *
  * Defines the GeluConfig class, providing a type-safe fluent interface for configuring
- * Gaussian Error Linear Unit (GELU) activation function modules. Inherits from ModuleConfig 
+ * Gaussian Error Linear Unit (GELU) activation function modules. Inherits from ComponentConfig 
  * CRTP base and adds GELU-specific options: approximation method.
  *
  * Exposed as part of the Gelu module via module partitions.
@@ -15,6 +15,7 @@ module;
 export module Dnn.Modules.Gelu:Config;
 
 import Dnn.Module;
+import Dnn.ComponentConfig;
 
 namespace Mila::Dnn
 {
@@ -23,7 +24,7 @@ namespace Mila::Dnn
      *
      * Provides a type-safe fluent interface for configuring GELU modules.
      */
-    export class GeluConfig : public ModuleConfig<GeluConfig> {
+    export class GeluConfig : public ComponentConfig<GeluConfig> {
     public:
         /**
          * @brief Approximation methods for the GELU activation function.
@@ -42,7 +43,10 @@ namespace Mila::Dnn
         /**
          * @brief Configure the approximation method for GELU computation.
          *
-         * @param method The approximation method to use
+         * Note: Currently, only the Tanh approximation method is supported.
+         * Setting other methods will cause validation to fail when the configuration is used.
+         *
+         * @param method The approximation method to use (only ApproximationMethod::Tanh is currently supported)
          * @return GeluConfig& Reference to this for method chaining
          */
         GeluConfig& withApproximationMethod( ApproximationMethod method ) {
@@ -60,11 +64,18 @@ namespace Mila::Dnn
         /**
          * @brief Validate configuration parameters.
          *
-         * @throws std::invalid_argument If validation fails
+         * Currently, only the Tanh approximation method is supported for GELU computation.
+         * Setting other approximation methods will cause validation to fail.
+         *
+         * @throws std::invalid_argument If validation fails or an unsupported approximation method is selected
          */
         void validate() const {
-            ModuleConfig<GeluConfig>::validate();
-            // No additional validation needed for GELU
+            ComponentConfig<GeluConfig>::validate();
+
+            // Validate that only Tanh approximation method is used
+            if ( approximation_method_ != ApproximationMethod::Tanh ) {
+                throw std::invalid_argument( "Only the Tanh approximation method is currently supported for GELU" );
+            }
         }
 
     private:

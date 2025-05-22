@@ -3,7 +3,7 @@
  * @brief Configuration interface for the Softmax module in the Mila DNN framework.
  *
  * Defines the SoftmaxConfig class, providing a type-safe fluent interface for configuring
- * Softmax activation function modules. Inherits from ModuleConfig CRTP base and adds
+ * Softmax activation function modules. Inherits from ComponentConfig CRTP base and adds
  * Softmax-specific options such as the axis along which to apply the operation.
  *
  * Exposed as part of the Softmax module via module partitions.
@@ -16,6 +16,7 @@ module;
 export module Dnn.Modules.Softmax:Config;
 
 import Dnn.Module;
+import Dnn.ComponentConfig;
 
 namespace Mila::Dnn
 {
@@ -24,7 +25,7 @@ namespace Mila::Dnn
      *
      * Provides a type-safe fluent interface for configuring Softmax modules.
      */
-    export class SoftmaxConfig : public ModuleConfig<SoftmaxConfig> {
+    export class SoftmaxConfig : public ComponentConfig<SoftmaxConfig> {
     public:
         /**
          * @brief Default constructor.
@@ -55,7 +56,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If validation fails
          */
         void validate() const {
-            ModuleConfig<SoftmaxConfig>::validate();
+            ComponentConfig<SoftmaxConfig>::validate();
             // No additional validation needed for Softmax
         }
 

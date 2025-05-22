@@ -36,9 +36,14 @@ namespace Modules::Tests
             data.shape = { batch_size, sequence_length, channels };
             data.is_training = is_training;
 
-            std::string device_str = TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU";
-            data.gelu_module = std::make_shared<Gelu<TDevice, TInput, TOutput>>(
-                name, device_str, ComputePrecision::Policy::Auto, is_training );
+            // Create a GeluConfig and configure it
+            GeluConfig config;
+            config.withName( name )
+                .withDeviceName( TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU" )
+                .withPrecision( ComputePrecision::Policy::Auto )
+                .withTraining( is_training );
+
+            data.gelu_module = std::make_shared<Gelu<TDevice, TInput, TOutput>>( config );
 
             return data;
         }
@@ -56,8 +61,14 @@ namespace Modules::Tests
             data.shape = { batch_size, sequence_length, channels };
             data.is_training = is_training;
 
-            data.gelu_module = std::make_shared<Gelu<TDevice, TInput, TOutput>>(
-                name, context, ComputePrecision::Policy::Auto, is_training );
+            // Create a GeluConfig and configure it with context
+            GeluConfig config;
+            config.withName( name )
+                .withContext( context )
+                .withPrecision( ComputePrecision::Policy::Auto )
+                .withTraining( is_training );
+
+            data.gelu_module = std::make_shared<Gelu<TDevice, TInput, TOutput>>( config );
 
             return data;
         }
@@ -270,10 +281,13 @@ namespace Modules::Tests
             // Test with minimal sizes
             std::vector<size_t> minimal_shape = { 1, 1, 8 };
 
-            // Updated constructor order: name, device_name, precision, is_training
-            auto minimal_module = std::make_shared<Gelu<TDevice, TInput, TOutput>>(
-                "minimal_gelu", TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU",
-                ComputePrecision::Policy::Auto );
+            // Create config for minimal module
+            GeluConfig minimal_config;
+            minimal_config.withName( "minimal_gelu" )
+                .withDeviceName( TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU" )
+                .withPrecision( ComputePrecision::Policy::Auto );
+
+            auto minimal_module = std::make_shared<Gelu<TDevice, TInput, TOutput>>( minimal_config );
 
             Tensor<TInput, MR> minimal_input( minimal_shape );
             Tensor<TOutput, MR> minimal_output( minimal_shape );
@@ -284,10 +298,13 @@ namespace Modules::Tests
             // Test with larger dimensions
             std::vector<size_t> large_shape = { 2, 2, 1024 };
 
-            // Updated constructor order: name, device_name, precision, is_training
-            auto large_module = std::make_shared<Gelu<TDevice, TInput, TOutput>>(
-                "large_gelu", TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU",
-                ComputePrecision::Policy::Auto );
+            // Create config for large module
+            GeluConfig large_config;
+            large_config.withName( "large_gelu" )
+                .withDeviceName( TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU" )
+                .withPrecision( ComputePrecision::Policy::Auto );
+
+            auto large_module = std::make_shared<Gelu<TDevice, TInput, TOutput>>( large_config );
 
             Tensor<TInput, MR> large_input( large_shape );
             Tensor<TOutput, MR> large_output( large_shape );

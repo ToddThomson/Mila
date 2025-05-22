@@ -232,7 +232,7 @@ namespace Mila::Dnn
          */
         void createOperation() {
             // Set approximation method in operation properties
-            properties_[ "approximation_method" ] = static_cast<int>(approximation_method_);
+            // TODO: properties_[ "approximation_method" ] = static_cast<int>(approximation_method_);
 
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
                 auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TInput, TOutput>(

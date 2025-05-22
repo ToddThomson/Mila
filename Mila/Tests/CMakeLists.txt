@@ -28,7 +28,6 @@ if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
   set(CMAKE_CUDA_ARCHITECTURES native)
 endif()
 
-
 add_executable( MilaTests
     "main.cpp"
     "Dnn/Core/Tensor.cpp"
@@ -43,13 +42,12 @@ add_executable( MilaTests
     "Dnn/Modules/Module.cpp"
     "Dnn/Modules/ModuleConfig.cpp"
     
-    #"Dnn/Modules/Layers/EncoderConfig.cpp"
-    #"Dnn/Modules/Layers/GeluConfig.cpp"
-    #"Dnn/Modules/Layers/LinearConfig.cpp"
-
     #"Dnn/Modules/Layers/Encoder.cpp"
+    #"Dnn/Modules/Layers/EncoderConfig.cpp"
+    "Dnn/Modules/Layers/Gelu.cpp" 
+    "Dnn/Modules/Layers/GeluConfig.cpp"
     #"Dnn/Modules/Layers/Linear.cpp"
-    #"Dnn/Modules/Layers/Gelu.cpp" 
+    #"Dnn/Modules/Layers/LinearConfig.cpp"
     #"Dnn/Modules/Attention.cpp" 
     #"Dnn/Modules/Layers/Layernorm.cpp"
     #"Dnn/Modules/Layers/Residual.cpp"

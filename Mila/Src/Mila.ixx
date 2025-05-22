@@ -44,6 +44,7 @@ export import Compute.BinaryOperation;
 export import Compute.Precision;
 
 export import Dnn.Module;
+export import Dnn.ComponentConfig;
 export import Dnn.CompositeModule;
 export import Dnn.Model;
 

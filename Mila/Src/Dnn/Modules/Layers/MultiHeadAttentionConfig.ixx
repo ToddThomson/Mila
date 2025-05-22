@@ -3,7 +3,7 @@
  * @brief Configuration interface for the MultiHeadAttention module in the Mila DNN framework.
  *
  * Defines the MultiHeadAttentionConfig class, providing a type-safe fluent interface for configuring
- * MultiHeadAttention modules. Inherits from ModuleConfig CRTP base and adds attention-specific options
+ * MultiHeadAttention modules. Inherits from ComponentConfig CRTP base and adds attention-specific options
  * such as embedding dimension, number of heads, and dropout rates.
  */
 
@@ -14,13 +14,14 @@ module;
 export module Dnn.Modules.Attention:Config;
 
 import Dnn.Module;
+import Dnn.ComponentConfig;
 
 namespace Mila::Dnn
 {
     /**
      * @brief Configuration class for MultiHeadAttention module.
      */
-    export class MultiHeadAttentionConfig : public ModuleConfig<MultiHeadAttentionConfig> {
+    export class MultiHeadAttentionConfig : public ComponentConfig<MultiHeadAttentionConfig> {
     public:
         /**
          * @brief Constructor with required parameters.
@@ -127,7 +128,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If validation fails
          */
         void validate() const {
-            ModuleConfig<MultiHeadAttentionConfig>::validate();
+            ComponentConfig<MultiHeadAttentionConfig>::validate();
 
             if ( embedding_dim_ == 0 ) {
                 throw std::invalid_argument( "Embedding dimension must be greater than zero" );
