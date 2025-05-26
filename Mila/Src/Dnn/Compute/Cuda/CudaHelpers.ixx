@@ -1,5 +1,13 @@
+/**
+ * @file CudaHelpers.ixx
+ * @brief CUDA utility functions for device management and kernel execution
+ *
+ * Provides helper functions for CUDA device discovery, selection,
+ * and kernel execution optimization. These utilities simplify working
+ * with CUDA devices and provide consistent error handling.
+ */
+
 module;
-#include <stdio.h>
 #include <stdexcept>
 #include <cuda_runtime.h>
 
@@ -9,40 +17,67 @@ import Cuda.Error;
 
 namespace Mila::Dnn::Compute
 {
-    // convenience function for calculating grid/block dimensions for kernels
+    /**
+     * @brief Calculates ceiling division for kernel grid/block dimensions
+     * @param M Dividend value
+     * @param N Divisor value
+     * @return Ceiling of M/N as an integer
+     */
     export constexpr int ceil_div( int M, int N ) {
         return (M + N - 1) / N;
     }
 
-    export int GetDriverVersion() {
+    /**
+     * @brief Gets the installed CUDA driver version
+     * @return Integer representation of the CUDA driver version
+     * @throws CudaError If driver version cannot be determined
+     */
+    export int getDriverVersion() {
         int driverVersion;
         cudaCheckStatus( cudaDriverGetVersion( &driverVersion ) );
         return driverVersion;
     };
 
-    export int GetRuntimeVersion() {
+    /**
+     * @brief Gets the installed CUDA runtime version
+     * @return Integer representation of the CUDA runtime version
+     * @throws CudaError If runtime version cannot be determined
+     */
+    export int getRuntimeVersion() {
         int runtimeVersion;
         cudaCheckStatus( cudaRuntimeGetVersion( &runtimeVersion ) );
         return runtimeVersion;
     };
 
-    export inline int GetDeviceCount()
-    {
+    /**
+     * @brief Gets the number of available CUDA devices
+     * @return Number of CUDA devices available to the application
+     * @throws CudaError If device enumeration fails
+     */
+    export inline int getDeviceCount() {
         int devCount;
         cudaCheckStatus( cudaGetDeviceCount( &devCount ) );
         return devCount;
     };
 
-    export int CheckDevice( int deviceId )
-    {
+    /**
+     * @brief Validates that a device ID is valid and available
+     * @param deviceId CUDA device ID to check
+     * @return The same device ID if valid
+     * @throws std::invalid_argument If device ID is negative
+     * @throws std::runtime_error If no CUDA devices are available
+     * @throws std::out_of_range If device ID exceeds available device count
+     * @throws std::runtime_error If device is in prohibited compute mode
+     */
+    export int checkDevice( int deviceId ) {
         if ( deviceId < 0 ) {
             throw std::invalid_argument( "Invalid device id." );
         }
 
-        int devCount = GetDeviceCount();
+        int devCount = getDeviceCount();
 
         if ( devCount == 0 ) {
-            throw std::runtime_error( "No Cuda devices found." );
+            throw std::runtime_error( "No CUDA devices found." );
         }
 
         if ( deviceId > devCount - 1 ) {
@@ -59,189 +94,65 @@ namespace Mila::Dnn::Compute
         return deviceId;
     };
 
-    static const char* _cudaGetErrorEnum( cudaError_t error )
-    {
-        return cudaGetErrorName( error );
-    }
+    /**
+     * @brief Identifies the best CUDA device based on performance characteristics
+     *
+     * Evaluates available CUDA devices and selects the one with highest performance
+     * potential. Selection criteria vary based on the intended workload type.
+     *
+     * @param preferMemory When true, prioritizes memory bandwidth over compute
+     * @return Device ID of the best available CUDA device
+     * @throws CudaError If device properties cannot be accessed
+     */
+    export inline int getBestDeviceId( bool preferMemory = false ) {
+        int deviceCount = getDeviceCount();
+        int bestDevice = 0;
+        uint64_t bestScore = 0;
 
-    inline int _ConvertSMVer2Cores( int major, int minor )
-    {
-        // Defines for GPU Architecture types (using the SM version to determine
-        // the # of cores per SM
-        typedef struct
-        {
-            int SM;  // 0xMm (hexidecimal notation), M = SM Major version,
-            // and m = SM minor version
-            int Cores;
-        } sSMtoCores;
+        for ( int device = 0; device < deviceCount; device++ ) {
+            cudaDeviceProp props;
+            if ( cudaGetDeviceProperties( &props, device ) != cudaSuccess ) continue;
+            if ( props.computeMode == cudaComputeModeProhibited ) continue;
 
-        sSMtoCores nGpuArchCoresPerSM[] = {
-            {0x30, 192},
-            {0x32, 192},
-            {0x35, 192},
-            {0x37, 192},
-            {0x50, 128},
-            {0x52, 128},
-            {0x53, 128},
-            {0x60,  64},
-            {0x61, 128},
-            {0x62, 128},
-            {0x70,  64},
-            {0x72,  64},
-            {0x75,  64},
-            {0x80,  64},
-            {0x86, 128},
-            {-1, -1} };
-
-        int index = 0;
-
-        while ( nGpuArchCoresPerSM[ index ].SM != -1 ) {
-            if ( nGpuArchCoresPerSM[ index ].SM == ((major << 4) + minor) ) {
-                return nGpuArchCoresPerSM[ index ].Cores;
-            }
-
-            index++;
-        }
-
-        // If we don't find the values, we default use the previous one
-        // to run properly
-        printf(
-            "MapSMtoCores for SM %d.%d is undefined."
-            "  Default to use %d Cores/SM\n",
-            major, minor, nGpuArchCoresPerSM[ index - 1 ].Cores );
-        return nGpuArchCoresPerSM[ index - 1 ].Cores;
-    }
-
-    inline const char* _ConvertSMVer2ArchName( int major, int minor )
-    {
-        // Defines for GPU Architecture types (using the SM version to determine
-        // the GPU Arch name)
-        typedef struct
-        {
-            int SM;  // 0xMm (hexidecimal notation), M = SM Major version,
-            // and m = SM minor version
-            const char* name;
-        } sSMtoArchName;
-
-        sSMtoArchName nGpuArchNameSM[] = {
-            {0x30, "Kepler"},
-            {0x32, "Kepler"},
-            {0x35, "Kepler"},
-            {0x37, "Kepler"},
-            {0x50, "Maxwell"},
-            {0x52, "Maxwell"},
-            {0x53, "Maxwell"},
-            {0x60, "Pascal"},
-            {0x61, "Pascal"},
-            {0x62, "Pascal"},
-            {0x70, "Volta"},
-            {0x72, "Xavier"},
-            {0x75, "Turing"},
-            {0x80, "Ampere"},
-            {0x86, "Ampere"},
-            {-1, "Graphics Device"} };
-
-        int index = 0;
-
-        while ( nGpuArchNameSM[ index ].SM != -1 ) {
-            if ( nGpuArchNameSM[ index ].SM == ((major << 4) + minor) ) {
-                return nGpuArchNameSM[ index ].name;
-            }
-
-            index++;
-        }
-
-        // If we don't find the values, we default use the previous one
-        // to run properly
-        return nGpuArchNameSM[ index - 1 ].name;
-    }
-
-    /// <summary>
-    /// Returns the GPU with the maximum GFLOPS.
-    /// </summary>
-    /// <returns>GPU device Id</returns>
-    export inline int GetMaxGflopsDeviceId()
-    {
-        int current_device = 0, sm_per_multiproc = 0;
-        int max_perf_device = 0;
-        int devices_prohibited = 0;
-
-        uint64_t max_compute_perf = 0;
-
-        int devCount = GetDeviceCount();
-
-        if ( devCount == 0 ) {
-            throw std::runtime_error(
-                "No CUDA devices found." );
-        }
-
-        current_device = 0;
-
-        while ( current_device < devCount ) {
-            int computeMode = -1, major = 0, minor = 0;
-
-            cudaCheckStatus( cudaDeviceGetAttribute( &computeMode, cudaDevAttrComputeMode, current_device ) );
-            cudaCheckStatus( cudaDeviceGetAttribute( &major, cudaDevAttrComputeCapabilityMajor, current_device ) );
-            cudaCheckStatus( cudaDeviceGetAttribute( &minor, cudaDevAttrComputeCapabilityMinor, current_device ) );
-
-            // If this GPU is not running on Compute Mode prohibited,
-            // then we can add it to the list
-            if ( computeMode != cudaComputeModeProhibited ) {
-                if ( major == 9999 && minor == 9999 ) {
-                    sm_per_multiproc = 1;
-                }
-                else {
-                    sm_per_multiproc = _ConvertSMVer2Cores( major, minor );
-                }
-
-                int multiProcessorCount = 0, clockRate = 0;
-                cudaCheckStatus( cudaDeviceGetAttribute( &multiProcessorCount, cudaDevAttrMultiProcessorCount, current_device ) );
-                cudaError_t result = cudaDeviceGetAttribute( &clockRate, cudaDevAttrClockRate, current_device );
-
-                if ( result != cudaSuccess ) {
-                    // If cudaDevAttrClockRate attribute is not supported we
-                    // set clockRate as 1, to consider GPU with most SMs and CUDA Cores.
-                    if ( result == cudaErrorInvalidValue ) {
-                        clockRate = 1;
-                    }
-                    else {
-                        throw CudaError( result );
-                    }
-                }
-                uint64_t compute_perf = (uint64_t)multiProcessorCount * sm_per_multiproc * clockRate;
-
-                if ( compute_perf > max_compute_perf ) {
-                    max_compute_perf = compute_perf;
-                    max_perf_device = current_device;
-                }
+            uint64_t score;
+            if ( preferMemory ) {
+                score = (uint64_t)props.totalGlobalMem * props.memoryBusWidth;
             }
             else {
-                devices_prohibited++;
+                score = (uint64_t)props.multiProcessorCount * props.maxThreadsPerMultiProcessor *
+                    props.clockRate * (props.major >= 7 ? 10 : 1);
             }
 
-            ++current_device;
+            if ( score > bestScore ) {
+                bestScore = score;
+                bestDevice = device;
+            }
         }
 
-        if ( devices_prohibited == devCount ) {
-            throw std::runtime_error( "All devices have compute mode prohibited." );
-        }
+        return bestDevice;
+    }
 
-        return max_perf_device;
-    };
-
-    export inline int FindCudaDevice( int deviceId = -1 )
-    {
-        int device_count = GetDeviceCount();
+    /**
+     * @brief Finds the most appropriate CUDA device for computation
+     *
+     * Either validates a specific device ID if provided or finds
+     * the best available device when no preference is specified.
+     *
+     * @param deviceId Preferred device ID, or -1 to select the best device
+     * @return Valid CUDA device ID
+     * @throws std::runtime_error If no CUDA devices are found
+     */
+    export inline int findCudaDevice( int deviceId = -1, bool preferMemory = false ) {
+        int device_count = getDeviceCount();
 
         if ( device_count == 0 ) {
-            throw std::runtime_error(
-                "No CUDA devices found." );
+            throw std::runtime_error( "No CUDA devices found." );
         }
 
         if ( deviceId < 0 ) {
-            return GetMaxGflopsDeviceId();
+            return getBestDeviceId( preferMemory );
         }
 
-        return CheckDevice( deviceId );
+        return checkDevice( deviceId );
     };
 }

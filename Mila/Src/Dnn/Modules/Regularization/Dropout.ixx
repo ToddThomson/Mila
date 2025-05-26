@@ -43,6 +43,8 @@ namespace Mila::Dnn
      * elements by 1/(1-p). During inference, dropout is typically disabled.
      *
      * Dropout helps prevent overfitting by preventing co-adaptation of feature detectors.
+     * The technique effectively trains an ensemble of multiple networks sharing parameters,
+     * which improves generalization.
      *
      * @tparam TDeviceType The device type (CPU or CUDA) on which the module will operate.
      * @tparam TInput The data type of the input tensor elements.
@@ -52,26 +54,56 @@ namespace Mila::Dnn
         requires ValidFloatTensorTypes<TInput, TOutput>
     class Dropout : public Module<TDeviceType, TInput, TOutput> {
     public:
-        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>; ///< Memory resource type based on device type
-        using ModuleBase = Module<TDeviceType, TInput, TOutput>; ///< Base class type for the module
+        /**
+         * @brief Memory resource type used for tensors, selected based on device type.
+         */
+        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>;
 
         /**
-         * @brief Construct a new Dropout module from configuration.
-         *
-         * @param config The configuration for this module
+         * @brief Alias for base module type.
          */
-        explicit Dropout( const DropoutConfig& config )
-            : ModuleBase(
-                config.getContext() ? config.getContext() : std::make_shared<DeviceContext>( config.getDeviceName() ),
-                TDeviceType == DeviceType::Cpu ? ComputePrecision::Policy::Disabled : config.getPrecision() ),
-            probability_( config.getProbability() ),
-            scale_during_inference_( config.scalesDuringInference() ),
-            use_same_mask_per_batch_( config.usesSameMaskPerBatch() ) {
+        using ModuleBase = Module<TDeviceType, TInput, TOutput>;
+
+        /**
+         * @brief Constructs a new Dropout module with a device name.
+         *
+         * Creates a new DeviceContext internally using the provided device name.
+         * This constructor is useful for creating standalone modules without
+         * pre-existing device contexts.
+         *
+         * @param device_name The name of the device to use (e.g., "CPU", "CUDA:0").
+         * @param config Configuration parameters for the Dropout module.
+         * @throws std::invalid_argument If the device name is invalid or the configuration is invalid
+         * @throws std::runtime_error If device type doesn't match template parameter TDeviceType
+         */
+        explicit Dropout( const std::string& device_name, const DropoutConfig& config )
+            : ModuleBase( std::make_shared<DeviceContext>( device_name ), config ), config_( config ) {
 
             config.validate();
 
-            this->setName( config.getName() );
-            this->setTraining( config.isTraining() );
+            // Initialize random number generator with a random seed
+            std::random_device rd;
+            seed_ = rd();
+            rng_.seed( seed_ );
+
+            createOperation();
+        }
+
+        /**
+         * @brief Constructs a new Dropout module with a provided device context.
+         *
+         * Uses a pre-existing DeviceContext instance. This constructor is useful when integrating
+         * the module into a larger network that shares device contexts across modules.
+         *
+         * @param device_context The device context to use for this module.
+         * @param config Configuration parameters for the Dropout module.
+         * @throws std::invalid_argument If device_context is null or configuration is invalid
+         * @throws std::runtime_error If device context type doesn't match template parameter TDeviceType
+         */
+        explicit Dropout( std::shared_ptr<DeviceContext> device_context, const DropoutConfig& config )
+            : ModuleBase( device_context, config ), config_( config ) {
+
+            config.validate();
 
             // Initialize random number generator with a random seed
             std::random_device rd;
@@ -87,7 +119,7 @@ namespace Mila::Dnn
          * @return float The probability of zeroing elements
          */
         float getProbability() const {
-            return probability_;
+            return config_.getProbability();
         }
 
         /**
@@ -113,7 +145,7 @@ namespace Mila::Dnn
          */
         void forward( const Tensor<TInput, MR>& input, Tensor<TOutput, MR>& output ) {
             // Update mask if in training mode
-            if ( this->isTraining() && probability_ > 0.0f ) {
+            if ( this->isTraining() && config_.getProbability() > 0.0f ) {
                 // Create or resize mask tensor if needed
                 if ( !mask_ || mask_->getShape() != input.getShape() ) {
                     mask_ = std::make_shared<Tensor<TOutput, MR>>( input.getShape() );
@@ -135,9 +167,9 @@ namespace Mila::Dnn
             }
 
             // Set operation properties
-            properties_.set( "probability", probability_ );
+            properties_.set( "probability", config_.getProbability() );
             properties_.set( "training", this->isTraining() );
-            properties_.set( "scale_during_inference", scale_during_inference_ );
+            properties_.set( "scale_during_inference", config_.scalesDuringInference() );
 
             // Perform the forward operation
             operation_->forward( input, parameters_, properties_, output, output_state_ );
@@ -148,6 +180,8 @@ namespace Mila::Dnn
          *
          * Computes the gradient of the Dropout function with respect to its input.
          * During training, gradients are only propagated for non-zeroed elements.
+         * The gradient computation is straightforward: multiply the output gradient
+         * by the same mask used in the forward pass.
          *
          * @param input The input tensor from the forward pass.
          * @param output_grad The gradient of loss with respect to the output.
@@ -191,42 +225,43 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Saves the module state to a ZIP archive.
+         * @brief Serializes the module state to a ZIP archive.
          *
-         * Since Dropout has no trainable parameters, this function is mostly a placeholder
-         * for the module interface.
+         * Implementation of the Module interface for serialization. Since Dropout has no
+         * learnable parameters, this is a no-op implementation.
          *
-         * @param zip The ZIP archive to save the module state to.
+         * @param zip ZIP archive for serialization
          */
         void save( mz_zip_archive& zip ) const override {
-            // Dropout has no parameters to save
+            // No-op: Dropout is a stateless module with no parameters to persist
         }
 
         /**
-         * @brief Loads the module state from a ZIP archive.
+         * @brief Deserializes the module state from a ZIP archive.
          *
-         * Since Dropout has no trainable parameters, this function is mostly a placeholder
-         * for the module interface.
+         * Implementation of the Module interface for deserialization. Since Dropout has no
+         * learnable parameters, this is a no-op implementation.
          *
-         * @param zip The ZIP archive to load the module state from.
+         * @param zip ZIP archive for deserialization
          */
         void load( mz_zip_archive& zip ) override {
-            // Dropout has no parameters to load
+            // No-op: Dropout is a stateless module with no parameters to load
         }
 
         /**
-         * @brief Converts the module information to a human-readable string.
+         * @brief Generates a string representation of this module's configuration.
          *
-         * @return std::string A string representation of the module information.
+         * @return std::string A formatted string with module information
          */
         std::string toString() const override {
             std::ostringstream oss;
             oss << "--------------------" << std::endl;
             oss << "Dropout: " << this->getName() << std::endl;
-            oss << "Probability: " << probability_ << std::endl;
+            oss << "Probability: " << config_.getProbability() << std::endl;
             oss << "Mode: " << (this->isTraining() ? "Training" : "Inference") << std::endl;
-            oss << "Scale during inference: " << (scale_during_inference_ ? "Yes" : "No") << std::endl;
-            oss << "Same mask per batch: " << (use_same_mask_per_batch_ ? "Yes" : "No") << std::endl;
+            oss << "Scale during inference: " << (config_.scalesDuringInference() ? "Yes" : "No") << std::endl;
+            oss << "Same mask per batch: " << (config_.usesSameMaskPerBatch() ? "Yes" : "No") << std::endl;
+            oss << "Random seed: " << seed_ << std::endl;
             oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
             oss << this->getComputePrecision().toString() << std::endl;
 
@@ -235,19 +270,9 @@ namespace Mila::Dnn
 
     private:
         /**
-         * @brief The probability of zeroing elements.
+         * @brief Configuration for the Dropout module.
          */
-        float probability_{ 0.5f };
-
-        /**
-         * @brief Whether to scale outputs during inference.
-         */
-        bool scale_during_inference_{ false };
-
-        /**
-         * @brief Whether to use the same mask for all elements in a batch.
-         */
-        bool use_same_mask_per_batch_{ false };
+        DropoutConfig config_;
 
         /**
          * @brief Random seed for reproducible dropout patterns.
@@ -267,30 +292,22 @@ namespace Mila::Dnn
         std::shared_ptr<Tensor<TOutput, MR>> mask_{ nullptr };
 
         /**
-         * @brief The parameters for the operation.
-         *
-         * The Dropout operation has no parameters, so this is an empty vector.
+         * @brief Collection of parameters for this module (empty for Dropout).
          */
         std::vector<std::shared_ptr<Tensor<TOutput, MR>>> parameters_;
 
         /**
-         * @brief The output cache.
-         *
-         * Contains the dropout mask used in the forward pass, needed for the backward pass.
+         * @brief Collection of output state tensors for caching.
          */
         std::vector<std::shared_ptr<Tensor<TOutput, MR>>> output_state_;
 
         /**
-         * @brief The operation properties.
-         *
-         * Additional attributes needed for the operation.
+         * @brief Operation attributes and configuration.
          */
         OperationAttributes properties_;
 
         /**
-         * @brief The underlying unary operation that implements the Dropout function.
-         *
-         * This pointer will be updated based on the current device context.
+         * @brief The operation that implements the dropout calculation.
          */
         std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput>> operation_{ nullptr };
 
@@ -308,7 +325,7 @@ namespace Mila::Dnn
             // In practice, the actual implementation would offload this to GPU for CUDA
 
             // Calculate the scaling factor
-            float scale = 1.0f / (1.0f - probability_);
+            float scale = 1.0f / (1.0f - config_.getProbability());
 
             // Reset mask values
             auto* mask_data = mask.data();
@@ -318,7 +335,7 @@ namespace Mila::Dnn
                 // CPU implementation
                 std::uniform_real_distribution<float> dist( 0.0f, 1.0f );
 
-                if ( use_same_mask_per_batch_ ) {
+                if ( config_.usesSameMaskPerBatch() ) {
                     // Same mask for all elements in batch
                     // Calculate elements per batch item
                     size_t batch_size = shape[ 0 ];
@@ -327,7 +344,7 @@ namespace Mila::Dnn
                     // Generate pattern for one batch item
                     std::vector<float> pattern( elements_per_batch );
                     for ( size_t i = 0; i < elements_per_batch; ++i ) {
-                        pattern[ i ] = dist( rng_ ) >= probability_ ? scale : 0.0f;
+                        pattern[ i ] = dist( rng_ ) >= config_.getProbability() ? scale : 0.0f;
                     }
 
                     // Replicate pattern across all batch items
@@ -340,7 +357,7 @@ namespace Mila::Dnn
                 else {
                     // Independent mask for each element
                     for ( size_t i = 0; i < total_elements; ++i ) {
-                        mask_data[ i ] = static_cast<TOutput>( dist( rng_ ) >= probability_ ? scale : 0.0f );
+                        mask_data[ i ] = static_cast<TOutput>( dist( rng_ ) >= config_.getProbability() ? scale : 0.0f );
                     }
                 }
             }
@@ -350,7 +367,7 @@ namespace Mila::Dnn
                 // This is just a placeholder - actual implementation would depend on CUDA kernel
                 std::uniform_real_distribution<float> dist( 0.0f, 1.0f );
                 for ( size_t i = 0; i < total_elements; ++i ) {
-                    mask_data[ i ] = static_cast<TOutput>( dist( rng_ ) >= probability_ ? scale : 0.0f );
+                    mask_data[ i ] = static_cast<TOutput>( dist( rng_ ) >= config_.getProbability() ? scale : 0.0f );
                 }
 
                 // Transfer mask to device would happen here
@@ -362,28 +379,43 @@ namespace Mila::Dnn
          *
          * This method initializes the operation_ member with the appropriate implementation
          * of the Dropout operation for either CPU or CUDA, based on the current device context.
-         * It also passes the compute precision policy to the operation.
+         * It also passes the config object to the operation.
          */
         void createOperation() {
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
                 auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TInput, TOutput>(
-                    "Cpu::DropoutOp", this->getDeviceContext(), ComputePrecision::Policy::Disabled );
+                    "Cpu::DropoutOp",
+                    this->getDeviceContext(),
+                    config_ );
 
                 operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cpu, TInput, TOutput>>(base_op);
             }
             else {
                 auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TInput, TOutput>(
-                    "Cuda::DropoutOp", this->getDeviceContext(), this->getComputePrecision().getPolicy() );
+                    "Cuda::DropoutOp",
+                    this->getDeviceContext(),
+                    config_ );
 
                 operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cuda, TInput, TOutput>>(base_op);
             }
         }
     };
 
-    // Convenient type aliases for common use cases
-    export template<typename T = float>
-        using CpuDropout = Dropout<DeviceType::Cpu, T, T>;
+    /**
+     * @brief Type alias for CPU-based dropout module with customizable tensor types.
+     *
+     * @tparam TInput Data type of the input tensor elements.
+     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
+     */
+    export template<typename TInput = float, typename TOutput = TInput>
+        using CpuDropout = Dropout<DeviceType::Cpu, TInput, TOutput>;
 
-    export template<typename T = float>
-        using CudaDropout = Dropout<DeviceType::Cuda, T, T>;
+    /**
+     * @brief Type alias for CUDA-based dropout module with customizable tensor types.
+     *
+     * @tparam TInput Data type of the input tensor elements.
+     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
+     */
+    export template<typename TInput = float, typename TOutput = TInput>
+        using CudaDropout = Dropout<DeviceType::Cuda, TInput, TOutput>;
 }

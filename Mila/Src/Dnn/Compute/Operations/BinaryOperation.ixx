@@ -82,11 +82,10 @@ namespace Mila::Dnn::Compute
          *                         performance and accuracy for mixed precision operations.
          *                         Defaults to Auto which lets the implementation decide based on hardware.
          */
-        BinaryOperation( OperationType operation_type, ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto )
+        BinaryOperation( OperationType operation_type )
             : OperationBase<TDeviceType, TInput1, TInput2, TOutput>(
                 operation_type,
-                CreateCompatibleContext<TDeviceType>(),
-                precision_policy ) {}
+                CreateCompatibleContext<TDeviceType>() ) {}
 
         /**
          * @brief Constructs a BinaryOperation with the specified operation type, device context, and precision policy.
@@ -103,11 +102,10 @@ namespace Mila::Dnn::Compute
          *                         Defaults to Auto which lets the implementation decide based on hardware.
          * @throws std::runtime_error If the provided context is incompatible with TDeviceType.
          */
-        BinaryOperation( OperationType operation_type, std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto )
+        BinaryOperation( OperationType operation_type, std::shared_ptr<DeviceContext> context )
             : OperationBase<TDeviceType, TInput1, TInput2, TOutput>(
                 operation_type,
-                ValidateContext<TDeviceType>( context ),
-                precision_policy ) {}
+                ValidateContext<TDeviceType>( context ) ) {}
 
         /**
          * @brief Virtual destructor for proper cleanup of derived classes.

@@ -12,6 +12,7 @@ module;
 
 export module Compute.CpuGeluOp;
 
+import Dnn.Modules.Gelu;
 import Dnn.Tensor;
 import Compute.DeviceType;
 import Compute.DeviceContext;
@@ -44,8 +45,8 @@ namespace Mila::Dnn::Compute
          *
          * @param precision_policy Ignored for CPU operations, as they always use full precision.
          */
-        CpuGeluOp()
-            : UnaryOperationBase( OperationType::GeluOp, ComputePrecision::Policy::Disabled ) {}
+        CpuGeluOp( const GeluConfig& config ) 
+            : UnaryOperationBase( OperationType::GeluOp ), config_( config ) {}
 
         /**
          * @brief Constructs a new CpuGeluOp with a specific device context.
@@ -56,8 +57,8 @@ namespace Mila::Dnn::Compute
          * @param precision_policy Ignored for CPU operations, as they always use full precision.
          * @throws std::runtime_error If the context is not for a CPU device.
          */
-        CpuGeluOp( std::shared_ptr<DeviceContext> context )
-            : UnaryOperationBase( OperationType::GeluOp, context, ComputePrecision::Policy::Disabled ) {}
+        CpuGeluOp( std::shared_ptr<DeviceContext> context, const GeluConfig& config )
+            : UnaryOperationBase( OperationType::GeluOp, context ), config_( config ) {}
 
         /**
          * @brief Performs the forward pass of the GELU activation function.
@@ -153,6 +154,8 @@ namespace Mila::Dnn::Compute
         /*bool isMixedPrecisionEnabled() const override {
             return false;
         }*/
+        private:
+            GeluConfig config_; ///< Configuration for the GELU operation.
     };
 
     /**
@@ -175,9 +178,10 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float>> {
-                    return context ? std::make_shared<CpuGeluOp>( context )
-                        : std::make_shared<CpuGeluOp>();
+                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float>> {
+                    const auto& geluConfig = static_cast<const GeluConfig&>( config );
+                    return context ? std::make_shared<CpuGeluOp>( context, geluConfig )
+                        : std::make_shared<CpuGeluOp>( geluConfig );
                 }
             );
         }

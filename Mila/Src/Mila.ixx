@@ -85,7 +85,7 @@ export import Compute.CudaEncoderOp;
 export import Compute.CudaGeluOp;
 export import Compute.CudaSoftmaxOp;
 export import Compute.CudaMHAOp;
-export import Compute.CudaMatMulOp;
+export import Compute.CudaLinearOp;
 export import Compute.CudaLayerNormOp;
 export import Compute.CudaResidualOp;
 

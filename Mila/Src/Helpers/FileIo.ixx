@@ -146,5 +146,4 @@ namespace Mila::Helpers
    export void fseekCheck( FILE* stream, long offset, int whence ) {  
        return fseek_check( stream, offset, whence, __FILE__, __LINE__ );  
    }  
-
-} // namespace Mila::Helpers
+}

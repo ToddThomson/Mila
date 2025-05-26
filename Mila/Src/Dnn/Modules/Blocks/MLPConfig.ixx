@@ -21,7 +21,7 @@ namespace Mila::Dnn
     /**
      * @brief Configuration class for MLP block.
      */
-    export class MLPConfig : public ComponentConfig<MLPConfig> {
+    export class MLPConfig : public ComponentConfig {
     public:
         /**
          * @brief Constructor with required parameters.
@@ -131,7 +131,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If validation fails
          */
         void validate() const {
-            ComponentConfig<MLPConfig>::validate();
+            ComponentConfig::validate();
 
             if ( input_features_ == 0 ) {
                 throw std::invalid_argument( "Input features must be greater than zero" );

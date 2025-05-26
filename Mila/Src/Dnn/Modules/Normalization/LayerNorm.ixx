@@ -46,6 +46,10 @@ namespace Mila::Dnn
      * The operation can be expressed as:
      * y = ((x - mean) / sqrt(variance + epsilon)) * weight + bias
      *
+     * Unlike Batch Normalization, Layer Normalization computes statistics independently
+     * for each sample in a batch, making it well-suited for variable-length sequences
+     * and recurrent neural networks.
+     *
      * @tparam TDeviceType The device type (CPU or CUDA) on which to perform computations.
      * @tparam TInput Data type of the input tensor elements.
      * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
@@ -54,27 +58,52 @@ namespace Mila::Dnn
         requires ValidTensorTypes<TInput, TOutput>
     class LayerNorm : public Module<TDeviceType, TInput, TOutput> {
     public:
-        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>; ///< Memory resource type based on device type
-        using ModuleBase = Module<TDeviceType, TInput, TOutput>; ///< Base class type for the module
+        /**
+         * @brief Memory resource type used for tensors, selected based on device type.
+         */
+        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>;
 
         /**
-         * @brief Construct a new LayerNorm module from configuration.
-         *
-         * @param config The configuration for this module
+         * @brief Alias for base module type.
          */
-        explicit LayerNorm( const LayerNormConfig& config )
-            : ModuleBase(
-                config.getContext() ? config.getContext() : std::make_shared<DeviceContext>( config.getDeviceName() ),
-                TDeviceType == DeviceType::Cpu ? ComputePrecision::Policy::Disabled : config.getPrecision() ),
-            input_shape_( config.getInputShape() ),
-            epsilon_( config.getEpsilon() ),
-            axis_( config.getAxis() ),
-            has_bias_( config.hasBias() ) {
+        using ModuleBase = Module<TDeviceType, TInput, TOutput>;
+
+        /**
+         * @brief Constructs a new LayerNorm module with a device name.
+         *
+         * Creates a new DeviceContext internally using the provided device name.
+         * This constructor is useful for creating standalone modules without
+         * pre-existing device contexts.
+         *
+         * @param device_name The name of the device to use (e.g., "CPU", "CUDA:0").
+         * @param config Configuration parameters for the LayerNorm module.
+         * @throws std::invalid_argument If the device name is invalid or the configuration is invalid
+         * @throws std::runtime_error If device type doesn't match template parameter TDeviceType
+         */
+        explicit LayerNorm( const std::string& device_name, const LayerNormConfig& config )
+            : ModuleBase( std::make_shared<DeviceContext>( device_name ), config ), config_( config ) {
 
             config.validate();
 
-            this->setName( config.getName() );
-            this->setTraining( config.isTraining() );
+            initializeTensors();
+            createOperation();
+        }
+
+        /**
+         * @brief Constructs a new LayerNorm module with a provided device context.
+         *
+         * Uses a pre-existing DeviceContext instance. This constructor is useful when integrating
+         * the module into a larger network that shares device contexts across modules.
+         *
+         * @param device_context The device context to use for this module.
+         * @param config Configuration parameters for the LayerNorm module.
+         * @throws std::invalid_argument If device_context is null or configuration is invalid
+         * @throws std::runtime_error If device context type doesn't match template parameter TDeviceType
+         */
+        explicit LayerNorm( std::shared_ptr<DeviceContext> device_context, const LayerNormConfig& config )
+            : ModuleBase( device_context, config ), config_( config ) {
+
+            config.validate();
 
             initializeTensors();
             createOperation();
@@ -88,7 +117,7 @@ namespace Mila::Dnn
          * @return std::shared_ptr<Tensor<TInput, MR>> Shared pointer to the weight tensor.
          */
         std::shared_ptr<Tensor<TInput, MR>> getWeight() {
-            return std::static_pointer_cast<Tensor<TInput, MR>>(weight_);
+            return weight_;
         }
 
         /**
@@ -99,16 +128,16 @@ namespace Mila::Dnn
          * @return std::shared_ptr<Tensor<TInput, MR>> Shared pointer to the bias tensor.
          */
         std::shared_ptr<Tensor<TInput, MR>> getBias() {
-            return std::static_pointer_cast<Tensor<TInput, MR>>(bias_);
+            return bias_;
         }
 
         /**
-        * @brief Gets whether the module has a bias tensor.
-        *
-        * @return bool True if the module has a bias tensor, false otherwise.
-        */
+         * @brief Gets whether the module has a bias tensor.
+         *
+         * @return bool True if the module has a bias tensor, false otherwise.
+         */
         bool hasBias() const {
-            return has_bias_;
+            return config_.hasBias();
         }
 
         /**
@@ -121,7 +150,7 @@ namespace Mila::Dnn
          */
         size_t parameterCount() const override {
             size_t count = weight_->size();
-            if ( has_bias_ ) {
+            if ( config_.hasBias() ) {
                 count += bias_->size();
             }
             return count;
@@ -144,6 +173,10 @@ namespace Mila::Dnn
          * @brief Performs the backward pass of the Layer Normalization operation.
          *
          * Computes gradients with respect to input and parameters.
+         * Layer Normalization's backward pass requires computing:
+         * 1. Gradient with respect to weight and bias (if present)
+         * 2. Gradient with respect to input, which is more complex due to the
+         *    normalization operation's chain rule derivatives
          *
          * @param input The input tensor from the forward pass.
          * @param output_grad The gradient of the loss with respect to the output.
@@ -173,9 +206,9 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Saves the module state to a ZIP archive.
+         * @brief Serializes the module state to a ZIP archive.
          *
-         * Serializes the trainable parameters (weight, bias) to the provided archive.
+         * Saves the trainable parameters (weight, bias) to the provided archive.
          *
          * @param zip The ZIP archive to save the module state to.
          */
@@ -187,9 +220,9 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Loads the module state from a ZIP archive.
+         * @brief Deserializes the module state from a ZIP archive.
          *
-         * Deserializes the trainable parameters (weight, bias) from the provided archive.
+         * Loads the trainable parameters (weight, bias) from the provided archive.
          *
          * @param zip The ZIP archive to load the module state from.
          */
@@ -200,63 +233,40 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Converts the module information to a human-readable string.
+         * @brief Generates a string representation of this module's configuration.
          *
-         * Includes detailed information about the module configuration,
-         * parameters, and state tensors.
-         *
-         * @return std::string A string representation of the module information.
+         * @return std::string A formatted string with module information
          */
         std::string toString() const override {
             std::ostringstream oss;
             oss << "--------------------" << std::endl;
-            oss << "LayerNorm: " << this->getName();
-            oss << ", Normalization Axis: " << axis_;
-            oss << ", Input shape: (";
-            for ( size_t i = 0; i < input_shape_.size(); ++i ) {
-                oss << input_shape_[ i ];
-                if ( i != input_shape_.size() - 1 ) {
+            oss << "LayerNorm: " << this->getName() << std::endl;
+            oss << "Normalization Axis: " << config_.getAxis() << std::endl;
+
+            const auto& input_shape = config_.getInputShape();
+            oss << "Input shape: (";
+            for ( size_t i = 0; i < input_shape.size(); ++i ) {
+                oss << input_shape[ i ];
+                if ( i != input_shape.size() - 1 ) {
                     oss << ",";
                 }
             }
-            oss << ")";
-            oss << ", Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
+            oss << ")" << std::endl;
+
+            oss << "Epsilon: " << config_.getEpsilon() << std::endl;
+            oss << "Has Bias: " << (config_.hasBias() ? "Yes" : "No") << std::endl;
+            oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
             oss << this->getComputePrecision().toString() << std::endl;
-
-            oss << "Parameter Tensors..." << std::endl;
-            for ( const auto& [name, tensor] : this->getParameterTensors() ) {
-                oss << tensor->toString();
-            }
             oss << "Parameter count: " << parameterCount() << std::endl;
-
-            oss << "State Tensors..." << std::endl;
-            for ( const auto& [name, tensor] : this->getStateTensors() ) {
-                oss << tensor->toString();
-            }
 
             return oss.str();
         }
 
     private:
         /**
-         * @brief The shape of the input tensor to be normalized.
+         * @brief Configuration for the LayerNorm module.
          */
-        std::vector<size_t> input_shape_;
-
-        /**
-         * @brief Small constant added to variance for numerical stability.
-         */
-        float epsilon_{ 1e-05f };
-
-        /**
-         * @brief The axis along which to normalize. Default is -1 for last dimension.
-         */
-        int64_t axis_{ -1 };
-
-        /**
-         * @brief Whether the module has a bias tensor. Default is true.
-         */
-        bool has_bias_{ true };
+        LayerNormConfig config_;
 
         /**
          * @brief The weight tensor for scaling after normalization.
@@ -284,17 +294,17 @@ namespace Mila::Dnn
         std::shared_ptr<Tensor<TOutput, MR>> rstd_{ nullptr };
 
         /**
-         * @brief The trainable parameters for this module (weight and bias).
+         * @brief Collection of trainable parameters for this module.
          */
         std::vector<std::shared_ptr<Tensor<TOutput, MR>>> parameters_;
 
         /**
-         * @brief Cache of intermediate tensors needed for backward pass.
+         * @brief Collection of output state tensors for caching.
          */
         std::vector<std::shared_ptr<Tensor<TOutput, MR>>> output_state_;
 
         /**
-         * @brief The operation attributes, including epsilon and axis information.
+         * @brief Operation attributes and configuration.
          */
         OperationAttributes properties_;
 
@@ -319,18 +329,20 @@ namespace Mila::Dnn
             this->parameter_map_.clear();
             this->state_map_.clear();
 
-            // Get device type for proper tensor creation
-            auto device_type = this->getDeviceContext()->getDevice()->getDeviceType();
+            const auto& input_shape = config_.getInputShape();
+            if ( input_shape.empty() || input_shape.size() < 3 ) {
+                throw std::invalid_argument( "Input shape must have at least 3 dimensions [batch_size, seq_len, features]" );
+            }
 
-            auto batch_size = input_shape_[ 0 ];
-            auto sequence_length = input_shape_[ 1 ];
-            auto channels = input_shape_[ 2 ];
+            auto batch_size = input_shape[ 0 ];
+            auto sequence_length = input_shape[ 1 ];
+            auto channels = input_shape[ 2 ];
 
             weight_ = std::make_shared<Tensor<TOutput, MR>>(
                 std::vector<size_t>{channels}, static_cast<TInput>(1.0f) );
             weight_->setName( this->getName() + ".weight" );
 
-            if ( has_bias_ ) {
+            if ( config_.hasBias() ) {
                 bias_ = std::make_shared<Tensor<TOutput, MR>>(
                     std::vector<size_t>{channels} );
                 bias_->setName( this->getName() + ".bias" );
@@ -347,7 +359,7 @@ namespace Mila::Dnn
             parameters_.emplace_back( weight_ );
             this->parameter_map_[ "weight" ] = weight_;
 
-            if ( has_bias_ ) {
+            if ( config_.hasBias() ) {
                 parameters_.emplace_back( bias_ );
                 this->parameter_map_[ "bias" ] = bias_;
             }
@@ -359,9 +371,9 @@ namespace Mila::Dnn
             this->state_map_[ "mean" ] = mean_;
             this->state_map_[ "rstd" ] = rstd_;
 
-            // Set epsilon and axis in the properties
-            properties_.set( "epsilon", epsilon_ );
-            properties_.set( "axis", axis_ );
+            // Set properties
+            properties_.set( "epsilon", config_.getEpsilon() );
+            properties_.set( "axis", config_.getAxis() );
         }
 
         /**
@@ -369,14 +381,14 @@ namespace Mila::Dnn
          *
          * This method initializes the operation_ member with the appropriate implementation
          * of Layer Normalization for either CPU or CUDA, based on the current device context.
-         * It also passes the compute precision policy to the operation.
+         * It also passes the config object to the operation.
          */
         void createOperation() {
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
                 auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TInput, TOutput>(
                     "Cpu::LayerNormOp",
                     this->getDeviceContext(),
-                    ComputePrecision::Policy::Disabled );  // Always use Disabled for CPU
+                    config_ );
 
                 operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cpu, TInput, TOutput>>(base_op);
             }
@@ -384,7 +396,7 @@ namespace Mila::Dnn
                 auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TInput, TOutput>(
                     "Cuda::LayerNormOp",
                     this->getDeviceContext(),
-                    this->getComputePrecision().getPolicy() );
+                    config_ );
 
                 operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cuda, TInput, TOutput>>(base_op);
             }

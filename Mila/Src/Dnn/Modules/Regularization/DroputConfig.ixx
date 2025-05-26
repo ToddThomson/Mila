@@ -24,7 +24,7 @@ namespace Mila::Dnn
      *
      * Provides a type-safe fluent interface for configuring Dropout modules.
      */
-    export class DropoutConfig : public ComponentConfig<DropoutConfig> {
+    export class DropoutConfig : public ComponentConfig {
     public:
         /**
          * @brief Default constructor.
@@ -102,7 +102,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If validation fails
          */
         void validate() const {
-            ComponentConfig<DropoutConfig>::validate();
+            ComponentConfig::validate();
 
             if ( probability_ < 0.0f || probability_ >= 1.0f ) {
                 throw std::invalid_argument( "Dropout probability must be in range [0, 1)" );

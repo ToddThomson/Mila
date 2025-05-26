@@ -46,6 +46,12 @@ namespace Mila::Dnn
      * parts of the input to attend to different parts of the sequence. This is a core
      * component of transformer architectures.
      *
+     * The attention mechanism computes: Attention(Q, K, V) = softmax(QK^T/sqrt(d_k))V
+     * where Q, K, and V are the query, key, and value projections of the input.
+     *
+     * Multi-head attention projects the input into multiple subspaces, computes attention
+     * independently in each subspace, then concatenates the results to form the output.
+     *
      * @tparam TDeviceType The device type (CPU or CUDA) on which to perform computations.
      * @tparam TInput The data type of the input tensor elements.
      * @tparam TOutput The data type of the output tensor elements, defaults to TInput.
@@ -54,104 +60,64 @@ namespace Mila::Dnn
         requires ValidTensorTypes<TInput, TOutput>
     class MultiHeadAttention : public Module<TDeviceType, TInput, TOutput> {
     public:
+        /**
+         * @brief Memory resource type used for tensors, selected based on device type.
+         */
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>;
+
+        /**
+         * @brief Alias for base module type.
+         */
         using ModuleBase = Module<TDeviceType, TInput, TOutput>;
 
         /**
-         * @brief Construct a new MultiHeadAttention module from configuration.
+         * @brief Constructs a new MultiHeadAttention module with a device name.
          *
-         * @param config The configuration for this module
+         * Creates a new DeviceContext internally using the provided device name.
+         * This constructor is useful for creating standalone modules without
+         * pre-existing device contexts.
+         *
+         * @param device_name The name of the device to use (e.g., "CPU", "CUDA:0").
+         * @param config Configuration parameters for the MultiHeadAttention module.
+         * @throws std::invalid_argument If the device name is invalid or the configuration is invalid
+         * @throws std::runtime_error If device type doesn't match template parameter TDeviceType
          */
-        explicit MultiHeadAttention( const MultiHeadAttentionConfig& config )
-            : ModuleBase(
-                config.getContext() ? config.getContext() : std::make_shared<DeviceContext>( config.getDeviceName() ),
-                TDeviceType == DeviceType::Cpu ? ComputePrecision::Policy::Disabled : config.getPrecision() ),
-            embedding_dim_( config.getEmbeddingDim() ),
-            num_heads_( config.getNumHeads() ),
-            dropout_( config.getDropout() ),
-            use_causal_mask_( config.useCausalMask() ),
-            scale_factor_( config.getScaleFactor() ),
-            separate_projections_( config.useSeparateProjections() ) {
+        explicit MultiHeadAttention( const std::string& device_name, const MultiHeadAttentionConfig& config )
+            : ModuleBase( std::make_shared<DeviceContext>( device_name ), config ), config_( config ) {
 
             config.validate();
 
-            this->setName( config.getName() );
-            this->setTraining( config.isTraining() );
-
-            const auto& input_shape = config.getInputShape();
-            if ( !input_shape.empty() ) {
-                input_shape_ = input_shape;
-            }
-            else {
-                // Default shape if not provided
-                input_shape_ = { 1, 1, embedding_dim_ };
-            }
-
             initializeTensors();
             createOperation();
         }
 
         /**
-         * @brief Constructs a new MultiHeadAttention module with the default device context.
+         * @brief Constructs a new MultiHeadAttention module with a provided device context.
          *
-         * @param name The name of the module for identification purposes.
-         * @param device_name The name of the device to use for this module.
-         * @param input_shape The shape of the input tensor.
-         * @param num_heads The number of attention heads.
-         * @param precision The compute precision policy (CPU operations always use Disabled).
-         * @param is_training Whether the module is initially in training mode. Default is false.
-         */
-        MultiHeadAttention( std::string name, std::string device_name,
-            const std::vector<size_t>& input_shape, size_t num_heads,
-            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto,
-            bool is_training = false )
-            : ModuleBase( device_name, TDeviceType == DeviceType::Cpu ? ComputePrecision::Policy::Disabled : precision ),
-            input_shape_( input_shape ),
-            num_heads_( num_heads ),
-            embedding_dim_( input_shape.empty() ? 0 : input_shape.back() ),
-            dropout_( 0.0f ),
-            use_causal_mask_( false ),
-            scale_factor_( embedding_dim_ > 0 ? 1.0f / std::sqrt( embedding_dim_ / num_heads ) : 1.0f ),
-            separate_projections_( true ) {
-            this->setTraining( is_training );
-            this->setName( name );
-            initializeTensors();
-            createOperation();
-        }
-
-        /**
-         * @brief Constructs a new MultiHeadAttention module with a specific device context.
+         * Uses a pre-existing DeviceContext instance. This constructor is useful when integrating
+         * the module into a larger network that shares device contexts across modules.
          *
-         * @param name The name of the module for identification purposes.
-         * @param context The device context to use for this module.
-         * @param input_shape The shape of the input tensor.
-         * @param num_heads The number of attention heads.
-         * @param precision The compute precision policy (CPU operations always use Disabled).
-         * @param is_training Whether the module is initially in training mode. Default is false.
+         * @param device_context The device context to use for this module.
+         * @param config Configuration parameters for the MultiHeadAttention module.
+         * @throws std::invalid_argument If device_context is null or configuration is invalid
+         * @throws std::runtime_error If device context type doesn't match template parameter TDeviceType
          */
-        MultiHeadAttention( std::string name, std::shared_ptr<DeviceContext> context,
-            const std::vector<size_t>& input_shape, size_t num_heads,
-            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto,
-            bool is_training = false )
-            : ModuleBase( context, TDeviceType == DeviceType::Cpu ? ComputePrecision::Policy::Disabled : precision ),
-            input_shape_( input_shape ),
-            num_heads_( num_heads ),
-            embedding_dim_( input_shape.empty() ? 0 : input_shape.back() ),
-            dropout_( 0.0f ),
-            use_causal_mask_( false ),
-            scale_factor_( embedding_dim_ > 0 ? 1.0f / std::sqrt( embedding_dim_ / num_heads ) : 1.0f ),
-            separate_projections_( true ) {
-            this->setTraining( is_training );
-            this->setName( name );
+        explicit MultiHeadAttention( std::shared_ptr<DeviceContext> device_context, const MultiHeadAttentionConfig& config )
+            : ModuleBase( device_context, config ), config_( config ) {
+
+            config.validate();
+
             initializeTensors();
             createOperation();
         }
 
         /**
-         * @brief Get the number of parameters.
+         * @brief Gets the number of trainable parameters in this module.
+         *
+         * @return size_t The total number of parameters.
          */
         size_t parameterCount() const override {
-            return 0;
+            return 0;  // Base implementation has no parameters
         }
 
         /**
@@ -174,10 +140,6 @@ namespace Mila::Dnn
         void forward( const Tensor<TInput, MR>& input, const Tensor<TInput, MR>& mask, Tensor<TOutput, MR>& output ) {
             // Store the mask in operation properties
             properties_.set( "explicit_mask", true );
-
-            // Create a temporary input that combines input and mask for the operation
-            auto batch_size = input.getShape()[ 0 ];
-            auto seq_length = input.getShape()[ 1 ];
 
             // This implementation assumes a specific operation handling for masked attention
             // The actual implementation would depend on how your operation expects to receive the mask
@@ -208,32 +170,57 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Get the embedding dimension.
+         * @brief Gets the embedding dimension.
+         *
+         * @return size_t The embedding dimension.
          */
-        size_t getEmbeddingDim() const { return embedding_dim_; }
+        size_t getEmbeddingDim() const {
+            return config_.getEmbeddingDim();
+        }
 
         /**
-         * @brief Get the number of attention heads.
+         * @brief Gets the number of attention heads.
+         *
+         * @return size_t The number of attention heads.
          */
-        size_t getNumHeads() const { return num_heads_; }
+        size_t getNumHeads() const {
+            return config_.getNumHeads();
+        }
 
         /**
-         * @brief Get the input shape.
+         * @brief Gets the input shape.
+         *
+         * @return const std::vector<size_t>& The input shape.
          */
-        const std::vector<size_t>& getInputShape() const { return input_shape_; }
+        const std::vector<size_t>& getInputShape() const {
+            return config_.getInputShape();
+        }
 
         /**
-         * @brief Get the dropout rate.
+         * @brief Gets the dropout rate.
+         *
+         * @return float The dropout rate.
          */
-        float getDropout() const { return dropout_; }
+        float getDropout() const {
+            return config_.getDropout();
+        }
 
         /**
-         * @brief Check if causal masking is enabled.
+         * @brief Checks if causal masking is enabled.
+         *
+         * @return bool True if causal masking is enabled, false otherwise.
          */
-        bool useCausalMask() const { return use_causal_mask_; }
+        bool useCausalMask() const {
+            return config_.useCausalMask();
+        }
 
         /**
          * @brief Saves the module state to a ZIP archive.
+         *
+         * Implementation of the Module interface for serialization. Currently a no-op
+         * in the base implementation as there are no parameters to save.
+         *
+         * @param zip ZIP archive for serialization
          */
         void save( mz_zip_archive& zip ) const override {
             // MultiHeadAttention has no parameters to save in this base implementation
@@ -241,107 +228,165 @@ namespace Mila::Dnn
 
         /**
          * @brief Loads the module state from a ZIP archive.
+         *
+         * Implementation of the Module interface for deserialization. Currently a no-op
+         * in the base implementation as there are no parameters to load.
+         *
+         * @param zip ZIP archive for deserialization
          */
         void load( mz_zip_archive& zip ) override {
             // MultiHeadAttention has no parameters to load in this base implementation
         }
 
         /**
-         * @brief Convert the module information to string.
+         * @brief Generates a string representation of this module's configuration.
+         *
+         * @return std::string A formatted string with module information
          */
         std::string toString() const override {
             std::ostringstream oss;
             oss << "--------------------" << std::endl;
-            oss << "MultiHeadAttention: " << this->getName();
-            oss << ", Embedding dimension: " << embedding_dim_;
-            oss << ", Number of heads: " << num_heads_;
-            oss << ", Input shape: (";
+            oss << "MultiHeadAttention: " << this->getName() << std::endl;
+            oss << "Embedding dimension: " << config_.getEmbeddingDim();
+            oss << ", Number of heads: " << config_.getNumHeads() << std::endl;
 
-            for ( size_t i = 0; i < input_shape_.size(); ++i ) {
-                oss << input_shape_[ i ];
-                if ( i != input_shape_.size() - 1 ) {
+            const auto& input_shape = config_.getInputShape();
+            oss << "Input shape: (";
+            for ( size_t i = 0; i < input_shape.size(); ++i ) {
+                oss << input_shape[ i ];
+                if ( i != input_shape.size() - 1 ) {
                     oss << ",";
                 }
             }
+            oss << ")" << std::endl;
 
-            oss << ")";
-            oss << ", Dropout: " << dropout_;
-            oss << ", Causal mask: " << (use_causal_mask_ ? "enabled" : "disabled");
-            oss << ", Scale factor: " << scale_factor_;
-            oss << ", Separate projections: " << (separate_projections_ ? "yes" : "no");
-            oss << ", Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
+            oss << "Dropout: " << config_.getDropout();
+            oss << ", Causal mask: " << (config_.useCausalMask() ? "enabled" : "disabled") << std::endl;
+            oss << "Scale factor: " << config_.getScaleFactor();
+            oss << ", Separate projections: " << (config_.useSeparateProjections() ? "yes" : "no") << std::endl;
+            oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
             oss << this->getComputePrecision().toString() << std::endl;
-            oss << this->stateToString();
 
             return oss.str();
         }
 
     private:
-        std::vector<size_t> input_shape_;
-        size_t num_heads_{ 0 };
-        size_t embedding_dim_{ 0 };
-        float dropout_{ 0.0f };
-        bool use_causal_mask_{ false };
-        float scale_factor_{ 1.0f };
-        bool separate_projections_{ true };
+        /**
+         * @brief Configuration for the MultiHeadAttention module.
+         */
+        MultiHeadAttentionConfig config_;
 
+        /**
+         * @brief Attention weight tensor from the forward pass.
+         *
+         * Shape: [batch_size, num_heads, sequence_length, sequence_length]
+         * Stores the attention weights between all token pairs.
+         */
         std::shared_ptr<Tensor<TOutput, MR>> attn_{ nullptr };
+
+        /**
+         * @brief Pre-softmax attention scores from the forward pass.
+         *
+         * Shape: [batch_size, num_heads, sequence_length, sequence_length]
+         * Stores the raw attention scores before softmax normalization.
+         */
         std::shared_ptr<Tensor<TOutput, MR>> pre_attn_{ nullptr };
 
+        /**
+         * @brief Collection of parameters for this module.
+         */
         std::vector<std::shared_ptr<Tensor<TOutput, MR>>> parameters_;
+
+        /**
+         * @brief Collection of output state tensors for caching.
+         */
         std::vector<std::shared_ptr<Tensor<TOutput, MR>>> output_state_;
+
+        /**
+         * @brief Operation attributes and configuration.
+         */
         OperationAttributes properties_;
+
+        /**
+         * @brief The operation that implements the attention mechanism.
+         */
         std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput>> operation_{ nullptr };
 
+        /**
+         * @brief Initializes the tensors needed for attention computation.
+         *
+         * Creates and initializes intermediate tensors used during the attention
+         * computation, including attention weights and pre-softmax scores.
+         */
         void initializeTensors() {
             output_state_.clear();
 
-            auto batch_size = input_shape_[ 0 ];
-            auto sequence_length = input_shape_[ 1 ];
-
-            if ( embedding_dim_ == 0 && !input_shape_.empty() && input_shape_.size() >= 3 ) {
-                embedding_dim_ = input_shape_[ 2 ];
+            const auto& input_shape = config_.getInputShape();
+            if ( input_shape.empty() ) {
+                return;  // Can't initialize without shape information
             }
 
+            size_t batch_size = input_shape[ 0 ];
+            size_t sequence_length = input_shape[ 1 ];
+            size_t num_heads = config_.getNumHeads();
+
             pre_attn_ = std::make_shared<Tensor<TOutput, MR>>(
-                std::vector<size_t>{batch_size, num_heads_, sequence_length, sequence_length} );
+                std::vector<size_t>{batch_size, num_heads, sequence_length, sequence_length} );
             pre_attn_->setName( this->getName() + ".pre_attn" );
 
             attn_ = std::make_shared<Tensor<TOutput, MR>>(
-                std::vector<size_t>{batch_size, num_heads_, sequence_length, sequence_length} );
+                std::vector<size_t>{batch_size, num_heads, sequence_length, sequence_length} );
             attn_->setName( this->getName() + ".attn" );
 
             output_state_.emplace_back( pre_attn_ );
             output_state_.emplace_back( attn_ );
 
-            properties_.set( "num_heads", num_heads_ );
-            properties_.set( "dropout", dropout_ );
-            properties_.set( "causal_mask", use_causal_mask_ );
-            properties_.set( "scale_factor", scale_factor_ );
-            properties_.set( "separate_projections", separate_projections_ );
+            // Set properties from config
+            properties_.set( "num_heads", config_.getNumHeads() );
+            properties_.set( "dropout", config_.getDropout() );
+            properties_.set( "causal_mask", config_.useCausalMask() );
+            properties_.set( "scale_factor", config_.getScaleFactor() );
+            properties_.set( "separate_projections", config_.useSeparateProjections() );
         }
 
+        /**
+         * @brief Creates the appropriate attention operation for the current device.
+         *
+         * Instantiates either a CPU or CUDA attention operation based on the device type.
+         */
         void createOperation() {
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
                 auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TInput, TOutput>(
                     "Cpu::MultiHeadAttentionOp",
                     this->getDeviceContext(),
-                    ComputePrecision::Policy::Disabled );
+                    config_ );
                 operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cpu, TInput, TOutput>>(base_op);
             }
             else {
                 auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TInput, TOutput>(
                     "Cuda::MultiHeadAttentionOp",
                     this->getDeviceContext(),
-                    this->getComputePrecision().getPolicy() );
+                    config_ );
                 operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cuda, TInput, TOutput>>(base_op);
             }
         }
     };
 
+    /**
+     * @brief Type alias for CPU-based multi-head attention module with customizable tensor types.
+     *
+     * @tparam TInput Data type of the input tensor elements.
+     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
+     */
     export template<typename TInput = float, typename TOutput = TInput>
         using CpuMultiHeadAttention = MultiHeadAttention<DeviceType::Cpu, TInput, TOutput>;
 
+    /**
+     * @brief Type alias for CUDA-based multi-head attention module with customizable tensor types.
+     *
+     * @tparam TInput Data type of the input tensor elements.
+     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
+     */
     export template<typename TInput = float, typename TOutput = TInput>
         using CudaMultiHeadAttention = MultiHeadAttention<DeviceType::Cuda, TInput, TOutput>;
 }

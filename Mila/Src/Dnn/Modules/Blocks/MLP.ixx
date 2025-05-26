@@ -24,7 +24,8 @@ import Compute.MemoryResource;
 import Compute.ComputeDevice;
 import Compute.DeviceType;
 import Compute.DeviceContext;
-import Compute.CpuDevice;
+import Compute.CpuMemoryResource;
+import Compute.CudaMemoryResource;
 import Compute.OperationRegistry;
 import Dnn.Modules.Linear;
 import Dnn.Modules.Gelu;
@@ -49,6 +50,10 @@ namespace Mila::Dnn
      * - Layer normalization
      * - Residual connection
      *
+     * MLP blocks are fundamental components in many network architectures, including
+     * transformers where they typically follow attention layers and process token
+     * representations.
+     *
      * @tparam TDeviceType The device type (CPU or CUDA) on which to perform computations.
      * @tparam TDataType The data type used for tensor elements throughout the network.
      */
@@ -56,49 +61,75 @@ namespace Mila::Dnn
         requires ValidFloatTensorType<TDataType>
     class MLP : public CompositeModule<TDeviceType, TDataType> {
     public:
-        using MR = std::conditional_t<TDeviceType == Compute::DeviceType::Cuda, Compute::CudaMemoryResource, Compute::CpuMemoryResource>;
+        /**
+         * @brief Memory resource type used for tensors, selected based on device type.
+         */
+        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>;
+
+        /**
+         * @brief Alias for base module type.
+         */
         using CompositeModuleBase = CompositeModule<TDeviceType, TDataType>;
 
         /**
-         * @brief Construct a new MLP module from configuration.
+         * @brief Constructs a new MLP module with a device name.
          *
-         * @param config The configuration for this module
+         * Creates a new DeviceContext internally using the provided device name.
+         * This constructor is useful for creating standalone modules without
+         * pre-existing device contexts.
+         *
+         * @param device_name The name of the device to use (e.g., "CPU", "CUDA:0").
+         * @param config Configuration parameters for the MLP module.
+         * @throws std::invalid_argument If the device name is invalid or the configuration is invalid
+         * @throws std::runtime_error If device type doesn't match template parameter TDeviceType
          */
-        explicit MLP( const MLPConfig& config )
-            : CompositeModuleBase(
-                config.getContext() ? config.getContext() : std::make_shared<DeviceContext>( config.getDeviceName() ),
-                TDeviceType == DeviceType::Cpu ? ComputePrecision::Policy::Disabled : config.getPrecision() ),
-            input_shape_( config.getInputShape() ),
-            input_features_( config.getInputFeatures() ),
-            hidden_size_( config.getHiddenSize() ),
-            has_bias_( config.hasBias() ),
-            activation_type_( config.getActivationType() ),
-            dropout_prob_( config.getDropout() ),
-            use_layer_norm_( config.useLayerNorm() ),
-            use_residual_( config.useResidual() ),
-            fuse_operations_( config.useFusedOperations() ) {
+        explicit MLP( const std::string& device_name, const MLPConfig& config )
+            : CompositeModuleBase( std::make_shared<DeviceContext>( device_name ), config ), config_( config ) {
 
             config.validate();
-
-            this->setName( config.getName() );
-            this->setTraining( config.isTraining() );
 
             initializeModules();
         }
 
+        /**
+         * @brief Constructs a new MLP module with a provided device context.
+         *
+         * Uses a pre-existing DeviceContext instance. This constructor is useful when integrating
+         * the module into a larger network that shares device contexts across modules.
+         *
+         * @param device_context The device context to use for this module.
+         * @param config Configuration parameters for the MLP module.
+         * @throws std::invalid_argument If device_context is null or configuration is invalid
+         * @throws std::runtime_error If device context type doesn't match template parameter TDeviceType
+         */
+        explicit MLP( std::shared_ptr<DeviceContext> device_context, const MLPConfig& config )
+            : CompositeModuleBase( device_context, config ), config_( config ) {
+
+            config.validate();
+
+            initializeModules();
+        }
 
         /**
          * @brief Performs the forward pass of the MLP block.
+         *
+         * Processes the input through the full network:
+         * Linear -> (LayerNorm) -> Activation -> (Dropout) -> Linear -> (Residual)
+         *
+         * When in inference mode with fused operations enabled, uses optimized execution.
+         *
+         * @param input The input tensor to be processed.
+         * @param output The output tensor where the results will be stored.
          */
         void forward( const Tensor<TDataType, MR>& input, Tensor<TDataType, MR>& output ) {
-            if ( this->isTraining() || !fuse_operations_ ) {
-                if ( use_residual_ ) {
+            if ( this->isTraining() || !config_.useFusedOperations() ) {
+                if ( config_.useResidual() ) {
                     input.copyTo( residual_input_ );
                 }
 
                 fc1_->forward( input, fc1_output_ );
 
-                if ( use_layer_norm_ ) {
+                if ( config_.useLayerNorm() ) {
                     norm1_->forward( fc1_output_, norm1_output_ );
                     activation_->forward( norm1_output_, act_output_ );
                 }
@@ -106,7 +137,7 @@ namespace Mila::Dnn
                     activation_->forward( fc1_output_, act_output_ );
                 }
 
-                if ( dropout_prob_ > 0.0f ) {
+                if ( config_.getDropout() > 0.0f ) {
                     dropout1_->forward( act_output_, dropout1_output_ );
                     fc2_->forward( dropout1_output_, fc2_output_ );
                 }
@@ -114,7 +145,7 @@ namespace Mila::Dnn
                     fc2_->forward( act_output_, fc2_output_ );
                 }
 
-                if ( use_residual_ ) {
+                if ( config_.useResidual() ) {
                     // Add residual connection
                     for ( size_t i = 0; i < fc2_output_.size(); ++i ) {
                         output.data()[ i ] = fc2_output_.data()[ i ] + residual_input_.data()[ i ];
@@ -131,7 +162,7 @@ namespace Mila::Dnn
             // Simplified implementation - would normally use dedicated fused operations
             fc1_->forward( input, fc1_output_ );
 
-            if ( use_layer_norm_ ) {
+            if ( config_.useLayerNorm() ) {
                 norm1_->forward( fc1_output_, norm1_output_ );
                 activation_->forward( norm1_output_, act_output_ );
             }
@@ -141,7 +172,7 @@ namespace Mila::Dnn
 
             fc2_->forward( act_output_, fc2_output_ );
 
-            if ( use_residual_ ) {
+            if ( config_.useResidual() ) {
                 // Add residual connection
                 for ( size_t i = 0; i < fc2_output_.size(); ++i ) {
                     output.data()[ i ] = fc2_output_.data()[ i ] + input.data()[ i ];
@@ -154,37 +185,45 @@ namespace Mila::Dnn
 
         /**
          * @brief Performs the backward pass of the MLP block.
+         *
+         * Computes gradients for all components in the network by working
+         * backwards from the output gradient. Handles residual connections,
+         * dropout, layer normalization, and activation functions.
+         *
+         * @param input The input tensor from the forward pass.
+         * @param output_grad The gradient of loss with respect to the output.
+         * @param input_grad The tensor to store gradients with respect to input.
          */
         void backward(
             const Tensor<TDataType, MR>& input,
             const Tensor<TDataType, MR>& output_grad,
             Tensor<TDataType, MR>& input_grad ) {
 
-            if ( use_residual_ ) {
+            if ( config_.useResidual() ) {
                 // Copy output gradients to input_grad for the residual connection
                 output_grad.copyTo( input_grad );
 
                 // Compute gradients for fc2
                 Tensor<TDataType, MR> fc2_grad( fc2_output_.getShape() );
                 fc2_->backward(
-                    dropout_prob_ > 0.0f ? dropout1_output_ : act_output_,
+                    config_.getDropout() > 0.0f ? dropout1_output_ : act_output_,
                     output_grad,
                     fc2_grad );
 
                 // Compute gradients for dropout1 if needed
-                if ( dropout_prob_ > 0.0f ) {
+                if ( config_.getDropout() > 0.0f ) {
                     Tensor<TDataType, MR> dropout1_grad( act_output_.getShape() );
                     dropout1_->backward( act_output_, fc2_grad, dropout1_grad );
 
                     // Compute gradients for activation
-                    Tensor<TDataType, MR> act_grad( use_layer_norm_ ? norm1_output_.getShape() : fc1_output_.getShape() );
+                    Tensor<TDataType, MR> act_grad( config_.useLayerNorm() ? norm1_output_.getShape() : fc1_output_.getShape() );
                     activation_->backward(
-                        use_layer_norm_ ? norm1_output_ : fc1_output_,
+                        config_.useLayerNorm() ? norm1_output_ : fc1_output_,
                         dropout1_grad,
                         act_grad );
 
                     // Process layer norm if used
-                    if ( use_layer_norm_ ) {
+                    if ( config_.useLayerNorm() ) {
                         Tensor<TDataType, MR> norm1_grad( fc1_output_.getShape() );
                         norm1_->backward( fc1_output_, act_grad, norm1_grad );
 
@@ -210,13 +249,13 @@ namespace Mila::Dnn
                 }
                 else {
                     // Similar flow but without dropout
-                    Tensor<TDataType, MR> act_grad( use_layer_norm_ ? norm1_output_.getShape() : fc1_output_.getShape() );
+                    Tensor<TDataType, MR> act_grad( config_.useLayerNorm() ? norm1_output_.getShape() : fc1_output_.getShape() );
                     activation_->backward(
-                        use_layer_norm_ ? norm1_output_ : fc1_output_,
+                        config_.useLayerNorm() ? norm1_output_ : fc1_output_,
                         fc2_grad,
                         act_grad );
 
-                    if ( use_layer_norm_ ) {
+                    if ( config_.useLayerNorm() ) {
                         Tensor<TDataType, MR> norm1_grad( fc1_output_.getShape() );
                         norm1_->backward( fc1_output_, act_grad, norm1_grad );
 
@@ -240,23 +279,23 @@ namespace Mila::Dnn
             else {
                 // No residual connection - standard backward pass
                 fc2_->backward(
-                    dropout_prob_ > 0.0f ? dropout1_output_ : act_output_,
+                    config_.getDropout() > 0.0f ? dropout1_output_ : act_output_,
                     output_grad,
                     input_grad );
 
                 // Remaining backward pass logic follows same pattern as above
                 // but without adding to residual gradients
-                if ( dropout_prob_ > 0.0f ) {
+                if ( config_.getDropout() > 0.0f ) {
                     Tensor<TDataType, MR> dropout1_grad( act_output_.getShape() );
                     dropout1_->backward( act_output_, input_grad, dropout1_grad );
 
-                    Tensor<TDataType, MR> act_grad( use_layer_norm_ ? norm1_output_.getShape() : fc1_output_.getShape() );
+                    Tensor<TDataType, MR> act_grad( config_.useLayerNorm() ? norm1_output_.getShape() : fc1_output_.getShape() );
                     activation_->backward(
-                        use_layer_norm_ ? norm1_output_ : fc1_output_,
+                        config_.useLayerNorm() ? norm1_output_ : fc1_output_,
                         dropout1_grad,
                         act_grad );
 
-                    if ( use_layer_norm_ ) {
+                    if ( config_.useLayerNorm() ) {
                         Tensor<TDataType, MR> norm1_grad( fc1_output_.getShape() );
                         norm1_->backward( fc1_output_, act_grad, norm1_grad );
 
@@ -267,13 +306,13 @@ namespace Mila::Dnn
                     }
                 }
                 else {
-                    Tensor<TDataType, MR> act_grad( use_layer_norm_ ? norm1_output_.getShape() : fc1_output_.getShape() );
+                    Tensor<TDataType, MR> act_grad( config_.useLayerNorm() ? norm1_output_.getShape() : fc1_output_.getShape() );
                     activation_->backward(
-                        use_layer_norm_ ? norm1_output_ : fc1_output_,
+                        config_.useLayerNorm() ? norm1_output_ : fc1_output_,
                         input_grad,
                         act_grad );
 
-                    if ( use_layer_norm_ ) {
+                    if ( config_.useLayerNorm() ) {
                         Tensor<TDataType, MR> norm1_grad( fc1_output_.getShape() );
                         norm1_->backward( fc1_output_, act_grad, norm1_grad );
 
@@ -288,6 +327,10 @@ namespace Mila::Dnn
 
         /**
          * @brief Gets the number of trainable parameters in this module.
+         *
+         * Counts the total number of parameters across all submodules.
+         *
+         * @return size_t The total number of parameters.
          */
         size_t parameterCount() const override {
             size_t total_parameters = 0;
@@ -298,7 +341,11 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Saves the module state to a ZIP archive.
+         * @brief Serializes the module state to a ZIP archive.
+         *
+         * Saves the state of all submodules to the provided ZIP archive.
+         *
+         * @param zip The ZIP archive to save the module state to.
          */
         void save( mz_zip_archive& zip ) const override {
             for ( const auto& module : this->getModules() ) {
@@ -307,7 +354,11 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Loads the module state from a ZIP archive.
+         * @brief Deserializes the module state from a ZIP archive.
+         *
+         * Loads the state of all submodules from the provided ZIP archive.
+         *
+         * @param zip The ZIP archive to load the module state from.
          */
         void load( mz_zip_archive& zip ) override {
             for ( const auto& module : this->getModules() ) {
@@ -316,175 +367,228 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Converts the module information to a human-readable string.
+         * @brief Generates a string representation of this module's configuration.
+         *
+         * @return std::string A formatted string with module information
          */
         std::string toString() const override {
             std::ostringstream oss;
             oss << "====================" << std::endl;
-            oss << "MLP: " << this->getName();
-            oss << ", Input shape: (";
-            for ( size_t i = 0; i < input_shape_.size(); ++i ) {
-                oss << input_shape_[ i ];
-                if ( i != input_shape_.size() - 1 ) {
+            oss << "MLP: " << this->getName() << std::endl;
+
+            const auto& input_shape = config_.getInputShape();
+            oss << "Input shape: (";
+            for ( size_t i = 0; i < input_shape.size(); ++i ) {
+                oss << input_shape[ i ];
+                if ( i != input_shape.size() - 1 ) {
                     oss << ",";
                 }
             }
-            oss << ")";
-            oss << ", Input features: " << input_features_;
-            oss << ", Hidden size: " << hidden_size_;
-            oss << ", Bias: " << (has_bias_ ? "enabled" : "disabled");
-            oss << ", Activation: " << activationTypeToString( activation_type_ );
+            oss << ")" << std::endl;
 
-            if ( dropout_prob_ > 0.0f ) {
-                oss << ", Dropout: " << dropout_prob_;
+            oss << "Input features: " << config_.getInputFeatures() << std::endl;
+            oss << "Hidden size: " << config_.getHiddenSize() << std::endl;
+            oss << "Bias: " << (config_.hasBias() ? "enabled" : "disabled") << std::endl;
+            oss << "Activation: " << activationTypeToString( config_.getActivationType() ) << std::endl;
+
+            if ( config_.getDropout() > 0.0f ) {
+                oss << "Dropout: " << config_.getDropout() << std::endl;
             }
 
-            if ( use_layer_norm_ ) {
-                oss << ", Layer Norm: enabled";
+            if ( config_.useLayerNorm() ) {
+                oss << "Layer Norm: enabled" << std::endl;
             }
 
-            if ( use_residual_ ) {
-                oss << ", Residual: enabled";
+            if ( config_.useResidual() ) {
+                oss << "Residual: enabled" << std::endl;
             }
 
-            oss << ", Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
+            oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
             oss << this->getComputePrecision().toString() << std::endl;
             oss << "Parameter count: " << parameterCount() << std::endl;
             oss << "Sub-Modules..." << std::endl;
 
             for ( const auto& [name, module] : this->getNamedModules() ) {
-                oss << *module;
+                oss << module->toString();
             }
 
             return oss.str();
         }
 
     private:
-        std::vector<size_t> input_shape_;
-        size_t input_features_{ 0 };
-        size_t hidden_size_{ 0 };
-        bool has_bias_{ true };
-        ActivationType activation_type_{ ActivationType::Gelu };
-        float dropout_prob_{ 0.0f };
-        bool use_layer_norm_{ false };
-        bool use_residual_{ false };
-        bool fuse_operations_{ false };
+        /**
+         * @brief Configuration for the MLP module.
+         */
+        MLPConfig config_;
 
+        /**
+         * @brief First linear layer (input_features -> hidden_size).
+         */
         std::shared_ptr<Linear<TDeviceType, TDataType>> fc1_{ nullptr };
+
+        /**
+         * @brief Activation function module.
+         */
         std::shared_ptr<Module<TDeviceType, TDataType>> activation_{ nullptr };
+
+        /**
+         * @brief Second linear layer (hidden_size -> input_features).
+         */
         std::shared_ptr<Linear<TDeviceType, TDataType>> fc2_{ nullptr };
+
+        /**
+         * @brief Optional layer normalization module.
+         */
         std::shared_ptr<LayerNorm<TDeviceType, TDataType>> norm1_{ nullptr };
+
+        /**
+         * @brief Optional dropout module.
+         */
         std::shared_ptr<Dropout<TDeviceType, TDataType>> dropout1_{ nullptr };
 
+        /**
+         * @brief Output tensor from first linear layer.
+         */
         Tensor<TDataType, MR> fc1_output_;
+
+        /**
+         * @brief Output tensor from layer normalization.
+         */
         Tensor<TDataType, MR> norm1_output_;
+
+        /**
+         * @brief Output tensor from activation function.
+         */
         Tensor<TDataType, MR> act_output_;
+
+        /**
+         * @brief Output tensor from dropout.
+         */
         Tensor<TDataType, MR> dropout1_output_;
+
+        /**
+         * @brief Output tensor from second linear layer.
+         */
         Tensor<TDataType, MR> fc2_output_;
+
+        /**
+         * @brief Cached input tensor for residual connection.
+         */
         Tensor<TDataType, MR> residual_input_;
 
+        /**
+         * @brief Initializes all submodules for the MLP.
+         *
+         * Creates and configures:
+         * 1. Two linear layers with configurable hidden size
+         * 2. Activation function (GELU or others in the future)
+         * 3. Optional layer normalization
+         * 4. Optional dropout
+         * Also prepares intermediate tensors for computation.
+         */
         void initializeModules() {
+            // Clear any existing modules
             for ( const auto& [name, _] : this->getNamedModules() ) {
                 this->removeModule( name );
             }
 
-            auto precision = this->getComputePrecision().getPolicy();
-
             // First linear layer: input_features -> hidden_size
-            auto fc1_config = LinearConfig( input_features_, hidden_size_ )
+            auto fc1_config = LinearConfig( config_.getInputFeatures(), config_.getHiddenSize() )
                 .withName( this->getName() + ".fc1" )
-                .withDeviceContext( this->getDeviceContext() )
-                .withPrecision( precision )
-                .withBias( has_bias_ )
-                .training( this->isTraining() );
+                .withBias( config_.hasBias() )
+                .withTraining( this->isTraining() );
 
-            fc1_ = std::make_shared<Linear<TDeviceType, TDataType>>( fc1_config );
+            fc1_ = std::make_shared<Linear<TDeviceType, TDataType>>( this->getDeviceContext(), fc1_config );
             this->addModule( "fc1", fc1_ );
 
             // Optional layer normalization
-            if ( use_layer_norm_ ) {
-                auto norm1_config = LayerNormConfig( hidden_size_ )
+            if ( config_.useLayerNorm() ) {
+                auto norm1_config = LayerNormConfig( config_.getHiddenSize() )
                     .withName( this->getName() + ".norm1" )
-                    .withDeviceContext( this->getDeviceContext() )
-                    .withPrecision( precision )
-                    .training( this->isTraining() );
+                    .withTraining( this->isTraining() );
 
-                norm1_ = std::make_shared<LayerNorm<TDeviceType, TDataType>>( norm1_config );
+                norm1_ = std::make_shared<LayerNorm<TDeviceType, TDataType>>( this->getDeviceContext(), norm1_config );
                 this->addModule( "norm1", norm1_ );
             }
 
             // Activation function based on configuration
-            switch ( activation_type_ ) {
+            switch ( config_.getActivationType() ) {
                 case ActivationType::Gelu:
                 {
                     auto gelu_config = GeluConfig()
                         .withName( this->getName() + ".gelu" )
-                        .withDeviceContext( this->getDeviceContext() )
-                        .withPrecision( precision )
-                        .training( this->isTraining() );
+                        .withTraining( this->isTraining() );
 
-                    activation_ = std::make_shared<Gelu<TDeviceType, TDataType>>( gelu_config );
+                    activation_ = std::make_shared<Gelu<TDeviceType, TDataType>>( this->getDeviceContext(), gelu_config );
                     break;
                 }
+                // FUTURE: Add more activation types here
             }
 
             this->addModule( "activation", activation_ );
 
             // Optional dropout
-            if ( dropout_prob_ > 0.0f ) {
-                auto dropout_config = DropoutConfig( dropout_prob_ )
+            if ( config_.getDropout() > 0.0f ) {
+                auto dropout_config = DropoutConfig( config_.getDropout() )
                     .withName( this->getName() + ".dropout1" )
-                    .withDeviceContext( this->getDeviceContext() )
-                    .withPrecision( precision )
-                    .training( this->isTraining() );
+                    .withTraining( this->isTraining() );
 
-                dropout1_ = std::make_shared<Dropout<TDeviceType, TDataType>>( dropout_config );
+                dropout1_ = std::make_shared<Dropout<TDeviceType, TDataType>>( this->getDeviceContext(), dropout_config );
                 this->addModule( "dropout1", dropout1_ );
             }
 
             // Second linear layer: hidden_size -> input_features
-            auto fc2_config = LinearConfig( hidden_size_, input_features_ )
+            auto fc2_config = LinearConfig( config_.getHiddenSize(), config_.getInputFeatures() )
                 .withName( this->getName() + ".fc2" )
-                .withDeviceContext( this->getDeviceContext() )
-                .withPrecision( precision )
-                .withBias( has_bias_ )
-                .training( this->isTraining() );
+                .withBias( config_.hasBias() )
+                .withTraining( this->isTraining() );
 
-            fc2_ = std::make_shared<Linear<TDeviceType, TDataType>>( fc2_config );
+            fc2_ = std::make_shared<Linear<TDeviceType, TDataType>>( this->getDeviceContext(), fc2_config );
             this->addModule( "fc2", fc2_ );
 
             // Create intermediate tensors
-            std::vector<size_t> hidden_shape = input_shape_;
+            const auto& input_shape = config_.getInputShape();
+            std::vector<size_t> hidden_shape = input_shape;
             if ( !hidden_shape.empty() ) {
-                hidden_shape.back() = hidden_size_;
+                hidden_shape.back() = config_.getHiddenSize();
             }
             else {
-                hidden_shape = { hidden_size_ };
+                hidden_shape = { config_.getHiddenSize() };
             }
 
             fc1_output_ = Tensor<TDataType, MR>( hidden_shape );
 
-            if ( use_layer_norm_ ) {
+            if ( config_.useLayerNorm() ) {
                 norm1_output_ = Tensor<TDataType, MR>( hidden_shape );
             }
 
             act_output_ = Tensor<TDataType, MR>( hidden_shape );
 
-            if ( dropout_prob_ > 0.0f ) {
+            if ( config_.getDropout() > 0.0f ) {
                 dropout1_output_ = Tensor<TDataType, MR>( hidden_shape );
             }
 
-            fc2_output_ = Tensor<TDataType, MR>( input_shape_ );
+            fc2_output_ = Tensor<TDataType, MR>( input_shape );
 
-            if ( use_residual_ ) {
-                residual_input_ = Tensor<TDataType, MR>( input_shape_ );
+            if ( config_.useResidual() ) {
+                residual_input_ = Tensor<TDataType, MR>( input_shape );
             }
         }
     };
 
+    /**
+     * @brief Type alias for CPU-based MLP module with customizable tensor type.
+     *
+     * @tparam TDataType Data type of the tensor elements.
+     */
     export template<typename TDataType = float>
         using CpuMLP = MLP<DeviceType::Cpu, TDataType>;
 
+    /**
+     * @brief Type alias for CUDA-based MLP module with customizable tensor type.
+     *
+     * @tparam TDataType Data type of the tensor elements.
+     */
     export template<typename TDataType = float>
         using CudaMLP = MLP<DeviceType::Cuda, TDataType>;
 }

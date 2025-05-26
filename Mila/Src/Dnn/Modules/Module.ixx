@@ -18,6 +18,7 @@ export module Dnn.Module;
 
 import Dnn.Tensor;
 import Dnn.TensorTraits;
+import Dnn.ComponentConfig;
 import Compute.DeviceType;
 import Compute.DeviceContext;
 import Compute.MemoryResource;
@@ -59,9 +60,11 @@ namespace Mila::Dnn
         * @param policy The compute precision policy to use (default is Auto).
         * @throws std::runtime_error If the specified device name is invalid or doesn't match TDeviceType.
         */
-        explicit Module( const std::string& device_name, ComputePrecision::Policy policy = ComputePrecision::Policy::Auto )
-            : device_context_( createContext( device_name ) ), compute_precision_( policy ) {
-            // Verify the created context's device type matches TDeviceType
+        explicit Module( const std::string& device_name, const ComponentConfig& config )
+            : device_context_( createContext( device_name ) ), config_( config ), training_mode_( config.isTraining() ) {
+
+			config.validate();
+
             if ( device_context_->getDevice()->getDeviceType() != TDeviceType ) {
                 throw std::runtime_error( std::format(
                     "Device type mismatch: Module template requires {} but device name '{}' corresponds to {}",
@@ -80,13 +83,12 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If the provided context is nullptr.
          * @throws std::runtime_error If the context device type doesn't match TDeviceType.
          */
-        explicit Module( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy policy = ComputePrecision::Policy::Auto )
-            : compute_precision_( policy ) {
+        explicit Module( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) 
+            : config_( config ), training_mode_ ( config.isTraining() ) {
             if ( !context ) {
                 throw std::invalid_argument( "DeviceContext cannot be nullptr. Please provide a valid DeviceContext." );
             }
 
-            // Verify the provided context's device type matches TDeviceType
             if ( context->getDevice()->getDeviceType() != TDeviceType ) {
                 throw std::runtime_error( std::format(
                     "Device type mismatch: Module template requires {} but provided context is for {}",
@@ -120,7 +122,7 @@ namespace Mila::Dnn
          * @param is_training True if the module is in training mode, false for inference.
          */
         virtual void setTraining( bool is_training ) {
-            is_training_ = is_training;
+            training_mode_ = is_training;
         }
 
         /**
@@ -130,7 +132,7 @@ namespace Mila::Dnn
          * @return false If the module is in inference mode.
          */
         bool isTraining() const {
-            return is_training_;
+            return training_mode_;
         }
 
         /**
@@ -175,40 +177,20 @@ namespace Mila::Dnn
          * @return std::string Name of the module.
          */
         std::string getName() const {
-            return name_;
+            return config_.getName();
         }
 
-        /**
-         * @brief Set the name of the module.
-         *
-         * @param name The name to set. Must not be empty and cannot contain a dot ('.').
-         * @throws std::invalid_argument If the name is empty or contains a dot.
-         */
-        void setName( const std::string& name ) {
-            if ( name.empty() ) {
-                throw std::invalid_argument( "Name must not be empty and cannot contain a dot ('.')." );
-            }
-            name_ = name;
-        }
+        const ComputePrecision::Policy& getPrecision() const {
+            return config_.getPrecision();
+		}
 
         /**
-         * @brief Get the compute precision policy for this module.
+         * @brief Get the device type of the current device context.
          *
-         * @return const ComputePrecision& The compute precision policy
+         * @return Compute::DeviceType The device type (CPU or CUDA).
          */
-        const ComputePrecision& getComputePrecision() const {
-            return compute_precision_;
-        }
-
-        /**
-         * @brief Set the compute precision policy explicitly.
-         *
-         * @param mode The precision mode to use
-         * @return Module& Reference to this module for method chaining
-         */
-        Module& setComputePrecisionMode( ComputePrecision::Policy policy) {
-            compute_precision_.setPolicy( policy );
-            return *this;
+        Compute::DeviceType getDeviceType() const {
+            return device_context_->getDevice()->getDeviceType();
         }
 
         /**
@@ -253,15 +235,6 @@ namespace Mila::Dnn
             return os;
         }
 
-        /**
-         * @brief Get the device type of the current device context.
-         *
-         * @return Compute::DeviceType The device type (CPU or CUDA).
-         */
-        Compute::DeviceType getDeviceType() const {
-            return device_context_->getDevice()->getDeviceType();
-        }
-
     protected:
         /** @brief Map of parameter names to parameter tensors */
         std::unordered_map<std::string, std::shared_ptr<Tensor<TOutput, MR>>> parameter_map_ = {};
@@ -301,14 +274,10 @@ namespace Mila::Dnn
         /** @brief The device context used for this module's computations */
         std::shared_ptr<Compute::DeviceContext> device_context_;
 
-        /** @brief The compute precision policy for this module */
-        ComputePrecision compute_precision_;
-
-        /** @brief The name of the module. Cannot be empty and cannot contain a dot ('.') */
-        std::string name_;
+		ComponentConfig config_;
 
         /** @brief Whether the module is in training mode. Default is false */
-        bool is_training_{ false };
+        bool training_mode_{ false };
 
         /**
         * @brief Helper method to create a DeviceContext from a device name.

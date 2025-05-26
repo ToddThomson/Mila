@@ -24,7 +24,7 @@ namespace Mila::Dnn
     /**
      * @brief Configuration class for Residual connection module.
      */
-    export class ResidualConfig : public ComponentConfig<ResidualConfig> {
+    export class ResidualConfig : public ComponentConfig {
     public:
         enum class ConnectionType {
             Addition,       ///< Simple addition (x + F(x))
@@ -108,7 +108,7 @@ namespace Mila::Dnn
         bool hasInnerModule() const { return inner_module_ptr_ != nullptr; }
 
         void validate() const {
-            ComponentConfig<ResidualConfig>::validate();
+            ComponentConfig::validate();
 
             if ( connection_type_ == ConnectionType::ScaledAddition && scaling_factor_ <= 0.0f ) {
                 throw std::invalid_argument( "Scaling factor must be positive for scaled addition" );

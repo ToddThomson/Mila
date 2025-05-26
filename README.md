@@ -3,7 +3,7 @@
 Mila Deep Neural Network Library
 
 ## Prerelease Notice
-Mila, version 0.9.8XX-alpha is currently a preview release.
+Mila, version 0.9.8XX-alpha is currently an early preview release.
 The Mila API is still too immature for any end-user development. I am working on the API and will be releasing a stable version as soon as possible.
 
 ## Description
@@ -25,22 +25,23 @@ across multiple GPUs and compute nodes, with automatic optimization for various 
 
 ## What's New
 
+* Modernized ComponentConfig with deduced `this` parameters for a more elegant fluent interface
+* Refactored Module class to use ComponentConfig for all configuration options
+* Simplified module creation with consistent validation and configuration approach
+* Eliminated redundant configuration code with unified parameter handling
+* Improved type safety throughout the framework with more comprehensive constraints
+
+* Added Docker support (WIP) for Linux Ubuntu builds
+  * Ready-to-use container with all dependencies pre-installed
+  * Optimized environment for CI/CD pipelines and development
+  * Multi-stage build process for smaller production images
+  * Includes CUDA runtime for GPU acceleration on Linux systems
+  * Simplified development setup across different Linux distributions
+
 * Added ComputePrecision policy framework to support automatic mixed precision operations
 * Enhanced GELU operations with precision-aware implementations for both CPU and CUDA
 * Implemented mixed precision support in operation registry with type-specific operation creation
-* Added float-to-half precision conversion support in CUDA operations for better performance
-* Integrated precision policy propagation from Module level to Operation level
 
-* Added automatic documentation generation with GitHub Actions workflow
-* Implemented improved memory resource tracking for better debugging
-* Enhanced CUDA operations with optimized matrix multiplication and bias activation
-* Added support for transformer block architecture with full encoder implementation
-* Integrated dynamic memory resources for better GPU memory management
-* Improved device context helpers for simplified device selection and management
-* Added comprehensive API documentation with Doxygen integration
-* Expanded tensor operations with better type safety and efficient memory access patterns
-* Fixed numerical stability issues in LayerNorm and Softmax operations
-* Added support for building with Ninja generator for faster compilation
 
 ## Mila Build Instructions
 Mila uses CMake build. To build Mila, follow the steps below:  
@@ -101,6 +102,44 @@ Mila uses CMake build. To build Mila, follow the steps below:
    - Press Ctrl+Shift+P to open the command palette
    - Type "CMake: Run Tests" and select it
    - Alternatively, use the Test Explorer extension to browse and run tests
+
+#### Using Docker on Linux
+
+1. **Prerequisites**
+   - Docker installed on your system
+   - NVIDIA Docker runtime (for GPU support)
+
+2. **Pull the Docker Image**
+
+3. **Run the Container**
+- For CPU-only usage:
+  ```bash
+  docker run -it --rm toddthomson/mila:latest
+  ```
+- For GPU support:
+  ```bash
+  docker run -it --rm --gpus all toddthomson/mila:latest
+  ```
+
+4. **Build from Dockerfile**
+- Clone the repository and build locally:
+  ```bash
+  git clone https://github.com/toddthomson/mila.git
+  cd mila
+  docker build -t mila:local .
+  ```
+
+5. **Development Workflow**
+- Mount your local source directory for development:
+  ```bash
+  docker run -it --rm -v $(pwd):/mila/src toddthomson/mila:latest
+     ```
+   - Build inside the container:
+     ```bash
+     mkdir -p build && cd build
+     cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release
+     ninja
+     ```
    
 ## Required Components
 * C++23 support

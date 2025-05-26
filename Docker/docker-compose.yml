@@ -1,0 +1,18 @@
+services:
+  mila-dev:
+    build:
+      context: ..
+      dockerfile: Docker/Dockerfile
+    image: mila-dev:latest
+    container_name: mila-dev
+    volumes:
+      - ..:/mila
+    tty: true
+    working_dir: /mila
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

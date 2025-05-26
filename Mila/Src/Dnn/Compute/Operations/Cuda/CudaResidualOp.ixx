@@ -14,6 +14,7 @@ module;
 
 export module Compute.CudaResidualOp;
 
+import Dnn.Modules.Residual;
 import Dnn.Tensor;
 import Dnn.TensorTraits;
 import Compute.Precision;
@@ -89,8 +90,8 @@ namespace Mila::Dnn::Compute
          *
          * @param precision_policy The precision policy to use for mixed precision computation.
          */
-        CudaResidualOp( ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto )
-            : BinaryOperationBase( OperationType::ResidualOp, precision_policy ) {}
+        CudaResidualOp( const ResidualConfig& config )
+            : BinaryOperationBase( OperationType::ResidualOp ), config_( config ) {}
 
         /**
          * @brief Constructs a new CUDA Residual operation with a specific device context.
@@ -99,8 +100,8 @@ namespace Mila::Dnn::Compute
          * @param precision_policy The precision policy to use for mixed precision computation.
          * @throws std::runtime_error If the context is not for a CUDA device.
          */
-        CudaResidualOp( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto )
-            : BinaryOperationBase( OperationType::ResidualOp, context, precision_policy ) {}
+        CudaResidualOp( std::shared_ptr<DeviceContext> context, const ResidualConfig& config )
+            : BinaryOperationBase( OperationType::ResidualOp, context ), config_( config ) {}
 
         /**
          * @brief Performs the forward pass of the residual operation on CUDA.
@@ -130,12 +131,7 @@ namespace Mila::Dnn::Compute
             std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const override {
 
             // Get precision policy from operation base class
-            ComputePrecision::Policy policy = this->getPrecisionPolicy();
-
-            // Check if properties override the precision policy
-            if ( properties.has( "precision_policy" ) ) {
-                policy = static_cast<ComputePrecision::Policy>(properties.get( "precision_policy", static_cast<int>(policy) ));
-            }
+            ComputePrecision::Policy policy = config_.getPrecision();
 
             auto X1 = input1.raw_data();
             auto X2 = input2.raw_data();
@@ -194,7 +190,7 @@ namespace Mila::Dnn::Compute
             const std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const {
 
             // Get precision policy from operation base class or override from properties
-            ComputePrecision::Policy policy = this->getPrecisionPolicy();
+            ComputePrecision::Policy policy = config_.getPrecision();
 
             // Check if properties override the precision policy
             if ( properties.has( "precision_policy" ) ) {
@@ -222,6 +218,9 @@ namespace Mila::Dnn::Compute
         std::string getName() const override {
             return "Cuda::ResidualOp";
         }
+
+    private:
+        ResidualConfig config_;  ///< Configuration for the residual operation
     };
 
     /**
@@ -242,20 +241,21 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cuda::ResidualOp";
 
-            // Register float-to-float operation
             OperationRegistry::instance().registerBinaryOperation<DeviceType::Cuda, float, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, float, float, float>> {
-                    return context ? std::make_shared<CudaResidualOp<float>>( context, precision_policy )
-                        : std::make_shared<CudaResidualOp<float>>( precision_policy );
+                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, float, float, float>> {
+                    const auto& residualConfig = static_cast<const ResidualConfig&>( config );
+                    return context ? std::make_shared<CudaResidualOp<float>>( context, residualConfig )
+                        : std::make_shared<CudaResidualOp<float>>( residualConfig );
                 }
             );
 
             OperationRegistry::instance().registerBinaryOperation<DeviceType::Cuda, half, half, half>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, half, half, half>> {
-                    return context ? std::make_shared<CudaResidualOp<half>>( context, precision_policy )
-                        : std::make_shared<CudaResidualOp<half>>( precision_policy );
+                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, half, half, half>> {
+                    const auto& residualConfig = static_cast<const ResidualConfig&>(config);
+                    return context ? std::make_shared<CudaResidualOp<half>>( context, residualConfig )
+                        : std::make_shared<CudaResidualOp<half>>( residualConfig );
                 }
             );
 

@@ -60,9 +60,9 @@ namespace Mila::Dnn::Compute
         * @param operation_type The type of the operation.
         * @param precision_policy The compute precision policy to use.
         */
-        UnaryOperation( OperationType operation_type, ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto )
+        UnaryOperation( OperationType operation_type )
             : OperationBase<TDeviceType, TInput, TInput, TOutput>(
-                operation_type, CreateCompatibleContext<TDeviceType>(), precision_policy ) {}
+                operation_type, CreateCompatibleContext<TDeviceType>() ) {}
 
         /**
         * @brief Constructs a UnaryOperation with the specified operation type and device context.
@@ -73,13 +73,10 @@ namespace Mila::Dnn::Compute
         * @param context The device context to use for this operation.
         * @param precision_policy The compute precision policy to use.
         */
-        UnaryOperation( OperationType operation_type,
-            std::shared_ptr<DeviceContext> context,
-            ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto )
+        UnaryOperation( OperationType operation_type, std::shared_ptr<DeviceContext> context )
             : OperationBase<TDeviceType, TInput, TInput, TOutput>(
                 operation_type,
-                ValidateContext<TDeviceType>( context ),
-                precision_policy ) {}
+                ValidateContext<TDeviceType>( context ) ) {}
 
         /**
         * @brief Virtual destructor for proper cleanup of derived classes.

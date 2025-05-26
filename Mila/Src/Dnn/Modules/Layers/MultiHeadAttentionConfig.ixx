@@ -21,7 +21,7 @@ namespace Mila::Dnn
     /**
      * @brief Configuration class for MultiHeadAttention module.
      */
-    export class MultiHeadAttentionConfig : public ComponentConfig<MultiHeadAttentionConfig> {
+    export class MultiHeadAttentionConfig : public ComponentConfig {
     public:
         /**
          * @brief Constructor with required parameters.
@@ -128,7 +128,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If validation fails
          */
         void validate() const {
-            ComponentConfig<MultiHeadAttentionConfig>::validate();
+            ComponentConfig::validate();
 
             if ( embedding_dim_ == 0 ) {
                 throw std::invalid_argument( "Embedding dimension must be greater than zero" );

@@ -1,6 +1,13 @@
 /**
  * @file Gelu.ixx
- * @brief Implementation of the Gaussian Error Linear Unit (GELU) activation function module.
+ * @brief Implementation of the Gaussian Error Linear Unit (GELU) activation function.
+ *
+ * This module implements the GELU activation function as described in:
+ * "Gaussian Error Linear Units (GELUs)" by Hendrycks and Gimpel (2016).
+ * https://arxiv.org/abs/1606.08415
+ *
+ * GELU activation has become a standard component in transformer architectures
+ * like BERT, GPT, and their derivatives, often replacing traditional ReLU activations.
  */
 
 module;
@@ -37,79 +44,119 @@ namespace Mila::Dnn
     /**
      * @brief Gaussian Error Linear Unit (GELU) activation function module.
      *
-     * GELU is an activation function defined as:
+     * GELU is defined mathematically as:
      * GELU(x) = x * phi(x)
-     * where phi(x) is the standard Gaussian cumulative distribution function.
      *
-     * This activation function is used in many state-of-the-art neural network
-     * architectures, including transformers, as an alternative to ReLU.
+     * Where phi(x) is the cumulative distribution function of the standard normal distribution.
      *
-     * @tparam TDeviceType The device type (CPU or CUDA) on which the module will operate.
-     * @tparam TInput The data type of the input tensor elements.
-     * @tparam TOutput The data type of the output tensor elements, defaults to TInput.
+     * Three approximation methods are supported (configured via GeluConfig):
+     * 1. Exact: Uses the error function - most accurate but computationally expensive
+     * 2. Tanh: Fast approximation using tanh - GELU(x) ? 0.5x(1 + tanh(?(2/?)(x + 0.044715x³)))
+     * 3. Sigmoid: Fast approximation using sigmoid - GELU(x) ? x * sigmoid(1.702x)
+     *
+     * Note: Currently only the Tanh approximation is fully supported in the implementation.
+     *
+     * @tparam TDeviceType Computing device type (CPU or CUDA)
+     * @tparam TDataType Floating-point data type for computations (e.g., float, half )
      */
-    export template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput>
-        requires ValidFloatTensorTypes<TInput, TOutput>
-    class Gelu : public Module<TDeviceType, TInput, TOutput> {
+    export template<DeviceType TDeviceType = DeviceType::Cuda, typename TDataType = float>
+        requires ValidFloatTensorType<TDataType>
+    class Gelu : public Module<TDeviceType, TDataType, TDataType> {
     public:
-        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>; ///< Memory resource type based on device type
-        using ModuleBase = Module<TDeviceType, TInput, TOutput>; ///< Base class type for the module
+        /**
+         * @brief Memory resource type determined based on device type.
+         *
+         * Automatically selects appropriate memory resource (CPU or CUDA) based on TDeviceType.
+         */
+        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>;
 
         /**
-         * @brief Construct a new Gelu module from configuration.
-         *
-         * @param config The configuration for this module
+         * @brief Alias for base module type.
          */
-        explicit Gelu( const GeluConfig& config )
-            : ModuleBase(
-                config.getContext() ? config.getContext() : std::make_shared<DeviceContext>( config.getDeviceName() ),
-                TDeviceType == DeviceType::Cpu ? ComputePrecision::Policy::Disabled : config.getPrecision() ),
-            approximation_method_( config.getApproximationMethod() ) {
+        using ModuleBase = Module<TDeviceType, TDataType, TDataType>;
+
+        /**
+         * @brief Constructs a Gelu module using device name and configuration.
+         *
+         * Creates a new DeviceContext internally using the provided device name.
+         * This constructor is useful for creating standalone modules without
+         * pre-existing device contexts.
+         *
+         * @param device_name Device identifier string (e.g., "cpu", "cuda:0")
+         * @param config Configuration parameters for the GELU module
+         * @throws std::invalid_argument If the device name is invalid or the configuration is invalid
+         * @throws std::runtime_error If device type doesn't match template parameter TDeviceType
+         */
+        explicit Gelu( const std::string& device_name, const GeluConfig& config )
+            : ModuleBase( std::make_shared<DeviceContext>( device_name ), config ), config_( config ) {
 
             config.validate();
-
-            this->setName( config.getName() );
-            this->setTraining( config.isTraining() );
 
             createOperation();
         }
 
         /**
-         * @brief Gets the number of trainable parameters in this module.
+         * @brief Constructs a Gelu module with an existing device context and configuration.
          *
-         * The GELU activation function has no trainable parameters.
+         * Uses a pre-existing DeviceContext instance. This constructor is useful when integrating
+         * the module into a larger network that shares device contexts across modules.
          *
-         * @return size_t Always returns 0 for GELU.
+         * @param device_context Shared pointer to an existing device context
+         * @param config Configuration parameters for the GELU module
+         * @throws std::invalid_argument If device_context is null or configuration is invalid
+         * @throws std::runtime_error If device context type doesn't match template parameter TDeviceType
+         */
+        explicit Gelu( std::shared_ptr<DeviceContext> device_context, const GeluConfig& config )
+            : ModuleBase( device_context, config ), config_( config ) {
+
+            config.validate();
+
+            createOperation();
+        }
+
+        /**
+         * @brief Returns the number of trainable parameters in this module.
+         *
+         * GELU is a parameterless activation function with no trainable weights.
+         *
+         * @return Always returns 0
          */
         size_t parameterCount() const override {
             return 0;
         }
 
         /**
-         * @brief Performs the forward pass of the GELU activation function.
+         * @brief Performs forward propagation through the GELU activation function.
          *
-         * Applies the GELU activation function element-wise to the input tensor.
+         * Applies the GELU transformation element-wise to each value in the input tensor.
+         * The specific approximation method used is determined by the GeluConfig setting.
          *
-         * @param input The input tensor to apply the activation function to.
-         * @param output The output tensor where the results will be stored.
+         * @param input Input tensor to transform
+         * @param output Tensor where results will be stored (must be pre-allocated with matching dimensions)
          */
-        void forward( const Tensor<TInput, MR>& input, Tensor<TOutput, MR>& output ) {
+        void forward( const Tensor<TDataType, MR>& input, Tensor<TDataType, MR>& output ) {
             operation_->forward( input, parameters_, properties_, output, output_state_ );
         }
 
         /**
-         * @brief Performs the backward pass of the GELU activation function.
+         * @brief Performs backward propagation, computing gradients for GELU activation.
          *
-         * Computes the gradient of the GELU function with respect to its input.
+         * Computes the gradient of the GELU function with respect to its inputs,
+         * which is needed for training via backpropagation.
          *
-         * @param input The input tensor from the forward pass.
-         * @param output_grad The gradient of loss with respect to the output.
-         * @param input_grad The tensor to store gradients with respect to input.
+         * The GELU derivative is:
+         * d/dx GELU(x) = ?(x) + x * ?'(x)
+         *
+         * Where ?'(x) is the derivative of the CDF (the PDF of the standard normal distribution).
+         *
+         * @param input Original input tensor from the forward pass
+         * @param output_grad Gradient tensor from the next layer (?L/?output)
+         * @param input_grad Output tensor to store the computed gradients (?L/?input)
          */
         void backward(
-            const Tensor<TInput, MR>& input,
-            const Tensor<TOutput, MR>& output_grad,
-            Tensor<TInput, MR>& input_grad ) {
+            const Tensor<TDataType, MR>& input,
+            const Tensor<TDataType, MR>& output_grad,
+            Tensor<TDataType, MR>& input_grad ) {
             operation_->backward(
                 input,           // Input tensor
                 output_grad,     // Gradient from next layer
@@ -122,49 +169,49 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Gets the approximation method used by this GELU module.
+         * @brief Returns the current approximation method used by this GELU instance.
          *
-         * @return GeluConfig::ApproximationMethod The method used to approximate the GELU function.
+         * @return Current approximation method from GeluConfig::ApproximationMethod enum
          */
         GeluConfig::ApproximationMethod getApproximationMethod() const {
-            return approximation_method_;
+            return config_.getApproximationMethod();
         }
 
         /**
-         * @brief Saves the module state to a ZIP archive.
+         * @brief Serializes module state to a ZIP archive.
          *
-         * Since GELU has no trainable parameters, this function is mostly a placeholder
-         * for the module interface.
+         * Implementation of the Module interface for serialization. Since GELU has no
+         * learnable parameters, this is a no-op implementation.
          *
-         * @param zip The ZIP archive to save the module state to.
+         * @param zip ZIP archive for serialization
          */
         void save( mz_zip_archive& zip ) const override {
-            // GELU has no parameters to save
+            // No-op: GELU is a stateless activation function with no parameters to persist
         }
 
         /**
-         * @brief Loads the module state from a ZIP archive.
+         * @brief Deserializes module state from a ZIP archive.
          *
-         * Since GELU has no trainable parameters, this function is mostly a placeholder
-         * for the module interface.
+         * Implementation of the Module interface for deserialization. Since GELU has no
+         * learnable parameters, this is a no-op implementation.
          *
-         * @param zip The ZIP archive to load the module state from.
+         * @param zip ZIP archive for deserialization
          */
         void load( mz_zip_archive& zip ) override {
-            // GELU has no parameters to load
+            // No-op: GELU is a stateless activation function with no parameters to load
         }
 
         /**
-         * @brief Converts the module information to a human-readable string.
+         * @brief Generates a string representation of this module's configuration.
          *
-         * @return std::string A string representation of the module information.
+         * @return Formatted string with module name, device information, and approximation method
          */
         std::string toString() const override {
             std::ostringstream oss;
             oss << "--------------------" << std::endl;
             oss << "Gelu: " << this->getName() << std::endl;
             oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
-            oss << "Approximation Method: " << approximationMethodToString( approximation_method_ ) << std::endl;
+            oss << "Approximation Method: " << approximationMethodToString( config_.getApproximationMethod() ) << std::endl;
             oss << this->getComputePrecision().toString() << std::endl;
 
             return oss.str();
@@ -172,43 +219,51 @@ namespace Mila::Dnn
 
     private:
         /**
-         * @brief The approximation method used for computing GELU.
+         * @brief Configuration for the GELU module.
+         *
+         * Stores the settings that define how the GELU function should be computed,
+         * particularly which approximation method to use.
          */
-        GeluConfig::ApproximationMethod approximation_method_ = GeluConfig::ApproximationMethod::Tanh;
+        GeluConfig config_;
 
         /**
-         * @brief The parameters for the operation.
+         * @brief Parameter tensors for the operation.
          *
-         * The GELU activation has no parameters, so this is an empty vector.
+         * Empty for GELU since it has no trainable parameters, but required by the
+         * UnaryOperation interface.
          */
-        std::vector<std::shared_ptr<Tensor<TOutput, MR>>> parameters_;
+        std::vector<std::shared_ptr<Tensor<TDataType, MR>>> parameters_;
 
         /**
-         * @brief The output cache.
+         * @brief Output state cache for backward propagation.
          *
-         * Storage for intermediate results that might be needed for the backward pass.
+         * Stores intermediate results from the forward pass that may be needed
+         * during backward propagation to efficiently compute gradients.
          */
-        std::vector<std::shared_ptr<Tensor<TOutput, MR>>> output_state_;
+        std::vector<std::shared_ptr<Tensor<TDataType, MR>>> output_state_;
 
         /**
-         * @brief The operation properties.
+         * @brief Additional attributes for operation customization.
          *
-         * Additional attributes that might be needed for the operation.
+         * Holds configuration values that might be needed by specific implementations
+         * of the GELU operation.
          */
+		 // TODO: Remove as GeluConfig is now used for this purpose
         OperationAttributes properties_;
 
         /**
-         * @brief The underlying unary operation that implements the GELU function.
+         * @brief The underlying computational operation that implements GELU.
          *
-         * This pointer will be updated based on the current device context.
+         * This pointer is initialized based on the device type and configuration,
+         * providing the device-specific implementation of the GELU function.
          */
-        std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TDeviceType, TDataType, TDataType>> operation_{ nullptr };
 
         /**
-         * @brief Converts the approximation method enum to a string representation.
+         * @brief Converts approximation method enum to human-readable string.
          *
          * @param method The approximation method to convert
-         * @return std::string String representation of the method
+         * @return String representation of the approximation method
          */
         static std::string approximationMethodToString( GeluConfig::ApproximationMethod method ) {
             switch ( method ) {
@@ -224,35 +279,46 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Creates the appropriate GELU operation based on the current device context.
+         * @brief Initializes the appropriate GELU operation implementation.
          *
-         * This method initializes the operation_ member with the appropriate implementation
-         * of the GELU operation for either CPU or CUDA, based on the current device context.
-         * It also passes the compute precision policy to the operation.
+         * Creates the device-specific operation implementation based on the template
+         * parameter TDeviceType and registers it with the operation registry.
+         *
+         * The operation choice is determined at compile-time via constexpr branching.
          */
         void createOperation() {
-            // Set approximation method in operation properties
-            // TODO: properties_[ "approximation_method" ] = static_cast<int>(approximation_method_);
-
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TInput, TOutput>(
-                    "Cpu::GeluOp", this->getDeviceContext(), ComputePrecision::Policy::Disabled );
+                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TDataType, TDataType>(
+                    "Cpu::GeluOp", this->getDeviceContext(), config_ );
 
-                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cpu, TInput, TOutput>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cpu, TDataType, TDataType>>(base_op);
             }
             else {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TInput, TOutput>(
-                    "Cuda::GeluOp", this->getDeviceContext(), this->getComputePrecision().getPolicy() );
+                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TDataType, TDataType>(
+                    "Cuda::GeluOp", this->getDeviceContext(), config_ );
 
-                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cuda, TInput, TOutput>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cuda, TDataType, TDataType>>(base_op);
             }
         }
     };
 
-    // Convenient type aliases for common use cases
-    export template<typename T = float>
-        using CpuGelu = Gelu<DeviceType::Cpu, T, T>;
+    /**
+     * @brief Type alias for CPU-specific GELU module.
+     *
+     * Convenience type that pre-configures the Gelu template for CPU execution.
+     *
+     * @tparam TDataType Floating-point data type (default: float)
+     */
+    export template<typename TDataType = float>
+        using CpuGelu = Gelu<DeviceType::Cpu, TDataType>;
 
-    export template<typename T = float>
-        using CudaGelu = Gelu<DeviceType::Cuda, T, T>;
+    /**
+     * @brief Type alias for CUDA-specific GELU module.
+     *
+     * Convenience type that pre-configures the Gelu template for CUDA GPU execution.
+     *
+     * @tparam TDataType Floating-point data type (default: float)
+     */
+    export template<typename TDataType = float>
+        using CudaGelu = Gelu<DeviceType::Cuda, TDataType>;
 }

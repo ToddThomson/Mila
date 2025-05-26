@@ -6,7 +6,7 @@
 
 import Mila;
 
-namespace Modules::Tests
+namespace Modules::Activations::Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;

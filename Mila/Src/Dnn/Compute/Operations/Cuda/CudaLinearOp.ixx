@@ -14,8 +14,9 @@ module;
 #include "Kernels/CudaOps.h"
 #include <type_traits>
 
-export module Compute.CudaMatMulOp;
+export module Compute.CudaLinearOp;
 
+import Dnn.Modules.Linear;
 import Dnn.Tensor;
 import Dnn.TensorTraits;
 import Compute.OperationBase;
@@ -97,8 +98,8 @@ namespace Mila::Dnn::Compute
          *
          * Initializes the operation with a CUDA device context (defaults to CUDA:0).
          */
-        CudaLinearOp( ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto )
-            : UnaryOperationBase( OperationType::LinearOp, precision_policy ) {}
+        CudaLinearOp( const LinearConfig& config )
+            : UnaryOperationBase( OperationType::LinearOp ), config_( config ) {}
 
         /**
          * @brief Constructs a new CUDA Fully Connected operation with a specific device context.
@@ -106,8 +107,8 @@ namespace Mila::Dnn::Compute
          * @param context The device context to use for this operation.
          * @throws std::runtime_error If the context is not for a CUDA device.
          */
-        CudaLinearOp( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto )
-            : UnaryOperationBase( OperationType::LinearOp, context, precision_policy ) {
+        CudaLinearOp( std::shared_ptr<DeviceContext> context, const LinearConfig& config )
+            : UnaryOperationBase( OperationType::LinearOp, context ), config_( config ) {
         }
 
         /**
@@ -237,6 +238,9 @@ namespace Mila::Dnn::Compute
         std::string getName() const override {
             return "Cuda::LinearOp";
         }
+        
+    private:
+	    LinearConfig config_; ///< Configuration for the linear operation.
     };
 
     /**
@@ -259,17 +263,19 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float>> {
-                    return context ? std::make_shared<CudaLinearOp<float>>( context, precision_policy )
-                        : std::make_shared<CudaLinearOp<float>>( precision_policy );
+                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float>> {
+                    const auto& linearConfig = static_cast<const LinearConfig&>( config );
+                    return context ? std::make_shared<CudaLinearOp<float>>( context, linearConfig )
+                        : std::make_shared<CudaLinearOp<float>>( linearConfig );
                 }
             );
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, half, half>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half>> {
-                    return context ? std::make_shared<CudaLinearOp<half>>( context, precision_policy )
-                        : std::make_shared<CudaLinearOp<half>>( precision_policy );
+                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half>> {
+                    const auto& linearConfig = static_cast<const LinearConfig&>(config);
+                    return context ? std::make_shared<CudaLinearOp<half>>( context, linearConfig )
+                        : std::make_shared<CudaLinearOp<half>>( linearConfig );
                 }
             );
         }

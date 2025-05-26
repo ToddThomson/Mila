@@ -12,6 +12,7 @@ module;
 
 export module Compute.CudaSoftmaxOp;
 
+import Dnn.Modules.Softmax;
 import Dnn.Tensor;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
@@ -103,15 +104,15 @@ namespace Mila::Dnn::Compute
     class CudaSoftmaxOp : public UnaryOperation<DeviceType::Cuda, TInput, TOutput> {
     public:
         using MR = typename CudaDevice::MR;
-		using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TInput, TOutput>;
-        
+        using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TInput, TOutput>;
+
         /**
          * @brief Constructs a new CUDA Softmax operation with the default device context.
          *
          * Initializes the operation with a CUDA device context (defaults to CUDA:0).
          */
-        CudaSoftmaxOp( ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto )
-            : UnaryOperationBase( OperationType::SoftmaxOp, precision_policy ) {}
+        CudaSoftmaxOp( const SoftmaxConfig& config )
+            : UnaryOperationBase( OperationType::SoftmaxOp ), config_( config ) {}
 
         /**
          * @brief Constructs a new CUDA Softmax operation with a specific device context.
@@ -119,9 +120,8 @@ namespace Mila::Dnn::Compute
          * @param context The device context to use for this operation.
          * @throws std::runtime_error If the context is not for a CUDA device.
          */
-        CudaSoftmaxOp( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto )
-            : UnaryOperationBase( OperationType::SoftmaxOp, context, precision_policy ) {
-        }
+        CudaSoftmaxOp( std::shared_ptr<DeviceContext> context, const SoftmaxConfig& config )
+            : UnaryOperationBase( OperationType::SoftmaxOp, context ), config_( config ) {}
 
         /**
          * @brief Performs the forward pass of the softmax operation on CUDA.
@@ -182,13 +182,13 @@ namespace Mila::Dnn::Compute
                 int C = dim_size;
 
                 cudaStream_t stream = this->getDeviceContext()->getStream();
-                
+
                 Detail::cuda_softmax_impl<TInput>::forward_optimized( Y, X, N, C, stream );
             }
             else {
                 // For other axes, use the generalized implementation
                 cudaStream_t stream = this->getDeviceContext()->getStream();
-                
+
                 Detail::cuda_softmax_impl<TInput>::forward_general(
                     Y, X, outer_size, dim_size, inner_size, stream );
             }
@@ -244,6 +244,9 @@ namespace Mila::Dnn::Compute
         std::string getName() const override {
             return "Cuda::SoftmaxOp";
         }
+
+    private:
+        SoftmaxConfig config_; ///< Configuration for the softmax operation, including axis and other parameters.
     };
 
     /**
@@ -267,17 +270,19 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, float>> {
-                    return context ? std::make_shared<CudaSoftmaxOp<float>>( context, precision_policy )
-                        : std::make_shared<CudaSoftmaxOp<float>>( precision_policy );
+                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, float>> {
+                    const auto& softmaxConfig = static_cast<const SoftmaxConfig&>(config);
+                    return context ? std::make_shared<CudaSoftmaxOp<float>>( context, softmaxConfig )
+                        : std::make_shared<CudaSoftmaxOp<float>>( softmaxConfig );
                 }
             );
 
            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, half, half>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half, half>> {
-                    return context ? std::make_shared<CudaSoftmaxOp<half>>( context, precision_policy )
-                        : std::make_shared<CudaSoftmaxOp<half>>( precision_policy );
+                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half, half>> {
+                    const auto& softmaxConfig = static_cast<const SoftmaxConfig&>(config);
+                    return context ? std::make_shared<CudaSoftmaxOp<half>>( context, softmaxConfig )
+                        : std::make_shared<CudaSoftmaxOp<half>>( softmaxConfig );
                 }
             );
         }

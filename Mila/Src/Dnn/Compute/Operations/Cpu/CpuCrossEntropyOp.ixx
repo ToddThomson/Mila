@@ -17,6 +17,7 @@ module;
 export module Compute.CpuCrossEntropyOp;
 
 import Dnn.Tensor;
+import Dnn.Modules.CrossEntropy;
 import Compute.Precision;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
@@ -52,8 +53,8 @@ namespace Mila::Dnn::Compute
          *
          * Initializes the operation with a CPU device context.
          */
-        CpuCrossEntropyOp() 
-            : OperationBase( OperationType::CrossEntropyOp, ComputePrecision::Policy::Disabled ) {
+        CpuCrossEntropyOp( const CrossEntropyConfig& config )
+            : OperationBase( OperationType::CrossEntropyOp ), config_( config ) {
         }
 
         /**
@@ -62,8 +63,8 @@ namespace Mila::Dnn::Compute
          * @param context The device context to use for this operation.
          * @throws std::runtime_error If the context is not for a CPU device.
          */
-        CpuCrossEntropyOp( std::shared_ptr<DeviceContext> context )
-            : OperationBase( OperationType::CrossEntropyOp, context, ComputePrecision::Policy::Disabled ) {
+        CpuCrossEntropyOp( std::shared_ptr<DeviceContext> context, const CrossEntropyConfig& config )
+            : OperationBase( OperationType::CrossEntropyOp, context ), config_( config ) {
 
         }
 
@@ -204,6 +205,8 @@ namespace Mila::Dnn::Compute
         std::string getName() const override {
             return "Cpu::CrossEntropyOp";
         }
+        private:
+            CrossEntropyConfig config_; ///< Configuration for the CrossEntropy operation.
     };
 
     /**
@@ -225,12 +228,12 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cpu::CrossEntropyOp";
 
-            // Updated to use device context-aware registration
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, int, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, int, float>> {
-                    return context ? std::make_shared<CpuCrossEntropyOp>( context )
-                        : std::make_shared<CpuCrossEntropyOp>();
+                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, int, float>> {
+                    const auto& crossEntropyConfig = dynamic_cast<const CrossEntropyConfig&>( config );
+                    return context ? std::make_shared<CpuCrossEntropyOp>( context, crossEntropyConfig )
+                        : std::make_shared<CpuCrossEntropyOp>( crossEntropyConfig );
                 }
             );
         }

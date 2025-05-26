@@ -155,7 +155,7 @@ PUBLIC
         "Src/Dnn/Compute/Operations/Cuda/CudaDataTypeTraits.ixx"
         "Src/Dnn/Compute/Operations/Cuda/CublasLtMatMulBias.ixx"
         "Src/Dnn/Compute/Operations/Cuda/MatMulBiasActivation.ixx"
-        "Src/Dnn/Compute/Operations/Cuda/CudaFullyConnectedOp.ixx"
+        "Src/Dnn/Compute/Operations/Cuda/CudaLinearOp.ixx"
         "Src/Dnn/Compute/Operations/Cuda/CudaResidualOp.ixx"
         "Src/Dnn/Compute/Operations/Cuda/CudaGeluOp.ixx" 
         "Src/Dnn/Compute/Operations/Cuda/CudaSoftmaxOp.ixx" 
@@ -219,7 +219,7 @@ PUBLIC
         # Data Handling
         #---------------------------------------------------------------
         "Src/Dnn/Data/DataLoader.ixx"
-)
+ "Src/Dnn/Common/Component.ixx")
 
 target_link_libraries( Mila PRIVATE CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
 

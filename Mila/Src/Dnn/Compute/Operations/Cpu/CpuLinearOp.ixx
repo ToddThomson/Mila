@@ -16,6 +16,7 @@ module;
 export module Compute.CpuLinearOp;
 
 import Dnn.Tensor;
+import Dnn.Modules.Linear;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
@@ -58,8 +59,8 @@ namespace Mila::Dnn::Compute
          *
          * @param precision_policy Ignored for CPU operations, as they always use full precision.
          */
-        CpuLinearOp()
-            : OperationBase( OperationType::LinearOp, ComputePrecision::Policy::Disabled ) {}
+        CpuLinearOp( const LinearConfig& config )
+            : OperationBase( OperationType::LinearOp ), config_( config ) {}
 
         /**
          * @brief Constructs a new CPU Fully Connected operation with a specific device context.
@@ -70,8 +71,8 @@ namespace Mila::Dnn::Compute
          * @param precision_policy Ignored for CPU operations, as they always use full precision.
          * @throws std::runtime_error If the context is not for a CPU device.
          */
-        CpuLinearOp( std::shared_ptr<DeviceContext> context )
-            : OperationBase( OperationType::LinearOp, context, ComputePrecision::Policy::Disabled ) {}
+        CpuLinearOp( std::shared_ptr<DeviceContext> context, const LinearConfig& config )
+            : OperationBase( OperationType::LinearOp, context ), config_( config ) {}
 
         /**
          * @brief Performs the forward pass of the Linear operation.
@@ -225,6 +226,8 @@ namespace Mila::Dnn::Compute
         }
 
     private:
+		LinearConfig config_; ///< Configuration for the linear operation.
+
         /**
          * @brief Naive implementation of the forward pass for the Fully Connected operation.
          *
@@ -282,9 +285,10 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float>> {
-                    return context ? std::make_shared<CpuLinearOp>( context )
-                        : std::make_shared<CpuLinearOp>();
+                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float>> {
+                    const auto& linearConfig = dynamic_cast<const LinearConfig&>( config );
+                    return context ? std::make_shared<CpuLinearOp>( context, linearConfig )
+                        : std::make_shared<CpuLinearOp>( linearConfig );
                 }
             );
         }

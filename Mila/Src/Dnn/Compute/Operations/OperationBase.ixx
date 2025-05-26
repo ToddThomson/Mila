@@ -51,9 +51,8 @@ namespace Mila::Dnn::Compute
          * @param precision_policy The compute precision policy to use for this operation.
          * @throw std::invalid_argument May throw if context is null (implementation dependent).
          */
-        OperationBase( OperationType operation_type, std::shared_ptr<DeviceContext> context,
-            ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto )
-            : operation_type_( operation_type ), device_context_( context ), precision_policy_( precision_policy ) {}
+        OperationBase( OperationType operation_type, std::shared_ptr<DeviceContext> context )
+            : operation_type_( operation_type ), device_context_( context ) {}
 
         /**
          * @brief Virtual destructor for the OperationBase class.
@@ -112,45 +111,8 @@ namespace Mila::Dnn::Compute
             return operation_type_;
         }
 
-        /**
-         * @brief Gets the compute precision policy for this operation.
-         *
-         * @details Returns the precision policy that was specified during construction.
-         * This determines how the operation handles mixed precision computations.
-         *
-         * @return ComputePrecision::Policy The precision policy for this operation.
-         */
-        ComputePrecision::Policy getPrecisionPolicy() const {
-            return precision_policy_;
-        }
-
-        /**
-         * @brief Sets the compute precision policy for this operation.
-         *
-         * @details Updates the precision policy for future computations. This allows
-         * adjusting the precision behavior after the operation is created.
-         *
-         * @param policy The new precision policy to use.
-         */
-        void setPrecisionPolicy( ComputePrecision::Policy policy ) {
-            precision_policy_ = policy;
-        }
-
-        /**
-         * @brief Checks if mixed precision is enabled for this operation.
-         *
-         * @details A convenient method to determine if mixed precision computation
-         * is enabled based on the current precision policy.
-         *
-         * @return bool True if mixed precision is enabled, false otherwise.
-         */
-        bool isMixedPrecisionEnabled() const {
-            return precision_policy_ != ComputePrecision::Policy::Disabled;
-        }
-
     private:
         OperationType operation_type_;      ///< The operation type identifier.
         std::shared_ptr<DeviceContext> device_context_; ///< The device context for execution.
-        ComputePrecision::Policy precision_policy_;  ///< The compute precision policy for the operation.
     };
 }

@@ -279,7 +279,6 @@ namespace Mila::Dnn::Compute
         * @throws std::runtime_error If the device name is invalid or device initialization fails.
         */
         void setDevice( const std::string& device_name ) {
-            // Clean up old resources
             releaseResources();
 
             device_ = DeviceRegistry::instance().createDevice( device_name );

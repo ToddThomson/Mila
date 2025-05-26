@@ -24,7 +24,6 @@ import Compute.Precision;
 import Compute.DeviceType;
 import Compute.DeviceContext;
 import Compute.ComputeDevice;
-import Compute.CpuDevice;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationAttributes;
@@ -46,6 +45,16 @@ namespace Mila::Dnn
      * The cross entropy loss for a single example is calculated as:
      * -log(p_i) where p_i is the predicted probability for the correct class i.
      *
+     * For multi-class problems with K classes, the formula is:
+     * L(y, ?) = -?(y_k * log(?_k)) for k=1 to K
+     * where y is the ground truth (one-hot) and ? is the predicted probability distribution.
+     *
+     * Features supported by this implementation:
+     * - Class weighting for imbalanced datasets
+     * - Padding index ignoring for variable-length sequences
+     * - Label smoothing for regularization
+     * - Optional reduction (mean or none)
+     *
      * @tparam TDeviceType The device type (CPU or CUDA) on which to perform computations.
      * @tparam TLogits The data type of the predicted probabilities (typically float).
      * @tparam TTargets The data type of the target class indices (typically int).
@@ -54,28 +63,32 @@ namespace Mila::Dnn
         requires ValidFloatTensorType<TLogits>
     class CrossEntropy : public Module<TDeviceType, TLogits, TTargets> {
     public:
+        /**
+         * @brief Memory resource type used for tensors, selected based on device type.
+         */
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>;
+
+        /**
+         * @brief Alias for base module type.
+         */
         using ModuleBase = Module<TDeviceType, TLogits, TTargets>;
 
         /**
-         * @brief Construct a new CrossEntropy module from configuration.
+         * @brief Constructs a new CrossEntropy module with a device name.
          *
-         * @param config The configuration for this module
+         * Creates a new DeviceContext internally using the provided device name.
+         * This constructor is useful for creating standalone modules without
+         * pre-existing device contexts.
+         *
+         * @param device_name The name of the device to use (e.g., "CPU", "CUDA:0").
+         * @param config Configuration parameters for the CrossEntropy module.
+         * @throws std::invalid_argument If the device name is invalid or the configuration is invalid
+         * @throws std::runtime_error If device type doesn't match template parameter TDeviceType
          */
-        explicit CrossEntropy( const CrossEntropyConfig& config )
-            : ModuleBase(
-                config.getContext() ? config.getContext() : std::make_shared<DeviceContext>( config.getDeviceName() ),
-                TDeviceType == DeviceType::Cpu ? ComputePrecision::Policy::Disabled : config.getPrecision() ),
-            vocab_size_( config.getVocabSize() ),
-            ignore_padding_( config.ignorePadding() ),
-            padding_idx_( config.getPaddingIndex() ),
-            reduce_( config.getReduction() ),
-            label_smoothing_( config.getLabelSmoothing() ) {
+        explicit CrossEntropy( const std::string& device_name, const CrossEntropyConfig& config )
+            : ModuleBase( std::make_shared<DeviceContext>( device_name ), config ), config_( config ) {
 
             config.validate();
-
-            this->setName( config.getName() );
-            this->setTraining( config.isTraining() );
 
             const auto& weights = config.getClassWeights();
             if ( !weights.empty() ) {
@@ -86,59 +99,66 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Construct a new CrossEntropy module with the default device context.
+         * @brief Constructs a new CrossEntropy module with a provided device context.
          *
-         * @param name The name identifier for the module.
-         * @param device_name The name of the device to use for this module.
-         * @param vocab_size The size of the vocabulary (number of possible classes).
-         * @param precision The compute precision policy (CPU operations always use Disabled).
-         * @param is_training Whether the module is in training mode. Default is false.
+         * Uses a pre-existing DeviceContext instance. This constructor is useful when integrating
+         * the module into a larger network that shares device contexts across modules.
+         *
+         * @param device_context The device context to use for this module.
+         * @param config Configuration parameters for the CrossEntropy module.
+         * @throws std::invalid_argument If device_context is null or configuration is invalid
+         * @throws std::runtime_error If device context type doesn't match template parameter TDeviceType
          */
-        CrossEntropy( std::string name, const std::string& device_name, int64_t vocab_size,
-            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto,
-            bool is_training = false )
-            : ModuleBase( device_name, TDeviceType == DeviceType::Cpu ? ComputePrecision::Policy::Disabled : precision ),
-            vocab_size_( vocab_size ) {
-            this->setTraining( is_training );
-            this->setName( name );
+        explicit CrossEntropy( std::shared_ptr<DeviceContext> device_context, const CrossEntropyConfig& config )
+            : ModuleBase( device_context, config ), config_( config ) {
+
+            config.validate();
+
+            const auto& weights = config.getClassWeights();
+            if ( !weights.empty() ) {
+                initializeClassWeights( weights );
+            }
+
             createOperation();
         }
 
         /**
-         * @brief Construct a new CrossEntropy module with a specific device context.
+         * @brief Gets the number of trainable parameters in this module.
          *
-         * @param name The name identifier for the module.
-         * @param context The device context to use for this module.
-         * @param vocab_size The size of the vocabulary (number of possible classes).
-         * @param precision The compute precision policy (CPU operations always use Disabled).
-         * @param is_training Whether the module is in training mode. Default is false.
-         */
-        CrossEntropy( std::string name, std::shared_ptr<DeviceContext> context, int64_t vocab_size,
-            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto,
-            bool is_training = false )
-            : ModuleBase( context, TDeviceType == DeviceType::Cpu ? ComputePrecision::Policy::Disabled : precision ),
-            vocab_size_( vocab_size ) {
-            this->setTraining( is_training );
-            this->setName( name );
-            createOperation();
-        }
-
-        /**
-         * @brief Get the number of parameters in the module.
+         * Returns the number of elements in the class weights tensor if present,
+         * otherwise returns 0 since CrossEntropy doesn't have trainable parameters.
+         *
+         * @return size_t The total number of parameters.
          */
         size_t parameterCount() const override {
             return class_weights_ ? class_weights_->size() : 0;
         }
 
         /**
-         * @brief Perform the forward pass of the cross entropy operation.
+         * @brief Performs the forward pass of the cross entropy operation.
+         *
+         * Computes the cross entropy loss between the predicted logits and target indices.
+         * The operation applies any configured options such as class weighting, padding
+         * index ignoring, and label smoothing.
+         *
+         * @param input The input tensor containing predicted logits.
+         * @param targets The target tensor containing class indices.
+         * @param output The output tensor that will contain the loss value(s).
          */
         void forward( const Tensor<TLogits, MR>& input, const Tensor<TTargets, MR>& targets, Tensor<TLogits, MR>& output ) {
             operation_->forward( input, targets, parameters_, attributes_, output, output_state_ );
         }
 
         /**
-         * @brief Calculate gradients for the backward pass.
+         * @brief Calculates gradients for the backward pass.
+         *
+         * Computes the gradient of the cross entropy loss with respect to the input logits.
+         * This gradient is used during backpropagation to update network weights.
+         *
+         * @param input The input tensor from the forward pass (logits).
+         * @param targets The target tensor containing class indices.
+         * @param output_grad The gradient of loss with respect to the output.
+         * @param input_grad The tensor to store gradients with respect to input.
          */
         void backward(
             const Tensor<TLogits, MR>& input,
@@ -159,39 +179,65 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Get the vocabulary size.
+         * @brief Gets the vocabulary size.
+         *
+         * @return int64_t The number of possible classes.
          */
-        int64_t getVocabSize() const { return vocab_size_; }
+        int64_t getVocabSize() const {
+            return config_.getVocabSize();
+        }
 
         /**
-         * @brief Check if padding is ignored.
+         * @brief Checks if padding is ignored.
+         *
+         * @return bool True if padding indices are ignored, false otherwise.
          */
-        bool ignorePadding() const { return ignore_padding_; }
+        bool ignorePadding() const {
+            return config_.ignorePadding();
+        }
 
         /**
-         * @brief Get the padding index.
+         * @brief Gets the padding index.
+         *
+         * @return int64_t The index value that represents padding.
          */
-        int64_t getPaddingIndex() const { return padding_idx_; }
+        int64_t getPaddingIndex() const {
+            return config_.getPaddingIndex();
+        }
 
         /**
-         * @brief Check if loss is reduced.
+         * @brief Checks if loss is reduced.
+         *
+         * @return bool True if loss is reduced (mean), false if per-sample losses are returned.
          */
-        bool isReduced() const { return reduce_; }
+        bool isReduced() const {
+            return config_.getReduction();
+        }
 
         /**
-         * @brief Get the label smoothing factor.
+         * @brief Gets the label smoothing factor.
+         *
+         * @return float The label smoothing factor (between 0 and 1).
          */
-        float getLabelSmoothing() const { return label_smoothing_; }
+        float getLabelSmoothing() const {
+            return config_.getLabelSmoothing();
+        }
 
         /**
-         * @brief Get the class weights tensor.
+         * @brief Gets the class weights tensor.
+         *
+         * @return std::shared_ptr<Tensor<TLogits, MR>> The class weights tensor or nullptr if not used.
          */
         std::shared_ptr<Tensor<TLogits, MR>> getClassWeights() const {
             return class_weights_;
         }
 
         /**
-         * @brief Save the module's state to a zip archive.
+         * @brief Serializes the module state to a ZIP archive.
+         *
+         * Saves the class weights tensor (if present) to the provided ZIP archive.
+         *
+         * @param zip The ZIP archive to save the module state to.
          */
         void save( mz_zip_archive& zip ) const override {
             if ( class_weights_ ) {
@@ -201,7 +247,11 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Load the module's state from a zip archive.
+         * @brief Deserializes the module state from a ZIP archive.
+         *
+         * Loads the class weights tensor (if expected) from the provided ZIP archive.
+         *
+         * @param zip The ZIP archive to load the module state from.
          */
         void load( mz_zip_archive& zip ) override {
             if ( class_weights_ ) {
@@ -211,25 +261,28 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Convert the module information to string.
+         * @brief Generates a string representation of this module's configuration.
+         *
+         * @return std::string A formatted string with module information
          */
         std::string toString() const override {
             std::ostringstream oss;
             oss << "--------------------" << std::endl;
-            oss << "CrossEntropy: " << this->getName() << ", Vocabulary Size: " << vocab_size_ << std::endl;
+            oss << "CrossEntropy: " << this->getName() << std::endl;
+            oss << "Vocabulary Size: " << config_.getVocabSize() << std::endl;
 
-            if ( ignore_padding_ ) {
-                oss << "Ignoring padding at index: " << padding_idx_ << std::endl;
+            if ( config_.ignorePadding() ) {
+                oss << "Ignoring padding at index: " << config_.getPaddingIndex() << std::endl;
             }
 
-            if ( class_weights_ ) {
+            if ( !config_.getClassWeights().empty() ) {
                 oss << "Using class weights" << std::endl;
             }
 
-            oss << "Reduction: " << (reduce_ ? "Mean" : "None") << std::endl;
+            oss << "Reduction: " << (config_.getReduction() ? "Mean" : "None") << std::endl;
 
-            if ( label_smoothing_ > 0.0f ) {
-                oss << "Label smoothing: " << label_smoothing_ << std::endl;
+            if ( config_.getLabelSmoothing() > 0.0f ) {
+                oss << "Label smoothing: " << config_.getLabelSmoothing() << std::endl;
             }
 
             oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
@@ -239,20 +292,55 @@ namespace Mila::Dnn
         }
 
     private:
-        int64_t vocab_size_{ 0 };
-        bool ignore_padding_{ false };
-        int64_t padding_idx_{ -1 };
-        bool reduce_{ true };
-        float label_smoothing_{ 0.0f };
+        /**
+         * @brief Configuration for the CrossEntropy module.
+         */
+        CrossEntropyConfig config_;
 
+        /**
+         * @brief Optional tensor containing weights for each class.
+         *
+         * Used to address class imbalance by giving different importance to different classes.
+         */
         std::shared_ptr<Tensor<TLogits, MR>> class_weights_{ nullptr };
+
+        /**
+         * @brief Collection of parameters for this module.
+         *
+         * Only contains class_weights_ if present, otherwise empty.
+         */
         std::vector<std::shared_ptr<Tensor<TLogits, MR>>> parameters_;
+
+        /**
+         * @brief Collection of output state tensors for caching.
+         *
+         * Stores intermediate results from forward pass needed for backward pass.
+         */
         std::vector<std::shared_ptr<Tensor<TLogits, MR>>> output_state_;
+
+        /**
+         * @brief Operation attributes and configuration.
+         *
+         * Contains settings for the CrossEntropy operation like padding index, reduction mode, etc.
+         */
         OperationAttributes attributes_;
+
+        /**
+         * @brief The operation that implements the cross entropy calculation.
+         */
         std::shared_ptr<UnaryOperation<TDeviceType, TLogits, TTargets>> operation_{ nullptr };
 
+        /**
+         * @brief Initializes the class weights tensor from a vector of weights.
+         *
+         * Creates and populates a tensor with class weights for weighted cross entropy loss.
+         * This is useful for handling imbalanced datasets where some classes are underrepresented.
+         *
+         * @param weights Vector of weight values, one per class
+         */
         void initializeClassWeights( const std::vector<float>& weights ) {
-            class_weights_ = std::make_shared<Tensor<TLogits, MR>>( std::vector<size_t>{static_cast<size_t>(vocab_size_)} );
+            class_weights_ = std::make_shared<Tensor<TLogits, MR>>(
+                std::vector<size_t>{static_cast<size_t>(config_.getVocabSize())} );
             class_weights_->setName( this->getName() + ".class_weights" );
 
             // Copy the weights into the tensor
@@ -262,25 +350,32 @@ namespace Mila::Dnn
             parameters_.push_back( class_weights_ );
         }
 
+        /**
+         * @brief Creates the appropriate cross entropy operation for the current device.
+         *
+         * Instantiates either a CPU or CUDA cross entropy operation based on the device type.
+         * Sets operation attributes from the configuration object.
+         */
         void createOperation() {
-            attributes_.set( "vocab_size", vocab_size_ );
+            // Set operation attributes from config
+            attributes_.set( "vocab_size", config_.getVocabSize() );
 
-            if ( ignore_padding_ ) {
+            if ( config_.ignorePadding() ) {
                 attributes_.set( "ignore_padding", true );
-                attributes_.set( "padding_idx", padding_idx_ );
+                attributes_.set( "padding_idx", config_.getPaddingIndex() );
             }
 
-            attributes_.set( "reduce", reduce_ );
+            attributes_.set( "reduce", config_.getReduction() );
 
-            if ( label_smoothing_ > 0.0f ) {
-                attributes_.set( "label_smoothing", label_smoothing_ );
+            if ( config_.getLabelSmoothing() > 0.0f ) {
+                attributes_.set( "label_smoothing", config_.getLabelSmoothing() );
             }
 
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
                 auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TLogits, TTargets>(
                     "Cpu::CrossEntropyOp",
                     this->getDeviceContext(),
-                    ComputePrecision::Policy::Disabled );
+                    config_ );
 
                 operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cpu, TLogits, TTargets>>(base_op);
             }
@@ -288,16 +383,28 @@ namespace Mila::Dnn
                 auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TLogits, TTargets>(
                     "Cuda::CrossEntropyOp",
                     this->getDeviceContext(),
-                    this->getComputePrecision().getPolicy() );
+                    config_ );
 
                 operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cuda, TLogits, TTargets>>(base_op);
             }
         }
     };
 
+    /**
+     * @brief Type alias for CPU-based cross entropy module with customizable tensor types.
+     *
+     * @tparam TLogits Data type of the input logits tensor elements.
+     * @tparam TTargets Data type of the target indices, typically int.
+     */
     export template<typename TLogits = float, typename TTargets = int>
         using CpuCrossEntropy = CrossEntropy<DeviceType::Cpu, TLogits, TTargets>;
 
+    /**
+     * @brief Type alias for CUDA-based cross entropy module with customizable tensor types.
+     *
+     * @tparam TLogits Data type of the input logits tensor elements.
+     * @tparam TTargets Data type of the target indices, typically int.
+     */
     export template<typename TLogits = float, typename TTargets = int>
         using CudaCrossEntropy = CrossEntropy<DeviceType::Cuda, TLogits, TTargets>;
 }

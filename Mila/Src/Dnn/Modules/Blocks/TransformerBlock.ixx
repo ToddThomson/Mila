@@ -11,8 +11,10 @@ module;
 #include <sstream> 
 #include <stdexcept>
 #include <iosfwd>
+#include <miniz.h>
 
 export module Dnn.Blocks.TransformerBlock;
+export import :Config;
 
 import Dnn.Tensor;
 import Dnn.TensorTraits;
@@ -20,7 +22,6 @@ import Compute.Precision;
 import Compute.ComputeDevice;
 import Compute.DeviceType;
 import Compute.DeviceContext;
-import Compute.CpuDevice;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaMemoryResource;
@@ -30,6 +31,7 @@ import Dnn.Modules.LayerNorm;
 import Dnn.Modules.Linear;
 import Dnn.Modules.Attention;
 import Dnn.Modules.Residual;
+import Dnn.Modules.Dropout;
 import Dnn.Blocks.MLP;
 
 namespace Mila::Dnn
@@ -42,11 +44,11 @@ namespace Mila::Dnn
      * The transformer block consists of:
      * - Multi-head self-attention mechanism with residual connection
      * - Feed-forward network (MLP) with residual connection
-     * - Layer normalization before each sub-block
+     * - Layer normalization before or after each sub-block (configurable)
      *
      * This is the fundamental building block of transformer architectures like BERT and GPT.
-     * Since the transformer is a feed-forward network where layer outputs connect to the next
-     * layer's inputs, a single data type is used throughout the network.
+     * The implementation supports both pre-LN (more stable) and post-LN (original) architectures,
+     * configurable dropout rates, and other hyperparameters.
      *
      * @tparam TDeviceType The device type (CPU or CUDA) on which to perform computations.
      * @tparam TDataType The data type used for tensor elements throughout the network.
@@ -55,51 +57,51 @@ namespace Mila::Dnn
         requires ValidFloatTensorType<TDataType>
     class TransformerBlock : public CompositeModule<TDeviceType, TDataType> {
     public:
+        /**
+         * @brief Memory resource type used for tensors, selected based on device type.
+         */
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>;
-        using CompositeModuleBase = CompositeModule<TDeviceType, TDataType>; ///< Base class type for the module
 
         /**
-         * @brief Constructs a new TransformerBlock module with the default device context.
-         *
-         * @param name The name of the module for identification purposes.
-         * @param device_name The name of the device to use for this module.
-         * @param input_shape The shape of the input tensor, must be of rank 3 [batch_size, sequence_length, channels].
-         * @param num_heads The number of attention heads to use.
-         * @param precision The compute precision policy (CPU operations always use Disabled).
-         * @param is_training Whether the module is initially in training mode. Default is false.
-         * @throws std::invalid_argument If the input shape doesn't have rank 3.
+         * @brief Alias for base module type.
          */
-        TransformerBlock( std::string name, const std::string& device_name, const std::vector<size_t>& input_shape,
-            const size_t num_heads,
-            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto,
-            bool is_training = false )
-            : CompositeModuleBase( device_name, TDeviceType == DeviceType::Cpu ? ComputePrecision::Policy::Disabled : precision ),
-            input_shape_{ validate_shape( input_shape ) }, num_heads_{ num_heads } {
-            this->setName( name );
-            this->setTraining( is_training );
+        using CompositeModuleBase = CompositeModule<TDeviceType, TDataType>;
+
+        /**
+         * @brief Constructs a new TransformerBlock module with a device name.
+         *
+         * Creates a new DeviceContext internally using the provided device name.
+         * This constructor is useful for creating standalone modules without
+         * pre-existing device contexts.
+         *
+         * @param device_name The name of the device to use (e.g., "CPU", "CUDA:0").
+         * @param config Configuration parameters for the TransformerBlock module.
+         * @throws std::invalid_argument If the device name is invalid or the configuration is invalid
+         * @throws std::runtime_error If device type doesn't match template parameter TDeviceType
+         */
+        explicit TransformerBlock( const std::string& device_name, const TransformerBlockConfig& config )
+            : CompositeModuleBase( std::make_shared<DeviceContext>( device_name ), config ), config_( config ) {
+
+            config.validate();
 
             initializeModules();
         }
 
         /**
-         * @brief Constructs a new TransformerBlock module with a specific device context.
+         * @brief Constructs a new TransformerBlock module with a provided device context.
          *
-         * @param name The name of the module for identification purposes.
-         * @param context The device context to use for this module.
-         * @param input_shape The shape of the input tensor, must be of rank 3 [batch_size, sequence_length, channels].
-         * @param num_heads The number of attention heads to use.
-         * @param precision The compute precision policy (CPU operations always use Disabled).
-         * @param is_training Whether the module is initially in training mode. Default is false.
-         * @throws std::invalid_argument If the input shape doesn't have rank 3.
+         * Uses a pre-existing DeviceContext instance. This constructor is useful when integrating
+         * the module into a larger network that shares device contexts across modules.
+         *
+         * @param device_context The device context to use for this module.
+         * @param config Configuration parameters for the TransformerBlock module.
+         * @throws std::invalid_argument If device_context is null or configuration is invalid
+         * @throws std::runtime_error If device context type doesn't match template parameter TDeviceType
          */
-        TransformerBlock( std::string name, std::shared_ptr<DeviceContext> context,
-            const std::vector<size_t>& input_shape, const size_t num_heads,
-            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto,
-            bool is_training = false )
-            : CompositeModuleBase( context, TDeviceType == DeviceType::Cpu ? ComputePrecision::Policy::Disabled : precision ),
-            input_shape_{ validate_shape( input_shape ) }, num_heads_{ num_heads } {
-            this->setName( name );
-            this->setTraining( is_training );
+        explicit TransformerBlock( std::shared_ptr<DeviceContext> device_context, const TransformerBlockConfig& config )
+            : CompositeModuleBase( device_context, config ), config_( config ) {
+
+            config.validate();
 
             initializeModules();
         }
@@ -107,28 +109,65 @@ namespace Mila::Dnn
         /**
          * @brief Performs the forward pass of the TransformerBlock.
          *
-         * The forward pass consists of the following sequence:
+         * The forward pass follows either pre-LN or post-LN architecture based on configuration:
+         *
+         * Pre-LN (default):
          * 1. Layer normalization 1
-         * 2. QKV projection
-         * 3. Multi-head attention
-         * 4. Attention output projection
-         * 5. Residual connection 1 (add attention output to input)
+         * 2. Self-attention
+         * 3. Residual connection
+         * 4. Layer normalization 2
+         * 5. Feed-forward network
+         * 6. Residual connection
+         *
+         * Post-LN:
+         * 1. Self-attention
+         * 2. Residual connection
+         * 3. Layer normalization 1
+         * 4. Feed-forward network
+         * 5. Residual connection
          * 6. Layer normalization 2
-         * 7. MLP block
-         * 8. Residual connection 2 (add MLP output to previous residual output)
          *
          * @param input The input tensor to be processed.
          * @param output The output tensor where the results will be stored.
          */
         void forward( const Tensor<TDataType, MR>& input, Tensor<TDataType, MR>& output ) {
-            /*ln_1_->forward(input, ln_1_output_);
-            fc_qkv_->forward(ln_1_output_, fc_qkv_output_);
-            attn_->forward(fc_qkv_output_, attn_output_);
-            fc_attn_proj_->forward(attn_output_, fc_attn_proj_output_);
-            res_1_->forward(input, fc_attn_proj_output_, res_1_output_);
-            ln_2_->forward(res_1_output_, ln_2_output_);
-            mlp_->forward(ln_2_output_, mlp_output_);
-            res_2_->forward(res_1_output_, mlp_output_, output);*/
+            if ( config_.usePreLayerNorm() ) {
+                // Pre-LayerNorm architecture (more stable training)
+                ln_1_->forward( input, ln_1_output_ );
+                attn_block_->forward( ln_1_output_, attn_output_ );
+
+                // First residual connection
+                for ( size_t i = 0; i < input.size(); ++i ) {
+                    res_1_output_.data()[ i ] = input.data()[ i ] + attn_output_.data()[ i ];
+                }
+
+                ln_2_->forward( res_1_output_, ln_2_output_ );
+                mlp_->forward( ln_2_output_, mlp_output_ );
+
+                // Second residual connection
+                for ( size_t i = 0; i < res_1_output_.size(); ++i ) {
+                    output.data()[ i ] = res_1_output_.data()[ i ] + mlp_output_.data()[ i ];
+                }
+            }
+            else {
+                // Post-LayerNorm architecture (original transformer)
+                attn_block_->forward( input, attn_output_ );
+
+                // First residual connection
+                for ( size_t i = 0; i < input.size(); ++i ) {
+                    res_1_output_.data()[ i ] = input.data()[ i ] + attn_output_.data()[ i ];
+                }
+
+                ln_1_->forward( res_1_output_, ln_1_output_ );
+                mlp_->forward( ln_1_output_, mlp_output_ );
+
+                // Second residual connection
+                for ( size_t i = 0; i < res_1_output_.size(); ++i ) {
+                    res_2_output_.data()[ i ] = res_1_output_.data()[ i ] + mlp_output_.data()[ i ];
+                }
+
+                ln_2_->forward( res_2_output_, output );
+            }
         }
 
         /**
@@ -147,23 +186,22 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Saves the module state to a ZIP archive.
+         * @brief Serializes the module state to a ZIP archive.
          *
-         * Serializes all sub-module states to the provided archive.
+         * Saves the state of all sub-modules to the provided ZIP archive.
          *
          * @param zip The ZIP archive to save the module state to.
          */
         void save( mz_zip_archive& zip ) const override {
-            // Save the state of the child modules
             for ( const auto& module : this->getModules() ) {
                 module->save( zip );
             }
         }
 
         /**
-         * @brief Loads the module state from a ZIP archive.
+         * @brief Deserializes the module state from a ZIP archive.
          *
-         * Deserializes all sub-module states from the provided archive.
+         * Loads the state of all sub-modules from the provided ZIP archive.
          *
          * @param zip The ZIP archive to load the module state from.
          */
@@ -174,229 +212,199 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Converts the module information to a human-readable string.
+         * @brief Generates a string representation of this module's configuration.
          *
-         * @return std::string A string representation of the module information.
+         * @return std::string A formatted string with module information
          */
         std::string toString() const override {
             std::ostringstream oss;
             oss << "====================" << std::endl;
-            oss << "Transformer: " << this->getName();
-            oss << ", Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
+            oss << "TransformerBlock: " << this->getName() << std::endl;
+
+            const auto& input_shape = config_.getInputShape();
+            oss << "Input shape: (";
+            for ( size_t i = 0; i < input_shape.size(); ++i ) {
+                oss << input_shape[ i ];
+                if ( i != input_shape.size() - 1 ) {
+                    oss << ",";
+                }
+            }
+            oss << ")" << std::endl;
+
+            oss << "Embedding dimension: " << input_shape[ 2 ] << std::endl;
+            oss << "Number of heads: " << config_.getNumHeads() << std::endl;
+            oss << "MLP hidden dimension: " << config_.getHiddenDimension() << std::endl;
+
+            if ( config_.getDropout() > 0.0f ) {
+                oss << "Dropout: " << config_.getDropout() << std::endl;
+            }
+
+            oss << "Architecture: " << (config_.usePreLayerNorm() ? "Pre-LN" : "Post-LN") << std::endl;
+            oss << "Bias: " << (config_.useBias() ? "enabled" : "disabled") << std::endl;
+            oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
             oss << this->getComputePrecision().toString() << std::endl;
             oss << "Parameter count: " << parameterCount() << std::endl;
             oss << "Sub-Modules..." << std::endl;
 
             for ( const auto& [name, module] : this->getNamedModules() ) {
-                oss << *module;
+                oss << module->toString();
             }
 
             return oss.str();
         }
 
     private:
-        std::vector<size_t> input_shape_; ///< The input shape.
-        size_t num_heads_; ///< The number of attention heads.
+        /**
+         * @brief Configuration for the TransformerBlock module.
+         */
+        TransformerBlockConfig config_;
 
-        // Sub-modules
+        /**
+         * @brief First layer normalization module.
+         *
+         * In pre-LN architecture, applied before attention.
+         * In post-LN architecture, applied after attention and residual connection.
+         */
         std::shared_ptr<LayerNorm<TDeviceType, TDataType>> ln_1_{ nullptr };
-        std::shared_ptr<Linear<TDeviceType, TDataType>> fc_qkv_{ nullptr };
-        std::shared_ptr<MultiHeadAttention<TDeviceType, TDataType>> attn_{ nullptr };
-        std::shared_ptr<Linear<TDeviceType, TDataType>> fc_attn_proj_{ nullptr };
-        std::shared_ptr<Residual<TDeviceType, TDataType>> res_1_{ nullptr };
-        std::shared_ptr<LayerNorm<TDeviceType, TDataType>> ln_2_{ nullptr };
-        std::shared_ptr<MLP<TDeviceType, TDataType>> mlp_{ nullptr };
-        std::shared_ptr<Residual<TDeviceType, TDataType>> res_2_{ nullptr };
 
-        // Intermediate tensors
+        /**
+         * @brief Second layer normalization module.
+         *
+         * In pre-LN architecture, applied before MLP.
+         * In post-LN architecture, applied after MLP and residual connection.
+         */
+        std::shared_ptr<LayerNorm<TDeviceType, TDataType>> ln_2_{ nullptr };
+
+        /**
+         * @brief Multi-head self-attention block including projections.
+         */
+        std::shared_ptr<MultiHeadAttention<TDeviceType, TDataType>> attn_block_{ nullptr };
+
+        /**
+         * @brief Feed-forward network (MLP).
+         */
+        std::shared_ptr<MLP<TDeviceType, TDataType>> mlp_{ nullptr };
+
+        /**
+         * @brief Optional dropout module.
+         */
+        std::shared_ptr<Dropout<TDeviceType, TDataType>> dropout_{ nullptr };
+
+        /**
+         * @brief Output tensor from first layer normalization.
+         */
         Tensor<TDataType, MR> ln_1_output_;
-        Tensor<TDataType, MR> fc_qkv_output_;
+
+        /**
+         * @brief Output tensor from attention block.
+         */
         Tensor<TDataType, MR> attn_output_;
-        Tensor<TDataType, MR> fc_attn_proj_output_;
+
+        /**
+         * @brief Output tensor from first residual connection.
+         */
         Tensor<TDataType, MR> res_1_output_;
+
+        /**
+         * @brief Output tensor from second layer normalization.
+         */
         Tensor<TDataType, MR> ln_2_output_;
+
+        /**
+         * @brief Output tensor from MLP.
+         */
         Tensor<TDataType, MR> mlp_output_;
+
+        /**
+         * @brief Output tensor from second residual connection.
+         */
         Tensor<TDataType, MR> res_2_output_;
 
         /**
-         * @brief Validates the input shape for the transformer block.
-         *
-         * @param shape The shape to validate.
-         * @return The validated shape.
-         * @throws std::invalid_argument If the shape doesn't have rank 3.
-         */
-        std::vector<size_t> validate_shape( const std::vector<size_t>& shape ) {
-            if ( shape.size() != 3 ) {
-                throw std::invalid_argument( "The input shape must have rank of 3." );
-            }
-
-            return shape;
-        }
-
-        /**
          * @brief Initializes the sub-modules and output tensors for the transformer block.
+         *
+         * Creates and configures all components of the transformer block according to
+         * the configuration, including layer norm, attention, and feed-forward network.
          */
         void initializeModules() {
+            // Clear any existing modules
             for ( const auto& [name, _] : this->getNamedModules() ) {
                 this->removeModule( name );
             }
 
-            auto B = input_shape_[ 0 ]; // Batch size
-            auto T = input_shape_[ 1 ]; // Sequence length
-            auto C = input_shape_[ 2 ]; // Number of channels
+            const auto& input_shape = config_.getInputShape();
+            size_t B = input_shape[ 0 ]; // Batch size
+            size_t T = input_shape[ 1 ]; // Sequence length
+            size_t C = input_shape[ 2 ]; // Embedding dimension
+            size_t num_heads = config_.getNumHeads();
+            size_t hidden_dim = config_.getHiddenDimension();
+            bool use_bias = config_.useBias();
+            float dropout_rate = config_.getDropout();
 
-            auto precision = this->getComputePrecision().getPolicy();
+            // Create layer normalization modules
+            auto ln_1_config = LayerNormConfig( C )
+                .withName( this->getName() + ".ln_1" )
+                .withTraining( this->isTraining() );
 
-            // Create new modules with the current device context and precision policy
             ln_1_ = std::make_shared<LayerNorm<TDeviceType, TDataType>>(
-                this->getName() + ".ln_1", this->getDeviceContext(), input_shape_, -1, true, precision );
+                this->getDeviceContext(), ln_1_config );
 
-            fc_qkv_ = std::make_shared<Linear<TDeviceType, TDataType>>(
-                this->getName() + ".fc_qkv", this->getDeviceContext(), C, 3 * C,
-                true, precision, this->isTraining() );
-
-            attn_ = std::make_shared<MultiHeadAttention<TDeviceType, TDataType>>(
-                this->getName() + ".attn", this->getDeviceContext(), input_shape_, num_heads_,
-                precision, this->isTraining() );
-
-            fc_attn_proj_ = std::make_shared<Linear<TDeviceType, TDataType>>(
-                this->getName() + ".fc_attn_proj", this->getDeviceContext(), C, C,
-                true, precision, this->isTraining() );
-
-            res_1_ = std::make_shared<Residual<TDeviceType, TDataType>>(
-                this->getName() + ".res_1", this->getDeviceContext(), precision );
+            auto ln_2_config = LayerNormConfig( C )
+                .withName( this->getName() + ".ln_2" )
+                .withTraining( this->isTraining() );
 
             ln_2_ = std::make_shared<LayerNorm<TDeviceType, TDataType>>(
-                this->getName() + ".ln_2", this->getDeviceContext(), input_shape_, -1, true, precision );
+                this->getDeviceContext(), ln_2_config );
+
+            // Create attention module
+            auto attn_config = MultiHeadAttentionConfig( C, num_heads )
+                .withName( this->getName() + ".attn" )
+                .withInputShape( input_shape )
+                .withDropout( dropout_rate )
+                .withTraining( this->isTraining() );
+
+            attn_block_ = std::make_shared<MultiHeadAttention<TDeviceType, TDataType>>(
+                this->getDeviceContext(), attn_config );
+
+            // Create MLP module
+            auto mlp_config = MLPConfig( input_shape, hidden_dim )
+                .withName( this->getName() + ".mlp" )
+                .withBias( use_bias )
+                .withActivation( config_.getActivationType() )
+                .withDropout( dropout_rate )
+                .withTraining( this->isTraining() );
 
             mlp_ = std::make_shared<MLP<TDeviceType, TDataType>>(
-                this->getName() + ".mlp", this->getDeviceContext(), input_shape_, 4 * C,
-                true, precision, this->isTraining() );
+                this->getDeviceContext(), mlp_config );
 
-            res_2_ = std::make_shared<Residual<TDeviceType, TDataType>>(
-                this->getName() + ".res_2", this->getDeviceContext(), precision );
+            // Create dropout module if needed
+            if ( dropout_rate > 0.0f ) {
+                auto dropout_config = DropoutConfig( dropout_rate )
+                    .withName( this->getName() + ".dropout" )
+                    .withTraining( this->isTraining() );
 
-            // Add sub-modules to the TransformerBlock
+                dropout_ = std::make_shared<Dropout<TDeviceType, TDataType>>(
+                    this->getDeviceContext(), dropout_config );
+            }
+
+            // Add modules to composite
             this->addModule( "ln_1", ln_1_ );
-            this->addModule( "fc_qkv", fc_qkv_ );
-            this->addModule( "attn", attn_ );
-            this->addModule( "fc_attn_proj", fc_attn_proj_ );
-            this->addModule( "res_1", res_1_ );
+            this->addModule( "attn", attn_block_ );
             this->addModule( "ln_2", ln_2_ );
             this->addModule( "mlp", mlp_ );
-            this->addModule( "res_2", res_2_ );
 
-            // Create output tensors for the intermediate steps
-            ln_1_output_ = Tensor<TDataType, MR>( input_shape_ );
-            fc_qkv_output_ = Tensor<TDataType, MR>( { B, T, 3 * C } );
-            attn_output_ = Tensor<TDataType, MR>( input_shape_ );
-            fc_attn_proj_output_ = Tensor<TDataType, MR>( { B, T, C } );
-            res_1_output_ = Tensor<TDataType, MR>( input_shape_ );
-            ln_2_output_ = Tensor<TDataType, MR>( input_shape_ );
-            mlp_output_ = Tensor<TDataType, MR>( input_shape_ );
-            res_2_output_ = Tensor<TDataType, MR>( input_shape_ );
+            if ( dropout_ ) {
+                this->addModule( "dropout", dropout_ );
+            }
+
+            // Initialize intermediate tensors
+            ln_1_output_ = Tensor<TDataType, MR>( input_shape );
+            attn_output_ = Tensor<TDataType, MR>( input_shape );
+            res_1_output_ = Tensor<TDataType, MR>( input_shape );
+            ln_2_output_ = Tensor<TDataType, MR>( input_shape );
+            mlp_output_ = Tensor<TDataType, MR>( input_shape );
+            res_2_output_ = Tensor<TDataType, MR>( input_shape );
         }
-
-        // Allow TransformerBlockBuilder to access private members
-        template<DeviceType TDeviceType, typename TDataType>
-        friend class TransformerBlockBuilder;
-    };
-
-    /**
-     * @brief Builder class for creating TransformerBlock modules with a fluent interface.
-     *
-     * This builder provides a flexible and readable way to create and configure TransformerBlock modules.
-     *
-     * @tparam TDeviceType The device type (CPU or CUDA) for the TransformerBlock module.
-     * @tparam TDataType The data type used for tensor elements throughout the network.
-     */
-    export template<DeviceType TDeviceType = DeviceType::Cuda, typename TDataType = float>
-        class TransformerBlockBuilder {
-        public:
-            /**
-             * @brief Constructs a new TransformerBlockBuilder with a name and device name.
-             *
-             * @param name The name for the TransformerBlock module.
-             * @param device_name The device name (e.g., "CPU", "CUDA:0").
-             * @param input_shape The shape of the input tensor, must be of rank 3 [batch_size, sequence_length, channels].
-             * @param num_heads The number of attention heads to use.
-             */
-            TransformerBlockBuilder( std::string name, std::string device_name,
-                const std::vector<size_t>& input_shape, size_t num_heads )
-                : name_( std::move( name ) ),
-                device_name_( std::move( device_name ) ),
-                context_( nullptr ),
-                input_shape_( input_shape ),
-                num_heads_( num_heads ),
-                precision_( ComputePrecision::Policy::Auto ),
-                is_training_( false ) {}
-
-            /**
-             * @brief Constructs a new TransformerBlockBuilder with a name and device context.
-             *
-             * @param name The name for the TransformerBlock module.
-             * @param context The device context to use.
-             * @param input_shape The shape of the input tensor, must be of rank 3 [batch_size, sequence_length, channels].
-             * @param num_heads The number of attention heads to use.
-             */
-            TransformerBlockBuilder( std::string name, std::shared_ptr<DeviceContext> context,
-                const std::vector<size_t>& input_shape, size_t num_heads )
-                : name_( std::move( name ) ),
-                device_name_( "" ),
-                context_( std::move( context ) ),
-                input_shape_( input_shape ),
-                num_heads_( num_heads ),
-                precision_( ComputePrecision::Policy::Auto ),
-                is_training_( false ) {}
-
-            /**
-             * @brief Sets the training mode for the TransformerBlock module.
-             *
-             * @param is_training Whether the module should be in training mode.
-             * @return TransformerBlockBuilder& Reference to this builder for method chaining.
-             */
-            TransformerBlockBuilder& training( bool is_training ) {
-                is_training_ = is_training;
-                return *this;
-            }
-
-            /**
-             * @brief Sets the precision policy for the TransformerBlock module.
-             *
-             * For CPU operations, this will be forced to Disabled regardless of the value provided.
-             *
-             * @param precision The compute precision policy to use.
-             * @return TransformerBlockBuilder& Reference to this builder for method chaining.
-             */
-            TransformerBlockBuilder& withPrecision( ComputePrecision::Policy precision ) {
-                precision_ = precision;
-                return *this;
-            }
-
-            /**
-             * @brief Builds and returns a new TransformerBlock module with the configured settings.
-             *
-             * @return std::shared_ptr<TransformerBlock<TDeviceType, TDataType>> The newly created TransformerBlock module.
-             */
-            std::shared_ptr<TransformerBlock<TDeviceType, TDataType>> build() {
-                if ( context_ ) {
-                    return std::make_shared<TransformerBlock<TDeviceType, TDataType>>(
-                        name_, context_, input_shape_, num_heads_, precision_, is_training_ );
-                }
-                else {
-                    return std::make_shared<TransformerBlock<TDeviceType, TDataType>>(
-                        name_, device_name_, input_shape_, num_heads_, precision_, is_training_ );
-                }
-            }
-
-        private:
-            std::string name_;
-            std::string device_name_;
-            std::shared_ptr<DeviceContext> context_;
-            std::vector<size_t> input_shape_;
-            size_t num_heads_;
-            ComputePrecision::Policy precision_;
-            bool is_training_;
     };
 
     /**
@@ -414,20 +422,4 @@ namespace Mila::Dnn
      */
     export template<typename TDataType = float>
         using CudaTransformerBlock = TransformerBlock<DeviceType::Cuda, TDataType>;
-
-    /**
-     * @brief Type alias for CPU-based transformer block builder with customizable tensor type.
-     *
-     * @tparam TDataType Data type used for tensor elements throughout the network.
-     */
-    export template<typename TDataType = float>
-        using CpuTransformerBlockBuilder = TransformerBlockBuilder<DeviceType::Cpu, TDataType>;
-
-    /**
-     * @brief Type alias for CUDA-based transformer block builder with customizable tensor type.
-     *
-     * @tparam TDataType Data type used for tensor elements throughout the network.
-     */
-    export template<typename TDataType = float>
-        using CudaTransformerBlockBuilder = TransformerBlockBuilder<DeviceType::Cuda, TDataType>;
 }

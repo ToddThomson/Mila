@@ -8,12 +8,12 @@ namespace Dnn::Compute::Tests
     using namespace Mila::Dnn::Compute;
 
     TEST( DeviceHelpersTests, ListDevices ) {
-        auto gpu_device_count = GetDeviceCount();
+        auto gpu_device_count = getDeviceCount();
 		auto cpu_device_count = 1;
 
         int expected_device_count = cpu_device_count + gpu_device_count;
 
-        std::vector<std::string> devices = list_devices();
+        std::vector<std::string> devices = listDevices();
        
         EXPECT_EQ( devices.size(), expected_device_count );
         EXPECT_NE( std::find( devices.begin(), devices.end(), "CPU" ), devices.end() );

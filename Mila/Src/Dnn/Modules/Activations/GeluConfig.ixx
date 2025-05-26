@@ -24,7 +24,7 @@ namespace Mila::Dnn
      *
      * Provides a type-safe fluent interface for configuring GELU modules.
      */
-    export class GeluConfig : public ComponentConfig<GeluConfig> {
+    export class GeluConfig : public ComponentConfig {
     public:
         /**
          * @brief Approximation methods for the GELU activation function.
@@ -70,7 +70,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If validation fails or an unsupported approximation method is selected
          */
         void validate() const {
-            ComponentConfig<GeluConfig>::validate();
+            ComponentConfig::validate();
 
             // Validate that only Tanh approximation method is used
             if ( approximation_method_ != ApproximationMethod::Tanh ) {

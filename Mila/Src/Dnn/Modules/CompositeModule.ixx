@@ -60,9 +60,8 @@ namespace Mila::Dnn
          * @param precision The compute precision policy to use (defaults to Auto).
          */
         explicit CompositeModule(
-            const std::string& device_name,
-            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
-            : ModuleBase( device_name, precision ) {}
+			const std::string& device_name, const ComponentConfig& config )
+            : ModuleBase( device_name, config ) {}
 
         /**
          * @brief Constructor with device context.
@@ -71,9 +70,8 @@ namespace Mila::Dnn
          * @param precision The compute precision policy to use (defaults to Auto).
          */
         explicit CompositeModule(
-            std::shared_ptr<DeviceContext> context,
-            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
-            : ModuleBase( context, precision ) {}
+            std::shared_ptr<DeviceContext> context, const ComponentConfig& config )
+            : ModuleBase( context, config ) {}
 
         /**
          * @brief Virtual destructor.

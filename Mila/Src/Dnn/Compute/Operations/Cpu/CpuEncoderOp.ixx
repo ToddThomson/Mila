@@ -17,6 +17,7 @@ module;
 export module Compute.CpuEncoderOp;
 
 import Dnn.Tensor;
+import Dnn.Modules.Encoder;
 import Compute.Precision;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
@@ -52,8 +53,8 @@ namespace Mila::Dnn::Compute
          *
          * CPU operations always use full precision regardless of policy settings.
          */
-        CpuEncoderOp()
-            : OperationBase( OperationType::EncoderOp, ComputePrecision::Policy::Disabled ) {}
+        CpuEncoderOp( const EncoderConfig& config )
+            : OperationBase( OperationType::EncoderOp ), config_( config ) {}
 
         /**
          * @brief Constructs a new CPU Encoder operation with a specific device context.
@@ -63,8 +64,8 @@ namespace Mila::Dnn::Compute
          * @param context The device context to use for this operation.
          * @throws std::runtime_error If the context is not for a CPU device.
          */
-        CpuEncoderOp( std::shared_ptr<DeviceContext> context )
-            : OperationBase( OperationType::EncoderOp, context, ComputePrecision::Policy::Disabled ) {}
+        CpuEncoderOp( std::shared_ptr<DeviceContext> context, const EncoderConfig& config )
+            : OperationBase( OperationType::EncoderOp, context ), config_( config ) {}
 
         /**
          * @brief Performs the forward pass of the encoder operation.
@@ -176,6 +177,9 @@ namespace Mila::Dnn::Compute
         std::string getName() const override {
             return "Cpu::EncoderOp";
         }
+
+        private:
+			EncoderConfig config_; ///< Configuration for the encoder operation.
     };
 
     /**
@@ -199,9 +203,10 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, int, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, int, float>> {
-                    return context ? std::make_shared<CpuEncoderOp>( context )
-                        : std::make_shared<CpuEncoderOp>();
+                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, int, float>> {
+                    const auto& encoderConfig = dynamic_cast<const EncoderConfig&>( config );
+                    return context ? std::make_shared<CpuEncoderOp>( context, encoderConfig )
+                        : std::make_shared<CpuEncoderOp>( encoderConfig );
                 }
             );
         }

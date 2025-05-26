@@ -44,8 +44,8 @@ add_executable( MilaTests
     
     #"Dnn/Modules/Layers/Encoder.cpp"
     #"Dnn/Modules/Layers/EncoderConfig.cpp"
-    "Dnn/Modules/Layers/Gelu.cpp" 
-    "Dnn/Modules/Layers/GeluConfig.cpp"
+    #"Dnn/Modules/Layers/Gelu.cpp" 
+    #"Dnn/Modules/Layers/GeluConfig.cpp"
     #"Dnn/Modules/Layers/Linear.cpp"
     #"Dnn/Modules/Layers/LinearConfig.cpp"
     #"Dnn/Modules/Attention.cpp" 

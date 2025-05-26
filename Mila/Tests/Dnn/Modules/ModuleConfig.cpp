@@ -10,8 +10,9 @@ namespace Modules::Tests
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
 
-    class TestComponentConfig : public ComponentConfig<TestComponentConfig> {
+    class TestComponentConfig : public ComponentConfig {
     public:
+        // Add any test-specific methods here if needed
     };
 
     class ComponentConfigTests : public ::testing::Test {
@@ -32,9 +33,7 @@ namespace Modules::Tests
     TEST_F( ComponentConfigTests, DefaultConstructor_ShouldSetDefaultValues ) {
         TestComponentConfig config;
 
-        EXPECT_EQ( config.getName(), "" );
-        EXPECT_EQ( config.getDeviceName(), "" );
-        EXPECT_EQ( config.getContext(), nullptr );
+        EXPECT_EQ( config.getName(), "unnamed" );  // Default name is now "unnamed" instead of empty string
         EXPECT_EQ( config.getPrecision(), ComputePrecision::Policy::Auto );
         EXPECT_FALSE( config.isTraining() );
     }
@@ -45,30 +44,6 @@ namespace Modules::Tests
         config.withName( test_module_name_ );
 
         EXPECT_EQ( config.getName(), test_module_name_ );
-    }
-
-    TEST_F( ComponentConfigTests, WithDeviceName_ShouldSetDeviceNameAndClearContext ) {
-        TestComponentConfig config;
-        auto context = std::make_shared<DeviceContext>( cpu_device_name_ );
-        config.withContext( context );
-        EXPECT_NE( config.getContext(), nullptr );
-
-        config.withDeviceName( cuda_device_name_ );
-
-        EXPECT_EQ( config.getDeviceName(), cuda_device_name_ );
-        EXPECT_EQ( config.getContext(), nullptr );
-    }
-
-    TEST_F( ComponentConfigTests, WithContext_ShouldSetContextAndClearDeviceName ) {
-        TestComponentConfig config;
-        config.withDeviceName( cpu_device_name_ );
-        EXPECT_EQ( config.getDeviceName(), cpu_device_name_ );
-
-        auto context = std::make_shared<DeviceContext>( cuda_device_name_ );
-        config.withContext( context );
-
-        EXPECT_EQ( config.getContext(), context );
-        EXPECT_EQ( config.getDeviceName(), "" );
     }
 
     TEST_F( ComponentConfigTests, WithPrecision_ShouldSetComputePrecision ) {
@@ -91,11 +66,9 @@ namespace Modules::Tests
         TestComponentConfig config;
 
         config.withTraining( true );
-
         EXPECT_TRUE( config.isTraining() );
 
         config.withTraining( false );
-
         EXPECT_FALSE( config.isTraining() );
     }
 
@@ -103,85 +76,84 @@ namespace Modules::Tests
         TestComponentConfig config;
 
         config.withName( test_module_name_ )
-            .withDeviceName( cuda_device_name_ )
             .withPrecision( ComputePrecision::Policy::Performance )
             .withTraining( true );
 
         EXPECT_EQ( config.getName(), test_module_name_ );
-        EXPECT_EQ( config.getDeviceName(), cuda_device_name_ );
         EXPECT_EQ( config.getPrecision(), ComputePrecision::Policy::Performance );
         EXPECT_TRUE( config.isTraining() );
     }
 
     TEST_F( ComponentConfigTests, Validate_WithValidConfig_ShouldNotThrow ) {
         TestComponentConfig config;
-        config.withName( test_module_name_ )
-            .withDeviceName( cuda_device_name_ );
+        config.withName( test_module_name_ );
 
         EXPECT_NO_THROW( config.validate() );
     }
 
     TEST_F( ComponentConfigTests, Validate_WithEmptyName_ShouldThrow ) {
         TestComponentConfig config;
-        config.withDeviceName( cuda_device_name_ );
+        // Name is "unnamed" by default, so we need to set it to empty explicitly
+        config.withName( "" );
 
         EXPECT_THROW( config.validate(), std::invalid_argument );
     }
 
-    TEST_F( ComponentConfigTests, Validate_WithoutDeviceOrContext_ShouldThrow ) {
-        TestComponentConfig config;
-        config.withName( test_module_name_ );
+    // The following tests need to be updated since we no longer have device or context methods in the base class
+    // These might need to be implemented in a derived class for testing
 
-        EXPECT_THROW( config.validate(), std::invalid_argument );
-    }
-
-    TEST_F( ComponentConfigTests, Validate_WithContext_ShouldNotThrow ) {
-        TestComponentConfig config;
-        auto context = std::make_shared<DeviceContext>( cpu_device_name_ );
-        config.withName( test_module_name_ )
-            .withContext( context );
-
-        EXPECT_NO_THROW( config.validate() );
-    }
-
-    TEST_F( ComponentConfigTests, CRTP_ShouldAllowComplexMethodChaining ) {
-        TestComponentConfig config;
-
-        auto& ref1 = config.withName( test_module_name_ );
-        auto& ref2 = ref1.withDeviceName( cuda_device_name_ );
-        auto& ref3 = ref2.withPrecision( ComputePrecision::Policy::Accuracy );
-        auto& ref4 = ref3.withTraining( true );
-
-        EXPECT_EQ( &ref1, &config );
-        EXPECT_EQ( &ref2, &config );
-        EXPECT_EQ( &ref3, &config );
-        EXPECT_EQ( &ref4, &config );
-
-        EXPECT_EQ( config.getName(), test_module_name_ );
-        EXPECT_EQ( config.getDeviceName(), cuda_device_name_ );
-        EXPECT_EQ( config.getPrecision(), ComputePrecision::Policy::Accuracy );
-        EXPECT_TRUE( config.isTraining() );
-    }
-
-    class DerivedComponentConfig : public ComponentConfig<DerivedComponentConfig> {
+    class DerivedComponentConfig : public ComponentConfig {
     public:
         DerivedComponentConfig& withCustomOption( int value ) {
             custom_option_ = value;
             return *this;
         }
 
+        DerivedComponentConfig& withDeviceName( const std::string& device_name ) {
+            device_name_ = device_name;
+            return *this;
+        }
+
+        DerivedComponentConfig& withContext( std::shared_ptr<DeviceContext> context ) {
+            context_ = context;
+            return *this;
+        }
+
+        const std::string& getDeviceName() const { return device_name_; }
+        std::shared_ptr<DeviceContext> getContext() const { return context_; }
         int getCustomOption() const { return custom_option_; }
 
-        void validate() const {
-            ComponentConfig<DerivedComponentConfig>::validate();
+        void validate() const override {
+            ComponentConfig::validate();
+
             if ( custom_option_ < 0 ) {
                 throw std::invalid_argument( "Custom option must be non-negative" );
             }
+
+            // Add validation for device_name_ and context_ if needed
         }
 
     private:
         int custom_option_ = 0;
+        std::string device_name_;
+        std::shared_ptr<DeviceContext> context_;
     };
+
+    TEST_F( ComponentConfigTests, DeducedThis_ShouldAllowMethodChaining ) {
+        TestComponentConfig config;
+
+        auto& ref1 = config.withName( test_module_name_ );
+        auto& ref2 = ref1.withPrecision( ComputePrecision::Policy::Accuracy );
+        auto& ref3 = ref2.withTraining( true );
+
+        EXPECT_EQ( &ref1, &config );
+        EXPECT_EQ( &ref2, &config );
+        EXPECT_EQ( &ref3, &config );
+
+        EXPECT_EQ( config.getName(), test_module_name_ );
+        EXPECT_EQ( config.getPrecision(), ComputePrecision::Policy::Accuracy );
+        EXPECT_TRUE( config.isTraining() );
+    }
 
     TEST_F( ComponentConfigTests, DerivedConfig_ShouldInheritAndExtendBaseConfig ) {
         DerivedComponentConfig config;
@@ -213,7 +185,8 @@ namespace Modules::Tests
 
     TEST_F( ComponentConfigTests, DerivedConfig_Validate_ShouldEnforceBaseRules ) {
         DerivedComponentConfig config;
-        config.withCustomOption( 42 );
+        config.withCustomOption( 42 )
+            .withName( "" ); // Set name to empty to trigger base validation error
 
         EXPECT_THROW( config.validate(), std::invalid_argument );
     }

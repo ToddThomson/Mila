@@ -1,0 +1,21 @@
+{
+  "configurations": [
+    {
+      "type": "cppvsdbg",
+      "request": "launch",
+      "name": "Debug Mila",
+      "program": "${input:executablePath}",
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "console": "integratedTerminal",
+      "preLaunchTask": "CMake Build"
+    }
+  ],
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "executablePath",
+      "description": "Enter the path to your executable (e.g., ${workspaceFolder}/build/Debug/MilaApp.exe)"
+    }
+  ]
+}

@@ -17,6 +17,7 @@ module;
 
 export module Compute.CpuResidualOp;
 
+import Dnn.Modules.Residual;
 import Dnn.Tensor;
 import Compute.DeviceType;
 import Compute.DeviceContext;
@@ -54,7 +55,8 @@ namespace Mila::Dnn::Compute
          *
          * Initializes the operation with a CPU device context.
          */
-        CpuResidualOp() : OperationBase( OperationType::ResidualOp, ComputePrecision::Policy::Disabled ) {}
+        CpuResidualOp( const ResidualConfig& config )
+            : OperationBase( OperationType::ResidualOp ) {}
 
         /**
          * @brief Constructs a new CPU Residual operation with a specific device context.
@@ -62,8 +64,8 @@ namespace Mila::Dnn::Compute
          * @param context The device context to use for this operation.
          * @throws std::runtime_error If the context is not for a CPU device.
          */
-        CpuResidualOp( std::shared_ptr<DeviceContext> context )
-            : OperationBase( OperationType::ResidualOp, context, ComputePrecision::Policy::Disabled ) {
+        CpuResidualOp( std::shared_ptr<DeviceContext> context, const ResidualConfig& config )
+            : OperationBase( OperationType::ResidualOp, context ) {
         }
 
         /**
@@ -194,9 +196,10 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerBinaryOperation<DeviceType::Cpu, float, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<BinaryOperation<DeviceType::Cpu, float, float, float>> {
-                    return context ? std::make_shared<CpuResidualOp>( context )
-                        : std::make_shared<CpuResidualOp>();
+                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<BinaryOperation<DeviceType::Cpu, float, float, float>> {
+                    const auto& residualConfig = dynamic_cast<const ResidualConfig&>( config );
+                    return context ? std::make_shared<CpuResidualOp>( context, residualConfig )
+                        : std::make_shared<CpuResidualOp>( residualConfig );
                 }
             );
         }

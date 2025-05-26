@@ -24,7 +24,7 @@ namespace Mila::Dnn
      *
      * Provides a type-safe fluent interface for configuring Linear modules.
      */
-    export class LinearConfig : public ComponentConfig<LinearConfig> {
+    export class LinearConfig : public ComponentConfig {
     public:
         /**
          * @brief Constructor with required parameters.
@@ -56,7 +56,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If validation fails
          */
         void validate() const {
-            ComponentConfig<LinearConfig>::validate();
+            ComponentConfig::validate();
 
             if ( input_features_ == 0 || output_features_ == 0 ) {
                 throw std::invalid_argument( "Input and output features must be greater than zero" );

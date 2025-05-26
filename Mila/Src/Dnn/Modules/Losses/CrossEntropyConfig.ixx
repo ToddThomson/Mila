@@ -22,7 +22,7 @@ namespace Mila::Dnn
     /**
      * @brief Configuration class for CrossEntropy module.
      */
-    export class CrossEntropyConfig : public ComponentConfig<CrossEntropyConfig> {
+    export class CrossEntropyConfig : public ComponentConfig {
     public:
         /**
          * @brief Constructor with required vocabulary size parameter.
@@ -127,7 +127,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If validation fails
          */
         void validate() const {
-            ComponentConfig<CrossEntropyConfig>::validate();
+            ComponentConfig::validate();
 
             if ( vocab_size_ <= 0 ) {
                 throw std::invalid_argument( "Vocabulary size must be greater than zero" );

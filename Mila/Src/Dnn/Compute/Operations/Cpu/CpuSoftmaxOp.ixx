@@ -15,7 +15,8 @@ module;
 
 export module Compute.CpuSoftmaxOp;
 
-import Dnn.Tensor;  
+import Dnn.Tensor;
+import Dnn.Modules.Softmax;
 import Compute.DeviceType;  
 import Compute.DeviceContext;
 import Compute.OperationBase;  
@@ -50,8 +51,8 @@ namespace Mila::Dnn::Compute
          *
          * Initializes the operation with a CPU device context.
          */
-        CpuSoftmaxOp()
-            : OperationBase( OperationType::SoftmaxOp, ComputePrecision::Policy::Disabled ) {}
+        CpuSoftmaxOp( const SoftmaxConfig& config )
+            : OperationBase( OperationType::SoftmaxOp ), config_{ config } {}
 
         /**
          * @brief Constructs a new CPU Softmax operation with a specific device context.
@@ -59,8 +60,8 @@ namespace Mila::Dnn::Compute
          * @param context The device context to use for this operation.
          * @throws std::runtime_error If the context is not for a CPU device.
          */
-        CpuSoftmaxOp( std::shared_ptr<DeviceContext> context )
-            : OperationBase( OperationType::SoftmaxOp, context, ComputePrecision::Policy::Disabled ) {
+        CpuSoftmaxOp( std::shared_ptr<DeviceContext> context, const SoftmaxConfig& config )
+            : OperationBase( OperationType::SoftmaxOp, context ), config_( config ) {
         }
 
         /**
@@ -249,6 +250,9 @@ namespace Mila::Dnn::Compute
         std::string getName() const override {
             return "Cpu::SoftmaxOp";
         }
+
+        private:
+            SoftmaxConfig config_; ///< Configuration for the Softmax operation.
     };
 
     /**
@@ -271,9 +275,10 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float>> {
-                    return context ? std::make_shared<CpuSoftmaxOp>( context )
-                        : std::make_shared<CpuSoftmaxOp>();
+                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float>> {
+                    const auto& softmaxConfig = dynamic_cast<const SoftmaxConfig&>( config );
+                    return context ? std::make_shared<CpuSoftmaxOp>( context, softmaxConfig )
+                        : std::make_shared<CpuSoftmaxOp>( softmaxConfig );
                 }
             );
         }

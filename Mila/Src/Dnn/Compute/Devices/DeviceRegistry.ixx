@@ -88,9 +88,11 @@ namespace Mila::Dnn::Compute
         std::shared_ptr<ComputeDevice> createDevice( const std::string& device_name ) const {
             std::lock_guard<std::mutex> lock( mutex_ );
             auto it = devices_.find( device_name );
+            
             if ( it == devices_.end() ) {
                 return nullptr;
             }
+            
             return it->second();
         }
 
@@ -124,10 +126,7 @@ namespace Mila::Dnn::Compute
         /**
          * @brief Map of device names to their factory functions.
          */
-        //std::map<std::string, DeviceFactory, std::less<>> devices_;
         std::unordered_map<std::string, DeviceFactory> devices_;
-
-        //std::map<std::string, DeviceFactory> devices_;
 
         /**
          * @brief Mutex for thread-safe access to the devices map.

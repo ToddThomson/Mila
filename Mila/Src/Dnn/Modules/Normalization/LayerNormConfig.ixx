@@ -25,7 +25,7 @@ namespace Mila::Dnn
      *
      * Provides a type-safe fluent interface for configuring LayerNorm modules.
      */
-    export class LayerNormConfig : public ComponentConfig<LayerNormConfig> {
+    export class LayerNormConfig : public ComponentConfig {
     public:
         /**
          * @brief Default constructor.
@@ -120,7 +120,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If validation fails
          */
         void validate() const {
-            ComponentConfig<LayerNormConfig>::validate();
+            ComponentConfig::validate();
 
             if ( input_shape_.empty() ) {
                 throw std::invalid_argument( "Input shape cannot be empty" );

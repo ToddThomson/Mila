@@ -25,7 +25,7 @@ namespace Mila::Dnn
      *
      * Provides a type-safe fluent interface for configuring Softmax modules.
      */
-    export class SoftmaxConfig : public ComponentConfig<SoftmaxConfig> {
+    export class SoftmaxConfig : public ComponentConfig {
     public:
         /**
          * @brief Default constructor.
@@ -56,7 +56,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If validation fails
          */
         void validate() const {
-            ComponentConfig<SoftmaxConfig>::validate();
+            ComponentConfig::validate();
             // No additional validation needed for Softmax
         }
 

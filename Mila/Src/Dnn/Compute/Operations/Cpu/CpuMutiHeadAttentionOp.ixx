@@ -16,6 +16,7 @@ module;
 export module Compute.CpuAttention;
 
 import Dnn.Tensor;
+import Dnn.Modules.Attention;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
@@ -50,15 +51,15 @@ namespace Mila::Dnn::Compute
     export class CpuMultiHeadAttentionOp : public UnaryOperation<DeviceType::Cpu, float> {
     public:
         using MR = typename CpuDevice::MR;
-		using OperationBase = UnaryOperation<DeviceType::Cpu, float>;
+        using OperationBase = UnaryOperation<DeviceType::Cpu, float>;
 
         /**
          * @brief Constructs a new CPU Attention operation with the default device context.
          *
          * Initializes the operation with a CPU device context.
          */
-        CpuMultiHeadAttentionOp()
-            : OperationBase( OperationType::MultiHeadAttentionOp, ComputePrecision::Policy::Disabled ) {
+        CpuMultiHeadAttentionOp( const MultiHeadAttentionConfig& config )
+            : OperationBase( OperationType::MultiHeadAttentionOp ), config_( config ) {
 
         }
 
@@ -68,9 +69,8 @@ namespace Mila::Dnn::Compute
          * @param context The device context to use for this operation.
          * @throws std::runtime_error If the context is not for a CPU device.
          */
-        CpuMultiHeadAttentionOp( std::shared_ptr<DeviceContext> context )
-            : OperationBase( OperationType::MultiHeadAttentionOp, context, ComputePrecision::Policy::Disabled ) {
-        }
+        CpuMultiHeadAttentionOp( std::shared_ptr<DeviceContext> context, const MultiHeadAttentionConfig& config )
+            : OperationBase( OperationType::MultiHeadAttentionOp, context ), config_( config ) {}
 
         /**
          * @brief Performs the forward pass of the Multi-Head Attention operation.
@@ -283,6 +283,8 @@ namespace Mila::Dnn::Compute
         std::string getName() const override {
             return "Cpu::AttentionOp";
         }
+    private:
+        MultiHeadAttentionConfig config_; ///< Configuration for the Multi-Head Attention operation.
     };
 
     /**
@@ -306,9 +308,10 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float>> {
-                    return context ? std::make_shared<CpuMultiHeadAttentionOp>( context )
-                        : std::make_shared<CpuMultiHeadAttentionOp>();
+                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float>> {
+                    const auto& attentionConfig = static_cast<const MultiHeadAttentionConfig&>( config );
+                    return context ? std::make_shared<CpuMultiHeadAttentionOp>( context, attentionConfig )
+                        : std::make_shared<CpuMultiHeadAttentionOp>( attentionConfig );
                 }
             );
         }

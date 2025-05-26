@@ -58,6 +58,7 @@ namespace Mila::Dnn::Compute
         if ( device_type == "CPU" ) {
             return DeviceType::Cpu;
         }
+        
         if ( device_type == "CUDA" ) {
             return DeviceType::Cuda;
         }

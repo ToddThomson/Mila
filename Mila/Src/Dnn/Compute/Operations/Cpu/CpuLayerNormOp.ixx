@@ -15,6 +15,7 @@ module;
 
 export module Compute.CpuLayerNormOp;
 
+import Dnn.Modules.LayerNorm;
 import Dnn.Tensor;
 import Compute.OperationBase;
 import Compute.OperationAttributes;
@@ -60,8 +61,8 @@ namespace Mila::Dnn::Compute
          *
          * @param precision_policy Ignored for CPU operations, as they always use full precision.
          */
-        CpuLayerNormOp()
-            : OperationBase( OperationType::LayerNormOp, ComputePrecision::Policy::Disabled ) {}
+        CpuLayerNormOp( const LayerNormConfig& config )
+            : OperationBase( OperationType::LayerNormOp ) {}
 
         /**
          * @brief Constructs a new CPU Layer Normalization operation with a specific device context.
@@ -72,8 +73,8 @@ namespace Mila::Dnn::Compute
          * @param precision_policy Ignored for CPU operations, as they always use full precision.
          * @throws std::runtime_error If the context is not for a CPU device.
          */
-        CpuLayerNormOp( std::shared_ptr<DeviceContext> context )
-            : OperationBase( OperationType::LayerNormOp, context, ComputePrecision::Policy::Disabled ) {}
+        CpuLayerNormOp( std::shared_ptr<DeviceContext> context, const LayerNormConfig& config )
+            : OperationBase( OperationType::LayerNormOp, context ) {}
 
         /**
          * @brief Performs the forward pass of the Layer Normalization operation.
@@ -230,6 +231,9 @@ namespace Mila::Dnn::Compute
         std::string getName() const override {
             return "Cpu::LayerNormOp";
         }
+
+        private:
+            LayerNormConfig config_; ///< Configuration for the LayerNorm operation.
     };
 
     /**
@@ -253,9 +257,10 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float>> {
-                    return context ? std::make_shared<CpuLayerNormOp>( context )
-                        : std::make_shared<CpuLayerNormOp>();
+                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float>> {
+                    const auto& layerNormConfig = dynamic_cast<const LayerNormConfig&>(config);
+                    return context ? std::make_shared<CpuLayerNormOp>( context, layerNormConfig )
+                        : std::make_shared<CpuLayerNormOp>( layerNormConfig );
                 }
             );
         }

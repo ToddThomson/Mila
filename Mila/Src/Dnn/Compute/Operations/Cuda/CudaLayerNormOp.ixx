@@ -12,6 +12,7 @@ module;
 
 export module Compute.CudaLayerNormOp;
 
+import Dnn.Modules.LayerNorm;
 import Dnn.Tensor;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
@@ -91,8 +92,8 @@ namespace Mila::Dnn::Compute
          *
          * Initializes the operation with a CUDA device context (defaults to CUDA:0).
          */
-        CudaLayerNormOp( ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto )
-            : UnaryOperationBase( OperationType::LayerNormOp, precision_policy ) {}
+        CudaLayerNormOp( const LayerNormConfig& config )
+            : UnaryOperationBase( OperationType::LayerNormOp ), config_( config ) {}
 
         /**
          * @brief Constructs a new CUDA Layer Normalization operation with a specific device context.
@@ -100,8 +101,8 @@ namespace Mila::Dnn::Compute
          * @param context The device context to use for this operation.
          * @throws std::runtime_error If the context is not for a CUDA device.
          */
-        CudaLayerNormOp( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto )
-            : UnaryOperationBase( OperationType::LayerNormOp, context, precision_policy ) {
+        CudaLayerNormOp( std::shared_ptr<DeviceContext> context, const LayerNormConfig& config )
+            : UnaryOperationBase( OperationType::LayerNormOp, context ), config_( config ) {
         }
 
         /**
@@ -208,6 +209,9 @@ namespace Mila::Dnn::Compute
         std::string getName() const override {
             return "Cuda::LayerNormOp";
         }
+
+        private:
+			LayerNormConfig config_; ///< Configuration for the layer normalization operation.
     };
 
     /**
@@ -231,17 +235,19 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, float>> {
-                    return context ? std::make_shared<CudaLayerNormOp<float>>( context, precision_policy )
-                        : std::make_shared<CudaLayerNormOp<float>>( precision_policy );
+                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, float>> {
+                    const auto& layerNormConfig = static_cast<const LayerNormConfig&>( config );
+                    return context ? std::make_shared<CudaLayerNormOp<float>>( context, layerNormConfig )
+                        : std::make_shared<CudaLayerNormOp<float>>( layerNormConfig );
                 }
             );
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, half, half>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, ComputePrecision::Policy precision_policy ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half, half>> {
-                    return context ? std::make_shared<CudaLayerNormOp<half>>( context, precision_policy )
-                        : std::make_shared<CudaLayerNormOp<half>>( precision_policy );
+                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half, half>> {
+                    const auto& layerNormConfig = static_cast<const LayerNormConfig&>(config);
+                    return context ? std::make_shared<CudaLayerNormOp<half>>( context, layerNormConfig )
+                        : std::make_shared<CudaLayerNormOp<half>>( layerNormConfig );
                 }
             );
         }

@@ -25,7 +25,7 @@ namespace Mila::Dnn
      *
      * Provides a type-safe fluent interface for configuring Encoder modules.
      */
-    export class EncoderConfig : public ComponentConfig<EncoderConfig> {
+    export class EncoderConfig : public ComponentConfig {
     public:
         /**
          * @brief Default constructor.
@@ -92,7 +92,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If validation fails
          */
         void validate() const {
-            ComponentConfig<EncoderConfig>::validate();
+            ComponentConfig::validate();
 
             if ( channels_ == 0 ) {
                 throw std::invalid_argument( "Embedding dimension (channels) must be greater than zero" );
@@ -108,7 +108,7 @@ namespace Mila::Dnn
         }
 
     private:
-        size_t channels_ = 512;         ///< The embedding dimension size
+        size_t channels_ = 0;         ///< The embedding dimension size
         size_t max_seq_len_ = 512;      ///< The maximum sequence length
         size_t vocab_len_ = 50000;      ///< The vocabulary size
     };
