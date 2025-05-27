@@ -9,11 +9,11 @@
  */
 
 module;
+#include <cuda_runtime.h>
 #include <stdexcept>
 #include <string>
 #include <ostream>
 #include <sstream>
-#include <cuda_runtime.h>
 #include <source_location>
 
 export module Cuda.Error;

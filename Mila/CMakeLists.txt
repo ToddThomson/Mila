@@ -1,4 +1,6 @@
-﻿add_library( Mila STATIC
+﻿set(CMAKE_CXX_SCAN_FOR_MODULES ON)
+
+add_library( Mila STATIC
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaUtils.h"
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaOps.h"
 
@@ -26,7 +28,6 @@ find_package(miniz REQUIRED)
 target_include_directories( Mila INTERFACE ${miniz_SOURCE_DIR})
 target_link_libraries( Mila PRIVATE miniz)
 
-# Add explicit compiler-specific module flags
 if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
   add_compile_options(/std:c++latest)
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")

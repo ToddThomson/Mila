@@ -4,12 +4,14 @@
  */
 
 module;
+#include <cuda_runtime.h>
 #include <memory>
+//#include <format>
 #include <vector>
 #include <limits>
 #include <iostream>
 #include <stdexcept>
-#include <cuda_runtime.h>
+#include <cstring>
 #include <type_traits>
 
 export module Dnn.TensorBuffer;

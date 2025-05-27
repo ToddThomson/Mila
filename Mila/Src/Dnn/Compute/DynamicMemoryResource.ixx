@@ -1,5 +1,6 @@
 module;
 #include <variant>
+#include <memory_resource>
 #include <type_traits>
 
 export module Compute.DynamicMemoryResource;

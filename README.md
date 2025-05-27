@@ -144,7 +144,7 @@ Mila uses CMake build. To build Mila, follow the steps below:
 ## Required Components
 * C++23 support
 * NVIDIA CUDA Runtime, 12.9
-* CMake 3.31
+* CMake 3.31 or later
 * GTest framework for unit testing, 1.17.0
 
 ## Documentation

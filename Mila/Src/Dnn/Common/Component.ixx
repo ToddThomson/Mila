@@ -12,7 +12,7 @@ module;
 #include <memory>
 #include <string>
 #include <stdexcept>
-#include <format>
+//#include <format>
 
 export module Dnn.Component;
 

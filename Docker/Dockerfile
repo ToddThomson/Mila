@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.9.0-devel-ubuntu22.04
+FROM nvidia/cuda:12.9.0-devel-ubuntu24.04
 
 # Set non-interactive mode for apt
 ENV DEBIAN_FRONTEND=noninteractive
@@ -19,13 +19,28 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install GCC 13 for C++23 support
+# Install latest Ninja build system from source
+RUN git clone https://github.com/ninja-build/ninja.git /tmp/ninja \
+    && cd /tmp/ninja \
+    && git checkout release \
+    && cmake -Bbuild -H. -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build build --target install \
+    && rm -rf /tmp/ninja \
+    && ninja --version
+
+# Install GCC for C++23 support
 RUN apt-get update && apt-get install -y software-properties-common \
     && add-apt-repository -y ppa:ubuntu-toolchain-r/test \
     && apt-get update \
-    && apt-get install -y gcc-13 g++-13 \
-    && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100 \
-    && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-13 100
+    && apt-get install -y gcc-14 g++-14
+
+# Set gcc/g++ 14 as default
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100 \
+    && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100 \
+    && update-alternatives --set gcc /usr/bin/gcc-14 \
+    && update-alternatives --set g++ /usr/bin/g++-14
+
+RUN gcc --version && g++ --version
 
 # Install CMake 3.31 or newer (since your project requires 3.31)
 RUN wget -qO- "https://cmake.org/files/v3.31/cmake-3.31.0-linux-x86_64.tar.gz" | tar --strip-components=1 -xz -C /usr/local

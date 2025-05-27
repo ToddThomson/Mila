@@ -8,8 +8,9 @@
  */
 
 module;
-#include <stdexcept>
 #include <cuda_runtime.h>
+#include <cstdint>
+#include <stdexcept>
 
 export module Cuda.Helpers;
 

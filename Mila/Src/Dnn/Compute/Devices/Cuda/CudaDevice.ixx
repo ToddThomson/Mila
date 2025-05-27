@@ -4,9 +4,9 @@
  */
 
 module;
-#include <iostream>
-#include <string>
 #include <cuda_runtime.h>
+#include <string>
+#include <memory>
 
 export module Compute.CudaDevice;
 
