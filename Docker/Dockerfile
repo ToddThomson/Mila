@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     gdb \
     doxygen \
-    graphvix \
+    graphviz \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
