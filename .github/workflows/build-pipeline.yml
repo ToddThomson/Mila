@@ -60,10 +60,15 @@ jobs:
           sudo apt-get install -y libgtest-dev
           
       - name: Setup CUDA
-        uses: Jimver/cuda-toolkit@v0.2.23
-        with:
-          cuda: '12.9.0'
-          method: 'network'
+        run: |
+          wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb
+          sudo apt-get update
+          sudo apt-get -y install cuda-toolkit-12-9
+          export CUDA_PATH=/usr/local/cuda-12.9
+          echo "CUDA_PATH=${CUDA_PATH}" >> $GITHUB_ENV
+          echo "${CUDA_PATH}/bin" >> $GITHUB_PATH
+          echo "LD_LIBRARY_PATH=${CUDA_PATH}/lib64:${LD_LIBRARY_PATH}" >> $GITHUB_ENV
           
       - name: Verify CUDA installation
         run: |
