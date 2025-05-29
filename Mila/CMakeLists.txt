@@ -31,9 +31,11 @@ target_link_libraries( Mila PRIVATE miniz)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
   add_compile_options(/std:c++latest)
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  # Currently, GCC 14.2 does not compile the Mila library. See issue #2 for details.
   add_compile_options(-fmodules-ts -std=c++23)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  add_compile_options(-fmodules)
+  add_compile_options(-std=c++23 -fmodules -fbuiltin-module-map -fimplicit-modules -fimplicit-module-maps)
+  set(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS "/usr/bin/clang-scan-deps-19")
 endif()
 
 if(MILA_ENABLE_OPENMP)
@@ -220,7 +222,12 @@ PUBLIC
         # Data Handling
         #---------------------------------------------------------------
         "Src/Dnn/Data/DataLoader.ixx"
- "Src/Dnn/Common/Component.ixx")
+
+        #---------------------------------------------------------------
+        # WIP
+        #---------------------------------------------------------------
+        "Src/Dnn/Common/Component.ixx"
+)
 
 target_link_libraries( Mila PRIVATE CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
 

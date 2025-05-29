@@ -1,25 +1,6 @@
 {
-	"name": "Mila Development Container",
-	"dockerComposeFile": ["../Docker/docker-compose.yml"],
-	"service": "mila-dev",
-	"workspaceFolder": "/mila",
-	"customizations": {
-		"vscode": {
-			"extensions": [
-				"ms-vscode.cpptools",
-				"ms-vscode.cmake-tools",
-				"ms-vscode.makefile-tools",
-				"ms-vscode.cpptools-extension-pack",
-				"ms-vscode.cmake-tools-extension-pack"
-			],
-			"settings": {
-				"cmake.configureOnOpen": true,
-				"C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools"
-			}
-		}
-	},
-	"features": {
-		"git": "latest",
-		"github-cli": "latest"
+	"name": "Mila Dev Container",
+	"build": {
+		"dockerfile": "Dockerfile"
 	}
 }

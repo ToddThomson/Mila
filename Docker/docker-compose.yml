@@ -2,7 +2,7 @@ services:
   mila-dev:
     build:
       context: ..
-      dockerfile: ./Docker/Dockerfile
+      dockerfile: Docker/Dockerfile
     image: mila-dev:latest
     container_name: mila-dev
     volumes:

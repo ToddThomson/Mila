@@ -1,25 +1,22 @@
 FROM nvidia/cuda:12.9.0-devel-ubuntu24.04
 
-# Set non-interactive mode for apt
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
     ninja-build \
-    git \
     curl \
     wget \
-    python3 \
-    python3-pip \
+    git \
     gdb \
     doxygen \
     graphviz \
+    software-properties-common \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install latest Ninja build system from source
+# Install latest Ninja build system from source (required for c++20 modules support)
 RUN git clone https://github.com/ninja-build/ninja.git /tmp/ninja \
     && cd /tmp/ninja \
     && git checkout release \
@@ -28,19 +25,23 @@ RUN git clone https://github.com/ninja-build/ninja.git /tmp/ninja \
     && rm -rf /tmp/ninja \
     && ninja --version
 
-# Install GCC for C++23 support
-RUN apt-get update && apt-get install -y software-properties-common \
-    && add-apt-repository -y ppa:ubuntu-toolchain-r/test \
+# Install Clang 19 and related tools (See issue #2 ).
+RUN wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add - \
+    && echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" > /etc/apt/sources.list.d/llvm.list \
     && apt-get update \
-    && apt-get install -y gcc-14 g++-14
+    && apt-get install -y clang-19 clang++-19 lldb-19 lld-19 clang-tools-19 clang-tidy-19 clang-format-19 \
 
-# Set gcc/g++ 14 as default
-RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100 \
-    && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100 \
-    && update-alternatives --set gcc /usr/bin/gcc-14 \
-    && update-alternatives --set g++ /usr/bin/g++-14
+# Set Clang 19 as the default compiler
+RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 100 \
+    && update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 100 \
+    && update-alternatives --install /usr/bin/cc cc /usr/bin/clang-19 100 \
+    && update-alternatives --install /usr/bin/c++ c++ /usr/bin/clang++-19 100 \
+    && update-alternatives --set clang /usr/bin/clang-19 \
+    && update-alternatives --set clang++ /usr/bin/clang++-19 \
+    && update-alternatives --set cc /usr/bin/clang-19 \
+    && update-alternatives --set c++ /usr/bin/clang++-19
 
-RUN gcc --version && g++ --version
+RUN clang --version && clang++ --version
 
 # Install CMake 3.31 or newer (since your project requires 3.31)
 RUN wget -qO- "https://cmake.org/files/v3.31/cmake-3.31.0-linux-x86_64.tar.gz" | tar --strip-components=1 -xz -C /usr/local
@@ -50,7 +51,7 @@ RUN git clone https://github.com/google/googletest.git /tmp/googletest \
     && cd /tmp/googletest \
     && mkdir build \
     && cd build \
-    && cmake .. -DCMAKE_BUILD_TYPE=Release \
+    && cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19 \
     && make install \
     && cd / \
     && rm -rf /tmp/googletest
@@ -59,6 +60,8 @@ RUN git clone https://github.com/google/googletest.git /tmp/googletest \
 WORKDIR /mila
 
 # Set environment variables
-ENV CUDA_HOME=/usr/local/cuda
+ENV CUDA_HOME=/usr/local/cuda-12.9
 ENV PATH=${CUDA_HOME}/bin:${PATH}
 ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
+ENV CC=clang-19
+ENV CXX=clang++-19
