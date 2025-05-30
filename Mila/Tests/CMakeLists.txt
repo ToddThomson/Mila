@@ -81,7 +81,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   target_compile_options(MilaTests PRIVATE 
     -fno-implicit-modules
     -fno-implicit-module-maps
-    -fmodule-map-file=/usr/lib/llvm-19/lib/clang/19/include/module.modulemap
+    -fmodules
   )
 endif()
 

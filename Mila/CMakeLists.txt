@@ -22,8 +22,10 @@ set_target_properties( Mila PROPERTIES
 	CXX_STANDARD 23
 	CXX_STANDARD_REQUIRED ON
 	CXX_EXTENSIONS OFF
-    CUDA_SEPARABLE_COMPILATION ON
-    CUDA_ARCHITECTURES 75 # For Turing GPUs (T4, V100, A100, H100, etc.)
+  CUDA_STANDARD 20
+  CUDA_STANDARD_REQUIRED ON
+  CUDA_SEPARABLE_COMPILATION ON
+  CUDA_ARCHITECTURES 75 # For Turing GPUs (T4, V100, A100, H100, etc.)
 )
 
 target_compile_features( Mila PUBLIC cxx_std_23 )
@@ -46,6 +48,8 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     $<$<COMPILE_LANGUAGE:CXX>:-std=c++23 -fno-implicit-modules -fno-implicit-module-maps>
   )
   set(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS "/usr/bin/clang-scan-deps-19")
+  set(CMAKE_CUDA_HOST_COMPILER "${CMAKE_CXX_COMPILER}")
+  set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -ccbin ${CMAKE_CXX_COMPILER}")
 endif()
 
 if(MILA_ENABLE_OPENMP)

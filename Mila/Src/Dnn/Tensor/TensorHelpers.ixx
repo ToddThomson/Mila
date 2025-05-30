@@ -43,8 +43,10 @@ namespace Mila::Dnn
 
         if constexpr ( std::is_same_v<TElementType, half> ) {
             // For half precision, we need to use float for random generation and then convert
-            float min_float = __half2float( min );
-            float max_float = __half2float( max );
+            float min_float = static_cast<float>( min );
+            float max_float = static_cast<float>( max );
+            //float min_float = __half2float( min );
+            //float max_float = __half2float( max );
             std::uniform_real_distribution<float> dis( min_float, max_float );
 
             if constexpr ( std::is_same_v<MR, Compute::CudaMemoryResource> ) {
@@ -52,14 +54,16 @@ namespace Mila::Dnn
 
                 for ( size_t i = 0; i < temp.size(); ++i ) {
                     float random_val = dis( gen );
-                    temp.raw_data()[ i ] = __float2half( random_val );
+                    temp.raw_data()[ i ] = static_cast<half>( random_val );
+                    //temp.raw_data()[ i ] = __float2half( random_val );
                 }
                 tensor = temp.template to<MR>();
             }
             else {
                 for ( size_t i = 0; i < tensor.size(); ++i ) {
                     float random_val = dis( gen );
-                    tensor.raw_data()[ i ] = __float2half( random_val );
+                    tensor.raw_data()[ i ] = static_cast<half>( random_val );
+                    //tensor.raw_data()[ i ] = __float2half( random_val );
                 }
             }
         }
@@ -122,7 +126,8 @@ namespace Mila::Dnn
                 half* temp_data = temp.raw_data();
                 for ( size_t i = 0; i < temp.size(); ++i ) {
                     float random_val = dis( gen );
-                    temp_data[ i ] = __float2half( random_val );
+                    //temp_data[ i ] = __float2half( random_val );
+                    temp_data[ i ] = static_cast<half>( random_val );
                 }
                 tensor = temp.template to<MR>();
             }
@@ -130,7 +135,8 @@ namespace Mila::Dnn
                 half* tensor_data = tensor.raw_data();
                 for ( size_t i = 0; i < tensor.size(); ++i ) {
                     float random_val = dis( gen );
-                    tensor_data[ i ] = __float2half( random_val );
+                    //tensor_data[ i ] = __float2half( random_val );
+                    tensor_data[ i ] = static_cast<half>( random_val );
                 }
             }
         }
