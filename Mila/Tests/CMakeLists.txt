@@ -75,17 +75,24 @@ add_executable( MilaTests
     #"Dnn/Compute/Operations/Cuda/CudaSoftmaxOpTests.cpp"
 )
 
-# TODO: Add globally 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
 
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  target_compile_options(MilaTests PRIVATE 
+    -fno-implicit-modules
+    -fno-implicit-module-maps
+    -fmodule-map-file=/usr/lib/llvm-19/lib/clang/19/include/module.modulemap
+  )
+endif()
+
 if(MILA_ENABLE_OPENMP)  
-	if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-		target_compile_options( MilaTests PRIVATE -openmp:llvm -DUSE_OMP )
-		target_link_options( MilaTests PRIVATE -openmp:llvm )
-	else()
-		target_compile_options( MilaTests PRIVATE ${OpenMP_CXX_FLAGS})
-		target_link_options( MilaTests PRIVATE OpenMP::OpendMP_CXX)
-	endif()
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+        target_compile_options( MilaTests PRIVATE -openmp:llvm -DUSE_OMP )
+        target_link_options( MilaTests PRIVATE -openmp:llvm )
+    else()
+        target_compile_options( MilaTests PRIVATE ${OpenMP_CXX_FLAGS})
+        target_link_options( MilaTests PRIVATE OpenMP::OpenMP_CXX)
+    endif()
 endif()  
 
 target_link_libraries( MilaTests PRIVATE Mila gtest CUDA::cudart )

@@ -34,24 +34,33 @@ find_package(nlohmann_json REQUIRED)
 target_include_directories( Mila PRIVATE ${miniz_SOURCE_DIR})
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-  add_compile_options( /std:c++latest /permissive- /Zc:preprocessor /W4)
+  target_compile_options(Mila PRIVATE 
+    $<$<COMPILE_LANGUAGE:CXX>:/std:c++latest /permissive- /Zc:preprocessor /W4>
+  )
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-  # Currently, GCC 14.2 does not compile the Mila library. See issue #2 for details.
-  target_compile_options( Mila PRIVATE -fmodules-ts -std=c++23)
+  target_compile_options(Mila PRIVATE 
+    $<$<COMPILE_LANGUAGE:CXX>:-fmodules-ts -std=c++23>
+  )
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  target_compile_options( Mila PRIVATE -std=c++23 -fmodules -fbuiltin-module-map -fimplicit-modules -fimplicit-module-maps)
+  target_compile_options(Mila PRIVATE 
+    $<$<COMPILE_LANGUAGE:CXX>:-std=c++23 -fno-implicit-modules -fno-implicit-module-maps>
+  )
   set(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS "/usr/bin/clang-scan-deps-19")
 endif()
 
 if(MILA_ENABLE_OPENMP)
-	find_package(OpenMP REQUIRED)
-	if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-		target_compile_options( Mila PRIVATE -openmp:llvm -DUSE_OMP )
-		target_link_options( Mila PRIVATE -openmp:llvm )
-	else()
-		target_compile_options( Mila PRIVATE ${OpenMP_CXX_FLAGS})
-		target_link_options( Mila PRIVATE OpenMP::OpenMP_CXX)
-	endif()
+  find_package(OpenMP REQUIRED)
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+    target_compile_options(Mila PRIVATE 
+      $<$<COMPILE_LANGUAGE:CXX>:-openmp:llvm -DUSE_OMP>
+    )
+    target_link_options(Mila PRIVATE -openmp:llvm)
+  else()
+    target_compile_options(Mila PRIVATE 
+      $<$<COMPILE_LANGUAGE:CXX>:${OpenMP_CXX_FLAGS}>
+    )
+    target_link_libraries(Mila PRIVATE OpenMP::OpenMP_CXX)
+  endif()
 endif()
 
 target_sources( Mila
