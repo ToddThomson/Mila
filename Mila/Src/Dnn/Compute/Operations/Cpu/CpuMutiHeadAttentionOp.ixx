@@ -15,8 +15,9 @@ module;
 
 export module Compute.CpuAttention;
 
-import Dnn.Tensor;
 import Dnn.Modules.Attention;
+import Dnn.Tensor;
+import Dnn.ComponentConfig;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;

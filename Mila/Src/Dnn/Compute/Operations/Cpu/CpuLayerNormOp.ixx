@@ -17,6 +17,7 @@ export module Compute.CpuLayerNormOp;
 
 import Dnn.Modules.LayerNorm;
 import Dnn.Tensor;
+import Dnn.ComponentConfig;
 import Compute.OperationBase;
 import Compute.OperationAttributes;
 import Compute.UnaryOperation;

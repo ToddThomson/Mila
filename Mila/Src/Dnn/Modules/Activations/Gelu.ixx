@@ -11,7 +11,6 @@
  */
 
 module;
-#include <miniz.h>
 #include <memory>
 #include <vector>
 #include <string>
@@ -36,10 +35,12 @@ import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaMemoryResource;
+import Serialization.ModelArchive;
 
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
+	using namespace Mila::Dnn::Serialization;
 
     /**
      * @brief Gaussian Error Linear Unit (GELU) activation function module.
@@ -185,7 +186,7 @@ namespace Mila::Dnn
          *
          * @param zip ZIP archive for serialization
          */
-        void save( mz_zip_archive& zip ) const override {
+        void save( ModelArchive& zip ) const override {
             // No-op: GELU is a stateless activation function with no parameters to persist
         }
 
@@ -197,7 +198,7 @@ namespace Mila::Dnn
          *
          * @param zip ZIP archive for deserialization
          */
-        void load( mz_zip_archive& zip ) override {
+        void load( ModelArchive& archive ) override {
             // No-op: GELU is a stateless activation function with no parameters to load
         }
 

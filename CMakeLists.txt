@@ -26,8 +26,18 @@ CPMAddPackage(
     GIT_TAG master
 )
 
+CPMAddPackage(
+    NAME nlohmann_json
+    VERSION 3.12.0
+    GITHUB_REPOSITORY nlohmann/json
+    OPTIONS
+        "JSON_BuildTests OFF"
+        "JSON_MultipleHeaders ON"
+)
+
 find_package(CUDAToolkit REQUIRED)  
-find_package(miniz REQUIRED)  
+find_package(miniz REQUIRED)
+find_package(nlohmann_json REQUIRED)
 
 if(MILA_ENABLE_OPENMP)
    find_package(OpenMP)

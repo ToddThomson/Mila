@@ -14,6 +14,7 @@ module;
 export module Compute.CudaMatMulBiasGeluOp;
 
 import Dnn.Tensor;
+import Dnn.TensorTraits;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationAttributes;

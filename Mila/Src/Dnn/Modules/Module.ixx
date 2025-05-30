@@ -4,7 +4,6 @@
  */
 
 module;
-#include <miniz.h>  
 #include <string>  
 #include <memory>  
 #include <unordered_map>
@@ -24,10 +23,12 @@ import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaMemoryResource;
 import Compute.Precision;
+import Serialization.ModelArchive;
 
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
+	using namespace Mila::Dnn::Serialization;
 
     /**
      * @brief Abstract base class for all modules in the Mila DNN framework.
@@ -198,9 +199,9 @@ namespace Mila::Dnn
         * Serializes the module's parameters and state to the provided zip archive.
         * This enables model persistence for later reuse.
         *
-        * @param zip The zip archive to save the state to.
+        * @param archive The archive to save the state to.
         */
-        virtual void save( mz_zip_archive& zip ) const = 0;
+        virtual void save( ModelArchive& archive ) const = 0;
 
         /**
          * @brief Load the module state from a zip archive.
@@ -210,7 +211,7 @@ namespace Mila::Dnn
          *
          * @param zip The zip archive to load the state from.
          */
-        virtual void load( mz_zip_archive& zip ) = 0;
+        virtual void load( ModelArchive& archive ) = 0;
 
         /**
          * @brief Convert the module to a string representation.

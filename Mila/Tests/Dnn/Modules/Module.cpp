@@ -4,7 +4,6 @@
 #include <string>
 #include <sstream>
 #include <stdexcept>
-// #include <miniz.h>
 
 import Mila;
 
@@ -12,6 +11,7 @@ namespace Modules::Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
+	using namespace Mila::Dnn::Serialization;
 
     // Test configuration class for modules
     class MockModuleConfig : public ComponentConfig {
@@ -53,11 +53,11 @@ namespace Modules::Tests
             return 0;
         }
 
-        void save( mz_zip_archive& zip ) const override {
+        void save( ModelArchive& archive ) const override {
             // Dummy implementation
         }
 
-        void load( mz_zip_archive& zip ) override {
+        void load( ModelArchive& archive ) override {
             // Dummy implementation
         }
 

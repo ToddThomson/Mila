@@ -1,6 +1,6 @@
 {
 	"name": "Mila Dev Container",
 	"build": {
-		"dockerfile": "Dockerfile"
+		"dockerfile": "../Docker/Dockerfile"
 	}
 }

@@ -14,6 +14,8 @@ export module Compute.CudaMHAOp;
 
 import Dnn.Modules.Attention;
 import Dnn.Tensor;
+import Dnn.TensorTraits;
+import Dnn.ComponentConfig;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;

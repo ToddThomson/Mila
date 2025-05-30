@@ -4,7 +4,6 @@
  */
 
 module;
-#include <miniz.h>
 #include <memory>
 #include <vector>
 #include <string>
@@ -31,10 +30,12 @@ import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaMemoryResource;
+import Serialization.ModelArchive;
 
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
+	using namespace Mila::Dnn::Serialization;
 
     /**
      * @brief CrossEntropy loss module for neural networks.
@@ -239,7 +240,7 @@ namespace Mila::Dnn
          *
          * @param zip The ZIP archive to save the module state to.
          */
-        void save( mz_zip_archive& zip ) const override {
+        void save( ModelArchive& archive ) const override {
             if ( class_weights_ ) {
                 // Save class weights if present
                 // Implementation depends on tensor serialization
@@ -253,7 +254,7 @@ namespace Mila::Dnn
          *
          * @param zip The ZIP archive to load the module state from.
          */
-        void load( mz_zip_archive& zip ) override {
+        void load( ModelArchive& archive ) override {
             if ( class_weights_ ) {
                 // Load class weights if present
                 // Implementation depends on tensor deserialization

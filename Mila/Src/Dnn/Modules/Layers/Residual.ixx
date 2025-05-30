@@ -8,7 +8,6 @@
  */
 
 module;
-#include <miniz.h>
 #include <memory>
 #include <vector>
 #include <string>
@@ -35,12 +34,14 @@ import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaMemoryResource;
+import Serialization.ModelArchive;
 
 import Dnn.Modules.Linear;
 
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
+	using namespace Mila::Dnn::Serialization;
 
     /**
      * @brief A class implementing a residual connection module.
@@ -180,7 +181,7 @@ namespace Mila::Dnn
                     break;
 
                 case ResidualConfig::ConnectionType::ScaledAddition:
-                    properties_[ "scaling_factor" ] = config_.getScalingFactor();
+                    // FIXME: properties_[ "scaling_factor" ] = config_.getScalingFactor();
 
                     if ( input_dims_match ) {
                         // y = x + alpha*F(x)
@@ -332,17 +333,8 @@ namespace Mila::Dnn
          *
          * @param zip The ZIP archive to save the module state to.
          */
-        void save( mz_zip_archive& zip ) const override {
-            inner_module_->save( zip );
-
-            if ( projection_ ) {
-                projection_->save( zip );
-            }
-
-            if ( config_.getConnectionType() == ResidualConfig::ConnectionType::Gated && gate_weights_ ) {
-                // Save gate weights
-                // Implementation depends on tensor serialization
-            }
+        void save( ModelArchive& zip ) const override {
+            // TODO:
         }
 
         /**
@@ -353,11 +345,11 @@ namespace Mila::Dnn
          *
          * @param zip The ZIP archive to load the module state from.
          */
-        void load( mz_zip_archive& zip ) override {
-            inner_module_->load( zip );
+        void load( ModelArchive& archive ) override {
+            inner_module_->load( archive );
 
             if ( projection_ ) {
-                projection_->load( zip );
+                projection_->load( archive );
             }
 
             if ( config_.getConnectionType() == ResidualConfig::ConnectionType::Gated && gate_weights_ ) {

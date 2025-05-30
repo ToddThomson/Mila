@@ -56,6 +56,8 @@ export import Dnn.ActivationType;
 
 export import Data.DataLoader;
 
+export import Serialization.ModelArchive;
+
 export import Compute.ComputeDevice;
 export import Compute.DeviceRegistry;
 export import Compute.DeviceType;

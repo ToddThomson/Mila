@@ -18,6 +18,9 @@ module;
 #include <stdexcept>
 #include <exception>
 #include <span>
+#include <condition_variable>
+#include <cstdint>
+#include <cstring>
 
 export module Dnn.Gpt2.DatasetReader;
 
@@ -28,6 +31,17 @@ import Utils.DefaultLogger;
 
 namespace Mila::Dnn::Gpt2
 {
+    /**
+         * @struct Config
+         * @brief Configuration parameters for the DatasetReader.
+         */
+        struct DSReaderConfig {
+            size_t max_queue_size{10};        /**< Maximum number of batches to queue in memory */
+            size_t read_chunk_size{1024 * 1024}; /**< Size of chunks when reading large files (1MB default) */
+            bool verbose_logging{false};      /**< Whether to output detailed performance logs */
+            // FIXME: std::shared_ptr<Mila::Utils::Logger> logger = std::make_shared<Mila::Utils::DefaultLogger>(); /**< Logger implementation */
+            size_t token_window_size{0};      /**< Size of token window in number of tokens (0 for auto-size) */
+        };
     /**
      * @class DatasetReader
      * @brief High-performance data loading class for GPT-2 tokenized datasets with multi-threaded processing.
@@ -43,17 +57,7 @@ namespace Mila::Dnn::Gpt2
      */
     export class DatasetReader {
     public:
-        /**
-         * @struct Config
-         * @brief Configuration parameters for the DatasetReader.
-         */
-        struct Config {
-            size_t max_queue_size = 10;        /**< Maximum number of batches to queue in memory */
-            size_t read_chunk_size = 1024 * 1024; /**< Size of chunks when reading large files (1MB default) */
-            bool verbose_logging = false;      /**< Whether to output detailed performance logs */
-            std::shared_ptr<Mila::Utils::Logger> logger = std::make_shared<Mila::Utils::DefaultLogger>(); /**< Logger implementation */
-            size_t token_window_size = 0;      /**< Size of token window in number of tokens (0 for auto-size) */
-        };
+        
 
         /**
         * @brief Constructs a new DatasetReader object.
@@ -72,7 +76,7 @@ namespace Mila::Dnn::Gpt2
         *   3. Starts background threads for parallel I/O and preprocessing
         */
         DatasetReader( const std::string& file_path, size_t batch_size, size_t seq_len,
-            const Config& config = Config() )
+            const DSReaderConfig& config = DSReaderConfig() )
             : batch_size_( batch_size ), seq_len_( seq_len ), stop_( false ), config_( config ),
             pinned_inputs_( nullptr ), pinned_targets_( nullptr ), file_path_( file_path ) {
 
@@ -325,7 +329,7 @@ namespace Mila::Dnn::Gpt2
         std::atomic<bool> stop_{ false }; /**< Flag to signal threads to stop */
         std::atomic<bool> paused_{ false }; /**< Flag to signal threads to pause */
 
-        Config config_;                  /**< Configuration settings */
+        DSReaderConfig config_;                  /**< Configuration settings */
 
         /**
          * @brief Logs messages through the configured logger.
@@ -334,9 +338,9 @@ namespace Mila::Dnn::Gpt2
          * @param level The log level (higher values mean less important).
          */
         void log( const std::string& message, int level ) {
-            if ( config_.logger ) {
-                // FIME: config_.logger->log( message );
-            }
+            //if ( config_.logger ) {
+                // FIXME: config_.logger->log( message );
+            //}
         }
 
         /**

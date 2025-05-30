@@ -19,6 +19,7 @@ export module Compute.CudaLinearOp;
 import Dnn.Modules.Linear;
 import Dnn.Tensor;
 import Dnn.TensorTraits;
+import Dnn.ComponentConfig;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.Precision;

@@ -4,7 +4,6 @@
  */
 
 module;
-#include <miniz.h>
 #include <memory>
 #include <vector>
 #include <string>
@@ -30,10 +29,12 @@ import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaMemoryResource;
+import Serialization.ModelArchive;
 
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
+	using namespace Mila::Dnn::Serialization;
 
     /**
      * @brief Dropout regularization module for neural networks.
@@ -232,7 +233,7 @@ namespace Mila::Dnn
          *
          * @param zip ZIP archive for serialization
          */
-        void save( mz_zip_archive& zip ) const override {
+        void save( ModelArchive& archive ) const override {
             // No-op: Dropout is a stateless module with no parameters to persist
         }
 
@@ -244,7 +245,7 @@ namespace Mila::Dnn
          *
          * @param zip ZIP archive for deserialization
          */
-        void load( mz_zip_archive& zip ) override {
+        void load( ModelArchive& archive ) override {
             // No-op: Dropout is a stateless module with no parameters to load
         }
 

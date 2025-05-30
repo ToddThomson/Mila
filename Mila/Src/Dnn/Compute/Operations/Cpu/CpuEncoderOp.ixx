@@ -16,8 +16,9 @@ module;
 
 export module Compute.CpuEncoderOp;
 
-import Dnn.Tensor;
 import Dnn.Modules.Encoder;
+import Dnn.Tensor;
+import Dnn.ComponentConfig;
 import Compute.Precision;
 import Compute.OperationBase;
 import Compute.UnaryOperation;

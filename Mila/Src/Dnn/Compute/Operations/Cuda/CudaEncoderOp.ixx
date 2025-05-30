@@ -16,6 +16,7 @@ export module Compute.CudaEncoderOp;
 import Dnn.Modules.Encoder;
 import Dnn.Tensor;
 import Dnn.TensorTraits;
+import Dnn.ComponentConfig;
 import Compute.Precision;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
@@ -113,8 +114,8 @@ namespace Mila::Dnn::Compute
              * The computation is performed on the GPU using CUDA kernels for optimal performance.
              *
              * @param input Input tensor of shape [B, TDataType] containing token IDs, where B is batch size and TDataType is sequence length.
-             * @param parameters Vector of parameter tensors [wte, wpe] where wte is of shape [V, C] (vocabulary size × embedding dimension)
-             *                   and wpe is of shape [maxT, C] (maximum sequence length × embedding dimension).
+             * @param parameters Vector of parameter tensors [wte, wpe] where wte is of shape [V, C] (vocabulary size ï¿½ embedding dimension)
+             *                   and wpe is of shape [maxT, C] (maximum sequence length ï¿½ embedding dimension).
              * @param properties Additional attributes for the operation.
              * @param output Output tensor of shape [B, TDataType, C] containing the resulting embeddings.
              * @param output_state Cache for intermediate results (not used in this operation).

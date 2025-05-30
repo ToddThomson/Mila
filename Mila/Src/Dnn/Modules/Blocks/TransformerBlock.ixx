@@ -11,7 +11,6 @@ module;
 #include <sstream> 
 #include <stdexcept>
 #include <iosfwd>
-#include <miniz.h>
 
 export module Dnn.Blocks.TransformerBlock;
 export import :Config;
@@ -33,10 +32,12 @@ import Dnn.Modules.Attention;
 import Dnn.Modules.Residual;
 import Dnn.Modules.Dropout;
 import Dnn.Blocks.MLP;
+import Serialization.ModelArchive;
 
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
+    using namespace Mila::Dnn::Serialization;
 
     /**
      * @brief TransformerBlock implements a standard transformer encoder block.
@@ -192,9 +193,9 @@ namespace Mila::Dnn
          *
          * @param zip The ZIP archive to save the module state to.
          */
-        void save( mz_zip_archive& zip ) const override {
+        void save( ModelArchive& archive ) const override {
             for ( const auto& module : this->getModules() ) {
-                module->save( zip );
+                module->save( archive );
             }
         }
 
@@ -205,9 +206,9 @@ namespace Mila::Dnn
          *
          * @param zip The ZIP archive to load the module state from.
          */
-        void load( mz_zip_archive& zip ) override {
+        void load( ModelArchive& archive ) override {
             for ( const auto& module : this->getModules() ) {
-                module->load( zip );
+                module->load( archive );
             }
         }
 

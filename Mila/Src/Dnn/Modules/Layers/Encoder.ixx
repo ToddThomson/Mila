@@ -4,7 +4,6 @@
  */
 
 module;
-#include <miniz.h>
 #include <memory>
 #include <vector>
 #include <string>
@@ -31,10 +30,12 @@ import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaMemoryResource;
+import Serialization.ModelArchive;
 
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
+	using namespace Mila::Dnn::Serialization;
 
     /**
      * @class Encoder
@@ -163,7 +164,7 @@ namespace Mila::Dnn
          *
          * @param zip The zip archive to save the parameters to.
          */
-        void save( mz_zip_archive& zip ) const override {
+        void save( ModelArchive& archive ) const override {
             // Save the state of the parameters
             for ( const auto& [name, tensor] : this->getParameterTensors() ) {
                 // Save tensor data to zip archive
@@ -178,7 +179,7 @@ namespace Mila::Dnn
          *
          * @param zip The zip archive to load the parameters from.
          */
-        void load( mz_zip_archive& zip ) override {
+        void load( ModelArchive& archive ) override {
             for ( const auto& [name, tensor] : this->getParameterTensors() ) {
                 // Load tensor data from zip archive
             }

@@ -4,7 +4,6 @@
  */
 
 module;
-#include <miniz.h>
 #include <memory>
 #include <vector>
 #include <string>
@@ -25,7 +24,6 @@ import Compute.DeviceType;
 import Compute.DeviceContext;
 import Compute.CpuDevice;
 import Compute.CudaDevice;
-
 import Compute.OperationBase;
 import Compute.OperationAttributes;
 import Compute.UnaryOperation;
@@ -35,9 +33,12 @@ import Compute.CpuMemoryResource;
 import Compute.CudaMemoryResource;
 import Compute.Precision;
 
+import Serialization.ModelArchive;
+
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
+	using namespace Mila::Dnn::Serialization;
 
     /**
      * @brief Multi-head attention module for transformer architectures.
@@ -222,7 +223,7 @@ namespace Mila::Dnn
          *
          * @param zip ZIP archive for serialization
          */
-        void save( mz_zip_archive& zip ) const override {
+        void save( ModelArchive& zip ) const override {
             // MultiHeadAttention has no parameters to save in this base implementation
         }
 
@@ -234,7 +235,7 @@ namespace Mila::Dnn
          *
          * @param zip ZIP archive for deserialization
          */
-        void load( mz_zip_archive& zip ) override {
+        void load( ModelArchive& archive ) override {
             // MultiHeadAttention has no parameters to load in this base implementation
         }
 

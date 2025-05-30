@@ -14,6 +14,7 @@ export module Compute.CpuGeluOp;
 
 import Dnn.Modules.Gelu;
 import Dnn.Tensor;
+import Dnn.ComponentConfig;
 import Compute.DeviceType;
 import Compute.DeviceContext;
 import Compute.OperationType;
@@ -99,10 +100,12 @@ namespace Mila::Dnn::Compute
         }
 
         // we want to use -Ofast optimization, but sadly GeLU breaks, so disable this flag just for it (#168)
-    #pragma float_control(precise, on, push)
-    #if defined(__GNUC__) && !defined(__clang__)
-        __attribute__( (optimize( "no-finite-math-only" )) )
-        #endif
+        // TODO: Let's come back to this
+        //#pragma float_control(precise, on, push)
+        //#if defined(__GNUC__) && !defined(__clang__)
+        //__attribute__( (optimize( "no-finite-math-only" )) )
+        //#endif
+
             /**
              * @brief Performs the backward pass of the GELU activation function.
              *
@@ -132,7 +135,7 @@ namespace Mila::Dnn::Compute
                 dinp[ i ] += local_grad * dout[ i ];
             }
         }
-    #pragma float_control(pop)
+        // #pragma float_control(pop)
 
         /**
          * @brief Gets the name of this operation.

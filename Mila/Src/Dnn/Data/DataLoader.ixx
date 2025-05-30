@@ -8,10 +8,12 @@
 
 module;
 #include <type_traits>
+#include <cstddef>
 
 export module Data.DataLoader;
 
 import Dnn.Tensor;
+import Dnn.TensorTraits;
 import Compute.DeviceType;
 import Compute.MemoryResource;
 import Compute.CudaMemoryResource;

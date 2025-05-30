@@ -19,6 +19,7 @@ export module Compute.CpuResidualOp;
 
 import Dnn.Modules.Residual;
 import Dnn.Tensor;
+import Dnn.ComponentConfig;
 import Compute.DeviceType;
 import Compute.DeviceContext;
 import Compute.OperationType;

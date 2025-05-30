@@ -14,9 +14,10 @@ module;
 
 export module Compute.CudaGeluOp;
 
+import Dnn.Modules.Gelu;
 import Dnn.Tensor;
 import Dnn.TensorTraits;
-import Dnn.Modules.Gelu;
+import Dnn.ComponentConfig;
 import Compute.Precision;
 import Compute.OperationBase;
 import Compute.UnaryOperation;

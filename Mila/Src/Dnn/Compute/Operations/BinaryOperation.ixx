@@ -21,6 +21,7 @@ import Compute.Precision;
 import Compute.ComputeDevice;
 import Compute.CudaDevice;
 import Compute.OperationBase;
+import Compute.OperationType;
 import Compute.OperationAttributes;
 import Compute.DeviceContext;
 import Compute.DeviceContextHelpers;

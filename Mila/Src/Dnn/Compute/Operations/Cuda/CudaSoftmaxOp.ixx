@@ -14,6 +14,8 @@ export module Compute.CudaSoftmaxOp;
 
 import Dnn.Modules.Softmax;
 import Dnn.Tensor;
+import Dnn.TensorTraits;
+import Dnn.ComponentConfig;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;

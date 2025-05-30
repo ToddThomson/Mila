@@ -4,7 +4,6 @@
  */
 
 module;
-#include <miniz.h>
 #include <vector>
 #include <string>
 #include <memory>
@@ -16,14 +15,19 @@ export module Dnn.CompositeModule;
 
 import Dnn.Module;
 import Dnn.Tensor;
+import Dnn.ComponentConfig;
 import Dnn.TensorTraits;
 import Compute.Precision;
 import Compute.DeviceType;
 import Compute.DeviceContext;
+import Compute.CudaMemoryResource;
+import Compute.CpuMemoryResource;
+import Serialization.ModelArchive;
 
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
+	using namespace Mila::Dnn::Serialization;
 
     /**
      * @brief A module class that can contain and manage child modules.
@@ -268,9 +272,9 @@ namespace Mila::Dnn
          *
          * @param zip The ZIP archive to save the module state to.
          */
-        void save( mz_zip_archive& zip ) const override {
+        void save( ModelArchive& archive ) const override {
             for ( const auto& module : child_modules_ ) {
-                module->save( zip );
+                module->save( archive );
             }
         }
 
@@ -281,9 +285,9 @@ namespace Mila::Dnn
          *
          * @param zip The ZIP archive to load the module state from.
          */
-        void load( mz_zip_archive& zip ) override {
+        void load( ModelArchive& archive ) override {
             for ( const auto& module : child_modules_ ) {
-                module->load( zip );
+                module->load( archive );
             }
         }
 

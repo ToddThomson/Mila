@@ -16,6 +16,7 @@ export module Compute.CudaResidualOp;
 
 import Dnn.Modules.Residual;
 import Dnn.Tensor;
+import Dnn.ComponentConfig;
 import Dnn.TensorTraits;
 import Compute.Precision;
 import Compute.OperationBase;

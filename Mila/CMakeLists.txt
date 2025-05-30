@@ -16,25 +16,30 @@ add_library( Mila STATIC
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaSoftmax.cu"
  )
 
+ set(CMAKE_CUDA_SEPARABLE_COMPILATION ON)
+
 set_target_properties( Mila PROPERTIES
 	CXX_STANDARD 23
 	CXX_STANDARD_REQUIRED ON
-	CXX_EXTENSIONS OFF )
+	CXX_EXTENSIONS OFF
+    CUDA_SEPARABLE_COMPILATION ON
+    CUDA_ARCHITECTURES 75 # For Turing GPUs (T4, V100, A100, H100, etc.)
+)
 
 target_compile_features( Mila PUBLIC cxx_std_23 )
 
 find_package(miniz REQUIRED)  
+find_package(nlohmann_json REQUIRED)
 
-target_include_directories( Mila INTERFACE ${miniz_SOURCE_DIR})
-target_link_libraries( Mila PRIVATE miniz)
+target_include_directories( Mila PRIVATE ${miniz_SOURCE_DIR})
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-  add_compile_options(/std:c++latest)
+  add_compile_options( /std:c++latest /permissive- /Zc:preprocessor /W4)
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   # Currently, GCC 14.2 does not compile the Mila library. See issue #2 for details.
-  add_compile_options(-fmodules-ts -std=c++23)
+  target_compile_options( Mila PRIVATE -fmodules-ts -std=c++23)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  add_compile_options(-std=c++23 -fmodules -fbuiltin-module-map -fimplicit-modules -fimplicit-module-maps)
+  target_compile_options( Mila PRIVATE -std=c++23 -fmodules -fbuiltin-module-map -fimplicit-modules -fimplicit-module-maps)
   set(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS "/usr/bin/clang-scan-deps-19")
 endif()
 
@@ -224,12 +229,26 @@ PUBLIC
         "Src/Dnn/Data/DataLoader.ixx"
 
         #---------------------------------------------------------------
+        # Serialization
+        #---------------------------------------------------------------
+        "Src/Dnn/Serialization/ModuleSerializer.ixx"
+        "Src/Dnn/Serialization/ZipFileSerializer.ixx"
+        "Src/Dnn/Serialization/ModelArchive.ixx"
+
+        #---------------------------------------------------------------
         # WIP
         #---------------------------------------------------------------
         "Src/Dnn/Common/Component.ixx"
 )
 
-target_link_libraries( Mila PRIVATE CUDA::nvml CUDA::cublas CUDA::cublasLt CUDA::cudart )
+target_link_libraries(Mila PRIVATE 
+    miniz
+    nlohmann_json::nlohmann_json
+    CUDA::nvml 
+    CUDA::cublas 
+    CUDA::cublasLt 
+    CUDA::cudart
+)
 
 # Parse the version from Version.txt
 file(READ "${CMAKE_SOURCE_DIR}/Version.txt" VERSION_CONTENT)
@@ -256,6 +275,13 @@ configure_file(
 
 include_directories(${CMAKE_BINARY_DIR}/Mila/Src)
 target_include_directories(Mila PRIVATE ${CMAKE_BINARY_DIR}/Mila/Src)
+
+install(TARGETS Mila
+    EXPORT MilaTargets
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib
+    FILE_SET module_files DESTINATION include
+)
 
 add_subdirectory( Docs )
 

@@ -4,8 +4,8 @@
  */
 
 module;
-#include <random>
 #include <cuda_fp16.h>
+#include <random>
 #include <cmath>
 #include <type_traits>
 

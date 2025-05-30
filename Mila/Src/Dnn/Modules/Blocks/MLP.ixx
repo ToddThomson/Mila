@@ -10,13 +10,13 @@ module;
 #include <string>
 #include <type_traits>
 #include <vector>
-#include <miniz.h>
 
 export module Dnn.Blocks.MLP;
 export import :Config;
 
 import Dnn.Tensor;
 import Dnn.TensorTraits;
+import Dnn.Module;
 import Dnn.CompositeModule;
 import Dnn.ActivationType;
 import Compute.Precision;
@@ -34,10 +34,12 @@ import Dnn.Modules.Gelu;
 import Dnn.Modules.Dropout;
 import Dnn.Modules.LayerNorm;
 import Dnn.Modules.Residual;
+import Serialization.ModelArchive;
 
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
+	using namespace Mila::Dnn::Serialization;
 
     /**
      * @brief Multi-Layer Perceptron (MLP) block for neural networks.
@@ -347,9 +349,9 @@ namespace Mila::Dnn
          *
          * @param zip The ZIP archive to save the module state to.
          */
-        void save( mz_zip_archive& zip ) const override {
+        void save( ModelArchive& archive ) const override {
             for ( const auto& module : this->getModules() ) {
-                module->save( zip );
+                module->save( archive );
             }
         }
 
@@ -360,9 +362,9 @@ namespace Mila::Dnn
          *
          * @param zip The ZIP archive to load the module state from.
          */
-        void load( mz_zip_archive& zip ) override {
+        void load( ModelArchive& archive ) override {
             for ( const auto& module : this->getModules() ) {
-                module->load( zip );
+                module->load( archive );
             }
         }
 

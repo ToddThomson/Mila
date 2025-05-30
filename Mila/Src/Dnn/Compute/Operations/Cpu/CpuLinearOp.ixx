@@ -15,8 +15,9 @@ module;
 
 export module Compute.CpuLinearOp;
 
-import Dnn.Tensor;
 import Dnn.Modules.Linear;
+import Dnn.Tensor;
+import Dnn.ComponentConfig;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;

@@ -16,11 +16,13 @@ import Dnn.TensorTraits;
 import Compute.Precision;
 import Compute.ComputeDevice;
 import Compute.DeviceType;
+import Compute.DeviceContext;
 import Compute.DeviceContextHelpers;
 import Compute.CudaMemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaDevice;
 import Compute.OperationBase;
+import Compute.OperationType;
 import Compute.OperationAttributes;
 
 namespace Mila::Dnn::Compute

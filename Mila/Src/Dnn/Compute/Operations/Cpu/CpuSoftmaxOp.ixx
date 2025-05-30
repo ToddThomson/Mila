@@ -15,8 +15,9 @@ module;
 
 export module Compute.CpuSoftmaxOp;
 
-import Dnn.Tensor;
 import Dnn.Modules.Softmax;
+import Dnn.Tensor;
+import Dnn.ComponentConfig;
 import Compute.DeviceType;  
 import Compute.DeviceContext;
 import Compute.OperationBase;  
