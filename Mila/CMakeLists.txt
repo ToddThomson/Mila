@@ -16,16 +16,16 @@ add_library( Mila STATIC
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaSoftmax.cu"
  )
 
- set(CMAKE_CUDA_SEPARABLE_COMPILATION ON)
+ # FIXME: add_dependencies(Mila MilaUpdateVersion)
 
-set_target_properties( Mila PROPERTIES
+ set_target_properties( Mila PROPERTIES
 	CXX_STANDARD 23
 	CXX_STANDARD_REQUIRED ON
 	CXX_EXTENSIONS OFF
-  CUDA_STANDARD 20
-  CUDA_STANDARD_REQUIRED ON
-  CUDA_SEPARABLE_COMPILATION ON
-  CUDA_ARCHITECTURES 75 # For Turing GPUs (T4, V100, A100, H100, etc.)
+    CUDA_STANDARD 20
+    CUDA_STANDARD_REQUIRED ON
+    CUDA_SEPARABLE_COMPILATION ON
+    CUDA_ARCHITECTURES 75 # For Turing GPUs (T4, V100, A100, H100, etc.)
 )
 
 target_compile_features( Mila PUBLIC cxx_std_23 )
@@ -295,6 +295,22 @@ install(TARGETS Mila
     ARCHIVE DESTINATION lib
     FILE_SET module_files DESTINATION include
 )
+
+# Define target for copying model data when needed
+add_custom_target(MilaCopyData 
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/data"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different 
+        "${CMAKE_SOURCE_DIR}/data"
+        "${CMAKE_BINARY_DIR}/data"
+    COMMENT "Copying model data to build directory"
+    VERBATIM
+)
+
+if( MILA_ENABLE_COPY_MODEL_DATA AND NOT DEFINED ENV{CI} )
+    set_target_properties(MilaCopyData PROPERTIES EXCLUDE_FROM_ALL FALSE)
+else()
+    set_target_properties(MilaCopyData PROPERTIES EXCLUDE_FROM_ALL TRUE)
+endif()
 
 add_subdirectory( Docs )
 

@@ -97,12 +97,4 @@ endif()
 
 target_link_libraries( MilaTests PRIVATE Mila gtest CUDA::cudart )
 
-add_custom_command(
-    TARGET MilaTests POST_BUILD
-	COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different 
-        "${CMAKE_SOURCE_DIR}/data"
-        "${CMAKE_CURRENT_BINARY_DIR}/data"
-    COMMENT "Copying data directory to build output directory"
-)
-
 gtest_discover_tests(MilaTests)

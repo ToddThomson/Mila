@@ -1,21 +1,23 @@
-# Read the current version from the version file
-file(READ "${CMAKE_SOURCE_DIR}/version.txt" VERSION_CONTENTS)
-string(STRIP "${VERSION_CONTENTS}" VERSION)
+file(READ "${CMAKE_SOURCE_DIR}/Version.txt" VERSION_CONTENT)
 
-# Split the version into major, minor, and patch
-string(REPLACE "." ";" VERSION_LIST ${VERSION})
-list(GET VERSION_LIST 0 VERSION_MAJOR)
-list(GET VERSION_LIST 1 VERSION_MINOR)
-list(GET VERSION_LIST 2 VERSION_PATCH)
+# Parse version components
+string(REGEX MATCH "([0-9]+)\\.([0-9]+)\\.([0-9]+)-([a-zA-Z]+)\\.([0-9]+)" 
+       VERSION_MATCH "${VERSION_CONTENT}")
 
-# Increment the patch version
-math(EXPR VERSION_PATCH "${VERSION_PATCH} + 1")
-
-# Combine the new version
-set(NEW_VERSION "${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}")
-
-# Write the new version back to the version file
-file(WRITE "${CMAKE_SOURCE_DIR}/version.txt" "${NEW_VERSION}")
-
-# Output the new version
-message(STATUS "New version: ${NEW_VERSION}")
+if(VERSION_MATCH)
+    set(MAJOR ${CMAKE_MATCH_1})
+    set(MINOR ${CMAKE_MATCH_2})
+    set(BUILD ${CMAKE_MATCH_3})
+    set(TAG ${CMAKE_MATCH_4})
+    set(TAG_VERSION ${CMAKE_MATCH_5})
+    
+    math(EXPR NEW_BUILD "${BUILD} + 1")
+    
+    set(NEW_VERSION "${MAJOR}.${MINOR}.${NEW_BUILD}-${TAG}.${TAG_VERSION}")
+    
+    file(WRITE "${CMAKE_SOURCE_DIR}/Version.txt" "${NEW_VERSION}")
+    
+    message(STATUS "Version updated to ${NEW_VERSION}")
+else()
+    message(FATAL_ERROR "Failed to parse version from Version.txt")
+endif()

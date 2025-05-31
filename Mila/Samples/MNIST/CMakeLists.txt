@@ -15,12 +15,8 @@ PUBLIC
 		"Src/MnistConfig.ixx"
 )
 
-add_custom_command(
-    TARGET MnistApp POST_BUILD
-	COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different 
-        "${CMAKE_SOURCE_DIR}/Data/DataSets/Mnist/"
-        "${CMAKE_BINARY_DIR}/Data/Mnist/"
-    COMMENT "Copying data directory to build output directory"
-)
+if(MILA_ENABLE_COPY_MODEL_DATA)
+    add_dependencies(MnistSample MilaCopyData)
+endif()
 
 target_link_libraries( MnistApp PRIVATE Mila CUDA::cudart )

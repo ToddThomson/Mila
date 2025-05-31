@@ -1,5 +1,5 @@
-﻿# CMakeList.txt : Root CMake project for the Mila library  
-#  
+﻿# CMakeList.txt : Root CMake project for the Mila Project
+
 cmake_minimum_required (VERSION 3.31)  
  
 project(MilaProject LANGUAGES CXX CUDA)  
@@ -16,6 +16,7 @@ option(MILA_ENABLE_BENCHMARKS "Enable Mila Library benchmarks." ON)
 option(MILA_ENABLE_GPT2_TESTING "Enable GPT2 tests." OFF)  
 option(MILA_ENABLE_SAMPLES "Enable Mila Library samples." ON)
 option(MILA_ENABLE_OPENMP "Enable OpenMP support." OFF)
+option(MILA_ENABLE_COPY_MODEL_DATA "Copy data directory for samples and tests." ON)
 
 # Use CPM to manage dependencies
 include(Cmake/CPM.cmake)
@@ -38,6 +39,14 @@ CPMAddPackage(
 find_package(CUDAToolkit REQUIRED)  
 find_package(miniz REQUIRED)
 find_package(nlohmann_json REQUIRED)
+
+add_custom_target(MilaUpdateVersion
+    COMMAND ${CMAKE_COMMAND} 
+        -D CMAKE_SOURCE_DIR=${CMAKE_SOURCE_DIR}
+        -P ${CMAKE_SOURCE_DIR}/cmake/IncrementVersion.cmake
+    COMMENT "Incrementing build version number"
+    VERBATIM
+)
 
 if(MILA_ENABLE_OPENMP)
    find_package(OpenMP)
