@@ -1,5 +1,5 @@
 /**
- * @file CpuMultiHeadAttention.ixx
+ * @file CpuMultiHeadAttentionOp.ixx
  * @brief Implementation of the CPU-based attention operation for neural networks.
  */
 

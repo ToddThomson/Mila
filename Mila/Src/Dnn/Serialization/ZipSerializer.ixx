@@ -1,5 +1,5 @@
 /**
- * @file ZipModelSerializer.ixx
+ * @file ZipSerializer.ixx
  * @brief Implements the ModelSerializer interface using miniz for ZIP archives
  */
 
@@ -19,13 +19,13 @@ namespace Mila::Dnn::Serialization
     /**
      * @brief Implementation of ModelSerializer using miniz for ZIP archives
      */
-    export class ZipModelSerializer : public ModelSerializer {
+    export class ZipSerializer : public ModelSerializer {
     public:
-        ZipModelSerializer() {
+        ZipSerializer() {
             memset( &zip_, 0, sizeof( zip_ ) );
         }
 
-        ~ZipModelSerializer() {
+        ~ZipSerializer() {
             close();
         }
 

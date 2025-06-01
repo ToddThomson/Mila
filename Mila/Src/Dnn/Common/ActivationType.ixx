@@ -1,5 +1,5 @@
 /**
- * @file ActivationTypes.ixx
+ * @file ActivationType.ixx
  * @brief Definition of activation function types used throughout the Mila library.
  */
 

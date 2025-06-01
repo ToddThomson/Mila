@@ -147,7 +147,7 @@ PUBLIC
         "Src/Dnn/Compute/Operations/Cpu/CpuOperations.ixx"
         "Src/Dnn/Compute/Operations/Cpu/CpuEncoderOp.ixx" 
         "Src/Dnn/Compute/Operations/Cpu/CpuLayerNormOp.ixx" 
-        "Src/Dnn/Compute/Operations/Cpu/CpuMutiHeadAttentionOp.ixx" 
+        "Src/Dnn/Compute/Operations/Cpu/CpuMultiHeadAttentionOp.ixx" 
         "Src/Dnn/Compute/Operations/Cpu/CpuResidualOp.ixx" 
         "Src/Dnn/Compute/Operations/Cpu/CpuLinearOp.ixx"
         "Src/Dnn/Compute/Operations/Cpu/CpuSoftmaxOp.ixx"
@@ -220,7 +220,7 @@ PUBLIC
         
         # Regularization
         "Src/Dnn/Modules/Regularization/Dropout.ixx"
-        "Src/Dnn/Modules/Regularization/DroputConfig.ixx"
+        "Src/Dnn/Modules/Regularization/DropoutConfig.ixx"
         
         # Blocks
         "Src/Dnn/Modules/Blocks/MLP.ixx"
@@ -244,8 +244,8 @@ PUBLIC
         #---------------------------------------------------------------
         # Serialization
         #---------------------------------------------------------------
-        "Src/Dnn/Serialization/ModuleSerializer.ixx"
-        "Src/Dnn/Serialization/ZipFileSerializer.ixx"
+        "Src/Dnn/Serialization/ModelSerializer.ixx"
+        "Src/Dnn/Serialization/ZipSerializer.ixx"
         "Src/Dnn/Serialization/ModelArchive.ixx"
 
         #---------------------------------------------------------------

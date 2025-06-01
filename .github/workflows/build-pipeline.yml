@@ -116,5 +116,5 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: JamesIves/github-pages-deploy-action@v4
         with:
-          folder: ${{github.workspace}}/docs
+          folder: ${{github.workspace}}/build/docs/html
           branch: gh-pages
