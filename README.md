@@ -14,6 +14,13 @@ Mila utilizes the NVIDIA CUDA runtime for high-performance GPU acceleration, ena
 training and inference on large-scale datasets. The library also supports distributed training
 across multiple GPUs and compute nodes, with automatic optimization for various hardware configurations.
 
+## Documentation
+Comprehensive Online documentation is available:
+
+- **Online Documentation**: The complete API reference is hosted on GitHub Pages at [https://toddthomson.github.io/Mila](https://toddthomson.github.io/Mila)
+
+The documentation includes class references, usage examples, and architecture guides. It is automatically updated through our GitHub Actions workflow whenever changes are pushed to the master branch.
+
 ## Top Features
 1. Deep Neural Nets
    * GPT2, Recurrent Neural Networks
@@ -146,14 +153,6 @@ Mila uses CMake build. To build Mila, follow the steps below:
 * NVIDIA CUDA Runtime, 12.9
 * CMake 3.31 or later
 * GTest framework for unit testing, 1.17.0
-
-## Documentation
-Comprehensive Online documentation is available:
-
-- **Online Documentation**: The complete API reference is hosted on GitHub Pages at [https://toddthomson.github.io/mila](https://toddthomson.github.io/mila)
-
-The documentation includes class references, usage examples, and architecture guides. It is automatically updated through our GitHub Actions workflow whenever changes are pushed to the master branch.
-
 
 ## License
 Mila is licensed under the Apache License 2.0. You may obtain a copy of the License at
