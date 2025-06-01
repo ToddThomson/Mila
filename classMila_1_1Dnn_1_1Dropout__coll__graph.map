@@ -1,0 +1,12 @@
+<map id="Mila::Dnn::Dropout&lt; TDeviceType, TInput, TOutput &gt;" name="Mila::Dnn::Dropout&lt; TDeviceType, TInput, TOutput &gt;">
+<area shape="rect" id="Node000001" title="Dropout regularization module for neural networks." alt="" coords="623,69,796,124"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Module.html" title="Abstract base class for all modules in the Mila DNN framework." alt="" coords="323,5,486,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="500,50,623,76,622,81,499,55"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1ComponentConfig.html" title="Base configuration class for all neural network components." alt="" coords="5,53,213,79"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="227,50,323,39,323,44,227,55"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1DropoutConfig.html" title="Configuration class for Dropout module." alt="" coords="312,84,497,109"/>
+<area shape="poly" id="edge4_Node000004_Node000003" title=" " alt="" coords="227,76,312,84,311,90,227,81"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="511,94,623,94,623,99,511,99"/>
+<area shape="rect" id="Node000005" href="$structMila_1_1Dnn_1_1Compute_1_1OperationAttributes.html" title="Common attributes for neural network operations." alt="" coords="325,134,484,174"/>
+<area shape="poly" id="edge5_Node000001_Node000005" title=" " alt="" coords="497,134,622,110,623,116,498,139"/>
+</map>

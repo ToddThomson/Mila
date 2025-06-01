@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::Compute::DeviceContext::makeCurrent" name="Mila::Dnn::Compute::DeviceContext::makeCurrent">
+<area shape="rect" id="Node000001" title="Gets the cuDNN handle, initializing it if necessary." alt="" coords="5,5,224,45"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#aa0be82bb15781cc2d3239b7cea4da717" title="Checks if the current device is a CUDA device." alt="" coords="272,5,495,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="224,23,258,23,258,28,224,28"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#a4105deade514dfadccff3d9b21a6c4ed" title="Checks if the current device is of a specific type." alt="" coords="543,5,763,45"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="495,23,529,23,529,28,495,28"/>
+</map>

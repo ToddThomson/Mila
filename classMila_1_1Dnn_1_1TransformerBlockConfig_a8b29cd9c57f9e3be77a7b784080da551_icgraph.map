@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::TransformerBlockConfig::usePreLayerNorm" name="Mila::Dnn::TransformerBlockConfig::usePreLayerNorm">
+<area shape="rect" id="Node000001" title="Check if using pre&#45;layer normalization." alt="" coords="260,37,467,77"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1TransformerBlock.html#a9ee1bc839fc5aa2c29992d6279849b45" title="Performs the forward pass of the TransformerBlock." alt="" coords="5,5,212,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="246,45,212,41,213,36,247,40"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1TransformerBlock.html#add82601fef958270857c9bfcdc7bc238" title="Generates a string representation of this module&#39;s configuration." alt="" coords="5,69,212,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="247,75,213,79,212,74,246,69"/>
+</map>

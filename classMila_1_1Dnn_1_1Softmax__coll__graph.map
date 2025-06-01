@@ -1,0 +1,12 @@
+<map id="Mila::Dnn::Softmax&lt; TDeviceType, TInput, TOutput &gt;" name="Mila::Dnn::Softmax&lt; TDeviceType, TInput, TOutput &gt;">
+<area shape="rect" id="Node000001" title="Softmax module for neural networks." alt="" coords="621,69,795,124"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Module.html" title="Abstract base class for all modules in the Mila DNN framework." alt="" coords="324,5,487,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="501,50,622,76,621,81,500,55"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1ComponentConfig.html" title="Base configuration class for all neural network components." alt="" coords="5,53,213,79"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="227,50,324,39,324,44,227,55"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1SoftmaxConfig.html" title="Configuration class for Softmax module." alt="" coords="312,84,499,109"/>
+<area shape="poly" id="edge4_Node000004_Node000003" title=" " alt="" coords="228,76,312,84,311,90,227,81"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="512,94,621,94,621,99,512,99"/>
+<area shape="rect" id="Node000005" href="$structMila_1_1Dnn_1_1Compute_1_1OperationAttributes.html" title="Common attributes for neural network operations." alt="" coords="326,134,485,174"/>
+<area shape="poly" id="edge5_Node000001_Node000005" title=" " alt="" coords="498,134,621,110,622,116,499,139"/>
+</map>

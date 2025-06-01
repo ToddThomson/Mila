@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Compute::getDriverVersion" name="Mila::Dnn::Compute::getDriverVersion">
+<area shape="rect" id="Node000001" title="Gets the installed CUDA driver version." alt="" coords="224,5,375,45"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceProps.html#aee43b0cbb5985b608ed2f51d6d5b5ce9" title=" " alt="" coords="5,5,176,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="210,28,176,28,176,23,210,23"/>
+</map>

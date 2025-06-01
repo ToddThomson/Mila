@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::MultiHeadAttention::getEmbeddingDim" name="Mila::Dnn::MultiHeadAttention::getEmbeddingDim">
+<area shape="rect" id="Node000001" title="Gets the embedding dimension." alt="" coords="5,5,224,45"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1MultiHeadAttentionConfig.html#a926d9fe05b112e67fce76f47fd437fd6" title="Get the embedding dimension." alt="" coords="272,5,491,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="224,23,258,23,258,28,224,28"/>
+</map>

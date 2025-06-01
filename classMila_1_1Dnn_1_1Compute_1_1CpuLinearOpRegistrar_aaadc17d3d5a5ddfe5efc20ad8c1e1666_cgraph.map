@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::Compute::CpuLinearOpRegistrar::registerOperations" name="Mila::Dnn::Compute::CpuLinearOpRegistrar::registerOperations">
+<area shape="rect" id="Node000001" title="Registers the CpuLinearOp operation with the OperationRegistry." alt="" coords="5,45,177,100"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a56e3658d8b09dd388ca379aefcdeb17f" title="Get the singleton instance of the OperationRegistry." alt="" coords="241,5,392,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="177,55,228,46,229,51,178,60"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a9f6cf8041f25ce8339b221d28d4ef022" title="Register a unary operation creator for a specific device type." alt="" coords="225,84,408,139"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="178,85,212,91,211,96,177,90"/>
+</map>

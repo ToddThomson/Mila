@@ -1,7 +1,0 @@
-<map id="Mila::Dnn::TransformerBlock&lt; TInput, TCompute &gt;" name="Mila::Dnn::TransformerBlock&lt; TInput, TCompute &gt;">
-<area shape="rect" id="Node000001" title=" " alt="" coords="353,89,560,129"/>
-<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Module.html" title="Abstract base class for all modules in the Mila DNN framework." alt="" coords="17,5,167,60"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="182,30,255,35,330,49,379,66,421,86,419,91,377,71,329,54,254,40,181,35"/>
-<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Tensor.html" title=" " alt="" coords="5,150,179,219"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="193,197,261,197,295,193,329,186,358,175,386,159,431,127,434,131,389,164,360,180,330,191,296,199,261,203,193,202"/>
-</map>

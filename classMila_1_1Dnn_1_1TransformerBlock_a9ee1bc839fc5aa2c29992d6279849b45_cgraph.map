@@ -1,0 +1,9 @@
+<map id="Mila::Dnn::TransformerBlock::forward" name="Mila::Dnn::TransformerBlock::forward">
+<area shape="rect" id="Node000001" title="Performs the forward pass of the TransformerBlock." alt="" coords="5,47,212,87"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Tensor.html#aa7d911be367de341882a9cf94d73284d" title="Gets a pointer to the tensor data with memory type safety." alt="" coords="278,5,449,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="212,45,283,31,284,36,213,50"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Tensor.html#af952a34808a4ad53bc9588854ddd8592" title=" " alt="" coords="279,55,447,80"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="212,65,265,65,265,70,212,70"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1TransformerBlockConfig.html#a8b29cd9c57f9e3be77a7b784080da551" title="Check if using pre&#45;layer normalization." alt="" coords="260,105,467,145"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="199,85,261,99,260,104,198,90"/>
+</map>

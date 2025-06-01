@@ -1,0 +1,30 @@
+<map id="Mila::Dnn::Compute::DeviceContext::isDeviceType" name="Mila::Dnn::Compute::DeviceContext::isDeviceType">
+<area shape="rect" id="Node000001" title="Checks if the current device is of a specific type." alt="" coords="1388,221,1608,261"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#aa0be82bb15781cc2d3239b7cea4da717" title="Checks if the current device is a CUDA device." alt="" coords="1117,221,1340,261"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="1374,243,1340,243,1340,238,1374,238"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#a4620f615ff3dae0d121c68d1c5af77b6" title="Gets the compute capability of the current CUDA device." alt="" coords="837,5,1052,60"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="1204,211,1147,142,1110,105,1068,74,1047,62,1049,58,1071,69,1113,101,1151,138,1208,208"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#a77f02b7b4dc653665c239c61bbe6cee0" title="Gets the cuBLASLt handle, initializing it if necessary." alt="" coords="845,84,1044,139"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="1183,216,1129,184,1068,154,1037,141,1039,136,1070,149,1132,180,1186,211"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#a246898ffabcabadcf96a22c974d5b87c" title="Gets the ID of the current CUDA device." alt="" coords="839,163,1051,203"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="1115,220,1044,206,1045,201,1116,215"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#a439bcf09aae78c73d84fd6bc5b3d4469" title="Initializes resources specific to the current device." alt="" coords="556,213,747,268"/>
+<area shape="poly" id="edge5_Node000002_Node000006" title=" " alt="" coords="1104,243,747,243,747,238,1104,238"/>
+<area shape="rect" id="Node000009" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#ab51af05586b93f8a9867b4e0e0b5209d" title="Gets the cuDNN handle, initializing it if necessary." alt="" coords="835,278,1054,318"/>
+<area shape="poly" id="edge8_Node000002_Node000009" title=" " alt="" coords="1116,266,1045,281,1044,275,1115,261"/>
+<area shape="rect" id="Node000010" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#adec58c226e24c7d4a0d9ba6b5119874d" title="Synchronizes the device, waiting for all operations to complete." alt="" coords="545,293,757,333"/>
+<area shape="poly" id="edge15_Node000002_Node000010" title=" " alt="" coords="1192,271,1137,305,1104,321,1070,333,987,347,902,350,821,345,750,335,750,330,821,339,902,344,986,342,1069,327,1102,316,1134,301,1189,266"/>
+<area shape="rect" id="Node000011" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#a3da2632ad08d0ef326d3a51ed3c46284" title="Releases all device&#45;specific resources." alt="" coords="820,399,1069,439"/>
+<area shape="poly" id="edge11_Node000002_Node000011" title=" " alt="" coords="1200,273,1143,325,1108,352,1071,376,1015,402,1013,397,1068,372,1105,348,1140,321,1197,269"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#a8e36e81342090136e9f33153a73165e0" title="Sets the current device by name." alt="" coords="284,286,483,326"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="543,270,467,289,465,283,542,265"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#a66052215400fe2b037fc7e490722ebf0" title="Constructor with a specific device." alt="" coords="5,286,236,326"/>
+<area shape="poly" id="edge7_Node000007_Node000008" title=" " alt="" coords="270,309,236,309,236,303,270,303"/>
+<area shape="poly" id="edge9_Node000009_Node000006" title=" " alt="" coords="828,278,746,262,747,257,829,273"/>
+<area shape="poly" id="edge10_Node000009_Node000010" title=" " alt="" coords="821,307,758,310,757,305,821,301"/>
+<area shape="poly" id="edge14_Node000011_Node000007" title=" " alt="" coords="806,400,672,376,530,347,455,329,456,323,531,342,673,371,807,395"/>
+<area shape="rect" id="Node000012" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#ab38f3619ed2c3c117a833b21d3223b61" title="Destructor." alt="" coords="531,407,772,447"/>
+<area shape="poly" id="edge12_Node000011_Node000012" title=" " alt="" coords="806,426,772,427,772,421,806,420"/>
+<area shape="rect" id="Node000013" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#a883e401e8e1be2c8513a95e99a7e4235" title="Move assignment operator." alt="" coords="551,471,751,511"/>
+<area shape="poly" id="edge13_Node000011_Node000013" title=" " alt="" coords="850,445,734,474,733,469,849,440"/>
+</map>

@@ -1,0 +1,31 @@
+<map id="Mila::Dnn::LayerNorm::LayerNorm" name="Mila::Dnn::LayerNorm::LayerNorm">
+<area shape="rect" id="Node000001" title="Constructs a new LayerNorm module with a device name." alt="" coords="5,389,169,429"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1LayerNorm.html#a25b5ec6b9949754ba93bad41693d6d06" title="Creates the appropriate Layer Normalization operation based on the current device context." alt="" coords="238,121,402,161"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="104,387,291,169,295,173,108,390"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1LayerNorm.html#a0611d4cdf0051e123e56129948881d4b" title="Initializes the tensors needed for the Layer Normalization operation." alt="" coords="238,389,402,429"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="170,406,224,406,224,411,170,411"/>
+<area shape="rect" id="Node000014" href="$classMila_1_1Dnn_1_1LayerNormConfig.html#a3a252a17453484a178d2f2283891b7b3" title="Validate configuration parameters." alt="" coords="217,517,423,557"/>
+<area shape="poly" id="edge13_Node000001_Node000014" title=" " alt="" coords="126,426,272,508,270,512,123,431"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a8bcbbd6e474b44727458887b4685f43e" title="Create a unary operation based on the type information, device type, and operation name." alt="" coords="487,5,662,60"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="363,118,470,70,488,63,490,68,472,75,365,123"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Module.html#a1163624b16a6518b2ed573f51827759d" title="Get the device context for this module." alt="" coords="501,85,649,125"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="402,126,487,114,487,120,402,132"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a56e3658d8b09dd388ca379aefcdeb17f" title="Get the singleton instance of the OperationRegistry." alt="" coords="499,149,650,204"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="402,150,486,161,485,167,402,155"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1LayerNormConfig.html#a1d4533bb81b66072a8d29e7dae6cddbd" title="Get the configured normalization axis." alt="" coords="472,229,677,269"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="338,387,393,333,430,304,469,278,483,272,485,276,472,283,433,308,397,337,342,390"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1LayerNormConfig.html#a8044d803f5d2e842ab1ac2997ffd8acc" title="Get the configured epsilon value." alt="" coords="472,293,677,333"/>
+<area shape="poly" id="edge7_Node000006_Node000008" title=" " alt="" coords="364,386,470,342,492,334,494,339,472,347,366,391"/>
+<area shape="rect" id="Node000009" href="$classMila_1_1Dnn_1_1LayerNormConfig.html#a14c603c12768b9c2aa50df68a9398e4a" title="Get the configured input shape." alt="" coords="472,357,677,397"/>
+<area shape="poly" id="edge8_Node000006_Node000009" title=" " alt="" coords="402,396,458,389,458,394,402,401"/>
+<area shape="rect" id="Node000010" href="$classMila_1_1Dnn_1_1Module.html#a2c8e8735eaf75d6bad6d454f7d23b2ca" title="Get the name of the module." alt="" coords="501,421,649,461"/>
+<area shape="poly" id="edge9_Node000006_Node000010" title=" " alt="" coords="402,416,487,427,487,432,402,422"/>
+<area shape="rect" id="Node000012" href="$classMila_1_1Dnn_1_1LayerNormConfig.html#a3f7e3f60dcddd6b13951b924a49abf4c" title="Check if bias is enabled." alt="" coords="472,485,677,525"/>
+<area shape="poly" id="edge11_Node000006_Node000012" title=" " alt="" coords="366,426,472,470,494,478,492,483,470,475,364,431"/>
+<area shape="rect" id="Node000013" href="$structMila_1_1Dnn_1_1Compute_1_1OperationAttributes.html#a77b49c21d0b585acf519138c166b6687" title="Helper method to set a value in the propsMap." alt="" coords="481,549,668,589"/>
+<area shape="poly" id="edge12_Node000006_Node000013" title=" " alt="" coords="344,427,411,487,472,534,485,541,483,546,469,539,407,491,341,431"/>
+<area shape="rect" id="Node000011" href="$classMila_1_1Dnn_1_1ComponentConfig.html#a35f7308c0a3de2579d0df7cdbb7ec268" title="Gets the configured component name." alt="" coords="727,421,935,461"/>
+<area shape="poly" id="edge10_Node000010_Node000011" title=" " alt="" coords="649,438,713,438,713,443,649,443"/>
+<area shape="rect" id="Node000015" href="$classMila_1_1Dnn_1_1ComponentConfig.html#ab1b9997f5b9604f0f60b68985f2f3ffc" title="Validates the configuration." alt="" coords="471,613,679,653"/>
+<area shape="poly" id="edge14_Node000014_Node000015" title=" " alt="" coords="366,554,472,598,494,606,492,611,470,603,364,559"/>
+</map>

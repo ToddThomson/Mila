@@ -1,0 +1,15 @@
+<map id="Graphical Class Hierarchy" name="Graphical Class Hierarchy">
+<area shape="rect" id="Node000000" title=" " alt="" coords="5,173,141,198"/>
+<area shape="rect" id="Node000001" href="$classMila_1_1Dnn_1_1Compute_1_1CpuMemoryResource.html" title="A memory resource for CPU memory allocation." alt="" coords="223,5,393,45"/>
+<area shape="poly" id="edge1_Node000000_Node000001" title=" " alt="" coords="88,159,129,107,157,79,188,55,222,39,224,44,191,60,160,83,133,110,92,163"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1CudaManagedMemoryResource.html" title="A memory resource that uses CUDA managed memory." alt="" coords="189,69,427,109"/>
+<area shape="poly" id="edge2_Node000000_Node000002" title=" " alt="" coords="104,163,144,140,188,119,222,107,224,112,190,124,146,145,107,168"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1CudaMemoryResource.html" title="A memory resource that allocates memory on a CUDA device." alt="" coords="219,133,397,173"/>
+<area shape="poly" id="edge3_Node000000_Node000003" title=" " alt="" coords="155,172,219,163,219,168,155,177"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Compute_1_1CudaPinnedMemoryResource.html" title="A memory resource that allocates pinned (page&#45;locked) memory using CUDA." alt="" coords="197,197,419,237"/>
+<area shape="poly" id="edge4_Node000000_Node000004" title=" " alt="" coords="155,194,198,200,197,205,155,199"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Compute_1_1DynamicMemoryResource.html" title="A class that represents a dynamically&#45;determined memory resource." alt="" coords="207,261,409,301"/>
+<area shape="poly" id="edge5_Node000000_Node000005" title=" " alt="" coords="107,203,146,226,190,247,224,259,222,264,188,252,144,230,104,208"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1Compute_1_1TrackedMemoryResource.html" title="A memory resource wrapper that tracks allocation and deallocation statistics." alt="" coords="211,325,405,365"/>
+<area shape="poly" id="edge6_Node000000_Node000006" title=" " alt="" coords="92,208,133,261,160,288,191,311,214,323,212,328,188,316,157,292,129,264,88,211"/>
+</map>

@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Compute::CpuLinearOp::forward_naive" name="Mila::Dnn::Compute::CpuLinearOp::forward_naive">
+<area shape="rect" id="Node000001" title="Naive implementation of the forward pass for the Fully Connected operation." alt="" coords="224,5,439,45"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1CpuLinearOp.html#af867c7dd9729b6333f475d409b9979dc" title="Performs the forward pass of the Linear operation." alt="" coords="5,5,176,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="210,28,176,28,176,23,210,23"/>
+</map>

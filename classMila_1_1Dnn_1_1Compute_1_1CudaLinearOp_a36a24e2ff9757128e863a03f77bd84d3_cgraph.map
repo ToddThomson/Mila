@@ -1,0 +1,17 @@
+<map id="Mila::Dnn::Compute::CudaLinearOp::forward" name="Mila::Dnn::Compute::CudaLinearOp::forward">
+<area shape="rect" id="Node000001" title="Performs the forward pass of the Fully Connected operation on CUDA." alt="" coords="5,134,184,174"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1OperationBase.html#a89f65f9750a87e52fdc8f8095f18ba9a" title="Gets the device context associated with this operation." alt="" coords="232,5,432,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="125,131,174,101,231,69,243,63,245,68,233,74,176,105,127,136"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Tensor.html#a6a75cbf90898bc3d40a01121b3bb8921" title=" " alt="" coords="247,84,417,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="177,131,265,110,266,115,179,137"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Tensor.html#a4f707ea4c0f00aab58189071fa1c11fd" title="Gets a raw pointer to the tensor data for use in CUDA kernels." alt="" coords="261,134,403,174"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="184,151,247,151,247,157,184,157"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Tensor.html#a294130f763b905cf0125c9bd4fba4970" title=" " alt="" coords="261,198,403,238"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="170,172,248,193,247,198,169,177"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Utils_1_1Logger.html#adb3c53cb169b92a9840b2d1d5f1c729a" title=" " alt="" coords="262,262,402,302"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="121,172,171,210,233,248,250,255,248,260,231,252,168,214,118,176"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Utils_1_1Logger.html#a0544e33077d84fa174dd2110ef333a65" title=" " alt="" coords="480,230,620,270"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="402,269,466,260,467,265,402,274"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Utils_1_1Logger.html#a0342cf64754338574ccf7c28f6482d98" title=" " alt="" coords="480,294,620,334"/>
+<area shape="poly" id="edge7_Node000006_Node000008" title=" " alt="" coords="402,290,467,299,466,304,402,295"/>
+</map>

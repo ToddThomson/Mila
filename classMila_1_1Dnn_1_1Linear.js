@@ -1,0 +1,27 @@
+var classMila_1_1Dnn_1_1Linear =
+[
+    [ "ModuleBase", "classMila_1_1Dnn_1_1Linear.html#a710887819c721cd2c37f32b498a864b8", null ],
+    [ "MR", "classMila_1_1Dnn_1_1Linear.html#aceb8208f58fe2429ae881e49dba1db86", null ],
+    [ "Linear", "classMila_1_1Dnn_1_1Linear.html#a7d2592ef7cffc2fcbca2a0391d2d6c24", null ],
+    [ "Linear", "classMila_1_1Dnn_1_1Linear.html#a160506d377a764b33f1f33be9502b93a", null ],
+    [ "backward", "classMila_1_1Dnn_1_1Linear.html#af234319f6f25d4050707dd13a2f09061", null ],
+    [ "createOperation", "classMila_1_1Dnn_1_1Linear.html#a90ab295e91a2bfaf2759c239315ee1b5", null ],
+    [ "forward", "classMila_1_1Dnn_1_1Linear.html#a390996f85fefb3a47f37fdb0c46fb8a3", null ],
+    [ "getBias", "classMila_1_1Dnn_1_1Linear.html#a1d8b4704c7b0822cea0aef3ecf0f1f11", null ],
+    [ "getWeight", "classMila_1_1Dnn_1_1Linear.html#adf478ff248517b71f8d479a0f3e2d189", null ],
+    [ "hasBias", "classMila_1_1Dnn_1_1Linear.html#abc02b6311f73b4191428a1cf1ba61c1c", null ],
+    [ "initializeParameterGradients", "classMila_1_1Dnn_1_1Linear.html#ade8ed2bf06a41d3d143640588adc9f7b", null ],
+    [ "initializeParameters", "classMila_1_1Dnn_1_1Linear.html#a0e3d3709494390a6c489865c9b48828b", null ],
+    [ "load", "classMila_1_1Dnn_1_1Linear.html#a0a89c03f823cc179d2ef81d2a7498714", null ],
+    [ "parameterCount", "classMila_1_1Dnn_1_1Linear.html#a095ac676ed9046f387cb53d9c0d90605", null ],
+    [ "save", "classMila_1_1Dnn_1_1Linear.html#a8dd91ba09188d88d9face93cefe36eb7", null ],
+    [ "toString", "classMila_1_1Dnn_1_1Linear.html#a0c546375aeed14578ca460df4569b394", null ],
+    [ "bias_", "classMila_1_1Dnn_1_1Linear.html#a4a3335ab32c0cb8a5e1ec84513d87dc9", null ],
+    [ "config_", "classMila_1_1Dnn_1_1Linear.html#a2e2aaa580d0a15b59d4b85135067837a", null ],
+    [ "operation_", "classMila_1_1Dnn_1_1Linear.html#a86f28ad818ada9d348b562db5d750178", null ],
+    [ "output_state_", "classMila_1_1Dnn_1_1Linear.html#a86ac046345afa763837c4832404739f8", null ],
+    [ "parameter_grads_", "classMila_1_1Dnn_1_1Linear.html#abafee5dc27e10bf2a1a3b578afd610a9", null ],
+    [ "parameters_", "classMila_1_1Dnn_1_1Linear.html#ab322ce9157476ede43eccf918a4ab9d0", null ],
+    [ "properties_", "classMila_1_1Dnn_1_1Linear.html#a44a27aa6b7008135cf1106c5dffd50b9", null ],
+    [ "weight_", "classMila_1_1Dnn_1_1Linear.html#a0dae3ee08bd0274f9e3c17d65892b080", null ]
+];

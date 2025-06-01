@@ -1,0 +1,25 @@
+<map id="Mila::Dnn::Gpt2::DatasetReader::DatasetReader" name="Mila::Dnn::Gpt2::DatasetReader::DatasetReader">
+<area shape="rect" id="Node000001" title="Constructs a new DatasetReader object." alt="" coords="5,149,188,189"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Gpt2_1_1DatasetReader.html#a8bc5d3c2343b4b8a195a8cf181321dfe" title="Allocates memory for tensor buffers." alt="" coords="720,5,911,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="115,147,166,102,199,79,235,62,295,42,358,28,485,12,605,8,707,12,706,17,605,13,485,17,359,33,297,47,237,66,202,84,169,106,118,151"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Gpt2_1_1DatasetReader.html#a349b72115549800243e8d0b887179520" title="Logs messages through the configured logger." alt="" coords="959,149,1141,189"/>
+<area shape="poly" id="edge8_Node000001_Node000003" title=" " alt="" coords="131,147,179,124,235,105,335,90,437,83,539,84,638,91,732,101,819,115,959,144,958,149,818,120,732,107,637,96,538,89,437,89,335,95,237,111,181,129,134,152"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Gpt2_1_1DatasetReader.html#a7435f4b9336c4cabf538a9d822e39b2e" title="Frees previously allocated memory." alt="" coords="236,120,419,160"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="188,155,222,151,223,156,188,160"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Gpt2_1_1DatasetReader.html#ab11045457f4f74e62434b7f9bb3dbf3a" title="Initializes the dataset access without loading the entire file into memory." alt="" coords="475,120,663,160"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="188,169,236,169,328,173,367,173,418,169,476,160,476,166,419,175,368,178,327,178,236,175,188,174"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1Gpt2_1_1DatasetReader.html#aa225047bffb4b063e6083798f82b9dae" title="Background thread function that preprocesses raw data into input/target pairs." alt="" coords="467,299,672,339"/>
+<area shape="poly" id="edge9_Node000001_Node000007" title=" " alt="" coords="117,188,167,238,200,264,237,284,290,302,346,313,401,320,453,322,453,327,401,325,345,319,289,307,235,289,197,268,163,242,113,192"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1Gpt2_1_1DatasetReader.html#a85bf5d58022ab1c18ae4e45d5a43293a" title="Background thread function that reads data from the dataset file." alt="" coords="236,235,419,275"/>
+<area shape="poly" id="edge11_Node000001_Node000008" title=" " alt="" coords="152,187,261,227,259,232,151,192"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="874,43,912,62,969,100,1017,138,1014,142,966,104,909,66,871,48"/>
+<area shape="poly" id="edge7_Node000005_Node000003" title=" " alt="" coords="664,143,945,160,945,166,663,148"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1Gpt2_1_1DatasetReader.html#a543827d3e6b6b4cfe18e7ee0311b8db6" title="Loads a specific window of tokens from the dataset file." alt="" coords="724,177,907,217"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="656,157,716,172,715,177,655,163"/>
+<area shape="poly" id="edge6_Node000006_Node000003" title=" " alt="" coords="907,184,945,179,945,184,907,189"/>
+<area shape="poly" id="edge10_Node000007_Node000003" title=" " alt="" coords="672,319,728,316,789,310,851,297,910,278,941,261,971,240,1020,197,1023,201,974,245,944,266,912,282,852,302,789,315,728,322,672,324"/>
+<area shape="poly" id="edge14_Node000008_Node000003" title=" " alt="" coords="419,258,520,261,644,259,778,249,910,227,957,212,999,193,1001,198,958,217,911,232,778,254,644,265,520,266,419,263"/>
+<area shape="rect" id="Node000009" href="$classMila_1_1Dnn_1_1Gpt2_1_1DatasetReader.html#a5e653608603d8507891d91ba3271e21e" title="Gets a non&#45;owning view of tokens at the specified position." alt="" coords="478,184,661,224"/>
+<area shape="poly" id="edge12_Node000008_Node000009" title=" " alt="" coords="418,233,464,223,465,228,419,238"/>
+<area shape="poly" id="edge13_Node000009_Node000006" title=" " alt="" coords="661,199,710,198,710,203,661,204"/>
+</map>

@@ -1,0 +1,9 @@
+<map id="Mila::Dnn::Dropout::createOperation" name="Mila::Dnn::Dropout::createOperation">
+<area shape="rect" id="Node000001" title="Creates the appropriate Dropout operation based on the current device context." alt="" coords="5,85,149,125"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a8bcbbd6e474b44727458887b4685f43e" title="Create a unary operation based on the type information, device type, and operation name." alt="" coords="197,5,372,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="135,82,192,62,194,67,137,87"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Module.html#a1163624b16a6518b2ed573f51827759d" title="Get the device context for this module." alt="" coords="211,85,359,125"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="150,102,197,102,197,107,150,107"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a56e3658d8b09dd388ca379aefcdeb17f" title="Get the singleton instance of the OperationRegistry." alt="" coords="209,149,360,204"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="137,122,197,144,195,149,135,127"/>
+</map>

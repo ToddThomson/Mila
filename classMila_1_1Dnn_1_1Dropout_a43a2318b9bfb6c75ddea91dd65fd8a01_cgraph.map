@@ -1,0 +1,11 @@
+<map id="Mila::Dnn::Dropout::generateMask" name="Mila::Dnn::Dropout::generateMask">
+<area shape="rect" id="Node000001" title="Generates a new dropout mask for the given shape." alt="" coords="5,85,149,125"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Tensor.html#aa7d911be367de341882a9cf94d73284d" title="Gets a pointer to the tensor data with memory type safety." alt="" coords="207,5,378,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="112,82,196,41,222,32,224,37,198,46,114,87"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1DropoutConfig.html#a39ced82b948d81cba3958ab8354e3afc" title="Get the configured dropout probability." alt="" coords="200,55,385,95"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="149,92,186,87,187,92,150,98"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Tensor.html#af952a34808a4ad53bc9588854ddd8592" title=" " alt="" coords="209,120,377,145"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="150,111,195,117,195,123,149,117"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1DropoutConfig.html#ac8ca08d4db6a602d6f79ff3b15a24b28" title="Check if the same mask is used for all elements in a batch." alt="" coords="197,170,388,210"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="123,122,198,154,221,163,219,168,196,159,121,127"/>
+</map>

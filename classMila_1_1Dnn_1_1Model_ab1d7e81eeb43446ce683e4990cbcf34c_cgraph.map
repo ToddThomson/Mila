@@ -1,0 +1,14 @@
+<map id="Mila::Dnn::Model::print" name="Mila::Dnn::Model::print">
+<area shape="rect" id="Node000001" title="Prints the model&#39;s structure and total number of parameters." alt="" coords="5,121,176,146"/>
+<area shape="rect" id="Node000002" href="$namespaceMila_1_1Dnn_1_1Compute.html#abc57784bcbd77f21ea2524f0161e7e4f" title="Converts a DeviceType to its string representation." alt="" coords="256,5,407,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="110,118,160,87,223,55,242,47,244,52,225,60,162,92,112,123"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Model.html#a6632abec2ee05c8ddece16bcfd216217" title="Gets the compute device for this model." alt="" coords="228,70,435,95"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="152,118,257,96,258,101,153,123"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Module.html#a1163624b16a6518b2ed573f51827759d" title="Get the device context for this module." alt="" coords="487,88,635,128"/>
+<area shape="poly" id="edge4_Node000001_Node000004" title=" " alt="" coords="176,126,473,110,473,115,176,131"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Module.html#a94b3a479c6e9c49879ef2079d34df471" title="Get the device type of the current device context." alt="" coords="257,171,405,211"/>
+<area shape="poly" id="edge5_Node000001_Node000005" title=" " alt="" coords="145,143,245,167,243,173,144,149"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1Model.html#a13832fb45674627c3bdbe3e9abe5141a" title="Calculates the total number of parameters in the model." alt="" coords="224,235,439,261"/>
+<area shape="poly" id="edge6_Node000001_Node000006" title=" " alt="" coords="108,144,158,182,191,202,225,220,249,229,247,234,223,225,188,207,155,186,105,148"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="435,91,473,96,473,101,434,97"/>
+</map>

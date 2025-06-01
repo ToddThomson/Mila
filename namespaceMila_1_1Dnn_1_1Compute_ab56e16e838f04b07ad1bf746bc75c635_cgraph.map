@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::Compute::listDevicesByType" name="Mila::Dnn::Compute::listDevicesByType">
+<area shape="rect" id="Node000001" title="Lists compute devices of a specific type." alt="" coords="5,37,156,77"/>
+<area shape="rect" id="Node000002" href="$namespaceMila_1_1Dnn_1_1Compute.html#abc57784bcbd77f21ea2524f0161e7e4f" title="Converts a DeviceType to its string representation." alt="" coords="224,5,375,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="156,44,210,36,211,41,157,49"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceRegistry.html#a7fad4212ab870e74917da2abcaf77938" title="Gets the singleton instance of the DeviceRegistry." alt="" coords="204,69,395,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="157,66,191,71,190,76,156,71"/>
+</map>

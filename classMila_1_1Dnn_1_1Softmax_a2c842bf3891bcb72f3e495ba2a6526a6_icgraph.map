@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::Softmax::createOperation" name="Mila::Dnn::Softmax::createOperation">
+<area shape="rect" id="Node000001" title="Creates the appropriate softmax operation for the current device." alt="" coords="200,37,347,77"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Softmax.html#a0dfba728e7d60d978cf816f25e5cd2e7" title="Constructs a new Softmax module with a device name." alt="" coords="5,5,152,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="186,46,152,40,153,35,187,40"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Softmax.html#a6900764a7a23399c3e5e92058b8d2092" title="Constructs a new Softmax module with a provided device context." alt="" coords="5,69,152,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="187,74,153,80,152,75,186,69"/>
+</map>

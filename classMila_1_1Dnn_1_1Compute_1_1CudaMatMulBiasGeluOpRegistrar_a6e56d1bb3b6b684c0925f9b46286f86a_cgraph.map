@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Compute::CudaMatMulBiasGeluOpRegistrar::registerOperations" name="Mila::Dnn::Compute::CudaMatMulBiasGeluOpRegistrar::registerOperations">
+<area shape="rect" id="Node000001" title="Registers the CudaMatMulBiasGeluOp operation with the OperationRegistry." alt="" coords="5,5,252,60"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a56e3658d8b09dd388ca379aefcdeb17f" title="Get the singleton instance of the OperationRegistry." alt="" coords="300,5,451,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="252,30,286,30,286,35,252,35"/>
+</map>

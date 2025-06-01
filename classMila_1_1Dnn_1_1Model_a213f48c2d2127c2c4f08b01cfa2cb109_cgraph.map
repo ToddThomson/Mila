@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::Model::Model" name="Mila::Dnn::Model::Model">
+<area shape="rect" id="Node000001" title="Constructs a new Model object with the default device context." alt="" coords="5,13,185,38"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Model.html#a0ca10625fcafe2818b9b1268be9dba0a" title="Initializes device&#45;specific resources." alt="" coords="233,5,429,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="186,23,220,23,220,28,186,28"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Module.html#a1163624b16a6518b2ed573f51827759d" title="Get the device context for this module." alt="" coords="477,5,625,45"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="430,23,464,23,464,28,430,28"/>
+</map>

@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::Compute::DeviceContext::getCublasLtHandle" name="Mila::Dnn::Compute::DeviceContext::getCublasLtHandle">
+<area shape="rect" id="Node000001" title="Gets the cuBLASLt handle, initializing it if necessary." alt="" coords="5,5,204,60"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#aa0be82bb15781cc2d3239b7cea4da717" title="Checks if the current device is a CUDA device." alt="" coords="252,13,475,53"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="204,30,238,30,238,35,204,35"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#a4105deade514dfadccff3d9b21a6c4ed" title="Checks if the current device is of a specific type." alt="" coords="523,13,743,53"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="475,30,509,30,509,35,475,35"/>
+</map>

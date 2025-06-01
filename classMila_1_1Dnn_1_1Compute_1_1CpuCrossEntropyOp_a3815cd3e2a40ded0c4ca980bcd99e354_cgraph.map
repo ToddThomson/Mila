@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Compute::CpuCrossEntropyOp::backward_impl" name="Mila::Dnn::Compute::CpuCrossEntropyOp::backward_impl">
+<area shape="rect" id="Node000001" title="Helper method for the backward pass implementation." alt="" coords="5,5,164,60"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Tensor.html#a4f707ea4c0f00aab58189071fa1c11fd" title="Gets a raw pointer to the tensor data for use in CUDA kernels." alt="" coords="212,13,355,53"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="164,30,198,30,198,35,164,35"/>
+</map>

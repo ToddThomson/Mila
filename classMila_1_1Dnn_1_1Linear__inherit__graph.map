@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Linear&lt; TDeviceType, TInput, TOutput &gt;" name="Mila::Dnn::Linear&lt; TDeviceType, TInput, TOutput &gt;">
+<area shape="rect" id="Node000001" title="A class representing a linear transformation module." alt="" coords="5,108,168,163"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Module.html" title="Abstract base class for all modules in the Mila DNN framework." alt="" coords="5,5,168,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="89,74,89,108,84,108,84,74"/>
+</map>

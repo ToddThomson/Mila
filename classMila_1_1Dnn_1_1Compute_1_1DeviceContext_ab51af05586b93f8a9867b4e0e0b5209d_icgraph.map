@@ -1,0 +1,11 @@
+<map id="Mila::Dnn::Compute::DeviceContext::makeCurrent" name="Mila::Dnn::Compute::DeviceContext::makeCurrent">
+<area shape="rect" id="Node000001" title="Gets the cuDNN handle, initializing it if necessary." alt="" coords="791,49,1009,89"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#a439bcf09aae78c73d84fd6bc5b3d4469" title="Initializes resources specific to the current device." alt="" coords="541,5,732,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="776,54,732,48,733,43,777,49"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#adec58c226e24c7d4a0d9ba6b5119874d" title="Synchronizes the device, waiting for all operations to complete." alt="" coords="531,85,743,125"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="777,88,743,93,743,88,777,83"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#a8e36e81342090136e9f33153a73165e0" title="Sets the current device by name." alt="" coords="284,13,483,53"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="528,35,483,35,483,30,528,30"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#a66052215400fe2b037fc7e490722ebf0" title="Constructor with a specific device." alt="" coords="5,13,236,53"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="270,35,236,35,236,30,270,30"/>
+</map>

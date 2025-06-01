@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::xavier" name="Mila::Dnn::xavier">
+<area shape="rect" id="Node000001" title="Initializes a tensor with Xavier/Glorot uniform initialization." alt="" coords="5,42,139,67"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Tensor.html#a4f707ea4c0f00aab58189071fa1c11fd" title="Gets a raw pointer to the tensor data for use in CUDA kernels." alt="" coords="199,5,342,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="139,42,185,35,186,40,140,47"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Tensor.html#af952a34808a4ad53bc9588854ddd8592" title=" " alt="" coords="187,70,355,95"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="140,61,174,66,173,72,139,67"/>
+</map>

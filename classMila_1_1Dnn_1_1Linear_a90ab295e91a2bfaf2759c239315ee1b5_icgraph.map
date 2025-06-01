@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::Linear::createOperation" name="Mila::Dnn::Linear::createOperation">
+<area shape="rect" id="Node000001" title="Creates the appropriate Linear operation based on the current device context." alt="" coords="193,37,333,77"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Linear.html#a7d2592ef7cffc2fcbca2a0391d2d6c24" title="Constructs a new Linear module with a device name." alt="" coords="5,5,145,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="179,46,145,40,146,35,180,41"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Linear.html#a160506d377a764b33f1f33be9502b93a" title="Constructs a new Linear module with a provided device context." alt="" coords="5,69,145,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="180,74,146,80,145,75,179,69"/>
+</map>

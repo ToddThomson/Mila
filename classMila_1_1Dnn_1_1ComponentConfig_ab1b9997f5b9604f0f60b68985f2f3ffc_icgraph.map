@@ -1,0 +1,71 @@
+<map id="Mila::Dnn::ComponentConfig::validate" name="Mila::Dnn::ComponentConfig::validate">
+<area shape="rect" id="Node000001" title="Validates the configuration." alt="" coords="539,556,747,596"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Module.html#a9c68c425ffc1643d090c881f935b1d81" title="Constructor with device name." alt="" coords="307,88,455,128"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="637,542,628,461,605,353,585,296,560,240,528,188,489,142,473,130,455,122,457,117,476,126,492,138,533,185,565,237,590,294,610,352,633,460,642,542"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1GeluConfig.html#abfafa3a400a29f30ecf4c73ad019058a" title="Validate configuration parameters." alt="" coords="300,152,463,192"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="628,544,608,488,577,415,537,338,489,264,451,225,412,194,415,190,454,221,493,261,542,335,582,413,613,486,633,542"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1MLPConfig.html#a32feab09d6e52f77d9b9925cc90c5eac" title="Validate configuration parameters." alt="" coords="301,275,461,315"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="618,546,562,471,489,386,448,348,409,317,412,313,451,344,493,382,566,467,622,543"/>
+<area shape="rect" id="Node000011" href="$classMila_1_1Dnn_1_1TransformerBlockConfig.html#aedbe1d9f1b53ccaf23a218ecd28157a3" title="Validate configuration parameters." alt="" coords="278,396,485,436"/>
+<area shape="poly" id="edge10_Node000001_Node000011" title=" " alt="" coords="611,548,558,498,524,472,489,450,463,439,465,434,492,446,528,468,561,494,615,544"/>
+<area shape="rect" id="Node000014" href="$classMila_1_1Dnn_1_1EncoderConfig.html#a285411a8cab5ce83933b078e76ba090a" title="Validate configuration parameters." alt="" coords="289,460,474,500"/>
+<area shape="poly" id="edge13_Node000001_Node000014" title=" " alt="" coords="584,553,490,515,454,503,455,498,492,509,586,548"/>
+<area shape="rect" id="Node000015" href="$classMila_1_1Dnn_1_1LinearConfig.html#aa9ab26aef40526fd38b80bc5dbd227c8" title="Validate configuration parameters." alt="" coords="295,524,468,564"/>
+<area shape="poly" id="edge14_Node000001_Node000015" title=" " alt="" coords="524,564,468,557,469,552,525,559"/>
+<area shape="rect" id="Node000018" href="$classMila_1_1Dnn_1_1MultiHeadAttentionConfig.html#a57c4cf0a91dcb9e987f3ec2cdc3c95dd" title="Validate configuration parameters." alt="" coords="272,588,491,628"/>
+<area shape="poly" id="edge17_Node000001_Node000018" title=" " alt="" coords="525,593,491,597,490,592,525,588"/>
+<area shape="rect" id="Node000021" href="$classMila_1_1Dnn_1_1ResidualConfig.html#a03254eddb3916ec4848170553bb3864b" title="Validates the configuration." alt="" coords="287,716,476,756"/>
+<area shape="poly" id="edge20_Node000001_Node000021" title=" " alt="" coords="598,606,417,718,414,714,595,601"/>
+<area shape="rect" id="Node000024" href="$classMila_1_1Dnn_1_1SoftmaxConfig.html#ae212dcc1663ec46a87d4487ab81e1c8c" title="Validate configuration parameters." alt="" coords="288,844,475,884"/>
+<area shape="poly" id="edge23_Node000001_Node000024" title=" " alt="" coords="622,609,565,684,493,770,450,811,410,846,406,842,446,807,489,766,561,681,617,606"/>
+<area shape="rect" id="Node000027" href="$classMila_1_1Dnn_1_1CrossEntropyConfig.html#a41e9fb6d27633464f17d7b5e4c7125f1" title="Validate configuration parameters." alt="" coords="272,972,491,1012"/>
+<area shape="poly" id="edge26_Node000001_Node000027" title=" " alt="" coords="633,610,613,667,582,741,542,821,493,898,453,940,413,974,410,970,450,937,489,894,537,819,577,739,608,665,628,608"/>
+<area shape="rect" id="Node000030" href="$classMila_1_1Dnn_1_1LayerNormConfig.html#a3a252a17453484a178d2f2283891b7b3" title="Validate configuration parameters." alt="" coords="279,1100,484,1140"/>
+<area shape="poly" id="edge29_Node000001_Node000030" title=" " alt="" coords="639,610,623,689,595,795,552,913,525,971,493,1026,455,1069,415,1102,411,1098,451,1065,489,1022,520,969,548,911,590,794,618,687,634,609"/>
+<area shape="rect" id="Node000033" href="$classMila_1_1Dnn_1_1DropoutConfig.html#a92d29ccf68798fc33e8ffc6cb8f6e797" title="Validate configuration parameters." alt="" coords="289,1228,474,1268"/>
+<area shape="poly" id="edge32_Node000001_Node000033" title=" " alt="" coords="642,610,632,709,607,848,588,925,563,1004,531,1081,493,1153,476,1176,456,1197,416,1230,413,1226,453,1193,472,1173,488,1151,527,1079,558,1002,583,924,602,847,626,708,637,610"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Compute_1_1CudaGeluOp.html#a6579c8fadf2c92b72c09eca357537b71" title=" " alt="" coords="15,5,215,45"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="286,152,270,142,253,121,245,100,239,79,222,59,203,48,206,43,226,55,243,76,251,98,257,118,274,138,289,148"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Compute_1_1CudaGeluOp.html#a0250b4b93130d57cc6586f2b0252edcb" title=" " alt="" coords="15,69,215,109"/>
+<area shape="poly" id="edge4_Node000003_Node000005" title=" " alt="" coords="295,150,271,143,223,124,186,112,188,107,225,119,273,137,297,145"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1Gelu.html#a4063fb9a76fae0f96f5145fcd99fd854" title="Constructs a Gelu module using device name and configuration." alt="" coords="35,134,195,159"/>
+<area shape="poly" id="edge5_Node000003_Node000006" title=" " alt="" coords="286,166,195,157,195,152,286,160"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1Gelu.html#a7a3e4f8007a867ea499fdd0534f78526" title="Constructs a Gelu module with an existing device context and configuration." alt="" coords="35,183,195,209"/>
+<area shape="poly" id="edge6_Node000003_Node000007" title=" " alt="" coords="286,183,195,191,195,186,286,178"/>
+<area shape="rect" id="Node000009" href="$classMila_1_1Dnn_1_1MLP.html#a524b2ac11d65569d831497321d36675a" title="Constructs a new MLP module with a device name." alt="" coords="37,233,192,258"/>
+<area shape="poly" id="edge8_Node000008_Node000009" title=" " alt="" coords="287,280,184,261,185,255,288,275"/>
+<area shape="rect" id="Node000010" href="$classMila_1_1Dnn_1_1MLP.html#abd11a41a1e3847f7507832eedb5ae7a4" title="Constructs a new MLP module with a provided device context." alt="" coords="37,282,192,307"/>
+<area shape="poly" id="edge9_Node000008_Node000010" title=" " alt="" coords="288,297,192,297,192,292,288,292"/>
+<area shape="rect" id="Node000012" href="$classMila_1_1Dnn_1_1TransformerBlock.html#ace07232ad74c5b860de67ba44724f6c4" title="Constructs a new TransformerBlock module with a device name." alt="" coords="11,332,218,372"/>
+<area shape="poly" id="edge11_Node000011_Node000012" title=" " alt="" coords="283,395,198,375,199,369,285,390"/>
+<area shape="rect" id="Node000013" href="$classMila_1_1Dnn_1_1TransformerBlock.html#aa91e3b3fb0804eb4eec6af8c9ce11dc4" title="Constructs a new TransformerBlock module with a provided device context." alt="" coords="11,396,218,436"/>
+<area shape="poly" id="edge12_Node000011_Node000013" title=" " alt="" coords="264,419,218,419,218,413,264,413"/>
+<area shape="rect" id="Node000016" href="$classMila_1_1Dnn_1_1Linear.html#a7d2592ef7cffc2fcbca2a0391d2d6c24" title="Constructs a new Linear module with a device name." alt="" coords="45,460,185,500"/>
+<area shape="poly" id="edge15_Node000015_Node000016" title=" " alt="" coords="283,523,184,499,185,494,284,518"/>
+<area shape="rect" id="Node000017" href="$classMila_1_1Dnn_1_1Linear.html#a160506d377a764b33f1f33be9502b93a" title="Constructs a new Linear module with a provided device context." alt="" coords="45,524,185,564"/>
+<area shape="poly" id="edge16_Node000015_Node000017" title=" " alt="" coords="281,547,185,547,185,541,281,541"/>
+<area shape="rect" id="Node000019" href="$classMila_1_1Dnn_1_1MultiHeadAttention.html#a205a226fb09b4c4b083e60e1d4b4311a" title="Constructs a new MultiHeadAttention module with a device name." alt="" coords="5,588,224,628"/>
+<area shape="poly" id="edge18_Node000018_Node000019" title=" " alt="" coords="258,611,224,611,224,605,258,605"/>
+<area shape="rect" id="Node000020" href="$classMila_1_1Dnn_1_1MultiHeadAttention.html#a2184c5fdc3dffb5dbbe2ba3f00ed48a9" title="Constructs a new MultiHeadAttention module with a provided device context." alt="" coords="5,652,224,692"/>
+<area shape="poly" id="edge19_Node000018_Node000020" title=" " alt="" coords="285,634,199,655,198,649,283,629"/>
+<area shape="rect" id="Node000022" href="$classMila_1_1Dnn_1_1Residual.html#a84724fe8e4505ba4bfbc76be4bacf221" title="Constructs a new Residual module with a device name." alt="" coords="41,716,189,756"/>
+<area shape="poly" id="edge21_Node000021_Node000022" title=" " alt="" coords="273,739,189,739,189,733,273,733"/>
+<area shape="rect" id="Node000023" href="$classMila_1_1Dnn_1_1Residual.html#aa688280c3ec68030b734a7a1054839cb" title="Constructs a new Residual module with a provided device context." alt="" coords="41,780,189,820"/>
+<area shape="poly" id="edge22_Node000021_Node000023" title=" " alt="" coords="285,762,189,785,188,780,283,757"/>
+<area shape="rect" id="Node000025" href="$classMila_1_1Dnn_1_1Softmax.html#a0dfba728e7d60d978cf816f25e5cd2e7" title="Constructs a new Softmax module with a device name." alt="" coords="41,844,188,884"/>
+<area shape="poly" id="edge24_Node000024_Node000025" title=" " alt="" coords="274,867,188,867,188,861,274,861"/>
+<area shape="rect" id="Node000026" href="$classMila_1_1Dnn_1_1Softmax.html#a6900764a7a23399c3e5e92058b8d2092" title="Constructs a new Softmax module with a provided device context." alt="" coords="41,908,188,948"/>
+<area shape="poly" id="edge25_Node000024_Node000026" title=" " alt="" coords="284,890,189,913,188,908,283,885"/>
+<area shape="rect" id="Node000028" href="$classMila_1_1Dnn_1_1CrossEntropy.html#a23d8eac6c8330b05931be0f4294548a1" title="Constructs a new CrossEntropy module with a device name." alt="" coords="25,972,204,1012"/>
+<area shape="poly" id="edge27_Node000027_Node000028" title=" " alt="" coords="258,995,204,995,204,989,258,989"/>
+<area shape="rect" id="Node000029" href="$classMila_1_1Dnn_1_1CrossEntropy.html#a839a9539c0ba7487f4ba4b191302f7c6" title="Constructs a new CrossEntropy module with a provided device context." alt="" coords="25,1036,204,1076"/>
+<area shape="poly" id="edge28_Node000027_Node000029" title=" " alt="" coords="285,1018,199,1039,198,1033,283,1013"/>
+<area shape="rect" id="Node000031" href="$classMila_1_1Dnn_1_1LayerNorm.html#a5639928c52cd01656e74b6872572932b" title="Constructs a new LayerNorm module with a device name." alt="" coords="33,1100,197,1140"/>
+<area shape="poly" id="edge30_Node000030_Node000031" title=" " alt="" coords="265,1123,197,1123,197,1117,265,1117"/>
+<area shape="rect" id="Node000032" href="$classMila_1_1Dnn_1_1LayerNorm.html#a8bdc4bd7c381f42304cfe1257402df98" title="Constructs a new LayerNorm module with a provided device context." alt="" coords="33,1164,197,1204"/>
+<area shape="poly" id="edge31_Node000030_Node000032" title=" " alt="" coords="285,1146,197,1167,196,1162,284,1141"/>
+<area shape="rect" id="Node000034" href="$classMila_1_1Dnn_1_1Dropout.html#a1a5f39ab42459dbcac239112a0206b44" title="Constructs a new Dropout module with a device name." alt="" coords="43,1228,187,1268"/>
+<area shape="poly" id="edge33_Node000033_Node000034" title=" " alt="" coords="275,1251,187,1251,187,1245,275,1245"/>
+<area shape="rect" id="Node000035" href="$classMila_1_1Dnn_1_1Dropout.html#a704e5622fd5fa1a9d9a14a1f705debe2" title="Constructs a new Dropout module with a provided device context." alt="" coords="43,1292,187,1332"/>
+<area shape="poly" id="edge34_Node000033_Node000035" title=" " alt="" coords="285,1274,188,1297,186,1292,283,1269"/>
+</map>

@@ -1,0 +1,29 @@
+<map id="Mila::Dnn::Tensor::data" name="Mila::Dnn::Tensor::data">
+<area shape="rect" id="Node000001" title="Gets a pointer to the tensor data with memory type safety." alt="" coords="469,381,640,407"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1MLP.html#a21bafa525e1ca67f4dbc258753db343e" title="Performs the backward pass of the MLP block." alt="" coords="214,5,405,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="549,368,541,302,520,214,503,167,481,122,454,80,420,44,403,33,406,28,423,40,458,77,486,119,508,165,525,212,546,301,554,367"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1CudaMultiHeadAttentionOp.html#a7802afcf77e5cd83386acb9de9a90142" title="Performs the backward pass of the Multi&#45;Head Attention operation." alt="" coords="205,55,413,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="545,369,531,317,506,252,469,183,446,152,420,124,403,112,406,107,423,120,450,148,474,181,511,250,536,316,550,367"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Compute_1_1CudaSoftmaxOp.html#a801d56da75c8ec65fbca0aca4effad25" title="Performs the backward pass of the softmax operation." alt="" coords="206,134,413,174"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="542,369,524,329,498,280,463,230,420,188,400,176,403,172,423,184,467,227,503,277,529,327,547,367"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Compute_1_1CudaLayerNormOp.html#ac18a04c86283735b2bdf6aba6678ccb3" title="Performs the backward pass of the Layer Normalization operation." alt="" coords="197,198,421,238"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="535,371,488,311,456,279,420,252,397,241,399,236,423,248,459,275,492,308,540,368"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1Compute_1_1CudaMatMulBiasGeluOp.html#a14abe1e57d22667fa0c5af47901c62dc" title="Performs the backward pass of the fused MatMul&#45;Bias&#45;GELU operation." alt="" coords="215,263,403,317"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="516,377,420,332,389,320,391,315,422,328,518,373"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1Compute_1_1CudaResidualOp.html#a11a441c2cf618193df424a6c331e626e" title="Performs the backward pass of the residual operation." alt="" coords="205,342,413,382"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="455,384,413,378,414,373,456,378"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1Compute_1_1CudaLinearOp.html#aebeced4661aee42c34dd8690ddc57b9f" title="Performs the backward pass of the Fully Connected operation." alt="" coords="213,406,405,446"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="456,410,406,416,405,411,455,404"/>
+<area shape="rect" id="Node000009" href="$classMila_1_1Dnn_1_1Tensor.html#ae696ca96d19332c0e046699b3ad70d81" title="Creates a deep copy of this tensor." alt="" coords="238,470,381,510"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="519,416,422,460,382,474,380,469,420,456,517,411"/>
+<area shape="rect" id="Node000010" href="$classMila_1_1Dnn_1_1MLP.html#aecd082b04cf2ef94a45bb5bafddc253a" title="Performs the forward pass of the MLP block." alt="" coords="221,535,398,560"/>
+<area shape="poly" id="edge9_Node000001_Node000010" title=" " alt="" coords="538,419,490,473,458,501,423,524,392,537,390,532,420,520,455,497,486,469,534,416"/>
+<area shape="rect" id="Node000011" href="$classMila_1_1Dnn_1_1TransformerBlock.html#a9ee1bc839fc5aa2c29992d6279849b45" title="Performs the forward pass of the TransformerBlock." alt="" coords="206,585,413,625"/>
+<area shape="poly" id="edge10_Node000001_Node000011" title=" " alt="" coords="544,420,525,455,498,496,464,538,423,574,398,587,396,582,420,569,460,534,493,493,520,452,539,418"/>
+<area shape="rect" id="Node000012" href="$classMila_1_1Dnn_1_1Dropout.html#a43a2318b9bfb6c75ddea91dd65fd8a01" title="Generates a new dropout mask for the given shape." alt="" coords="237,649,381,689"/>
+<area shape="poly" id="edge11_Node000001_Node000012" title=" " alt="" coords="549,421,533,468,508,527,471,587,449,615,423,639,404,651,382,660,380,655,401,646,420,635,445,611,467,584,503,524,528,466,544,419"/>
+<area shape="rect" id="Node000014" href="$classMila_1_1Dnn_1_1Tensor.html#a3f0284e6a192f2b31fcc5f389e591af9" title="Converts this tensor to use a different memory resource." alt="" coords="232,713,387,739"/>
+<area shape="poly" id="edge13_Node000001_Node000014" title=" " alt="" coords="553,421,541,480,518,556,501,596,480,635,454,671,423,703,406,714,388,721,386,716,404,709,420,699,450,668,476,632,497,594,513,554,536,478,547,420"/>
+<area shape="rect" id="Node000013" href="$classMila_1_1Dnn_1_1Dropout.html#af20d6b920d3f993492d89fc28acfc46a" title="Performs the forward pass of the Dropout operation." alt="" coords="5,649,149,689"/>
+<area shape="poly" id="edge12_Node000012_Node000013" title=" " alt="" coords="224,671,150,671,150,666,224,666"/>
+</map>

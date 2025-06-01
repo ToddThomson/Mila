@@ -1,0 +1,35 @@
+<map id="Mila::Dnn::Linear::Linear" name="Mila::Dnn::Linear::Linear">
+<area shape="rect" id="Node000001" title="Constructs a new Linear module with a device name." alt="" coords="5,357,145,397"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Linear.html#a90ab295e91a2bfaf2759c239315ee1b5" title="Creates the appropriate Linear operation based on the current device context." alt="" coords="227,121,367,161"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="93,355,266,169,270,173,97,358"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1Linear.html#ade8ed2bf06a41d3d143640588adc9f7b" title="Initializes gradient tensors for parameters." alt="" coords="193,357,401,397"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="145,374,180,374,180,379,145,379"/>
+<area shape="rect" id="Node000012" href="$classMila_1_1Dnn_1_1Linear.html#a0e3d3709494390a6c489865c9b48828b" title="Initializes the tensors needed for the Linear operation." alt="" coords="221,293,373,333"/>
+<area shape="poly" id="edge11_Node000001_Node000012" title=" " alt="" coords="145,354,214,334,215,339,146,359"/>
+<area shape="rect" id="Node000013" href="$classMila_1_1Dnn_1_1Module.html#af676dd818a0afaa6f2839b53c42fb72b" title="Check if the module is in training mode." alt="" coords="223,421,371,461"/>
+<area shape="poly" id="edge16_Node000001_Node000013" title=" " alt="" coords="146,394,215,414,214,419,145,399"/>
+<area shape="rect" id="Node000014" href="$classMila_1_1Dnn_1_1LinearConfig.html#aa9ab26aef40526fd38b80bc5dbd227c8" title="Validate configuration parameters." alt="" coords="211,485,384,525"/>
+<area shape="poly" id="edge17_Node000001_Node000014" title=" " alt="" coords="98,395,141,433,195,470,208,477,206,482,192,475,137,437,95,399"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a8bcbbd6e474b44727458887b4685f43e" title="Create a unary operation based on the type information, device type, and operation name." alt="" coords="466,5,641,60"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="341,118,448,70,466,63,468,68,450,75,343,123"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Module.html#a1163624b16a6518b2ed573f51827759d" title="Get the device context for this module." alt="" coords="479,85,627,125"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="367,128,465,114,466,120,368,134"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a56e3658d8b09dd388ca379aefcdeb17f" title="Get the singleton instance of the OperationRegistry." alt="" coords="478,149,629,204"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="368,148,465,162,464,167,367,153"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1LinearConfig.html#ac4b9038e395811089b9b141e0c13375f" title=" " alt="" coords="467,357,640,397"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="401,374,453,374,453,379,401,379"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1Module.html#a2c8e8735eaf75d6bad6d454f7d23b2ca" title="Get the name of the module." alt="" coords="479,421,627,461"/>
+<area shape="poly" id="edge7_Node000006_Node000008" title=" " alt="" coords="379,394,467,416,465,422,377,399"/>
+<area shape="rect" id="Node000010" href="$classMila_1_1Dnn_1_1LinearConfig.html#ace187b265a76ae97e432c2f604da68ea" title=" " alt="" coords="467,229,640,269"/>
+<area shape="poly" id="edge9_Node000006_Node000010" title=" " alt="" coords="379,354,400,343,415,327,423,311,432,295,448,279,457,273,460,277,451,283,436,298,428,314,419,330,403,347,382,359"/>
+<area shape="rect" id="Node000011" href="$classMila_1_1Dnn_1_1LinearConfig.html#a34843decd60f1f166a59c90bb1b38023" title=" " alt="" coords="467,293,640,333"/>
+<area shape="poly" id="edge10_Node000006_Node000011" title=" " alt="" coords="377,354,459,333,461,339,379,359"/>
+<area shape="rect" id="Node000009" href="$classMila_1_1Dnn_1_1ComponentConfig.html#a35f7308c0a3de2579d0df7cdbb7ec268" title="Gets the configured component name." alt="" coords="705,421,913,461"/>
+<area shape="poly" id="edge8_Node000008_Node000009" title=" " alt="" coords="628,438,691,438,691,443,628,443"/>
+<area shape="poly" id="edge12_Node000012_Node000007" title=" " alt="" coords="374,329,460,351,459,356,373,334"/>
+<area shape="poly" id="edge13_Node000012_Node000008" title=" " alt="" coords="375,328,403,343,419,359,428,375,436,391,451,407,468,416,465,421,448,411,432,394,423,378,415,362,400,347,372,332"/>
+<area shape="poly" id="edge14_Node000012_Node000010" title=" " alt="" coords="373,291,459,269,460,275,374,296"/>
+<area shape="poly" id="edge15_Node000012_Node000011" title=" " alt="" coords="374,310,453,310,453,315,374,315"/>
+<area shape="rect" id="Node000015" href="$classMila_1_1Dnn_1_1ComponentConfig.html#ab1b9997f5b9604f0f60b68985f2f3ffc" title="Validates the configuration." alt="" coords="449,485,657,525"/>
+<area shape="poly" id="edge18_Node000014_Node000015" title=" " alt="" coords="384,502,435,502,435,507,384,507"/>
+</map>

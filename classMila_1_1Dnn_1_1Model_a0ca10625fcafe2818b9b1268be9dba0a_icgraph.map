@@ -1,0 +1,13 @@
+<map id="Mila::Dnn::Model::initializeDevice" name="Mila::Dnn::Model::initializeDevice">
+<area shape="rect" id="Node000001" title="Initializes device&#45;specific resources." alt="" coords="512,73,708,113"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Model.html#a213f48c2d2127c2c4f08b01cfa2cb109" title="Constructs a new Model object with the default device context." alt="" coords="271,5,451,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="542,70,463,45,420,33,421,28,465,39,544,65"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Model.html#a93f0b38d530576a5f93316dc00047b13" title="Constructs a new Model object with a specific device name." alt="" coords="271,55,451,80"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="498,84,451,79,452,74,498,79"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Model.html#ab169844bb0aacc1d069d7f651624370c" title="Constructs a new Model object with a specific device context." alt="" coords="271,104,451,129"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="498,106,452,111,451,105,498,101"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Model.html#a028247ab95727a904493b18c1d73a588" title="Sets the device to use for this model by name." alt="" coords="259,153,464,179"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="540,120,465,143,418,156,416,151,463,138,538,114"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1Model.html#aa90eec602d8cc14c8a4e95680f25ae44" title="Sets the device to use for this model by CUDA device ID." alt="" coords="5,153,211,179"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="245,169,211,169,211,163,245,163"/>
+</map>

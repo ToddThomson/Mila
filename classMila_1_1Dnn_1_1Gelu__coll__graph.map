@@ -1,0 +1,12 @@
+<map id="Mila::Dnn::Gelu&lt; TDeviceType, TDataType &gt;" name="Mila::Dnn::Gelu&lt; TDeviceType, TDataType &gt;">
+<area shape="rect" id="Node000001" title="Gaussian Error Linear Unit (GELU) activation function module." alt="" coords="600,77,791,117"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Module.html" title="Abstract base class for all modules in the Mila DNN framework." alt="" coords="312,5,475,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="489,50,601,74,600,79,488,55"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1ComponentConfig.html" title="Base configuration class for all neural network components." alt="" coords="5,53,213,79"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="227,50,312,39,312,45,227,55"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1GeluConfig.html" title="Configuration class for GELU module." alt="" coords="312,84,475,109"/>
+<area shape="poly" id="edge4_Node000004_Node000003" title=" " alt="" coords="227,76,312,85,312,91,227,81"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="488,94,600,94,600,99,488,99"/>
+<area shape="rect" id="Node000005" href="$structMila_1_1Dnn_1_1Compute_1_1OperationAttributes.html" title="Common attributes for neural network operations." alt="" coords="314,134,473,174"/>
+<area shape="poly" id="edge5_Node000001_Node000005" title=" " alt="" coords="486,134,599,112,600,117,487,139"/>
+</map>

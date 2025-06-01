@@ -1,0 +1,13 @@
+<map id="Mila::Dnn::Compute::DeviceRegistrar::registerDevices" name="Mila::Dnn::Compute::DeviceRegistrar::registerDevices">
+<area shape="rect" id="Node000001" title="Register all available compute devices." alt="" coords="5,45,197,100"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceRegistrar.html#a286115c558e36206ce90b77029ac0ccd" title="Register CPU device." alt="" coords="245,5,437,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="197,54,231,48,232,54,198,59"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceRegistrar.html#a7a236368a7539abbf0873937296e05c5" title="Register all available CUDA devices." alt="" coords="245,84,437,139"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="198,85,232,91,231,96,197,91"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceRegistry.html#a7fad4212ab870e74917da2abcaf77938" title="Gets the singleton instance of the DeviceRegistry." alt="" coords="485,15,676,55"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="438,31,472,31,472,37,438,36"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceRegistry.html#a84244467e026a98d214cb6432bd3d93e" title="Registers a compute device factory function with the registry." alt="" coords="487,81,674,136"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="429,58,482,75,480,80,427,63"/>
+<area shape="poly" id="edge5_Node000005_Node000003" title=" " alt="" coords="427,81,503,57,505,62,429,86"/>
+<area shape="poly" id="edge6_Node000005_Node000004" title=" " alt="" coords="438,108,474,107,474,113,438,113"/>
+</map>

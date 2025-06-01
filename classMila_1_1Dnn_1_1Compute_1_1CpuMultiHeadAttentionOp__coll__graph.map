@@ -1,0 +1,11 @@
+<map id="Mila::Dnn::Compute::CpuMultiHeadAttentionOp" name="Mila::Dnn::Compute::CpuMultiHeadAttentionOp">
+<area shape="rect" id="Node000001" title="CPU implementation of the Multi&#45;Head Attention operation for neural networks." alt="" coords="604,49,804,89"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1UnaryOperation.html" title=" " alt="" coords="283,5,505,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="519,44,604,54,603,60,518,50"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1OperationBase.html" title="Base class for all compute operations in the Mila neural network framework." alt="" coords="5,5,233,60"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="247,30,283,30,283,35,247,35"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1MultiHeadAttentionConfig.html" title="Configuration class for MultiHeadAttention module." alt="" coords="285,85,503,125"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="517,88,603,78,604,83,517,93"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1ComponentConfig.html" title="Base configuration class for all neural network components." alt="" coords="15,92,223,117"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="237,102,284,102,284,107,237,107"/>
+</map>

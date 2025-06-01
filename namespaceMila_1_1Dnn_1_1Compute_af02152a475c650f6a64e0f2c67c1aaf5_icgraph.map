@@ -1,0 +1,29 @@
+<map id="Mila::Dnn::Compute::cudaCheckStatus" name="Mila::Dnn::Compute::cudaCheckStatus">
+<area shape="rect" id="Node000001" title="Checks the status of a CUDA operation and throws if an error occurred." alt="" coords="671,200,821,240"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceProps.html#a529dd50ac0b8d13b093136abf7db0175" title=" " alt="" coords="423,5,623,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="725,190,682,127,653,95,621,66,588,48,591,43,624,62,657,91,686,124,729,187"/>
+<area shape="rect" id="Node000003" href="$namespaceMila_1_1Dnn_1_1Compute.html#a96ecd0d5401f97858e0a936ad10d59a6" title="Validates that a device ID is valid and available." alt="" coords="214,115,365,155"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="720,191,678,147,651,126,622,110,587,100,552,94,479,93,410,103,351,117,350,112,409,98,478,88,552,89,589,95,624,106,654,121,682,143,724,187"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Compute_1_1CudaMemoryResource.html#ad5609224eda17eedd97c7e7e4da1181c" title="Deallocates memory on the CUDA device." alt="" coords="434,121,611,175"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="669,198,607,178,609,173,671,193"/>
+<area shape="rect" id="Node000006" href="$namespaceMila_1_1Dnn_1_1Compute.html#a8b2b00e63f2d2af850acece5227c63cd" title="Gets the number of available CUDA devices." alt="" coords="447,200,598,240"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="657,223,598,223,598,217,657,217"/>
+<area shape="rect" id="Node000009" href="$namespaceMila_1_1Dnn_1_1Compute.html#a3fda490e9b40a00ee92bfdb94b61a1f3" title="Gets the installed CUDA driver version." alt="" coords="447,264,598,304"/>
+<area shape="poly" id="edge11_Node000001_Node000009" title=" " alt="" coords="663,246,594,267,592,261,662,241"/>
+<area shape="rect" id="Node000011" href="$namespaceMila_1_1Dnn_1_1Compute.html#aba323577eb42d9d2cb1043649db8018d" title="Gets the installed CUDA runtime version." alt="" coords="445,328,600,368"/>
+<area shape="poly" id="edge13_Node000001_Node000011" title=" " alt="" coords="716,251,674,286,624,318,597,330,595,325,621,314,671,282,712,247"/>
+<area shape="rect" id="Node000012" href="$classMila_1_1Dnn_1_1TensorBuffer.html#a7d6a1db3f2401e0a42aeb2b2e6524222" title="Resizes the buffer to a new size, preserving existing data when possible." alt="" coords="436,392,609,432"/>
+<area shape="poly" id="edge15_Node000001_Node000012" title=" " alt="" coords="730,254,688,319,658,353,624,382,603,394,600,390,621,378,655,349,684,315,726,251"/>
+<area shape="rect" id="Node000004" href="$namespaceMila_1_1Dnn_1_1Compute.html#a58d62f6f183335114f9dd89dfefd0dad" title="Finds the most appropriate CUDA device for computation." alt="" coords="5,169,156,209"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="201,161,157,172,156,167,200,155"/>
+<area shape="poly" id="edge6_Node000006_Node000003" title=" " alt="" coords="446,198,422,189,339,157,341,152,424,184,448,193"/>
+<area shape="poly" id="edge7_Node000006_Node000004" title=" " alt="" coords="433,217,156,197,157,192,434,211"/>
+<area shape="rect" id="Node000007" href="$namespaceMila_1_1Dnn_1_1Compute.html#a9b44f2af3eb466afccacc8dedc589421" title="Identifies the best CUDA device based on performance characteristics." alt="" coords="214,229,365,269"/>
+<area shape="poly" id="edge8_Node000006_Node000007" title=" " alt="" coords="434,234,365,243,364,237,433,229"/>
+<area shape="poly" id="edge9_Node000007_Node000004" title=" " alt="" coords="205,228,150,212,152,207,207,223"/>
+<area shape="rect" id="Node000008" href="$namespaceMila_1_1Dnn_1_1Compute.html#ae1d32d7cbc15006084fde71c7f8d9fe1" title="Gets the best device of a specific type based on performance characteristics." alt="" coords="5,233,156,273"/>
+<area shape="poly" id="edge10_Node000007_Node000008" title=" " alt="" coords="200,254,156,255,156,249,200,248"/>
+<area shape="rect" id="Node000010" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceProps.html#aee43b0cbb5985b608ed2f51d6d5b5ce9" title=" " alt="" coords="204,296,375,336"/>
+<area shape="poly" id="edge12_Node000009_Node000010" title=" " alt="" coords="434,299,375,307,374,302,433,294"/>
+<area shape="poly" id="edge14_Node000011_Node000010" title=" " alt="" coords="431,338,374,330,375,325,432,333"/>
+</map>

@@ -1,0 +1,68 @@
+<map id="Mila::Dnn::Compute::OperationsRegistrar::instance" name="Mila::Dnn::Compute::OperationsRegistrar::instance">
+<area shape="rect" id="Node000001" title="Get the singleton instance of OperationsRegistrar." alt="" coords="5,556,165,611"/>
+<area shape="poly" id="edge1_Node000001_Node000001" title=" " alt="" coords="44,556,45,546,52,537,66,531,85,529,109,532,122,540,120,545,107,537,85,535,67,537,55,541,50,548,50,556"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1OperationsRegistrar.html#a8a24b4f953b5946b39d47eeb0f6d457b" title="Initialize the compute operations." alt="" coords="213,556,373,611"/>
+<area shape="poly" id="edge2_Node000001_Node000002" title=" " alt="" coords="165,581,199,581,199,586,165,586"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1CpuEncoderOpRegistrar.html#a8b726011718dc64c51779c47dbc217ee" title="Registers the CpuEncoderOp operation with the OperationRegistry." alt="" coords="459,241,643,296"/>
+<area shape="poly" id="edge3_Node000002_Node000003" title=" " alt="" coords="297,555,310,502,333,435,369,366,392,333,420,305,444,289,447,293,423,309,396,337,373,368,338,437,315,504,302,556"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1Compute_1_1CpuGeluOpRegistrar.html#a7c19336fcafa55000c7b944692e59f7c" title="Registers the CpuGeluOp operation with the OperationRegistry." alt="" coords="469,320,632,375"/>
+<area shape="poly" id="edge6_Node000002_Node000006" title=" " alt="" coords="302,555,320,517,345,471,378,424,420,384,455,364,458,369,423,388,382,427,349,473,324,519,307,557"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1Compute_1_1CpuLayerNormOpRegistrar.html#af28cfe56875726c1d731b947e24a5575" title="Registers the CpuLayerNormOp operation with the OperationRegistry." alt="" coords="449,399,653,453"/>
+<area shape="poly" id="edge9_Node000002_Node000007" title=" " alt="" coords="315,554,361,507,389,483,420,462,435,455,438,459,423,467,392,487,364,511,319,558"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1Compute_1_1CpuLinearOpRegistrar.html#aaadc17d3d5a5ddfe5efc20ad8c1e1666" title="Registers the CpuLinearOp operation with the OperationRegistry." alt="" coords="465,477,637,532"/>
+<area shape="poly" id="edge12_Node000002_Node000008" title=" " alt="" coords="373,556,421,541,451,531,452,537,422,546,374,561"/>
+<area shape="rect" id="Node000009" href="$classMila_1_1Dnn_1_1Compute_1_1CpuMultiHeadAttentionOpRegistrar.html#a9bcf4f4316cc0912e78073e2137a46a0" title="Registers the CpuMultiHeadAttention operation with the OperationRegistry." alt="" coords="421,556,680,611"/>
+<area shape="poly" id="edge15_Node000002_Node000009" title=" " alt="" coords="374,581,408,581,408,586,374,586"/>
+<area shape="rect" id="Node000010" href="$classMila_1_1Dnn_1_1Compute_1_1CpuResidualOpRegistrar.html#a4b0d8316c349abf09cdbe2dbdfa8fb61" title="Registers the CpuResidualOp operation with the OperationRegistry." alt="" coords="457,1107,645,1161"/>
+<area shape="poly" id="edge18_Node000002_Node000010" title=" " alt="" coords="301,611,315,717,341,862,358,935,377,1002,399,1057,423,1094,446,1111,443,1115,419,1097,395,1059,372,1004,353,936,336,863,310,717,295,611"/>
+<area shape="rect" id="Node000012" href="$classMila_1_1Dnn_1_1Compute_1_1CpuSoftmaxOpRegistrar.html#a4ad56aa913fb3608ff72ac8c12cd04c7" title="Registers the CpuSoftmaxOp operation with the OperationRegistry." alt="" coords="457,635,644,689"/>
+<area shape="poly" id="edge21_Node000002_Node000012" title=" " alt="" coords="374,605,449,628,447,633,373,610"/>
+<area shape="rect" id="Node000013" href="$classMila_1_1Dnn_1_1Compute_1_1CudaEncoderOpRegistrar.html#a76bdb404ec3dccc2711fb44030d1ea6a" title="Registers the CudaEncoderOp operation with the OperationRegistry." alt="" coords="455,713,647,768"/>
+<area shape="poly" id="edge24_Node000002_Node000013" title=" " alt="" coords="320,609,365,655,393,678,423,698,443,709,441,714,420,703,389,682,361,659,316,613"/>
+<area shape="rect" id="Node000014" href="$classMila_1_1Dnn_1_1Compute_1_1CudaGeluOpRegistrar.html#a0a5eb859f50e2df31f3dbdac4b01bdce" title="Registers the CudaGeluOp operation with the OperationRegistry." alt="" coords="465,792,636,847"/>
+<area shape="poly" id="edge27_Node000002_Node000014" title=" " alt="" coords="308,610,325,647,350,693,383,738,423,777,454,795,451,799,420,781,379,742,345,695,320,650,303,612"/>
+<area shape="rect" id="Node000015" href="$classMila_1_1Dnn_1_1Compute_1_1CudaLayerNormOpRegistrar.html#a54db614adb235692ddf32f60418df6cf" title="Registers the CudaLayerNormOp operation with the OperationRegistry." alt="" coords="445,871,657,925"/>
+<area shape="poly" id="edge30_Node000002_Node000015" title=" " alt="" coords="302,610,315,662,338,729,374,797,396,828,423,856,434,864,431,869,420,860,392,832,369,800,333,731,310,664,297,611"/>
+<area shape="rect" id="Node000016" href="$classMila_1_1Dnn_1_1Compute_1_1CudaLinearOpRegistrar.html#abf077739f35a65e85910de6e7ed133cc" title="Registers the CudaLinearOp operation with the OperationRegistry." alt="" coords="461,5,641,60"/>
+<area shape="poly" id="edge33_Node000002_Node000016" title=" " alt="" coords="295,555,310,449,336,304,353,230,372,163,395,108,419,69,446,50,449,54,423,73,399,110,377,165,358,232,341,305,315,450,301,556"/>
+<area shape="rect" id="Node000017" href="$classMila_1_1Dnn_1_1Compute_1_1CudaMultiHeadAttentionOpRegistrar.html#aea4ab7e93a215ddd19057ba143fb9039" title="Registers the CudaMultiHeadAttentionOp operation with the OperationRegistry." alt="" coords="445,84,656,139"/>
+<area shape="poly" id="edge36_Node000002_Node000017" title=" " alt="" coords="292,555,295,476,302,424,312,367,328,308,351,250,381,196,419,148,432,138,435,142,423,152,385,199,356,253,333,310,318,368,307,425,301,477,297,556"/>
+<area shape="rect" id="Node000018" href="$classMila_1_1Dnn_1_1Compute_1_1CudaResidualOpRegistrar.html#a43606bb268c5e9ae6e0a60498a9f4e3d" title="Registers the CudaResidualOp operation with the OperationRegistry." alt="" coords="453,1028,649,1083"/>
+<area shape="poly" id="edge39_Node000002_Node000018" title=" " alt="" coords="297,611,301,690,318,797,334,856,356,913,385,966,423,1013,442,1028,439,1032,419,1017,381,969,351,915,329,857,313,799,296,690,292,611"/>
+<area shape="rect" id="Node000019" href="$classMila_1_1Dnn_1_1Compute_1_1CudaSoftmaxOpRegistrar.html#a2c9df32d01c008a0c819232d2d80c59e" title="Registers the CudaSoftmaxOp operation with the OperationRegistry." alt="" coords="453,163,648,217"/>
+<area shape="poly" id="edge42_Node000002_Node000019" title=" " alt="" coords="294,555,302,489,322,401,339,354,360,308,386,265,420,227,439,212,442,216,423,231,391,268,364,310,343,356,327,402,307,490,299,556"/>
+<area shape="rect" id="Node000020" href="$classMila_1_1Dnn_1_1Compute_1_1CudaMatMulBiasGeluOpRegistrar.html#a6e56d1bb3b6b684c0925f9b46286f86a" title="Registers the CudaMatMulBiasGeluOp operation with the OperationRegistry." alt="" coords="427,949,674,1004"/>
+<area shape="poly" id="edge45_Node000002_Node000020" title=" " alt="" coords="299,610,308,676,328,763,344,810,365,855,391,897,423,935,428,939,425,943,419,939,387,901,360,858,339,812,323,765,302,677,294,611"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a56e3658d8b09dd388ca379aefcdeb17f" title="Get the singleton instance of the OperationRegistry." alt="" coords="746,556,897,611"/>
+<area shape="poly" id="edge4_Node000003_Node000004" title=" " alt="" coords="644,281,664,291,682,305,700,330,710,354,713,378,712,402,712,450,717,476,730,503,748,526,768,545,765,549,744,529,726,506,712,478,707,451,707,402,707,378,704,356,696,333,678,309,661,296,642,285"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a9f6cf8041f25ce8339b221d28d4ef022" title="Register a unary operation creator for a specific device type." alt="" coords="730,439,913,493"/>
+<area shape="poly" id="edge5_Node000003_Node000005" title=" " alt="" coords="644,287,681,305,717,332,748,364,797,425,793,429,744,367,713,336,679,310,642,292"/>
+<area shape="poly" id="edge7_Node000006_Node000004" title=" " alt="" coords="633,357,659,368,682,384,695,399,703,413,710,442,715,471,730,503,749,525,771,545,767,549,745,529,726,506,710,473,705,443,698,415,691,402,678,388,656,373,631,362"/>
+<area shape="poly" id="edge8_Node000006_Node000005" title=" " alt="" coords="633,366,681,384,767,429,765,434,679,388,631,371"/>
+<area shape="poly" id="edge10_Node000007_Node000004" title=" " alt="" coords="654,450,681,462,779,545,776,549,679,467,652,455"/>
+<area shape="poly" id="edge11_Node000007_Node000005" title=" " alt="" coords="653,438,717,448,716,453,653,444"/>
+<area shape="poly" id="edge13_Node000008_Node000004" title=" " alt="" coords="638,527,734,555,732,560,636,532"/>
+<area shape="poly" id="edge14_Node000008_Node000005" title=" " alt="" coords="636,490,716,478,717,484,637,495"/>
+<area shape="poly" id="edge16_Node000009_Node000004" title=" " alt="" coords="680,581,732,581,732,586,680,586"/>
+<area shape="poly" id="edge17_Node000009_Node000005" title=" " alt="" coords="646,553,679,541,763,498,765,503,681,546,648,558"/>
+<area shape="poly" id="edge19_Node000010_Node000004" title=" " alt="" coords="644,1116,662,1106,678,1093,721,1039,754,978,779,913,797,846,808,781,815,720,819,625,824,625,820,720,814,781,802,847,784,914,759,980,726,1042,682,1097,665,1111,646,1121"/>
+<area shape="rect" id="Node000011" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#ad057a9748abb405fe69a58bbd7581b6b" title="Register a binary operation creator for a specific device type." alt="" coords="728,1068,915,1123"/>
+<area shape="poly" id="edge20_Node000010_Node000011" title=" " alt="" coords="645,1118,714,1108,715,1113,645,1123"/>
+<area shape="poly" id="edge22_Node000012_Node000004" title=" " alt="" coords="643,632,732,606,734,611,645,637"/>
+<area shape="poly" id="edge23_Node000012_Node000005" title=" " alt="" coords="643,640,678,620,695,602,704,584,711,564,726,542,769,500,773,504,730,545,716,566,709,586,700,605,682,624,645,644"/>
+<area shape="poly" id="edge25_Node000013_Node000004" title=" " alt="" coords="646,713,679,698,735,660,783,618,786,622,739,664,681,703,648,718"/>
+<area shape="poly" id="edge26_Node000013_Node000005" title=" " alt="" coords="645,721,678,699,693,680,701,662,706,625,708,586,714,565,726,542,744,519,765,500,769,504,748,523,730,545,719,566,713,587,711,626,706,663,697,683,682,703,648,725"/>
+<area shape="poly" id="edge28_Node000014_Node000004" title=" " alt="" coords="635,799,678,777,718,742,751,701,779,659,799,622,804,624,783,662,756,704,722,746,682,782,637,804"/>
+<area shape="poly" id="edge29_Node000014_Node000005" title=" " alt="" coords="635,804,659,793,678,778,698,749,707,721,710,694,708,666,705,608,711,576,726,542,743,519,763,500,767,504,747,523,730,545,716,577,710,608,713,666,715,694,713,722,703,751,682,781,662,798,638,809"/>
+<area shape="poly" id="edge31_Node000015_Node000004" title=" " alt="" coords="656,871,678,856,704,831,727,802,764,739,791,676,808,623,813,625,796,678,769,741,731,805,708,834,682,860,659,875"/>
+<area shape="poly" id="edge32_Node000015_Node000005" title=" " alt="" coords="655,875,678,856,703,818,714,781,715,744,710,707,704,669,702,629,707,587,726,542,742,519,762,500,766,504,746,523,730,545,712,589,707,630,709,669,715,706,720,744,719,781,708,820,682,860,659,879"/>
+<area shape="poly" id="edge34_Node000016_Node000004" title=" " alt="" coords="642,42,664,53,682,70,702,97,716,125,725,151,730,178,728,229,719,280,708,332,702,386,708,442,716,472,730,503,746,526,766,545,762,549,742,529,726,506,711,474,702,443,697,386,703,331,714,279,723,228,724,178,720,153,711,127,698,100,678,73,661,58,640,47"/>
+<area shape="poly" id="edge35_Node000016_Node000005" title=" " alt="" coords="642,45,663,55,682,69,717,110,746,155,769,204,787,254,810,349,820,424,815,425,804,350,782,255,764,206,741,158,713,113,678,73,660,60,640,50"/>
+<area shape="poly" id="edge37_Node000017_Node000004" title=" " alt="" coords="658,129,682,148,711,193,723,236,723,279,717,321,709,363,706,407,711,454,730,503,746,526,767,545,763,549,742,529,726,506,706,455,700,407,704,363,712,320,718,278,718,237,706,195,678,152,655,133"/>
+<area shape="poly" id="edge38_Node000017_Node000005" title=" " alt="" coords="658,132,682,148,711,179,737,213,758,251,776,289,801,364,816,425,811,426,796,365,771,291,753,253,732,216,707,182,678,152,655,136"/>
+<area shape="poly" id="edge40_Node000018_Node000004" title=" " alt="" coords="648,1034,678,1013,715,969,745,919,768,865,786,810,808,706,816,624,821,625,813,707,791,812,773,867,750,921,720,972,682,1017,651,1038"/>
+<area shape="poly" id="edge41_Node000018_Node000011" title=" " alt="" coords="649,1067,715,1077,714,1082,648,1072"/>
+<area shape="poly" id="edge43_Node000019_Node000004" title=" " alt="" coords="650,204,667,214,682,227,706,262,716,295,718,329,714,361,710,395,709,429,714,465,730,503,747,526,767,545,763,549,743,529,726,506,709,466,703,429,705,394,709,361,713,328,711,296,701,264,678,230,664,218,647,208"/>
+<area shape="poly" id="edge44_Node000019_Node000005" title=" " alt="" coords="650,208,682,227,727,272,763,325,790,379,809,424,804,427,786,381,758,328,723,276,678,231,647,213"/>
+<area shape="poly" id="edge46_Node000020_Node000004" title=" " alt="" coords="662,947,678,935,710,900,736,861,758,818,776,775,800,691,813,624,818,625,805,693,781,777,763,821,741,863,714,903,682,939,665,951"/>
+</map>

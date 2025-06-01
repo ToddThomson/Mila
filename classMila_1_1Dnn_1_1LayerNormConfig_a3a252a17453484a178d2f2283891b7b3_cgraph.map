@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::LayerNormConfig::validate" name="Mila::Dnn::LayerNormConfig::validate">
+<area shape="rect" id="Node000001" title="Validate configuration parameters." alt="" coords="5,5,211,45"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1ComponentConfig.html#ab1b9997f5b9604f0f60b68985f2f3ffc" title="Validates the configuration." alt="" coords="259,5,467,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="211,23,245,23,245,28,211,28"/>
+</map>

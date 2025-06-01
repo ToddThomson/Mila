@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::CrossEntropy::ignorePadding" name="Mila::Dnn::CrossEntropy::ignorePadding">
+<area shape="rect" id="Node000001" title="Checks if padding is ignored." alt="" coords="5,5,184,45"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1CrossEntropyConfig.html#a1dcdeef1e2161d432707113484d38235" title="Check if padding should be ignored." alt="" coords="232,5,451,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="184,23,218,23,218,28,184,28"/>
+</map>

@@ -1,0 +1,11 @@
+<map id="Mila::Dnn::Model::evaluate" name="Mila::Dnn::Model::evaluate">
+<area shape="rect" id="Node000001" title="Evaluate the model on a dataset." alt="" coords="5,60,203,85"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Model.html#a5d73c2f1afbb01476f9ba61844508f5b" title="Performs a forward pass through the model." alt="" coords="279,35,469,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="203,61,265,55,265,60,203,66"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Model.html#a4d17b2f7212ced5f886ab7b0a6fdb5d1" title="Sets the training mode for the model." alt="" coords="251,84,497,109"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="203,79,237,82,237,87,203,84"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Model.html#ae33c8f6f72dc13d99e15278057c6fd03" title="Calculate the loss for the given targets and current model outputs." alt="" coords="545,5,773,31"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="469,35,531,28,532,34,470,40"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Tensor.html#aea6f6d11627444aba7d2069f1cef01d4" title=" " alt="" coords="588,55,731,95"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="470,54,575,64,574,70,469,59"/>
+</map>

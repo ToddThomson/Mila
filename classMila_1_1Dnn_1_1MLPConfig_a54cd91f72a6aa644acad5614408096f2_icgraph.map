@@ -1,0 +1,11 @@
+<map id="Mila::Dnn::MLPConfig::getInputFeatures" name="Mila::Dnn::MLPConfig::getInputFeatures">
+<area shape="rect" id="Node000001" title=" " alt="" coords="439,51,599,91"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1MLP.html#ae4588ec91a15be5f5fba30e06b0a15e6" title="Initializes all submodules for the MLP." alt="" coords="208,22,391,62"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="425,62,390,57,391,52,426,56"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1MLP.html#aee8a9284ec818f02e5ede4cc0552758f" title="Generates a string representation of this module&#39;s configuration." alt="" coords="210,87,389,112"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="425,86,389,91,389,85,425,81"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1MLP.html#a524b2ac11d65569d831497321d36675a" title="Constructs a new MLP module with a device name." alt="" coords="5,5,160,31"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="194,33,160,29,160,24,195,28"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1MLP.html#abd11a41a1e3847f7507832eedb5ae7a4" title="Constructs a new MLP module with a provided device context." alt="" coords="5,55,160,80"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="195,57,160,61,160,56,194,52"/>
+</map>

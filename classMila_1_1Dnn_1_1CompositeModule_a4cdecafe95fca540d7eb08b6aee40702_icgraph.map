@@ -1,0 +1,19 @@
+<map id="Mila::Dnn::CompositeModule::getModules" name="Mila::Dnn::CompositeModule::getModules">
+<area shape="rect" id="Node000001" title="Get all sub&#45;modules contained in this module." alt="" coords="515,151,725,191"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1MLP.html#a5d9ab5d88863e647dad829639382443f" title="Deserializes the module state from a ZIP archive." alt="" coords="286,5,441,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="590,143,535,93,501,67,465,46,433,33,435,28,468,41,504,63,539,89,593,140"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1TransformerBlock.html#a2d251f02ca76ad508f8baa9f74f006af" title="Deserializes the module state from a ZIP archive." alt="" coords="260,55,467,95"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="560,148,466,110,431,98,433,93,468,105,562,143"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1MLP.html#aa0f61b9b9653238a61d9e4d9b111c5cb" title="Gets the number of trainable parameters in this module." alt="" coords="266,119,461,159"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="501,159,460,154,461,149,502,154"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1TransformerBlock.html#a4ef247db2dea6f1f58dba2bed75dc773" title="Gets the number of trainable parameters in this module." alt="" coords="260,183,467,223"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="502,189,467,193,467,188,501,183"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1MLP.html#a8133fd1819b5da727bcd18e1a776ee00" title="Serializes the module state to a ZIP archive." alt="" coords="284,248,443,273"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="565,199,468,238,424,250,422,245,466,233,563,194"/>
+<area shape="rect" id="Node000009" href="$classMila_1_1Dnn_1_1TransformerBlock.html#ac3a796988e1018af4847a38fd620a9fa" title="Serializes the module state to a ZIP archive." alt="" coords="260,298,467,338"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="589,202,534,246,468,288,440,300,438,295,465,284,531,242,585,198"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1MLP.html#aee8a9284ec818f02e5ede4cc0552758f" title="Generates a string representation of this module&#39;s configuration." alt="" coords="19,127,198,152"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="252,142,198,142,198,137,252,137"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1TransformerBlock.html#add82601fef958270857c9bfcdc7bc238" title="Generates a string representation of this module&#39;s configuration." alt="" coords="5,183,212,223"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="247,206,212,206,212,201,247,201"/>
+</map>

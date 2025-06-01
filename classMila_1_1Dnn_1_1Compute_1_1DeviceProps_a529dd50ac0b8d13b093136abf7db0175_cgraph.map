@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Compute::DeviceProps::DeviceProps" name="Mila::Dnn::Compute::DeviceProps::DeviceProps">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,5,205,45"/>
+<area shape="rect" id="Node000002" href="$namespaceMila_1_1Dnn_1_1Compute.html#af02152a475c650f6a64e0f2c67c1aaf5" title="Checks the status of a CUDA operation and throws if an error occurred." alt="" coords="253,5,404,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="205,23,240,23,240,28,205,28"/>
+</map>

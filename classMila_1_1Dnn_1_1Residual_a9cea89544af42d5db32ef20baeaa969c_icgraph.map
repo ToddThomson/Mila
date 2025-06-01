@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Residual::addTensors" name="Mila::Dnn::Residual::addTensors">
+<area shape="rect" id="Node000001" title="Adds two tensors element&#45;wise." alt="" coords="201,5,349,45"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Residual.html#ad8ee2a92d41cceaf6376fb0662173388" title="Performs the backward pass of the Residual connection." alt="" coords="5,5,153,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="187,28,154,28,154,23,187,23"/>
+</map>

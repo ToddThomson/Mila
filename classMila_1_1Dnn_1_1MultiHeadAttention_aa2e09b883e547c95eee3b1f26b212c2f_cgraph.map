@@ -1,0 +1,21 @@
+<map id="Mila::Dnn::MultiHeadAttention::initializeTensors" name="Mila::Dnn::MultiHeadAttention::initializeTensors">
+<area shape="rect" id="Node000001" title="Initializes the tensors needed for attention computation." alt="" coords="5,229,224,269"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1MultiHeadAttentionConfig.html#a9d5e87b46522e0a8d423f4498d2bf184" title="Get the dropout rate." alt="" coords="275,5,493,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="125,228,147,191,179,144,221,96,270,55,281,49,283,54,274,60,225,100,184,147,151,194,129,230"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1MultiHeadAttentionConfig.html#a568c2b5af5064ac8d83e0db4f5fe0187" title="Get the input shape." alt="" coords="275,69,493,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="133,227,192,173,230,144,271,119,285,112,288,117,273,124,233,149,195,178,137,231"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Module.html#a2c8e8735eaf75d6bad6d454f7d23b2ca" title="Get the name of the module." alt="" coords="310,133,458,173"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="160,227,271,183,296,175,297,180,273,188,162,232"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1MultiHeadAttentionConfig.html#a64daa00677b693962db37b76c563283d" title="Get the number of attention heads." alt="" coords="275,197,493,237"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="224,234,261,229,261,235,224,239"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1MultiHeadAttentionConfig.html#a2c0e9e41e04567dddcb4cc3660927518" title="Get the attention scaling factor." alt="" coords="275,261,493,301"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="224,260,261,264,261,269,224,265"/>
+<area shape="rect" id="Node000008" href="$structMila_1_1Dnn_1_1Compute_1_1OperationAttributes.html#a77b49c21d0b585acf519138c166b6687" title="Helper method to set a value in the propsMap." alt="" coords="291,325,477,365"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="162,267,273,311,297,319,295,324,271,316,160,272"/>
+<area shape="rect" id="Node000009" href="$classMila_1_1Dnn_1_1MultiHeadAttentionConfig.html#a2bc9811ffcc719b67e1946331d363a36" title="Check if causal masking is enabled." alt="" coords="275,389,493,429"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="137,268,195,321,233,350,273,375,288,382,285,387,271,380,230,354,192,325,133,272"/>
+<area shape="rect" id="Node000010" href="$classMila_1_1Dnn_1_1MultiHeadAttentionConfig.html#af1a67cdb792d19fb6c9720fa44c6fbff" title="Check if using separate projection matrices." alt="" coords="272,453,496,493"/>
+<area shape="poly" id="edge9_Node000001_Node000010" title=" " alt="" coords="129,268,151,305,184,351,225,399,274,439,283,445,281,450,270,444,221,403,179,355,147,308,125,271"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1ComponentConfig.html#a35f7308c0a3de2579d0df7cdbb7ec268" title="Gets the configured component name." alt="" coords="544,133,752,173"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="458,151,530,151,530,156,458,156"/>
+</map>

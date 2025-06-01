@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::MLP::save" name="Mila::Dnn::MLP::save">
+<area shape="rect" id="Node000001" title="Serializes the module state to a ZIP archive." alt="" coords="5,13,164,38"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1CompositeModule.html#a4cdecafe95fca540d7eb08b6aee40702" title="Get all sub&#45;modules contained in this module." alt="" coords="212,5,423,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="165,23,198,23,198,28,165,28"/>
+</map>

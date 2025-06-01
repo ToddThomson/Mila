@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::Model::setTrainingMode" name="Mila::Dnn::Model::setTrainingMode">
+<area shape="rect" id="Node000001" title="Sets the training mode for the model." alt="" coords="251,31,497,56"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Model.html#aa81d44981751eb9ce8223f3bd255aba4" title="Evaluate the model on a dataset." alt="" coords="5,5,203,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="237,33,203,30,203,25,237,28"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Model.html#ad6d1b284a6a4426716842127fc0d3de9" title="Predict outputs for the given inputs." alt="" coords="11,55,197,80"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="237,58,197,62,197,56,237,53"/>
+</map>

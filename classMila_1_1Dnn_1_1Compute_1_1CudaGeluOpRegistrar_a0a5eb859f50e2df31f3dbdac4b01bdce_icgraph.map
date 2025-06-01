@@ -1,0 +1,10 @@
+<map id="Mila::Dnn::Compute::CudaGeluOpRegistrar::registerOperations" name="Mila::Dnn::Compute::CudaGeluOpRegistrar::registerOperations">
+<area shape="rect" id="Node000001" title="Registers the CudaGeluOp operation with the OperationRegistry." alt="" coords="584,29,755,84"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1OperationsRegistrar.html#a8a24b4f953b5946b39d47eeb0f6d457b" title="Initialize the compute operations." alt="" coords="376,29,536,84"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="570,59,536,59,536,54,570,54"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1OperationsRegistrar.html#ae14b3144cca6b6fb56bdcb1ba1eaed39" title="Get the singleton instance of OperationsRegistrar." alt="" coords="168,29,328,84"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="362,59,328,59,328,54,362,54"/>
+<area shape="poly" id="edge4_Node000003_Node000003" title=" " alt="" coords="278,18,267,11,248,8,232,10,222,15,217,21,217,29,212,29,212,19,218,10,230,5,248,3,269,6,281,13"/>
+<area shape="rect" id="Node000004" href="$namespaceMila.html#a6d5b9d6d5b8d5e040c23e931f807bf86" title="Initializes the Mila framework." alt="" coords="5,44,120,69"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="154,59,120,59,120,54,154,54"/>
+</map>

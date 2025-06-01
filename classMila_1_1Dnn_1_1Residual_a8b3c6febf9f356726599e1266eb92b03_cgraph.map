@@ -1,0 +1,22 @@
+<map id="Mila::Dnn::Residual::toString" name="Mila::Dnn::Residual::toString">
+<area shape="rect" id="Node000001" title="Converts the module information to a human&#45;readable string." alt="" coords="5,216,153,256"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Residual.html#a40ef6b3d909f75b1547e9409f14749e3" title="Converts connection type enum to string for display purposes." alt="" coords="205,5,387,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="87,215,103,180,128,138,160,93,200,55,207,50,210,54,203,59,164,97,132,140,108,183,91,217"/>
+<area shape="rect" id="Node000003" href="$namespaceMila_1_1Dnn_1_1Compute.html#abc57784bcbd77f21ea2524f0161e7e4f" title="Converts a DeviceType to its string representation." alt="" coords="221,69,371,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="97,214,142,171,200,126,223,113,226,118,203,130,145,175,101,218"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1ResidualConfig.html#aa0661063cf48a3ab1d42c4ca9ba9c851" title=" " alt="" coords="448,220,637,260"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="107,214,150,189,201,169,253,158,296,155,338,159,391,169,448,188,497,211,495,216,446,192,390,175,337,164,296,160,254,164,202,175,152,194,110,218"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Module.html#a1163624b16a6518b2ed573f51827759d" title="Get the device context for this module." alt="" coords="222,184,370,224"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="153,222,208,214,209,220,154,228"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1Module.html#a94b3a479c6e9c49879ef2079d34df471" title="Get the device type of the current device context." alt="" coords="222,248,370,288"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="154,244,209,252,208,258,153,250"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1Module.html#a2c8e8735eaf75d6bad6d454f7d23b2ca" title="Get the name of the module." alt="" coords="222,440,370,480"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="91,256,106,292,130,338,163,385,203,426,211,432,208,436,200,430,159,388,126,341,102,294,86,258"/>
+<area shape="rect" id="Node000009" href="$classMila_1_1Dnn_1_1ResidualConfig.html#a0d016779cfc5e4057ba1a3890a6f2b67" title="Set the inner module for the residual connection." alt="" coords="201,376,391,416"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="97,255,141,308,170,337,203,362,213,368,211,373,200,366,167,341,137,311,93,258"/>
+<area shape="rect" id="Node000010" href="$classMila_1_1Dnn_1_1Residual.html#aacae8e42be0acecc1c147b40625d8bab" title="Gets the number of trainable parameters in this module." alt="" coords="222,312,370,352"/>
+<area shape="poly" id="edge9_Node000001_Node000010" title=" " alt="" coords="117,254,202,298,220,305,218,310,200,302,114,259"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1ComponentConfig.html#a35f7308c0a3de2579d0df7cdbb7ec268" title="Gets the configured component name." alt="" coords="439,440,647,480"/>
+<area shape="poly" id="edge7_Node000007_Node000008" title=" " alt="" coords="371,457,425,457,425,463,371,463"/>
+<area shape="poly" id="edge10_Node000010_Node000004" title=" " alt="" coords="356,309,390,298,479,263,481,268,392,302,358,314"/>
+</map>

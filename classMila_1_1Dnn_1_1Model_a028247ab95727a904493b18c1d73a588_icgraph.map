@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Model::setDevice" name="Mila::Dnn::Model::setDevice">
+<area shape="rect" id="Node000001" title="Sets the device to use for this model by name." alt="" coords="259,5,464,31"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Model.html#aa90eec602d8cc14c8a4e95680f25ae44" title="Sets the device to use for this model by CUDA device ID." alt="" coords="5,5,211,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="245,21,211,21,211,15,245,15"/>
+</map>

@@ -1,0 +1,37 @@
+<map id="Mila::Dnn::TransformerBlock::TransformerBlock" name="Mila::Dnn::TransformerBlock::TransformerBlock">
+<area shape="rect" id="Node000001" title="Constructs a new TransformerBlock module with a provided device context." alt="" coords="5,613,212,653"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1TransformerBlock.html#aaaeec89728f06c2291468f9ed844241c" title="Initializes the sub&#45;modules and output tensors for the transformer block." alt="" coords="260,421,467,461"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="135,611,323,468,326,472,138,615"/>
+<area shape="rect" id="Node000017" href="$classMila_1_1Dnn_1_1TransformerBlockConfig.html#aedbe1d9f1b53ccaf23a218ecd28157a3" title="Validate configuration parameters." alt="" coords="260,645,467,685"/>
+<area shape="poly" id="edge16_Node000001_Node000017" title=" " alt="" coords="212,644,247,648,246,653,212,649"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1CompositeModule.html#a25c8e224a0e5f2b4f0795e9c0b2db797" title="Add a named child module to this module." alt="" coords="515,5,725,45"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="364,421,374,352,399,254,418,200,443,148,474,99,513,55,518,51,522,55,517,59,479,102,448,150,423,202,404,255,379,353,369,422"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1TransformerBlockConfig.html#a4204b72c687c68106a62f6928f545cf7" title="Get the activation type for the MLP." alt="" coords="517,69,723,109"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="366,420,380,362,407,281,426,237,450,194,479,154,513,119,519,115,522,119,516,123,483,158,455,197,431,239,412,283,385,363,371,422"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Module.html#a1163624b16a6518b2ed573f51827759d" title="Get the device context for this module." alt="" coords="546,133,694,173"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="368,420,386,372,415,308,458,241,484,210,513,183,532,171,535,176,516,187,488,214,462,244,420,311,391,374,373,422"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1TransformerBlockConfig.html#a6b7589718a66a2af3fc4c16690871a53" title="Get the dropout rate." alt="" coords="517,197,723,237"/>
+<area shape="poly" id="edge5_Node000002_Node000006" title=" " alt="" coords="373,420,394,383,425,336,465,288,513,247,523,241,526,246,516,251,469,292,429,340,398,386,377,423"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1TransformerBlockConfig.html#a0c796cfb6d9efc287d429e343fdaa8ba" title="Get the hidden dimension for the feed&#45;forward network." alt="" coords="516,261,724,301"/>
+<area shape="poly" id="edge6_Node000002_Node000007" title=" " alt="" coords="381,419,437,366,474,336,513,311,527,304,529,309,516,316,477,341,441,370,385,423"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1TransformerBlockConfig.html#abd6f43f16b94d1b29aefeaa3faa1501b" title="Get the input shape." alt="" coords="517,325,723,365"/>
+<area shape="poly" id="edge7_Node000002_Node000008" title=" " alt="" coords="408,419,514,375,535,367,537,372,516,380,410,424"/>
+<area shape="rect" id="Node000009" href="$classMila_1_1Dnn_1_1Module.html#a2c8e8735eaf75d6bad6d454f7d23b2ca" title="Get the name of the module." alt="" coords="546,389,694,429"/>
+<area shape="poly" id="edge8_Node000002_Node000009" title=" " alt="" coords="467,426,532,418,533,423,467,431"/>
+<area shape="rect" id="Node000011" href="$classMila_1_1Dnn_1_1CompositeModule.html#a9c8e2daaa76655d6ca33f04605f6be47" title="Get all named sub&#45;modules contained in this module." alt="" coords="515,453,725,493"/>
+<area shape="poly" id="edge10_Node000002_Node000011" title=" " alt="" coords="467,452,502,456,501,461,467,457"/>
+<area shape="rect" id="Node000012" href="$classMila_1_1Dnn_1_1TransformerBlockConfig.html#acdc6aaf3f3b407c769482fade98eb99e" title="Get the number of attention heads." alt="" coords="517,517,723,557"/>
+<area shape="poly" id="edge11_Node000002_Node000012" title=" " alt="" coords="410,459,516,503,537,510,535,515,514,508,408,464"/>
+<area shape="rect" id="Node000013" href="$classMila_1_1Dnn_1_1Module.html#af676dd818a0afaa6f2839b53c42fb72b" title="Check if the module is in training mode." alt="" coords="546,581,694,621"/>
+<area shape="poly" id="edge12_Node000002_Node000013" title=" " alt="" coords="385,460,441,513,477,542,516,567,534,576,531,580,513,572,474,546,437,517,381,463"/>
+<area shape="rect" id="Node000014" href="$classMila_1_1Dnn_1_1CompositeModule.html#acd81a571c1f1472f66e75683d196699f" title="Remove a sub&#45;module by name." alt="" coords="515,645,725,685"/>
+<area shape="poly" id="edge13_Node000002_Node000014" title=" " alt="" coords="377,460,398,497,429,543,469,590,516,631,526,637,523,641,513,635,465,594,425,546,394,500,373,463"/>
+<area shape="rect" id="Node000015" href="$classMila_1_1Dnn_1_1TransformerBlockConfig.html#adbb1925945bc1e52fa89d0eeed892057" title="Check if bias is enabled." alt="" coords="517,709,723,749"/>
+<area shape="poly" id="edge14_Node000002_Node000015" title=" " alt="" coords="378,460,451,593,491,660,517,695,524,700,520,705,513,699,486,663,446,596,373,463"/>
+<area shape="rect" id="Node000016" href="$classMila_1_1Dnn_1_1ComponentConfig.html#adcdd117c7dd074304b27224c3f5fb3d2" title="Sets the name of the component with fluent interface." alt="" coords="516,773,724,813"/>
+<area shape="poly" id="edge15_Node000002_Node000016" title=" " alt="" coords="379,460,421,535,469,632,481,670,486,702,494,730,517,760,521,763,518,767,513,763,490,733,481,703,476,671,464,634,416,538,374,463"/>
+<area shape="rect" id="Node000010" href="$classMila_1_1Dnn_1_1ComponentConfig.html#a35f7308c0a3de2579d0df7cdbb7ec268" title="Gets the configured component name." alt="" coords="773,389,981,429"/>
+<area shape="poly" id="edge9_Node000009_Node000010" title=" " alt="" coords="694,407,759,407,759,412,694,412"/>
+<area shape="rect" id="Node000018" href="$classMila_1_1Dnn_1_1ComponentConfig.html#ab1b9997f5b9604f0f60b68985f2f3ffc" title="Validates the configuration." alt="" coords="516,837,724,877"/>
+<area shape="poly" id="edge17_Node000017_Node000018" title=" " alt="" coords="380,684,435,752,473,790,516,823,527,829,524,834,513,828,469,794,431,756,376,687"/>
+</map>

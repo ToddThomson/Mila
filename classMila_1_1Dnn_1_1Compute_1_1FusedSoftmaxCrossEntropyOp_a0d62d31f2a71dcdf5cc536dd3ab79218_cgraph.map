@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::Compute::FusedSoftmaxCrossEntropyOp::backward" name="Mila::Dnn::Compute::FusedSoftmaxCrossEntropyOp::backward">
+<area shape="rect" id="Node000001" title="Performs the backward pass of the fused softmax cross entropy operation." alt="" coords="5,30,213,85"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Tensor.html#a4f707ea4c0f00aab58189071fa1c11fd" title="Gets a raw pointer to the tensor data for use in CUDA kernels." alt="" coords="261,5,404,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="214,40,247,35,248,40,214,45"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Tensor.html#a294130f763b905cf0125c9bd4fba4970" title=" " alt="" coords="261,69,404,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="214,70,248,75,247,80,214,75"/>
+</map>

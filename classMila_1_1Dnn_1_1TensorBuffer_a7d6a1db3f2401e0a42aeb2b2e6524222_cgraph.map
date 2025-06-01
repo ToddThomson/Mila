@@ -1,0 +1,9 @@
+<map id="Mila::Dnn::TensorBuffer::resize" name="Mila::Dnn::TensorBuffer::resize">
+<area shape="rect" id="Node000001" title="Resizes the buffer to a new size, preserving existing data when possible." alt="" coords="5,69,179,109"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1TensorBuffer.html#a2c9260159493bf0b3ac8a93bdb8d2f44" title="Calculates the aligned size in bytes for a given number of elements." alt="" coords="227,5,400,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="161,67,230,47,231,52,163,72"/>
+<area shape="rect" id="Node000003" href="$namespaceMila_1_1Dnn_1_1Compute.html#af02152a475c650f6a64e0f2c67c1aaf5" title="Checks the status of a CUDA operation and throws if an error occurred." alt="" coords="238,69,389,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="179,87,224,87,224,92,179,92"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1TensorBuffer.html#af36c60b774be00c443830869c45f62c7" title="Initializes the buffer with a specified value." alt="" coords="227,133,400,173"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="163,107,231,127,230,132,161,112"/>
+</map>

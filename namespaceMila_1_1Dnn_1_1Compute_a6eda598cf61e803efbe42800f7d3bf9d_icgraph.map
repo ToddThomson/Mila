@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Compute::cuda_matmul_forward_fp32" name="Mila::Dnn::Compute::cuda_matmul_forward_fp32">
+<area shape="rect" id="Node000001" title=" " alt="" coords="228,13,440,53"/>
+<area shape="rect" id="Node000002" href="$structMila_1_1Dnn_1_1Compute_1_1Detail_1_1cuda__matmul__impl_3_01float_01_4.html#af548084321b26862f49c6a2893995aae" title=" " alt="" coords="5,5,180,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="215,35,180,35,180,30,215,30"/>
+</map>

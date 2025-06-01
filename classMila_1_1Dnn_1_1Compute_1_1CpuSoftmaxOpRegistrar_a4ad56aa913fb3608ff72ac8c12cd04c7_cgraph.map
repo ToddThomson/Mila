@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::Compute::CpuSoftmaxOpRegistrar::registerOperations" name="Mila::Dnn::Compute::CpuSoftmaxOpRegistrar::registerOperations">
+<area shape="rect" id="Node000001" title="Registers the CpuSoftmaxOp operation with the OperationRegistry." alt="" coords="5,45,192,100"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a56e3658d8b09dd388ca379aefcdeb17f" title="Get the singleton instance of the OperationRegistry." alt="" coords="256,5,407,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="192,54,242,45,243,51,193,59"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a9f6cf8041f25ce8339b221d28d4ef022" title="Register a unary operation creator for a specific device type." alt="" coords="240,84,423,139"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="193,86,227,91,226,97,192,91"/>
+</map>

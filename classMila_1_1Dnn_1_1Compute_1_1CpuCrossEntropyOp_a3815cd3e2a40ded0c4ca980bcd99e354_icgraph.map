@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Compute::CpuCrossEntropyOp::backward_impl" name="Mila::Dnn::Compute::CpuCrossEntropyOp::backward_impl">
+<area shape="rect" id="Node000001" title="Helper method for the backward pass implementation." alt="" coords="212,5,371,60"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1CpuCrossEntropyOp.html#ad21a5e761a7c17789db699425a97f4a9" title="Performs the backward pass of the cross entropy operation." alt="" coords="5,5,164,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="198,35,164,35,164,30,198,30"/>
+</map>

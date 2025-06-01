@@ -1,0 +1,9 @@
+<map id="Mila::Dnn::CrossEntropyConfig::getClassWeights" name="Mila::Dnn::CrossEntropyConfig::getClassWeights">
+<area shape="rect" id="Node000001" title="Get the class weights." alt="" coords="232,69,451,109"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1CrossEntropy.html#a23d8eac6c8330b05931be0f4294548a1" title="Constructs a new CrossEntropy module with a device name." alt="" coords="5,5,184,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="250,68,172,48,173,43,251,63"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1CrossEntropy.html#a839a9539c0ba7487f4ba4b191302f7c6" title="Constructs a new CrossEntropy module with a provided device context." alt="" coords="5,69,184,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="218,92,184,92,184,87,218,87"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1CrossEntropy.html#a69dae26995d248d7a22b761f7c809c82" title="Generates a string representation of this module&#39;s configuration." alt="" coords="5,133,184,173"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="251,115,173,136,172,131,250,110"/>
+</map>

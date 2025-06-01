@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Module::getName" name="Mila::Dnn::Module::getName">
+<area shape="rect" id="Node000001" title="Get the name of the module." alt="" coords="5,5,153,45"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1ComponentConfig.html#a35f7308c0a3de2579d0df7cdbb7ec268" title="Gets the configured component name." alt="" coords="201,5,409,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="154,23,188,23,188,28,154,28"/>
+</map>

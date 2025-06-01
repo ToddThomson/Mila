@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::Compute::CpuLayerNormOp::backward" name="Mila::Dnn::Compute::CpuLayerNormOp::backward">
+<area shape="rect" id="Node000001" title="Performs the backward pass of the Layer Normalization operation." alt="" coords="5,49,221,89"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1OperationBase.html#a89f65f9750a87e52fdc8f8095f18ba9a" title="Gets the device context associated with this operation." alt="" coords="285,5,485,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="221,52,271,45,271,50,222,57"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1OperationBase.html#a14eb1f77c85ff4fc2f53300500d65185" title="Gets the device type for this operation." alt="" coords="269,85,500,125"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="222,80,256,85,255,90,221,86"/>
+</map>

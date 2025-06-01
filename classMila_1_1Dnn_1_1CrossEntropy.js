@@ -1,0 +1,27 @@
+var classMila_1_1Dnn_1_1CrossEntropy =
+[
+    [ "ModuleBase", "classMila_1_1Dnn_1_1CrossEntropy.html#a24708134b6d25c66b7d67afe68ca888c", null ],
+    [ "MR", "classMila_1_1Dnn_1_1CrossEntropy.html#a5ce40f299f4b8a0c79a0672011476d23", null ],
+    [ "CrossEntropy", "classMila_1_1Dnn_1_1CrossEntropy.html#a23d8eac6c8330b05931be0f4294548a1", null ],
+    [ "CrossEntropy", "classMila_1_1Dnn_1_1CrossEntropy.html#a839a9539c0ba7487f4ba4b191302f7c6", null ],
+    [ "backward", "classMila_1_1Dnn_1_1CrossEntropy.html#acb1a79c4caf3226652f026f577d1eed8", null ],
+    [ "createOperation", "classMila_1_1Dnn_1_1CrossEntropy.html#ab6174e6ecfd871e8b998118110a6a91c", null ],
+    [ "forward", "classMila_1_1Dnn_1_1CrossEntropy.html#adde5c4161cd59e13522c3c1515405a19", null ],
+    [ "getClassWeights", "classMila_1_1Dnn_1_1CrossEntropy.html#a37189c355ba4e8b3a3f5722d8083d076", null ],
+    [ "getLabelSmoothing", "classMila_1_1Dnn_1_1CrossEntropy.html#a5143beff06105ea4600300f8ccb689b8", null ],
+    [ "getPaddingIndex", "classMila_1_1Dnn_1_1CrossEntropy.html#ae2b7a2b28e527ec00400cfe925d346c4", null ],
+    [ "getVocabSize", "classMila_1_1Dnn_1_1CrossEntropy.html#ac10ea32f9901616740e32f8a5648e739", null ],
+    [ "ignorePadding", "classMila_1_1Dnn_1_1CrossEntropy.html#a618ce95bb1b6062d6d79ceafee4ea081", null ],
+    [ "initializeClassWeights", "classMila_1_1Dnn_1_1CrossEntropy.html#a49307b84d2f6b5033148ab5d96979481", null ],
+    [ "isReduced", "classMila_1_1Dnn_1_1CrossEntropy.html#a47010c099b692d735cdef19fd6a5cd73", null ],
+    [ "load", "classMila_1_1Dnn_1_1CrossEntropy.html#a37986e64adc470ded8765690b96dd578", null ],
+    [ "parameterCount", "classMila_1_1Dnn_1_1CrossEntropy.html#aeab22472be0edcfcf76f51f9f28f19c5", null ],
+    [ "save", "classMila_1_1Dnn_1_1CrossEntropy.html#a607244995f4c6c07e76a8f4cd1f63b95", null ],
+    [ "toString", "classMila_1_1Dnn_1_1CrossEntropy.html#a69dae26995d248d7a22b761f7c809c82", null ],
+    [ "attributes_", "classMila_1_1Dnn_1_1CrossEntropy.html#aa0593e6dd1e173e6591c4708bd39a17e", null ],
+    [ "class_weights_", "classMila_1_1Dnn_1_1CrossEntropy.html#a15f4973736e84bcdcc4a24ba30f335b2", null ],
+    [ "config_", "classMila_1_1Dnn_1_1CrossEntropy.html#ad3ac26fec60e5eb9ed3e3610d3311004", null ],
+    [ "operation_", "classMila_1_1Dnn_1_1CrossEntropy.html#ac848cc3512706412ba481b7f3b10bc60", null ],
+    [ "output_state_", "classMila_1_1Dnn_1_1CrossEntropy.html#a8d262dfcfab16e6db19dc426fb26c97d", null ],
+    [ "parameters_", "classMila_1_1Dnn_1_1CrossEntropy.html#af330e21108258aa201fad97091f452b3", null ]
+];

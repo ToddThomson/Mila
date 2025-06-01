@@ -1,0 +1,27 @@
+var classMila_1_1Dnn_1_1LayerNorm =
+[
+    [ "ModuleBase", "classMila_1_1Dnn_1_1LayerNorm.html#a9eec22086e9df759f3dfa42254c25d17", null ],
+    [ "MR", "classMila_1_1Dnn_1_1LayerNorm.html#abfc4c50931dc1ff9f6681075400e5810", null ],
+    [ "LayerNorm", "classMila_1_1Dnn_1_1LayerNorm.html#a5639928c52cd01656e74b6872572932b", null ],
+    [ "LayerNorm", "classMila_1_1Dnn_1_1LayerNorm.html#a8bdc4bd7c381f42304cfe1257402df98", null ],
+    [ "backward", "classMila_1_1Dnn_1_1LayerNorm.html#a4a3692495b27f762cd1c65277fac3b55", null ],
+    [ "createOperation", "classMila_1_1Dnn_1_1LayerNorm.html#a25b5ec6b9949754ba93bad41693d6d06", null ],
+    [ "forward", "classMila_1_1Dnn_1_1LayerNorm.html#a03f9de4073dd84a63450519a2e85db3c", null ],
+    [ "getBias", "classMila_1_1Dnn_1_1LayerNorm.html#af90439a32726f8e741ff975b0a3be99f", null ],
+    [ "getWeight", "classMila_1_1Dnn_1_1LayerNorm.html#a04b02e7bbe75cac9751ac2351dc0289d", null ],
+    [ "hasBias", "classMila_1_1Dnn_1_1LayerNorm.html#a9188d1900e7d534d16c1b48a026a4606", null ],
+    [ "initializeTensors", "classMila_1_1Dnn_1_1LayerNorm.html#a0611d4cdf0051e123e56129948881d4b", null ],
+    [ "load", "classMila_1_1Dnn_1_1LayerNorm.html#a23ae6ad0e75a314cd03bc94b0e3a9a3f", null ],
+    [ "parameterCount", "classMila_1_1Dnn_1_1LayerNorm.html#adec37a1f165cc5cbeeeb131aa7d7d462", null ],
+    [ "save", "classMila_1_1Dnn_1_1LayerNorm.html#a82c2fb6f5c711eb40e9bac80a756bbe1", null ],
+    [ "toString", "classMila_1_1Dnn_1_1LayerNorm.html#ae921e4baf1dc5898e061fca3a48284e0", null ],
+    [ "bias_", "classMila_1_1Dnn_1_1LayerNorm.html#a570ba91fbd3ebaecf4541d454446dd79", null ],
+    [ "config_", "classMila_1_1Dnn_1_1LayerNorm.html#a673fb5f3f23a80e5c59b340f4057ce9a", null ],
+    [ "mean_", "classMila_1_1Dnn_1_1LayerNorm.html#a1c200dbcbc50f25cc1298a5113b4a96a", null ],
+    [ "operation_", "classMila_1_1Dnn_1_1LayerNorm.html#a4769702e3a0432b7fe87c1c9144a9f74", null ],
+    [ "output_state_", "classMila_1_1Dnn_1_1LayerNorm.html#a063991a93d472077a549a2c80bdc9974", null ],
+    [ "parameters_", "classMila_1_1Dnn_1_1LayerNorm.html#a28c2565b12ea55f69aaa81661fe5ec7d", null ],
+    [ "properties_", "classMila_1_1Dnn_1_1LayerNorm.html#a9319a754785bbe49e690e4f9b06f6d05", null ],
+    [ "rstd_", "classMila_1_1Dnn_1_1LayerNorm.html#af4505987bef0ce0ead2e3d6acee6c418", null ],
+    [ "weight_", "classMila_1_1Dnn_1_1LayerNorm.html#a90e2cb2e8550d38520f979f7adbbe5d0", null ]
+];

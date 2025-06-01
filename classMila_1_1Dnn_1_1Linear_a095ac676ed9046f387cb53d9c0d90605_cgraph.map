@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Linear::parameterCount" name="Mila::Dnn::Linear::parameterCount">
+<area shape="rect" id="Node000001" title="Gets the number of trainable parameters in this module." alt="" coords="5,5,145,45"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1LinearConfig.html#a34843decd60f1f166a59c90bb1b38023" title=" " alt="" coords="193,5,367,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="146,23,180,23,180,28,146,28"/>
+</map>

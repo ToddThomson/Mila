@@ -1,0 +1,11 @@
+<map id="Mila::Dnn::Residual::createOperation" name="Mila::Dnn::Residual::createOperation">
+<area shape="rect" id="Node000001" title="Creates an appropriate operation based on the connection type." alt="" coords="5,117,153,157"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#acf6c6e52c4c686b7547170bcd9857996" title="Create a binary operation based on the type information, device type, and operation name." alt="" coords="207,5,385,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="115,114,200,70,215,63,217,68,203,75,118,119"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1ResidualConfig.html#aa0661063cf48a3ab1d42c4ca9ba9c851" title=" " alt="" coords="201,85,391,125"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="153,123,187,118,188,123,154,128"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Module.html#a1163624b16a6518b2ed573f51827759d" title="Get the device context for this module." alt="" coords="222,149,370,189"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="154,145,209,153,208,158,153,150"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a56e3658d8b09dd388ca379aefcdeb17f" title="Get the singleton instance of the OperationRegistry." alt="" coords="221,213,371,268"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="118,154,203,198,217,205,215,210,200,203,115,159"/>
+</map>

@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Residual&lt; TDeviceType, TInput, TOutput &gt;" name="Mila::Dnn::Residual&lt; TDeviceType, TInput, TOutput &gt;">
+<area shape="rect" id="Node000001" title="A class implementing a residual connection module." alt="" coords="5,108,179,163"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Module.html" title="Abstract base class for all modules in the Mila DNN framework." alt="" coords="11,5,173,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="95,74,95,108,89,108,89,74"/>
+</map>

@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::Module::Module" name="Mila::Dnn::Module::Module">
+<area shape="rect" id="Node000001" title="Constructor with device name." alt="" coords="5,37,153,77"/>
+<area shape="rect" id="Node000002" href="$namespaceMila_1_1Dnn_1_1Compute.html#abc57784bcbd77f21ea2524f0161e7e4f" title="Converts a DeviceType to its string representation." alt="" coords="230,5,381,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="153,44,216,35,217,41,154,49"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1ComponentConfig.html#ab1b9997f5b9604f0f60b68985f2f3ffc" title="Validates the configuration." alt="" coords="201,69,409,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="154,65,188,70,187,75,153,70"/>
+</map>

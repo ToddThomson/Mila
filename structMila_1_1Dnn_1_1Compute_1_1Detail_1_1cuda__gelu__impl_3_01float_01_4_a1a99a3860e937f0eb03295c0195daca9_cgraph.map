@@ -1,0 +1,9 @@
+<map id="Mila::Dnn::Compute::Detail::cuda_gelu_impl&lt; float &gt;::cuda_gelu_impl" name="Mila::Dnn::Compute::Detail::cuda_gelu_impl&lt; float &gt;::cuda_gelu_impl">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,55,161,124"/>
+<area shape="rect" id="Node000002" href="$namespaceMila_1_1Dnn_1_1Compute.html#a3e8dcac0f2ac5c24a627fbe2b9be9671" title=" " alt="" coords="209,5,412,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="161,65,225,46,227,52,162,70"/>
+<area shape="rect" id="Node000003" href="$namespaceMila_1_1Dnn_1_1Compute.html#a053c82c575baebe18906be8ef85b5d1a" title=" " alt="" coords="216,69,405,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="161,87,202,87,202,92,161,92"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1GeluConfig.html#ab1eefcfc67bf12e9c1c05cf916b304f9" title="Get the configured approximation method." alt="" coords="213,133,409,173"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="162,109,227,127,225,132,161,114"/>
+</map>

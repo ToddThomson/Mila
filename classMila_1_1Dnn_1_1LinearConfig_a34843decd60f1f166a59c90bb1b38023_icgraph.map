@@ -1,0 +1,21 @@
+<map id="Mila::Dnn::LinearConfig::hasBias" name="Mila::Dnn::LinearConfig::hasBias">
+<area shape="rect" id="Node000001" title=" " alt="" coords="449,133,623,173"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Linear.html#a1d8b4704c7b0822cea0aef3ecf0f1f11" title="Retrieves the bias tensor if present." alt="" coords="227,5,367,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="500,127,454,92,400,60,367,46,369,41,403,55,457,88,503,122"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Linear.html#abc02b6311f73b4191428a1cf1ba61c1c" title="Checks whether the module has a bias tensor." alt="" coords="227,69,367,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="447,132,367,111,368,105,448,127"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Linear.html#ade8ed2bf06a41d3d143640588adc9f7b" title="Initializes gradient tensors for parameters." alt="" coords="193,197,401,237"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="448,180,373,200,372,195,447,174"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1Linear.html#a0e3d3709494390a6c489865c9b48828b" title="Initializes the tensors needed for the Linear operation." alt="" coords="221,133,373,173"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="436,156,373,156,373,151,436,151"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1Linear.html#a095ac676ed9046f387cb53d9c0d90605" title="Gets the number of trainable parameters in this module." alt="" coords="227,261,367,301"/>
+<area shape="poly" id="edge9_Node000001_Node000008" title=" " alt="" coords="503,184,457,219,403,252,369,266,367,261,400,247,454,215,500,180"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Linear.html#a7d2592ef7cffc2fcbca2a0391d2d6c24" title="Constructs a new Linear module with a device name." alt="" coords="5,197,145,237"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="179,220,146,220,146,215,179,215"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1Linear.html#a160506d377a764b33f1f33be9502b93a" title="Constructs a new Linear module with a provided device context." alt="" coords="5,133,145,173"/>
+<area shape="poly" id="edge5_Node000004_Node000006" title=" " alt="" coords="213,196,144,176,146,171,215,191"/>
+<area shape="poly" id="edge7_Node000007_Node000005" title=" " alt="" coords="215,180,146,200,144,195,213,175"/>
+<area shape="poly" id="edge8_Node000007_Node000006" title=" " alt="" coords="208,156,146,156,146,151,208,151"/>
+<area shape="rect" id="Node000009" href="$classMila_1_1Dnn_1_1Linear.html#a0c546375aeed14578ca460df4569b394" title="Converts the module information to a human&#45;readable string." alt="" coords="5,261,145,301"/>
+<area shape="poly" id="edge10_Node000008_Node000009" title=" " alt="" coords="214,284,146,284,146,279,214,279"/>
+</map>

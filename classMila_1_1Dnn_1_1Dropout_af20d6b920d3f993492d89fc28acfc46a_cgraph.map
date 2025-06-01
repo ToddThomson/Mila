@@ -1,0 +1,24 @@
+<map id="Mila::Dnn::Dropout::forward" name="Mila::Dnn::Dropout::forward">
+<area shape="rect" id="Node000001" title="Performs the forward pass of the Dropout operation." alt="" coords="5,196,149,236"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Dropout.html#a43a2318b9bfb6c75ddea91dd65fd8a01" title="Generates a new dropout mask for the given shape." alt="" coords="219,100,363,140"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="112,193,196,150,214,142,216,147,198,154,114,198"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1DropoutConfig.html#a39ced82b948d81cba3958ab8354e3afc" title="Get the configured dropout probability." alt="" coords="443,5,629,45"/>
+<area shape="poly" id="edge8_Node000001_Node000004" title=" " alt="" coords="89,194,132,139,162,110,196,86,253,60,313,43,374,32,429,25,430,31,374,37,315,48,255,65,199,90,165,114,136,143,93,197"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1Module.html#a2c8e8735eaf75d6bad6d454f7d23b2ca" title="Get the name of the module." alt="" coords="217,164,365,204"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="149,203,203,194,204,200,150,208"/>
+<area shape="rect" id="Node000009" href="$classMila_1_1Dnn_1_1Module.html#af676dd818a0afaa6f2839b53c42fb72b" title="Check if the module is in training mode." alt="" coords="217,228,365,268"/>
+<area shape="poly" id="edge9_Node000001_Node000009" title=" " alt="" coords="150,224,204,232,203,238,149,229"/>
+<area shape="rect" id="Node000010" href="$classMila_1_1Dnn_1_1DropoutConfig.html#a50a53a708b0f88d3e0e1571eab218670" title="Check if scaling during inference is enabled." alt="" coords="198,292,383,332"/>
+<area shape="poly" id="edge10_Node000001_Node000010" title=" " alt="" coords="114,234,198,278,216,285,214,290,196,282,112,239"/>
+<area shape="rect" id="Node000011" href="$structMila_1_1Dnn_1_1Compute_1_1OperationAttributes.html#a77b49c21d0b585acf519138c166b6687" title="Helper method to set a value in the propsMap." alt="" coords="197,356,384,396"/>
+<area shape="poly" id="edge11_Node000001_Node000011" title=" " alt="" coords="95,235,137,288,166,317,199,342,209,348,206,352,196,346,163,321,133,291,90,238"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Tensor.html#aa7d911be367de341882a9cf94d73284d" title="Gets a pointer to the tensor data with memory type safety." alt="" coords="451,70,621,95"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="362,106,438,95,439,100,363,112"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="333,97,431,55,452,47,454,52,433,60,335,102"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Tensor.html#af952a34808a4ad53bc9588854ddd8592" title=" " alt="" coords="452,119,620,145"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="363,121,438,125,438,130,363,126"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1DropoutConfig.html#ac8ca08d4db6a602d6f79ff3b15a24b28" title="Check if the same mask is used for all elements in a batch." alt="" coords="441,169,631,209"/>
+<area shape="poly" id="edge5_Node000002_Node000006" title=" " alt="" coords="363,137,452,163,451,168,361,143"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1ComponentConfig.html#a35f7308c0a3de2579d0df7cdbb7ec268" title="Gets the configured component name." alt="" coords="432,233,640,273"/>
+<area shape="poly" id="edge7_Node000007_Node000008" title=" " alt="" coords="363,201,452,227,451,232,361,207"/>
+</map>

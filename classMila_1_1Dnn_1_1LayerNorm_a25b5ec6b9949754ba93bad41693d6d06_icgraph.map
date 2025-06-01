@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::LayerNorm::createOperation" name="Mila::Dnn::LayerNorm::createOperation">
+<area shape="rect" id="Node000001" title="Creates the appropriate Layer Normalization operation based on the current device context." alt="" coords="217,37,381,77"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1LayerNorm.html#a5639928c52cd01656e74b6872572932b" title="Constructs a new LayerNorm module with a device name." alt="" coords="5,5,169,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="203,46,169,40,170,35,204,40"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1LayerNorm.html#a8bdc4bd7c381f42304cfe1257402df98" title="Constructs a new LayerNorm module with a provided device context." alt="" coords="5,69,169,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="204,74,170,80,169,74,203,69"/>
+</map>

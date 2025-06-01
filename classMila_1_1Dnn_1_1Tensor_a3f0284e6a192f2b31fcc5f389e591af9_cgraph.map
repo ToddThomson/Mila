@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::Tensor::to" name="Mila::Dnn::Tensor::to">
+<area shape="rect" id="Node000001" title="Converts this tensor to use a different memory resource." alt="" coords="5,35,160,60"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Tensor.html#aa7d911be367de341882a9cf94d73284d" title="Gets a pointer to the tensor data with memory type safety." alt="" coords="208,5,379,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="160,34,194,29,195,34,161,39"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Tensor.html#a46411e4d53c1079112cc578b6f1fcf93" title=" " alt="" coords="222,55,365,95"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="161,55,209,61,208,67,160,60"/>
+</map>

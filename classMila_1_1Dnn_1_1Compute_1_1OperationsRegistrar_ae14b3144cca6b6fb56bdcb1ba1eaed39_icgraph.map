@@ -1,0 +1,6 @@
+<map id="Mila::Dnn::Compute::OperationsRegistrar::instance" name="Mila::Dnn::Compute::OperationsRegistrar::instance">
+<area shape="rect" id="Node000001" title="Get the singleton instance of OperationsRegistrar." alt="" coords="168,29,328,84"/>
+<area shape="poly" id="edge2_Node000001_Node000001" title=" " alt="" coords="278,18,267,11,248,8,232,10,222,15,217,21,217,29,212,29,212,19,218,10,230,5,248,3,269,6,281,13"/>
+<area shape="rect" id="Node000002" href="$namespaceMila.html#a6d5b9d6d5b8d5e040c23e931f807bf86" title="Initializes the Mila framework." alt="" coords="5,44,120,69"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="154,59,120,59,120,54,154,54"/>
+</map>

@@ -1,0 +1,15 @@
+<map id="Mila::Dnn::Gelu::Gelu" name="Mila::Dnn::Gelu::Gelu">
+<area shape="rect" id="Node000001" title="Constructs a Gelu module with an existing device context and configuration." alt="" coords="5,164,165,189"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Gelu.html#aaaac79a17eafdd5d51bd0302c023052b" title="Initializes the appropriate GELU operation implementation." alt="" coords="213,128,448,153"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="165,162,230,153,231,158,166,168"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1GeluConfig.html#abfafa3a400a29f30ecf4c73ad019058a" title="Validate configuration parameters." alt="" coords="249,185,412,225"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="166,183,236,191,235,197,165,188"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a8bcbbd6e474b44727458887b4685f43e" title="Create a unary operation based on the type information, device type, and operation name." alt="" coords="513,5,687,60"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="361,125,495,70,514,62,516,67,497,75,363,130"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Module.html#a1163624b16a6518b2ed573f51827759d" title="Get the device context for this module." alt="" coords="526,85,674,125"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="426,125,512,114,513,119,426,131"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a56e3658d8b09dd388ca379aefcdeb17f" title="Get the singleton instance of the OperationRegistry." alt="" coords="525,149,675,204"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="426,151,511,162,510,167,426,156"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1ComponentConfig.html#ab1b9997f5b9604f0f60b68985f2f3ffc" title="Validates the configuration." alt="" coords="496,229,704,269"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="412,215,483,227,482,232,412,220"/>
+</map>

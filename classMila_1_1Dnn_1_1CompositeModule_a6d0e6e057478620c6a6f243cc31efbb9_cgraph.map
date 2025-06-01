@@ -1,0 +1,13 @@
+<map id="Mila::Dnn::CompositeModule::toString" name="Mila::Dnn::CompositeModule::toString">
+<area shape="rect" id="Node000001" title="Default toString implementation for container modules." alt="" coords="5,101,216,141"/>
+<area shape="rect" id="Node000002" href="$namespaceMila_1_1Dnn_1_1Compute.html#abc57784bcbd77f21ea2524f0161e7e4f" title="Converts a DeviceType to its string representation." alt="" coords="264,5,415,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="158,99,277,48,279,53,160,104"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Module.html#a1163624b16a6518b2ed573f51827759d" title="Get the device context for this module." alt="" coords="265,69,413,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="216,104,251,99,252,104,217,109"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Module.html#a94b3a479c6e9c49879ef2079d34df471" title="Get the device type of the current device context." alt="" coords="265,133,413,173"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="217,133,252,138,251,144,216,139"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Module.html#a2c8e8735eaf75d6bad6d454f7d23b2ca" title="Get the name of the module." alt="" coords="265,197,413,237"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="160,139,279,189,277,194,158,144"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1ComponentConfig.html#a35f7308c0a3de2579d0df7cdbb7ec268" title="Gets the configured component name." alt="" coords="463,197,671,237"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="414,215,449,215,449,220,414,220"/>
+</map>

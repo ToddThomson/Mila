@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Compute::CpuResidualOp::backward_impl" name="Mila::Dnn::Compute::CpuResidualOp::backward_impl">
+<area shape="rect" id="Node000001" title="Helper method for backward pass implementation." alt="" coords="253,5,489,45"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1CpuResidualOp.html#a2b87d99317320069ea70f2d06de9468e" title="Performs the backward pass of the residual operation." alt="" coords="5,5,205,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="240,28,206,28,206,23,240,23"/>
+</map>

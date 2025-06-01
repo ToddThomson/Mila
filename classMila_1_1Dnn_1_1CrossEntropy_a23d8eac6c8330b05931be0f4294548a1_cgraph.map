@@ -1,0 +1,36 @@
+<map id="Mila::Dnn::CrossEntropy::CrossEntropy" name="Mila::Dnn::CrossEntropy::CrossEntropy">
+<area shape="rect" id="Node000001" title="Constructs a new CrossEntropy module with a device name." alt="" coords="5,549,184,589"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1CrossEntropy.html#ab6174e6ecfd871e8b998118110a6a91c" title="Creates the appropriate cross entropy operation for the current device." alt="" coords="252,309,431,349"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="115,547,308,357,311,361,118,551"/>
+<area shape="rect" id="Node000012" href="$classMila_1_1Dnn_1_1CrossEntropyConfig.html#a7d51e56fa99948fa516bfeded5184f26" title="Get the class weights." alt="" coords="232,517,451,557"/>
+<area shape="poly" id="edge11_Node000001_Node000012" title=" " alt="" coords="184,554,218,550,219,555,184,560"/>
+<area shape="rect" id="Node000013" href="$classMila_1_1Dnn_1_1CrossEntropy.html#a49307b84d2f6b5033148ab5d96979481" title="Initializes the class weights tensor from a vector of weights." alt="" coords="252,581,431,621"/>
+<area shape="poly" id="edge12_Node000001_Node000013" title=" " alt="" coords="184,578,238,585,238,590,184,583"/>
+<area shape="rect" id="Node000016" href="$classMila_1_1Dnn_1_1CrossEntropyConfig.html#a41e9fb6d27633464f17d7b5e4c7125f1" title="Validate configuration parameters." alt="" coords="232,645,451,685"/>
+<area shape="poly" id="edge16_Node000001_Node000016" title=" " alt="" coords="136,586,233,630,255,638,253,643,231,635,134,591"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a8bcbbd6e474b44727458887b4685f43e" title="Create a unary operation based on the type information, device type, and operation name." alt="" coords="521,5,695,60"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="347,308,366,260,398,197,441,130,468,98,497,71,507,63,510,67,500,75,472,102,446,133,402,199,371,262,352,310"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Module.html#a1163624b16a6518b2ed573f51827759d" title="Get the device context for this module." alt="" coords="534,85,682,125"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="351,307,373,270,406,224,448,176,497,134,520,122,522,127,500,139,452,179,410,227,378,273,356,310"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1CrossEntropyConfig.html#a1a84800c74d7390f8621baa9322a9932" title="Get the label smoothing factor." alt="" coords="499,149,717,189"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="360,306,418,253,456,224,497,198,512,191,514,196,500,203,459,228,422,257,364,310"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1CrossEntropyConfig.html#a8e15c9fcb2e59681e9fb2b114f2d9c3c" title="Get the padding index." alt="" coords="499,213,717,253"/>
+<area shape="poly" id="edge5_Node000002_Node000006" title=" " alt="" coords="387,306,498,262,521,254,523,259,500,267,389,311"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1CrossEntropyConfig.html#a1910aeda048e60ddab0922eb01b41b5c" title="Check if loss should be reduced." alt="" coords="499,277,717,317"/>
+<area shape="poly" id="edge6_Node000002_Node000007" title=" " alt="" coords="431,315,484,309,485,314,431,321"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1CrossEntropyConfig.html#a48345fa11352bfd9694a21c6693aec89" title="Get the vocabulary size." alt="" coords="499,549,717,589"/>
+<area shape="poly" id="edge7_Node000002_Node000008" title=" " alt="" coords="355,348,376,388,408,438,450,490,500,535,509,540,506,545,497,539,446,494,404,441,371,390,350,351"/>
+<area shape="rect" id="Node000009" href="$classMila_1_1Dnn_1_1CrossEntropyConfig.html#a1dcdeef1e2161d432707113484d38235" title="Check if padding should be ignored." alt="" coords="499,341,717,381"/>
+<area shape="poly" id="edge8_Node000002_Node000009" title=" " alt="" coords="431,337,485,343,484,349,431,342"/>
+<area shape="rect" id="Node000010" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a56e3658d8b09dd388ca379aefcdeb17f" title="Get the singleton instance of the OperationRegistry." alt="" coords="533,405,683,460"/>
+<area shape="poly" id="edge9_Node000002_Node000010" title=" " alt="" coords="391,346,500,390,520,398,519,403,498,395,389,351"/>
+<area shape="rect" id="Node000011" href="$structMila_1_1Dnn_1_1Compute_1_1OperationAttributes.html#a77b49c21d0b585acf519138c166b6687" title="Helper method to set a value in the propsMap." alt="" coords="515,485,701,525"/>
+<area shape="poly" id="edge10_Node000002_Node000011" title=" " alt="" coords="361,347,419,407,458,440,500,469,516,477,514,482,497,474,454,445,415,411,357,351"/>
+<area shape="poly" id="edge15_Node000013_Node000008" title=" " alt="" coords="431,587,484,581,485,586,431,593"/>
+<area shape="rect" id="Node000014" href="$classMila_1_1Dnn_1_1Module.html#a2c8e8735eaf75d6bad6d454f7d23b2ca" title="Get the name of the module." alt="" coords="534,613,682,653"/>
+<area shape="poly" id="edge13_Node000013_Node000014" title=" " alt="" coords="431,609,521,620,520,625,431,614"/>
+<area shape="rect" id="Node000015" href="$classMila_1_1Dnn_1_1ComponentConfig.html#a35f7308c0a3de2579d0df7cdbb7ec268" title="Gets the configured component name." alt="" coords="765,613,973,653"/>
+<area shape="poly" id="edge14_Node000014_Node000015" title=" " alt="" coords="682,630,751,630,751,635,682,635"/>
+<area shape="rect" id="Node000017" href="$classMila_1_1Dnn_1_1ComponentConfig.html#ab1b9997f5b9604f0f60b68985f2f3ffc" title="Validates the configuration." alt="" coords="504,677,712,717"/>
+<area shape="poly" id="edge17_Node000016_Node000017" title=" " alt="" coords="451,675,491,680,490,685,450,680"/>
+</map>

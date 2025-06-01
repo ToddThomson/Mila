@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Compute::CpuMultiHeadAttentionOp::backward_impl" name="Mila::Dnn::Compute::CpuMultiHeadAttentionOp::backward_impl">
+<area shape="rect" id="Node000001" title="Helper method for backward pass implementation." alt="" coords="253,5,453,60"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1CpuMultiHeadAttentionOp.html#a8b29ff5f7f96812399058c5f724a24bd" title="Performs the backward pass of the Multi&#45;Head Attention operation." alt="" coords="5,5,205,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="240,35,206,35,206,30,240,30"/>
+</map>

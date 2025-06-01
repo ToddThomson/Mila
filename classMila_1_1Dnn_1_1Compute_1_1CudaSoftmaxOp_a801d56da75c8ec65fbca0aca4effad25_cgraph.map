@@ -1,0 +1,9 @@
+<map id="Mila::Dnn::Compute::CudaSoftmaxOp::backward" name="Mila::Dnn::Compute::CudaSoftmaxOp::backward">
+<area shape="rect" id="Node000001" title="Performs the backward pass of the softmax operation." alt="" coords="5,62,212,102"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Tensor.html#aa7d911be367de341882a9cf94d73284d" title="Gets a pointer to the tensor data with memory type safety." alt="" coords="275,5,445,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="183,59,259,39,292,31,293,37,261,45,185,65"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1OperationBase.html#a89f65f9750a87e52fdc8f8095f18ba9a" title="Gets the device context associated with this operation." alt="" coords="260,55,460,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="212,79,246,79,246,85,212,85"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Tensor.html#af952a34808a4ad53bc9588854ddd8592" title=" " alt="" coords="276,133,444,159"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="189,100,261,118,296,127,295,132,259,123,187,105"/>
+</map>

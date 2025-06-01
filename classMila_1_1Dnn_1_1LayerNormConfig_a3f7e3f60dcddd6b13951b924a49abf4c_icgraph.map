@@ -1,0 +1,16 @@
+<map id="Mila::Dnn::LayerNormConfig::hasBias" name="Mila::Dnn::LayerNormConfig::hasBias">
+<area shape="rect" id="Node000001" title="Check if bias is enabled." alt="" coords="429,101,635,141"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1LayerNorm.html#a9188d1900e7d534d16c1b48a026a4606" title="Gets whether the module has a bias tensor." alt="" coords="217,5,381,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="471,98,380,60,351,48,353,43,382,55,473,93"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1LayerNorm.html#a0611d4cdf0051e123e56129948881d4b" title="Initializes the tensors needed for the Layer Normalization operation." alt="" coords="217,69,381,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="415,108,381,103,382,98,416,103"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1LayerNorm.html#adec37a1f165cc5cbeeeb131aa7d7d462" title="Gets the number of trainable parameters in this module." alt="" coords="217,133,381,173"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="416,140,382,145,381,139,415,135"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1LayerNorm.html#ae921e4baf1dc5898e061fca3a48284e0" title="Generates a string representation of this module&#39;s configuration." alt="" coords="5,163,169,203"/>
+<area shape="poly" id="edge7_Node000001_Node000007" title=" " alt="" coords="484,150,436,172,382,188,327,196,271,199,170,195,170,190,271,194,327,191,381,183,434,167,482,145"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1LayerNorm.html#a5639928c52cd01656e74b6872572932b" title="Constructs a new LayerNorm module with a device name." alt="" coords="5,20,169,60"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="203,70,169,62,170,56,204,65"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1LayerNorm.html#a8bdc4bd7c381f42304cfe1257402df98" title="Constructs a new LayerNorm module with a provided device context." alt="" coords="5,84,169,124"/>
+<area shape="poly" id="edge4_Node000003_Node000005" title=" " alt="" coords="204,99,170,101,169,96,204,93"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="204,169,170,174,169,169,203,164"/>
+</map>

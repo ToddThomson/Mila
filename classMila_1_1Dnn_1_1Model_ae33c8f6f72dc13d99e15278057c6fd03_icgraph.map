@@ -1,0 +1,9 @@
+<map id="Mila::Dnn::Model::calculateLoss" name="Mila::Dnn::Model::calculateLoss">
+<area shape="rect" id="Node000001" title="Calculate the loss for the given targets and current model outputs." alt="" coords="489,31,717,56"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Model.html#a5d73c2f1afbb01476f9ba61844508f5b" title="Performs a forward pass through the model." alt="" coords="251,31,441,56"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="476,46,441,46,441,41,476,41"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Model.html#aa81d44981751eb9ce8223f3bd255aba4" title="Evaluate the model on a dataset." alt="" coords="5,5,203,31"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="237,35,203,31,203,26,237,29"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Model.html#ad6d1b284a6a4426716842127fc0d3de9" title="Predict outputs for the given inputs." alt="" coords="11,55,197,80"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="237,57,197,61,196,56,237,51"/>
+</map>

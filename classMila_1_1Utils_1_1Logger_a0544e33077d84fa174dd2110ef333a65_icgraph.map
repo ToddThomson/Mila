@@ -1,0 +1,41 @@
+<map id="Mila::Utils::Logger::defaultLogger" name="Mila::Utils::Logger::defaultLogger">
+<area shape="rect" id="Node000001" title=" " alt="" coords="437,429,577,469"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Utils_1_1Logger.html#a0b4d0cdc5dcd8c841c8451c0bb99e80d" title=" " alt="" coords="249,5,389,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="502,416,496,344,478,249,463,199,443,149,418,102,387,59,374,47,377,43,391,56,423,99,448,147,468,197,483,248,501,343,508,415"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Utils_1_1Logger.html#a8f51d762051c1a8438b563af0f93cfc9" title=" " alt="" coords="249,93,389,133"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="499,416,488,360,467,288,434,214,413,179,387,147,373,136,376,131,391,143,417,176,439,211,472,286,493,358,504,415"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Utils_1_1Logger.html#a7d1d3e300b55c697f564bbdd3c1e3d7f" title=" " alt="" coords="249,157,389,197"/>
+<area shape="poly" id="edge4_Node000001_Node000004" title=" " alt="" coords="495,417,481,372,458,317,428,261,387,211,372,200,375,195,391,207,432,258,463,315,486,370,500,415"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Utils_1_1Logger.html#ab3ac13d5c6ba7becf1585686f797c56c" title=" " alt="" coords="249,245,389,285"/>
+<area shape="poly" id="edge5_Node000001_Node000005" title=" " alt="" coords="486,419,445,359,418,328,388,299,370,288,373,283,391,295,422,324,449,356,490,416"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Utils_1_1Logger.html#ab916757f273573670ac54ca23a8fc32e" title=" " alt="" coords="249,309,389,349"/>
+<area shape="poly" id="edge7_Node000001_Node000006" title=" " alt="" coords="470,423,432,393,388,364,366,352,368,347,391,359,435,389,474,419"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Utils_1_1Logger.html#ae4e750f63758e4e8aff24b003a3937af" title=" " alt="" coords="249,397,389,437"/>
+<area shape="poly" id="edge8_Node000001_Node000007" title=" " alt="" coords="423,438,389,432,390,427,424,433"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Utils_1_1Logger.html#a667a007ea672cdcb563a82cb7c591316" title=" " alt="" coords="249,461,389,501"/>
+<area shape="poly" id="edge10_Node000001_Node000008" title=" " alt="" coords="424,466,390,472,389,467,423,461"/>
+<area shape="rect" id="Node000011" href="$classMila_1_1Utils_1_1Logger.html#ac77d89f29afd957ba628bb70c9b2709b" title=" " alt="" coords="249,549,389,589"/>
+<area shape="poly" id="edge13_Node000001_Node000011" title=" " alt="" coords="465,479,353,551,350,547,462,475"/>
+<area shape="rect" id="Node000012" href="$classMila_1_1Utils_1_1Logger.html#a61c56a88d0a20b06a7bae99837fa63b6" title=" " alt="" coords="249,613,389,653"/>
+<area shape="poly" id="edge15_Node000001_Node000012" title=" " alt="" coords="490,483,449,543,422,575,391,603,373,616,370,611,388,599,418,571,445,540,486,480"/>
+<area shape="rect" id="Node000013" href="$classMila_1_1Utils_1_1Logger.html#af16ecacce218e54fd9606f4bc8ff3695" title=" " alt="" coords="249,701,389,741"/>
+<area shape="poly" id="edge16_Node000001_Node000013" title=" " alt="" coords="496,483,455,570,425,620,391,667,352,703,348,699,387,664,421,617,450,567,491,481"/>
+<area shape="rect" id="Node000014" href="$classMila_1_1Utils_1_1Logger.html#adb3c53cb169b92a9840b2d1d5f1c729a" title=" " alt="" coords="249,765,389,805"/>
+<area shape="poly" id="edge18_Node000001_Node000014" title=" " alt="" coords="504,483,493,540,472,612,439,688,417,723,391,755,376,767,373,763,387,751,413,720,434,685,467,610,488,539,499,482"/>
+<area shape="rect" id="Node000017" href="$classMila_1_1Utils_1_1Logger.html#adff48684f803da900165503aba36093a" title=" " alt="" coords="249,853,389,893"/>
+<area shape="poly" id="edge21_Node000001_Node000017" title=" " alt="" coords="505,483,493,549,472,636,439,730,417,776,391,819,374,839,355,855,351,851,371,835,387,816,413,773,434,728,467,634,488,548,499,483"/>
+<area shape="poly" id="edge3_Node000003_Node000003" title=" " alt="" coords="351,81,340,75,319,72,302,74,291,79,287,85,289,92,284,94,282,84,288,75,300,69,319,67,341,70,353,77"/>
+<area shape="poly" id="edge6_Node000005_Node000005" title=" " alt="" coords="351,233,340,227,319,224,302,226,291,231,287,237,289,244,284,246,282,236,288,227,300,221,319,219,341,222,353,229"/>
+<area shape="poly" id="edge9_Node000007_Node000007" title=" " alt="" coords="351,385,340,379,319,376,302,378,291,383,287,389,289,396,284,398,282,388,288,379,300,373,319,371,341,374,353,381"/>
+<area shape="rect" id="Node000009" href="$namespaceMila.html#a6d5b9d6d5b8d5e040c23e931f807bf86" title="Initializes the Mila framework." alt="" coords="46,445,161,470"/>
+<area shape="poly" id="edge11_Node000008_Node000009" title=" " alt="" coords="236,475,160,466,161,461,236,469"/>
+<area shape="rect" id="Node000010" href="$namespaceMila.html#a2877e37219d05b72be80fab657fc669d" title=" " alt="" coords="43,494,164,519"/>
+<area shape="poly" id="edge12_Node000008_Node000010" title=" " alt="" coords="236,494,165,502,164,497,236,488"/>
+<area shape="poly" id="edge14_Node000011_Node000011" title=" " alt="" coords="351,537,340,531,319,528,302,530,291,535,287,541,289,548,284,550,282,540,288,531,300,525,319,523,341,526,353,533"/>
+<area shape="poly" id="edge17_Node000013_Node000013" title=" " alt="" coords="351,689,340,683,319,680,302,682,291,687,287,693,289,700,284,702,282,692,288,683,300,677,319,675,341,678,353,685"/>
+<area shape="rect" id="Node000015" href="$namespaceMila_1_1Dnn_1_1Compute.html#add162bc95a4a4f23ca4e4ba91ff9f662" title="cuBLASLt implementation of matrix multiplication with bias addition" alt="" coords="5,733,201,773"/>
+<area shape="poly" id="edge19_Node000014_Node000015" title=" " alt="" coords="235,776,201,771,202,765,236,770"/>
+<area shape="rect" id="Node000016" href="$classMila_1_1Dnn_1_1Compute_1_1CudaLinearOp.html#a36a24e2ff9757128e863a03f77bd84d3" title="Performs the forward pass of the Fully Connected operation on CUDA." alt="" coords="14,797,193,837"/>
+<area shape="poly" id="edge20_Node000014_Node000016" title=" " alt="" coords="236,800,193,807,192,801,236,795"/>
+<area shape="poly" id="edge22_Node000017_Node000017" title=" " alt="" coords="351,841,340,835,319,832,302,834,291,839,287,845,289,852,284,854,282,844,288,835,300,829,319,827,341,830,353,837"/>
+</map>

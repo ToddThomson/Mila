@@ -1,0 +1,10 @@
+<map id="Mila::Dnn::Gpt2::DatasetReader::read_from_disk" name="Mila::Dnn::Gpt2::DatasetReader::read_from_disk">
+<area shape="rect" id="Node000001" title="Background thread function that reads data from the dataset file." alt="" coords="5,35,188,75"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Gpt2_1_1DatasetReader.html#a5e653608603d8507891d91ba3271e21e" title="Gets a non&#45;owning view of tokens at the specified position." alt="" coords="236,5,419,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="188,40,222,36,223,41,188,46"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Gpt2_1_1DatasetReader.html#a349b72115549800243e8d0b887179520" title="Logs messages through the configured logger." alt="" coords="697,35,880,75"/>
+<area shape="poly" id="edge4_Node000001_Node000004" title=" " alt="" coords="188,54,236,55,649,55,684,54,684,60,649,60,236,60,188,59"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Gpt2_1_1DatasetReader.html#a543827d3e6b6b4cfe18e7ee0311b8db6" title="Loads a specific window of tokens from the dataset file." alt="" coords="467,5,649,45"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="419,23,453,23,453,28,419,28"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="650,34,684,39,683,44,649,40"/>
+</map>

@@ -1,0 +1,9 @@
+<map id="Mila::Dnn::CrossEntropy::initializeClassWeights" name="Mila::Dnn::CrossEntropy::initializeClassWeights">
+<area shape="rect" id="Node000001" title="Initializes the class weights tensor from a vector of weights." alt="" coords="5,37,184,77"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Module.html#a2c8e8735eaf75d6bad6d454f7d23b2ca" title="Get the name of the module." alt="" coords="267,5,415,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="184,43,253,34,254,39,184,48"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1CrossEntropyConfig.html#a48345fa11352bfd9694a21c6693aec89" title="Get the vocabulary size." alt="" coords="232,69,451,109"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="184,66,219,71,218,76,184,72"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1ComponentConfig.html#a35f7308c0a3de2579d0df7cdbb7ec268" title="Gets the configured component name." alt="" coords="499,5,707,45"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="415,23,484,23,484,28,415,28"/>
+</map>

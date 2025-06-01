@@ -1,0 +1,15 @@
+<map id="Mila::Dnn::MLP::forward" name="Mila::Dnn::MLP::forward">
+<area shape="rect" id="Node000001" title="Performs the forward pass of the MLP block." alt="" coords="5,159,183,184"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Tensor.html#aa7d911be367de341882a9cf94d73284d" title="Gets a pointer to the tensor data with memory type safety." alt="" coords="231,5,401,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="103,157,153,101,189,69,229,41,245,33,248,38,232,46,193,73,157,105,107,160"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1MLPConfig.html#a49ea40719d77ecfb4b9ed24f2410e117" title=" " alt="" coords="236,55,396,95"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="120,156,230,105,247,98,249,103,232,110,122,161"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Module.html#af676dd818a0afaa6f2839b53c42fb72b" title="Check if the module is in training mode." alt="" coords="242,119,390,159"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="182,156,228,149,229,155,183,161"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1MLPConfig.html#a6a657eb62fb1f676fb5e11ee245f2a60" title=" " alt="" coords="235,183,397,223"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="183,181,221,187,220,192,182,187"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1MLPConfig.html#a4de84b44c4b2339cdb9f5c8dd8ff98e0" title=" " alt="" coords="236,247,396,287"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="122,182,232,233,249,240,247,245,230,238,120,187"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1MLPConfig.html#a32610553c95e47c476f79823a220eed6" title=" " alt="" coords="236,311,396,351"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="108,183,158,237,193,269,232,297,242,303,240,308,229,302,190,273,154,241,104,186"/>
+</map>

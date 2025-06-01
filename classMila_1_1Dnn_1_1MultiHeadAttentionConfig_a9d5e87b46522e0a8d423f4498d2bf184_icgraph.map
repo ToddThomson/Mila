@@ -1,0 +1,13 @@
+<map id="Mila::Dnn::MultiHeadAttentionConfig::getDropout" name="Mila::Dnn::MultiHeadAttentionConfig::getDropout">
+<area shape="rect" id="Node000001" title="Get the dropout rate." alt="" coords="539,69,757,109"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1MultiHeadAttention.html#a73b8961371a4f0c0881b08aa0a5de198" title="Gets the dropout rate." alt="" coords="272,5,491,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="550,69,465,48,466,43,551,63"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1MultiHeadAttention.html#aa2e09b883e547c95eee3b1f26b212c2f" title="Initializes the tensors needed for attention computation." alt="" coords="272,69,491,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="525,92,491,92,491,87,525,87"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1MultiHeadAttention.html#a91762121adfdf91a746f16619b26fb98" title="Generates a string representation of this module&#39;s configuration." alt="" coords="272,133,491,173"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="551,115,466,136,465,131,550,110"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1MultiHeadAttention.html#a205a226fb09b4c4b083e60e1d4b4311a" title="Constructs a new MultiHeadAttention module with a device name." alt="" coords="5,37,224,77"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="258,77,224,73,225,68,259,72"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1MultiHeadAttention.html#a2184c5fdc3dffb5dbbe2ba3f00ed48a9" title="Constructs a new MultiHeadAttention module with a provided device context." alt="" coords="5,101,224,141"/>
+<area shape="poly" id="edge4_Node000003_Node000005" title=" " alt="" coords="259,107,225,111,224,106,258,101"/>
+</map>

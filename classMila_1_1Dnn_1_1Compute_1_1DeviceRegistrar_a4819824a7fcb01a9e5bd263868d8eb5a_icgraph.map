@@ -1,0 +1,6 @@
+<map id="Mila::Dnn::Compute::DeviceRegistrar::instance" name="Mila::Dnn::Compute::DeviceRegistrar::instance">
+<area shape="rect" id="Node000001" title="Get the singleton instance of DeviceRegistrar." alt="" coords="168,29,365,69"/>
+<area shape="poly" id="edge2_Node000001_Node000001" title=" " alt="" coords="301,18,289,11,267,8,247,10,236,15,231,21,234,28,228,30,226,20,232,11,246,5,267,3,290,6,303,13"/>
+<area shape="rect" id="Node000002" href="$namespaceMila.html#a6d5b9d6d5b8d5e040c23e931f807bf86" title="Initializes the Mila framework." alt="" coords="5,37,120,62"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="154,52,120,52,120,47,154,47"/>
+</map>

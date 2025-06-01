@@ -1,0 +1,17 @@
+<map id="Mila::Dnn::Compute::OperationRegistry::registerBinaryOperation" name="Mila::Dnn::Compute::OperationRegistry::registerBinaryOperation">
+<area shape="rect" id="Node000001" title="Register a binary operation creator for a specific device type." alt="" coords="860,84,1047,139"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1CpuResidualOpRegistrar.html#a4b0d8316c349abf09cdbe2dbdfa8fb61" title="Registers the CpuResidualOp operation with the OperationRegistry." alt="" coords="604,5,792,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="850,82,787,63,788,58,852,77"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1Compute_1_1CudaResidualOpRegistrar.html#a43606bb268c5e9ae6e0a60498a9f4e3d" title="Registers the CudaResidualOp operation with the OperationRegistry." alt="" coords="600,84,796,139"/>
+<area shape="poly" id="edge6_Node000001_Node000006" title=" " alt="" coords="846,114,796,114,796,109,846,109"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1Compute_1_1FusedSoftmaxCrossEntropyOpRegistrar.html#a52d25759b0fbde1854c8212317c6d5aa" title="Registers the FusedSoftmaxCrossEntropyOp operation with the OperationRegistry." alt="" coords="584,163,812,217"/>
+<area shape="poly" id="edge8_Node000001_Node000007" title=" " alt="" coords="852,145,788,165,787,160,850,140"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1OperationsRegistrar.html#a8a24b4f953b5946b39d47eeb0f6d457b" title="Initialize the compute operations." alt="" coords="376,45,536,100"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="591,53,537,62,536,57,590,48"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Compute_1_1OperationsRegistrar.html#ae14b3144cca6b6fb56bdcb1ba1eaed39" title="Get the singleton instance of OperationsRegistrar." alt="" coords="168,45,328,100"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="362,75,328,75,328,70,362,70"/>
+<area shape="poly" id="edge5_Node000004_Node000004" title=" " alt="" coords="278,34,267,27,248,24,232,26,222,31,217,37,217,45,212,45,212,35,218,26,230,21,248,19,269,22,281,29"/>
+<area shape="rect" id="Node000005" href="$namespaceMila.html#a6d5b9d6d5b8d5e040c23e931f807bf86" title="Initializes the Mila framework." alt="" coords="5,60,120,85"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="154,75,120,75,120,70,154,70"/>
+<area shape="poly" id="edge7_Node000006_Node000003" title=" " alt="" coords="586,96,536,88,537,83,587,91"/>
+</map>

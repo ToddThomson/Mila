@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Module::Module" name="Mila::Dnn::Module::Module">
+<area shape="rect" id="Node000001" title="Constructor with a specific device context." alt="" coords="5,5,153,45"/>
+<area shape="rect" id="Node000002" href="$namespaceMila_1_1Dnn_1_1Compute.html#abc57784bcbd77f21ea2524f0161e7e4f" title="Converts a DeviceType to its string representation." alt="" coords="201,5,352,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="154,23,188,23,188,28,154,28"/>
+</map>

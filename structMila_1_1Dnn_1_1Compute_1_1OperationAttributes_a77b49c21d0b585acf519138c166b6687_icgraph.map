@@ -1,0 +1,31 @@
+<map id="Mila::Dnn::Compute::OperationAttributes::set" name="Mila::Dnn::Compute::OperationAttributes::set">
+<area shape="rect" id="Node000001" title="Helper method to set a value in the propsMap." alt="" coords="539,229,725,269"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Softmax.html#a2c842bf3891bcb72f3e495ba2a6526a6" title="Creates the appropriate softmax operation for the current device." alt="" coords="308,69,455,109"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="603,220,553,171,522,145,489,124,454,108,456,103,492,119,525,141,557,167,607,217"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1CrossEntropy.html#ab6174e6ecfd871e8b998118110a6a91c" title="Creates the appropriate cross entropy operation for the current device." alt="" coords="292,133,471,173"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="578,226,490,188,455,176,457,171,492,183,580,221"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1MultiHeadAttention.html#a825e50e3cc60ac78310129b056904810" title="Performs the forward pass with an explicit attention mask." alt="" coords="272,197,491,237"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="524,238,491,234,491,229,525,233"/>
+<area shape="rect" id="Node000009" href="$classMila_1_1Dnn_1_1Dropout.html#af20d6b920d3f993492d89fc28acfc46a" title="Performs the forward pass of the Dropout operation." alt="" coords="309,261,453,301"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="525,266,454,275,453,270,525,260"/>
+<area shape="rect" id="Node000010" href="$classMila_1_1Dnn_1_1MultiHeadAttention.html#aa2e09b883e547c95eee3b1f26b212c2f" title="Initializes the tensors needed for attention computation." alt="" coords="272,325,491,365"/>
+<area shape="poly" id="edge9_Node000001_Node000010" title=" " alt="" coords="580,278,492,316,457,328,455,323,490,311,578,273"/>
+<area shape="rect" id="Node000013" href="$classMila_1_1Dnn_1_1LayerNorm.html#a0611d4cdf0051e123e56129948881d4b" title="Initializes the tensors needed for the Layer Normalization operation." alt="" coords="299,389,463,429"/>
+<area shape="poly" id="edge12_Node000001_Node000013" title=" " alt="" coords="607,282,557,332,525,358,492,380,464,392,462,387,489,375,522,353,553,328,603,278"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Softmax.html#a0dfba728e7d60d978cf816f25e5cd2e7" title="Constructs a new Softmax module with a device name." alt="" coords="41,5,188,45"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="294,71,187,45,189,40,295,66"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Softmax.html#a6900764a7a23399c3e5e92058b8d2092" title="Constructs a new Softmax module with a provided device context." alt="" coords="41,69,188,109"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="294,92,188,92,188,87,294,87"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1CrossEntropy.html#a23d8eac6c8330b05931be0f4294548a1" title="Constructs a new CrossEntropy module with a device name." alt="" coords="25,133,204,173"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="278,156,204,156,204,151,278,151"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1CrossEntropy.html#a839a9539c0ba7487f4ba4b191302f7c6" title="Constructs a new CrossEntropy module with a provided device context." alt="" coords="25,197,204,237"/>
+<area shape="poly" id="edge6_Node000005_Node000007" title=" " alt="" coords="285,179,199,200,198,195,283,174"/>
+<area shape="rect" id="Node000011" href="$classMila_1_1Dnn_1_1MultiHeadAttention.html#a205a226fb09b4c4b083e60e1d4b4311a" title="Constructs a new MultiHeadAttention module with a device name." alt="" coords="5,261,224,301"/>
+<area shape="poly" id="edge10_Node000010_Node000011" title=" " alt="" coords="283,325,198,304,199,299,285,319"/>
+<area shape="rect" id="Node000012" href="$classMila_1_1Dnn_1_1MultiHeadAttention.html#a2184c5fdc3dffb5dbbe2ba3f00ed48a9" title="Constructs a new MultiHeadAttention module with a provided device context." alt="" coords="5,325,224,365"/>
+<area shape="poly" id="edge11_Node000010_Node000012" title=" " alt="" coords="258,348,224,348,224,343,258,343"/>
+<area shape="rect" id="Node000014" href="$classMila_1_1Dnn_1_1LayerNorm.html#a5639928c52cd01656e74b6872572932b" title="Constructs a new LayerNorm module with a device name." alt="" coords="33,389,197,429"/>
+<area shape="poly" id="edge13_Node000013_Node000014" title=" " alt="" coords="285,412,197,412,197,407,285,407"/>
+<area shape="rect" id="Node000015" href="$classMila_1_1Dnn_1_1LayerNorm.html#a8bdc4bd7c381f42304cfe1257402df98" title="Constructs a new LayerNorm module with a provided device context." alt="" coords="33,453,197,493"/>
+<area shape="poly" id="edge14_Node000013_Node000015" title=" " alt="" coords="286,435,197,456,196,451,285,430"/>
+</map>

@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::Compute::CpuMultiHeadAttentionOpRegistrar::registerOperations" name="Mila::Dnn::Compute::CpuMultiHeadAttentionOpRegistrar::registerOperations">
+<area shape="rect" id="Node000001" title="Registers the CpuMultiHeadAttention operation with the OperationRegistry." alt="" coords="5,45,264,100"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a56e3658d8b09dd388ca379aefcdeb17f" title="Get the singleton instance of the OperationRegistry." alt="" coords="328,5,479,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="264,51,314,43,315,48,265,56"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a9f6cf8041f25ce8339b221d28d4ef022" title="Register a unary operation creator for a specific device type." alt="" coords="312,84,495,139"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="265,89,299,94,298,99,264,94"/>
+</map>

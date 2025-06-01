@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::MultiHeadAttention::useCausalMask" name="Mila::Dnn::MultiHeadAttention::useCausalMask">
+<area shape="rect" id="Node000001" title="Checks if causal masking is enabled." alt="" coords="5,5,224,45"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1MultiHeadAttentionConfig.html#a2bc9811ffcc719b67e1946331d363a36" title="Check if causal masking is enabled." alt="" coords="272,5,491,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="224,23,258,23,258,28,224,28"/>
+</map>

@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::CrossEntropy::getPaddingIndex" name="Mila::Dnn::CrossEntropy::getPaddingIndex">
+<area shape="rect" id="Node000001" title="Gets the padding index." alt="" coords="5,5,184,45"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1CrossEntropyConfig.html#a8e15c9fcb2e59681e9fb2b114f2d9c3c" title="Get the padding index." alt="" coords="232,5,451,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="184,23,218,23,218,28,184,28"/>
+</map>

@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Dropout::getProbability" name="Mila::Dnn::Dropout::getProbability">
+<area shape="rect" id="Node000001" title="Gets the dropout probability used by this module." alt="" coords="5,5,149,45"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1DropoutConfig.html#a39ced82b948d81cba3958ab8354e3afc" title="Get the configured dropout probability." alt="" coords="197,5,383,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="150,23,184,23,184,28,150,28"/>
+</map>

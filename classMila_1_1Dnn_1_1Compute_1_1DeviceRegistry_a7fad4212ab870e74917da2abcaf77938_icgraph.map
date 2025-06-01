@@ -1,0 +1,29 @@
+<map id="Mila::Dnn::Compute::DeviceRegistry::instance" name="Mila::Dnn::Compute::DeviceRegistry::instance">
+<area shape="rect" id="Node000001" title="Gets the singleton instance of the DeviceRegistry." alt="" coords="959,205,1149,245"/>
+<area shape="rect" id="Node000002" href="$namespaceMila_1_1Dnn_1_1Compute.html#af19cbe36b1fbdf2c0c9b63951e00e587" title="Checks if a specific device is available." alt="" coords="726,5,877,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="1032,195,982,126,948,90,909,60,876,43,878,39,912,55,951,86,986,123,1036,192"/>
+<area shape="rect" id="Node000003" href="$namespaceMila_1_1Dnn_1_1Compute.html#a259f89c596b838487dc1d70e93c84a28" title="Lists all available compute devices." alt="" coords="726,69,877,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="1018,198,969,160,909,124,876,110,878,105,912,119,972,155,1022,194"/>
+<area shape="rect" id="Node000005" href="$namespaceMila_1_1Dnn_1_1Compute.html#ab56e16e838f04b07ad1bf746bc75c635" title="Lists compute devices of a specific type." alt="" coords="726,133,877,173"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="969,204,872,176,873,171,971,199"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceRegistrar.html#a286115c558e36206ce90b77029ac0ccd" title="Register CPU device." alt="" coords="705,198,897,253"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="945,228,898,228,898,223,945,223"/>
+<area shape="rect" id="Node000010" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceRegistrar.html#a7a236368a7539abbf0873937296e05c5" title="Register all available CUDA devices." alt="" coords="705,277,897,331"/>
+<area shape="poly" id="edge10_Node000001_Node000010" title=" " alt="" coords="977,252,891,279,889,274,975,247"/>
+<area shape="rect" id="Node000011" href="$classMila_1_1Dnn_1_1Compute_1_1CudaDevice.html#a0a469679195d210cbcbbb7d9b0f369d5" title="Registers all available CUDA devices with the DeviceRegistry." alt="" coords="692,356,911,396"/>
+<area shape="poly" id="edge12_Node000001_Node000011" title=" " alt="" coords="1026,257,975,302,912,345,882,358,880,353,909,340,972,298,1022,253"/>
+<area shape="rect" id="Node000012" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#a8e36e81342090136e9f33153a73165e0" title="Sets the current device by name." alt="" coords="702,420,901,460"/>
+<area shape="poly" id="edge13_Node000001_Node000012" title=" " alt="" coords="1038,259,1017,295,988,335,953,376,912,410,891,422,888,417,909,406,949,372,984,332,1012,292,1033,257"/>
+<area shape="rect" id="Node000004" href="$namespaceMila_1_1Dnn_1_1Compute.html#ae1d32d7cbc15006084fde71c7f8d9fe1" title="Gets the best device of a specific type based on performance characteristics." alt="" coords="453,69,604,109"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="712,92,604,92,604,87,712,87"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceRegistrar.html#ac344f6bf8a8d76cf424ce29bd94bfb71" title="Register all available compute devices." alt="" coords="433,238,625,293"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="692,244,625,254,625,249,691,239"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceRegistrar.html#a4819824a7fcb01a9e5bd263868d8eb5a" title="Get the singleton instance of DeviceRegistrar." alt="" coords="168,245,365,285"/>
+<area shape="poly" id="edge7_Node000007_Node000008" title=" " alt="" coords="419,268,366,268,366,263,419,263"/>
+<area shape="poly" id="edge9_Node000008_Node000008" title=" " alt="" coords="301,234,289,227,267,224,247,226,236,231,231,237,234,244,228,246,226,236,232,227,246,221,267,219,290,222,303,229"/>
+<area shape="rect" id="Node000009" href="$namespaceMila.html#a6d5b9d6d5b8d5e040c23e931f807bf86" title="Initializes the Mila framework." alt="" coords="5,253,120,278"/>
+<area shape="poly" id="edge8_Node000008_Node000009" title=" " alt="" coords="154,268,120,268,120,263,154,263"/>
+<area shape="poly" id="edge11_Node000010_Node000007" title=" " alt="" coords="691,291,625,282,625,276,692,286"/>
+<area shape="rect" id="Node000013" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#a66052215400fe2b037fc7e490722ebf0" title="Constructor with a specific device." alt="" coords="413,420,644,460"/>
+<area shape="poly" id="edge14_Node000012_Node000013" title=" " alt="" coords="688,443,644,443,644,437,688,437"/>
+</map>

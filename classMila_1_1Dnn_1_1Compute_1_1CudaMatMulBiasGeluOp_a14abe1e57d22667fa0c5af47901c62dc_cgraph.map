@@ -1,0 +1,9 @@
+<map id="Mila::Dnn::Compute::CudaMatMulBiasGeluOp::backward" name="Mila::Dnn::Compute::CudaMatMulBiasGeluOp::backward">
+<area shape="rect" id="Node000001" title="Performs the backward pass of the fused MatMul&#45;Bias&#45;GELU operation." alt="" coords="5,55,193,109"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Tensor.html#aa7d911be367de341882a9cf94d73284d" title="Gets a pointer to the tensor data with memory type safety." alt="" coords="256,5,427,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="193,52,241,39,272,31,274,37,242,45,194,58"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1OperationBase.html#a89f65f9750a87e52fdc8f8095f18ba9a" title="Gets the device context associated with this operation." alt="" coords="241,55,441,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="194,79,228,79,228,85,194,85"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Tensor.html#a294130f763b905cf0125c9bd4fba4970" title=" " alt="" coords="270,134,413,174"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="193,107,261,127,259,132,191,112"/>
+</map>

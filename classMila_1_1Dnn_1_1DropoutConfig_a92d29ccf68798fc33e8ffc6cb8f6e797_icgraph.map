@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::DropoutConfig::validate" name="Mila::Dnn::DropoutConfig::validate">
+<area shape="rect" id="Node000001" title="Validate configuration parameters." alt="" coords="197,37,383,77"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Dropout.html#a1a5f39ab42459dbcac239112a0206b44" title="Constructs a new Dropout module with a device name." alt="" coords="5,5,149,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="183,44,149,39,150,34,184,39"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Dropout.html#a704e5622fd5fa1a9d9a14a1f705debe2" title="Constructs a new Dropout module with a provided device context." alt="" coords="5,69,149,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="184,76,150,81,149,76,183,71"/>
+</map>

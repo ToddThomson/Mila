@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::Compute::CudaLayerNormOpRegistrar::registerOperations" name="Mila::Dnn::Compute::CudaLayerNormOpRegistrar::registerOperations">
+<area shape="rect" id="Node000001" title="Registers the CudaLayerNormOp operation with the OperationRegistry." alt="" coords="5,45,217,100"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a56e3658d8b09dd388ca379aefcdeb17f" title="Get the singleton instance of the OperationRegistry." alt="" coords="281,5,432,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="217,53,267,45,268,50,218,58"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a9f6cf8041f25ce8339b221d28d4ef022" title="Register a unary operation creator for a specific device type." alt="" coords="265,84,448,139"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="218,87,252,92,251,97,217,92"/>
+</map>

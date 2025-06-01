@@ -1,0 +1,20 @@
+<map id="Mila::Dnn::ResidualConfig::getConnectionType" name="Mila::Dnn::ResidualConfig::getConnectionType">
+<area shape="rect" id="Node000001" title=" " alt="" coords="397,165,587,205"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Residual.html#ad8ee2a92d41cceaf6376fb0662173388" title="Performs the backward pass of the Residual connection." alt="" coords="201,5,349,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="461,157,410,108,348,60,326,48,329,43,351,55,414,104,465,153"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Residual.html#a64c3c2991d3e560499bf42842cdd2bdf" title="Creates an appropriate operation based on the connection type." alt="" coords="201,69,349,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="433,162,348,124,321,112,324,107,350,119,436,157"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1Residual.html#a1a47a3d2fc7807b10aea821a6d76932c" title="Performs the forward pass of the Residual connection." alt="" coords="201,133,349,173"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="383,172,349,167,350,162,384,167"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1Residual.html#a99e87ef780a53bf2d7b6c6143a449f06" title="Deserializes the module state from a ZIP archive." alt="" coords="201,197,349,237"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="384,204,350,209,349,204,383,199"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1Residual.html#aacae8e42be0acecc1c147b40625d8bab" title="Gets the number of trainable parameters in this module." alt="" coords="201,261,349,301"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="436,213,350,252,324,264,321,259,348,247,433,208"/>
+<area shape="rect" id="Node000009" href="$classMila_1_1Dnn_1_1Residual.html#a8b3c6febf9f356726599e1266eb92b03" title="Converts the module information to a human&#45;readable string." alt="" coords="5,289,153,329"/>
+<area shape="poly" id="edge9_Node000001_Node000009" title=" " alt="" coords="470,218,420,271,387,297,350,316,300,329,249,334,198,333,153,327,154,322,199,327,249,329,300,324,348,311,384,292,416,267,466,215"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Residual.html#a84724fe8e4505ba4bfbc76be4bacf221" title="Constructs a new Residual module with a device name." alt="" coords="5,37,153,77"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="187,78,153,72,154,67,188,72"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Residual.html#aa688280c3ec68030b734a7a1054839cb" title="Constructs a new Residual module with a provided device context." alt="" coords="5,101,153,141"/>
+<area shape="poly" id="edge4_Node000003_Node000005" title=" " alt="" coords="188,106,154,112,153,107,187,101"/>
+<area shape="poly" id="edge8_Node000008_Node000009" title=" " alt="" coords="188,297,154,301,153,296,187,291"/>
+</map>

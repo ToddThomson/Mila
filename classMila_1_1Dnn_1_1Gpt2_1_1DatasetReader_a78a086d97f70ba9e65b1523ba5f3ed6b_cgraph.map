@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Gpt2::DatasetReader::~DatasetReader" name="Mila::Dnn::Gpt2::DatasetReader::~DatasetReader">
+<area shape="rect" id="Node000001" title="Destroys the DatasetReader object." alt="" coords="5,5,189,45"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Gpt2_1_1DatasetReader.html#a7435f4b9336c4cabf538a9d822e39b2e" title="Frees previously allocated memory." alt="" coords="237,5,420,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="190,23,223,23,223,28,190,28"/>
+</map>

@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Gelu::approximationMethodToString" name="Mila::Dnn::Gelu::approximationMethodToString">
+<area shape="rect" id="Node000001" title="Converts approximation method enum to human&#45;readable string." alt="" coords="235,5,460,45"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Gelu.html#a0fb000c57a6bbdfc2121b060269e2a29" title="Generates a string representation of this module&#39;s configuration." alt="" coords="5,13,187,38"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="221,28,187,28,187,23,221,23"/>
+</map>

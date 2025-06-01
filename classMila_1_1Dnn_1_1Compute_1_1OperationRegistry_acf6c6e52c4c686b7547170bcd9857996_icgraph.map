@@ -1,0 +1,13 @@
+<map id="Mila::Dnn::Compute::OperationRegistry::createBinaryOperation" name="Mila::Dnn::Compute::OperationRegistry::createBinaryOperation">
+<area shape="rect" id="Node000001" title="Create a binary operation based on the type information, device type, and operation name." alt="" coords="397,30,575,85"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Residual.html#a9cea89544af42d5db32ef20baeaa969c" title="Adds two tensors element&#45;wise." alt="" coords="201,5,349,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="383,44,349,39,350,34,384,39"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Residual.html#a64c3c2991d3e560499bf42842cdd2bdf" title="Creates an appropriate operation based on the connection type." alt="" coords="201,69,349,109"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="384,76,350,81,349,75,383,70"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Residual.html#ad8ee2a92d41cceaf6376fb0662173388" title="Performs the backward pass of the Residual connection." alt="" coords="5,5,153,45"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="187,28,154,28,154,23,187,23"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Residual.html#a84724fe8e4505ba4bfbc76be4bacf221" title="Constructs a new Residual module with a device name." alt="" coords="5,69,153,109"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="187,92,154,92,154,87,187,87"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1Residual.html#aa688280c3ec68030b734a7a1054839cb" title="Constructs a new Residual module with a provided device context." alt="" coords="5,133,153,173"/>
+<area shape="poly" id="edge5_Node000004_Node000006" title=" " alt="" coords="202,116,142,136,140,131,200,111"/>
+</map>

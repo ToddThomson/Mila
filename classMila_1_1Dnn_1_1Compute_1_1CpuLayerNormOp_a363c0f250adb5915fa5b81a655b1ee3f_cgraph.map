@@ -1,0 +1,13 @@
+<map id="Mila::Dnn::Compute::CpuLayerNormOp::forward" name="Mila::Dnn::Compute::CpuLayerNormOp::forward">
+<area shape="rect" id="Node000001" title="Performs the forward pass of the Layer Normalization operation." alt="" coords="5,149,208,189"/>
+<area shape="rect" id="Node000002" href="$structMila_1_1Dnn_1_1Compute_1_1OperationAttributes.html#a9712639fc255b962192c2095135c45a7" title="Helper method to get values from the propsMap with type safety." alt="" coords="278,5,465,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="128,147,183,101,218,76,255,55,271,48,273,53,257,60,221,81,186,105,131,151"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1OperationBase.html#a89f65f9750a87e52fdc8f8095f18ba9a" title="Gets the device context associated with this operation." alt="" coords="271,70,471,125"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="180,147,257,126,259,131,182,152"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Compute_1_1OperationBase.html#a14eb1f77c85ff4fc2f53300500d65185" title="Gets the device type for this operation." alt="" coords="256,149,487,189"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="208,167,242,167,242,172,208,172"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Tensor.html#a4f707ea4c0f00aab58189071fa1c11fd" title="Gets a raw pointer to the tensor data for use in CUDA kernels." alt="" coords="300,213,443,253"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="191,187,287,210,286,215,190,192"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1Tensor.html#a294130f763b905cf0125c9bd4fba4970" title=" " alt="" coords="300,277,443,317"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="135,187,190,225,257,263,288,275,286,280,255,268,187,230,132,192"/>
+</map>

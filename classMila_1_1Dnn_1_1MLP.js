@@ -1,0 +1,26 @@
+var classMila_1_1Dnn_1_1MLP =
+[
+    [ "CompositeModuleBase", "classMila_1_1Dnn_1_1MLP.html#a2fc0efb0bae1db4d203e9fb6fed47017", null ],
+    [ "MR", "classMila_1_1Dnn_1_1MLP.html#ae8b360a18fd25276b68d22df881712e3", null ],
+    [ "MLP", "classMila_1_1Dnn_1_1MLP.html#a524b2ac11d65569d831497321d36675a", null ],
+    [ "MLP", "classMila_1_1Dnn_1_1MLP.html#abd11a41a1e3847f7507832eedb5ae7a4", null ],
+    [ "backward", "classMila_1_1Dnn_1_1MLP.html#a21bafa525e1ca67f4dbc258753db343e", null ],
+    [ "forward", "classMila_1_1Dnn_1_1MLP.html#aecd082b04cf2ef94a45bb5bafddc253a", null ],
+    [ "initializeModules", "classMila_1_1Dnn_1_1MLP.html#ae4588ec91a15be5f5fba30e06b0a15e6", null ],
+    [ "load", "classMila_1_1Dnn_1_1MLP.html#a5d9ab5d88863e647dad829639382443f", null ],
+    [ "parameterCount", "classMila_1_1Dnn_1_1MLP.html#aa0f61b9b9653238a61d9e4d9b111c5cb", null ],
+    [ "save", "classMila_1_1Dnn_1_1MLP.html#a8133fd1819b5da727bcd18e1a776ee00", null ],
+    [ "toString", "classMila_1_1Dnn_1_1MLP.html#aee8a9284ec818f02e5ede4cc0552758f", null ],
+    [ "act_output_", "classMila_1_1Dnn_1_1MLP.html#a141f10345c4f30a8a508026f389d4925", null ],
+    [ "activation_", "classMila_1_1Dnn_1_1MLP.html#abe3b5e0eacda6bf4d56f50fe060e816b", null ],
+    [ "config_", "classMila_1_1Dnn_1_1MLP.html#af8da02bbedd1010a48fe8b57428ff7fb", null ],
+    [ "dropout1_", "classMila_1_1Dnn_1_1MLP.html#ae4cf232817eb764c17183e198dd196d8", null ],
+    [ "dropout1_output_", "classMila_1_1Dnn_1_1MLP.html#a8d970770ece3e1e21cf483c57c234bf8", null ],
+    [ "fc1_", "classMila_1_1Dnn_1_1MLP.html#afbbe0e902d38ddf7573d87bf228af794", null ],
+    [ "fc1_output_", "classMila_1_1Dnn_1_1MLP.html#a4ed8bf35972e205b6dfe21e2f82e8ba7", null ],
+    [ "fc2_", "classMila_1_1Dnn_1_1MLP.html#a2a08c786a853ddbc23d738157608a3ed", null ],
+    [ "fc2_output_", "classMila_1_1Dnn_1_1MLP.html#a023f2987feb4176c7944c78883c814dd", null ],
+    [ "norm1_", "classMila_1_1Dnn_1_1MLP.html#aeb60db8fc6f1bcbb330e3fb94f006685", null ],
+    [ "norm1_output_", "classMila_1_1Dnn_1_1MLP.html#aefba77d81e768111e00326fe88060a32", null ],
+    [ "residual_input_", "classMila_1_1Dnn_1_1MLP.html#a519adb8fbe76ae377c4c8742035de64f", null ]
+];

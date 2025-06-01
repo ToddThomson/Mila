@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::ResidualConfig::getInnerModule" name="Mila::Dnn::ResidualConfig::getInnerModule">
+<area shape="rect" id="Node000001" title=" " alt="" coords="201,37,391,77"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Residual.html#a84724fe8e4505ba4bfbc76be4bacf221" title="Constructs a new Residual module with a device name." alt="" coords="5,5,153,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="187,44,153,39,154,34,188,39"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Residual.html#aa688280c3ec68030b734a7a1054839cb" title="Constructs a new Residual module with a provided device context." alt="" coords="5,69,153,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="188,76,154,81,153,76,187,71"/>
+</map>

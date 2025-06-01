@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Module&lt; TDeviceType, TInput, TOutput &gt;" name="Mila::Dnn::Module&lt; TDeviceType, TInput, TOutput &gt;">
+<area shape="rect" id="Node000001" title="Abstract base class for all modules in the Mila DNN framework." alt="" coords="28,93,191,148"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1ComponentConfig.html" title="Base configuration class for all neural network components." alt="" coords="5,5,213,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="112,45,112,93,107,93,107,45"/>
+</map>

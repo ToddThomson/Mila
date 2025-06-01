@@ -1,0 +1,9 @@
+<map id="Mila::Dnn::Compute::CudaLayerNormOp::forward" name="Mila::Dnn::Compute::CudaLayerNormOp::forward">
+<area shape="rect" id="Node000001" title="Performs the forward pass of the Layer Normalization operation on CUDA." alt="" coords="5,85,216,125"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1OperationBase.html#a89f65f9750a87e52fdc8f8095f18ba9a" title="Gets the device context associated with this operation." alt="" coords="264,5,464,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="181,82,254,61,255,66,183,87"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Tensor.html#a4f707ea4c0f00aab58189071fa1c11fd" title="Gets a raw pointer to the tensor data for use in CUDA kernels." alt="" coords="293,85,435,125"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="216,102,279,102,279,107,216,107"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Tensor.html#a294130f763b905cf0125c9bd4fba4970" title=" " alt="" coords="293,149,435,189"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="191,122,280,145,278,150,190,127"/>
+</map>

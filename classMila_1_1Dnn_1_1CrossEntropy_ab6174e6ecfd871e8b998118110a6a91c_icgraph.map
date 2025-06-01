@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::CrossEntropy::createOperation" name="Mila::Dnn::CrossEntropy::createOperation">
+<area shape="rect" id="Node000001" title="Creates the appropriate cross entropy operation for the current device." alt="" coords="232,37,411,77"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1CrossEntropy.html#a23d8eac6c8330b05931be0f4294548a1" title="Constructs a new CrossEntropy module with a device name." alt="" coords="5,5,184,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="218,45,184,41,185,35,219,40"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1CrossEntropy.html#a839a9539c0ba7487f4ba4b191302f7c6" title="Constructs a new CrossEntropy module with a provided device context." alt="" coords="5,69,184,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="219,75,185,79,184,74,218,69"/>
+</map>

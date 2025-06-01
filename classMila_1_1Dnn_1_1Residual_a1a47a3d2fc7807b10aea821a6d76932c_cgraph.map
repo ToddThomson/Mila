@@ -1,0 +1,25 @@
+<map id="Mila::Dnn::Residual::forward" name="Mila::Dnn::Residual::forward">
+<area shape="rect" id="Node000001" title="Performs the forward pass of the Residual connection." alt="" coords="5,229,153,269"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Residual.html#aadfa565b0c75c97806c0953aba072e39" title="Creates a projection layer when input and output dimensions don&#39;t match." alt="" coords="223,101,371,141"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="100,227,144,189,200,151,213,145,215,149,203,156,147,193,103,231"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1ResidualConfig.html#aa0661063cf48a3ab1d42c4ca9ba9c851" title=" " alt="" coords="202,229,391,269"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="153,247,188,247,188,252,153,252"/>
+<area shape="rect" id="Node000009" href="$classMila_1_1Dnn_1_1Residual.html#ae22f58b1f41b0864ccf6b740c03903ce" title="Initializes parameters for gated connections." alt="" coords="201,165,392,205"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="147,227,215,207,216,212,149,232"/>
+<area shape="rect" id="Node000010" href="$classMila_1_1Dnn_1_1Residual.html#a596f8d247d58af60caedc196951091c3" title="Checks if two tensor shapes match for residual connection." alt="" coords="217,293,376,333"/>
+<area shape="poly" id="edge11_Node000001_Node000010" title=" " alt="" coords="149,267,216,287,215,292,147,272"/>
+<area shape="rect" id="Node000011" href="$classMila_1_1Dnn_1_1ResidualConfig.html#a54470611ade43d6c8211e38512ef69a4" title=" " alt="" coords="202,357,391,397"/>
+<area shape="poly" id="edge12_Node000001_Node000011" title=" " alt="" coords="103,267,147,305,203,343,215,349,213,354,200,348,144,310,100,271"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Module.html#a1163624b16a6518b2ed573f51827759d" title="Get the device context for this module." alt="" coords="470,5,618,45"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="338,99,439,55,460,47,462,52,441,60,340,104"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Module.html#a2c8e8735eaf75d6bad6d454f7d23b2ca" title="Get the name of the module." alt="" coords="470,133,618,173"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="371,128,457,139,456,145,370,133"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1Module.html#af676dd818a0afaa6f2839b53c42fb72b" title="Check if the module is in training mode." alt="" coords="470,197,618,237"/>
+<area shape="poly" id="edge5_Node000002_Node000006" title=" " alt="" coords="365,139,393,151,417,167,441,183,458,190,456,195,439,188,414,172,391,156,363,144"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1ComponentConfig.html#adcdd117c7dd074304b27224c3f5fb3d2" title="Sets the name of the component with fluent interface." alt="" coords="440,69,648,109"/>
+<area shape="poly" id="edge6_Node000002_Node000007" title=" " alt="" coords="370,109,426,102,427,107,371,114"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1ComponentConfig.html#a35f7308c0a3de2579d0df7cdbb7ec268" title="Gets the configured component name." alt="" coords="696,133,904,173"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="618,151,682,151,682,156,618,156"/>
+<area shape="poly" id="edge9_Node000009_Node000004" title=" " alt="" coords="392,170,456,162,457,167,393,176"/>
+<area shape="poly" id="edge10_Node000009_Node000006" title=" " alt="" coords="393,195,457,203,456,209,392,200"/>
+</map>

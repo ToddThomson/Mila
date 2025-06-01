@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::CompositeModule::setTraining" name="Mila::Dnn::CompositeModule::setTraining">
+<area shape="rect" id="Node000001" title="Set the training mode for this module and all its sub&#45;modules." alt="" coords="5,5,216,45"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Module.html#ac7b2a55c5d4108aa8eceb96c8db55004" title="Set the training mode of this module." alt="" coords="264,5,412,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="216,23,251,23,251,28,216,28"/>
+</map>

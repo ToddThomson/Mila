@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::Compute::OperationAttributes::has" name="Mila::Dnn::Compute::OperationAttributes::has">
+<area shape="rect" id="Node000001" title="Check if a custom property exists in the propsMap." alt="" coords="261,37,451,77"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1CudaGeluOp.html#af65e8ed61b66e3aab86b9842f344e149" title="Performs the backward pass of the GELU activation function." alt="" coords="18,5,201,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="247,46,200,40,201,35,248,41"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1CudaResidualOp.html#a11a441c2cf618193df424a6c331e626e" title="Performs the backward pass of the residual operation." alt="" coords="5,69,213,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="248,74,214,79,213,73,247,69"/>
+</map>

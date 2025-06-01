@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::Module::parametersToString" name="Mila::Dnn::Module::parametersToString">
+<area shape="rect" id="Node000001" title="Helper method to convert parameters to string representation." alt="" coords="5,37,155,77"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Module.html#a4a980423a0db37b7680c3668a579d342" title="Get the parameter tensors of this module." alt="" coords="203,5,361,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="155,43,189,37,190,43,155,48"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Module.html#ae1d548970ec07a9850fdad0dc1e4c1c2" title="Get the number of trainable parameters in the module." alt="" coords="208,69,356,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="155,67,195,73,194,78,155,72"/>
+</map>

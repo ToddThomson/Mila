@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Component::setComputePrecisionPolicy" name="Mila::Dnn::Component::setComputePrecisionPolicy">
+<area shape="rect" id="Node000001" title="Set the compute precision policy explicitly." alt="" coords="5,13,212,53"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1ComputePrecision.html#aceb0c8821e211d2af385e84dad79f550" title="Set the policy preference." alt="" coords="260,5,416,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="212,30,246,30,246,35,212,35"/>
+</map>

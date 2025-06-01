@@ -1,0 +1,17 @@
+<map id="Mila::Dnn::CompositeModule::addModule" name="Mila::Dnn::CompositeModule::addModule">
+<area shape="rect" id="Node000001" title="Add a named child module to this module." alt="" coords="519,69,729,109"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1CompositeModule.html#a2527418f0f83b96144f256664fd42991" title="Add an unnamed child module to this module." alt="" coords="260,5,471,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="529,69,446,48,447,43,530,63"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1MLP.html#ae4588ec91a15be5f5fba30e06b0a15e6" title="Initializes all submodules for the MLP." alt="" coords="274,69,457,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="505,92,457,92,457,87,505,87"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1TransformerBlock.html#aaaeec89728f06c2291468f9ed844241c" title="Initializes the sub&#45;modules and output tensors for the transformer block." alt="" coords="262,133,469,173"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="530,115,447,136,446,131,529,110"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1MLP.html#a524b2ac11d65569d831497321d36675a" title="Constructs a new MLP module with a device name." alt="" coords="31,29,186,54"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="260,72,177,57,178,51,261,67"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1MLP.html#abd11a41a1e3847f7507832eedb5ae7a4" title="Constructs a new MLP module with a provided device context." alt="" coords="31,78,186,103"/>
+<area shape="poly" id="edge4_Node000003_Node000005" title=" " alt="" coords="260,93,186,93,186,88,260,87"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1TransformerBlock.html#ace07232ad74c5b860de67ba44724f6c4" title="Constructs a new TransformerBlock module with a device name." alt="" coords="5,131,212,171"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="248,155,212,154,212,149,248,149"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1TransformerBlock.html#aa91e3b3fb0804eb4eec6af8c9ce11dc4" title="Constructs a new TransformerBlock module with a provided device context." alt="" coords="5,195,212,235"/>
+<area shape="poly" id="edge7_Node000006_Node000008" title=" " alt="" coords="268,179,194,197,192,192,267,174"/>
+</map>

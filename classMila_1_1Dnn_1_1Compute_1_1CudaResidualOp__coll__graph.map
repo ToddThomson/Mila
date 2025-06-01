@@ -1,0 +1,11 @@
+<map id="Mila::Dnn::Compute::CudaResidualOp&lt; TInput, TOutput &gt;" name="Mila::Dnn::Compute::CudaResidualOp&lt; TInput, TOutput &gt;">
+<area shape="rect" id="Node000001" title="CUDA implementation of the residual operation for neural networks." alt="" coords="585,49,783,103"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1BinaryOperation.html" title="Abstract class for binary operations in the neural network framework." alt="" coords="283,5,487,75"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="501,51,585,62,585,67,500,57"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1OperationBase.html" title="Base class for all compute operations in the Mila neural network framework." alt="" coords="5,13,233,67"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="247,37,283,37,283,43,247,43"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1ResidualConfig.html" title="Configuration class for Residual connection module." alt="" coords="290,99,479,125"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="493,96,585,85,585,90,493,102"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1ComponentConfig.html" title="Base configuration class for all neural network components." alt="" coords="15,99,223,125"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="237,109,290,109,290,115,237,115"/>
+</map>

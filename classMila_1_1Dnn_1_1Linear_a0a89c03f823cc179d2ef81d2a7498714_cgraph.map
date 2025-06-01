@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Linear::load" name="Mila::Dnn::Linear::load">
+<area shape="rect" id="Node000001" title="Deserializes the module state from a ZIP archive." alt="" coords="5,13,173,38"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Module.html#a4a980423a0db37b7680c3668a579d342" title="Get the parameter tensors of this module." alt="" coords="221,5,380,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="174,23,208,23,208,28,174,28"/>
+</map>

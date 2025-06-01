@@ -1,0 +1,15 @@
+<map id="Mila::Dnn::Compute::CudaResidualOp::backward" name="Mila::Dnn::Compute::CudaResidualOp::backward">
+<area shape="rect" id="Node000001" title="Performs the backward pass of the residual operation." alt="" coords="5,163,213,203"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Tensor.html#aa7d911be367de341882a9cf94d73284d" title="Gets a pointer to the tensor data with memory type safety." alt="" coords="280,5,451,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="124,161,180,102,218,69,260,41,278,33,280,38,263,46,221,73,184,105,128,165"/>
+<area shape="rect" id="Node000003" href="$structMila_1_1Dnn_1_1Compute_1_1OperationAttributes.html#a9712639fc255b962192c2095135c45a7" title="Helper method to get values from the propsMap with type safety." alt="" coords="272,55,459,95"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="145,161,199,133,260,105,280,97,282,102,262,110,201,138,148,166"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Compute_1_1OperationBase.html#a89f65f9750a87e52fdc8f8095f18ba9a" title="Gets the device context associated with this operation." alt="" coords="265,120,465,175"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="213,166,252,161,252,166,214,171"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1ComponentConfig.html#a86aa2b04575c0dcb3feca075ab44e66f" title="Gets the configured precision policy." alt="" coords="261,199,469,239"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="214,195,248,200,247,205,213,201"/>
+<area shape="rect" id="Node000006" href="$structMila_1_1Dnn_1_1Compute_1_1OperationAttributes.html#a4f37c7b515d519ad422f8aea3b54d0a0" title="Check if a custom property exists in the propsMap." alt="" coords="271,263,460,303"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="153,201,262,249,284,256,282,261,260,254,151,206"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1Tensor.html#af952a34808a4ad53bc9588854ddd8592" title=" " alt="" coords="281,328,449,353"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="130,202,185,258,222,288,263,313,282,321,279,326,260,318,219,292,182,262,126,206"/>
+</map>

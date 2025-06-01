@@ -1,0 +1,27 @@
+<map id="Mila::Dnn::MultiHeadAttention::toString" name="Mila::Dnn::MultiHeadAttention::toString">
+<area shape="rect" id="Node000001" title="Generates a string representation of this module&#39;s configuration." alt="" coords="5,325,224,365"/>
+<area shape="rect" id="Node000002" href="$namespaceMila_1_1Dnn_1_1Compute.html#abc57784bcbd77f21ea2524f0161e7e4f" title="Converts a DeviceType to its string representation." alt="" coords="309,5,459,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="119,324,135,270,165,198,186,159,210,121,238,86,270,55,294,41,297,45,274,59,242,90,214,124,190,162,170,200,140,272,124,326"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Module.html#a1163624b16a6518b2ed573f51827759d" title="Get the device context for this module." alt="" coords="310,69,458,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="122,324,142,281,174,226,217,168,243,142,271,119,295,105,298,110,273,124,246,146,221,172,179,229,147,284,127,326"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Module.html#a94b3a479c6e9c49879ef2079d34df471" title="Get the device type of the current device context." alt="" coords="310,133,458,173"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="128,323,185,254,225,216,271,183,296,171,298,176,273,188,229,220,189,258,132,327"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1MultiHeadAttentionConfig.html#a9d5e87b46522e0a8d423f4498d2bf184" title="Get the dropout rate." alt="" coords="275,197,493,237"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="142,323,200,285,271,247,289,240,291,244,273,252,203,289,145,327"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1MultiHeadAttentionConfig.html#a926d9fe05b112e67fce76f47fd437fd6" title="Get the embedding dimension." alt="" coords="275,261,493,301"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="199,323,285,302,287,307,200,328"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1MultiHeadAttentionConfig.html#a568c2b5af5064ac8d83e0db4f5fe0187" title="Get the input shape." alt="" coords="275,325,493,365"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="224,343,261,343,261,348,224,348"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1Module.html#a2c8e8735eaf75d6bad6d454f7d23b2ca" title="Get the name of the module." alt="" coords="310,389,458,429"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="200,363,297,386,296,391,199,368"/>
+<area shape="rect" id="Node000010" href="$classMila_1_1Dnn_1_1MultiHeadAttentionConfig.html#a64daa00677b693962db37b76c563283d" title="Get the number of attention heads." alt="" coords="275,453,493,493"/>
+<area shape="poly" id="edge9_Node000001_Node000010" title=" " alt="" coords="145,363,203,401,273,439,291,446,289,451,271,444,200,406,142,368"/>
+<area shape="rect" id="Node000011" href="$classMila_1_1Dnn_1_1MultiHeadAttentionConfig.html#a2c0e9e41e04567dddcb4cc3660927518" title="Get the attention scaling factor." alt="" coords="275,517,493,557"/>
+<area shape="poly" id="edge10_Node000001_Node000011" title=" " alt="" coords="132,364,189,433,229,471,273,503,285,509,283,514,271,508,225,475,185,436,128,368"/>
+<area shape="rect" id="Node000012" href="$classMila_1_1Dnn_1_1MultiHeadAttentionConfig.html#a2bc9811ffcc719b67e1946331d363a36" title="Check if causal masking is enabled." alt="" coords="275,581,493,621"/>
+<area shape="poly" id="edge11_Node000001_Node000012" title=" " alt="" coords="127,364,147,407,179,462,221,519,246,545,274,567,282,573,279,577,270,571,243,549,217,522,174,465,142,409,122,367"/>
+<area shape="rect" id="Node000013" href="$classMila_1_1Dnn_1_1MultiHeadAttentionConfig.html#af1a67cdb792d19fb6c9720fa44c6fbff" title="Check if using separate projection matrices." alt="" coords="272,645,496,685"/>
+<area shape="poly" id="edge12_Node000001_Node000013" title=" " alt="" coords="124,365,140,418,170,490,190,529,214,566,242,601,274,631,280,636,277,640,270,635,238,605,210,569,186,532,165,493,135,420,119,366"/>
+<area shape="rect" id="Node000009" href="$classMila_1_1Dnn_1_1ComponentConfig.html#a35f7308c0a3de2579d0df7cdbb7ec268" title="Gets the configured component name." alt="" coords="544,389,752,429"/>
+<area shape="poly" id="edge8_Node000008_Node000009" title=" " alt="" coords="458,407,530,407,530,412,458,412"/>
+</map>

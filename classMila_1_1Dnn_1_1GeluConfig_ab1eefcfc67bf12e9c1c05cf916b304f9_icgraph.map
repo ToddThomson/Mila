@@ -1,0 +1,9 @@
+<map id="Mila::Dnn::GeluConfig::getApproximationMethod" name="Mila::Dnn::GeluConfig::getApproximationMethod">
+<area shape="rect" id="Node000001" title="Get the configured approximation method." alt="" coords="300,99,496,139"/>
+<area shape="rect" id="Node000002" href="$structMila_1_1Dnn_1_1Compute_1_1Detail_1_1cuda__gelu__impl_3_01float_01_4.html#a1a99a3860e937f0eb03295c0195daca9" title=" " alt="" coords="51,5,207,75"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="315,97,206,65,208,60,316,92"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Gelu.html#a652af666ac7ee04378aaa5485b338ea5" title="Returns the current approximation method used by this GELU instance." alt="" coords="5,99,252,139"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="286,121,252,121,252,116,286,116"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Gelu.html#a0fb000c57a6bbdfc2121b060269e2a29" title="Generates a string representation of this module&#39;s configuration." alt="" coords="38,163,219,189"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="294,144,253,153,193,166,192,161,251,148,293,139"/>
+</map>

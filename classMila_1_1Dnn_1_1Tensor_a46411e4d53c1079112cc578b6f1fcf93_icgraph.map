@@ -1,0 +1,15 @@
+<map id="Mila::Dnn::Tensor::setName" name="Mila::Dnn::Tensor::setName">
+<area shape="rect" id="Node000001" title=" " alt="" coords="399,120,541,160"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Tensor.html#ae696ca96d19332c0e046699b3ad70d81" title="Creates a deep copy of this tensor." alt="" coords="202,5,345,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="427,115,349,66,315,48,317,43,352,62,429,110"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Tensor.html#a354396ac236f7f813be41c74974aa0df" title="Copies data from another tensor into this tensor." alt="" coords="202,120,345,160"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="385,143,345,143,345,137,385,137"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Tensor.html#a07e649d281fa689803a2aa2a004385de" title="Converts a half precision tensor to float." alt="" coords="5,76,148,116"/>
+<area shape="poly" id="edge6_Node000001_Node000004" title=" " alt="" coords="391,119,350,111,245,100,148,98,149,92,245,95,351,105,392,114"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Tensor.html#af20595b817b38dd65cd34b0c8a14c606" title="Converts a float tensor to half precision." alt="" coords="5,152,148,192"/>
+<area shape="poly" id="edge7_Node000001_Node000005" title=" " alt="" coords="394,166,351,175,245,182,148,180,148,174,245,176,350,169,393,161"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1Tensor.html#a3f0284e6a192f2b31fcc5f389e591af9" title="Converts this tensor to use a different memory resource." alt="" coords="196,235,351,261"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="431,170,352,218,310,238,307,233,349,214,428,166"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="188,124,148,115,149,109,189,119"/>
+<area shape="poly" id="edge4_Node000003_Node000005" title=" " alt="" coords="189,156,149,163,148,158,188,151"/>
+</map>

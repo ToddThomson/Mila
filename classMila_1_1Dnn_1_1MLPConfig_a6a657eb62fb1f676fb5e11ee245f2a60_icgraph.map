@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::MLPConfig::useFusedOperations" name="Mila::Dnn::MLPConfig::useFusedOperations">
+<area shape="rect" id="Node000001" title=" " alt="" coords="231,5,393,45"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1MLP.html#aecd082b04cf2ef94a45bb5bafddc253a" title="Performs the forward pass of the MLP block." alt="" coords="5,13,183,38"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="217,28,183,28,183,23,217,23"/>
+</map>

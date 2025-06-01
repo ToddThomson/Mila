@@ -1,0 +1,11 @@
+<map id="Mila::Dnn::Compute::DeviceContext::operator=" name="Mila::Dnn::Compute::DeviceContext::operator=">
+<area shape="rect" id="Node000001" title="Move assignment operator." alt="" coords="5,37,205,77"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#aa9c7afccb46ad4b1afbe83bc5d861b32" title="Moves resources from another DeviceContext." alt="" coords="276,5,480,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="205,43,262,36,263,42,206,48"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#a3da2632ad08d0ef326d3a51ed3c46284" title="Releases all device&#45;specific resources." alt="" coords="253,69,503,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="206,66,240,70,240,76,205,72"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#aa0be82bb15781cc2d3239b7cea4da717" title="Checks if the current device is a CUDA device." alt="" coords="551,69,773,109"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="503,87,537,87,537,92,503,92"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#a4105deade514dfadccff3d9b21a6c4ed" title="Checks if the current device is of a specific type." alt="" coords="821,69,1041,109"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="773,87,808,87,808,92,773,92"/>
+</map>

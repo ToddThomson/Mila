@@ -1,9 +1,0 @@
-<map id="Src/Dnn/Compute/DeviceType.ixx" name="Src/Dnn/Compute/DeviceType.ixx">
-<area shape="rect" id="Node000001" title="Device type definitions and conversion utilities for compute devices." alt="" coords="40,5,279,31"/>
-<area shape="rect" id="Node000002" title=" " alt="" coords="5,79,92,104"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="143,33,80,73,77,69,140,28"/>
-<area shape="rect" id="Node000003" title=" " alt="" coords="117,79,202,104"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="162,31,162,65,157,65,157,31"/>
-<area shape="rect" id="Node000004" title=" " alt="" coords="226,79,285,104"/>
-<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="176,29,230,68,227,72,173,33"/>
-</map>

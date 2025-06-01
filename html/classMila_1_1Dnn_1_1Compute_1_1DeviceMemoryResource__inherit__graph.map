@@ -1,5 +1,0 @@
-<map id="Mila::Dnn::Compute::DeviceMemoryResource" name="Mila::Dnn::Compute::DeviceMemoryResource">
-<area shape="rect" id="Node000001" title="A memory resource that allocates memory on a CUDA device." alt="" coords="5,79,195,119"/>
-<area shape="rect" id="Node000002" title=" " alt="" coords="32,5,168,31"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="103,44,103,79,97,79,97,44"/>
-</map>

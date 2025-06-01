@@ -1,0 +1,15 @@
+<map id="Mila::Dnn::Dropout::Dropout" name="Mila::Dnn::Dropout::Dropout">
+<area shape="rect" id="Node000001" title="Constructs a new Dropout module with a provided device context." alt="" coords="5,157,149,197"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Dropout.html#a90482512ba2256cd59c9ec2c8651add9" title="Creates the appropriate Dropout operation based on the current device context." alt="" coords="218,121,362,161"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="149,162,204,153,205,158,150,167"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1DropoutConfig.html#a92d29ccf68798fc33e8ffc6cb8f6e797" title="Validate configuration parameters." alt="" coords="197,189,383,229"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="150,185,184,190,183,195,149,190"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a8bcbbd6e474b44727458887b4685f43e" title="Create a unary operation based on the type information, device type, and operation name." alt="" coords="447,5,622,60"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="329,118,430,70,447,63,449,68,432,75,332,123"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Module.html#a1163624b16a6518b2ed573f51827759d" title="Get the device context for this module." alt="" coords="461,85,609,125"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="362,127,447,115,447,120,363,133"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a56e3658d8b09dd388ca379aefcdeb17f" title="Get the singleton instance of the OperationRegistry." alt="" coords="459,149,610,204"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="363,149,446,161,446,166,362,154"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1ComponentConfig.html#ab1b9997f5b9604f0f60b68985f2f3ffc" title="Validates the configuration." alt="" coords="431,229,639,269"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="383,221,417,227,417,232,382,226"/>
+</map>

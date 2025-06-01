@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Gpt2::DatasetReader::resume" name="Mila::Dnn::Gpt2::DatasetReader::resume">
+<area shape="rect" id="Node000001" title="Resumes the background loading threads after being paused." alt="" coords="5,5,188,45"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Gpt2_1_1DatasetReader.html#a349b72115549800243e8d0b887179520" title="Logs messages through the configured logger." alt="" coords="236,5,419,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="188,23,222,23,222,28,188,28"/>
+</map>

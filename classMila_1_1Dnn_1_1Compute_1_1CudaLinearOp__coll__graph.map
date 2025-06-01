@@ -1,0 +1,11 @@
+<map id="Mila::Dnn::Compute::CudaLinearOp&lt; TInput, TOutput &gt;" name="Mila::Dnn::Compute::CudaLinearOp&lt; TInput, TOutput &gt;">
+<area shape="rect" id="Node000001" title="CUDA implementation of the Fully Connected operation for neural networks." alt="" coords="616,37,797,92"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1UnaryOperation.html" title="Abstract base class for unary operations in the compute framework." alt="" coords="283,5,517,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="531,44,616,53,615,58,531,49"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1OperationBase.html" title="Base class for all compute operations in the Mila neural network framework." alt="" coords="5,5,233,60"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="247,30,283,30,283,35,247,35"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1LinearConfig.html" title="Configuration class for Linear module." alt="" coords="313,84,487,109"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="500,84,615,71,616,77,501,89"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1ComponentConfig.html" title="Base configuration class for all neural network components." alt="" coords="15,84,223,109"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="237,94,313,94,313,99,237,99"/>
+</map>

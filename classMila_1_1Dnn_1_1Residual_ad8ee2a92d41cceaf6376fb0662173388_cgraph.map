@@ -1,0 +1,15 @@
+<map id="Mila::Dnn::Residual::backward" name="Mila::Dnn::Residual::backward">
+<area shape="rect" id="Node000001" title="Performs the backward pass of the Residual connection." alt="" coords="5,149,153,189"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Residual.html#a9cea89544af42d5db32ef20baeaa969c" title="Adds two tensors element&#45;wise." alt="" coords="222,85,370,125"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="147,146,214,126,216,131,149,151"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1ResidualConfig.html#aa0661063cf48a3ab1d42c4ca9ba9c851" title=" " alt="" coords="201,149,391,189"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="154,166,188,166,188,171,154,171"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1Residual.html#a596f8d247d58af60caedc196951091c3" title="Checks if two tensor shapes match for residual connection." alt="" coords="217,213,375,253"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="149,186,216,206,214,211,147,191"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#acf6c6e52c4c686b7547170bcd9857996" title="Create a binary operation based on the type information, device type, and operation name." alt="" coords="439,5,616,60"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="360,82,425,62,427,67,362,87"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Module.html#a1163624b16a6518b2ed573f51827759d" title="Get the device context for this module." alt="" coords="453,85,601,125"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="370,102,439,102,439,107,370,107"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a56e3658d8b09dd388ca379aefcdeb17f" title="Get the singleton instance of the OperationRegistry." alt="" coords="452,149,603,204"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="362,122,440,147,438,152,360,127"/>
+</map>

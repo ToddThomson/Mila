@@ -1,0 +1,15 @@
+<map id="Mila::Dnn::MLPConfig::useResidual" name="Mila::Dnn::MLPConfig::useResidual">
+<area shape="rect" id="Node000001" title=" " alt="" coords="447,77,607,117"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1MLP.html#a21bafa525e1ca67f4dbc258753db343e" title="Performs the backward pass of the MLP block." alt="" coords="208,5,399,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="470,73,398,45,360,33,362,28,400,39,472,68"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1MLP.html#aecd082b04cf2ef94a45bb5bafddc253a" title="Performs the forward pass of the MLP block." alt="" coords="215,55,392,80"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="433,87,392,82,392,76,433,82"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1MLP.html#ae4588ec91a15be5f5fba30e06b0a15e6" title="Initializes all submodules for the MLP." alt="" coords="212,105,395,145"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="433,111,395,116,394,111,432,106"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1MLP.html#aee8a9284ec818f02e5ede4cc0552758f" title="Generates a string representation of this module&#39;s configuration." alt="" coords="214,169,393,195"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="476,125,400,159,359,172,358,167,398,154,474,121"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1MLP.html#a524b2ac11d65569d831497321d36675a" title="Constructs a new MLP module with a device name." alt="" coords="5,88,160,113"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="198,116,160,112,160,106,198,111"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1MLP.html#abd11a41a1e3847f7507832eedb5ae7a4" title="Constructs a new MLP module with a provided device context." alt="" coords="5,137,160,163"/>
+<area shape="poly" id="edge5_Node000004_Node000006" title=" " alt="" coords="198,139,160,144,160,139,198,134"/>
+</map>

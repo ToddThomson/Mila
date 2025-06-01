@@ -1,0 +1,19 @@
+<map id="Mila::Dnn::Softmax::Softmax" name="Mila::Dnn::Softmax::Softmax">
+<area shape="rect" id="Node000001" title="Constructs a new Softmax module with a device name." alt="" coords="5,253,152,293"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Softmax.html#a2c842bf3891bcb72f3e495ba2a6526a6" title="Creates the appropriate softmax operation for the current device." alt="" coords="220,185,367,225"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="142,250,216,226,218,231,143,255"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1SoftmaxConfig.html#ae212dcc1663ec46a87d4487ab81e1c8c" title="Validate configuration parameters." alt="" coords="200,285,387,325"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="153,281,187,286,186,291,152,286"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a8bcbbd6e474b44727458887b4685f43e" title="Create a unary operation based on the type information, device type, and operation name." alt="" coords="451,5,626,60"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="310,182,362,128,396,97,433,70,445,64,447,68,436,75,399,102,365,132,314,186"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1SoftmaxConfig.html#a9a56222c3a8fc351d582619845a8f1fa" title="Get the configured axis value." alt="" coords="445,85,632,125"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="331,182,434,134,454,127,456,132,436,139,333,187"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Module.html#a1163624b16a6518b2ed573f51827759d" title="Get the device context for this module." alt="" coords="465,149,613,189"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="366,191,451,179,452,184,367,197"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a56e3658d8b09dd388ca379aefcdeb17f" title="Get the singleton instance of the OperationRegistry." alt="" coords="463,213,614,268"/>
+<area shape="poly" id="edge5_Node000002_Node000006" title=" " alt="" coords="367,213,450,225,449,230,366,218"/>
+<area shape="rect" id="Node000007" href="$structMila_1_1Dnn_1_1Compute_1_1OperationAttributes.html#a77b49c21d0b585acf519138c166b6687" title="Helper method to set a value in the propsMap." alt="" coords="445,293,632,333"/>
+<area shape="poly" id="edge6_Node000002_Node000007" title=" " alt="" coords="330,222,379,250,436,277,458,286,456,291,434,282,377,255,327,227"/>
+<area shape="rect" id="Node000009" href="$classMila_1_1Dnn_1_1ComponentConfig.html#ab1b9997f5b9604f0f60b68985f2f3ffc" title="Validates the configuration." alt="" coords="435,357,643,397"/>
+<area shape="poly" id="edge8_Node000008_Node000009" title=" " alt="" coords="363,322,458,350,456,355,362,327"/>
+</map>

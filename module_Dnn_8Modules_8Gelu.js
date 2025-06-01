@@ -1,0 +1,25 @@
+var module_Dnn_8Modules_8Gelu =
+[
+    [ "Gelu", "classMila_1_1Dnn_1_1Gelu.html", "classMila_1_1Dnn_1_1Gelu" ],
+    [ "GeluConfig", "classMila_1_1Dnn_1_1GeluConfig.html", "classMila_1_1Dnn_1_1GeluConfig" ],
+    [ "Mila::Dnn::CpuGelu", "module_Dnn_8Modules_8Gelu.html#aa5a5e7e259089aa0242b266ff0d67a8a", null ],
+    [ "Mila::Dnn::CudaGelu", "module_Dnn_8Modules_8Gelu.html#a8b1fe13574bd1bccef7e35c78a3cb552", null ],
+    [ "Mila::Dnn::Gelu::ModuleBase", "module_Dnn_8Modules_8Gelu.html#a5fe3f95fa598938f118fc3787b847c62", null ],
+    [ "Mila::Dnn::Gelu::MR", "module_Dnn_8Modules_8Gelu.html#a0514353bb2f2d5c729b45cf96c196fed", null ],
+    [ "Mila::Dnn::Gelu::Gelu", "module_Dnn_8Modules_8Gelu.html#a4063fb9a76fae0f96f5145fcd99fd854", null ],
+    [ "Mila::Dnn::Gelu::Gelu", "module_Dnn_8Modules_8Gelu.html#a7a3e4f8007a867ea499fdd0534f78526", null ],
+    [ "Mila::Dnn::Gelu::approximationMethodToString", "module_Dnn_8Modules_8Gelu.html#ae1294153ed0520e3cdba07b89458da52", null ],
+    [ "Mila::Dnn::Gelu::backward", "module_Dnn_8Modules_8Gelu.html#a48c4e48a96d453a3ac8eaa9d29b23e2d", null ],
+    [ "Mila::Dnn::Gelu::createOperation", "module_Dnn_8Modules_8Gelu.html#aaaac79a17eafdd5d51bd0302c023052b", null ],
+    [ "Mila::Dnn::Gelu::forward", "module_Dnn_8Modules_8Gelu.html#a6c98f1e898015a1fb32c86ae867ef200", null ],
+    [ "Mila::Dnn::Gelu::getApproximationMethod", "module_Dnn_8Modules_8Gelu.html#a652af666ac7ee04378aaa5485b338ea5", null ],
+    [ "Mila::Dnn::Gelu::load", "module_Dnn_8Modules_8Gelu.html#abb6a83bbebf75faa9f69d4774d5e86b9", null ],
+    [ "Mila::Dnn::Gelu::parameterCount", "module_Dnn_8Modules_8Gelu.html#ad5008760cd1a189d437c8405e027eb3d", null ],
+    [ "Mila::Dnn::Gelu::save", "module_Dnn_8Modules_8Gelu.html#a8f3a194d931df6ec9ea04fbfd792d454", null ],
+    [ "Mila::Dnn::Gelu::toString", "module_Dnn_8Modules_8Gelu.html#a0fb000c57a6bbdfc2121b060269e2a29", null ],
+    [ "Mila::Dnn::Gelu::config_", "module_Dnn_8Modules_8Gelu.html#a422eac73314e57d008683302b4e68a72", null ],
+    [ "Mila::Dnn::Gelu::operation_", "module_Dnn_8Modules_8Gelu.html#ad5ba77960a07332acba15cdb38e8c75e", null ],
+    [ "Mila::Dnn::Gelu::output_state_", "module_Dnn_8Modules_8Gelu.html#af5f2ae35a20ec8031081b91cb4692100", null ],
+    [ "Mila::Dnn::Gelu::parameters_", "module_Dnn_8Modules_8Gelu.html#a57a078ed51353b8bf2d28dd744af154b", null ],
+    [ "Mila::Dnn::Gelu::properties_", "module_Dnn_8Modules_8Gelu.html#a1e2ef0f54f2cb8c20ed261d320a331d7", null ]
+];

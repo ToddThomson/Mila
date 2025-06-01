@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Compute::CpuLinearOp::forward_naive" name="Mila::Dnn::Compute::CpuLinearOp::forward_naive">
+<area shape="rect" id="Node000001" title="Naive implementation of the forward pass for the Fully Connected operation." alt="" coords="5,5,220,45"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Tensor.html#a4f707ea4c0f00aab58189071fa1c11fd" title="Gets a raw pointer to the tensor data for use in CUDA kernels." alt="" coords="268,5,411,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="220,23,254,23,254,28,220,28"/>
+</map>

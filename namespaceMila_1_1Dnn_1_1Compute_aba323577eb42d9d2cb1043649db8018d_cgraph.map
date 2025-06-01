@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Compute::getRuntimeVersion" name="Mila::Dnn::Compute::getRuntimeVersion">
+<area shape="rect" id="Node000001" title="Gets the installed CUDA runtime version." alt="" coords="5,5,160,45"/>
+<area shape="rect" id="Node000002" href="$namespaceMila_1_1Dnn_1_1Compute.html#af02152a475c650f6a64e0f2c67c1aaf5" title="Checks the status of a CUDA operation and throws if an error occurred." alt="" coords="208,5,359,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="161,23,194,23,194,28,161,28"/>
+</map>

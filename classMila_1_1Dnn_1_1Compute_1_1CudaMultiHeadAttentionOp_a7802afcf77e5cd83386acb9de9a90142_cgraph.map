@@ -1,0 +1,11 @@
+<map id="Mila::Dnn::Compute::CudaMultiHeadAttentionOp::backward" name="Mila::Dnn::Compute::CudaMultiHeadAttentionOp::backward">
+<area shape="rect" id="Node000001" title="Performs the backward pass of the Multi&#45;Head Attention operation." alt="" coords="5,84,213,139"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Tensor.html#aa7d911be367de341882a9cf94d73284d" title="Gets a pointer to the tensor data with memory type safety." alt="" coords="276,5,447,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="164,82,260,41,290,32,292,37,262,46,166,86"/>
+<area shape="rect" id="Node000003" href="$structMila_1_1Dnn_1_1Compute_1_1OperationAttributes.html#a9712639fc255b962192c2095135c45a7" title="Helper method to get values from the propsMap with type safety." alt="" coords="268,55,455,95"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="213,94,254,88,255,93,214,99"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Compute_1_1OperationBase.html#a89f65f9750a87e52fdc8f8095f18ba9a" title="Gets the device context associated with this operation." alt="" coords="261,120,461,175"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="214,124,248,128,247,134,213,129"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Tensor.html#a294130f763b905cf0125c9bd4fba4970" title=" " alt="" coords="290,199,433,239"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="163,136,262,184,285,192,283,197,260,188,161,141"/>
+</map>

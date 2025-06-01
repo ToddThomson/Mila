@@ -1,0 +1,14 @@
+<map id="Mila::Dnn::Residual&lt; TDeviceType, TInput, TOutput &gt;" name="Mila::Dnn::Residual&lt; TDeviceType, TInput, TOutput &gt;">
+<area shape="rect" id="Node000001" title="A class implementing a residual connection module." alt="" coords="671,100,844,155"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Module.html" title="Abstract base class for all modules in the Mila DNN framework." alt="" coords="325,5,488,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="502,49,647,85,686,97,684,103,646,90,501,54"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1ComponentConfig.html" title="Base configuration class for all neural network components." alt="" coords="5,53,213,79"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="227,50,325,39,325,44,227,55"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1ResidualConfig.html" title="Configuration class for Residual connection module." alt="" coords="312,84,501,109"/>
+<area shape="poly" id="edge4_Node000004_Node000003" title=" " alt="" coords="228,75,312,84,311,90,227,81"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="516,103,671,117,670,122,515,109"/>
+<area shape="rect" id="Node000005" href="$structMila_1_1Dnn_1_1Compute_1_1OperationAttributes.html" title="Common attributes for neural network operations." alt="" coords="327,134,486,174"/>
+<area shape="poly" id="edge5_Node000001_Node000005" title=" " alt="" coords="499,149,646,141,670,138,670,143,647,146,500,155"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1Tensor.html" title=" " alt="" coords="334,234,479,274"/>
+<area shape="poly" id="edge6_Node000001_Node000006" title=" " alt="" coords="493,255,569,248,608,240,646,226,671,211,695,193,733,153,737,157,699,197,674,216,648,231,610,245,570,254,493,260"/>
+</map>

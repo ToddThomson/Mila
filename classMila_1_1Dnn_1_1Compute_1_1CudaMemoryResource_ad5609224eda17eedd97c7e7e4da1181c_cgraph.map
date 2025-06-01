@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::Compute::CudaMemoryResource::do_deallocate" name="Mila::Dnn::Compute::CudaMemoryResource::do_deallocate">
+<area shape="rect" id="Node000001" title="Deallocates memory on the CUDA device." alt="" coords="5,30,183,85"/>
+<area shape="rect" id="Node000002" href="$namespaceMila_1_1Dnn_1_1Compute.html#ab06697660f29cc1d553a3ce26951d6d5" title="Checks the last CUDA error and throws if an error occurred." alt="" coords="231,5,389,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="182,42,217,36,218,42,183,47"/>
+<area shape="rect" id="Node000003" href="$namespaceMila_1_1Dnn_1_1Compute.html#af02152a475c650f6a64e0f2c67c1aaf5" title="Checks the status of a CUDA operation and throws if an error occurred." alt="" coords="235,69,385,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="183,68,221,74,220,79,182,73"/>
+</map>

@@ -1,0 +1,62 @@
+<map id="Mila::Dnn::Tensor::shape" name="Mila::Dnn::Tensor::shape">
+<area shape="rect" id="Node000001" title=" " alt="" coords="659,823,801,863"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1CpuMultiHeadAttentionOp.html#a8b29ff5f7f96812399058c5f724a24bd" title="Performs the backward pass of the Multi&#45;Head Attention operation." alt="" coords="399,5,599,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="725,810,719,654,701,434,686,321,666,217,640,132,625,98,609,73,597,62,601,58,613,70,630,96,645,130,671,216,692,320,707,433,724,654,731,809"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1CpuCrossEntropyOp.html#ad21a5e761a7c17789db699425a97f4a9" title="Performs the backward pass of the cross entropy operation." alt="" coords="419,84,578,139"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="725,810,716,668,697,471,681,371,662,279,638,203,624,174,609,152,594,139,577,129,579,124,597,134,613,148,628,171,643,201,667,278,687,370,702,471,722,668,730,809"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Compute_1_1CudaMultiHeadAttentionOp.html#a7802afcf77e5cd83386acb9de9a90142" title="Performs the backward pass of the Multi&#45;Head Attention operation." alt="" coords="395,163,603,217"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="724,810,713,683,691,510,676,423,657,343,635,277,609,232,595,220,599,216,613,228,640,275,662,341,681,422,697,510,718,683,729,809"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Compute_1_1CudaLayerNormOp.html#ac18a04c86283735b2bdf6aba6678ccb3" title="Performs the backward pass of the Layer Normalization operation." alt="" coords="387,242,611,282"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="723,809,711,694,689,540,673,463,655,392,633,335,609,296,595,284,598,280,613,292,638,332,660,391,678,461,694,539,716,694,729,809"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1Compute_1_1CudaMatMulBiasGeluOp.html#a14abe1e57d22667fa0c5af47901c62dc" title="Performs the backward pass of the fused MatMul&#45;Bias&#45;GELU operation." alt="" coords="405,307,593,361"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="722,810,707,711,682,581,649,457,630,409,609,376,591,361,594,357,613,372,634,406,654,455,687,580,712,710,727,810"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1Compute_1_1CudaLinearOp.html#aebeced4661aee42c34dd8690ddc57b9f" title="Performs the backward pass of the Fully Connected operation." alt="" coords="403,386,595,426"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="726,810,722,734,706,635,691,582,671,530,643,482,609,440,593,428,597,424,613,436,648,479,675,528,696,580,711,633,728,733,732,810"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1Compute_1_1FusedSoftmaxCrossEntropyOp.html#a0d62d31f2a71dcdf5cc536dd3ab79218" title="Performs the backward pass of the fused softmax cross entropy operation." alt="" coords="395,451,603,505"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="722,810,712,751,692,675,658,596,636,559,609,527,584,507,587,503,613,523,640,556,663,594,697,673,717,749,728,809"/>
+<area shape="rect" id="Node000009" href="$classMila_1_1Dnn_1_1Tensor.html#a7c8c9a854ec1f1c3eb9ffe72dc53cc9c" title=" " alt="" coords="427,581,570,621"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="716,811,701,770,679,723,648,675,609,635,590,623,569,615,571,610,593,618,612,631,652,672,683,720,706,768,721,809"/>
+<area shape="rect" id="Node000011" href="$classMila_1_1Dnn_1_1Tensor.html#aca41778879bf226b9cb00cb9871d9ec5" title="Flattens the tensor to a 2D tensor by combining all dimensions except the last one." alt="" coords="5,595,148,635"/>
+<area shape="poly" id="edge17_Node000001_Node000011" title=" " alt="" coords="723,810,714,755,694,688,679,654,660,622,637,594,609,571,579,554,548,541,482,526,413,524,344,530,277,544,217,561,121,598,119,593,215,556,276,539,343,525,413,518,482,521,550,536,582,549,612,566,641,590,665,619,684,652,699,686,719,753,728,809"/>
+<area shape="rect" id="Node000012" href="$classMila_1_1Dnn_1_1Tensor.html#a52daaeaf2dfe684d58cde6880601e3ce" title="Creates a flattened copy of this tensor." alt="" coords="5,674,148,714"/>
+<area shape="poly" id="edge18_Node000001_Node000012" title=" " alt="" coords="700,815,660,780,635,763,610,750,572,738,521,728,395,713,262,704,148,699,148,693,262,699,396,708,522,723,573,733,612,745,638,758,663,775,703,811"/>
+<area shape="rect" id="Node000013" href="$classMila_1_1Dnn_1_1Tensor.html#a0989fe14015e30e0e2cb86501e027d11" title=" " alt="" coords="427,645,570,685"/>
+<area shape="poly" id="edge12_Node000001_Node000013" title=" " alt="" coords="707,813,666,758,639,730,609,706,569,685,571,680,612,701,643,726,670,755,711,810"/>
+<area shape="rect" id="Node000014" href="$classMila_1_1Dnn_1_1Tensor.html#a354396ac236f7f813be41c74974aa0df" title="Copies data from another tensor into this tensor." alt="" coords="427,759,570,799"/>
+<area shape="poly" id="edge14_Node000001_Node000014" title=" " alt="" coords="644,823,570,802,571,796,646,817"/>
+<area shape="rect" id="Node000017" href="$classMila_1_1Dnn_1_1Compute_1_1CpuLayerNormOp.html#a363c0f250adb5915fa5b81a655b1ee3f" title="Performs the forward pass of the Layer Normalization operation." alt="" coords="397,823,600,863"/>
+<area shape="poly" id="edge19_Node000001_Node000017" title=" " alt="" coords="645,846,600,846,600,841,645,841"/>
+<area shape="rect" id="Node000018" href="$classMila_1_1Dnn_1_1Compute_1_1CpuLinearOp.html#af867c7dd9729b6333f475d409b9979dc" title="Performs the forward pass of the Linear operation." alt="" coords="413,887,584,927"/>
+<area shape="poly" id="edge20_Node000001_Node000018" title=" " alt="" coords="646,869,573,890,571,885,644,864"/>
+<area shape="rect" id="Node000019" href="$classMila_1_1Dnn_1_1Compute_1_1CpuMultiHeadAttentionOp.html#aa32fcc93e899b97b2edae81a709c2c76" title="Performs the forward pass of the Multi&#45;Head Attention operation." alt="" coords="399,952,599,1007"/>
+<area shape="poly" id="edge21_Node000001_Node000019" title=" " alt="" coords="700,875,660,909,612,942,586,954,584,949,609,937,656,905,696,871"/>
+<area shape="rect" id="Node000020" href="$classMila_1_1Dnn_1_1Compute_1_1CpuSoftmaxOp.html#ac6eb853f205bdae88e16025e38175ff1" title="Performs the forward pass of the softmax operation." alt="" coords="406,1031,591,1071"/>
+<area shape="poly" id="edge22_Node000001_Node000020" title=" " alt="" coords="718,877,701,911,678,950,648,989,612,1021,592,1034,589,1029,609,1017,644,985,673,947,696,909,713,875"/>
+<area shape="rect" id="Node000021" href="$classMila_1_1Dnn_1_1Compute_1_1CpuCrossEntropyOp.html#af4fceb920088d2023764a855d6cb3b56" title="Performs the forward pass of the cross entropy operation." alt="" coords="419,1096,578,1151"/>
+<area shape="poly" id="edge23_Node000001_Node000021" title=" " alt="" coords="723,877,709,924,687,979,655,1036,635,1062,612,1085,579,1106,577,1102,609,1081,631,1059,650,1033,682,977,704,922,718,876"/>
+<area shape="rect" id="Node000022" href="$classMila_1_1Dnn_1_1Compute_1_1CpuEncoderOp.html#a68224b145b28a65db3133e35a1e76c76" title="Performs the forward pass of the encoder operation." alt="" coords="407,1175,590,1215"/>
+<area shape="poly" id="edge24_Node000001_Node000022" title=" " alt="" coords="729,877,720,939,700,1016,685,1057,665,1096,642,1133,612,1165,592,1180,589,1175,609,1161,637,1130,661,1093,680,1054,695,1014,714,938,723,877"/>
+<area shape="rect" id="Node000023" href="$classMila_1_1Dnn_1_1Compute_1_1CudaEncoderOp.html#a44d70e7db9fcf61f4346846cc29eedb2" title="Performs the forward pass of the Encoder operation on CUDA." alt="" coords="403,1239,594,1279"/>
+<area shape="poly" id="edge25_Node000001_Node000023" title=" " alt="" coords="731,877,726,949,709,1044,693,1094,673,1143,646,1189,613,1229,596,1242,593,1238,609,1225,642,1186,668,1141,688,1092,703,1043,720,949,726,877"/>
+<area shape="rect" id="Node000024" href="$classMila_1_1Dnn_1_1Compute_1_1CudaLinearOp.html#a36a24e2ff9757128e863a03f77bd84d3" title="Performs the forward pass of the Fully Connected operation on CUDA." alt="" coords="409,1303,588,1343"/>
+<area shape="poly" id="edge26_Node000001_Node000024" title=" " alt="" coords="727,878,712,974,687,1098,654,1215,634,1261,613,1293,590,1310,587,1305,609,1289,629,1259,649,1214,682,1096,706,973,721,877"/>
+<area shape="rect" id="Node000025" href="$classMila_1_1Dnn_1_1Compute_1_1CudaSoftmaxOp.html#a9da0395c35d209ae6c86065ace27cf25" title="Performs the forward pass of the softmax operation on CUDA." alt="" coords="402,1367,595,1407"/>
+<area shape="poly" id="edge27_Node000001_Node000025" title=" " alt="" coords="728,878,715,986,691,1129,676,1201,658,1266,637,1320,613,1357,597,1369,594,1365,609,1354,632,1318,653,1265,671,1200,686,1128,710,985,723,877"/>
+<area shape="rect" id="Node000026" href="$classMila_1_1Dnn_1_1Compute_1_1CudaLayerNormOp.html#a8ad0968f1dd04cb9bc1df56e982671f7" title="Performs the forward pass of the Layer Normalization operation on CUDA." alt="" coords="393,1431,604,1471"/>
+<area shape="poly" id="edge28_Node000001_Node000026" title=" " alt="" coords="729,877,718,997,696,1160,680,1242,661,1317,639,1379,613,1421,598,1433,595,1429,609,1418,634,1376,656,1315,675,1241,691,1159,712,997,724,877"/>
+<area shape="rect" id="Node000027" href="$classMila_1_1Dnn_1_1Compute_1_1CudaMultiHeadAttentionOp.html#a20466bcbe53c452dd865e1eda6a134e9" title="Performs the forward pass of the Multi&#45;Head Attention operation on CUDA." alt="" coords="395,1496,603,1551"/>
+<area shape="poly" id="edge29_Node000001_Node000027" title=" " alt="" coords="729,878,719,1009,698,1190,683,1282,664,1367,641,1436,627,1464,613,1485,599,1498,595,1494,609,1482,623,1461,636,1434,659,1365,678,1281,693,1189,714,1009,724,877"/>
+<area shape="rect" id="Node000028" href="$classMila_1_1Dnn_1_1Compute_1_1CudaMatMulBiasGeluOp.html#a926ed629b4df51a98e104deae7465f3b" title="Performs the forward pass of the fused MatMul&#45;Bias&#45;GELU operation on CUDA." alt="" coords="405,1575,593,1629"/>
+<area shape="poly" id="edge30_Node000001_Node000028" title=" " alt="" coords="730,877,723,1024,703,1229,688,1334,668,1430,644,1510,629,1541,613,1565,594,1581,591,1577,609,1562,624,1538,639,1508,663,1429,683,1333,698,1228,717,1023,725,877"/>
+<area shape="rect" id="Node000029" href="$classMila_1_1Dnn_1_1Compute_1_1FusedSoftmaxCrossEntropyOp.html#a65dfbaed210926ac54833ecd5f743519" title="Performs the forward pass of the fused softmax cross entropy operation on CUDA." alt="" coords="395,1653,603,1708"/>
+<area shape="poly" id="edge31_Node000001_Node000029" title=" " alt="" coords="731,877,725,1037,708,1266,693,1384,673,1492,646,1581,631,1616,613,1644,601,1655,597,1651,609,1640,626,1614,641,1579,668,1491,688,1383,703,1266,720,1037,726,877"/>
+<area shape="rect" id="Node000010" href="$classMila_1_1Dnn_1_1Tensor.html#a99be5f26b955c33688f6634df27fd4bd" title=" " alt="" coords="196,619,339,659"/>
+<area shape="poly" id="edge9_Node000009_Node000010" title=" " alt="" coords="414,617,339,630,338,625,413,612"/>
+<area shape="poly" id="edge10_Node000010_Node000011" title=" " alt="" coords="182,631,148,627,148,622,183,626"/>
+<area shape="poly" id="edge11_Node000010_Node000012" title=" " alt="" coords="185,666,148,677,146,671,183,661"/>
+<area shape="poly" id="edge13_Node000013_Node000010" title=" " alt="" coords="413,658,339,650,339,644,414,653"/>
+<area shape="rect" id="Node000015" href="$classMila_1_1Dnn_1_1Tensor.html#a07e649d281fa689803a2aa2a004385de" title="Converts a half precision tensor to float." alt="" coords="196,823,339,863"/>
+<area shape="poly" id="edge15_Node000014_Node000015" title=" " alt="" coords="415,805,340,826,338,821,413,800"/>
+<area shape="rect" id="Node000016" href="$classMila_1_1Dnn_1_1Tensor.html#af20595b817b38dd65cd34b0c8a14c606" title="Converts a float tensor to half precision." alt="" coords="196,759,339,799"/>
+<area shape="poly" id="edge16_Node000014_Node000016" title=" " alt="" coords="413,782,339,782,339,777,413,777"/>
+</map>

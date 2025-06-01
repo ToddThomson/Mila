@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Component" name="Mila::Dnn::Component">
+<area shape="rect" id="Node000001" title="Abstract base class for all components in the Mila framework." alt="" coords="5,108,172,133"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1ComputePrecision.html" title="Controls automatic mixed precision behavior for neural network operations." alt="" coords="13,5,164,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="91,59,91,108,86,108,86,59"/>
+</map>

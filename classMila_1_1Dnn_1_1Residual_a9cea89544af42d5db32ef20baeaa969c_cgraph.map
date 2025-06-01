@@ -1,0 +1,9 @@
+<map id="Mila::Dnn::Residual::addTensors" name="Mila::Dnn::Residual::addTensors">
+<area shape="rect" id="Node000001" title="Adds two tensors element&#45;wise." alt="" coords="5,85,153,125"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#acf6c6e52c4c686b7547170bcd9857996" title="Create a binary operation based on the type information, device type, and operation name." alt="" coords="201,5,379,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="138,82,196,62,198,67,139,87"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Module.html#a1163624b16a6518b2ed573f51827759d" title="Get the device context for this module." alt="" coords="216,85,364,125"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="153,102,202,102,202,107,153,107"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a56e3658d8b09dd388ca379aefcdeb17f" title="Get the singleton instance of the OperationRegistry." alt="" coords="215,149,365,204"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="139,122,202,144,201,149,138,127"/>
+</map>

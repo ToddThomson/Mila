@@ -1,0 +1,13 @@
+<map id="Mila::Dnn::MLP::backward" name="Mila::Dnn::MLP::backward">
+<area shape="rect" id="Node000001" title="Performs the backward pass of the MLP block." alt="" coords="5,120,196,145"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Tensor.html#aa7d911be367de341882a9cf94d73284d" title="Gets a pointer to the tensor data with memory type safety." alt="" coords="244,5,415,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="118,118,172,80,243,41,264,32,266,37,245,46,175,85,121,122"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1MLPConfig.html#a49ea40719d77ecfb4b9ed24f2410e117" title=" " alt="" coords="249,55,409,95"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="152,117,235,96,237,101,153,123"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Tensor.html#af952a34808a4ad53bc9588854ddd8592" title=" " alt="" coords="245,120,413,145"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="197,130,232,130,232,135,197,135"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1MLPConfig.html#a4de84b44c4b2339cdb9f5c8dd8ff98e0" title=" " alt="" coords="249,170,409,210"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="153,143,237,164,235,169,152,148"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1MLPConfig.html#a32610553c95e47c476f79823a220eed6" title=" " alt="" coords="249,234,409,274"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="121,143,176,180,245,220,260,226,257,231,243,224,173,184,118,148"/>
+</map>

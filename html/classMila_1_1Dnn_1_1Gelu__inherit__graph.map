@@ -1,5 +1,0 @@
-<map id="Mila::Dnn::Gelu&lt; TInput, TPrecision &gt;" name="Mila::Dnn::Gelu&lt; TInput, TPrecision &gt;">
-<area shape="rect" id="Node000001" title="Gaussian Error Linear Unit (GELU) activation function module." alt="" coords="5,108,188,148"/>
-<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Module.html" title="Abstract base class for all modules in the Mila DNN framework." alt="" coords="21,5,172,60"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="99,74,99,108,94,108,94,74"/>
-</map>

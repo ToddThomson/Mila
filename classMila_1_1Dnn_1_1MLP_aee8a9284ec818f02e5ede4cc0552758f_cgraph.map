@@ -1,0 +1,37 @@
+<map id="Mila::Dnn::MLP::toString" name="Mila::Dnn::MLP::toString">
+<area shape="rect" id="Node000001" title="Generates a string representation of this module&#39;s configuration." alt="" coords="5,461,184,486"/>
+<area shape="rect" id="Node000002" href="$namespaceMila_1_1Dnn.html#a2ebe74a2625709fa8d7ee67c07ad6657" title="Converts an ActivationType enum value to its string representation." alt="" coords="244,5,431,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="94,460,98,390,117,282,134,221,158,161,189,105,230,55,235,51,238,55,234,59,194,108,162,164,139,223,122,283,104,390,99,460"/>
+<area shape="rect" id="Node000003" href="$namespaceMila_1_1Dnn_1_1Compute.html#abc57784bcbd77f21ea2524f0161e7e4f" title="Converts a DeviceType to its string representation." alt="" coords="262,69,413,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="94,460,103,400,124,308,142,258,165,207,194,161,230,119,248,107,251,111,234,123,198,164,169,210,147,260,129,310,108,400,100,461"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1MLPConfig.html#a28b3cedb9ec34809adc939dd935497e7" title=" " alt="" coords="257,133,417,173"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="96,460,108,408,132,334,150,294,172,253,199,216,230,183,244,174,247,178,234,187,203,219,177,256,155,296,137,336,113,410,101,461"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Module.html#a1163624b16a6518b2ed573f51827759d" title="Get the device context for this module." alt="" coords="263,197,411,237"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="98,460,113,419,140,361,179,300,203,272,230,247,250,235,252,240,234,251,207,276,183,303,145,364,118,421,103,461"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1Module.html#a94b3a479c6e9c49879ef2079d34df471" title="Get the device type of the current device context." alt="" coords="263,261,411,301"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="101,459,149,389,187,347,231,311,249,301,252,306,233,316,190,351,153,392,106,462"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1MLPConfig.html#a49ea40719d77ecfb4b9ed24f2410e117" title=" " alt="" coords="257,325,417,365"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="109,458,161,418,231,375,247,368,249,373,233,380,164,422,113,462"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1MLPConfig.html#a7ac716504d4007e0e2a6bb07359ad3d4" title=" " alt="" coords="257,389,417,429"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="143,458,247,430,248,436,145,463"/>
+<area shape="rect" id="Node000009" href="$classMila_1_1Dnn_1_1MLPConfig.html#a54cd91f72a6aa644acad5614408096f2" title=" " alt="" coords="257,453,417,493"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="184,471,244,471,244,476,184,476"/>
+<area shape="rect" id="Node000010" href="$classMila_1_1Dnn_1_1MLPConfig.html#a71975feb03a0786a7fafec59c8674a43" title=" " alt="" coords="257,517,417,557"/>
+<area shape="poly" id="edge9_Node000001_Node000010" title=" " alt="" coords="145,484,248,511,247,516,143,489"/>
+<area shape="rect" id="Node000011" href="$classMila_1_1Dnn_1_1Module.html#a2c8e8735eaf75d6bad6d454f7d23b2ca" title="Get the name of the module." alt="" coords="263,581,411,621"/>
+<area shape="poly" id="edge10_Node000001_Node000011" title=" " alt="" coords="113,484,164,524,233,567,251,575,249,580,231,572,161,529,109,488"/>
+<area shape="rect" id="Node000013" href="$classMila_1_1Dnn_1_1CompositeModule.html#a9c8e2daaa76655d6ca33f04605f6be47" title="Get all named sub&#45;modules contained in this module." alt="" coords="232,645,443,685"/>
+<area shape="poly" id="edge12_Node000001_Node000013" title=" " alt="" coords="106,485,153,554,190,596,234,631,244,637,241,642,230,636,187,599,149,558,101,488"/>
+<area shape="rect" id="Node000014" href="$classMila_1_1Dnn_1_1MLPConfig.html#a02eb99ad754f18f7aff1b215edd91f5d" title=" " alt="" coords="257,709,417,749"/>
+<area shape="poly" id="edge13_Node000001_Node000014" title=" " alt="" coords="103,485,118,526,145,583,183,643,207,671,234,695,246,704,243,708,230,699,203,675,179,646,140,585,113,528,98,487"/>
+<area shape="rect" id="Node000015" href="$classMila_1_1Dnn_1_1MLP.html#aa0f61b9b9653238a61d9e4d9b111c5cb" title="Gets the number of trainable parameters in this module." alt="" coords="240,773,435,813"/>
+<area shape="poly" id="edge14_Node000001_Node000015" title=" " alt="" coords="101,486,113,537,137,611,155,651,177,690,203,727,234,759,239,764,236,768,230,763,199,731,172,693,150,653,132,613,108,538,96,487"/>
+<area shape="rect" id="Node000017" href="$classMila_1_1Dnn_1_1MLPConfig.html#a4de84b44c4b2339cdb9f5c8dd8ff98e0" title=" " alt="" coords="257,837,417,877"/>
+<area shape="poly" id="edge16_Node000001_Node000017" title=" " alt="" coords="100,486,108,546,129,637,147,687,169,737,198,783,234,823,246,833,243,837,230,827,194,786,165,739,142,689,124,639,103,547,94,486"/>
+<area shape="rect" id="Node000018" href="$classMila_1_1Dnn_1_1MLPConfig.html#a32610553c95e47c476f79823a220eed6" title=" " alt="" coords="257,901,417,941"/>
+<area shape="poly" id="edge17_Node000001_Node000018" title=" " alt="" coords="99,486,104,556,122,664,139,724,162,783,194,839,234,887,247,897,243,902,230,891,189,842,158,785,134,725,117,665,98,557,94,487"/>
+<area shape="rect" id="Node000012" href="$classMila_1_1Dnn_1_1ComponentConfig.html#a35f7308c0a3de2579d0df7cdbb7ec268" title="Gets the configured component name." alt="" coords="492,581,700,621"/>
+<area shape="poly" id="edge11_Node000011_Node000012" title=" " alt="" coords="411,599,478,599,478,604,411,604"/>
+<area shape="rect" id="Node000016" href="$classMila_1_1Dnn_1_1CompositeModule.html#a4cdecafe95fca540d7eb08b6aee40702" title="Get all sub&#45;modules contained in this module." alt="" coords="491,773,701,813"/>
+<area shape="poly" id="edge15_Node000015_Node000016" title=" " alt="" coords="435,791,477,791,477,796,435,796"/>
+</map>

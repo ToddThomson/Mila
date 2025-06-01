@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::Compute::CpuCrossEntropyOp::forward" name="Mila::Dnn::Compute::CpuCrossEntropyOp::forward">
+<area shape="rect" id="Node000001" title="Performs the forward pass of the cross entropy operation." alt="" coords="5,30,164,85"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Tensor.html#a4f707ea4c0f00aab58189071fa1c11fd" title="Gets a raw pointer to the tensor data for use in CUDA kernels." alt="" coords="212,5,355,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="164,42,198,36,199,42,164,47"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Tensor.html#a294130f763b905cf0125c9bd4fba4970" title=" " alt="" coords="212,69,355,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="164,67,199,73,198,78,164,73"/>
+</map>

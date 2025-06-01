@@ -1,0 +1,61 @@
+<map id="Graphical Class Hierarchy" name="Graphical Class Hierarchy">
+<area shape="rect" id="Node000000" href="$classMila_1_1Dnn_1_1Compute_1_1OperationBase.html" title="Base class for all compute operations in the Mila neural network framework." alt="" coords="5,439,233,493"/>
+<area shape="rect" id="Node000001" href="$classMila_1_1Dnn_1_1Compute_1_1BinaryOperation.html" title=" " alt="" coords="297,5,523,60"/>
+<area shape="poly" id="edge22_Node000000_Node000001" title=" " alt="" coords="123,425,137,349,166,254,186,204,212,155,243,109,280,69,295,58,298,62,283,73,247,113,216,158,191,206,171,256,143,351,128,426"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1BinaryOperation.html" title=" " alt="" coords="297,84,523,139"/>
+<area shape="poly" id="edge24_Node000000_Node000003" title=" " alt="" coords="128,425,147,363,177,289,221,213,248,178,280,148,296,137,299,141,283,152,252,182,225,216,182,291,152,365,133,426"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Compute_1_1BinaryOperation.html" title=" " alt="" coords="281,163,539,217"/>
+<area shape="poly" id="edge25_Node000000_Node000004" title=" " alt="" coords="135,425,158,379,190,325,231,272,280,227,298,215,301,220,283,231,235,276,194,328,163,381,140,427"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1Compute_1_1UnaryOperation.html" title=" " alt="" coords="299,241,521,296"/>
+<area shape="poly" id="edge27_Node000000_Node000006" title=" " alt="" coords="148,426,205,364,241,332,280,305,302,294,305,298,283,310,244,337,209,368,152,430"/>
+<area shape="rect" id="Node000009" href="$classMila_1_1Dnn_1_1Compute_1_1UnaryOperation.html" title=" " alt="" coords="299,320,521,375"/>
+<area shape="poly" id="edge30_Node000000_Node000009" title=" " alt="" coords="181,430,280,384,311,372,313,377,282,388,184,435"/>
+<area shape="rect" id="Node000011" href="$classMila_1_1Dnn_1_1Compute_1_1UnaryOperation.html" title=" " alt="" coords="299,399,521,453"/>
+<area shape="poly" id="edge32_Node000000_Node000011" title=" " alt="" coords="247,446,298,439,299,444,248,451"/>
+<area shape="rect" id="Node000016" href="$classMila_1_1Dnn_1_1Compute_1_1UnaryOperation.html" title=" " alt="" coords="299,477,521,532"/>
+<area shape="poly" id="edge37_Node000000_Node000016" title=" " alt="" coords="248,480,299,487,298,492,247,486"/>
+<area shape="rect" id="Node000017" href="$classMila_1_1Dnn_1_1Compute_1_1UnaryOperation.html" title=" " alt="" coords="294,556,526,611"/>
+<area shape="poly" id="edge38_Node000000_Node000017" title=" " alt="" coords="186,497,282,541,317,553,315,558,280,546,184,502"/>
+<area shape="rect" id="Node000019" href="$classMila_1_1Dnn_1_1Compute_1_1UnaryOperation.html" title=" " alt="" coords="299,635,521,689"/>
+<area shape="poly" id="edge40_Node000000_Node000019" title=" " alt="" coords="153,502,209,563,245,593,283,620,307,632,305,637,280,624,241,597,206,566,149,506"/>
+<area shape="rect" id="Node000020" href="$classMila_1_1Dnn_1_1Compute_1_1UnaryOperation.html" title=" " alt="" coords="299,713,521,768"/>
+<area shape="poly" id="edge41_Node000000_Node000020" title=" " alt="" coords="140,505,163,550,195,602,235,654,283,699,303,711,300,715,280,703,231,658,190,605,158,553,135,507"/>
+<area shape="rect" id="Node000021" href="$classMila_1_1Dnn_1_1Compute_1_1BinaryOperation.html" title="Abstract class for binary operations in the neural network framework." alt="" coords="308,793,512,862"/>
+<area shape="poly" id="edge42_Node000000_Node000021" title=" " alt="" coords="134,506,153,566,184,638,227,713,253,747,283,777,309,795,306,800,280,781,249,750,223,716,179,641,148,567,129,508"/>
+<area shape="rect" id="Node000023" href="$classMila_1_1Dnn_1_1Compute_1_1UnaryOperation.html" title="Abstract base class for unary operations in the compute framework." alt="" coords="293,984,527,1039"/>
+<area shape="poly" id="edge44_Node000000_Node000023" title=" " alt="" coords="134,506,155,578,187,671,230,774,284,873,331,933,379,982,375,986,327,937,279,875,226,776,182,673,150,579,129,507"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1CpuResidualOp.html" title="CPU implementation of the residual operation for neural networks." alt="" coords="618,13,769,53"/>
+<area shape="poly" id="edge23_Node000001_Node000002" title=" " alt="" coords="537,30,618,30,618,35,537,35"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Compute_1_1FusedSoftmaxCrossEntropyOp.html" title="CUDA implementation of the fused softmax and cross entropy operation for neural networks." alt="" coords="589,105,797,160"/>
+<area shape="poly" id="edge26_Node000004_Node000005" title=" " alt="" coords="552,159,589,151,590,156,553,164"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1Compute_1_1CpuCrossEntropyOp.html" title="CPU implementation of the cross entropy loss operation for neural networks." alt="" coords="614,185,773,225"/>
+<area shape="poly" id="edge28_Node000006_Node000007" title=" " alt="" coords="534,238,613,220,614,225,535,243"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1Compute_1_1CpuEncoderOp.html" title="CPU implementation of the encoder operation for neural networks." alt="" coords="618,249,769,289"/>
+<area shape="poly" id="edge29_Node000006_Node000008" title=" " alt="" coords="535,266,618,266,618,271,535,271"/>
+<area shape="rect" id="Node000010" href="$classMila_1_1Dnn_1_1Compute_1_1CpuGeluOp.html" title=" " alt="" coords="618,313,769,353"/>
+<area shape="poly" id="edge31_Node000009_Node000010" title=" " alt="" coords="535,338,618,334,618,339,535,344"/>
+<area shape="rect" id="Node000012" href="$classMila_1_1Dnn_1_1Compute_1_1CpuLayerNormOp.html" title="CPU implementation of the Layer Normalization operation for neural networks." alt="" coords="618,377,769,417"/>
+<area shape="poly" id="edge33_Node000011_Node000012" title=" " alt="" coords="535,410,617,402,618,407,535,416"/>
+<area shape="rect" id="Node000013" href="$classMila_1_1Dnn_1_1Compute_1_1CpuLinearOp.html" title="CPU implementation of the Fully Connected operation for neural networks." alt="" coords="618,441,769,481"/>
+<area shape="poly" id="edge34_Node000011_Node000013" title=" " alt="" coords="535,439,618,449,617,454,534,444"/>
+<area shape="rect" id="Node000014" href="$classMila_1_1Dnn_1_1Compute_1_1CpuMultiHeadAttentionOp.html" title="CPU implementation of the Multi&#45;Head Attention operation for neural networks." alt="" coords="593,505,793,545"/>
+<area shape="poly" id="edge35_Node000011_Node000014" title=" " alt="" coords="524,456,540,462,564,476,588,490,619,502,617,507,586,495,561,481,537,467,522,461"/>
+<area shape="rect" id="Node000015" href="$classMila_1_1Dnn_1_1Compute_1_1CpuSoftmaxOp.html" title="CPU implementation of the softmax operation for neural networks." alt="" coords="618,569,769,609"/>
+<area shape="poly" id="edge36_Node000011_Node000015" title=" " alt="" coords="535,458,541,463,559,486,565,510,572,533,588,555,619,572,617,577,585,559,567,535,560,511,554,489,537,467,531,462"/>
+<area shape="rect" id="Node000018" href="$classMila_1_1Dnn_1_1Compute_1_1CudaGeluOp.html" title="CUDA implementation of the GELU activation function for neural networks." alt="" coords="588,633,799,673"/>
+<area shape="poly" id="edge39_Node000017_Node000018" title=" " alt="" coords="536,611,612,630,610,635,535,617"/>
+<area shape="rect" id="Node000022" href="$classMila_1_1Dnn_1_1Compute_1_1CudaResidualOp.html" title="CUDA implementation of the residual operation for neural networks." alt="" coords="595,748,792,803"/>
+<area shape="poly" id="edge43_Node000021_Node000022" title=" " alt="" coords="525,804,594,791,595,796,526,809"/>
+<area shape="rect" id="Node000024" href="$classMila_1_1Dnn_1_1Compute_1_1CudaEncoderOp.html" title="CUDA implementation of the Encoder operation for transformer models." alt="" coords="597,827,790,881"/>
+<area shape="poly" id="edge45_Node000023_Node000024" title=" " alt="" coords="456,973,516,931,585,890,610,879,612,884,588,895,519,936,459,978"/>
+<area shape="rect" id="Node000025" href="$classMila_1_1Dnn_1_1Compute_1_1CudaLayerNormOp.html" title="CUDA implementation of the Layer Normalization operation for neural networks." alt="" coords="587,905,800,960"/>
+<area shape="poly" id="edge46_Node000023_Node000025" title=" " alt="" coords="521,978,593,958,595,963,523,983"/>
+<area shape="rect" id="Node000026" href="$classMila_1_1Dnn_1_1Compute_1_1CudaLinearOp.html" title="CUDA implementation of the Fully Connected operation for neural networks." alt="" coords="603,984,784,1039"/>
+<area shape="poly" id="edge47_Node000023_Node000026" title=" " alt="" coords="541,1009,602,1009,602,1014,541,1014"/>
+<area shape="rect" id="Node000027" href="$classMila_1_1Dnn_1_1Compute_1_1CudaMatMulBiasGeluOp.html" title="CUDA implementation of the fused MatMul&#45;Bias&#45;GELU operation." alt="" coords="599,1063,787,1117"/>
+<area shape="poly" id="edge48_Node000023_Node000027" title=" " alt="" coords="523,1040,600,1061,599,1067,521,1045"/>
+<area shape="rect" id="Node000028" href="$classMila_1_1Dnn_1_1Compute_1_1CudaMultiHeadAttentionOp.html" title="CUDA implementation of the Multi&#45;Head Attention operation for transformer models." alt="" coords="589,1141,797,1196"/>
+<area shape="poly" id="edge49_Node000023_Node000028" title=" " alt="" coords="460,1045,520,1086,588,1126,615,1139,612,1144,585,1131,517,1091,457,1049"/>
+<area shape="rect" id="Node000029" href="$classMila_1_1Dnn_1_1Compute_1_1CudaSoftmaxOp.html" title="CUDA implementation of the softmax operation for neural networks." alt="" coords="596,1220,791,1275"/>
+<area shape="poly" id="edge50_Node000023_Node000029" title=" " alt="" coords="439,1048,501,1128,543,1170,588,1206,607,1217,604,1222,585,1211,539,1174,497,1131,435,1052"/>
+</map>

@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::Compute::CudaResidualOpRegistrar::registerOperations" name="Mila::Dnn::Compute::CudaResidualOpRegistrar::registerOperations">
+<area shape="rect" id="Node000001" title="Registers the CudaResidualOp operation with the OperationRegistry." alt="" coords="5,45,201,100"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a56e3658d8b09dd388ca379aefcdeb17f" title="Get the singleton instance of the OperationRegistry." alt="" coords="267,5,418,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="201,54,253,45,254,50,202,59"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#ad057a9748abb405fe69a58bbd7581b6b" title="Register a binary operation creator for a specific device type." alt="" coords="249,84,436,139"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="202,86,236,91,235,97,201,91"/>
+</map>

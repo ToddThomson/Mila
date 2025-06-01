@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::activationTypeToString" name="Mila::Dnn::activationTypeToString">
+<area shape="rect" id="Node000001" title="Converts an ActivationType enum value to its string representation." alt="" coords="232,5,419,45"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1MLP.html#aee8a9284ec818f02e5ede4cc0552758f" title="Generates a string representation of this module&#39;s configuration." alt="" coords="5,13,184,38"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="219,28,184,28,184,23,219,23"/>
+</map>

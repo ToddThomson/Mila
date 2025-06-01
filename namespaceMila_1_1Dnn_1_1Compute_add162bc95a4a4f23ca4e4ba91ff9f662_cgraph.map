@@ -1,0 +1,11 @@
+<map id="Mila::Dnn::Compute::cublaslt_matmul_forward" name="Mila::Dnn::Compute::cublaslt_matmul_forward">
+<area shape="rect" id="Node000001" title="cuBLASLt implementation of matrix multiplication with bias addition" alt="" coords="5,37,201,77"/>
+<area shape="rect" id="Node000002" href="$namespaceMila_1_1Dnn_1_1Compute.html#afbbce0b872aa390e8b90d8d913bc1559" title="Checks the status of a cuBLASLt operation and throws if an error occurred." alt="" coords="249,5,415,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="201,41,235,36,236,41,202,46"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Utils_1_1Logger.html#adb3c53cb169b92a9840b2d1d5f1c729a" title=" " alt="" coords="262,69,402,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="202,68,249,75,248,80,201,74"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Utils_1_1Logger.html#a0544e33077d84fa174dd2110ef333a65" title=" " alt="" coords="463,37,603,77"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="402,76,448,68,449,73,402,81"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Utils_1_1Logger.html#a0342cf64754338574ccf7c28f6482d98" title=" " alt="" coords="463,101,603,141"/>
+<area shape="poly" id="edge4_Node000003_Node000005" title=" " alt="" coords="402,98,449,105,448,111,402,103"/>
+</map>

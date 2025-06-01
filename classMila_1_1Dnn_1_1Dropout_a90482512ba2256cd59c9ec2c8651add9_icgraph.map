@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::Dropout::createOperation" name="Mila::Dnn::Dropout::createOperation">
+<area shape="rect" id="Node000001" title="Creates the appropriate Dropout operation based on the current device context." alt="" coords="197,37,341,77"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Dropout.html#a1a5f39ab42459dbcac239112a0206b44" title="Constructs a new Dropout module with a device name." alt="" coords="5,5,149,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="183,46,149,40,150,35,184,40"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Dropout.html#a704e5622fd5fa1a9d9a14a1f705debe2" title="Constructs a new Dropout module with a provided device context." alt="" coords="5,69,149,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="184,74,150,80,149,75,183,69"/>
+</map>

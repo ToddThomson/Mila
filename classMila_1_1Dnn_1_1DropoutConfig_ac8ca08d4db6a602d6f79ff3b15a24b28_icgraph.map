@@ -1,0 +1,9 @@
+<map id="Mila::Dnn::DropoutConfig::usesSameMaskPerBatch" name="Mila::Dnn::DropoutConfig::usesSameMaskPerBatch">
+<area shape="rect" id="Node000001" title="Check if the same mask is used for all elements in a batch." alt="" coords="389,37,580,77"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Dropout.html#a43a2318b9bfb6c75ddea91dd65fd8a01" title="Generates a new dropout mask for the given shape." alt="" coords="197,5,341,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="375,44,342,39,342,33,376,38"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Dropout.html#af55518e3523b5f13530ae33fefec28cc" title="Generates a string representation of this module&#39;s configuration." alt="" coords="197,69,341,109"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="376,76,342,81,342,76,375,71"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Dropout.html#af20d6b920d3f993492d89fc28acfc46a" title="Performs the forward pass of the Dropout operation." alt="" coords="5,5,149,45"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="183,28,149,28,149,23,183,23"/>
+</map>

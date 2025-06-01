@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::Linear::initializeParameterGradients" name="Mila::Dnn::Linear::initializeParameterGradients">
+<area shape="rect" id="Node000001" title="Initializes gradient tensors for parameters." alt="" coords="193,37,401,77"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Linear.html#a7d2592ef7cffc2fcbca2a0391d2d6c24" title="Constructs a new Linear module with a device name." alt="" coords="5,5,145,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="179,43,145,38,146,33,180,38"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Linear.html#a160506d377a764b33f1f33be9502b93a" title="Constructs a new Linear module with a provided device context." alt="" coords="5,69,145,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="180,77,146,82,145,77,179,72"/>
+</map>

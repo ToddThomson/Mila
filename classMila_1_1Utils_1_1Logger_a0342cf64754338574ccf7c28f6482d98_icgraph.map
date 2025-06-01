@@ -1,0 +1,9 @@
+<map id="Mila::Utils::Logger::log_warning" name="Mila::Utils::Logger::log_warning">
+<area shape="rect" id="Node000001" title=" " alt="" coords="437,37,577,77"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Utils_1_1Logger.html#adb3c53cb169b92a9840b2d1d5f1c729a" title=" " alt="" coords="249,37,389,77"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="423,60,390,60,390,55,423,55"/>
+<area shape="rect" id="Node000003" href="$namespaceMila_1_1Dnn_1_1Compute.html#add162bc95a4a4f23ca4e4ba91ff9f662" title="cuBLASLt implementation of matrix multiplication with bias addition" alt="" coords="5,5,201,45"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="235,48,201,43,202,37,236,42"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Compute_1_1CudaLinearOp.html#a36a24e2ff9757128e863a03f77bd84d3" title="Performs the forward pass of the Fully Connected operation on CUDA." alt="" coords="14,69,193,109"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="236,72,193,79,192,73,236,67"/>
+</map>

@@ -1,0 +1,9 @@
+<map id="Mila::Dnn::MultiHeadAttention::createOperation" name="Mila::Dnn::MultiHeadAttention::createOperation">
+<area shape="rect" id="Node000001" title="Creates the appropriate attention operation for the current device." alt="" coords="5,85,224,125"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a8bcbbd6e474b44727458887b4685f43e" title="Create a unary operation based on the type information, device type, and operation name." alt="" coords="272,5,447,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="183,82,258,60,260,65,184,87"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Module.html#a1163624b16a6518b2ed573f51827759d" title="Get the device context for this module." alt="" coords="285,85,433,125"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="224,102,271,102,271,107,224,107"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a56e3658d8b09dd388ca379aefcdeb17f" title="Get the singleton instance of the OperationRegistry." alt="" coords="284,149,435,204"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="184,122,271,148,270,153,183,127"/>
+</map>

@@ -1,0 +1,29 @@
+<map id="Mila::Dnn::Module::getDeviceType" name="Mila::Dnn::Module::getDeviceType">
+<area shape="rect" id="Node000001" title="Get the device type of the current device context." alt="" coords="272,347,420,387"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Model.html#a81b4080be583521185ac736a9f6db23f" title="Start capturing operations for a CUDA graph." alt="" coords="20,5,209,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="339,333,328,274,308,200,292,162,273,125,250,90,222,59,206,48,209,43,226,55,254,86,278,122,297,160,313,199,333,273,344,332"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Model.html#ab1d7e81eeb43446ce683e4990cbcf34c" title="Prints the model&#39;s structure and total number of parameters." alt="" coords="29,70,200,95"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="336,334,324,283,302,222,269,160,247,133,222,109,199,96,202,91,226,105,251,129,273,157,307,220,329,282,342,332"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Gelu.html#a0fb000c57a6bbdfc2121b060269e2a29" title="Generates a string representation of this module&#39;s configuration." alt="" coords="24,119,205,145"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="333,334,317,293,294,245,263,198,222,158,202,147,205,142,226,154,267,194,299,242,322,291,338,332"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1MLP.html#aee8a9284ec818f02e5ede4cc0552758f" title="Generates a string representation of this module&#39;s configuration." alt="" coords="25,169,204,194"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="327,336,286,270,257,237,223,209,197,197,199,192,225,204,260,233,290,267,331,333"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1TransformerBlock.html#add82601fef958270857c9bfcdc7bc238" title="Generates a string representation of this module&#39;s configuration." alt="" coords="11,219,218,259"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="313,339,272,305,223,273,195,261,197,256,225,268,275,301,316,335"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1CompositeModule.html#a6d0e6e057478620c6a6f243cc31efbb9" title="Default toString implementation for container modules." alt="" coords="9,283,220,323"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="259,346,187,325,188,320,261,340"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1Linear.html#a0c546375aeed14578ca460df4569b394" title="Converts the module information to a human&#45;readable string." alt="" coords="45,347,185,387"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="258,369,185,369,185,364,258,364"/>
+<area shape="rect" id="Node000009" href="$classMila_1_1Dnn_1_1MultiHeadAttention.html#a91762121adfdf91a746f16619b26fb98" title="Generates a string representation of this module&#39;s configuration." alt="" coords="5,411,224,451"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="261,393,188,413,187,408,259,388"/>
+<area shape="rect" id="Node000010" href="$classMila_1_1Dnn_1_1Residual.html#a8b3c6febf9f356726599e1266eb92b03" title="Converts the module information to a human&#45;readable string." alt="" coords="41,475,189,515"/>
+<area shape="poly" id="edge9_Node000001_Node000010" title=" " alt="" coords="316,398,275,433,225,465,190,480,188,475,223,460,272,428,313,394"/>
+<area shape="rect" id="Node000011" href="$classMila_1_1Dnn_1_1Softmax.html#a3fb73fc80d74a0c68e4384249e0d1c07" title="Generates a string representation of this module&#39;s configuration." alt="" coords="41,539,188,579"/>
+<area shape="poly" id="edge10_Node000001_Node000011" title=" " alt="" coords="331,400,289,466,260,500,225,529,189,547,187,542,223,524,256,496,285,462,326,398"/>
+<area shape="rect" id="Node000012" href="$classMila_1_1Dnn_1_1CrossEntropy.html#a69dae26995d248d7a22b761f7c809c82" title="Generates a string representation of this module&#39;s configuration." alt="" coords="25,603,204,643"/>
+<area shape="poly" id="edge11_Node000001_Node000012" title=" " alt="" coords="338,401,323,444,300,496,268,548,248,572,226,593,206,605,203,601,222,589,244,568,263,545,295,494,318,442,333,399"/>
+<area shape="rect" id="Node000013" href="$classMila_1_1Dnn_1_1LayerNorm.html#ae921e4baf1dc5898e061fca3a48284e0" title="Generates a string representation of this module&#39;s configuration." alt="" coords="33,667,197,707"/>
+<area shape="poly" id="edge12_Node000001_Node000013" title=" " alt="" coords="343,401,331,456,310,525,275,596,253,628,226,657,198,674,196,669,222,653,249,625,271,593,305,523,326,455,337,400"/>
+<area shape="rect" id="Node000014" href="$classMila_1_1Dnn_1_1Dropout.html#af55518e3523b5f13530ae33fefec28cc" title="Generates a string representation of this module&#39;s configuration." alt="" coords="43,731,187,771"/>
+<area shape="poly" id="edge13_Node000001_Node000014" title=" " alt="" coords="346,400,338,467,319,553,303,598,283,643,257,684,226,721,208,734,188,743,186,738,205,729,222,717,253,681,278,640,298,597,313,552,333,466,340,400"/>
+</map>

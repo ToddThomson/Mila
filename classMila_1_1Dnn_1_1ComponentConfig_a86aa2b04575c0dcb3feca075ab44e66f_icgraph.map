@@ -1,0 +1,11 @@
+<map id="Mila::Dnn::ComponentConfig::getPrecision" name="Mila::Dnn::ComponentConfig::getPrecision">
+<area shape="rect" id="Node000001" title="Gets the configured precision policy." alt="" coords="261,101,469,141"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1CudaResidualOp.html#a11a441c2cf618193df424a6c331e626e" title="Performs the backward pass of the residual operation." alt="" coords="5,5,213,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="306,98,212,60,178,48,179,43,214,55,308,93"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1CudaGeluOp.html#ac1a598dc04b3e0e48cf8ae59ffb30ea4" title="Performs the forward pass of the GELU activation function on CUDA." alt="" coords="25,69,194,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="247,109,194,103,194,97,248,104"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Compute_1_1CudaResidualOp.html#a78097b5b3f08a4c23bf679b07af7394f" title="Performs the forward pass of the residual operation on CUDA." alt="" coords="12,133,207,173"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="248,139,207,144,207,139,247,133"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Module.html#a2e2d974ab30511a0bafd4477bc9117f3" title=" " alt="" coords="35,197,183,237"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="308,149,214,188,179,200,178,195,212,183,306,145"/>
+</map>

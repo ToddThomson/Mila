@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::Model::getDevice" name="Mila::Dnn::Model::getDevice">
+<area shape="rect" id="Node000001" title="Gets the compute device for this model." alt="" coords="243,42,449,67"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Model.html#a81b4080be583521185ac736a9f6db23f" title="Start capturing operations for a CUDA graph." alt="" coords="5,5,195,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="229,43,194,39,195,34,229,38"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Model.html#ab1d7e81eeb43446ce683e4990cbcf34c" title="Prints the model&#39;s structure and total number of parameters." alt="" coords="15,70,185,95"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="229,71,186,76,185,70,229,65"/>
+</map>

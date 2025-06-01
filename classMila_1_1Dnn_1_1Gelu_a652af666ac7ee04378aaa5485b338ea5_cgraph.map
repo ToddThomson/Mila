@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Gelu::getApproximationMethod" name="Mila::Dnn::Gelu::getApproximationMethod">
+<area shape="rect" id="Node000001" title="Returns the current approximation method used by this GELU instance." alt="" coords="5,5,252,45"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1GeluConfig.html#ab1eefcfc67bf12e9c1c05cf916b304f9" title="Get the configured approximation method." alt="" coords="300,5,496,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="252,23,286,23,286,28,252,28"/>
+</map>

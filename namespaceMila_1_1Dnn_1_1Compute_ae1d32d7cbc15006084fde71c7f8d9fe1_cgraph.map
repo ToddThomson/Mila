@@ -1,0 +1,15 @@
+<map id="Mila::Dnn::Compute::getBestDevice" name="Mila::Dnn::Compute::getBestDevice">
+<area shape="rect" id="Node000001" title="Gets the best device of a specific type based on performance characteristics." alt="" coords="5,69,156,109"/>
+<area shape="rect" id="Node000002" href="$namespaceMila_1_1Dnn_1_1Compute.html#abc57784bcbd77f21ea2524f0161e7e4f" title="Converts a DeviceType to its string representation." alt="" coords="204,5,355,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="143,67,203,47,205,52,144,72"/>
+<area shape="rect" id="Node000003" href="$namespaceMila_1_1Dnn_1_1Compute.html#a9b44f2af3eb466afccacc8dedc589421" title="Identifies the best CUDA device based on performance characteristics." alt="" coords="204,69,355,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="156,87,190,87,190,92,156,92"/>
+<area shape="rect" id="Node000006" href="$namespaceMila_1_1Dnn_1_1Compute.html#a259f89c596b838487dc1d70e93c84a28" title="Lists all available compute devices." alt="" coords="204,133,355,173"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="144,107,205,127,203,132,143,112"/>
+<area shape="rect" id="Node000004" href="$namespaceMila_1_1Dnn_1_1Compute.html#a8b2b00e63f2d2af850acece5227c63cd" title="Gets the number of available CUDA devices." alt="" coords="423,69,573,109"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="355,87,409,87,409,92,355,92"/>
+<area shape="rect" id="Node000005" href="$namespaceMila_1_1Dnn_1_1Compute.html#af02152a475c650f6a64e0f2c67c1aaf5" title="Checks the status of a CUDA operation and throws if an error occurred." alt="" coords="641,69,792,109"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="574,87,628,87,628,92,574,92"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceRegistry.html#a7fad4212ab870e74917da2abcaf77938" title="Gets the singleton instance of the DeviceRegistry." alt="" coords="403,133,593,173"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="355,151,389,151,389,156,355,156"/>
+</map>

@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Gpt2::DatasetReader::read_from_disk" name="Mila::Dnn::Gpt2::DatasetReader::read_from_disk">
+<area shape="rect" id="Node000001" title="Background thread function that reads data from the dataset file." alt="" coords="236,5,419,45"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Gpt2_1_1DatasetReader.html#a256821ce37e5c702ab32d488781ff2d1" title="Constructs a new DatasetReader object." alt="" coords="5,5,188,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="223,28,188,28,188,23,223,23"/>
+</map>

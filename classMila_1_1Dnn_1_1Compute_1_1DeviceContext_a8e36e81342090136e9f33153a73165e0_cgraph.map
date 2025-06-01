@@ -1,0 +1,19 @@
+<map id="Mila::Dnn::Compute::DeviceContext::setDevice" name="Mila::Dnn::Compute::DeviceContext::setDevice">
+<area shape="rect" id="Node000001" title="Sets the current device by name." alt="" coords="5,113,204,153"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceRegistry.html#a764172511f24e7ace760b39f32e316af" title="Creates a device instance by name." alt="" coords="252,5,475,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="139,111,191,83,251,55,272,47,274,52,253,60,193,87,141,116"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#a439bcf09aae78c73d84fd6bc5b3d4469" title="Initializes resources specific to the current device." alt="" coords="268,70,459,125"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="204,117,254,110,255,115,205,122"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceRegistry.html#a7fad4212ab870e74917da2abcaf77938" title="Gets the singleton instance of the DeviceRegistry." alt="" coords="268,149,459,189"/>
+<area shape="poly" id="edge7_Node000001_Node000007" title=" " alt="" coords="205,145,255,152,254,157,204,150"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#a3da2632ad08d0ef326d3a51ed3c46284" title="Releases all device&#45;specific resources." alt="" coords="523,203,772,243"/>
+<area shape="poly" id="edge8_Node000001_Node000008" title=" " alt="" coords="141,151,192,177,253,199,317,212,383,220,509,225,509,231,383,225,316,217,251,204,190,182,138,156"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#aa0be82bb15781cc2d3239b7cea4da717" title="Checks if the current device is a CUDA device." alt="" coords="820,135,1043,175"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="459,97,607,104,772,120,829,129,828,135,772,125,606,110,459,102"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#ab51af05586b93f8a9867b4e0e0b5209d" title="Gets the cuDNN handle, initializing it if necessary." alt="" coords="538,135,757,175"/>
+<area shape="poly" id="edge5_Node000003_Node000006" title=" " alt="" coords="459,114,535,129,534,135,458,119"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#a4105deade514dfadccff3d9b21a6c4ed" title="Checks if the current device is of a specific type." alt="" coords="1091,135,1311,175"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="1043,152,1077,152,1077,157,1043,157"/>
+<area shape="poly" id="edge6_Node000006_Node000004" title=" " alt="" coords="757,152,806,152,806,157,757,157"/>
+<area shape="poly" id="edge9_Node000008_Node000004" title=" " alt="" coords="731,200,834,175,835,180,732,205"/>
+</map>

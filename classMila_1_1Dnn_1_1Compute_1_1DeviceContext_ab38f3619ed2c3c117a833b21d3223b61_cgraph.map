@@ -1,0 +1,9 @@
+<map id="Mila::Dnn::Compute::DeviceContext::~DeviceContext" name="Mila::Dnn::Compute::DeviceContext::~DeviceContext">
+<area shape="rect" id="Node000001" title="Destructor." alt="" coords="5,5,247,45"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#a3da2632ad08d0ef326d3a51ed3c46284" title="Releases all device&#45;specific resources." alt="" coords="295,5,544,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="247,23,281,23,281,28,247,28"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#aa0be82bb15781cc2d3239b7cea4da717" title="Checks if the current device is a CUDA device." alt="" coords="592,5,815,45"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="544,23,579,23,579,28,544,28"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#a4105deade514dfadccff3d9b21a6c4ed" title="Checks if the current device is of a specific type." alt="" coords="863,5,1083,45"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="815,23,849,23,849,28,815,28"/>
+</map>

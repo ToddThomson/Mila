@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Compute::cuda_layernorm_forward_fp16" name="Mila::Dnn::Compute::cuda_layernorm_forward_fp16">
+<area shape="rect" id="Node000001" title=" " alt="" coords="236,13,464,53"/>
+<area shape="rect" id="Node000002" href="$structMila_1_1Dnn_1_1Compute_1_1Detail_1_1cuda__layernorm__impl_3_01half_01_4.html#a60c04df72aa23b106ead1b552af59cf3" title=" " alt="" coords="5,5,188,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="222,35,188,35,188,30,222,30"/>
+</map>

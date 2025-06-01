@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::TensorBuffer::calculateAlignedSize" name="Mila::Dnn::TensorBuffer::calculateAlignedSize">
+<area shape="rect" id="Node000001" title="Calculates the aligned size in bytes for a given number of elements." alt="" coords="227,5,400,45"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1TensorBuffer.html#a7d6a1db3f2401e0a42aeb2b2e6524222" title="Resizes the buffer to a new size, preserving existing data when possible." alt="" coords="5,5,179,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="213,28,179,28,179,23,213,23"/>
+</map>

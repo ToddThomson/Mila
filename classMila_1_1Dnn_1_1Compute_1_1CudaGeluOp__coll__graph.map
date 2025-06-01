@@ -1,0 +1,11 @@
+<map id="Mila::Dnn::Compute::CudaGeluOp&lt; TDataType &gt;" name="Mila::Dnn::Compute::CudaGeluOp&lt; TDataType &gt;">
+<area shape="rect" id="Node000001" title="CUDA implementation of the GELU activation function for neural networks." alt="" coords="613,45,824,85"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1UnaryOperation.html" title=" " alt="" coords="283,5,515,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="529,43,614,52,613,57,528,48"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1OperationBase.html" title="Base class for all compute operations in the Mila neural network framework." alt="" coords="5,5,233,60"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="247,30,283,30,283,35,247,35"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1GeluConfig.html" title="Configuration class for GELU module." alt="" coords="317,84,480,109"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="493,85,613,73,614,78,494,90"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1ComponentConfig.html" title="Base configuration class for all neural network components." alt="" coords="15,84,223,109"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="237,94,317,94,317,99,237,99"/>
+</map>

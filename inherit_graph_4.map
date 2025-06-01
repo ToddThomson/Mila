@@ -1,0 +1,25 @@
+<map id="Graphical Class Hierarchy" name="Graphical Class Hierarchy">
+<area shape="rect" id="Node000000" href="$classMila_1_1Dnn_1_1ComponentConfig.html" title="Base configuration class for all neural network components." alt="" coords="5,252,213,277"/>
+<area shape="rect" id="Node000001" href="$classMila_1_1Dnn_1_1CrossEntropyConfig.html" title="Configuration class for CrossEntropy module." alt="" coords="261,5,480,31"/>
+<area shape="poly" id="edge7_Node000000_Node000001" title=" " alt="" coords="118,238,138,194,168,140,209,86,233,61,260,40,282,28,284,33,263,44,237,65,213,89,173,143,143,196,123,240"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1DropoutConfig.html" title="Configuration class for Dropout module." alt="" coords="278,55,463,80"/>
+<area shape="poly" id="edge8_Node000000_Node000002" title=" " alt="" coords="122,239,145,205,176,164,215,123,260,89,285,78,287,83,263,94,218,127,180,167,149,208,127,242"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1EncoderConfig.html" title="Configuration class for Encoder module." alt="" coords="278,104,463,129"/>
+<area shape="poly" id="edge9_Node000000_Node000003" title=" " alt="" coords="130,240,185,188,221,161,260,138,290,127,292,132,262,143,224,166,188,192,133,244"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1GeluConfig.html" title="Configuration class for GELU module." alt="" coords="289,153,452,179"/>
+<area shape="poly" id="edge10_Node000000_Node000004" title=" " alt="" coords="143,243,197,214,260,187,299,176,301,181,262,193,199,219,145,247"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1LayerNormConfig.html" title="Configuration class for Layer Normalization module." alt="" coords="268,203,473,228"/>
+<area shape="poly" id="edge11_Node000000_Node000005" title=" " alt="" coords="190,247,302,225,303,231,191,252"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1LinearConfig.html" title="Configuration class for Linear module." alt="" coords="284,252,457,277"/>
+<area shape="poly" id="edge12_Node000000_Node000006" title=" " alt="" coords="227,262,284,262,284,267,227,267"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1MLPConfig.html" title="Configuration class for MLP block." alt="" coords="291,301,451,327"/>
+<area shape="poly" id="edge13_Node000000_Node000007" title=" " alt="" coords="191,277,303,299,302,304,190,283"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1MultiHeadAttentionConfig.html" title="Configuration class for MultiHeadAttention module." alt="" coords="261,351,480,391"/>
+<area shape="poly" id="edge14_Node000000_Node000008" title=" " alt="" coords="147,281,201,308,262,336,299,349,298,354,260,340,199,313,145,286"/>
+<area shape="rect" id="Node000009" href="$classMila_1_1Dnn_1_1ResidualConfig.html" title="Configuration class for Residual connection module." alt="" coords="276,416,465,441"/>
+<area shape="poly" id="edge15_Node000000_Node000009" title=" " alt="" coords="131,286,186,344,223,375,263,401,294,413,292,418,260,406,219,379,182,348,127,290"/>
+<area shape="rect" id="Node000010" href="$classMila_1_1Dnn_1_1SoftmaxConfig.html" title="Configuration class for Softmax module." alt="" coords="277,465,464,491"/>
+<area shape="poly" id="edge16_Node000000_Node000010" title=" " alt="" coords="126,289,147,325,178,369,217,414,263,450,289,463,287,468,260,455,213,417,174,373,143,328,121,291"/>
+<area shape="rect" id="Node000011" href="$classMila_1_1Dnn_1_1TransformerBlockConfig.html" title="Configuration class for TransformerBlock." alt="" coords="267,515,474,555"/>
+<area shape="poly" id="edge17_Node000000_Node000011" title=" " alt="" coords="122,289,142,335,172,392,212,450,236,477,263,500,285,513,282,517,260,504,233,480,208,453,167,394,137,337,118,291"/>
+</map>

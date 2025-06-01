@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::MLPConfig::validate" name="Mila::Dnn::MLPConfig::validate">
+<area shape="rect" id="Node000001" title="Validate configuration parameters." alt="" coords="208,23,368,63"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1MLP.html#a524b2ac11d65569d831497321d36675a" title="Constructs a new MLP module with a device name." alt="" coords="5,5,160,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="194,34,160,30,161,25,195,29"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1MLP.html#abd11a41a1e3847f7507832eedb5ae7a4" title="Constructs a new MLP module with a provided device context." alt="" coords="5,55,160,80"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="195,57,161,61,160,56,194,52"/>
+</map>

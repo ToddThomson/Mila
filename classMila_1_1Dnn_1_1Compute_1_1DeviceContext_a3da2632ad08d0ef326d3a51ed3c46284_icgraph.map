@@ -1,0 +1,11 @@
+<map id="Mila::Dnn::Compute::DeviceContext::releaseResources" name="Mila::Dnn::Compute::DeviceContext::releaseResources">
+<area shape="rect" id="Node000001" title="Releases all device&#45;specific resources." alt="" coords="573,69,823,109"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#ab38f3619ed2c3c117a833b21d3223b61" title="Destructor." alt="" coords="284,5,525,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="592,69,496,48,497,43,593,64"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#a883e401e8e1be2c8513a95e99a7e4235" title="Move assignment operator." alt="" coords="305,69,505,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="560,92,505,92,505,87,560,87"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#a8e36e81342090136e9f33153a73165e0" title="Sets the current device by name." alt="" coords="305,133,504,173"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="593,115,497,136,496,131,592,110"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#a66052215400fe2b037fc7e490722ebf0" title="Constructor with a specific device." alt="" coords="5,133,236,173"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="292,156,236,156,236,151,292,151"/>
+</map>

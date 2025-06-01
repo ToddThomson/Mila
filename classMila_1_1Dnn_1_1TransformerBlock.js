@@ -1,0 +1,25 @@
+var classMila_1_1Dnn_1_1TransformerBlock =
+[
+    [ "CompositeModuleBase", "classMila_1_1Dnn_1_1TransformerBlock.html#a26b472e5bd8f3fab79ab5144b0e0f62e", null ],
+    [ "MR", "classMila_1_1Dnn_1_1TransformerBlock.html#a79f21ab4d843a0c2192c16951d430c4d", null ],
+    [ "TransformerBlock", "classMila_1_1Dnn_1_1TransformerBlock.html#ace07232ad74c5b860de67ba44724f6c4", null ],
+    [ "TransformerBlock", "classMila_1_1Dnn_1_1TransformerBlock.html#aa91e3b3fb0804eb4eec6af8c9ce11dc4", null ],
+    [ "forward", "classMila_1_1Dnn_1_1TransformerBlock.html#a9ee1bc839fc5aa2c29992d6279849b45", null ],
+    [ "initializeModules", "classMila_1_1Dnn_1_1TransformerBlock.html#aaaeec89728f06c2291468f9ed844241c", null ],
+    [ "load", "classMila_1_1Dnn_1_1TransformerBlock.html#a2d251f02ca76ad508f8baa9f74f006af", null ],
+    [ "parameterCount", "classMila_1_1Dnn_1_1TransformerBlock.html#a4ef247db2dea6f1f58dba2bed75dc773", null ],
+    [ "save", "classMila_1_1Dnn_1_1TransformerBlock.html#ac3a796988e1018af4847a38fd620a9fa", null ],
+    [ "toString", "classMila_1_1Dnn_1_1TransformerBlock.html#add82601fef958270857c9bfcdc7bc238", null ],
+    [ "attn_block_", "classMila_1_1Dnn_1_1TransformerBlock.html#a901328615394acb5debb3658987c8708", null ],
+    [ "attn_output_", "classMila_1_1Dnn_1_1TransformerBlock.html#a7262aee4ab8481e18c8e9556bc8b793e", null ],
+    [ "config_", "classMila_1_1Dnn_1_1TransformerBlock.html#afc5dae998914f20c8083a63ce1cb88bb", null ],
+    [ "dropout_", "classMila_1_1Dnn_1_1TransformerBlock.html#a4e5def506cad5e6ca7614e094bea6c4a", null ],
+    [ "ln_1_", "classMila_1_1Dnn_1_1TransformerBlock.html#a5a5c46bb6a21dfaa50b8d5a21210894e", null ],
+    [ "ln_1_output_", "classMila_1_1Dnn_1_1TransformerBlock.html#a7e59a21d80607e655893d2b254428c48", null ],
+    [ "ln_2_", "classMila_1_1Dnn_1_1TransformerBlock.html#ab8b2289cc26ec555b93a01ce0769de01", null ],
+    [ "ln_2_output_", "classMila_1_1Dnn_1_1TransformerBlock.html#a3ea473897bdd96f9379a4be7c9e11a72", null ],
+    [ "mlp_", "classMila_1_1Dnn_1_1TransformerBlock.html#aa5b393e65e3188844f19cccaf019e6e3", null ],
+    [ "mlp_output_", "classMila_1_1Dnn_1_1TransformerBlock.html#a22fd61f1a50952cee020579c8c0ecbc6", null ],
+    [ "res_1_output_", "classMila_1_1Dnn_1_1TransformerBlock.html#a073e2aca5499ac108e906e96be1770f3", null ],
+    [ "res_2_output_", "classMila_1_1Dnn_1_1TransformerBlock.html#a6cb4b88b72e7a4bc03eaa2dbe23ad8ba", null ]
+];

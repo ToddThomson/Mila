@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Compute::listDevices" name="Mila::Dnn::Compute::listDevices">
+<area shape="rect" id="Node000001" title="Lists all available compute devices." alt="" coords="204,5,355,45"/>
+<area shape="rect" id="Node000002" href="$namespaceMila_1_1Dnn_1_1Compute.html#ae1d32d7cbc15006084fde71c7f8d9fe1" title="Gets the best device of a specific type based on performance characteristics." alt="" coords="5,5,156,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="191,28,156,28,156,23,191,23"/>
+</map>

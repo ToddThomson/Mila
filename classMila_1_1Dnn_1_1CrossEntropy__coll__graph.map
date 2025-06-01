@@ -1,0 +1,12 @@
+<map id="Mila::Dnn::CrossEntropy&lt; TDeviceType, TLogits, TTargets &gt;" name="Mila::Dnn::CrossEntropy&lt; TDeviceType, TLogits, TTargets &gt;">
+<area shape="rect" id="Node000001" title="CrossEntropy loss module for neural networks." alt="" coords="653,69,832,124"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Module.html" title="Abstract base class for all modules in the Mila DNN framework." alt="" coords="340,5,503,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="516,49,653,76,652,82,515,54"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1ComponentConfig.html" title="Base configuration class for all neural network components." alt="" coords="5,53,213,79"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="227,51,340,39,340,44,228,56"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1CrossEntropyConfig.html" title="Configuration class for CrossEntropy module." alt="" coords="312,84,531,109"/>
+<area shape="poly" id="edge4_Node000004_Node000003" title=" " alt="" coords="227,75,312,83,311,89,227,80"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="545,94,653,94,653,99,545,99"/>
+<area shape="rect" id="Node000005" href="$structMila_1_1Dnn_1_1Compute_1_1OperationAttributes.html" title="Common attributes for neural network operations." alt="" coords="342,134,501,174"/>
+<area shape="poly" id="edge5_Node000001_Node000005" title=" " alt="" coords="514,135,653,110,654,115,515,140"/>
+</map>

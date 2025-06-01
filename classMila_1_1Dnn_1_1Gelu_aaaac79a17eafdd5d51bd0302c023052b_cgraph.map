@@ -1,0 +1,9 @@
+<map id="Mila::Dnn::Gelu::createOperation" name="Mila::Dnn::Gelu::createOperation">
+<area shape="rect" id="Node000001" title="Initializes the appropriate GELU operation implementation." alt="" coords="5,92,240,117"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a8bcbbd6e474b44727458887b4685f43e" title="Create a unary operation based on the type information, device type, and operation name." alt="" coords="288,5,463,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="167,89,274,59,276,64,169,95"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Module.html#a1163624b16a6518b2ed573f51827759d" title="Get the device context for this module." alt="" coords="301,85,449,125"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="240,102,287,102,287,107,240,107"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Compute_1_1OperationRegistry.html#a56e3658d8b09dd388ca379aefcdeb17f" title="Get the singleton instance of the OperationRegistry." alt="" coords="300,149,451,204"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="169,115,287,149,286,154,167,120"/>
+</map>

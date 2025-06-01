@@ -1,0 +1,15 @@
+<map id="Mila::Dnn::Tensor::toHalf" name="Mila::Dnn::Tensor::toHalf">
+<area shape="rect" id="Node000001" title="Converts a float tensor to half precision." alt="" coords="5,101,148,141"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Tensor.html#a354396ac236f7f813be41c74974aa0df" title="Copies data from another tensor into this tensor." alt="" coords="196,101,339,141"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="148,119,183,119,183,124,148,124"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Tensor.html#a4f707ea4c0f00aab58189071fa1c11fd" title="Gets a raw pointer to the tensor data for use in CUDA kernels." alt="" coords="387,5,529,45"/>
+<area shape="poly" id="edge6_Node000001_Node000004" title=" " alt="" coords="148,99,195,87,372,43,374,48,197,92,149,105"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Tensor.html#a46411e4d53c1079112cc578b6f1fcf93" title=" " alt="" coords="387,197,529,237"/>
+<area shape="poly" id="edge7_Node000001_Node000005" title=" " alt="" coords="149,138,197,151,374,195,372,200,195,156,148,143"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Tensor.html#ac1de6b3411ea2aa8012cd8689895d32c" title=" " alt="" coords="387,69,529,109"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="338,107,373,101,374,106,339,112"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="303,99,385,55,398,49,401,54,388,60,306,103"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="306,139,388,183,401,189,398,194,385,188,303,144"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1Tensor.html#a294130f763b905cf0125c9bd4fba4970" title=" " alt="" coords="387,133,529,173"/>
+<area shape="poly" id="edge5_Node000002_Node000006" title=" " alt="" coords="339,131,374,136,373,142,338,136"/>
+</map>

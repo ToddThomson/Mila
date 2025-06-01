@@ -1,0 +1,13 @@
+<map id="Mila::Dnn::Compute::getDeviceCount" name="Mila::Dnn::Compute::getDeviceCount">
+<area shape="rect" id="Node000001" title="Gets the number of available CUDA devices." alt="" coords="403,63,553,103"/>
+<area shape="rect" id="Node000002" href="$namespaceMila_1_1Dnn_1_1Compute.html#a96ecd0d5401f97858e0a936ad10d59a6" title="Validates that a device ID is valid and available." alt="" coords="204,5,355,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="394,61,349,48,350,43,396,56"/>
+<area shape="rect" id="Node000003" href="$namespaceMila_1_1Dnn_1_1Compute.html#a58d62f6f183335114f9dd89dfefd0dad" title="Finds the most appropriate CUDA device for computation." alt="" coords="5,59,156,99"/>
+<area shape="poly" id="edge3_Node000001_Node000003" title=" " alt="" coords="389,84,156,82,156,77,389,79"/>
+<area shape="rect" id="Node000004" href="$namespaceMila_1_1Dnn_1_1Compute.html#a9b44f2af3eb466afccacc8dedc589421" title="Identifies the best CUDA device based on performance characteristics." alt="" coords="204,120,355,160"/>
+<area shape="poly" id="edge4_Node000001_Node000004" title=" " alt="" coords="396,109,350,122,349,117,394,104"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="192,52,157,61,155,56,191,46"/>
+<area shape="poly" id="edge5_Node000004_Node000003" title=" " alt="" coords="200,118,145,101,147,96,202,113"/>
+<area shape="rect" id="Node000005" href="$namespaceMila_1_1Dnn_1_1Compute.html#ae1d32d7cbc15006084fde71c7f8d9fe1" title="Gets the best device of a specific type based on performance characteristics." alt="" coords="5,123,156,163"/>
+<area shape="poly" id="edge6_Node000004_Node000005" title=" " alt="" coords="191,144,156,144,156,139,191,139"/>
+</map>

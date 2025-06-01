@@ -1,7 +1,0 @@
-<map id="Mila::Dnn::Model&lt; TInput, TPrecision &gt;" name="Mila::Dnn::Model&lt; TInput, TPrecision &gt;">
-<area shape="rect" id="Node000001" title="A class representing a neural network model." alt="" coords="312,57,504,97"/>
-<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Module.html" title="Abstract base class for all modules in the Mila DNN framework." alt="" coords="17,5,167,60"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="181,41,288,55,312,59,311,64,288,61,181,46"/>
-<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Tensor.html" title=" " alt="" coords="5,85,179,154"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="192,103,311,87,312,92,193,109"/>
-</map>

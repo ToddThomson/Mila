@@ -1,0 +1,29 @@
+<map id="Mila::Dnn::Gpt2::DatasetReader::log" name="Mila::Dnn::Gpt2::DatasetReader::log">
+<area shape="rect" id="Node000001" title="Logs messages through the configured logger." alt="" coords="959,215,1141,255"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Gpt2_1_1DatasetReader.html#a256821ce37e5c702ab32d488781ff2d1" title="Constructs a new DatasetReader object." alt="" coords="5,103,188,143"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="1029,204,1009,172,981,136,948,101,909,72,850,47,800,39,747,38,680,37,554,22,455,10,408,8,358,11,302,20,237,37,204,50,172,68,122,105,119,101,169,63,201,45,235,31,301,15,357,6,408,3,455,5,555,17,680,31,747,33,800,33,852,41,912,68,952,97,986,132,1013,169,1034,202"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Gpt2_1_1DatasetReader.html#a8bc5d3c2343b4b8a195a8cf181321dfe" title="Allocates memory for tensor buffers." alt="" coords="236,46,427,86"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="1022,207,974,158,943,134,910,115,849,92,784,75,719,63,654,56,530,52,427,57,427,52,530,47,654,51,720,58,786,70,850,87,912,110,946,130,977,154,1026,203"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Gpt2_1_1DatasetReader.html#ab11045457f4f74e62434b7f9bb3dbf3a" title="Initializes the dataset access without loading the entire file into memory." alt="" coords="483,97,671,137"/>
+<area shape="poly" id="edge4_Node000001_Node000004" title=" " alt="" coords="1014,209,966,176,910,149,850,132,787,122,672,116,672,110,788,117,851,127,912,144,969,171,1017,205"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Gpt2_1_1DatasetReader.html#a543827d3e6b6b4cfe18e7ee0311b8db6" title="Loads a specific window of tokens from the dataset file." alt="" coords="728,158,911,198"/>
+<area shape="poly" id="edge6_Node000001_Node000005" title=" " alt="" coords="955,215,900,201,901,195,956,209"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1Gpt2_1_1DatasetReader.html#a85bf5d58022ab1c18ae4e45d5a43293a" title="Background thread function that reads data from the dataset file." alt="" coords="240,161,423,201"/>
+<area shape="poly" id="edge15_Node000001_Node000007" title=" " alt="" coords="945,240,728,236,601,228,474,215,409,203,410,198,475,210,601,223,728,230,945,234"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1Gpt2_1_1DatasetReader.html#a1005b191ed88ad8a8339b79fd4cfcf88" title="Fetches the next batch of training data with inputs and targets." alt="" coords="728,273,911,313"/>
+<area shape="poly" id="edge11_Node000001_Node000008" title=" " alt="" coords="956,261,901,275,900,270,955,256"/>
+<area shape="rect" id="Node000009" href="$classMila_1_1Dnn_1_1Gpt2_1_1DatasetReader.html#a7b9299498ee1856adf7cec6f3de33ad2" title="Pauses the background loading threads." alt="" coords="728,337,911,377"/>
+<area shape="poly" id="edge12_Node000001_Node000009" title=" " alt="" coords="1012,265,965,297,912,327,884,339,882,334,909,322,963,292,1009,261"/>
+<area shape="rect" id="Node000010" href="$classMila_1_1Dnn_1_1Gpt2_1_1DatasetReader.html#aa225047bffb4b063e6083798f82b9dae" title="Background thread function that preprocesses raw data into input/target pairs." alt="" coords="475,333,680,373"/>
+<area shape="poly" id="edge13_Node000001_Node000010" title=" " alt="" coords="1033,269,1013,300,985,334,951,367,912,391,875,404,836,410,797,411,759,408,686,394,626,375,628,370,687,389,759,403,797,406,836,405,874,398,910,386,948,362,981,331,1009,297,1029,266"/>
+<area shape="rect" id="Node000011" href="$classMila_1_1Dnn_1_1Gpt2_1_1DatasetReader.html#a92e737054014353f50b829494783d6ca" title="Resumes the background loading threads after being paused." alt="" coords="728,451,911,491"/>
+<area shape="poly" id="edge16_Node000001_Node000011" title=" " alt="" coords="1036,269,987,350,953,395,912,435,882,453,879,449,909,431,949,392,983,347,1031,266"/>
+<area shape="poly" id="edge3_Node000003_Node000002" title=" " alt="" coords="236,92,180,106,178,101,235,87"/>
+<area shape="poly" id="edge5_Node000004_Node000002" title=" " alt="" coords="469,121,188,125,188,119,469,115"/>
+<area shape="poly" id="edge10_Node000005_Node000004" title=" " alt="" coords="726,157,656,139,657,134,727,152"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1Gpt2_1_1DatasetReader.html#a5e653608603d8507891d91ba3271e21e" title="Gets a non&#45;owning view of tokens at the specified position." alt="" coords="486,161,669,201"/>
+<area shape="poly" id="edge7_Node000005_Node000006" title=" " alt="" coords="714,182,669,182,669,177,714,176"/>
+<area shape="poly" id="edge8_Node000006_Node000007" title=" " alt="" coords="472,183,423,183,423,178,472,178"/>
+<area shape="poly" id="edge9_Node000007_Node000002" title=" " alt="" coords="235,160,178,146,180,141,236,155"/>
+<area shape="poly" id="edge14_Node000010_Node000002" title=" " alt="" coords="504,330,377,281,235,215,175,180,124,146,127,141,177,175,237,210,379,276,506,325"/>
+</map>

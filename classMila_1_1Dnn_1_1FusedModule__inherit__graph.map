@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::FusedModule&lt; TPrecision, TInput, TDeviceType &gt;" name="Mila::Dnn::FusedModule&lt; TPrecision, TInput, TDeviceType &gt;">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,108,184,163"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Module.html" title="Abstract base class for all modules in the Mila DNN framework." alt="" coords="13,5,176,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="97,74,97,108,92,108,92,74"/>
+</map>

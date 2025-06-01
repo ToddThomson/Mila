@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::MultiHeadAttention::getInputShape" name="Mila::Dnn::MultiHeadAttention::getInputShape">
+<area shape="rect" id="Node000001" title="Gets the input shape." alt="" coords="5,5,224,45"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1MultiHeadAttentionConfig.html#a568c2b5af5064ac8d83e0db4f5fe0187" title="Get the input shape." alt="" coords="272,5,491,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="224,23,258,23,258,28,224,28"/>
+</map>

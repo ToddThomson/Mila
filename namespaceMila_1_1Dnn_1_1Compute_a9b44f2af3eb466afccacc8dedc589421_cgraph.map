@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::Compute::getBestDeviceId" name="Mila::Dnn::Compute::getBestDeviceId">
+<area shape="rect" id="Node000001" title="Identifies the best CUDA device based on performance characteristics." alt="" coords="5,5,156,45"/>
+<area shape="rect" id="Node000002" href="$namespaceMila_1_1Dnn_1_1Compute.html#a8b2b00e63f2d2af850acece5227c63cd" title="Gets the number of available CUDA devices." alt="" coords="204,5,355,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="156,23,190,23,190,28,156,28"/>
+<area shape="rect" id="Node000003" href="$namespaceMila_1_1Dnn_1_1Compute.html#af02152a475c650f6a64e0f2c67c1aaf5" title="Checks the status of a CUDA operation and throws if an error occurred." alt="" coords="403,5,553,45"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="355,23,389,23,389,28,355,28"/>
+</map>

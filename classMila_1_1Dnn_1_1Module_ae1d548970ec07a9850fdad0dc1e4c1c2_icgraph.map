@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Module::parameterCount" name="Mila::Dnn::Module::parameterCount">
+<area shape="rect" id="Node000001" title="Get the number of trainable parameters in the module." alt="" coords="203,5,351,45"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Module.html#aa9c385b11a63c2e17eed36c807209c50" title="Helper method to convert parameters to string representation." alt="" coords="5,5,155,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="189,28,155,28,155,23,189,23"/>
+</map>

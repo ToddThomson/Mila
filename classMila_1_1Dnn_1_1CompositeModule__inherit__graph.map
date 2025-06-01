@@ -1,0 +1,9 @@
+<map id="Mila::Dnn::CompositeModule&lt; TDeviceType, TDataType &gt;" name="Mila::Dnn::CompositeModule&lt; TDeviceType, TDataType &gt;">
+<area shape="rect" id="Node000001" title="A module class that can contain and manage child modules." alt="" coords="216,37,428,77"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1MLP.html" title="Multi&#45;Layer Perceptron (MLP) block for neural networks." alt="" coords="476,5,697,45"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="441,40,475,36,476,41,442,46"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1TransformerBlock.html" title="TransformerBlock implements a standard transformer encoder block." alt="" coords="481,69,693,109"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="442,69,481,74,480,79,441,74"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Module.html" title="Abstract base class for all modules in the Mila DNN framework." alt="" coords="5,30,168,85"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="182,55,216,55,216,60,182,60"/>
+</map>

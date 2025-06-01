@@ -1,0 +1,33 @@
+<map id="Graphical Class Hierarchy" name="Graphical Class Hierarchy">
+<area shape="rect" id="Node000000" href="$classMila_1_1Dnn_1_1Module.html" title="Abstract base class for all modules in the Mila DNN framework." alt="" coords="5,442,168,497"/>
+<area shape="rect" id="Node000001" href="$classMila_1_1Dnn_1_1CompositeModule.html" title=" " alt="" coords="233,5,443,45"/>
+<area shape="poly" id="edge51_Node000000_Node000001" title=" " alt="" coords="86,428,92,349,111,249,128,196,150,145,178,97,214,55,231,43,234,47,218,59,182,100,154,148,133,198,116,250,97,350,91,428"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1CompositeModule.html" title="A module class that can contain and manage child modules." alt="" coords="232,69,444,109"/>
+<area shape="poly" id="edge52_Node000000_Node000002" title=" " alt="" coords="89,428,99,361,120,278,137,235,157,194,183,155,214,121,233,107,236,112,218,125,187,158,162,196,142,238,126,280,104,362,94,429"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1CrossEntropy.html" title="CrossEntropy loss module for neural networks." alt="" coords="249,134,427,189"/>
+<area shape="poly" id="edge55_Node000000_Node000005" title=" " alt="" coords="94,428,109,376,133,315,168,253,189,225,214,199,247,179,250,183,218,203,193,228,172,256,138,317,114,378,99,430"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1Dropout.html" title="Dropout regularization module for neural networks." alt="" coords="251,213,425,267"/>
+<area shape="poly" id="edge56_Node000000_Node000006" title=" " alt="" coords="103,428,122,392,147,352,178,312,214,278,249,258,252,263,218,282,182,316,151,355,126,395,108,431"/>
+<area shape="rect" id="Node000007" href="$classMila_1_1Dnn_1_1Encoder.html" title="An encoder module that provides token and positional embeddings." alt="" coords="251,291,425,346"/>
+<area shape="poly" id="edge57_Node000000_Node000007" title=" " alt="" coords="122,430,164,392,215,356,250,340,252,345,217,361,167,396,125,434"/>
+<area shape="rect" id="Node000008" href="$classMila_1_1Dnn_1_1FusedModule.html" title=" " alt="" coords="249,370,427,425"/>
+<area shape="poly" id="edge58_Node000000_Node000008" title=" " alt="" coords="180,440,248,420,249,425,182,445"/>
+<area shape="rect" id="Node000009" href="$classMila_1_1Dnn_1_1Gelu.html" title="Gaussian Error Linear Unit (GELU) activation function module." alt="" coords="243,449,433,489"/>
+<area shape="poly" id="edge59_Node000000_Node000009" title=" " alt="" coords="182,467,242,467,242,472,182,472"/>
+<area shape="rect" id="Node000010" href="$classMila_1_1Dnn_1_1LayerNorm.html" title="Layer Normalization module." alt="" coords="251,514,425,569"/>
+<area shape="poly" id="edge60_Node000000_Node000010" title=" " alt="" coords="182,494,252,514,250,519,181,499"/>
+<area shape="rect" id="Node000011" href="$classMila_1_1Dnn_1_1Linear.html" title="A class representing a linear transformation module." alt="" coords="257,593,419,647"/>
+<area shape="poly" id="edge61_Node000000_Node000011" title=" " alt="" coords="124,505,167,544,217,579,257,597,255,602,215,584,164,548,121,509"/>
+<area shape="rect" id="Node000012" href="$classMila_1_1Dnn_1_1Model.html" title="A class representing a neural network model." alt="" coords="238,672,438,712"/>
+<area shape="poly" id="edge62_Node000000_Node000012" title=" " alt="" coords="107,508,125,545,150,585,181,625,218,658,239,670,236,675,214,662,177,628,145,588,120,547,102,511"/>
+<area shape="rect" id="Node000013" href="$classMila_1_1Dnn_1_1MultiHeadAttention.html" title="Multi&#45;head attention module for transformer architectures." alt="" coords="216,736,460,776"/>
+<area shape="poly" id="edge63_Node000000_Node000013" title=" " alt="" coords="100,509,115,559,139,616,173,674,194,699,218,722,236,733,233,738,214,726,190,703,168,677,134,619,110,560,95,511"/>
+<area shape="rect" id="Node000014" href="$classMila_1_1Dnn_1_1Residual.html" title="A class implementing a residual connection module." alt="" coords="251,801,425,855"/>
+<area shape="poly" id="edge64_Node000000_Node000014" title=" " alt="" coords="96,509,108,570,131,645,147,683,166,720,190,755,218,786,252,808,250,812,214,790,186,759,162,723,142,685,126,647,103,572,91,510"/>
+<area shape="rect" id="Node000015" href="$classMila_1_1Dnn_1_1Softmax.html" title="Softmax module for neural networks." alt="" coords="251,879,425,934"/>
+<area shape="poly" id="edge65_Node000000_Node000015" title=" " alt="" coords="92,510,100,586,120,681,136,731,157,780,184,826,218,866,234,879,252,888,250,893,231,883,214,870,180,829,152,783,131,733,115,683,95,587,87,511"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1MLP.html" title="Multi&#45;Layer Perceptron (MLP) block for neural networks." alt="" coords="508,37,729,77"/>
+<area shape="poly" id="edge53_Node000002_Node000003" title=" " alt="" coords="457,73,507,67,508,73,458,78"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1TransformerBlock.html" title="TransformerBlock implements a standard transformer encoder block." alt="" coords="513,101,725,141"/>
+<area shape="poly" id="edge54_Node000002_Node000004" title=" " alt="" coords="458,100,513,107,512,112,457,106"/>
+</map>

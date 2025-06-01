@@ -1,0 +1,7 @@
+<map id="Mila::Dnn::Model::forward" name="Mila::Dnn::Model::forward">
+<area shape="rect" id="Node000001" title="Performs a forward pass through the model." alt="" coords="5,35,196,60"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Model.html#ae33c8f6f72dc13d99e15278057c6fd03" title="Calculate the loss for the given targets and current model outputs." alt="" coords="244,5,472,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="196,34,233,30,233,35,196,39"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Tensor.html#aea6f6d11627444aba7d2069f1cef01d4" title=" " alt="" coords="287,55,429,95"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="196,55,273,63,273,69,196,60"/>
+</map>

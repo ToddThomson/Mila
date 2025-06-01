@@ -1,0 +1,16 @@
+<map id="Mila::Dnn::Compute::DeviceRegistrar::instance" name="Mila::Dnn::Compute::DeviceRegistrar::instance">
+<area shape="rect" id="Node000001" title="Get the singleton instance of DeviceRegistrar." alt="" coords="5,53,203,93"/>
+<area shape="poly" id="edge1_Node000001_Node000001" title=" " alt="" coords="59,53,56,43,63,34,79,28,104,26,132,29,148,36,145,41,131,34,104,31,81,33,66,38,61,44,64,52"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceRegistrar.html#ac344f6bf8a8d76cf424ce29bd94bfb71" title="Register all available compute devices." alt="" coords="251,45,443,100"/>
+<area shape="poly" id="edge2_Node000001_Node000002" title=" " alt="" coords="203,70,237,70,237,75,203,75"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceRegistrar.html#a286115c558e36206ce90b77029ac0ccd" title="Register CPU device." alt="" coords="491,5,683,60"/>
+<area shape="poly" id="edge3_Node000002_Node000003" title=" " alt="" coords="442,54,477,48,478,54,443,59"/>
+<area shape="rect" id="Node000006" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceRegistrar.html#a7a236368a7539abbf0873937296e05c5" title="Register all available CUDA devices." alt="" coords="491,84,683,139"/>
+<area shape="poly" id="edge6_Node000002_Node000006" title=" " alt="" coords="443,85,478,91,477,96,442,91"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceRegistry.html#a7fad4212ab870e74917da2abcaf77938" title="Gets the singleton instance of the DeviceRegistry." alt="" coords="731,15,921,55"/>
+<area shape="poly" id="edge4_Node000003_Node000004" title=" " alt="" coords="683,31,717,31,717,37,683,36"/>
+<area shape="rect" id="Node000005" href="$classMila_1_1Dnn_1_1Compute_1_1DeviceRegistry.html#a84244467e026a98d214cb6432bd3d93e" title="Registers a compute device factory function with the registry." alt="" coords="733,81,919,136"/>
+<area shape="poly" id="edge5_Node000003_Node000005" title=" " alt="" coords="674,58,727,75,726,80,673,63"/>
+<area shape="poly" id="edge7_Node000006_Node000004" title=" " alt="" coords="673,81,749,57,750,62,674,86"/>
+<area shape="poly" id="edge8_Node000006_Node000005" title=" " alt="" coords="683,108,719,107,719,113,683,113"/>
+</map>

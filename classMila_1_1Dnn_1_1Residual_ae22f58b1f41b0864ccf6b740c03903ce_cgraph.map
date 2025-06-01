@@ -1,0 +1,9 @@
+<map id="Mila::Dnn::Residual::initializeGateParameters" name="Mila::Dnn::Residual::initializeGateParameters">
+<area shape="rect" id="Node000001" title="Initializes parameters for gated connections." alt="" coords="5,37,196,77"/>
+<area shape="rect" id="Node000002" href="$classMila_1_1Dnn_1_1Module.html#a2c8e8735eaf75d6bad6d454f7d23b2ca" title="Get the name of the module." alt="" coords="244,5,392,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="196,41,230,36,231,41,197,46"/>
+<area shape="rect" id="Node000004" href="$classMila_1_1Dnn_1_1Module.html#af676dd818a0afaa6f2839b53c42fb72b" title="Check if the module is in training mode." alt="" coords="244,69,392,109"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="197,69,231,74,230,79,196,74"/>
+<area shape="rect" id="Node000003" href="$classMila_1_1Dnn_1_1ComponentConfig.html#a35f7308c0a3de2579d0df7cdbb7ec268" title="Gets the configured component name." alt="" coords="440,5,648,45"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="392,23,426,23,426,28,392,28"/>
+</map>

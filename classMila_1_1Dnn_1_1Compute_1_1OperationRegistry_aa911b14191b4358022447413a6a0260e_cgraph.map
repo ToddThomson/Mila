@@ -1,0 +1,5 @@
+<map id="Mila::Dnn::Compute::OperationRegistry::registerFusedOperation" name="Mila::Dnn::Compute::OperationRegistry::registerFusedOperation">
+<area shape="rect" id="Node000001" title="Register a fused operation." alt="" coords="5,5,188,60"/>
+<area shape="rect" id="Node000002" href="$namespaceMila_1_1Dnn_1_1Compute.html#a0fd8b0110b79e4bbc96ba4fbecb3fc96" title="Converts an operation type to its string representation." alt="" coords="236,13,411,53"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="188,30,222,30,222,35,188,35"/>
+</map>
