@@ -48,17 +48,6 @@ add_custom_target(MilaUpdateVersion
     VERBATIM
 )
 
-if(MILA_ENABLE_OPENMP)
-   find_package(OpenMP)
-   if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-		add_compile_options( -openmp:llvm -DUSE_OMP )
-		add_link_options( -openmp:llvm )
-	else()
-		add_compile_options( ${OpenMP_CXX_FLAGS})
-		add_link_options( OpenMP::OpenMP_CXX)
-	endif()
-endif()  
- 
 # Default to building for the GPU on the current system  
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)  
    set(CMAKE_CUDA_ARCHITECTURES native)  

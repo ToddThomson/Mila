@@ -85,16 +85,6 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   )
 endif()
 
-if(MILA_ENABLE_OPENMP)  
-    if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-        target_compile_options( MilaTests PRIVATE -openmp:llvm -DUSE_OMP )
-        target_link_options( MilaTests PRIVATE -openmp:llvm )
-    else()
-        target_compile_options( MilaTests PRIVATE ${OpenMP_CXX_FLAGS})
-        target_link_options( MilaTests PRIVATE OpenMP::OpenMP_CXX)
-    endif()
-endif()  
-
 target_link_libraries( MilaTests PRIVATE Mila gtest CUDA::cudart )
 
 gtest_discover_tests(MilaTests)

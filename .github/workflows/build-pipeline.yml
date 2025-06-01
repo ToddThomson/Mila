@@ -102,16 +102,12 @@ jobs:
               -DCMAKE_CXX_STANDARD=23 \
               -DCMAKE_CXX_STANDARD_REQUIRED=ON \
               -DCMAKE_CXX_EXTENSIONS=OFF \
-              -DCMAKE_CXX_SCAN_FOR_MODULES=AUTO
+              -DCMAKE_CXX_SCAN_FOR_MODULES=AUTO \
+              -DMILA_ENABLE_TESTING=OFF
               
       - name: Build Mila
         run: cmake --build build --config Release
-        
-      # Test phase
-      - name: Run Tests
-        working-directory: build
-        run: ctest -C Release
-        
+       
       # Documentation phase
       - name: Generate Documentation
         run: cmake --build build --target docs

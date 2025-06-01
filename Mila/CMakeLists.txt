@@ -257,7 +257,7 @@ PUBLIC
 target_link_libraries(Mila PRIVATE 
     miniz
     nlohmann_json::nlohmann_json
-    CUDA::nvml 
+    # CUDA::nvml -> not used in the current code, but can be added if needed
     CUDA::cublas 
     CUDA::cublasLt 
     CUDA::cudart
