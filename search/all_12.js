@@ -34,9 +34,9 @@ var searchData=
   ['useseparateprojections_31',['useSeparateProjections',['../classMila_1_1Dnn_1_1MultiHeadAttentionConfig.html#af1a67cdb792d19fb6c9720fa44c6fbff',1,'Mila::Dnn::MultiHeadAttentionConfig']]],
   ['usessamemaskperbatch_32',['usesSameMaskPerBatch',['../classMila_1_1Dnn_1_1DropoutConfig.html#ac8ca08d4db6a602d6f79ff3b15a24b28',1,'Mila::Dnn::DropoutConfig']]],
   ['usetensorcores_33',['useTensorCores',['../classMila_1_1Dnn_1_1Compute_1_1AMPConfig.html#a656beb8a914f0ac98425dbdb9d932114',1,'Mila::Dnn::Compute::AMPConfig']]],
-  ['using_20docker_20on_20linux_34',['Using Docker on Linux',['../index.html#autotoc_md8',1,'']]],
-  ['using_20visual_20studio_35',['Using Visual Studio',['../index.html#autotoc_md6',1,'']]],
-  ['using_20visual_20studio_20code_36',['Using Visual Studio Code',['../index.html#autotoc_md7',1,'']]],
+  ['using_20docker_20on_20linux_34',['Using Docker on Linux',['../index.html#autotoc_md9',1,'']]],
+  ['using_20visual_20studio_35',['Using Visual Studio',['../index.html#autotoc_md7',1,'']]],
+  ['using_20visual_20studio_20code_36',['Using Visual Studio Code',['../index.html#autotoc_md8',1,'']]],
   ['utils_2edefaultlogger_37',['Utils.DefaultLogger',['../module_Utils_8DefaultLogger.html',1,'']]],
   ['utils_2elogger_38',['Utils.Logger',['../module_Utils_8Logger.html',1,'']]],
   ['utils_2esteplogger_39',['Utils.StepLogger',['../module_Utils_8StepLogger.html',1,'']]]

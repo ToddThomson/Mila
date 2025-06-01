@@ -5,7 +5,7 @@ var searchData=
   ['weight_5f_2',['weight_',['../classMila_1_1Dnn_1_1Linear.html#a0dae3ee08bd0274f9e3c17d65892b080',1,'Mila::Dnn::Linear::weight_'],['../classMila_1_1Dnn_1_1LayerNorm.html#a90e2cb2e8550d38520f979f7adbbe5d0',1,'Mila::Dnn::LayerNorm::weight_']]],
   ['weight_5fdecay_3',['weight_decay',['../structMila_1_1Dnn_1_1TrainingConfig.html#af36a48c76390f2b89e23602f41f84973',1,'Mila::Dnn::TrainingConfig']]],
   ['what_4',['what',['../classMila_1_1Dnn_1_1Compute_1_1CudaBadAlloc.html#aabf494ee283f80c4648af9f8f69abe4f',1,'Mila::Dnn::Compute::CudaBadAlloc']]],
-  ['what_20s_20new_5',['What&apos;s New',['../index.html#autotoc_md4',1,'']]],
+  ['what_20s_20new_5',['What&apos;s New',['../index.html#autotoc_md5',1,'']]],
   ['withactivation_6',['withactivation',['../classMila_1_1Dnn_1_1MLPConfig.html#ac0b916c5e22b7552eb4159f90d637410',1,'Mila::Dnn::MLPConfig::withActivation()'],['../classMila_1_1Dnn_1_1TransformerBlockConfig.html#aabaf3b54b18a8f3f62c9dda6257efd51',1,'Mila::Dnn::TransformerBlockConfig::withActivation()']]],
   ['withapproximationmethod_7',['withApproximationMethod',['../classMila_1_1Dnn_1_1GeluConfig.html#a0febe222f44a44b36a12a4f717d61405',1,'Mila::Dnn::GeluConfig']]],
   ['withaxis_8',['withaxis',['../classMila_1_1Dnn_1_1SoftmaxConfig.html#a8298560b7217f6d599ae6960270d2cd5',1,'Mila::Dnn::SoftmaxConfig::withAxis()'],['../classMila_1_1Dnn_1_1LayerNormConfig.html#a6b0ef766d53d36556f78c8bbdbe826b0',1,'Mila::Dnn::LayerNormConfig::withAxis()']]],

@@ -21,6 +21,6 @@ var searchData=
   ['binaryoperationbase_18',['BinaryOperationBase',['../classMila_1_1Dnn_1_1Compute_1_1CudaResidualOp.html#ac1d71ebd614d6ecfb5f0e991d30c5134',1,'Mila::Dnn::Compute::CudaResidualOp']]],
   ['buffer_5f_19',['buffer_',['../classMila_1_1Dnn_1_1Tensor.html#a1493176728cc4f745d1da107915c2b95',1,'Mila::Dnn::Tensor']]],
   ['build_20',['build',['../classMila_1_1Dnn_1_1Model.html#a8735b9d7aa4e4a84ff9ea2bcea46e993',1,'Mila::Dnn::Model::build()'],['../classMila_1_1Dnn_1_1FusedModule.html#ae4d2afbc7d08d224ea93ed5e4756f1df',1,'Mila::Dnn::FusedModule::build()']]],
-  ['build_20instructions_21',['Mila Build Instructions',['../index.html#autotoc_md5',1,'']]],
+  ['build_20instructions_21',['Mila Build Instructions',['../index.html#autotoc_md6',1,'']]],
   ['buildmessage_22',['buildMessage',['../classCudaException.html#a22cd9c0aa74bdc47d13d66e22aaa5525',1,'CudaException']]]
 ];

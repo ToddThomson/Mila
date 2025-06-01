@@ -28,11 +28,11 @@ var NAVTREE =
     [ "Mila", "index.html#autotoc_md0", [
       [ "Prerelease Notice", "index.html#autotoc_md1", null ],
       [ "Description", "index.html#autotoc_md2", null ],
-      [ "Top Features", "index.html#autotoc_md3", null ],
-      [ "What's New", "index.html#autotoc_md4", null ],
-      [ "Mila Build Instructions", "index.html#autotoc_md5", null ],
-      [ "Required Components", "index.html#autotoc_md9", null ],
-      [ "Documentation", "index.html#autotoc_md10", null ],
+      [ "Documentation", "index.html#autotoc_md3", null ],
+      [ "Top Features", "index.html#autotoc_md4", null ],
+      [ "What's New", "index.html#autotoc_md5", null ],
+      [ "Mila Build Instructions", "index.html#autotoc_md6", null ],
+      [ "Required Components", "index.html#autotoc_md10", null ],
       [ "License", "index.html#autotoc_md11", null ],
       [ "Contributing", "index.html#autotoc_md12", null ]
     ] ],

@@ -11,8 +11,8 @@ var searchData=
   ['verbose_5flogging_8',['verbose_logging',['../structMila_1_1Dnn_1_1Gpt2_1_1DSReaderConfig.html#a51efe945c036e7dac7de9f0e9e4e11ec',1,'Mila::Dnn::Gpt2::DSReaderConfig']]],
   ['version_9',['version',['../structMila_1_1Version.html',1,'Mila::Version'],['../structMila_1_1Version.html#a9da5a0725d7be176dee839fbab1616b4',1,'Mila::Version::Version()']]],
   ['version_2eixx_10',['Version.ixx',['../Version_8ixx.html',1,'']]],
-  ['visual_20studio_11',['Using Visual Studio',['../index.html#autotoc_md6',1,'']]],
-  ['visual_20studio_20code_12',['Using Visual Studio Code',['../index.html#autotoc_md7',1,'']]],
+  ['visual_20studio_11',['Using Visual Studio',['../index.html#autotoc_md7',1,'']]],
+  ['visual_20studio_20code_12',['Using Visual Studio Code',['../index.html#autotoc_md8',1,'']]],
   ['vocab_5flen_5f_13',['vocab_len_',['../classMila_1_1Dnn_1_1EncoderConfig.html#a03b3df640159bff1e5a5e03d44ebe858',1,'Mila::Dnn::EncoderConfig']]],
   ['vocab_5fsize_5f_14',['vocab_size_',['../classMila_1_1Dnn_1_1CrossEntropyConfig.html#adc2f1cb62c8302b628116e73bc42bfca',1,'Mila::Dnn::CrossEntropyConfig']]]
 ];

@@ -17,7 +17,7 @@ var searchData=
   ['linearconfig_14',['linearconfig',['../classMila_1_1Dnn_1_1LinearConfig.html#aed6f642710195d93e71b1afcafbe8821',1,'Mila::Dnn::LinearConfig::LinearConfig()'],['../classMila_1_1Dnn_1_1LinearConfig.html',1,'Mila::Dnn::LinearConfig']]],
   ['linearconfig_2eixx_15',['LinearConfig.ixx',['../LinearConfig_8ixx.html',1,'']]],
   ['linearop_16',['LinearOp',['../namespaceMila_1_1Dnn_1_1Compute.html#afe9b0f279fe9c233b4b5d795cb0ade11a0acfa5da2fd5707d6476d71dde5cfbf5',1,'Mila::Dnn::Compute']]],
-  ['linux_17',['Using Docker on Linux',['../index.html#autotoc_md8',1,'']]],
+  ['linux_17',['Using Docker on Linux',['../index.html#autotoc_md9',1,'']]],
   ['listdevices_18',['listdevices',['../classMila_1_1Dnn_1_1Compute_1_1DeviceRegistry.html#aa974b9077835f9ba090da5aefedba16e',1,'Mila::Dnn::Compute::DeviceRegistry::listDevices()'],['../namespaceMila_1_1Dnn_1_1Compute.html#a259f89c596b838487dc1d70e93c84a28',1,'Mila::Dnn::Compute::listDevices()']]],
   ['listdevicesbytype_19',['listDevicesByType',['../namespaceMila_1_1Dnn_1_1Compute.html#ab56e16e838f04b07ad1bf746bc75c635',1,'Mila::Dnn::Compute']]],
   ['ln_5f1_5f_20',['ln_1_',['../classMila_1_1Dnn_1_1TransformerBlock.html#a5a5c46bb6a21dfaa50b8d5a21210894e',1,'Mila::Dnn::TransformerBlock']]],

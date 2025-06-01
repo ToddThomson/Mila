@@ -6,7 +6,7 @@ var searchData=
   ['fc2_5foutput_5f_3',['fc2_output_',['../classMila_1_1Dnn_1_1MLP.html#a023f2987feb4176c7944c78883c814dd',1,'Mila::Dnn::MLP']]],
   ['fclose_5fcheck_4',['fclose_check',['../namespaceMila_1_1Helpers.html#a7577e2a2c38420ff0ddc73ba17414e75',1,'Mila::Helpers']]],
   ['fclosecheck_5',['fcloseCheck',['../namespaceMila_1_1Helpers.html#a7bcace2f72dc4da99f6ad018d194b336',1,'Mila::Helpers']]],
-  ['features_6',['Top Features',['../index.html#autotoc_md3',1,'']]],
+  ['features_6',['Top Features',['../index.html#autotoc_md4',1,'']]],
   ['file_5f_7',['file_',['../classMila_1_1Dnn_1_1Compute_1_1CublasLtError.html#aaf3c54f9aec15e9907a44b5033326e06',1,'Mila::Dnn::Compute::CublasLtError::file_'],['../classMila_1_1Dnn_1_1Compute_1_1CudaError.html#ac804a6d56e8de083b07decddaf48e43e',1,'Mila::Dnn::Compute::CudaError::file_'],['../classMila_1_1Dnn_1_1Gpt2_1_1DatasetReader.html#a21c2d0cecb62785875ca7958bcff2d76',1,'Mila::Dnn::Gpt2::DatasetReader::file_']]],
   ['file_5fpath_5f_8',['file_path_',['../classMila_1_1Dnn_1_1Gpt2_1_1DatasetReader.html#a6043dc52370b5ae8804eea1a422cd001',1,'Mila::Dnn::Gpt2::DatasetReader']]],
   ['file_5fsize_5f_9',['file_size_',['../classMila_1_1Dnn_1_1Gpt2_1_1DatasetReader.html#a3013230574ed2626886c4d555f96ed02',1,'Mila::Dnn::Gpt2::DatasetReader']]],

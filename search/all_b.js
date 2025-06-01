@@ -19,7 +19,7 @@ var searchData=
   ['memoryresourcetracker_2eixx_16',['MemoryResourceTracker.ixx',['../MemoryResourceTracker_8ixx.html',1,'']]],
   ['memorystats_17',['MemoryStats',['../structMila_1_1Dnn_1_1Compute_1_1MemoryStats.html',1,'Mila::Dnn::Compute']]],
   ['mila_18',['mila',['../index.html#autotoc_md0',1,'Mila'],['../index.html',1,'Mila'],['../namespaceMila.html',1,'Mila'],['../module_Mila.html',1,'Mila module']]],
-  ['mila_20build_20instructions_19',['Mila Build Instructions',['../index.html#autotoc_md5',1,'']]],
+  ['mila_20build_20instructions_19',['Mila Build Instructions',['../index.html#autotoc_md6',1,'']]],
   ['mila_2eixx_20',['Mila.ixx',['../Mila_8ixx.html',1,'']]],
   ['mila_2eversion_21',['Mila.Version',['../module_Mila_8Version.html',1,'']]],
   ['mila_3a_3acore_22',['Core',['../namespaceMila_1_1Core.html',1,'Mila']]],

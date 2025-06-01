@@ -1,6 +1,6 @@
 var searchData=
 [
-  ['s_20new_0',['What&apos;s New',['../index.html#autotoc_md4',1,'']]],
+  ['s_20new_0',['What&apos;s New',['../index.html#autotoc_md5',1,'']]],
   ['save_1',['save',['../classMila_1_1Dnn_1_1TransformerBlock.html#ac3a796988e1018af4847a38fd620a9fa',1,'Mila::Dnn::TransformerBlock::save()'],['../classMila_1_1Dnn_1_1Module.html#a20d60df81d5e0f1db4e56aa0fb8d1319',1,'Mila::Dnn::Module::save()'],['../classMila_1_1Dnn_1_1CrossEntropy.html#a607244995f4c6c07e76a8f4cd1f63b95',1,'Mila::Dnn::CrossEntropy::save()'],['../classMila_1_1Dnn_1_1Softmax.html#a36efdde2b030a1ceb4ddb6a871d28c9c',1,'Mila::Dnn::Softmax::save()'],['../classMila_1_1Dnn_1_1Residual.html#a060bdf0568d9088adaca7010e2067408',1,'Mila::Dnn::Residual::save()'],['../classMila_1_1Dnn_1_1MultiHeadAttention.html#aae30a0f8075da1f957316a0a0c0643d7',1,'Mila::Dnn::MultiHeadAttention::save()'],['../classMila_1_1Dnn_1_1Linear.html#a8dd91ba09188d88d9face93cefe36eb7',1,'Mila::Dnn::Linear::save()'],['../classMila_1_1Dnn_1_1Encoder.html#ae3553e36aa335d19698e70c6a3cb9203',1,'Mila::Dnn::Encoder::save()'],['../classMila_1_1Dnn_1_1CompositeModule.html#acb5f4417a7fdf316c89bbeb33394fe58',1,'Mila::Dnn::CompositeModule::save()'],['../classMila_1_1Dnn_1_1MLP.html#a8133fd1819b5da727bcd18e1a776ee00',1,'Mila::Dnn::MLP::save()'],['../classMila_1_1Dnn_1_1Gelu.html#a8f3a194d931df6ec9ea04fbfd792d454',1,'Mila::Dnn::Gelu::save()'],['../classMila_1_1Dnn_1_1LayerNorm.html#a82c2fb6f5c711eb40e9bac80a756bbe1',1,'Mila::Dnn::LayerNorm::save()'],['../classMila_1_1Dnn_1_1Dropout.html#ab48725ed72064ee85714ea5da7664647',1,'Mila::Dnn::Dropout::save()']]],
   ['save_5fbest_5fonly_2',['save_best_only',['../structMila_1_1Dnn_1_1TrainingConfig.html#a34c1cbd4577fbad0d40dcac036eb416d',1,'Mila::Dnn::TrainingConfig']]],
   ['savecheckpoint_3',['saveCheckpoint',['../classMila_1_1Dnn_1_1Model.html#ace6557fba6d0369620f807c6112fad42',1,'Mila::Dnn::Model']]],
@@ -50,7 +50,7 @@ var searchData=
   ['strides_47',['strides',['../classMila_1_1Dnn_1_1Tensor.html#a113599791336446aa94d66fff01a6675',1,'Mila::Dnn::Tensor']]],
   ['strides_5f_48',['strides_',['../classMila_1_1Dnn_1_1Tensor.html#ab5dcb430b127b458a63c1118c5660679',1,'Mila::Dnn::Tensor']]],
   ['stringtoactivationtype_49',['stringToActivationType',['../namespaceMila_1_1Dnn.html#a6cdacef883b57bfa5d037e963ed964d3',1,'Mila::Dnn']]],
-  ['studio_50',['Using Visual Studio',['../index.html#autotoc_md6',1,'']]],
-  ['studio_20code_51',['Using Visual Studio Code',['../index.html#autotoc_md7',1,'']]],
+  ['studio_50',['Using Visual Studio',['../index.html#autotoc_md7',1,'']]],
+  ['studio_20code_51',['Using Visual Studio Code',['../index.html#autotoc_md8',1,'']]],
   ['synchronize_52',['synchronize',['../classMila_1_1Dnn_1_1Compute_1_1DeviceContext.html#adec58c226e24c7d4a0d9ba6b5119874d',1,'Mila::Dnn::Compute::DeviceContext']]]
 ];

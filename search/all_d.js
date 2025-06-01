@@ -1,7 +1,7 @@
 var searchData=
 [
   ['old_5fdevice_5ftype_5f_0',['old_device_type_',['../classMila_1_1Dnn_1_1Model.html#a235f872e086ac6960fc8674833e3d2a8',1,'Mila::Dnn::Model']]],
-  ['on_20linux_1',['Using Docker on Linux',['../index.html#autotoc_md8',1,'']]],
+  ['on_20linux_1',['Using Docker on Linux',['../index.html#autotoc_md9',1,'']]],
   ['onbatchbegin_2',['onBatchBegin',['../classMila_1_1Dnn_1_1ModelCallback.html#af7fafbde27ce5e352dce32083c6c0411',1,'Mila::Dnn::ModelCallback']]],
   ['onbatchend_3',['onBatchEnd',['../classMila_1_1Dnn_1_1ModelCallback.html#aa90d0a662d7211e67bfc9256ac12cab0',1,'Mila::Dnn::ModelCallback']]],
   ['onepochbegin_4',['onEpochBegin',['../classMila_1_1Dnn_1_1ModelCallback.html#a6aca5cbc704c21e31e88d41f12bd1f8b',1,'Mila::Dnn::ModelCallback']]],

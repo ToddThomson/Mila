@@ -26,7 +26,7 @@ var searchData=
   ['remove_23',['remove',['../structMila_1_1Dnn_1_1Compute_1_1OperationAttributes.html#aee1f448ed082fbb63446cd5176dda8aa',1,'Mila::Dnn::Compute::OperationAttributes']]],
   ['removemodule_24',['removeModule',['../classMila_1_1Dnn_1_1CompositeModule.html#acd81a571c1f1472f66e75683d196699f',1,'Mila::Dnn::CompositeModule']]],
   ['replacemodule_25',['replaceModule',['../classMila_1_1Dnn_1_1CompositeModule.html#a7810d955a9ab75ed88dfa930b89a1891',1,'Mila::Dnn::CompositeModule']]],
-  ['required_20components_26',['Required Components',['../index.html#autotoc_md9',1,'']]],
+  ['required_20components_26',['Required Components',['../index.html#autotoc_md10',1,'']]],
   ['res_5f1_5foutput_5f_27',['res_1_output_',['../classMila_1_1Dnn_1_1TransformerBlock.html#a073e2aca5499ac108e906e96be1770f3',1,'Mila::Dnn::TransformerBlock']]],
   ['res_5f2_5foutput_5f_28',['res_2_output_',['../classMila_1_1Dnn_1_1TransformerBlock.html#a6cb4b88b72e7a4bc03eaa2dbe23ad8ba',1,'Mila::Dnn::TransformerBlock']]],
   ['reset_29',['reset',['../structMila_1_1Dnn_1_1Compute_1_1MemoryStats.html#a2ee9b59bc9055cf3a571bfc46f1fc4c3',1,'Mila::Dnn::Compute::MemoryStats::reset()'],['../classMila_1_1Dnn_1_1Data_1_1DataLoader.html#abf7c344ee621c09c7050e336e8bf3d80',1,'Mila::Dnn::Data::DataLoader::reset()']]],
