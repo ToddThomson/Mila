@@ -8,7 +8,7 @@ add_library( Mila STATIC
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaLayerNorm.cu"
 
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/MatMul/CudaMatMulFp32.cu"
-	#"Src/Dnn/Compute/Operations/Cuda/Kernels/MatMul/CudaMatMulFp16.cu"
+	"Src/Dnn/Compute/Operations/Cuda/Kernels/MatMul/CudaMatMulFp16.cu"
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/MatMul/FusedMatMulBiasGelu.cu"
 	#"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaMHA.cu"
 	"Src/Dnn/Compute/Operations/Cuda/Kernels/CudaGelu.cu"
@@ -90,12 +90,12 @@ PUBLIC
         #---------------------------------------------------------------
         # Tensor System
         #---------------------------------------------------------------
-        "Src/Dnn/Tensor/Tensor.ixx"
-        "Src/Dnn/Tensor/TensorBuffer.ixx"
-        "Src/Dnn/Tensor/TensorType.ixx" 
-        "Src/Dnn/Tensor/TensorTraits.ixx" 
-        "Src/Dnn/Tensor/TensorHelpers.ixx"
-        "Src/Dnn/Tensor/TensorPtr.ixx"
+        "Src/Dnn/Tensors/Tensor.ixx"
+        "Src/Dnn/Tensors/TensorBuffer.ixx"
+        "Src/Dnn/Tensors/TensorLayout.ixx"
+        "Src/Dnn/Tensors/TensorTraits.ixx" 
+        "Src/Dnn/Tensors/TensorHelpers.ixx"
+        "Src/Dnn/Tensors/TensorPtr.ixx"
         
         #---------------------------------------------------------------
         # Common Components
@@ -188,7 +188,7 @@ PUBLIC
         # Module Framework
         #---------------------------------------------------------------
         "Src/Dnn/Modules/Module.ixx"
-        "Src/Dnn/Common/ComponentConfig.ixx"
+        "Src/Dnn/Common/ConfigurationBase.ixx"
         "Src/Dnn/Modules/CompositeModule.ixx"
         
         #---------------------------------------------------------------
@@ -251,8 +251,7 @@ PUBLIC
         #---------------------------------------------------------------
         # WIP
         #---------------------------------------------------------------
-        "Src/Dnn/Common/Component.ixx"
-)
+ )
 
 target_link_libraries(Mila PRIVATE 
     miniz

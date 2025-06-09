@@ -16,7 +16,7 @@ export module Compute.CudaEncoderOp;
 import Dnn.Modules.Encoder;
 import Dnn.Tensor;
 import Dnn.TensorTraits;
-import Dnn.ComponentConfig;
+import Dnn.ConfigurationBase;
 import Compute.Precision;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
@@ -216,7 +216,7 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, int, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, int, float>> {
+                []( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, int, float>> {
                     const auto& encoderConfig = static_cast<const EncoderConfig&>( config );
                     return context ? std::make_shared<CudaEncoderOp<float>>( context, encoderConfig )
                         : std::make_shared<CudaEncoderOp<float>>( encoderConfig );
@@ -225,7 +225,7 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, int, half>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, int, half>> {
+                []( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, int, half>> {
                     const auto& encoderConfig = static_cast<const EncoderConfig&>( config );
                     return context ? std::make_shared<CudaEncoderOp<half>>( context, encoderConfig )
                         : std::make_shared<CudaEncoderOp<half>>( encoderConfig );

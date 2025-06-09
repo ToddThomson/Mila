@@ -32,8 +32,8 @@ The documentation includes class references, usage examples, and architecture gu
 
 ## What's New
 
-* Modernized ComponentConfig with deduced `this` parameters for a more elegant fluent interface
-* Refactored Module class to use ComponentConfig for all configuration options
+* Modernized ConfigurationBase with deduced `this` parameters for a more elegant fluent interface
+* Refactored Module class to use ConfigurationBase for all configuration options
 * Simplified module creation with consistent validation and configuration approach
 * Eliminated redundant configuration code with unified parameter handling
 * Improved type safety throughout the framework with more comprehensive constraints

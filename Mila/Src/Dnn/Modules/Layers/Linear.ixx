@@ -36,7 +36,7 @@ import Serialization.ModelArchive;
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
-	using namespace Mila::Dnn::Serialization;
+    using namespace Mila::Dnn::Serialization;
 
     /**
      * @brief A class representing a linear transformation module.
@@ -49,12 +49,11 @@ namespace Mila::Dnn
      * every input neuron to every output neuron with learnable weights.
      *
      * @tparam TDeviceType The device type (CPU or CUDA) on which to perform computations.
-     * @tparam TInput The data type of the input tensor elements.
-     * @tparam TOutput The data type of the output tensor elements, defaults to TInput.
+     * @tparam TDataType The data type of the tensor elements, defaults to float.
      */
-    export template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput>
-        requires ValidFloatTensorTypes<TInput, TOutput>
-    class Linear : public Module<TDeviceType, TInput, TOutput> {
+    export template<DeviceType TDeviceType = DeviceType::Cuda, typename TDataType = float>
+        requires ValidFloatTensorType<TDataType>
+    class Linear : public Module<TDeviceType, TDataType, TDataType> {
     public:
         /**
          * @brief Memory resource type used for tensors, selected based on device type.
@@ -66,7 +65,7 @@ namespace Mila::Dnn
         /**
          * @brief Alias for base module type.
          */
-        using ModuleBase = Module<TDeviceType, TInput, TOutput>;
+        using ModuleBase = Module<TDeviceType, TDataType, TDataType>;
 
         /**
          * @brief Constructs a new Linear module with a device name.
@@ -128,7 +127,7 @@ namespace Mila::Dnn
          * @param input The input tensor to be transformed.
          * @param output The output tensor where the results will be stored.
          */
-        void forward( const Tensor<TInput, MR>& input, Tensor<TOutput, MR>& output ) {
+        void forward( const Tensor<TDataType, MR>& input, Tensor<TDataType, MR>& output ) {
             operation_->forward( input, parameters_, properties_, output, output_state_ );
         }
 
@@ -142,9 +141,9 @@ namespace Mila::Dnn
          * @param input_grad The tensor to store gradients with respect to input.
          */
         void backward(
-            const Tensor<TInput, MR>& input,
-            const Tensor<TOutput, MR>& output_grad,
-            Tensor<TInput, MR>& input_grad ) {
+            const Tensor<TDataType, MR>& input,
+            const Tensor<TDataType, MR>& output_grad,
+            Tensor<TDataType, MR>& input_grad ) {
             operation_->backward(
                 input,            // Input tensor
                 output_grad,      // Gradient from next layer
@@ -178,9 +177,9 @@ namespace Mila::Dnn
          * The weight tensor has shape [output_features, input_features] and
          * is initialized with Xavier/Glorot uniform distribution.
          *
-         * @return std::shared_ptr<Tensor<TOutput, MR>> The weight tensor used in the linear transformation.
+         * @return std::shared_ptr<Tensor<TDataType, MR>> The weight tensor used in the linear transformation.
          */
-        std::shared_ptr<Tensor<TOutput, MR>> getWeight() {
+        std::shared_ptr<Tensor<TDataType, MR>> getWeight() {
             return weight_;
         }
 
@@ -190,9 +189,9 @@ namespace Mila::Dnn
          * The bias tensor has shape [output_features] and is initialized to zeros
          * if bias is enabled in the layer configuration.
          *
-         * @return std::optional<std::shared_ptr<Tensor<TOutput, MR>>> An optional containing the bias tensor if bias is enabled, otherwise std::nullopt.
+         * @return std::optional<std::shared_ptr<Tensor<TDataType, MR>>> An optional containing the bias tensor if bias is enabled, otherwise std::nullopt.
          */
-        std::optional<std::shared_ptr<Tensor<TOutput, MR>>> getBias() {
+        std::optional<std::shared_ptr<Tensor<TDataType, MR>>> getBias() {
             return config_.hasBias() ? std::optional{ bias_ } : std::nullopt;
         }
 
@@ -257,7 +256,7 @@ namespace Mila::Dnn
             oss << "Input features: " << config_.getInputFeatures();
             oss << ", Output features: " << config_.getOutputFeatures() << std::endl;
             oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
-            oss << this->getComputePrecision().toString() << std::endl;
+            // FIXME: oss << this->getComputePrecision().toString() << std::endl;
             oss << "Parameter count: " << parameterCount() << std::endl;
 
             return oss.str();
@@ -275,14 +274,14 @@ namespace Mila::Dnn
          * Shape is [output_features, input_features] to transform input features
          * to output features through matrix multiplication.
          */
-        std::shared_ptr<Tensor<TOutput, MR>> weight_{ nullptr };
+        std::shared_ptr<Tensor<TDataType, MR>> weight_{ nullptr };
 
         /**
          * @brief The bias tensor added after the matrix multiplication.
          *
          * Shape is [output_features]. This tensor is only used if has_bias_ is true.
          */
-        std::shared_ptr<Tensor<TOutput, MR>> bias_{ nullptr };
+        std::shared_ptr<Tensor<TDataType, MR>> bias_{ nullptr };
 
         /**
          * @brief Collection of trainable parameters for this module.
@@ -290,7 +289,7 @@ namespace Mila::Dnn
          * Contains the weight tensor and optionally the bias tensor if has_bias_ is true.
          * These parameters are passed to the underlying operation during forward pass.
          */
-        std::vector<std::shared_ptr<Tensor<TOutput, MR>>> parameters_;
+        std::vector<std::shared_ptr<Tensor<TDataType, MR>>> parameters_;
 
         /**
          * @brief Gradients for the parameters of this module.
@@ -298,7 +297,7 @@ namespace Mila::Dnn
          * Contains gradients for the weight tensor and optionally the bias tensor.
          * These are computed during the backward pass.
          */
-        std::vector<std::shared_ptr<Tensor<TOutput, MR>>> parameter_grads_;
+        std::vector<std::shared_ptr<Tensor<TDataType, MR>>> parameter_grads_;
 
         /**
          * @brief Cache of intermediate tensors needed for backward pass.
@@ -306,7 +305,7 @@ namespace Mila::Dnn
          * Stores tensors that are computed during the forward pass and
          * are needed for gradient computation during backpropagation.
          */
-        std::vector<std::shared_ptr<Tensor<TOutput, MR>>> output_state_;
+        std::vector<std::shared_ptr<Tensor<TDataType, MR>>> output_state_;
 
         /**
          * @brief Additional configuration options for the linear operation.
@@ -322,7 +321,7 @@ namespace Mila::Dnn
          * This operation performs the actual computation for the linear layer,
          * with different implementations for CPU and CUDA devices.
          */
-        std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TDeviceType, TDataType, TDataType>> operation_{ nullptr };
 
         /**
          * @brief Initializes the tensors needed for the Linear operation.
@@ -335,21 +334,19 @@ namespace Mila::Dnn
          * based on the current device context.
          */
         void initializeParameters() {
-            parameters_.clear();
-            this->parameter_map_.clear();
 
             size_t input_features = config_.getInputFeatures();
             size_t output_features = config_.getOutputFeatures();
             bool has_bias = config_.hasBias();
 
-            weight_ = std::make_shared<Tensor<TOutput, MR>>(
+            weight_ = std::make_shared<Tensor<TDataType, MR>>(
                 std::vector<size_t>{output_features, input_features} );
             weight_->setName( this->getName() + ".weight" );
 
-            xavier<TOutput, MR>( *weight_, input_features, output_features );
+            xavier<TDataType, MR>( *weight_, input_features, output_features );
 
             if ( has_bias ) {
-                bias_ = std::make_shared<Tensor<TOutput, MR>>(
+                bias_ = std::make_shared<Tensor<TDataType, MR>>(
                     std::vector<size_t>{output_features} );
                 bias_->setName( this->getName() + ".bias" );
             }
@@ -377,13 +374,13 @@ namespace Mila::Dnn
             size_t output_features = config_.getOutputFeatures();
             bool has_bias = config_.hasBias();
 
-            auto weight_grad = std::make_shared<Tensor<TOutput, MR>>(
+            auto weight_grad = std::make_shared<Tensor<TDataType, MR>>(
                 std::vector<size_t>{output_features, input_features} );
             weight_grad->setName( this->getName() + ".weight_grad" );
             parameter_grads_.push_back( weight_grad );
 
             if ( has_bias ) {
-                auto bias_grad = std::make_shared<Tensor<TOutput, MR>>(
+                auto bias_grad = std::make_shared<Tensor<TDataType, MR>>(
                     std::vector<size_t>{output_features} );
                 bias_grad->setName( this->getName() + ".bias_grad" );
                 parameter_grads_.emplace_back( bias_grad );
@@ -401,37 +398,35 @@ namespace Mila::Dnn
          */
         void createOperation() {
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TInput, TOutput>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TDataType, TDataType>(
                     "Cpu::LinearOp",
                     this->getDeviceContext(),
                     config_ );
-                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cpu, TInput, TOutput>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cpu, TDataType, TDataType>>(base_op);
             }
             else {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TInput, TOutput>(
+                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TDataType, TDataType>(
                     "Cuda::LinearOp",
                     this->getDeviceContext(),
                     config_ );
-                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cuda, TInput, TOutput>>(base_op);
+                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cuda, TDataType, TDataType>>(base_op);
             }
         }
     };
 
     /**
-     * @brief Type alias for CPU-based linear module with customizable tensor types.
+     * @brief Type alias for CPU-based linear module with customizable tensor type.
      *
-     * @tparam TInput Data type of the input tensor elements.
-     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
+     * @tparam TDataType Data type of the tensor elements, defaults to float.
      */
-    export template<typename TInput = float, typename TOutput = TInput>
-        using CpuLinear = Linear<DeviceType::Cpu, TInput, TOutput>;
+    export template<typename TDataType = float>
+        using CpuLinear = Linear<DeviceType::Cpu, TDataType>;
 
     /**
-     * @brief Type alias for CUDA-based linear module with customizable tensor types.
+     * @brief Type alias for CUDA-based linear module with customizable tensor type.
      *
-     * @tparam TInput Data type of the input tensor elements.
-     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
+     * @tparam TDataType Data type of the tensor elements, defaults to float.
      */
-    export template<typename TInput = float, typename TOutput = TInput>
-        using CudaLinear = Linear<DeviceType::Cuda, TInput, TOutput>;
+    export template<typename TDataType = float>
+        using CudaLinear = Linear<DeviceType::Cuda, TDataType>;
 }

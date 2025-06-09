@@ -3,7 +3,7 @@
  * @brief Configuration interface for the Encoder module in the Mila DNN framework.
  *
  * Defines the EncoderConfig class, providing a type-safe fluent interface for configuring
- * Encoder modules. Inherits from ComponentConfig CRTP base and adds Encoder-specific options
+ * Encoder modules. Inherits from ConfigurationBase CRTP base and adds Encoder-specific options
  * such as embedding dimension, number of heads, and feed-forward layer size.
  *
  * Exposed as part of the Encoder module via module partitions.
@@ -15,7 +15,7 @@ module;
 export module Dnn.Modules.Encoder:Config;
 
 import Dnn.Module;
-import Dnn.ComponentConfig;
+import Dnn.ConfigurationBase;
 import Dnn.ActivationType;
 
 namespace Mila::Dnn
@@ -25,7 +25,7 @@ namespace Mila::Dnn
      *
      * Provides a type-safe fluent interface for configuring Encoder modules.
      */
-    export class EncoderConfig : public ComponentConfig {
+    export class EncoderConfig : public ConfigurationBase {
     public:
         /**
          * @brief Default constructor.
@@ -92,7 +92,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If validation fails
          */
         void validate() const {
-            ComponentConfig::validate();
+            ConfigurationBase::validate();
 
             if ( channels_ == 0 ) {
                 throw std::invalid_argument( "Embedding dimension (channels) must be greater than zero" );

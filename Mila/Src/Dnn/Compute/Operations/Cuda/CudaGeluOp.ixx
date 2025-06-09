@@ -17,7 +17,7 @@ export module Compute.CudaGeluOp;
 import Dnn.Modules.Gelu;
 import Dnn.Tensor;
 import Dnn.TensorTraits;
-import Dnn.ComponentConfig;
+import Dnn.ConfigurationBase;
 import Compute.Precision;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
@@ -152,7 +152,7 @@ namespace Mila::Dnn::Compute
             Tensor<TDataType, MR>& output,
             std::vector<std::shared_ptr<Tensor<TDataType, MR>>>& output_state ) const override {
 
-            ComputePrecision::Policy policy = config_.getPrecision();
+            ComputePrecision::Policy policy = config_.getPrecisionPolicy();
 
             auto X = input.raw_data();
             auto Y = output.raw_data();
@@ -251,7 +251,7 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, float>> {
+                []( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, float>> {
                     const auto& geluConfig = static_cast<const GeluConfig&>(config);
                     return context ? std::make_shared<CudaGeluOp<float>>( context, geluConfig )
                         : std::make_shared<CudaGeluOp<float>>( geluConfig );
@@ -261,7 +261,7 @@ namespace Mila::Dnn::Compute
 			// FIXME: Uncomment when half precision is supported
             /*OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, half, half>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half, half>> {
+                []( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half, half>> {
                     const auto& geluConfig = static_cast<const GeluConfig&>( config );
                     return context ? std::make_shared<CudaGeluOp<half>>( context, geluConfig )
                         : std::make_shared<CudaGeluOp<half>>( geluConfig );

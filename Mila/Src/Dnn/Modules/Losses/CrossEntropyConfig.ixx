@@ -3,7 +3,7 @@
  * @brief Configuration interface for the CrossEntropy module in the Mila DNN framework.
  *
  * Defines the CrossEntropyConfig class, providing a type-safe fluent interface for configuring
- * CrossEntropy loss function modules. Inherits from ComponentConfig CRTP base and adds
+ * CrossEntropy loss function modules. Inherits from ConfigurationBase CRTP base and adds
  * CrossEntropy-specific options such as vocabulary size and weight handling.
  */
 
@@ -15,14 +15,14 @@ module;
 export module Dnn.Modules.CrossEntropy:Config;
 
 import Dnn.Module;
-import Dnn.ComponentConfig;
+import Dnn.ConfigurationBase;
 
 namespace Mila::Dnn
 {
     /**
      * @brief Configuration class for CrossEntropy module.
      */
-    export class CrossEntropyConfig : public ComponentConfig {
+    export class CrossEntropyConfig : public ConfigurationBase {
     public:
         /**
          * @brief Constructor with required vocabulary size parameter.
@@ -127,7 +127,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If validation fails
          */
         void validate() const {
-            ComponentConfig::validate();
+            ConfigurationBase::validate();
 
             if ( vocab_size_ <= 0 ) {
                 throw std::invalid_argument( "Vocabulary size must be greater than zero" );

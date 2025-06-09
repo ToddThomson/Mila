@@ -19,7 +19,7 @@ export module Compute.CpuResidualOp;
 
 import Dnn.Modules.Residual;
 import Dnn.Tensor;
-import Dnn.ComponentConfig;
+import Dnn.ConfigurationBase;
 import Compute.DeviceType;
 import Compute.DeviceContext;
 import Compute.OperationType;
@@ -197,7 +197,7 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerBinaryOperation<DeviceType::Cpu, float, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<BinaryOperation<DeviceType::Cpu, float, float, float>> {
+                []( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<BinaryOperation<DeviceType::Cpu, float, float, float>> {
                     const auto& residualConfig = dynamic_cast<const ResidualConfig&>( config );
                     return context ? std::make_shared<CpuResidualOp>( context, residualConfig )
                         : std::make_shared<CpuResidualOp>( residualConfig );

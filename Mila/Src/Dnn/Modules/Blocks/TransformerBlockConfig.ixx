@@ -3,7 +3,7 @@
  * @brief Configuration interface for the TransformerBlock in the Mila DNN framework.
  *
  * Defines the TransformerBlockConfig class, providing a type-safe fluent interface for configuring
- * TransformerBlock modules. Inherits from ComponentConfig CRTP base and adds TransformerBlock-specific
+ * TransformerBlock modules. Inherits from ConfigurationBase CRTP base and adds TransformerBlock-specific
  * options such as input shape, number of heads, and architectural variants.
  */
 
@@ -13,7 +13,7 @@ module;
 
 export module Dnn.Blocks.TransformerBlock:Config;
 
-import Dnn.ComponentConfig;
+import Dnn.ConfigurationBase;
 import Dnn.ActivationType;
 
 namespace Mila::Dnn
@@ -23,7 +23,7 @@ namespace Mila::Dnn
      *
      * Provides a type-safe fluent interface for configuring TransformerBlock modules.
      */
-    export class TransformerBlockConfig : public ComponentConfig {
+    export class TransformerBlockConfig : public ConfigurationBase {
     public:
         /**
          * @brief Constructor with required parameters.
@@ -130,7 +130,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If validation fails
          */
         void validate() const {
-            ComponentConfig::validate();
+            ConfigurationBase::validate();
 
             if ( input_shape_.size() != 3 ) {
                 throw std::invalid_argument( "Input shape must have rank of 3 [batch_size, sequence_length, embedding_dim]" );

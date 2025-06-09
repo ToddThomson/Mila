@@ -1,3 +1,22 @@
+/**
+ * @file CublasLtMatMulBias.ixx
+ * @brief CUDA-accelerated matrix multiplication with bias addition using cuBLASLt
+ *
+ * @details
+ * This module provides high-performance matrix multiplication operations optimized for neural network
+ * linear layers. It leverages NVIDIA's cuBLASLt library to efficiently execute matrix operations on
+ * GPU tensor cores with configurable precision modes.
+ *
+ * Key features:
+ * - Mixed precision computation capabilities (FP32, FP16, BF16, FP8)
+ * - Optimized matrix multiplication with fused bias addition
+ * - Support for adaptive precision based on computation policy
+ * - Automatic algorithm selection via cuBLASLt heuristics
+ *
+ * The implementation handles various data types with appropriate compute precision selection
+ * based on the provided ComputePrecision policy, including accuracy vs. performance tradeoffs.
+ */
+
 module;
 #include <cublasLt.h>
 #include <cuda_fp16.h>
@@ -7,6 +26,8 @@ module;
 
 export module Compute.CublasLtMatMulBias;
 
+import Dnn.TensorTraits;
+import Compute.Precision;
 import Cuda.DataTypeTraits;
 import CublasLt.Error;
 import Utils.Logger;
@@ -19,33 +40,41 @@ namespace Mila::Dnn::Compute
     /**
     * @brief cuBLASLt implementation of matrix multiplication with bias addition
     *
-    * @tparam TPrecision Data type for computation (float, half, etc.)
-    * @param out Output tensor data pointer
-    * @param inp Input tensor data pointer
-    * @param weight Weight tensor data pointer
-    * @param bias Bias tensor data pointer (can be nullptr)
-    * @param B Batch size
-    * @param TPrecision Sequence length
-    * @param C Input channels
-    * @param OC Output channels
-    * @param stream CUDA stream
+    * Performs Y = W·X + bias where W is the weight matrix, X is the input matrix,
+    * and bias is optionally added to each output column. The operation uses cuBLASLt
+    * for optimized matrix multiplication with configurable precision settings.
+    *
+    * @tparam TDataType Data type for inputs and outputs (float, half, bfloat16, fp8)
+    * @param Y Output tensor pointer [OC × outer_size]
+    * @param X Input tensor pointer [C × outer_size]
+    * @param weight Weight tensor pointer [C × OC] (transposed internally)
+    * @param bias Bias tensor pointer [OC] (can be nullptr for no bias)
+    * @param outer_size Combined batch and sequence dimensions (B×T)
+    * @param C Input feature dimension
+    * @param OC Output feature dimension
+    * @param stream CUDA stream for asynchronous execution
+    * @param cublasLtHandle cuBLASLt library handle
+    * @param precision_policy Policy controlling computation precision and performance tradeoffs
     */
-    export template <typename TDataType, typename TCompute = float>
-		requires std::is_same_v<TDataType, float> || std::is_same_v<TDataType, half> || std::is_same_v<TDataType, __nv_bfloat16> || std::is_same_v<TDataType, __nv_fp8_e4m3>
+    export template <typename TDataType>
+        requires ValidFloatTensorType<TDataType>
     void cublaslt_matmul_forward(
         TDataType* Y, const TDataType* X, const TDataType* weight, const TDataType* bias,
         int outer_size, int C, int OC,
         cudaStream_t stream,
-        cublasLtHandle_t cublasLtHandle ) {
+        cublasLtHandle_t cublasLtHandle,
+        ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto ) {
 
+        // REVIEW: Tensors are aligned at construction. This should not be needed
+        // 
         // Check alignment (some modes work unaligned but it always best to be aligned for performance)
         if ( ((uintptr_t)Y % 16) != 0 || ((uintptr_t)X % 16) != 0 || ((uintptr_t)weight % 16) != 0 || ((uintptr_t)bias % 16) != 0 ) {
             printf( "All cuBLASLt pointers must be aligned!\n" );
             exit( EXIT_FAILURE );
         }
 
-        // Determine CUDA datatype
         cudaDataType_t cuda_data_type;
+
         if constexpr ( std::is_same_v<TDataType, float> ) {
             cuda_data_type = CUDA_R_32F;
         }
@@ -55,62 +84,72 @@ namespace Mila::Dnn::Compute
         else if constexpr ( std::is_same_v<TDataType, __nv_bfloat16> ) {
             cuda_data_type = CUDA_R_16BF;
         }
-		else if constexpr ( std::is_same_v<TDataType, __nv_fp8_e4m3> ) {
-			cuda_data_type = CUDA_R_8F_E4M3;
-		}
-		else {
+        else if constexpr ( std::is_same_v<TDataType, __nv_fp8_e4m3> ) {
+            cuda_data_type = CUDA_R_8F_E4M3;
+        }
+        else if constexpr ( std::is_same_v<TDataType, __nv_fp8_e5m2> ) {
+            cuda_data_type = CUDA_R_8F_E5M2;
+        }
+        else {
             static_assert(always_false<TDataType>, "Unsupported data type");
         }
 
-        // Determine computation type based on template parameter or config
         cublasComputeType_t compute_type;
+        cudaDataType_t scale_type;
 
-        // Use TCompute template parameter to determine compute type
-        if constexpr ( std::is_same_v<TCompute, float> ) {
-            if constexpr ( std::is_same_v<TDataType, half> ) {
-                compute_type = CUBLAS_COMPUTE_32F_FAST_16F;
-            }
-            else if constexpr ( std::is_same_v<TDataType, __nv_bfloat16> ) {
-                compute_type = CUBLAS_COMPUTE_32F_FAST_16BF;
-            }
-            else {
-                compute_type = CUBLAS_COMPUTE_32F;
-            }
-        }
-        else if constexpr ( std::is_same_v<TCompute, half> ) {
-            compute_type = CUBLAS_COMPUTE_16F;
-        }
-        else {
-            static_assert(always_false<TCompute>, "Unsupported compute type");
+        switch ( precision_policy ) {
+            case ComputePrecision::Policy::Native:
+            case ComputePrecision::Policy::Accuracy:
+                if constexpr ( std::is_same_v<TDataType, half> ) {
+                    compute_type = CUBLAS_COMPUTE_16F;
+                    scale_type = CUDA_R_16F;
+                }
+                else if constexpr ( std::is_same_v<TDataType, __nv_bfloat16> ) {
+                    compute_type = CUBLAS_COMPUTE_32F;
+                    scale_type = CUDA_R_32F;
+                }
+                else {
+                    compute_type = CUBLAS_COMPUTE_32F;
+                    scale_type = CUDA_R_32F;
+                }
+                break;
+            case ComputePrecision::Policy::Performance:
+            case ComputePrecision::Policy::Auto:
+            default:
+                if constexpr ( std::is_same_v<TDataType, half> ) {
+                    compute_type = CUBLAS_COMPUTE_32F_FAST_16F;
+                    scale_type = CUDA_R_32F;
+                }
+                else if constexpr ( std::is_same_v<TDataType, __nv_bfloat16> ) {
+                    compute_type = CUBLAS_COMPUTE_32F_FAST_16BF;
+                    scale_type = CUDA_R_32F;
+                }
+                else {
+                    compute_type = CUBLAS_COMPUTE_32F;
+                    scale_type = CUDA_R_32F;
+                }
+                break;
         }
 
-        // Scale factors should match the compute type
-        using ScaleType = std::conditional_t<std::is_same_v<TCompute, float>, float, TDataType>;
-        const ScaleType alpha = static_cast<ScaleType>(1.0f);
-        const ScaleType beta = static_cast<ScaleType>(0.0f);
+        const float alpha = 1.0f;
+        const float beta = 0.0f;
 
         cublasLtMatmulDesc_t operationDesc;
-        cublasLtCheckStatus( cublasLtMatmulDescCreate( &operationDesc, compute_type,
-            std::is_same_v<TCompute, float> ? CUDA_R_32F : cuda_data_type ) );
+        cublasLtCheckStatus( cublasLtMatmulDescCreate( &operationDesc, compute_type, scale_type ) );
 
-        // Create the operation descriptor
-        //cublasLtMatmulDesc_t operationDesc;
-        //cublasLtCheckStatus( cublasLtMatmulDescCreate( &operationDesc, compute_type, cuda_data_type ) );
-
-		bool transA = true; // Transpose for weight
-		bool transB = false; // Transpose for input
+        bool transA = true; // Transpose for weight
+        bool transB = false; // Transpose for input
 
         cublasOperation_t opNoTranspose = CUBLAS_OP_N;
         cublasOperation_t opTranspose = CUBLAS_OP_T;
         cublasLtCheckStatus( cublasLtMatmulDescSetAttribute( operationDesc, CUBLASLT_MATMUL_DESC_TRANSA, (transA) ? &opTranspose : &opNoTranspose, sizeof( opTranspose ) ) );
         cublasLtCheckStatus( cublasLtMatmulDescSetAttribute( operationDesc, CUBLASLT_MATMUL_DESC_TRANSB, (transB) ? &opTranspose : &opNoTranspose, sizeof( opNoTranspose ) ) );
-        
-        
+
         // Create matrix descriptors
         cublasLtMatrixLayout_t weightLayout, inputLayout, outputLayout;
         // Create matrix descriptors (rows, cols, leading dimension)
-		// m,n,k  = OC, B*T, C
-        cublasLtCheckStatus( cublasLtMatrixLayoutCreate( &weightLayout, cuda_data_type, C, OC, C ) ); // OC, C, OC ) ); // [m, k, m] for non transposed, [k, m, k]
+        // m,n,k  = OC, B*T, C
+        cublasLtCheckStatus( cublasLtMatrixLayoutCreate( &weightLayout, cuda_data_type, C, OC, C ) );
         cublasLtCheckStatus( cublasLtMatrixLayoutCreate( &inputLayout, cuda_data_type, C, outer_size, C ) );
         cublasLtCheckStatus( cublasLtMatrixLayoutCreate( &outputLayout, cuda_data_type, OC, outer_size, OC ) );
 
@@ -178,19 +217,8 @@ namespace Mila::Dnn::Compute
         cublasLtMatmulPreferenceDestroy( preference );
 
         if ( status != CUBLAS_STATUS_SUCCESS ) {
-            Utils::Logger::warning( "[FusedLinear] cuBLASLt matmul failed!" );
+            Utils::Logger::warning( "[F] cuBLASLt matmul failed!" );
             throw CublasLtError( status );
         }
     };
-
-    //// Explicit instantiations for supported types
-    //template void cublaslt_matmul_forward<float>(
-    //    float* out, const float* inp, const float* weight, const float* bias,
-    //    int B, int TPrecision, int C, int OC, cudaStream_t stream );
-    //
-    //template void cublaslt_matmul_forward<half>(
-    //    half* out, const half* inp, const half* weight, const half* bias,
-    //    int B, int TPrecision, int C, int OC, cudaStream_t stream );
-
-    // Can add more instantiations for other types as needed
 }

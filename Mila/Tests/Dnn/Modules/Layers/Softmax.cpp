@@ -172,7 +172,7 @@ namespace Modules::Tests
             if ( !disabled_policy_data_.softmax_module ) {
                 disabled_policy_data_ = SoftmaxTestData<DeviceType::Cuda, float>::Create(
                     "cuda_softmax_disabled", batch_size_, sequence_length_, vocab_size_, axis_, false,
-                    ComputePrecision::Policy::Disabled );
+                    ComputePrecision::Policy::Native );
             }
             return disabled_policy_data_;
         }
@@ -266,7 +266,7 @@ namespace Modules::Tests
 
         std::string policy_string;
         switch ( expected_policy ) {
-            case ComputePrecision::Policy::Disabled:
+            case ComputePrecision::Policy::Native:
                 policy_string = "Disabled";
                 break;
             case ComputePrecision::Policy::Performance:
@@ -520,7 +520,7 @@ namespace Modules::Tests
     }
 
     TEST_F( SoftmaxTests, Cuda_Float_PrecisionPolicy_Disabled ) {
-        TestPrecisionPolicy<DeviceType::Cuda, float>( DisabledPolicyData(), ComputePrecision::Policy::Disabled );
+        TestPrecisionPolicy<DeviceType::Cuda, float>( DisabledPolicyData(), ComputePrecision::Policy::Native );
     }
 
     // Context Construction Tests

@@ -3,7 +3,7 @@
  * @brief Configuration interface for the GELU activation module in the Mila DNN framework.
  *
  * Defines the GeluConfig class, providing a type-safe fluent interface for configuring
- * Gaussian Error Linear Unit (GELU) activation function modules. Inherits from ComponentConfig 
+ * Gaussian Error Linear Unit (GELU) activation function modules. Inherits from ConfigurationBase 
  * CRTP base and adds GELU-specific options: approximation method.
  *
  * Exposed as part of the Gelu module via module partitions.
@@ -15,7 +15,7 @@ module;
 export module Dnn.Modules.Gelu:Config;
 
 import Dnn.Module;
-import Dnn.ComponentConfig;
+import Dnn.ConfigurationBase;
 
 namespace Mila::Dnn
 {
@@ -24,7 +24,7 @@ namespace Mila::Dnn
      *
      * Provides a type-safe fluent interface for configuring GELU modules.
      */
-    export class GeluConfig : public ComponentConfig {
+    export class GeluConfig : public ConfigurationBase {
     public:
         /**
          * @brief Approximation methods for the GELU activation function.
@@ -70,7 +70,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If validation fails or an unsupported approximation method is selected
          */
         void validate() const {
-            ComponentConfig::validate();
+            ConfigurationBase::validate();
 
             // Validate that only Tanh approximation method is used
             if ( approximation_method_ != ApproximationMethod::Tanh ) {

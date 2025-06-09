@@ -11,7 +11,7 @@ export module Dnn.PrecisionConfig;
 
 namespace Mila::Dnn::Compute
 {
-    export class AMPConfig {
+    export class MixedPrecisionConfig {
     public:
         enum class OpPrecision {
             FP32,           // Use FP32 for everything
@@ -22,7 +22,7 @@ namespace Mila::Dnn::Compute
             Default
         };
 
-        AMPConfig( OpPrecision precision = OpPrecision::Auto ) : precision_( precision ) {
+        MixedPrecisionConfig( OpPrecision precision = OpPrecision::Auto ) : precision_( precision ) {
             // Auto-detect hardware capabilities
             if ( precision_ == OpPrecision::Auto ) {
                 int deviceId;
@@ -111,7 +111,6 @@ namespace Mila::Dnn::Compute
             // TensorCores are used in all modes except FP32
             return precision_ != OpPrecision::FP32;
         }
-
 
     private:
         OpPrecision precision_;

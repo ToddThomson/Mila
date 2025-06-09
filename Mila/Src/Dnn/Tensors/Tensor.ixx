@@ -8,6 +8,8 @@ module;
 //#include <mdspan>
 #include <type_traits>
 #include <cuda_fp16.h>
+#include <cuda_bf16.h>
+#include <cuda_fp8.h>
 #include <atomic>
 #include <string>
 #include <stdexcept>
@@ -15,14 +17,12 @@ module;
 
 export module Dnn.Tensor;
 
-import Dnn.TensorType;  
-import Dnn.TensorBuffer; 
+import Dnn.TensorBuffer;
+import Dnn.TensorLayout;
 import Dnn.TensorPtr;
 import Dnn.TensorTraits;
-
 import Compute.ComputeDevice;
 import Compute.DeviceContext;
-
 import Compute.MemoryResource;
 import Compute.DynamicMemoryResource;
 import Compute.CpuMemoryResource;
@@ -46,12 +46,13 @@ namespace Mila::Dnn
 
 	export template<typename TElementType, typename TMemoryResource = Compute::CudaMemoryResource>
 		requires ValidTensorType<TElementType> && std::is_base_of_v<Compute::MemoryResource, TMemoryResource>
-	class Tensor {
+	class Tensor : public TensorLayout {
 	public:
 		using MR = TMemoryResource;
 		using scalar_t = std::variant<int64_t, int32_t, half, float>;
 
-		/*using Extent1d = std::dextents<size_t, 1>;
+		/* FUTURE: MDSPAN support is not available in the GNU C++ compiler yet.
+		using Extent1d = std::dextents<size_t, 1>;
 		using Extent2d = std::dextents<size_t, 2>;
 		using Extent3d = std::dextents<size_t, 3>;
 		using Extent4d = std::dextents<size_t, 4>;*/
@@ -66,12 +67,9 @@ namespace Mila::Dnn
         * @param value The value to initialize the tensor with. Defaults to the default value of type TElementType.
         */
 		explicit Tensor( const std::vector<size_t>& shape, TElementType value = TElementType{} )
-			: uid_{ set_uid() }, shape_( shape ), strides_( computeStrides( shape ) ), size_( computeSize( shape ) ) {
+			: uid_{ set_uid() }, shape_( shape ), strides_( computeStrides( shape ) ), size_( computeSize( shape ) ), memory_format_( MemoryFormat::RowMajor ) {
 			allocateBuffer( value );
 		}
-
-		/*Tensor( std::initializer_list<size_t> shape, TElementType value = TElementType{} )
-			: Tensor( std::vector<size_t>( shape ), value ) {}*/
 
 		/**
 		* @brief Constructs a tensor with the given shape and a shared pointer to allocated memory.
@@ -83,17 +81,111 @@ namespace Mila::Dnn
 		* @param data_ptr Shared pointer to the allocated memory.
 		*/
 		Tensor( const std::vector<size_t>& shape, std::shared_ptr<TElementType> data_ptr )
-			: uid_{ set_uid() }, shape_( shape ), strides_( computeStrides( shape ) ), size_( computeSize( shape ) ), external_memory_ptr_( data_ptr ) {
+			: uid_{ set_uid() }, shape_( shape ), strides_( computeStrides( shape ) ), size_( computeSize( shape ) ), memory_format_( MemoryFormat::RowMajor ),
+			external_memory_ptr_( data_ptr ) {
 			if ( !external_memory_ptr_ ) {
 				throw std::invalid_argument( "data_ptr cannot be null." );
 			}
 			buffer_ = std::make_shared<TensorBuffer<TElementType, TMemoryResource>>( size_, external_memory_ptr_.get() );
+
+			// FIXME:
 			//data_type_ = tensor_type_of( external_memory_ptr_.get() );
 		}
 
 		Tensor()
-			: uid_{ set_uid() }, shape_(), strides_( computeStrides( shape_ ) ), size_() {
+			: uid_{ set_uid() }, shape_(), strides_( computeStrides( shape_ ) ), size_(), memory_format_( MemoryFormat::RowMajor ) {
 			allocateBuffer( TElementType{} );
+		}
+
+		/**
+		* @brief Compares this tensor with another tensor for element-wise equivalence within a tolerance.
+		*
+		* Performs an element-by-element comparison between this tensor and another tensor,
+		* handling different memory resource types and element types appropriately:
+		* - For floating-point types: Compares values within the specified tolerance
+		* - For integer types: Performs exact comparison
+		* - For device tensors: Automatically transfers data to host for comparison
+		*
+		* @tparam TOtherMR Memory resource type of the other tensor
+		* @param other The tensor to compare with
+		* @param tolerance Maximum allowed absolute difference between elements (for floating-point types)
+		* @param relative_tolerance Maximum allowed relative difference (for values far from zero)
+		* @return true if tensors are equivalent, false otherwise
+		*/
+		template<typename TOtherMR>
+			requires std::is_base_of_v<Compute::MemoryResource, TOtherMR>
+		bool isEquivalentTo( const Tensor<TElementType, TOtherMR>& other, float tolerance = 1e-6f, float relative_tolerance = 1e-5f ) const {
+			// Shape mismatch means tensors can't be equivalent
+			if ( shape_ != other.shape() ) {
+				return false;
+			}
+
+			if ( size_ == 0 ) {
+				return true; // Empty tensors with same shape are equivalent
+			}
+
+			// For device tensors, bring data to host for comparison
+			if constexpr ( !is_host_accessible<TMemoryResource>() || !is_host_accessible<TOtherMR>() ) {
+				auto this_host = this->template toHostAccessible<Compute::HostMemoryResource>();
+				auto other_host = other.template toHostAccessible<Compute::HostMemoryResource>();
+				return this_host.isEquivalentTo( other_host, tolerance, relative_tolerance );
+			}
+			else {
+				// Both tensors are host-accessible, can compare directly
+				if constexpr ( std::is_floating_point_v<TElementType> ||
+					std::is_same_v<TElementType, half> ||
+					std::is_same_v<TElementType, nv_bfloat16> ||
+					std::is_same_v<TElementType, __nv_fp8_e4m3> ||
+					std::is_same_v<TElementType, __nv_fp8_e5m2> ) {
+
+					// For floating point types - use both absolute and relative tolerance
+					for ( size_t i = 0; i < size_; ++i ) {
+						float a, b;
+
+						if constexpr ( std::is_same_v<TElementType, half> ) {
+							a = __half2float( buffer_->data()[ i ] );
+							b = __half2float( other.raw_data()[ i ] );
+						}
+						else if constexpr ( std::is_same_v<TElementType, nv_bfloat16> ) {
+							a = static_cast<float>( buffer_->data()[ i ] );
+							b = static_cast<float>( other.raw_data()[ i ] );
+						}
+						else if constexpr ( std::is_same_v<TElementType, __nv_fp8_e4m3> ||
+							std::is_same_v<TElementType, __nv_fp8_e5m2> ) {
+							a = static_cast<float>(buffer_->data()[ i ]);
+							b = static_cast<float>(other.raw_data()[ i ]);
+						}
+						else {
+							a = static_cast<float>(buffer_->data()[ i ]);
+							b = static_cast<float>(other.raw_data()[ i ]);
+						}
+
+						// Check absolute difference for values near zero
+						float abs_diff = std::abs( a - b );
+						if ( abs_diff > tolerance ) {
+							// For larger values, also check relative difference
+							float abs_a = std::abs( a );
+							float abs_b = std::abs( b );
+							float largest = std::max( abs_a, abs_b );
+
+							// Avoid division by zero or very small numbers
+							if ( largest > 1e-5f && abs_diff / largest > relative_tolerance ) {
+								return false;
+							}
+						}
+					}
+					return true;
+				}
+				else {
+					// For integer types - exact comparison
+					for ( size_t i = 0; i < size_; ++i ) {
+						if ( buffer_->data()[ i ] != other.raw_data()[ i ] ) {
+							return false;
+						}
+					}
+					return true;
+				}
+			}
 		}
 
 		/**
@@ -108,10 +200,8 @@ namespace Mila::Dnn
 		* @throws std::runtime_error If a CUDA memory transfer operation fails.
 		*/
 		template<typename TNewMR>
+    		requires std::is_base_of_v<Compute::MemoryResource, TNewMR>
 		Tensor<TElementType, TNewMR> to() const {
-			static_assert(std::is_base_of_v<Compute::MemoryResource, TNewMR>,
-				"NewTMemoryResource must be derived from Compute::MemoryResource");
-
 			Tensor<TElementType, TNewMR> new_tensor( shape_ );
 
 			if ( !name_.empty() ) {
@@ -122,7 +212,6 @@ namespace Mila::Dnn
 				return new_tensor;
 			}
 
-			// Determine the appropriate copy method based on memory resource types
 			cudaError_t status = cudaSuccess;
 
 			if constexpr ( is_device_accessible<TMemoryResource>() && is_device_accessible<TNewMR>() ) {
@@ -135,12 +224,10 @@ namespace Mila::Dnn
 				status = cudaMemcpy( new_tensor.data(), this->data(), size_ * sizeof( TElementType ), cudaMemcpyDeviceToHost );
 			}
 			else {
-				// Host to host transfer (use standard copy)
 				std::copy( this->data(), this->data() + size_, new_tensor.data() );
 				return new_tensor;
 			}
 
-			// Check for CUDA errors
 			if ( status != cudaSuccess ) {
 				throw std::runtime_error( "CUDA memory transfer failed: " +
 					std::string( cudaGetErrorString( status ) ) );
@@ -322,23 +409,18 @@ namespace Mila::Dnn
 				return result;
 			}
 
-			// For host-accessible memory, perform explicit conversion
 			if constexpr ( is_host_accessible<TMR>() ) {
-				// Create temporary host tensors if needed
 				if constexpr ( !is_host_accessible<TMemoryResource>() ) {
 					auto host_tensor = this->template to<Compute::HostMemoryResource>();
 					auto host_result = Tensor<float, Compute::HostMemoryResource>( shape_ );
 
-					// Convert half to float on host
 					for ( size_t i = 0; i < size_; ++i ) {
 						host_result.raw_data()[ i ] = __half2float( host_tensor.raw_data()[ i ] );
 					}
 
-					// Copy back to device if needed
 					result.copyFrom( host_result );
 				}
 				else {
-					// Direct host-to-host conversion
 					for ( size_t i = 0; i < size_; ++i ) {
 						result.raw_data()[ i ] = __half2float( this->raw_data()[ i ] );
 					}
@@ -487,7 +569,7 @@ namespace Mila::Dnn
 		 */
 		Tensor<TElementType, TMemoryResource>& flatten() {
 			if ( shape().size() <= 1 ) {
-				return *this; // Already flat or scalar
+				return *this;
 			}
 
 			// Calculate the product of all dimensions except the last
@@ -547,7 +629,7 @@ namespace Mila::Dnn
 		}
 
 		// TJT: std::mdspan is not available in the GNU C++ compiler so these convenience methods are commented out for now.
-
+		//
 		/*auto vectorSpan() {
 			if constexpr ( is_host_accessible<TMemoryResource>() ) {
 				return std::mdspan<TElementType, Extent1d>( buffer_->data(), size_ );
@@ -638,25 +720,120 @@ namespace Mila::Dnn
 			}
 		}
 
-		// Properties..
-		const bool empty() const {
-			return (size_ == 0);
+		// TensorLayout Properties
+		
+		/**
+		 * @brief Get the memory format of the tensor
+		 * @return Current memory format specification
+		 */
+		MemoryFormat format() const override {
+			return memory_format_;
 		}
 
-		const std::vector<size_t>& shape() const {
+		/**
+		 * @brief Get the leading dimension for matrix operations
+		 *
+		 * For matrices, returns the memory distance between consecutive
+		 * rows (for row-major) or columns (for column-major).
+		 * Critical for optimized BLAS-like operations.
+		 *
+		 * @return The leading dimension value
+		 */
+		size_t leadingDimension() const override {
+			if ( rank() < 2 ) {
+				return 1; // For vectors or scalars
+			}
+
+			if ( memory_format_ == MemoryFormat::RowMajor ) {
+				return shape_[ rank() - 1 ];
+			}
+			else if ( memory_format_ == MemoryFormat::ColumnMajor ) {
+				return shape_[ 0 ];
+			}
+			else if ( memory_format_ == MemoryFormat::ChannelsLast && rank() == 4 ) {
+				return shape_[ 3 ]; // C dimension for NHWC
+			}
+			else if ( memory_format_ == MemoryFormat::ChannelsFirst && rank() == 4 ) {
+				return shape_[ 2 ] * shape_[ 3 ]; // H*W stride for NCHW
+			}
+
+			// Default case
+			return strides_[ 0 ];
+		}
+
+		/**
+		 * @brief Check if the tensor layout is contiguous in memory
+		 *
+		 * A layout is contiguous if elements are stored in a single unbroken
+		 * sequence with no holes or padding.
+		 *
+		 * @return True if contiguous, false otherwise
+		 */
+		bool isContiguous() const override { return true; }
+		
+		/**
+		* @brief Get the tensor shape (dimensions)
+		*
+		* Returns a reference to the tensor's shape vector, which contains
+		* the size of each dimension. The number of elements in the vector
+		* equals the tensor's rank.
+		*
+		* @return Constant reference to the shape vector
+		*/
+		const std::vector<size_t>& shape() const override {
 			return shape_;
 		}
 
-		const std::vector<size_t>& strides() const {
+		/**
+		 * @brief Get the strides for each dimension
+		 *
+		 * Returns a reference to the tensor's stride vector, which contains
+		 * the memory step size for each dimension. Strides are used to calculate
+		 * the memory offset when accessing elements with multi-dimensional indices.
+		 *
+		 * For row-major format (default):
+		 * - The last dimension has stride 1
+		 * - Each preceding dimension's stride is the product of all following dimensions' sizes
+		 *
+		 * @return Constant reference to the strides vector
+		 */
+		const std::vector<size_t>& strides() const override {
 			return strides_;
 		}
 
-		size_t size() const {
+		/**
+		 * @brief Returns the total number of elements in the tensor.
+		 *
+		 * This method provides the total count of elements across all dimensions,
+		 * which equals the product of all dimension sizes in the shape vector.
+		 * For an empty tensor, this returns 0.
+		 *
+		 * @return The total number of elements in the tensor
+		 */
+		size_t size() const override {
 			return size_;
 		}
 
-		size_t rank() const {
+		/**
+		 * @brief Returns the number of dimensions (rank) of the tensor.
+		 *
+		 * The rank represents the number of axes in the tensor, which equals
+		 * the number of elements in the shape vector. For example:
+		 * - A scalar has rank 0
+		 * - A vector has rank 1
+		 * - A matrix has rank 2
+		 * - An n-dimensional tensor has rank n
+		 *
+		 * @return The number of dimensions in the tensor
+		 */
+		size_t rank() const override {
 			return shape_.size();
+		}
+
+		// Tensor Properties...
+
+		const bool empty() const {
+			return (size_ == 0);
 		}
 
 		/**
@@ -757,7 +934,6 @@ namespace Mila::Dnn
 			}
 		}
 
-
 		std::string	getName() const {
 			return name_;
 		}
@@ -778,15 +954,8 @@ namespace Mila::Dnn
 			oss << "Tensor: " << uid_;
 			if ( !name_.empty() ) oss << "::" << name_;
 			oss << ", ";
-			oss << "Shape: (";
-			for ( size_t i = 0; i < shape_.size(); ++i ) {
-				oss << shape_[ i ];
-				if ( i != shape_.size() - 1 ) {
-					oss << ",";
-				}
-			}
-			oss << ")";
-			oss << " Size: " << size_;
+			oss << outputLayout();
+			
 			oss << " Type: " << TensorTrait<TElementType>::type_name << std::endl;
 
 			if ( showBuffer ) {
@@ -895,6 +1064,7 @@ namespace Mila::Dnn
 		
 		std::vector<size_t> shape_{};
 		std::vector<size_t> strides_{};
+		MemoryFormat memory_format_{ MemoryFormat::RowMajor };
 		std::shared_ptr<TensorBuffer<TElementType, TMemoryResource>> buffer_{ nullptr };
 		std::shared_ptr<TElementType> external_memory_ptr_{ nullptr }; // Shared pointer to external memory (non-owning)
 
@@ -937,7 +1107,47 @@ namespace Mila::Dnn
             }
             return oss.str();
         }
-        
+
+		/**
+		 * @brief Create string representation of the layout
+		 * @return String describing the layout
+		 */
+		std::string outputLayout() const {
+			std::string result = "TensorLayout( shape=[";
+
+			for ( size_t i = 0; i < shape_.size(); ++i ) {
+				result += std::to_string( shape_[ i ] );
+				if ( i < shape_.size() - 1 ) result += ",";
+			}
+
+			result += "], strides=[";
+
+			for ( size_t i = 0; i < strides_.size(); ++i ) {
+				result += std::to_string( strides_[ i ] );
+				if ( i < strides_.size() - 1 ) result += ",";
+			}
+
+			result += "], format=";
+
+			switch ( memory_format_ ) {
+				case MemoryFormat::RowMajor:
+					result += "RowMajor";
+					break;
+				case MemoryFormat::ColumnMajor:
+					result += "ColumnMajor";
+					break;
+				case MemoryFormat::ChannelsLast:
+					result += "ChannelsLast";
+					break;
+				case MemoryFormat::ChannelsFirst:
+					result += "ChannelsFirst";
+					break;
+			}
+
+			result += ", size=" + std::to_string( size_ ) + ")";
+			return result;
+		}
+
 		static std::vector<size_t> computeStrides( const std::vector<size_t>& shape ) {
 			std::vector<size_t> strides( shape.size(), 1 );
 

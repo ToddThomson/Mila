@@ -3,18 +3,19 @@
 #include <vector>
 #include <string>
 #include <sstream>
+#include <cuda_fp16.h>
 
 import Mila;
 
-namespace Core::Tests{
+namespace Core::Tests
+{
 
     using namespace Mila::Dnn;
-    
+
     class TensorTest : public testing::Test {
 
     protected:
-        TensorTest() {
-        }
+        TensorTest() {}
     };
 
     TEST( TensorTest, Cpu_DefaultConstructor ) {
@@ -69,7 +70,7 @@ namespace Core::Tests{
         EXPECT_EQ( tensor2D.shape(), shape2D );
         for ( size_t i = 0; i < shape2D[ 0 ]; ++i ) {
             for ( size_t j = 0; j < shape2D[ 1 ]; ++j ) {
-                EXPECT_EQ( ( tensor2D[ i, j ] ), value2D );
+                EXPECT_EQ( (tensor2D[ i, j ]), value2D );
             }
         }
 
@@ -82,7 +83,7 @@ namespace Core::Tests{
         for ( size_t i = 0; i < shape3D[ 0 ]; ++i ) {
             for ( size_t j = 0; j < shape3D[ 1 ]; ++j ) {
                 for ( size_t k = 0; k < shape3D[ 2 ]; ++k ) {
-                    EXPECT_EQ( ( tensor3D[ i, j, k ] ), value3D );
+                    EXPECT_EQ( (tensor3D[ i, j, k ]), value3D );
                 }
             }
         }
@@ -131,7 +132,7 @@ namespace Core::Tests{
         auto cpu_tensor2 = cuda_tensor.to<Compute::HostMemoryResource>();
         for ( size_t i = 0; i < shape[ 0 ]; ++i ) {
             for ( size_t j = 0; j < shape[ 1 ]; ++j ) {
-                EXPECT_FLOAT_EQ( ( cpu_tensor2[ i, j ] ), 3.14f );
+                EXPECT_FLOAT_EQ( (cpu_tensor2[ i, j ]), 3.14f );
             }
         }
     }
@@ -149,7 +150,7 @@ namespace Core::Tests{
         // Validate values
         for ( size_t i = 0; i < shape[ 0 ]; ++i ) {
             for ( size_t j = 0; j < shape[ 1 ]; ++j ) {
-                EXPECT_FLOAT_EQ( ( cpu_tensor[ i, j ] ), 2.71f );
+                EXPECT_FLOAT_EQ( (cpu_tensor[ i, j ]), 2.71f );
             }
         }
     }
@@ -167,7 +168,7 @@ namespace Core::Tests{
         // Validate we can access the values
         for ( size_t i = 0; i < shape[ 0 ]; ++i ) {
             for ( size_t j = 0; j < shape[ 1 ]; ++j ) {
-                EXPECT_FLOAT_EQ( ( host_tensor[ i, j ] ), 1.23f );
+                EXPECT_FLOAT_EQ( (host_tensor[ i, j ]), 1.23f );
             }
         }
     }
@@ -247,8 +248,8 @@ namespace Core::Tests{
     TEST( TensorTest, OperatorIndexOutOfBounds ) {
         std::vector<size_t> shape = { 2, 3 };
         Tensor<float, Compute::HostMemoryResource> tensor( shape );
-        EXPECT_THROW( ( tensor[ 2, 0 ] ), std::out_of_range );
-        EXPECT_THROW( ( tensor[ 0, 3 ] ), std::out_of_range );
+        EXPECT_THROW( (tensor[ 2, 0 ]), std::out_of_range );
+        EXPECT_THROW( (tensor[ 0, 3 ]), std::out_of_range );
     }
 
     TEST( TensorTest, AtMethod ) {
@@ -257,18 +258,18 @@ namespace Core::Tests{
         auto val = tensor.at( { 0, 1 } );
         EXPECT_FLOAT_EQ( val, 5.0f );
 
-        EXPECT_THROW( (tensor.at( { 2, 0 } ) ), std::out_of_range);
-        EXPECT_THROW( (tensor.at( { 0, 3 } ) ), std::out_of_range);
+        EXPECT_THROW( (tensor.at( { 2, 0 } )), std::out_of_range );
+        EXPECT_THROW( (tensor.at( { 0, 3 } )), std::out_of_range );
     }
 
     TEST( TensorTest, SetMethod ) {
         std::vector<size_t> shape = { 2, 3 };
         Tensor<float, Compute::HostMemoryResource> tensor( shape );
         tensor.set( { 0, 1 }, 7.5f );
-        EXPECT_FLOAT_EQ( ( tensor[ 0, 1 ] ), 7.5f );
+        EXPECT_FLOAT_EQ( (tensor[ 0, 1 ]), 7.5f );
 
-        EXPECT_THROW( (tensor.set( { 2, 0 }, 7.5f ) ), std::out_of_range);
-        EXPECT_THROW( (tensor.set( { 0, 3 }, 7.5f ) ), std::out_of_range);
+        EXPECT_THROW( (tensor.set( { 2, 0 }, 7.5f )), std::out_of_range );
+        EXPECT_THROW( (tensor.set( { 0, 3 }, 7.5f )), std::out_of_range );
     }
 
     TEST( TensorTest, AtAndSetWithCudaTensor ) {
@@ -287,42 +288,6 @@ namespace Core::Tests{
         EXPECT_FLOAT_EQ( val, 9.0f );
     }
 
-    // Memory Slices/Views
-    //----------------------------------------------------------------------------------------
-    /*TEST( TensorTest, VectorSpan ) {
-        std::vector<size_t> shape = { 6 };
-        Tensor<float, Compute::HostMemoryResource> tensor( shape );
-        auto span = tensor.vectorSpan();
-        EXPECT_EQ( span.extent( 0 ), 6 );
-    }*/
-
-    /*TEST( TensorTest, CudaTensorVectorSpanThrows ) {
-        std::vector<size_t> shape = { 6 };
-        Tensor<float, Compute::CudaMemoryResource> tensor( shape );
-        EXPECT_THROW( tensor.vectorSpan(), std::runtime_error );
-    }*/
-
-    /*TEST( TensorTest, MatrixSpan ) {
-        std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::HostMemoryResource> tensor( shape );
-        auto span = tensor.matrixSpan( shape );
-        EXPECT_EQ( span.extent( 0 ), 2 );
-        EXPECT_EQ( span.extent( 1 ), 3 );
-    }*/
-
-    //TEST( TensorTest, MatrixSpanWithInvalidShape ) {
-    //    std::vector<size_t> shape = { 2, 3 };
-    //    Tensor<float, Compute::HostMemoryResource> tensor( shape );
-    //    EXPECT_THROW( tensor.matrixSpan( { 7 } ), std::runtime_error ); // Wrong dimensions
-    //    EXPECT_THROW( tensor.matrixSpan( { 3, 3 } ), std::runtime_error ); // Exceeds size
-    //}
-
-    /*TEST( TensorTest, CudaTensorMatrixSpanThrows ) {
-        std::vector<size_t> shape = { 2, 3 };
-        Tensor<float, Compute::CudaMemoryResource> tensor( shape );
-        EXPECT_THROW( tensor.matrixSpan( shape ), std::runtime_error );
-    }*/
-
     // Data Copy Tests
     //----------------------------------------------------------------------------------------
     TEST( TensorTest, CopyFrom ) {
@@ -334,7 +299,7 @@ namespace Core::Tests{
 
         for ( size_t i = 0; i < shape[ 0 ]; ++i ) {
             for ( size_t j = 0; j < shape[ 1 ]; ++j ) {
-                EXPECT_FLOAT_EQ( ( dst[ i, j ] ), 1.0f );
+                EXPECT_FLOAT_EQ( (dst[ i, j ]), 1.0f );
             }
         }
     }
@@ -348,7 +313,7 @@ namespace Core::Tests{
 
         for ( size_t i = 0; i < shape[ 0 ]; ++i ) {
             for ( size_t j = 0; j < shape[ 1 ]; ++j ) {
-                EXPECT_FLOAT_EQ( ( dst[ i, j ] ), 2.0f );
+                EXPECT_FLOAT_EQ( (dst[ i, j ]), 2.0f );
             }
         }
     }
@@ -364,7 +329,7 @@ namespace Core::Tests{
         auto cpu_dst = dst.to<Compute::HostMemoryResource>();
         for ( size_t i = 0; i < shape[ 0 ]; ++i ) {
             for ( size_t j = 0; j < shape[ 1 ]; ++j ) {
-                EXPECT_FLOAT_EQ( ( cpu_dst[ i, j ] ), 3.0f );
+                EXPECT_FLOAT_EQ( (cpu_dst[ i, j ]), 3.0f );
             }
         }
     }
@@ -421,10 +386,13 @@ namespace Core::Tests{
         tensor.setName( "test_tensor" );
 
         std::string output = tensor.toString();
-        EXPECT_NE( output.find( "Tensor:" ), std::string::npos );
+        EXPECT_NE( output.find( "Tensor: " ), std::string::npos );
         EXPECT_NE( output.find( "::test_tensor" ), std::string::npos );
-        EXPECT_NE( output.find( "Shape: (2,3)" ), std::string::npos );
-        EXPECT_NE( output.find( "Size: 6" ), std::string::npos );
+        EXPECT_NE( output.find( "TensorLayout( shape=[2,3]" ), std::string::npos );
+        EXPECT_NE( output.find( "strides=[3,1]" ), std::string::npos );
+        EXPECT_NE( output.find( "format=RowMajor" ), std::string::npos );
+        EXPECT_NE( output.find( "size=6" ), std::string::npos );
+        EXPECT_NE( output.find( "Type: FP32" ), std::string::npos );
 
         // Test with showBuffer=true
         std::string output_with_buffer = tensor.toString( true );
@@ -437,7 +405,11 @@ namespace Core::Tests{
 
         std::string output = tensor.toString();
         EXPECT_NE( output.find( "Tensor:" ), std::string::npos );
-        EXPECT_NE( output.find( "Shape: (2,3)" ), std::string::npos );
+        EXPECT_NE( output.find( "TensorLayout( shape=[2,3]" ), std::string::npos );
+        EXPECT_NE( output.find( "strides=[3,1]" ), std::string::npos );
+        EXPECT_NE( output.find( "format=RowMajor" ), std::string::npos );
+        EXPECT_NE( output.find( "size=6" ), std::string::npos );
+        EXPECT_NE( output.find( "Type: FP32" ), std::string::npos );
 
         // Test with showBuffer=true (should work by creating a CPU copy)
         std::string output_with_buffer = tensor.toString( true );
@@ -456,15 +428,15 @@ namespace Core::Tests{
 
         for ( size_t i = 0; i < shape[ 0 ]; ++i ) {
             for ( size_t j = 0; j < shape[ 1 ]; ++j ) {
-                EXPECT_FLOAT_EQ( ( copy[ i, j ] ), ( original[ i, j ] ));
+                EXPECT_FLOAT_EQ( (copy[ i, j ]), (original[ i, j ]) );
             }
         }
 
-		// The original and copy should share the same data
+        // The original and copy should share the same data
         copy[ 0, 0 ] = 0.0f;
 
-        EXPECT_FLOAT_EQ( ( copy[ 0, 0 ] ), 0.0f );
-        EXPECT_FLOAT_EQ( ( original[ 0, 0 ] ), 0.0f );
+        EXPECT_FLOAT_EQ( (copy[ 0, 0 ]), 0.0f );
+        EXPECT_FLOAT_EQ( (original[ 0, 0 ]), 0.0f );
     }
 
     TEST( TensorTest, MoveConstructor ) {
@@ -495,7 +467,7 @@ namespace Core::Tests{
 
         for ( size_t i = 0; i < shape[ 0 ]; ++i ) {
             for ( size_t j = 0; j < shape[ 1 ]; ++j ) {
-                EXPECT_FLOAT_EQ( ( copy[ i, j ] ), ( original[ i, j ] ) );
+                EXPECT_FLOAT_EQ( (copy[ i, j ]), (original[ i, j ]) );
             }
         }
     }
@@ -521,12 +493,11 @@ namespace Core::Tests{
     //----------------------------------------------------------------------------------------
     TEST( TensorTest, ConstructWithExternalData ) {
         std::vector<size_t> shape = { 2, 3 };
-        auto data_ptr = std::make_shared<float[]>(6);
+        auto data_ptr = std::make_shared<float[]>( 6 );
         for ( int i = 0; i < 6; i++ ) data_ptr[ i ] = static_cast<float>( i );
 
         std::shared_ptr<float> data_ptr_float( data_ptr, data_ptr.get() );
         Tensor<float, Compute::HostMemoryResource> tensor( shape, data_ptr_float );
-        //Tensor<float, Compute::HostMemoryResource> tensor( shape, data_ptr );
 
         EXPECT_EQ( tensor.shape(), shape );
         EXPECT_EQ( tensor.size(), 6 );
@@ -535,20 +506,246 @@ namespace Core::Tests{
         for ( size_t i = 0; i < shape[ 0 ]; ++i ) {
             for ( size_t j = 0; j < shape[ 1 ]; ++j ) {
                 size_t index = i * shape[ 1 ] + j;
-                EXPECT_FLOAT_EQ( ( tensor[ i, j ] ), static_cast<float>( index ) );
+                EXPECT_FLOAT_EQ( (tensor[ i, j ]), static_cast<float>( index ) );
             }
         }
 
         // Modifying external data should affect the tensor
         data_ptr[ 0 ] = 99.0f;
-        EXPECT_FLOAT_EQ( ( tensor[ 0, 0 ] ), 99.0f );
+        EXPECT_FLOAT_EQ( (tensor[ 0, 0 ]), 99.0f );
     }
 
     TEST( TensorTest, ConstructWithNullExternalData ) {
         std::vector<size_t> shape = { 2, 3 };
         std::shared_ptr<float> null_ptr;
 
-        EXPECT_THROW( ( Tensor<float, Compute::HostMemoryResource>( shape, null_ptr ) ), std::invalid_argument );
+        EXPECT_THROW( (Tensor<float, Compute::HostMemoryResource>( shape, null_ptr )), std::invalid_argument );
     }
-    
+
+    // TensorLayout Interface Tests
+    //----------------------------------------------------------------------------------------
+    TEST( TensorTest, TensorLayoutInterface ) {
+        std::vector<size_t> shape = { 2, 3 };
+        Tensor<float, Compute::HostMemoryResource> tensor( shape, 1.0f );
+
+        // Test tensor as a TensorLayout
+        const TensorLayout& layout = tensor;
+        EXPECT_EQ( layout.rank(), 2 );
+        EXPECT_EQ( layout.shape(), shape );
+        EXPECT_EQ( layout.size(), 6 );
+        EXPECT_EQ( layout.format(), MemoryFormat::RowMajor );
+        EXPECT_TRUE( layout.isContiguous() );
+        EXPECT_EQ( layout.leadingDimension(), 3 );  // For row-major, LD is the width
+    }
+
+    // Memory Format Tests
+    //----------------------------------------------------------------------------------------
+    TEST( TensorTest, MemoryFormatAccess ) {
+        std::vector<size_t> shape = { 2, 3 };
+        Tensor<float, Compute::HostMemoryResource> tensor( shape );
+
+        // Default should be RowMajor
+        EXPECT_EQ( tensor.format(), MemoryFormat::RowMajor );
+    }
+
+    // Tensor Comparison Tests
+    //----------------------------------------------------------------------------------------
+    TEST( TensorTest, IsEquivalentTo_SameTensor ) {
+        std::vector<size_t> shape = { 2, 3 };
+        Tensor<float, Compute::HostMemoryResource> tensor1( shape, 1.5f );
+
+        // A tensor should be equivalent to itself
+        EXPECT_TRUE( tensor1.isEquivalentTo( tensor1 ) );
+    }
+
+    TEST( TensorTest, IsEquivalentTo_DifferentTensorsSameValues ) {
+        std::vector<size_t> shape = { 2, 3 };
+        Tensor<float, Compute::HostMemoryResource> tensor1( shape, 1.5f );
+        Tensor<float, Compute::HostMemoryResource> tensor2( shape, 1.5f );
+
+        // Different tensors with same values should be equivalent
+        EXPECT_TRUE( tensor1.isEquivalentTo( tensor2 ) );
+    }
+
+    TEST( TensorTest, IsEquivalentTo_DifferentTensorsDifferentValues ) {
+        std::vector<size_t> shape = { 2, 3 };
+        Tensor<float, Compute::HostMemoryResource> tensor1( shape, 1.5f );
+        Tensor<float, Compute::HostMemoryResource> tensor2( shape, 2.5f );
+
+        // Different values should not be equivalent
+        EXPECT_FALSE( tensor1.isEquivalentTo( tensor2 ) );
+    }
+
+    TEST( TensorTest, IsEquivalentTo_DifferentShapes ) {
+        Tensor<float, Compute::HostMemoryResource> tensor1( { 2, 3 }, 1.5f );
+        Tensor<float, Compute::HostMemoryResource> tensor2( { 3, 2 }, 1.5f );
+
+        // Different shapes should not be equivalent
+        EXPECT_FALSE( tensor1.isEquivalentTo( tensor2 ) );
+    }
+
+    TEST( TensorTest, IsEquivalentTo_EmptyTensors ) {
+        Tensor<float, Compute::HostMemoryResource> tensor1;
+        Tensor<float, Compute::HostMemoryResource> tensor2;
+
+        // Empty tensors with same shape should be equivalent
+        EXPECT_TRUE( tensor1.isEquivalentTo( tensor2 ) );
+    }
+
+    //TEST( TensorTest, IsEquivalentTo_CrossDeviceComparison ) {
+    //    std::vector<size_t> shape = { 2, 3 };
+    //    Tensor<float, Compute::HostMemoryResource> cpu_tensor( shape, 1.5f );
+    //    Tensor<float, Compute::CudaMemoryResource> cuda_tensor( shape, 1.5f );
+
+    //    // Cross-device tensors with same values should be equivalent
+    //    EXPECT_TRUE( cpu_tensor.isEquivalentTo( cuda_tensor ) );
+    //    EXPECT_TRUE( cuda_tensor.isEquivalentTo( cpu_tensor ) );
+    //}
+    TEST( TensorTest, IsEquivalentTo_ToleranceCheck ) {
+        std::vector<size_t> shape = { 2, 3 };
+        Tensor<float, Compute::HostMemoryResource> tensor1( shape, 1.0f );
+
+        // Create a second tensor with slightly different values
+        Tensor<float, Compute::HostMemoryResource> tensor2( shape, 1.0f );
+        tensor2.set( { 0, 0 }, 1.0001f );  // Difference of 1e-4
+
+        // Should NOT be equivalent with default tolerance (1e-6)
+        EXPECT_FALSE( tensor1.isEquivalentTo( tensor2 ) );
+
+        // Should be equivalent with looser tolerance
+        EXPECT_TRUE( tensor1.isEquivalentTo( tensor2, 0.001f ) );
+    }
+
+    // Flatten Tests
+    //----------------------------------------------------------------------------------------
+    TEST( TensorTest, Flatten ) {
+        std::vector<size_t> shape = { 2, 3, 4 };
+        Tensor<float, Compute::HostMemoryResource> tensor( shape, 1.0f );
+
+        // Flatten the tensor
+        tensor.flatten();
+
+        // Check the new shape is [2*3, 4] = [6, 4]
+        std::vector<size_t> expected_shape = { 6, 4 };
+        EXPECT_EQ( tensor.shape(), expected_shape );
+
+        // Size should remain unchanged
+        EXPECT_EQ( tensor.size(), 2 * 3 * 4 );
+    }
+
+    TEST( TensorTest, Flattened ) {
+        std::vector<size_t> shape = { 2, 3, 4 };
+        Tensor<float, Compute::HostMemoryResource> tensor( shape, 1.0f );
+
+        // Get a flattened copy
+        auto flattened = tensor.flattened();
+
+        // Original should be unchanged
+        EXPECT_EQ( tensor.shape(), shape );
+
+        // New tensor should be flattened to [2*3, 4] = [6, 4]
+        std::vector<size_t> expected_shape = { 6, 4 };
+        EXPECT_EQ( flattened.shape(), expected_shape );
+
+        // Size should be the same
+        EXPECT_EQ( flattened.size(), tensor.size() );
+    }
+
+    TEST( TensorTest, FlattenAlreadyFlat ) {
+        std::vector<size_t> shape = { 5 };  // 1D tensor
+        Tensor<float, Compute::HostMemoryResource> tensor( shape, 1.0f );
+
+        // Flatten a 1D tensor (should be no-op)
+        tensor.flatten();
+
+        // Shape should be unchanged
+        EXPECT_EQ( tensor.shape(), shape );
+    }
+
+    // Clone Tests
+    //----------------------------------------------------------------------------------------
+    TEST( TensorTest, Clone ) {
+        std::vector<size_t> shape = { 2, 3 };
+        Tensor<float, Compute::HostMemoryResource> original( shape, 3.14f );
+        original.setName( "original" );
+        // FIXME:
+        //// Create deep copy
+        //auto clone = original.clone();
+
+        //// Should have same properties
+        //EXPECT_EQ( clone.shape(), original.shape() );
+        //EXPECT_EQ( clone.size(), original.size() );
+        //EXPECT_EQ( clone.getName(), original.getName() );
+
+        //// Should have same values
+        //for ( size_t i = 0; i < shape[ 0 ]; ++i ) {
+        //    for ( size_t j = 0; j < shape[ 1 ]; ++j ) {
+        //        EXPECT_FLOAT_EQ( (clone[ i, j ]), (original[ i, j ]) );
+        //    }
+        //}
+
+        //// Unlike shallow copy, modifying clone should not affect original
+        //clone[ 0, 0 ] = 0.0f;
+        //EXPECT_FLOAT_EQ( (clone[ 0, 0 ]), 0.0f );
+        //EXPECT_FLOAT_EQ( (original[ 0, 0 ]), 3.14f );
+    }
+
+    // Precision Conversion Tests
+    //----------------------------------------------------------------------------------------
+    TEST( TensorTest, FloatToHalf ) {
+        std::vector<size_t> shape = { 2, 3 };
+        Tensor<float, Compute::HostMemoryResource> float_tensor( shape, 3.14159f );
+        float_tensor.setName( "pi" );
+
+        // Convert to half precision
+        auto half_tensor = float_tensor.toHalf();
+
+        // Check properties
+        EXPECT_EQ( half_tensor.shape(), float_tensor.shape() );
+        EXPECT_EQ( half_tensor.size(), float_tensor.size() );
+        EXPECT_EQ( half_tensor.getName(), "pi_half" );
+
+        // Check conversion accuracy (with appropriate tolerance for half precision)
+        auto float_copy = half_tensor.toFloat();
+        for ( size_t i = 0; i < shape[ 0 ]; ++i ) {
+            for ( size_t j = 0; j < shape[ 1 ]; ++j ) {
+                // Half precision has limited accuracy, so use a wider tolerance
+                EXPECT_NEAR( (float_copy[ i, j ]), 3.14159f, 0.01f );
+            }
+        }
+    }
+
+    TEST( TensorTest, HalfToFloat ) {
+        // Skip if half type is not properly supported
+        // This checks half precision tests with CUDA device tensors
+        std::vector<size_t> shape = { 2, 3 };
+        Tensor<half, Compute::CudaMemoryResource> half_tensor( shape );
+
+        // Fill with value via host copy (direct assignment not possible for device tensor)
+        auto host_half = half_tensor.to<Compute::HostMemoryResource>();
+        for ( size_t i = 0; i < shape[ 0 ]; ++i ) {
+            for ( size_t j = 0; j < shape[ 1 ]; ++j ) {
+                // FIXME: host_half[ i, j ] = __float2half( 3.14159f );
+            }
+        }
+        half_tensor.copyFrom( host_half );
+        half_tensor.setName( "half_pi" );
+
+        // Convert to float precision
+        auto float_tensor = half_tensor.toFloat();
+
+        // Check properties
+        EXPECT_EQ( float_tensor.shape(), half_tensor.shape() );
+        EXPECT_EQ( float_tensor.size(), half_tensor.size() );
+        EXPECT_EQ( float_tensor.getName(), "half_pi_float" );
+
+        // Check values on host
+        auto host_float = float_tensor.to<Compute::HostMemoryResource>();
+        for ( size_t i = 0; i < shape[ 0 ]; ++i ) {
+            for ( size_t j = 0; j < shape[ 1 ]; ++j ) {
+                // Half precision has limited accuracy, so use a wider tolerance
+                // FIXME: EXPECT_NEAR( ( host_float[ i, j ] ), 3.14159f, 0.01f );
+            }
+        }
+    }
 }

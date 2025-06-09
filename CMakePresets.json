@@ -6,7 +6,7 @@
             "displayName": "Configure preset using toolchain file",
             "description": "Sets Ninja generator, build and install directory",
             "generator": "Ninja",
-            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "binaryDir": "${sourceDir}/build/default/${presetName}",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_TOOLCHAIN_FILE": "",
@@ -18,7 +18,7 @@
             "displayName": "Clang Build",
             "description": "Build with clang-19 compiler",
             "generator": "Ninja",
-            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "binaryDir": "${sourceDir}/build/linux/${presetName}",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_C_COMPILER": "clang-19",
@@ -37,7 +37,7 @@
             "displayName": "MSVC Debug",
             "description": "Build with MSVC compiler (Debug configuration)",
             "generator": "Ninja",
-            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "binaryDir": "${sourceDir}/build/windows/${presetName}",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_C_COMPILER": "cl",
@@ -59,7 +59,7 @@
             "displayName": "MSVC Release",
             "description": "Build with MSVC compiler (Release configuration)",
             "generator": "Ninja",
-            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "binaryDir": "${sourceDir}/build/windows/${presetName}",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
                 "CMAKE_C_COMPILER": "cl",

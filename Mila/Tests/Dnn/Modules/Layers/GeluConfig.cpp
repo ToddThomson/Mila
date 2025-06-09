@@ -70,7 +70,7 @@ namespace Modules::Tests
     }
 
     // Test interaction with base class methods
-    // Note: This depends on which methods are available in ComponentConfig<GeluConfig>
+    // Note: This depends on which methods are available in ConfigurationBase<GeluConfig>
     // The following is a general pattern assuming common module configuration options
     TEST_F( GeluConfigTests, BaseClassInteraction ) {
         GeluConfig config;
@@ -91,7 +91,7 @@ namespace Modules::Tests
         // Configure multiple settings in sequence
         config.withApproximationMethod( GeluConfig::ApproximationMethod::Sigmoid );
 
-        // Set other properties if available through ComponentConfig<GeluConfig>
+        // Set other properties if available through ConfigurationBase<GeluConfig>
         // For example: config.withName("test_gelu").withTrainable(true);
 
         // Verify that the approximation method wasn't affected

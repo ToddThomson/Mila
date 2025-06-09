@@ -1,5 +1,5 @@
 /**
- * @file ComponentConfig.ixx
+ * @file ConfigurationBase.ixx
  * @brief Modern configuration system using fluent interface design for neural network components
  *
  * Provides a base configuration class with a type-safe fluent interface that all
@@ -10,7 +10,7 @@ module;
 #include <string>
 #include <stdexcept>
 
-export module Dnn.ComponentConfig;
+export module Dnn.ConfigurationBase;
 
 import Compute.Precision;
 import Compute.DeviceContext;
@@ -22,7 +22,7 @@ namespace Mila::Dnn
     /**
      * @brief Base configuration class for all neural network components
      *
-     * ComponentConfig serves as the foundation for all configuration classes in the Mila DNN
+     * ConfigurationBase serves as the foundation for all configuration classes in the Mila DNN
      * framework. It provides common configuration properties like name, precision policy,
      * and training mode that are shared across different neural network components.
      *
@@ -32,12 +32,12 @@ namespace Mila::Dnn
      * @see GeluConfig
      * @see LinearConfig
      */
-    export class ComponentConfig {
+    export class ConfigurationBase {
     public:
         /**
          * @brief Virtual destructor to support proper polymorphic destruction
          */
-        virtual ~ComponentConfig() = default;
+        virtual ~ConfigurationBase() = default;
 
         /**
          * @brief Sets the name of the component with fluent interface
@@ -60,7 +60,7 @@ namespace Mila::Dnn
          * @return Reference to self for method chaining
          */
         template <typename Self>
-        auto& withPrecision( this Self&& self, ComputePrecision::Policy policy ) {
+        auto& withPrecisionPolicy( this Self&& self, ComputePrecision::Policy policy ) {
             self.precision_ = policy;
             return self;
         }
@@ -89,7 +89,7 @@ namespace Mila::Dnn
          *
          * @return ComputePrecision::Policy The precision policy
          */
-        ComputePrecision::Policy getPrecision() const { return precision_; }
+        ComputePrecision::Policy getPrecisionPolicy() const { return precision_; }
 
         /**
          * @brief Gets the configured training mode

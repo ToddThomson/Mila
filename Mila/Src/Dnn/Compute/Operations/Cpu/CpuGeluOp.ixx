@@ -14,7 +14,7 @@ export module Compute.CpuGeluOp;
 
 import Dnn.Modules.Gelu;
 import Dnn.Tensor;
-import Dnn.ComponentConfig;
+import Dnn.ConfigurationBase;
 import Compute.DeviceType;
 import Compute.DeviceContext;
 import Compute.OperationType;
@@ -181,7 +181,7 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float>> {
+                []( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float>> {
                     const auto& geluConfig = static_cast<const GeluConfig&>( config );
                     return context ? std::make_shared<CpuGeluOp>( context, geluConfig )
                         : std::make_shared<CpuGeluOp>( geluConfig );

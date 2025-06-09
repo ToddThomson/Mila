@@ -3,7 +3,7 @@
  * @brief Configuration interface for the Linear module in the Mila DNN framework.
  *
  * Defines the LinearConfig class, providing a type-safe fluent interface for configuring
- * Linear (fully connected) layer modules. Inherits from ComponentConfig CRTP base and adds
+ * Linear (fully connected) layer modules. Inherits from ConfigurationBase CRTP base and adds
  * Linear-specific options: input/output feature dimensions and bias configuration.
  *
  * Exposed as part of the Linear module via module partitions.
@@ -15,7 +15,7 @@ module;
 export module Dnn.Modules.Linear:Config;
 
 import Dnn.Module;
-import Dnn.ComponentConfig;
+import Dnn.ConfigurationBase;
 
 namespace Mila::Dnn
 {
@@ -24,7 +24,7 @@ namespace Mila::Dnn
      *
      * Provides a type-safe fluent interface for configuring Linear modules.
      */
-    export class LinearConfig : public ComponentConfig {
+    export class LinearConfig : public ConfigurationBase {
     public:
         /**
          * @brief Constructor with required parameters.
@@ -56,7 +56,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If validation fails
          */
         void validate() const {
-            ComponentConfig::validate();
+            ConfigurationBase::validate();
 
             if ( input_features_ == 0 || output_features_ == 0 ) {
                 throw std::invalid_argument( "Input and output features must be greater than zero" );

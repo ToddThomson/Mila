@@ -3,7 +3,7 @@
  * @brief Configuration interface for the Layer Normalization module in the Mila DNN framework.
  *
  * Defines the LayerNormConfig class, providing a type-safe fluent interface for configuring
- * Layer Normalization modules. Inherits from ComponentConfig CRTP base and adds LayerNorm-specific
+ * Layer Normalization modules. Inherits from ConfigurationBase CRTP base and adds LayerNorm-specific
  * options: normalization dimensions, epsilon, and bias configuration.
  *
  * Exposed as part of the LayerNorm module via module partitions.
@@ -16,7 +16,7 @@ module;
 
 export module Dnn.Modules.LayerNorm:Config;
 
-import Dnn.ComponentConfig;
+import Dnn.ConfigurationBase;
 
 namespace Mila::Dnn
 {
@@ -25,7 +25,7 @@ namespace Mila::Dnn
      *
      * Provides a type-safe fluent interface for configuring LayerNorm modules.
      */
-    export class LayerNormConfig : public ComponentConfig {
+    export class LayerNormConfig : public ConfigurationBase {
     public:
         /**
          * @brief Default constructor.
@@ -120,7 +120,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If validation fails
          */
         void validate() const {
-            ComponentConfig::validate();
+            ConfigurationBase::validate();
 
             if ( input_shape_.empty() ) {
                 throw std::invalid_argument( "Input shape cannot be empty" );

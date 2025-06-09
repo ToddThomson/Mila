@@ -16,7 +16,7 @@ export module Dnn.Module;
 
 import Dnn.Tensor;
 import Dnn.TensorTraits;
-import Dnn.ComponentConfig;
+import Dnn.ConfigurationBase;
 import Compute.DeviceType;
 import Compute.DeviceContext;
 import Compute.MemoryResource;
@@ -60,7 +60,7 @@ namespace Mila::Dnn
         * @param policy The compute precision policy to use (default is Auto).
         * @throws std::runtime_error If the specified device name is invalid or doesn't match TDeviceType.
         */
-        explicit Module( const std::string& device_name, const ComponentConfig& config )
+        explicit Module( const std::string& device_name, const ConfigurationBase& config )
             : device_context_( createContext( device_name ) ), config_( config ), training_mode_( config.isTraining() ) {
 
 			config.validate();
@@ -83,7 +83,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If the provided context is nullptr.
          * @throws std::runtime_error If the context device type doesn't match TDeviceType.
          */
-        explicit Module( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) 
+        explicit Module( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) 
             : config_( config ), training_mode_ ( config.isTraining() ) {
             if ( !context ) {
                 throw std::invalid_argument( "DeviceContext cannot be nullptr. Please provide a valid DeviceContext." );
@@ -180,8 +180,8 @@ namespace Mila::Dnn
             return config_.getName();
         }
 
-        const ComputePrecision::Policy& getPrecision() const {
-            return config_.getPrecision();
+        const ComputePrecision::Policy& getPrecisionPolicy() const {
+            return config_.getPrecisionPolicy();
 		}
 
         /**
@@ -274,7 +274,7 @@ namespace Mila::Dnn
         /** @brief The device context used for this module's computations */
         std::shared_ptr<Compute::DeviceContext> device_context_;
 
-		ComponentConfig config_;
+		ConfigurationBase config_;
 
         /** @brief Whether the module is in training mode. Default is false */
         bool training_mode_{ false };

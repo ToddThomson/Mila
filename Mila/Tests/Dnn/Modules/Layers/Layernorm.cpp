@@ -202,7 +202,7 @@ namespace Modules::Tests
             if ( !disabled_policy_data_.ln_module ) {
                 disabled_policy_data_ = LayerNormTestData<DeviceType::Cuda, float>::Create(
                     "cuda_ln_disabled", batch_size_, sequence_length_, channels_, axis_, has_bias_, false,
-                    ComputePrecision::Policy::Disabled );
+                    ComputePrecision::Policy::Native );
             }
             return disabled_policy_data_;
         }
@@ -336,7 +336,7 @@ namespace Modules::Tests
 
         std::string policy_string;
         switch ( expected_policy ) {
-            case ComputePrecision::Policy::Disabled:
+            case ComputePrecision::Policy::Native:
                 policy_string = "Disabled";
                 break;
             case ComputePrecision::Policy::Performance:
@@ -808,7 +808,7 @@ namespace Modules::Tests
     }
 
     TEST_F( LayerNormTests, Cuda_Float_PrecisionPolicy_Disabled ) {
-        TestPrecisionPolicy<DeviceType::Cuda, float>( DisabledPolicyData(), ComputePrecision::Policy::Disabled );
+        TestPrecisionPolicy<DeviceType::Cuda, float>( DisabledPolicyData(), ComputePrecision::Policy::Native );
     }
 
     // Training behavior tests

@@ -44,7 +44,7 @@ export import Compute.BinaryOperation;
 export import Compute.Precision;
 
 export import Dnn.Module;
-export import Dnn.ComponentConfig;
+export import Dnn.ConfigurationBase;
 export import Dnn.CompositeModule;
 export import Dnn.Model;
 
@@ -143,8 +143,8 @@ namespace Mila
         try {
             initializeLogger( Utils::LogLevel::Info );
 
-            // Initialize random generator with provided seed
             Core::RandomGenerator::getInstance().setSeed( randomSeed );
+
             if ( randomSeed != 0 ) {
                 Utils::Logger::info( "Initialized random generator with seed: " + std::to_string( randomSeed ) );
             }
@@ -152,11 +152,11 @@ namespace Mila
                 Utils::Logger::info( "Initialized random generator with non-deterministic seed." );
             }
 
-            // Initialize operations and devices
             Dnn::Compute::OperationsRegistrar::instance();
             Dnn::Compute::DeviceRegistrar::instance();
 
-            Utils::Logger::info( "Mila framework initialized successfully" );
+            Utils::Logger::info( "Mila framework initialized successfully." );
+            
             return true;
         }
         catch ( const std::exception& e ) {

@@ -214,7 +214,7 @@ namespace Modules::Tests
             if ( !disabled_precision_cuda_float_data_.mlp_module ) {
                 disabled_precision_cuda_float_data_ = MLPTestData<Compute::DeviceType::Cuda, float>::Create(
                     "cuda_mlp_disabled_precision", cuda_batch_size_, cuda_sequence_length_, input_channels_, output_channels_,
-                    true, false, ComputePrecision::Policy::Disabled );
+                    true, false, ComputePrecision::Policy::Native );
             }
             return disabled_precision_cuda_float_data_;
         }
@@ -302,7 +302,7 @@ namespace Modules::Tests
         std::string policy_str;
 
         switch ( expected_policy ) {
-            case ComputePrecision::Policy::Disabled:
+            case ComputePrecision::Policy::Native:
                 policy_str = "Disabled";
                 break;
             case ComputePrecision::Policy::Performance:
@@ -617,7 +617,7 @@ namespace Modules::Tests
 
     TEST_F( MLPTests, Cuda_DisabledPrecision_Policy ) {
         TestPrecisionPolicy<Compute::DeviceType::Cuda, float>(
-            DisabledPrecisionCudaFloatData(), ComputePrecision::Policy::Disabled );
+            DisabledPrecisionCudaFloatData(), ComputePrecision::Policy::Native );
         TestForward<Compute::DeviceType::Cuda, float>( DisabledPrecisionCudaFloatData() );
     }
 

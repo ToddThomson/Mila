@@ -30,9 +30,10 @@ endif()
 
 add_executable( MilaTests
     "main.cpp"
-    "Dnn/Core/Tensor.cpp"
-    "Dnn/Core/TensorBuffer.cpp"
-    "Dnn/Core/TensorHelpers.cpp"
+    
+    "Dnn/Tensors/Tensor.cpp"
+    "Dnn/Tensors/TensorBuffer.cpp"
+    "Dnn/Tensors/TensorHelpers.cpp"
      
     "Dnn/Compute/DeviceHelpers.cpp" 
     "Dnn/Compute/DeviceContext.cpp"
@@ -46,8 +47,8 @@ add_executable( MilaTests
     #"Dnn/Modules/Layers/EncoderConfig.cpp"
     #"Dnn/Modules/Layers/Gelu.cpp" 
     #"Dnn/Modules/Layers/GeluConfig.cpp"
-    #"Dnn/Modules/Layers/Linear.cpp"
-    #"Dnn/Modules/Layers/LinearConfig.cpp"
+    "Dnn/Modules/Layers/Linear.cpp"
+    "Dnn/Modules/Layers/LinearConfig.cpp"
     #"Dnn/Modules/Attention.cpp" 
     #"Dnn/Modules/Layers/Layernorm.cpp"
     #"Dnn/Modules/Layers/Residual.cpp"

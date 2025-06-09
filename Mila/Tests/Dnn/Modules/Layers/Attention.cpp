@@ -198,7 +198,7 @@ namespace Modules::Tests
             if ( !disabled_precision_cpu_float_data_.attention_module ) {
                 disabled_precision_cpu_float_data_ = AttentionTestData<DeviceType::Cpu, float, float>::Create(
                     "cpu_attn_disabled_precision", cpu_batch_size_, sequence_length_, channels_, num_heads_, false,
-                    ComputePrecision::Policy::Disabled );
+                    ComputePrecision::Policy::Native );
             }
             return disabled_precision_cpu_float_data_;
         }
@@ -226,7 +226,7 @@ namespace Modules::Tests
             if ( !disabled_precision_cuda_float_data_.attention_module ) {
                 disabled_precision_cuda_float_data_ = AttentionTestData<DeviceType::Cuda, float, float>::Create(
                     "cuda_attn_disabled_precision", batch_size_, sequence_length_, channels_, num_heads_, false,
-                    ComputePrecision::Policy::Disabled );
+                    ComputePrecision::Policy::Native );
             }
             return disabled_precision_cuda_float_data_;
         }
@@ -330,7 +330,7 @@ namespace Modules::Tests
         std::string output = data.attention_module->toString();
         std::string policy_string;
         switch ( expected_policy ) {
-            case ComputePrecision::Policy::Disabled:
+            case ComputePrecision::Policy::Native:
                 policy_string = "Disabled";
                 break;
             case ComputePrecision::Policy::Performance:
@@ -942,7 +942,7 @@ namespace Modules::Tests
     }
 
     TEST_F( AttentionTests, Cpu_Float_DisabledPrecision ) {
-        TestPrecisionPolicy<DeviceType::Cpu, float>( DisabledPrecisionCpuFloatData(), ComputePrecision::Policy::Disabled );
+        TestPrecisionPolicy<DeviceType::Cpu, float>( DisabledPrecisionCpuFloatData(), ComputePrecision::Policy::Native );
     }
 
     // New ComputePrecision Tests - CUDA
@@ -959,6 +959,6 @@ namespace Modules::Tests
     }
 
     TEST_F( AttentionTests, Cuda_Float_DisabledPrecision ) {
-        TestPrecisionPolicy<DeviceType::Cuda, float>( DisabledPrecisionCudaFloatData(), ComputePrecision::Policy::Disabled );
+        TestPrecisionPolicy<DeviceType::Cuda, float>( DisabledPrecisionCudaFloatData(), ComputePrecision::Policy::Native );
     }
 }

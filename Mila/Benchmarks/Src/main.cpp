@@ -113,7 +113,7 @@ bool parseCommandLine( int argc, char* argv[], BenchmarkConfig& config ) {
                 config.precisionPolicy = ComputePrecision::Policy::Accuracy;
             }
             else if ( precision == "disabled" ) {
-                config.precisionPolicy = ComputePrecision::Policy::Disabled;
+                config.precisionPolicy = ComputePrecision::Policy::Native;
             }
             else {
                 std::cerr << "Unknown precision policy: " << precision << ". Using default: auto" << std::endl;
@@ -167,7 +167,7 @@ bool parseCommandLine( int argc, char* argv[], BenchmarkConfig& config ) {
             case ComputePrecision::Policy::Accuracy:
                 std::cout << "Accuracy";
                 break;
-            case ComputePrecision::Policy::Disabled:
+            case ComputePrecision::Policy::Native:
                 std::cout << "Disabled";
                 break;
             default:

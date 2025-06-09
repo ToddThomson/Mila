@@ -7,14 +7,14 @@
 
 import Mila;
 
-namespace Modules::Tests
+namespace Modules::Base::Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
 	using namespace Mila::Dnn::Serialization;
 
     // Test configuration class for modules
-    class MockModuleConfig : public ComponentConfig {
+    class MockModuleConfig : public ConfigurationBase {
     public:
         MockModuleConfig() {
             // Default to "unnamed" name from base class
@@ -66,7 +66,7 @@ namespace Modules::Tests
             oss << "MockModule: " << this->getName() << std::endl;
             oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
             oss << "Training: " << (this->isTraining() ? "true" : "false") << std::endl;
-            oss << "Precision: " << static_cast<int>(this->getPrecision()) << std::endl;
+            oss << "Precision: " << static_cast<int>(this->getPrecisionPolicy()) << std::endl;
             return oss.str();
         }
 
@@ -224,7 +224,7 @@ namespace Modules::Tests
 
     template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
     void TestPrecision( const ModuleTestData<TDevice, TInput, TOutput>& data ) {
-        auto precision = data.module->getPrecision();
+        auto precision = data.module->getPrecisionPolicy();
         EXPECT_EQ( precision, ComputePrecision::Policy::Auto ); // Default policy
 
         // Note: The Module now gets precision from its config, so we can't directly test setting it
@@ -372,18 +372,18 @@ namespace Modules::Tests
     TEST_F( ModuleTests, ModuleConfig_DefaultValues ) {
         MockModuleConfig config;
         EXPECT_EQ( config.getName(), "mock_module" );
-        EXPECT_EQ( config.getPrecision(), ComputePrecision::Policy::Auto );
+        EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Auto );
         EXPECT_FALSE( config.isTraining() );
     }
 
     TEST_F( ModuleTests, ModuleConfig_CustomValues ) {
         MockModuleConfig config;
         config.withName( "custom_module" )
-            .withPrecision( ComputePrecision::Policy::Performance )
+            .withPrecisionPolicy( ComputePrecision::Policy::Performance )
             .withTraining( true );
 
         EXPECT_EQ( config.getName(), "custom_module" );
-        EXPECT_EQ( config.getPrecision(), ComputePrecision::Policy::Performance );
+        EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Performance );
         EXPECT_TRUE( config.isTraining() );
     }
 

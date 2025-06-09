@@ -17,7 +17,7 @@ export module Compute.CpuLayerNormOp;
 
 import Dnn.Modules.LayerNorm;
 import Dnn.Tensor;
-import Dnn.ComponentConfig;
+import Dnn.ConfigurationBase;
 import Compute.OperationBase;
 import Compute.OperationAttributes;
 import Compute.UnaryOperation;
@@ -258,7 +258,7 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float>> {
+                []( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float>> {
                     const auto& layerNormConfig = dynamic_cast<const LayerNormConfig&>(config);
                     return context ? std::make_shared<CpuLayerNormOp>( context, layerNormConfig )
                         : std::make_shared<CpuLayerNormOp>( layerNormConfig );

@@ -30,7 +30,7 @@ module;
 export module Compute.OperationRegistry;
 
 import Dnn.TensorTraits;
-import Dnn.ComponentConfig;
+import Dnn.ConfigurationBase;
 import Compute.Precision;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
@@ -145,7 +145,7 @@ namespace Mila::Dnn::Compute
 			requires ValidTensorType<TInput>&& ValidFloatTensorType<TOutput>
         void registerUnaryOperation(
             const std::string& operation_name,
-            std::function<std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput>>( std::shared_ptr<DeviceContext>, const ComponentConfig& )> creator ) {
+            std::function<std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput>>( std::shared_ptr<DeviceContext>, const ConfigurationBase& )> creator ) {
 
             TypeID type_id{
                 std::type_index( typeid(TInput) ),
@@ -154,7 +154,7 @@ namespace Mila::Dnn::Compute
                 TDeviceType
             };
 
-            auto genericCreator = [creator]( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<void> {
+            auto genericCreator = [creator]( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<void> {
                 return creator( context, config );
             };
 
@@ -176,7 +176,7 @@ namespace Mila::Dnn::Compute
 			requires ValidTensorTypes<TInput1, TInput2>&& ValidFloatTensorType<TOutput>
         void registerBinaryOperation(
             const std::string& operation_name,
-            std::function<std::shared_ptr<BinaryOperation<TDeviceType, TInput1, TInput2, TOutput>>( std::shared_ptr<DeviceContext>, const ComponentConfig& )> creator ) {
+            std::function<std::shared_ptr<BinaryOperation<TDeviceType, TInput1, TInput2, TOutput>>( std::shared_ptr<DeviceContext>, const ConfigurationBase& )> creator ) {
 
             TypeID type_id{
                 std::type_index( typeid(TInput1) ),
@@ -186,7 +186,7 @@ namespace Mila::Dnn::Compute
             };
 
             // Convert BinaryOperation creator to GenericCreator
-            auto genericCreator = [creator ]( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<void> {
+            auto genericCreator = [creator ]( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<void> {
                 return creator( context, config );
             };
 
@@ -248,7 +248,7 @@ namespace Mila::Dnn::Compute
         std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput>> createUnaryOperation(
             const std::string& operation_name,
             std::shared_ptr<DeviceContext> context,
-            const ComponentConfig& config ) const {
+            const ConfigurationBase& config ) const {
 
             TypeID type_id{
                 std::type_index( typeid(TInput) ),
@@ -303,7 +303,7 @@ namespace Mila::Dnn::Compute
         std::shared_ptr<BinaryOperation<TDeviceType, TInput1, TInput2, TOutput>> createBinaryOperation(
             const std::string& operation_name,
             std::shared_ptr<DeviceContext> context,
-            const ComponentConfig& config ) const {
+            const ConfigurationBase& config ) const {
 
             TypeID type_id{
                 std::type_index( typeid(TInput1) ),
@@ -375,7 +375,7 @@ namespace Mila::Dnn::Compute
          */
         using GenericCreator = std::function<std::shared_ptr<void>(
             std::shared_ptr<DeviceContext>, 
-            const ComponentConfig& )>;
+            const ConfigurationBase& )>;
 
         /**
          * @brief List of registered fused operations.

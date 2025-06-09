@@ -15,7 +15,7 @@ export module Compute.CudaLayerNormOp;
 import Dnn.Modules.LayerNorm;
 import Dnn.Tensor;
 import Dnn.TensorTraits;
-import Dnn.ComponentConfig;
+import Dnn.ConfigurationBase;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
@@ -237,7 +237,7 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, float>> {
+                []( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, float>> {
                     const auto& layerNormConfig = static_cast<const LayerNormConfig&>( config );
                     return context ? std::make_shared<CudaLayerNormOp<float>>( context, layerNormConfig )
                         : std::make_shared<CudaLayerNormOp<float>>( layerNormConfig );
@@ -246,7 +246,7 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, half, half>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half, half>> {
+                []( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half, half>> {
                     const auto& layerNormConfig = static_cast<const LayerNormConfig&>(config);
                     return context ? std::make_shared<CudaLayerNormOp<half>>( context, layerNormConfig )
                         : std::make_shared<CudaLayerNormOp<half>>( layerNormConfig );

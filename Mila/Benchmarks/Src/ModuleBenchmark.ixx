@@ -137,7 +137,7 @@ namespace Mila::Benchmark
                     case ComputePrecision::Policy::Accuracy:
                         precisionStr = "Accuracy";
                         break;
-                    case ComputePrecision::Policy::Disabled:
+                    case ComputePrecision::Policy::Native:
                         precisionStr = "Disabled";
                         break;
                     default:
@@ -174,7 +174,7 @@ namespace Mila::Benchmark
                     case ComputePrecision::Policy::Accuracy:
                         oss << " (Accu)";
                         break;
-                    case ComputePrecision::Policy::Disabled:
+                    case ComputePrecision::Policy::Native:
                         oss << " (Dis)";
                         break;
                     case ComputePrecision::Policy::Auto:

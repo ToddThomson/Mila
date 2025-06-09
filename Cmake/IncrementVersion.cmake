@@ -1,4 +1,4 @@
-file(READ "${CMAKE_SOURCE_DIR}/Version.txt" VERSION_CONTENT)
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../Version.txt" VERSION_CONTENT)
 
 # Parse version components
 string(REGEX MATCH "([0-9]+)\\.([0-9]+)\\.([0-9]+)-([a-zA-Z]+)\\.([0-9]+)" 
@@ -15,7 +15,7 @@ if(VERSION_MATCH)
     
     set(NEW_VERSION "${MAJOR}.${MINOR}.${NEW_BUILD}-${TAG}.${TAG_VERSION}")
     
-    file(WRITE "${CMAKE_SOURCE_DIR}/Version.txt" "${NEW_VERSION}")
+    file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/../Version.txt" "${NEW_VERSION}")
     
     message(STATUS "Version updated to ${NEW_VERSION}")
 else()

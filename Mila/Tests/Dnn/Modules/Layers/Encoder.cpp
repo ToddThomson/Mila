@@ -214,7 +214,7 @@ namespace Modules::Tests
                 disabled_precision_cpu_float_data_ = EncoderTestData<Compute::DeviceType::Cpu, int, float>::Create(
                     "cpu_encoder_disabled_precision", cpu_batch_size_, sequence_length_,
                     channels_, max_seq_len_, vocab_len_, false,
-                    ComputePrecision::Policy::Disabled );
+                    ComputePrecision::Policy::Native );
             }
             return disabled_precision_cpu_float_data_;
         }
@@ -245,7 +245,7 @@ namespace Modules::Tests
                 disabled_precision_cuda_float_data_ = EncoderTestData<Compute::DeviceType::Cuda, int, float>::Create(
                     "cuda_encoder_disabled_precision", batch_size_, sequence_length_,
                     channels_, max_seq_len_, vocab_len_, false,
-                    ComputePrecision::Policy::Disabled );
+                    ComputePrecision::Policy::Native );
             }
             return disabled_precision_cuda_float_data_;
         }
@@ -358,7 +358,7 @@ namespace Modules::Tests
         std::string output = data.encoder_module->toString();
         std::string policy_string;
         switch ( expected_policy ) {
-            case ComputePrecision::Policy::Disabled:
+            case ComputePrecision::Policy::Native:
                 policy_string = "Disabled";
                 break;
             case ComputePrecision::Policy::Performance:
@@ -687,19 +687,19 @@ namespace Modules::Tests
 
     // ComputePrecision Tests - CPU
     TEST_F( EncoderTests, Cpu_Float_DefaultPrecisionIsAuto ) {
-        TestPrecisionPolicy<Compute::DeviceType::Cpu, int, float>( CpuFloatData(), ComputePrecision::Policy::Disabled );
+        TestPrecisionPolicy<Compute::DeviceType::Cpu, int, float>( CpuFloatData(), ComputePrecision::Policy::Native );
     }
 
     TEST_F( EncoderTests, Cpu_Float_PerformancePrecision ) {
-        TestPrecisionPolicy<Compute::DeviceType::Cpu, int, float>( PerfPrecisionCpuFloatData(), ComputePrecision::Policy::Disabled );
+        TestPrecisionPolicy<Compute::DeviceType::Cpu, int, float>( PerfPrecisionCpuFloatData(), ComputePrecision::Policy::Native );
     }
 
     TEST_F( EncoderTests, Cpu_Float_AccuracyPrecision ) {
-        TestPrecisionPolicy<Compute::DeviceType::Cpu, int, float>( AccuracyPrecisionCpuFloatData(), ComputePrecision::Policy::Disabled );
+        TestPrecisionPolicy<Compute::DeviceType::Cpu, int, float>( AccuracyPrecisionCpuFloatData(), ComputePrecision::Policy::Native );
     }
 
     TEST_F( EncoderTests, Cpu_Float_DisabledPrecision ) {
-        TestPrecisionPolicy<Compute::DeviceType::Cpu, int, float>( DisabledPrecisionCpuFloatData(), ComputePrecision::Policy::Disabled );
+        TestPrecisionPolicy<Compute::DeviceType::Cpu, int, float>( DisabledPrecisionCpuFloatData(), ComputePrecision::Policy::Native );
     }
 
     // ComputePrecision Tests - CUDA
@@ -716,7 +716,7 @@ namespace Modules::Tests
     }
 
     TEST_F( EncoderTests, Cuda_Float_DisabledPrecision ) {
-        TestPrecisionPolicy<Compute::DeviceType::Cuda, int, float>( DisabledPrecisionCudaFloatData(), ComputePrecision::Policy::Disabled );
+        TestPrecisionPolicy<Compute::DeviceType::Cuda, int, float>( DisabledPrecisionCudaFloatData(), ComputePrecision::Policy::Native );
     }
 
     // Type alias tests

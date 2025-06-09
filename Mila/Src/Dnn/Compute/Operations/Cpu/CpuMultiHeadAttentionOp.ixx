@@ -17,7 +17,7 @@ export module Compute.CpuAttention;
 
 import Dnn.Modules.Attention;
 import Dnn.Tensor;
-import Dnn.ComponentConfig;
+import Dnn.ConfigurationBase;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
@@ -309,7 +309,7 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float>> {
+                []( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float>> {
                     const auto& attentionConfig = static_cast<const MultiHeadAttentionConfig&>( config );
                     return context ? std::make_shared<CpuMultiHeadAttentionOp>( context, attentionConfig )
                         : std::make_shared<CpuMultiHeadAttentionOp>( attentionConfig );

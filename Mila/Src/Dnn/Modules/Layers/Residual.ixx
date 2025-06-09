@@ -404,7 +404,7 @@ namespace Mila::Dnn
         /**
          * @brief Optional projection layer for dimension matching.
          */
-        std::shared_ptr<Linear<TDeviceType, TInput, TOutput>> projection_;
+        std::shared_ptr<Linear<TDeviceType, TInput>> projection_;
 
         /**
          * @brief Learnable gate weights for gated residual connections.

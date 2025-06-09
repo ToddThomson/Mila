@@ -16,7 +16,7 @@ export module Compute.CudaResidualOp;
 
 import Dnn.Modules.Residual;
 import Dnn.Tensor;
-import Dnn.ComponentConfig;
+import Dnn.ConfigurationBase;
 import Dnn.TensorTraits;
 import Compute.Precision;
 import Compute.OperationBase;
@@ -132,7 +132,7 @@ namespace Mila::Dnn::Compute
             std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const override {
 
             // Get precision policy from operation base class
-            ComputePrecision::Policy policy = config_.getPrecision();
+            ComputePrecision::Policy policy = config_.getPrecisionPolicy();
 
             auto X1 = input1.raw_data();
             auto X2 = input2.raw_data();
@@ -191,7 +191,7 @@ namespace Mila::Dnn::Compute
             const std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const {
 
             // Get precision policy from operation base class or override from properties
-            ComputePrecision::Policy policy = config_.getPrecision();
+            ComputePrecision::Policy policy = config_.getPrecisionPolicy();
 
             // Check if properties override the precision policy
             if ( properties.has( "precision_policy" ) ) {
@@ -244,7 +244,7 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerBinaryOperation<DeviceType::Cuda, float, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, float, float, float>> {
+                []( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, float, float, float>> {
                     const auto& residualConfig = static_cast<const ResidualConfig&>( config );
                     return context ? std::make_shared<CudaResidualOp<float>>( context, residualConfig )
                         : std::make_shared<CudaResidualOp<float>>( residualConfig );
@@ -253,7 +253,7 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerBinaryOperation<DeviceType::Cuda, half, half, half>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, half, half, half>> {
+                []( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, half, half, half>> {
                     const auto& residualConfig = static_cast<const ResidualConfig&>(config);
                     return context ? std::make_shared<CudaResidualOp<half>>( context, residualConfig )
                         : std::make_shared<CudaResidualOp<half>>( residualConfig );

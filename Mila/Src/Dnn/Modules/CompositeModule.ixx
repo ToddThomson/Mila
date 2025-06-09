@@ -15,7 +15,7 @@ export module Dnn.CompositeModule;
 
 import Dnn.Module;
 import Dnn.Tensor;
-import Dnn.ComponentConfig;
+import Dnn.ConfigurationBase;
 import Dnn.TensorTraits;
 import Compute.Precision;
 import Compute.DeviceType;
@@ -64,7 +64,7 @@ namespace Mila::Dnn
          * @param precision The compute precision policy to use (defaults to Auto).
          */
         explicit CompositeModule(
-			const std::string& device_name, const ComponentConfig& config )
+			const std::string& device_name, const ConfigurationBase& config )
             : ModuleBase( device_name, config ) {}
 
         /**
@@ -74,7 +74,7 @@ namespace Mila::Dnn
          * @param precision The compute precision policy to use (defaults to Auto).
          */
         explicit CompositeModule(
-            std::shared_ptr<DeviceContext> context, const ComponentConfig& config )
+            std::shared_ptr<DeviceContext> context, const ConfigurationBase& config )
             : ModuleBase( context, config ) {}
 
         /**

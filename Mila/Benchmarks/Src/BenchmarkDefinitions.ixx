@@ -51,7 +51,7 @@ namespace Mila::Benchmark
     ComputePrecision::Policy stringToPrecisionPolicy( const std::string& precision ) {
         if ( precision == "performance" ) return ComputePrecision::Policy::Performance;
         if ( precision == "accuracy" ) return ComputePrecision::Policy::Accuracy;
-        if ( precision == "disabled" ) return ComputePrecision::Policy::Disabled;
+        if ( precision == "disabled" ) return ComputePrecision::Policy::Native;
         return ComputePrecision::Policy::Auto; // Default
     }
 

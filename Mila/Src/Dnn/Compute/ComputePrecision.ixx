@@ -1,14 +1,9 @@
 /**
  * @file ComputePrecision.ixx
- * @brief Defines precision policy for neural network operations.
+ * @brief Defines compute precision policy for neural network operations.
  */
 
 module;
-#include <string_view>
-#include <cuda_fp16.h>
-#include <cuda_bf16.h>
-#include <cuda_fp8.h>
-#include <type_traits>
 #include <string>
 #include <sstream>
 
@@ -29,25 +24,21 @@ namespace Mila::Dnn::Compute
      */
     export class ComputePrecision {
     public:
+
         /**
          * @brief Basic precision policy preference
          */
         enum class Policy {
-            Disabled,    // Do not use mixed precision
-            Auto,        // Let kernels and libraries choose the best balance (default)
+			Native,      // Use data type's native precision
             Performance, // Prefer performance over accuracy when possible
-            Accuracy     // Prioritize accuracy over performance
+            Accuracy,    // Prioritize accuracy over performance
+            Auto         // Let kernels and libraries choose the best balance (default)
         };
 
         /**
          * @brief Construct a ComputePrecision with the specified policy.
          */
         ComputePrecision( Policy policy = Policy::Auto ) : policy_( policy ) {}
-
-        /**
-         * @brief Check if automatic mixed precision is enabled.
-         */
-        bool isEnabled() const { return policy_ != Policy::Disabled; }
 
         /**
          * @brief Get the current policy.
@@ -68,8 +59,8 @@ namespace Mila::Dnn::Compute
             std::ostringstream oss;
             oss << "Precision Policy: ";
             switch ( policy_ ) {
-                case Policy::Disabled:
-                    oss << "Disabled";
+                case Policy::Native:
+                    oss << "Native";
                     break;
                 case Policy::Performance:
                     oss << "Performance";

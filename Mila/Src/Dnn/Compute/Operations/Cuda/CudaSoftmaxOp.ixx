@@ -15,7 +15,7 @@ export module Compute.CudaSoftmaxOp;
 import Dnn.Modules.Softmax;
 import Dnn.Tensor;
 import Dnn.TensorTraits;
-import Dnn.ComponentConfig;
+import Dnn.ConfigurationBase;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
@@ -272,7 +272,7 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, float, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, float>> {
+                []( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, float>> {
                     const auto& softmaxConfig = static_cast<const SoftmaxConfig&>(config);
                     return context ? std::make_shared<CudaSoftmaxOp<float>>( context, softmaxConfig )
                         : std::make_shared<CudaSoftmaxOp<float>>( softmaxConfig );
@@ -281,7 +281,7 @@ namespace Mila::Dnn::Compute
 
            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, half, half>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half, half>> {
+                []( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half, half>> {
                     const auto& softmaxConfig = static_cast<const SoftmaxConfig&>(config);
                     return context ? std::make_shared<CudaSoftmaxOp<half>>( context, softmaxConfig )
                         : std::make_shared<CudaSoftmaxOp<half>>( softmaxConfig );
