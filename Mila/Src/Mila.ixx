@@ -37,26 +37,41 @@ import Utils.DefaultLogger;
 
 export import Core.RandomGenerator;
 
-export import Compute.OperationBase;
-export import Compute.OperationType;
-export import Compute.UnaryOperation;
-export import Compute.BinaryOperation;
+//export import Compute.OperationBase;
+//export import Compute.OperationType;
+//export import Compute.UnaryOperation;
+//export import Compute.BinaryOperation;
 export import Compute.Precision;
 
-export import Dnn.Module;
-export import Dnn.ConfigurationBase;
-export import Dnn.CompositeModule;
-export import Dnn.Model;
+//export import Dnn.Module;
+//export import Dnn.ConfigurationBase;
+//export import Dnn.CompositeModule;
+//export import Dnn.Model;
 
 export import Dnn.Tensor;
+export import Dnn.TensorInitializers;
+export import Dnn.TensorDataType;
+export import Dnn.TensorData;
 export import Dnn.TensorBuffer; // TJT: Remove after testing
 export import Dnn.TensorTraits;
-export import Dnn.TensorHelpers;
+
+export import Dnn.TensorOps;
+//export import Dnn.TensorOps.Math;
+//export import Compute.CpuTensorOps.Math;
+//export import Compute.CudaTensorOps;
+
+export import Compute.CudaTensorTraits;
+export import Compute.CpuTensorDataTypeTraits;
+// FUTURE: export import Compute.MetalTensorTraits;
+// FUTURE: export import Compute.OpenCLTensorTraits;
+// FUTURE: export import Compute.VulkanTensorTraits;
+export import Dnn.TensorInitializers;
+export import Dnn.TensorPtr;
 export import Dnn.ActivationType;
 
-export import Data.DataLoader;
+//export import Data.DataLoader;
 
-export import Serialization.ModelArchive;
+//export import Serialization.ModelArchive;
 
 export import Compute.ComputeDevice;
 export import Compute.DeviceRegistry;
@@ -64,47 +79,49 @@ export import Compute.DeviceType;
 export import Compute.CpuDevice;
 export import Compute.CudaDevice;
 export import Compute.DeviceContext;
+export import Compute.CpuDeviceContext;
+export import Compute.CudaDeviceContext;
 export import Compute.DeviceHelpers;
 
 export import Compute.MemoryResource;
+export import Compute.MemoryResourceTracker;
 export import Compute.CpuMemoryResource;
 export import Compute.CudaMemoryResource;
 export import Compute.CudaManagedMemoryResource;
 export import Compute.CudaPinnedMemoryResource;
-export import Compute.DynamicMemoryResource;
 
-export import Compute.OperationRegistry;
-export import Compute.OperationAttributes;
+//export import Compute.OperationRegistry;
+//export import Compute.OperationAttributes;
 
-export import Compute.CpuEncoderOp;
-export import Compute.CpuGeluOp;
-export import Compute.CpuLayerNormOp;
-export import Compute.CpuLinearOp;
-export import Compute.CpuResidualOp;
-export import Compute.CpuSoftmaxOp;
+//export import Compute.CpuEncoderOp;
+//export import Compute.CpuGeluOp;
+//export import Compute.CpuLayerNormOp;
+//export import Compute.CpuLinearOp;
+//export import Compute.CpuResidualOp;
+//export import Compute.CpuSoftmaxOp;
 
-export import Compute.CudaEncoderOp;
-export import Compute.CudaGeluOp;
-export import Compute.CudaSoftmaxOp;
-export import Compute.CudaMHAOp;
-export import Compute.CudaLinearOp;
-export import Compute.CudaLayerNormOp;
-export import Compute.CudaResidualOp;
+//export import Compute.CudaEncoderOp;
+//export import Compute.CudaGeluOp;
+//export import Compute.CudaSoftmaxOp;
+//export import Compute.CudaMHAOp;
+//export import Compute.CudaLinearOp;
+//export import Compute.CudaLayerNormOp;
+//export import Compute.CudaResidualOp;
 
-export import Dnn.Modules.Attention;
-export import Dnn.Modules.Encoder;
-export import Dnn.Modules.Gelu;
-export import Dnn.Modules.LayerNorm;
-export import Dnn.Modules.Linear;
-export import Dnn.Modules.Residual;
-export import Dnn.Modules.Softmax;
+//export import Dnn.Modules.Attention;
+//export import Dnn.Modules.Encoder;
+//export import Dnn.Modules.Gelu;
+//export import Dnn.Modules.LayerNorm;
+//export import Dnn.Modules.Linear;
+//export import Dnn.Modules.Residual;
+//export import Dnn.Modules.Softmax;
 
-export import Dnn.Blocks.MLP;
-export import Dnn.Blocks.TransformerBlock;
+//export import Dnn.Blocks.MLP;
+//export import Dnn.Blocks.TransformerBlock;
 
-export import Dnn.Gpt2.DatasetReader;
+//export import Dnn.Gpt2.DatasetReader;
 
-import Compute.OperationsRegistrar;
+//import Compute.OperationsRegistrar;
 import Compute.DeviceRegistrar;
 
 namespace Mila
@@ -152,7 +169,7 @@ namespace Mila
                 Utils::Logger::info( "Initialized random generator with non-deterministic seed." );
             }
 
-            Dnn::Compute::OperationsRegistrar::instance();
+            // FIXME: Dnn::Compute::OperationsRegistrar::instance();
             Dnn::Compute::DeviceRegistrar::instance();
 
             Utils::Logger::info( "Mila framework initialized successfully." );

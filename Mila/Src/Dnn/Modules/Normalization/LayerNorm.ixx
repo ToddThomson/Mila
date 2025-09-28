@@ -18,6 +18,7 @@ export import :Config;
 
 import Dnn.Module;
 import Dnn.Tensor;
+import Dnn.TensorData;
 import Dnn.TensorTraits;
 import Compute.Precision;
 import Compute.ComputeDevice;
@@ -166,8 +167,8 @@ namespace Mila::Dnn
          * @param input The input tensor to be normalized.
          * @param output The output tensor where the results will be stored.
          */
-        void forward( const Tensor<TInput, MR>& input, Tensor<TOutput, MR>& output ) {
-            operation_->forward( input, parameters_, properties_, output, output_state_ );
+        void forward( const Tensor<TInput, MR>& input, Tensor<TOutput, MR>& output ) override {
+            operation_->forward( input, parameters_, output, output_state_ );
         }
 
         /**
@@ -186,13 +187,13 @@ namespace Mila::Dnn
         void backward(
             const Tensor<TInput, MR>& input,
             const Tensor<TOutput, MR>& output_grad,
-            Tensor<TInput, MR>& input_grad ) {
+            Tensor<TInput, MR>& input_grad ) override {
 
             std::vector<std::shared_ptr<Tensor<TOutput, MR>>> parameter_grads;
             parameter_grads.resize( parameters_.size() );
 
             for ( size_t i = 0; i < parameters_.size(); ++i ) {
-                parameter_grads[ i ] = std::make_shared<Tensor<TOutput, MR>>( parameters_[ i ]->getShape() );
+                parameter_grads[ i ] = std::make_shared<Tensor<TOutput, MR>>( parameters_[ i ]->shape() );
             }
 
             operation_->backward(
@@ -201,7 +202,6 @@ namespace Mila::Dnn
                 parameters_,     // Parameters (weight and bias)
                 parameter_grads, // Parameter gradients
                 input_grad,      // Gradient to propagate to previous layer
-                properties_,     // Operation properties
                 output_state_    // Cached tensors from forward pass
             );
         }
@@ -257,7 +257,7 @@ namespace Mila::Dnn
             oss << "Epsilon: " << config_.getEpsilon() << std::endl;
             oss << "Has Bias: " << (config_.hasBias() ? "Yes" : "No") << std::endl;
             oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
-            oss << this->getComputePrecision().toString() << std::endl;
+            //oss << this->getComputePrecision().toString() << std::endl;
             oss << "Parameter count: " << parameterCount() << std::endl;
 
             return oss.str();
@@ -297,17 +297,12 @@ namespace Mila::Dnn
         /**
          * @brief Collection of trainable parameters for this module.
          */
-        std::vector<std::shared_ptr<Tensor<TOutput, MR>>> parameters_;
+        std::vector<std::shared_ptr<ITensorData>> parameters_;
 
         /**
          * @brief Collection of output state tensors for caching.
          */
         std::vector<std::shared_ptr<Tensor<TOutput, MR>>> output_state_;
-
-        /**
-         * @brief Operation attributes and configuration.
-         */
-        OperationAttributes properties_;
 
         /**
          * @brief The underlying operation that implements Layer Normalization.
@@ -373,8 +368,8 @@ namespace Mila::Dnn
             this->state_map_[ "rstd" ] = rstd_;
 
             // Set properties
-            properties_.set( "epsilon", config_.getEpsilon() );
-            properties_.set( "axis", config_.getAxis() );
+            /*properties_.set( "epsilon", config_.getEpsilon() );
+            properties_.set( "axis", config_.getAxis() );*/
         }
 
         /**

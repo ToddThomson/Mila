@@ -23,9 +23,7 @@ namespace Mila::Dnn::Compute
 	 */
 	export class CpuDevice : public ComputeDevice {
 	public:
-		/** @brief Type alias for device memory resource */
-		using MR = CpuMemoryResource;
-
+		
 		/**
 		 * @brief Gets the type of this compute device.
 		 *

@@ -112,7 +112,7 @@ namespace Mila::Mnist
              *
              * @param zip The ZIP archive to load the module state from.
              */
-            void load( ModelArhcive& archive ) override {
+            void load( ModelArchive& archive ) override {
                 for ( const auto& module : this->getModules() ) {
                     module->load( archive );
                 }

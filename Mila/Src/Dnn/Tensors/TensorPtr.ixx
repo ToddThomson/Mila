@@ -13,13 +13,13 @@ namespace Mila::Dnn
     /**
      * @brief Base tensor pointer class that wraps a raw pointer with memory-type safety.
      *
-     * @tparam TPrecision Element type
+     * @tparam TDataType Element type
      * @tparam IsHostAccessible Whether the pointer points to host-accessible memory
      */
-    export template <typename T, bool IsHostAccessible>
+    export template <typename TDataType, bool IsHostAccessible>
         class TensorPtr {
         private:
-            T* ptr_;
+            TDataType* ptr_;
 
         public:
             /**
@@ -27,14 +27,14 @@ namespace Mila::Dnn
              *
              * @param ptr Raw pointer to wrap
              */
-            explicit TensorPtr( T* ptr ) noexcept : ptr_( ptr ) {}
+            explicit TensorPtr( TDataType* ptr ) noexcept : ptr_( ptr ) {}
 
             /**
              * @brief Gets the raw pointer (explicit conversion)
              *
              * @return TPrecision* Raw pointer
              */
-            T* get() const noexcept {
+            TDataType* get() const noexcept {
                 return ptr_;
             }
 
@@ -44,7 +44,7 @@ namespace Mila::Dnn
              * @return Reference to the element
              * @throws std::runtime_error if memory is not host-accessible
              */
-            T& operator*() const {
+            TDataType& operator*() const {
                 if constexpr ( IsHostAccessible ) {
                     return *ptr_;
                 }
@@ -60,7 +60,7 @@ namespace Mila::Dnn
              * @return Reference to the element
              * @throws std::runtime_error if memory is not host-accessible
              */
-            T& operator[]( size_t index ) const {
+            TDataType& operator[]( size_t index ) const {
                 if constexpr ( IsHostAccessible ) {
                     return ptr_[ index ];
                 }
@@ -90,7 +90,7 @@ namespace Mila::Dnn
              *
              * @return Raw pointer for use in CUDA kernels
              */
-            operator T* () const {
+            operator TDataType* () const {
                 return ptr_;
             }
     };
@@ -108,7 +108,7 @@ namespace Mila::Dnn
         using DevicePtr = TensorPtr<T, false>;
 
     /**
-     * @brief Gets a raw pointer from a TensorPtr (similar to thrust::raw_pointer_cast)
+     * @brief Gets a raw pointer from a TensorPtr
      *
      * @tparam TPrecision Element type
      * @tparam IsHostAccessible Whether the pointer is host-accessible

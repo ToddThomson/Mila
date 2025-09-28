@@ -15,9 +15,11 @@ module;
 
 export module Dnn.Modules.Linear;
 export import :Config;
+export import :Attributes;
 
 import Dnn.Module;
 import Dnn.Tensor;
+import Dnn.TensorData;
 import Dnn.TensorTraits;
 import Dnn.TensorHelpers;
 import Compute.Precision;
@@ -128,7 +130,7 @@ namespace Mila::Dnn
          * @param output The output tensor where the results will be stored.
          */
         void forward( const Tensor<TDataType, MR>& input, Tensor<TDataType, MR>& output ) {
-            operation_->forward( input, parameters_, properties_, output, output_state_ );
+            operation_->forward( input, parameters_, output, output_state_ );
         }
 
         /**
@@ -150,7 +152,6 @@ namespace Mila::Dnn
                 parameters_,      // Original parameters (weight, bias)
                 parameter_grads_, // Gradient tensors for parameters
                 input_grad,       // Gradient to propagate to previous layer
-                properties_,      // Operation properties
                 output_state_     // Cached tensors from forward pass
             );
         }
@@ -289,7 +290,7 @@ namespace Mila::Dnn
          * Contains the weight tensor and optionally the bias tensor if has_bias_ is true.
          * These parameters are passed to the underlying operation during forward pass.
          */
-        std::vector<std::shared_ptr<Tensor<TDataType, MR>>> parameters_;
+        std::vector<std::shared_ptr<ITensorData>> parameters_;
 
         /**
          * @brief Gradients for the parameters of this module.
@@ -306,14 +307,6 @@ namespace Mila::Dnn
          * are needed for gradient computation during backpropagation.
          */
         std::vector<std::shared_ptr<Tensor<TDataType, MR>>> output_state_;
-
-        /**
-         * @brief Additional configuration options for the linear operation.
-         *
-         * These attributes can modify the behavior of the underlying operation
-         * implementation without changing the API.
-         */
-        OperationAttributes properties_;
 
         /**
          * @brief The underlying operation that implements the Linear transformation.
@@ -335,27 +328,32 @@ namespace Mila::Dnn
          */
         void initializeParameters() {
 
+            parameters_.clear();
+
             size_t input_features = config_.getInputFeatures();
             size_t output_features = config_.getOutputFeatures();
-            bool has_bias = config_.hasBias();
 
             weight_ = std::make_shared<Tensor<TDataType, MR>>(
                 std::vector<size_t>{output_features, input_features} );
             weight_->setName( this->getName() + ".weight" );
 
+            // REVIEW: Set inputs 
+            //attributes_.inputs[ LinearAttributes::input_names::X ] = x;
+            //attributes.inputs[ Layernorm_attributes::input_names::SCALE ] = scale;
+            //attributes.inputs[ Layernorm_attributes::input_names::BIAS ] = bias;
+
             xavier<TDataType, MR>( *weight_, input_features, output_features );
 
-            if ( has_bias ) {
+            if ( hasBias() ) {
                 bias_ = std::make_shared<Tensor<TDataType, MR>>(
                     std::vector<size_t>{output_features} );
                 bias_->setName( this->getName() + ".bias" );
             }
 
-            // Add tensors to parameters list and map
             parameters_.emplace_back( weight_ );
             this->parameter_map_[ "weight" ] = weight_;
 
-            if ( has_bias ) {
+            if ( hasBias() ) {
                 parameters_.emplace_back( bias_ );
                 this->parameter_map_[ "bias" ] = bias_;
             }
@@ -372,14 +370,13 @@ namespace Mila::Dnn
 
             size_t input_features = config_.getInputFeatures();
             size_t output_features = config_.getOutputFeatures();
-            bool has_bias = config_.hasBias();
 
             auto weight_grad = std::make_shared<Tensor<TDataType, MR>>(
                 std::vector<size_t>{output_features, input_features} );
             weight_grad->setName( this->getName() + ".weight_grad" );
             parameter_grads_.push_back( weight_grad );
 
-            if ( has_bias ) {
+            if ( hasBias() ) {
                 auto bias_grad = std::make_shared<Tensor<TDataType, MR>>(
                     std::vector<size_t>{output_features} );
                 bias_grad->setName( this->getName() + ".bias_grad" );

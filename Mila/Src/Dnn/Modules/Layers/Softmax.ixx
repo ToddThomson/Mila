@@ -17,6 +17,7 @@ export import :Config;
 
 import Dnn.Module;
 import Dnn.Tensor;
+import Dnn.TensorData;
 import Dnn.TensorTraits;
 import Dnn.TensorHelpers;
 import Compute.Precision;
@@ -127,7 +128,7 @@ namespace Mila::Dnn
          * @param output The tensor where softmax results will be stored.
          */
         void forward( const Tensor<TInput, MR>& input, Tensor<TOutput, MR>& output ) {
-            operation_->forward( input, parameters_, attributes_, output, output_state_ );
+            operation_->forward( input, parameters_, output, output_state_ );
         }
 
         /**
@@ -152,7 +153,6 @@ namespace Mila::Dnn
                 parameters_,     // Empty for Softmax
                 {},              // No parameter gradients for Softmax
                 input_grad,      // Gradient to propagate to previous layer
-                attributes_,     // Operation properties
                 output_state_    // Cached tensors from forward pass
             );
         }
@@ -215,17 +215,12 @@ namespace Mila::Dnn
         /**
          * @brief Collection of parameters for this module (empty for Softmax).
          */
-        std::vector<std::shared_ptr<Tensor<TInput, MR>>> parameters_;
+        std::vector<std::shared_ptr<ITensorData>> parameters_;
 
         /**
          * @brief Collection of output state tensors for caching.
          */
         std::vector<std::shared_ptr<Tensor<TOutput, MR>>> output_state_;
-
-        /**
-         * @brief Operation attributes and configuration.
-         */
-        OperationAttributes attributes_;
 
         /**
          * @brief The operation that implements the softmax calculation.
@@ -240,9 +235,7 @@ namespace Mila::Dnn
          * along the specified dimension.
          */
         void createOperation() {
-            // Set the axis attribute for the operation
-            attributes_.set( "axis", config_.getAxis() );
-
+            
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
                 auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TInput, TOutput>(
                     "Cpu::SoftmaxOp",

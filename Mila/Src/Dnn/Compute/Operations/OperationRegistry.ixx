@@ -142,7 +142,7 @@ namespace Mila::Dnn::Compute
          * @param precision_policy The compute precision policy to use (defaults to Auto).
          */
         template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput>
-			requires ValidTensorType<TInput>&& ValidFloatTensorType<TOutput>
+            requires ValidTensorType<TInput>&& ValidFloatTensorType<TOutput>
         void registerUnaryOperation(
             const std::string& operation_name,
             std::function<std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput>>( std::shared_ptr<DeviceContext>, const ConfigurationBase& )> creator ) {
@@ -156,7 +156,7 @@ namespace Mila::Dnn::Compute
 
             auto genericCreator = [creator]( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<void> {
                 return creator( context, config );
-            };
+                };
 
             registry_[ type_id ][ operation_name ] = std::move( genericCreator );
         }
@@ -165,30 +165,29 @@ namespace Mila::Dnn::Compute
          * @brief Register a binary operation creator for a specific device type.
          *
          * @tparam TDeviceType The device type for the operation (defaults to CUDA).
-         * @tparam TInput1 The first input tensor element type.
-         * @tparam TInput2 The second input tensor element type (defaults to TInput1).
-         * @tparam TOutput The output tensor element type (defaults to TInput2).
+         * @tparam TInput The input tensor element type.
+         * @tparam TOutput The output tensor element type (defaults to TInput).
          * @param operation_name The name of the operation.
          * @param creator The function that creates the binary operation.
          * @param precision_policy The compute precision policy to use (defaults to Auto).
          */
-        template<DeviceType TDeviceType, typename TInput1, typename TInput2, typename TOutput>
-			requires ValidTensorTypes<TInput1, TInput2>&& ValidFloatTensorType<TOutput>
+        template<DeviceType TDeviceType, typename TInput, typename TOutput>
+            requires ValidTensorType<TInput>&& ValidFloatTensorType<TOutput>
         void registerBinaryOperation(
             const std::string& operation_name,
-            std::function<std::shared_ptr<BinaryOperation<TDeviceType, TInput1, TInput2, TOutput>>( std::shared_ptr<DeviceContext>, const ConfigurationBase& )> creator ) {
+            std::function<std::shared_ptr<BinaryOperation<TDeviceType, TInput, TOutput>>( std::shared_ptr<DeviceContext>, const ConfigurationBase& )> creator ) {
 
             TypeID type_id{
-                std::type_index( typeid(TInput1) ),
-                std::type_index( typeid(TInput2) ),
+                std::type_index( typeid(TInput) ),
+                std::type_index( typeid(TInput) ),  // For binary ops, now both input types are the same
                 std::type_index( typeid(TOutput) ),
                 TDeviceType
             };
 
             // Convert BinaryOperation creator to GenericCreator
-            auto genericCreator = [creator ]( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<void> {
+            auto genericCreator = [creator]( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<void> {
                 return creator( context, config );
-            };
+                };
 
             registry_[ type_id ][ operation_name ] = std::move( genericCreator );
         }
@@ -288,26 +287,25 @@ namespace Mila::Dnn::Compute
          * @brief Create a binary operation based on the type information, device type, and operation name.
          *
          * @tparam TDeviceType The device type for the operation (defaults to CUDA).
-         * @tparam TInput1 The first input tensor element type.
-         * @tparam TInput2 The second input tensor element type (defaults to TInput1).
-         * @tparam TOutput The output tensor element type (defaults to TInput2).
+         * @tparam TInput The input tensor element type.
+         * @tparam TOutput The output tensor element type (defaults to TInput).
          * @param operation_name The name of the operation.
          * @param context The device context to use for the operation.
          * @param precision_policy The compute precision policy to use.
-         * @return std::shared_ptr<BinaryOperation<TDeviceType, TInput1, TInput2, TOutput>> The created binary operation.
+         * @return std::shared_ptr<BinaryOperation<TDeviceType, TInput, TOutput>> The created binary operation.
          * @throws std::runtime_error If the type combination, device type, or operation name is invalid.
          * @throws std::invalid_argument If the context is null.
          */
-        template<DeviceType TDeviceType, typename TInput1, typename TInput2, typename TOutput>
-            requires ValidTensorTypes<TInput1, TInput2> && ValidFloatTensorType<TOutput>
-        std::shared_ptr<BinaryOperation<TDeviceType, TInput1, TInput2, TOutput>> createBinaryOperation(
+        template<DeviceType TDeviceType, typename TInput, typename TOutput>
+            requires ValidTensorType<TInput>&& ValidFloatTensorType<TOutput>
+        std::shared_ptr<BinaryOperation<TDeviceType, TInput, TOutput>> createBinaryOperation(
             const std::string& operation_name,
             std::shared_ptr<DeviceContext> context,
             const ConfigurationBase& config ) const {
 
             TypeID type_id{
-                std::type_index( typeid(TInput1) ),
-                std::type_index( typeid(TInput2) ),
+                std::type_index( typeid(TInput) ),
+                std::type_index( typeid(TInput) ),  // For binary ops, now both input types are the same
                 std::type_index( typeid(TOutput) ),
                 TDeviceType
             };
@@ -315,8 +313,8 @@ namespace Mila::Dnn::Compute
             auto type_it = registry_.find( type_id );
             if ( type_it == registry_.end() ) {
                 throw std::runtime_error( std::format(
-                    "createBinaryOperation: No operations registered for types, Input1:{}, Input2:{}, Output:{}, Device:{}",
-                    typeid(TInput1).name(), typeid(TInput2).name(), typeid(TOutput).name(),
+                    "createBinaryOperation: No operations registered for types, Input:{}, Output:{}, Device:{}",
+                    typeid(TInput).name(), typeid(TOutput).name(),
                     TDeviceType == DeviceType::Cpu ? "CPU" : "CUDA"
                 ) );
             }
@@ -333,7 +331,7 @@ namespace Mila::Dnn::Compute
                 throw std::invalid_argument( "DeviceContext cannot be null when creating an operation" );
             }
 
-            auto op = std::static_pointer_cast<BinaryOperation<TDeviceType, TInput1, TInput2, TOutput>>(op_it->second( context, config ));
+            auto op = std::static_pointer_cast<BinaryOperation<TDeviceType, TInput, TOutput>>(op_it->second( context, config ));
 
             return op;
         }
@@ -374,7 +372,7 @@ namespace Mila::Dnn::Compute
          * @brief Type alias for a generic operation creator function.
          */
         using GenericCreator = std::function<std::shared_ptr<void>(
-            std::shared_ptr<DeviceContext>, 
+            std::shared_ptr<DeviceContext>,
             const ConfigurationBase& )>;
 
         /**

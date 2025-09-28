@@ -22,6 +22,6 @@ namespace Mila::Dnn::Serialization
 		private:
 			std::string directory_path_;
 			bool saving_ = false;
-			nlohmann::json root_;
+			//nlohmann::json root_;
 	};
 }

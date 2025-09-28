@@ -106,6 +106,26 @@ namespace Mila::Dnn
         virtual ~Module() = default;
 
         /**
+         * @brief Forward pass of the module.
+         *
+         * @param input The input tensor to the module.
+         * @param output The output tensor from the module.
+         */
+        virtual void forward( const Tensor<TInput, MR>& input, Tensor<TOutput, MR>& output ) = 0;
+
+        /**
+         * @brief Backward pass of the module.
+         *
+         * @param input The input tensor to the module.
+         * @param output_grad The gradient of the output tensor.
+         * @param input_grad The gradient of the input tensor.
+         */
+        virtual void backward( 
+            const Tensor<TInput, MR>& input, 
+            const Tensor<TOutput, MR>& output_grad, 
+            Tensor<TInput, MR>& input_grad ) = 0;
+
+        /**
          * @brief Get the device context for this module.
          *
          * Returns a shared pointer to the device context that this module is currently using.

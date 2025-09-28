@@ -33,8 +33,8 @@ int main( int argc, char** argv ) {
     // testing::GTEST_FLAG(break_on_failure) = true;
 
     const int MAX_FAILURES = 10;
-    auto& listeners = testing::UnitTest::GetInstance()->listeners();
-    listeners.Append( new FailureThresholdListener( MAX_FAILURES ) );
+    //auto& listeners = testing::UnitTest::GetInstance()->listeners();
+    //listeners.Append( new FailureThresholdListener( MAX_FAILURES ) );
 
     return RUN_ALL_TESTS();
 }

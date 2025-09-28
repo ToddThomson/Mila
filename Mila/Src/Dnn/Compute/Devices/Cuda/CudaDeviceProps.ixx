@@ -6,18 +6,18 @@ module;
 #include <stdexcept>
 #include <cuda_runtime.h>
 
-export module Cuda.DeviceProps;
+export module Compute.CudaDeviceProps;
 
 import Cuda.Helpers;
 import Cuda.Error;
 
 namespace Mila::Dnn::Compute
 {
-	export class DeviceProps
+	export class CudaDeviceProps
 	{
 	public:
 
-        DeviceProps( int deviceId )
+        CudaDeviceProps( int deviceId )
         {
             cudaCheckStatus( cudaGetDeviceProperties( &props_, deviceId ) );
         }

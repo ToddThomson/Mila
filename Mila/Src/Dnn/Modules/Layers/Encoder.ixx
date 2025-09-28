@@ -17,6 +17,7 @@ export import :Config;
 
 import Dnn.Module;
 import Dnn.Tensor;
+import Dnn.TensorData;
 import Dnn.TensorTraits;
 import Dnn.TensorHelpers;
 import Compute.DeviceType;
@@ -113,7 +114,7 @@ namespace Mila::Dnn
          * @param output The output tensor that will contain embeddings with shape (B,T,C).
          */
         void forward( const Tensor<TInput, MR>& input, Tensor<TOutput, MR>& output ) {
-            operation_->forward( input, parameters_, attributes_, output, output_state_ );
+            operation_->forward( input, parameters_, output, output_state_ );
         }
 
         /**
@@ -228,7 +229,7 @@ namespace Mila::Dnn
          * Vector of parameter tensors that will be used during forward/backward passes.
          * Contains both the token embeddings (wte) and position embeddings (wpe).
          */
-        std::vector<std::shared_ptr<Tensor<TOutput, MR>>> parameters_;
+        std::vector<std::shared_ptr<ITensorData>> parameters_;
 
         /**
          * Output state tensors used for intermediate values. Not used in this module.
@@ -238,7 +239,7 @@ namespace Mila::Dnn
         /**
          * Operation-specific attributes and configuration.
          */
-        OperationAttributes attributes_;
+        // TODO: OperationAttributes attributes_;
 
         /**
          * The computational operation that implements the encoder logic.

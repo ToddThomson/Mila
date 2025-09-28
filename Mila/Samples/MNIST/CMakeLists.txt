@@ -16,7 +16,7 @@ PUBLIC
 )
 
 if(MILA_ENABLE_COPY_MODEL_DATA)
-    add_dependencies(MnistSample MilaCopyData)
+    add_dependencies(MnistApp MilaCopyData)
 endif()
 
 target_link_libraries( MnistApp PRIVATE Mila CUDA::cudart )

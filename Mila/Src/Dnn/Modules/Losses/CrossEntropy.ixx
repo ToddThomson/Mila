@@ -17,6 +17,7 @@ export import :Config;
 
 import Dnn.Module;
 import Dnn.Tensor;
+import Dnn.TensorData;
 import Dnn.TensorTraits;
 import Dnn.TensorHelpers;
 import Compute.Precision;
@@ -147,7 +148,7 @@ namespace Mila::Dnn
          * @param output The output tensor that will contain the loss value(s).
          */
         void forward( const Tensor<TLogits, MR>& input, const Tensor<TTargets, MR>& targets, Tensor<TLogits, MR>& output ) {
-            operation_->forward( input, targets, parameters_, attributes_, output, output_state_ );
+            operation_->forward( input, targets, parameters_, output, output_state_ );
         }
 
         /**
@@ -174,7 +175,6 @@ namespace Mila::Dnn
                 {},              // No parameter gradients needed
                 output_grad,     // Gradient from next layer
                 input_grad,      // Gradient to propagate to logits
-                attributes_,     // Operation attributes
                 output_state_    // Cached tensors from forward pass
             );
         }
@@ -310,7 +310,7 @@ namespace Mila::Dnn
          *
          * Only contains class_weights_ if present, otherwise empty.
          */
-        std::vector<std::shared_ptr<Tensor<TLogits, MR>>> parameters_;
+        std::vector<std::shared_ptr<ITensorData>> parameters_;
 
         /**
          * @brief Collection of output state tensors for caching.
@@ -318,13 +318,6 @@ namespace Mila::Dnn
          * Stores intermediate results from forward pass needed for backward pass.
          */
         std::vector<std::shared_ptr<Tensor<TLogits, MR>>> output_state_;
-
-        /**
-         * @brief Operation attributes and configuration.
-         *
-         * Contains settings for the CrossEntropy operation like padding index, reduction mode, etc.
-         */
-        OperationAttributes attributes_;
 
         /**
          * @brief The operation that implements the cross entropy calculation.
@@ -359,7 +352,7 @@ namespace Mila::Dnn
          */
         void createOperation() {
             // Set operation attributes from config
-            attributes_.set( "vocab_size", config_.getVocabSize() );
+            /*attributes_.set( "vocab_size", config_.getVocabSize() );
 
             if ( config_.ignorePadding() ) {
                 attributes_.set( "ignore_padding", true );
@@ -370,7 +363,7 @@ namespace Mila::Dnn
 
             if ( config_.getLabelSmoothing() > 0.0f ) {
                 attributes_.set( "label_smoothing", config_.getLabelSmoothing() );
-            }
+            }*/
 
             if constexpr ( TDeviceType == DeviceType::Cpu ) {
                 auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TLogits, TTargets>(

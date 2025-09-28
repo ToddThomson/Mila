@@ -4,12 +4,7 @@
  */
 
 module;
-#include <miniz.h>
 #include <string>
-#include <memory>
-#include <filesystem>
-#include <fstream>
-#include <vector>
 
 export module Dnn.Serialization.ModelSerializer;
 

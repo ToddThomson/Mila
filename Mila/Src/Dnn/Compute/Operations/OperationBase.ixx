@@ -1,21 +1,39 @@
 /**
  * @file OperationBase.ixx
- * @brief Base class for all compute operations in the Mila neural network framework.
- * @details Provides a common interface and functionality for neural network operations
- *          across different device types and precision levels.
+ * @brief Core abstraction for neural network operations in the Mila framework
+ * @details
+ * Defines the fundamental OperationBase template class which serves as the foundation
+ * for all computational operations in the Mila neural network architecture. This class
+ * establishes the contract that concrete operations must fulfill while providing common
+ * functionality related to device context management, operation identification, and
+ * type safety.
+ *
+ * The template parameters enable operations to work across different computation devices
+ * (CPU, CUDA) with various numeric precision types, facilitating flexible deployment
+ * of neural network models. This abstraction is extended by specialized operation classes
+ * like UnaryOperation and BinaryOperation, which implement specific computational patterns.
+ *
+ * This module is designed for C++23 using class modules and employs tensor type constraints
+ * to enforce safety and correctness at compile time.
+ *
+ * @see UnaryOperation
+ * @see BinaryOperation
+ * @see DeviceContext
+ * @see OperationType
  */
 
 module;
-#include <string>  
-#include <memory>  
+#include <string>
+#include <memory>
+#include <stdexcept>
 
 export module Compute.OperationBase;
 
 import Dnn.TensorTraits;
-import Compute.DeviceType; 
+import Compute.DeviceType;
 import Compute.DeviceContext;
 import Compute.Precision;
-import Compute.OperationType;  
+import Compute.OperationType;
 
 namespace Mila::Dnn::Compute
 {
@@ -27,33 +45,35 @@ namespace Mila::Dnn::Compute
      * (CPU, CUDA, etc). Specific operations inherit from this class and implement their
      * specialized behavior while adhering to a consistent interface.
      *
-     * @tparam TInput1 The data type of the first input tensor elements.
-     *                 Must satisfy ValidTensorType constraint.
-     * @tparam TInput2 The data type of the second input tensor elements, defaults to TInput1.
-     *                 Must satisfy ValidTensorType constraint.
-     * @tparam TOutput The data type of the output tensor elements, defaults to TInput1.
-     *                 Must satisfy ValidFloatTensorType constraint.
      * @tparam TDeviceType The target device type for the operation, defaults to DeviceType::Cuda.
+     * @tparam TInput The data type of the input tensor elements.
+     *                Must satisfy ValidTensorType constraint.
+     * @tparam TOutput The data type of the output tensor elements, defaults to TInput.
+     *                 Must satisfy ValidFloatTensorType constraint.
      */
-    export template <DeviceType TDeviceType = DeviceType::Cuda, typename TInput1 = float, typename TInput2 = TInput1, typename TOutput = TInput1>
-        requires ValidTensorTypes<TInput1, TInput2> && ValidFloatTensorType<TOutput>
+    export template <DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput>
+        requires ValidTensorType<TInput> && ValidFloatTensorType<TOutput>
     class OperationBase {
-    public:
+    protected:
 
         /**
-         * @brief Constructs an OperationBase object with a specific device context and compute precision.
+         * @brief Constructs an OperationBase object with a specific operation type and device context.
          *
-         * @details Initializes the operation with the specified operation type and device context,
-         * using the template parameter-specified compute precision.
+         * @details Initializes the operation with the specified operation type and device context.
+         * The context defines the execution environment for this operation.
          *
          * @param operation_type The type of the operation (from OperationType enum).
          * @param context The device context to use for this operation. Must not be null.
-         * @param precision_policy The compute precision policy to use for this operation.
          * @throw std::invalid_argument May throw if context is null (implementation dependent).
          */
         OperationBase( OperationType operation_type, std::shared_ptr<DeviceContext> context )
-            : operation_type_( operation_type ), device_context_( context ) {}
-
+            : operation_type_( operation_type ), device_context_( context ) {
+            if ( !device_context_ ) {
+                throw std::invalid_argument( "Device context must not be null." );
+			}
+        }
+    
+    public:
         /**
          * @brief Virtual destructor for the OperationBase class.
          *

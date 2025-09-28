@@ -17,6 +17,7 @@ export import :Config;
 
 import Dnn.Module;
 import Dnn.Tensor;
+import Dnn.TensorData;
 import Dnn.TensorTraits;
 import Compute.Precision;
 import Compute.DeviceType;
@@ -168,12 +169,12 @@ namespace Mila::Dnn
             }
 
             // Set operation properties
-            properties_.set( "probability", config_.getProbability() );
+            /*properties_.set( "probability", config_.getProbability() );
             properties_.set( "training", this->isTraining() );
-            properties_.set( "scale_during_inference", config_.scalesDuringInference() );
+            properties_.set( "scale_during_inference", config_.scalesDuringInference() );*/
 
             // Perform the forward operation
-            operation_->forward( input, parameters_, properties_, output, output_state_ );
+            operation_->forward( input, output, output_state_ );
         }
 
         /**
@@ -196,10 +197,8 @@ namespace Mila::Dnn
             operation_->backward(
                 input,           // Input tensor
                 output_grad,     // Gradient from next layer
-                parameters_,     // Empty for Dropout
                 {},              // No parameter gradients for Dropout
                 input_grad,      // Gradient to propagate to previous layer
-                properties_,     // Operation properties
                 output_state_    // Cached mask tensor from forward pass
             );
         }
@@ -295,17 +294,12 @@ namespace Mila::Dnn
         /**
          * @brief Collection of parameters for this module (empty for Dropout).
          */
-        std::vector<std::shared_ptr<Tensor<TOutput, MR>>> parameters_;
+        std::vector<std::shared_ptr<ITensorData>> parameters_ = {};
 
         /**
          * @brief Collection of output state tensors for caching.
          */
-        std::vector<std::shared_ptr<Tensor<TOutput, MR>>> output_state_;
-
-        /**
-         * @brief Operation attributes and configuration.
-         */
-        OperationAttributes properties_;
+        std::vector<std::shared_ptr<Tensor<TOutput, MR>>> output_state_ = {};
 
         /**
          * @brief The operation that implements the dropout calculation.

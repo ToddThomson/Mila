@@ -6,7 +6,7 @@ module;
 
 export module Utils.Logger;
 
-import Dnn.Tensor;
+//import Dnn.Tensor;
 
 namespace Mila::Utils
 {

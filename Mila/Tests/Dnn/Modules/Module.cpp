@@ -11,24 +11,20 @@ namespace Modules::Base::Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
-	using namespace Mila::Dnn::Serialization;
+    using namespace Mila::Dnn::Serialization;
 
-    // Test configuration class for modules
     class MockModuleConfig : public ConfigurationBase {
     public:
         MockModuleConfig() {
-            // Default to "unnamed" name from base class
-            withName( "mock_module" ); // Initialize with default name
+            withName( "mock_module" );
         }
     };
 
-    // Memory resource selector based on device type
     template<DeviceType TDevice>
     using MemoryResourceType = std::conditional_t<TDevice == Compute::DeviceType::Cuda,
         Compute::CudaMemoryResource,
         Compute::CpuMemoryResource>;
 
-    // Mock implementation of the Module class for testing
     template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput>
         requires ValidTensorType<TInput>&& ValidFloatTensorType<TOutput>
     class MockModule : public Module<TDeviceType, TInput, TOutput> {
@@ -36,30 +32,62 @@ namespace Modules::Base::Tests
         using MR = typename Module<TDeviceType, TInput, TOutput>::MR;
         using ModuleBase = Module<TDeviceType, TInput, TOutput>;
 
-        // Constructor with device name and config
         explicit MockModule( const std::string& device_name, const MockModuleConfig& config = MockModuleConfig() )
-            : ModuleBase( device_name, config ) {
-            // Name is already set in the config
-        }
+            : ModuleBase( device_name, config ) {}
 
-        // Constructor with context and config
         explicit MockModule( std::shared_ptr<DeviceContext> context, const MockModuleConfig& config = MockModuleConfig() )
-            : ModuleBase( context, config ) {
-            // Name is already set in the config
+            : ModuleBase( context, config ) {}
+
+        void forward( const Tensor<TInput, MR>& input, Tensor<TOutput, MR>& output ) override {
+            // Mock implementation: just copy input to output
+            if ( input.size() != output.size() ) {
+                throw std::runtime_error( "Input and output tensors must have the same size" );
+            }
+
+            if constexpr ( std::is_same_v<TInput, TOutput> ) {
+                // If input and output types are the same, direct copy
+                for ( size_t i = 0; i < input.size(); ++i ) {
+                    output.data()[ i ] = input.data()[ i ];
+                }
+            }
+            else {
+                // Type conversion if needed
+                for ( size_t i = 0; i < input.size(); ++i ) {
+                    output.data()[ i ] = static_cast<TOutput>( input.data()[ i ] );
+                }
+            }
         }
 
-        // Implementation of abstract methods
+        void backward(
+            const Tensor<TInput, MR>& input,
+            const Tensor<TOutput, MR>& output_grad,
+            Tensor<TInput, MR>& input_grad ) override {
+            // Mock implementation: just copy output_grad to input_grad
+            if ( output_grad.size() != input_grad.size() ) {
+                throw std::runtime_error( "Output gradient and input gradient tensors must have the same size" );
+            }
+
+            if constexpr ( std::is_same_v<TInput, TOutput> ) {
+                // If input and output types are the same, direct copy
+                for ( size_t i = 0; i < output_grad.size(); ++i ) {
+                    input_grad.data()[ i ] = output_grad.data()[ i ];
+                }
+            }
+            else {
+                // Type conversion if needed
+                for ( size_t i = 0; i < output_grad.size(); ++i ) {
+                    input_grad.data()[ i ] = static_cast<TInput>( output_grad.data()[ i ] );
+                }
+            }
+        }
+
         size_t parameterCount() const override {
             return 0;
         }
 
-        void save( ModelArchive& archive ) const override {
-            // Dummy implementation
-        }
+        void save( ModelArchive& archive ) const override {}
 
-        void load( ModelArchive& archive ) override {
-            // Dummy implementation
-        }
+        void load( ModelArchive& archive ) override {}
 
         std::string toString() const override {
             std::ostringstream oss;
@@ -70,7 +98,6 @@ namespace Modules::Base::Tests
             return oss.str();
         }
 
-        // Add a public method to access protected methods for testing
         std::string testParametersToString() const {
             return this->parametersToString();
         }
@@ -80,13 +107,11 @@ namespace Modules::Base::Tests
         }
     };
 
-    // Test data structure for Module tests
     template<DeviceType TDevice, typename TInput = float, typename TOutput = TInput>
     struct ModuleTestData {
         std::shared_ptr<MockModule<TDevice, TInput, TOutput>> module;
         bool is_training;
 
-        // Create a test data structure with device name
         static ModuleTestData Create(
             const std::string& device_str,
             bool is_training = false )
@@ -94,7 +119,6 @@ namespace Modules::Base::Tests
             ModuleTestData data;
             data.is_training = is_training;
 
-            // Create config with proper settings
             MockModuleConfig config;
             config.withName( "mock_module" )
                 .withTraining( is_training );
@@ -103,7 +127,6 @@ namespace Modules::Base::Tests
             return data;
         }
 
-        // Create a test data structure with device context
         static ModuleTestData CreateWithContext(
             std::shared_ptr<DeviceContext> context,
             bool is_training = false )
@@ -111,7 +134,6 @@ namespace Modules::Base::Tests
             ModuleTestData data;
             data.is_training = is_training;
 
-            // Create config with proper settings
             MockModuleConfig config;
             config.withName( "mock_module_context" )
                 .withTraining( is_training );
@@ -123,12 +145,9 @@ namespace Modules::Base::Tests
 
     class ModuleTests : public ::testing::Test {
     protected:
-        void SetUp() override {
-            // Test parameters will be initialized on demand
-        }
+        void SetUp() override {}
 
         void TearDown() override {
-            // Clean up resources
             cpu_float_data_.module.reset();
             cuda_float_data_.module.reset();
             training_cpu_float_data_.module.reset();
@@ -137,7 +156,6 @@ namespace Modules::Base::Tests
             context_cuda_float_data_.module.reset();
         }
 
-        // Factory methods to lazily create test data as needed
         ModuleTestData<Compute::DeviceType::Cpu, float>& CpuFloatData() {
             if ( !cpu_float_data_.module ) {
                 cpu_float_data_ = ModuleTestData<Compute::DeviceType::Cpu, float>::Create( "CPU" );
@@ -182,7 +200,6 @@ namespace Modules::Base::Tests
             return context_cuda_float_data_;
         }
 
-        // Test data objects - initialized on demand
         ModuleTestData<Compute::DeviceType::Cpu, float> cpu_float_data_;
         ModuleTestData<Compute::DeviceType::Cuda, float> cuda_float_data_;
         ModuleTestData<Compute::DeviceType::Cpu, float> training_cpu_float_data_;
@@ -191,7 +208,6 @@ namespace Modules::Base::Tests
         ModuleTestData<Compute::DeviceType::Cuda, float> context_cuda_float_data_;
     };
 
-    // Common test function templates
     template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
     void TestGetName( const ModuleTestData<TDevice, TInput, TOutput>& data, const std::string& expected_name ) {
         EXPECT_EQ( data.module->getName(), expected_name );
@@ -225,27 +241,44 @@ namespace Modules::Base::Tests
     template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
     void TestPrecision( const ModuleTestData<TDevice, TInput, TOutput>& data ) {
         auto precision = data.module->getPrecisionPolicy();
-        EXPECT_EQ( precision, ComputePrecision::Policy::Auto ); // Default policy
-
-        // Note: The Module now gets precision from its config, so we can't directly test setting it
-        // except by creating a new module with different config
+        EXPECT_EQ( precision, ComputePrecision::Policy::Auto );
     }
 
     template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
     void TestHelperMethods( const ModuleTestData<TDevice, TInput, TOutput>& data ) {
-        // Test parametersToString and stateToString helper methods
         std::string params_str = data.module->testParametersToString();
         std::string state_str = data.module->testStateToString();
 
-        // Both should be empty in our mock module
         EXPECT_EQ( params_str, "Parameter count: 0\n" );
         EXPECT_EQ( state_str, "" );
     }
 
-    // Test for constructor exception handling
+    template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
+    void TestForwardBackward( const ModuleTestData<TDevice, TInput, TOutput>& data ) {
+        using MR = MemoryResourceType<TDevice>;
+
+        std::vector<size_t> shape = { 2, 3 };
+        Tensor<TInput, MR> input( shape );
+        Tensor<TOutput, MR> output( shape );
+        Tensor<TInput, MR> input_grad( shape );
+        Tensor<TOutput, MR> output_grad( shape );
+
+        for ( size_t i = 0; i < input.size(); ++i ) {
+            input.data()[ i ] = static_cast<TInput>( i + 1.0f );
+            output_grad.data()[ i ] = static_cast<TOutput>( 0.5f );
+        }
+
+        EXPECT_NO_THROW( data.module->forward( input, output ) );
+        EXPECT_NO_THROW( data.module->backward( input, output_grad, input_grad ) );
+
+        for ( size_t i = 0; i < input.size(); ++i ) {
+            EXPECT_FLOAT_EQ( static_cast<float>( output.data()[ i ] ), static_cast<float>( input.data()[ i ] ) );
+            EXPECT_FLOAT_EQ( static_cast<float>( input_grad.data()[ i ] ), static_cast<float>( output_grad.data()[ i ] ) );
+        }
+    }
+
     template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
     void TestInvalidDeviceName() {
-        // Try to create a module with an invalid device name
         MockModuleConfig config;
         config.withName( "test_module" );
 
@@ -254,7 +287,6 @@ namespace Modules::Base::Tests
 
     template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
     void TestNullDeviceContext() {
-        // Try to create a module with a null device context
         MockModuleConfig config;
         config.withName( "test_module" );
 
@@ -267,14 +299,12 @@ namespace Modules::Base::Tests
 
     template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
     void TestMismatchedDeviceContext() {
-        // Create a context with the opposite device type
         auto mismatched_device = (TDevice == DeviceType::Cuda) ? "CPU" : "CUDA:0";
         auto mismatched_context = std::make_shared<DeviceContext>( mismatched_device );
 
         MockModuleConfig config;
         config.withName( "test_module" );
 
-        // Try to create a module with a mismatched device context
         EXPECT_THROW(
             (std::make_shared<MockModule<TDevice, TInput, TOutput>>( mismatched_context, config )),
             std::runtime_error
@@ -283,18 +313,15 @@ namespace Modules::Base::Tests
 
     template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
     void TestEmptyNameInConfig() {
-        // Create config with empty name which should fail validation
         MockModuleConfig config;
         config.withName( "" );
 
-        // Module constructor should throw during validation
         EXPECT_THROW(
             (std::make_shared<MockModule<TDevice, TInput, TOutput>>( "CPU", config )),
             std::invalid_argument
         );
     }
 
-    // CPU Tests
     TEST_F( ModuleTests, Cpu_GetName ) {
         TestGetName<Compute::DeviceType::Cpu, float>( CpuFloatData(), "mock_module" );
     }
@@ -323,17 +350,18 @@ namespace Modules::Base::Tests
         TestHelperMethods<Compute::DeviceType::Cpu, float>( CpuFloatData() );
     }
 
-    // CPU Training Mode Tests
+    TEST_F( ModuleTests, Cpu_ForwardBackward ) {
+        TestForwardBackward<Compute::DeviceType::Cpu, float>( CpuFloatData() );
+    }
+
     TEST_F( ModuleTests, Cpu_Training_TrainingMode ) {
         TestTrainingMode<Compute::DeviceType::Cpu, float>( TrainingCpuFloatData(), true );
     }
 
-    // Context Construction Tests
     TEST_F( ModuleTests, Context_Cpu_DeviceType ) {
         TestDeviceType<Compute::DeviceType::Cpu, float>( ContextCpuFloatData() );
     }
 
-    // CUDA Tests
     TEST_F( ModuleTests, Cuda_GetName ) {
         TestGetName<Compute::DeviceType::Cuda, float>( CudaFloatData(), "mock_module" );
     }
@@ -358,17 +386,18 @@ namespace Modules::Base::Tests
         TestPrecision<Compute::DeviceType::Cuda, float>( CudaFloatData() );
     }
 
-    // CUDA Training Mode Tests
+    TEST_F( ModuleTests, Cuda_ForwardBackward ) {
+        TestForwardBackward<Compute::DeviceType::Cuda, float>( CudaFloatData() );
+    }
+
     TEST_F( ModuleTests, Cuda_Training_TrainingMode ) {
         TestTrainingMode<Compute::DeviceType::Cuda, float>( TrainingCudaFloatData(), true );
     }
 
-    // Context Construction Tests
     TEST_F( ModuleTests, Context_Cuda_DeviceType ) {
         TestDeviceType<Compute::DeviceType::Cuda, float>( ContextCudaFloatData() );
     }
 
-    // Config Tests
     TEST_F( ModuleTests, ModuleConfig_DefaultValues ) {
         MockModuleConfig config;
         EXPECT_EQ( config.getName(), "mock_module" );
@@ -387,7 +416,6 @@ namespace Modules::Base::Tests
         EXPECT_TRUE( config.isTraining() );
     }
 
-    // Error handling tests
     TEST_F( ModuleTests, InvalidDeviceName ) {
         TestInvalidDeviceName<Compute::DeviceType::Cpu, float>();
     }
@@ -409,15 +437,12 @@ namespace Modules::Base::Tests
     }
 
     TEST_F( ModuleTests, ModuleReflectsConfigTrainingMode ) {
-        // Create a config with training enabled
         MockModuleConfig training_config;
         training_config.withName( "training_module" )
             .withTraining( true );
 
-        // Create module with this config
         auto module = std::make_shared<MockModule<DeviceType::Cpu, float>>( "CPU", training_config );
 
-        // Verify the module has training mode set according to the config
         EXPECT_TRUE( module->isTraining() );
     }
 }

@@ -15,11 +15,14 @@ namespace Mila::Dnn::Compute
      * @brief Enumeration of supported compute device types.
      * 
      * Defines the types of compute devices that can be used for
-     * tensor operations and neural network computations.
+     * tensor operations and neural network operations.
      */
     export enum class DeviceType {
         Cpu,    ///< CPU device type
         Cuda,   ///< CUDA GPU device type
+        Metal,  // FUTURE: Add Metal support
+        OpenCL, // FUTURE: OpenCL support
+        Vulkan  // FUTURE: Vulkan support
     };
 
     /**
@@ -29,12 +32,15 @@ namespace Mila::Dnn::Compute
      * @return std::string The string representation of the device type ("CPU" or "CUDA").
      * @throws std::runtime_error If the device type is invalid.
      */
-    export std::string deviceToString( DeviceType device_type ) {
-        switch ( device_type ) {
-            case DeviceType::Cpu: return "CPU";
-            case DeviceType::Cuda: return "CUDA";
-            default:
-                throw std::runtime_error( "Invalid DeviceType." );
+    export std::string deviceToString(DeviceType device_type) {
+        switch (device_type) {
+        case DeviceType::Cpu: return "CPU";
+        case DeviceType::Cuda: return "CUDA";
+        case DeviceType::Metal: return "Metal";
+        case DeviceType::OpenCL: return "OpenCL";
+        case DeviceType::Vulkan: return "Vulkan";
+        default:
+            throw std::runtime_error("Unknown DeviceType value");
         }
     };
 
@@ -50,31 +56,18 @@ namespace Mila::Dnn::Compute
      *                            Valid options are: "CPU", "CUDA", "AUTO".
      * @note "AUTO" option is currently commented out in implementation.
      */
-    export DeviceType toDeviceType( std::string device_type ) {
-        // Convert to uppercase for case-insensitive comparison
-        std::transform( device_type.begin(), device_type.end(),
-            device_type.begin(), ::toupper );
+    export DeviceType toDeviceType(std::string device_type) {
+        std::transform(device_type.begin(), device_type.end(),
+            device_type.begin(), ::toupper);
 
-        if ( device_type == "CPU" ) {
-            return DeviceType::Cpu;
-        }
-        
-        if ( device_type == "CUDA" ) {
-            return DeviceType::Cuda;
-        }
-        
-        // Handle "AUTO" by checking CUDA availability
-        /*if ( device_type == "AUTO" ) {
-            auto devices = list_devices();
-            bool has_cuda = std::any_of( devices.begin(), devices.end(),
-                []( const auto& device ) {
-                return device->getDeviceType() == DeviceType::Cuda;
-            } );
-            return has_cuda ? DeviceType::Cuda : DeviceType::Cpu;
-        }*/
+        if (device_type == "CPU") return DeviceType::Cpu;
+        if (device_type == "CUDA") return DeviceType::Cuda;
+        if (device_type == "METAL") return DeviceType::Metal;
+        if (device_type == "OPENCL") return DeviceType::OpenCL;
+        if (device_type == "VULKAN") return DeviceType::Vulkan;
 
         throw std::runtime_error(
-            "Invalid compute type '" + device_type + "'. Valid options are: CPU, CUDA, AUTO"
+            "Invalid device type '" + device_type + "'. Valid options are: CPU, CUDA, Metal, OpenCL, Vulkan"
         );
     }
 }

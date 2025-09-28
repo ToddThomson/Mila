@@ -3,7 +3,11 @@
 Mila Deep Neural Network Library
 
 ## Prerelease Notice
-Mila, version 0.9.8XX-alpha is currently an early preview release.
+Mila, version 0.9.850-alpha is currently an early preview release. 
+
+I am currently working on the core Tensor component and the various compute devices which provide the specific tensor operations. 
+There is not much that is finished yet, but I wanted to share the library and its features to show where we are headed and to update the github repository.
+
 The Mila API is still too immature for any end-user development. I am working on the API and will be releasing a stable version as soon as possible.
 
 ## Description
@@ -60,7 +64,7 @@ Mila uses CMake build. To build Mila, follow the steps below:
 
 1. **Prerequisites**
    - Visual Studio 2022 or newer with "Desktop development with C++" workload
-   - CUDA Toolkit 12.9
+   - CUDA Toolkit 13.0
    - CMake 3.31 or newer (included with Visual Studio)
 
 2. **Open the Project**
@@ -87,7 +91,7 @@ Mila uses CMake build. To build Mila, follow the steps below:
    - Visual Studio Code
    - C/C++ extension
    - CMake Tools extension
-   - CUDA Toolkit 12.9
+   - CUDA Toolkit 13.0
    - CMake 3.31 or newer
 
 2. **Open the Project**
@@ -150,7 +154,7 @@ Mila uses CMake build. To build Mila, follow the steps below:
    
 ## Required Components
 * C++23 support
-* NVIDIA CUDA Runtime, 12.9
+* NVIDIA CUDA Runtime, 13.0
 * CMake 3.31 or later
 * GTest framework for unit testing, 1.17.0
 

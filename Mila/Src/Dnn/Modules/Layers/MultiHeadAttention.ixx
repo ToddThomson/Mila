@@ -17,6 +17,7 @@ export import :Config;
 
 import Dnn.Module;
 import Dnn.Tensor;
+import Dnn.TensorData;
 import Dnn.TensorTraits;
 import Dnn.TensorHelpers;
 
@@ -128,7 +129,7 @@ namespace Mila::Dnn
          * @param output The output tensor where the results will be stored.
          */
         void forward( const Tensor<TInput, MR>& input, Tensor<TOutput, MR>& output ) {
-            operation_->forward( input, parameters_, properties_, output, output_state_ );
+            operation_->forward( input, parameters_, output, output_state_ );
         }
 
         /**
@@ -140,11 +141,11 @@ namespace Mila::Dnn
          */
         void forward( const Tensor<TInput, MR>& input, const Tensor<TInput, MR>& mask, Tensor<TOutput, MR>& output ) {
             // Store the mask in operation properties
-            properties_.set( "explicit_mask", true );
+            //properties_.set( "explicit_mask", true );
 
             // This implementation assumes a specific operation handling for masked attention
             // The actual implementation would depend on how your operation expects to receive the mask
-            operation_->forward( input, mask, parameters_, properties_, output, output_state_ );
+            operation_->forward( input, mask, parameters_, output, output_state_ );
         }
 
         /**
@@ -165,7 +166,6 @@ namespace Mila::Dnn
                 parameters_,     // Parameters (empty for this base implementation)
                 {},              // Parameter gradients (empty for this base implementation)
                 input_grad,      // Gradient to propagate to previous layer
-                properties_,     // Operation properties
                 output_state_    // Cached tensors from forward pass
             );
         }
@@ -296,17 +296,12 @@ namespace Mila::Dnn
         /**
          * @brief Collection of parameters for this module.
          */
-        std::vector<std::shared_ptr<Tensor<TOutput, MR>>> parameters_;
+        std::vector<std::shared_ptr<ITensorData>> parameters_;
 
         /**
          * @brief Collection of output state tensors for caching.
          */
         std::vector<std::shared_ptr<Tensor<TOutput, MR>>> output_state_;
-
-        /**
-         * @brief Operation attributes and configuration.
-         */
-        OperationAttributes properties_;
 
         /**
          * @brief The operation that implements the attention mechanism.
@@ -343,11 +338,11 @@ namespace Mila::Dnn
             output_state_.emplace_back( attn_ );
 
             // Set properties from config
-            properties_.set( "num_heads", config_.getNumHeads() );
+            /*properties_.set( "num_heads", config_.getNumHeads() );
             properties_.set( "dropout", config_.getDropout() );
             properties_.set( "causal_mask", config_.useCausalMask() );
             properties_.set( "scale_factor", config_.getScaleFactor() );
-            properties_.set( "separate_projections", config_.useSeparateProjections() );
+            properties_.set( "separate_projections", config_.useSeparateProjections() );*/
         }
 
         /**

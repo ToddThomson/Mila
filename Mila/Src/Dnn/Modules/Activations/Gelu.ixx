@@ -23,6 +23,7 @@ export import :Config;
 
 import Dnn.Module;
 import Dnn.Tensor;
+import Dnn.TensorData;
 import Dnn.TensorTraits;
 import Compute.Precision;
 import Compute.DeviceType;
@@ -135,8 +136,8 @@ namespace Mila::Dnn
          * @param input Input tensor to transform
          * @param output Tensor where results will be stored (must be pre-allocated with matching dimensions)
          */
-        void forward( const Tensor<TDataType, MR>& input, Tensor<TDataType, MR>& output ) {
-            operation_->forward( input, parameters_, properties_, output, output_state_ );
+        void forward( const Tensor<TDataType, MR>& input, Tensor<TDataType, MR>& output ) override {
+            operation_->forward( input, parameters_, output, output_state_ );
         }
 
         /**
@@ -157,14 +158,19 @@ namespace Mila::Dnn
         void backward(
             const Tensor<TDataType, MR>& input,
             const Tensor<TDataType, MR>& output_grad,
-            Tensor<TDataType, MR>& input_grad ) {
+            Tensor<TDataType, MR>& input_grad ) override {
+
+			// REVIEW: Temp workaround for parameter gradients
+            // 
+            // Create an empty vector for parameter gradients instead of using {}
+            std::vector<std::shared_ptr<Tensor<TDataType, MR>>> parameter_gradients;
+            
             operation_->backward(
                 input,           // Input tensor
                 output_grad,     // Gradient from next layer
                 parameters_,     // Empty for GELU
-                {},              // No parameter gradients for GELU
+                parameter_gradients,              // No parameter gradients for GELU
                 input_grad,      // Gradient to propagate to previous layer
-                properties_,     // Operation properties
                 output_state_    // Cached tensors from forward pass
             );
         }
@@ -213,7 +219,7 @@ namespace Mila::Dnn
             oss << "Gelu: " << this->getName() << std::endl;
             oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
             oss << "Approximation Method: " << approximationMethodToString( config_.getApproximationMethod() ) << std::endl;
-            oss << this->getComputePrecision().toString() << std::endl;
+            //oss << this->getComputePrecision().toString() << std::endl;
 
             return oss.str();
         }
@@ -233,7 +239,7 @@ namespace Mila::Dnn
          * Empty for GELU since it has no trainable parameters, but required by the
          * UnaryOperation interface.
          */
-        std::vector<std::shared_ptr<Tensor<TDataType, MR>>> parameters_;
+        std::vector<std::shared_ptr<ITensorData>> parameters_;
 
         /**
          * @brief Output state cache for backward propagation.
@@ -242,15 +248,6 @@ namespace Mila::Dnn
          * during backward propagation to efficiently compute gradients.
          */
         std::vector<std::shared_ptr<Tensor<TDataType, MR>>> output_state_;
-
-        /**
-         * @brief Additional attributes for operation customization.
-         *
-         * Holds configuration values that might be needed by specific implementations
-         * of the GELU operation.
-         */
-		 // TODO: Remove as GeluConfig is now used for this purpose
-        OperationAttributes properties_;
 
         /**
          * @brief The underlying computational operation that implements GELU.

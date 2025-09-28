@@ -302,7 +302,7 @@ namespace Mila::Dnn
             std::ostringstream oss;
             oss << "CompositeModule: " << this->getName() << std::endl;
             oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
-            oss << this->getComputePrecision().toString() << std::endl;
+            //oss << this->getComputePrecision().toString() << std::endl;
             oss << "Child Modules:" << std::endl;
             for ( const auto& [name, module] : child_module_map_ ) {
                 oss << "  - " << name << ": " << module->toString() << std::endl;

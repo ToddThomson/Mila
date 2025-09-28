@@ -16,6 +16,7 @@ module;
 export module Compute.BinaryOperation;
 
 import Dnn.Tensor;
+import Dnn.TensorData;
 import Dnn.TensorTraits;
 import Compute.Precision;
 import Compute.ComputeDevice;
@@ -45,21 +46,15 @@ namespace Mila::Dnn::Compute
      * accuracy based on the specific requirements of the application.
      *
      * @tparam TDeviceType The target device type for the operation, defaults to DeviceType::Cuda.
-     * @tparam TInput1 The data type of the first input tensor elements.
-     *                 Must satisfy ValidTensorType constraint.
-     * @tparam TInput2 The data type of the second input tensor elements, defaults to TInput1.
-     *                 Must satisfy ValidTensorType constraint.
-     * @tparam TOutput The data type of the output tensor elements, defaults to TInput1.
+     * @tparam TInput The data type of the input tensor elements.
+     *                Must satisfy ValidTensorType constraint.
+     * @tparam TOutput The data type of the output tensor elements, defaults to TInput.
      *                 Must satisfy ValidFloatTensorType constraint.
      */
-    export template <DeviceType TDeviceType = DeviceType::Cuda, typename TInput1 = float, typename TInput2 = TInput1, typename TOutput = TInput1>
-        requires ValidTensorTypes<TInput1, TInput2>&& ValidFloatTensorType<TOutput>
-    class BinaryOperation : public OperationBase<TDeviceType, TInput1, TInput2, TOutput> {
+    export template <DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput>
+        requires ValidTensorType<TInput>&& ValidFloatTensorType<TOutput>
+    class BinaryOperation : public OperationBase<TDeviceType, TInput, TOutput> {
     public:
-
-        // TODO: Review the need for need for different TInput2 type. 
-        //       Binary operations typically use the same type for both inputs.
-
         /**
          * @brief Memory resource type based on device type.
          *
@@ -84,7 +79,7 @@ namespace Mila::Dnn::Compute
          *                         Defaults to Auto which lets the implementation decide based on hardware.
          */
         BinaryOperation( OperationType operation_type )
-            : OperationBase<TDeviceType, TInput1, TInput2, TOutput>(
+            : OperationBase<TDeviceType, TInput, TOutput>(
                 operation_type,
                 CreateCompatibleContext<TDeviceType>() ) {}
 
@@ -104,7 +99,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the provided context is incompatible with TDeviceType.
          */
         BinaryOperation( OperationType operation_type, std::shared_ptr<DeviceContext> context )
-            : OperationBase<TDeviceType, TInput1, TInput2, TOutput>(
+            : OperationBase<TDeviceType, TInput, TOutput>(
                 operation_type,
                 ValidateContext<TDeviceType>( context ) ) {}
 
@@ -127,18 +122,17 @@ namespace Mila::Dnn::Compute
          * The operation's precision policy may affect how the computation is performed,
          * balancing between performance and accuracy based on the policy setting.
          *
-         * @param input1 The first input tensor to the operation.
-         * @param input2 The second input tensor to the operation.
+         * @param inputA The first input tensor to the operation.
+         * @param inputB The second input tensor to the operation.
          * @param parameters Optional operation-specific learnable parameters (e.g., weights, biases).
          * @param attributes Configuration settings that control the operation's behavior.
          * @param output Pre-allocated tensor where the operation results will be stored.
          * @param output_state Optional cache for intermediate values needed during backward pass.
          */
         virtual void forward(
-            const Tensor<TInput1, MR>& input1,
-            const Tensor<TInput2, MR>& input2,
-            const std::vector<std::shared_ptr<Tensor<TInput1, MR>>>& parameters,
-            const OperationAttributes& attributes,
+            const Tensor<TInput, MR>& inputA,
+            const Tensor<TInput, MR>& inputB,
+            const std::vector<std::shared_ptr<ITensorData>>& parameters,
             Tensor<TOutput, MR>& output,
             std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const = 0;
 
@@ -155,29 +149,28 @@ namespace Mila::Dnn::Compute
          * The default implementation throws an exception indicating that the operation
          * does not support a backward pass.
          *
-         * @param input1 First input tensor from the forward pass.
-         * @param input2 Second input tensor from the forward pass.
+         * @param inputA First input tensor from the forward pass.
+         * @param inputB Second input tensor from the forward pass.
          * @param output Output tensor from the forward pass.
          * @param output_gradient Gradient of the loss with respect to the output.
          * @param parameters Parameters tensor from forward pass.
          * @param parameter_gradients Output vector where parameter gradients will be stored.
-         * @param input1_gradient Output tensor where gradients for the first input will be stored.
-         * @param input2_gradient Output tensor where gradients for the second input will be stored.
+         * @param inputA_gradient Output tensor where gradients for the first input will be stored.
+         * @param inputB_gradient Output tensor where gradients for the second input will be stored.
          * @param attributes Configuration settings that control the operation's behavior.
          * @param output_state Cache tensors from forward pass.
          *
          * @throws std::runtime_error If the operation does not support backward pass.
          */
         virtual void backward(
-            const Tensor<TInput1, MR>& input1,
-            const Tensor<TInput2, MR>& input2,
+            const Tensor<TInput, MR>& inputA,
+            const Tensor<TInput, MR>& inputB,
             const Tensor<TOutput, MR>& output,
             const Tensor<TOutput, MR>& output_gradient,
-            const std::vector<std::shared_ptr<Tensor<TInput1, MR>>>& parameters,
+            const std::shared_ptr<ITensorData>& parameters,
             std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& parameter_gradients,
-            Tensor<TInput1, MR>& input1_gradient,
-            Tensor<TInput2, MR>& input2_gradient,
-            const OperationAttributes& attributes,
+            Tensor<TInput, MR>& inputA_gradient,
+            Tensor<TInput, MR>& inputB_gradient,
             const std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const {
             throw std::runtime_error( "Operation does not support backward pass." );
         }

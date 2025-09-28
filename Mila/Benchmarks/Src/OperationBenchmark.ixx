@@ -240,6 +240,5 @@ namespace Mila::Benchmark
             InputTensor output_;
             std::vector<std::shared_ptr<Tensor<TDataType, MR>>> parameters_;
             std::vector<std::shared_ptr<Tensor<TDataType, MR>>> output_state_;
-            OperationAttributes properties_;
     };
 }

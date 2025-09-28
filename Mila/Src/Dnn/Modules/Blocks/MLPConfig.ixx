@@ -72,17 +72,6 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Set the dropout rate.
-         *
-         * @param dropout Dropout probability (0.0 to 1.0)
-         * @return MLPConfig& Reference to this for method chaining
-         */
-        MLPConfig& withDropout( float dropout ) {
-            dropout_ = dropout;
-            return *this;
-        }
-
-        /**
          * @brief Configure whether to use layer normalization.
          *
          * @param use_layer_norm Whether to use layer normalization
@@ -93,37 +82,12 @@ namespace Mila::Dnn
             return *this;
         }
 
-        /**
-         * @brief Configure whether to use a residual connection.
-         *
-         * @param use_residual Whether to add a residual connection
-         * @return MLPConfig& Reference to this for method chaining
-         */
-        MLPConfig& withResidual( bool use_residual ) {
-            use_residual_ = use_residual;
-            return *this;
-        }
-
-        /**
-         * @brief Configure whether to fuse operations for inference.
-         *
-         * @param fuse_ops Whether to fuse operations when possible
-         * @return MLPConfig& Reference to this for method chaining
-         */
-        MLPConfig& withFusedOperations( bool fuse_ops ) {
-            fuse_operations_ = fuse_ops;
-            return *this;
-        }
-
         const std::vector<size_t>& getInputShape() const { return input_shape_; }
         size_t getInputFeatures() const { return input_features_; }
         size_t getHiddenSize() const { return hidden_size_; }
         bool hasBias() const { return has_bias_; }
         ActivationType getActivationType() const { return activation_type_; }
-        float getDropout() const { return dropout_; }
         bool useLayerNorm() const { return use_layer_norm_; }
-        bool useResidual() const { return use_residual_; }
-        bool useFusedOperations() const { return fuse_operations_; }
 
         /**
          * @brief Validate configuration parameters.
@@ -140,10 +104,6 @@ namespace Mila::Dnn
             if ( hidden_size_ == 0 ) {
                 throw std::invalid_argument( "Hidden size must be greater than zero" );
             }
-
-            if ( dropout_ < 0.0f || dropout_ >= 1.0f ) {
-                throw std::invalid_argument( "Dropout probability must be in range [0, 1)" );
-            }
         }
 
     private:
@@ -152,9 +112,6 @@ namespace Mila::Dnn
         size_t hidden_size_{ 0 };
         bool has_bias_{ true };
         ActivationType activation_type_{ ActivationType::Gelu};
-        float dropout_{ 0.0f };
         bool use_layer_norm_{ false };
-        bool use_residual_{ false };
-        bool fuse_operations_{ false };
     };
 }
