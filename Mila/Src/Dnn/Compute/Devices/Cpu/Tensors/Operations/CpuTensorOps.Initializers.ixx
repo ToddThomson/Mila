@@ -103,25 +103,5 @@ namespace Mila::Dnn
 
             std::fill_n( typed_dst, tensor.size(), quantized_value );
         }
-        
-        //template<TensorDataType TDataType>
-        //static void fill_float( Tensor<TDataType, CpuMemoryResource>& tensor, float host_value )
-        //{
-        //    if (tensor.size() == 0)
-        //        return;
-
-        //    //using HostType = typename TensorDataTypeTraits<TDataType>::host_type;
-        //    using TargetType = typename CpuTensorDataTypeTraits::template native_type<TDataType>;
-
-        //    void* raw = tensor.rawData();
-        //    if (!raw)
-        //        return; // REVIEW: defensive
-
-        //    TargetType* typed_dst = static_cast<TargetType*>(raw);
-
-        //    TargetType quantized_value = static_cast<TargetType>(host_value);
-
-        //    std::fill_n( typed_dst, tensor.size(), quantized_value );
-        //}
     };
 }

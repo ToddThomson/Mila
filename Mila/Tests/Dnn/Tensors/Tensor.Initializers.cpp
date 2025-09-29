@@ -6,14 +6,13 @@
 #include <limits>
 
 import Mila;
-import Dnn.TensorInitializers;
 
 namespace Dnn::Tensors::Tests
 {
     using namespace Mila::Dnn;
 
     // ====================================================================
-    // Random Initialization Tests - CPU Backend
+    // Random Initialization Tests - CPU Compute Device
     // ====================================================================
 
     TEST( TensorInitializersTests, Random_FP32_CPU ) {

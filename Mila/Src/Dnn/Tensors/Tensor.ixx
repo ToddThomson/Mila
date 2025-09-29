@@ -39,7 +39,6 @@ import Dnn.TensorData;
 import Dnn.TensorDataType;
 import Dnn.TensorPtr;
 import Dnn.TensorTraits;
-//import Compute.BackendTraitSelector;
 import Compute.CpuTensorDataTypeTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
@@ -347,6 +346,7 @@ namespace Mila::Dnn
         // ====================================================================
 
 		// REVIEW: Should we allow changing the device context after creation? return const ref?
+
         /**
          * @brief Returns the tensor's device context
          *
@@ -447,7 +447,7 @@ namespace Mila::Dnn
         }
 
         // =================================================================
-        // Element access (host accessible MR )
+        // Element access (host accessible TMemoryResource only)
         // =================================================================
 
         // Returns a value at indices (host-only), enabled for host-compatible types
@@ -462,6 +462,7 @@ namespace Mila::Dnn
             using NativeT = typename BackendTraits::template native_type<TDataType>;
             const auto idx = computeFlatIndex(indices);
             const auto* base = static_cast<const NativeT*>(rawData());
+            
             return base[idx];
         }*/
 
@@ -821,7 +822,7 @@ namespace Mila::Dnn
             Tensor<TDataType, TMemoryResource> cloned_tensor(device_context_, shape_);
 
             if (size_ > 0) {
-                cloned_tensor.buffer_->copyFrom(rawData(), buffer_->storageBytes());
+                // FIXME: cloned_tensor.buffer_->copyFrom(rawData(), buffer_->storageBytes());
             }
 
             if (!name_.empty()) {
