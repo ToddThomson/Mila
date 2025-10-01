@@ -26,7 +26,8 @@ module;
 export module Dnn.TensorBuffer;
 
 import Dnn.TensorDataType;
-import Dnn.TensorTraits;
+import Dnn.TensorDataTypeMap;
+import Dnn.TensorDataTypeTraits;
 import Compute.MemoryResource;
 import Compute.MemoryResourceTracker;
 import Compute.CpuMemoryResource;

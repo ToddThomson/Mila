@@ -51,16 +51,17 @@ export import Compute.Precision;
 export import Dnn.Tensor;
 export import Dnn.TensorInitializers;
 export import Dnn.TensorDataType;
+export import Dnn.TensorDataTypeMap;
+
 export import Dnn.TensorData;
 export import Dnn.TensorBuffer; // TJT: Remove after testing
-export import Dnn.TensorTraits;
 
 export import Dnn.TensorOps;
 //export import Dnn.TensorOps.Math;
 //export import Compute.CpuTensorOps.Math;
 //export import Compute.CudaTensorOps;
 
-export import Compute.CudaTensorTraits;
+export import Compute.CudaTensorDataType;
 export import Compute.CpuTensorDataTypeTraits;
 // FUTURE: export import Compute.MetalTensorTraits;
 // FUTURE: export import Compute.OpenCLTensorTraits;

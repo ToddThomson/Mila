@@ -30,7 +30,7 @@ export import :Math.Cpu;
 
 import Dnn.Tensor;
 import Dnn.TensorDataType;
-import Dnn.TensorTraits;
+import Dnn.TensorDataTypeMap;
 import Compute.DeviceTraits;
 import Compute.CpuMemoryResource;
 
@@ -38,26 +38,69 @@ namespace Mila::Dnn
 {
 	/**
 	 * @brief Element-wise addition (device-dispatched).
-	 *
-	 * Forwards an element-wise addition of two tensors to the device-specific
-	 * implementation `TensorOps<Tag>::add`. The function is constrained by
-	 * `isValidTensor` so the compiler will reject unsupported tensor
-	 * configurations (e.g., device-only types with non-device memory).
-	 *
-	 * @tparam TDataType Abstract tensor data type from `TensorDataType` enum.
-	 * @tparam TMemoryResource Memory resource type used for both operands.
-	 * @param a Left-hand operand tensor.
-	 * @param b Right-hand operand tensor.
-	 * @return New tensor containing the element-wise sum of `a` and `b`.
-	 *
-	 * @note Device implementation is responsible for validating that shapes
-	 *       match and for selecting efficient execution strategies.
 	 */
 	export template<TensorDataType TDataType, typename TMemoryResource>
 		requires isValidTensor<TDataType, TMemoryResource>
 	Tensor<TDataType, TMemoryResource> add( const Tensor<TDataType, TMemoryResource>& a, const Tensor<TDataType, TMemoryResource>& b ) {
 		using Tag = typename TMemoryResource::ComputeDeviceTag;
-
 		return TensorOps<Tag>::add( a, b );
+	}
+
+	/**
+	 * @brief Element-wise subtraction (device-dispatched).
+	 */
+	export template<TensorDataType TDataType, typename TMemoryResource>
+		requires isValidTensor<TDataType, TMemoryResource>
+	Tensor<TDataType, TMemoryResource> subtract( const Tensor<TDataType, TMemoryResource>& a, const Tensor<TDataType, TMemoryResource>& b ) {
+		using Tag = typename TMemoryResource::ComputeDeviceTag;
+		return TensorOps<Tag>::subtract( a, b );
+	}
+
+	/**
+	 * @brief Element-wise multiplication (device-dispatched).
+	 */
+	export template<TensorDataType TDataType, typename TMemoryResource>
+		requires isValidTensor<TDataType, TMemoryResource>
+	Tensor<TDataType, TMemoryResource> multiply( const Tensor<TDataType, TMemoryResource>& a, const Tensor<TDataType, TMemoryResource>& b ) {
+		using Tag = typename TMemoryResource::ComputeDeviceTag;
+		return TensorOps<Tag>::multiply( a, b );
+	}
+
+	/**
+	 * @brief Element-wise division (device-dispatched).
+	 */
+	export template<TensorDataType TDataType, typename TMemoryResource>
+		requires isValidTensor<TDataType, TMemoryResource>
+	Tensor<TDataType, TMemoryResource> divide( const Tensor<TDataType, TMemoryResource>& a, const Tensor<TDataType, TMemoryResource>& b ) {
+		using Tag = typename TMemoryResource::ComputeDeviceTag;
+		return TensorOps<Tag>::divide( a, b );
+	}
+
+	// --------------------------------------------------------------------
+	// Thin operator syntactic sugar forwarding to the above helpers
+	// --------------------------------------------------------------------
+
+	export template<TensorDataType TDataType, typename TMemoryResource>
+		requires isValidTensor<TDataType, TMemoryResource>
+	inline Tensor<TDataType, TMemoryResource> operator+( const Tensor<TDataType, TMemoryResource>& a, const Tensor<TDataType, TMemoryResource>& b ) {
+		return add<TDataType, TMemoryResource>( a, b );
+	}
+
+	export template<TensorDataType TDataType, typename TMemoryResource>
+		requires isValidTensor<TDataType, TMemoryResource>
+	inline Tensor<TDataType, TMemoryResource> operator-( const Tensor<TDataType, TMemoryResource>& a, const Tensor<TDataType, TMemoryResource>& b ) {
+		return subtract<TDataType, TMemoryResource>( a, b );
+	}
+
+	export template<TensorDataType TDataType, typename TMemoryResource>
+		requires isValidTensor<TDataType, TMemoryResource>
+	inline Tensor<TDataType, TMemoryResource> operator*( const Tensor<TDataType, TMemoryResource>& a, const Tensor<TDataType, TMemoryResource>& b ) {
+		return multiply<TDataType, TMemoryResource>( a, b );
+	}
+
+	export template<TensorDataType TDataType, typename TMemoryResource>
+		requires isValidTensor<TDataType, TMemoryResource>
+	inline Tensor<TDataType, TMemoryResource> operator/( const Tensor<TDataType, TMemoryResource>& a, const Tensor<TDataType, TMemoryResource>& b ) {
+		return divide<TDataType, TMemoryResource>( a, b );
 	}
 }

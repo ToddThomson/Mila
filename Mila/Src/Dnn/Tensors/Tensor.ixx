@@ -36,9 +36,10 @@ export module Dnn.Tensor;
 
 import Dnn.TensorBuffer;
 import Dnn.TensorData;
-import Dnn.TensorDataType;
 import Dnn.TensorPtr;
-import Dnn.TensorTraits;
+import Dnn.TensorDataType;
+import Dnn.TensorDataTypeMap;
+import Dnn.TensorDataTypeTraits;
 import Compute.CpuTensorDataTypeTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
@@ -152,7 +153,9 @@ namespace Mila::Dnn
         using DataType = TensorDataType;                                           ///< Abstract data type enumeration
         using MemoryResource = TMemoryResource;                                    ///< Memory resource type for this tensor
         using DataTypeTraits = TensorDataTypeTraits<TDataType>;                   ///< Compile-time data type characteristics
+        using host_value_t = std::conditional_t<TensorDataTypeTraits<TDataType>::is_integer_type, int32_t, float>;
 
+		// REVIEW: Are these needed?
         static constexpr TensorDataType data_type = TDataType;                     ///< Compile-time data type constant
         static constexpr size_t element_size = DataTypeTraits::size_in_bytes;      ///< Size per element in bytes
         static constexpr size_t alignment = DataTypeTraits::alignment;             ///< Required memory alignment
@@ -450,37 +453,6 @@ namespace Mila::Dnn
         // Element access (host accessible TMemoryResource only)
         // =================================================================
 
-        // Returns a value at indices (host-only), enabled for host-compatible types
-        /*template<typename TElement = int>
-            requires TMemoryResource::is_host_accessible && (Compute::BackendTraits<TMemoryResource>::template supports<TDataType>())
-        auto at(const std::vector<size_t>& indices) const
-            -> typename Compute::BackendTraits<TMemoryResource>::template native_type<TDataType>
-        {
-            validateIndices(indices, "at()");
-
-            using BackendTraits = Compute::BackendTraits<TMemoryResource>;
-            using NativeT = typename BackendTraits::template native_type<TDataType>;
-            const auto idx = computeFlatIndex(indices);
-            const auto* base = static_cast<const NativeT*>(rawData());
-            
-            return base[idx];
-        }*/
-
-        //// Sets a value at indices (host-only), enabled for host-compatible types
-        //template<typename TDummy = int>
-        //    requires TMemoryResource::is_host_accessible && (Compute::BackendTraits<TMemoryResource>::template supports<TDataType>())
-        //void set(const std::vector<size_t>& indices,
-        //    typename Compute::BackendTraits<TMemoryResource>::template native_type<TDataType> value)
-        //{
-        //    validateIndices(indices, "set()");
-
-        //    using BackendTraits = Compute::BackendTraits<TMemoryResource>;
-        //    using NativeT = typename BackendTraits::template native_type<TDataType>;
-        //    const auto idx = computeFlatIndex(indices);
-        //    auto* base = static_cast<NativeT*>(rawData());
-        //    base[idx] = value;
-        //}
-
         // ====================================================================
         // Tensor Properties and Introspection
         // ====================================================================
@@ -666,134 +638,14 @@ namespace Mila::Dnn
         // Memory Transfer Operations
         // ====================================================================
 
-        /**
-         * @brief Transfers tensor data to host (CPU) memory with optional type conversion
-         *
-         * Creates a new tensor in CPU memory containing a copy of this tensor's data.
-         * Supports automatic type conversion during transfer. Always results in a
-         * host-accessible tensor using CpuMemoryResource.
-         *
-         * @tparam TDstDataType Target tensor data type (defaults to current type)
-         * @param cpu_context CPU device context for the destination tensor
-         * @return New host tensor with transferred and optionally converted data
-         *
-         * @throws std::invalid_argument If cpu_context is null or not a CPU context
-         * @throws std::runtime_error If memory transfer fails
-         * @throws std::bad_alloc If host memory allocation fails
-         *
-         * @note Works from any source memory type (CPU, CUDA, etc.)
-         * @note Type conversion performed on host for maximum compatibility
-         * @note Preserves tensor shape, strides, and metadata
-         */
-        template<TensorDataType TDstDataType = TDataType>
-			requires isValidTensor<TDstDataType, Compute::CpuMemoryResource>
-        Tensor<TDstDataType, Compute::CpuMemoryResource> toHost( std::shared_ptr<Compute::CpuDeviceContext> cpu_context ) const {
-            if (!cpu_context) {
-                throw std::invalid_argument( "CPU device context cannot be null" );
-            }
-
-            Tensor<TDstDataType, Compute::CpuMemoryResource> dst( cpu_context, shape_ );
-
-            if (!name_.empty()) {
-                dst.setName( name_ );
-            }
-
-            if (size_ == 0) {
-                return dst;
-            }
-
-            constexpr bool srcHost = TMemoryResource::is_host_accessible;
-
-            if constexpr (srcHost) {
-                // Host ? Host: Direct copy or conversion
-                if constexpr (TDstDataType == TDataType) {
-                    const size_t bytes = detail::getStorageSize<TDataType>( size_ );
-                    std::memcpy( dst.rawData(), rawData(), bytes );
-                }
-                else {
-                    performHostTypeConversion<TDstDataType>( dst );
-                }
-            }
-            else {
-                // Device ? Host: Transfer then optional conversion
-                if constexpr (TDstDataType == TDataType) {
-                    // Same type: direct device-to-host transfer
-                    const size_t bytes = detail::getStorageSize<TDataType>( size_ );
-                    // fixme: dst.buffer_->copyFrom( rawData(), bytes );
-                }
-                else {
-                    // Different types: transfer to temp host, then convert
-                    auto temp_cpu_context = std::dynamic_pointer_cast<Compute::CpuDeviceContext>(
-                        createDeviceContext( "CPU" ));
-                    Tensor<TDataType, Compute::CpuMemoryResource> temp_host( temp_cpu_context, shape_ );
-                    const size_t src_bytes = detail::getStorageSize<TDataType>( size_ );
-                    
-                    // fixme: temp_host.buffer_->copyFrom( rawData(), src_bytes );
-
-                    performHostTypeConversion( temp_host, dst );
-                }
-            }
-
-            return dst;
+        template<TensorDataType TDstDataType = TDataType, typename TDstMemoryResource = TMemoryResource>
+			requires isValidTensor<TDstDataType, TDstMemoryResource> && TDstMemoryResource::is_host_accessible
+        Tensor<TDstDataType, TDstMemoryResource> toHost() const {
         }
 
-        /**
-         * @brief Transfers tensor data to device memory with optional type conversion
-         *
-         * Creates a new tensor in device memory containing a copy of this tensor's data.
-         * Supports automatic type conversion during transfer. The memory resource type
-         * and device context must be compatible.
-         *
-         * @tparam TDstDataType Target tensor data type (defaults to current type)
-         * @tparam TDeviceMemoryResource Target device memory resource type
-         * @param device_context Device context for the destination tensor
-         * @return New device tensor with transferred and optionally converted data
-         *
-         * @throws std::invalid_argument If device_context is null
-         * @throws std::runtime_error If device operations fail or contexts are incompatible
-         * @throws std::bad_alloc If device memory allocation fails
-         *
-         * @note Source must be host-accessible (CPU memory)
-         * @note Type conversion performed on host before device transfer
-         * @note Preserves tensor shape, strides, and metadata
-         */
-        template<TensorDataType TDstDataType = TDataType, typename TDeviceMemoryResource>
-            requires isValidTensor<TDstDataType, TDeviceMemoryResource> && (!TDeviceMemoryResource::is_host_accessible)
-        Tensor<TDstDataType, TDeviceMemoryResource> toDevice( std::shared_ptr<Compute::DeviceContext> device_context ) const {
-            static_assert(TMemoryResource::is_host_accessible,
-                "toDevice() requires source tensor to be host-accessible. Use toHost() first if needed.");
-
-            if (!device_context) {
-                throw std::invalid_argument( "Device context cannot be null" );
-            }
-
-            Tensor<TDstDataType, TDeviceMemoryResource> dst( device_context, shape_ );
-
-            if (!name_.empty()) {
-                dst.setName( name_ );
-            }
-
-            if (size_ == 0) {
-                return dst;
-            }
-
-            if constexpr (TDstDataType == TDataType) {
-                // Same type: direct host-to-device transfer
-                const size_t bytes = detail::getStorageSize<TDataType>( size_ );
-                // Fixme: dst.buffer_->copyFrom( rawData(), bytes );
-            }
-            else {
-                // Different types: convert on host, then transfer
-                auto temp_cpu_context = std::dynamic_pointer_cast<Compute::CpuDeviceContext>(
-                    createDeviceContext( "CPU" ));
-                Tensor<TDstDataType, Compute::CpuMemoryResource> temp_host( temp_cpu_context, shape_ );
-                performHostTypeConversion<TDstDataType>( temp_host );
-
-                const size_t dst_bytes = detail::getStorageSize<TDstDataType>( size_ );
-                // fixme: dst.buffer_->copyFrom( temp_host.rawData(), dst_bytes );
-            }
-
-            return dst;
+        template<TensorDataType TDstDataType = TDataType, typename TDstMemoryResource = TMemoryResource>
+            requires isValidTensor<TDstDataType, TDstMemoryResource>&& TDstMemoryResource::is_device_accessible
+        Tensor<TDstDataType, TDstMemoryResource> toDevice() const {
         }
 
         // ====================================================================

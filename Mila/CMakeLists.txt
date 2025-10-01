@@ -14,12 +14,15 @@ add_library( Mila STATIC
 	"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaGelu.cu"
 	"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaResidual.cu"
 	"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaSoftmax.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Kernels/TensorCopy.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Kernels/TensorFill.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Kernels/CudaTensorOps.h"
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Kernels/Math.Elementwise.h"
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Kernels/Math.Elementwise.cu"
- "Src/Dnn/Compute/Devices/Cuda/Tensors/Kernels/Transfer.Copy.h")
+    #--------------------------------------------------------------------------
+    # Cuda TensorOps Kernels
+    #--------------------------------------------------------------------------
+    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorCopy.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorFill.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/CudaTensorOps.h"
+    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.h"
+    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Transfer.Copy.h")
 
  # FIXME: add_dependencies(Mila MilaUpdateVersion)
 
@@ -101,7 +104,7 @@ PUBLIC
         "Src/Dnn/Tensors/TensorDataType.ixx"
         "Src/Dnn/Tensors/Tensor.Initializers.ixx"
         "Src/Dnn/Tensors/TensorPtr.ixx"
-        "Src/Dnn/Tensors/TensorTraits.ixx"
+        "Src/Dnn/Tensors/TensorDataTypeMap.ixx"
         "Src/Dnn/Tensors/TensorDataTypeTraits.ixx"
 
         # Dnn / Tensors / Operations
@@ -163,7 +166,7 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Cpu/CpuComputeResource.ixx"
         "Src/Dnn/Compute/Devices/Cpu/CpuDeviceTraits.ixx"
         "Src/Dnn/Compute/Devices/Cpu/Tensors/CpuTensorDataTypeTraits.ixx"
-        "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Initializers.ixx"
+        "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Fill.ixx"
         "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Math.ixx"
         #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuOperations.ixx"
         #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuEncoderOp.ixx"
@@ -197,13 +200,13 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Cuda/CudaDeviceTraits.ixx"
 
         # CUDA / Tensors
-        "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorTraits.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorTraits.Specializations.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorTraits.Maps.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorOps.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorOps.Math.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorOps.Fill.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorOps.Transfer.ixx"
+        "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType.ixx"
+        "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType-Specializations.ixx"
+        "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType-Maps.ixx"
+        
+        "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Math.ixx"
+        "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Fill.ixx"
+        "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Transfer.ixx"
 
         # CUDA / Operations (kept as originally commented where applicable)
         #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaOperations.ixx"
@@ -287,7 +290,7 @@ PUBLIC
         # WIP / Attributes (originally commented)
         #"Src/Dnn/Modules/Layers/LinearAttributes.ixx"
         #"Src/Dnn/Common/Attributes.ixx"
-)
+ "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Transfer.ixx")
 
 target_link_libraries(Mila PRIVATE 
     miniz

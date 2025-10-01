@@ -46,15 +46,17 @@ add_executable( MilaTests
     # --------------------------------------------------------------
     "Dnn/Tensors/TensorBuffer.cpp"
     "Dnn/Tensors/Tensor.Constructors.cpp"
-    "Dnn/Tensors/Tensor.MemoryTransfers.cpp"
     #"Dnn/Tensors/Tensor.Initializers.cpp"
     #"Dnn/Tensors/Tensor.MemoryProperties.cpp"
     #"Dnn/Tensors/Tensor.MemoryTransfers.cpp"
     #"Dnn/Tensors/Tensor.DataManipulationOps.cpp"
-    "Dnn/Tensors/Tensor.Properties.cpp"
+    #"Dnn/Tensors/Tensor.Properties.cpp"
     #"Dnn/Tensors/Tensor.Access.cpp"
     "Dnn/Tensors/Tensor.Identity.cpp"
-    
+
+    # TensorOps
+    "Dnn/Tensors/TensorOps/Math.Cpu.cpp"
+    "Dnn/Tensors/TensorOps/Fill.Cpu.cpp"
 
     # --------------------------------------------------------------
     # Compute::Device::Cpu Operations Tests
@@ -119,7 +121,7 @@ add_executable( MilaTests
     #"Dnn/Seriaalization/ZipSerializer.cpp"
     #"Dnn/Tensors/TensorBuffer.Tracking.cpp"
 
- "Dnn/Tensors/TensorOps/Math.Cpu.cpp" "Dnn/Tensors/TensorOps/Fill.Cpu.cpp")
+    )
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
 

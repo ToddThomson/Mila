@@ -16,26 +16,26 @@ module;
 #include <cstring>
 #include "Kernels/Transfer.Copy.h"
 
-export module Compute.CudaTensorOps:Transfer;
+export module Dnn.TensorOps:Transfer.Cuda;
 
 import Dnn.TensorDataType;
-import Dnn.TensorTraits;
-import Compute.CudaTensorTraits;
+import Dnn.TensorDataTypeMap;
+import Dnn.TensorDataTypeTraits;
+import Compute.CudaTensorDataType;
 import Compute.CudaDeviceContext;
+import Compute.CudaMemoryResource;
 import Cuda.Error;
 
-namespace Mila::Dnn::Compute::Cuda::TensorOps
+namespace Mila::Dnn
 {
-    /**
-     * @brief CUDA backend tensor transfer operations
-     *
-     * Provides optimized transfer operations between host and device memory using
-     * wrapper functions for CUDA kernel infrastructure. All operations use device
-     * context streams for proper synchronization and multi-GPU support.
-     */
-    export class Transfer
+	using namespace Mila::Dnn::Compute;
+
+	// Forward declaration of primary template
+    template<typename TComputeDeviceTag> struct TensorOps;
+
+    export template<>
+        struct TensorOps<Compute::CudaComputeDeviceTag>
     {
-    public:
         // ================================================================
         // Same-Type Transfer Operations (No Conversion)
         // ================================================================
@@ -55,7 +55,8 @@ namespace Mila::Dnn::Compute::Cuda::TensorOps
 
             context->makeCurrent();
 
-            using NativeType = typename NativeDataTypeMap<TDataType>::type;
+            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::native_type;
+
             const auto* typed_src = static_cast<const NativeType*>(src_data);
             auto* typed_dst = static_cast<NativeType*>(dst_data);
 
@@ -152,8 +153,8 @@ namespace Mila::Dnn::Compute::Cuda::TensorOps
 
             context->makeCurrent();
 
-            using SrcType = typename NativeDataTypeMap<TSrcDataType>::type;
-            using DstType = typename NativeDataTypeMap<TDstDataType>::type;
+            using SrcType = typename Cuda::TensorDataTypeMap<TSrcDataType>::native_type;
+            using DstType = typename Cuda::TensorDataTypeMap<TDstDataType>::native_type;
 
             const auto* typed_src = static_cast<const SrcType*>(src_data);
             auto* typed_dst = static_cast<DstType*>(dst_data);
@@ -187,8 +188,8 @@ namespace Mila::Dnn::Compute::Cuda::TensorOps
                 return;
             }
 
-            using SrcType = typename NativeDataTypeMap<TSrcDataType>::type;
-            using DstType = typename NativeDataTypeMap<TDstDataType>::type;
+            using SrcType = typename Cuda::TensorDataTypeMap<TSrcDataType>::type;
+            using DstType = typename Cuda::TensorDataTypeMap<TDstDataType>::type;
 
             // Allocate temporary device memory for source data
             constexpr size_t src_element_size = TensorDataTypeTraits<TSrcDataType>::size_in_bytes;
@@ -243,8 +244,8 @@ namespace Mila::Dnn::Compute::Cuda::TensorOps
                 return;
             }
 
-            using SrcType = typename NativeDataTypeMap<TSrcDataType>::type;
-            using DstType = typename NativeDataTypeMap<TDstDataType>::type;
+            using SrcType = typename Cuda::TensorDataTypeMap<TSrcDataType>::type;
+            using DstType = typename Cuda::TensorDataTypeMap<TDstDataType>::type;
 
             // Allocate temporary device memory for converted data
             constexpr size_t dst_element_size = TensorDataTypeTraits<TDstDataType>::size_in_bytes;
@@ -297,8 +298,8 @@ namespace Mila::Dnn::Compute::Cuda::TensorOps
             }
 
             // CPU-based type conversion for host data
-            using SrcType = typename HostDataTypeMap<TSrcDataType>::type;
-            using DstType = typename HostDataTypeMap<TDstDataType>::type;
+            using SrcType = typename Cuda::TensorDataTypeMap<TSrcDataType>::type;
+            using DstType = typename Cuda::TensorDataTypeMap<TDstDataType>::type;
 
             const auto* typed_src = static_cast<const SrcType*>(src_data);
             auto* typed_dst = static_cast<DstType*>(dst_data);
@@ -328,8 +329,8 @@ namespace Mila::Dnn::Compute::Cuda::TensorOps
 
             context->makeCurrent();
 
-            using SrcType = typename NativeDataTypeMap<TSrcDataType>::type;
-            using DstType = typename NativeDataTypeMap<TDstDataType>::type;
+            using SrcType = typename Cuda::TensorDataTypeMap<TSrcDataType>::type;
+            using DstType = typename Cuda::TensorDataTypeMap<TDstDataType>::type;
 
             const auto* typed_src = static_cast<const SrcType*>(src_data);
             auto* typed_dst = static_cast<DstType*>(dst_data);

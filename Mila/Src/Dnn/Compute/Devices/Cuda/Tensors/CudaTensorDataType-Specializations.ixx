@@ -9,10 +9,10 @@ module;
 #include <cuda_bf16.h>
 #include <cuda_fp8.h>
 
-export module Compute.CudaTensorTraits:Specializations;
+export module Compute.CudaTensorDataType:Specializations;
 
-import Dnn.TensorTraits;
 import Dnn.TensorDataType;
+import Dnn.TensorDataTypeMap;
 import Compute.DeviceType;
 
 namespace Mila::Dnn 
@@ -21,7 +21,7 @@ namespace Mila::Dnn
 
     // CUDA-specific concrete type specializations
     template <>
-    struct TensorTrait<half> {
+    struct TensorDataTypeMap<half> {
         static constexpr bool is_float_type = true;
         static constexpr bool is_integer_type = false;
         static constexpr bool is_device_only = true;
@@ -32,7 +32,7 @@ namespace Mila::Dnn
     };
 
     template <>
-    struct TensorTrait<nv_bfloat16> {
+    struct TensorDataTypeMap<nv_bfloat16> {
         static constexpr bool is_float_type = true;
         static constexpr bool is_integer_type = false;
         static constexpr bool is_device_only = true;
@@ -43,7 +43,7 @@ namespace Mila::Dnn
     };
 
     template <>
-    struct TensorTrait<__nv_fp8_e4m3> {
+    struct TensorDataTypeMap<__nv_fp8_e4m3> {
         static constexpr bool is_float_type = true;
         static constexpr bool is_integer_type = false;
         static constexpr bool is_device_only = true;
@@ -54,7 +54,7 @@ namespace Mila::Dnn
     };
 
     template <>
-    struct TensorTrait<__nv_fp8_e5m2> {
+    struct TensorDataTypeMap<__nv_fp8_e5m2> {
         static constexpr bool is_float_type = true;
         static constexpr bool is_integer_type = false;
         static constexpr bool is_device_only = true;

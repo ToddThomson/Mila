@@ -15,9 +15,9 @@ module;
     #endif
 #endif
 
-export module Compute.MetalTensorTraits;
+export module Compute.MetalTensorDataTypeMap;
 
-import Dnn.TensorTraits;
+import Dnn.TensorDataTypeMap;
 import Dnn.TensorDataType;
 import Compute.DeviceType;
 

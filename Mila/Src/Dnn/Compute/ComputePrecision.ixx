@@ -9,7 +9,6 @@ module;
 
 export module Compute.Precision;
 
-import Dnn.TensorTraits;
 import Compute.DeviceType;
 
 namespace Mila::Dnn::Compute

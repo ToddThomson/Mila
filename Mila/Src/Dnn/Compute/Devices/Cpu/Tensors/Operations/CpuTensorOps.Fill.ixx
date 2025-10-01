@@ -1,6 +1,6 @@
 /**
- * @file CpuTensorOps.Initializers.ixx
- * @brief CPU tensor initialization operations partition
+ * @file CpuTensorOps.Fill.ixx
+ * @brief CPU tensor fill operations partition
  */
 
 module;
@@ -10,11 +10,11 @@ module;
 #include <type_traits>
 #include <stdexcept>
 
-export module Dnn.TensorOps:Initializers.Cpu;
+export module Dnn.TensorOps:Fill.Cpu;
 
 import Dnn.Tensor;
 import Dnn.TensorDataType;
-import Dnn.TensorTraits;
+import Dnn.TensorDataTypeMap;
 import Dnn.TensorDataTypeTraits;
 import Compute.DeviceTraits;
 import Compute.CpuMemoryResource;
@@ -42,15 +42,18 @@ namespace Mila::Dnn
     {
         template<TensorDataType TDataType>
         using host_value_t = std::conditional_t<TensorDataTypeTraits<TDataType>::is_integer_type, int32_t, float>;
+        
         /**
          * @brief Copy contiguous host values (host_type derived from TDataType) into tensor.
          *
          * Host span element type is selected from TensorDataTypeTraits<TDataType>::host_type,
          * ensuring the host-provided values match the expected host representation for the
          * tensor data type (float for floating tensors, int32_t for integer tensors).
+         *
+         * Implemented as `fill` overload that accepts a host span to match generic dispatch.
          */
         template<TensorDataType TDataType>
-        static void copy_from_host(
+        static void fill(
             Tensor<TDataType, CpuMemoryResource>& tensor,
             std::span<const host_value_t<TDataType>> host_values )
         {

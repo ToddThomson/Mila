@@ -11,14 +11,13 @@ module;
 #include <cmath>
 #include "Kernels/Math.Elementwise.h"
 
-export module Compute.CudaTensorOps:Math;
+export module Dnn.TensorOps:Math.Cuda;
 
 import Dnn.Tensor;
 import Dnn.TensorDataType;
-import Dnn.TensorTraits;
+import Dnn.TensorDataTypeMap;
 import Dnn.TensorOps;
-//import Dnn.TensorOps.Math;
-import Compute.CudaTensorTraits;
+import Compute.CudaTensorDataType;
 import Compute.CudaDevice;
 import Compute.DeviceTraits;
 import Compute.CudaDeviceContext;

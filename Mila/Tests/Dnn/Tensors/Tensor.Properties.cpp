@@ -267,13 +267,14 @@ namespace Dnn::Tensors::Tests
         // Transfer to device and back - create device context via DeviceContext factory
         auto cuda_ctx = Compute::DeviceContext::create( "CUDA:0" );
         auto cuda_tensor = host_tensor.toDevice<TensorDataType::FP32, Compute::CudaMemoryResource>( cuda_ctx );
+        
         EXPECT_EQ( cuda_tensor.shape(), shape );
         EXPECT_EQ( cuda_tensor.rank(), 2 );
         EXPECT_EQ( cuda_tensor.size(), 6 );
         EXPECT_FALSE( cuda_tensor.empty() );
 
-        auto host_ctx = std::dynamic_pointer_cast<Compute::CpuDeviceContext>(Compute::DeviceContext::create( "CPU" ));
-        auto back_to_host = cuda_tensor.toHost<TensorDataType::FP32>( host_ctx );
+        auto back_to_host = cuda_tensor.toHost();
+
         EXPECT_EQ( back_to_host.shape(), shape );
         EXPECT_EQ( back_to_host.rank(), 2 );
         EXPECT_EQ( back_to_host.size(), 6 );

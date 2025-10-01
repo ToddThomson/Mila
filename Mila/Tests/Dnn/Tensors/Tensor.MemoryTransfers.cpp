@@ -54,7 +54,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_TRUE( cuda_tensor.is_device_accessible() );
 
         // Convert back to CPU - creates new tensor
-        auto cpu_tensor = cuda_tensor.toHost<TensorDataType::FP32>( cpu_context_ );
+        auto cpu_tensor = cuda_tensor.toHost();
 
         // Verify all properties are preserved
         EXPECT_EQ( cpu_tensor.shape(), std::vector<size_t>( { 2, 3 } ) );
@@ -83,7 +83,7 @@ namespace Dnn::Tensors::Tests
         Tensor<TensorDataType::FP32, Compute::CudaMemoryResource> tensor( cuda_context_, { 2, 3 } );
 
         // Convert to CPU - creates new tensor
-        auto cpu_tensor = tensor.toHost<TensorDataType::FP32>( cpu_context_ );
+        auto cpu_tensor = tensor.toHost();
 
         // Check buffer-related properties
         EXPECT_EQ( cpu_tensor.shape(), std::vector<size_t>( { 2, 3 } ) );
@@ -112,7 +112,7 @@ namespace Dnn::Tensors::Tests
     TEST_F( TensorMemoryTransferTest, CopyConstructor_CudaToCpu ) {
         Tensor<TensorDataType::FP32, Compute::CudaMemoryResource> src( cuda_context_, { 2, 3 } );
 
-        auto dst = src.toHost<TensorDataType::FP32>( cpu_context_ );
+        auto dst = src.toHost<TensorDataType::FP32>();
 
         // Verify properties are copied correctly
         EXPECT_EQ( dst.shape(), src.shape() );
@@ -147,7 +147,8 @@ namespace Dnn::Tensors::Tests
         EXPECT_TRUE( dst.is_device_accessible() );
 
         // Convert back to CPU to verify transfer worked
-        auto verification_tensor = dst.toHost<TensorDataType::FP32>( cpu_context_ );
+        auto verification_tensor = dst.toHost<TensorDataType::FP32>();
+
         EXPECT_EQ( verification_tensor.shape(), src.shape() );
     }
 
@@ -158,7 +159,7 @@ namespace Dnn::Tensors::Tests
     TEST_F( TensorMemoryTransferTest, HostToPinned ) {
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> host_tensor( cpu_context_, { 3, 4 } );
 
-        auto pinned_tensor = host_tensor.toHost<TensorDataType::FP32>( cpu_context_ ); // Note: Would need pinned context
+        auto pinned_tensor = host_tensor.toHost<TensorDataType::FP32>(); // Note: Would need pinned context
 
         EXPECT_EQ( pinned_tensor.shape(), host_tensor.shape() );
         EXPECT_EQ( pinned_tensor.size(), host_tensor.size() );
@@ -183,7 +184,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_TRUE( cuda_tensor.is_device_accessible() );
 
         // Verify data through round-trip
-        auto verification_tensor = cuda_tensor.toHost<TensorDataType::FP32>( cpu_context_ );
+        auto verification_tensor = cuda_tensor.toHost<TensorDataType::FP32>();
         EXPECT_EQ( verification_tensor.shape(), pinned_tensor.shape() );
     }
 

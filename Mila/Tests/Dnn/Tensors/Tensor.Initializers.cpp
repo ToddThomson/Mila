@@ -93,7 +93,7 @@ namespace Dnn::Tensors::Tests
     }
 
     // ====================================================================
-    // Random Initialization Tests - CUDA Backend (CPU-only until CUDA backend ready)
+	// Random Initialization Tests - CUDA Compute Device
     // ====================================================================
 
     TEST( TensorInitializersTests, Random_FP32_CUDA ) {
@@ -109,7 +109,7 @@ namespace Dnn::Tensors::Tests
             random( dev_tensor, min_val, max_val );
 
             // Transfer to CPU for validation
-            auto cpu_tensor = dev_tensor.to<TensorDataType::FP32, Compute::CpuMemoryResource>();
+            auto cpu_tensor = dev_tensor.to<TensorDataType::FP32, CpuMemoryResource>();
 
             // Check values are within range
             bool all_in_range = true;
@@ -148,7 +148,7 @@ namespace Dnn::Tensors::Tests
 
             random( dev_tensor, min_val, max_val );
 
-            auto cpu_tensor = dev_tensor.to<TensorDataType::INT32, Compute::CpuMemoryResource>();
+            auto cpu_tensor = dev_tensor.toHost();
 
             bool all_in_range = true;
             for (size_t i = 0; i < cpu_tensor.shape()[0]; ++i) {
@@ -202,7 +202,7 @@ namespace Dnn::Tensors::Tests
     }
 
     // ====================================================================
-    // Xavier Initialization Tests - CPU Backend
+	// Xavier Initialization Tests - CPU Compute Device
     // ====================================================================
 
     TEST( TensorInitializersTests, Xavier_FP32_CPU ) {
@@ -265,7 +265,7 @@ namespace Dnn::Tensors::Tests
     }
 
     // ====================================================================
-    // Xavier Initialization Tests - CUDA Backend
+	// Xavier Initialization Tests - CUDA Compute Device
     // ====================================================================
 
     TEST( TensorInitializersTests, Xavier_FP32_CUDA ) {
@@ -282,7 +282,7 @@ namespace Dnn::Tensors::Tests
             float limit = std::sqrt( 6.0f / (input_size + output_size) );
 
             // Transfer to CPU for validation
-            auto cpu_tensor = tensor.to<TensorDataType::FP32, Compute::CpuMemoryResource>();
+            auto cpu_tensor = tensor.toHost();
 
             // Check values are within range
             bool all_in_range = true;
@@ -441,7 +441,7 @@ namespace Dnn::Tensors::Tests
             zeros( tensor );
 
             // Transfer to CPU for validation
-            auto cpu_tensor = tensor.to<TensorDataType::FP32, Compute::CpuMemoryResource>();
+            auto cpu_tensor = tensor.toHost();
 
             // Verify all values are zero
             for (size_t i = 0; i < cpu_tensor.shape()[0]; ++i) {
@@ -464,7 +464,7 @@ namespace Dnn::Tensors::Tests
             ones( tensor );
 
             // Transfer to CPU for validation
-            auto cpu_tensor = tensor.to<TensorDataType::FP32, Compute::CpuMemoryResource>();
+            auto cpu_tensor = tensor.toHost();
 
             // Verify all values are one
             for (size_t i = 0; i < cpu_tensor.shape()[0]; ++i) {
@@ -488,7 +488,7 @@ namespace Dnn::Tensors::Tests
             fill( tensor, fill_value );
 
             // Transfer to CPU for validation
-            auto cpu_tensor = tensor.to<TensorDataType::FP32, Compute::CpuMemoryResource>();
+            auto cpu_tensor = tensor.toHost<TensorDataType::FP32, Compute::CpuMemoryResource>();
 
             // Verify all values match fill value
             for (size_t i = 0; i < cpu_tensor.shape()[0]; ++i) {

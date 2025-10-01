@@ -1,5 +1,5 @@
 /**
- * @file CpuTensorTraits.ixx
+ * @file CpuTensorDataTypeTraits.ixx
  * @brief CPU-specific tensor trait specializations
  */
 module;

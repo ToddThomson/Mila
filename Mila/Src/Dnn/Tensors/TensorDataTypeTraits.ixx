@@ -11,11 +11,13 @@
 
 module;
 #include <cstdint>
+#include <type_traits>
+#include <string_view>
 
 export module Dnn.TensorDataTypeTraits;
 
 import Dnn.TensorDataType;
-
+import Compute.MemoryResource;
 
 namespace Mila::Dnn
 {
@@ -74,6 +76,7 @@ namespace Mila::Dnn
         static constexpr size_t size_in_bytes = 2;      ///< Memory footprint per element
         static constexpr size_t alignment = 2;          ///< Required memory alignment
         static constexpr const char* type_name = "FP16"; ///< Human-readable type identifier
+        static constexpr TensorDataType host_tensor_type = TensorDataType::FP32;  ///< Host conversion data type
 
         using host_type = float;                        ///< Host conversion type
     };
@@ -220,6 +223,7 @@ namespace Mila::Dnn
         static constexpr size_t size_in_bytes = 2;       ///< Memory footprint per element
         static constexpr size_t alignment = 2;           ///< Required memory alignment
         static constexpr const char* type_name = "UINT16"; ///< Human-readable type identifier
+        //static constexpr TensorDataType host_tensor_type = TensorDataType::UINT16;  ///< Host conversion data type
 
         using host_type = std::int32_t;                  ///< Host conversion type
     };
@@ -241,4 +245,98 @@ namespace Mila::Dnn
 
         using host_type = std::int32_t;                  ///< Host conversion type
     };
+
+    // ====================================================================
+    // Primary Tensor Validation Concept for Abstract Data Types
+    // ====================================================================
+
+    /**
+     * @brief Primary tensor configuration validation concept
+     *
+     * Validates that a TensorDataType and MemoryResource combination represents
+     * a valid tensor configuration. This is the core validation concept for the
+     * abstract tensor data type system.
+     *
+     * Validation ensures:
+     * - Memory resource inherits from base MemoryResource class
+     * - Device-only data types use device-accessible memory resources
+     * - TensorDataTypeTraits is properly specialized for the data type
+     * - All required trait properties are available at compile time
+     *
+     * @tparam TDataType Abstract tensor data type from TensorDataType enumeration
+     * @tparam TMemoryResource Memory resource type for tensor storage
+     *
+     * @note This is the primary validation interface for the tensor system
+     * @note Replaces all legacy concrete type validation concepts
+     * @note Used directly by Tensor class template constraints
+     *
+     * @see TensorDataType for supported data type enumeration
+     * @see TensorDataTypeTraits for compile-time data type characteristics
+     * @see MemoryResource for memory resource base class
+     */
+    export template<TensorDataType TDataType, typename TMemoryResource>
+        concept isValidTensor =
+        // Memory resource must inherit from base class
+        std::is_base_of_v<Compute::MemoryResource, TMemoryResource> &&
+
+        // Device-only types must use device-accessible memory
+        (!TensorDataTypeTraits<TDataType>::is_device_only || TMemoryResource::is_device_accessible) &&
+
+        // Ensure TensorDataTypeTraits is properly specialized with required members
+        requires {
+        // Type must be specialized
+        typename TensorDataTypeTraits<TDataType>;
+
+        // Required compile-time properties
+        TensorDataTypeTraits<TDataType>::size_in_bytes;
+        TensorDataTypeTraits<TDataType>::is_device_only;
+        TensorDataTypeTraits<TDataType>::is_float_type;
+        TensorDataTypeTraits<TDataType>::is_integer_type;
+        TensorDataTypeTraits<TDataType>::type_name;
+        TensorDataTypeTraits<TDataType>::alignment;
+    };
+
+    /**
+     * @brief Concept constraining abstract data types to floating-point formats
+     *
+     * Validates at compile-time that the specified TensorDataType represents
+     * a floating-point format for use in floating-point specific operations.
+     *
+     * @tparam TDataType The TensorDataType to validate for floating-point classification
+     */
+    export template<TensorDataType TDataType>
+        concept ValidFloatTensorDataType = TensorDataTypeTraits<TDataType>::is_float_type;
+
+    /**
+     * @brief Concept constraining abstract data types to integer formats
+     *
+     * Validates at compile-time that the specified TensorDataType represents
+     * an integer format for use in integer-specific operations.
+     *
+     * @tparam TDataType The TensorDataType to validate for integer classification
+     */
+    export template<TensorDataType TDataType>
+        concept ValidIntegerTensorDataType = TensorDataTypeTraits<TDataType>::is_integer_type;
+
+    /**
+     * @brief Concept identifying device-only abstract data types
+     *
+     * Validates that the specified TensorDataType requires device-accessible
+     * memory and cannot be used in host-only contexts.
+     *
+     * @tparam TDataType The TensorDataType to validate for device-only requirement
+     */
+    export template<TensorDataType TDataType>
+        concept DeviceOnlyTensorDataType = TensorDataTypeTraits<TDataType>::is_device_only;
+
+    /**
+     * @brief Concept identifying host-compatible abstract data types
+     *
+     * Validates that the specified TensorDataType can be used in host (CPU)
+     * environments without requiring device-specific compilation.
+     *
+     * @tparam TDataType The TensorDataType to validate for host compatibility
+     */
+    export template<TensorDataType TDataType>
+        concept HostCompatibleTensorDataType = !TensorDataTypeTraits<TDataType>::is_device_only;
 }

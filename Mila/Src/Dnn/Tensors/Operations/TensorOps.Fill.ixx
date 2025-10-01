@@ -14,7 +14,7 @@
  * authoritative host-side type for conversions.
  *
  * Usage:
- * - Call `copy_from_host(tensor, values)` or `fill(tensor, scalar)` from user
+ * - Call `fill(tensor, values)` or `fill(tensor, scalar)` from user
  *   code. The host value type is selected automatically from the tensor data
  *   type (float for floating-point tensors, int32_t for integer tensors).
  *
@@ -26,13 +26,14 @@
 
 module;
 #include <concepts>
+#include <span>
 
-export module Dnn.TensorOps:Initializers;
-export import :Initializers.Cpu;
+export module Dnn.TensorOps:Fill;
+export import :Fill.Cpu;
 
 import Dnn.Tensor;
 import Dnn.TensorDataType;
-import Dnn.TensorTraits;
+import Dnn.TensorDataTypeMap;
 import Dnn.TensorDataTypeTraits;
 import Compute.DeviceTraits;
 import Compute.CpuMemoryResource;
@@ -54,8 +55,8 @@ namespace Mila::Dnn
 	/**
 	 * @brief Copy host values into a tensor with device dispatch.
 	 *
-	 * Forwards the host->tensor copy operation to the device-specific
-	 * implementation `TensorOps<Tag>::copy_from_host`.
+	 * Forwards the host->tensor copy operation (span form) to the device-specific
+	 * implementation `TensorOps<Tag>::fill`.
 	 *
 	 * The host element type is selected by `host_value_t<TDataType>` so callers
 	 * must provide values in the expected host representation (float for
@@ -65,14 +66,14 @@ namespace Mila::Dnn
 	 * @tparam TDataType Abstract tensor data type.
 	 * @tparam TMemoryResource Memory resource type backing the tensor.
 	 * @param a Destination tensor to be filled. Must satisfy `isValidTensor`.
-	 * @param host_value Value or span element in host representation (see host_value_t).
+	 * @param host_values Span of host values in host representation (see host_value_t).
 	 */
 	export template<TensorDataType TDataType, typename TMemoryResource>
 		requires isValidTensor<TDataType, TMemoryResource>
-	void copy_from_host( Tensor<TDataType, TMemoryResource>& a, host_value_t<TDataType> host_value ) {
+	void fill( Tensor<TDataType, TMemoryResource>& a, std::span<const host_value_t<TDataType>> host_values ) {
 		using Tag = typename TMemoryResource::ComputeDeviceTag;
 
-		return TensorOps<Tag>::copy_from_host( a, host_value );
+		return TensorOps<Tag>::fill( a, host_values );
 	}
 
 	/**

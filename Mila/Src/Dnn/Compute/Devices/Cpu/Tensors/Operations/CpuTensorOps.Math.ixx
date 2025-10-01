@@ -13,7 +13,7 @@ export module Dnn.TensorOps:Math.Cpu;
 
 import Dnn.Tensor;
 import Dnn.TensorDataType;
-import Dnn.TensorTraits;
+import Dnn.TensorDataTypeMap;
 import Compute.DeviceTraits;
 import Compute.CpuMemoryResource;
 
