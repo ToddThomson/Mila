@@ -27,6 +27,7 @@ module;
 
 export module Dnn.TensorOps:Math;
 export import :Math.Cpu;
+//export import :Math.Cuda;
 
 import Dnn.Tensor;
 import Dnn.TensorDataType;
@@ -42,8 +43,8 @@ namespace Mila::Dnn
 	export template<TensorDataType TDataType, typename TMemoryResource>
 		requires isValidTensor<TDataType, TMemoryResource>
 	Tensor<TDataType, TMemoryResource> add( const Tensor<TDataType, TMemoryResource>& a, const Tensor<TDataType, TMemoryResource>& b ) {
-		using Tag = typename TMemoryResource::ComputeDeviceTag;
-		return TensorOps<Tag>::add( a, b );
+		using DeviceTag = typename TMemoryResource::ComputeDeviceTag;
+		return TensorOps<DeviceTag>::add( a, b );
 	}
 
 	/**
@@ -52,8 +53,8 @@ namespace Mila::Dnn
 	export template<TensorDataType TDataType, typename TMemoryResource>
 		requires isValidTensor<TDataType, TMemoryResource>
 	Tensor<TDataType, TMemoryResource> subtract( const Tensor<TDataType, TMemoryResource>& a, const Tensor<TDataType, TMemoryResource>& b ) {
-		using Tag = typename TMemoryResource::ComputeDeviceTag;
-		return TensorOps<Tag>::subtract( a, b );
+		using DeviceTag = typename TMemoryResource::ComputeDeviceTag;
+		return TensorOps<DeviceTag>::subtract( a, b );
 	}
 
 	/**
@@ -62,8 +63,8 @@ namespace Mila::Dnn
 	export template<TensorDataType TDataType, typename TMemoryResource>
 		requires isValidTensor<TDataType, TMemoryResource>
 	Tensor<TDataType, TMemoryResource> multiply( const Tensor<TDataType, TMemoryResource>& a, const Tensor<TDataType, TMemoryResource>& b ) {
-		using Tag = typename TMemoryResource::ComputeDeviceTag;
-		return TensorOps<Tag>::multiply( a, b );
+		using DeviceTag = typename TMemoryResource::ComputeDeviceTag;
+		return TensorOps<DeviceTag>::multiply( a, b );
 	}
 
 	/**
@@ -72,8 +73,8 @@ namespace Mila::Dnn
 	export template<TensorDataType TDataType, typename TMemoryResource>
 		requires isValidTensor<TDataType, TMemoryResource>
 	Tensor<TDataType, TMemoryResource> divide( const Tensor<TDataType, TMemoryResource>& a, const Tensor<TDataType, TMemoryResource>& b ) {
-		using Tag = typename TMemoryResource::ComputeDeviceTag;
-		return TensorOps<Tag>::divide( a, b );
+		using DeviceTag = typename TMemoryResource::ComputeDeviceTag;
+		return TensorOps<DeviceTag>::divide( a, b );
 	}
 
 	// --------------------------------------------------------------------

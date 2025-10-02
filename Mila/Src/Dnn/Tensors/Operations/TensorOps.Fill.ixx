@@ -30,6 +30,7 @@ module;
 
 export module Dnn.TensorOps:Fill;
 export import :Fill.Cpu;
+//export import :Fill.Cuda;
 
 import Dnn.Tensor;
 import Dnn.TensorDataType;
@@ -71,9 +72,9 @@ namespace Mila::Dnn
 	export template<TensorDataType TDataType, typename TMemoryResource>
 		requires isValidTensor<TDataType, TMemoryResource>
 	void fill( Tensor<TDataType, TMemoryResource>& a, std::span<const host_value_t<TDataType>> host_values ) {
-		using Tag = typename TMemoryResource::ComputeDeviceTag;
+		using DeviceTag = typename TMemoryResource::ComputeDeviceTag;
 
-		return TensorOps<Tag>::fill( a, host_values );
+		return TensorOps<DeviceTag>::fill( a, host_values );
 	}
 
 	/**
@@ -95,8 +96,8 @@ namespace Mila::Dnn
 	export template<TensorDataType TDataType, typename TMemoryResource>
 		requires isValidTensor<TDataType, TMemoryResource>
 	void fill( Tensor<TDataType, TMemoryResource>& a, host_value_t<TDataType> host_value ) {
-		using Tag = typename TMemoryResource::ComputeDeviceTag;
+		using DeviceTag = typename TMemoryResource::ComputeDeviceTag;
 		
-		return TensorOps<Tag>::fill( a, host_value );
+		return TensorOps<DeviceTag>::fill( a, host_value );
 	}
 }

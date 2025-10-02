@@ -57,6 +57,7 @@ add_executable( MilaTests
     # TensorOps
     "Dnn/Tensors/TensorOps/Math.Cpu.cpp"
     "Dnn/Tensors/TensorOps/Fill.Cpu.cpp"
+    "Dnn/Tensors/TensorOps/TensorOps.Transfer.cpp"
 
     # --------------------------------------------------------------
     # Compute::Device::Cpu Operations Tests
@@ -121,7 +122,7 @@ add_executable( MilaTests
     #"Dnn/Seriaalization/ZipSerializer.cpp"
     #"Dnn/Tensors/TensorBuffer.Tracking.cpp"
 
-    )
+     )
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
 

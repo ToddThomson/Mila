@@ -22,7 +22,7 @@ namespace Mila::Dnn
     template<typename TComputeDeviceTag> struct TensorOps;
 
     export template<>
-        struct TensorOps<Compute::CudaComputeDeviceTag>
+    struct TensorOps<Compute::CudaComputeDeviceTag>
     {
     };
 }

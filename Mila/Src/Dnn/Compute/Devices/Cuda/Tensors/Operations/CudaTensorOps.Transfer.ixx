@@ -18,24 +18,138 @@ module;
 
 export module Dnn.TensorOps:Transfer.Cuda;
 
+import Dnn.Tensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeMap;
 import Dnn.TensorDataTypeTraits;
 import Compute.CudaTensorDataType;
 import Compute.CudaDeviceContext;
 import Compute.CudaMemoryResource;
+import Compute.CudaPinnedMemoryResource;
+import Compute.CudaManagedMemoryResource;
 import Cuda.Error;
 
 namespace Mila::Dnn
 {
-	using namespace Mila::Dnn::Compute;
+    using namespace Mila::Dnn::Compute;
 
-	// Forward declaration of primary template
-    template<typename TComputeDeviceTag> struct TensorOps;
+    export template<typename TComputeDeviceTag> 
+    struct TensorOps;
 
     export template<>
-        struct TensorOps<Compute::CudaComputeDeviceTag>
+    struct TensorOps<Compute::CudaComputeDeviceTag>
     {
+        // ================================================================
+        // High-Level Tensor Copy Operations
+        // ================================================================
+
+        /**
+         * @brief Copies tensor data between existing tensors with CUDA acceleration
+         *
+         * Main entry point for the high-level copy() function. Automatically determines
+         * the optimal transfer method based on source and destination memory types:
+         * - Device to device: Uses fast CUDA kernels or peer-to-peer transfer
+         * - Host to device: Uses optimized CUDA memcpy
+         * - Device to host: Uses optimized CUDA memcpy
+         * - Host to host: Uses standard CPU memcpy
+         * - Type conversion: Uses specialized CUDA conversion kernels when beneficial
+         *
+         * @tparam TSrcDataType Source tensor data type
+         * @tparam TSrcMemoryResource Source memory resource type
+         * @tparam TDstDataType Destination tensor data type
+         * @tparam TDstMemoryResource Destination memory resource type
+         * @param src Source tensor to copy from
+         * @param dst Destination tensor to copy to (must be pre-allocated)
+         */
+        template<TensorDataType TSrcDataType, typename TSrcMemoryResource,
+                 TensorDataType TDstDataType, typename TDstMemoryResource>
+            requires isValidTensor<TSrcDataType, TSrcMemoryResource> && isValidTensor<TDstDataType, TDstMemoryResource>
+        static void copy( const Tensor<TSrcDataType, TSrcMemoryResource>& src, Tensor<TDstDataType, TDstMemoryResource>& dst ) {
+
+            // Validate tensor compatibility
+            if (src.shape() != dst.shape()) {
+                throw std::invalid_argument( "Source and destination tensors must have the same shape for copy" );
+            }
+
+            if (src.size() == 0) {
+                return; // Nothing to copy
+            }
+
+            // Get device contexts
+            auto src_context = std::dynamic_pointer_cast<CudaDeviceContext>(src.getDeviceContext());
+            auto dst_context = std::dynamic_pointer_cast<CudaDeviceContext>(dst.getDeviceContext());
+
+            // Determine the appropriate CUDA context to use
+            std::shared_ptr<CudaDeviceContext> cuda_context;
+            if (src_context && dst_context) {
+                // Both have CUDA contexts - use the source context for the operation
+                cuda_context = src_context;
+                // TODO: Handle cross-device transfers (different GPU IDs) with peer-to-peer or staging
+            }
+            else if (src_context) {
+                cuda_context = src_context;
+            }
+            else if (dst_context) {
+                cuda_context = dst_context;
+            }
+            else {
+                throw std::runtime_error( "CUDA transfer operations require at least one CUDA device context" );
+            }
+
+            const void* src_data = src.rawData();
+            void* dst_data = dst.rawData();
+
+            if (!src_data || !dst_data) {
+                throw std::runtime_error( "Invalid tensor data pointers for copy" );
+            }
+
+            // Dispatch based on memory accessibility and data types
+            constexpr bool src_host = TSrcMemoryResource::is_host_accessible;
+            constexpr bool dst_host = TDstMemoryResource::is_host_accessible;
+            constexpr bool same_type = (TSrcDataType == TDstDataType);
+
+            if constexpr (!src_host && !dst_host) {
+                // Device to device
+                if constexpr (same_type) {
+                    copyDeviceToDevice<TSrcDataType>( src_data, dst_data, src.size(), cuda_context );
+                }
+                else {
+                    copyDeviceToDeviceWithConversion<TSrcDataType, TDstDataType>(
+                        src_data, dst_data, src.size(), cuda_context );
+                }
+            }
+            else if constexpr (src_host && !dst_host) {
+                // Host to device
+                if constexpr (same_type) {
+                    copyHostToDevice<TSrcDataType>( src_data, dst_data, src.size(), cuda_context );
+                }
+                else {
+                    copyHostToDeviceWithConversion<TSrcDataType, TDstDataType>(
+                        src_data, dst_data, src.size(), cuda_context );
+                }
+            }
+            else if constexpr (!src_host && dst_host) {
+                // Device to host
+                if constexpr (same_type) {
+                    copyDeviceToHost<TSrcDataType>( src_data, dst_data, src.size(), cuda_context );
+                }
+                else {
+                    copyDeviceToHostWithConversion<TSrcDataType, TDstDataType>(
+                        src_data, dst_data, src.size(), cuda_context );
+                }
+            }
+            else {
+                // Host to host
+                if constexpr (same_type) {
+                    copyHostToHost<TSrcDataType>( src_data, dst_data, src.size(), cuda_context );
+                }
+                else {
+                    copyHostToHostWithConversion<TSrcDataType, TDstDataType>(
+                        src_data, dst_data, src.size(), cuda_context );
+                }
+            }
+        }
+
         // ================================================================
         // Same-Type Transfer Operations (No Conversion)
         // ================================================================
@@ -61,8 +175,7 @@ namespace Mila::Dnn
             auto* typed_dst = static_cast<NativeType*>(dst_data);
 
             // Call host-side wrapper function (implemented in Transfer.Copy.cu)
-            launch_fast_copy_kernel<NativeType>(
-                typed_src, typed_dst, count, context->getStream() );
+            //launch_fast_copy_kernel<NativeType>( typed_src, typed_dst, count, context->getStream() );
 
             cudaError_t status = cudaGetLastError();
             cudaCheckStatus( status, std::source_location::current() );
@@ -160,8 +273,7 @@ namespace Mila::Dnn
             auto* typed_dst = static_cast<DstType*>(dst_data);
 
             // Call host-side wrapper for type conversion kernel
-            launch_convert_copy_kernel<SrcType, DstType>(
-                typed_src, typed_dst, count, context->getStream() );
+            //launch_convert_copy_kernel<SrcType, DstType>( typed_src, typed_dst, count, context->getStream() );
 
             cudaError_t status = cudaGetLastError();
             cudaCheckStatus( status, std::source_location::current() );
@@ -188,8 +300,8 @@ namespace Mila::Dnn
                 return;
             }
 
-            using SrcType = typename Cuda::TensorDataTypeMap<TSrcDataType>::type;
-            using DstType = typename Cuda::TensorDataTypeMap<TDstDataType>::type;
+            using SrcType = typename Cuda::TensorDataTypeMap<TSrcDataType>::native_type;
+            using DstType = typename Cuda::TensorDataTypeMap<TDstDataType>::native_type;
 
             // Allocate temporary device memory for source data
             constexpr size_t src_element_size = TensorDataTypeTraits<TSrcDataType>::size_in_bytes;
@@ -202,14 +314,12 @@ namespace Mila::Dnn
 
             try {
                 // Transfer host data to temporary device memory
-                status = cudaMemcpyAsync( temp_device_src, src_data, src_bytes,
-                    cudaMemcpyHostToDevice, context->getStream() );
+                status = cudaMemcpyAsync( temp_device_src, src_data, src_bytes, cudaMemcpyHostToDevice, context->getStream() );
                 cudaCheckStatus( status, std::source_location::current() );
 
                 // Convert on device using wrapper function
                 auto* typed_dst = static_cast<DstType*>(dst_data);
-                launch_convert_copy_kernel<SrcType, DstType>(
-                    temp_device_src, typed_dst, count, context->getStream() );
+                //launch_convert_copy_kernel<SrcType, DstType>( temp_device_src, typed_dst, count, context->getStream() );
 
                 cudaError_t kernel_status = cudaGetLastError();
                 cudaCheckStatus( kernel_status, std::source_location::current() );
@@ -244,8 +354,8 @@ namespace Mila::Dnn
                 return;
             }
 
-            using SrcType = typename Cuda::TensorDataTypeMap<TSrcDataType>::type;
-            using DstType = typename Cuda::TensorDataTypeMap<TDstDataType>::type;
+            using SrcType = typename Cuda::TensorDataTypeMap<TSrcDataType>::native_type;
+            using DstType = typename Cuda::TensorDataTypeMap<TDstDataType>::native_type;
 
             // Allocate temporary device memory for converted data
             constexpr size_t dst_element_size = TensorDataTypeTraits<TDstDataType>::size_in_bytes;
@@ -259,8 +369,7 @@ namespace Mila::Dnn
             try {
                 // Convert on device using wrapper function
                 const auto* typed_src = static_cast<const SrcType*>(src_data);
-                launch_convert_copy_kernel<SrcType, DstType>(
-                    typed_src, temp_device_dst, count, context->getStream() );
+                //launch_convert_copy_kernel<SrcType, DstType>( typed_src, temp_device_dst, count, context->getStream() );
 
                 cudaError_t kernel_status = cudaGetLastError();
                 cudaCheckStatus( kernel_status, std::source_location::current() );
@@ -298,8 +407,8 @@ namespace Mila::Dnn
             }
 
             // CPU-based type conversion for host data
-            using SrcType = typename Cuda::TensorDataTypeMap<TSrcDataType>::type;
-            using DstType = typename Cuda::TensorDataTypeMap<TDstDataType>::type;
+            using SrcType = typename Cuda::TensorDataTypeMap<TSrcDataType>::native_type;
+            using DstType = typename Cuda::TensorDataTypeMap<TDstDataType>::native_type;
 
             const auto* typed_src = static_cast<const SrcType*>(src_data);
             auto* typed_dst = static_cast<DstType*>(dst_data);
@@ -329,8 +438,8 @@ namespace Mila::Dnn
 
             context->makeCurrent();
 
-            using SrcType = typename Cuda::TensorDataTypeMap<TSrcDataType>::type;
-            using DstType = typename Cuda::TensorDataTypeMap<TDstDataType>::type;
+            using SrcType = typename Cuda::TensorDataTypeMap<TSrcDataType>::native_type;
+            using DstType = typename Cuda::TensorDataTypeMap<TDstDataType>::native_type;
 
             const auto* typed_src = static_cast<const SrcType*>(src_data);
             auto* typed_dst = static_cast<DstType*>(dst_data);

@@ -5,7 +5,7 @@
 - Design summary: [.github/tensor-design.md](.github/tensor-design.md)
 
 ## Code generation policy
-- Generate code only when explicitly requested (e.g., "implement", "write code", "generate", "create code"). Otherwise provide analysis, design guidance, and minimal examples.
+- Generate code only when explicitly requested (e.g., "implement", "update", "write code", "generate", "create code"). Otherwise provide analysis, design guidance, and minimal examples.
 
 ## High-level constraints
 - Project is alpha: breaking changes and simplifications are acceptable. Backward compatibility is NOT required.
@@ -15,3 +15,4 @@
 - When recommending code, prefer modern C++ idioms (RAII, smart pointers, STL algorithms).
 - Always include testing suggestions and consider CPU/CUDA parity.
 - Keep suggestions concise and focused on the `Tensor.ixx` design.
+- Coding comments should use only ASCII characters

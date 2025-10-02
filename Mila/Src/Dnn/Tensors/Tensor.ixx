@@ -39,6 +39,7 @@ import Dnn.TensorData;
 import Dnn.TensorPtr;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeMap;
+import Dnn.TensorHostTypeMap;
 import Dnn.TensorDataTypeTraits;
 import Compute.CpuTensorDataTypeTraits;
 import Compute.MemoryResource;
@@ -590,62 +591,88 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Returns memory-type-aware smart pointer to tensor data
+         * @brief Returns type-safe pointer to tensor data with concrete host type
          *
-         * Provides a type-safe pointer wrapper that enforces memory
-         * accessibility rules at compile time, preventing unsafe direct
-         * access to device memory from host code.
+         * Provides a type-safe pointer wrapper that automatically uses the concrete
+         * host-compatible type corresponding to the tensor's abstract data type.
+         * Only available for host-accessible memory resources.
          *
-         * @return HostPtr or DevicePtr depending on memory resource type
+         * @return TensorPtr with concrete host type for safe operations
          *
-         * @note Compile-time selection based on memory accessibility
-         * @note Provides additional safety over raw pointers
-         * @note Preferred for generic code handling multiple memory types
-         * @note Automatically prevents host access to device-only memory
+         * @note Only available for host-accessible memory resources
+         * @note Return type is automatically mapped from abstract TensorDataType
+         * @note Provides type-safe access without manual casting
          */
-        auto dataPtr() {
-            if constexpr (is_host_accessible()) {
-                return HostPtr<void>(buffer_->rawData());
-            }
-            else {
-                return DevicePtr<void>(buffer_->rawData());
-            }
+        auto data() requires TMemoryResource::is_host_accessible {
+            using HostType = typename TensorHostTypeMap<TDataType>::host_data_type;
+            return TensorPtr<HostType>( static_cast<HostType*>(buffer_->rawData()) );
         }
 
         /**
-         * @brief Returns immutable memory-type-aware smart pointer to tensor data
+         * @brief Returns type-safe immutable pointer to tensor data with concrete host type
          *
-         * Provides a read-only type-safe pointer wrapper that enforces memory
-         * accessibility rules at compile time with const-correctness.
+         * Provides a read-only type-safe pointer wrapper that automatically uses the
+         * concrete host-compatible type corresponding to the tensor's abstract data type.
+         * Only available for host-accessible memory resources.
          *
-         * @return Const HostPtr or DevicePtr depending on memory resource type
+         * @return Const TensorPtr with concrete host type for safe read operations
          *
-         * @note Compile-time selection based on memory accessibility
-         * @note Provides additional safety over raw pointers
-         * @note Preferred for generic code handling multiple memory types
-         * @note Automatically prevents host access to device-only memory
+         * @note Only available for host-accessible memory resources
+         * @note Return type is automatically mapped from abstract TensorDataType
+         * @note Provides type-safe read access without manual casting
          */
-        const auto dataPtr() const {
-            if constexpr (is_host_accessible()) {
-                return HostPtr<const void>(buffer_->rawData());
-            }
-            else {
-                return DevicePtr<const void>(buffer_->rawData());
-            }
+        auto data() const requires TMemoryResource::is_host_accessible {
+            using HostType = typename TensorHostTypeMap<TDataType>::host_data_type;
+            return TensorPtr<const HostType>( static_cast<const HostType*>(buffer_->rawData()) );
         }
 
         // ====================================================================
         // Memory Transfer Operations
         // ====================================================================
 
-        template<TensorDataType TDstDataType = TDataType, typename TDstMemoryResource = TMemoryResource>
-			requires isValidTensor<TDstDataType, TDstMemoryResource> && TDstMemoryResource::is_host_accessible
-        Tensor<TDstDataType, TDstMemoryResource> toHost() const {
-        }
+        /**
+         * @brief Transfers tensor data to host memory with host-compatible type conversion
+         *
+         * Creates a new tensor stored in CPU memory using the centralized host type mapping
+         * system. This method automatically converts the tensor's abstract data type to the
+         * appropriate host-compatible type as defined by TensorHostTypeMap.
+         *
+         * Host type mapping rules:
+         * - Floating-point types (FP16, BF16, FP8_*) ? TensorDataType::FP32
+         * - Integer types preserve their original types (INT8 ? INT8, UINT16 ? UINT16, etc.)
+         * - FP32 and INT32 map directly to themselves
+         *
+         * @tparam TDstMemoryResource Target memory resource type (defaults to CpuMemoryResource)
+         * @return New host tensor with host-compatible data type and transferred data
+         *
+         * @throws std::bad_alloc If CPU memory allocation fails
+         * @throws std::runtime_error If transfer operation fails
+         *
+         * @note Result data type is determined by TensorHostTypeMap<TDataType>::host_data_type
+         * @note Preserves tensor shape and metadata (name if set)
+         * @note Uses device-aware transfer operations with type conversion when needed
+         *
+         * Example usage:
+         * ```cpp
+         * auto fp16_tensor = Tensor<TensorDataType::FP16, CudaMemoryResource>(...);
+         * auto host_tensor = fp16_tensor.toHost(); // ? Tensor<TensorDataType::FP32, CpuMemoryResource>
+         *
+         * auto int8_tensor = Tensor<TensorDataType::INT8, CudaMemoryResource>(...);
+         * auto host_tensor = int8_tensor.toHost(); // ? Tensor<TensorDataType::INT8, CpuMemoryResource>
+         * ```
+         */
+        template<typename TDstMemoryResource = Compute::CpuMemoryResource>
+            requires TDstMemoryResource::is_host_accessible
+        auto toHost() const {
+            constexpr TensorDataType HostDataType = TensorHostTypeMap<TDataType>::host_data_type;
 
-        template<TensorDataType TDstDataType = TDataType, typename TDstMemoryResource = TMemoryResource>
-            requires isValidTensor<TDstDataType, TDstMemoryResource>&& TDstMemoryResource::is_device_accessible
-        Tensor<TDstDataType, TDstMemoryResource> toDevice() const {
+            // Create CPU device context
+            auto cpu_context = createDeviceContext( "CPU" );
+
+
+
+            // Use transfer operations to create host tensor with mapped type
+            return transferTo<HostDataType, TDstMemoryResource>( *this, cpu_context );
         }
 
         // ====================================================================
@@ -953,87 +980,6 @@ namespace Mila::Dnn
             }
         }
 
-        /**
-         * @brief Performs memory transfer between tensors using buffer operations
-         *
-         * Handles data copying between tensors with different memory resource types
-         * or data types using TensorBuffer's copy operations.
-         *
-         * @tparam TDstDataType Target tensor data type
-         * @tparam TDstMR Target memory resource type
-         * @param dst Destination tensor (already allocated)
-         */
-        template<TensorDataType TDstDataType, typename TDstMR>
-        void copyWithMemoryTransfer(Tensor<TDstDataType, TDstMR>& dst) const {
-            if constexpr (TDstDataType == TDataType) {
-                // Same type: direct memory copy
-                const size_t bytes = detail::getStorageSize<TDataType>(size_);
-                // FIXME: dst.buffer_->copyFrom(rawData(), bytes);
-            }
-            else {
-                // Different types: requires host-side conversion
-                copyWithTypeConversion<TDstDataType, TDstMR>(dst);
-            }
-        }
-
-        /**
-         * @brief Performs type conversion between tensors with different data types
-         *
-         * Creates temporary host buffer if needed and performs element-wise conversion
-         * between different tensor data types.
-         *
-         * @tparam TDstDataType Target tensor data type
-         * @tparam TDstMR Target memory resource type
-         * @param dst Destination tensor (already allocated)
-         */
-        template<TensorDataType TDstDataType, typename TDstMR>
-        void copyWithTypeConversion(Tensor<TDstDataType, TDstMR>& dst) const {
-            constexpr bool srcHost = TMemoryResource::is_host_accessible;
-            constexpr bool dstHost = TDstMR::is_host_accessible;
-
-            if constexpr (srcHost && dstHost) {
-                // Both host-accessible: direct conversion
-                copyWithHostConversion<TDstDataType, TDstMR>(dst);
-            }
-            else if constexpr (srcHost && !dstHost) {
-                // Host to Device: convert on host, then transfer
-                auto temp_cpu_context = createDeviceContext("CPU");
-                Tensor<TDstDataType, Compute::CpuMemoryResource> temp_host(temp_cpu_context, shape_);
-                copyWithHostConversion(*this, temp_host);
-
-                const size_t dst_bytes = detail::getStorageSize<TDstDataType>(size_);
-                dst.buffer_->copyFrom(temp_host.rawData(), dst_bytes);
-            }
-            else if constexpr (!srcHost && dstHost) {
-                // Device to Host: transfer to host, then convert
-                auto temp_cpu_context = createDeviceContext("CPU");
-                Tensor<TDataType, Compute::CpuMemoryResource> temp_host(temp_cpu_context, shape_);
-                const size_t src_bytes = detail::getStorageSize<TDataType>(size_);
-                temp_host.buffer_->copyFrom(rawData(), src_bytes);
-
-                copyWithHostConversion(temp_host, dst);
-            }
-        }
-
-        /**
-         * @brief Performs host-side type conversion copy
-         *
-         * Used when both source and destination are host-accessible but have
-         * different data types requiring element-wise conversion.
-         */
-        template<TensorDataType TDstDataType, typename THostMR>
-        void copyWithHostConversion( Tensor<TDstDataType, THostMR>& dst_tensor ) const {
-            using SrcType = typename CpuTensorDataTypeTraits::template native_type<TDataType>;
-            using DstType = typename CpuTensorDataTypeTraits::template native_type<TDstDataType>;
-
-            const SrcType* src_data = static_cast<const SrcType*>(rawData());
-            DstType* dst_data = static_cast<DstType*>(dst_tensor.rawData());
-
-            // Element-wise conversion on host
-            for (size_t i = 0; i < size_; ++i) {
-                dst_data[i] = static_cast<DstType>( src_data[i] );
-            }
-        }
 
         void validateIndices(const std::vector<size_t>& indices, const char* fn) const {
             if (indices.size() != shape_.size()) {

@@ -28,7 +28,7 @@ import Cuda.Error;
 
 namespace Mila::Dnn
 {
-	template<typename TComputeDeviceTag> struct TensorOps; // Forward declaration
+	template<typename TComputeDeviceTag> struct TensorOps;
 
     template<>
     struct TensorOps<Compute::CudaComputeDeviceTag> 

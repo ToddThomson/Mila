@@ -36,9 +36,9 @@ namespace Mila::Dnn::Compute
 		using ComputeDeviceTag = CudaComputeDeviceTag;
         using CompatibleDeviceContext = CudaDeviceContext;
 
-        static constexpr bool isValidDeviceContext(const DeviceContext& device_context) {
+        /*static constexpr bool isValidDeviceContext(const DeviceContext& device_context) {
             return dynamic_cast<const CudaDeviceContext*>(&device_context) != nullptr;
-        }
+        }*/
 
         /**
          * @brief Constructs CUDA memory resource with device context.

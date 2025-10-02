@@ -59,7 +59,7 @@ namespace Mila::Dnn
         static constexpr size_t alignment = 4;          ///< Required memory alignment
         static constexpr const char* type_name = "FP32"; ///< Human-readable type identifier
 
-        using host_type = float;                        ///< Host conversion type
+        //using host_type = float;                        ///< Host conversion type
     };
 
     /**
@@ -78,7 +78,7 @@ namespace Mila::Dnn
         static constexpr const char* type_name = "FP16"; ///< Human-readable type identifier
         static constexpr TensorDataType host_tensor_type = TensorDataType::FP32;  ///< Host conversion data type
 
-        using host_type = float;                        ///< Host conversion type
+        //using host_type = float;                        ///< Host conversion type
     };
 
     /**
@@ -97,7 +97,7 @@ namespace Mila::Dnn
         static constexpr size_t alignment = 2;          ///< Required memory alignment
         static constexpr const char* type_name = "BF16"; ///< Human-readable type identifier
 
-        using host_type = float;                        ///< Host conversion type
+        //using host_type = float;                        ///< Host conversion type
     };
 
     /**
@@ -116,7 +116,7 @@ namespace Mila::Dnn
         static constexpr size_t alignment = 1;           ///< Required memory alignment
         static constexpr const char* type_name = "FP8_E4M3"; ///< Human-readable type identifier
 
-        using host_type = float;                         ///< Host conversion type
+        //using host_type = float;                         ///< Host conversion type
     };
 
     /**
@@ -134,7 +134,7 @@ namespace Mila::Dnn
         static constexpr size_t alignment = 1;           ///< Required memory alignment
         static constexpr const char* type_name = "FP8_E5M2"; ///< Human-readable type identifier
 
-        using host_type = float;                         ///< Host conversion type
+        //using host_type = float;                         ///< Host conversion type
     };
 
     /**
@@ -152,7 +152,7 @@ namespace Mila::Dnn
         static constexpr size_t alignment = 2;           ///< Required memory alignment
         static constexpr const char* type_name = "INT16"; ///< Human-readable type identifier
 
-        using host_type = std::int32_t;                  ///< Host conversion type
+        //using host_type = std::int32_t;                  ///< Host conversion type
     };
 
     /**
@@ -170,7 +170,7 @@ namespace Mila::Dnn
         static constexpr size_t alignment = 4;           ///< Required memory alignment
         static constexpr const char* type_name = "INT32"; ///< Human-readable type identifier
 
-        using host_type = std::int32_t;                  ///< Host conversion type
+        //using host_type = std::int32_t;                  ///< Host conversion type
     };
 
     /**
@@ -188,7 +188,7 @@ namespace Mila::Dnn
         static constexpr size_t alignment = 1;           ///< Required memory alignment
         static constexpr const char* type_name = "INT8"; ///< Human-readable type identifier
 
-        using host_type = std::int32_t;                  ///< Host conversion type
+        //using host_type = std::int32_t;                  ///< Host conversion type
     };
 
     /**
@@ -206,7 +206,7 @@ namespace Mila::Dnn
         static constexpr size_t alignment = 1;           ///< Required memory alignment
         static constexpr const char* type_name = "UINT8"; ///< Human-readable type identifier
 
-        using host_type = std::int32_t;                  ///< Host conversion type
+        //using host_type = std::int32_t;                  ///< Host conversion type
     };
 
     /**
@@ -223,9 +223,7 @@ namespace Mila::Dnn
         static constexpr size_t size_in_bytes = 2;       ///< Memory footprint per element
         static constexpr size_t alignment = 2;           ///< Required memory alignment
         static constexpr const char* type_name = "UINT16"; ///< Human-readable type identifier
-        //static constexpr TensorDataType host_tensor_type = TensorDataType::UINT16;  ///< Host conversion data type
-
-        using host_type = std::int32_t;                  ///< Host conversion type
+        //using host_type = std::int32_t;                  ///< Host conversion type
     };
 
     /**
@@ -243,7 +241,7 @@ namespace Mila::Dnn
         static constexpr size_t alignment = 4;           ///< Required memory alignment
         static constexpr const char* type_name = "UINT32"; ///< Human-readable type identifier
 
-        using host_type = std::int32_t;                  ///< Host conversion type
+        //using host_type = std::int32_t;                  ///< Host conversion type
     };
 
     // ====================================================================

@@ -64,24 +64,5 @@ namespace Mila::Dnn
             std::conditional_t<TDataType == TensorDataType::UINT16, uint16_t,
             std::conditional_t<TDataType == TensorDataType::UINT32, uint32_t,
             void>>>>>>>;
-
-        /**
-         * @brief Creates a native type value from a compatible input value
-         *
-         * Provides safe conversion from input values to the appropriate native
-         * type for CPU operations, handling standard C++ type conversions.
-         *
-         * @tparam TDataType Target abstract tensor data type
-         * @tparam T Input value type
-         * @param value Input value to convert
-         * @return Native type value suitable for CPU operations
-         */
-        template<TensorDataType TDataType, typename T>
-        static constexpr auto make_native_value(const T& value) {
-            using NativeType = native_type<TDataType>;
-            static_assert(!std::is_void_v<NativeType>, "Unsupported tensor data type for CPU");
-            
-            return static_cast<NativeType>(value);
-        }
     };
 }

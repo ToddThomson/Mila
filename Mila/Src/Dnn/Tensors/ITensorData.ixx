@@ -38,6 +38,8 @@ namespace Mila::Dnn
     public:
         virtual ~ITensorData() = default;
 
+		// REVIEW: Should the rawData() methods be protected instead of public?
+
         /**
          * @brief Get mutable raw pointer to tensor data
          * @return Non-const void pointer to the underlying tensor data buffer
