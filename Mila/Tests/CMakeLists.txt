@@ -51,7 +51,7 @@ add_executable( MilaTests
     #"Dnn/Tensors/Tensor.MemoryTransfers.cpp"
     #"Dnn/Tensors/Tensor.DataManipulationOps.cpp"
     #"Dnn/Tensors/Tensor.Properties.cpp"
-    #"Dnn/Tensors/Tensor.Access.cpp"
+    "Dnn/Tensors/Tensor.Access.cpp"
     "Dnn/Tensors/Tensor.Identity.cpp"
 
     # TensorOps

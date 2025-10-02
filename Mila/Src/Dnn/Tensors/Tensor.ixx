@@ -453,6 +453,115 @@ namespace Mila::Dnn
         // =================================================================
         // Element access (host accessible TMemoryResource only)
         // =================================================================
+        /**
+         * @brief Accesses tensor element using multi-dimensional indices
+         *
+         * Provides direct element access using a vector of indices for each dimension.
+         * Only available for host-accessible memory resources. Validates indices are
+         * within bounds and computes the appropriate flat index for memory access.
+         *
+         * @param indices Vector of indices, one per dimension
+         * @return Reference to the element at the specified position
+         *
+         * @throws std::runtime_error If indices size doesn't match tensor rank
+         * @throws std::out_of_range If any index is out of bounds for its dimension
+         * @throws std::runtime_error If memory is not host-accessible
+         *
+         * @note Only available for host-accessible memory resources at compile time
+         * @note Uses host-compatible type mapping for element access
+         * @note Indices are validated against shape before access
+         */
+        auto& operator[]( const std::vector<size_t>& indices )
+            requires TMemoryResource::is_host_accessible {
+            validateIndices( indices, "operator[]" );
+
+            size_t flat_index = computeFlatIndex( indices );
+            using HostType = typename TensorHostTypeMap<TDataType>::host_type;
+
+            return static_cast<HostType*>(buffer_->rawData())[flat_index];
+        }
+
+        /**
+         * @brief Accesses tensor element using multi-dimensional indices (const version)
+         *
+         * Provides read-only direct element access using a vector of indices for each
+         * dimension. Only available for host-accessible memory resources. Validates
+         * indices are within bounds and computes the appropriate flat index.
+         *
+         * @param indices Vector of indices, one per dimension
+         * @return Const reference to the element at the specified position
+         *
+         * @throws std::runtime_error If indices size doesn't match tensor rank
+         * @throws std::out_of_range If any index is out of bounds for its dimension
+         * @throws std::runtime_error If memory is not host-accessible
+         *
+         * @note Only available for host-accessible memory resources at compile time
+         * @note Uses host-compatible type mapping for element access
+         * @note Indices are validated against shape before access
+         */
+        const auto& operator[]( const std::vector<size_t>& indices ) const
+            requires TMemoryResource::is_host_accessible {
+            validateIndices( indices, "operator[] const" );
+
+            size_t flat_index = computeFlatIndex( indices );
+            using HostType = typename TensorHostTypeMap<TDataType>::host_type;
+
+            return static_cast<const HostType*>(buffer_->rawData())[flat_index];
+        }
+
+        /**
+         * @brief Accesses tensor element using variadic indices
+         *
+         * Provides convenient element access using individual index arguments
+         * instead of a vector. Forwards to the vector-based operator[] after
+         * converting arguments to appropriate types.
+         *
+         * @tparam Indices Types of index arguments (must be convertible to size_t)
+         * @param indices Individual index values for each dimension
+         * @return Reference to the element at the specified position
+         *
+         * @throws std::runtime_error If number of indices doesn't match tensor rank
+         * @throws std::out_of_range If any index is out of bounds for its dimension
+         * @throws std::runtime_error If memory is not host-accessible
+         *
+         * @note Only available for host-accessible memory resources at compile time
+         * @note All index arguments must be convertible to size_t
+         * @note Convenient for accessing known-rank tensors: tensor[i, j, k]
+         */
+        template<typename... Indices>
+        auto& operator[]( Indices... indices )
+            requires TMemoryResource::is_host_accessible &&
+        (std::convertible_to<Indices, size_t> && ...) {
+            std::vector<size_t> idx{ static_cast<size_t>(indices)... };
+            return this->operator[]( idx );
+        }
+
+        /**
+         * @brief Accesses tensor element using variadic indices (const version)
+         *
+         * Provides convenient read-only element access using individual index
+         * arguments instead of a vector. Forwards to the vector-based const
+         * operator[] after converting arguments to appropriate types.
+         *
+         * @tparam Indices Types of index arguments (must be convertible to size_t)
+         * @param indices Individual index values for each dimension
+         * @return Const reference to the element at the specified position
+         *
+         * @throws std::runtime_error If number of indices doesn't match tensor rank
+         * @throws std::out_of_range If any index is out of bounds for its dimension
+         * @throws std::runtime_error If memory is not host-accessible
+         *
+         * @note Only available for host-accessible memory resources at compile time
+         * @note All index arguments must be convertible to size_t
+         * @note Convenient for accessing known-rank tensors: tensor[i, j, k]
+         */
+        template<typename... Indices>
+        const auto& operator[]( Indices... indices ) const
+            requires TMemoryResource::is_host_accessible &&
+        (std::convertible_to<Indices, size_t> && ...) {
+            std::vector<size_t> idx{ static_cast<size_t>(indices)... };
+            return this->operator[]( idx );
+        }
 
         // ====================================================================
         // Tensor Properties and Introspection
@@ -980,7 +1089,6 @@ namespace Mila::Dnn
             }
         }
 
-
         void validateIndices(const std::vector<size_t>& indices, const char* fn) const {
             if (indices.size() != shape_.size()) {
                 throw std::runtime_error(std::string(fn) + ": number of indices must match tensor rank");
@@ -990,10 +1098,6 @@ namespace Mila::Dnn
                     throw std::out_of_range(std::string(fn) + ": index " + std::to_string(indices[i]) +
                         " is out of range for dim " + std::to_string(i) + " size " + std::to_string(shape_[i]));
                 }
-            }
-            if constexpr (!TMemoryResource::is_host_accessible) {
-                throw std::runtime_error(std::string(fn) + ": direct access requires host-accessible memory. "
-                    "Use to<TDataType, Compute::CpuMemoryResource>() first.");
             }
         }
 
