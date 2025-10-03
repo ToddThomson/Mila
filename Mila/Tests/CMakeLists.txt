@@ -122,7 +122,7 @@ add_executable( MilaTests
     #"Dnn/Seriaalization/ZipSerializer.cpp"
     #"Dnn/Tensors/TensorBuffer.Tracking.cpp"
 
-     )
+      "Dnn/Tensors/Tensor.Io.cpp")
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
 

@@ -290,7 +290,10 @@ PUBLIC
         # WIP / Attributes (originally commented)
         #"Src/Dnn/Modules/Layers/LinearAttributes.ixx"
         #"Src/Dnn/Common/Attributes.ixx"
- "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Transfer.ixx" "Src/Dnn/Tensors/Operations/TensorOps.Transfer.ixx" "Src/Dnn/Tensors/TensorHostTypeMap.ixx")
+        "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Transfer.ixx"
+        "Src/Dnn/Tensors/Operations/TensorOps.Transfer.ixx"
+        "Src/Dnn/Tensors/TensorHostTypeMap.ixx"
+)
 
 target_link_libraries(Mila PRIVATE 
     miniz

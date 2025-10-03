@@ -3,7 +3,7 @@
 Mila Deep Neural Network Library
 
 ## Prerelease Notice
-Mila, version 0.9.855-alpha is currently an early preview release. 
+Mila, version 0.9.856-alpha is currently an early preview release. 
 
 We are currently working on the core Tensor component and the various compute devices which provide specific tensor operations. 
 There is not much that is finished yet, but I wanted to share the library and its features to show where we are headed and to update the github repository.
