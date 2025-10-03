@@ -46,7 +46,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_TRUE( result.find( "TensorData(shape=[]" ) != std::string::npos );
         EXPECT_TRUE( result.find( "strides=[]" ) != std::string::npos );
         EXPECT_TRUE( result.find( "format=RowMajor" ) != std::string::npos );
-        EXPECT_TRUE( result.find( "size=0" ) != std::string::npos );
+        EXPECT_TRUE( result.find( "size=1" ) != std::string::npos );
         EXPECT_TRUE( result.find( "Type: FP32" ) != std::string::npos );
         EXPECT_TRUE( result.find( "Device: CPU" ) != std::string::npos );
     }
@@ -100,7 +100,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_TRUE( tensor_4d_result.find( "strides=[60,20,5,1]" ) != std::string::npos );
 
         // Check size calculations
-        EXPECT_TRUE( scalar_result.find( "size=0" ) != std::string::npos );
+        EXPECT_TRUE( scalar_result.find( "size=1" ) != std::string::npos );
         EXPECT_TRUE( vector_result.find( "size=5" ) != std::string::npos );
         EXPECT_TRUE( matrix_result.find( "size=12" ) != std::string::npos );
         EXPECT_TRUE( tensor_3d_result.find( "size=24" ) != std::string::npos );

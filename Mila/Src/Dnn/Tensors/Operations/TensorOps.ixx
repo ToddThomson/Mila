@@ -19,9 +19,10 @@ module;
 #include <type_traits>
 
 export module Dnn.TensorOps;
-export import :Fill;
+
 export import :Math;
 export import :Transfer;
+export import :Fill;
 
 namespace Mila::Dnn
 {

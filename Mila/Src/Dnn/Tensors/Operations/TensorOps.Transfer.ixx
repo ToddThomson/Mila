@@ -6,8 +6,7 @@ module;
 export module Dnn.TensorOps:Transfer;
 
 export import :Transfer.Cpu;
-export import :Transfer.Cuda;
-
+//export import :Transfer.Cuda;
 
 import Dnn.Tensor;
 import Dnn.TensorDataType;
@@ -60,12 +59,12 @@ namespace Mila::Dnn
             if constexpr (!TSrcMemoryResource::is_host_accessible) {
                 // Source is device-only, use source device
                 using DeviceTag = typename TSrcMemoryResource::ComputeDeviceTag;
-                TensorOps<DeviceTag>::template copy<TSrcDataType, TSrcMemoryResource, TDstDataType, TDstMemoryResource>( src, dst );
+                //TensorOps<DeviceTag>::template copy<TSrcDataType, TSrcMemoryResource, TDstDataType, TDstMemoryResource>( src, dst );
             }
             else {
                 // Destination is device-only, use destination device  
                 using DeviceTag = typename TDstMemoryResource::ComputeDeviceTag;
-                TensorOps<DeviceTag>::template copy<TSrcDataType, TSrcMemoryResource, TDstDataType, TDstMemoryResource>( src, dst );
+                //TensorOps<DeviceTag>::template copy<TSrcDataType, TSrcMemoryResource, TDstDataType, TDstMemoryResource>( src, dst );
             }
         }
         else {

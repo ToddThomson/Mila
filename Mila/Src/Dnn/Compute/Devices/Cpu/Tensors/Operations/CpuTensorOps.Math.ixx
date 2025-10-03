@@ -25,7 +25,7 @@ namespace Mila::Dnn
     template<typename TComputeDeviceTag> struct TensorOps;
 
     export template<>
-        struct TensorOps<Compute::CpuComputeDeviceTag>
+    struct TensorOps<Compute::CpuComputeDeviceTag>
     {
         /**
          * @brief Element-wise addition of two tensors (CPU implementation)

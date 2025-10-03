@@ -1,122 +1,178 @@
 /**
  * @file TensorPtr.ixx
- * @brief Memory-type-aware pointer wrappers for tensor data access.
+ * @brief Lightweight pointer wrapper for type-safe tensor data access
+ *
+ * Provides a simple pointer wrapper for tensor data with support for
+ * pointer arithmetic and array indexing. Memory accessibility is enforced
+ * at the Tensor level via requires clauses, not at the pointer level.
  */
 
 module;
-#include <stdexcept>
+#include <cstddef>
 
 export module Dnn.TensorPtr;
 
 namespace Mila::Dnn
 {
     /**
-     * @brief Base tensor pointer class that wraps a raw pointer with memory-type safety.
+     * @brief Lightweight pointer wrapper for tensor data
      *
-     * @tparam TDataType Element type
-     * @tparam IsHostAccessible Whether the pointer points to host-accessible memory
+     * Simple wrapper around a raw pointer that provides array indexing,
+     * pointer arithmetic, and dereferencing. No runtime memory accessibility
+     * checks - safety is enforced at compile-time via Tensor's requires clauses.
+     *
+     * @tparam T Element type (may be const-qualified)
+     *
+     * @note Memory accessibility is guaranteed by Tensor.data() requires clause
+     * @note Designed for zero-overhead abstraction
+     * @note Supports both const and non-const element types
      */
-    export template <typename TDataType, bool IsHostAccessible>
-        class TensorPtr {
-        private:
-            TDataType* ptr_;
+    export template <typename T>
+    class TensorPtr {
+    private:
+        T* ptr_;
 
-        public:
-            /**
-             * @brief Constructs a new TensorPtr
-             *
-             * @param ptr Raw pointer to wrap
-             */
-            explicit TensorPtr( TDataType* ptr ) noexcept : ptr_( ptr ) {}
+    public:
+        /**
+         * @brief Constructs a TensorPtr from a raw pointer
+         *
+         * @param ptr Raw pointer to wrap (may be nullptr)
+         */
+        explicit constexpr TensorPtr(T* ptr) noexcept : ptr_(ptr) {}
 
-            /**
-             * @brief Gets the raw pointer (explicit conversion)
-             *
-             * @return TPrecision* Raw pointer
-             */
-            TDataType* get() const noexcept {
-                return ptr_;
-            }
+        /**
+         * @brief Gets the raw pointer
+         *
+         * @return Raw pointer
+         */
+        constexpr T* get() const noexcept {
+            return ptr_;
+        }
 
-            /**
-             * @brief Host-only: Dereference operator
-             *
-             * @return Reference to the element
-             * @throws std::runtime_error if memory is not host-accessible
-             */
-            TDataType& operator*() const {
-                if constexpr ( IsHostAccessible ) {
-                    return *ptr_;
-                }
-                else {
-                    throw std::runtime_error( "Cannot dereference device memory pointer from host code" );
-                }
-            }
+        /**
+         * @brief Dereference operator
+         *
+         * @return Reference to the element
+         *
+         * @note Behavior is undefined if ptr_ is nullptr
+         * @note No runtime checks - caller must ensure validity
+         */
+        constexpr T& operator*() const noexcept {
+            return *ptr_;
+        }
 
-            /**
-             * @brief Host-only: Subscript operator
-             *
-             * @param index Element index
-             * @return Reference to the element
-             * @throws std::runtime_error if memory is not host-accessible
-             */
-            TDataType& operator[]( size_t index ) const {
-                if constexpr ( IsHostAccessible ) {
-                    return ptr_[ index ];
-                }
-                else {
-                    throw std::runtime_error( "Cannot access device memory from host code" );
-                }
-            }
+        /**
+         * @brief Array subscript operator
+         *
+         * @param index Element index
+         * @return Reference to the element at the given index
+         *
+         * @note Behavior is undefined if index is out of bounds
+         * @note No runtime checks - caller must ensure validity
+         */
+        constexpr T& operator[](size_t index) const noexcept {
+            return ptr_[index];
+        }
 
-            /**
-             * @brief Host-only: Pointer addition
-             *
-             * @param offset Offset to add
-             * @return TensorPtr at the offset position
-             * @throws std::runtime_error if memory is not host-accessible
-             */
-            TensorPtr operator+( size_t offset ) const {
-                if constexpr ( IsHostAccessible ) {
-                    return TensorPtr( ptr_ + offset );
-                }
-                else {
-                    throw std::runtime_error( "Cannot perform pointer arithmetic on device memory from host code" );
-                }
-            }
+        /**
+         * @brief Pointer arithmetic - addition
+         *
+         * @param offset Offset to add
+         * @return TensorPtr at the offset position
+         */
+        constexpr TensorPtr operator+(size_t offset) const noexcept {
+            return TensorPtr(ptr_ + offset);
+        }
 
-            /**
-             * @brief Explicit conversion to raw pointer for CUDA kernels
-             *
-             * @return Raw pointer for use in CUDA kernels
-             */
-            operator TDataType* () const {
-                return ptr_;
-            }
+        /**
+         * @brief Pointer arithmetic - subtraction
+         *
+         * @param offset Offset to subtract
+         * @return TensorPtr at the offset position
+         */
+        constexpr TensorPtr operator-(size_t offset) const noexcept {
+            return TensorPtr(ptr_ - offset);
+        }
+
+        /**
+         * @brief Pre-increment operator
+         *
+         * @return Reference to this TensorPtr after increment
+         */
+        constexpr TensorPtr& operator++() noexcept {
+            ++ptr_;
+            return *this;
+        }
+
+        /**
+         * @brief Post-increment operator
+         *
+         * @return TensorPtr before increment
+         */
+        constexpr TensorPtr operator++(int) noexcept {
+            TensorPtr tmp(*this);
+            ++ptr_;
+            return tmp;
+        }
+
+        /**
+         * @brief Implicit conversion to raw pointer for C API interop
+         *
+         * @return Raw pointer
+         *
+         * @note Enables seamless integration with C APIs and CUDA kernels
+         */
+        constexpr operator T*() const noexcept {
+            return ptr_;
+        }
+
+        /**
+         * @brief Equality comparison
+         *
+         * @param other TensorPtr to compare with
+         * @return true if pointers are equal
+         */
+        constexpr bool operator==(const TensorPtr& other) const noexcept {
+            return ptr_ == other.ptr_;
+        }
+
+        /**
+         * @brief Inequality comparison
+         *
+         * @param other TensorPtr to compare with
+         * @return true if pointers are not equal
+         */
+        constexpr bool operator!=(const TensorPtr& other) const noexcept {
+            return ptr_ != other.ptr_;
+        }
+
+        /**
+         * @brief Boolean conversion for nullptr checks
+         *
+         * @return true if pointer is non-null
+         */
+        explicit constexpr operator bool() const noexcept {
+            return ptr_ != nullptr;
+        }
     };
-
-    /**
-     * @brief Type alias for host memory pointers
-     */
-    export template <typename T>
-        using HostPtr = TensorPtr<T, true>;
-
-    /**
-     * @brief Type alias for device memory pointers
-     */
-    export template <typename T>
-        using DevicePtr = TensorPtr<T, false>;
 
     /**
      * @brief Gets a raw pointer from a TensorPtr
      *
-     * @tparam TPrecision Element type
-     * @tparam IsHostAccessible Whether the pointer is host-accessible
+     * @tparam T Element type
      * @param ptr TensorPtr to convert
-     * @return TPrecision* Raw pointer
+     * @return Raw pointer
      */
-    export template <typename T, bool IsHostAccessible>
-        T* raw_pointer_cast( const TensorPtr<T, IsHostAccessible>& ptr ) noexcept {
+    export template <typename T>
+    constexpr T* raw_pointer_cast(const TensorPtr<T>& ptr) noexcept {
         return ptr.get();
     }
+
+    /**
+     * @brief Deduction guide for TensorPtr
+     *
+     * Allows TensorPtr construction without explicit template arguments
+     */
+    export template<typename T>
+    TensorPtr(T*) -> TensorPtr<T>;
 }

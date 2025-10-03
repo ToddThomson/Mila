@@ -15,4 +15,4 @@
 - When recommending code, prefer modern C++ idioms (RAII, smart pointers, STL algorithms).
 - Always include testing suggestions and consider CPU/CUDA parity.
 - Keep suggestions concise and focused on the `Tensor.ixx` design.
-- Coding comments should use only ASCII characters
+- Comments should use only ASCII characters

@@ -22,18 +22,20 @@ import Compute.CpuTensorDataTypeTraits;
 
 namespace Mila::Dnn
 {
-	using namespace Mila::Dnn::Compute;
+    using namespace Mila::Dnn::Compute;
 
     /**
      * @brief CPU specialization of TensorOps for initialization operations.
      *
-     * This specialization provides CPU-specific implementations of tensor
-     * fill operations for the compute device tag
-     * `Compute::CpuComputeDeviceTag`.
+     * Provides CPU-specific implementations of tensor fill operations using
+     * optimized standard library algorithms for host memory. All operations
+     * execute synchronously with no device synchronization overhead.
      *
-     * The implementations in this specialization operate on tensors that
-     * satisfy the `isValidTensor` concept and use the tensor's device
-     * context and memory resource to perform the operation.
+     * Key features:
+     * - Direct memory access to CPU tensors
+     * - STL algorithm optimizations (vectorization, cache efficiency)
+     * - Automatic type conversion when needed
+     * - Compile-time dispatch for optimal code generation
      */
     template<typename TComputeDeviceTag> struct TensorOps;
 
@@ -41,70 +43,87 @@ namespace Mila::Dnn
     struct TensorOps<Compute::CpuComputeDeviceTag>
     {
         template<TensorDataType TDataType>
-        using host_value_t = std::conditional_t<TensorDataTypeTraits<TDataType>::is_integer_type, int32_t, float>;
-        
+        using host_value_t = std::conditional_t<
+            TensorDataTypeTraits<TDataType>::is_integer_type, int32_t, float>;
+
         /**
-         * @brief Copy contiguous host values (host_type derived from TDataType) into tensor.
+         * @brief Fill tensor with array of host values
          *
-         * Host span element type is selected from TensorDataTypeTraits<TDataType>::host_type,
-         * ensuring the host-provided values match the expected host representation for the
-         * tensor data type (float for floating tensors, int32_t for integer tensors).
+         * Copies host values into CPU tensor with automatic type conversion.
+         * Uses optimized STL algorithms for performance.
          *
-         * Implemented as `fill` overload that accepts a host span to match generic dispatch.
+         * Implementation:
+         * - Direct copy when types match (zero conversion overhead)
+         * - Element-wise transform when conversion needed
+         * - Compile-time dispatch based on type compatibility
+         *
+         * @tparam TDataType Abstract tensor data type
+         * @param tensor Destination CPU tensor to fill
+         * @param host_values Span of host values in canonical representation
+         *
+         * @note Handles size mismatches gracefully (uses minimum size)
+         * @note Type conversion handled automatically via static_cast
+         * @note No synchronization needed - operations are synchronous on CPU
          */
         template<TensorDataType TDataType>
-        static void fill(
-            Tensor<TDataType, CpuMemoryResource>& tensor,
-            std::span<const host_value_t<TDataType>> host_values )
+        static void fill(Tensor<TDataType, CpuMemoryResource>& tensor, 
+                        std::span<const host_value_t<TDataType>> host_values)
         {
             if (tensor.size() == 0 || host_values.empty())
                 return;
 
-            using HostType = typename TensorDataTypeTraits<TDataType>::host_type;
-            using TargetType = typename CpuTensorDataTypeTraits::template native_type<TDataType>;
+            using HostValueType = host_value_t<TDataType>;
+            using NativeType = typename CpuTensorDataTypeTraits::template native_type<TDataType>;
 
-            const size_t count = std::min( tensor.size(), host_values.size() );
+            const size_t count = std::min(tensor.size(), host_values.size());
+            NativeType* typed_dst = static_cast<NativeType*>(tensor.rawData());
 
-            void* raw = tensor.rawData();
-            if (!raw)
-                return; // REVIEW: defensive
-
-            TargetType* typed_dst = static_cast<TargetType*>(raw);
-
-            if constexpr (std::is_same_v<TargetType, HostType>) {
-                std::copy_n( host_values.data(), count, typed_dst );
+            // Optimization: Direct copy when types match
+            if constexpr (std::is_same_v<NativeType, HostValueType>) {
+                std::copy_n(host_values.data(), count, typed_dst);
             }
             else {
-                for (size_t i = 0; i < count; ++i) {
-                    typed_dst[i] = static_cast<TargetType>( host_values[i] );
-                }
+                // Element-wise conversion when types differ
+                std::transform(host_values.begin(), 
+                             host_values.begin() + count,
+                             typed_dst,
+                             [](HostValueType val) { 
+                                 return static_cast<NativeType>(val); 
+                             });
             }
         }
 
         /**
-         * @brief Fill tensor with scalar host value.
+         * @brief Fill tensor with scalar host value
          *
-         * Host scalar type is the `host_type` defined by `TensorDataTypeTraits<TDataType>`.
-         * Callers should pass the matching host scalar (float for float tensors, int32_t for integers).
+         * Broadcasts a single scalar value to all tensor elements using
+         * optimized STL fill algorithm.
+         *
+         * Implementation:
+         * - Single type conversion (scalar -> native type)
+         * - Optimized std::fill_n (vectorized by compiler)
+         * - Compile-time type selection
+         *
+         * @tparam TDataType Abstract tensor data type
+         * @param tensor Destination CPU tensor to fill
+         * @param host_value Scalar value in canonical host representation
+         *
+         * @note Conversion happens once before fill operation
+         * @note No synchronization needed - operations are synchronous on CPU
          */
         template<TensorDataType TDataType>
-        static void fill( Tensor<TDataType, CpuMemoryResource>& tensor, host_value_t<TDataType> host_value )
+        static void fill(Tensor<TDataType, CpuMemoryResource>& tensor, 
+                        host_value_t<TDataType> host_value)
         {
             if (tensor.size() == 0)
                 return;
 
-            //using HostType = typename TensorDataTypeTraits<TDataType>::host_type;
-            using TargetType = typename CpuTensorDataTypeTraits::template native_type<TDataType>;
+            using NativeType = typename CpuTensorDataTypeTraits::template native_type<TDataType>;
 
-            void* raw = tensor.rawData();
-            if (!raw)
-                return; // REVIEW: defensive
+            NativeType* typed_dst = static_cast<NativeType*>(tensor.rawData());
+            NativeType native_value = static_cast<NativeType>(host_value);
 
-            TargetType* typed_dst = static_cast<TargetType*>(raw);
-
-            TargetType quantized_value = static_cast<TargetType>(host_value);
-
-            std::fill_n( typed_dst, tensor.size(), quantized_value );
+            std::fill_n(typed_dst, tensor.size(), native_value);
         }
     };
 }

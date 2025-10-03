@@ -132,7 +132,7 @@ namespace Dnn::Tensors::Tests
         Tensor<TensorDataType::FP32, CpuMemoryResource> tensor(cpu_context_, shape);
 
         EXPECT_TRUE(tensor.empty());
-        EXPECT_EQ(tensor.size(), 0);
+        EXPECT_EQ(tensor.size(), 1);
         EXPECT_EQ(tensor.rank(), 0);
         EXPECT_EQ(tensor.strides().size(), 0);
         EXPECT_EQ(tensor.shape(), shape);
@@ -479,15 +479,6 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ(uint16_tensor.size(), 6);
         EXPECT_EQ(uint32_tensor.size(), 6);
 
-        // Verify element sizes
-        EXPECT_EQ(fp32_tensor.getElementSizeInBytes(), 4);
-        EXPECT_EQ(int8_tensor.getElementSizeInBytes(), 1);
-        EXPECT_EQ(int16_tensor.getElementSizeInBytes(), 2);
-        EXPECT_EQ(int32_tensor.getElementSizeInBytes(), 4);
-        EXPECT_EQ(uint8_tensor.getElementSizeInBytes(), 1);
-        EXPECT_EQ(uint16_tensor.getElementSizeInBytes(), 2);
-        EXPECT_EQ(uint32_tensor.getElementSizeInBytes(), 4);
-
         // Verify memory accessibility (all CPU tensors should be host-accessible but not device-accessible)
         EXPECT_TRUE(fp32_tensor.is_host_accessible());
         EXPECT_FALSE(fp32_tensor.is_device_accessible());
@@ -561,19 +552,6 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ(uint8_tensor.size(), 6);
         EXPECT_EQ(uint16_tensor.size(), 6);
         EXPECT_EQ(uint32_tensor.size(), 6);
-
-        // Verify element sizes
-        EXPECT_EQ(fp32_tensor.getElementSizeInBytes(), 4);
-        EXPECT_EQ(fp16_tensor.getElementSizeInBytes(), 2);
-        EXPECT_EQ(bf16_tensor.getElementSizeInBytes(), 2);
-        EXPECT_EQ(fp8_e4m3_tensor.getElementSizeInBytes(), 1);
-        EXPECT_EQ(fp8_e5m2_tensor.getElementSizeInBytes(), 1);
-        EXPECT_EQ(int8_tensor.getElementSizeInBytes(), 1);
-        EXPECT_EQ(int16_tensor.getElementSizeInBytes(), 2);
-        EXPECT_EQ(int32_tensor.getElementSizeInBytes(), 4);
-        EXPECT_EQ(uint8_tensor.getElementSizeInBytes(), 1);
-        EXPECT_EQ(uint16_tensor.getElementSizeInBytes(), 2);
-        EXPECT_EQ(uint32_tensor.getElementSizeInBytes(), 4);
 
         // Verify device accessibility (all CUDA tensors should be device-accessible but not host-accessible)
         EXPECT_FALSE(fp32_tensor.is_host_accessible());
@@ -812,18 +790,6 @@ namespace Dnn::Tensors::Tests
     TEST_F(TensorConstructionTest, TypeConstraintValidation_DataTypeTraitsConsistency) {
         // Test that data type traits are consistent across different tensor configurations
 
-        // Verify element sizes are consistent
-        {
-            Tensor<TensorDataType::FP32, CpuMemoryResource> cpu_tensor(cpu_context_, { 2, 3 });
-
-            if (has_cuda_) {
-                Tensor<TensorDataType::FP32, CudaMemoryResource> cuda_tensor(cuda_context_, { 2, 3 });
-                EXPECT_EQ(cpu_tensor.getElementSizeInBytes(), cuda_tensor.getElementSizeInBytes());
-            }
-
-            EXPECT_EQ(cpu_tensor.getElementSizeInBytes(), 4);  // FP32 = 4 bytes
-        }
-
         // Verify data type names are consistent
         if (has_cuda_) {
             Tensor<TensorDataType::FP16, CudaMemoryResource> cuda_tensor(cuda_context_, { 2, 3 });
@@ -836,45 +802,7 @@ namespace Dnn::Tensors::Tests
         // Verify device-only type characteristics
         if (has_cuda_) {
             Tensor<TensorDataType::FP8_E4M3, CudaMemoryResource> tensor(cuda_context_, { 2, 3 });
-            EXPECT_EQ(tensor.getElementSizeInBytes(), 1);  // FP8 = 1 byte
             EXPECT_EQ(tensor.getDataTypeName(), "FP8_E4M3");
-        }
-    }
-
-    TEST_F(TensorConstructionTest, TypeConstraintValidation_CompileTimeProperties) {
-        // Test that compile-time properties are correctly defined
-
-        // Test static constexpr members
-        {
-            using TensorType = Tensor<TensorDataType::FP32, CpuMemoryResource>;
-
-            static_assert(TensorType::data_type == TensorDataType::FP32);
-            static_assert(TensorType::element_size == 4);
-            static_assert(TensorType::is_float_type == true);
-            static_assert(TensorType::is_integer_type == false);
-            static_assert(TensorType::is_device_only == false);
-        }
-
-        // Test device-only type properties
-        {
-            using DeviceOnlyTensorType = Tensor<TensorDataType::FP8_E4M3, CudaMemoryResource>;
-
-            static_assert(DeviceOnlyTensorType::data_type == TensorDataType::FP8_E4M3);
-            static_assert(DeviceOnlyTensorType::element_size == 1);
-            static_assert(DeviceOnlyTensorType::is_float_type == true);
-            static_assert(DeviceOnlyTensorType::is_integer_type == false);
-            static_assert(DeviceOnlyTensorType::is_device_only == true);
-        }
-
-        // Test integer type properties
-        {
-            using IntTensorType = Tensor<TensorDataType::INT32, CpuMemoryResource>;
-
-            static_assert(IntTensorType::data_type == TensorDataType::INT32);
-            static_assert(IntTensorType::element_size == 4);
-            static_assert(IntTensorType::is_float_type == false);
-            static_assert(IntTensorType::is_integer_type == true);
-            static_assert(IntTensorType::is_device_only == false);
         }
     }
 

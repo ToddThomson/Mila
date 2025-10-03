@@ -36,7 +36,7 @@ import Compute.DeviceContext;
 
 namespace Mila::Dnn
 {
-	namespace detail
+	namespace Detail
 	{
 		/**
 		 * @brief CUDA warp size alignment for optimal GPU memory access patterns
@@ -154,7 +154,7 @@ namespace Mila::Dnn
 
 		static constexpr TensorDataType data_type = TDataType;                     ///< Compile-time data type constant
 		static constexpr size_t element_size = DataTypeTraits::size_in_bytes;      ///< Storage size per element
-		static constexpr size_t alignment = detail::get_alignment<TDataType, TMemoryResource>(); ///< Optimal memory alignment
+		static constexpr size_t alignment = Detail::get_alignment<TDataType, TMemoryResource>(); ///< Optimal memory alignment
 		static constexpr bool is_float_type = DataTypeTraits::is_float_type;       ///< Floating-point type classification
 		static constexpr bool is_integer_type = DataTypeTraits::is_integer_type;   ///< Integer type classification
 		static constexpr bool is_device_only = DataTypeTraits::is_device_only;     ///< Device-only type restriction
@@ -190,7 +190,7 @@ namespace Mila::Dnn
 			}
 
 			// Calculate storage requirements
-			storage_bytes_ = detail::getStorageSize<TDataType>( logical_size_ );
+			storage_bytes_ = Detail::getStorageSize<TDataType>( logical_size_ );
 
 			// Check for overflow in alignment calculations
 			if (storage_bytes_ > (std::numeric_limits<size_t>::max() - alignment + 1)) {
@@ -242,7 +242,7 @@ namespace Mila::Dnn
 				throw std::invalid_argument( "External data pointer cannot be null." );
 			}
 
-			size_t required_storage = detail::getStorageSize<TDataType>( logical_size_ );
+			size_t required_storage = Detail::getStorageSize<TDataType>( logical_size_ );
 			if (storage_bytes < required_storage) {
 				throw std::invalid_argument( "External memory insufficient for specified logical size." );
 			}
@@ -451,7 +451,7 @@ namespace Mila::Dnn
 			}
 
 			// Calculate new storage requirements
-			size_t new_storage_bytes = detail::getStorageSize<TDataType>( new_logical_size );
+			size_t new_storage_bytes = Detail::getStorageSize<TDataType>( new_logical_size );
 
 			if (new_storage_bytes > (std::numeric_limits<size_t>::max() - alignment + 1)) {
 				throw std::overflow_error( "New storage size too large for alignment calculation." );

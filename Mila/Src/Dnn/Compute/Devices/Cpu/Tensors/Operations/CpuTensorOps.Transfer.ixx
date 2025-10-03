@@ -32,7 +32,7 @@ namespace Mila::Dnn
      * transfer operations for the compute device tag `Compute::CpuComputeDeviceTag`.
      * Handles both same-type and type-conversion transfers with host memory optimization.
      */
-    export template<typename TComputeDeviceTag> struct TensorOps;
+    template<typename TComputeDeviceTag> struct TensorOps;
 
     export template<>
     struct TensorOps<Compute::CpuComputeDeviceTag>

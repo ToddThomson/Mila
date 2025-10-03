@@ -1,6 +1,6 @@
 /**
  * @file Tensor.ixx
- * @brief Tensor implementation
+ * @brief Tensor implementation with proper scalar tensor support
  *
  * This module defines the Tensor class which provides a unified interface for multi-dimensional
  * tensors across different compute devices (CPU, CUDA, Metal, OpenCL, Vulkan) with explicit
@@ -14,6 +14,13 @@
  * - Device-agnostic memory resource abstraction with device binding
  * - Support for packed sub-byte precision formats (FP4, INT4)
  * - Type-safe memory transfer operations with automatic compatibility validation
+ * - Proper scalar tensor (rank 0) support with dedicated accessor methods
+ *
+ * Scalar tensor semantics:
+ * - Shape: {} (empty vector) represents rank 0
+ * - Size: 1 (single element, per mathematical convention)
+ * - Access: Use item() method, not operator[]
+ * - Memory: Always allocated (size = 1)
  */
 
 module;
@@ -68,11 +75,11 @@ namespace Mila::Dnn
          * @throws std::overflow_error If calculation would overflow
          */
         template<TensorDataType TDataType>
-        constexpr size_t getStorageSize(size_t logical_size) {
+        constexpr size_t getStorageSize( size_t logical_size ) {
             constexpr size_t element_size = TensorDataTypeTraits<TDataType>::size_in_bytes;
 
             if (logical_size > std::numeric_limits<size_t>::max() / element_size) {
-                throw std::overflow_error("Storage size calculation would overflow.");
+                throw std::overflow_error( "Storage size calculation would overflow." );
             }
 
             return logical_size * element_size;
@@ -98,7 +105,7 @@ namespace Mila::Dnn
          * @return Unique size_t identifier that is thread-safe and monotonically increasing
          */
         static size_t getNextId() {
-            return counter_.fetch_add(1, std::memory_order_relaxed);
+            return counter_.fetch_add( 1, std::memory_order_relaxed );
         }
 
     private:
@@ -122,9 +129,16 @@ namespace Mila::Dnn
      * - Memory resource abstraction with device binding enables seamless device interoperability
      * - Support for cutting-edge precision formats including FP8, FP4, and packed types
      * - Type-safe operations with automatic memory compatibility validation
+     * - Proper scalar tensor (rank 0) support following mathematical conventions
      *
      * The tensor class is move-only to prevent accidental expensive copy operations.
      * Explicit operations are provided for data sharing, deep copying, and memory transfers.
+     *
+     * Tensor dimensionality:
+     * - Scalar (rank 0): shape {}, size 1, access via item()
+     * - Vector (rank 1): shape {n}, size n, access via operator[]
+     * - Matrix (rank 2): shape {m, n}, size m*n, access via operator[]
+     * - Higher-rank: shape {d1, d2, ...}, size = product of dimensions
      *
      * @tparam TDataType Abstract tensor data type from TensorDataType enumeration
      * @tparam TMemoryResource Memory resource type defining storage location and access patterns
@@ -154,15 +168,7 @@ namespace Mila::Dnn
         using DataType = TensorDataType;                                           ///< Abstract data type enumeration
         using MemoryResource = TMemoryResource;                                    ///< Memory resource type for this tensor
         using DataTypeTraits = TensorDataTypeTraits<TDataType>;                   ///< Compile-time data type characteristics
-        using host_value_t = std::conditional_t<TensorDataTypeTraits<TDataType>::is_integer_type, int32_t, float>;
-
-		// REVIEW: Are these needed?
-        static constexpr TensorDataType data_type = TDataType;                     ///< Compile-time data type constant
-        static constexpr size_t element_size = DataTypeTraits::size_in_bytes;      ///< Size per element in bytes
-        static constexpr size_t alignment = DataTypeTraits::alignment;             ///< Required memory alignment
-        static constexpr bool is_float_type = DataTypeTraits::is_float_type;       ///< Floating-point type classification
-        static constexpr bool is_integer_type = DataTypeTraits::is_integer_type;   ///< Integer type classification
-        static constexpr bool is_device_only = DataTypeTraits::is_device_only;     ///< Device-only type restriction
+        using host_value_t = std::conditional_t<TensorDataTypeTraits<TDataType>::is_integer_type, int32_t, float>; ///< Host value type for scalars
 
         // ====================================================================
         // Construction, Assignment, and Destruction
@@ -184,15 +190,39 @@ namespace Mila::Dnn
          *
          * @note Shape vector defines tensor dimensionality from outermost to innermost
          * @note Memory layout is always row-major (C-style) for maximum compatibility
+         * @note Empty shape {} creates a scalar (0D tensor) with size 1
+         * @note Shape {0} creates an empty 1D tensor with size 0
+         * @note Shape {0, 5} creates an empty 2D tensor (0 rows, 5 cols) with size 0
          * @note Packed data types automatically calculate appropriate storage requirements
-         * @note Empty shape vector creates a scalar (0-dimensional) tensor
+         *
+         * Scalar tensor example:
+         * @code
+         * // Create scalar (0D tensor with 1 element)
+         * auto scalar = Tensor<TensorDataType::FP32, CpuMemoryResource>(ctx, {});
+         * EXPECT_EQ(scalar.rank(), 0u);    // 0 dimensions
+         * EXPECT_EQ(scalar.size(), 1u);    // 1 element
+         * EXPECT_TRUE(scalar.isScalar());
+         * @endcode
+         *
+         * Empty tensor examples:
+         * @code
+         * // Empty 1D vector (rank 1, size 0)
+         * auto empty1d = Tensor<TensorDataType::FP32, CpuMemoryResource>(ctx, {0});
+         * EXPECT_EQ(empty1d.rank(), 1u);
+         * EXPECT_EQ(empty1d.size(), 0u);
+         * EXPECT_TRUE(empty1d.empty());
+         *
+         * // Empty 2D matrix (rank 2, size 0)
+         * auto empty2d = Tensor<TensorDataType::FP32, CpuMemoryResource>(ctx, {0, 5});
+         * EXPECT_EQ(empty2d.rank(), 2u);
+         * EXPECT_EQ(empty2d.size(), 0u);
+         * @endcode
          */
-        explicit Tensor(std::shared_ptr<Compute::DeviceContext> device_context, const std::vector<size_t>& shape)
-            : device_context_(device_context), uid_(setUId()), shape_(shape),
-            strides_(computeStrides(shape)), size_(computeSize(shape)) {
+        explicit Tensor( std::shared_ptr<Compute::DeviceContext> device_context, const std::vector<size_t>& shape )
+            : device_context_( device_context ), uid_( setUId() ), shape_( shape ), strides_( computeStrides( shape ) ), size_( computeSize( shape ) ) {
 
             if (!device_context_) {
-                throw std::invalid_argument("Device context cannot be null");
+                throw std::invalid_argument( "Device context cannot be null" );
             }
 
             validateDeviceContextCompatibility();
@@ -216,6 +246,17 @@ namespace Mila::Dnn
          *
          * @note Creates new DeviceContext internally - use shared context constructor for shared contexts
          * @note Automatically initializes device registrar to ensure device availability
+         * @note Empty shape {} creates a scalar (0D tensor) with size 1
+         * @note Shape {0} creates an empty 1D tensor with size 0
+         *
+         * Example:
+         * @code
+         * // Create scalar on CPU
+         * auto scalar = Tensor<TensorDataType::FP32, CpuMemoryResource>("CPU", {});
+         *
+         * // Create vector on GPU
+         * auto vector = Tensor<TensorDataType::FP16, CudaMemoryResource>("CUDA:0", {100});
+         * @endcode
          */
         explicit Tensor( const std::string& device_name, const std::vector<size_t>& shape )
             : Tensor( createDeviceContext( device_name ), shape ) {
@@ -244,25 +285,26 @@ namespace Mila::Dnn
          * @note Tensor does not manage the underlying memory lifecycle
          * @note Memory size requirements include packing considerations for sub-byte types
          * @note Alignment requirements must be satisfied by external memory
+         * @note Scalar tensors (shape {}) require memory for 1 element
          */
-        Tensor(std::shared_ptr<Compute::DeviceContext> device_context, const std::vector<size_t>& shape, std::shared_ptr<void> data_ptr)
-            : device_context_(device_context), uid_(setUId()), shape_(shape),
-            strides_(computeStrides(shape)), size_(computeSize(shape)), external_memory_ptr_(data_ptr) {
+        Tensor( std::shared_ptr<Compute::DeviceContext> device_context, const std::vector<size_t>& shape, std::shared_ptr<void> data_ptr )
+            : device_context_( device_context ), uid_( setUId() ), shape_( shape ),
+            strides_( computeStrides( shape ) ), size_( computeSize( shape ) ), external_memory_ptr_( data_ptr ) {
 
             if (!device_context_) {
-                throw std::invalid_argument("Device context cannot be null");
+                throw std::invalid_argument( "Device context cannot be null" );
             }
             if (!external_memory_ptr_) {
-                throw std::invalid_argument("data_ptr cannot be null");
+                throw std::invalid_argument( "data_ptr cannot be null" );
             }
 
             validateDeviceContextCompatibility();
 
-            size_t required_bytes = detail::getStorageSize<TDataType>(size_);
-            
-            // Create TensorBuffer with external memory using updated constructor signature
+            size_t required_bytes = detail::getStorageSize<TDataType>( size_ );
+
+            // Create TensorBuffer with external memory
             buffer_ = std::make_shared<TensorBuffer<TDataType, TMemoryResource>>(
-                device_context_, size_, static_cast<std::byte*>(external_memory_ptr_.get()), required_bytes);
+                device_context_, size_, static_cast<std::byte*>(external_memory_ptr_.get()), required_bytes );
         }
 
         /**
@@ -272,7 +314,7 @@ namespace Mila::Dnn
          * operations in performance-critical neural network code. Use explicit
          * clone() for deep copies or std::move() for efficient ownership transfers.
          */
-        Tensor(const Tensor& other) = delete;
+        Tensor( const Tensor& other ) = delete;
 
         /**
          * @brief Efficiently transfers ownership from another tensor
@@ -282,16 +324,19 @@ namespace Mila::Dnn
          * extremely efficient for large tensors.
          *
          * @param other Source tensor to move from (will be left in empty state)
+         *
+         * @note Source tensor will have size 0, empty shape, and null buffer after move
+         * @note Move operations preserve tensor semantics (scalars remain scalars)
          */
-        Tensor(Tensor&& other) noexcept
-            : device_context_(std::move(other.device_context_)),
-            uid_(std::move(other.uid_)),
-            name_(std::move(other.name_)),
-            size_(other.size_),
-            shape_(std::move(other.shape_)),
-            strides_(std::move(other.strides_)),
-            buffer_(std::move(other.buffer_)),
-            external_memory_ptr_(std::move(other.external_memory_ptr_)) {
+        Tensor( Tensor&& other ) noexcept
+            : device_context_( std::move( other.device_context_ ) ),
+            uid_( std::move( other.uid_ ) ),
+            name_( std::move( other.name_ ) ),
+            size_( other.size_ ),
+            shape_( std::move( other.shape_ ) ),
+            strides_( std::move( other.strides_ ) ),
+            buffer_( std::move( other.buffer_ ) ),
+            external_memory_ptr_( std::move( other.external_memory_ptr_ ) ) {
             other.size_ = 0;
             other.shape_.clear();
             other.strides_.clear();
@@ -303,7 +348,7 @@ namespace Mila::Dnn
          * Tensors cannot be copy-assigned to prevent accidental expensive copy
          * operations. Use explicit clone() for deep copies or std::move() for transfers.
          */
-        Tensor& operator=(const Tensor& other) = delete;
+        Tensor& operator=( const Tensor& other ) = delete;
 
         /**
          * @brief Efficiently moves resources from another tensor
@@ -318,16 +363,16 @@ namespace Mila::Dnn
          * @note Source tensor becomes empty after successful move
          * @note All metadata including name, shape, and device context are transferred
          */
-        Tensor& operator=(Tensor&& other) noexcept {
+        Tensor& operator=( Tensor&& other ) noexcept {
             if (this != &other) {
-                device_context_ = std::move(other.device_context_);
-                uid_ = std::move(other.uid_);
-                name_ = std::move(other.name_);
-                shape_ = std::move(other.shape_);
-                strides_ = std::move(other.strides_);
+                device_context_ = std::move( other.device_context_ );
+                uid_ = std::move( other.uid_ );
+                name_ = std::move( other.name_ );
+                shape_ = std::move( other.shape_ );
+                strides_ = std::move( other.strides_ );
                 size_ = other.size_;
-                buffer_ = std::move(other.buffer_);
-                external_memory_ptr_ = std::move(other.external_memory_ptr_);
+                buffer_ = std::move( other.buffer_ );
+                external_memory_ptr_ = std::move( other.external_memory_ptr_ );
 
                 other.size_ = 0;
                 other.shape_.clear();
@@ -349,15 +394,18 @@ namespace Mila::Dnn
         // Device Context and Memory Resource Access
         // ====================================================================
 
-		// REVIEW: Should we allow changing the device context after creation? return const ref?
-
         /**
          * @brief Returns the tensor's device context
          *
          * Provides access to the device context for device operations, stream management,
-         * and multi-GPU coordination.
+         * and multi-GPU coordination. Device context is immutable after construction to
+         * maintain consistency between memory resource and device binding.
          *
-         * @return Shared pointer to the device context
+         * @return Shared pointer to the device context (never null for valid tensors)
+         *
+         * @note Device context cannot be changed after construction
+         * @note Returns shared_ptr to allow context sharing across tensors
+         * @note Guaranteed non-null by constructor validation
          */
         std::shared_ptr<Compute::DeviceContext> getDeviceContext() const {
             return device_context_;
@@ -397,23 +445,7 @@ namespace Mila::Dnn
          * @note Consistent across all devices for same abstract type
          */
         std::string getDataTypeName() const override {
-            return std::string(DataTypeTraits::type_name);
-        }
-
-        /**
-         * @brief Returns the size in bytes of each tensor element
-         *
-         * Provides the storage size per element, accounting for packed data types
-         * where multiple elements may share bytes. Essential for memory allocation
-         * and transfer calculations.
-         *
-         * @return Size in bytes per logical element
-         *
-         * @note For packed types, returns storage size per packed unit
-         * @note Use getStorageSize() for total memory requirements
-         */
-        size_t getElementSizeInBytes() const {
-            return DataTypeTraits::size_in_bytes;
+            return std::string( DataTypeTraits::type_name );
         }
 
         /**
@@ -450,29 +482,145 @@ namespace Mila::Dnn
             return TMemoryResource::is_device_accessible;
         }
 
-        // =================================================================
-        // Element access (host accessible TMemoryResource only)
-        // =================================================================
+        // ====================================================================
+        // Scalar Tensor Access (rank 0 only)
+        // ====================================================================
+
+        /**
+         * @brief Checks if tensor is a scalar (0-dimensional)
+         *
+         * A scalar tensor has rank 0 (empty shape) and contains exactly
+         * one element. Scalars represent single values without dimensional
+         * structure. Distinguished from 1D tensors with one element.
+         *
+         * @return true if tensor is a scalar (rank 0), false otherwise
+         *
+         * @note Equivalent to rank() == 0
+         * @note Scalars: shape {}, rank 0, size 1, NOT empty
+         * @note Not scalars: shape {1} (1D vector), shape {0} (empty)
+         * @note Use item() to access scalar value
+         *
+         * Example:
+         * @code
+         * Tensor<TensorDataType::FP32, CpuMemoryResource> scalar("CPU", {});
+         * EXPECT_TRUE(scalar.isScalar());   // rank 0, size 1
+         * EXPECT_EQ(scalar.rank(), 0u);
+         * EXPECT_EQ(scalar.size(), 1u);
+         * EXPECT_FALSE(scalar.empty());     // Scalars are NOT empty
+         *
+         * Tensor<TensorDataType::FP32, CpuMemoryResource> vector1d("CPU", {1});
+         * EXPECT_FALSE(vector1d.isScalar()); // rank 1, not a scalar
+         * @endcode
+         */
+        bool isScalar() const noexcept {
+            return rank() == 0;
+        }
+
+        /**
+         * @brief Gets the scalar value for 0-dimensional tensors
+         *
+         * Provides direct access to the single value in a scalar tensor.
+         * Only available for host-accessible memory resources and 0D tensors.
+         * Element type is automatically mapped via TensorHostTypeMap.
+         *
+         * @return Reference to the scalar value
+         *
+         * @throws std::runtime_error If tensor is not a scalar (rank != 0)
+         *
+         * @note Only available for host-accessible memory (compile-time enforced)
+         * @note Return type is host_type from TensorHostTypeMap<TDataType>
+         * @note For non-scalars, use operator[] with indices
+         * @note Scalars are distinguishable from 1D tensors: use isScalar() to check
+         *
+         * @see TensorHostTypeMap for type mapping rules
+         *
+         * Example:
+         * @code
+         * Tensor<TensorDataType::FP32, CpuMemoryResource> scalar("CPU", {});
+         * fill(scalar, 3.14f);
+         * float value = scalar.item();  // Returns 3.14f
+         *
+         * scalar.item() = 2.71f;        // Mutable access
+         * EXPECT_FLOAT_EQ(scalar.item(), 2.71f);
+         * @endcode
+         */
+        auto& item() requires TMemoryResource::is_host_accessible {
+            if (!isScalar()) {
+                throw std::runtime_error( "item() can only be called on scalar tensors (rank 0). Use operator[] for higher-rank tensors." );
+            }
+
+            using HostType = typename TensorHostTypeMap<TDataType>::host_type;
+            return static_cast<HostType*>(buffer_->rawData())[0];
+        }
+
+        /**
+         * @brief Gets the scalar value for 0-dimensional tensors (const version)
+         *
+         * Provides read-only access to the single value in a scalar tensor.
+         * Only available for host-accessible memory resources and 0D tensors.
+         *
+         * @return Const reference to the scalar value
+         *
+         * @throws std::runtime_error If tensor is not a scalar (rank != 0)
+         *
+         * @note Only available for host-accessible memory (compile-time enforced)
+         * @note Return type is host_type from TensorHostTypeMap<TDataType>
+         *
+         * @see TensorHostTypeMap for type mapping rules
+         */
+        const auto& item() const requires TMemoryResource::is_host_accessible {
+            if (!isScalar()) {
+                throw std::runtime_error( "item() can only be called on scalar tensors (rank 0). Use operator[] for higher-rank tensors." );
+            }
+
+            using HostType = typename TensorHostTypeMap<TDataType>::host_type;
+            return static_cast<const HostType*>(buffer_->rawData())[0];
+        }
+
+        // ====================================================================
+        // Multi-dimensional Tensor Access (rank >= 1)
+        // ====================================================================
+
         /**
          * @brief Accesses tensor element using multi-dimensional indices
          *
          * Provides direct element access using a vector of indices for each dimension.
          * Only available for host-accessible memory resources. Validates indices are
          * within bounds and computes the appropriate flat index for memory access.
+         * Element type is automatically mapped via TensorHostTypeMap.
          *
          * @param indices Vector of indices, one per dimension
          * @return Reference to the element at the specified position
          *
          * @throws std::runtime_error If indices size doesn't match tensor rank
+         * @throws std::runtime_error If tensor is scalar (use item() instead)
          * @throws std::out_of_range If any index is out of bounds for its dimension
-         * @throws std::runtime_error If memory is not host-accessible
          *
          * @note Only available for host-accessible memory resources at compile time
-         * @note Uses host-compatible type mapping for element access
+         * @note For scalars (rank 0), use item() instead
+         * @note Return type is host_type from TensorHostTypeMap
          * @note Indices are validated against shape before access
+         *
+         * @see TensorHostTypeMap for type mapping rules
+         *
+         * Example:
+         * @code
+         * Tensor<TensorDataType::FP32, CpuMemoryResource> matrix("CPU", {3, 4});
+         * matrix[{0, 0}] = 1.0f;
+         * matrix[{2, 3}] = 9.0f;
+         *
+         * // Scalar tensors must use item()
+         * Tensor<TensorDataType::FP32, CpuMemoryResource> scalar("CPU", {});
+         * // scalar[{}] throws! Use: scalar.item() = 5.0f;
+         * @endcode
          */
         auto& operator[]( const std::vector<size_t>& indices )
             requires TMemoryResource::is_host_accessible {
+
+            if (isScalar()) {
+                throw std::runtime_error( "Cannot use operator[] on scalar tensors. Use item() instead." );
+            }
+
             validateIndices( indices, "operator[]" );
 
             size_t flat_index = computeFlatIndex( indices );
@@ -492,15 +640,21 @@ namespace Mila::Dnn
          * @return Const reference to the element at the specified position
          *
          * @throws std::runtime_error If indices size doesn't match tensor rank
+         * @throws std::runtime_error If tensor is scalar (use item() instead)
          * @throws std::out_of_range If any index is out of bounds for its dimension
-         * @throws std::runtime_error If memory is not host-accessible
          *
          * @note Only available for host-accessible memory resources at compile time
+         * @note For scalars (rank 0), use item() instead
          * @note Uses host-compatible type mapping for element access
          * @note Indices are validated against shape before access
          */
         const auto& operator[]( const std::vector<size_t>& indices ) const
             requires TMemoryResource::is_host_accessible {
+
+            if (isScalar()) {
+                throw std::runtime_error( "Cannot use operator[] on scalar tensors. Use item() instead." );
+            }
+
             validateIndices( indices, "operator[] const" );
 
             size_t flat_index = computeFlatIndex( indices );
@@ -521,10 +675,11 @@ namespace Mila::Dnn
          * @return Reference to the element at the specified position
          *
          * @throws std::runtime_error If number of indices doesn't match tensor rank
+         * @throws std::runtime_error If tensor is scalar (use item() instead)
          * @throws std::out_of_range If any index is out of bounds for its dimension
-         * @throws std::runtime_error If memory is not host-accessible
          *
          * @note Only available for host-accessible memory resources at compile time
+         * @note For scalars, use item() instead
          * @note All index arguments must be convertible to size_t
          * @note Convenient for accessing known-rank tensors: tensor[i, j, k]
          */
@@ -548,10 +703,11 @@ namespace Mila::Dnn
          * @return Const reference to the element at the specified position
          *
          * @throws std::runtime_error If number of indices doesn't match tensor rank
+         * @throws std::runtime_error If tensor is scalar (use item() instead)
          * @throws std::out_of_range If any index is out of bounds for its dimension
-         * @throws std::runtime_error If memory is not host-accessible
          *
          * @note Only available for host-accessible memory resources at compile time
+         * @note For scalars, use item() instead
          * @note All index arguments must be convertible to size_t
          * @note Convenient for accessing known-rank tensors: tensor[i, j, k]
          */
@@ -577,9 +733,16 @@ namespace Mila::Dnn
          * @return Const reference to vector containing dimension sizes
          *
          * @note Required by ITensorData polymorphic interface
-         * @note Empty vector indicates a scalar (0-dimensional) tensor
+         * @note Empty vector {} indicates a scalar (0-dimensional) tensor
          * @note Order is from outermost to innermost dimension (row-major)
          * @note Shape determines stride computation and memory indexing
+         *
+         * Shape interpretation:
+         * - {} = scalar (rank 0, size 1)
+         * - {n} = vector (rank 1, size n)
+         * - {m, n} = matrix (rank 2, size m*n)
+         * - {0} = empty 1D vector (rank 1, size 0)
+         * - {0, n} = empty 2D matrix (rank 2, size 0)
          */
         const std::vector<size_t>& shape() const override {
             return shape_;
@@ -597,6 +760,7 @@ namespace Mila::Dnn
          * @note Strides are computed for row-major (C-style) layout
          * @note Used internally for efficient index computation
          * @note Length matches shape vector length
+         * @note Empty for scalars (rank 0)
          * @note Enables efficient multi-dimensional memory access
          */
         const std::vector<size_t>& strides() const {
@@ -612,9 +776,17 @@ namespace Mila::Dnn
          *
          * @return Total number of logical elements
          *
-         * @note Zero for empty tensors
+         * @note 1 for scalars (rank 0)
+         * @note 0 for empty tensors (any dimension is 0)
          * @note Product of all shape dimensions
          * @note Logical count may differ from storage bytes for packed types
+         *
+         * Examples:
+         * - shape {} (scalar) -> size 1
+         * - shape {5} -> size 5
+         * - shape {3, 4} -> size 12
+         * - shape {0} -> size 0 (empty)
+         * - shape {2, 0, 3} -> size 0 (empty)
          */
         size_t size() const {
             return size_;
@@ -623,15 +795,29 @@ namespace Mila::Dnn
         /**
          * @brief Checks if the tensor contains no elements
          *
-         * Determines whether the tensor has been allocated with zero size,
-         * useful for validation and conditional processing in neural network
-         * operations.
+         * Determines whether the tensor has been allocated with zero size.
+         * A tensor is empty when its size is 0, which occurs when any
+         * dimension in the shape is 0.
          *
-         * @return true if tensor has no elements, false otherwise
+         * @return true if tensor has no elements (size == 0), false otherwise
          *
-         * @note Equivalent to size() == 0
-         * @note Empty tensors can still have a defined shape
+         * @note Scalars (rank 0) are NOT empty - they have size 1
+         * @note Empty shape {} -> scalar (size 1) -> NOT empty
+         * @note Shape {0} -> empty 1D vector (size 0) -> empty
+         * @note Shape {2, 0, 3} -> empty 3D tensor (size 0) -> empty
          * @note Empty tensors require no storage allocation
+         * @note Equivalent to size() == 0
+         *
+         * Example:
+         * @code
+         * Tensor<TensorDataType::FP32, CpuMemoryResource> scalar("CPU", {});
+         * EXPECT_FALSE(scalar.empty());  // Scalars are NOT empty
+         * EXPECT_EQ(scalar.size(), 1u);
+         *
+         * Tensor<TensorDataType::FP32, CpuMemoryResource> empty("CPU", {0});
+         * EXPECT_TRUE(empty.empty());    // Zero-size tensors ARE empty
+         * EXPECT_EQ(empty.size(), 0u);
+         * @endcode
          */
         bool empty() const {
             return (size_ == 0);
@@ -640,22 +826,36 @@ namespace Mila::Dnn
         /**
          * @brief Returns the number of dimensions in the tensor
          *
-         * Provides the tensor's dimensionality, ranging from 0 (scalar)
+         * Provides the tensor's dimensionality (rank), ranging from 0 (scalar)
          * to arbitrarily high dimensions. Essential for understanding
          * tensor structure in neural network operations.
          *
-         * @return Number of dimensions
+         * @return Number of dimensions (rank)
          *
          * @note Equivalent to shape().size()
-         * @note Zero indicates a scalar tensor
-         * @note Common neural network tensors are 2D (matrices) to 4D (batch, channel, height, width)
+         * @note Rank 0 -> scalar (single value, size 1)
+         * @note Rank 1 -> vector (1D array)
+         * @note Rank 2 -> matrix (2D array)
+         * @note Common neural network tensors: 2D (matrices) to 4D (batch, channel, height, width)
+         *
+         * Example:
+         * @code
+         * Tensor<TensorDataType::FP32, CpuMemoryResource> scalar("CPU", {});
+         * EXPECT_EQ(scalar.rank(), 0u);  // Scalar
+         *
+         * Tensor<TensorDataType::FP32, CpuMemoryResource> vector("CPU", {5});
+         * EXPECT_EQ(vector.rank(), 1u);  // Vector
+         *
+         * Tensor<TensorDataType::FP32, CpuMemoryResource> matrix("CPU", {3, 4});
+         * EXPECT_EQ(matrix.rank(), 2u);  // Matrix
+         * @endcode
          */
         size_t rank() const {
             return shape_.size();
         }
 
         // ====================================================================
-        // Data Access and Raw Pointers
+        // Data and Raw Pointers
         // ====================================================================
 
         /**
@@ -665,7 +865,7 @@ namespace Mila::Dnn
          * interfacing, and external library integration. Required by ITensorData
          * polymorphic interface for type-erased operations.
          *
-         * @return Void pointer to tensor data buffer
+         * @return Void pointer to tensor data buffer (nullptr for empty tensors)
          *
          * @warning Requires manual type casting and size calculations
          * @warning No type or bounds safety - caller responsibility
@@ -674,9 +874,10 @@ namespace Mila::Dnn
          * @note Required by ITensorData polymorphic interface
          * @note Use with appropriate type casting based on getDataType()
          * @note Consider memory access patterns for packed data types
+         * @note Scalars return valid pointer to single element
          */
         void* rawData() override {
-            return buffer_->rawData();
+            return buffer_ ? buffer_->rawData() : nullptr;
         }
 
         /**
@@ -685,7 +886,7 @@ namespace Mila::Dnn
          * Provides read-only raw memory access for low-level operations
          * and external library integration with const-correctness.
          *
-         * @return Const void pointer to tensor data buffer
+         * @return Const void pointer to tensor data buffer (nullptr for empty tensors)
          *
          * @warning Requires manual type casting and size calculations
          * @warning No type or bounds safety - caller responsibility
@@ -694,9 +895,10 @@ namespace Mila::Dnn
          * @note Required by ITensorData polymorphic interface
          * @note Use with appropriate type casting based on getDataType()
          * @note Consider memory access patterns for packed data types
+         * @note Scalars return valid pointer to single element
          */
         const void* rawData() const override {
-            return buffer_->rawData();
+            return buffer_ ? buffer_->rawData() : nullptr;
         }
 
         /**
@@ -704,16 +906,32 @@ namespace Mila::Dnn
          *
          * Provides a type-safe pointer wrapper that automatically uses the concrete
          * host-compatible type corresponding to the tensor's abstract data type.
-         * Only available for host-accessible memory resources.
+         * Only available for host-accessible memory resources. Return type is
+         * TensorPtr<host_type> where host_type is determined by TensorHostTypeMap.
          *
-         * @return TensorPtr with concrete host type for safe operations
+         * @return TensorPtr<host_type> with automatic type mapping
          *
-         * @note Only available for host-accessible memory resources
-         * @note Return type is automatically mapped from abstract TensorDataType
+         * @note Only available for host-accessible memory resources (compile-time enforced)
+         * @note Return type automatically mapped: FP16->float, INT8->int8_t, etc.
          * @note Provides type-safe access without manual casting
+         * @note Use auto for automatic type deduction: auto ptr = tensor.data();
+         * @note Works with scalars - returns pointer to single element
+         *
+         * @see TensorPtr for pointer wrapper operations
+         * @see TensorHostTypeMap for type mapping rules
+         *
+         * Example:
+         * @code
+         * Tensor<TensorDataType::FP16, CpuMemoryResource> t("CPU", {10});
+         * auto ptr = t.data();  // TensorPtr<float>, not TensorPtr<__half>
+         * ptr[0] = 3.14f;       // Type-safe float access
+         *
+         * Tensor<TensorDataType::FP32, CpuMemoryResource> scalar("CPU", {});
+         * auto sptr = scalar.data();  // Points to single element
+         * @endcode
          */
         auto data() requires TMemoryResource::is_host_accessible {
-            using HostType = typename TensorHostTypeMap<TDataType>::host_data_type;
+            using HostType = typename TensorHostTypeMap<TDataType>::host_type;
             return TensorPtr<HostType>( static_cast<HostType*>(buffer_->rawData()) );
         }
 
@@ -724,14 +942,18 @@ namespace Mila::Dnn
          * concrete host-compatible type corresponding to the tensor's abstract data type.
          * Only available for host-accessible memory resources.
          *
-         * @return Const TensorPtr with concrete host type for safe read operations
+         * @return Const TensorPtr<host_type> for safe read operations
          *
-         * @note Only available for host-accessible memory resources
-         * @note Return type is automatically mapped from abstract TensorDataType
+         * @note Only available for host-accessible memory resources (compile-time enforced)
+         * @note Return type automatically mapped from abstract TensorDataType
          * @note Provides type-safe read access without manual casting
+         * @note Works with scalars - returns pointer to single element
+         *
+         * @see TensorPtr for pointer wrapper operations
+         * @see TensorHostTypeMap for type mapping rules
          */
         auto data() const requires TMemoryResource::is_host_accessible {
-            using HostType = typename TensorHostTypeMap<TDataType>::host_data_type;
+            using HostType = typename TensorHostTypeMap<TDataType>::host_type;
             return TensorPtr<const HostType>( static_cast<const HostType*>(buffer_->rawData()) );
         }
 
@@ -747,8 +969,8 @@ namespace Mila::Dnn
          * appropriate host-compatible type as defined by TensorHostTypeMap.
          *
          * Host type mapping rules:
-         * - Floating-point types (FP16, BF16, FP8_*) ? TensorDataType::FP32
-         * - Integer types preserve their original types (INT8 ? INT8, UINT16 ? UINT16, etc.)
+         * - Floating-point types (FP16, BF16, FP8_*) -> TensorDataType::FP32
+         * - Integer types preserve their original types (INT8 -> INT8, UINT16 -> UINT16, etc.)
          * - FP32 and INT32 map directly to themselves
          *
          * @tparam TDstMemoryResource Target memory resource type (defaults to CpuMemoryResource)
@@ -760,15 +982,21 @@ namespace Mila::Dnn
          * @note Result data type is determined by TensorHostTypeMap<TDataType>::host_data_type
          * @note Preserves tensor shape and metadata (name if set)
          * @note Uses device-aware transfer operations with type conversion when needed
+         * @note Scalars are transferred preserving scalar semantics
+         *
+         * @see TensorHostTypeMap for complete type mapping rules
          *
          * Example usage:
-         * ```cpp
+         * @code
          * auto fp16_tensor = Tensor<TensorDataType::FP16, CudaMemoryResource>(...);
-         * auto host_tensor = fp16_tensor.toHost(); // ? Tensor<TensorDataType::FP32, CpuMemoryResource>
+         * auto host_tensor = fp16_tensor.toHost(); // -> Tensor<TensorDataType::FP32, CpuMemoryResource>
          *
          * auto int8_tensor = Tensor<TensorDataType::INT8, CudaMemoryResource>(...);
-         * auto host_tensor = int8_tensor.toHost(); // ? Tensor<TensorDataType::INT8, CpuMemoryResource>
-         * ```
+         * auto host_tensor = int8_tensor.toHost(); // -> Tensor<TensorDataType::INT8, CpuMemoryResource>
+         *
+         * auto scalar = Tensor<TensorDataType::FP16, CudaMemoryResource>("CUDA:0", {});
+         * auto host_scalar = scalar.toHost(); // -> Tensor<TensorDataType::FP32, CpuMemoryResource> with shape {}
+         * @endcode
          */
         template<typename TDstMemoryResource = Compute::CpuMemoryResource>
             requires TDstMemoryResource::is_host_accessible
@@ -777,8 +1005,6 @@ namespace Mila::Dnn
 
             // Create CPU device context
             auto cpu_context = createDeviceContext( "CPU" );
-
-
 
             // Use transfer operations to create host tensor with mapped type
             return transferTo<HostDataType, TDstMemoryResource>( *this, cpu_context );
@@ -791,30 +1017,42 @@ namespace Mila::Dnn
         /**
          * @brief Creates an independent deep copy of the tensor
          *
-         * Constructs a new tensor with its own memory buffer containing
-         * a complete copy of this tensor's data. Unlike copy construction
-         * which is disabled, this method ensures complete independence
-         * between the original and cloned tensors. Device context is shared.
+         * Constructs a new tensor with its own memory buffer. Device context and
+         * metadata are preserved. Data copying is currently not implemented.
          *
-         * @return New tensor with independent memory containing copied data
+         * @return New tensor with independent memory (currently uninitialized)
          *
          * @throws std::bad_alloc If memory allocation fails
-         * @throws std::runtime_error If data copy operation fails
          *
          * @note Creates completely independent tensor with unique identifier
-         * @note Preserves name, device context, and all metadata
-         * @note Both tensors can be modified independently after cloning
-         * @note Handles packed data types and complex memory layouts correctly
+         * @note Preserves name, device context, and shape metadata
+         * @note Scalars are cloned preserving scalar semantics (rank 0, size 1)
+         * @note TODO: Data copying not yet implemented - buffer is allocated but uninitialized
+         *
+         * @warning Current implementation creates allocated but uninitialized tensor
+         *
+         * Example:
+         * @code
+         * Tensor<TensorDataType::FP32, CpuMemoryResource> original("CPU", {3, 4});
+         * auto copy = original.clone();
+         * // copy has same shape but uninitialized data
+         *
+         * Tensor<TensorDataType::FP32, CpuMemoryResource> scalar("CPU", {});
+         * auto scalar_copy = scalar.clone();
+         * EXPECT_TRUE(scalar_copy.isScalar());
+         * @endcode
          */
         Tensor<TDataType, TMemoryResource> clone() const {
-            Tensor<TDataType, TMemoryResource> cloned_tensor(device_context_, shape_);
+            Tensor<TDataType, TMemoryResource> cloned_tensor( device_context_, shape_ );
 
             if (size_ > 0) {
-                // FIXME: cloned_tensor.buffer_->copyFrom(rawData(), buffer_->storageBytes());
+                // TODO: Implement TensorBuffer::copyFrom() for deep copy support
+                // For now, clone() creates allocated but uninitialized tensor
+                // cloned_tensor.buffer_->copyFrom(rawData(), buffer_->storageBytes());
             }
 
             if (!name_.empty()) {
-                cloned_tensor.setName(name_);
+                cloned_tensor.setName( name_ );
             }
 
             return cloned_tensor;
@@ -833,22 +1071,34 @@ namespace Mila::Dnn
          *
          * @param new_shape Vector defining the new dimensional structure
          *
-         * @throws std::runtime_error If new total size doesn't match current size
+         * @throws std::runtime_error If new total size doesn't match current size (except for empty tensors)
          *
-         * @note Total element count must remain unchanged
+         * @note Total element count must remain unchanged (unless empty)
          * @note Empty tensors can be reshaped to any size (will allocate memory)
          * @note Data order in memory remains unchanged
          * @note Automatically recomputes strides for new shape
          * @note Preserves data type, memory resource, and device context
+         * @note Scalars can be reshaped to vectors and vice versa if size matches
+         *
+         * Scalar reshaping examples:
+         * @code
+         * Tensor<TensorDataType::FP32, CpuMemoryResource> scalar("CPU", {});
+         * // scalar.reshape({1}) would work - both have size 1
+         * // scalar.reshape({2}) would throw - size mismatch
+         *
+         * Tensor<TensorDataType::FP32, CpuMemoryResource> vec1("CPU", {1});
+         * vec1.reshape({});  // Convert to scalar - both have size 1
+         * EXPECT_TRUE(vec1.isScalar());
+         * @endcode
          */
-        void reshape(const std::vector<size_t>& new_shape) {
-            size_t new_size = computeSize(new_shape);
+        void reshape( const std::vector<size_t>& new_shape ) {
+            size_t new_size = computeSize( new_shape );
             if (!empty() && (new_size != size_)) {
-                throw std::runtime_error("The new shape must match the size of the tensor or the tensor must be empty.");
+                throw std::runtime_error( "The new shape must match the size of the tensor or the tensor must be empty." );
             }
 
             shape_ = new_shape;
-            strides_ = computeStrides(new_shape);
+            strides_ = computeStrides( new_shape );
 
             if (empty() && new_size > 0) {
                 size_ = new_size;
@@ -865,11 +1115,12 @@ namespace Mila::Dnn
          *
          * @return Reference to this tensor (for method chaining)
          *
-         * @note For tensors with rank <= 1, no operation is performed
+         * @note For tensors with rank <= 1 (scalars and vectors), no operation is performed
          * @note Result shape is [product_of_first_n-1_dims, last_dim]
          * @note Preserves memory layout and data order
          * @note Modifies this tensor directly
          * @note Essential for neural network layer transitions
+         * @note Scalars remain unchanged (rank 0)
          */
         Tensor<TDataType, TMemoryResource>& flatten() {
             if (rank() <= 1) {
@@ -882,7 +1133,7 @@ namespace Mila::Dnn
             }
 
             std::vector<size_t> new_shape = { flat_dim, shape().back() };
-            reshape(new_shape);
+            reshape( new_shape );
 
             return *this;
         }
@@ -898,9 +1149,10 @@ namespace Mila::Dnn
          *
          * @note Original tensor remains unchanged
          * @note Result is independent copy (deep copy)
-         * @note For tensors with rank <= 1, returns clone of original
+         * @note For tensors with rank <= 1 (scalars and vectors), returns clone of original
          * @note Result shape is [product_of_first_n-1_dims, last_dim]
          * @note Useful for neural network layer compatibility
+         * @note Scalars return cloned scalars (rank 0 preserved)
          */
         Tensor<TDataType, TMemoryResource> flattened() const {
             if (rank() <= 1) {
@@ -967,9 +1219,9 @@ namespace Mila::Dnn
          * @note Names are preserved during memory transfers and cloning
          * @note Useful for debugging and tensor identification
          */
-        void setName(const std::string& value) {
+        void setName( const std::string& value ) {
             if (value.empty()) {
-                throw std::invalid_argument("Tensor name cannot be empty.");
+                throw std::invalid_argument( "Tensor name cannot be empty." );
             }
             name_ = value;
         }
@@ -993,8 +1245,9 @@ namespace Mila::Dnn
          * @note Large tensors show truncated buffer content with ellipsis
          * @note Useful for debugging and neural network introspection
          * @note Handles packed data types appropriately
+         * @note Scalars display with empty shape and single stride
          */
-        std::string toString(bool showBuffer = false) const {
+        std::string toString( bool showBuffer = false ) const {
             std::ostringstream oss;
             oss << "Tensor: " << uid_;
             if (!name_.empty())
@@ -1005,7 +1258,7 @@ namespace Mila::Dnn
             oss << " Type: " << DataTypeTraits::type_name;
 
             if (device_context_) {
-                oss << ", Device: " << (device_context_->isCudaDevice() ? "CUDA:" + std::to_string(device_context_->getDeviceId()) : "CPU");
+                oss << ", Device: " << (device_context_->isCudaDevice() ? "CUDA:" + std::to_string( device_context_->getDeviceId() ) : "CPU");
             }
 
             oss << std::endl;
@@ -1047,15 +1300,15 @@ namespace Mila::Dnn
          *
          * @throws std::runtime_error If device name is invalid or device creation fails
          */
-        static std::shared_ptr<Compute::DeviceContext> createDeviceContext(const std::string& device_name) {
-            // Review: Initialize device registrar to ensure devices are available
+        static std::shared_ptr<Compute::DeviceContext> createDeviceContext( const std::string& device_name ) {
+            // Initialize device registrar to ensure devices are available
             Compute::DeviceRegistrar::instance();
 
             try {
-                return Compute::DeviceContext::create(device_name);
+                return Compute::DeviceContext::create( device_name );
             }
             catch (const std::exception& e) {
-                throw std::runtime_error("Failed to create device context for '" + device_name + "': " + e.what());
+                throw std::runtime_error( "Failed to create device context for '" + device_name + "': " + e.what() );
             }
         }
 
@@ -1080,29 +1333,53 @@ namespace Mila::Dnn
         /**
          * @brief Allocates and initializes the tensor's data buffer
          *
-         * Creates TensorBuffer with device context as required by the latest constructor.
-         * The buffer is responsible for device-aware memory allocation and management.
+         * Creates TensorBuffer with device context. Handles zero-size tensors
+         * efficiently - no allocation occurs for truly empty tensors (size = 0),
+         * but scalars (empty shape, size = 1) are allocated normally.
          */
         void allocateBuffer() {
             if (size_ > 0) {
-                buffer_ = std::make_shared<TensorBuffer<TDataType, TMemoryResource>>(device_context_, size_);
+                buffer_ = std::make_shared<TensorBuffer<TDataType, TMemoryResource>>( device_context_, size_ );
             }
         }
 
-        void validateIndices(const std::vector<size_t>& indices, const char* fn) const {
+        /**
+         * @brief Validates multi-dimensional indices against tensor shape
+         *
+         * Ensures that the provided indices match the tensor rank and that
+         * each index is within bounds for its corresponding dimension.
+         *
+         * @param indices Vector of indices to validate
+         * @param fn Function name for error messages (e.g., "operator[]")
+         *
+         * @throws std::runtime_error If indices size doesn't match tensor rank
+         * @throws std::out_of_range If any index exceeds its dimension's size
+         */
+        void validateIndices( const std::vector<size_t>& indices, const char* fn ) const {
             if (indices.size() != shape_.size()) {
-                throw std::runtime_error(std::string(fn) + ": number of indices must match tensor rank");
+                throw std::runtime_error( std::string( fn ) + ": number of indices must match tensor rank" );
             }
             for (size_t i = 0; i < indices.size(); ++i) {
                 if (indices[i] >= shape_[i]) {
-                    throw std::out_of_range(std::string(fn) + ": index " + std::to_string(indices[i]) +
-                        " is out of range for dim " + std::to_string(i) + " size " + std::to_string(shape_[i]));
+                    throw std::out_of_range( std::string( fn ) + ": index " + std::to_string( indices[i] ) +
+                        " is out of range for dim " + std::to_string( i ) + " size " + std::to_string( shape_[i] ) );
                 }
             }
         }
 
-        // Compute flat index using row-major strides
-        size_t computeFlatIndex(const std::vector<size_t>& indices) const {
+        /**
+         * @brief Computes flat memory index from multi-dimensional indices
+         *
+         * Converts multi-dimensional indices to a single linear index using
+         * row-major (C-style) memory layout and precomputed strides.
+         *
+         * @param indices Vector of indices (must be pre-validated)
+         * @return Flat index into contiguous memory
+         *
+         * @note Assumes indices are already validated
+         * @note Uses row-major stride computation
+         */
+        size_t computeFlatIndex( const std::vector<size_t>& indices ) const {
             size_t idx = 0;
             for (size_t d = 0; d < indices.size(); ++d) {
                 idx += indices[d] * strides_[d];
@@ -1112,39 +1389,69 @@ namespace Mila::Dnn
 
         /**
          * @brief Generates formatted layout information string
+         *
+         * Creates a string representation of tensor layout including shape,
+         * strides, format, and size for debugging and display purposes.
+         *
          * @return String containing shape, strides, and size information
          */
         std::string outputLayout() const {
             std::string result = "TensorData(shape=[";
 
             for (size_t i = 0; i < shape_.size(); ++i) {
-                result += std::to_string(shape_[i]);
+                result += std::to_string( shape_[i] );
                 if (i < shape_.size() - 1) result += ",";
             }
 
             result += "], strides=[";
 
             for (size_t i = 0; i < strides_.size(); ++i) {
-                result += std::to_string(strides_[i]);
+                result += std::to_string( strides_[i] );
                 if (i < strides_.size() - 1) result += ",";
             }
 
             result += "], format=RowMajor";
-            result += ", size=" + std::to_string(size_) + ")";
+            result += ", size=" + std::to_string( size_ ) + ")";
 
             return result;
         }
 
         /**
          * @brief Computes total element count from shape vector
+         *
+         * Calculates the product of all dimensions, representing the total number
+         * of logical elements in the tensor. Empty shape represents a scalar
+         * (0-dimensional) tensor with size 1, following mathematical convention
+         * where the product of an empty sequence is 1 (multiplicative identity).
+         *
          * @param shape Dimensional sizes
-         * @return Product of all dimensions
+         * @return Product of all dimensions (1 for empty shape = scalar)
+         *
+         * @note Empty shape {} -> size 1 (scalar, rank 0)
+         * @note Shape {0} -> size 0 (empty 1D vector, rank 1)
+         * @note Shape {0, 5} -> size 0 (empty 2D matrix, rank 2)
+         * @note Shape {2, 3} -> size 6 (2x3 matrix, rank 2)
+         * @note Shape {3, 4, 5} -> size 60 (3x4x5 tensor, rank 3)
+         *
+         * Mathematical rationale:
+         * - Product of empty sequence = 1 (multiplicative identity)
+         * - This correctly treats scalars as having one element
+         * - Empty tensors have at least one dimension with size 0
+         *
+         * Examples:
+         * @code
+         * computeSize({})        -> 1   // Scalar (0D)
+         * computeSize({5})       -> 5   // 1D vector
+         * computeSize({0})       -> 0   // Empty 1D vector
+         * computeSize({3, 4})    -> 12  // 2D matrix
+         * computeSize({0, 5})    -> 0   // Empty 2D matrix
+         * computeSize({2, 3, 4}) -> 24  // 3D tensor
+         * @endcode
          */
-        size_t computeSize(const std::vector<size_t>& shape) {
-            if (shape.empty()) {
-                return 0;
-            }
-            return std::accumulate(shape.begin(), shape.end(), 1ull, std::multiplies<size_t>());
+        size_t computeSize( const std::vector<size_t>& shape ) {
+            // Product of empty sequence is 1 (multiplicative identity)
+            // This correctly makes scalars (empty shape) have size 1
+            return std::accumulate( shape.begin(), shape.end(), 1ull, std::multiplies<size_t>() );
         }
 
         /**
