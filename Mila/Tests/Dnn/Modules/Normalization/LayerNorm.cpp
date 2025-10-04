@@ -13,7 +13,7 @@ namespace Modules::Normalization::Tests
 
     template<DeviceType TDevice>
     using MemoryResourceType = std::conditional_t<TDevice == DeviceType::Cuda,
-        CudaMemoryResource,
+        CudaDeviceMemoryResource,
         CpuMemoryResource>;
 
     template<DeviceType TDevice, typename TInput = float, typename TOutput = TInput>
@@ -166,7 +166,7 @@ namespace Modules::Normalization::Tests
             for ( size_t i = 0; i < host_input.size(); ++i ) {
                 host_input.data()[ i ] = static_cast<TInput>( static_cast<float>( i ) / host_input.size() * 4.0f - 2.0f );
             }
-            input = host_input.toDevice<CudaMemoryResource>();
+            input = host_input.toDevice<CudaDeviceMemoryResource>();
         }
 
         ASSERT_NO_THROW( data.ln_module->forward( input, output ) );
@@ -281,8 +281,8 @@ namespace Modules::Normalization::Tests
                 host_small_input.data()[ i ] = static_cast<TInput>( 1e-6f );
             }
 
-            large_input = host_large_input.toDevice<CudaMemoryResource>();
-            small_input = host_small_input.toDevice<CudaMemoryResource>();
+            large_input = host_large_input.toDevice<CudaDeviceMemoryResource>();
+            small_input = host_small_input.toDevice<CudaDeviceMemoryResource>();
         }
 
         ASSERT_NO_THROW( ln->forward( large_input, large_output ) );
@@ -336,8 +336,8 @@ namespace Modules::Normalization::Tests
             cpu_bias->data()[ i ] = 0.0f;
         }
 
-        auto device_weight = cpu_weight->toDevice<CudaMemoryResource>();
-        auto device_bias = cpu_bias->toDevice<CudaMemoryResource>();
+        auto device_weight = cpu_weight->toDevice<CudaDeviceMemoryResource>();
+        auto device_bias = cpu_bias->toDevice<CudaDeviceMemoryResource>();
 
         for ( size_t i = 0; i < cuda_weight->size(); ++i ) {
             cuda_weight->data()[ i ] = device_weight.data()[ i ];
@@ -347,8 +347,8 @@ namespace Modules::Normalization::Tests
         Tensor<float, CpuMemoryResource> cpu_output( shape );
         cpu_ln->forward( host_input, cpu_output );
 
-        auto cuda_input = host_input.toDevice<CudaMemoryResource>();
-        Tensor<float, CudaMemoryResource> cuda_output( shape );
+        auto cuda_input = host_input.toDevice<CudaDeviceMemoryResource>();
+        Tensor<float, CudaDeviceMemoryResource> cuda_output( shape );
         cuda_ln->forward( cuda_input, cuda_output );
 
         auto cuda_output_host = cuda_output.toHost<CpuMemoryResource>();

@@ -1,7 +1,7 @@
 export module Compute.CudaDeviceTraits;
 
 import Compute.DeviceTraits;
-import Compute.CudaMemoryResource;
+import Compute.CudaDeviceMemoryResource;
 import Compute.CudaManagedMemoryResource;
 import Compute.CudaPinnedMemoryResource;
 import Compute.CudaDevice;
@@ -9,7 +9,7 @@ import Compute.CudaDevice;
 namespace Mila::Dnn::Compute
 {
     template<>
-    struct ComputeDeviceTraits<CudaMemoryResource>
+    struct ComputeDeviceTraits<CudaDeviceMemoryResource>
     {
         using type = CudaDevice;
     };

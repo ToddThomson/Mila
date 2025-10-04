@@ -48,7 +48,7 @@ namespace Tensors::Tests
 
     TEST( TensorDataManipulationTest, Clone_CudaTensor ) {
         std::vector<size_t> shape = { 2, 2 };
-        Tensor<float, Compute::CudaMemoryResource> cuda_original( shape, 2.5f );
+        Tensor<float, Compute::CudaDeviceMemoryResource> cuda_original( shape, 2.5f );
         cuda_original.setName( "cuda_original" );
 
         auto cuda_clone = cuda_original.clone();
@@ -233,7 +233,7 @@ namespace Tensors::Tests
     TEST( TensorDataManipulationTest, FillAfterTransfer ) {
         Tensor<float, Compute::HostMemoryResource> host_tensor( { 2, 2 }, 1.0f );
 
-        auto cuda_tensor = host_tensor.toDevice<Compute::CudaMemoryResource>();
+        auto cuda_tensor = host_tensor.toDevice<Compute::CudaDeviceMemoryResource>();
         cuda_tensor.fill( 7.5f );
 
         auto back_to_host = cuda_tensor.toHost<Compute::HostMemoryResource>();

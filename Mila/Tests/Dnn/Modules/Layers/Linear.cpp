@@ -13,7 +13,7 @@ namespace Modules::Layers::Tests
 
     template<DeviceType TDevice>
     using MemoryResourceType = std::conditional_t<TDevice == DeviceType::Cuda,
-        CudaMemoryResource,
+        CudaDeviceMemoryResource,
         CpuMemoryResource>;
 
     template<DeviceType TDevice, typename TDataType = float>
@@ -164,7 +164,7 @@ namespace Modules::Layers::Tests
             for ( size_t i = 0; i < host_input.size(); ++i ) {
                 host_input.data()[ i ] = static_cast<TDataType>( static_cast<float>( i ) / host_input.size() * 2.0f - 1.0f );
             }
-            input = host_input.toDevice<CudaMemoryResource>();
+            input = host_input.toDevice<CudaDeviceMemoryResource>();
         }
 
         ASSERT_NO_THROW( data.linear_module->forward( input, output ) );
@@ -245,13 +245,13 @@ namespace Modules::Layers::Tests
         auto cuda_weight = cuda_linear->getWeight();
 
         auto cpu_weight_tensor = std::dynamic_pointer_cast<Tensor<float, CpuMemoryResource>>( cpu_weight );
-        auto cuda_weight_tensor = std::dynamic_pointer_cast<Tensor<float, CudaMemoryResource>>( cuda_weight );
+        auto cuda_weight_tensor = std::dynamic_pointer_cast<Tensor<float, CudaDeviceMemoryResource>>( cuda_weight );
 
         for ( size_t i = 0; i < cpu_weight_tensor->size(); ++i ) {
             cpu_weight_tensor->data()[ i ] = 0.1f;
         }
 
-        auto device_weight = cpu_weight_tensor->toDevice<CudaMemoryResource>();
+        auto device_weight = cpu_weight_tensor->toDevice<CudaDeviceMemoryResource>();
         for ( size_t i = 0; i < cuda_weight_tensor->size(); ++i ) {
             cuda_weight_tensor->data()[ i ] = device_weight.data()[ i ];
         }
@@ -261,13 +261,13 @@ namespace Modules::Layers::Tests
 
         if ( cpu_bias_opt.has_value() && cuda_bias_opt.has_value() ) {
             auto cpu_bias_tensor = std::dynamic_pointer_cast<Tensor<float, CpuMemoryResource>>( cpu_bias_opt.value() );
-            auto cuda_bias_tensor = std::dynamic_pointer_cast<Tensor<float, CudaMemoryResource>>( cuda_bias_opt.value() );
+            auto cuda_bias_tensor = std::dynamic_pointer_cast<Tensor<float, CudaDeviceMemoryResource>>( cuda_bias_opt.value() );
 
             for ( size_t i = 0; i < cpu_bias_tensor->size(); ++i ) {
                 cpu_bias_tensor->data()[ i ] = 0.0f;
             }
 
-            auto device_bias = cpu_bias_tensor->toDevice<CudaMemoryResource>();
+            auto device_bias = cpu_bias_tensor->toDevice<CudaDeviceMemoryResource>();
             for ( size_t i = 0; i < cuda_bias_tensor->size(); ++i ) {
                 cuda_bias_tensor->data()[ i ] = device_bias.data()[ i ];
             }
@@ -276,8 +276,8 @@ namespace Modules::Layers::Tests
         Tensor<float, CpuMemoryResource> cpu_output( test_output_shape );
         cpu_linear->forward( host_input, cpu_output );
 
-        auto cuda_input = host_input.toDevice<CudaMemoryResource>();
-        Tensor<float, CudaMemoryResource> cuda_output( test_output_shape );
+        auto cuda_input = host_input.toDevice<CudaDeviceMemoryResource>();
+        Tensor<float, CudaDeviceMemoryResource> cuda_output( test_output_shape );
         cuda_linear->forward( cuda_input, cuda_output );
 
         auto cuda_output_host = cuda_output.toHost<CpuMemoryResource>();

@@ -132,10 +132,10 @@ int main() {
         }
 
         // Create CUDA tensors
-        Tensor<float, CudaMemoryResource> cuda_input( input_shape );
-        auto cuda_weights = std::make_shared<Tensor<float, CudaMemoryResource>>( weight_shape );
-        auto cuda_bias = std::make_shared<Tensor<float, CudaMemoryResource>>( bias_shape );
-        Tensor<float, CudaMemoryResource> cuda_output( output_shape );
+        Tensor<float, CudaDeviceMemoryResource> cuda_input( input_shape );
+        auto cuda_weights = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( weight_shape );
+        auto cuda_bias = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( bias_shape );
+        Tensor<float, CudaDeviceMemoryResource> cuda_output( output_shape );
 
         // Copy data to CUDA
         cuda_input.copyFrom( host_input );
@@ -147,8 +147,8 @@ int main() {
         auto cpu_bias = std::make_shared<Tensor<float, HostMemoryResource>>( host_bias );
 
         // Operation parameters and cache
-        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> cuda_params = { cuda_weights, cuda_bias };
-        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> cuda_output_state;
+        std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> cuda_params = { cuda_weights, cuda_bias };
+        std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> cuda_output_state;
 
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> cpu_params = { cpu_weights, cpu_bias };
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> cpu_output_state;

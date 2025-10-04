@@ -14,7 +14,7 @@ module;
 export module Compute.CudaMatMulBiasGeluOp;
 
 import Dnn.Tensor;
-import Dnn.TensorData;
+import Dnn.ITensor;
 import Dnn.TensorTraits;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
@@ -24,7 +24,7 @@ import Compute.DeviceType;
 import Compute.DeviceContext;
 import Compute.OperationType;
 import Compute.CudaDevice;
-import Compute.CudaMemoryResource;
+import Compute.CudaDeviceMemoryResource;
 
 // Forward declaration of CUDA kernel function from FusedMatMulBiasGelu.cu
 //extern "C" {
@@ -93,7 +93,7 @@ namespace Mila::Dnn::Compute
          */
         void forward(
             const Tensor<TInput, MR>& input,
-            const std::vector<std::shared_ptr<ITensorData>>& parameters,
+            const std::vector<std::shared_ptr<ITensor>>& parameters,
             Tensor<TOutput, MR>& output,
             std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const override {
 
@@ -145,7 +145,7 @@ namespace Mila::Dnn::Compute
             const Tensor<TInput, MR>& input,
             const Tensor<TOutput, MR>& output,
             const Tensor<TOutput, MR>& output_gradient,
-            const std::vector<std::shared_ptr<ITensorData>>& parameters,
+            const std::vector<std::shared_ptr<ITensor>>& parameters,
             std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& parameter_gradients,
             Tensor<TInput, MR>& input_gradient,
             const std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const {

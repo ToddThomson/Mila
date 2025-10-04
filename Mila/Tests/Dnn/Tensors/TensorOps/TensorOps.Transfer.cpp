@@ -176,7 +176,7 @@ namespace Dnn::Tensors::TensorOps::Tests
         const std::vector<size_t> shape = { 2, 3 };
 
         auto src = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, shape );
-        auto dst = Tensor<TensorDataType::FP32, Compute::CudaMemoryResource>( cuda_context_, shape );
+        auto dst = Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_context_, shape );
 
         initializeTensorWithTestData( src );
 
@@ -198,7 +198,7 @@ namespace Dnn::Tensors::TensorOps::Tests
         const std::vector<size_t> shape = { 3, 3 };
 
         auto src = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, shape );
-        auto dst = Tensor<TensorDataType::FP16, Compute::CudaMemoryResource>( cuda_context_, shape );
+        auto dst = Tensor<TensorDataType::FP16, Compute::CudaDeviceMemoryResource>( cuda_context_, shape );
 
         initializeTensorWithTestData( src );
 
@@ -220,7 +220,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
         const std::vector<size_t> shape = { 2, 2 };
 
-        auto src = Tensor<TensorDataType::FP32, Compute::CudaMemoryResource>( cuda_context_, shape );
+        auto src = Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_context_, shape );
         auto dst = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, shape );
 
         EXPECT_NO_THROW( copy( src, dst ) );
@@ -240,7 +240,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
         const std::vector<size_t> shape = { 4, 2 };
 
-        auto src = Tensor<TensorDataType::FP16, Compute::CudaMemoryResource>( cuda_context_, shape );
+        auto src = Tensor<TensorDataType::FP16, Compute::CudaDeviceMemoryResource>( cuda_context_, shape );
         auto dst = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, shape );
 
         EXPECT_NO_THROW( copy( src, dst ) );
@@ -261,8 +261,8 @@ namespace Dnn::Tensors::TensorOps::Tests
 
         const std::vector<size_t> shape = { 3, 3 };
 
-        auto src = Tensor<TensorDataType::FP32, Compute::CudaMemoryResource>( cuda_context_, shape );
-        auto dst = Tensor<TensorDataType::FP32, Compute::CudaMemoryResource>( cuda_context_, shape );
+        auto src = Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_context_, shape );
+        auto dst = Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_context_, shape );
 
         EXPECT_NO_THROW( copy( src, dst ) );
 
@@ -281,8 +281,8 @@ namespace Dnn::Tensors::TensorOps::Tests
 
         const std::vector<size_t> shape = { 2, 4 };
 
-        auto src = Tensor<TensorDataType::FP32, Compute::CudaMemoryResource>( cuda_context_, shape );
-        auto dst = Tensor<TensorDataType::FP16, Compute::CudaMemoryResource>( cuda_context_, shape );
+        auto src = Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_context_, shape );
+        auto dst = Tensor<TensorDataType::FP16, Compute::CudaDeviceMemoryResource>( cuda_context_, shape );
 
         EXPECT_NO_THROW( copy( src, dst ) );
 
@@ -323,7 +323,7 @@ namespace Dnn::Tensors::TensorOps::Tests
         const std::vector<size_t> shape = { 3, 2 };
 
         auto src = Tensor<TensorDataType::FP32, Compute::CudaPinnedMemoryResource>( cuda_context_, shape );
-        auto dst = Tensor<TensorDataType::FP32, Compute::CudaMemoryResource>( cuda_context_, shape );
+        auto dst = Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_context_, shape );
 
         EXPECT_NO_THROW( copy( src, dst ) );
 
@@ -421,7 +421,7 @@ namespace Dnn::Tensors::TensorOps::Tests
         const std::vector<size_t> shape = { 2, 3 };
 
         auto original = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, shape );
-        auto gpu_copy = Tensor<TensorDataType::FP32, Compute::CudaMemoryResource>( cuda_context_, shape );
+        auto gpu_copy = Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_context_, shape );
         auto final_copy = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, shape );
 
         initializeTensorWithTestData( original );
@@ -445,7 +445,7 @@ namespace Dnn::Tensors::TensorOps::Tests
         const std::vector<size_t> shape = { 2, 2 };
 
         auto original = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, shape );
-        auto fp16_gpu = Tensor<TensorDataType::FP16, Compute::CudaMemoryResource>( cuda_context_, shape );
+        auto fp16_gpu = Tensor<TensorDataType::FP16, Compute::CudaDeviceMemoryResource>( cuda_context_, shape );
         auto final_copy = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, shape );
 
         initializeTensorWithTestData( original );

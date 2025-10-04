@@ -26,7 +26,7 @@ module;
 
 export module Compute.CublasLtMatMulBias;
 
-import Dnn.TensorData;
+import Dnn.ITensor;
 import Dnn.TensorTraits;
 import Compute.Precision;
 import Cuda.DataTypeTraits;

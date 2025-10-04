@@ -29,7 +29,7 @@ import Dnn.TensorDataType;
 import Dnn.TensorTraits;
 import Compute.DeviceType;
 import Compute.MemoryResource;
-import Compute.CudaMemoryResource;
+import Compute.CudaDeviceMemoryResource;
 import Compute.CudaPinnedMemoryResource;
 import Compute.CpuMemoryResource;
 //import Compute.TensorDataTypeCompatibility;

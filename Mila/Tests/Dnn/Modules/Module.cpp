@@ -22,7 +22,7 @@ namespace Modules::Base::Tests
 
     template<DeviceType TDevice>
     using MemoryResourceType = std::conditional_t<TDevice == Compute::DeviceType::Cuda,
-        Compute::CudaMemoryResource,
+        Compute::CudaDeviceMemoryResource,
         Compute::CpuMemoryResource>;
 
     template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput>

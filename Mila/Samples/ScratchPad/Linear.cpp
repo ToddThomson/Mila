@@ -23,13 +23,13 @@
 //
 //        //auto cpu_linear = Linear<float>( "cpu_linear_1", cpu_input_shape, output_channels );
 //
-//        //auto cuda_linear = Linear<float, float, Compute::CudaMemoryResource>(
+//        //auto cuda_linear = Linear<float, float, Compute::CudaDeviceMemoryResource>(
 //        //    "cuda_linear_2", cuda_input_shape, output_channels );
 //
 //        //Tensor<float, Compute::HostMemoryResource> input( cpu_input_shape );
 //        //random<float, Compute::HostMemoryResource>( input, 0.0f, 5.0f );
 //
-//        //auto cuda_input = input.to<Compute::CudaMemoryResource>();
+//        //auto cuda_input = input.to<Compute::CudaDeviceMemoryResource>();
 //
 //        ////auto output = cpu_linear.forward( HostTensor<float>( input ) );
 //        ////auto output2 = cuda_linear.forward( DeviceTensor<float>( cuda_input ) );

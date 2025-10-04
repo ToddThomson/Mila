@@ -15,7 +15,7 @@ namespace Modules::Tests
     // Memory resource selector based on device type
     template<DeviceType TDevice, typename TPrecision>
     using MemoryResourceType = std::conditional_t<TDevice == Compute::DeviceType::Cuda,
-        Compute::CudaMemoryResource,
+        Compute::CudaDeviceMemoryResource,
         Compute::HostMemoryResource>;
 
     // Test data structure for Encoder tests
@@ -404,11 +404,11 @@ namespace Modules::Tests
         cpu_data.encoder_module->forward( host_input, cpu_output );
 
         // Create device input by copying host data
-        Tensor<TInput, CudaMemoryResource> device_input( test_input_shape );
+        Tensor<TInput, CudaDeviceMemoryResource> device_input( test_input_shape );
         device_input.copyFrom( host_input );
 
         // Run CUDA encoder
-        Tensor<TOutput, CudaMemoryResource> cuda_output( test_output_shape );
+        Tensor<TOutput, CudaDeviceMemoryResource> cuda_output( test_output_shape );
         cuda_data.encoder_module->forward( device_input, cuda_output );
 
         // Copy CUDA output back to host for comparison
@@ -458,15 +458,15 @@ namespace Modules::Tests
         }
 
         // Create device input by copying host data
-        Tensor<TInput, CudaMemoryResource> device_input( test_input_shape );
+        Tensor<TInput, CudaDeviceMemoryResource> device_input( test_input_shape );
         device_input.copyFrom( host_input );
 
         // Run CUDA float precision encoder
-        Tensor<float, CudaMemoryResource> cuda_float_output( test_output_shape );
+        Tensor<float, CudaDeviceMemoryResource> cuda_float_output( test_output_shape );
         float_data.encoder_module->forward( device_input, cuda_float_output );
 
         // Run CUDA half precision encoder
-        Tensor<half, CudaMemoryResource> cuda_half_output( test_output_shape );
+        Tensor<half, CudaDeviceMemoryResource> cuda_half_output( test_output_shape );
         half_data.encoder_module->forward( device_input, cuda_half_output );
 
         // Copy results back to host for comparison

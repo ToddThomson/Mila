@@ -133,7 +133,7 @@ namespace Dnn::Tensors::Tests
         std::vector<size_t> shape = { 3, 4 };
 
         HostTensor<TensorDataType::FP32> host_tensor( "CPU", shape );
-        Tensor<TensorDataType::FP32, Compute::CudaMemoryResource> cuda_tensor( "CUDA:0", shape );
+        Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> cuda_tensor( "CUDA:0", shape );
         Tensor<TensorDataType::FP32, Compute::CudaPinnedMemoryResource> pinned_tensor( "CUDA:0", shape );
         Tensor<TensorDataType::FP32, Compute::CudaManagedMemoryResource> managed_tensor( "CUDA:0", shape );
 
@@ -221,7 +221,7 @@ namespace Dnn::Tensors::Tests
 
     TEST( TensorPropertiesTest, Empty_DifferentMemoryTypes ) {
         HostTensor<TensorDataType::FP32> host_empty( "CPU", std::vector<size_t>{} );
-        Tensor<TensorDataType::FP32, Compute::CudaMemoryResource> cuda_empty( "CUDA:0", std::vector<size_t>{} );
+        Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> cuda_empty( "CUDA:0", std::vector<size_t>{} );
         Tensor<TensorDataType::FP32, Compute::CudaPinnedMemoryResource> pinned_empty( "CUDA:0", std::vector<size_t>{} );
         Tensor<TensorDataType::FP32, Compute::CudaManagedMemoryResource> managed_empty( "CUDA:0", std::vector<size_t>{} );
 
@@ -266,7 +266,7 @@ namespace Dnn::Tensors::Tests
 
         // Transfer to device and back - create device context via DeviceContext factory
         auto cuda_ctx = Compute::DeviceContext::create( "CUDA:0" );
-        auto cuda_tensor = host_tensor.toDevice<TensorDataType::FP32, Compute::CudaMemoryResource>( cuda_ctx );
+        auto cuda_tensor = host_tensor.toDevice<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_ctx );
         
         EXPECT_EQ( cuda_tensor.shape(), shape );
         EXPECT_EQ( cuda_tensor.rank(), 2 );

@@ -225,23 +225,23 @@ namespace Operations::Tests
      */
     TEST_F( CudaMultiHeadAttentionOpTests, BasicFunctionality ) {
         // Create input, weight, bias, and output tensors
-        Tensor<float, CudaMemoryResource> device_input( small_shape_ );
+        Tensor<float, CudaDeviceMemoryResource> device_input( small_shape_ );
 
         // Define weight and bias shapes based on input
         std::vector<size_t> weight_shape = { small_shape_[ 2 ], small_shape_[ 2 ] };  // Hidden x Hidden
         std::vector<size_t> bias_shape = { small_shape_[ 2 ] };  // Hidden dim
 
-        auto device_weight = std::make_shared<Tensor<float, CudaMemoryResource>>( weight_shape );
-        auto device_bias = std::make_shared<Tensor<float, CudaMemoryResource>>( bias_shape );
-        Tensor<float, CudaMemoryResource> device_output( small_shape_ );
+        auto device_weight = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( weight_shape );
+        auto device_bias = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( bias_shape );
+        Tensor<float, CudaDeviceMemoryResource> device_output( small_shape_ );
 
         // Attention cache tensors
         size_t num_heads = 4;
         std::vector<size_t> attn_scores_shape = { small_shape_[ 0 ], num_heads, small_shape_[ 1 ], small_shape_[ 1 ] };  // [B, H, T, T]
         std::vector<size_t> attn_weights_shape = { small_shape_[ 0 ], num_heads, small_shape_[ 1 ], small_shape_[ 1 ] };  // [B, H, T, T]
 
-        auto device_attn_scores = std::make_shared<Tensor<float, CudaMemoryResource>>( attn_scores_shape );
-        auto device_attn_weights = std::make_shared<Tensor<float, CudaMemoryResource>>( attn_weights_shape );
+        auto device_attn_scores = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( attn_scores_shape );
+        auto device_attn_weights = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( attn_weights_shape );
 
         Tensor<float, HostMemoryResource> host_input( small_shape_ );
         Tensor<float, HostMemoryResource> host_weight( weight_shape );
@@ -269,8 +269,8 @@ namespace Operations::Tests
         device_bias->copyFrom( host_bias );
 
         // Execute operation
-        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params = { device_weight, device_bias };
-        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state = {
+        std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> params = { device_weight, device_bias };
+        std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> output_state = {
             device_attn_scores, device_attn_weights
         };
 
@@ -310,23 +310,23 @@ namespace Operations::Tests
         std::vector<size_t> test_shape = { 2, 8, 32 };
 
         // Create input, weight, bias, and output tensors
-        Tensor<float, CudaMemoryResource> cuda_input( test_shape );
+        Tensor<float, CudaDeviceMemoryResource> cuda_input( test_shape );
 
         // Define weight and bias shapes based on input
         std::vector<size_t> weight_shape = { test_shape[ 2 ], test_shape[ 2 ] };  // Hidden x Hidden
         std::vector<size_t> bias_shape = { test_shape[ 2 ] };  // Hidden dim
 
-        auto cuda_weight = std::make_shared<Tensor<float, CudaMemoryResource>>( weight_shape );
-        auto cuda_bias = std::make_shared<Tensor<float, CudaMemoryResource>>( bias_shape );
-        Tensor<float, CudaMemoryResource> cuda_output( test_shape );
+        auto cuda_weight = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( weight_shape );
+        auto cuda_bias = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( bias_shape );
+        Tensor<float, CudaDeviceMemoryResource> cuda_output( test_shape );
 
         // Attention cache tensors
         size_t num_heads = 4;  // Using 4 attention heads for this test
         std::vector<size_t> attn_scores_shape = { test_shape[ 0 ], num_heads, test_shape[ 1 ], test_shape[ 1 ] };  // [B, H, T, T]
         std::vector<size_t> attn_weights_shape = { test_shape[ 0 ], num_heads, test_shape[ 1 ], test_shape[ 1 ] };  // [B, H, T, T]
 
-        auto cuda_attn_scores = std::make_shared<Tensor<float, CudaMemoryResource>>( attn_scores_shape );
-        auto cuda_attn_weights = std::make_shared<Tensor<float, CudaMemoryResource>>( attn_weights_shape );
+        auto cuda_attn_scores = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( attn_scores_shape );
+        auto cuda_attn_weights = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( attn_weights_shape );
 
         // CPU tensors
         Tensor<float, HostMemoryResource> cpu_input( test_shape );
@@ -353,8 +353,8 @@ namespace Operations::Tests
         cuda_bias->copyFrom( *cpu_bias );
 
         // Execute CUDA MHA operation
-        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> cuda_params = { cuda_weight, cuda_bias };
-        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> cuda_output_state = {
+        std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> cuda_params = { cuda_weight, cuda_bias };
+        std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> cuda_output_state = {
             cuda_attn_scores, cuda_attn_weights
         };
 
@@ -388,22 +388,22 @@ namespace Operations::Tests
 
         for ( int num_heads : head_counts ) {
             // Create input, weight, bias, and output tensors
-            Tensor<float, CudaMemoryResource> device_input( small_shape_ );
+            Tensor<float, CudaDeviceMemoryResource> device_input( small_shape_ );
 
             // Define weight and bias shapes based on input
             std::vector<size_t> weight_shape = { small_shape_[ 2 ], small_shape_[ 2 ] };  // Hidden x Hidden
             std::vector<size_t> bias_shape = { small_shape_[ 2 ] };  // Hidden dim
 
-            auto device_weight = std::make_shared<Tensor<float, CudaMemoryResource>>( weight_shape );
-            auto device_bias = std::make_shared<Tensor<float, CudaMemoryResource>>( bias_shape );
-            Tensor<float, CudaMemoryResource> device_output( small_shape_ );
+            auto device_weight = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( weight_shape );
+            auto device_bias = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( bias_shape );
+            Tensor<float, CudaDeviceMemoryResource> device_output( small_shape_ );
 
             // Attention cache tensors
             std::vector<size_t> attn_scores_shape = { small_shape_[ 0 ], static_cast<size_t>(num_heads), small_shape_[ 1 ], small_shape_[ 1 ] };
             std::vector<size_t> attn_weights_shape = { small_shape_[ 0 ], static_cast<size_t>(num_heads), small_shape_[ 1 ], small_shape_[ 1 ] };
 
-            auto device_attn_scores = std::make_shared<Tensor<float, CudaMemoryResource>>( attn_scores_shape );
-            auto device_attn_weights = std::make_shared<Tensor<float, CudaMemoryResource>>( attn_weights_shape );
+            auto device_attn_scores = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( attn_scores_shape );
+            auto device_attn_weights = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( attn_weights_shape );
 
             Tensor<float, HostMemoryResource> host_input( small_shape_ );
             Tensor<float, HostMemoryResource> host_weight( weight_shape );
@@ -424,8 +424,8 @@ namespace Operations::Tests
             device_bias->copyFrom( host_bias );
 
             // Execute operation
-            std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params = { device_weight, device_bias };
-            std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state = {
+            std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> params = { device_weight, device_bias };
+            std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> output_state = {
                 device_attn_scores, device_attn_weights
             };
 
@@ -457,22 +457,22 @@ namespace Operations::Tests
             std::vector<size_t> shape = { 2, seq_len, 64 };
 
             // Create input, weight, bias, and output tensors
-            Tensor<float, CudaMemoryResource> device_input( shape );
+            Tensor<float, CudaDeviceMemoryResource> device_input( shape );
 
             // Define weight and bias shapes based on input
             std::vector<size_t> weight_shape = { shape[ 2 ], shape[ 2 ] };  // Hidden x Hidden
             std::vector<size_t> bias_shape = { shape[ 2 ] };  // Hidden dim
 
-            auto device_weight = std::make_shared<Tensor<float, CudaMemoryResource>>( weight_shape );
-            auto device_bias = std::make_shared<Tensor<float, CudaMemoryResource>>( bias_shape );
-            Tensor<float, CudaMemoryResource> device_output( shape );
+            auto device_weight = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( weight_shape );
+            auto device_bias = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( bias_shape );
+            Tensor<float, CudaDeviceMemoryResource> device_output( shape );
 
             // Attention cache tensors
             std::vector<size_t> attn_scores_shape = { shape[ 0 ], static_cast<size_t>(num_heads), shape[ 1 ], shape[ 1 ] };
             std::vector<size_t> attn_weights_shape = { shape[ 0 ], static_cast<size_t>(num_heads), shape[ 1 ], shape[ 1 ] };
 
-            auto device_attn_scores = std::make_shared<Tensor<float, CudaMemoryResource>>( attn_scores_shape );
-            auto device_attn_weights = std::make_shared<Tensor<float, CudaMemoryResource>>( attn_weights_shape );
+            auto device_attn_scores = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( attn_scores_shape );
+            auto device_attn_weights = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( attn_weights_shape );
 
             Tensor<float, HostMemoryResource> host_input( shape );
             Tensor<float, HostMemoryResource> host_weight( weight_shape );
@@ -493,8 +493,8 @@ namespace Operations::Tests
             device_bias->copyFrom( host_bias );
 
             // Execute operation
-            std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params = { device_weight, device_bias };
-            std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state = {
+            std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> params = { device_weight, device_bias };
+            std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> output_state = {
                 device_attn_scores, device_attn_weights
             };
 
@@ -526,22 +526,22 @@ namespace Operations::Tests
             std::vector<size_t> shape = { batch_size, 16, 64 };
 
             // Create input, weight, bias, and output tensors
-            Tensor<float, CudaMemoryResource> device_input( shape );
+            Tensor<float, CudaDeviceMemoryResource> device_input( shape );
 
             // Define weight and bias shapes based on input
             std::vector<size_t> weight_shape = { shape[ 2 ], shape[ 2 ] };  // Hidden x Hidden
             std::vector<size_t> bias_shape = { shape[ 2 ] };  // Hidden dim
 
-            auto device_weight = std::make_shared<Tensor<float, CudaMemoryResource>>( weight_shape );
-            auto device_bias = std::make_shared<Tensor<float, CudaMemoryResource>>( bias_shape );
-            Tensor<float, CudaMemoryResource> device_output( shape );
+            auto device_weight = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( weight_shape );
+            auto device_bias = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( bias_shape );
+            Tensor<float, CudaDeviceMemoryResource> device_output( shape );
 
             // Attention cache tensors
             std::vector<size_t> attn_scores_shape = { shape[ 0 ], static_cast<size_t>(num_heads), shape[ 1 ], shape[ 1 ] };
             std::vector<size_t> attn_weights_shape = { shape[ 0 ], static_cast<size_t>(num_heads), shape[ 1 ], shape[ 1 ] };
 
-            auto device_attn_scores = std::make_shared<Tensor<float, CudaMemoryResource>>( attn_scores_shape );
-            auto device_attn_weights = std::make_shared<Tensor<float, CudaMemoryResource>>( attn_weights_shape );
+            auto device_attn_scores = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( attn_scores_shape );
+            auto device_attn_weights = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( attn_weights_shape );
 
             Tensor<float, HostMemoryResource> host_input( shape );
             Tensor<float, HostMemoryResource> host_weight( weight_shape );
@@ -562,8 +562,8 @@ namespace Operations::Tests
             device_bias->copyFrom( host_bias );
 
             // Execute operation
-            std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params = { device_weight, device_bias };
-            std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state = {
+            std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> params = { device_weight, device_bias };
+            std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> output_state = {
                 device_attn_scores, device_attn_weights
             };
 
@@ -588,29 +588,29 @@ namespace Operations::Tests
      */
     TEST_F( CudaMultiHeadAttentionOpTests, BackwardPass ) {
         // Create tensors for forward pass
-        Tensor<float, CudaMemoryResource> device_input( small_shape_ );
+        Tensor<float, CudaDeviceMemoryResource> device_input( small_shape_ );
 
         // Define weight and bias shapes based on input
         std::vector<size_t> weight_shape = { small_shape_[ 2 ], small_shape_[ 2 ] };  // Hidden x Hidden
         std::vector<size_t> bias_shape = { small_shape_[ 2 ] };  // Hidden dim
 
-        auto device_weight = std::make_shared<Tensor<float, CudaMemoryResource>>( weight_shape );
-        auto device_bias = std::make_shared<Tensor<float, CudaMemoryResource>>( bias_shape );
-        Tensor<float, CudaMemoryResource> device_output( small_shape_ );
+        auto device_weight = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( weight_shape );
+        auto device_bias = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( bias_shape );
+        Tensor<float, CudaDeviceMemoryResource> device_output( small_shape_ );
 
         // Attention cache tensors
         int num_heads = 4;  // Using 4 attention heads for this test
         std::vector<size_t> attn_scores_shape = { small_shape_[ 0 ], static_cast<size_t>(num_heads), small_shape_[ 1 ], small_shape_[ 1 ] };
         std::vector<size_t> attn_weights_shape = { small_shape_[ 0 ], static_cast<size_t>(num_heads), small_shape_[ 1 ], small_shape_[ 1 ] };
 
-        auto device_attn_scores = std::make_shared<Tensor<float, CudaMemoryResource>>( attn_scores_shape );
-        auto device_attn_weights = std::make_shared<Tensor<float, CudaMemoryResource>>( attn_weights_shape );
+        auto device_attn_scores = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( attn_scores_shape );
+        auto device_attn_weights = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( attn_weights_shape );
 
         // Create tensors for backward pass
-        Tensor<float, CudaMemoryResource> device_output_grad( small_shape_ );
-        auto device_weight_grad = std::make_shared<Tensor<float, CudaMemoryResource>>( weight_shape );
-        auto device_bias_grad = std::make_shared<Tensor<float, CudaMemoryResource>>( bias_shape );
-        Tensor<float, CudaMemoryResource> device_input_grad( small_shape_ );
+        Tensor<float, CudaDeviceMemoryResource> device_output_grad( small_shape_ );
+        auto device_weight_grad = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( weight_shape );
+        auto device_bias_grad = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( bias_shape );
+        Tensor<float, CudaDeviceMemoryResource> device_input_grad( small_shape_ );
 
         // Host tensors for verification
         Tensor<float, HostMemoryResource> host_input( small_shape_ );
@@ -648,8 +648,8 @@ namespace Operations::Tests
         }
 
         // Forward pass
-        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params = { device_weight, device_bias };
-        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state = {
+        std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> params = { device_weight, device_bias };
+        std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> output_state = {
             device_attn_scores, device_attn_weights
         };
 
@@ -659,7 +659,7 @@ namespace Operations::Tests
         cuda_mha_op_->forward( device_input, params, props, device_output, output_state );
 
         // Backward pass
-        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> param_gradients = {
+        std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> param_gradients = {
             device_weight_grad, device_bias_grad
         };
 
@@ -702,22 +702,22 @@ namespace Operations::Tests
             float max_val = test_case.second;
 
             // Create input, weight, bias, and output tensors
-            Tensor<float, CudaMemoryResource> device_input( small_shape_ );
+            Tensor<float, CudaDeviceMemoryResource> device_input( small_shape_ );
 
             // Define weight and bias shapes based on input
             std::vector<size_t> weight_shape = { small_shape_[ 2 ], small_shape_[ 2 ] };
             std::vector<size_t> bias_shape = { small_shape_[ 2 ] };
 
-            auto device_weight = std::make_shared<Tensor<float, CudaMemoryResource>>( weight_shape );
-            auto device_bias = std::make_shared<Tensor<float, CudaMemoryResource>>( bias_shape );
-            Tensor<float, CudaMemoryResource> device_output( small_shape_ );
+            auto device_weight = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( weight_shape );
+            auto device_bias = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( bias_shape );
+            Tensor<float, CudaDeviceMemoryResource> device_output( small_shape_ );
 
             // Attention cache tensors
             std::vector<size_t> attn_scores_shape = { small_shape_[ 0 ], static_cast<size_t>(num_heads), small_shape_[ 1 ], small_shape_[ 1 ] };
             std::vector<size_t> attn_weights_shape = { small_shape_[ 0 ], static_cast<size_t>(num_heads), small_shape_[ 1 ], small_shape_[ 1 ] };
 
-            auto device_attn_scores = std::make_shared<Tensor<float, CudaMemoryResource>>( attn_scores_shape );
-            auto device_attn_weights = std::make_shared<Tensor<float, CudaMemoryResource>>( attn_weights_shape );
+            auto device_attn_scores = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( attn_scores_shape );
+            auto device_attn_weights = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( attn_weights_shape );
 
             Tensor<float, HostMemoryResource> host_input( small_shape_ );
             Tensor<float, HostMemoryResource> host_weight( weight_shape );
@@ -734,8 +734,8 @@ namespace Operations::Tests
             device_bias->copyFrom( host_bias );
 
             // Execute operation
-            std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params = { device_weight, device_bias };
-            std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state = {
+            std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> params = { device_weight, device_bias };
+            std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> output_state = {
                 device_attn_scores, device_attn_weights
             };
 
@@ -763,22 +763,22 @@ namespace Operations::Tests
         int num_heads = 8;
 
         // Create input, weight, bias, and output tensors
-        Tensor<float, CudaMemoryResource> device_input( large_shape_ );
+        Tensor<float, CudaDeviceMemoryResource> device_input( large_shape_ );
 
         // Define weight and bias shapes based on input
         std::vector<size_t> weight_shape = { large_shape_[ 2 ], large_shape_[ 2 ] };
         std::vector<size_t> bias_shape = { large_shape_[ 2 ] };
 
-        auto device_weight = std::make_shared<Tensor<float, CudaMemoryResource>>( weight_shape );
-        auto device_bias = std::make_shared<Tensor<float, CudaMemoryResource>>( bias_shape );
-        Tensor<float, CudaMemoryResource> device_output( large_shape_ );
+        auto device_weight = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( weight_shape );
+        auto device_bias = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( bias_shape );
+        Tensor<float, CudaDeviceMemoryResource> device_output( large_shape_ );
 
         // Attention cache tensors
         std::vector<size_t> attn_scores_shape = { large_shape_[ 0 ], static_cast<size_t>(num_heads), large_shape_[ 1 ], large_shape_[ 1 ] };
         std::vector<size_t> attn_weights_shape = { large_shape_[ 0 ], static_cast<size_t>(num_heads), large_shape_[ 1 ], large_shape_[ 1 ] };
 
-        auto device_attn_scores = std::make_shared<Tensor<float, CudaMemoryResource>>( attn_scores_shape );
-        auto device_attn_weights = std::make_shared<Tensor<float, CudaMemoryResource>>( attn_weights_shape );
+        auto device_attn_scores = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( attn_scores_shape );
+        auto device_attn_weights = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( attn_weights_shape );
 
         Tensor<float, HostMemoryResource> host_input( large_shape_ );
         Tensor<float, HostMemoryResource> host_weight( weight_shape );
@@ -799,8 +799,8 @@ namespace Operations::Tests
         device_bias->copyFrom( host_bias );
 
         // Execute operation
-        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> params = { device_weight, device_bias };
-        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state = {
+        std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> params = { device_weight, device_bias };
+        std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> output_state = {
             device_attn_scores, device_attn_weights
         };
 

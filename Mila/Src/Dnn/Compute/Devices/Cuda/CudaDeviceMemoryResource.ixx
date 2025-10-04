@@ -7,7 +7,7 @@ module;
 #include <sstream>
 #include <cassert>
 
-export module Compute.CudaMemoryResource;
+export module Compute.CudaDeviceMemoryResource;
 
 import Compute.MemoryResource;
 import Compute.MemoryResourceProperties;
@@ -29,16 +29,25 @@ namespace Mila::Dnn::Compute
      * through device context integration. Focuses purely on memory allocation
      * responsibilities without tensor-specific operations or type conversions.
      */
-    export class CudaMemoryResource : public MemoryResource {
-
+    export class CudaDeviceMemoryResource : public MemoryResource {
     public:
+        /**
+         * @brief Indicates CUDA device memory is not accessible from host code.
+         */
+        static constexpr bool is_host_accessible = false;
+
+        /**
+         * @brief Indicates CUDA device memory is accessible from device code.
+         */
+        static constexpr bool is_device_accessible = DeviceAccessible::is_device_accessible;
+
+        /**
+         * @brief Device type constant for CUDA memory resources.
+         */
+        static constexpr DeviceType device_type = DeviceType::Cuda;
 
 		using ComputeDeviceTag = CudaComputeDeviceTag;
         using CompatibleDeviceContext = CudaDeviceContext;
-
-        /*static constexpr bool isValidDeviceContext(const DeviceContext& device_context) {
-            return dynamic_cast<const CudaDeviceContext*>(&device_context) != nullptr;
-        }*/
 
         /**
          * @brief Constructs CUDA memory resource with device context.
@@ -46,13 +55,13 @@ namespace Mila::Dnn::Compute
          * @param device_context Device context for proper device binding and stream coordination
          * @throws std::invalid_argument If device_context is null or not a CUDA device
          */
-        explicit CudaMemoryResource(std::shared_ptr<DeviceContext> device_context)
+        explicit CudaDeviceMemoryResource(std::shared_ptr<DeviceContext> device_context)
             : device_context_(device_context) {
             if (!device_context_) {
                 throw std::invalid_argument("Device context cannot be null");
             }
             if (!device_context_->isCudaDevice()) {
-                throw std::invalid_argument("CudaMemoryResource requires CUDA device context");
+                throw std::invalid_argument("CudaDeviceMemoryResource requires CUDA device context");
             }
         }
 
@@ -104,21 +113,7 @@ namespace Mila::Dnn::Compute
             cudaCheckStatus(status, std::source_location::current());
         }
 
-        /**
-         * @brief Indicates CUDA device memory is not accessible from host code.
-         */
-        static constexpr bool is_host_accessible = false;
-
-        /**
-         * @brief Indicates CUDA device memory is accessible from device code.
-         */
-        static constexpr bool is_device_accessible = DeviceAccessible::is_device_accessible;
-
-        /**
-         * @brief Device type constant for CUDA memory resources.
-         */
-        static constexpr DeviceType device_type = DeviceType::Cuda;
-
+        
     protected:
         /**
          * @brief Allocates memory on the CUDA device.
@@ -186,15 +181,15 @@ namespace Mila::Dnn::Compute
         /**
          * @brief Compares CUDA memory resources for equality.
          *
-         * CUDA memory resources are equal if they are both CudaMemoryResource
+         * CUDA memory resources are equal if they are both CudaDeviceMemoryResource
          * instances. Device binding is handled at the tensor level through
          * device context management.
          *
          * @param other The other memory resource to compare with
-         * @return true if both are CudaMemoryResource instances
+         * @return true if both are CudaDeviceMemoryResource instances
          */
         bool do_is_equal(const std::pmr::memory_resource& other) const noexcept override {
-            return dynamic_cast<const CudaMemoryResource*>(&other) != nullptr;
+            return dynamic_cast<const CudaDeviceMemoryResource*>(&other) != nullptr;
         }
 
     private:
@@ -202,13 +197,13 @@ namespace Mila::Dnn::Compute
     };
 
     /**
-     * @brief Alias for CudaMemoryResource that represents device-accessible memory.
+     * @brief Alias for CudaDeviceMemoryResource that represents device-accessible memory.
      *
      * This alias provides a semantic name that describes the memory's accessibility
      * characteristics rather than its implementation details. Use DeviceMemoryResource
      * when you need memory that can be accessed by CUDA device code and operations.
      *
-     * @see CudaMemoryResource
+     * @see CudaDeviceMemoryResource
      */
-    export using DeviceMemoryResource = CudaMemoryResource;
+    export using DeviceMemoryResource = CudaDeviceMemoryResource;
 }

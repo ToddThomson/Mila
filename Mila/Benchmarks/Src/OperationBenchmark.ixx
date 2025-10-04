@@ -29,7 +29,7 @@ namespace Mila::Benchmark
     export template<DeviceType TDeviceType = DeviceType::Cuda, typename TDataType = float>
         class OperationBenchmark : public Benchmark {
         public:
-            using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, HostMemoryResource>;
+            using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, HostMemoryResource>;
 
             /**
              * @brief Constructs a new OperationBenchmark.
@@ -58,8 +58,8 @@ namespace Mila::Benchmark
 
                 // Create input and output tensors based on device type
                 if constexpr ( TDeviceType == DeviceType::Cuda ) {
-                    input_ = Tensor<TDataType, CudaMemoryResource>( inputShape_ );
-                    output_ = Tensor<TDataType, CudaMemoryResource>( inputShape_ );
+                    input_ = Tensor<TDataType, CudaDeviceMemoryResource>( inputShape_ );
+                    output_ = Tensor<TDataType, CudaDeviceMemoryResource>( inputShape_ );
 
                     // Create host tensor for initialization
                     Tensor<TDataType, HostMemoryResource> hostInput( inputShape_ );
@@ -84,7 +84,7 @@ namespace Mila::Benchmark
 
                 // Create second input for binary operations (same shape as first input)
                 if constexpr ( TDeviceType == DeviceType::Cuda ) {
-                    input2_ = Tensor<TDataType, CudaMemoryResource>( inputShape_ );
+                    input2_ = Tensor<TDataType, CudaDeviceMemoryResource>( inputShape_ );
 
                     // Create host tensor for initialization
                     Tensor<TDataType, HostMemoryResource> hostInput2( inputShape_ );
@@ -229,7 +229,7 @@ namespace Mila::Benchmark
 
         private:
             using InputTensor = std::conditional_t<TDeviceType == DeviceType::Cuda,
-                Tensor<TDataType, CudaMemoryResource>,
+                Tensor<TDataType, CudaDeviceMemoryResource>,
                 Tensor<TDataType, HostMemoryResource>>;
 
             std::shared_ptr<OperationBase<TDeviceType, TDataType, TDataType, TDataType>> operation_;

@@ -19,7 +19,7 @@ export module Compute.CudaLinearOp;
 
 import Dnn.Modules.Linear;
 import Dnn.Tensor;
-import Dnn.TensorData;
+import Dnn.ITensor;
 import Dnn.TensorTraits;
 import Dnn.ConfigurationBase;
 import Compute.OperationBase;
@@ -31,7 +31,7 @@ import Compute.DeviceContext;
 import Compute.OperationType;
 import Compute.OperationAttributes;
 import Compute.MemoryResource;
-import Compute.CudaMemoryResource;
+import Compute.CudaDeviceMemoryResource;
 import Compute.CudaDevice;
 import Compute.CublasLtMatMulBias;
 import Utils.Logger;
@@ -169,7 +169,7 @@ namespace Mila::Dnn::Compute
          */
         void forward(
             const Tensor<TDataType, MR>& input,
-            const std::vector<std::shared_ptr<ITensorData>>& parameters,
+            const std::vector<std::shared_ptr<ITensor>>& parameters,
             Tensor<TDataType, MR>& output,
             std::vector<std::shared_ptr<Tensor<TDataType, MR>>>& output_state ) const override {
 

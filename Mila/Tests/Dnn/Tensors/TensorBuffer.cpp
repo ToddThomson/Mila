@@ -71,13 +71,13 @@ namespace Dnn::Tensors::Tests
             GTEST_SKIP() << "CUDA device not available for this test";
         }
 
-        TensorBuffer<TensorDataType::FP32, Compute::CudaMemoryResource> buffer( cuda_context_, 100 );
+        TensorBuffer<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> buffer( cuda_context_, 100 );
         EXPECT_EQ( buffer.size(), 100 );
         EXPECT_NE( buffer.rawData(), nullptr );
         EXPECT_EQ( buffer.getDeviceContext(), cuda_context_ );
 
         // Construction with zero size
-        TensorBuffer<TensorDataType::FP32, Compute::CudaMemoryResource> zero_buffer( cuda_context_, 0 );
+        TensorBuffer<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> zero_buffer( cuda_context_, 0 );
         EXPECT_EQ( zero_buffer.size(), 0 );
         EXPECT_EQ( zero_buffer.rawData(), nullptr );
         EXPECT_TRUE( zero_buffer.empty() );
@@ -239,7 +239,7 @@ namespace Dnn::Tensors::Tests
             GTEST_SKIP() << "CUDA device not available for this test";
         }
 
-        TensorBuffer<TensorDataType::INT32, Compute::CudaMemoryResource> buffer( cuda_context_, 50 );
+        TensorBuffer<TensorDataType::INT32, Compute::CudaDeviceMemoryResource> buffer( cuda_context_, 50 );
         auto original_ptr = buffer.rawData();
 
         // Resize larger
@@ -314,8 +314,8 @@ namespace Dnn::Tensors::Tests
 
         if (has_cuda_) {
             // CUDA types with tracking
-            TensorBuffer<TensorDataType::FP32, Compute::CudaMemoryResource, true> tracked_cuda_float_buffer( cuda_context_, 10 );
-            TensorBuffer<TensorDataType::FP16, Compute::CudaMemoryResource, true> tracked_cuda_half_buffer( cuda_context_, 10 );
+            TensorBuffer<TensorDataType::FP32, Compute::CudaDeviceMemoryResource, true> tracked_cuda_float_buffer( cuda_context_, 10 );
+            TensorBuffer<TensorDataType::FP16, Compute::CudaDeviceMemoryResource, true> tracked_cuda_half_buffer( cuda_context_, 10 );
 
             // Test basic operations with tracked buffers
             tracked_cuda_float_buffer.resize( 20 );
@@ -361,17 +361,17 @@ namespace Dnn::Tensors::Tests
             // Test with CUDA memory resource for all types (including device-only types)
 
             // Integer types
-            TensorBuffer<TensorDataType::INT16, Compute::CudaMemoryResource> cuda_int16_buffer( cuda_context_, 10 );
-            TensorBuffer<TensorDataType::INT32, Compute::CudaMemoryResource> cuda_int32_buffer( cuda_context_, 10 );
-            TensorBuffer<TensorDataType::UINT16, Compute::CudaMemoryResource> cuda_uint16_buffer( cuda_context_, 10 );
-            TensorBuffer<TensorDataType::UINT32, Compute::CudaMemoryResource> cuda_uint32_buffer( cuda_context_, 10 );
+            TensorBuffer<TensorDataType::INT16, Compute::CudaDeviceMemoryResource> cuda_int16_buffer( cuda_context_, 10 );
+            TensorBuffer<TensorDataType::INT32, Compute::CudaDeviceMemoryResource> cuda_int32_buffer( cuda_context_, 10 );
+            TensorBuffer<TensorDataType::UINT16, Compute::CudaDeviceMemoryResource> cuda_uint16_buffer( cuda_context_, 10 );
+            TensorBuffer<TensorDataType::UINT32, Compute::CudaDeviceMemoryResource> cuda_uint32_buffer( cuda_context_, 10 );
 
             // Floating point types for CUDA
-            TensorBuffer<TensorDataType::FP32, Compute::CudaMemoryResource> cuda_float_buffer( cuda_context_, 10 );
-            TensorBuffer<TensorDataType::FP16, Compute::CudaMemoryResource> cuda_half_buffer( cuda_context_, 10 );
-            TensorBuffer<TensorDataType::BF16, Compute::CudaMemoryResource> cuda_bf16_buffer( cuda_context_, 10 );
-            TensorBuffer<TensorDataType::FP8_E4M3, Compute::CudaMemoryResource> cuda_fp8_e4m3_buffer( cuda_context_, 10 );
-            TensorBuffer<TensorDataType::FP8_E5M2, Compute::CudaMemoryResource> cuda_fp8_e5m2_buffer( cuda_context_, 10 );
+            TensorBuffer<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> cuda_float_buffer( cuda_context_, 10 );
+            TensorBuffer<TensorDataType::FP16, Compute::CudaDeviceMemoryResource> cuda_half_buffer( cuda_context_, 10 );
+            TensorBuffer<TensorDataType::BF16, Compute::CudaDeviceMemoryResource> cuda_bf16_buffer( cuda_context_, 10 );
+            TensorBuffer<TensorDataType::FP8_E4M3, Compute::CudaDeviceMemoryResource> cuda_fp8_e4m3_buffer( cuda_context_, 10 );
+            TensorBuffer<TensorDataType::FP8_E5M2, Compute::CudaDeviceMemoryResource> cuda_fp8_e5m2_buffer( cuda_context_, 10 );
 
             EXPECT_EQ( cuda_int16_buffer.size(), 10 );
             EXPECT_EQ( cuda_int32_buffer.size(), 10 );
@@ -427,7 +427,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_TRUE( INT32Buffer::is_integer_type );
 
         if (has_cuda_) {
-            using FP16Buffer = TensorBuffer<TensorDataType::FP16, Compute::CudaMemoryResource>;
+            using FP16Buffer = TensorBuffer<TensorDataType::FP16, Compute::CudaDeviceMemoryResource>;
 
             EXPECT_EQ( FP16Buffer::data_type, TensorDataType::FP16 );
             EXPECT_EQ( FP16Buffer::element_size, sizeof( half ) );
@@ -443,9 +443,9 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( (cpu_buffer.alignedSize() % TensorBuffer<TensorDataType::FP32, Compute::CpuMemoryResource>::alignment), 0 );
 
         if (has_cuda_) {
-            TensorBuffer<TensorDataType::FP32, Compute::CudaMemoryResource> cuda_buffer( cuda_context_, 100 );
+            TensorBuffer<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> cuda_buffer( cuda_context_, 100 );
             EXPECT_TRUE( cuda_buffer.isAligned() );
-            EXPECT_EQ( (cuda_buffer.alignedSize() % TensorBuffer<TensorDataType::FP32, Compute::CudaMemoryResource>::alignment), 0 );
+            EXPECT_EQ( (cuda_buffer.alignedSize() % TensorBuffer<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>::alignment), 0 );
         }
     }
 
@@ -462,7 +462,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( buffer.storageBytes(), 100 * sizeof( float ) );
 
         if (has_cuda_) {
-            TensorBuffer<TensorDataType::FP16, Compute::CudaMemoryResource> half_buffer( cuda_context_, 50 );
+            TensorBuffer<TensorDataType::FP16, Compute::CudaDeviceMemoryResource> half_buffer( cuda_context_, 50 );
             EXPECT_EQ( half_buffer.storageBytes(), 50 * sizeof( half ) );
         }
 
@@ -516,7 +516,7 @@ namespace Dnn::Tensors::Tests
 
         if (has_cuda_) {
             // Test CUDA buffer zero initialization
-            TensorBuffer<TensorDataType::FP32, Compute::CudaMemoryResource> cuda_buffer( cuda_context_, 10 );
+            TensorBuffer<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> cuda_buffer( cuda_context_, 10 );
             std::vector<float> host_data( 10 );
             cudaMemcpy( host_data.data(), cuda_buffer.rawData(), 10 * sizeof( float ), cudaMemcpyDeviceToHost );
             for (float val : host_data) {
@@ -571,7 +571,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( cpu_buffer.getDeviceContext()->getDeviceType(), DeviceType::Cpu );
 
         if (has_cuda_) {
-            TensorBuffer<TensorDataType::FP32, Compute::CudaMemoryResource> cuda_buffer( cuda_context_, 100 );
+            TensorBuffer<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> cuda_buffer( cuda_context_, 100 );
 
             EXPECT_NE( cuda_buffer.getDeviceContext(), nullptr );
             EXPECT_EQ( cuda_buffer.getDeviceContext()->getDeviceType(), DeviceType::Cuda );

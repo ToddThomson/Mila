@@ -24,7 +24,7 @@ namespace Tensors::Tests
         // float (FP32)
         {
             Tensor<float, Compute::HostMemoryResource> host_tensor( shape );
-            Tensor<float, Compute::CudaMemoryResource> cuda_tensor( shape );
+            Tensor<float, Compute::CudaDeviceMemoryResource> cuda_tensor( shape );
             Tensor<float, Compute::CudaPinnedMemoryResource> pinned_tensor( shape );
             Tensor<float, Compute::CudaManagedMemoryResource> managed_tensor( shape );
 
@@ -51,7 +51,7 @@ namespace Tensors::Tests
         // int16_t (INT16)
         {
             Tensor<int16_t, Compute::HostMemoryResource> host_tensor( shape );
-            Tensor<int16_t, Compute::CudaMemoryResource> cuda_tensor( shape );
+            Tensor<int16_t, Compute::CudaDeviceMemoryResource> cuda_tensor( shape );
             Tensor<int16_t, Compute::CudaPinnedMemoryResource> pinned_tensor( shape );
             Tensor<int16_t, Compute::CudaManagedMemoryResource> managed_tensor( shape );
 
@@ -75,7 +75,7 @@ namespace Tensors::Tests
         // int (INT32)
         {
             Tensor<int, Compute::HostMemoryResource> host_tensor( shape );
-            Tensor<int, Compute::CudaMemoryResource> cuda_tensor( shape );
+            Tensor<int, Compute::CudaDeviceMemoryResource> cuda_tensor( shape );
             Tensor<int, Compute::CudaPinnedMemoryResource> pinned_tensor( shape );
             Tensor<int, Compute::CudaManagedMemoryResource> managed_tensor( shape );
 
@@ -99,7 +99,7 @@ namespace Tensors::Tests
         // uint16_t (UINT16)
         {
             Tensor<uint16_t, Compute::HostMemoryResource> host_tensor( shape );
-            Tensor<uint16_t, Compute::CudaMemoryResource> cuda_tensor( shape );
+            Tensor<uint16_t, Compute::CudaDeviceMemoryResource> cuda_tensor( shape );
             Tensor<uint16_t, Compute::CudaPinnedMemoryResource> pinned_tensor( shape );
             Tensor<uint16_t, Compute::CudaManagedMemoryResource> managed_tensor( shape );
 
@@ -123,7 +123,7 @@ namespace Tensors::Tests
         // uint32_t (UINT32)
         {
             Tensor<uint32_t, Compute::HostMemoryResource> host_tensor( shape );
-            Tensor<uint32_t, Compute::CudaMemoryResource> cuda_tensor( shape );
+            Tensor<uint32_t, Compute::CudaDeviceMemoryResource> cuda_tensor( shape );
             Tensor<uint32_t, Compute::CudaPinnedMemoryResource> pinned_tensor( shape );
             Tensor<uint32_t, Compute::CudaManagedMemoryResource> managed_tensor( shape );
 
@@ -155,8 +155,8 @@ namespace Tensors::Tests
         // float
         EXPECT_TRUE( (Tensor<float, Compute::HostMemoryResource>::is_host_accessible()) );
         EXPECT_FALSE( (Tensor<float, Compute::HostMemoryResource>::is_device_accessible()) );
-        EXPECT_FALSE( (Tensor<float, Compute::CudaMemoryResource>::is_host_accessible()) );
-        EXPECT_TRUE( (Tensor<float, Compute::CudaMemoryResource>::is_device_accessible()) );
+        EXPECT_FALSE( (Tensor<float, Compute::CudaDeviceMemoryResource>::is_host_accessible()) );
+        EXPECT_TRUE( (Tensor<float, Compute::CudaDeviceMemoryResource>::is_device_accessible()) );
         EXPECT_TRUE( (Tensor<float, Compute::CudaPinnedMemoryResource>::is_host_accessible()) );
         EXPECT_TRUE( (Tensor<float, Compute::CudaPinnedMemoryResource>::is_device_accessible()) );
         EXPECT_TRUE( (Tensor<float, Compute::CudaManagedMemoryResource>::is_host_accessible()) );
@@ -165,26 +165,26 @@ namespace Tensors::Tests
         // int16_t
         EXPECT_TRUE( (Tensor<int16_t, Compute::HostMemoryResource>::is_host_accessible()) );
         EXPECT_FALSE( (Tensor<int16_t, Compute::HostMemoryResource>::is_device_accessible()) );
-        EXPECT_FALSE( (Tensor<int16_t, Compute::CudaMemoryResource>::is_host_accessible()) );
-        EXPECT_TRUE( (Tensor<int16_t, Compute::CudaMemoryResource>::is_device_accessible()) );
+        EXPECT_FALSE( (Tensor<int16_t, Compute::CudaDeviceMemoryResource>::is_host_accessible()) );
+        EXPECT_TRUE( (Tensor<int16_t, Compute::CudaDeviceMemoryResource>::is_device_accessible()) );
 
         // int
         EXPECT_TRUE( (Tensor<int, Compute::HostMemoryResource>::is_host_accessible()) );
         EXPECT_FALSE( (Tensor<int, Compute::HostMemoryResource>::is_device_accessible()) );
-        EXPECT_FALSE( (Tensor<int, Compute::CudaMemoryResource>::is_host_accessible()) );
-        EXPECT_TRUE( (Tensor<int, Compute::CudaMemoryResource>::is_device_accessible()) );
+        EXPECT_FALSE( (Tensor<int, Compute::CudaDeviceMemoryResource>::is_host_accessible()) );
+        EXPECT_TRUE( (Tensor<int, Compute::CudaDeviceMemoryResource>::is_device_accessible()) );
 
         // uint16_t
         EXPECT_TRUE( (Tensor<uint16_t, Compute::HostMemoryResource>::is_host_accessible()) );
         EXPECT_FALSE( (Tensor<uint16_t, Compute::HostMemoryResource>::is_device_accessible()) );
-        EXPECT_FALSE( (Tensor<uint16_t, Compute::CudaMemoryResource>::is_host_accessible()) );
-        EXPECT_TRUE( (Tensor<uint16_t, Compute::CudaMemoryResource>::is_device_accessible()) );
+        EXPECT_FALSE( (Tensor<uint16_t, Compute::CudaDeviceMemoryResource>::is_host_accessible()) );
+        EXPECT_TRUE( (Tensor<uint16_t, Compute::CudaDeviceMemoryResource>::is_device_accessible()) );
 
         // uint32_t
         EXPECT_TRUE( (Tensor<uint32_t, Compute::HostMemoryResource>::is_host_accessible()) );
         EXPECT_FALSE( (Tensor<uint32_t, Compute::HostMemoryResource>::is_device_accessible()) );
-        EXPECT_FALSE( (Tensor<uint32_t, Compute::CudaMemoryResource>::is_host_accessible()) );
-        EXPECT_TRUE( (Tensor<uint32_t, Compute::CudaMemoryResource>::is_device_accessible()) );
+        EXPECT_FALSE( (Tensor<uint32_t, Compute::CudaDeviceMemoryResource>::is_host_accessible()) );
+        EXPECT_TRUE( (Tensor<uint32_t, Compute::CudaDeviceMemoryResource>::is_device_accessible()) );
     }
 
     // ====================================================================
@@ -195,8 +195,8 @@ namespace Tensors::Tests
         // Host-compatible types with all memory resources
         static_assert(Tensor<float, Compute::HostMemoryResource>::is_host_accessible());
         static_assert(!Tensor<float, Compute::HostMemoryResource>::is_device_accessible());
-        static_assert(!Tensor<float, Compute::CudaMemoryResource>::is_host_accessible());
-        static_assert(Tensor<float, Compute::CudaMemoryResource>::is_device_accessible());
+        static_assert(!Tensor<float, Compute::CudaDeviceMemoryResource>::is_host_accessible());
+        static_assert(Tensor<float, Compute::CudaDeviceMemoryResource>::is_device_accessible());
         static_assert(Tensor<float, Compute::CudaPinnedMemoryResource>::is_host_accessible());
         static_assert(Tensor<float, Compute::CudaPinnedMemoryResource>::is_device_accessible());
         static_assert(Tensor<float, Compute::CudaManagedMemoryResource>::is_host_accessible());
@@ -204,23 +204,23 @@ namespace Tensors::Tests
 
         static_assert(Tensor<int16_t, Compute::HostMemoryResource>::is_host_accessible());
         static_assert(!Tensor<int16_t, Compute::HostMemoryResource>::is_device_accessible());
-        static_assert(!Tensor<int16_t, Compute::CudaMemoryResource>::is_host_accessible());
-        static_assert(Tensor<int16_t, Compute::CudaMemoryResource>::is_device_accessible());
+        static_assert(!Tensor<int16_t, Compute::CudaDeviceMemoryResource>::is_host_accessible());
+        static_assert(Tensor<int16_t, Compute::CudaDeviceMemoryResource>::is_device_accessible());
 
         static_assert(Tensor<int, Compute::HostMemoryResource>::is_host_accessible());
         static_assert(!Tensor<int, Compute::HostMemoryResource>::is_device_accessible());
-        static_assert(!Tensor<int, Compute::CudaMemoryResource>::is_host_accessible());
-        static_assert(Tensor<int, Compute::CudaMemoryResource>::is_device_accessible());
+        static_assert(!Tensor<int, Compute::CudaDeviceMemoryResource>::is_host_accessible());
+        static_assert(Tensor<int, Compute::CudaDeviceMemoryResource>::is_device_accessible());
 
         static_assert(Tensor<uint16_t, Compute::HostMemoryResource>::is_host_accessible());
         static_assert(!Tensor<uint16_t, Compute::HostMemoryResource>::is_device_accessible());
-        static_assert(!Tensor<uint16_t, Compute::CudaMemoryResource>::is_host_accessible());
-        static_assert(Tensor<uint16_t, Compute::CudaMemoryResource>::is_device_accessible());
+        static_assert(!Tensor<uint16_t, Compute::CudaDeviceMemoryResource>::is_host_accessible());
+        static_assert(Tensor<uint16_t, Compute::CudaDeviceMemoryResource>::is_device_accessible());
 
         static_assert(Tensor<uint32_t, Compute::HostMemoryResource>::is_host_accessible());
         static_assert(!Tensor<uint32_t, Compute::HostMemoryResource>::is_device_accessible());
-        static_assert(!Tensor<uint32_t, Compute::CudaMemoryResource>::is_host_accessible());
-        static_assert(Tensor<uint32_t, Compute::CudaMemoryResource>::is_device_accessible());
+        static_assert(!Tensor<uint32_t, Compute::CudaDeviceMemoryResource>::is_host_accessible());
+        static_assert(Tensor<uint32_t, Compute::CudaDeviceMemoryResource>::is_device_accessible());
 
         SUCCEED();
     }
@@ -310,7 +310,7 @@ namespace Tensors::Tests
 
         // Test with int
         {
-            Tensor<int, Compute::CudaMemoryResource> cuda_tensor( shape, 42 );
+            Tensor<int, Compute::CudaDeviceMemoryResource> cuda_tensor( shape, 42 );
 
             EXPECT_FALSE( cuda_tensor.is_host_accessible() );
             EXPECT_TRUE( cuda_tensor.is_device_accessible() );
@@ -455,9 +455,9 @@ namespace Tensors::Tests
 
         // Verify isValidTensor concept
         static_assert(isValidTensor<float, Compute::HostMemoryResource>);
-        static_assert(isValidTensor<float, Compute::CudaMemoryResource>);
+        static_assert(isValidTensor<float, Compute::CudaDeviceMemoryResource>);
         static_assert(isValidTensor<int, Compute::HostMemoryResource>);
-        static_assert(isValidTensor<int, Compute::CudaMemoryResource>);
+        static_assert(isValidTensor<int, Compute::CudaDeviceMemoryResource>);
         static_assert(isValidTensor<uint16_t, Compute::CudaPinnedMemoryResource>);
         static_assert(isValidTensor<uint32_t, Compute::CudaManagedMemoryResource>);
 

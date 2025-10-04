@@ -20,7 +20,7 @@ import Dnn.TensorTraits;
 import Compute.Precision;
 import Compute.DeviceType;
 import Compute.DeviceContext;
-import Compute.CudaMemoryResource;
+import Compute.CudaDeviceMemoryResource;
 import Compute.CpuMemoryResource;
 import Serialization.ModelArchive;
 
@@ -48,7 +48,7 @@ namespace Mila::Dnn
         requires ValidTensorType<TDataType>
     class CompositeModule : public Module<TDeviceType, TDataType, TDataType> {
     public:
-        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, HostMemoryResource>; ///< Memory resource type based on device type
+        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, HostMemoryResource>; ///< Memory resource type based on device type
         using ModuleBase = Module<TDeviceType, TDataType, TDataType>; ///< Base class type for the module
 
         /**

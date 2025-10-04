@@ -23,7 +23,7 @@ import Compute.DeviceType;
 import Compute.DeviceContext;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
-import Compute.CudaMemoryResource;
+import Compute.CudaDeviceMemoryResource;
 import Dnn.Module;
 import Dnn.CompositeModule;
 import Dnn.Modules.LayerNorm;
@@ -61,7 +61,7 @@ namespace Mila::Dnn
         /**
          * @brief Memory resource type used for tensors, selected based on device type.
          */
-        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>;
+        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
 
         /**
          * @brief Alias for base module type.

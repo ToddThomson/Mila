@@ -25,7 +25,7 @@ import Compute.ComputeDevice;
 import Compute.DeviceType;
 import Compute.DeviceContext;
 import Compute.CpuMemoryResource;
-import Compute.CudaMemoryResource;
+import Compute.CudaDeviceMemoryResource;
 import Compute.OperationRegistry;
 import Dnn.Modules.Linear;
 import Dnn.Modules.Gelu;
@@ -56,7 +56,7 @@ namespace Mila::Dnn
         requires ValidFloatTensorType<TDataType>
     class MLP : public CompositeModule<TDeviceType, TDataType> {
     public:
-        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>;
+        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
         using CompositeModuleBase = CompositeModule<TDeviceType, TDataType>;
 
         explicit MLP( const std::string& device_name, const MLPConfig& config )

@@ -5,7 +5,7 @@ module;
 export module Compute.CudaComputeResource;
 
 import Compute.ComputeResource;
-import Compute.CudaMemoryResource;
+import Compute.CudaDeviceMemoryResource;
 
 namespace Mila::Dnn::Compute
 {
@@ -13,9 +13,9 @@ namespace Mila::Dnn::Compute
     /*export 
     class CudaComputeResource : public ComputeResource {
     public:
-        CudaComputeResource() : memory_resource_( std::make_shared<CudaMemoryResource>() ) {}
+        CudaComputeResource() : memory_resource_( std::make_shared<CudaDeviceMemoryResource>() ) {}
 
-        std::shared_ptr<CudaMemoryResource> getMemoryResource() const {
+        std::shared_ptr<CudaDeviceMemoryResource> getMemoryResource() const {
             return memory_resource_;
         }
 
@@ -24,6 +24,6 @@ namespace Mila::Dnn::Compute
         
 
     private:
-        std::shared_ptr<CudaMemoryResource> memory_resource_;
+        std::shared_ptr<CudaDeviceMemoryResource> memory_resource_;
     };*/
 }

@@ -15,7 +15,7 @@ namespace Modules::Tests
     // Memory resource selector based on device type
     template<DeviceType TDevice>
     using MemoryResourceType = std::conditional_t<TDevice == Compute::DeviceType::Cuda,
-        Compute::CudaMemoryResource,
+        Compute::CudaDeviceMemoryResource,
         Compute::HostMemoryResource>;
 
     // Common test data structure that can be reused
@@ -385,11 +385,11 @@ namespace Modules::Tests
         cpu_test_module->forward( host_input, cpu_output );
 
         // Create device input by copying host data
-        Tensor<TInput, CudaMemoryResource> device_input( test_shape );
+        Tensor<TInput, CudaDeviceMemoryResource> device_input( test_shape );
         device_input.copyFrom( host_input );
 
         // Create device output
-        Tensor<TOutput, CudaMemoryResource> cuda_output( test_shape );
+        Tensor<TOutput, CudaDeviceMemoryResource> cuda_output( test_shape );
         cuda_test_module->forward( device_input, cuda_output );
 
         // Copy CUDA output back to host for comparison
@@ -447,12 +447,12 @@ namespace Modules::Tests
         }
 
         // Copy to device
-        Tensor<TInput, CudaMemoryResource> device_input( test_shape );
+        Tensor<TInput, CudaDeviceMemoryResource> device_input( test_shape );
         device_input.copyFrom( host_input );
 
         // Run both modules
-        Tensor<float, CudaMemoryResource> float_output( test_shape );
-        Tensor<half, CudaMemoryResource> half_output( test_shape );
+        Tensor<float, CudaDeviceMemoryResource> float_output( test_shape );
+        Tensor<half, CudaDeviceMemoryResource> half_output( test_shape );
 
         float_module->forward( device_input, float_output );
         half_module->forward( device_input, half_output );
@@ -700,9 +700,9 @@ namespace Modules::Tests
         auto deterministic_module = std::make_shared<MultiHeadAttention<DeviceType::Cuda, TInput, TOutput>>(
             "deterministic", "CUDA:0", shape, 4 );
 
-        Tensor<TInput, CudaMemoryResource> input( shape );
-        Tensor<TOutput, CudaMemoryResource> output1( shape );
-        Tensor<TOutput, CudaMemoryResource> output2( shape );
+        Tensor<TInput, CudaDeviceMemoryResource> input( shape );
+        Tensor<TOutput, CudaDeviceMemoryResource> output1( shape );
+        Tensor<TOutput, CudaDeviceMemoryResource> output2( shape );
 
         // Fill input with predictable values
         Tensor<TInput, HostMemoryResource> host_input( shape );

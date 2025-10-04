@@ -1,14 +1,14 @@
 /**
- * @file CudaMemoryResourceTraits.ixx
+ * @file CudaDeviceMemoryResourceTraits.ixx
  * @brief CUDA-specific memory resource traits and specializations
  */
 
 module;
 #include <type_traits>
 
-export module Compute.CudaMemoryResourceTraits;
+export module Compute.CudaDeviceMemoryResourceTraits;
 
-import Compute.CudaMemoryResource;
+import Compute.CudaDeviceMemoryResource;
 import Compute.CudaManagedMemoryResource;
 import Compute.CudaPinnedMemoryResource;
 import Compute.MemoryResourceTraits;
@@ -22,7 +22,7 @@ namespace Mila::Dnn::Compute
      * Used for CUDA backend dispatch and optimization decisions.
      */
     export template<>
-        struct MemoryResourceTraits<CudaMemoryResource> {
+        struct MemoryResourceTraits<CudaDeviceMemoryResource> {
         static constexpr bool is_cpu_resource = false;
         static constexpr bool is_cuda_resource = true;
         static constexpr bool is_metal_resource = false;

@@ -57,8 +57,8 @@ namespace Compute::Cpu::Operations::Tests
             return std::make_shared<CpuLayerNormOp>( cpu_context_, config );
         }
 
-        std::vector<std::shared_ptr<ITensorData>> createParameters( size_t feature_dim ) {
-            std::vector<std::shared_ptr<ITensorData>> params;
+        std::vector<std::shared_ptr<ITensor>> createParameters( size_t feature_dim ) {
+            std::vector<std::shared_ptr<ITensor>> params;
 
             auto weight = std::make_shared<Tensor<float, HostMemoryResource>>( std::vector<size_t>{feature_dim} );
             for ( size_t i = 0; i < feature_dim; ++i ) {
@@ -99,7 +99,7 @@ namespace Compute::Cpu::Operations::Tests
 
         void layerNormReference(
             const Tensor<float, HostMemoryResource>& input,
-            const std::vector<std::shared_ptr<ITensorData>>& params,
+            const std::vector<std::shared_ptr<ITensor>>& params,
             float epsilon,
             Tensor<float, HostMemoryResource>& output,
             std::vector<float>& means,

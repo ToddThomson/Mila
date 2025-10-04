@@ -19,7 +19,7 @@ export import :Attributes;
 
 import Dnn.Module;
 import Dnn.Tensor;
-import Dnn.TensorData;
+import Dnn.ITensor;
 import Dnn.TensorTraits;
 import Dnn.TensorHelpers;
 import Compute.Precision;
@@ -32,7 +32,7 @@ import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
-import Compute.CudaMemoryResource;
+import Compute.CudaDeviceMemoryResource;
 import Serialization.ModelArchive;
 
 namespace Mila::Dnn
@@ -60,9 +60,9 @@ namespace Mila::Dnn
         /**
          * @brief Memory resource type used for tensors, selected based on device type.
          *
-         * Uses CudaMemoryResource for CUDA devices and CpuMemoryResource for CPU.
+         * Uses CudaDeviceMemoryResource for CUDA devices and CpuMemoryResource for CPU.
          */
-        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>;
+        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
 
         /**
          * @brief Alias for base module type.
@@ -290,7 +290,7 @@ namespace Mila::Dnn
          * Contains the weight tensor and optionally the bias tensor if has_bias_ is true.
          * These parameters are passed to the underlying operation during forward pass.
          */
-        std::vector<std::shared_ptr<ITensorData>> parameters_;
+        std::vector<std::shared_ptr<ITensor>> parameters_;
 
         /**
          * @brief Gradients for the parameters of this module.

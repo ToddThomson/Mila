@@ -217,7 +217,7 @@ void runMnistTrainingLoop(
     std::shared_ptr<MnistClassifier<TDeviceType, TDataType>>& model,
     const MnistConfig& config ) {
 
-    using DeviceMR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, HostMemoryResource>;
+    using DeviceMR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, HostMemoryResource>;
 
     MnistDataLoader<float, THostMR> train_loader( config.dataDir, config.batchSize, true );
     MnistDataLoader<float, THostMR> test_loader( config.dataDir, config.batchSize, false );

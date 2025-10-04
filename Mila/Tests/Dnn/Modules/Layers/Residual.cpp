@@ -14,7 +14,7 @@ namespace Modules::Tests
     // Memory resource selector based on device type
     template<DeviceType TDeviceType>
     using MemoryResourceType = std::conditional_t<TDeviceType == DeviceType::Cuda,
-        Compute::CudaMemoryResource,
+        Compute::CudaDeviceMemoryResource,
         Compute::HostMemoryResource>;
 
     // Test data structure for Residual tests
@@ -230,13 +230,13 @@ namespace Modules::Tests
         cpu_data.residual_module->forward( host_input_a, host_input_b, cpu_output );
 
         // Create device input by copying host data
-        Tensor<TInput, CudaMemoryResource> device_input_a( test_shape );
-        Tensor<TInput, CudaMemoryResource> device_input_b( test_shape );
+        Tensor<TInput, CudaDeviceMemoryResource> device_input_a( test_shape );
+        Tensor<TInput, CudaDeviceMemoryResource> device_input_b( test_shape );
         device_input_a.copyFrom( host_input_a );
         device_input_b.copyFrom( host_input_b );
 
         // Create device output
-        Tensor<TOutput, CudaMemoryResource> cuda_output( test_shape );
+        Tensor<TOutput, CudaDeviceMemoryResource> cuda_output( test_shape );
         cuda_data.residual_module->forward( device_input_a, device_input_b, cuda_output );
 
         // Copy CUDA output back to host for comparison

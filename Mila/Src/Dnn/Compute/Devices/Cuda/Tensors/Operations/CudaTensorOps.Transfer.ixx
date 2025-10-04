@@ -20,11 +20,11 @@ export module Dnn.TensorOps:Transfer.Cuda;
 
 import Dnn.Tensor;
 import Dnn.TensorDataType;
-import Dnn.TensorDataTypeMap;
-import Dnn.TensorDataTypeTraits;
+import Dnn.TensorTypeMap;
+import Dnn.TensorTypeTraits;
 import Compute.CudaTensorDataType;
 import Compute.CudaDeviceContext;
-import Compute.CudaMemoryResource;
+import Compute.CudaDeviceMemoryResource;
 import Compute.CudaPinnedMemoryResource;
 import Compute.CudaManagedMemoryResource;
 import Cuda.Error;

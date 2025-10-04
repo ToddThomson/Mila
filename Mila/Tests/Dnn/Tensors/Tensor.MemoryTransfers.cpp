@@ -35,7 +35,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_TRUE( host_tensor.is_host_accessible() );
         EXPECT_FALSE( host_tensor.is_device_accessible() );
 
-        auto cuda_tensor = host_tensor.toDevice<TensorDataType::FP32, Compute::CudaMemoryResource>( cuda_context_ );
+        auto cuda_tensor = host_tensor.toDevice<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_context_ );
 
         // Verify original tensor is unchanged
         EXPECT_EQ( host_tensor.shape(), std::vector<size_t>( { 2, 3 } ) );
@@ -80,7 +80,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST_F( TensorMemoryTransferTest, ConvertCudaToCpu ) {
-        Tensor<TensorDataType::FP32, Compute::CudaMemoryResource> tensor( cuda_context_, { 2, 3 } );
+        Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> tensor( cuda_context_, { 2, 3 } );
 
         // Convert to CPU - creates new tensor
         auto cpu_tensor = tensor.toHost();
@@ -110,7 +110,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST_F( TensorMemoryTransferTest, CopyConstructor_CudaToCpu ) {
-        Tensor<TensorDataType::FP32, Compute::CudaMemoryResource> src( cuda_context_, { 2, 3 } );
+        Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> src( cuda_context_, { 2, 3 } );
 
         auto dst = src.toHost<TensorDataType::FP32>();
 
@@ -131,7 +131,7 @@ namespace Dnn::Tensors::Tests
     TEST_F( TensorMemoryTransferTest, toDevice_CpuToCuda ) {
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> src( cpu_context_, { 2, 3 } );
 
-        auto dst = src.toDevice<TensorDataType::FP32, Compute::CudaMemoryResource>( cuda_context_ );
+        auto dst = src.toDevice<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_context_ );
 
         // Verify properties are copied correctly
         EXPECT_EQ( dst.shape(), src.shape() );
@@ -174,7 +174,7 @@ namespace Dnn::Tensors::Tests
         // For now, using CPU memory as source
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> pinned_tensor( cpu_context_, { 2, 4 } );
 
-        auto cuda_tensor = pinned_tensor.toDevice<TensorDataType::FP32, Compute::CudaMemoryResource>( cuda_context_ );
+        auto cuda_tensor = pinned_tensor.toDevice<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_context_ );
 
         EXPECT_EQ( cuda_tensor.shape(), pinned_tensor.shape() );
         EXPECT_EQ( cuda_tensor.size(), pinned_tensor.size() );
@@ -209,7 +209,7 @@ namespace Dnn::Tensors::Tests
         // Note: This test would need a proper managed memory context
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> managed_tensor( cpu_context_, { 3, 2 } );
 
-        auto cuda_tensor = managed_tensor.toDevice<TensorDataType::FP32, Compute::CudaMemoryResource>( cuda_context_ );
+        auto cuda_tensor = managed_tensor.toDevice<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_context_ );
 
         EXPECT_EQ( cuda_tensor.shape(), managed_tensor.shape() );
         EXPECT_EQ( cuda_tensor.size(), managed_tensor.size() );
@@ -233,7 +233,7 @@ namespace Dnn::Tensors::Tests
         // INT16 transfers
         {
             Tensor<TensorDataType::INT16, Compute::CpuMemoryResource> host_tensor( cpu_context_, shape );
-            auto cuda_tensor = host_tensor.toDevice<TensorDataType::INT16, Compute::CudaMemoryResource>( cuda_context_ );
+            auto cuda_tensor = host_tensor.toDevice<TensorDataType::INT16, Compute::CudaDeviceMemoryResource>( cuda_context_ );
             auto back_to_host = cuda_tensor.toHost<TensorDataType::INT16>( cpu_context_ );
 
             EXPECT_EQ( back_to_host.shape(), shape );
@@ -243,7 +243,7 @@ namespace Dnn::Tensors::Tests
         // UINT32 transfers
         {
             Tensor<TensorDataType::UINT32, Compute::CpuMemoryResource> host_tensor( cpu_context_, shape );
-            auto cuda_tensor = host_tensor.toDevice<TensorDataType::UINT32, Compute::CudaMemoryResource>( cuda_context_ );
+            auto cuda_tensor = host_tensor.toDevice<TensorDataType::UINT32, Compute::CudaDeviceMemoryResource>( cuda_context_ );
             auto back_to_host = cuda_tensor.toHost<TensorDataType::UINT32>( cpu_context_ );
 
             EXPECT_EQ( back_to_host.shape(), shape );
@@ -259,7 +259,7 @@ namespace Dnn::Tensors::Tests
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> original( cpu_context_, { 2, 3 } );
         original.setName( "test_tensor" );
 
-        auto cuda_tensor = original.toDevice<TensorDataType::FP32, Compute::CudaMemoryResource>( cuda_context_ );
+        auto cuda_tensor = original.toDevice<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_context_ );
         auto back_to_host = cuda_tensor.toHost<TensorDataType::FP32>( cpu_context_ );
 
         // Name should be preserved
@@ -292,7 +292,7 @@ namespace Dnn::Tensors::Tests
         std::vector<size_t> large_shape = { 100, 200 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> large_host_tensor( cpu_context_, large_shape );
 
-        auto large_cuda_tensor = large_host_tensor.toDevice<TensorDataType::FP32, Compute::CudaMemoryResource>( cuda_context_ );
+        auto large_cuda_tensor = large_host_tensor.toDevice<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_context_ );
         EXPECT_EQ( large_cuda_tensor.shape(), large_shape );
         EXPECT_EQ( large_cuda_tensor.size(), 20000 );
 
@@ -308,7 +308,7 @@ namespace Dnn::Tensors::Tests
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> empty_host_tensor( cpu_context_, {} );
         EXPECT_TRUE( empty_host_tensor.empty() );
 
-        auto empty_cuda_tensor = empty_host_tensor.toDevice<TensorDataType::FP32, Compute::CudaMemoryResource>( cuda_context_ );
+        auto empty_cuda_tensor = empty_host_tensor.toDevice<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_context_ );
         EXPECT_TRUE( empty_cuda_tensor.empty() );
         EXPECT_EQ( empty_cuda_tensor.size(), 0 );
         EXPECT_EQ( empty_cuda_tensor.rank(), 0 );
@@ -322,7 +322,7 @@ namespace Dnn::Tensors::Tests
     TEST_F( TensorMemoryTransferTest, SingleElementTransfer ) {
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> single_element( cpu_context_, { 1 } );
 
-        auto cuda_tensor = single_element.toDevice<TensorDataType::FP32, Compute::CudaMemoryResource>( cuda_context_ );
+        auto cuda_tensor = single_element.toDevice<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_context_ );
         EXPECT_EQ( cuda_tensor.size(), 1 );
         EXPECT_EQ( cuda_tensor.rank(), 1 );
 
@@ -366,7 +366,7 @@ namespace Dnn::Tensors::Tests
         }*/
 
         // Transfer to device with type conversion (if supported)
-        auto cuda_tensor = fp32_tensor.toDevice<TensorDataType::FP32, Compute::CudaMemoryResource>( cuda_context_ );
+        auto cuda_tensor = fp32_tensor.toDevice<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_context_ );
 
         // Convert back with different precision (this would test type conversion if implemented)
         auto host_result = cuda_tensor.toHost<TensorDataType::FP32>( cpu_context_ );

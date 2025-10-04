@@ -21,7 +21,7 @@ module;
 export module Compute.VulkanTensorTraits;
 
 import Dnn.TensorDataType;
-import Dnn.TensorDataTypeMap;
+import Dnn.TensorTypeMap;
 import Compute.DeviceType;
 
 namespace Mila::Dnn

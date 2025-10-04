@@ -42,16 +42,16 @@ module;
 export module Dnn.Tensor;
 
 import Dnn.TensorBuffer;
-import Dnn.TensorData;
+import Dnn.ITensor;
 import Dnn.TensorPtr;
 import Dnn.TensorDataType;
-import Dnn.TensorDataTypeMap;
+import Dnn.TensorTypeMap;
 import Dnn.TensorHostTypeMap;
-import Dnn.TensorDataTypeTraits;
+import Dnn.TensorTypeTraits;
 import Compute.CpuTensorDataTypeTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
-import Compute.CudaMemoryResource;
+import Compute.CudaDeviceMemoryResource;
 import Compute.CudaManagedMemoryResource;
 import Compute.CudaPinnedMemoryResource;
 import Compute.DeviceContext;
@@ -151,14 +151,14 @@ namespace Mila::Dnn
      *
      * @see TensorDataType for supported abstract data type enumeration
      * @see TensorDataTypeTraits for compile-time type characteristics
-     * @see ITensorData for the polymorphic base interface
+     * @see ITensor for the polymorphic base interface
      * @see TensorBuffer for underlying device-specific memory management
      * @see MemoryResource for device memory abstraction layer
      * @see DeviceContext for device binding and resource management
      */
     export template<TensorDataType TDataType, typename TMemoryResource>
         requires isValidTensor<TDataType, TMemoryResource>
-    class Tensor : public ITensorData
+    class Tensor : public ITensor
     {
     public:
         // ====================================================================
@@ -255,7 +255,7 @@ namespace Mila::Dnn
          * auto scalar = Tensor<TensorDataType::FP32, CpuMemoryResource>("CPU", {});
          *
          * // Create vector on GPU
-         * auto vector = Tensor<TensorDataType::FP16, CudaMemoryResource>("CUDA:0", {100});
+         * auto vector = Tensor<TensorDataType::FP16, CudaDeviceMemoryResource>("CUDA:0", {100});
          * @endcode
          */
         explicit Tensor( const std::string& device_name, const std::vector<size_t>& shape )
@@ -411,6 +411,60 @@ namespace Mila::Dnn
             return device_context_;
         }
 
+        /**
+         * @brief Returns pointer to the memory resource managing this tensor's storage
+         *
+         * Provides efficient access to the memory resource for dispatch optimization,
+         * zero-copy operations when memory resources are compatible, and type-safe
+         * downcasting to specific tensor types.
+         *
+         * @return Pointer to memory resource (never null for valid tensors)
+         *
+         * @note Implements ITensor interface
+         * @note Return type is base MemoryResource pointer for polymorphic access
+         * @note Can be safely cast to TMemoryResource* based on template parameter
+         * @note Enables efficient memory resource compatibility checks
+         *
+         * Example:
+         * @code
+         * ITensor& tensor = getTensor();
+         * auto* mr = tensor.getMemoryResource();
+         *
+         * // Type-safe downcast check
+         * if (auto* cuda_mr = dynamic_cast<CudaDeviceMemoryResource*>(mr)) {
+         *     // Use CUDA-specific operations
+         * }
+         * @endcode
+         */
+        Compute::MemoryResource* getMemoryResource() const override {
+            return buffer_ ? buffer_->getMemoryResource() : nullptr;
+        }
+
+        /**
+         * @brief Returns the device type of this tensor's memory resource
+         *
+         * Provides the device type directly from the memory resource's static
+         * device_type member. More efficient than querying device context.
+         *
+         * @return DeviceType enum value for this tensor's memory resource
+         *
+         * @note Implements ITensor interface
+         * @note Compile-time constant propagated from TMemoryResource
+         * @note Equivalent to TMemoryResource::device_type
+         *
+         * Example:
+         * @code
+         * Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> cuda_tensor(...);
+         * assert(cuda_tensor.getDeviceType() == DeviceType::Cuda);
+         *
+         * Tensor<TensorDataType::FP32, CpuMemoryResource> cpu_tensor(...);
+         * assert(cpu_tensor.getDeviceType() == DeviceType::Cpu);
+         * @endcode
+         */
+        Compute::DeviceType getDeviceType() const override {
+            return TMemoryResource::device_type;
+        }
+
         // ====================================================================
         // Type Information and Interface Compliance
         // ====================================================================
@@ -424,7 +478,7 @@ namespace Mila::Dnn
          *
          * @return TensorDataType enumeration value for this tensor
          *
-         * @note Required by ITensorData polymorphic interface
+         * @note Required by ITensor polymorphic interface
          * @note Determined at compile time from TDataType template parameter
          * @note Enables type-safe operations across device boundaries
          */
@@ -440,7 +494,7 @@ namespace Mila::Dnn
          *
          * @return String name of the data type (e.g., "FP32", "FP16", "INT32")
          *
-         * @note Required by ITensorData polymorphic interface
+         * @note Required by ITensor polymorphic interface
          * @note Useful for debugging and runtime introspection
          * @note Consistent across all devices for same abstract type
          */
@@ -732,7 +786,7 @@ namespace Mila::Dnn
          *
          * @return Const reference to vector containing dimension sizes
          *
-         * @note Required by ITensorData polymorphic interface
+         * @note Required by ITensor polymorphic interface
          * @note Empty vector {} indicates a scalar (0-dimensional) tensor
          * @note Order is from outermost to innermost dimension (row-major)
          * @note Shape determines stride computation and memory indexing
@@ -862,7 +916,7 @@ namespace Mila::Dnn
          * @brief Returns untyped mutable pointer to tensor data
          *
          * Provides raw memory access for low-level operations, device kernel
-         * interfacing, and external library integration. Required by ITensorData
+         * interfacing, and external library integration. Required by ITensor
          * polymorphic interface for type-erased operations.
          *
          * @return Void pointer to tensor data buffer (nullptr for empty tensors)
@@ -871,7 +925,7 @@ namespace Mila::Dnn
          * @warning No type or bounds safety - caller responsibility
          * @warning For packed types, handle sub-byte element access carefully
          *
-         * @note Required by ITensorData polymorphic interface
+         * @note Required by ITensor polymorphic interface
          * @note Use with appropriate type casting based on getDataType()
          * @note Consider memory access patterns for packed data types
          * @note Scalars return valid pointer to single element
@@ -892,7 +946,7 @@ namespace Mila::Dnn
          * @warning No type or bounds safety - caller responsibility
          * @warning For packed types, handle sub-byte element access carefully
          *
-         * @note Required by ITensorData polymorphic interface
+         * @note Required by ITensor polymorphic interface
          * @note Use with appropriate type casting based on getDataType()
          * @note Consider memory access patterns for packed data types
          * @note Scalars return valid pointer to single element
@@ -988,13 +1042,13 @@ namespace Mila::Dnn
          *
          * Example usage:
          * @code
-         * auto fp16_tensor = Tensor<TensorDataType::FP16, CudaMemoryResource>(...);
+         * auto fp16_tensor = Tensor<TensorDataType::FP16, CudaDeviceMemoryResource>(...);
          * auto host_tensor = fp16_tensor.toHost(); // -> Tensor<TensorDataType::FP32, CpuMemoryResource>
          *
-         * auto int8_tensor = Tensor<TensorDataType::INT8, CudaMemoryResource>(...);
+         * auto int8_tensor = Tensor<TensorDataType::INT8, CudaDeviceMemoryResource>(...);
          * auto host_tensor = int8_tensor.toHost(); // -> Tensor<TensorDataType::INT8, CpuMemoryResource>
          *
-         * auto scalar = Tensor<TensorDataType::FP16, CudaMemoryResource>("CUDA:0", {});
+         * auto scalar = Tensor<TensorDataType::FP16, CudaDeviceMemoryResource>("CUDA:0", {});
          * auto host_scalar = scalar.toHost(); // -> Tensor<TensorDataType::FP32, CpuMemoryResource> with shape {}
          * @endcode
          */
@@ -1537,7 +1591,7 @@ namespace Mila::Dnn
      * @tparam TDataType Abstract tensor data type from TensorDataType enumeration
      */
     export template <TensorDataType TDataType>
-        using DeviceTensor = Tensor<TDataType, Compute::CudaMemoryResource>;
+        using DeviceTensor = Tensor<TDataType, Compute::CudaDeviceMemoryResource>;
 
     /**
      * @brief Tensor type that uses pinned (page-locked) host memory

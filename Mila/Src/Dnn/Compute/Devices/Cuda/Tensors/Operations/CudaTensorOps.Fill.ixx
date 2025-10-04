@@ -29,10 +29,10 @@ export module Dnn.TensorOps:Fill.Cuda;
 
 import Dnn.Tensor;
 import Dnn.TensorDataType;
-import Dnn.TensorDataTypeMap;
-import Dnn.TensorDataTypeTraits;
+import Dnn.TensorTypeMap;
+import Dnn.TensorTypeTraits;
 import Compute.DeviceTraits;
-import Compute.CudaMemoryResource;
+import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
 import Compute.CudaDeviceContext;
 
@@ -90,7 +90,7 @@ namespace Mila::Dnn
          */
         template<TensorDataType TDataType>
         static void fill(
-            Tensor<TDataType, CudaMemoryResource>& tensor,
+            Tensor<TDataType, CudaDeviceMemoryResource>& tensor,
             std::span<const host_value_t<TDataType>> host_values )
         {
             if (tensor.size() == 0 || host_values.empty())
@@ -144,7 +144,7 @@ namespace Mila::Dnn
          * @note Device context and type are guaranteed valid by tensor construction
          */
         template<TensorDataType TDataType>
-        static void fill( Tensor<TDataType, CudaMemoryResource>& tensor,
+        static void fill( Tensor<TDataType, CudaDeviceMemoryResource>& tensor,
             host_value_t<TDataType> host_value )
         {
             if (tensor.size() == 0)

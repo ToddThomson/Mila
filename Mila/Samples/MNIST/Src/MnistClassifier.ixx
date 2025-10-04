@@ -26,7 +26,7 @@ namespace Mila::Mnist
     export template<DeviceType TDeviceType = DeviceType::Cuda, typename TDataType = float>
         class MnistClassifier : public CompositeModule<TDeviceType, TDataType> {
         public:
-            using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, HostMemoryResource>;
+            using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, HostMemoryResource>;
             using CompositeModuleBase = CompositeModule<TDeviceType, TDataType>;
 
             /**

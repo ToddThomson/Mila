@@ -170,7 +170,7 @@ namespace Compute::Cpu::Operations::Tests
 
         initializeTensors( input, *weights );
 
-        std::vector<std::shared_ptr<ITensorData>> parameters = { weights };
+        std::vector<std::shared_ptr<ITensor>> parameters = { weights };
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
 
         ASSERT_NO_THROW( op->forward( input, parameters, output, output_state ) );
@@ -196,7 +196,7 @@ namespace Compute::Cpu::Operations::Tests
 
         initializeTensors( input, *weights, bias.get() );
 
-        std::vector<std::shared_ptr<ITensorData>> parameters = { weights, bias };
+        std::vector<std::shared_ptr<ITensor>> parameters = { weights, bias };
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
 
         ASSERT_NO_THROW( op->forward( input, parameters, output, output_state ) );
@@ -222,7 +222,7 @@ namespace Compute::Cpu::Operations::Tests
 
         initializeTensors( input, *weights, bias.get() );
 
-        std::vector<std::shared_ptr<ITensorData>> parameters = { weights, bias };
+        std::vector<std::shared_ptr<ITensor>> parameters = { weights, bias };
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
 
         ASSERT_NO_THROW( op->forward( input, parameters, output, output_state ) );
@@ -251,7 +251,7 @@ namespace Compute::Cpu::Operations::Tests
 
         initializeTensors( input, *weights, bias.get() );
 
-        std::vector<std::shared_ptr<ITensorData>> parameters = { weights, bias };
+        std::vector<std::shared_ptr<ITensor>> parameters = { weights, bias };
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
 
         ASSERT_NO_THROW( op->forward( input, parameters, output, output_state ) );
@@ -280,7 +280,7 @@ namespace Compute::Cpu::Operations::Tests
 
         initializeTensors( input, *weights, bias.get() );
 
-        std::vector<std::shared_ptr<ITensorData>> parameters = { weights, bias };
+        std::vector<std::shared_ptr<ITensor>> parameters = { weights, bias };
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
 
         ASSERT_NO_THROW( op->forward( input, parameters, output, output_state ) );
@@ -308,7 +308,7 @@ namespace Compute::Cpu::Operations::Tests
 
         initializeTensors( input, *weights, bias.get() );
 
-        std::vector<std::shared_ptr<ITensorData>> parameters = { weights, bias };
+        std::vector<std::shared_ptr<ITensor>> parameters = { weights, bias };
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
 
         ASSERT_NO_THROW( op->forward( input, parameters, output, output_state ) );
@@ -335,7 +335,7 @@ namespace Compute::Cpu::Operations::Tests
         auto weights = std::make_shared<Tensor<float, HostMemoryResource>>( small_weight_shape_ );
         Tensor<float, HostMemoryResource> output( small_output_shape_ );
 
-        std::vector<std::shared_ptr<ITensorData>> parameters = { weights };
+        std::vector<std::shared_ptr<ITensor>> parameters = { weights };
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
 
         EXPECT_THROW( op->forward( input_1d, parameters, output, output_state ), std::runtime_error );
@@ -358,7 +358,7 @@ namespace Compute::Cpu::Operations::Tests
 
         initializeWeightsAndBias( *weights, bias.get() );
 
-        std::vector<std::shared_ptr<ITensorData>> parameters = { weights, bias };
+        std::vector<std::shared_ptr<ITensor>> parameters = { weights, bias };
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
 
         ASSERT_NO_THROW( op->forward( input, parameters, output, output_state ) );
@@ -390,7 +390,7 @@ namespace Compute::Cpu::Operations::Tests
             weights->data()[ i ] = 0.0f;
         }
 
-        std::vector<std::shared_ptr<ITensorData>> parameters = { weights, bias };
+        std::vector<std::shared_ptr<ITensor>> parameters = { weights, bias };
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
 
         ASSERT_NO_THROW( op->forward( input, parameters, output, output_state ) );
@@ -441,7 +441,7 @@ namespace Compute::Cpu::Operations::Tests
             bias->data()[ i ] = (i % 2 == 0) ? 0.1f : -0.1f;
         }
 
-        std::vector<std::shared_ptr<ITensorData>> parameters = { weights, bias };
+        std::vector<std::shared_ptr<ITensor>> parameters = { weights, bias };
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
 
         ASSERT_NO_THROW( op->forward( input, parameters, output, output_state ) );
@@ -463,7 +463,7 @@ namespace Compute::Cpu::Operations::Tests
 
         initializeTensors( input, *weights, bias.get() );
 
-        std::vector<std::shared_ptr<ITensorData>> parameters = { weights, bias };
+        std::vector<std::shared_ptr<ITensor>> parameters = { weights, bias };
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state1;
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state2;
 
@@ -531,7 +531,7 @@ namespace Compute::Cpu::Operations::Tests
 
         initializeTensors( input, *weights, bias.get() );
 
-        std::vector<std::shared_ptr<ITensorData>> parameters = { weights, bias };
+        std::vector<std::shared_ptr<ITensor>> parameters = { weights, bias };
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
 
         ASSERT_NO_THROW( op->forward( input, parameters, output, output_state ) );
@@ -554,7 +554,7 @@ namespace Compute::Cpu::Operations::Tests
 
         initializeTensors( input, *weights, bias.get() );
 
-        std::vector<std::shared_ptr<ITensorData>> parameters = { weights, bias };
+        std::vector<std::shared_ptr<ITensor>> parameters = { weights, bias };
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
 
         ASSERT_NO_THROW( op->forward( input, parameters, output, output_state ) );
@@ -577,7 +577,7 @@ namespace Compute::Cpu::Operations::Tests
 
         initializeTensors( input, *weights, bias.get() );
 
-        std::vector<std::shared_ptr<ITensorData>> parameters = { weights, bias };
+        std::vector<std::shared_ptr<ITensor>> parameters = { weights, bias };
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
 
         const int iterations = 10;
@@ -624,7 +624,7 @@ namespace Compute::Cpu::Operations::Tests
 
         initializeTensors( input, *weights, bias.get() );
 
-        std::vector<std::shared_ptr<ITensorData>> parameters = { weights, bias };
+        std::vector<std::shared_ptr<ITensor>> parameters = { weights, bias };
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
 
         int max_threads = omp_get_max_threads();

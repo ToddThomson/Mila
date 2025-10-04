@@ -19,7 +19,7 @@ export module Dnn.Graph;
 //{
 //    /*export
 //    template<typename TInput, typename TDataType = TInput, typename MR = Compute::HostMemoryResource>
-//        requires ValidTensorTypes<TInput, TDataType> && (std::is_same_v<MR, Compute::HostMemoryResource> || std::is_same_v<MR, Compute::CudaMemoryResource>)
+//        requires ValidTensorTypes<TInput, TDataType> && (std::is_same_v<MR, Compute::HostMemoryResource> || std::is_same_v<MR, Compute::CudaDeviceMemoryResource>)
 //    class Model : public Module<TInput, TDataType, MR> {
 //    public:*/
 //

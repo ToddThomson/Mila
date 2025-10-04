@@ -1,5 +1,5 @@
 /**
- * @file ITensorData.ixx
+ * @file ITensor.ixx
  * @brief Interface providing minimal representation for tensor data across different implementations
  *
  * This interface defines the essential methods needed to access tensor information
@@ -9,18 +9,22 @@
 
 module;
 #include <vector>
+#include <memory>
 #include <string>
 
-export module Dnn.TensorData;
+export module Dnn.ITensor;
 
 import Dnn.TensorDataType;
+import Compute.DeviceType;
+import Compute.DeviceContext;
+import Compute.MemoryResource;
 
 namespace Mila::Dnn
 {
     /**
      * @brief Abstract interface providing essential tensor information and data access
      *
-     * ITensorData serves as a type-erased interface for accessing tensor data regardless of the
+     * ITensor serves as a type-erased interface for accessing tensor data regardless of the
      * specific element type or memory resource implementation. This interface enables polymorphic
      * access to tensor properties and data, making it possible to write generic code that works
      * with different tensor implementations.
@@ -34,9 +38,9 @@ namespace Mila::Dnn
      * @note This interface is implemented by concrete tensor classes like Tensor<T, MR>
      * @see Tensor
      */
-    export class ITensorData {
+    export class ITensor {
     public:
-        virtual ~ITensorData() = default;
+        virtual ~ITensor() = default;
 
 		// REVIEW: Should the rawData() methods be protected instead of public?
 
@@ -80,6 +84,42 @@ namespace Mila::Dnn
          */
         virtual std::string getDataTypeName() const = 0;
 
+
+        /**
+         * @brief Get the device context for this tensor
+         *
+         * Provides access to the device context for stream management, multi-GPU
+         * coordination, and device-specific operations.
+         *
+         * @return Shared pointer to device context (never null for valid tensors)
+         * @note Device context manages device binding, streams, and synchronization
+         * @note Essential for kernel launches and device coordination
+         */
+        virtual std::shared_ptr<Compute::DeviceContext> getDeviceContext() const = 0;
+
+        /**
+         * @brief Get the memory resource managing this tensor's storage
+         *
+         * Provides access to the memory resource for efficient dispatch to
+         * device-specific operations and zero-copy tensor operations when
+         * memory resources are compatible.
+         *
+         * @return Pointer to the memory resource (never null for valid tensors)
+         * @note Memory resource lifetime is managed by the tensor
+         * @note Enables efficient type-safe downcasting and dispatch
+         */
+        virtual Compute::MemoryResource* getMemoryResource() const = 0;
+
+        /**
+         * @brief Get the device type from the memory resource
+         *
+         * Convenience method that queries the memory resource for its device type.
+         * Equivalent to getMemoryResource()->device_type but more convenient.
+         *
+         * @return DeviceType enum value (CPU, CUDA, Metal, etc.)
+         */
+        virtual Compute::DeviceType getDeviceType() const = 0;
+
         /**
          * @brief Type-safe check for tensor element type
          * @tparam T The element type to check against
@@ -88,7 +128,7 @@ namespace Mila::Dnn
          * @note Prefer this method over manual type checking for better safety
          *
          * @code
-         * std::shared_ptr<ITensorData> tensor = getTensor();
+         * std::shared_ptr<ITensor> tensor = getTensor();
          * if (tensor->isType<float>()) {
          *     float* data = static_cast<float*>(tensor->data());
          *     // Safe to use data as float*

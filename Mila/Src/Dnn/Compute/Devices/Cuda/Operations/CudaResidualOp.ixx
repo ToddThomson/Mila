@@ -27,7 +27,7 @@ import Compute.DeviceType;
 import Compute.DeviceContext;
 import Compute.OperationType;
 import Compute.MemoryResource;
-import Compute.CudaMemoryResource;
+import Compute.CudaDeviceMemoryResource;
 import Compute.CudaDevice;
 
 namespace Mila::Dnn::Compute
@@ -126,7 +126,7 @@ namespace Mila::Dnn::Compute
         void forward(
             const Tensor<TInput, MR>& input1,
             const Tensor<TInput, MR>& input2,
-            const std::vector<std::shared_ptr<ITensorData>>& parameters,
+            const std::vector<std::shared_ptr<ITensor>>& parameters,
             Tensor<TOutput, MR>& output,
             std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const override {
 

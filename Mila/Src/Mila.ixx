@@ -51,9 +51,9 @@ export import Compute.Precision;
 export import Dnn.Tensor;
 export import Dnn.TensorInitializers;
 export import Dnn.TensorDataType;
-export import Dnn.TensorDataTypeMap;
+export import Dnn.TensorTypeMap;
 
-export import Dnn.TensorData;
+export import Dnn.ITensor;
 export import Dnn.TensorBuffer; // TJT: Remove after testing
 
 export import Dnn.TensorOps;
@@ -68,7 +68,7 @@ export import Compute.CpuTensorDataTypeTraits;
 // FUTURE: export import Compute.VulkanTensorTraits;
 export import Dnn.TensorInitializers;
 export import Dnn.TensorPtr;
-export import Dnn.ActivationType;
+//export import Dnn.ActivationType;
 
 //export import Data.DataLoader;
 
@@ -87,7 +87,7 @@ export import Compute.DeviceHelpers;
 export import Compute.MemoryResource;
 export import Compute.MemoryResourceTracker;
 export import Compute.CpuMemoryResource;
-export import Compute.CudaMemoryResource;
+export import Compute.CudaDeviceMemoryResource;
 export import Compute.CudaManagedMemoryResource;
 export import Compute.CudaPinnedMemoryResource;
 

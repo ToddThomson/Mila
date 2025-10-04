@@ -15,13 +15,13 @@ export module Dnn.TensorOps:Math.Cuda;
 
 import Dnn.Tensor;
 import Dnn.TensorDataType;
-import Dnn.TensorDataTypeMap;
+import Dnn.TensorTypeMap;
 import Dnn.TensorOps;
 import Compute.CudaTensorDataType;
 import Compute.CudaDevice;
 import Compute.DeviceTraits;
 import Compute.CudaDeviceContext;
-import Compute.CudaMemoryResource;
+import Compute.CudaDeviceMemoryResource;
 import Compute.CudaPinnedMemoryResource;
 import Compute.CudaManagedMemoryResource;
 import Cuda.Error;

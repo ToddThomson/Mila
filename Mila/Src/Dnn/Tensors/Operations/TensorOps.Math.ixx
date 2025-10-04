@@ -31,7 +31,7 @@ export import :Math.Cpu;
 
 import Dnn.Tensor;
 import Dnn.TensorDataType;
-import Dnn.TensorDataTypeMap;
+import Dnn.TensorTypeMap;
 import Compute.DeviceTraits;
 import Compute.CpuMemoryResource;
 

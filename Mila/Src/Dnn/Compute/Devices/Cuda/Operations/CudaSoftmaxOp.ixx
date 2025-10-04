@@ -14,7 +14,7 @@ export module Compute.CudaSoftmaxOp;
 
 import Dnn.Modules.Softmax;
 import Dnn.Tensor;
-import Dnn.TensorData;
+import Dnn.ITensor;
 import Dnn.TensorTraits;
 import Dnn.ConfigurationBase;
 import Compute.OperationBase;
@@ -25,7 +25,7 @@ import Compute.DeviceContext;
 import Compute.OperationType;
 import Compute.OperationAttributes;
 import Compute.MemoryResource;
-import Compute.CudaMemoryResource;
+import Compute.CudaDeviceMemoryResource;
 import Compute.CudaDevice;
 
 namespace Mila::Dnn::Compute
@@ -145,7 +145,7 @@ namespace Mila::Dnn::Compute
          */
         void forward(
             const Tensor<TInput, MR>& input,
-            const std::vector<std::shared_ptr<ITensorData>>& parameters,
+            const std::vector<std::shared_ptr<ITensor>>& parameters,
             Tensor<TOutput, MR>& output,
             std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const override {
 

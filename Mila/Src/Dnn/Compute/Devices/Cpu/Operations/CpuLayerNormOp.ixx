@@ -91,7 +91,7 @@ namespace Mila::Dnn::Compute
          */
         void forward(
             const Tensor<float, MR>& input,
-            const std::vector<std::shared_ptr<ITensorData>>& parameters,
+            const std::vector<std::shared_ptr<ITensor>>& parameters,
             Tensor<float, MR>& output,
             std::vector<std::shared_ptr<Tensor<float, MR>>>& output_state ) const override {
 

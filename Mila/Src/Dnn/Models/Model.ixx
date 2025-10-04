@@ -22,7 +22,7 @@ import Compute.ComputeDevice;
 import Compute.CpuDevice;
 import Compute.CudaDevice;
 import Compute.CpuMemoryResource;
-import Compute.CudaMemoryResource;
+import Compute.CudaDeviceMemoryResource;
 import Data.DataLoader;
 import Dnn.ModelCallback;
 
@@ -60,7 +60,7 @@ namespace Mila::Dnn
         requires ValidTensorTypes<TInput, TOutput>
     class Model : public Module<TDeviceType, TInput, TOutput> {
     public:
-        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>; ///< Memory resource type
+        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>; ///< Memory resource type
         using ModuleBase = Module<TDeviceType, TInput, TOutput>; ///< Base class type for the module
 
         /**

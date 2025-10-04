@@ -7,6 +7,7 @@ module;
 
 export module Compute.CudaManagedMemoryResource;
 
+import Compute.DeviceType;
 import Compute.MemoryResource;
 import Compute.MemoryResourceProperties;
 import Compute.DeviceContext;
@@ -26,9 +27,8 @@ namespace Mila::Dnn::Compute
      * responsibilities without tensor-specific operations or type conversions.
      */
     export class CudaManagedMemoryResource : public MemoryResource {
-
     public:
-
+        static constexpr DeviceType device_type = DeviceType::Cuda;
 		using ComputeDeviceTag = CudaComputeDeviceTag;
         using CompatibleDeviceContext = CudaDeviceContext;
 

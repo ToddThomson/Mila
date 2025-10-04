@@ -29,7 +29,7 @@ namespace Mila::Benchmark
     export template<DeviceType TDeviceType = DeviceType::Cuda, typename TDataType = float>
         class BlockModuleBenchmark : public Benchmark {
         public:
-            using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, HostMemoryResource>;
+            using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, HostMemoryResource>;
 
             /**
              * @brief Constructs a new BlockModuleBenchmark.
@@ -62,8 +62,8 @@ namespace Mila::Benchmark
 
                 // Create input and output tensors
                 if constexpr ( TDeviceType == DeviceType::Cuda ) {
-                    input_ = Tensor<TDataType, CudaMemoryResource>( inputShape_ );
-                    output_ = Tensor<TDataType, CudaMemoryResource>( inputShape_ );
+                    input_ = Tensor<TDataType, CudaDeviceMemoryResource>( inputShape_ );
+                    output_ = Tensor<TDataType, CudaDeviceMemoryResource>( inputShape_ );
 
                     // Create host tensor for initialization
                     Tensor<TDataType, HostMemoryResource> hostInput( inputShape_ );
@@ -176,7 +176,7 @@ namespace Mila::Benchmark
 
         private:
             using InputTensor = std::conditional_t<TDeviceType == DeviceType::Cuda,
-                Tensor<TDataType, CudaMemoryResource>,
+                Tensor<TDataType, CudaDeviceMemoryResource>,
                 Tensor<TDataType, HostMemoryResource>>;
 
             // Type-safe function to call forward

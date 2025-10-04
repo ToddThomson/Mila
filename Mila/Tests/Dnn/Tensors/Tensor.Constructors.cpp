@@ -54,7 +54,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ(cpu_tensor.getDeviceContext(), cpu_context_);
 
         if (has_cuda_) {
-            Tensor<TensorDataType::FP32, CudaMemoryResource> cuda_tensor(cuda_context_, shape);
+            Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> cuda_tensor(cuda_context_, shape);
 
             EXPECT_FALSE(cuda_tensor.empty());
             EXPECT_EQ(cuda_tensor.size(), 6);
@@ -78,7 +78,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ(cpu_tensor.shape(), shape);
 
         if (has_cuda_) {
-            Tensor<TensorDataType::FP32, CudaMemoryResource> cuda_tensor("CUDA:0", shape);
+            Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> cuda_tensor("CUDA:0", shape);
 
             EXPECT_FALSE(cuda_tensor.empty());
             EXPECT_EQ(cuda_tensor.size(), 6);
@@ -119,7 +119,7 @@ namespace Dnn::Tensors::Tests
         }
 
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<TensorDataType::FP32, CudaMemoryResource> tensor(cuda_context_, shape);
+        Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> tensor(cuda_context_, shape);
 
         EXPECT_FALSE(tensor.empty());
         EXPECT_EQ(tensor.size(), 6);
@@ -315,7 +315,7 @@ namespace Dnn::Tensors::Tests
 
         // Test construction with various memory resource types
         Tensor<TensorDataType::FP32, CpuMemoryResource> host_tensor(cpu_context_, shape);
-        Tensor<TensorDataType::FP32, CudaMemoryResource> cuda_tensor(cuda_context_, shape);
+        Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> cuda_tensor(cuda_context_, shape);
         Tensor<TensorDataType::FP32, CudaPinnedMemoryResource> pinned_tensor(cuda_context_, shape);
         Tensor<TensorDataType::FP32, CudaManagedMemoryResource> managed_tensor(cuda_context_, shape);
 
@@ -360,12 +360,12 @@ namespace Dnn::Tensors::Tests
     // Device Context Validation Tests
     // ====================================================================
 
-    TEST_F(TensorConstructionTest, CudaMemoryResourceRequiresCudaContext) {
+    TEST_F(TensorConstructionTest, CudaDeviceMemoryResourceRequiresCudaContext) {
         std::vector<size_t> shape = { 2, 3 };
 
         // CPU context with CUDA memory resource should fail
         EXPECT_THROW(
-            (Tensor<TensorDataType::FP32, CudaMemoryResource>(cpu_context_, shape)),
+            (Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>(cpu_context_, shape)),
 			std::runtime_error
         );
 
@@ -502,17 +502,17 @@ namespace Dnn::Tensors::Tests
         std::vector<size_t> shape = { 2, 3 };
 
         // Test all CUDA-supported data types
-        Tensor<TensorDataType::FP32, CudaMemoryResource> fp32_tensor(cuda_context_, shape);
-        Tensor<TensorDataType::FP16, CudaMemoryResource> fp16_tensor(cuda_context_, shape);
-        Tensor<TensorDataType::BF16, CudaMemoryResource> bf16_tensor(cuda_context_, shape);
-        Tensor<TensorDataType::FP8_E4M3, CudaMemoryResource> fp8_e4m3_tensor(cuda_context_, shape);
-        Tensor<TensorDataType::FP8_E5M2, CudaMemoryResource> fp8_e5m2_tensor(cuda_context_, shape);
-        Tensor<TensorDataType::INT8, CudaMemoryResource> int8_tensor(cuda_context_, shape);
-        Tensor<TensorDataType::INT16, CudaMemoryResource> int16_tensor(cuda_context_, shape);
-        Tensor<TensorDataType::INT32, CudaMemoryResource> int32_tensor(cuda_context_, shape);
-        Tensor<TensorDataType::UINT8, CudaMemoryResource> uint8_tensor(cuda_context_, shape);
-        Tensor<TensorDataType::UINT16, CudaMemoryResource> uint16_tensor(cuda_context_, shape);
-        Tensor<TensorDataType::UINT32, CudaMemoryResource> uint32_tensor(cuda_context_, shape);
+        Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> fp32_tensor(cuda_context_, shape);
+        Tensor<TensorDataType::FP16, CudaDeviceMemoryResource> fp16_tensor(cuda_context_, shape);
+        Tensor<TensorDataType::BF16, CudaDeviceMemoryResource> bf16_tensor(cuda_context_, shape);
+        Tensor<TensorDataType::FP8_E4M3, CudaDeviceMemoryResource> fp8_e4m3_tensor(cuda_context_, shape);
+        Tensor<TensorDataType::FP8_E5M2, CudaDeviceMemoryResource> fp8_e5m2_tensor(cuda_context_, shape);
+        Tensor<TensorDataType::INT8, CudaDeviceMemoryResource> int8_tensor(cuda_context_, shape);
+        Tensor<TensorDataType::INT16, CudaDeviceMemoryResource> int16_tensor(cuda_context_, shape);
+        Tensor<TensorDataType::INT32, CudaDeviceMemoryResource> int32_tensor(cuda_context_, shape);
+        Tensor<TensorDataType::UINT8, CudaDeviceMemoryResource> uint8_tensor(cuda_context_, shape);
+        Tensor<TensorDataType::UINT16, CudaDeviceMemoryResource> uint16_tensor(cuda_context_, shape);
+        Tensor<TensorDataType::UINT32, CudaDeviceMemoryResource> uint32_tensor(cuda_context_, shape);
 
         // Verify all tensors have correct data types
         EXPECT_EQ(fp32_tensor.getDataType(), TensorDataType::FP32);
@@ -680,7 +680,7 @@ namespace Dnn::Tensors::Tests
 
         std::vector<size_t> shape = { 2, 3 };
 
-        Tensor<TensorDataType::FP32, CudaMemoryResource> tensor(cuda_context_, shape);
+        Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> tensor(cuda_context_, shape);
 
         // Verify device context is accessible
         auto retrieved_context = tensor.getDeviceContext();
@@ -704,7 +704,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_NE(cpu_str.find("CPU"), std::string::npos);
 
         if (has_cuda_) {
-            Tensor<TensorDataType::FP32, CudaMemoryResource> cuda_tensor(cuda_context_, shape);
+            Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> cuda_tensor(cuda_context_, shape);
             std::string cuda_str = cuda_tensor.toString();
             EXPECT_NE(cuda_str.find("CUDA:0"), std::string::npos);
         }
@@ -792,7 +792,7 @@ namespace Dnn::Tensors::Tests
 
         // Verify data type names are consistent
         if (has_cuda_) {
-            Tensor<TensorDataType::FP16, CudaMemoryResource> cuda_tensor(cuda_context_, { 2, 3 });
+            Tensor<TensorDataType::FP16, CudaDeviceMemoryResource> cuda_tensor(cuda_context_, { 2, 3 });
             Tensor<TensorDataType::FP16, CudaManagedMemoryResource> managed_tensor(cuda_context_, { 2, 3 });
 
             EXPECT_EQ(cuda_tensor.getDataTypeName(), managed_tensor.getDataTypeName());
@@ -801,7 +801,7 @@ namespace Dnn::Tensors::Tests
 
         // Verify device-only type characteristics
         if (has_cuda_) {
-            Tensor<TensorDataType::FP8_E4M3, CudaMemoryResource> tensor(cuda_context_, { 2, 3 });
+            Tensor<TensorDataType::FP8_E4M3, CudaDeviceMemoryResource> tensor(cuda_context_, { 2, 3 });
             EXPECT_EQ(tensor.getDataTypeName(), "FP8_E4M3");
         }
     }
@@ -811,7 +811,7 @@ namespace Dnn::Tensors::Tests
 
         // Verify all memory resources inherit from base
         static_assert(std::is_base_of_v<MemoryResource, CpuMemoryResource>);
-        static_assert(std::is_base_of_v<MemoryResource, CudaMemoryResource>);
+        static_assert(std::is_base_of_v<MemoryResource, CudaDeviceMemoryResource>);
         static_assert(std::is_base_of_v<MemoryResource, CudaManagedMemoryResource>);
         static_assert(std::is_base_of_v<MemoryResource, CudaPinnedMemoryResource>);
 
@@ -819,8 +819,8 @@ namespace Dnn::Tensors::Tests
         static_assert(CpuMemoryResource::is_host_accessible == true);
         static_assert(CpuMemoryResource::is_device_accessible == false);
 
-        static_assert(CudaMemoryResource::is_host_accessible == false);
-        static_assert(CudaMemoryResource::is_device_accessible == true);
+        static_assert(CudaDeviceMemoryResource::is_host_accessible == false);
+        static_assert(CudaDeviceMemoryResource::is_device_accessible == true);
 
         static_assert(CudaManagedMemoryResource::is_host_accessible == true);
         static_assert(CudaManagedMemoryResource::is_device_accessible == true);
@@ -834,8 +834,8 @@ namespace Dnn::Tensors::Tests
 
         // Valid combinations should satisfy the concept
         static_assert(isValidTensor<TensorDataType::FP32, CpuMemoryResource>);
-        static_assert(isValidTensor<TensorDataType::FP16, CudaMemoryResource>);
-        static_assert(isValidTensor<TensorDataType::FP8_E4M3, CudaMemoryResource>);
+        static_assert(isValidTensor<TensorDataType::FP16, CudaDeviceMemoryResource>);
+        static_assert(isValidTensor<TensorDataType::FP8_E4M3, CudaDeviceMemoryResource>);
         static_assert(isValidTensor<TensorDataType::INT32, CpuMemoryResource>);
         static_assert(isValidTensor<TensorDataType::FP32, CudaManagedMemoryResource>);
         static_assert(isValidTensor<TensorDataType::FP16, CudaPinnedMemoryResource>);

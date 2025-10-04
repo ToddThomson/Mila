@@ -20,7 +20,7 @@ module;
 export module Compute.OpenCLTensorTraits;
 
 import Dnn.TensorDataType;
-import Dnn.TensorDataTypeMap;
+import Dnn.TensorTypeMap;
 import Compute.DeviceType;
 
 namespace Mila::Dnn

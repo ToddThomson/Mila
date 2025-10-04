@@ -17,7 +17,7 @@ export module Compute.CpuAttention;
 
 import Dnn.Modules.Attention;
 import Dnn.Tensor;
-import Dnn.TensorData;
+import Dnn.ITensor;
 import Dnn.ConfigurationBase;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
@@ -88,7 +88,7 @@ namespace Mila::Dnn::Compute
          */
         void forward(
             const Tensor<float, MR>& input,
-            const std::vector<std::shared_ptr<ITensorData>>& parameters,
+            const std::vector<std::shared_ptr<ITensor>>& parameters,
             Tensor<float, MR>& output,
             std::vector<std::shared_ptr<Tensor<float, MR>>>& output_state ) const override {
 
@@ -182,7 +182,7 @@ namespace Mila::Dnn::Compute
             const Tensor<float, MR>& input,
             const Tensor<float, MR>& output,
             Tensor<float, MR>& output_gradient,
-            const std::vector<std::shared_ptr<ITensorData>>& parameters,
+            const std::vector<std::shared_ptr<ITensor>>& parameters,
             std::vector<std::shared_ptr<Tensor<float, MR>>>& parameter_gradients,
             Tensor<float, MR>& input_gradient,
             const std::vector<std::shared_ptr<Tensor<float, MR>>>& output_state ) const {

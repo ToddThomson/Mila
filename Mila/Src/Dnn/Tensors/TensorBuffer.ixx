@@ -26,12 +26,12 @@ module;
 export module Dnn.TensorBuffer;
 
 import Dnn.TensorDataType;
-import Dnn.TensorDataTypeMap;
-import Dnn.TensorDataTypeTraits;
+import Dnn.TensorTypeMap;
+import Dnn.TensorTypeTraits;
 import Compute.MemoryResource;
 import Compute.MemoryResourceTracker;
 import Compute.CpuMemoryResource;
-import Compute.CudaMemoryResource;
+import Compute.CudaDeviceMemoryResource;
 import Compute.DeviceContext;
 
 namespace Mila::Dnn
@@ -69,7 +69,7 @@ namespace Mila::Dnn
 		 */
 		template<TensorDataType TDataType, typename MR>
 		constexpr size_t get_alignment() {
-			if constexpr (std::is_same_v<MR, Compute::CudaMemoryResource>) {
+			if constexpr (std::is_same_v<MR, Compute::CudaDeviceMemoryResource>) {
 				return CUDA_WARP_SIZE * TensorDataTypeTraits<TDataType>::size_in_bytes;
 			}
 			else {
@@ -138,10 +138,10 @@ namespace Mila::Dnn
 	 * TensorBuffer<TensorDataType::FP32, Compute::CpuMemoryResource> cpuBuffer(device_context, 100);
 	 *
 	 * // GPU buffer with FP16 data type
-	 * TensorBuffer<TensorDataType::FP16, Compute::CudaMemoryResource> gpuBuffer(device_context, 100);
+	 * TensorBuffer<TensorDataType::FP16, Compute::CudaDeviceMemoryResource> gpuBuffer(device_context, 100);
 	 *
 	 * // Buffer with memory tracking enabled
-	 * TensorBuffer<TensorDataType::BF16, Compute::CudaMemoryResource, true> trackedBuffer(device_context, 100);
+	 * TensorBuffer<TensorDataType::BF16, Compute::CudaDeviceMemoryResource, true> trackedBuffer(device_context, 100);
 	 * @endcode
 	 */
 	export template <TensorDataType TDataType, typename TMemoryResource, bool TrackMemory = false>
@@ -494,6 +494,35 @@ namespace Mila::Dnn
 				}
 				throw;
 			}
+		}
+
+		/**
+		 * @brief Returns pointer to the memory resource managing this buffer's storage
+		 *
+		 * Provides access to the memory resource for efficient dispatch optimization,
+		 * zero-copy operations when memory resources are compatible, and type-safe
+		 * downcasting to specific memory resource types.
+		 *
+		 * @return Pointer to memory resource (nullptr if using external memory)
+		 *
+		 * @note Returns nullptr for buffers constructed with external memory
+		 * @note For owned memory, returns pointer to the underlying memory resource
+		 * @note Can be safely cast to TMemoryResource* based on template parameter
+		 * @note Enables efficient memory resource compatibility checks
+		 *
+		 * Example:
+		 * @code
+		 * TensorBuffer<TensorDataType::FP32, CudaMemoryResource> buffer(ctx, 100);
+		 * auto* mr = buffer.getMemoryResource();
+		 *
+		 * // Type-safe downcast check
+		 * if (auto* cuda_mr = dynamic_cast<CudaMemoryResource*>(mr)) {
+		 *     // Use CUDA-specific operations
+		 * }
+		 * @endcode
+		 */
+		Compute::MemoryResource* getMemoryResource() const noexcept {
+			return mr_.get();
 		}
 
 	private:

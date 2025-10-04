@@ -14,8 +14,8 @@ export module Dnn.TensorOps:Fill.Cpu;
 
 import Dnn.Tensor;
 import Dnn.TensorDataType;
-import Dnn.TensorDataTypeMap;
-import Dnn.TensorDataTypeTraits;
+import Dnn.TensorTypeMap;
+import Dnn.TensorTypeTraits;
 import Compute.DeviceTraits;
 import Compute.CpuMemoryResource;
 import Compute.CpuTensorDataTypeTraits;

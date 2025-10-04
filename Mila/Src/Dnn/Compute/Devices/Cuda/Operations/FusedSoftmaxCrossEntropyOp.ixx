@@ -21,7 +21,7 @@ import Compute.DeviceContext;
 import Compute.OperationType;
 import Compute.OperationAttributes;
 import Compute.MemoryResource;
-import Compute.CudaMemoryResource;
+import Compute.CudaDeviceMemoryResource;
 import Compute.CudaDevice;
 
 namespace Mila::Dnn::Compute

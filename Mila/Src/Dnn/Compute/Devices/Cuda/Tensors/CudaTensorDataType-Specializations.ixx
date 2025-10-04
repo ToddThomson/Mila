@@ -12,7 +12,7 @@ module;
 export module Compute.CudaTensorDataType:Specializations;
 
 import Dnn.TensorDataType;
-import Dnn.TensorDataTypeMap;
+import Dnn.TensorTypeMap;
 import Compute.DeviceType;
 
 namespace Mila::Dnn 

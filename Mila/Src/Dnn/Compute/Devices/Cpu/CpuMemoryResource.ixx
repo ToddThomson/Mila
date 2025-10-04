@@ -12,6 +12,7 @@ module;
 
 export module Compute.CpuMemoryResource;
 
+import Compute.DeviceType;
 import Compute.MemoryResource;
 import Compute.MemoryResourceProperties;
 import Compute.CpuDeviceContext;
@@ -30,9 +31,10 @@ namespace Mila::Dnn::Compute
      */
     export class CpuMemoryResource : public MemoryResource {
     public:
-
 		using ComputeDeviceTag = CpuComputeDeviceTag;
         using CompatibleDeviceContext = CpuDeviceContext;
+
+        static constexpr DeviceType device_type = DeviceType::Cpu;
 
         static constexpr bool isValidDeviceContext(const DeviceContext& device_context) {
             return dynamic_cast<const CpuDeviceContext*>(&device_context) != nullptr;

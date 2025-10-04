@@ -18,7 +18,7 @@ export import :Config;
 
 import Dnn.Module;
 import Dnn.Tensor;
-import Dnn.TensorData;
+import Dnn.ITensor;
 import Dnn.TensorTraits;
 import Compute.Precision;
 import Compute.ComputeDevice;
@@ -30,7 +30,7 @@ import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
-import Compute.CudaMemoryResource;
+import Compute.CudaDeviceMemoryResource;
 import Serialization.ModelArchive;
 
 namespace Mila::Dnn
@@ -63,7 +63,7 @@ namespace Mila::Dnn
         /**
          * @brief Memory resource type used for tensors, selected based on device type.
          */
-        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaMemoryResource, CpuMemoryResource>;
+        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
 
         /**
          * @brief Alias for base module type.
@@ -297,7 +297,7 @@ namespace Mila::Dnn
         /**
          * @brief Collection of trainable parameters for this module.
          */
-        std::vector<std::shared_ptr<ITensorData>> parameters_;
+        std::vector<std::shared_ptr<ITensor>> parameters_;
 
         /**
          * @brief Collection of output state tensors for caching.

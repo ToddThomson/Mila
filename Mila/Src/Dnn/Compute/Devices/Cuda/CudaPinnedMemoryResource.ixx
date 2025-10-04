@@ -9,6 +9,7 @@ export module Compute.CudaPinnedMemoryResource;
 
 import Compute.MemoryResource;
 import Compute.MemoryResourceProperties;
+import Compute.DeviceType;
 import Compute.DeviceContext;
 import Compute.CudaDeviceContext;
 import Cuda.Utils;
@@ -28,13 +29,10 @@ namespace Mila::Dnn::Compute
     export class CudaPinnedMemoryResource : public MemoryResource {
 
     public:
-
 		using ComputeDeviceTag = CudaComputeDeviceTag;
         using CompatibleDeviceContext = CudaDeviceContext;
 
-        /*static constexpr bool isValidDeviceContext(const DeviceContext& device_context) {
-            return dynamic_cast<const CudaDeviceContext*>(&device_context) != nullptr;
-        }*/
+        static constexpr DeviceType device_type = DeviceType::Cuda;
 
         /**
          * @brief Constructs CUDA pinned memory resource with device context.

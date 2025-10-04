@@ -49,8 +49,8 @@ namespace Operations::Tests
 
         void SetupParameters() {
             // Create token embedding table (wte)
-            wte_ = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{vocab_size_, channels_} );
-            wpe_ = std::make_shared<Tensor<float, CudaMemoryResource>>( std::vector<size_t>{sequence_length_, channels_} );
+            wte_ = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( std::vector<size_t>{vocab_size_, channels_} );
+            wpe_ = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( std::vector<size_t>{sequence_length_, channels_} );
 
             // Create host tensors for initialization
             Tensor<float, HostMemoryResource> host_wte( std::vector<size_t>{vocab_size_, channels_} );
@@ -73,8 +73,8 @@ namespace Operations::Tests
             parameters_.push_back( wpe_ );
 
             // Create half precision parameters using the new toHalf() method
-            wte_half_ = std::make_shared<Tensor<half, CudaMemoryResource>>( wte_->toHalf() );
-            wpe_half_ = std::make_shared<Tensor<half, CudaMemoryResource>>( wpe_->toHalf() );
+            wte_half_ = std::make_shared<Tensor<half, CudaDeviceMemoryResource>>( wte_->toHalf() );
+            wpe_half_ = std::make_shared<Tensor<half, CudaDeviceMemoryResource>>( wpe_->toHalf() );
 
             parameters_half_.push_back( wte_half_ );
             parameters_half_.push_back( wpe_half_ );
@@ -125,13 +125,13 @@ namespace Operations::Tests
         std::vector<size_t> input_shape_;
         std::vector<size_t> output_shape_;
 
-        std::shared_ptr<Tensor<float, CudaMemoryResource>> wte_;
-        std::shared_ptr<Tensor<float, CudaMemoryResource>> wpe_;
-        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> parameters_;
+        std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>> wte_;
+        std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>> wpe_;
+        std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> parameters_;
 
-        std::shared_ptr<Tensor<half, CudaMemoryResource>> wte_half_;
-        std::shared_ptr<Tensor<half, CudaMemoryResource>> wpe_half_;
-        std::vector<std::shared_ptr<Tensor<half, CudaMemoryResource>>> parameters_half_;
+        std::shared_ptr<Tensor<half, CudaDeviceMemoryResource>> wte_half_;
+        std::shared_ptr<Tensor<half, CudaDeviceMemoryResource>> wpe_half_;
+        std::vector<std::shared_ptr<Tensor<half, CudaDeviceMemoryResource>>> parameters_half_;
 
         OperationAttributes attributes_;
     };
@@ -141,9 +141,9 @@ namespace Operations::Tests
      */
     TEST_F( CudaEncoderOpTests, BasicFunctionality_Float ) {
         // Create input and output tensors
-        Tensor<int, CudaMemoryResource> input( input_shape_ );
-        Tensor<float, CudaMemoryResource> output( output_shape_ );
-        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state;
+        Tensor<int, CudaDeviceMemoryResource> input( input_shape_ );
+        Tensor<float, CudaDeviceMemoryResource> output( output_shape_ );
+        std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> output_state;
 
         // Create host tensors for initialization and verification
         Tensor<int, HostMemoryResource> host_input( input_shape_ );
@@ -182,9 +182,9 @@ namespace Operations::Tests
  */
     TEST_F( CudaEncoderOpTests, BasicFunctionality_Half ) {
         // Create input and output tensors
-        Tensor<int, CudaMemoryResource> input( input_shape_ );
-        Tensor<half, CudaMemoryResource> output( output_shape_ );
-        std::vector<std::shared_ptr<Tensor<half, CudaMemoryResource>>> output_state;
+        Tensor<int, CudaDeviceMemoryResource> input( input_shape_ );
+        Tensor<half, CudaDeviceMemoryResource> output( output_shape_ );
+        std::vector<std::shared_ptr<Tensor<half, CudaDeviceMemoryResource>>> output_state;
 
         // Create host tensors for initialization and verification
         Tensor<int, HostMemoryResource> host_input( input_shape_ );
@@ -203,7 +203,7 @@ namespace Operations::Tests
 
         // Copy output back to host for verification
         // First convert half precision output to float using toFloat method
-        Tensor<float, CudaMemoryResource> float_output = output.toFloat();
+        Tensor<float, CudaDeviceMemoryResource> float_output = output.toFloat();
 
         // Then copy to host
         host_output.copyFrom( float_output );
@@ -282,10 +282,10 @@ namespace Operations::Tests
      * @brief Test with empty parameters
      */
     TEST_F( CudaEncoderOpTests, EmptyParameters ) {
-        Tensor<int, CudaMemoryResource> input( input_shape_ );
-        Tensor<float, CudaMemoryResource> output( output_shape_ );
-        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> empty_params;
-        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state;
+        Tensor<int, CudaDeviceMemoryResource> input( input_shape_ );
+        Tensor<float, CudaDeviceMemoryResource> output( output_shape_ );
+        std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> empty_params;
+        std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> output_state;
 
         // Fill input with token IDs
         Tensor<int, HostMemoryResource> host_input( input_shape_ );
@@ -305,9 +305,9 @@ namespace Operations::Tests
      * @brief Test with token IDs out of vocabulary range
      */
     TEST_F( CudaEncoderOpTests, OutOfRangeTokenIds ) {
-        Tensor<int, CudaMemoryResource> input( input_shape_ );
-        Tensor<float, CudaMemoryResource> output( output_shape_ );
-        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state;
+        Tensor<int, CudaDeviceMemoryResource> input( input_shape_ );
+        Tensor<float, CudaDeviceMemoryResource> output( output_shape_ );
+        std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> output_state;
 
         // Fill input with out-of-range token IDs
         Tensor<int, HostMemoryResource> host_input( input_shape_ );
@@ -327,12 +327,12 @@ namespace Operations::Tests
      */
     TEST_F( CudaEncoderOpTests, FloatHalfPrecisionComparison ) {
         // Create input tensor
-        Tensor<int, CudaMemoryResource> input( input_shape_ );
+        Tensor<int, CudaDeviceMemoryResource> input( input_shape_ );
 
         // Create output tensors
-        Tensor<float, CudaMemoryResource> output_float( output_shape_ );
-        Tensor<half, CudaMemoryResource> output_half( output_shape_ );
-        Tensor<float, CudaMemoryResource> output_half_as_float( output_shape_ );
+        Tensor<float, CudaDeviceMemoryResource> output_float( output_shape_ );
+        Tensor<half, CudaDeviceMemoryResource> output_half( output_shape_ );
+        Tensor<float, CudaDeviceMemoryResource> output_half_as_float( output_shape_ );
 
         // Use same values for input via host tensor
         Tensor<int, HostMemoryResource> host_input( input_shape_ );
@@ -344,8 +344,8 @@ namespace Operations::Tests
         input.copyFrom( host_input );
 
         // Execute both ops
-        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state_float;
-        std::vector<std::shared_ptr<Tensor<half, CudaMemoryResource>>> output_state_half;
+        std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> output_state_float;
+        std::vector<std::shared_ptr<Tensor<half, CudaDeviceMemoryResource>>> output_state_half;
 
         cuda_op_float_->forward( input, parameters_, attributes_, output_float, output_state_float );
         cuda_op_half_->forward( input, parameters_half_, attributes_, output_half, output_state_half );
@@ -418,9 +418,9 @@ namespace Operations::Tests
      */
     TEST_F( CudaEncoderOpTests, DeterministicBehavior ) {
         // Create test tensors
-        Tensor<int, CudaMemoryResource> input( input_shape_ );
-        Tensor<float, CudaMemoryResource> output1( output_shape_ );
-        Tensor<float, CudaMemoryResource> output2( output_shape_ );
+        Tensor<int, CudaDeviceMemoryResource> input( input_shape_ );
+        Tensor<float, CudaDeviceMemoryResource> output1( output_shape_ );
+        Tensor<float, CudaDeviceMemoryResource> output2( output_shape_ );
 
         // Initialize input with test data
         Tensor<int, HostMemoryResource> host_input( input_shape_ );
@@ -430,8 +430,8 @@ namespace Operations::Tests
         input.copyFrom( host_input );
 
         // Run twice with same input
-        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state1;
-        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state2;
+        std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> output_state1;
+        std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> output_state2;
 
         cuda_op_float_->forward( input, parameters_, attributes_, output1, output_state1 );
 
@@ -458,10 +458,10 @@ namespace Operations::Tests
      */
     TEST_F( CudaEncoderOpTests, BackwardInterface ) {
         // Create tensors for forward and backward passes
-        Tensor<int, CudaMemoryResource> input( input_shape_ );
-        Tensor<float, CudaMemoryResource> output( output_shape_ );
-        Tensor<float, CudaMemoryResource> output_grad( output_shape_ );
-        Tensor<int, CudaMemoryResource> input_grad( input_shape_ );
+        Tensor<int, CudaDeviceMemoryResource> input( input_shape_ );
+        Tensor<float, CudaDeviceMemoryResource> output( output_shape_ );
+        Tensor<float, CudaDeviceMemoryResource> output_grad( output_shape_ );
+        Tensor<int, CudaDeviceMemoryResource> input_grad( input_shape_ );
 
         // Initialize input and output gradient with host tensors
         Tensor<int, HostMemoryResource> host_input( input_shape_ );
@@ -479,14 +479,14 @@ namespace Operations::Tests
         output_grad.copyFrom( host_output_grad );
 
         // Forward pass first
-        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state;
+        std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> output_state;
         cuda_op_float_->forward( input, parameters_, attributes_, output, output_state );
 
         // Create parameter gradients with same shapes as parameters
-        auto wte_grad = std::make_shared<Tensor<float, CudaMemoryResource>>( wte_->shape() );
-        auto wpe_grad = std::make_shared<Tensor<float, CudaMemoryResource>>( wpe_->shape() );
+        auto wte_grad = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( wte_->shape() );
+        auto wpe_grad = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( wpe_->shape() );
 
-        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> param_grads;
+        std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> param_grads;
         param_grads.push_back( wte_grad );
         param_grads.push_back( wpe_grad );
 
@@ -547,9 +547,9 @@ namespace Operations::Tests
         std::vector<size_t> large_output_shape = { large_batch, sequence_length_, channels_ };
 
         // Create tensors
-        Tensor<int, CudaMemoryResource> input( large_input_shape );
-        Tensor<float, CudaMemoryResource> output( large_output_shape );
-        std::vector<std::shared_ptr<Tensor<float, CudaMemoryResource>>> output_state;
+        Tensor<int, CudaDeviceMemoryResource> input( large_input_shape );
+        Tensor<float, CudaDeviceMemoryResource> output( large_output_shape );
+        std::vector<std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>>> output_state;
 
         // Initialize input
         Tensor<int, HostMemoryResource> host_input( large_input_shape );

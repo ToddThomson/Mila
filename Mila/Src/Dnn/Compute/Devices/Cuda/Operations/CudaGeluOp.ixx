@@ -16,7 +16,7 @@ export module Compute.CudaGeluOp;
 
 import Dnn.Modules.Gelu;
 import Dnn.Tensor;
-import Dnn.TensorData;
+import Dnn.ITensor;
 import Dnn.TensorTraits;
 import Dnn.ConfigurationBase;
 import Compute.Precision;
@@ -28,7 +28,7 @@ import Compute.DeviceContext;
 import Compute.OperationType;
 import Compute.OperationAttributes;
 import Compute.MemoryResource;
-import Compute.CudaMemoryResource;
+import Compute.CudaDeviceMemoryResource;
 import Compute.CudaDevice;
 
 namespace Mila::Dnn::Compute
@@ -148,7 +148,7 @@ namespace Mila::Dnn::Compute
         */
         void forward(
             const Tensor<TDataType, MR>& input,
-            const std::vector<std::shared_ptr<ITensorData>>& parameters,
+            const std::vector<std::shared_ptr<ITensor>>& parameters,
             Tensor<TDataType, MR>& output,
             std::vector<std::shared_ptr<Tensor<TDataType, MR>>>& output_state ) const override {
 
@@ -185,7 +185,7 @@ namespace Mila::Dnn::Compute
             const Tensor<TDataType, MR>& input,
             const Tensor<TDataType, MR>& output,
             const Tensor<TDataType, MR>& output_gradient,
-            const std::vector<std::shared_ptr<ITensorData>>& parameters,
+            const std::vector<std::shared_ptr<ITensor>>& parameters,
             std::vector<std::shared_ptr<Tensor<TDataType, MR>>>& parameter_gradients,
             Tensor<TDataType, MR>& input_gradient,
             const std::vector<std::shared_ptr<Tensor<TDataType, MR>>>& output_state ) const {

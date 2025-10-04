@@ -15,11 +15,11 @@ export module Dnn.TensorInitializers;
 import Core.RandomGenerator;
 import Dnn.Tensor;
 import Dnn.TensorDataType;
-import Dnn.TensorDataTypeMap;
-import Dnn.TensorDataTypeTraits;
+import Dnn.TensorTypeMap;
+import Dnn.TensorTypeTraits;
 import Compute.MemoryResourceTraits;
 import Compute.CpuMemoryResource;
-import Compute.CudaMemoryResource;
+import Compute.CudaDeviceMemoryResource;
 import Compute.CudaManagedMemoryResource;
 import Compute.CudaPinnedMemoryResource;
 

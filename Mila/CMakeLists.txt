@@ -102,23 +102,25 @@ PUBLIC
         #---------------------------------------------------------------
         "Src/Dnn/Tensors/Tensor.ixx"
         "Src/Dnn/Tensors/TensorBuffer.ixx"
-        "Src/Dnn/Tensors/ITensorData.ixx"
+        "Src/Dnn/Tensors/ITensor.ixx"
         "Src/Dnn/Tensors/TensorDataType.ixx"
         "Src/Dnn/Tensors/Tensor.Initializers.ixx"
         "Src/Dnn/Tensors/TensorPtr.ixx"
         "Src/Dnn/Tensors/TensorDataTypeMap.ixx"
         "Src/Dnn/Tensors/TensorDataTypeTraits.ixx"
+        "Src/Dnn/Tensors/TensorHostTypeMap.ixx"
 
         # Dnn / Tensors / Operations
         "Src/Dnn/Tensors/Operations/TensorOps.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps.Math.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps.Fill.ixx"
+        "Src/Dnn/Tensors/Operations/TensorOps.Transfer.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Common Components
         #---------------------------------------------------------------
-        "Src/Dnn/Modules/Activations/ActivationType.ixx"
-        "Src/Dnn/Common/PrecisionConfig.ixx"
+        #"Src/Dnn/Modules/Activations/ActivationType.ixx"
+        #"Src/Dnn/Common/PrecisionConfig.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Compute (root)
@@ -138,7 +140,7 @@ PUBLIC
         #---------------------------------------------------------------
         # Dnn / Compute / Operations
         #---------------------------------------------------------------
-        "Src/Dnn/Compute/Operations/OperationType.ixx"
+        #"Src/Dnn/Compute/Operations/OperationType.ixx"
         #"Src/Dnn/Compute/Operations/OperationBase.ixx"
         #"Src/Dnn/Compute/Operations/OperationAttributes.ixx"
         #"Src/Dnn/Compute/Operations/UnaryOperation.ixx"
@@ -167,9 +169,12 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Cpu/CpuMemoryResource.ixx"
         "Src/Dnn/Compute/Devices/Cpu/CpuComputeResource.ixx"
         "Src/Dnn/Compute/Devices/Cpu/CpuDeviceTraits.ixx"
+
         "Src/Dnn/Compute/Devices/Cpu/Tensors/CpuTensorDataTypeTraits.ixx"
         "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Fill.ixx"
         "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Math.ixx"
+        "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Transfer.ixx"
+        
         #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuOperations.ixx"
         #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuEncoderOp.ixx"
         #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuGeluOp.ixx"
@@ -194,7 +199,7 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Cuda/CudaDevice.ixx"
         "Src/Dnn/Compute/Devices/Cuda/CudaDeviceContext.ixx"
         "Src/Dnn/Compute/Devices/Cuda/CudaDeviceProps.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/CudaMemoryResource.ixx"
+        "Src/Dnn/Compute/Devices/Cuda/CudaDeviceMemoryResource.ixx"
         "Src/Dnn/Compute/Devices/Cuda/CudaManagedMemoryResource.ixx"
         "Src/Dnn/Compute/Devices/Cuda/CudaPinnedMemoryResource.ixx"
         "Src/Dnn/Compute/Devices/Cuda/CudaComputeResource.ixx"
@@ -253,11 +258,11 @@ PUBLIC
         #"Src/Dnn/Common/ConfigurationBase.ixx"
         #"Src/Dnn/Modules/CompositeModule.ixx"
 
-        # Module Implementations - Activations (originally commented)
+        # Modules - Activations
         #"Src/Dnn/Modules/Activations/Gelu.ixx"
         #"Src/Dnn/Modules/Activations/GeluConfig.ixx"
 
-        # Module Implementations - Layers (originally commented)
+        # Modules - Layers
         #"Src/Dnn/Modules/Layers/Linear.ixx"
         #"Src/Dnn/Modules/Layers/LinearConfig.ixx"
         #"Src/Dnn/Modules/Layers/Encoder.ixx"
@@ -285,16 +290,24 @@ PUBLIC
         #"Src/Dnn/Models/ModelCallback.ixx"
         #"Src/Dnn/Models/Gpt2/Gpt2DatasetReader.ixx"
         #"Src/Dnn/Data/DataLoader.ixx"
-        #"Src/Dnn/Serialization/ModelSerializer.ixx"
-        #"Src/Dnn/Serialization/ZipSerializer.ixx"
-        #"Src/Dnn/Serialization/ModelArchive.ixx"
 
-        # WIP / Attributes (originally commented)
+        #---------------------------------------------------------------
+        # Dnn / Serialization
+        #---------------------------------------------------------------
+        
+        "Src/Dnn/Serialization/ModelSerializer.ixx"
+        "Src/Dnn/Serialization/ZipSerializer.ixx"
+        "Src/Dnn/Serialization/ModelArchive.ixx"
+
+        #---------------------------------------------------------------
+
+        # WIP / Attributes
         #"Src/Dnn/Modules/Layers/LinearAttributes.ixx"
         #"Src/Dnn/Common/Attributes.ixx"
-        "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Transfer.ixx"
-        "Src/Dnn/Tensors/Operations/TensorOps.Transfer.ixx"
-        "Src/Dnn/Tensors/TensorHostTypeMap.ixx"
+        
+
+        
+        
 )
 
 target_link_libraries(Mila PRIVATE 

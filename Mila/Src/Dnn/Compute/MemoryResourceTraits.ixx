@@ -9,7 +9,7 @@ module;
 export module Compute.MemoryResourceTraits;
 
 import Compute.CpuMemoryResource;
-import Compute.CudaMemoryResource;
+import Compute.CudaDeviceMemoryResource;
 import Compute.CudaManagedMemoryResource;
 import Compute.CudaPinnedMemoryResource;
 
@@ -47,7 +47,7 @@ namespace Mila::Dnn::Compute
      * @brief CUDA Device Memory Resource Specialization
      */
     template<>
-    struct MemoryResourceTraits<CudaMemoryResource> {
+    struct MemoryResourceTraits<CudaDeviceMemoryResource> {
         static constexpr bool is_cpu_resource = false;
         static constexpr bool is_cuda_resource = true;
         static constexpr bool is_metal_resource = false;

@@ -13,7 +13,7 @@ namespace Modules::Tests
 
     template<typename TPrecision, Compute::DeviceType TDevice>
     using MemoryResourceType = std::conditional_t<TDevice == Compute::DeviceType::Cuda,
-        Compute::CudaMemoryResource,
+        Compute::CudaDeviceMemoryResource,
         Compute::CpuMemoryResource>;
 
     template<typename TPrecision, Compute::DeviceType TDevice>
@@ -291,11 +291,11 @@ namespace Modules::Tests
         cpu_transformer->forward( host_input, cpu_output );
 
         // Create device input by copying host data
-        Tensor<TPrecision, Compute::CudaMemoryResource> device_input( test_shape );
+        Tensor<TPrecision, Compute::CudaDeviceMemoryResource> device_input( test_shape );
         device_input.copyFrom( host_input );
 
         // Create device output
-        Tensor<TPrecision, Compute::CudaMemoryResource> cuda_output( test_shape );
+        Tensor<TPrecision, Compute::CudaDeviceMemoryResource> cuda_output( test_shape );
 
         cuda_transformer->forward( device_input, cuda_output );
 

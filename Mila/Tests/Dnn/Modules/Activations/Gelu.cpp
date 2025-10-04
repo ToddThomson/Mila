@@ -13,7 +13,7 @@ namespace Modules::Activations::Tests
 
     template<DeviceType TDeviceType>
     using MemoryResourceType = std::conditional_t<TDeviceType == DeviceType::Cuda,
-        CudaMemoryResource,
+        CudaDeviceMemoryResource,
         CpuMemoryResource>;
 
     template<DeviceType TDeviceType, typename TDataType = float>
@@ -122,7 +122,7 @@ namespace Modules::Activations::Tests
             for ( size_t i = 0; i < host_input.size(); ++i ) {
                 host_input.data()[ i ] = static_cast<TDataType>( static_cast<float>( i ) / host_input.size() * 4.0f - 2.0f );
             }
-            input = host_input.toDevice<CudaMemoryResource>();
+            input = host_input.toDevice<CudaDeviceMemoryResource>();
         }
 
         ASSERT_NO_THROW( data.gelu_module->forward( input, output ) );
@@ -224,8 +224,8 @@ namespace Modules::Activations::Tests
 
             cpu_gelu->forward( cpu_input, cpu_output );
 
-            auto cuda_input = cpu_input.toDevice<CudaMemoryResource>();
-            Tensor<float, CudaMemoryResource> cuda_output( test_shape );
+            auto cuda_input = cpu_input.toDevice<CudaDeviceMemoryResource>();
+            Tensor<float, CudaDeviceMemoryResource> cuda_output( test_shape );
 
             cuda_gelu->forward( cuda_input, cuda_output );
 

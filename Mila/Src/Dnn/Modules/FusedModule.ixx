@@ -9,7 +9,7 @@ import Dnn.TensorTraits;
 import Compute.DeviceType;
 import Compute.MemoryResource;  
 import Compute.CpuMemoryResource;  
-import Compute.CudaMemoryResource;  
+import Compute.CudaDeviceMemoryResource;  
 
 namespace Mila::Dnn
 {

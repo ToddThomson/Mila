@@ -15,7 +15,7 @@ namespace Modules::Blocks::Tests
 
     template<DeviceType TDevice, typename TDataType>
     using MemoryResourceType = std::conditional_t<TDevice == DeviceType::Cuda,
-        CudaMemoryResource,
+        CudaDeviceMemoryResource,
         CpuMemoryResource>;
 
     template<DeviceType TDevice, typename TDataType = float>
@@ -420,9 +420,9 @@ namespace Modules::Blocks::Tests
         Tensor<TDataType, CpuMemoryResource> cpu_output( test_shape );
         cpu_mlp->forward( host_input, cpu_output );
 
-        Tensor<TDataType, CudaMemoryResource> device_input = host_input.toDevice<CudaMemoryResource>();
+        Tensor<TDataType, CudaDeviceMemoryResource> device_input = host_input.toDevice<CudaDeviceMemoryResource>();
 
-        Tensor<TDataType, CudaMemoryResource> cuda_output( test_shape );
+        Tensor<TDataType, CudaDeviceMemoryResource> cuda_output( test_shape );
         cuda_mlp->forward( device_input, cuda_output );
 
         cuda_mlp->getDeviceContext()->synchronize();

@@ -14,7 +14,7 @@ namespace Modules::Tests
     // Memory resource selector based on device type
     template<DeviceType TDevice>
     using MemoryResourceType = std::conditional_t<TDevice == DeviceType::Cuda,
-        Compute::CudaMemoryResource,
+        Compute::CudaDeviceMemoryResource,
         Compute::HostMemoryResource>;
 
     // Test data structure for Softmax tests
@@ -320,11 +320,11 @@ namespace Modules::Tests
         cpu_data.softmax_module->forward( host_input, cpu_output );
 
         // Create device input by copying host data
-        Tensor<TInput, CudaMemoryResource> device_input( test_shape );
+        Tensor<TInput, CudaDeviceMemoryResource> device_input( test_shape );
         device_input.copyFrom( host_input );
 
         // Create device output
-        Tensor<TOutput, CudaMemoryResource> cuda_output( test_shape );
+        Tensor<TOutput, CudaDeviceMemoryResource> cuda_output( test_shape );
         cuda_data.softmax_module->forward( device_input, cuda_output );
 
         // Copy CUDA output back to host for comparison

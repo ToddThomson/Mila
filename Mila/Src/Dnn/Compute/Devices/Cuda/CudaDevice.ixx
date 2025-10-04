@@ -12,7 +12,7 @@ export module Compute.CudaDevice;
 
 import Compute.ComputeDevice;
 import Compute.DeviceType;
-//import Compute.CudaMemoryResource;
+//import Compute.CudaDeviceMemoryResource;
 //import Compute.CudaPinnedMemoryResource;
 //import Compute.CudaManagedMemoryResource;
 import Compute.CudaDeviceProps;

@@ -106,7 +106,7 @@ namespace Compute::Cpu::Operations::Tests
         }
 
         // Execute GELU operation
-        std::vector<std::shared_ptr<ITensorData>> parameters;
+        std::vector<std::shared_ptr<ITensor>> parameters;
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
 
         ASSERT_NO_THROW( cpu_gelu_op_->forward( input, parameters, output, output_state ) );
@@ -142,7 +142,7 @@ namespace Compute::Cpu::Operations::Tests
         }
 
         // Forward pass first
-        std::vector<std::shared_ptr<ITensorData>> parameters;
+        std::vector<std::shared_ptr<ITensor>> parameters;
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
 
         cpu_gelu_op_->forward( input, parameters, output, output_state );
@@ -183,7 +183,7 @@ namespace Compute::Cpu::Operations::Tests
         Tensor<float, HostMemoryResource> input( small_shape_ );
         Tensor<float, HostMemoryResource> output( small_shape_ );
 
-        std::vector<std::shared_ptr<ITensorData>> parameters;
+        std::vector<std::shared_ptr<ITensor>> parameters;
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
 
         // Test 1: All zeros
@@ -239,7 +239,7 @@ namespace Compute::Cpu::Operations::Tests
         Tensor<float, HostMemoryResource> input( medium_shape_ );
         Tensor<float, HostMemoryResource> output( medium_shape_ );
 
-        std::vector<std::shared_ptr<ITensorData>> parameters;
+        std::vector<std::shared_ptr<ITensor>> parameters;
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
 
         // Test a variety of values: positive, negative, small, large
@@ -275,7 +275,7 @@ namespace Compute::Cpu::Operations::Tests
         Tensor<float, HostMemoryResource> output1( medium_shape_ );
         Tensor<float, HostMemoryResource> output2( medium_shape_ );
 
-        std::vector<std::shared_ptr<ITensorData>> parameters;
+        std::vector<std::shared_ptr<ITensor>> parameters;
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state1;
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state2;
 
@@ -332,7 +332,7 @@ namespace Compute::Cpu::Operations::Tests
             input.data()[ i ] = (static_cast<float>( i ) - 10.0f) / 10.0f;
         }
 
-        std::vector<std::shared_ptr<ITensorData>> parameters;
+        std::vector<std::shared_ptr<ITensor>> parameters;
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
 
         // Test Tanh approximation (only supported method)
@@ -374,7 +374,7 @@ namespace Compute::Cpu::Operations::Tests
             input.data()[ i ] = (static_cast<float>( rand() ) / RAND_MAX * 2.0f - 1.0f) * 10.0f;
         }
 
-        std::vector<std::shared_ptr<ITensorData>> parameters;
+        std::vector<std::shared_ptr<ITensor>> parameters;
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
 
         // Measure performance over multiple iterations
@@ -414,7 +414,7 @@ namespace Compute::Cpu::Operations::Tests
             input.data()[ i ] = (static_cast<float>( rand() ) / RAND_MAX * 2.0f - 1.0f) * 10.0f;
         }
 
-        std::vector<std::shared_ptr<ITensorData>> parameters;
+        std::vector<std::shared_ptr<ITensor>> parameters;
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
 
         // Get number of threads

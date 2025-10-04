@@ -10,7 +10,7 @@ module;
 export module Dnn.Modules.Linear:Attributes;
 
 import Dnn.Attributes;
-import Dnn.TensorData;
+import Dnn.ITensor;
 
 namespace Mila::Dnn::Modules
 {
@@ -34,12 +34,12 @@ namespace Mila::Dnn::Modules
             Bias            // Bias vector (output_dim)
         };
 
-        std::unordered_map<InputNames, std::shared_ptr<ITensorData>> inputs_;
+        std::unordered_map<InputNames, std::shared_ptr<ITensor>> inputs_;
 
         enum class OutputNames {
 			Y,              // Output tensor (batch_size × output_dim)
         };
 
-        std::unordered_map<OutputNames, std::shared_ptr<ITensorData>> outputs_;
+        std::unordered_map<OutputNames, std::shared_ptr<ITensor>> outputs_;
     };
 }
