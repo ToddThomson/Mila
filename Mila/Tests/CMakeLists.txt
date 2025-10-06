@@ -45,8 +45,8 @@ add_executable( MilaTests
     # Tensor Tests
     # --------------------------------------------------------------
     "Dnn/Tensors/TensorBuffer.cpp"
-    #"Dnn/Tensors/Tensor.Constructors.cpp"
-    #"Dnn/Tensors/Tensor.Initializers.cpp"
+    "Dnn/Tensors/Tensor.Constructors.cpp"
+    
     #"Dnn/Tensors/Tensor.MemoryProperties.cpp"
     #"Dnn/Tensors/Tensor.MemoryTransfers.cpp"
     #"Dnn/Tensors/Tensor.DataManipulationOps.cpp"
@@ -55,6 +55,8 @@ add_executable( MilaTests
     #"Dnn/Tensors/Tensor.Identity.cpp"
     #"Dnn/Tensors/Tensor.Io.cpp"
     #"Dnn/Tensors/Tensor.DataPointers.cpp"
+
+    #"Dnn/Tensors/Tensor.Initializers.cpp"
 
     # TensorOps
     #"Dnn/Tensors/TensorOps/Math.Cpu.cpp"

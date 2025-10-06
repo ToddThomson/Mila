@@ -54,9 +54,11 @@ import Compute.CudaDeviceMemoryResource;
 import Compute.CudaManagedMemoryResource;
 import Compute.CudaPinnedMemoryResource;
 import Compute.DeviceContext;
-import Compute.CpuDeviceContext;
-import Compute.CudaDeviceContext;
+import Compute.ComputeDevice;
+import Compute.CpuDevice;
+import Compute.CudaDevice;
 import Compute.DeviceRegistrar;
+import Compute.DeviceRegistry;
 
 namespace Mila::Dnn
 {
@@ -171,77 +173,21 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
-         * @brief Creates a tensor with device context and specified shape
+         * @brief Creates a tensor with device name and specified shape
          *
-         * Constructs a tensor with the given device context and dimensions, allocating appropriate
-         * memory using the configured memory resource. The device context ensures proper device
-         * binding and resource management for multi-GPU environments.
-         *
-         * @param device_context Shared pointer to device context for proper device binding
-         * @param shape Vector defining the size of each dimension in row-major order
-         *
-         * @throws std::invalid_argument If device_context is null
-         * @throws std::bad_alloc If memory allocation fails
-         * @throws std::runtime_error If device context type doesn't match memory resource requirements
-         *
-         * @note Shape vector defines tensor dimensionality from outermost to innermost
-         * @note Memory layout is always row-major (C-style) for maximum compatibility
-         * @note Empty shape {} creates a scalar (0D tensor) with size 1
-         * @note Shape {0} creates an empty 1D tensor with size 0
-         * @note Shape {0, 5} creates an empty 2D tensor (0 rows, 5 cols) with size 0
-         * @note Packed data types automatically calculate appropriate storage requirements
-         *
-         * Scalar tensor example:
-         * @code
-         * // Create scalar (0D tensor with 1 element)
-         * auto scalar = Tensor<TensorDataType::FP32, CpuMemoryResource>(ctx, {});
-         * EXPECT_EQ(scalar.rank(), 0u);    // 0 dimensions
-         * EXPECT_EQ(scalar.size(), 1u);    // 1 element
-         * EXPECT_TRUE(scalar.isScalar());
-         * @endcode
-         *
-         * Empty tensor examples:
-         * @code
-         * // Empty 1D vector (rank 1, size 0)
-         * auto empty1d = Tensor<TensorDataType::FP32, CpuMemoryResource>(ctx, {0});
-         * EXPECT_EQ(empty1d.rank(), 1u);
-         * EXPECT_EQ(empty1d.size(), 0u);
-         * EXPECT_TRUE(empty1d.empty());
-         *
-         * // Empty 2D matrix (rank 2, size 0)
-         * auto empty2d = Tensor<TensorDataType::FP32, CpuMemoryResource>(ctx, {0, 5});
-         * EXPECT_EQ(empty2d.rank(), 2u);
-         * EXPECT_EQ(empty2d.size(), 0u);
-         * @endcode
-         */
-        explicit Tensor( std::shared_ptr<Compute::DeviceContext> device_context, const std::vector<size_t>& shape )
-            : device_context_( device_context ), uid_( setUId() ), shape_( shape ), strides_( computeStrides( shape ) ), size_( computeSize( shape ) ) {
-
-            if (!device_context_) {
-                throw std::invalid_argument( "Device context cannot be null" );
-            }
-
-            validateDeviceContextCompatibility();
-
-            allocateBuffer();
-        }
-
-        /**
-         * @brief Creates a tensor with device name string and specified shape
-         *
-         * Constructs a tensor by creating a new DeviceContext internally using the provided
-         * device name. This constructor initializes the device registrar to ensure devices
-         * are available and creates appropriate device context based on device type.
+         * Constructs a tensor by verifying the device name through DeviceRegistry
+         * and creating an appropriate device context internally. The device name is
+         * validated to ensure the device exists before tensor construction proceeds.
          *
          * @param device_name Device identifier string (e.g., "CPU", "CUDA:0")
          * @param shape Vector defining the size of each dimension in row-major order
          *
-         * @throws std::invalid_argument If device name is invalid or shape is invalid
-         * @throws std::runtime_error If device initialization fails or device type doesn't match memory resource
+         * @throws std::invalid_argument If device name is invalid or not registered
+         * @throws std::runtime_error If device context creation fails or type mismatch
          * @throws std::bad_alloc If memory allocation fails
          *
-         * @note Creates new DeviceContext internally - use shared context constructor for shared contexts
-         * @note Automatically initializes device registrar to ensure device availability
+         * @note Device name must be registered with DeviceRegistry
+         * @note Automatically creates appropriate DeviceContext based on device type
          * @note Empty shape {} creates a scalar (0D tensor) with size 1
          * @note Shape {0} creates an empty 1D tensor with size 0
          *
@@ -255,24 +201,31 @@ namespace Mila::Dnn
          * @endcode
          */
         explicit Tensor( const std::string& device_name, const std::vector<size_t>& shape )
-            : Tensor( createDeviceContext( device_name ), shape ) {
+            : device_( createDevice( device_name ) ),
+            uid_( setUId() ),
+            shape_( shape ),
+            strides_( computeStrides( shape ) ),
+            size_( computeSize( shape ) ) {
+
+            //validateDevice();
+            
+            allocateBuffer();
         }
 
         /**
-         * @brief Creates a tensor using externally managed memory buffer with device context
+         * @brief Creates a tensor using externally managed memory buffer
          *
          * Constructs a tensor that wraps existing memory without taking ownership.
          * The external memory must remain valid for the tensor's entire lifetime.
-         * Essential for interfacing with external libraries, memory-mapped data,
-         * or implementing custom memory management strategies.
+         * Device name is verified through DeviceRegistry before tensor construction.
          *
-         * @param device_context Shared pointer to device context for proper device binding
+         * @param device_name Device identifier string (e.g., "CPU", "CUDA:0")
          * @param shape Vector defining tensor dimensions in row-major order
          * @param data_ptr Shared pointer to pre-allocated memory of appropriate size
          *
-         * @throws std::invalid_argument If device_context or data_ptr is null, or shape is invalid
+         * @throws std::invalid_argument If device_name is invalid, data_ptr is null, or shape is invalid
+         * @throws std::runtime_error If device context creation fails or type mismatch
          * @throws std::bad_alloc If wrapper allocation fails
-         * @throws std::runtime_error If device context type doesn't match memory resource requirements
          *
          * @warning Caller must ensure memory size matches computed tensor requirements
          * @warning Memory layout must be row-major compatible with computed strides
@@ -283,24 +236,26 @@ namespace Mila::Dnn
          * @note Alignment requirements must be satisfied by external memory
          * @note Scalar tensors (shape {}) require memory for 1 element
          */
-        Tensor( std::shared_ptr<Compute::DeviceContext> device_context, const std::vector<size_t>& shape, std::shared_ptr<void> data_ptr )
-            : device_context_( device_context ), uid_( setUId() ), shape_( shape ),
-            strides_( computeStrides( shape ) ), size_( computeSize( shape ) ), external_memory_ptr_( data_ptr ) {
+        Tensor( const std::string& device_name, const std::vector<size_t>& shape, std::shared_ptr<void> data_ptr )
+            : device_( createDevice( device_name ) ),
+            uid_( setUId() ),
+            shape_( shape ),
+            strides_( computeStrides( shape ) ),
+            size_( computeSize( shape ) ),
+            external_memory_ptr_( data_ptr ) {
 
-            if (!device_context_) {
-                throw std::invalid_argument( "Device context cannot be null" );
-            }
             if (!external_memory_ptr_) {
                 throw std::invalid_argument( "data_ptr cannot be null" );
             }
 
-            validateDeviceContextCompatibility();
+            //validateDeviceContextCompatibility();
 
             size_t required_bytes = detail::getStorageSize<TDataType>( size_ );
 
             // Create TensorBuffer with external memory
-            buffer_ = std::make_shared<TensorBuffer<TDataType, TMemoryResource>>(
-                device_context_, size_, static_cast<std::byte*>(external_memory_ptr_.get()), required_bytes );
+			// FIXME: Need to pass device id
+            /*buffer_ = std::make_shared<TensorBuffer<TDataType, TMemoryResource>>(
+                device_.getDeviceId(), size_, static_cast<std::byte*>(external_memory_ptr_.get()), required_bytes );*/
         }
 
         /**
@@ -325,7 +280,7 @@ namespace Mila::Dnn
          * @note Move operations preserve tensor semantics (scalars remain scalars)
          */
         Tensor( Tensor&& other ) noexcept
-            : device_context_( std::move( other.device_context_ ) ),
+            : device_( std::move( other.device_ ) ),
             uid_( std::move( other.uid_ ) ),
             name_( std::move( other.name_ ) ),
             size_( other.size_ ),
@@ -361,7 +316,7 @@ namespace Mila::Dnn
          */
         Tensor& operator=( Tensor&& other ) noexcept {
             if (this != &other) {
-                device_context_ = std::move( other.device_context_ );
+                device_ = std::move( other.device_ );
                 uid_ = std::move( other.uid_ );
                 name_ = std::move( other.name_ );
                 shape_ = std::move( other.shape_ );
@@ -385,7 +340,6 @@ namespace Mila::Dnn
          * ensuring proper cleanup even in complex sharing scenarios.
          */
         ~Tensor() = default;
-
         
         /**
          * @brief Returns the device type of this tensor's memory resource
@@ -955,17 +909,19 @@ namespace Mila::Dnn
          * auto host_scalar = scalar.toHost(); // -> Tensor<TensorDataType::FP32, CpuMemoryResource> with shape {}
          * @endcode
          */
-        template<typename TDstMemoryResource = Compute::CpuMemoryResource>
-            requires TDstMemoryResource::is_host_accessible
-        auto toHost() const {
-            constexpr TensorDataType HostDataType = TensorHostTypeMap<TDataType>::host_data_type;
 
-            // Create CPU device context
-            auto cpu_context = createDeviceContext( "CPU" );
+		 // FIXME: Re-enable once transferTo is implemented
+        //template<typename TDstMemoryResource = Compute::CpuMemoryResource>
+        //    requires TDstMemoryResource::is_host_accessible
+        //auto toHost() const {
+        //    constexpr TensorDataType HostDataType = TensorHostTypeMap<TDataType>::host_data_type;
 
-            // Use transfer operations to create host tensor with mapped type
-            return transferTo<HostDataType, TDstMemoryResource>( *this, cpu_context );
-        }
+        //    // Create CPU device context
+        //    auto cpu_context = createDeviceContext( "CPU" );
+
+        //    // Use transfer operations to create host tensor with mapped type
+        //    return transferTo<HostDataType, TDstMemoryResource>( *this, cpu_context );
+        //}
 
         // ====================================================================
         // Data Manipulation Operations
@@ -1000,7 +956,7 @@ namespace Mila::Dnn
          * @endcode
          */
         Tensor<TDataType, TMemoryResource> clone() const {
-            Tensor<TDataType, TMemoryResource> cloned_tensor( device_context_, shape_ );
+            Tensor<TDataType, TMemoryResource> cloned_tensor( device_, shape_ );
 
             if (size_ > 0) {
                 // TODO: Implement TensorBuffer::copyFrom() for deep copy support
@@ -1214,8 +1170,8 @@ namespace Mila::Dnn
 
             oss << " Type: " << DataTypeTraits::type_name;
 
-            if (device_context_) {
-                oss << ", Device: " << (device_context_->isCudaDevice() ? "CUDA:" + std::to_string( device_context_->getDeviceId() ) : "CPU");
+            if (device_) {
+                oss << ", Device: " << (device_->isCudaDevice() ? "CUDA:" + std::to_string( device_->getDeviceId() ) : "CPU");
             }
 
             oss << std::endl;
@@ -1228,24 +1184,6 @@ namespace Mila::Dnn
         }
 
     protected:
-
-        /**
-         * @brief Returns the tensor's device context
-         *
-         * Provides access to the device context for device operations, stream management,
-         * and multi-GPU coordination. Device context is immutable after construction to
-         * maintain consistency between memory resource and device binding.
-         *
-         * @return Shared pointer to the device context (never null for valid tensors)
-         *
-         * @note Device context cannot be changed after construction
-         * @note Returns shared_ptr to allow context sharing across tensors
-         * @note Guaranteed non-null by constructor validation
-         */
-        std::shared_ptr<Compute::DeviceContext> getDeviceContext() const {
-            return device_context_;
-        }
-
         /**
          * @brief Returns pointer to the memory resource managing this tensor's storage
          *
@@ -1277,7 +1215,7 @@ namespace Mila::Dnn
 
 private:
 
-        std::shared_ptr<Compute::DeviceContext> device_context_{ nullptr };       ///< Device context for proper device binding and resource management
+        std::shared_ptr<Compute::ComputeDevice> device_{ nullptr };       ///< Device for proper device binding and resource management
         std::string uid_;                                                          ///< Unique identifier for this tensor instance
         std::string name_;                                                         ///< Optional user-assigned name for debugging
         size_t size_{ 0 };                                                         ///< Total number of logical elements in the tensor
@@ -1293,24 +1231,35 @@ private:
         /**
          * @brief Creates appropriate device context based on device name
          *
-         * Factory method that uses DeviceContext::create() to instantiate the correct
-         * device context type based on the device name. Initializes device registrar
-         * to ensure devices are available before creating context.
+         * Factory method that verifies the device name through DeviceRegistry,
+         * then uses DeviceContext::create() to instantiate the correct device
+         * context type. Initializes device registrar to ensure devices are available.
          *
-         * @param device_name Device identifier string (e.g., "CPU", "CUDA:0")
+         * @param device_name Device identifier string (e.g., "CPU", "CUDA:0", "METAL:0")
          * @return Shared pointer to appropriate device context
          *
-         * @throws std::runtime_error If device name is invalid or device creation fails
+         * @throws std::invalid_argument If device name is not registered with DeviceRegistry
+         * @throws std::runtime_error If device context creation fails
+         *
+         * @note Verifies device exists in registry before creating context
+         * @note Initializes device registrar automatically
          */
-        static std::shared_ptr<Compute::DeviceContext> createDeviceContext( const std::string& device_name ) {
+        static std::shared_ptr<Compute::ComputeDevice> createDevice( const std::string& device_name ) {
             // Initialize device registrar to ensure devices are available
             Compute::DeviceRegistrar::instance();
 
+            // Verify device name is registered
+            if (!Compute::DeviceRegistry::instance().hasDevice( device_name )) {
+                throw std::invalid_argument( "Device '" + device_name + "' is not registered with DeviceRegistry" );
+            }
+
             try {
-                return Compute::DeviceContext::create( device_name );
+                return Compute::DeviceRegistry::instance().createDevice( device_name );
             }
             catch (const std::exception& e) {
-                throw std::runtime_error( "Failed to create device context for '" + device_name + "': " + e.what() );
+                throw std::runtime_error(
+                    "Failed to create device for '" + device_name + "': " + e.what()
+                );
             }
         }
 
@@ -1322,12 +1271,12 @@ private:
          *
          * @throws std::runtime_error If device context type doesn't match memory resource requirements
          */
-        void validateDeviceContextCompatibility() {
-            if constexpr (requires { typename TMemoryResource::CompatibleDeviceContext; }) {
-                using RequiredContextType = typename TMemoryResource::CompatibleDeviceContext;
+        void validateDeviceCompatibility() {
+            if constexpr (requires { typename TMemoryResource::CompatibleDeviceType; }) {
+                using RequiredDeviceType = typename TMemoryResource::CompatibleDeviceType;
 
-                if (!std::dynamic_pointer_cast<RequiredContextType>(device_context_)) {
-                    throw std::runtime_error( "Device context type mismatch" );
+                if (!std::dynamic_pointer_cast<RequiredDeviceType>( device_)) {
+                    throw std::runtime_error( "Device type mismatch with TMemoryResource" );
                 }
             }
         }
@@ -1341,7 +1290,7 @@ private:
          */
         void allocateBuffer() {
             if (size_ > 0) {
-                buffer_ = std::make_shared<TensorBuffer<TDataType, TMemoryResource>>( device_context_, size_ );
+                buffer_ = std::make_shared<TensorBuffer<TDataType, TMemoryResource>>( device_->getDeviceId(), size_);
             }
         }
 

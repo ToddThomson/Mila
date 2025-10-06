@@ -1,6 +1,6 @@
 /**
  * @file ComputeDevice.ixx
- * @brief Abstract interface for compute devices in the ML framework.
+ * @brief Abstract interface for compute devices in the Mila framework.
  */
 
 module;
@@ -49,5 +49,15 @@ namespace Mila::Dnn::Compute
 		 * @return std::string The human-readable name of the device (e.g., "CPU", "NVIDIA RTX 3090").
 		 */
 		virtual std::string getName() const = 0;
+
+		/**
+		 * @brief Gets the unique device identifier.
+		 *
+		 * For CUDA devices, this returns the device ID (0, 1, 2, etc.).
+		 * For CPU devices, this may return a fixed value (e.g., -1).
+		 *
+		 * @return int The unique identifier for this device.
+		 */
+		virtual int getDeviceId() const = 0;
 	};
 }

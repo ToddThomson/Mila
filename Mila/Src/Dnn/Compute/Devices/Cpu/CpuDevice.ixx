@@ -41,5 +41,18 @@ namespace Mila::Dnn::Compute
 		std::string getName() const override {
 			return "CPU";
 		}
+
+		/**
+		 * @brief Gets the unique device identifier.
+		 *
+		 * For CPU devices, this returns -1 to indicate that CPU is not enumerated
+		 * like discrete GPU devices. The CPU is treated as a single logical device
+		 * without numeric indexing.
+		 *
+		 * @return int The device identifier (-1 for CPU, indicating no enumeration)
+		 */
+		constexpr int getDeviceId() const override {
+			return -1;
+		}
 	};
 }

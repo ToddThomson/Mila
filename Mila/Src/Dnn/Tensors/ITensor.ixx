@@ -107,18 +107,6 @@ namespace Mila::Dnn
     protected:
 
         /**
-         * @brief Get the device context for this tensor
-         *
-         * Provides access to the device context for stream management, multi-GPU
-         * coordination, and device-specific operations.
-         *
-         * @return Shared pointer to device context (never null for valid tensors)
-         * @note Device context manages device binding, streams, and synchronization
-         * @note Essential for kernel launches and device coordination
-         */
-        virtual std::shared_ptr<Compute::DeviceContext> getDeviceContext() const = 0;
-
-        /**
          * @brief Get the memory resource managing this tensor's storage
          *
          * Provides access to the memory resource for efficient dispatch to

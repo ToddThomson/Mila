@@ -168,7 +168,7 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Cpu/CpuDeviceContext.ixx"
         "Src/Dnn/Compute/Devices/Cpu/CpuDevicePlugin.ixx"
         "Src/Dnn/Compute/Devices/Cpu/CpuMemoryResource.ixx"
-        "Src/Dnn/Compute/Devices/Cpu/CpuComputeResource.ixx"
+        
         "Src/Dnn/Compute/Devices/Cpu/CpuExecutionContext.ixx"
         "Src/Dnn/Compute/Devices/Cpu/CpuDeviceTraits.ixx"
 
@@ -204,7 +204,7 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Cuda/CudaDeviceMemoryResource.ixx"
         "Src/Dnn/Compute/Devices/Cuda/CudaManagedMemoryResource.ixx"
         "Src/Dnn/Compute/Devices/Cuda/CudaPinnedMemoryResource.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/CudaComputeResource.ixx"
+        
         "Src/Dnn/Compute/Devices/Cuda/CudaDevicePlugin.ixx"
         "Src/Dnn/Compute/Devices/Cuda/CudaDeviceTraits.ixx"
         "Src/Dnn/Compute/Devices/Cuda/CudaExecutionContext.ixx"
