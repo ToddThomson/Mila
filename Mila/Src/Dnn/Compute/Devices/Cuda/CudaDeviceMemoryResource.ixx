@@ -47,7 +47,6 @@ namespace Mila::Dnn::Compute
         static constexpr DeviceType device_type = DeviceType::Cuda;
 
 		using ComputeDeviceTag = CudaComputeDeviceTag;
-        using CompatibleDeviceContext = CudaDeviceContext;
 
         /**
          * @brief Constructs CUDA managed memory resource with device ID
@@ -72,7 +71,6 @@ namespace Mila::Dnn::Compute
                 );
             }
         }
-
         
     protected:
         /**

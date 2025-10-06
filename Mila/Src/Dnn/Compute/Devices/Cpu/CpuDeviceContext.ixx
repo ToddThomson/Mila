@@ -75,14 +75,6 @@ namespace Mila::Dnn::Compute
         }
 
         /**
-         * @brief Makes this device context current.
-         * No-op for CPU since there's no concept of "current CPU device".
-         */
-        void makeCurrent() override {
-            // No-op for CPU
-        }
-
-        /**
          * @brief Returns the underlying compute device.
          * @return Shared pointer to the CPU compute device instance
          */

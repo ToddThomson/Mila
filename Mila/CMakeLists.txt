@@ -310,7 +310,7 @@ PUBLIC
 
         
         
- )
+  )
 
 target_link_libraries(Mila PRIVATE 
     miniz

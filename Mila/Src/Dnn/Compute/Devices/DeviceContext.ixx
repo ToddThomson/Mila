@@ -80,12 +80,6 @@ namespace Mila::Dnn::Compute
         virtual int getDeviceId() const = 0;
 
         /**
-         * @brief Sets this device as active in the current thread.
-         * @throws std::runtime_error If device activation fails.
-         */
-        virtual void makeCurrent() = 0;
-
-        /**
          * @brief Gets the compute device associated with this context.
          * @return Shared pointer to the compute device.
          */

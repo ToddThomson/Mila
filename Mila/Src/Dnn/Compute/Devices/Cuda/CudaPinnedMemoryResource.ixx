@@ -134,6 +134,6 @@ namespace Mila::Dnn::Compute
         }
 
     private:
-        int device_id_;
+        int device_id_{ -1 };
     };
 }

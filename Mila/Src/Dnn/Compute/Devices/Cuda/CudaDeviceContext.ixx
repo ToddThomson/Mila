@@ -100,30 +100,6 @@ namespace Mila::Dnn::Compute
         }
 
         /**
-         * @brief Activates this CUDA device in the current thread.
-         *
-         * Sets the CUDA device for subsequent CUDA operations using
-         * cudaSetDevice(). Uses thread-local caching to avoid redundant
-         * device switches.
-         *
-         * @throws std::runtime_error If cudaSetDevice() fails
-         */
-        void makeCurrent() override {
-            static thread_local int current_device = -1;
-            if (current_device != device_id_) {
-                cudaError_t error = cudaSetDevice( device_id_ );
-                if (error != cudaSuccess) {
-                    throw std::runtime_error(
-                        "Failed to set CUDA device " +
-                        std::to_string( device_id_ ) + ": " +
-                        cudaGetErrorString( error )
-                    );
-                }
-                current_device = device_id_;
-            }
-        }
-
-        /**
          * @brief Gets the compute device.
          * @return Shared pointer to ComputeDevice
          */

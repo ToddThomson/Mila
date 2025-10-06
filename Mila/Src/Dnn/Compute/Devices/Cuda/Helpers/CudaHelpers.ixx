@@ -10,6 +10,7 @@
 module;
 #include <cuda_runtime.h>
 #include <cstdint>
+#include <string>
 #include <stdexcept>
 
 export module Cuda.Helpers;
@@ -26,6 +27,31 @@ namespace Mila::Dnn::Compute
      */
     export constexpr int ceil_div( int M, int N ) {
         return (M + N - 1) / N;
+    }
+
+    /**
+     * @brief Sets the current CUDA device with thread-local caching
+     *
+     * Uses thread-local storage to avoid redundant cudaSetDevice calls.
+     * This is critical for performance when multiple memory operations
+     * occur in sequence on the same device.
+     *
+     * @param device_id CUDA device ID to activate
+     * @throws std::runtime_error If cudaSetDevice fails
+     */
+    export inline void setCurrentDevice( int device_id ) {
+        static thread_local int current_device = -1;
+        if (current_device != device_id) {
+            cudaError_t error = cudaSetDevice( device_id );
+            if (error != cudaSuccess) {
+                throw std::runtime_error(
+                    "Failed to set CUDA device " +
+                    std::to_string( device_id ) + ": " +
+                    cudaGetErrorString( error )
+                );
+            }
+            current_device = device_id;
+        }
     }
 
     /**

@@ -23,6 +23,7 @@ export module Compute.CudaExecutionContext;
 import Compute.ExecutionContext;
 import Compute.DeviceContext;
 import Compute.DeviceType;
+import Cuda.Helpers;
 
 namespace Mila::Dnn::Compute
 {
@@ -67,6 +68,8 @@ namespace Mila::Dnn::Compute
                 );
             }
 
+            device_id_ = device_context_->getDeviceId();
+
             initializeExecutionResources();
         }
 
@@ -90,7 +93,7 @@ namespace Mila::Dnn::Compute
          */
         void synchronize() override {
             if (stream_) {
-                device_context_->makeCurrent();
+                setCurrentDevice( device_id_ );
                 cudaError_t error = cudaStreamSynchronize( stream_ );
                 if (error != cudaSuccess) {
                     throw std::runtime_error(
@@ -99,14 +102,6 @@ namespace Mila::Dnn::Compute
                     );
                 }
             }
-        }
-
-        /**
-         * @brief Gets the underlying device context.
-         * @return Shared pointer to the CUDA device context
-         */
-        std::shared_ptr<DeviceContext> getDeviceContext() const override {
-            return device_context_;
         }
 
         // CUDA-specific methods
@@ -137,7 +132,7 @@ namespace Mila::Dnn::Compute
             std::lock_guard<std::mutex> lock( handle_mutex_ );
 
             if (!cublasLtHandle_) {
-                device_context_->makeCurrent();
+                setCurrentDevice( device_id_ );
 
                 cublasStatus_t status = cublasLtCreate( &cublasLtHandle_ );
 
@@ -176,7 +171,7 @@ namespace Mila::Dnn::Compute
             std::lock_guard<std::mutex> lock( handle_mutex_ );
 
             if (!cudnnHandle_) {
-                device_context_->makeCurrent();
+                setCurrentDevice( device_id_ );
 
                 cudnnStatus_t status = cudnnCreate( &cudnnHandle_ );
                 if (status != CUDNN_STATUS_SUCCESS) {
@@ -198,6 +193,7 @@ namespace Mila::Dnn::Compute
 
     private:
         std::shared_ptr<DeviceContext> device_context_;
+        int device_id_{ -1 };
         cudaStream_t stream_ = nullptr;
         bool stream_created_ = false;
         mutable cublasLtHandle_t cublasLtHandle_ = nullptr;
@@ -215,7 +211,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If stream creation fails
          */
         void initializeExecutionResources() {
-            device_context_->makeCurrent();
+            setCurrentDevice( device_id_ );
 
             cudaError_t streamErr = cudaStreamCreateWithFlags(
                 &stream_,

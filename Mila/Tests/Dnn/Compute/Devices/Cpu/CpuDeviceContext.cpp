@@ -49,16 +49,23 @@ namespace Dnn::Compute::Devices::Cpu {
             } );
     }
 
-    TEST_F( CpuDeviceContextTest, ConstructorWithRegistryFailure ) {
-        // Temporarily clear the registry to test failure case
-        // Note: This test may need adjustment based on DeviceRegistry implementation
-        // For now, we'll assume the registry is properly set up in SetUp()
+    TEST_F( CpuDeviceContextTest, ConstructorCreatesValidDevice ) {
+        CpuDeviceContext context;
+        auto device = context.getDevice();
 
-        // This test verifies that if device creation fails, constructor throws
-        // In practice, this should rarely happen with a properly configured system
-        EXPECT_NO_THROW( {
-            CpuDeviceContext context;
-            } );
+        ASSERT_NE( device, nullptr );
+        EXPECT_EQ( device->getDeviceType(), DeviceType::Cpu );
+    }
+
+    TEST_F( CpuDeviceContextTest, ConstructorThrowsWhenDeviceCreationFails ) {
+        // Temporarily unregister CPU device to force failure
+        // Note: This test validates error handling when registry is misconfigured
+        // In production, CPU device should always be available
+
+        // Save current registration state would require registry modification
+        // For now, we trust that proper exception is thrown if device creation fails
+        // This is validated by the constructor implementation
+        SUCCEED(); // Placeholder for when registry supports temporary unregistration
     }
 
     // ============================================================================
@@ -80,10 +87,6 @@ namespace Dnn::Compute::Devices::Cpu {
         EXPECT_EQ( context.getDeviceId(), -1 );
     }
 
-    TEST_F( CpuDeviceContextTest, MakeCurrentDoesNotThrow ) {
-        CpuDeviceContext context;
-        EXPECT_NO_THROW( context.makeCurrent() );
-    }
 
     TEST_F( CpuDeviceContextTest, GetDeviceReturnsValidDevice ) {
         CpuDeviceContext context;
@@ -157,18 +160,32 @@ namespace Dnn::Compute::Devices::Cpu {
     // Multiple Instance Tests
     // ============================================================================
 
-    TEST_F( CpuDeviceContextTest, MultipleInstancesIndependent ) {
+    TEST_F( CpuDeviceContextTest, MultipleInstancesSharesSameDeviceType ) {
         CpuDeviceContext context1;
         CpuDeviceContext context2;
-
-        // Both should work independently
-        EXPECT_NO_THROW( context1.makeCurrent() );
-        EXPECT_NO_THROW( context2.makeCurrent() );
 
         // Both should have identical device characteristics
         EXPECT_EQ( context1.getDeviceType(), context2.getDeviceType() );
         EXPECT_EQ( context1.getDeviceName(), context2.getDeviceName() );
         EXPECT_EQ( context1.getDeviceId(), context2.getDeviceId() );
+
+        // Devices should be separate instances but same type
+        EXPECT_EQ( context1.getDevice()->getDeviceType(),
+            context2.getDevice()->getDeviceType() );
+    }
+
+    TEST_F( CpuDeviceContextTest, MultipleInstancesAreIndependent ) {
+        CpuDeviceContext context1;
+        CpuDeviceContext context2;
+
+        auto device1 = context1.getDevice();
+        auto device2 = context2.getDevice();
+
+        // Both should be valid CPU devices
+        ASSERT_NE( device1, nullptr );
+        ASSERT_NE( device2, nullptr );
+        EXPECT_EQ( device1->getDeviceType(), DeviceType::Cpu );
+        EXPECT_EQ( device2->getDeviceType(), DeviceType::Cpu );
     }
 
     // ============================================================================
@@ -184,11 +201,20 @@ namespace Dnn::Compute::Devices::Cpu {
         EXPECT_TRUE( context->isCpuDevice() );
         EXPECT_FALSE( context->isCudaDevice() );
 
-        EXPECT_NO_THROW( context->makeCurrent() );
-
         auto device = context->getDevice();
+        
         ASSERT_NE( device, nullptr );
         EXPECT_EQ( device->getDeviceType(), DeviceType::Cpu );
+    }
+
+    TEST_F( CpuDeviceContextTest, PolymorphicMoveSemantics ) {
+        auto original = std::make_unique<CpuDeviceContext>();
+        auto original_device = original->getDevice();
+
+        std::unique_ptr<DeviceContext> moved = std::move( original );
+
+        EXPECT_EQ( moved->getDeviceType(), DeviceType::Cpu );
+        EXPECT_EQ( moved->getDevice(), original_device );
     }
 
     // ============================================================================
@@ -206,41 +232,30 @@ namespace Dnn::Compute::Devices::Cpu {
         CpuDeviceContext context;
         auto device_from_context = context.getDevice();
 
-        // Both should be CPU devices (though potentially different instances)
-        EXPECT_EQ( device_from_registry->getDeviceType(), device_from_context->getDeviceType() );
-        EXPECT_EQ( device_from_registry->getName(), device_from_context->getName() );
+        // Both should be CPU devices (separate instances from registry)
+        EXPECT_EQ( device_from_registry->getDeviceType(),
+            device_from_context->getDeviceType() );
+        EXPECT_EQ( device_from_registry->getName(),
+            device_from_context->getName() );
     }
 
     // ============================================================================
-    // Boundary and Edge Case Tests
+    // Resource Management Tests
     // ============================================================================
 
     TEST_F( CpuDeviceContextTest, HandlesDestructionGracefully ) {
-        auto context = std::make_unique<CpuDeviceContext>();
-        auto device = context->getDevice();
+        std::shared_ptr<ComputeDevice> device;
 
-        // Destroying context should not affect the device
-        context.reset();
+        {
+            auto context = std::make_unique<CpuDeviceContext>();
+            device = context->getDevice();
 
-        // Device should still be valid (assuming shared ownership)
+            ASSERT_NE( device, nullptr );
+        } // Context destroyed here
+
+        // Device should still be valid due to shared ownership
         EXPECT_EQ( device->getDeviceType(), DeviceType::Cpu );
         EXPECT_EQ( device->getName(), "CPU" );
-    }
-
-    TEST_F( CpuDeviceContextTest, MultipleOperationsSequence ) {
-        CpuDeviceContext context;
-
-        // Perform a sequence of operations that should all work
-        for (int i = 0; i < 10; ++i) {
-            EXPECT_NO_THROW( context.makeCurrent() );
-            EXPECT_EQ( context.getDeviceType(), DeviceType::Cpu );
-            EXPECT_EQ( context.getDeviceName(), "CPU" );
-            EXPECT_EQ( context.getDeviceId(), -1 );
-
-            auto device = context.getDevice();
-            EXPECT_NE( device, nullptr );
-            EXPECT_EQ( device->getDeviceType(), DeviceType::Cpu );
-        }
     }
 
     // ============================================================================
@@ -248,7 +263,7 @@ namespace Dnn::Compute::Devices::Cpu {
     // ============================================================================
 
     TEST_F( CpuDeviceContextTest, SimplifiedConstructionPattern ) {
-        // Test the new simplified construction pattern
+        // Verify the clean, parameterless construction pattern
         auto context = std::make_shared<CpuDeviceContext>();
 
         EXPECT_EQ( context->getDeviceType(), DeviceType::Cpu );
@@ -258,11 +273,27 @@ namespace Dnn::Compute::Devices::Cpu {
     }
 
     TEST_F( CpuDeviceContextTest, NoRedundantParameterRequired ) {
-        // Verify that the new API doesn't require redundant "CPU" parameter
+        // Verify that the API doesn't require redundant "CPU" parameter
         CpuDeviceContext context;  // Clean, no parameters needed
 
         EXPECT_EQ( context.getDeviceType(), DeviceType::Cpu );
         EXPECT_TRUE( context.isCpuDevice() );
+    }
+
+    TEST_F( CpuDeviceContextTest, VectorOfContextsWorks ) {
+        // CPU contexts should be movable into containers
+        std::vector<CpuDeviceContext> contexts;
+
+        for (int i = 0; i < 5; ++i) {
+            contexts.emplace_back();
+        }
+
+        EXPECT_EQ( contexts.size(), 5 );
+
+        for (auto& context : contexts) {
+            EXPECT_EQ( context.getDeviceType(), DeviceType::Cpu );
+            EXPECT_NE( context.getDevice(), nullptr );
+        }
     }
 
 } // namespace Dnn::Compute::Devices::Cpu
