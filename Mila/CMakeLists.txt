@@ -105,7 +105,7 @@ PUBLIC
         "Src/Dnn/Tensors/ITensor.ixx"
         "Src/Dnn/Tensors/TensorDataType.ixx"
         "Src/Dnn/Tensors/Tensor.Initializers.ixx"
-        "Src/Dnn/Tensors/TensorPtr.ixx"
+        
         "Src/Dnn/Tensors/TensorDataTypeMap.ixx"
         "Src/Dnn/Tensors/TensorDataTypeTraits.ixx"
         "Src/Dnn/Tensors/TensorHostTypeMap.ixx"
@@ -129,6 +129,7 @@ PUBLIC
         "Src/Dnn/Compute/ComputeDeviceTraits.ixx"
         "Src/Dnn/Compute/ComputePrecision.ixx"
         "Src/Dnn/Compute/ComputeResource.ixx"
+        "Src/Dnn/Compute/ExecutionContext.ixx"
         "Src/Dnn/Compute/ComputeResourceHelpers.ixx"
 
         # Dnn / Compute / Memory Resources
@@ -168,6 +169,7 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Cpu/CpuDevicePlugin.ixx"
         "Src/Dnn/Compute/Devices/Cpu/CpuMemoryResource.ixx"
         "Src/Dnn/Compute/Devices/Cpu/CpuComputeResource.ixx"
+        "Src/Dnn/Compute/Devices/Cpu/CpuExecutionContext.ixx"
         "Src/Dnn/Compute/Devices/Cpu/CpuDeviceTraits.ixx"
 
         "Src/Dnn/Compute/Devices/Cpu/Tensors/CpuTensorDataTypeTraits.ixx"
@@ -205,6 +207,7 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Cuda/CudaComputeResource.ixx"
         "Src/Dnn/Compute/Devices/Cuda/CudaDevicePlugin.ixx"
         "Src/Dnn/Compute/Devices/Cuda/CudaDeviceTraits.ixx"
+        "Src/Dnn/Compute/Devices/Cuda/CudaExecutionContext.ixx"
 
         # CUDA / Tensors
         "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType.ixx"
@@ -254,8 +257,8 @@ PUBLIC
         #---------------------------------------------------------------
         # Module Framework and Implementations
         #---------------------------------------------------------------
-        #"Src/Dnn/Modules/Module.ixx"
-        #"Src/Dnn/Common/ConfigurationBase.ixx"
+        "Src/Dnn/Modules/Module.ixx"
+        "Src/Dnn/Common/ConfigurationBase.ixx"
         #"Src/Dnn/Modules/CompositeModule.ixx"
 
         # Modules - Activations
@@ -294,10 +297,9 @@ PUBLIC
         #---------------------------------------------------------------
         # Dnn / Serialization
         #---------------------------------------------------------------
-        
+        "Src/Dnn/Serialization/ModelArchive.ixx"
         "Src/Dnn/Serialization/ModelSerializer.ixx"
         "Src/Dnn/Serialization/ZipSerializer.ixx"
-        "Src/Dnn/Serialization/ModelArchive.ixx"
 
         #---------------------------------------------------------------
 
@@ -308,7 +310,7 @@ PUBLIC
 
         
         
-)
+ )
 
 target_link_libraries(Mila PRIVATE 
     miniz

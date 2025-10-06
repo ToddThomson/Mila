@@ -96,18 +96,6 @@ namespace Dnn::Compute::Devices::Cuda::Tests {
             }, std::runtime_error);
     }
 
-    TEST_F(CudaDeviceContextTest, ConstructorInitializesDeviceResources) {
-        CudaDeviceContext context(valid_device_name_);
-
-        // Verify that CUDA resources are properly initialized
-        EXPECT_NE(context.getStream(), nullptr);
-        EXPECT_NO_THROW(context.getCublasLtHandle());
-
-#ifdef USE_CUDNN
-        EXPECT_NO_THROW(context.getCudnnHandle());
-#endif
-    }
-
     // ============================================================================
     // DeviceContext Interface Tests
     // ============================================================================
@@ -161,16 +149,6 @@ namespace Dnn::Compute::Devices::Cuda::Tests {
         EXPECT_EQ(first_device, context.getDeviceId());
     }
 
-    TEST_F(CudaDeviceContextTest, SynchronizeWithValidStream) {
-        CudaDeviceContext context(valid_device_name_);
-
-        // Launch a simple kernel operation to have something to synchronize
-        context.makeCurrent();
-
-        // Synchronize should not throw
-        EXPECT_NO_THROW(context.synchronize());
-    }
-
     TEST_F(CudaDeviceContextTest, GetDeviceReturnsValidCudaDevice) {
         CudaDeviceContext context(valid_device_name_);
         auto device = context.getDevice();
@@ -189,60 +167,6 @@ namespace Dnn::Compute::Devices::Cuda::Tests {
     // CUDA-Specific Method Tests
     // ============================================================================
 
-    TEST_F(CudaDeviceContextTest, GetStreamReturnsValidStream) {
-        CudaDeviceContext context(valid_device_name_);
-        cudaStream_t stream = context.getStream();
-
-        EXPECT_NE(stream, nullptr);
-
-        // Verify stream properties
-        unsigned int flags;
-        cudaStreamGetFlags(stream, &flags);
-        EXPECT_EQ(flags, cudaStreamNonBlocking);
-    }
-
-    TEST_F(CudaDeviceContextTest, GetCublasLtHandleReturnsValidHandle) {
-        CudaDeviceContext context(valid_device_name_);
-        context.makeCurrent();
-
-        cublasLtHandle_t handle;
-        EXPECT_NO_THROW(handle = context.getCublasLtHandle());
-        EXPECT_NE(handle, nullptr);
-
-        // Multiple calls should return the same handle (lazy initialization)
-        cublasLtHandle_t handle2;
-        EXPECT_NO_THROW(handle2 = context.getCublasLtHandle());
-        EXPECT_EQ(handle, handle2);
-    }
-
-#ifdef USE_CUDNN
-    TEST_F(CudaDeviceContextTest, GetCudnnHandleReturnsValidHandle) {
-        CudaDeviceContext context(valid_device_name_);
-        context.makeCurrent();
-
-        cudnnHandle_t handle;
-        EXPECT_NO_THROW(handle = context.getCudnnHandle());
-        EXPECT_NE(handle, nullptr);
-
-        // Multiple calls should return the same handle (lazy initialization)
-        cudnnHandle_t handle2;
-        EXPECT_NO_THROW(handle2 = context.getCudnnHandle());
-        EXPECT_EQ(handle, handle2);
-    }
-
-    TEST_F(CudaDeviceContextTest, CudnnHandleUsesCorrectStream) {
-        CudaDeviceContext context(valid_device_name_);
-        context.makeCurrent();
-
-        cudnnHandle_t handle = context.getCudnnHandle();
-        cudaStream_t expected_stream = context.getStream();
-
-        cudaStream_t actual_stream;
-        cudnnGetStream(handle, &actual_stream);
-        EXPECT_EQ(actual_stream, expected_stream);
-    }
-#endif
-
     TEST_F(CudaDeviceContextTest, GetComputeCapabilityReturnsValidValues) {
         CudaDeviceContext context(valid_device_name_);
         auto [major, minor] = context.getComputeCapability();
@@ -256,48 +180,6 @@ namespace Dnn::Compute::Devices::Cuda::Tests {
     // ============================================================================
     // Thread Safety Tests
     // ============================================================================
-
-    TEST_F(CudaDeviceContextTest, ThreadSafeHandleCreation) {
-        CudaDeviceContext context(valid_device_name_);
-        context.makeCurrent();
-
-        std::vector<std::thread> threads;
-        std::vector<cublasLtHandle_t> handles(4);
-
-        // Create handles from multiple threads
-        for (int i = 0; i < 4; ++i) {
-            threads.emplace_back([&context, &handles, i]() {
-                handles[i] = context.getCublasLtHandle();
-                });
-        }
-
-        for (auto& thread : threads) {
-            thread.join();
-        }
-
-        // All handles should be the same (thread-safe lazy initialization)
-        for (int i = 1; i < 4; ++i) {
-            EXPECT_EQ(handles[0], handles[i]);
-        }
-    }
-
-    TEST_F(CudaDeviceContextTest, MultipleContextsIndependent) {
-        CudaDeviceContext context1(valid_device_name_);
-        CudaDeviceContext context2(valid_device_name_);
-
-        // Both should work independently
-        EXPECT_NO_THROW(context1.makeCurrent());
-        EXPECT_NO_THROW(context2.makeCurrent());
-
-        // They should have different streams but same device
-        EXPECT_NE(context1.getStream(), context2.getStream());
-        EXPECT_EQ(context1.getDeviceId(), context2.getDeviceId());
-
-        // And the same cublas handle instances when the device is the same
-        auto cublas_handle1 = context1.getCublasLtHandle();
-        auto cublas_handle2 = context2.getCublasLtHandle();
-        EXPECT_EQ(cublas_handle1, cublas_handle2);
-    }
 
     // ============================================================================
     // Error Handling Tests
@@ -326,41 +208,11 @@ namespace Dnn::Compute::Devices::Cuda::Tests {
         EXPECT_NO_THROW(context.makeCurrent());
     }
 
-    TEST_F(CudaDeviceContextTest, HandleCreationFailureRecovery) {
-        CudaDeviceContext context(valid_device_name_);
-        context.makeCurrent();
-
-        // Normal handle creation should succeed
-        EXPECT_NO_THROW(context.getCublasLtHandle());
-
-        // Multiple attempts should not cause issues
-        for (int i = 0; i < 5; ++i) {
-            EXPECT_NO_THROW(context.getCublasLtHandle());
-        }
-    }
-
     // ============================================================================
     // Resource Management Tests
     // ============================================================================
 
-    TEST_F(CudaDeviceContextTest, DestructorCleansUpResources) {
-        cudaStream_t stream_ptr = nullptr;
-
-        {
-            CudaDeviceContext context(valid_device_name_);
-            stream_ptr = context.getStream();
-            EXPECT_NE(stream_ptr, nullptr);
-
-            // Use the stream to verify it's valid
-            context.makeCurrent();
-            cudaError_t error = cudaStreamQuery(stream_ptr);
-            EXPECT_TRUE(error == cudaSuccess || error == cudaErrorNotReady);
-        }
-
-        // After destruction, the stream should be destroyed
-        // Note: We can't easily test this without potentially causing UB
-        // The destructor cleanup is implicit in the RAII design
-    }
+    
 
     // ============================================================================
     // Inherited Helper Method Tests
@@ -405,8 +257,7 @@ namespace Dnn::Compute::Devices::Cuda::Tests {
         EXPECT_FALSE(context->isCpuDevice());
 
         EXPECT_NO_THROW(context->makeCurrent());
-        EXPECT_NO_THROW(context->synchronize());
-
+        
         auto device = context->getDevice();
         ASSERT_NE(device, nullptr);
         EXPECT_EQ(device->getDeviceType(), DeviceType::Cuda);
@@ -434,38 +285,9 @@ namespace Dnn::Compute::Devices::Cuda::Tests {
     // Performance and Optimization Tests
     // ============================================================================
 
-    TEST_F(CudaDeviceContextTest, LazyHandleInitialization) {
-        CudaDeviceContext context(valid_device_name_);
+    
 
-        // Handles should be created lazily
-        auto start_time = std::chrono::high_resolution_clock::now();
-        auto handle = context.getCublasLtHandle();
-        auto first_call_time = std::chrono::high_resolution_clock::now();
-
-        auto handle2 = context.getCublasLtHandle();
-        auto second_call_time = std::chrono::high_resolution_clock::now();
-
-        EXPECT_EQ(handle, handle2);
-
-        // Second call should be faster (already initialized)
-        auto first_duration = first_call_time - start_time;
-        auto second_duration = second_call_time - first_call_time;
-
-        // This is a heuristic test - second call should be much faster
-        EXPECT_LT(second_duration.count(), first_duration.count());
-    }
-
-    TEST_F(CudaDeviceContextTest, StreamOperationsAreNonBlocking) {
-        CudaDeviceContext context(valid_device_name_);
-        context.makeCurrent();
-
-        cudaStream_t stream = context.getStream();
-
-        // Verify stream is non-blocking
-        unsigned int flags;
-        cudaStreamGetFlags(stream, &flags);
-        EXPECT_EQ(flags & cudaStreamNonBlocking, cudaStreamNonBlocking);
-    }
+    
 
     // ============================================================================
     // Multi-GPU Tests (if multiple devices available)
@@ -496,11 +318,6 @@ namespace Dnn::Compute::Devices::Cuda::Tests {
         cudaGetDevice(&current_device);
         EXPECT_EQ(current_device, 1);
 
-        // Streams should be different
-        EXPECT_NE(context0.getStream(), context1.getStream());
-
-        // Handles should be different
-        EXPECT_NE(context0.getCublasLtHandle(), context1.getCublasLtHandle());
     }
 
     // ============================================================================
@@ -516,17 +333,7 @@ namespace Dnn::Compute::Devices::Cuda::Tests {
             EXPECT_EQ(context.getDeviceType(), DeviceType::Cuda);
             EXPECT_EQ(context.getDeviceName(), valid_device_name_);
             EXPECT_EQ(context.getDeviceId(), 0);
-            EXPECT_NE(context.getStream(), nullptr);
-            EXPECT_NO_THROW(context.synchronize());
 
-            if (i % 10 == 0) {
-                // Occasionally test handle creation
-                EXPECT_NO_THROW(context.getCublasLtHandle());
-#ifdef USE_CUDNN
-                EXPECT_NO_THROW(context.getCudnnHandle());
-#endif
-            }
         }
     }
-
-} // anonymous namespace
+}

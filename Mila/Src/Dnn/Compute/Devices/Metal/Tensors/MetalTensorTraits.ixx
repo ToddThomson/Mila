@@ -17,7 +17,7 @@ module;
 
 export module Compute.MetalTensorDataTypeMap;
 
-import Dnn.TensorTypeMap;
+import Dnn.TensorDataTypeMap;
 import Dnn.TensorDataType;
 import Compute.DeviceType;
 

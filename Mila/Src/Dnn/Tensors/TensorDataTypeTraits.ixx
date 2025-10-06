@@ -14,7 +14,7 @@ module;
 #include <type_traits>
 #include <string_view>
 
-export module Dnn.TensorTypeTraits;
+export module Dnn.TensorDataTypeTraits;
 
 import Dnn.TensorDataType;
 import Compute.MemoryResource;

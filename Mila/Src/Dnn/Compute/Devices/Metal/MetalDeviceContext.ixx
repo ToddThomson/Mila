@@ -44,10 +44,6 @@ namespace Mila::Dnn::Compute
             // Future implementation
         }
 
-        void synchronize() override {
-            // Future implementation
-        }
-
         std::shared_ptr<ComputeDevice> getDevice() const override {
             return nullptr;
         }

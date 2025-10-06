@@ -95,10 +95,10 @@ namespace Mila::Dnn::Compute
          * @param src Source pointer
          * @param size_bytes Number of bytes to copy
          */
-        void memcpy(void* dst, const void* src, std::size_t size_bytes) override {
+        /*void memcpy(void* dst, const void* src, std::size_t size_bytes) override {
             underlying_->memcpy(dst, src, size_bytes);
             MemoryStats::memcpyOperationCount++;
-        }
+        }*/
 
         /**
          * @brief Sets memory to a specific byte value, delegating to underlying resource.
@@ -107,10 +107,10 @@ namespace Mila::Dnn::Compute
          * @param value Byte value to set (0-255)
          * @param size_bytes Number of bytes to set
          */
-        void memset(void* ptr, int value, std::size_t size_bytes) override {
+        /*void memset(void* ptr, int value, std::size_t size_bytes) override {
             underlying_->memset(ptr, value, size_bytes);
             MemoryStats::memsetOperationCount++;
-        }
+        }*/
 
         /**
          * @brief Gets the name of this tracked memory resource.

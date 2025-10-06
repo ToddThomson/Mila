@@ -40,7 +40,7 @@ namespace Mila::Dnn::Compute
          * @param src Source pointer
          * @param size_bytes Number of bytes to copy
          */
-        virtual void memcpy(void* dst, const void* src, std::size_t size_bytes) = 0;
+        //virtual void memcpy(void* dst, const void* src, std::size_t size_bytes) = 0;
 
         /**
          * @brief Sets memory to a specific byte value.
@@ -52,7 +52,7 @@ namespace Mila::Dnn::Compute
          * @param value Byte value to set (0-255)
          * @param size_bytes Number of bytes to set
          */
-        virtual void memset(void* ptr, int value, std::size_t size_bytes) = 0;
+        //virtual void memset(void* ptr, int value, std::size_t size_bytes) = 0;
 
         /**
          * @brief Checks if the memory is accessible from host code.

@@ -27,7 +27,7 @@ export module Compute.UnaryOperation;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
-import Dnn.TensorTypeTraits;
+import Dnn.TensorDataTypeTraits;
 import Compute.Precision;
 import Compute.ComputeDevice;
 import Compute.DeviceType;

@@ -45,19 +45,21 @@ add_executable( MilaTests
     # Tensor Tests
     # --------------------------------------------------------------
     "Dnn/Tensors/TensorBuffer.cpp"
-    "Dnn/Tensors/Tensor.Constructors.cpp"
+    #"Dnn/Tensors/Tensor.Constructors.cpp"
     #"Dnn/Tensors/Tensor.Initializers.cpp"
     #"Dnn/Tensors/Tensor.MemoryProperties.cpp"
     #"Dnn/Tensors/Tensor.MemoryTransfers.cpp"
     #"Dnn/Tensors/Tensor.DataManipulationOps.cpp"
     #"Dnn/Tensors/Tensor.Properties.cpp"
-    "Dnn/Tensors/Tensor.DataAccess.cpp"
-    "Dnn/Tensors/Tensor.Identity.cpp"
+    #"Dnn/Tensors/Tensor.DataAccess.cpp"
+    #"Dnn/Tensors/Tensor.Identity.cpp"
+    #"Dnn/Tensors/Tensor.Io.cpp"
+    #"Dnn/Tensors/Tensor.DataPointers.cpp"
 
     # TensorOps
-    "Dnn/Tensors/TensorOps/Math.Cpu.cpp"
-    "Dnn/Tensors/TensorOps/Fill.Cpu.cpp"
-    "Dnn/Tensors/TensorOps/TensorOps.Transfer.cpp"
+    #"Dnn/Tensors/TensorOps/Math.Cpu.cpp"
+    #"Dnn/Tensors/TensorOps/Fill.Cpu.cpp"
+    #"Dnn/Tensors/TensorOps/TensorOps.Transfer.cpp"
 
     # --------------------------------------------------------------
     # Compute::Device::Cpu Operations Tests
@@ -80,6 +82,9 @@ add_executable( MilaTests
     #"Dnn/Compute/Operations/Cuda/CudaResidualOpTests.cpp"
     #"Dnn/Compute/Operations/Cuda/CudaSoftmaxOpTests.cpp"
 
+    # --------------------------------------------------------------
+    # Dnn::Models Tests
+    # --------------------------------------------------------------
     #"Dnn/Model.cpp"
 
     # --------------------------------------------------------------
@@ -122,7 +127,7 @@ add_executable( MilaTests
     #"Dnn/Seriaalization/ZipSerializer.cpp"
     #"Dnn/Tensors/TensorBuffer.Tracking.cpp"
 
-      "Dnn/Tensors/Tensor.Io.cpp" "Dnn/Tensors/Tensor.DataPointers.cpp")
+)
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
 

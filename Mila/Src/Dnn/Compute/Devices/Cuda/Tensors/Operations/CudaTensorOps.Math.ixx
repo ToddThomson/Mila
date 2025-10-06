@@ -15,7 +15,7 @@ export module Dnn.TensorOps:Math.Cuda;
 
 import Dnn.Tensor;
 import Dnn.TensorDataType;
-import Dnn.TensorTypeMap;
+import Dnn.TensorDataTypeMap;
 import Dnn.TensorOps;
 import Compute.CudaTensorDataType;
 import Compute.CudaDevice;

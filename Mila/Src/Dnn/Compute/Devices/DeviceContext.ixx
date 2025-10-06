@@ -21,7 +21,7 @@ import Compute.DeviceType;
 namespace Mila::Dnn::Compute
 {
     /**
-     * @brief Abstract base class for device-specific compute contexts.
+     * @brief Abstract base class for compute device-specific contexts.
      *
      * DeviceContext provides a unified interface for managing compute devices and their
      * associated resources across different hardware platforms. Each supported device type
@@ -84,11 +84,6 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If device activation fails.
          */
         virtual void makeCurrent() = 0;
-
-        /**
-         * @brief Synchronizes the device, waiting for all operations to complete.
-         */
-        virtual void synchronize() = 0;
 
         /**
          * @brief Gets the compute device associated with this context.

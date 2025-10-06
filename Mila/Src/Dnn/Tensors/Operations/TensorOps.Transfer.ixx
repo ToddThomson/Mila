@@ -10,8 +10,8 @@ export import :Transfer.Cpu;
 
 import Dnn.Tensor;
 import Dnn.TensorDataType;
-import Dnn.TensorTypeMap;
-import Dnn.TensorTypeTraits;
+import Dnn.TensorDataTypeMap;
+import Dnn.TensorDataTypeTraits;
 import Compute.DeviceTraits;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;

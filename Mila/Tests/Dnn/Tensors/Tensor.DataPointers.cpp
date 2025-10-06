@@ -12,104 +12,16 @@ namespace Dnn::Tensors::Tests
     using namespace Mila::Dnn::Compute;
 
     // ========================================================================
-    // rawData() Tests - Type-Erased Void Pointer Access
+    // data() Tests - Type-Safe Raw Pointer Access (Host-Accessible Only)
     // ========================================================================
 
-    TEST( TensorDataPointers, RawData_NonConst_ReturnsValidPointer ) {
-        Tensor<TensorDataType::FP32, CpuMemoryResource> t( "CPU", { 2, 3 } );
-
-        void* raw = t.rawData();
-        ASSERT_NE( raw, nullptr );
-
-        // Verify we can write through raw pointer
-        float* typed = static_cast<float*>(raw);
-        typed[0] = 3.14f;
-        typed[1] = 2.71f;
-
-        // Verify data was written correctly
-        auto data_ptr = t.data();
-        EXPECT_FLOAT_EQ( data_ptr[0], 3.14f );
-        EXPECT_FLOAT_EQ( data_ptr[1], 2.71f );
-    }
-
-    TEST( TensorDataPointers, RawData_Const_ReturnsValidPointer ) {
-        Tensor<TensorDataType::INT32, CpuMemoryResource> t( "CPU", { 5 } );
-
-        // Fill with data first
-        auto data_ptr = t.data();
-        for (size_t i = 0; i < t.size(); ++i) {
-            data_ptr[i] = static_cast<int32_t>( i * 10 );
-        }
-
-        // Test const version
-        const auto& const_t = t;
-        const void* raw = const_t.rawData();
-        ASSERT_NE( raw, nullptr );
-
-        // Verify we can read through const raw pointer
-        const int32_t* typed = static_cast<const int32_t*>( raw );
-        for (size_t i = 0; i < t.size(); ++i) {
-            EXPECT_EQ( typed[i], static_cast<int32_t>( i * 10 ) );
-        }
-    }
-
-    TEST( TensorDataPointers, RawData_EmptyTensor_BehavesCorrectly ) {
-        Tensor<TensorDataType::FP32, CpuMemoryResource> t( "CPU", std::vector<size_t>{} );
-        ASSERT_EQ( t.size(), 1u );
-
-        // rawData() behavior for empty tensors is implementation-defined
-        // (may be nullptr or valid pointer to zero-sized allocation)
-        // Just verify it doesn't crash
-        void* raw = t.rawData();
-        (void)raw; // Suppress unused warning
-
-        const auto& const_t = t;
-        const void* const_raw = const_t.rawData();
-        (void)const_raw; // Suppress unused warning
-    }
-
-    TEST( TensorDataPointers, RawData_DifferentDataTypes_ReturnsSamePointer ) {
-        // rawData() should return the same underlying pointer regardless of type
-        Tensor<TensorDataType::INT32, CpuMemoryResource> t( "CPU", { 10 } );
-
-        void* raw1 = t.rawData();
-        void* raw2 = t.rawData();
-
-        EXPECT_EQ( raw1, raw2 );
-    }
-
-    TEST( TensorDataPointers, RawData_RequiresManualTypeCasting ) {
-        Tensor<TensorDataType::UINT8, CpuMemoryResource> t( "CPU", { 4 } );
-
-        void* raw = t.rawData();
-        ASSERT_NE( raw, nullptr );
-
-        // Manual type casting is required - no type safety
-        uint8_t* typed = static_cast<uint8_t*>(raw);
-        typed[0] = 255;
-        typed[1] = 128;
-        typed[2] = 64;
-        typed[3] = 0;
-
-        // Verify via data()
-        auto data_ptr = t.data();
-        EXPECT_EQ( data_ptr[0], 255 );
-        EXPECT_EQ( data_ptr[1], 128 );
-        EXPECT_EQ( data_ptr[2], 64 );
-        EXPECT_EQ( data_ptr[3], 0 );
-    }
-
-    // ========================================================================
-    // data() Tests - Type-Safe TensorPtr Access (Host-Accessible Only)
-    // ========================================================================
-
-    TEST( TensorDataPointers, Data_ReturnsTypedPointer_FP32 ) {
+    TEST( TensorDataPointers, Data_ReturnsRawPointer_FP32 ) {
         Tensor<TensorDataType::FP32, CpuMemoryResource> t( "CPU", { 3, 2 } );
 
-        auto data_ptr = t.data();
+        auto* data_ptr = t.data();
 
-        // Verify type deduction works correctly
-        static_assert(std::is_same_v<decltype(data_ptr), TensorPtr<float>>);
+        // Verify type deduction returns raw pointer
+        static_assert(std::is_same_v<decltype(data_ptr), float*>);
 
         // Verify we can index and write
         data_ptr[0] = 1.0f;
@@ -122,13 +34,13 @@ namespace Dnn::Tensors::Tests
         EXPECT_FLOAT_EQ( data_ptr[2], 3.0f );
     }
 
-    TEST( TensorDataPointers, Data_ReturnsTypedPointer_INT32 ) {
+    TEST( TensorDataPointers, Data_ReturnsRawPointer_INT32 ) {
         Tensor<TensorDataType::INT32, CpuMemoryResource> t( "CPU", { 5 } );
 
-        auto data_ptr = t.data();
+        auto* data_ptr = t.data();
 
-        // Verify type deduction
-        static_assert(std::is_same_v<decltype(data_ptr), TensorPtr<int32_t>>);
+        // Verify type deduction returns raw pointer
+        static_assert(std::is_same_v<decltype(data_ptr), int32_t*>);
 
         for (size_t i = 0; i < t.size(); ++i) {
             data_ptr[i] = static_cast<int32_t>( i * 100 );
@@ -139,13 +51,13 @@ namespace Dnn::Tensors::Tests
         }
     }
 
-    TEST( TensorDataPointers, Data_ReturnsTypedPointer_INT8 ) {
+    TEST( TensorDataPointers, Data_ReturnsRawPointer_INT8 ) {
         Tensor<TensorDataType::INT8, CpuMemoryResource> t( "CPU", { 4 } );
 
-        auto data_ptr = t.data();
+        auto* data_ptr = t.data();
 
-        // Verify type deduction
-        static_assert(std::is_same_v<decltype(data_ptr), TensorPtr<int8_t>>);
+        // Verify type deduction returns raw pointer
+        static_assert(std::is_same_v<decltype(data_ptr), int8_t*>);
 
         data_ptr[0] = -128;
         data_ptr[1] = -1;
@@ -158,13 +70,13 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( data_ptr[3], 127 );
     }
 
-    TEST( TensorDataPointers, Data_ReturnsTypedPointer_UINT8 ) {
+    TEST( TensorDataPointers, Data_ReturnsRawPointer_UINT8 ) {
         Tensor<TensorDataType::UINT8, CpuMemoryResource> t( "CPU", { 3 } );
 
-        auto data_ptr = t.data();
+        auto* data_ptr = t.data();
 
-        // Verify type deduction
-        static_assert(std::is_same_v<decltype(data_ptr), TensorPtr<uint8_t>>);
+        // Verify type deduction returns raw pointer
+        static_assert(std::is_same_v<decltype(data_ptr), uint8_t*>);
 
         data_ptr[0] = 0;
         data_ptr[1] = 128;
@@ -175,11 +87,11 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( data_ptr[2], 255 );
     }
 
-    TEST( TensorDataPointers, Data_Const_ReturnsConstTypedPointer ) {
+    TEST( TensorDataPointers, Data_Const_ReturnsConstRawPointer ) {
         Tensor<TensorDataType::FP32, CpuMemoryResource> t( "CPU", { 4 } );
 
         // Fill with data first
-        auto data_ptr = t.data();
+        auto* data_ptr = t.data();
         data_ptr[0] = 1.0f;
         data_ptr[1] = 2.0f;
         data_ptr[2] = 3.0f;
@@ -187,10 +99,10 @@ namespace Dnn::Tensors::Tests
 
         // Test const version
         const auto& const_t = t;
-        auto const_data_ptr = const_t.data();
+        const auto* const_data_ptr = const_t.data();
 
-        // Verify const type deduction
-        static_assert(std::is_same_v<decltype(const_data_ptr), TensorPtr<const float>>);
+        // Verify const type deduction returns const raw pointer
+        static_assert(std::is_same_v<decltype(const_data_ptr), const float*>);
 
         // Can read but not write (enforced at compile-time)
         EXPECT_FLOAT_EQ( const_data_ptr[0], 1.0f );
@@ -199,13 +111,13 @@ namespace Dnn::Tensors::Tests
         EXPECT_FLOAT_EQ( const_data_ptr[3], 4.0f );
 
         // This would fail to compile (const correctness):
-        // const_data_ptr[0] = 5.0f; // ERROR: assignment to const
+        // const_data_ptr[0] = 5.0f;
     }
 
     TEST( TensorDataPointers, Data_PointerArithmetic_Works ) {
         Tensor<TensorDataType::INT32, CpuMemoryResource> t( "CPU", { 10 } );
 
-        auto data_ptr = t.data();
+        auto* data_ptr = t.data();
 
         // Fill using pointer arithmetic
         for (size_t i = 0; i < t.size(); ++i) {
@@ -221,7 +133,7 @@ namespace Dnn::Tensors::Tests
     TEST( TensorDataPointers, Data_IteratorStyle_Access ) {
         Tensor<TensorDataType::FP32, CpuMemoryResource> t( "CPU", { 5 } );
 
-        auto data_ptr = t.data();
+        auto* data_ptr = t.data();
 
         // Fill using iterator-style access
         float value = 1.5f;
@@ -238,38 +150,39 @@ namespace Dnn::Tensors::Tests
         EXPECT_FLOAT_EQ( data_ptr[4], 3.5f );
     }
 
-    // ========================================================================
-    // Interoperability Tests - data() vs rawData()
-    // ========================================================================
+    TEST( TensorDataPointers, Data_EmptyTensor_ReturnsValidPointer ) {
+        // Scalar tensor (rank 0, size 1)
+        Tensor<TensorDataType::FP32, CpuMemoryResource> scalar( "CPU", {} );
+        ASSERT_EQ( scalar.size(), 1u );
+        ASSERT_TRUE( scalar.isScalar() );
 
-    TEST( TensorDataPointers, DataAndRawData_PointToSameMemory ) {
-        Tensor<TensorDataType::FP32, CpuMemoryResource> t( "CPU", { 6 } );
+        auto* data_ptr = scalar.data();
+        ASSERT_NE( data_ptr, nullptr );
 
-        void* raw = t.rawData();
-        auto data_ptr = t.data();
-
-        // They should point to the same underlying memory
-        EXPECT_EQ( raw, static_cast<void*>(&data_ptr[0]) );
-
-        // Write through data(), read through rawData()
+        // Can write to scalar
         data_ptr[0] = 42.0f;
-        float* typed_raw = static_cast<float*>(raw);
-        EXPECT_FLOAT_EQ( typed_raw[0], 42.0f );
-
-        // Write through rawData(), read through data()
-        typed_raw[1] = 99.0f;
-        EXPECT_FLOAT_EQ( data_ptr[1], 99.0f );
+        EXPECT_FLOAT_EQ( data_ptr[0], 42.0f );
     }
 
-    TEST( TensorDataPointers, DataAndRawData_SamePointerValue ) {
-        Tensor<TensorDataType::INT32, CpuMemoryResource> t( "CPU", { 8 } );
+    TEST( TensorDataPointers, Data_ZeroSizeTensor_ReturnsNullptr ) {
+        // Empty 1D tensor (rank 1, size 0)
+        Tensor<TensorDataType::FP32, CpuMemoryResource> empty( "CPU", { 0 } );
+        ASSERT_EQ( empty.size(), 0u );
+        ASSERT_TRUE( empty.empty() );
 
-        void* raw = t.rawData();
-        auto data_ptr = t.data();
+        auto* data_ptr = empty.data();
+        // May be nullptr or valid pointer depending on implementation
+        // Just verify it doesn't crash
+        (void)data_ptr;
+    }
 
-        // Cast to uintptr_t to compare addresses
-        EXPECT_EQ( reinterpret_cast<uintptr_t>(raw),
-            reinterpret_cast<uintptr_t>(static_cast<int32_t*>(data_ptr)) );
+    TEST( TensorDataPointers, Data_ConsistentPointer_MultipleCalls ) {
+        Tensor<TensorDataType::INT32, CpuMemoryResource> t( "CPU", { 10 } );
+
+        auto* ptr1 = t.data();
+        auto* ptr2 = t.data();
+
+        EXPECT_EQ( ptr1, ptr2 );
     }
 
     // ========================================================================
@@ -281,7 +194,7 @@ namespace Dnn::Tensors::Tests
         Tensor<TensorDataType::INT32, CpuMemoryResource> t( "CPU", { 2, 3 } );
         ASSERT_EQ( t.size(), 6u );
 
-        auto data_ptr = t.data();
+        auto* data_ptr = t.data();
 
         // Fill in row-major order
         int32_t value = 1;
@@ -298,32 +211,27 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( data_ptr[5], 6 ); // [1,2]
     }
 
-    TEST( TensorDataPointers, RawData_MultiDimensional_RowMajorLayout ) {
-        // Create 3x2 matrix
-        Tensor<TensorDataType::FP32, CpuMemoryResource> t( "CPU", { 3, 2 } );
-        ASSERT_EQ( t.size(), 6u );
+    TEST( TensorDataPointers, Data_3DimensionalTensor_RowMajorLayout ) {
+        // Create 2x3x4 tensor
+        Tensor<TensorDataType::FP32, CpuMemoryResource> t( "CPU", { 2, 3, 4 } );
+        ASSERT_EQ( t.size(), 24u );
 
-        void* raw = t.rawData();
-        float* typed = static_cast<float*>(raw);
+        auto* data_ptr = t.data();
 
-        // Fill in row-major order
-        float value = 1.0f;
+        // Fill with sequential values
         for (size_t i = 0; i < t.size(); ++i) {
-            typed[i] = value;
-            value += 1.0f;
+            data_ptr[i] = static_cast<float>( i );
         }
 
-        // Verify layout: [1,2, 3,4, 5,6]
-        EXPECT_FLOAT_EQ( typed[0], 1.0f ); // [0,0]
-        EXPECT_FLOAT_EQ( typed[1], 2.0f ); // [0,1]
-        EXPECT_FLOAT_EQ( typed[2], 3.0f ); // [1,0]
-        EXPECT_FLOAT_EQ( typed[3], 4.0f ); // [1,1]
-        EXPECT_FLOAT_EQ( typed[4], 5.0f ); // [2,0]
-        EXPECT_FLOAT_EQ( typed[5], 6.0f ); // [2,1]
+        // Verify row-major layout
+        EXPECT_FLOAT_EQ( data_ptr[0], 0.0f );   // [0,0,0]
+        EXPECT_FLOAT_EQ( data_ptr[1], 1.0f );   // [0,0,1]
+        EXPECT_FLOAT_EQ( data_ptr[4], 4.0f );   // [0,1,0]
+        EXPECT_FLOAT_EQ( data_ptr[12], 12.0f ); // [1,0,0]
     }
 
     // ========================================================================
-    // Type Safety Comparison Tests
+    // Type Safety Tests
     // ========================================================================
 
     TEST( TensorDataPointers, Data_TypeSafety_CompileTimeChecking ) {
@@ -331,69 +239,69 @@ namespace Dnn::Tensors::Tests
         Tensor<TensorDataType::FP32, CpuMemoryResource> fp32_tensor( "CPU", { 5 } );
         Tensor<TensorDataType::INT32, CpuMemoryResource> int32_tensor( "CPU", { 5 } );
 
-        auto fp32_data = fp32_tensor.data();
-        auto int32_data = int32_tensor.data();
+        auto* fp32_data = fp32_tensor.data();
+        auto* int32_data = int32_tensor.data();
 
         // Types are different at compile time
         static_assert(!std::is_same_v<decltype(fp32_data), decltype(int32_data)>);
 
         // Correct types deduced
-        static_assert(std::is_same_v<decltype(fp32_data), TensorPtr<float>>);
-        static_assert(std::is_same_v<decltype(int32_data), TensorPtr<int32_t>>);
-    }
-
-    TEST( TensorDataPointers, RawData_NoTypeSafety_RuntimeOnly ) {
-        // rawData() returns void* with no type information
-        Tensor<TensorDataType::FP32, CpuMemoryResource> fp32_tensor( "CPU", { 5 } );
-        Tensor<TensorDataType::INT32, CpuMemoryResource> int32_tensor( "CPU", { 5 } );
-
-        void* fp32_raw = fp32_tensor.rawData();
-        void* int32_raw = int32_tensor.rawData();
-
-        // Same type at compile time - no type safety!
-        static_assert(std::is_same_v<decltype(fp32_raw), decltype(int32_raw)>);
-
-        // Both are void*
-        static_assert(std::is_same_v<decltype(fp32_raw), void*>);
-        static_assert(std::is_same_v<decltype(int32_raw), void*>);
+        static_assert(std::is_same_v<decltype(fp32_data), float*>);
+        static_assert(std::is_same_v<decltype(int32_data), int32_t*>);
     }
 
     // ========================================================================
     // Usage Pattern Tests
     // ========================================================================
 
-    TEST( TensorDataPointers, Data_PreferredForHostAccessibleMemory ) {
-        // data() is the preferred method for host-accessible tensors
+    TEST( TensorDataPointers, Data_WorksWithStandardAlgorithms ) {
         Tensor<TensorDataType::FP32, CpuMemoryResource> t( "CPU", { 10 } );
 
-        // Type-safe, no casting needed
-        auto data_ptr = t.data();
-        for (size_t i = 0; i < t.size(); ++i) {
-            data_ptr[i] = static_cast<float>( i ) * 1.5f;
-        }
+        auto* data_ptr = t.data();
+
+        // Use std::fill
+        std::fill( data_ptr, data_ptr + t.size(), 42.0f );
 
         // Verify
         for (size_t i = 0; i < t.size(); ++i) {
-            EXPECT_FLOAT_EQ( data_ptr[i], static_cast<float>( i ) * 1.5f );
+            EXPECT_FLOAT_EQ( data_ptr[i], 42.0f );
         }
     }
 
-    TEST( TensorDataPointers, RawData_UsedForLowLevelInterop ) {
-        // rawData() is useful for interfacing with C APIs
+    TEST( TensorDataPointers, Data_WorksWithMemcpy ) {
+        Tensor<TensorDataType::INT32, CpuMemoryResource> src( "CPU", { 5 } );
+        Tensor<TensorDataType::INT32, CpuMemoryResource> dst( "CPU", { 5 } );
+
+        // Fill source
+        auto* src_ptr = src.data();
+        for (size_t i = 0; i < src.size(); ++i) {
+            src_ptr[i] = static_cast<int32_t>( i * 10 );
+        }
+
+        // Copy using memcpy
+        auto* dst_ptr = dst.data();
+        std::memcpy( dst_ptr, src_ptr, src.size() * sizeof( int32_t ) );
+
+        // Verify
+        for (size_t i = 0; i < dst.size(); ++i) {
+            EXPECT_EQ( dst_ptr[i], src_ptr[i] );
+        }
+    }
+
+    TEST( TensorDataPointers, Data_CStyleAPIInterop ) {
         Tensor<TensorDataType::INT32, CpuMemoryResource> t( "CPU", { 5 } );
 
-        // Simulate C API that takes void*
-        auto c_api_fill = []( void* buffer, size_t count, int32_t value ) {
-            int32_t* typed = static_cast<int32_t*>(buffer);
+        // Simulate C API that takes raw pointer
+        auto c_api_fill = []( int32_t* buffer, size_t count, int32_t value ) {
             for (size_t i = 0; i < count; ++i) {
-                typed[i] = value;
+                buffer[i] = value;
             }
             };
 
-        c_api_fill( t.rawData(), t.size(), 777 );
+        c_api_fill( t.data(), t.size(), 777 );
 
-        // Verify via data()
-        auto data_ptr = t.data();
+        // Verify
+        auto* data_ptr = t.data();
         for (size_t i = 0; i < t.size(); ++i) {
             EXPECT_EQ( data_ptr[i], 777 );
         }
@@ -406,20 +314,10 @@ namespace Dnn::Tensors::Tests
     TEST( TensorDataPointers, Data_SingleElement_Tensor ) {
         Tensor<TensorDataType::FP32, CpuMemoryResource> t( "CPU", { 1 } );
 
-        auto data_ptr = t.data();
+        auto* data_ptr = t.data();
         data_ptr[0] = 3.14159f;
 
         EXPECT_FLOAT_EQ( data_ptr[0], 3.14159f );
-    }
-
-    TEST( TensorDataPointers, RawData_SingleElement_Tensor ) {
-        Tensor<TensorDataType::INT32, CpuMemoryResource> t( "CPU", { 1 } );
-
-        void* raw = t.rawData();
-        int32_t* typed = static_cast<int32_t*>(raw);
-        typed[0] = 42;
-
-        EXPECT_EQ( typed[0], 42 );
     }
 
     TEST( TensorDataPointers, Data_LargeTensor_Performance ) {
@@ -427,7 +325,7 @@ namespace Dnn::Tensors::Tests
         Tensor<TensorDataType::FP32, CpuMemoryResource> t( "CPU", { 1000, 1000 } );
         ASSERT_EQ( t.size(), 1000000u );
 
-        auto data_ptr = t.data();
+        auto* data_ptr = t.data();
 
         // Fill large tensor
         for (size_t i = 0; i < t.size(); ++i) {
@@ -438,5 +336,65 @@ namespace Dnn::Tensors::Tests
         EXPECT_FLOAT_EQ( data_ptr[0], 0.0f );
         EXPECT_FLOAT_EQ( data_ptr[50], 50.0f );
         EXPECT_FLOAT_EQ( data_ptr[100], 0.0f );
+    }
+
+    TEST( TensorDataPointers, Data_WorksWithRangeBasedFor ) {
+        Tensor<TensorDataType::INT32, CpuMemoryResource> t( "CPU", { 5 } );
+
+        auto* data_ptr = t.data();
+
+        // Can't use range-based for directly, but can create a span-like view
+        int32_t value = 1;
+        for (size_t i = 0; i < t.size(); ++i) {
+            data_ptr[i] = value++;
+        }
+
+        // Verify
+        for (size_t i = 0; i < t.size(); ++i) {
+            EXPECT_EQ( data_ptr[i], static_cast<int32_t>( i + 1 ) );
+        }
+    }
+
+    // ========================================================================
+    // Consistency with operator[] Tests
+    // ========================================================================
+
+    TEST( TensorDataPointers, Data_ConsistentWithOperatorBracket ) {
+        Tensor<TensorDataType::FP32, CpuMemoryResource> t( "CPU", { 2, 3 } );
+
+        // Write via data()
+        auto* data_ptr = t.data();
+        data_ptr[0] = 1.0f;
+        data_ptr[3] = 4.0f;
+
+        // Read via operator[]
+        EXPECT_FLOAT_EQ( (t[{0, 0}]), 1.0f );
+        EXPECT_FLOAT_EQ( (t[{1, 0}]), 4.0f );
+
+        // Write via operator[]
+        t[{0, 1}] = 2.0f;
+        t[{1, 1}] = 5.0f;
+
+        // Read via data()
+        EXPECT_FLOAT_EQ( data_ptr[1], 2.0f );
+        EXPECT_FLOAT_EQ( data_ptr[4], 5.0f );
+    }
+
+    TEST( TensorDataPointers, Data_ConsistentWithItem_ScalarTensor ) {
+        Tensor<TensorDataType::FP32, CpuMemoryResource> scalar( "CPU", {} );
+        ASSERT_TRUE( scalar.isScalar() );
+
+        // Write via data()
+        auto* data_ptr = scalar.data();
+        data_ptr[0] = 3.14f;
+
+        // Read via item()
+        EXPECT_FLOAT_EQ( scalar.item(), 3.14f );
+
+        // Write via item()
+        scalar.item() = 2.71f;
+
+        // Read via data()
+        EXPECT_FLOAT_EQ( data_ptr[0], 2.71f );
     }
 }

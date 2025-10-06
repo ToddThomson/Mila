@@ -85,11 +85,6 @@ namespace Dnn::Compute::Devices::Cpu {
         EXPECT_NO_THROW( context.makeCurrent() );
     }
 
-    TEST_F( CpuDeviceContextTest, SynchronizeDoesNotThrow ) {
-        CpuDeviceContext context;
-        EXPECT_NO_THROW( context.synchronize() );
-    }
-
     TEST_F( CpuDeviceContextTest, GetDeviceReturnsValidDevice ) {
         CpuDeviceContext context;
         auto device = context.getDevice();
@@ -169,8 +164,6 @@ namespace Dnn::Compute::Devices::Cpu {
         // Both should work independently
         EXPECT_NO_THROW( context1.makeCurrent() );
         EXPECT_NO_THROW( context2.makeCurrent() );
-        EXPECT_NO_THROW( context1.synchronize() );
-        EXPECT_NO_THROW( context2.synchronize() );
 
         // Both should have identical device characteristics
         EXPECT_EQ( context1.getDeviceType(), context2.getDeviceType() );
@@ -192,7 +185,6 @@ namespace Dnn::Compute::Devices::Cpu {
         EXPECT_FALSE( context->isCudaDevice() );
 
         EXPECT_NO_THROW( context->makeCurrent() );
-        EXPECT_NO_THROW( context->synchronize() );
 
         auto device = context->getDevice();
         ASSERT_NE( device, nullptr );
@@ -244,7 +236,6 @@ namespace Dnn::Compute::Devices::Cpu {
             EXPECT_EQ( context.getDeviceType(), DeviceType::Cpu );
             EXPECT_EQ( context.getDeviceName(), "CPU" );
             EXPECT_EQ( context.getDeviceId(), -1 );
-            EXPECT_NO_THROW( context.synchronize() );
 
             auto device = context.getDevice();
             EXPECT_NE( device, nullptr );

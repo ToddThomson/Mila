@@ -15,8 +15,8 @@ export module Dnn.TensorOps:Transfer.Cpu;
 
 import Dnn.Tensor;
 import Dnn.TensorDataType;
-import Dnn.TensorTypeMap;
-import Dnn.TensorTypeTraits;
+import Dnn.TensorDataTypeMap;
+import Dnn.TensorDataTypeTraits;
 import Compute.DeviceTraits;
 import Compute.CpuMemoryResource;
 import Compute.CpuTensorDataTypeTraits;
@@ -129,8 +129,8 @@ namespace Mila::Dnn
             static_assert(TDstMemoryResource::is_host_accessible,
                 "CPU copy operations require host-accessible destination memory");
 
-            const void* src_data = src.rawData();
-            void* dst_data = dst.rawData();
+            const void* src_data = src.data();
+            void* dst_data = dst.data();
 
             if (!src_data || !dst_data) {
                 throw std::runtime_error( "Invalid tensor data pointers for copy" );

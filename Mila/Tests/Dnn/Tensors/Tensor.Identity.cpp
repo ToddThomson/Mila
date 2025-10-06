@@ -212,12 +212,11 @@ namespace Dnn::Tensors::Tests
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( "CPU", shape );
         tensor.setName( "fillable_tensor" );
 
-        // Use the free-function fill API
         ASSERT_NO_THROW( fill( tensor, 1.0f ) );
         EXPECT_EQ( tensor.getName(), "fillable_tensor" );
 
         // Per-element set via rawData for host tensors
-        float* data = static_cast<float*>(tensor.rawData());
+        float* data = static_cast<float*>(tensor.data());
         data[0] = 2.0f;
         EXPECT_EQ( tensor.getName(), "fillable_tensor" );
     }
@@ -279,7 +278,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( tensor.getName(), "consistent_tensor" );
 
         // Per-element write via raw pointer
-        float* data = static_cast<float*>(tensor.rawData());
+        float* data = static_cast<float*>(tensor.data());
         data[0] = 2.0f;
         EXPECT_EQ( tensor.getUId(), original_uid );
         EXPECT_EQ( tensor.getName(), "consistent_tensor" );
@@ -341,7 +340,7 @@ namespace Dnn::Tensors::Tests
 
         EXPECT_EQ( single_tensor.getName(), "single_element" );
 
-        float* data = static_cast<float*>(single_tensor.rawData());
+        float* data = static_cast<float*>(single_tensor.data());
         data[0] = 99.0f;
         EXPECT_EQ( single_tensor.getName(), "single_element" );
     }

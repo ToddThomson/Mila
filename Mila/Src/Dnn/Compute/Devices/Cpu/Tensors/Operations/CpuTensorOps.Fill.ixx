@@ -14,8 +14,8 @@ export module Dnn.TensorOps:Fill.Cpu;
 
 import Dnn.Tensor;
 import Dnn.TensorDataType;
-import Dnn.TensorTypeMap;
-import Dnn.TensorTypeTraits;
+import Dnn.TensorDataTypeMap;
+import Dnn.TensorDataTypeTraits;
 import Compute.DeviceTraits;
 import Compute.CpuMemoryResource;
 import Compute.CpuTensorDataTypeTraits;
@@ -120,7 +120,7 @@ namespace Mila::Dnn
 
             using NativeType = typename CpuTensorDataTypeTraits::template native_type<TDataType>;
 
-            NativeType* typed_dst = static_cast<NativeType*>(tensor.rawData());
+            NativeType* typed_dst = static_cast<NativeType*>(tensor.data());
             NativeType native_value = static_cast<NativeType>(host_value);
 
             std::fill_n(typed_dst, tensor.size(), native_value);

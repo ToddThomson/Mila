@@ -273,12 +273,12 @@ int main( int argc, char* argv[] ) {
         std::shared_ptr<DeviceContext> cudaContext;
 
         if ( config.runCpu ) {
-            cpuContext = std::make_shared<DeviceContext>( "CPU" );
+            cpuContext = std::make_shared<CpuDeviceContext>();
         }
 
         if ( config.runCuda ) {
             try {
-                cudaContext = std::make_shared<DeviceContext>( "CUDA:0" );
+                cudaContext = std::make_shared<CudaDeviceContext>( "CUDA:0" );
             }
             catch ( const std::exception& e ) {
                 std::cerr << "CUDA error: " << e.what() << std::endl;

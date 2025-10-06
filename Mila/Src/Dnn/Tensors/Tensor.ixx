@@ -43,11 +43,10 @@ export module Dnn.Tensor;
 
 import Dnn.TensorBuffer;
 import Dnn.ITensor;
-import Dnn.TensorPtr;
 import Dnn.TensorDataType;
-import Dnn.TensorTypeMap;
+import Dnn.TensorDataTypeMap;
 import Dnn.TensorHostTypeMap;
-import Dnn.TensorTypeTraits;
+import Dnn.TensorDataTypeTraits;
 import Compute.CpuTensorDataTypeTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
@@ -161,9 +160,6 @@ namespace Mila::Dnn
     class Tensor : public ITensor
     {
     public:
-        // ====================================================================
-        // Type Aliases and Compile-Time Properties
-        // ====================================================================
 
         using DataType = TensorDataType;                                           ///< Abstract data type enumeration
         using MemoryResource = TMemoryResource;                                    ///< Memory resource type for this tensor
@@ -390,56 +386,7 @@ namespace Mila::Dnn
          */
         ~Tensor() = default;
 
-        // ====================================================================
-        // Device Context and Memory Resource Access
-        // ====================================================================
-
-        /**
-         * @brief Returns the tensor's device context
-         *
-         * Provides access to the device context for device operations, stream management,
-         * and multi-GPU coordination. Device context is immutable after construction to
-         * maintain consistency between memory resource and device binding.
-         *
-         * @return Shared pointer to the device context (never null for valid tensors)
-         *
-         * @note Device context cannot be changed after construction
-         * @note Returns shared_ptr to allow context sharing across tensors
-         * @note Guaranteed non-null by constructor validation
-         */
-        std::shared_ptr<Compute::DeviceContext> getDeviceContext() const {
-            return device_context_;
-        }
-
-        /**
-         * @brief Returns pointer to the memory resource managing this tensor's storage
-         *
-         * Provides efficient access to the memory resource for dispatch optimization,
-         * zero-copy operations when memory resources are compatible, and type-safe
-         * downcasting to specific tensor types.
-         *
-         * @return Pointer to memory resource (never null for valid tensors)
-         *
-         * @note Implements ITensor interface
-         * @note Return type is base MemoryResource pointer for polymorphic access
-         * @note Can be safely cast to TMemoryResource* based on template parameter
-         * @note Enables efficient memory resource compatibility checks
-         *
-         * Example:
-         * @code
-         * ITensor& tensor = getTensor();
-         * auto* mr = tensor.getMemoryResource();
-         *
-         * // Type-safe downcast check
-         * if (auto* cuda_mr = dynamic_cast<CudaDeviceMemoryResource*>(mr)) {
-         *     // Use CUDA-specific operations
-         * }
-         * @endcode
-         */
-        Compute::MemoryResource* getMemoryResource() const override {
-            return buffer_ ? buffer_->getMemoryResource() : nullptr;
-        }
-
+        
         /**
          * @brief Returns the device type of this tensor's memory resource
          *
@@ -739,8 +686,7 @@ namespace Mila::Dnn
          */
         template<typename... Indices>
         auto& operator[]( Indices... indices )
-            requires TMemoryResource::is_host_accessible &&
-        (std::convertible_to<Indices, size_t> && ...) {
+            requires TMemoryResource::is_host_accessible && (std::convertible_to<Indices, size_t> && ...) {
             std::vector<size_t> idx{ static_cast<size_t>(indices)... };
             return this->operator[]( idx );
         }
@@ -842,7 +788,7 @@ namespace Mila::Dnn
          * - shape {0} -> size 0 (empty)
          * - shape {2, 0, 3} -> size 0 (empty)
          */
-        size_t size() const {
+        size_t size() const override {
             return size_;
         }
 
@@ -909,52 +855,9 @@ namespace Mila::Dnn
         }
 
         // ====================================================================
-        // Data and Raw Pointers
+        // Data Pointers
         // ====================================================================
-
-        /**
-         * @brief Returns untyped mutable pointer to tensor data
-         *
-         * Provides raw memory access for low-level operations, device kernel
-         * interfacing, and external library integration. Required by ITensor
-         * polymorphic interface for type-erased operations.
-         *
-         * @return Void pointer to tensor data buffer (nullptr for empty tensors)
-         *
-         * @warning Requires manual type casting and size calculations
-         * @warning No type or bounds safety - caller responsibility
-         * @warning For packed types, handle sub-byte element access carefully
-         *
-         * @note Required by ITensor polymorphic interface
-         * @note Use with appropriate type casting based on getDataType()
-         * @note Consider memory access patterns for packed data types
-         * @note Scalars return valid pointer to single element
-         */
-        void* rawData() override {
-            return buffer_ ? buffer_->rawData() : nullptr;
-        }
-
-        /**
-         * @brief Returns untyped immutable pointer to tensor data
-         *
-         * Provides read-only raw memory access for low-level operations
-         * and external library integration with const-correctness.
-         *
-         * @return Const void pointer to tensor data buffer (nullptr for empty tensors)
-         *
-         * @warning Requires manual type casting and size calculations
-         * @warning No type or bounds safety - caller responsibility
-         * @warning For packed types, handle sub-byte element access carefully
-         *
-         * @note Required by ITensor polymorphic interface
-         * @note Use with appropriate type casting based on getDataType()
-         * @note Consider memory access patterns for packed data types
-         * @note Scalars return valid pointer to single element
-         */
-        const void* rawData() const override {
-            return buffer_ ? buffer_->rawData() : nullptr;
-        }
-
+       
         /**
          * @brief Returns type-safe pointer to tensor data with concrete host type
          *
@@ -984,9 +887,9 @@ namespace Mila::Dnn
          * auto sptr = scalar.data();  // Points to single element
          * @endcode
          */
-        auto data() requires TMemoryResource::is_host_accessible {
+        [[nodiscard]] constexpr auto* data() noexcept requires TMemoryResource::is_host_accessible {
             using HostType = typename TensorHostTypeMap<TDataType>::host_type;
-            return TensorPtr<HostType>( static_cast<HostType*>(buffer_->rawData()) );
+            return static_cast<HostType*>(buffer_ ? buffer_->rawData() : nullptr);
         }
 
         /**
@@ -1006,9 +909,9 @@ namespace Mila::Dnn
          * @see TensorPtr for pointer wrapper operations
          * @see TensorHostTypeMap for type mapping rules
          */
-        auto data() const requires TMemoryResource::is_host_accessible {
+        [[nodiscard]] constexpr const auto* data() const noexcept requires TMemoryResource::is_host_accessible {
             using HostType = typename TensorHostTypeMap<TDataType>::host_type;
-            return TensorPtr<const HostType>( static_cast<const HostType*>(buffer_->rawData()) );
+            return static_cast<const HostType*>(buffer_ ? buffer_->rawData() : nullptr);
         }
 
         // ====================================================================
@@ -1324,10 +1227,55 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-    private:
-        // ====================================================================
-        // Private Member Variables
-        // ====================================================================
+    protected:
+
+        /**
+         * @brief Returns the tensor's device context
+         *
+         * Provides access to the device context for device operations, stream management,
+         * and multi-GPU coordination. Device context is immutable after construction to
+         * maintain consistency between memory resource and device binding.
+         *
+         * @return Shared pointer to the device context (never null for valid tensors)
+         *
+         * @note Device context cannot be changed after construction
+         * @note Returns shared_ptr to allow context sharing across tensors
+         * @note Guaranteed non-null by constructor validation
+         */
+        std::shared_ptr<Compute::DeviceContext> getDeviceContext() const {
+            return device_context_;
+        }
+
+        /**
+         * @brief Returns pointer to the memory resource managing this tensor's storage
+         *
+         * Provides efficient access to the memory resource for dispatch optimization,
+         * zero-copy operations when memory resources are compatible, and type-safe
+         * downcasting to specific tensor types.
+         *
+         * @return Pointer to memory resource (never null for valid tensors)
+         *
+         * @note Implements ITensor interface
+         * @note Return type is base MemoryResource pointer for polymorphic access
+         * @note Can be safely cast to TMemoryResource* based on template parameter
+         * @note Enables efficient memory resource compatibility checks
+         *
+         * Example:
+         * @code
+         * ITensor& tensor = getTensor();
+         * auto* mr = tensor.getMemoryResource();
+         *
+         * // Type-safe downcast check
+         * if (auto* cuda_mr = dynamic_cast<CudaDeviceMemoryResource*>(mr)) {
+         *     // Use CUDA-specific operations
+         * }
+         * @endcode
+         */
+        Compute::MemoryResource* getMemoryResource() const override {
+            return buffer_ ? buffer_->getMemoryResource() : nullptr;
+        }
+
+private:
 
         std::shared_ptr<Compute::DeviceContext> device_context_{ nullptr };       ///< Device context for proper device binding and resource management
         std::string uid_;                                                          ///< Unique identifier for this tensor instance

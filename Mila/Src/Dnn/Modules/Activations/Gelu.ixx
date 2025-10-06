@@ -32,7 +32,7 @@ import Dnn.Module;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
-import Dnn.TensorTypeTraits;
+import Dnn.TensorDataTypeTraits;
 import Compute.Precision;
 import Compute.DeviceType;
 import Compute.DeviceContext;

@@ -37,29 +37,35 @@ import Utils.DefaultLogger;
 
 export import Core.RandomGenerator;
 
+// Execution context
+export import Compute.ExecutionContext;
+//export import Compute.CpuExecutionContext;
+export import Compute.CudaExecutionContext;
+
+
 //export import Compute.OperationBase;
 //export import Compute.OperationType;
 //export import Compute.UnaryOperation;
 //export import Compute.BinaryOperation;
 export import Compute.Precision;
 
-//export import Dnn.Module;
-//export import Dnn.ConfigurationBase;
+export import Dnn.Module;
+export import Dnn.ConfigurationBase;
 //export import Dnn.CompositeModule;
 //export import Dnn.Model;
 
 export import Dnn.Tensor;
-export import Dnn.TensorInitializers;
-export import Dnn.TensorDataType;
-export import Dnn.TensorTypeMap;
-
 export import Dnn.ITensor;
 export import Dnn.TensorBuffer; // TJT: Remove after testing
 
+export import Dnn.TensorDataType;
+export import Dnn.TensorDataTypeTraits;
+export import Dnn.TensorDataTypeMap;
+export import Dnn.TensorHostTypeMap;
+
+export import Dnn.TensorInitializers;
+
 export import Dnn.TensorOps;
-//export import Dnn.TensorOps.Math;
-//export import Compute.CpuTensorOps.Math;
-//export import Compute.CudaTensorOps;
 
 export import Compute.CudaTensorDataType;
 export import Compute.CpuTensorDataTypeTraits;
@@ -67,12 +73,12 @@ export import Compute.CpuTensorDataTypeTraits;
 // FUTURE: export import Compute.OpenCLTensorTraits;
 // FUTURE: export import Compute.VulkanTensorTraits;
 export import Dnn.TensorInitializers;
-export import Dnn.TensorPtr;
+
 //export import Dnn.ActivationType;
 
 //export import Data.DataLoader;
 
-//export import Serialization.ModelArchive;
+export import Serialization.ModelArchive;
 
 export import Compute.ComputeDevice;
 export import Compute.DeviceRegistry;

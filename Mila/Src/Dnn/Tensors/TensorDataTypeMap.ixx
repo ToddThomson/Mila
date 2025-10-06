@@ -19,7 +19,7 @@ module;
 #include <type_traits>
 #include <cstdint>
 
-export module Dnn.TensorTypeMap;
+export module Dnn.TensorDataTypeMap;
 
 import Dnn.TensorDataType;
 

@@ -51,7 +51,6 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ(cpu_tensor.size(), 6);
         EXPECT_EQ(cpu_tensor.rank(), 2);
         EXPECT_EQ(cpu_tensor.shape(), shape);
-        EXPECT_EQ(cpu_tensor.getDeviceContext(), cpu_context_);
 
         if (has_cuda_) {
             Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> cuda_tensor(cuda_context_, shape);
@@ -60,7 +59,6 @@ namespace Dnn::Tensors::Tests
             EXPECT_EQ(cuda_tensor.size(), 6);
             EXPECT_EQ(cuda_tensor.rank(), 2);
             EXPECT_EQ(cuda_tensor.shape(), shape);
-            EXPECT_EQ(cuda_tensor.getDeviceContext(), cuda_context_);
         }
         else {
             GTEST_SKIP() << "CUDA device not available for CUDA tensor test";
@@ -155,7 +153,6 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ(tensor.shape(), shape);
         EXPECT_EQ(tensor.size(), 6);
         EXPECT_FALSE(tensor.empty());
-        EXPECT_EQ(tensor.getDeviceContext(), cpu_context_);
     }
 
     TEST_F(TensorConstructionTest, ConstructWithNullExternalData) {
@@ -484,10 +481,6 @@ namespace Dnn::Tensors::Tests
         EXPECT_FALSE(fp32_tensor.is_device_accessible());
         EXPECT_TRUE(int32_tensor.is_host_accessible());
         EXPECT_FALSE(int32_tensor.is_device_accessible());
-
-        // Verify device contexts
-        EXPECT_EQ(fp32_tensor.getDeviceContext(), cpu_context_);
-        EXPECT_EQ(int32_tensor.getDeviceContext(), cpu_context_);
     }
 
     // ====================================================================

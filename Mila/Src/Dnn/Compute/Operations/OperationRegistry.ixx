@@ -36,7 +36,7 @@ module;
 export module Compute.OperationRegistry;
 
 import Dnn.TensorDataType;
-import Dnn.TensorTypeTraits;
+import Dnn.TensorDataTypeTraits;
 import Dnn.ConfigurationBase;
 import Compute.Precision;
 import Compute.OperationBase;

@@ -26,15 +26,16 @@ namespace Mila::Dnn::Compute
      * @tparam TDevice The device type to create a context for.
      * @return std::shared_ptr<DeviceContext> A new context of the appropriate type.
      */
-    export template <DeviceType TDeviceType>
+	 // REVIEW: This function is just plain bad. Delete it.
+    /*export template <DeviceType TDeviceType>
     std::shared_ptr<DeviceContext> CreateCompatibleContext() {
         if constexpr ( TDeviceType == DeviceType::Cuda ) {
-            return std::make_shared<DeviceContext>( "CUDA:0" );
+            return std::make_shared<CudaDeviceContext>( "CUDA:0" );
         }
         else {
-            return std::make_shared<DeviceContext>( "CPU" );
+            return std::make_shared<CpuDeviceContext>();
         }
-    }
+    }*/
 
     /**
      * @brief Validates that the provided context is compatible with the specified device type.
@@ -52,7 +53,7 @@ namespace Mila::Dnn::Compute
         }
 
         if ( context->getDevice()->getDeviceType() != TDeviceType ) {
-            throw std::runtime_error( "The provided device context is incompatible with the operation's device type." );
+            throw std::runtime_error( "The provided device context is incompatible with the specified device type." );
         }
 
         return context;

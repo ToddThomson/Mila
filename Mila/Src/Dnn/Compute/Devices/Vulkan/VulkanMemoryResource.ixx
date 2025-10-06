@@ -681,9 +681,7 @@ namespace Mila::Dnn::Compute
             throw std::runtime_error( "Vulkan support is not available on this platform" );
         }
 
-        void memcpy( void*, const void*, std::size_t ) override {
-            throw std::runtime_error( "Vulkan not available" );
-        }
+        
 
         std::string getDeviceInfo() const {
             return "Vulkan not available";

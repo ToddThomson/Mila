@@ -50,67 +50,27 @@ namespace Mila::Dnn::Compute
         using CompatibleDeviceContext = CudaDeviceContext;
 
         /**
-         * @brief Constructs CUDA memory resource with device context.
+         * @brief Constructs CUDA managed memory resource with device ID
          *
-         * @param device_context Device context for proper device binding and stream coordination
-         * @throws std::invalid_argument If device_context is null or not a CUDA device
+         * @param device_id CUDA device ID (0, 1, 2, etc.)
+         * @throws std::invalid_argument If device_id is invalid
          */
-        explicit CudaDeviceMemoryResource(std::shared_ptr<DeviceContext> device_context)
-            : device_context_(device_context) {
-            if (!device_context_) {
-                throw std::invalid_argument("Device context cannot be null");
-            }
-            if (!device_context_->isCudaDevice()) {
-                throw std::invalid_argument("CudaDeviceMemoryResource requires CUDA device context");
-            }
-        }
+        explicit CudaDeviceMemoryResource( int device_id )
+            : device_id_( device_id ) {
 
-        /**
-         * @brief Gets the device context associated with this memory resource.
-         */
-        std::shared_ptr<DeviceContext> getDeviceContext() const {
-            return device_context_;
-        }
-
-        /**
-         * @brief Copies memory using CUDA memcpy with automatic transfer type detection.
-         *
-         * Uses cudaMemcpyDefault to automatically detect the appropriate transfer
-         * direction (host-to-device, device-to-host, device-to-device) based on
-         * pointer locations.
-         *
-         * @param dst Destination pointer
-         * @param src Source pointer
-         * @param size_bytes Number of bytes to copy
-         */
-        void memcpy(void* dst, const void* src, std::size_t size_bytes) override {
-            if (size_bytes == 0) {
-                return;
+            if (device_id_ < 0) {
+                throw std::invalid_argument( "Device ID must be non-negative" );
             }
 
-            device_context_->makeCurrent();
-            cudaError_t status = cudaMemcpy(dst, src, size_bytes, cudaMemcpyDefault);
-            cudaCheckStatus(status, std::source_location::current());
-        }
-
-        /**
-         * @brief Sets CUDA device memory to a specific byte value.
-         *
-         * Uses cudaMemset to efficiently fill device memory with the specified
-         * byte value. Ensures operations occur on the correct device.
-         *
-         * @param ptr Pointer to device memory block to fill
-         * @param value Byte value to set (0-255)
-         * @param size_bytes Number of bytes to set
-         */
-        void memset(void* ptr, int value, std::size_t size_bytes) override {
-            if (size_bytes == 0 || !ptr) {
-                return;
+            // Validate device exists
+            int device_count = 0;
+            cudaGetDeviceCount( &device_count );
+            if (device_id_ >= device_count) {
+                throw std::invalid_argument(
+                    "Device ID " + std::to_string( device_id_ ) +
+                    " exceeds available devices (" + std::to_string( device_count ) + ")"
+                );
             }
-
-            device_context_->makeCurrent();
-            cudaError_t status = cudaMemset(ptr, value, size_bytes);
-            cudaCheckStatus(status, std::source_location::current());
         }
 
         
@@ -130,7 +90,7 @@ namespace Mila::Dnn::Compute
         void* do_allocate(std::size_t bytes, std::size_t alignment) override {
             if (bytes == 0) return nullptr;
 
-            device_context_->makeCurrent();
+            makeCurrent();
 
             void* ptr = nullptr;
             cudaError_t result = cudaMalloc(&ptr, bytes);
@@ -139,7 +99,7 @@ namespace Mila::Dnn::Compute
                 std::string errorMsg = "CUDA device memory allocation failed: " +
                     std::string(cudaGetErrorString(result)) +
                     " (size: " + std::to_string(bytes) + " bytes)" +
-                    " (device: " + std::to_string(device_context_->getDeviceId()) + ")";
+                    " (device: " + std::to_string(device_id_) + ")";
                 throw CudaBadAlloc(errorMsg);
             }
 
@@ -160,7 +120,7 @@ namespace Mila::Dnn::Compute
             if (!ptr) return;
 
             assert(ptr != nullptr);
-            device_context_->makeCurrent();
+            makeCurrent();
 
             // Check for any previous CUDA errors before deallocation
             cudaCheckLastError(std::source_location::current());
@@ -172,7 +132,7 @@ namespace Mila::Dnn::Compute
             catch (const CudaError& e) {
                 std::ostringstream ss;
                 ss << e.what() << " (ptr: 0x" << std::hex << reinterpret_cast<std::uintptr_t>(ptr) << ")"
-                    << " (device: " << device_context_->getDeviceId() << ")";
+                    << " (device: " << device_id_ << ")";
                 std::cerr << ss.str() << std::endl;
                 throw;
             }
@@ -193,7 +153,31 @@ namespace Mila::Dnn::Compute
         }
 
     private:
-        std::shared_ptr<DeviceContext> device_context_;
+        int device_id_;
+
+        /**
+         * @brief Activates this CUDA device in the current thread.
+         *
+         * Sets the CUDA device for subsequent CUDA operations using
+         * cudaSetDevice(). Uses thread-local caching to avoid redundant
+         * device switches.
+         *
+         * @throws std::runtime_error If cudaSetDevice() fails
+         */
+        void makeCurrent() {
+            static thread_local int current_device = -1;
+            if (current_device != device_id_) {
+                cudaError_t error = cudaSetDevice( device_id_ );
+                if (error != cudaSuccess) {
+                    throw std::runtime_error(
+                        "Failed to set CUDA device " +
+                        std::to_string( device_id_ ) + ": " +
+                        cudaGetErrorString( error )
+                    );
+                }
+                current_device = device_id_;
+            }
+        }
     };
 
     /**

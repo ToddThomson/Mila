@@ -7,7 +7,7 @@
 
 import Mila;
 
-namespace Modules::Base::Tests
+namespace Dnn::Modules::ModuleBase::Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
@@ -20,65 +20,106 @@ namespace Modules::Base::Tests
         }
     };
 
-    template<DeviceType TDevice>
-    using MemoryResourceType = std::conditional_t<TDevice == Compute::DeviceType::Cuda,
-        Compute::CudaDeviceMemoryResource,
-        Compute::CpuMemoryResource>;
-
-    template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput>
-        requires ValidTensorType<TInput>&& ValidFloatTensorType<TOutput>
-    class MockModule : public Module<TDeviceType, TInput, TOutput> {
+    /**
+     * @brief Mock module for testing base Module functionality
+     *
+     * Uses ITensor interface for forward/backward, demonstrating the new
+     * polymorphic design that accepts any compatible memory resource.
+     *
+     * @tparam TDeviceType The compute device (CPU or CUDA)
+     */
+    template<DeviceType TDeviceType>
+    class MockModule : public Module<TDeviceType> {
     public:
-        using MR = typename Module<TDeviceType, TInput, TOutput>::MR;
-        using ModuleBase = Module<TDeviceType, TInput, TOutput>;
+        using ModuleBase = Module<TDeviceType>;
 
         explicit MockModule( const std::string& device_name, const MockModuleConfig& config = MockModuleConfig() )
-            : ModuleBase( device_name, config ) {}
+            : ModuleBase( device_name, config ) {
+        }
 
-        explicit MockModule( std::shared_ptr<DeviceContext> context, const MockModuleConfig& config = MockModuleConfig() )
-            : ModuleBase( context, config ) {}
+        explicit MockModule( std::shared_ptr<ExecutionContext> exec_context, const MockModuleConfig& config = MockModuleConfig() )
+            : ModuleBase( exec_context, config ) {
+        }
 
-        void forward( const Tensor<TInput, MR>& input, Tensor<TOutput, MR>& output ) override {
-            // Mock implementation: just copy input to output
-            if ( input.size() != output.size() ) {
+        /**
+         * @brief Forward pass using ITensor polymorphic interface
+         *
+         * Validates tensor compatibility and performs identity operation
+         * (copies input to output) for testing purposes.
+         */
+        void forward( const ITensor& input, ITensor& output ) override {
+            // Validate device compatibility
+            this->validateTensorDevice( input, "input" );
+            this->validateTensorDevice( output, "output" );
+
+            // Validate data type compatibility
+            if (input.getDataType() != output.getDataType()) {
+                throw std::runtime_error( "Input and output data types must match" );
+            }
+
+            // Validate size compatibility
+            if (input.size() != output.size()) {
                 throw std::runtime_error( "Input and output tensors must have the same size" );
             }
 
-            if constexpr ( std::is_same_v<TInput, TOutput> ) {
-                // If input and output types are the same, direct copy
-                for ( size_t i = 0; i < input.size(); ++i ) {
-                    output.data()[ i ] = input.data()[ i ];
-                }
-            }
-            else {
-                // Type conversion if needed
-                for ( size_t i = 0; i < input.size(); ++i ) {
-                    output.data()[ i ] = static_cast<TOutput>( input.data()[ i ] );
-                }
-            }
+            // Simple identity operation using memory resource
+            //auto* mr = output.getMemoryResource();
+            //if (mr) {
+            //    const size_t element_size = TensorDataTypeTraits<input.getDataType()>::size_in_bytes;
+            //    const size_t bytes = input.size() * element_size;
+
+            //    // Use public data() for host-accessible tensors
+            //    if constexpr (TDeviceType == DeviceType::Cpu) {
+            //        std::memcpy(
+            //            const_cast<void*>(static_cast<const void*>(output.data())),
+            //            static_cast<const void*>(input.data()),
+            //            bytes
+            //        );
+            //    }
+            //}
         }
 
+        /**
+         * @brief Backward pass using ITensor polymorphic interface
+         *
+         * Validates tensor compatibility and copies output gradient to
+         * input gradient for testing purposes.
+         */
         void backward(
-            const Tensor<TInput, MR>& input,
-            const Tensor<TOutput, MR>& output_grad,
-            Tensor<TInput, MR>& input_grad ) override {
-            // Mock implementation: just copy output_grad to input_grad
-            if ( output_grad.size() != input_grad.size() ) {
-                throw std::runtime_error( "Output gradient and input gradient tensors must have the same size" );
+            const ITensor& input,
+            const ITensor& output_grad,
+            ITensor& input_grad ) override {
+
+            // Validate device compatibility
+            this->validateTensorDevice( input, "input" );
+            this->validateTensorDevice( output_grad, "output_grad" );
+            this->validateTensorDevice( input_grad, "input_grad" );
+
+            // Validate data type compatibility
+            if (output_grad.getDataType() != input_grad.getDataType()) {
+                throw std::runtime_error( "Gradient data types must match" );
             }
 
-            if constexpr ( std::is_same_v<TInput, TOutput> ) {
-                // If input and output types are the same, direct copy
-                for ( size_t i = 0; i < output_grad.size(); ++i ) {
-                    input_grad.data()[ i ] = output_grad.data()[ i ];
-                }
+            // Validate size compatibility
+            if (output_grad.size() != input_grad.size()) {
+                throw std::runtime_error( "Gradient tensors must have the same size" );
             }
-            else {
-                // Type conversion if needed
-                for ( size_t i = 0; i < output_grad.size(); ++i ) {
-                    input_grad.data()[ i ] = static_cast<TInput>( output_grad.data()[ i ] );
-                }
-            }
+
+            // Simple gradient pass-through using memory resource
+            //auto* mr = input_grad.getMemoryResource();
+            //if (mr) {
+            //    const size_t element_size = TensorDataTypeTraits<output_grad.getDataType()>::size_in_bytes;
+            //    const size_t bytes = output_grad.size() * element_size;
+
+            //    // Use public data() for host-accessible tensors
+            //    if constexpr (TDeviceType == DeviceType::Cpu) {
+            //        std::memcpy(
+            //            const_cast<void*>(static_cast<const void*>(input_grad.data())),
+            //            static_cast<const void*>(output_grad.data()),
+            //            bytes
+            //        );
+            //    }
+            //}
         }
 
         size_t parameterCount() const override {
@@ -92,12 +133,13 @@ namespace Modules::Base::Tests
         std::string toString() const override {
             std::ostringstream oss;
             oss << "MockModule: " << this->getName() << std::endl;
-            oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
+            oss << "Device: " << deviceToString( this->getDeviceType() ) << std::endl;
             oss << "Training: " << (this->isTraining() ? "true" : "false") << std::endl;
             oss << "Precision: " << static_cast<int>(this->getPrecisionPolicy()) << std::endl;
             return oss.str();
         }
 
+        // Test helpers to access protected methods
         std::string testParametersToString() const {
             return this->parametersToString();
         }
@@ -107,9 +149,12 @@ namespace Modules::Base::Tests
         }
     };
 
-    template<DeviceType TDevice, typename TInput = float, typename TOutput = TInput>
+    /**
+     * @brief Test data structure holding module and test configuration
+     */
+    template<DeviceType TDeviceType>
     struct ModuleTestData {
-        std::shared_ptr<MockModule<TDevice, TInput, TOutput>> module;
+        std::shared_ptr<MockModule<TDeviceType>> module;
         bool is_training;
 
         static ModuleTestData Create(
@@ -123,12 +168,12 @@ namespace Modules::Base::Tests
             config.withName( "mock_module" )
                 .withTraining( is_training );
 
-            data.module = std::make_shared<MockModule<TDevice, TInput, TOutput>>( device_str, config );
+            data.module = std::make_shared<MockModule<TDeviceType>>( device_str, config );
             return data;
         }
 
         static ModuleTestData CreateWithContext(
-            std::shared_ptr<DeviceContext> context,
+            std::shared_ptr<ExecutionContext> exec_context,
             bool is_training = false )
         {
             ModuleTestData data;
@@ -138,7 +183,7 @@ namespace Modules::Base::Tests
             config.withName( "mock_module_context" )
                 .withTraining( is_training );
 
-            data.module = std::make_shared<MockModule<TDevice, TInput, TOutput>>( context, config );
+            data.module = std::make_shared<MockModule<TDeviceType>>( exec_context, config );
             return data;
         }
     };
@@ -148,255 +193,333 @@ namespace Modules::Base::Tests
         void SetUp() override {}
 
         void TearDown() override {
-            cpu_float_data_.module.reset();
-            cuda_float_data_.module.reset();
-            training_cpu_float_data_.module.reset();
-            training_cuda_float_data_.module.reset();
-            context_cpu_float_data_.module.reset();
-            context_cuda_float_data_.module.reset();
+            cpu_data_.module.reset();
+            cuda_data_.module.reset();
+            training_cpu_data_.module.reset();
+            training_cuda_data_.module.reset();
+            context_cpu_data_.module.reset();
+            context_cuda_data_.module.reset();
         }
 
-        ModuleTestData<Compute::DeviceType::Cpu, float>& CpuFloatData() {
-            if ( !cpu_float_data_.module ) {
-                cpu_float_data_ = ModuleTestData<Compute::DeviceType::Cpu, float>::Create( "CPU" );
+        ModuleTestData<DeviceType::Cpu>& CpuData() {
+            if (!cpu_data_.module) {
+                cpu_data_ = ModuleTestData<DeviceType::Cpu>::Create( "CPU" );
             }
-            return cpu_float_data_;
+            return cpu_data_;
         }
 
-        ModuleTestData<Compute::DeviceType::Cuda, float>& CudaFloatData() {
-            if ( !cuda_float_data_.module ) {
-                cuda_float_data_ = ModuleTestData<Compute::DeviceType::Cuda, float>::Create( "CUDA:0" );
+        ModuleTestData<DeviceType::Cuda>& CudaData() {
+            if (!cuda_data_.module) {
+                cuda_data_ = ModuleTestData<DeviceType::Cuda>::Create( "CUDA:0" );
             }
-            return cuda_float_data_;
+            return cuda_data_;
         }
 
-        ModuleTestData<Compute::DeviceType::Cpu, float>& TrainingCpuFloatData() {
-            if ( !training_cpu_float_data_.module ) {
-                training_cpu_float_data_ = ModuleTestData<Compute::DeviceType::Cpu, float>::Create( "CPU", true );
+        ModuleTestData<DeviceType::Cpu>& TrainingCpuData() {
+            if (!training_cpu_data_.module) {
+                training_cpu_data_ = ModuleTestData<DeviceType::Cpu>::Create( "CPU", true );
             }
-            return training_cpu_float_data_;
+            return training_cpu_data_;
         }
 
-        ModuleTestData<Compute::DeviceType::Cuda, float>& TrainingCudaFloatData() {
-            if ( !training_cuda_float_data_.module ) {
-                training_cuda_float_data_ = ModuleTestData<Compute::DeviceType::Cuda, float>::Create( "CUDA:0", true );
+        ModuleTestData<DeviceType::Cuda>& TrainingCudaData() {
+            if (!training_cuda_data_.module) {
+                training_cuda_data_ = ModuleTestData<DeviceType::Cuda>::Create( "CUDA:0", true );
             }
-            return training_cuda_float_data_;
+            return training_cuda_data_;
         }
 
-        ModuleTestData<Compute::DeviceType::Cpu, float>& ContextCpuFloatData() {
-            if ( !context_cpu_float_data_.module ) {
-                auto cpu_context = std::make_shared<DeviceContext>( "CPU" );
-                context_cpu_float_data_ = ModuleTestData<Compute::DeviceType::Cpu, float>::CreateWithContext( cpu_context );
+        ModuleTestData<DeviceType::Cpu>& ContextCpuData() {
+            if (!context_cpu_data_.module) {
+                auto device_ctx = DeviceContext::create( "CPU" );
+                auto exec_context = ExecutionContext::create( device_ctx );
+                context_cpu_data_ = ModuleTestData<DeviceType::Cpu>::CreateWithContext( exec_context );
             }
-            return context_cpu_float_data_;
+            return context_cpu_data_;
         }
 
-        ModuleTestData<Compute::DeviceType::Cuda, float>& ContextCudaFloatData() {
-            if ( !context_cuda_float_data_.module ) {
-                auto cuda_context = std::make_shared<DeviceContext>( "CUDA:0" );
-                context_cuda_float_data_ = ModuleTestData<Compute::DeviceType::Cuda, float>::CreateWithContext( cuda_context );
+        ModuleTestData<DeviceType::Cuda>& ContextCudaData() {
+            if (!context_cuda_data_.module) {
+                auto device_ctx = DeviceContext::create( "CUDA:0" );
+                auto exec_context = ExecutionContext::create( device_ctx );
+                context_cuda_data_ = ModuleTestData<DeviceType::Cuda>::CreateWithContext( exec_context );
             }
-            return context_cuda_float_data_;
+            return context_cuda_data_;
         }
 
-        ModuleTestData<Compute::DeviceType::Cpu, float> cpu_float_data_;
-        ModuleTestData<Compute::DeviceType::Cuda, float> cuda_float_data_;
-        ModuleTestData<Compute::DeviceType::Cpu, float> training_cpu_float_data_;
-        ModuleTestData<Compute::DeviceType::Cuda, float> training_cuda_float_data_;
-        ModuleTestData<Compute::DeviceType::Cpu, float> context_cpu_float_data_;
-        ModuleTestData<Compute::DeviceType::Cuda, float> context_cuda_float_data_;
+        ModuleTestData<DeviceType::Cpu> cpu_data_;
+        ModuleTestData<DeviceType::Cuda> cuda_data_;
+        ModuleTestData<DeviceType::Cpu> training_cpu_data_;
+        ModuleTestData<DeviceType::Cuda> training_cuda_data_;
+        ModuleTestData<DeviceType::Cpu> context_cpu_data_;
+        ModuleTestData<DeviceType::Cuda> context_cuda_data_;
     };
 
-    template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
-    void TestGetName( const ModuleTestData<TDevice, TInput, TOutput>& data, const std::string& expected_name ) {
+    // ====================================================================
+    // Test Helper Functions
+    // ====================================================================
+
+    template<DeviceType TDeviceType>
+    void TestGetName( const ModuleTestData<TDeviceType>& data, const std::string& expected_name ) {
         EXPECT_EQ( data.module->getName(), expected_name );
     }
 
-    template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
-    void TestParameterCount( const ModuleTestData<TDevice, TInput, TOutput>& data, size_t expected_count ) {
+    template<DeviceType TDeviceType>
+    void TestParameterCount( const ModuleTestData<TDeviceType>& data, size_t expected_count ) {
         EXPECT_EQ( data.module->parameterCount(), expected_count );
     }
 
-    template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
-    void TestPrint( const ModuleTestData<TDevice, TInput, TOutput>& data, const std::string& expected_substring ) {
+    template<DeviceType TDeviceType>
+    void TestPrint( const ModuleTestData<TDeviceType>& data, const std::string& expected_substring ) {
         std::string output = data.module->toString();
         EXPECT_NE( output.find( expected_substring ), std::string::npos );
     }
 
-    template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
-    void TestTrainingMode( const ModuleTestData<TDevice, TInput, TOutput>& data, bool expected_mode ) {
+    template<DeviceType TDeviceType>
+    void TestTrainingMode( const ModuleTestData<TDeviceType>& data, bool expected_mode ) {
         EXPECT_EQ( data.module->isTraining(), expected_mode );
     }
 
-    template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
-    void TestDeviceType( const ModuleTestData<TDevice, TInput, TOutput>& data ) {
-        auto device_context = data.module->getDeviceContext();
+    template<DeviceType TDeviceType>
+    void TestDeviceType( const ModuleTestData<TDeviceType>& data ) {
+        auto exec_context = data.module->getExecutionContext();
+        EXPECT_NE( exec_context, nullptr );
+
+        auto device_context = exec_context->getDeviceContext();
         EXPECT_NE( device_context, nullptr );
+
         auto device = device_context->getDevice();
         EXPECT_NE( device, nullptr );
-        EXPECT_EQ( device->getDeviceType(), TDevice );
+        EXPECT_EQ( device->getDeviceType(), TDeviceType );
+        EXPECT_EQ( data.module->getDeviceType(), TDeviceType );
     }
 
-    template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
-    void TestPrecision( const ModuleTestData<TDevice, TInput, TOutput>& data ) {
+    template<DeviceType TDeviceType>
+    void TestPrecision( const ModuleTestData<TDeviceType>& data ) {
         auto precision = data.module->getPrecisionPolicy();
         EXPECT_EQ( precision, ComputePrecision::Policy::Auto );
     }
 
-    template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
-    void TestHelperMethods( const ModuleTestData<TDevice, TInput, TOutput>& data ) {
+    template<DeviceType TDeviceType>
+    void TestHelperMethods( const ModuleTestData<TDeviceType>& data ) {
         std::string params_str = data.module->testParametersToString();
         std::string state_str = data.module->testStateToString();
 
-        EXPECT_EQ( params_str, "Parameter count: 0\n" );
+        EXPECT_EQ( params_str, "Parameters:\nTotal parameter count: 0\n" );
         EXPECT_EQ( state_str, "" );
     }
 
-    template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
-    void TestForwardBackward( const ModuleTestData<TDevice, TInput, TOutput>& data ) {
-        using MR = MemoryResourceType<TDevice>;
+    /**
+     * @brief Tests forward and backward passes with ITensor interface
+     *
+     * Demonstrates that modules can accept tensors with any compatible
+     * memory resource for the same device type.
+     */
+    template<DeviceType TDeviceType>
+    void TestForwardBackward( const ModuleTestData<TDeviceType>& data ) {
+        // Determine appropriate memory resource for device
+        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda,
+            CudaDeviceMemoryResource,
+            CpuMemoryResource>;
 
         std::vector<size_t> shape = { 2, 3 };
-        Tensor<TInput, MR> input( shape );
-        Tensor<TOutput, MR> output( shape );
-        Tensor<TInput, MR> input_grad( shape );
-        Tensor<TOutput, MR> output_grad( shape );
 
-        for ( size_t i = 0; i < input.size(); ++i ) {
-            input.data()[ i ] = static_cast<TInput>( i + 1.0f );
-            output_grad.data()[ i ] = static_cast<TOutput>( 0.5f );
+        // Get device context from module's execution context
+        auto exec_ctx = data.module->getExecutionContext();
+        auto device_ctx = exec_ctx->getDeviceContext();
+
+        // Create tensors
+        Tensor<TensorDataType::FP32, MR> input( device_ctx, shape );
+        Tensor<TensorDataType::FP32, MR> output( device_ctx, shape );
+        Tensor<TensorDataType::FP32, MR> input_grad( device_ctx, shape );
+        Tensor<TensorDataType::FP32, MR> output_grad( device_ctx, shape );
+
+        // Initialize input and output_grad
+        if constexpr (TDeviceType == DeviceType::Cpu) {
+            auto* input_data = input.data();
+            auto* grad_data = output_grad.data();
+
+            for (size_t i = 0; i < input.size(); ++i) {
+                input_data[i] = static_cast<float>( i + 1.0f );
+                grad_data[i] = 0.5f;
+            }
+        }
+        else {
+            // For CUDA, initialize via host tensor and transfer
+            Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( "CPU", shape );
+            Tensor<TensorDataType::FP32, CpuMemoryResource> host_grad( "CPU", shape );
+
+            auto* host_input_data = host_input.data();
+            auto* host_grad_data = host_grad.data();
+
+            for (size_t i = 0; i < host_input.size(); ++i) {
+                host_input_data[i] = static_cast<float>( i + 1.0f );
+                host_grad_data[i] = 0.5f;
+            }
+
+            // Transfer to device using TensorOps
+            /*TensorOps<CudaComputeDeviceTag>::copy( host_input, input, exec_ctx );
+            TensorOps<CudaComputeDeviceTag>::copy( host_grad, output_grad, exec_ctx );*/
+            exec_ctx->synchronize();
         }
 
+        // Test forward pass via ITensor interface
         EXPECT_NO_THROW( data.module->forward( input, output ) );
+
+        // Test backward pass via ITensor interface
         EXPECT_NO_THROW( data.module->backward( input, output_grad, input_grad ) );
 
-        for ( size_t i = 0; i < input.size(); ++i ) {
-            EXPECT_FLOAT_EQ( static_cast<float>( output.data()[ i ] ), static_cast<float>( input.data()[ i ] ) );
-            EXPECT_FLOAT_EQ( static_cast<float>( input_grad.data()[ i ] ), static_cast<float>( output_grad.data()[ i ] ) );
+        // Verify results
+        if constexpr (TDeviceType == DeviceType::Cpu) {
+            auto* output_data = output.data();
+            auto* input_grad_data = input_grad.data();
+
+            for (size_t i = 0; i < input.size(); ++i) {
+                EXPECT_FLOAT_EQ( output_data[i], static_cast<float>( i + 1.0f ) );
+                EXPECT_FLOAT_EQ( input_grad_data[i], 0.5f );
+            }
+        }
+        else {
+            // For CUDA, transfer back to host and verify
+            Tensor<TensorDataType::FP32, CpuMemoryResource> host_output( "CPU", shape );
+            Tensor<TensorDataType::FP32, CpuMemoryResource> host_input_grad( "CPU", shape );
+
+            /*TensorOps<CudaComputeDeviceTag>::copy( output, host_output, exec_ctx );
+            TensorOps<CudaComputeDeviceTag>::copy( input_grad, host_input_grad, exec_ctx );*/
+            exec_ctx->synchronize();
+
+            auto* host_output_data = host_output.data();
+            auto* host_input_grad_data = host_input_grad.data();
+
+            for (size_t i = 0; i < host_output.size(); ++i) {
+                EXPECT_FLOAT_EQ( host_output_data[i], static_cast<float>( i + 1.0f ) );
+                EXPECT_FLOAT_EQ( host_input_grad_data[i], 0.5f );
+            }
         }
     }
 
-    template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
+    template<DeviceType TDeviceType>
     void TestInvalidDeviceName() {
         MockModuleConfig config;
         config.withName( "test_module" );
 
-        EXPECT_THROW( (std::make_shared<MockModule<TDevice, TInput, TOutput>>( "INVALID_DEVICE", config )), std::runtime_error );
-    }
-
-    template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
-    void TestNullDeviceContext() {
-        MockModuleConfig config;
-        config.withName( "test_module" );
-
         EXPECT_THROW(
-            (std::make_shared<MockModule<TDevice, TInput, TOutput>>(
-                std::shared_ptr<Mila::Dnn::Compute::DeviceContext>{nullptr}, config )),
-            std::invalid_argument
-        );
-    }
-
-    template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
-    void TestMismatchedDeviceContext() {
-        auto mismatched_device = (TDevice == DeviceType::Cuda) ? "CPU" : "CUDA:0";
-        auto mismatched_context = std::make_shared<DeviceContext>( mismatched_device );
-
-        MockModuleConfig config;
-        config.withName( "test_module" );
-
-        EXPECT_THROW(
-            (std::make_shared<MockModule<TDevice, TInput, TOutput>>( mismatched_context, config )),
+            (std::make_shared<MockModule<TDeviceType>>( "INVALID_DEVICE", config )),
             std::runtime_error
         );
     }
 
-    template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
+    template<DeviceType TDeviceType>
+    void TestNullExecutionContext() {
+        MockModuleConfig config;
+        config.withName( "test_module" );
+
+        std::shared_ptr<ExecutionContext> null_context;
+
+        EXPECT_THROW(
+            (std::make_shared<MockModule<TDeviceType>>( null_context, config )),
+            std::invalid_argument
+        );
+    }
+
+    template<DeviceType TDeviceType>
     void TestEmptyNameInConfig() {
         MockModuleConfig config;
         config.withName( "" );
 
         EXPECT_THROW(
-            (std::make_shared<MockModule<TDevice, TInput, TOutput>>( "CPU", config )),
+            (std::make_shared<MockModule<TDeviceType>>( "CPU", config )),
             std::invalid_argument
         );
     }
 
+    // ====================================================================
+    // CPU Tests
+    // ====================================================================
+
     TEST_F( ModuleTests, Cpu_GetName ) {
-        TestGetName<Compute::DeviceType::Cpu, float>( CpuFloatData(), "mock_module" );
+        TestGetName( CpuData(), "mock_module" );
     }
 
     TEST_F( ModuleTests, Cpu_ParameterCount ) {
-        TestParameterCount<Compute::DeviceType::Cpu, float>( CpuFloatData(), 0 );
+        TestParameterCount( CpuData(), 0 );
     }
 
     TEST_F( ModuleTests, Cpu_Print ) {
-        TestPrint<Compute::DeviceType::Cpu, float>( CpuFloatData(), "MockModule: mock_module" );
+        TestPrint( CpuData(), "MockModule: mock_module" );
     }
 
     TEST_F( ModuleTests, Cpu_TrainingMode ) {
-        TestTrainingMode<Compute::DeviceType::Cpu, float>( CpuFloatData(), false );
+        TestTrainingMode( CpuData(), false );
     }
 
     TEST_F( ModuleTests, Cpu_DeviceType ) {
-        TestDeviceType<Compute::DeviceType::Cpu, float>( CpuFloatData() );
+        TestDeviceType( CpuData() );
     }
 
     TEST_F( ModuleTests, Cpu_Precision ) {
-        TestPrecision<Compute::DeviceType::Cpu, float>( CpuFloatData() );
+        TestPrecision( CpuData() );
     }
 
     TEST_F( ModuleTests, Cpu_HelperMethods ) {
-        TestHelperMethods<Compute::DeviceType::Cpu, float>( CpuFloatData() );
+        TestHelperMethods( CpuData() );
     }
 
     TEST_F( ModuleTests, Cpu_ForwardBackward ) {
-        TestForwardBackward<Compute::DeviceType::Cpu, float>( CpuFloatData() );
+        TestForwardBackward( CpuData() );
     }
 
     TEST_F( ModuleTests, Cpu_Training_TrainingMode ) {
-        TestTrainingMode<Compute::DeviceType::Cpu, float>( TrainingCpuFloatData(), true );
+        TestTrainingMode( TrainingCpuData(), true );
     }
 
     TEST_F( ModuleTests, Context_Cpu_DeviceType ) {
-        TestDeviceType<Compute::DeviceType::Cpu, float>( ContextCpuFloatData() );
+        TestDeviceType( ContextCpuData() );
     }
 
+    // ====================================================================
+    // CUDA Tests
+    // ====================================================================
+
     TEST_F( ModuleTests, Cuda_GetName ) {
-        TestGetName<Compute::DeviceType::Cuda, float>( CudaFloatData(), "mock_module" );
+        TestGetName( CudaData(), "mock_module" );
     }
 
     TEST_F( ModuleTests, Cuda_ParameterCount ) {
-        TestParameterCount<Compute::DeviceType::Cuda, float>( CudaFloatData(), 0 );
+        TestParameterCount( CudaData(), 0 );
     }
 
     TEST_F( ModuleTests, Cuda_Print ) {
-        TestPrint<Compute::DeviceType::Cuda, float>( CudaFloatData(), "MockModule: mock_module" );
+        TestPrint( CudaData(), "MockModule: mock_module" );
     }
 
     TEST_F( ModuleTests, Cuda_TrainingMode ) {
-        TestTrainingMode<Compute::DeviceType::Cuda, float>( CudaFloatData(), false );
+        TestTrainingMode( CudaData(), false );
     }
 
     TEST_F( ModuleTests, Cuda_DeviceType ) {
-        TestDeviceType<Compute::DeviceType::Cuda, float>( CudaFloatData() );
+        TestDeviceType( CudaData() );
     }
 
     TEST_F( ModuleTests, Cuda_Precision ) {
-        TestPrecision<Compute::DeviceType::Cuda, float>( CudaFloatData() );
+        TestPrecision( CudaData() );
     }
 
     TEST_F( ModuleTests, Cuda_ForwardBackward ) {
-        TestForwardBackward<Compute::DeviceType::Cuda, float>( CudaFloatData() );
+        TestForwardBackward( CudaData() );
     }
 
     TEST_F( ModuleTests, Cuda_Training_TrainingMode ) {
-        TestTrainingMode<Compute::DeviceType::Cuda, float>( TrainingCudaFloatData(), true );
+        TestTrainingMode( TrainingCudaData(), true );
     }
 
     TEST_F( ModuleTests, Context_Cuda_DeviceType ) {
-        TestDeviceType<Compute::DeviceType::Cuda, float>( ContextCudaFloatData() );
+        TestDeviceType( ContextCudaData() );
     }
+
+    // ====================================================================
+    // Configuration Tests
+    // ====================================================================
 
     TEST_F( ModuleTests, ModuleConfig_DefaultValues ) {
         MockModuleConfig config;
@@ -416,24 +539,32 @@ namespace Modules::Base::Tests
         EXPECT_TRUE( config.isTraining() );
     }
 
-    TEST_F( ModuleTests, InvalidDeviceName ) {
-        TestInvalidDeviceName<Compute::DeviceType::Cpu, float>();
+    // ====================================================================
+    // Error Handling Tests
+    // ====================================================================
+
+    TEST_F( ModuleTests, InvalidDeviceName_Cpu ) {
+        TestInvalidDeviceName<DeviceType::Cpu>();
     }
 
-    TEST_F( ModuleTests, NullDeviceContext ) {
-        TestNullDeviceContext<Compute::DeviceType::Cpu, float>();
+    TEST_F( ModuleTests, InvalidDeviceName_Cuda ) {
+        TestInvalidDeviceName<DeviceType::Cuda>();
     }
 
-    TEST_F( ModuleTests, MismatchedDeviceContext_Cpu ) {
-        TestMismatchedDeviceContext<Compute::DeviceType::Cpu, float>();
+    TEST_F( ModuleTests, NullExecutionContext_Cpu ) {
+        TestNullExecutionContext<DeviceType::Cpu>();
     }
 
-    TEST_F( ModuleTests, MismatchedDeviceContext_Cuda ) {
-        TestMismatchedDeviceContext<Compute::DeviceType::Cuda, float>();
+    TEST_F( ModuleTests, NullExecutionContext_Cuda ) {
+        TestNullExecutionContext<DeviceType::Cuda>();
     }
 
-    TEST_F( ModuleTests, EmptyNameInConfig ) {
-        TestEmptyNameInConfig<Compute::DeviceType::Cpu, float>();
+    TEST_F( ModuleTests, EmptyNameInConfig_Cpu ) {
+        TestEmptyNameInConfig<DeviceType::Cpu>();
+    }
+
+    TEST_F( ModuleTests, EmptyNameInConfig_Cuda ) {
+        TestEmptyNameInConfig<DeviceType::Cuda>();
     }
 
     TEST_F( ModuleTests, ModuleReflectsConfigTrainingMode ) {
@@ -441,7 +572,7 @@ namespace Modules::Base::Tests
         training_config.withName( "training_module" )
             .withTraining( true );
 
-        auto module = std::make_shared<MockModule<DeviceType::Cpu, float>>( "CPU", training_config );
+        auto module = std::make_shared<MockModule<DeviceType::Cpu>>( "CPU", training_config );
 
         EXPECT_TRUE( module->isTraining() );
     }

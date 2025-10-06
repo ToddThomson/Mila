@@ -29,7 +29,6 @@ namespace Mila::Dnn::Compute
      * 4. Provide clear error messages for unavailable devices
      */
     std::shared_ptr<DeviceContext> DeviceContext::create(const std::string& device_name) {
-        // Initialize device registrar to ensure all available devices are registered
         DeviceRegistrar& registrar = DeviceRegistrar::instance();
         
         // Normalize device name for consistent comparison
@@ -37,8 +36,7 @@ namespace Mila::Dnn::Compute
         std::transform(normalized_name.begin(), normalized_name.end(), 
                       normalized_name.begin(), ::toupper);
 
-        // Check if the requested device is available in the registry
-        if (!registrar.isDeviceAvailable(device_name)) {
+        if (!registrar.isDeviceAvailable( device_name )) {
             // Provide helpful error message with available devices
             auto available_devices = registrar.listAvailableDevices();
             std::string available_list;
@@ -48,7 +46,7 @@ namespace Mila::Dnn::Compute
                     available_list += ", ";
                 }
             }
-            
+
             throw std::runtime_error(
                 "Device '" + device_name + "' is not available. " +
                 "Available devices: [" + available_list + "]"

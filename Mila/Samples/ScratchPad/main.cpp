@@ -71,8 +71,8 @@ int main() {
     std::cout << "Testing CudaFullyConnectedOp and CpuFullyConnectedOp equivalency..." << std::endl;
 
     try {
-        auto cuda_context = std::make_shared<DeviceContext>( "CUDA:0" );
-        auto cpu_context = std::make_shared<DeviceContext>( "CPU" );
+        auto cuda_context = std::make_shared<CudaDeviceContext>( "CUDA:0" );
+        auto cpu_context = std::make_shared<CpuDeviceContext>();
 
         // Create operations from registry
         auto cuda_op_base = OperationRegistry::instance().createUnaryOperation<float>(

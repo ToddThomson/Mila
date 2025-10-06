@@ -41,7 +41,7 @@ module;
 export module Compute.OperationBase;
 
 import Dnn.TensorDataType;
-import Dnn.TensorTypeTraits;
+import Dnn.TensorDataTypeTraits;
 import Compute.DeviceType;
 import Compute.DeviceContext;
 import Compute.Precision;

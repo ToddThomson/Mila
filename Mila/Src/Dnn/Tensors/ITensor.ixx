@@ -42,24 +42,6 @@ namespace Mila::Dnn
     public:
         virtual ~ITensor() = default;
 
-		// REVIEW: Should the rawData() methods be protected instead of public?
-
-        /**
-         * @brief Get mutable raw pointer to tensor data
-         * @return Non-const void pointer to the underlying tensor data buffer
-         * @warning Caller is responsible for casting to the appropriate element type
-         * @note Use getDataType() or isType<T>() to verify the correct type before casting
-         */
-        virtual void* rawData() = 0;
-
-        /**
-         * @brief Get immutable raw pointer to tensor data
-         * @return Const void pointer to the underlying tensor data buffer
-         * @warning Caller is responsible for casting to the appropriate element type
-         * @note Use getDataType() or isType<T>() to verify the correct type before casting
-         */
-        virtual const void* rawData() const = 0;
-
         /**
          * @brief Get tensor dimensional structure
          * @return Immutable reference to vector containing the size of each dimension
@@ -67,6 +49,14 @@ namespace Mila::Dnn
          * @note Shape values represent the number of elements along each dimension
          */
         virtual const std::vector<size_t>& shape() const = 0;
+
+        /**
+         * @brief Get total number of elements in the tensor
+         * @return Total element count (product of all dimension sizes)
+         * @note Scalars (rank 0) have size 1 by convention
+         * @note Empty tensors (any dimension size 0) have size 0
+		 */
+		virtual size_t size() const = 0;
 
         /**
          * @brief Get tensor element data type identifier
@@ -83,32 +73,6 @@ namespace Mila::Dnn
          * @see getDataType(), isType()
          */
         virtual std::string getDataTypeName() const = 0;
-
-
-        /**
-         * @brief Get the device context for this tensor
-         *
-         * Provides access to the device context for stream management, multi-GPU
-         * coordination, and device-specific operations.
-         *
-         * @return Shared pointer to device context (never null for valid tensors)
-         * @note Device context manages device binding, streams, and synchronization
-         * @note Essential for kernel launches and device coordination
-         */
-        virtual std::shared_ptr<Compute::DeviceContext> getDeviceContext() const = 0;
-
-        /**
-         * @brief Get the memory resource managing this tensor's storage
-         *
-         * Provides access to the memory resource for efficient dispatch to
-         * device-specific operations and zero-copy tensor operations when
-         * memory resources are compatible.
-         *
-         * @return Pointer to the memory resource (never null for valid tensors)
-         * @note Memory resource lifetime is managed by the tensor
-         * @note Enables efficient type-safe downcasting and dispatch
-         */
-        virtual Compute::MemoryResource* getMemoryResource() const = 0;
 
         /**
          * @brief Get the device type from the memory resource
@@ -139,5 +103,36 @@ namespace Mila::Dnn
         bool isType() const {
             return getDataType() == getTensorDataTypeEnum<T>();
         }
+
+    protected:
+
+        /**
+         * @brief Get the device context for this tensor
+         *
+         * Provides access to the device context for stream management, multi-GPU
+         * coordination, and device-specific operations.
+         *
+         * @return Shared pointer to device context (never null for valid tensors)
+         * @note Device context manages device binding, streams, and synchronization
+         * @note Essential for kernel launches and device coordination
+         */
+        virtual std::shared_ptr<Compute::DeviceContext> getDeviceContext() const = 0;
+
+        /**
+         * @brief Get the memory resource managing this tensor's storage
+         *
+         * Provides access to the memory resource for efficient dispatch to
+         * device-specific operations and zero-copy tensor operations when
+         * memory resources are compatible.
+         *
+         * @return Pointer to the memory resource (never null for valid tensors)
+         * @note Memory resource lifetime is managed by the tensor
+         * @note Enables efficient type-safe downcasting and dispatch
+         */
+        virtual Compute::MemoryResource* getMemoryResource() const = 0;
+
+        // Allow Module to access protected members
+        template<Compute::DeviceType>
+        friend class Module;
     };
 }

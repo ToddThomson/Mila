@@ -26,8 +26,8 @@ module;
 export module Dnn.TensorBuffer;
 
 import Dnn.TensorDataType;
-import Dnn.TensorTypeMap;
-import Dnn.TensorTypeTraits;
+import Dnn.TensorDataTypeMap;
+import Dnn.TensorDataTypeTraits;
 import Compute.MemoryResource;
 import Compute.MemoryResourceTracker;
 import Compute.CpuMemoryResource;
@@ -177,12 +177,12 @@ namespace Mila::Dnn
 		 * @note Memory is aligned according to hardware optimization requirements
 		 * @note Zero-sized buffers are handled efficiently without allocation
 		 */
-		explicit TensorBuffer( std::shared_ptr<Compute::DeviceContext> device_context, size_t logical_size )
-			: device_context_( device_context ), logical_size_( logical_size ), storage_bytes_( 0 ), mr_( createMemoryResource() ) {
+		explicit TensorBuffer( int device_id, size_t logical_size )
+			: device_id_( device_id ), logical_size_( logical_size ), storage_bytes_( 0 ), mr_( createMemoryResource() ) {
 
-			if (!device_context_) {
+			/*if (!device_context_) {
 				throw std::invalid_argument( "Device context cannot be null" );
-			}
+			}*/
 
 			if (logical_size_ == 0) {
 				data_ = nullptr;
@@ -206,7 +206,7 @@ namespace Mila::Dnn
 			}
 
 			// Initialize memory to zero for deterministic behavior
-			mr_->memset( data_, 0, storage_bytes_ );
+			// mr_->memset( data_, 0, storage_bytes_ );
 		}
 
 		/**
@@ -230,13 +230,13 @@ namespace Mila::Dnn
 		 * @note Buffer does not manage external memory lifecycle
 		 * @note Memory management operations will throw exceptions
 		 */
-		TensorBuffer( std::shared_ptr<Compute::DeviceContext> device_context, size_t logical_size, std::byte* data_ptr, size_t storage_bytes )
-			: device_context_( device_context ), logical_size_( logical_size ), storage_bytes_( storage_bytes ),
+		TensorBuffer( int device_id, size_t logical_size, std::byte* data_ptr, size_t storage_bytes )
+			: device_id_( device_id ), logical_size_( logical_size ), storage_bytes_( storage_bytes ),
 			aligned_size_( storage_bytes ), data_( data_ptr ), mr_( nullptr ) {
 
-			if (!device_context_) {
+			/*if (!device_context_) {
 				throw std::invalid_argument( "Device context cannot be null" );
-			}
+			}*/
 
 			if (data_ == nullptr) {
 				throw std::invalid_argument( "External data pointer cannot be null." );
@@ -280,14 +280,14 @@ namespace Mila::Dnn
 		 * leaving source in valid but empty state.
 		 */
 		TensorBuffer( TensorBuffer&& other ) noexcept
-			: device_context_( std::move( other.device_context_ ) ),
+			: device_id_( other.device_id_ ),
 			logical_size_( other.logical_size_ ),
 			storage_bytes_( other.storage_bytes_ ),
 			aligned_size_( other.aligned_size_ ),
 			data_( other.data_ ),
 			mr_( std::move( other.mr_ ) ) {
 
-			other.device_context_ = nullptr;
+			other.device_id_ = 0;
 			other.logical_size_ = 0;
 			other.storage_bytes_ = 0;
 			other.aligned_size_ = 0;
@@ -307,7 +307,7 @@ namespace Mila::Dnn
 				}
 
 				// Transfer resources
-				device_context_ = std::move( other.device_context_ );
+				device_id_ = other.device_id_;
 				logical_size_ = other.logical_size_;
 				storage_bytes_ = other.storage_bytes_;
 				aligned_size_ = other.aligned_size_;
@@ -315,22 +315,13 @@ namespace Mila::Dnn
 				mr_ = std::move( other.mr_ );
 
 				// Reset source
-				other.device_context_ = nullptr;
+				other.device_id_ = -1;
 				other.logical_size_ = 0;
 				other.storage_bytes_ = 0;
 				other.aligned_size_ = 0;
 				other.data_ = nullptr;
 			}
 			return *this;
-		}
-
-		/**
-		 * @brief Returns the device context associated with this buffer
-		 *
-		 * @return Shared pointer to the device context
-		 */
-		std::shared_ptr<Compute::DeviceContext> getDeviceContext() const noexcept {
-			return device_context_;
 		}
 
 		/**
@@ -465,16 +456,17 @@ namespace Mila::Dnn
 				new_data = static_cast<std::byte*>(mr_->allocate( new_aligned_size, alignment ));
 
 				// Copy existing data if present
-				if (data_ && storage_bytes_ > 0) {
-					size_t copy_bytes = std::min( storage_bytes_, new_storage_bytes );
-					mr_->memcpy( new_data, data_, copy_bytes );
-				}
+				// FIXME:
+				//if (data_ && storage_bytes_ > 0) {
+				//	size_t copy_bytes = std::min( storage_bytes_, new_storage_bytes );
+				//	mr_->memcpy( new_data, data_, copy_bytes );
+				//}
 
-				// Zero-initialize new memory beyond copied data
-				if (new_storage_bytes > storage_bytes_) {
-					size_t zero_bytes = new_storage_bytes - storage_bytes_;
-					mr_->memset( new_data + storage_bytes_, 0, zero_bytes );
-				}
+				//// Zero-initialize new memory beyond copied data
+				//if (new_storage_bytes > storage_bytes_) {
+				//	size_t zero_bytes = new_storage_bytes - storage_bytes_;
+				//	mr_->memset( new_data + storage_bytes_, 0, zero_bytes );
+				//}
 
 				// Clean up old memory after successful allocation and copy
 				if (data_) {
@@ -526,7 +518,7 @@ namespace Mila::Dnn
 		}
 
 	private:
-		std::shared_ptr<Compute::DeviceContext> device_context_{ nullptr }; ///< Device context for memory resource operations
+		int device_id_{ -1 }; ///< Device Id for memory resource operations
 		size_t logical_size_{ 0 };                                      ///< Number of logical elements in buffer
 		size_t storage_bytes_{ 0 };                                     ///< Actual storage bytes 
 		size_t aligned_size_{ 0 };                                      ///< Total allocated bytes including alignment
@@ -551,11 +543,11 @@ namespace Mila::Dnn
 		 */
 		std::unique_ptr<Compute::MemoryResource> createMemoryResource() {
 			if constexpr (TrackMemory) {
-				auto resource = std::make_unique<TMemoryResource>( device_context_ );
+				auto resource = std::make_unique<TMemoryResource>( device_id_ );
 				return std::make_unique<Compute::TrackedMemoryResource>( resource.release() );
 			}
 			else {
-				return std::make_unique<TMemoryResource>( device_context_ );
+				return std::make_unique<TMemoryResource>( device_id_ );
 			}
 		}
 

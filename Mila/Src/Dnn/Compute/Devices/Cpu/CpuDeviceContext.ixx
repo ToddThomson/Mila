@@ -83,14 +83,6 @@ namespace Mila::Dnn::Compute
         }
 
         /**
-         * @brief Synchronizes device operations.
-         * No-op for CPU since CPU operations are inherently synchronous.
-         */
-        void synchronize() override {
-            // No-op for CPU
-        }
-
-        /**
          * @brief Returns the underlying compute device.
          * @return Shared pointer to the CPU compute device instance
          */

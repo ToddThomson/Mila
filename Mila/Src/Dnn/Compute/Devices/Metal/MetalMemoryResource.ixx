@@ -71,71 +71,6 @@ namespace Mila::Dnn::Compute
         }
 
         /**
-         * @brief Fills Metal buffer with repeated value pattern
-         *
-         * Uses Metal compute shaders for efficient parallel fill operations on GPU.
-         * For small buffers or simple patterns, may use CPU-side fill with buffer
-         * upload for better performance.
-         *
-         * @param data Pointer to Metal buffer memory
-         * @param count Number of elements to fill
-         * @param value_ptr Pointer to the value pattern
-         * @param value_size Size of the value pattern in bytes
-         */
-        void fill( void* data, std::size_t count, const void* value_ptr, std::size_t value_size ) override {
-            if ( count == 0 || !data || !value_ptr ) {
-                return;
-            }
-
-            // For Metal, we need to dispatch a compute shader for efficient parallel fill
-            // This is a simplified implementation - production code would use optimized shaders
-            id<MTLBuffer> buffer = (__bridge id<MTLBuffer>)data;
-
-            if ( value_size == sizeof( float ) ) {
-                // Optimized path for float values using Metal Performance Shaders
-                fillFloatBuffer( buffer, count, *static_cast<const float*>(value_ptr) );
-            }
-            else {
-                // General path using compute shader dispatch
-                fillGenericBuffer( buffer, count, value_ptr, value_size );
-            }
-        }
-
-        /**
-         * @brief Copies memory between Metal buffers or host-device
-         *
-         * Handles efficient memory transfers using Metal's blit encoders for
-         * buffer-to-buffer copies or explicit host-device transfers with
-         * automatic synchronization and memory coherency management.
-         *
-         * @param dst Destination buffer pointer
-         * @param src Source buffer or host memory pointer
-         * @param size_bytes Number of bytes to copy
-         */
-        void memcpy( void* dst, const void* src, std::size_t size_bytes ) override {
-            if ( size_bytes == 0 || !dst || !src ) {
-                return;
-            }
-
-            // Check if both pointers are Metal buffers or if one is host memory
-            id<MTLBuffer> dst_buffer = (__bridge id<MTLBuffer>)dst;
-            id<MTLBuffer> src_buffer = (__bridge id<MTLBuffer>)src;
-
-            if ( dst_buffer && src_buffer ) {
-                // Buffer-to-buffer copy using blit encoder
-                copyBufferToBuffer( dst_buffer, src_buffer, size_bytes );
-            }
-            else if ( dst_buffer ) {
-                // Host-to-device copy
-                copyHostToDevice( dst_buffer, src, size_bytes );
-            }
-            else {
-                // Device-to-host copy (less common in this context)
-                copyDeviceToHost( dst, src_buffer, size_bytes );
-            }
-        }
-
-        /**
          * @brief Memory accessibility properties for Metal GPU memory
          *
          * On Apple Silicon with unified memory, Metal buffers can be host-accessible
@@ -216,96 +151,6 @@ namespace Mila::Dnn::Compute
         id<MTLDevice> device_;              ///< Metal device for GPU operations
         id<MTLCommandQueue> command_queue_; ///< Command queue for Metal operations
 
-        /**
-         * @brief Optimized float buffer fill using Metal Performance Shaders
-         *
-         * Uses vectorized operations for efficient parallel fill of float buffers,
-         * leveraging Metal's optimized compute infrastructure.
-         */
-        void fillFloatBuffer( id<MTLBuffer> buffer, std::size_t count, float value ) {
-            // Create command buffer for the fill operation
-            id<MTLCommandBuffer> command_buffer = [ command_queue_ commandBuffer ];
-
-            // Use Metal Performance Shaders for optimized float fill
-            // This would typically use a custom compute shader for maximum efficiency
-
-            // For now, use a simple approach - production code would use optimized kernels
-            id<MTLBlitCommandEncoder> blit_encoder = [ command_buffer blitCommandEncoder ];
-
-            // Fill with pattern (simplified - real implementation would use compute shader)
-            [blit_encoder fillBuffer : buffer range : NSMakeRange( 0, count * sizeof( float ) ) value : *(uint8_t*)&value] ;
-
-            [blit_encoder endEncoding] ;
-            [command_buffer commit] ;
-            [command_buffer waitUntilCompleted] ;
-        }
-
-        /**
-         * @brief Generic buffer fill using compute shader dispatch
-         *
-         * Dispatches custom compute shader for arbitrary value patterns and sizes,
-         * providing maximum flexibility for different data types and patterns.
-         */
-        void fillGenericBuffer( id<MTLBuffer> buffer, std::size_t count, const void* value_ptr, std::size_t value_size ) {
-            // Implementation would create and dispatch custom compute shader
-            // For now, fall back to host-side approach
-
-            // Create temporary host buffer with pattern
-            std::vector<uint8_t> temp_data( count * value_size );
-            for ( std::size_t i = 0; i < count; ++i ) {
-                std::memcpy( temp_data.data() + i * value_size, value_ptr, value_size );
-            }
-
-            // Copy to Metal buffer
-            std::memcpy( [ buffer contents ], temp_data.data(), temp_data.size() );
-
-            // Ensure memory coherency if needed
-            if ( [ buffer storageMode ] == MTLStorageModeManaged ) {
-                [buffer didModifyRange : NSMakeRange( 0, temp_data.size() )] ;
-            }
-        }
-
-        /**
-         * @brief Efficient buffer-to-buffer copy using blit encoder
-         */
-        void copyBufferToBuffer( id<MTLBuffer> dst, id<MTLBuffer> src, std::size_t size_bytes ) {
-            id<MTLCommandBuffer> command_buffer = [ command_queue_ commandBuffer ];
-            id<MTLBlitCommandEncoder> blit_encoder = [ command_buffer blitCommandEncoder ];
-
-            [blit_encoder copyFromBuffer : src
-                sourceOffset : 0
-                toBuffer : dst
-                destinationOffset : 0
-                size : size_bytes] ;
-
-            [blit_encoder endEncoding] ;
-            [command_buffer commit] ;
-            [command_buffer waitUntilCompleted] ;
-        }
-
-        /**
-         * @brief Host-to-device memory transfer with synchronization
-         */
-        void copyHostToDevice( id<MTLBuffer> dst_buffer, const void* src, std::size_t size_bytes ) {
-            std::memcpy( [ dst_buffer contents ], src, size_bytes );
-
-            // Ensure memory coherency for managed storage
-            if ( [ dst_buffer storageMode ] == MTLStorageModeManaged ) {
-                [dst_buffer didModifyRange : NSMakeRange( 0, size_bytes )] ;
-            }
-        }
-
-        /**
-         * @brief Device-to-host memory transfer with synchronization
-         */
-        void copyDeviceToHost( void* dst, id<MTLBuffer> src_buffer, std::size_t size_bytes ) {
-            // Ensure any pending GPU operations are complete
-            id<MTLCommandBuffer> command_buffer = [ command_queue_ commandBuffer ];
-            [command_buffer commit] ;
-            [command_buffer waitUntilCompleted] ;
-
-            std::memcpy( dst, [ src_buffer contents ], size_bytes );
-        }
     };
 
 #else // !METAL_AVAILABLE
@@ -319,10 +164,6 @@ namespace Mila::Dnn::Compute
     public:
         MetalMemoryResource() {
             throw std::runtime_error( "Metal support is not available on this platform" );
-        }
-
-        void memcpy( void*, const void*, std::size_t ) override {
-            throw std::runtime_error( "Metal not available" );
         }
 
         static constexpr bool is_host_accessible = false;

@@ -69,7 +69,7 @@ namespace Mila::Dnn::Compute
          * @param src Source pointer
          * @param size_bytes Number of bytes to copy
          */
-        void memcpy(void* dst, const void* src, std::size_t size_bytes) override {
+        /*void memcpy(void* dst, const void* src, std::size_t size_bytes) override {
             if (size_bytes == 0) {
                 return;
             }
@@ -77,7 +77,7 @@ namespace Mila::Dnn::Compute
             device_context_->makeCurrent();
             cudaError_t status = cudaMemcpy(dst, src, size_bytes, cudaMemcpyDefault);
             cudaCheckStatus(status, std::source_location::current());
-        }
+        }*/
 
         /**
          * @brief Sets managed memory to a specific byte value.
@@ -90,7 +90,7 @@ namespace Mila::Dnn::Compute
          * @param value Byte value to set (0-255)
          * @param size_bytes Number of bytes to set
          */
-        void memset(void* ptr, int value, std::size_t size_bytes) override {
+        /*void memset(void* ptr, int value, std::size_t size_bytes) override {
             if (size_bytes == 0 || !ptr) {
                 return;
             }
@@ -98,7 +98,7 @@ namespace Mila::Dnn::Compute
             device_context_->makeCurrent();
             cudaError_t status = cudaMemset(ptr, value, size_bytes);
             cudaCheckStatus(status, std::source_location::current());
-        }
+        }*/
 
         /**
          * @brief Indicates managed memory is accessible from host code.
