@@ -79,44 +79,6 @@ namespace Dnn::Tensors::Tests
     }
 
     // ============================================================================
-    // External Memory Tests
-    // ============================================================================
-
-    TEST_F( TensorBufferTests, CpuBufferExternalMemory ) {
-        std::vector<float> external_data( 100, 3.14f );
-        TensorBuffer<TensorDataType::FP32, Compute::CpuMemoryResource> buffer(
-            cpu_device_id_,
-            external_data.size(),
-            reinterpret_cast<std::byte*>(external_data.data()),
-            external_data.size() * sizeof( float ) );
-
-        EXPECT_EQ( buffer.size(), external_data.size() );
-        EXPECT_EQ( buffer.rawData(), external_data.data() );
-
-        // Verify resize throws for external buffer
-        EXPECT_THROW( buffer.resize( 50 ), std::runtime_error );
-    }
-
-    TEST_F( TensorBufferTests, ExternalMemoryValidation ) {
-        // Null external pointer
-        std::byte* null_ptr = nullptr;
-        EXPECT_THROW( (TensorBuffer<TensorDataType::INT32, Compute::CpuMemoryResource>(
-            cpu_device_id_, 100, null_ptr, 1000 )),
-            std::invalid_argument );
-
-        // Insufficient external memory size
-        std::vector<int> small_buffer( 10 );
-        EXPECT_THROW( (TensorBuffer<TensorDataType::INT32, Compute::CpuMemoryResource>(
-            cpu_device_id_, 100, reinterpret_cast<std::byte*>(small_buffer.data()), 10 * sizeof( int ) )),
-            std::invalid_argument );
-
-        // Exact size requirement (should work)
-        std::vector<int> exact_buffer( 50 );
-        EXPECT_NO_THROW( (TensorBuffer<TensorDataType::INT32, Compute::CpuMemoryResource>(
-            cpu_device_id_, 50, reinterpret_cast<std::byte*>(exact_buffer.data()), 50 * sizeof( int ) )) );
-    }
-
-    // ============================================================================
     // Move Semantics Tests
     // ============================================================================
 
@@ -226,18 +188,6 @@ namespace Dnn::Tensors::Tests
         buffer.resize( 0 );
         EXPECT_EQ( buffer.size(), 0 );
         EXPECT_EQ( buffer.rawData(), nullptr );
-    }
-
-    TEST_F( TensorBufferTests, ExternalMemoryResizeRestriction ) {
-        std::vector<float> external_data( 100, 1.5f );
-        TensorBuffer<TensorDataType::FP32, Compute::CpuMemoryResource> external_buffer(
-            cpu_device_id_,
-            external_data.size(),
-            reinterpret_cast<std::byte*>(external_data.data()),
-            external_data.size() * sizeof( float ) );
-
-        // Verify resize throws for external buffer
-        EXPECT_THROW( external_buffer.resize( 50 ), std::runtime_error );
     }
 
     // ============================================================================

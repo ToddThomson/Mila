@@ -207,55 +207,7 @@ namespace Mila::Dnn
             strides_( computeStrides( shape ) ),
             size_( computeSize( shape ) ) {
 
-            //validateDevice();
-            
             allocateBuffer();
-        }
-
-        /**
-         * @brief Creates a tensor using externally managed memory buffer
-         *
-         * Constructs a tensor that wraps existing memory without taking ownership.
-         * The external memory must remain valid for the tensor's entire lifetime.
-         * Device name is verified through DeviceRegistry before tensor construction.
-         *
-         * @param device_name Device identifier string (e.g., "CPU", "CUDA:0")
-         * @param shape Vector defining tensor dimensions in row-major order
-         * @param data_ptr Shared pointer to pre-allocated memory of appropriate size
-         *
-         * @throws std::invalid_argument If device_name is invalid, data_ptr is null, or shape is invalid
-         * @throws std::runtime_error If device context creation fails or type mismatch
-         * @throws std::bad_alloc If wrapper allocation fails
-         *
-         * @warning Caller must ensure memory size matches computed tensor requirements
-         * @warning Memory layout must be row-major compatible with computed strides
-         * @warning External memory must remain valid for tensor lifetime
-         *
-         * @note Tensor does not manage the underlying memory lifecycle
-         * @note Memory size requirements include packing considerations for sub-byte types
-         * @note Alignment requirements must be satisfied by external memory
-         * @note Scalar tensors (shape {}) require memory for 1 element
-         */
-        Tensor( const std::string& device_name, const std::vector<size_t>& shape, std::shared_ptr<void> data_ptr )
-            : device_( createDevice( device_name ) ),
-            uid_( setUId() ),
-            shape_( shape ),
-            strides_( computeStrides( shape ) ),
-            size_( computeSize( shape ) ),
-            external_memory_ptr_( data_ptr ) {
-
-            if (!external_memory_ptr_) {
-                throw std::invalid_argument( "data_ptr cannot be null" );
-            }
-
-            //validateDeviceContextCompatibility();
-
-            size_t required_bytes = detail::getStorageSize<TDataType>( size_ );
-
-            // Create TensorBuffer with external memory
-			// FIXME: Need to pass device id
-            /*buffer_ = std::make_shared<TensorBuffer<TDataType, TMemoryResource>>(
-                device_.getDeviceId(), size_, static_cast<std::byte*>(external_memory_ptr_.get()), required_bytes );*/
         }
 
         /**
@@ -286,8 +238,7 @@ namespace Mila::Dnn
             size_( other.size_ ),
             shape_( std::move( other.shape_ ) ),
             strides_( std::move( other.strides_ ) ),
-            buffer_( std::move( other.buffer_ ) ),
-            external_memory_ptr_( std::move( other.external_memory_ptr_ ) ) {
+            buffer_( std::move( other.buffer_ ) ) {
             other.size_ = 0;
             other.shape_.clear();
             other.strides_.clear();
@@ -323,7 +274,6 @@ namespace Mila::Dnn
                 strides_ = std::move( other.strides_ );
                 size_ = other.size_;
                 buffer_ = std::move( other.buffer_ );
-                external_memory_ptr_ = std::move( other.external_memory_ptr_ );
 
                 other.size_ = 0;
                 other.shape_.clear();
@@ -1222,7 +1172,6 @@ private:
         std::vector<size_t> shape_{};                                              ///< Dimensional sizes for each tensor dimension
         std::vector<size_t> strides_{};                                            ///< Memory stride values for multi-dimensional indexing
         std::shared_ptr<TensorBuffer<TDataType, TMemoryResource>> buffer_{ nullptr }; ///< Managed buffer containing tensor data
-        std::shared_ptr<void> external_memory_ptr_{ nullptr };                    ///< Optional external memory reference
 
         // ====================================================================
         // Private Helper Methods
@@ -1248,19 +1197,33 @@ private:
             // Initialize device registrar to ensure devices are available
             Compute::DeviceRegistrar::instance();
 
-            // Verify device name is registered
             if (!Compute::DeviceRegistry::instance().hasDevice( device_name )) {
                 throw std::invalid_argument( "Device '" + device_name + "' is not registered with DeviceRegistry" );
             }
 
+            std::shared_ptr<Compute::ComputeDevice> device;
             try {
-                return Compute::DeviceRegistry::instance().createDevice( device_name );
+                device = Compute::DeviceRegistry::instance().createDevice( device_name );
             }
             catch (const std::exception& e) {
                 throw std::runtime_error(
                     "Failed to create device for '" + device_name + "': " + e.what()
                 );
             }
+
+            // Validate device type matches memory resource requirement
+            constexpr Compute::DeviceType required_type = TMemoryResource::device_type;
+
+            if (device->getDeviceType() != required_type) {
+                throw std::runtime_error(
+                    "Device type mismatch: Memory resource requires " +
+                    deviceToString( required_type ) +
+                    " but device '" + device_name + "' is " +
+                    deviceToString( device->getDeviceType() )
+                );
+            }
+
+            return device;
         }
 
         /**
@@ -1271,7 +1234,7 @@ private:
          *
          * @throws std::runtime_error If device context type doesn't match memory resource requirements
          */
-        void validateDeviceCompatibility() {
+        void validateDevice() {
             if constexpr (requires { typename TMemoryResource::CompatibleDeviceType; }) {
                 using RequiredDeviceType = typename TMemoryResource::CompatibleDeviceType;
 

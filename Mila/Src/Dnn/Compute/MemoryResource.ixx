@@ -30,31 +30,6 @@ namespace Mila::Dnn::Compute
         virtual ~MemoryResource() = default;
 
         /**
-         * @brief Copies memory between potentially different memory spaces.
-         *
-         * This method handles copying between host and device memory automatically,
-         * using the most efficient transfer method available for the memory resource type.
-         * This is a fundamental memory operation that belongs in the memory resource layer.
-         *
-         * @param dst Destination pointer
-         * @param src Source pointer
-         * @param size_bytes Number of bytes to copy
-         */
-        //virtual void memcpy(void* dst, const void* src, std::size_t size_bytes) = 0;
-
-        /**
-         * @brief Sets memory to a specific byte value.
-         *
-         * Fills a block of memory with a specified byte value. This is a basic memory
-         * operation that's distinct from tensor-level fill operations with type conversion.
-         *
-         * @param ptr Pointer to the memory block to fill
-         * @param value Byte value to set (0-255)
-         * @param size_bytes Number of bytes to set
-         */
-        //virtual void memset(void* ptr, int value, std::size_t size_bytes) = 0;
-
-        /**
          * @brief Checks if the memory is accessible from host code.
          *
          * Derived classes should override this to reflect their accessibility characteristics.

@@ -16,11 +16,12 @@
 - Avoid simple validation comments (e.g., "Good", "Correct", "OK", "Bad")
 - Comments should explain WHY or WHAT, not judge correctness
 - Keep comments technical and informative, not evaluative
-- Example of what NOT to do: `// Good: use data()`, `// Bad: use rawData()`
-- Example of acceptable comment: `// Use data() for type-safe bulk operations`
+- Do not include reasoning or justification for design decisions in code comments
+- Documentation comments (Doxygen) should describe behavior and usage, not explain why changes were made
 
 ## Notes for AI assistant
 - When recommending code, prefer modern C++ idioms (RAII, smart pointers, STL algorithms).
 - Always include testing suggestions and consider CPU/CUDA parity.
 - Keep suggestions concise and focused on the `Tensor.ixx` design.
 - In explanatory text (not code), you may use formatting symbols for clarity, but generated code comments must follow the comment policy above
+- Keep commit messages and explanatory responses separate from code documentation

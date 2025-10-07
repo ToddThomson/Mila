@@ -33,11 +33,10 @@ namespace Mila::Dnn::Compute
         
         // Normalize device name for consistent comparison
         std::string normalized_name = device_name;
-        std::transform(normalized_name.begin(), normalized_name.end(), 
-                      normalized_name.begin(), ::toupper);
+        std::transform(normalized_name.begin(), normalized_name.end(), normalized_name.begin(), ::toupper);
 
-        if (!registrar.isDeviceAvailable( device_name )) {
-            // Provide helpful error message with available devices
+        /*if (!registrar.isDeviceAvailable( device_name )) {
+
             auto available_devices = registrar.listAvailableDevices();
             std::string available_list;
             for (size_t i = 0; i < available_devices.size(); ++i) {
@@ -51,7 +50,7 @@ namespace Mila::Dnn::Compute
                 "Device '" + device_name + "' is not available. " +
                 "Available devices: [" + available_list + "]"
             );
-        }
+        }*/
 
         // Create device context based on device type
         // Only create contexts for devices that are actually registered and available

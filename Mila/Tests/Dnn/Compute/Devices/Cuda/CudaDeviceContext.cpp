@@ -37,14 +37,14 @@ namespace Dnn::Compute::Devices::Cuda::Tests {
             }
 
             // Register CUDA devices if not already registered
-            for (int i = 0; i < device_count; ++i) {
+            /*for (int i = 0; i < device_count; ++i) {
                 std::string device_name = "CUDA:" + std::to_string( i );
                 if (!DeviceRegistry::instance().hasDevice( device_name )) {
                     DeviceRegistry::instance().registerDevice( device_name, [i]() {
                         return std::make_shared<CudaDevice>( i );
                         } );
                 }
-            }
+            }*/
 
             // Store the first available device name for testing
             if (device_count > 0) {

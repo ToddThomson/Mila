@@ -209,44 +209,6 @@ namespace Mila::Dnn
 			// mr_->memset( data_, 0, storage_bytes_ );
 		}
 
-		/**
-		 * @brief Constructs buffer with externally managed memory
-		 *
-		 * Wraps pre-allocated memory without taking ownership, enabling integration
-		 * with external memory pools and libraries. The buffer cannot perform
-		 * memory management operations like resize() in this configuration.
-		 *
-		 * @param device_context Device context for compatibility checking (not used for external memory)
-		 * @param logical_size Number of logical elements in the external buffer
-		 * @param data_ptr Pointer to pre-allocated memory with sufficient capacity
-		 * @param storage_bytes Size of external memory in bytes
-		 *
-		 * @throws std::invalid_argument If device_context is null, data_ptr is null, or storage insufficient
-		 *
-		 * @warning Caller must ensure memory remains valid for buffer lifetime
-		 * @warning Memory size must accommodate storage requirements
-		 * @warning Alignment requirements must be satisfied by external memory
-		 *
-		 * @note Buffer does not manage external memory lifecycle
-		 * @note Memory management operations will throw exceptions
-		 */
-		TensorBuffer( int device_id, size_t logical_size, std::byte* data_ptr, size_t storage_bytes )
-			: device_id_( device_id ), logical_size_( logical_size ), storage_bytes_( storage_bytes ),
-			aligned_size_( storage_bytes ), data_( data_ptr ), mr_( nullptr ) {
-
-			/*if (!device_context_) {
-				throw std::invalid_argument( "Device context cannot be null" );
-			}*/
-
-			if (data_ == nullptr) {
-				throw std::invalid_argument( "External data pointer cannot be null." );
-			}
-
-			size_t required_storage = Detail::getStorageSize<TDataType>( logical_size_ );
-			if (storage_bytes < required_storage) {
-				throw std::invalid_argument( "External memory insufficient for specified logical size." );
-			}
-		}
 
 		/**
 		 * @brief Destructor with automatic memory cleanup via RAII

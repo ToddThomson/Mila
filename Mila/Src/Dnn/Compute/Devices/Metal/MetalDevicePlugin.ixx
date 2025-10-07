@@ -20,7 +20,7 @@ module;
 export module Compute.MetalDevicePlugin;
 
 // FUTURE: import Compute.DevicePlugin;
-import Compute.DeviceRegistry;
+import Compute.DeviceRegistrar;
 // FUTURE: import Compute.MetalDevice;
 
 namespace Mila::Dnn::Compute

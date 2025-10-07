@@ -27,11 +27,11 @@ namespace Dnn::Compute::Devices::Cpu {
     protected:
         void SetUp() override {
             // Register CPU device if not already registered
-            if (!DeviceRegistry::instance().hasDevice( "CPU" )) {
+            /*if (!DeviceRegistry::instance().hasDevice( "CPU" )) {
                 DeviceRegistry::instance().registerDevice( "CPU", []() {
                     return std::make_shared<CpuDevice>();
                     } );
-            }
+            }*/
         }
 
         void TearDown() override {

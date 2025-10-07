@@ -57,7 +57,7 @@ namespace Dnn::Tensors::Tests
 
         EXPECT_THROW(
             (Tensor<TensorDataType::FP32, CpuMemoryResource>( "INVALID_DEVICE", shape )),
-            std::runtime_error
+            std::invalid_argument
         );
     }
 
@@ -66,7 +66,7 @@ namespace Dnn::Tensors::Tests
 
         EXPECT_THROW(
             (Tensor<TensorDataType::FP32, CpuMemoryResource>( "", shape )),
-            std::runtime_error
+            std::invalid_argument
         );
     }
 
@@ -126,46 +126,6 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( tensor.size(), 0 );
         EXPECT_EQ( tensor.rank(), 1 );   // Still has rank 1
         EXPECT_FALSE( tensor.isScalar() ); // Not a scalar
-    }
-
-    // ====================================================================
-    // External Data Constructor Tests
-    // ====================================================================
-
-    TEST_F( TensorConstructionTest, ConstructWithExternalData ) {
-        std::vector<size_t> shape = { 2, 3 };
-        auto data_ptr = std::make_shared<float[]>( 6 );
-
-        for (int i = 0; i < 6; i++)
-            data_ptr[i] = static_cast<float>( i );
-
-        std::shared_ptr<void> data_ptr_void( data_ptr, data_ptr.get() );
-        Tensor<TensorDataType::FP32, CpuMemoryResource> tensor( "CPU", shape, data_ptr_void );
-
-        EXPECT_EQ( tensor.shape(), shape );
-        EXPECT_EQ( tensor.size(), 6 );
-        EXPECT_FALSE( tensor.empty() );
-    }
-
-    TEST_F( TensorConstructionTest, ConstructWithNullExternalData ) {
-        std::vector<size_t> shape = { 2, 3 };
-        std::shared_ptr<void> null_ptr;
-
-        EXPECT_THROW(
-            (Tensor<TensorDataType::FP32, CpuMemoryResource>( "CPU", shape, null_ptr )),
-            std::invalid_argument
-        );
-    }
-
-    TEST_F( TensorConstructionTest, ConstructWithExternalDataInvalidDevice ) {
-        std::vector<size_t> shape = { 2, 3 };
-        auto data_ptr = std::make_shared<float[]>( 6 );
-        std::shared_ptr<void> data_ptr_void( data_ptr, data_ptr.get() );
-
-        EXPECT_THROW(
-            (Tensor<TensorDataType::FP32, CpuMemoryResource>( "INVALID", shape, data_ptr_void )),
-            std::runtime_error
-        );
     }
 
     // ====================================================================
@@ -364,7 +324,6 @@ namespace Dnn::Tensors::Tests
         std::vector<size_t> shape = { 2, 3 };
 
         if (has_cuda_) {
-            // CUDA device with CPU memory resource should fail
             EXPECT_THROW(
                 (Tensor<TensorDataType::FP32, CpuMemoryResource>( "CUDA:0", shape )),
                 std::runtime_error

@@ -153,13 +153,13 @@ PUBLIC
         # Dnn / Compute / Devices (general)
         #---------------------------------------------------------------
         "Src/Dnn/Compute/Devices/DeviceType.ixx"
-        "Src/Dnn/Compute/Devices/DeviceRegistry.ixx"
-        "Src/Dnn/Compute/Devices/DeviceRegistrar.ixx"
-        "Src/Dnn/Compute/Devices/DeviceHelpers.ixx"
+        "Src/Dnn/Compute/Registry/DeviceRegistry.ixx"
+        "Src/Dnn/Compute/Registry/DeviceRegistrar.ixx"
+        "Src/Dnn/Compute/Registry/DeviceRegistryHelpers.ixx"
         "Src/Dnn/Compute/Devices/DeviceContext.ixx"
         "Src/Dnn/Compute/Devices/DeviceContextHelpers.ixx"
         "Src/Dnn/Compute/Devices/DeviceContextFactory.ixx"
-        "Src/Dnn/Compute/Devices/DevicePlugin.ixx"
+        "Src/Dnn/Compute/Registry/DevicePlugin.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Compute / Devices / Cpu
