@@ -129,6 +129,7 @@ add_executable( MilaTests
     #"Dnn/Seriaalization/ZipSerializer.cpp"
     #"Dnn/Tensors/TensorBuffer.Tracking.cpp"
 
+    "Dnn/Compute/Registry/DeviceRegistry.cpp"
 )
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )

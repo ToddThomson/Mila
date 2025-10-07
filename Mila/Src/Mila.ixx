@@ -29,67 +29,65 @@ export module Mila;
 
 import Mila.Version;
 
-export import Cuda.Error;
-export import Cuda.Helpers;
+// ====================================================================
+// Core
+// ====================================================================
+export import Core.RandomGenerator;
 
+// ====================================================================
+// Utils
+// ====================================================================
 export import Utils.Logger;
 import Utils.DefaultLogger;
 
-export import Core.RandomGenerator;
+// ====================================================================
+// Cuda
+// ====================================================================
+export import Cuda.Error;
+export import Cuda.Helpers;
 
-// Execution context
-export import Compute.ExecutionContext;
-//export import Compute.CpuExecutionContext;
-export import Compute.CudaExecutionContext;
-
-
+// ====================================================================
+// Compute - Base
+// ====================================================================
 //export import Compute.OperationBase;
 //export import Compute.OperationType;
 //export import Compute.UnaryOperation;
 //export import Compute.BinaryOperation;
 export import Compute.Precision;
 
-export import Dnn.Module;
-export import Dnn.ConfigurationBase;
-//export import Dnn.CompositeModule;
-//export import Dnn.Model;
+// ====================================================================
+// Compute - Execution Context
+// ====================================================================
+export import Compute.ExecutionContext;
+//export import Compute.CpuExecutionContext;
+export import Compute.CudaExecutionContext;
 
-export import Dnn.Tensor;
-export import Dnn.ITensor;
-export import Dnn.TensorBuffer; // TJT: Remove after testing
-
-export import Dnn.TensorDataType;
-export import Dnn.TensorDataTypeTraits;
-export import Dnn.TensorDataTypeMap;
-export import Dnn.TensorHostTypeMap;
-
-export import Dnn.TensorInitializers;
-
-export import Dnn.TensorOps;
-
-export import Compute.CudaTensorDataType;
-export import Compute.CpuTensorDataTypeTraits;
-// FUTURE: export import Compute.MetalTensorTraits;
-// FUTURE: export import Compute.OpenCLTensorTraits;
-// FUTURE: export import Compute.VulkanTensorTraits;
-export import Dnn.TensorInitializers;
-
-//export import Dnn.ActivationType;
-
-//export import Data.DataLoader;
-
-export import Serialization.ModelArchive;
-
+// ====================================================================
+// Compute - Devices
+// ====================================================================
 export import Compute.ComputeDevice;
-export import Compute.DeviceRegistry;
 export import Compute.DeviceType;
 export import Compute.CpuDevice;
 export import Compute.CudaDevice;
+
+// ====================================================================
+// Compute - Device Context
+// ====================================================================
 export import Compute.DeviceContext;
 export import Compute.CpuDeviceContext;
 export import Compute.CudaDeviceContext;
-export import Compute.DeviceHelpers;
 
+// ====================================================================
+// Compute - Device Registry
+// ====================================================================
+//export import Compute.DevicePlugin; // Base class for device plugins: Not yet ready for export
+export import Compute.DeviceRegistry;
+export import Compute.DeviceRegistrar; // Only for testing purposes
+export import Compute.DeviceRegistryHelpers;
+
+// ====================================================================
+// Compute - Memory Resources
+// ====================================================================
 export import Compute.MemoryResource;
 export import Compute.MemoryResourceTracker;
 export import Compute.CpuMemoryResource;
@@ -97,9 +95,15 @@ export import Compute.CudaDeviceMemoryResource;
 export import Compute.CudaManagedMemoryResource;
 export import Compute.CudaPinnedMemoryResource;
 
+// ====================================================================
+// Compute - Operations Registry
+// ====================================================================
 //export import Compute.OperationRegistry;
 //export import Compute.OperationAttributes;
 
+// ====================================================================
+// Compute - CPU Operations
+// ====================================================================
 //export import Compute.CpuEncoderOp;
 //export import Compute.CpuGeluOp;
 //export import Compute.CpuLayerNormOp;
@@ -107,6 +111,9 @@ export import Compute.CudaPinnedMemoryResource;
 //export import Compute.CpuResidualOp;
 //export import Compute.CpuSoftmaxOp;
 
+// ====================================================================
+// Compute - CUDA Operations
+// ====================================================================
 //export import Compute.CudaEncoderOp;
 //export import Compute.CudaGeluOp;
 //export import Compute.CudaSoftmaxOp;
@@ -115,6 +122,51 @@ export import Compute.CudaPinnedMemoryResource;
 //export import Compute.CudaLayerNormOp;
 //export import Compute.CudaResidualOp;
 
+// ====================================================================
+// Compute - Tensor Data Types
+// ====================================================================
+export import Compute.CudaTensorDataType;
+export import Compute.CpuTensorDataTypeTraits;
+// FUTURE: export import Compute.MetalTensorTraits;
+// FUTURE: export import Compute.OpenCLTensorTraits;
+// FUTURE: export import Compute.VulkanTensorTraits;
+
+// ====================================================================
+// Dnn - Base
+// ====================================================================
+export import Dnn.Module;
+export import Dnn.ConfigurationBase;
+//export import Dnn.CompositeModule;
+//export import Dnn.Model;
+
+// ====================================================================
+// Dnn - Tensors
+// ====================================================================
+export import Dnn.Tensor;
+export import Dnn.ITensor;
+export import Dnn.TensorBuffer; // TJT: Remove after testing
+
+// ====================================================================
+// Dnn - Tensor Data Types
+// ====================================================================
+export import Dnn.TensorDataType;
+export import Dnn.TensorDataTypeTraits;
+export import Dnn.TensorDataTypeMap;
+export import Dnn.TensorHostTypeMap;
+
+// ====================================================================
+// Dnn - Tensor Operations
+// ====================================================================
+export import Dnn.TensorOps;
+
+// ====================================================================
+// Dnn - Tensor Initializers
+// ====================================================================
+export import Dnn.TensorInitializers;
+
+// ====================================================================
+// Dnn - Modules
+// ====================================================================
 //export import Dnn.Modules.Attention;
 //export import Dnn.Modules.Encoder;
 //export import Dnn.Modules.Gelu;
@@ -123,11 +175,30 @@ export import Compute.CudaPinnedMemoryResource;
 //export import Dnn.Modules.Residual;
 //export import Dnn.Modules.Softmax;
 
+// ====================================================================
+// Dnn - Blocks
+// ====================================================================
 //export import Dnn.Blocks.MLP;
 //export import Dnn.Blocks.TransformerBlock;
 
+// ====================================================================
+// Dnn - Models
+// ====================================================================
 //export import Dnn.Gpt2.DatasetReader;
 
+// ====================================================================
+// Data
+// ====================================================================
+//export import Data.DataLoader;
+
+// ====================================================================
+// Serialization
+// ====================================================================
+export import Serialization.ModelArchive;
+
+// ====================================================================
+// Internal Imports (not exported)
+// ====================================================================
 //import Compute.OperationsRegistrar;
 import Compute.DeviceRegistrar;
 
@@ -169,7 +240,7 @@ namespace Mila
 
             Core::RandomGenerator::getInstance().setSeed( randomSeed );
 
-            if ( randomSeed != 0 ) {
+            if (randomSeed != 0) {
                 Utils::Logger::info( "Initialized random generator with seed: " + std::to_string( randomSeed ) );
             }
             else {
@@ -180,10 +251,10 @@ namespace Mila
             Dnn::Compute::DeviceRegistrar::instance();
 
             Utils::Logger::info( "Mila framework initialized successfully." );
-            
+
             return true;
         }
-        catch ( const std::exception& e ) {
+        catch (const std::exception& e) {
             // Fall back to std::cerr if logger isn't initialized yet
             std::cerr << "Mila initialization failed: " << e.what() << std::endl;
             return false;

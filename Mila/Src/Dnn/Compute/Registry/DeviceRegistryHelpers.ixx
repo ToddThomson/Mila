@@ -20,7 +20,7 @@ module;
 #include <vector>
 #include <string>
 
-export module Compute.DeviceHelpers;
+export module Compute.DeviceRegistryHelpers;
 
 import Compute.DeviceContext;
 import Compute.DeviceRegistry;

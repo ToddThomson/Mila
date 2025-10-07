@@ -128,9 +128,9 @@ PUBLIC
         "Src/Dnn/Compute/ComputeDevice.ixx"
         "Src/Dnn/Compute/ComputeDeviceTraits.ixx"
         "Src/Dnn/Compute/ComputePrecision.ixx"
-        "Src/Dnn/Compute/ComputeResource.ixx"
+        
         "Src/Dnn/Compute/ExecutionContext.ixx"
-        "Src/Dnn/Compute/ComputeResourceHelpers.ixx"
+        
 
         # Dnn / Compute / Memory Resources
         "Src/Dnn/Compute/MemoryResource.ixx"
@@ -306,10 +306,6 @@ PUBLIC
         # WIP / Attributes
         #"Src/Dnn/Modules/Layers/LinearAttributes.ixx"
         #"Src/Dnn/Common/Attributes.ixx"
-        
-
-        
-        
   )
 
 target_link_libraries(Mila PRIVATE 

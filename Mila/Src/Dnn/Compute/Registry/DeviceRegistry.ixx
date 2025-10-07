@@ -37,7 +37,7 @@ import Compute.ComputeDevice;
 namespace Mila::Dnn::Compute
 {
     // Forward declaration for friend access
-    export class DeviceRegistrar;
+    class DeviceRegistrar;
 
     /**
      * @brief Registry for compute device creation and management.

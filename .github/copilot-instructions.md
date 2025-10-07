@@ -2,7 +2,6 @@
 
 ## Purpose
 - Primary focus: `Tensor.ixx` system redesign. All guidance and code should prioritize a correct, type-safe, device-aware tensor foundation.
-- Design summary: [.github/tensor-design.md](.github/tensor-design.md)
 
 ## Code generation policy
 - Generate code only when explicitly requested (e.g., "implement", "update", "write code", "generate", "create code"). Otherwise provide analysis, design guidance, and minimal examples.
