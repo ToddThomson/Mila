@@ -270,7 +270,7 @@ namespace Modules::Blocks::Tests
 
     template<DeviceType TDevice, typename TDataType = float>
     void TestGetName( const MLPTestData<TDevice, TDataType>& data, const std::string& expected_name ) {
-        EXPECT_EQ( data.mlp_module->getName(), expected_name );
+        EXPECT_EQ( data.mlp_module->getDeviceName(), expected_name );
     }
 
     template<DeviceType TDevice, typename TDataType = float>
@@ -329,7 +329,7 @@ namespace Modules::Blocks::Tests
 
     template<DeviceType TDevice, typename TDataType = float>
     void TestSubModules( const MLPTestData<TDevice, TDataType>& data ) {
-        auto modules = data.mlp_module->getNamedModules();
+        auto modules = data.mlp_module->getDeviceNamedModules();
 
         EXPECT_GE( modules.size(), 3 );
         EXPECT_NE( modules.find( "fc1" ), modules.end() );

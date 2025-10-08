@@ -23,8 +23,9 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.ConfigurationBase;
 import Compute.DeviceType;
-import Compute.DeviceContext;
 import Compute.ExecutionContext;
+import Compute.CpuExecutionContext;
+import Compute.CudaExecutionContext;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
@@ -41,14 +42,15 @@ namespace Mila::Dnn
      *
      * The Module class provides a common interface for all neural network layers
      * and components, enabling consistent handling of parameters, state, and
-     * execution context. Uses abstract TensorDataType enumeration for type-safe
-     * operations across different precision formats.
+     * execution context. Uses templated ExecutionContext for compile-time device
+     * type safety and zero-overhead abstraction.
      *
-     * Key architectural changes:
-     * - Modules now own ExecutionContext (not DeviceContext)
+     * Key architectural features:
+     * - Modules own ExecutionContext<TDeviceType> for stream management
      * - ExecutionContext manages streams and library handles for compute operations
-     * - Tensors store device names, modules control execution
+     * - Template parameter provides compile-time device type checking
      * - Multiple modules can share the same device but have independent streams
+     * - No virtual function overhead for device-specific operations
      *
      * Key features:
      * - Abstract data type system using TensorDataType enumeration
@@ -58,38 +60,33 @@ namespace Mila::Dnn
      * - Serialization support for model persistence
      * - Independent execution streams for proper module isolation
      *
-     * @tparam TDeviceType The device type (CPU or CUDA) on which the module will operate.
+     * @tparam TDeviceType The device type (Cpu or Cuda) on which the module will operate.
      */
     export template<DeviceType TDeviceType>
         class Module {
         public:
+            /**
+             * @brief Type alias for the device-specific execution context
+             */
+            using ExecutionContextType = ExecutionContext<TDeviceType>;
 
             /**
-             * @brief Constructor with device name.
+             * @brief Constructor with device ID.
              *
-             * Creates a module with an execution context for the specified device name.
+             * Creates a module with an execution context for the specified device ID.
              * Each module gets its own execution context (stream) even if sharing a device.
              *
-             * @param device_name The name of the device to use (e.g., "CPU", "CUDA:0").
-             *        Must be one of the names returned by DeviceRegistry::list_devices().
+             * @param device_id The device ID to use (0-based for CUDA, -1 or 0 for CPU).
              * @param config Configuration for the module including training mode and precision.
-             * @throws std::runtime_error If the specified device name is invalid or doesn't match TDeviceType.
+             * @throws std::invalid_argument If device_id is invalid for the device type.
+             * @throws std::runtime_error If execution context creation fails.
              */
-            explicit Module( const std::string& device_name, const ConfigurationBase& config )
-                : execution_context_( createExecutionContext( device_name ) ),
+            explicit Module( int device_id, const ConfigurationBase& config )
+                : execution_context_( std::make_shared<ExecutionContextType>( device_id ) ),
                 config_( config ),
                 training_mode_( config.isTraining() ) {
 
                 config.validate();
-
-                if (execution_context_->getDeviceType() != TDeviceType) {
-                    throw std::runtime_error( std::format(
-                        "Device type mismatch: Module template requires {} but device name '{}' corresponds to {}",
-                        deviceToString( TDeviceType ),
-                        device_name,
-                        deviceToString( execution_context_->getDeviceType() )
-                    ) );
-                }
             }
 
             /**
@@ -101,24 +98,20 @@ namespace Mila::Dnn
              * @param exec_context The execution context to use for this module.
              * @param config Configuration for the module including training mode and precision.
              * @throws std::invalid_argument If the provided context is nullptr.
-             * @throws std::runtime_error If the context device type doesn't match TDeviceType.
              */
-            explicit Module( std::shared_ptr<ExecutionContext> exec_context, const ConfigurationBase& config )
+            explicit Module( std::shared_ptr<ExecutionContextType> exec_context,
+                const ConfigurationBase& config )
                 : execution_context_( exec_context ),
                 config_( config ),
                 training_mode_( config.isTraining() ) {
 
                 if (!exec_context) {
-                    throw std::invalid_argument( "ExecutionContext cannot be nullptr. Please provide a valid ExecutionContext." );
+                    throw std::invalid_argument(
+                        "ExecutionContext cannot be nullptr. Please provide a valid ExecutionContext."
+                    );
                 }
 
-                if (exec_context->getDeviceType() != TDeviceType) {
-                    throw std::runtime_error( std::format(
-                        "Device type mismatch: Module template requires {} but provided context is for {}",
-                        deviceToString( TDeviceType ),
-                        deviceToString( exec_context->getDeviceType() )
-                    ) );
-                }
+                config.validate();
             }
 
             /**
@@ -157,9 +150,7 @@ namespace Mila::Dnn
              * @note Scalar gradients supported for reduction operations
              * @note All operations execute on this module's stream
              */
-            virtual void backward(
-                const ITensor& input,
-                const ITensor& output_grad,
+            virtual void backward( const ITensor& input, const ITensor& output_grad,
                 ITensor& input_grad ) = 0;
 
             /**
@@ -169,9 +160,9 @@ namespace Mila::Dnn
              * library handles. TensorOps should receive this context to execute
              * operations on the correct stream.
              *
-             * @return std::shared_ptr<Compute::ExecutionContext> The execution context.
+             * @return std::shared_ptr<ExecutionContext<TDeviceType>> The execution context.
              */
-            std::shared_ptr<Compute::ExecutionContext> getExecutionContext() const {
+            std::shared_ptr<ExecutionContextType> getExecutionContext() const {
                 return execution_context_;
             }
 
@@ -244,8 +235,8 @@ namespace Mila::Dnn
              *
              * @return Compute::DeviceType The device type (CPU or CUDA).
              */
-            Compute::DeviceType getDeviceType() const {
-                return execution_context_->getDeviceType();
+            static constexpr Compute::DeviceType getDeviceType() {
+                return TDeviceType;
             }
 
             /**
@@ -258,12 +249,26 @@ namespace Mila::Dnn
             }
 
             /**
-             * @brief Get the device ID (-1 for CPU).
+             * @brief Get the device ID (-1 for CPU, 0+ for CUDA).
              *
              * @return int The device ID.
              */
             int getDeviceId() const {
                 return execution_context_->getDeviceId();
+            }
+
+            /**
+             * @brief Checks if this module is for a CUDA device.
+             */
+            static constexpr bool isCudaDevice() {
+                return ExecutionContextType::isCudaDevice();
+            }
+
+            /**
+             * @brief Checks if this module is for a CPU device.
+             */
+            static constexpr bool isCpuDevice() {
+                return ExecutionContextType::isCpuDevice();
             }
 
             /**
@@ -321,7 +326,6 @@ namespace Mila::Dnn
             }
 
         protected:
-
             /**
              * @brief Validates that a tensor is compatible with this module's device type
              *
@@ -334,7 +338,8 @@ namespace Mila::Dnn
              *
              * @note This is a runtime check that complements compile-time device type enforcement
              */
-            void validateTensorDevice( const ITensor& tensor, const char* tensor_name = "tensor" ) const {
+            void validateTensorDevice( const ITensor& tensor,
+                const char* tensor_name = "tensor" ) const {
                 if (tensor.getDeviceType() != TDeviceType) {
                     throw std::runtime_error( std::format(
                         "{} device type {} incompatible with {} module",
@@ -381,23 +386,28 @@ namespace Mila::Dnn
              * this module. Operations pass this context to TensorOps for execution
              * on the correct stream.
              */
-            std::shared_ptr<Compute::ExecutionContext> execution_context_;
+            std::shared_ptr<ExecutionContextType> execution_context_;
 
             /** @brief Configuration including name, training mode, and precision policy */
             ConfigurationBase config_;
 
             /** @brief Whether the module is in training mode. Default is false */
             bool training_mode_{ false };
-
-            /**
-             * @brief Helper method to create an ExecutionContext from a device name.
-             *
-             * @param device_name Name of the device to create a context for.
-             * @return std::shared_ptr<ExecutionContext> The created execution context.
-             * @throws std::runtime_error If the device name is invalid.
-             */
-            static std::shared_ptr<Compute::ExecutionContext> createExecutionContext( const std::string& device_name ) {
-                return ExecutionContext::create( device_name );
-            }
     };
+
+    // ====================================================================
+    // Type Aliases for Common Module Types
+    // ====================================================================
+
+    /**
+     * @brief CPU module type alias
+     */
+    export template<typename ModuleImpl>
+        using CpuModule = ModuleImpl;
+
+    /**
+     * @brief CUDA module type alias
+     */
+    export template<typename ModuleImpl>
+        using CudaModule = ModuleImpl;
 }

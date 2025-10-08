@@ -30,8 +30,8 @@ namespace Mila::Dnn::Compute
         std::string toString() const
         {
             // TJT: REVIEW Include CUDA driver and runtime versions
-            int driver_version = getDriverVersion();
-            int runtime_version = getRuntimeVersion();
+            int driver_version = Cuda::getDriverVersion();
+            int runtime_version = Cuda::getRuntimeVersion();
             
             std::stringstream ss;
 

@@ -76,7 +76,7 @@ namespace Mila::Dnn::Compute
 		 *
 		 * @return std::string The device name in format "Metal:<device_index>" or actual device name if available.
 		 */
-		std::string getName() const override {
+		std::string getDeviceName() const override {
 			if (!device_name_.empty()) {
 				return device_name_;
 			}

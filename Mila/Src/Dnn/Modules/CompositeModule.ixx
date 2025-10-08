@@ -300,7 +300,7 @@ namespace Mila::Dnn
          */
         std::string toString() const override {
             std::ostringstream oss;
-            oss << "CompositeModule: " << this->getName() << std::endl;
+            oss << "CompositeModule: " << this->getDeviceName() << std::endl;
             oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
             //oss << this->getComputePrecision().toString() << std::endl;
             oss << "Child Modules:" << std::endl;

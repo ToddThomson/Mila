@@ -132,7 +132,7 @@ namespace Dnn::Modules::ModuleBase::Tests
 
         std::string toString() const override {
             std::ostringstream oss;
-            oss << "MockModule: " << this->getName() << std::endl;
+            oss << "MockModule: " << this->getDeviceName() << std::endl;
             oss << "Device: " << deviceToString( this->getDeviceType() ) << std::endl;
             oss << "Training: " << (this->isTraining() ? "true" : "false") << std::endl;
             oss << "Precision: " << static_cast<int>(this->getPrecisionPolicy()) << std::endl;
@@ -261,7 +261,7 @@ namespace Dnn::Modules::ModuleBase::Tests
 
     template<DeviceType TDeviceType>
     void TestGetName( const ModuleTestData<TDeviceType>& data, const std::string& expected_name ) {
-        EXPECT_EQ( data.module->getName(), expected_name );
+        EXPECT_EQ( data.module->getDeviceName(), expected_name );
     }
 
     template<DeviceType TDeviceType>

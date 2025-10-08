@@ -202,7 +202,7 @@ namespace Operations::Tests
      * @brief Test name property of CudaMultiHeadAttentionOp
      */
     TEST_F( CudaMultiHeadAttentionOpTests, Name ) {
-        EXPECT_EQ( cuda_mha_op_->getName(), "Cuda::MultiHeadAttentionOp" );
+        EXPECT_EQ( cuda_mha_op_->getDeviceName(), "Cuda::MultiHeadAttentionOp" );
     }
 
     /**
@@ -210,7 +210,7 @@ namespace Operations::Tests
      */
     TEST_F( CudaMultiHeadAttentionOpTests, DefaultConstructor ) {
         auto op = std::make_shared<CudaMultiHeadAttentionOp<float>>();
-        EXPECT_EQ( op->getName(), "Cuda::MultiHeadAttentionOp" );
+        EXPECT_EQ( op->getDeviceName(), "Cuda::MultiHeadAttentionOp" );
     }
 
     /**

@@ -103,8 +103,7 @@ namespace Mila::Dnn::Compute
             }
 
             // For CUDA devices, use the CudaHelpers to get the best device ID
-
-            int bestId = Compute::getBestDeviceId( preferMemory );
+            int bestId = Compute::Cuda::getBestDeviceId( preferMemory );
             std::string bestDevice = "CUDA:" + std::to_string( bestId );
 
             // Verify this device is actually in our list

@@ -17,7 +17,7 @@ export module Cuda.Helpers;
 
 import Cuda.Error;
 
-namespace Mila::Dnn::Compute
+namespace Mila::Dnn::Compute::Cuda
 {
     /**
      * @brief Calculates ceiling division for kernel grid/block dimensions

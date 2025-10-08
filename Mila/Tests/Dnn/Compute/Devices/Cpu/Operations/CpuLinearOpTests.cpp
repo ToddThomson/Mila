@@ -154,7 +154,7 @@ namespace Compute::Cpu::Operations::Tests
      */
     TEST_F( CpuLinearOpTests, Name ) {
         auto op = createLinearOp( small_in_features_, small_out_features_ );
-        EXPECT_EQ( op->getName(), "Cpu::LinearOp" );
+        EXPECT_EQ( op->getDeviceName(), "Cpu::LinearOp" );
     }
 
     /**

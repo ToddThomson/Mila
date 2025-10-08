@@ -59,7 +59,7 @@ export import Compute.Precision;
 // Compute - Execution Context
 // ====================================================================
 export import Compute.ExecutionContext;
-//export import Compute.CpuExecutionContext;
+export import Compute.CpuExecutionContext;
 export import Compute.CudaExecutionContext;
 
 // ====================================================================
@@ -145,10 +145,6 @@ export import Dnn.ConfigurationBase;
 export import Dnn.Tensor;
 export import Dnn.ITensor;
 export import Dnn.TensorBuffer; // TJT: Remove after testing
-
-// ====================================================================
-// Dnn - Tensor Data Types
-// ====================================================================
 export import Dnn.TensorDataType;
 export import Dnn.TensorDataTypeTraits;
 export import Dnn.TensorDataTypeMap;

@@ -247,7 +247,7 @@ namespace Mila::Dnn
         std::string toString() const override {
             std::ostringstream oss;
             oss << "--------------------" << std::endl;
-            oss << "MultiHeadAttention: " << this->getName() << std::endl;
+            oss << "MultiHeadAttention: " << this->getDeviceName() << std::endl;
             oss << "Embedding dimension: " << config_.getEmbeddingDim();
             oss << ", Number of heads: " << config_.getNumHeads() << std::endl;
 
@@ -328,11 +328,11 @@ namespace Mila::Dnn
 
             pre_attn_ = std::make_shared<Tensor<TOutput, MR>>(
                 std::vector<size_t>{batch_size, num_heads, sequence_length, sequence_length} );
-            pre_attn_->setName( this->getName() + ".pre_attn" );
+            pre_attn_->setName( this->getDeviceName() + ".pre_attn" );
 
             attn_ = std::make_shared<Tensor<TOutput, MR>>(
                 std::vector<size_t>{batch_size, num_heads, sequence_length, sequence_length} );
-            attn_->setName( this->getName() + ".attn" );
+            attn_->setName( this->getDeviceName() + ".attn" );
 
             output_state_.emplace_back( pre_attn_ );
             output_state_.emplace_back( attn_ );

@@ -21,7 +21,7 @@
 //    }
 //    std::cout << std::endl;
 //
-//    std::cout << "The current Compute Device is: " << Mila::getDevice()->getName() << std::endl;
+//    std::cout << "The current Compute Device is: " << Mila::getDevice()->getDeviceName() << std::endl;
 //
 //    size_t cuda_batch_size = 4;
 //    size_t cpu_batch_size = 2;

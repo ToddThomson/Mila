@@ -63,7 +63,7 @@ namespace Mila::Dnn::Compute
 		 *
 		 * @return std::string The device name in format "CUDA:<device_id>".
 		 */
-		std::string getName() const override {
+		std::string getDeviceName() const override {
 			return "CUDA:" + std::to_string(device_id_);
 		}
 

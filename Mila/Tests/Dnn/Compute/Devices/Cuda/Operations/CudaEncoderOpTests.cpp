@@ -230,8 +230,8 @@ namespace Operations::Tests
      * @brief Test that operation name is correct
      */
     TEST_F( CudaEncoderOpTests, GetName ) {
-        EXPECT_EQ( cuda_op_float_->getName(), "Cuda::EncoderOp" );
-        EXPECT_EQ( cuda_op_half_->getName(), "Cuda::EncoderOp" );
+        EXPECT_EQ( cuda_op_float_->getDeviceName(), "Cuda::EncoderOp" );
+        EXPECT_EQ( cuda_op_half_->getDeviceName(), "Cuda::EncoderOp" );
     }
 
     /**
@@ -409,8 +409,8 @@ namespace Operations::Tests
         ASSERT_NE( op_half, nullptr );
 
         // Check operation types
-        EXPECT_EQ( op_float->getName(), "Cuda::EncoderOp" );
-        EXPECT_EQ( op_half->getName(), "Cuda::EncoderOp" );
+        EXPECT_EQ( op_float->getDeviceName(), "Cuda::EncoderOp" );
+        EXPECT_EQ( op_half->getDeviceName(), "Cuda::EncoderOp" );
     }
 
     /**

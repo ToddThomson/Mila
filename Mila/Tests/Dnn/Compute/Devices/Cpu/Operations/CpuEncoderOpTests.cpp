@@ -137,7 +137,7 @@ namespace Operations::Cpu::Tests
      * @brief Test that operation name is correct
      */
     TEST_F( CpuEncoderOpTests, GetName ) {
-        EXPECT_EQ( cpu_op_->getName(), "Cpu::EncoderOp" );
+        EXPECT_EQ( cpu_op_->getDeviceName(), "Cpu::EncoderOp" );
     }
 
     /**
@@ -212,7 +212,7 @@ namespace Operations::Cpu::Tests
         ASSERT_NE( op_int, nullptr );
 
         // Check operation type
-        EXPECT_EQ( op_int->getName(), "Cpu::EncoderOp" );
+        EXPECT_EQ( op_int->getDeviceName(), "Cpu::EncoderOp" );
     }
 
     /**

@@ -42,7 +42,7 @@ namespace Mila::Benchmark
             BinaryModuleBenchmark( std::shared_ptr<TModule> module,
                 std::vector<size_t> inputShape,
                 std::shared_ptr<DeviceContext> context )
-                : inputShape_( inputShape ), moduleName_( module->getName() ) {
+                : inputShape_( inputShape ), moduleName_( module->getDeviceName() ) {
 
                 this->deviceContext_ = context;
 

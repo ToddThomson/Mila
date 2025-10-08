@@ -906,7 +906,7 @@ namespace Mila::Dnn
          * @endcode
          */
         Tensor<TDataType, TMemoryResource> clone() const {
-            Tensor<TDataType, TMemoryResource> cloned_tensor( device_, shape_ );
+            Tensor<TDataType, TMemoryResource> cloned_tensor( device_->getDeviceName(), shape_);
 
             if (size_ > 0) {
                 // TODO: Implement TensorBuffer::copyFrom() for deep copy support
@@ -1119,11 +1119,7 @@ namespace Mila::Dnn
             oss << outputLayout();
 
             oss << " Type: " << DataTypeTraits::type_name;
-
-            if (device_) {
-                oss << ", Device: " << (device_->isCudaDevice() ? "CUDA:" + std::to_string( device_->getDeviceId() ) : "CPU");
-            }
-
+            oss << ", Device: " << device_->getDeviceName();
             oss << std::endl;
 
             if (showBuffer) {
@@ -1224,24 +1220,6 @@ private:
             }
 
             return device;
-        }
-
-        /**
-         * @brief Validates that device context type matches memory resource requirements
-         *
-         * Ensures that CUDA memory resources are only used with CUDA device contexts
-         * and provides clear error messages for mismatched configurations.
-         *
-         * @throws std::runtime_error If device context type doesn't match memory resource requirements
-         */
-        void validateDevice() {
-            if constexpr (requires { typename TMemoryResource::CompatibleDeviceType; }) {
-                using RequiredDeviceType = typename TMemoryResource::CompatibleDeviceType;
-
-                if (!std::dynamic_pointer_cast<RequiredDeviceType>( device_)) {
-                    throw std::runtime_error( "Device type mismatch with TMemoryResource" );
-                }
-            }
         }
 
         /**

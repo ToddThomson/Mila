@@ -132,7 +132,7 @@ namespace Mila::Dnn
         std::string toString() const override {
             std::ostringstream oss;
             oss << "====================" << std::endl;
-            oss << "MLP: " << this->getName() << std::endl;
+            oss << "MLP: " << this->getDeviceName() << std::endl;
 
             const auto& input_shape = config_.getInputShape();
             oss << "Input shape: (";
@@ -157,7 +157,7 @@ namespace Mila::Dnn
             oss << "Parameter count: " << parameterCount() << std::endl;
             oss << "Sub-Modules..." << std::endl;
 
-            for ( const auto& [name, module] : this->getNamedModules() ) {
+            for ( const auto& [name, module] : this->getDeviceNamedModules() ) {
                 oss << module->toString();
             }
 
@@ -177,12 +177,12 @@ namespace Mila::Dnn
         Tensor<TDataType, MR> act_output_;
 
         void initializeModules() {
-            for ( const auto& [name, _] : this->getNamedModules() ) {
+            for ( const auto& [name, _] : this->getDeviceNamedModules() ) {
                 this->removeModule( name );
             }
 
             auto fc1_config = LinearConfig( config_.getInputFeatures(), config_.getHiddenSize() )
-                .withName( this->getName() + ".fc1" )
+                .withName( this->getDeviceName() + ".fc1" )
                 .withBias( config_.hasBias() )
                 .withTraining( this->isTraining() );
 
@@ -191,7 +191,7 @@ namespace Mila::Dnn
 
             if ( config_.useLayerNorm() ) {
                 auto norm1_config = LayerNormConfig( config_.getHiddenSize() )
-                    .withName( this->getName() + ".norm1" )
+                    .withName( this->getDeviceName() + ".norm1" )
                     .withTraining( this->isTraining() );
 
                 norm1_ = std::make_shared<LayerNorm<TDeviceType, TDataType>>( this->getDeviceContext(), norm1_config );
@@ -202,7 +202,7 @@ namespace Mila::Dnn
                 case ActivationType::Gelu:
                 {
                     auto gelu_config = GeluConfig()
-                        .withName( this->getName() + ".gelu" )
+                        .withName( this->getDeviceName() + ".gelu" )
                         .withTraining( this->isTraining() );
 
                     activation_ = std::make_shared<Gelu<TDeviceType, TDataType>>( this->getDeviceContext(), gelu_config );
@@ -213,7 +213,7 @@ namespace Mila::Dnn
             this->addModule( "activation", activation_ );
 
             auto fc2_config = LinearConfig( config_.getHiddenSize(), config_.getInputFeatures() )
-                .withName( this->getName() + ".fc2" )
+                .withName( this->getDeviceName() + ".fc2" )
                 .withBias( config_.hasBias() )
                 .withTraining( this->isTraining() );
 

@@ -107,7 +107,7 @@ namespace Operations::Tests
      * @brief Test name property of CudaResidualOp
      */
     TEST_F( CudaResidualOpTests, Name ) {
-        EXPECT_EQ( cuda_residual_op_->getName(), "Cuda::ResidualOp" );
+        EXPECT_EQ( cuda_residual_op_->getDeviceName(), "Cuda::ResidualOp" );
     }
 
     /**

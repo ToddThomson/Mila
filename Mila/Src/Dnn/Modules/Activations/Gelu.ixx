@@ -305,7 +305,7 @@ namespace Mila::Dnn
             std::string toString() const override {
                 std::ostringstream oss;
                 oss << "--------------------" << std::endl;
-                oss << "Gelu: " << this->getName() << std::endl;
+                oss << "Gelu: " << this->getDeviceName() << std::endl;
                 oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
                 oss << "Data Type: " << this->getDataTypeName() << std::endl;
                 oss << "Approximation Method: " << approximationMethodToString( config_.getApproximationMethod() ) << std::endl;

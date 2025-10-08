@@ -126,7 +126,7 @@ namespace Mila::Mnist
             std::string toString() const override {
                 std::ostringstream oss;
                 oss << "====================" << std::endl;
-                oss << "MNIST Classifier: " << this->getName() << std::endl;
+                oss << "MNIST Classifier: " << this->getDeviceName() << std::endl;
                 oss << "Architecture:" << std::endl;
                 oss << "- Input shape: (" << input_shape_[ 0 ] << "," << input_shape_[ 1 ] << ")" << std::endl;
                 oss << "- Hidden layer 1: 128 neurons" << std::endl;
@@ -157,7 +157,7 @@ namespace Mila::Mnist
              */
             void initializeModules() {
                 // Clear any existing modules
-                for ( const auto& [name, _] : this->getNamedModules() ) {
+                for ( const auto& [name, _] : this->getDeviceNamedModules() ) {
                     this->removeModule( name );
                 }
 
@@ -167,7 +167,7 @@ namespace Mila::Mnist
                 // Layer 1: Input (784) -> Hidden1 (128)
                 // Create first MLP block
                 mlp1_ = std::make_shared<MLP<TDeviceType, TDataType>>(
-                    this->getName() + ".mlp1",
+                    this->getDeviceName() + ".mlp1",
                     this->getDeviceContext(),
                     input_shape_,
                     128,               // Output channels
@@ -179,7 +179,7 @@ namespace Mila::Mnist
                 // Create second MLP block
                 std::vector<size_t> hidden1_shape = { input_shape_[ 0 ], 128 };
                 mlp2_ = std::make_shared<MLP<TDeviceType, TDataType>>(
-                    this->getName() + ".mlp2",
+                    this->getDeviceName() + ".mlp2",
                     this->getDeviceContext(),
                     hidden1_shape,
                     64,                // Output channels
@@ -190,7 +190,7 @@ namespace Mila::Mnist
                 // Layer 3: Hidden2 (64) -> Output (10)
                 // Output layer for classification
                 output_fc_layer_ = std::make_shared<Linear<TDeviceType, TDataType>>(
-                    this->getName() + ".output",
+                    this->getDeviceName() + ".output",
                     this->getDeviceContext(),
                     64,                // Input features
                     MNIST_NUM_CLASSES, // Output classes

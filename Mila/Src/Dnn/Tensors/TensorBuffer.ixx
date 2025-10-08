@@ -180,10 +180,6 @@ namespace Mila::Dnn
 		explicit TensorBuffer( int device_id, size_t logical_size )
 			: device_id_( device_id ), logical_size_( logical_size ), storage_bytes_( 0 ), mr_( createMemoryResource() ) {
 
-			/*if (!device_context_) {
-				throw std::invalid_argument( "Device context cannot be null" );
-			}*/
-
 			if (logical_size_ == 0) {
 				data_ = nullptr;
 				return;

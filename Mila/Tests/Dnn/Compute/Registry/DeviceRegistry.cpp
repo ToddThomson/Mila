@@ -27,7 +27,7 @@ namespace Dnn::Compute::Registry::Tests
             return DeviceType::Cpu;
         }
 
-        std::string getName() const override { return name_; }
+        std::string getDeviceName() const override { return name_; }
         int getDeviceId() const override { return id_; }
 
     private:
@@ -116,7 +116,7 @@ namespace Dnn::Compute::Registry::Tests
         auto cpu_device = registry.createDevice( "CPU" );
         ASSERT_NE( cpu_device, nullptr );
         EXPECT_EQ( cpu_device->getDeviceType(), DeviceType::Cpu );
-        EXPECT_EQ( cpu_device->getName(), "CPU" );
+        EXPECT_EQ( cpu_device->getDeviceName(), "CPU" );
 
         // Test multiple instances creation
         auto cpu_device2 = registry.createDevice( "CPU" );
@@ -143,7 +143,7 @@ namespace Dnn::Compute::Registry::Tests
                 auto cuda_device = registry.createDevice( device );
                 ASSERT_NE( cuda_device, nullptr );
                 EXPECT_EQ( cuda_device->getDeviceType(), DeviceType::Cuda );
-                EXPECT_EQ( cuda_device->getName(), device );
+                EXPECT_EQ( cuda_device->getDeviceName(), device );
 
                 break;
             }
@@ -226,7 +226,7 @@ namespace Dnn::Compute::Registry::Tests
                 for (int j = 0; j < operations_per_thread; ++j) {
                     // Test device creation
                     auto device = registry.createDevice( "CPU" );
-                    if (!device || device->getName() != "CPU") {
+                    if (!device || device->getDeviceName() != "CPU") {
                         thread_success = false;
                         break;
                     }
@@ -302,7 +302,7 @@ namespace Dnn::Compute::Registry::Tests
             ASSERT_NE( device2, nullptr ) << "Failed to create device: " << device_name;
 
             // Verify properties are consistent
-            EXPECT_EQ( device1->getName(), device2->getName() );
+            EXPECT_EQ( device1->getDeviceName(), device2->getDeviceName() );
             EXPECT_EQ( device1->getDeviceType(), device2->getDeviceType() );
 
             // Verify they are different instances
@@ -326,7 +326,7 @@ namespace Dnn::Compute::Registry::Tests
             ASSERT_NE( device, nullptr );
 
             // The device's getName() should match the registry name
-            EXPECT_EQ( device->getName(), device_name );
+            EXPECT_EQ( device->getDeviceName(), device_name );
 
             // Verify naming conventions
             if (device_name == "CPU") {

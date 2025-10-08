@@ -266,7 +266,7 @@ namespace Modules::Tests
     // Common test function templates
     template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
     void TestGetName( const AttentionTestData<TDevice, TInput, TOutput>& data, const std::string& expected_name ) {
-        EXPECT_EQ( data.attention_module->getName(), expected_name );
+        EXPECT_EQ( data.attention_module->getDeviceName(), expected_name );
     }
 
     template<DeviceType TDevice, typename TInput, typename TOutput = TInput>

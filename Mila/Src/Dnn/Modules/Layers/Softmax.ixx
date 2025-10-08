@@ -198,7 +198,7 @@ namespace Mila::Dnn
         std::string toString() const override {
             std::ostringstream oss;
             oss << "--------------------" << std::endl;
-            oss << "Softmax: " << this->getName() << std::endl;
+            oss << "Softmax: " << this->getDeviceName() << std::endl;
             oss << "Dimension: " << config_.getAxis() << std::endl;
             oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
             oss << this->getComputePrecision().toString() << std::endl;

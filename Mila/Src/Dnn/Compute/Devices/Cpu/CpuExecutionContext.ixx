@@ -1,10 +1,6 @@
 /**
  * @file CpuExecutionContext.ixx
- * @brief CPU-specific execution context implementation.
- *
- * Provides a minimal execution context for CPU operations. Unlike CUDA, CPU does not
- * require stream management or library handles, so this implementation is primarily
- * for API consistency with other device types.
+ * @brief CPU-specific execution context specialization.
  */
 
 module;
@@ -15,72 +11,108 @@ module;
 export module Compute.CpuExecutionContext;
 
 import Compute.ExecutionContext;
-import Compute.DeviceContext;
+import Compute.ComputeDevice;
+import Compute.CpuDevice;
 import Compute.DeviceType;
 
 namespace Mila::Dnn::Compute
 {
     /**
-     * @brief CPU-specific execution context implementation.
+     * @brief CPU execution context specialization.
      *
      * Minimal execution context for CPU operations. CPU execution does not require
-     * streams or library handles like CUDA, so this implementation provides the
-     * ExecutionContext interface without additional overhead.
-     *
-     * Design rationale:
-     * - No streams: CPU operations execute sequentially
-     * - No library handles: CPU uses standard libraries (Eigen, BLAS, etc.) directly
-     * - synchronize() is a no-op: CPU operations complete synchronously
-     * - Maintains API consistency with CUDA execution contexts
+     * streams or library handles, so this implementation provides the interface
+     * without additional overhead.
      */
-    export class CpuExecutionContext : public ExecutionContext {
-    public:
-        /**
-         * @brief Constructs CPU execution context from device context.
-         *
-         * @param device_context Device context for this execution context
-         * @throws std::invalid_argument If device_context is null or not a CPU device
-         */
-        explicit CpuExecutionContext( std::shared_ptr<DeviceContext> device_context )
-            : device_context_( device_context ) {
-
-            if (!device_context_) {
-                throw std::invalid_argument( "Device context cannot be null" );
+    export template<>
+        class ExecutionContext<DeviceType::Cpu> {
+        public:
+            /**
+             * @brief Constructs CPU execution context.
+             *
+             * @param device_id Ignored for CPU (CPU has no device ID)
+             */
+            explicit ExecutionContext( int device_id = -1 )
+                : device_( std::make_shared<CpuDevice>() ) {
             }
 
-            if (!device_context_->isCpuDevice()) {
-                throw std::invalid_argument(
-                    "CpuExecutionContext requires CPU device context"
-                );
+            /**
+             * @brief Constructs CPU execution context from device.
+             *
+             * @param device CPU device instance
+             * @throws std::invalid_argument If device is null or not CPU
+             */
+            explicit ExecutionContext( std::shared_ptr<ComputeDevice> device )
+                : device_( device ) {
+
+                if (!device_) {
+                    throw std::invalid_argument( "Device cannot be null" );
+                }
+
+                if (device_->getDeviceType() != DeviceType::Cpu) {
+                    throw std::invalid_argument(
+                        "CpuExecutionContext requires CPU device"
+                    );
+                }
             }
-        }
 
-        /**
-         * @brief Destructor.
-         *
-         * No resources to clean up for CPU execution context.
-         */
-        ~CpuExecutionContext() override = default;
+            ~ExecutionContext() = default;
 
-        /**
-         * @brief Synchronizes CPU execution.
-         *
-         * No-op for CPU since operations execute synchronously. Provided for
-         * API consistency with CUDA execution contexts.
-         */
-        void synchronize() override {
-            // CPU operations are synchronous, no action needed
-        }
+            ExecutionContext( const ExecutionContext& ) = delete;
+            ExecutionContext& operator=( const ExecutionContext& ) = delete;
+            ExecutionContext( ExecutionContext&& ) noexcept = default;
+            ExecutionContext& operator=( ExecutionContext&& ) noexcept = default;
 
-        /**
-         * @brief Gets the underlying device context.
-         * @return Shared pointer to the CPU device context
-         */
-        std::shared_ptr<DeviceContext> getDeviceContext() const override {
-            return device_context_;
-        }
+            /**
+             * @brief Synchronizes CPU execution (no-op).
+             */
+            void synchronize() {
+                // CPU operations are synchronous
+            }
 
-    private:
-        std::shared_ptr<DeviceContext> device_context_;
+            /**
+             * @brief Gets the CPU device.
+             */
+            std::shared_ptr<ComputeDevice> getDevice() const {
+                return device_;
+            }
+
+            /**
+             * @brief Gets the device type (always CPU).
+             */
+            static constexpr DeviceType getDeviceType() {
+                return DeviceType::Cpu;
+            }
+
+            /**
+             * @brief Gets the device name.
+             */
+            std::string getDeviceName() const {
+                return device_->getDeviceName();
+            }
+
+            /**
+             * @brief Gets the device ID (always -1 for CPU).
+             */
+            int getDeviceId() const {
+                return -1;
+            }
+
+            /**
+             * @brief Checks if this is a CUDA device (always false).
+             */
+            static constexpr bool isCudaDevice() {
+                return false;
+            }
+
+            /**
+             * @brief Checks if this is a CPU device (always true).
+             */
+            static constexpr bool isCpuDevice() {
+                return true;
+            }
+
+        private:
+            std::shared_ptr<ComputeDevice> device_;
     };
 }

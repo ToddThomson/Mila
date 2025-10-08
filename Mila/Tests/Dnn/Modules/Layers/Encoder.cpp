@@ -286,7 +286,7 @@ namespace Modules::Tests
     // Common test function templates
     template<DeviceType TDevice, typename TInput = int, typename TOutput = float>
     void TestGetName( const EncoderTestData<TDevice, TInput, TOutput>& data, const std::string& expected_name ) {
-        EXPECT_EQ( data.encoder_module->getName(), expected_name );
+        EXPECT_EQ( data.encoder_module->getDeviceName(), expected_name );
     }
 
     template<DeviceType TDevice, typename TInput = int, typename TOutput = float>

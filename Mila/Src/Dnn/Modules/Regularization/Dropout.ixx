@@ -151,7 +151,7 @@ namespace Mila::Dnn
                 // Create or resize mask tensor if needed
                 if ( !mask_ || mask_->getShape() != input.getShape() ) {
                     mask_ = std::make_shared<Tensor<TOutput, MR>>( input.getShape() );
-                    mask_->setName( this->getName() + ".mask" );
+                    mask_->setName( this->getDeviceName() + ".mask" );
                     // Add to state map for better debugging
                     this->state_map_[ "mask" ] = mask_;
                 }
@@ -256,7 +256,7 @@ namespace Mila::Dnn
         std::string toString() const override {
             std::ostringstream oss;
             oss << "--------------------" << std::endl;
-            oss << "Dropout: " << this->getName() << std::endl;
+            oss << "Dropout: " << this->getDeviceName() << std::endl;
             oss << "Probability: " << config_.getProbability() << std::endl;
             oss << "Mode: " << (this->isTraining() ? "Training" : "Inference") << std::endl;
             oss << "Scale during inference: " << (config_.scalesDuringInference() ? "Yes" : "No") << std::endl;

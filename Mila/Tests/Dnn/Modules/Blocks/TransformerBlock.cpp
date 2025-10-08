@@ -166,7 +166,7 @@ namespace Modules::Tests
     // Common test function templates
     template<typename TPrecision, Compute::DeviceType TDevice>
     void TestGetName( const TransformerBlockTestData<TPrecision, TDevice>& data, const std::string& expected_name ) {
-        EXPECT_EQ( data.transformer_module->getName(), expected_name );
+        EXPECT_EQ( data.transformer_module->getDeviceName(), expected_name );
     }
 
     template<typename TPrecision, Compute::DeviceType TDevice>
@@ -233,7 +233,7 @@ namespace Modules::Tests
     // Test for submodule structure
     template<typename TPrecision, Compute::DeviceType TDevice>
     void TestSubModules( const TransformerBlockTestData<TPrecision, TDevice>& data ) {
-        auto modules = data.transformer_module->getNamedModules();
+        auto modules = data.transformer_module->getDeviceNamedModules();
 
         // Verify we have all expected submodules
         EXPECT_EQ( modules.size(), 8 );

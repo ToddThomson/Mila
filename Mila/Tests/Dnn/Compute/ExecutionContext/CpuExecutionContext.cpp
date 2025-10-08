@@ -1,0 +1,286 @@
+/**
+ * @file CpuExecutionContext.cpp
+ * @brief Unit tests for CPU ExecutionContext specialization.
+ */
+
+#include <gtest/gtest.h>
+#include <memory>
+#include <string>
+#include <stdexcept>
+#include <vector>
+
+import Mila;
+
+namespace Dnn::Compute::ExecutionContexts::Tests
+{
+    using namespace Mila::Dnn::Compute;
+
+    /**
+     * @brief Test fixture for CPU ExecutionContext tests.
+     */
+    class CpuExecutionContextTest : public ::testing::Test {
+    protected:
+        void SetUp() override {}
+        void TearDown() override {}
+    };
+
+    // ============================================================================
+    // Construction Tests
+    // ============================================================================
+
+    TEST_F( CpuExecutionContextTest, DefaultConstruction ) {
+        EXPECT_NO_THROW( {
+            ExecutionContext<DeviceType::Cpu> exec_ctx( 0 );
+            } );
+    }
+
+    TEST_F( CpuExecutionContextTest, ConstructionIgnoresDeviceId ) {
+        // CPU doesn't use device ID, but accepts it for API consistency
+        EXPECT_NO_THROW( {
+            ExecutionContext<DeviceType::Cpu> exec_ctx1( 0 );
+            ExecutionContext<DeviceType::Cpu> exec_ctx2( -1 );
+            ExecutionContext<DeviceType::Cpu> exec_ctx3( 999 );
+            } );
+    }
+
+    TEST_F( CpuExecutionContextTest, ConstructionFromDevice ) {
+        auto device = std::make_shared<CpuDevice>();
+
+        EXPECT_NO_THROW( {
+            ExecutionContext<DeviceType::Cpu> exec_ctx( device );
+            } );
+    }
+
+    TEST_F( CpuExecutionContextTest, ConstructionFromNullDevice ) {
+        std::shared_ptr<ComputeDevice> null_device;
+
+        EXPECT_THROW( {
+            ExecutionContext<DeviceType::Cpu> exec_ctx( null_device );
+            }, std::invalid_argument );
+    }
+
+    TEST_F( CpuExecutionContextTest, ConstructionFromWrongDeviceType ) {
+        // Can't test without CUDA, but interface is validated at compile time
+        SUCCEED();
+    }
+
+    // ============================================================================
+    // Device Properties Tests
+    // ============================================================================
+
+    TEST_F( CpuExecutionContextTest, GetDeviceType ) {
+        ExecutionContext<DeviceType::Cpu> exec_ctx( 0 );
+
+        EXPECT_EQ( exec_ctx.getDeviceType(), DeviceType::Cpu );
+    }
+
+    TEST_F( CpuExecutionContextTest, GetDeviceName ) {
+        ExecutionContext<DeviceType::Cpu> exec_ctx( 0 );
+
+        EXPECT_EQ( exec_ctx.getDeviceName(), "CPU" );
+    }
+
+    TEST_F( CpuExecutionContextTest, GetDeviceId ) {
+        ExecutionContext<DeviceType::Cpu> exec_ctx( 0 );
+
+        // CPU always returns -1 for device ID
+        EXPECT_EQ( exec_ctx.getDeviceId(), -1 );
+    }
+
+    TEST_F( CpuExecutionContextTest, GetDevice ) {
+        ExecutionContext<DeviceType::Cpu> exec_ctx( 0 );
+        auto device = exec_ctx.getDevice();
+
+        ASSERT_NE( device, nullptr );
+        EXPECT_EQ( device->getDeviceType(), DeviceType::Cpu );
+        EXPECT_EQ( device->getDeviceName(), "CPU" );
+    }
+
+    // ============================================================================
+    // Compile-Time Properties Tests
+    // ============================================================================
+
+    TEST_F( CpuExecutionContextTest, ConstexprDeviceType ) {
+        using CpuContext = ExecutionContext<DeviceType::Cpu>;
+
+        // Verify compile-time constants
+        static_assert(CpuContext::getDeviceType() == DeviceType::Cpu);
+        static_assert(CpuContext::isCpuDevice());
+        static_assert(!CpuContext::isCudaDevice());
+    }
+
+    TEST_F( CpuExecutionContextTest, DeviceTypeChecks ) {
+        ExecutionContext<DeviceType::Cpu> exec_ctx( 0 );
+
+        EXPECT_TRUE( exec_ctx.isCpuDevice() );
+        EXPECT_FALSE( exec_ctx.isCudaDevice() );
+    }
+
+    // ============================================================================
+    // Synchronization Tests
+    // ============================================================================
+
+    TEST_F( CpuExecutionContextTest, SynchronizeNoOp ) {
+        ExecutionContext<DeviceType::Cpu> exec_ctx( 0 );
+
+        // CPU synchronize is no-op, should not throw
+        EXPECT_NO_THROW( exec_ctx.synchronize() );
+    }
+
+    TEST_F( CpuExecutionContextTest, MultipleSynchronizeCalls ) {
+        ExecutionContext<DeviceType::Cpu> exec_ctx( 0 );
+
+        // Multiple calls should work without issue
+        for (int i = 0; i < 100; ++i) {
+            EXPECT_NO_THROW( exec_ctx.synchronize() );
+        }
+    }
+
+    // ============================================================================
+    // Multiple Context Tests
+    // ============================================================================
+
+    TEST_F( CpuExecutionContextTest, MultipleIndependentContexts ) {
+        ExecutionContext<DeviceType::Cpu> exec_ctx1( 0 );
+        ExecutionContext<DeviceType::Cpu> exec_ctx2( 0 );
+
+        // Both should be valid and independent
+        EXPECT_NO_THROW( exec_ctx1.synchronize() );
+        EXPECT_NO_THROW( exec_ctx2.synchronize() );
+
+        // Both should have same device characteristics
+        EXPECT_EQ( exec_ctx1.getDeviceType(), exec_ctx2.getDeviceType() );
+        EXPECT_EQ( exec_ctx1.getDeviceName(), exec_ctx2.getDeviceName() );
+        EXPECT_EQ( exec_ctx1.getDeviceId(), exec_ctx2.getDeviceId() );
+    }
+
+    TEST_F( CpuExecutionContextTest, VectorOfContexts ) {
+        std::vector<ExecutionContext<DeviceType::Cpu>> contexts;
+
+        for (int i = 0; i < 10; ++i) {
+            contexts.emplace_back( 0 );
+        }
+
+        EXPECT_EQ( contexts.size(), 10 );
+
+        for (auto& ctx : contexts) {
+            EXPECT_EQ( ctx.getDeviceType(), DeviceType::Cpu );
+            EXPECT_NO_THROW( ctx.synchronize() );
+        }
+    }
+
+    // ============================================================================
+    // Shared Pointer Tests
+    // ============================================================================
+
+    TEST_F( CpuExecutionContextTest, SharedPointerConstruction ) {
+        auto exec_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>( 0 );
+
+        ASSERT_NE( exec_ctx, nullptr );
+        EXPECT_EQ( exec_ctx->getDeviceType(), DeviceType::Cpu );
+        EXPECT_NO_THROW( exec_ctx->synchronize() );
+    }
+
+    TEST_F( CpuExecutionContextTest, SharedPointerVector ) {
+        std::vector<std::shared_ptr<ExecutionContext<DeviceType::Cpu>>> contexts;
+
+        for (int i = 0; i < 10; ++i) {
+            contexts.push_back( std::make_shared<ExecutionContext<DeviceType::Cpu>>( 0 ) );
+        }
+
+        EXPECT_EQ( contexts.size(), 10 );
+
+        for (auto& ctx : contexts) {
+            ASSERT_NE( ctx, nullptr );
+            EXPECT_EQ( ctx->getDeviceType(), DeviceType::Cpu );
+            EXPECT_NO_THROW( ctx->synchronize() );
+        }
+    }
+
+    // ============================================================================
+    // Type Alias Tests
+    // ============================================================================
+
+    TEST_F( CpuExecutionContextTest, TypeAlias ) {
+        CpuExecutionContext cpu_ctx( 0 );
+
+        EXPECT_EQ( cpu_ctx.getDeviceType(), DeviceType::Cpu );
+        EXPECT_TRUE( cpu_ctx.isCpuDevice() );
+        EXPECT_FALSE( cpu_ctx.isCudaDevice() );
+    }
+
+    // ============================================================================
+    // Resource Management Tests
+    // ============================================================================
+
+    TEST_F( CpuExecutionContextTest, DeviceOutlivesContext ) {
+        std::shared_ptr<ComputeDevice> device;
+
+        {
+            ExecutionContext<DeviceType::Cpu> exec_ctx( 0 );
+            device = exec_ctx.getDevice();
+
+            ASSERT_NE( device, nullptr );
+        } // exec_ctx destroyed here
+
+        // Device should still be valid due to shared ownership
+        EXPECT_EQ( device->getDeviceType(), DeviceType::Cpu );
+        EXPECT_EQ( device->getDeviceName(), "CPU" );
+    }
+
+    TEST_F( CpuExecutionContextTest, MultipleScopedContexts ) {
+        for (int i = 0; i < 100; ++i) {
+            ExecutionContext<DeviceType::Cpu> exec_ctx( 0 );
+            EXPECT_NO_THROW( exec_ctx.synchronize() );
+        }
+    }
+
+    // ============================================================================
+    // Module Integration Pattern Tests
+    // ============================================================================
+
+    TEST_F( CpuExecutionContextTest, ModuleLikeUsage ) {
+        // Simulate how Module<DeviceType::Cpu> would use ExecutionContext
+        auto exec_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>( 0 );
+
+        // Module would pass this to TensorOps
+        EXPECT_NO_THROW( exec_ctx->synchronize() );
+        EXPECT_EQ( exec_ctx->getDeviceType(), DeviceType::Cpu );
+        EXPECT_TRUE( exec_ctx->isCpuDevice() );
+    }
+
+    TEST_F( CpuExecutionContextTest, SharedBetweenModules ) {
+        // Multiple modules sharing same execution context
+        auto shared_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>( 0 );
+
+        // Module 1 uses context
+        EXPECT_NO_THROW( shared_ctx->synchronize() );
+
+        // Module 2 uses same context
+        EXPECT_NO_THROW( shared_ctx->synchronize() );
+    }
+
+    // ============================================================================
+    // Move Semantics Tests
+    // ============================================================================
+
+    TEST_F( CpuExecutionContextTest, MoveConstruction ) {
+        ExecutionContext<DeviceType::Cpu> exec_ctx1( 0 );
+        auto device1 = exec_ctx1.getDevice();
+
+        ExecutionContext<DeviceType::Cpu> exec_ctx2( std::move( exec_ctx1 ) );
+
+        EXPECT_EQ( exec_ctx2.getDeviceType(), DeviceType::Cpu );
+        EXPECT_NO_THROW( exec_ctx2.synchronize() );
+    }
+
+    TEST_F( CpuExecutionContextTest, MoveAssignment ) {
+        ExecutionContext<DeviceType::Cpu> exec_ctx1( 0 );
+        ExecutionContext<DeviceType::Cpu> exec_ctx2( 0 );
+
+        exec_ctx2 = std::move( exec_ctx1 );
+
+        EXPECT_EQ( exec_ctx2.getDeviceType(), DeviceType::Cpu );
+        EXPECT_NO_THROW( exec_ctx2.synchronize() );
+    }
+}

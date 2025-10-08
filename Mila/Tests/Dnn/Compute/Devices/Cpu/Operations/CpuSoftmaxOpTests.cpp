@@ -127,7 +127,7 @@ namespace Operations::Tests
      * @brief Test name property of CpuSoftmaxOp
      */
     TEST_F( CpuSoftmaxOpTests, Name ) {
-        EXPECT_EQ( cpu_softmax_op_->getName(), "Cpu::SoftmaxOp" );
+        EXPECT_EQ( cpu_softmax_op_->getDeviceName(), "Cpu::SoftmaxOp" );
     }
 
     /**

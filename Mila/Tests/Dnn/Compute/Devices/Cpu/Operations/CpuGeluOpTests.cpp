@@ -89,7 +89,7 @@ namespace Compute::Cpu::Operations::Tests
      * @brief Test name property of CpuGeluOp
      */
     TEST_F( CpuGeluOpTests, Name ) {
-        EXPECT_EQ( cpu_gelu_op_->getName(), "Cpu::GeluOp" );
+        EXPECT_EQ( cpu_gelu_op_->getDeviceName(), "Cpu::GeluOp" );
     }
 
     /**

@@ -38,7 +38,7 @@ namespace Mila::Dnn::Compute
 		 *
 		 * @return std::string The device name ("CPU").
 		 */
-		std::string getName() const override {
+		std::string getDeviceName() const override {
 			return "CPU";
 		}
 

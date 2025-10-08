@@ -220,7 +220,7 @@ namespace Mila::Dnn
         std::string toString() const override {
             std::ostringstream oss;
             oss << "====================" << std::endl;
-            oss << "TransformerBlock: " << this->getName() << std::endl;
+            oss << "TransformerBlock: " << this->getDeviceName() << std::endl;
 
             const auto& input_shape = config_.getInputShape();
             oss << "Input shape: (";
@@ -247,7 +247,7 @@ namespace Mila::Dnn
             oss << "Parameter count: " << parameterCount() << std::endl;
             oss << "Sub-Modules..." << std::endl;
 
-            for ( const auto& [name, module] : this->getNamedModules() ) {
+            for ( const auto& [name, module] : this->getDeviceNamedModules() ) {
                 oss << module->toString();
             }
 
@@ -329,7 +329,7 @@ namespace Mila::Dnn
          */
         void initializeModules() {
             // Clear any existing modules
-            for ( const auto& [name, _] : this->getNamedModules() ) {
+            for ( const auto& [name, _] : this->getDeviceNamedModules() ) {
                 this->removeModule( name );
             }
 
@@ -344,14 +344,14 @@ namespace Mila::Dnn
 
             // Create layer normalization modules
             auto ln_1_config = LayerNormConfig( C )
-                .withName( this->getName() + ".ln_1" )
+                .withName( this->getDeviceName() + ".ln_1" )
                 .withTraining( this->isTraining() );
 
             ln_1_ = std::make_shared<LayerNorm<TDeviceType, TDataType>>(
                 this->getDeviceContext(), ln_1_config );
 
             auto ln_2_config = LayerNormConfig( C )
-                .withName( this->getName() + ".ln_2" )
+                .withName( this->getDeviceName() + ".ln_2" )
                 .withTraining( this->isTraining() );
 
             ln_2_ = std::make_shared<LayerNorm<TDeviceType, TDataType>>(
@@ -359,7 +359,7 @@ namespace Mila::Dnn
 
             // Create attention module
             auto attn_config = MultiHeadAttentionConfig( C, num_heads )
-                .withName( this->getName() + ".attn" )
+                .withName( this->getDeviceName() + ".attn" )
                 .withInputShape( input_shape )
                 .withDropout( dropout_rate )
                 .withTraining( this->isTraining() );
@@ -369,7 +369,7 @@ namespace Mila::Dnn
 
             // Create MLP module
             auto mlp_config = MLPConfig( input_shape, hidden_dim )
-                .withName( this->getName() + ".mlp" )
+                .withName( this->getDeviceName() + ".mlp" )
                 .withBias( use_bias )
                 .withActivation( config_.getActivationType() )
                 .withDropout( dropout_rate )
@@ -381,7 +381,7 @@ namespace Mila::Dnn
             // Create dropout module if needed
             if ( dropout_rate > 0.0f ) {
                 auto dropout_config = DropoutConfig( dropout_rate )
-                    .withName( this->getName() + ".dropout" )
+                    .withName( this->getDeviceName() + ".dropout" )
                     .withTraining( this->isTraining() );
 
                 dropout_ = std::make_shared<Dropout<TDeviceType, TDataType>>(

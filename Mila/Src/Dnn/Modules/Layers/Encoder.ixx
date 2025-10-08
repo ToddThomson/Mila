@@ -197,7 +197,7 @@ namespace Mila::Dnn
         std::string toString() const override {
             std::ostringstream oss;
             oss << "--------------------" << std::endl;
-            oss << "Encoder: " << this->getName() << std::endl;
+            oss << "Encoder: " << this->getDeviceName() << std::endl;
             oss << "Channels: " << config_.getChannels() << ", Max Sequence Length: " << config_.getMaxSequenceLength();
             oss << ", Vocabulary Length: " << config_.getVocabularyLength() << std::endl;
             oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
@@ -266,11 +266,11 @@ namespace Mila::Dnn
             size_t vocab_len = config_.getVocabularyLength();
 
             wte_ = std::make_shared<Tensor<TOutput, MR>>( std::vector<size_t>{vocab_len, channels} );
-            wte_->setName( this->getName() + ".wte" );
+            wte_->setName( this->getDeviceName() + ".wte" );
             xavier<TOutput, MR>( *wte_, vocab_len, channels );
 
             wpe_ = std::make_shared<Tensor<TOutput, MR>>( std::vector<size_t>{max_seq_len, channels} );
-            wpe_->setName( this->getName() + ".wpe" );
+            wpe_->setName( this->getDeviceName() + ".wpe" );
             xavier<TOutput, MR>( *wpe_, max_seq_len, channels );
 
             // Add tensors to parameters list and map

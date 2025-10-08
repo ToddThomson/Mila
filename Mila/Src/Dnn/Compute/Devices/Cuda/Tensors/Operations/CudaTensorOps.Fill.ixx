@@ -33,8 +33,10 @@ import Dnn.TensorDataTypeMap;
 import Dnn.TensorDataTypeTraits;
 import Compute.DeviceTraits;
 import Compute.CudaDeviceMemoryResource;
+import Compute.ExecutionContext;
+import Compute.CudaExecutionContext;
+import Compute.DeviceType;
 import Compute.CudaTensorDataType;
-import Compute.CudaDeviceContext;
 
 namespace Mila::Dnn
 {
@@ -52,7 +54,7 @@ namespace Mila::Dnn
      * quantization from host representations.
      *
      * Key features:
-     * - Asynchronous kernel execution using CUDA streams
+     * - Asynchronous kernel execution using CUDA streams via ExecutionContext
      * - Memory-efficient chunked processing for large arrays
      * - Automatic host-to-device type conversion in kernels
      * - Compile-time type dispatch for zero runtime overhead
@@ -69,38 +71,53 @@ namespace Mila::Dnn
          * @brief Fill tensor with array of host values using CUDA kernels
          *
          * Copies contiguous host values into a CUDA device tensor, performing
-         * automatic type conversion and quantization as needed. Uses chunked
-         * staging for memory-efficient processing of large arrays.
+         * automatic type conversion and quantization as needed. Uses optional
+         * ExecutionContext for explicit stream control.
          *
          * Implementation:
          * - Integer types: Use int32_t host representation with kernel conversion
          * - Float types: Use float host representation with kernel conversion
          * - Chunked processing limits temporary device memory usage
-         * - Asynchronous execution via device context stream
+         * - Asynchronous execution via execution context stream
          * - Compile-time type dispatch based on tensor data type
          *
          * @tparam TDataType Abstract tensor data type
          * @param tensor Destination CUDA device tensor to fill
          * @param host_values Span of host values in canonical host representation
+         * @param exec_context Optional execution context for stream control
          *
          * @note Host values are automatically converted to device native types
-         * @note Uses CUDA stream from tensor's device context for async execution
+         * @note Uses CUDA stream from execution context for async execution
          * @note For large arrays, uses chunked processing to limit memory usage
-         * @note Device context and type are guaranteed valid by tensor construction
+         * @note If exec_context is null, creates temporary context
          */
         template<TensorDataType TDataType>
         static void fill(
             Tensor<TDataType, CudaDeviceMemoryResource>& tensor,
-            std::span<const host_value_t<TDataType>> host_values )
+            std::span<const host_value_t<TDataType>> host_values,
+            std::shared_ptr<ExecutionContext<DeviceType::Cuda>> exec_context = nullptr )
         {
             if (tensor.size() == 0 || host_values.empty())
                 return;
 
-            // Guaranteed valid by tensor construction contract
-            auto cuda_context = std::static_pointer_cast<CudaDeviceContext>(
-                tensor.getDeviceContext());
+            // Get or create execution context
+            std::shared_ptr<ExecutionContext<DeviceType::Cuda>> cuda_exec_ctx;
 
-            cudaStream_t stream = cuda_context->getStream();
+            if (exec_context) {
+                cuda_exec_ctx = exec_context;
+            }
+            else {
+                // Create temporary execution context for this operation
+                int device_id = tensor.getDeviceId();
+                if (device_id < 0) {
+                    throw std::runtime_error(
+                        "Tensor does not have valid device ID for fill operation"
+                    );
+                }
+                cuda_exec_ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( device_id );
+            }
+
+            cudaStream_t stream = cuda_exec_ctx->getStream();
             const size_t count = std::min( tensor.size(), host_values.size() );
             void* raw_dst = tensor.rawData();
 
@@ -116,48 +133,64 @@ namespace Mila::Dnn
             }
 
             // Synchronize to ensure fill completes before returning
-            // REVIEW: Should we have an async variant? Consider making this optional for advanced users
-            cuda_context->synchronize();
+            cuda_exec_ctx->synchronize();
         }
+
 
         /**
          * @brief Fill tensor with scalar host value using CUDA kernels
          *
          * Broadcasts a single host scalar value to all elements of a CUDA device
          * tensor using optimized constant fill kernels. No temporary device memory
-         * is required - conversion happens directly in the kernel.
+         * is required - conversion happens directly in the kernel. Uses optional
+         * ExecutionContext for explicit stream control.
          *
          * Implementation:
          * - Integer types: Use int32_t host representation with kernel conversion
          * - Float types: Use float host representation with kernel conversion
          * - Grid-stride loop kernels for scalability across tensor sizes
-         * - Asynchronous execution via device context stream
+         * - Asynchronous execution via execution context stream
          * - Compile-time type dispatch based on tensor data type
          *
          * @tparam TDataType Abstract tensor data type
          * @param tensor Destination CUDA device tensor to fill
          * @param host_value Scalar value in canonical host representation
+         * @param exec_context Optional execution context for stream control
          *
          * @note Host value is automatically converted to device native type
-         * @note Uses CUDA stream from tensor's device context for async execution
+         * @note Uses CUDA stream from execution context for async execution
          * @note Optimized for constant broadcasts - no temporary memory allocation
-         * @note Device context and type are guaranteed valid by tensor construction
+         * @note If exec_context is null, creates temporary context
          */
         template<TensorDataType TDataType>
-        static void fill( Tensor<TDataType, CudaDeviceMemoryResource>& tensor,
-            host_value_t<TDataType> host_value )
+        static void fill(
+            Tensor<TDataType, CudaDeviceMemoryResource>& tensor,
+            host_value_t<TDataType> host_value,
+            std::shared_ptr<ExecutionContext<DeviceType::Cuda>> exec_context = nullptr )
         {
             if (tensor.size() == 0)
                 return;
 
-            // Guaranteed valid by tensor construction contract
-            auto cuda_context = std::static_pointer_cast<CudaDeviceContext>(
-                tensor.getDeviceContext());
+            // Get or create execution context
+            std::shared_ptr<ExecutionContext<DeviceType::Cuda>> cuda_exec_ctx;
 
-            cudaStream_t stream = cuda_context->getStream();
+            if (exec_context) {
+                cuda_exec_ctx = exec_context;
+            }
+            else {
+                // Create temporary execution context for this operation
+                int device_id = tensor.getDeviceId();
+                if (device_id < 0) {
+                    throw std::runtime_error(
+                        "Tensor does not have valid device ID for fill operation"
+                    );
+                }
+                cuda_exec_ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( device_id );
+            }
+
+            cudaStream_t stream = cuda_exec_ctx->getStream();
             void* raw_dst = tensor.rawData();
 
-            // Direct template instantiation - compile-time dispatch only!
             using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::native_type;
 
             if constexpr (TensorDataTypeTraits<TDataType>::is_integer_type) {
@@ -170,8 +203,7 @@ namespace Mila::Dnn
             }
 
             // Synchronize to ensure fill completes before returning
-            // Note: Consider making this optional for advanced users
-            cuda_context->synchronize();
+            cuda_exec_ctx->synchronize();
         }
     };
 }

@@ -5,7 +5,7 @@
  * Defines the fundamental OperationBase template class which serves as the foundation
  * for all computational operations in the Mila neural network architecture. This class
  * establishes the contract that concrete operations must fulfill while providing common
- * functionality related to device context management, operation identification, and
+ * functionality related to execution context management, operation identification, and
  * type safety.
  *
  * The template parameters enable operations to work across different computation devices
@@ -28,7 +28,7 @@
  *
  * @see UnaryOperation
  * @see BinaryOperation
- * @see DeviceContext
+ * @see ExecutionContext
  * @see OperationType
  * @see TensorDataType
  */
@@ -43,7 +43,7 @@ export module Compute.OperationBase;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Compute.DeviceType;
-import Compute.DeviceContext;
+import Compute.ExecutionContext;
 import Compute.Precision;
 import Compute.OperationType;
 
@@ -113,29 +113,30 @@ namespace Mila::Dnn::Compute
 
     protected:
         /**
-         * @brief Constructs an OperationBase object with a specific operation type and device context.
+         * @brief Constructs an OperationBase object with a specific operation type and execution context.
          *
-         * @details Initializes the operation with the specified operation type and device context.
-         * The context defines the execution environment for this operation. Validates that
-         * the device context is not null and optionally that it matches the template device type.
+         * @details Initializes the operation with the specified operation type and execution context.
+         * The context defines the execution environment for this operation, including device selection,
+         * stream management, and library handles. Validates that the execution context is not null
+         * and optionally that its device type matches the template device type.
          *
          * @param operation_type The type of the operation (from OperationType enum).
-         * @param context The device context to use for this operation. Must not be null.
+         * @param context The execution context to use for this operation. Must not be null.
          * @throw std::invalid_argument If context is null.
          * @throw std::runtime_error If context device type doesn't match TDeviceType (optional validation).
          *
          * @note Protected constructor - only derived classes can instantiate
-         * @note Device context validation ensures type safety at runtime
+         * @note Execution context validation ensures type safety at runtime
          */
-        OperationBase(OperationType operation_type, std::shared_ptr<DeviceContext> context)
-            : operation_type_(operation_type), device_context_(context) {
-            if (!device_context_) {
-                throw std::invalid_argument("Device context must not be null.");
+        OperationBase(OperationType operation_type, std::shared_ptr<ExecutionContext> context)
+            : operation_type_(operation_type), execution_context_(context) {
+            if (!execution_context_) {
+                throw std::invalid_argument("Execution context must not be null.");
             }
 
-            // Optional: Validate device context matches template parameter
-            if (device_context_->getDevice()->getDeviceType() != TDeviceType) {
-                throw std::runtime_error("Device context type mismatch with template parameter.");
+            // Optional: Validate execution context device type matches template parameter
+            if (execution_context_->getDeviceContext()->getDevice()->getDeviceType() != TDeviceType) {
+                throw std::runtime_error("Execution context device type mismatch with template parameter.");
             }
         }
 
@@ -167,31 +168,43 @@ namespace Mila::Dnn::Compute
         virtual std::string getName() const = 0;
 
         /**
+         * @brief Gets the execution context associated with this operation.
+         *
+         * @details The execution context contains information about the execution environment,
+         * including the device context, streams, and library handles. This context is used for
+         * all device interactions and execution control performed by this operation.
+         *
+         * @return std::shared_ptr<ExecutionContext> The execution context for this operation (never null).
+         */
+        std::shared_ptr<ExecutionContext> getExecutionContext() const {
+            return execution_context_;
+        }
+
+        /**
          * @brief Gets the device context associated with this operation.
          *
-         * @details The device context contains information about the execution environment,
-         * including the device, streams, and memory resources. This context is used for
-         * all device interactions performed by this operation.
+         * @details Convenience method that retrieves the device context from the execution context.
+         * The device context contains device selection and basic device management functionality.
          *
          * @return std::shared_ptr<DeviceContext> The device context for this operation (never null).
          */
         std::shared_ptr<DeviceContext> getDeviceContext() const {
-            return device_context_;
+            return execution_context_->getDeviceContext();
         }
 
         /**
          * @brief Gets the device type for this operation.
          *
          * @details This is a convenience method that retrieves the device type from the
-         * associated device context. It delegates to the device context's device to
-         * determine the actual hardware target.
+         * associated execution context's device. It delegates through the execution context
+         * to determine the actual hardware target.
          *
          * @return DeviceType The type of device (CPU, CUDA, etc.) for this operation.
          *
          * @note This is the runtime device type; compile-time type is available via device_type constant
          */
         DeviceType getDeviceType() const {
-            return device_context_->getDevice()->getDeviceType();
+            return execution_context_->getDeviceContext()->getDevice()->getDeviceType();
         }
 
         /**
@@ -287,9 +300,20 @@ namespace Mila::Dnn::Compute
             return DataTypeTraits::size_in_bytes;
         }
 
+        /**
+         * @brief Synchronizes the execution context.
+         *
+         * @details Blocks until all operations submitted to this operation's execution context
+         * have completed. This ensures that all pending work on the associated stream/queue
+         * has finished before proceeding.
+         */
+        void synchronize() const {
+            execution_context_->synchronize();
+        }
+
     private:
-        OperationType operation_type_;                      ///< The operation type identifier.
-        std::shared_ptr<DeviceContext> device_context_;     ///< The device context for execution (never null).
+        OperationType operation_type_;                          ///< The operation type identifier.
+        std::shared_ptr<ExecutionContext> execution_context_;   ///< The execution context for this operation (never null).
     };
 
     /**

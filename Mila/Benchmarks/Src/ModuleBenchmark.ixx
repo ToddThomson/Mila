@@ -44,7 +44,7 @@ namespace Mila::Benchmark
                 std::vector<size_t> inputShape,
                 std::vector<size_t> outputShape,
                 std::shared_ptr<DeviceContext> context )
-                : inputShape_( inputShape ), outputShape_( outputShape ), moduleName_( module->getName() ) {
+                : inputShape_( inputShape ), outputShape_( outputShape ), moduleName_( module->getDeviceName() ) {
 
                 this->deviceContext_ = context;
 

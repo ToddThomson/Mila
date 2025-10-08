@@ -54,7 +54,7 @@ namespace Dnn::Compute::Devices::Tests
         auto device = registry.createDevice( "CPU" );
         EXPECT_NE( device, nullptr );
         EXPECT_EQ( device->getDeviceType(), DeviceType::Cpu );
-        EXPECT_EQ( device->getName(), "CPU" );
+        EXPECT_EQ( device->getDeviceName(), "CPU" );
     }
 
     TEST_F( CpuDevicePluginTests, DeviceRegistrationCallback ) {
@@ -88,7 +88,7 @@ namespace Dnn::Compute::Devices::Tests
         EXPECT_NE( device1.get(), device2.get() );
 
         EXPECT_EQ( device1->getDeviceType(), device2->getDeviceType() );
-        EXPECT_EQ( device1->getName(), device2->getName() );
+        EXPECT_EQ( device1->getDeviceName(), device2->getDeviceName() );
     }
 
     // ============================================================================
@@ -211,7 +211,7 @@ namespace Dnn::Compute::Devices::Tests
 
         for (const auto& device : devices) {
             EXPECT_EQ( device->getDeviceType(), DeviceType::Cpu );
-            EXPECT_EQ( device->getName(), "CPU" );
+            EXPECT_EQ( device->getDeviceName(), "CPU" );
         }
 
         for (size_t i = 0; i < devices.size(); ++i) {

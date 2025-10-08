@@ -88,7 +88,7 @@ namespace Mila::Dnn::Compute
          * @return Device name string (e.g., "CUDA:0")
          */
         std::string getDeviceName() const override {
-            return device_ ? device_->getName() : "CUDA:INVALID";
+            return device_ ? device_->getDeviceName() : "CUDA:INVALID";
         }
 
         /**

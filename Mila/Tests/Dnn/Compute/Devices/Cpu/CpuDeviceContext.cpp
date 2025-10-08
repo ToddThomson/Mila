@@ -94,7 +94,7 @@ namespace Dnn::Compute::Devices::Cpu {
 
         ASSERT_NE( device, nullptr );
         EXPECT_EQ( device->getDeviceType(), DeviceType::Cpu );
-        EXPECT_EQ( device->getName(), "CPU" );
+        EXPECT_EQ( device->getDeviceName(), "CPU" );
     }
 
     // ============================================================================
@@ -235,8 +235,8 @@ namespace Dnn::Compute::Devices::Cpu {
         // Both should be CPU devices (separate instances from registry)
         EXPECT_EQ( device_from_registry->getDeviceType(),
             device_from_context->getDeviceType() );
-        EXPECT_EQ( device_from_registry->getName(),
-            device_from_context->getName() );
+        EXPECT_EQ( device_from_registry->getDeviceName(),
+            device_from_context->getDeviceName() );
     }
 
     // ============================================================================
@@ -255,7 +255,7 @@ namespace Dnn::Compute::Devices::Cpu {
 
         // Device should still be valid due to shared ownership
         EXPECT_EQ( device->getDeviceType(), DeviceType::Cpu );
-        EXPECT_EQ( device->getName(), "CPU" );
+        EXPECT_EQ( device->getDeviceName(), "CPU" );
     }
 
     // ============================================================================

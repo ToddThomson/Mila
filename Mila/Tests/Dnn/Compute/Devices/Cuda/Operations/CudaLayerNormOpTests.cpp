@@ -252,7 +252,7 @@ namespace Operations::Tests
      * @brief Test name property of CudaLayerNormOp
      */
     TEST_F( CudaLayerNormOpTests, Name ) {
-        EXPECT_EQ( cuda_layernorm_op_->getName(), "Cuda::LayerNormOp" );
+        EXPECT_EQ( cuda_layernorm_op_->getDeviceName(), "Cuda::LayerNormOp" );
     }
 
     /**
@@ -260,7 +260,7 @@ namespace Operations::Tests
      */
     TEST_F( CudaLayerNormOpTests, DefaultConstructor ) {
         auto op = std::make_shared<CudaLayerNormOp<float>>();
-        EXPECT_EQ( op->getName(), "Cuda::LayerNormOp" );
+        EXPECT_EQ( op->getDeviceName(), "Cuda::LayerNormOp" );
     }
 
     /**

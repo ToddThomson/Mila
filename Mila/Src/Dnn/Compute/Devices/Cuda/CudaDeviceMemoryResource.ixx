@@ -12,9 +12,10 @@ export module Compute.CudaDeviceMemoryResource;
 import Compute.MemoryResource;
 import Compute.MemoryResourceProperties;
 import Compute.DeviceType;
-import Compute.CudaDeviceContext;
-import Compute.DeviceContext;
-import Cuda.Utils;
+import Compute.CudaExecutionContext;
+import Compute.ExecutionContext;
+import Cuda.Helpers;
+//import Cuda.Utils;
 import Cuda.BadAlloc;
 import Cuda.Error;
 
@@ -85,20 +86,20 @@ namespace Mila::Dnn::Compute
          * @return Pointer to allocated device memory
          * @throws CudaBadAlloc If allocation fails
          */
-        void* do_allocate(std::size_t bytes, std::size_t alignment) override {
+        void* do_allocate( std::size_t bytes, std::size_t alignment ) override {
             if (bytes == 0) return nullptr;
 
-            makeCurrent();
+            Cuda::setCurrentDevice( device_id_ );
 
             void* ptr = nullptr;
-            cudaError_t result = cudaMalloc(&ptr, bytes);
+            cudaError_t result = cudaMalloc( &ptr, bytes );
 
             if (result != cudaSuccess) {
                 std::string errorMsg = "CUDA device memory allocation failed: " +
-                    std::string(cudaGetErrorString(result)) +
-                    " (size: " + std::to_string(bytes) + " bytes)" +
-                    " (device: " + std::to_string(device_id_) + ")";
-                throw CudaBadAlloc(errorMsg);
+                    std::string( cudaGetErrorString( result ) ) +
+                    " (size: " + std::to_string( bytes ) + " bytes)" +
+                    " (device: " + std::to_string( device_id_ ) + ")";
+                throw CudaBadAlloc( errorMsg );
             }
 
             return ptr;
@@ -118,7 +119,8 @@ namespace Mila::Dnn::Compute
             if (!ptr) return;
 
             assert(ptr != nullptr);
-            makeCurrent();
+            
+            Cuda::setCurrentDevice( device_id_ );
 
             // Check for any previous CUDA errors before deallocation
             cudaCheckLastError(std::source_location::current());
@@ -152,40 +154,5 @@ namespace Mila::Dnn::Compute
 
     private:
         int device_id_;
-
-        /**
-         * @brief Activates this CUDA device in the current thread.
-         *
-         * Sets the CUDA device for subsequent CUDA operations using
-         * cudaSetDevice(). Uses thread-local caching to avoid redundant
-         * device switches.
-         *
-         * @throws std::runtime_error If cudaSetDevice() fails
-         */
-        void makeCurrent() {
-            static thread_local int current_device = -1;
-            if (current_device != device_id_) {
-                cudaError_t error = cudaSetDevice( device_id_ );
-                if (error != cudaSuccess) {
-                    throw std::runtime_error(
-                        "Failed to set CUDA device " +
-                        std::to_string( device_id_ ) + ": " +
-                        cudaGetErrorString( error )
-                    );
-                }
-                current_device = device_id_;
-            }
-        }
     };
-
-    /**
-     * @brief Alias for CudaDeviceMemoryResource that represents device-accessible memory.
-     *
-     * This alias provides a semantic name that describes the memory's accessibility
-     * characteristics rather than its implementation details. Use DeviceMemoryResource
-     * when you need memory that can be accessed by CUDA device code and operations.
-     *
-     * @see CudaDeviceMemoryResource
-     */
-    export using DeviceMemoryResource = CudaDeviceMemoryResource;
 }

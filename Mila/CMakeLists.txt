@@ -152,13 +152,12 @@ PUBLIC
         #---------------------------------------------------------------
         # Dnn / Compute / Devices (general)
         #---------------------------------------------------------------
-        "Src/Dnn/Compute/Devices/DeviceType.ixx"
         "Src/Dnn/Compute/Registry/DeviceRegistry.ixx"
         "Src/Dnn/Compute/Registry/DeviceRegistrar.ixx"
         "Src/Dnn/Compute/Registry/DeviceRegistryHelpers.ixx"
-        "Src/Dnn/Compute/Devices/DeviceContext.ixx"
-        "Src/Dnn/Compute/Devices/DeviceContextHelpers.ixx"
-        "Src/Dnn/Compute/Devices/DeviceContextFactory.ixx"
+        "Src/Dnn/Compute/DeviceContext.ixx"
+        "Src/Dnn/Compute/DeviceContextHelpers.ixx"
+        
         "Src/Dnn/Compute/Registry/DevicePlugin.ixx"
 
         #---------------------------------------------------------------
@@ -306,7 +305,7 @@ PUBLIC
         # WIP / Attributes
         #"Src/Dnn/Modules/Layers/LinearAttributes.ixx"
         #"Src/Dnn/Common/Attributes.ixx"
-  )
+   "Src/Dnn/Compute/DeviceType.ixx")
 
 target_link_libraries(Mila PRIVATE 
     miniz

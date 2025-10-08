@@ -253,7 +253,7 @@ namespace Mila::Dnn
         std::string toString() const override {
             std::ostringstream oss;
             oss << "--------------------" << std::endl;
-            oss << "Linear: " << this->getName() << std::endl;
+            oss << "Linear: " << this->getDeviceName() << std::endl;
             oss << "Input features: " << config_.getInputFeatures();
             oss << ", Output features: " << config_.getOutputFeatures() << std::endl;
             oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
@@ -335,7 +335,7 @@ namespace Mila::Dnn
 
             weight_ = std::make_shared<Tensor<TDataType, MR>>(
                 std::vector<size_t>{output_features, input_features} );
-            weight_->setName( this->getName() + ".weight" );
+            weight_->setName( this->getDeviceName() + ".weight" );
 
             // REVIEW: Set inputs 
             //attributes_.inputs[ LinearAttributes::input_names::X ] = x;
@@ -347,7 +347,7 @@ namespace Mila::Dnn
             if ( hasBias() ) {
                 bias_ = std::make_shared<Tensor<TDataType, MR>>(
                     std::vector<size_t>{output_features} );
-                bias_->setName( this->getName() + ".bias" );
+                bias_->setName( this->getDeviceName() + ".bias" );
             }
 
             parameters_.emplace_back( weight_ );
@@ -373,13 +373,13 @@ namespace Mila::Dnn
 
             auto weight_grad = std::make_shared<Tensor<TDataType, MR>>(
                 std::vector<size_t>{output_features, input_features} );
-            weight_grad->setName( this->getName() + ".weight_grad" );
+            weight_grad->setName( this->getDeviceName() + ".weight_grad" );
             parameter_grads_.push_back( weight_grad );
 
             if ( hasBias() ) {
                 auto bias_grad = std::make_shared<Tensor<TDataType, MR>>(
                     std::vector<size_t>{output_features} );
-                bias_grad->setName( this->getName() + ".bias_grad" );
+                bias_grad->setName( this->getDeviceName() + ".bias_grad" );
                 parameter_grads_.emplace_back( bias_grad );
             }
         }

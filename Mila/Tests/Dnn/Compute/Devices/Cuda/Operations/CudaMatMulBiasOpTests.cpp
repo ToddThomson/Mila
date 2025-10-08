@@ -146,7 +146,7 @@ namespace Operations::Tests
      * @brief Test name property of CudaFullyConnectedOp
      */
     TEST_F( CudaFullyConnectedOpTests, Name ) {
-        EXPECT_EQ( cuda_fc_op_->getName(), "Cuda::FullyConnectedOp" );
+        EXPECT_EQ( cuda_fc_op_->getDeviceName(), "Cuda::FullyConnectedOp" );
     }
 
     /**

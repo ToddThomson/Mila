@@ -8,7 +8,7 @@ namespace Dnn::Compute::Devices::Tests
     using namespace Mila::Dnn::Compute;
 
     TEST( DeviceHelpersTests, ListDevices ) {
-        auto gpu_device_count = getDeviceCount();
+        auto gpu_device_count = Cuda::getDeviceCount();
 		auto cpu_device_count = 1;
 
         int expected_device_count = cpu_device_count + gpu_device_count;

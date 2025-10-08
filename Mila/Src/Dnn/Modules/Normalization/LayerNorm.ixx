@@ -241,7 +241,7 @@ namespace Mila::Dnn
         std::string toString() const override {
             std::ostringstream oss;
             oss << "--------------------" << std::endl;
-            oss << "LayerNorm: " << this->getName() << std::endl;
+            oss << "LayerNorm: " << this->getDeviceName() << std::endl;
             oss << "Normalization Axis: " << config_.getAxis() << std::endl;
 
             const auto& input_shape = config_.getInputShape();
@@ -336,21 +336,21 @@ namespace Mila::Dnn
 
             weight_ = std::make_shared<Tensor<TOutput, MR>>(
                 std::vector<size_t>{channels}, static_cast<TInput>(1.0f) );
-            weight_->setName( this->getName() + ".weight" );
+            weight_->setName( this->getDeviceName() + ".weight" );
 
             if ( config_.hasBias() ) {
                 bias_ = std::make_shared<Tensor<TOutput, MR>>(
                     std::vector<size_t>{channels} );
-                bias_->setName( this->getName() + ".bias" );
+                bias_->setName( this->getDeviceName() + ".bias" );
             }
 
             mean_ = std::make_shared<Tensor<TOutput, MR>>(
                 std::vector<size_t>{batch_size, sequence_length} );
-            mean_->setName( this->getName() + ".mean" );
+            mean_->setName( this->getDeviceName() + ".mean" );
 
             rstd_ = std::make_shared<Tensor<TOutput, MR>>(
                 std::vector<size_t>{batch_size, sequence_length} );
-            rstd_->setName( this->getName() + ".rstd" );
+            rstd_->setName( this->getDeviceName() + ".rstd" );
 
             parameters_.emplace_back( weight_ );
             this->parameter_map_[ "weight" ] = weight_;

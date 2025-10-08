@@ -30,6 +30,7 @@ import Compute.CudaDeviceContext;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaPinnedMemoryResource;
 import Compute.CudaManagedMemoryResource;
+import Cuda.Helpers;
 import Cuda.Error;
 
 namespace Mila::Dnn
@@ -67,7 +68,7 @@ namespace Mila::Dnn
             static void copy(
                 const Tensor<TSrcDataType, TSrcMemoryResource>& src,
                 Tensor<TDstDataType, TDstMemoryResource>& dst,
-                std::shared_ptr<ExecutionContext> exec_context = nullptr )
+                std::shared_ptr<ExecutionContext<DeviceType::Cuda>> exec_context = nullptr )
         {
             // Validate tensor compatibility
             if (src.shape() != dst.shape()) {
@@ -232,7 +233,7 @@ namespace Mila::Dnn
                 return;
             }
 
-            exec_ctx->getDeviceContext()->makeCurrent();
+            Cuda::setCurrentDevice( exec_ctx->device_id_ );
 
             using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::native_type;
 
@@ -259,7 +260,7 @@ namespace Mila::Dnn
                 return;
             }
 
-            exec_ctx->getDeviceContext()->makeCurrent();
+            Cuda::setCurrentDevice( exec_ctx->getDeviceId() );
 
             constexpr size_t element_size = TensorDataTypeTraits<TDataType>::size_in_bytes;
             const size_t bytes = count * element_size;
@@ -284,7 +285,7 @@ namespace Mila::Dnn
                 return;
             }
 
-            exec_ctx->getDeviceContext()->makeCurrent();
+            Cuda::setCurrentDevice( exec_ctx->getDeviceId() );
 
             constexpr size_t element_size = TensorDataTypeTraits<TDataType>::size_in_bytes;
             const size_t bytes = count * element_size;
@@ -329,7 +330,7 @@ namespace Mila::Dnn
                 return;
             }
 
-            exec_ctx->getDeviceContext()->makeCurrent();
+            Cuda::setCurrentDevice( exec_ctx->getDeviceId() );
 
             using SrcType = typename Cuda::TensorDataTypeMap<TSrcDataType>::native_type;
             using DstType = typename Cuda::TensorDataTypeMap<TDstDataType>::native_type;
@@ -356,7 +357,7 @@ namespace Mila::Dnn
                 return;
             }
 
-            exec_ctx->getDeviceContext()->makeCurrent();
+            Cuda::setCurrentDevice( exec_ctx->getDeviceId() );
 
             if constexpr (TSrcDataType == TDstDataType) {
                 copyHostToDevice<TSrcDataType>( src_data, dst_data, count, exec_ctx );
@@ -412,7 +413,7 @@ namespace Mila::Dnn
                 return;
             }
 
-            exec_ctx->getDeviceContext()->makeCurrent();
+            Cuda::setCurrentDevice( exec_ctx->getDeviceId() );
 
             if constexpr (TSrcDataType == TDstDataType) {
                 copyDeviceToHost<TSrcDataType>( src_data, dst_data, count, exec_ctx );

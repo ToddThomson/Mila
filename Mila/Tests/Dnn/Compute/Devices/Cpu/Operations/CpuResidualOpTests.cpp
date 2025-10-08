@@ -67,7 +67,7 @@ namespace Operations::Tests
      * @brief Test name property of CpuResidualOp
      */
     TEST_F( CpuResidualOpTests, Name ) {
-        EXPECT_EQ( cpu_residual_op_->getName(), "Cpu::ResidualOp" );
+        EXPECT_EQ( cpu_residual_op_->getDeviceName(), "Cpu::ResidualOp" );
     }
 
     /**

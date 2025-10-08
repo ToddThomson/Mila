@@ -135,24 +135,18 @@ namespace Mila::Dnn::Compute
         using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TDataType, TDataType>;
 
         /**
-         * @brief Constructs a new CUDA Linear operation with the default device context.
+         * @brief Constructs a new CUDA Linear operation.
          *
-         * Initializes the operation with a CUDA device context (defaults to CUDA:0).
+         * Initializes the operation with an execution context. If no context is provided,
+         * a default CUDA execution context will be created (CUDA:0).
          *
          * @param config Configuration parameters for the linear operation.
-         */
-        CudaLinearOp( const LinearConfig& config )
-            : UnaryOperationBase( OperationType::LinearOp ), config_( config ) {}
-
-        /**
-         * @brief Constructs a new CUDA Linear operation with a specific device context.
-         *
-         * @param context The device context to use for this operation.
-         * @param config Configuration parameters for the linear operation.
+         * @param context The execution context to use for this operation (optional).
          * @throws std::runtime_error If the context is not for a CUDA device.
          */
-        CudaLinearOp( std::shared_ptr<DeviceContext> context, const LinearConfig& config )
-            : UnaryOperationBase( OperationType::LinearOp, context ), config_( config ) {}
+        CudaLinearOp( const LinearConfig& config, std::shared_ptr<ExecutionContext> context = nullptr )
+            : UnaryOperationBase( OperationType::LinearOp, context ), config_( config ) {
+        }
 
         /**
          * @brief Performs the forward pass of the Linear operation on CUDA.
@@ -328,13 +322,12 @@ namespace Mila::Dnn::Compute
             const std::string opName = "Cuda::LinearOp";
 
             // Helper template function to register Linear ops for a specific data type
-            auto registerForType = [ & ]<typename TDataType>() {
+            auto registerForType = [&]<typename TDataType>() {
                 OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TDataType, TDataType>(
                     opName,
-                    []( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TDataType>> {
+                    []( std::shared_ptr<ExecutionContext> context, const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TDataType>> {
                         const auto& linearConfig = static_cast<const LinearConfig&>(config);
-                        return context ? std::make_shared<CudaLinearOp<TDataType>>( context, linearConfig )
-                            : std::make_shared<CudaLinearOp<TDataType>>( linearConfig );
+                        return std::make_shared<CudaLinearOp<TDataType>>( linearConfig, context );
                     }
                 );
             };

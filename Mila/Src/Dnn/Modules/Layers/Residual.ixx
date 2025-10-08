@@ -199,7 +199,7 @@ namespace Mila::Dnn
         std::string toString() const override {
             std::ostringstream oss;
             oss << "--------------------" << std::endl;
-            oss << "Residual: " << this->getName() << std::endl;
+            oss << "Residual: " << this->getDeviceName() << std::endl;
 
             return oss.str();
         }

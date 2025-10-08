@@ -42,7 +42,7 @@ namespace Mila::Benchmark
             BlockModuleBenchmark( std::shared_ptr<TBlockModule> blockModule,
                 std::vector<size_t> inputShape,
                 std::shared_ptr<DeviceContext> context )
-                : inputShape_( inputShape ), moduleName_( blockModule->getName() ) {
+                : inputShape_( inputShape ), moduleName_( blockModule->getDeviceName() ) {
 
                 this->deviceContext_ = context;
 

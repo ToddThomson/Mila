@@ -92,7 +92,7 @@ namespace Dnn::Compute::Devices::Tests
                 auto device = registry.createDevice( deviceName );
                 EXPECT_NE( device, nullptr );
                 EXPECT_EQ( device->getDeviceType(), DeviceType::Cuda );
-                EXPECT_EQ( device->getName(), deviceName );
+                EXPECT_EQ( device->getDeviceName(), deviceName );
             }
         }
         else {
@@ -145,7 +145,7 @@ namespace Dnn::Compute::Devices::Tests
         EXPECT_NE( device1.get(), device2.get() );
 
         EXPECT_EQ( device1->getDeviceType(), device2->getDeviceType() );
-        EXPECT_EQ( device1->getName(), device2->getName() );
+        EXPECT_EQ( device1->getDeviceName(), device2->getDeviceName() );
 
         auto cudaDevice1 = std::dynamic_pointer_cast<CudaDevice>(device1);
         auto cudaDevice2 = std::dynamic_pointer_cast<CudaDevice>(device2);
@@ -293,7 +293,7 @@ namespace Dnn::Compute::Devices::Tests
 
             auto device = registry.createDevice( expectedName );
             EXPECT_NE( device, nullptr );
-            EXPECT_EQ( device->getName(), expectedName );
+            EXPECT_EQ( device->getDeviceName(), expectedName );
         }
     }
 

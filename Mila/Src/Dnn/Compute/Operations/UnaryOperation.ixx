@@ -306,7 +306,7 @@ namespace Mila::Dnn::Compute
                 const Parameters& parameters,
                 std::vector<std::shared_ptr<TensorType>>& parameter_grads ) const {
                 throw std::runtime_error(
-                    "Operation '" + this->getName() + "' does not support simplified backward pass." );
+                    "Operation '" + this->getDeviceName() + "' does not support simplified backward pass." );
             }
 
             /**
@@ -367,7 +367,7 @@ namespace Mila::Dnn::Compute
                 TensorType& input_grad,
                 const OutputState& output_state ) const {
                 throw std::runtime_error(
-                    "Operation '" + this->getName() + "' does not support comprehensive backward pass." );
+                    "Operation '" + this->getDeviceName() + "' does not support comprehensive backward pass." );
             }
 
             // ====================================================================
@@ -465,7 +465,7 @@ namespace Mila::Dnn::Compute
              * @return String containing comprehensive operation configuration details
              */
             virtual std::string getOperationInfo() const {
-                return this->getName() +
+                return this->getDeviceName() +
                     " (DataType: " + std::string( this->getDataTypeName() ) +
                     ", Device: " + (TDeviceType == DeviceType::Cuda ? "CUDA" : "CPU") +
                     ", Memory: " + (MR::is_host_accessible ? "Host" : "Device") + ")";

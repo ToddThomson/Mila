@@ -160,7 +160,7 @@ namespace Compute::Cpu::Operations::Tests
      */
     TEST_F( CpuLayerNormOpTests, Name ) {
         auto op = createLayerNormOp( small_feature_dim_ );
-        EXPECT_EQ( op->getName(), "Cpu::LayerNormOp" );
+        EXPECT_EQ( op->getDeviceName(), "Cpu::LayerNormOp" );
     }
 
     /**

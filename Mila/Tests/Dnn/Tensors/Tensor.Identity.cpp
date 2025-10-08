@@ -8,23 +8,23 @@ namespace Dnn::Tensors::Tests
 {
     using namespace Mila::Dnn;
 
-    class TensorIdentityMetadataTest : public testing::Test {
+    class TensorIdentityTest : public testing::Test {
     protected:
-        TensorIdentityMetadataTest() {}
+        TensorIdentityTest() {}
     };
 
     // ====================================================================
     // Unique Identifier (getUId) Tests
     // ====================================================================
 
-    TEST( TensorIdentityMetadataTest, GetUID_UniqueGeneration ) {
+    TEST( TensorIdentityTest, GetUID_UniqueGeneration ) {
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor1( "CPU", std::vector<size_t>{} );
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor2( "CPU", std::vector<size_t>{} );
 
         EXPECT_NE( tensor1.getUId(), tensor2.getUId() );
     }
 
-    TEST( TensorIdentityMetadataTest, GetUID_WithShape ) {
+    TEST( TensorIdentityTest, GetUID_WithShape ) {
         std::vector<size_t> shape = { 2, 3 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor1( "CPU", shape );
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor2( "CPU", shape );
@@ -32,7 +32,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_NE( tensor1.getUId(), tensor2.getUId() );
     }
 
-    TEST( TensorIdentityMetadataTest, GetUID_DifferentMemoryTypes ) {
+    TEST( TensorIdentityTest, GetUID_DifferentMemoryTypes ) {
         std::vector<size_t> shape = { 2, 3 };
 
         // Only exercise host memory in unit tests to avoid device context requirements.
@@ -42,7 +42,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_NE( host_tensor.getUId(), another_host_tensor.getUId() );
     }
 
-    TEST( TensorIdentityMetadataTest, GetUID_DifferentDataTypes ) {
+    TEST( TensorIdentityTest, GetUID_DifferentDataTypes ) {
         std::vector<size_t> shape = { 2, 3 };
 
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> float_tensor( "CPU", shape );
@@ -58,7 +58,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_NE( int_tensor.getUId(), uint16_tensor.getUId() );
     }
 
-    TEST( TensorIdentityMetadataTest, GetUID_Format ) {
+    TEST( TensorIdentityTest, GetUID_Format ) {
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( "CPU", std::vector<size_t>{} );
         std::string uid = tensor.getUId();
 
@@ -73,7 +73,7 @@ namespace Dnn::Tensors::Tests
         }
     }
 
-    TEST( TensorIdentityMetadataTest, GetUID_PreservedInMove ) {
+    TEST( TensorIdentityTest, GetUID_PreservedInMove ) {
         std::vector<size_t> shape = { 2, 3 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> original( "CPU", shape );
         std::string original_uid = original.getUId();
@@ -82,7 +82,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( moved.getUId(), original_uid );
     }
 
-    TEST( TensorIdentityMetadataTest, GetUID_PreservedInMoveAssignment ) {
+    TEST( TensorIdentityTest, GetUID_PreservedInMoveAssignment ) {
         std::vector<size_t> shape = { 2, 3 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> original( "CPU", shape );
         std::string original_uid = original.getUId();
@@ -92,7 +92,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( moved.getUId(), original_uid );
     }
 
-    TEST( TensorIdentityMetadataTest, GetUID_NewInClone ) {
+    TEST( TensorIdentityTest, GetUID_NewInClone ) {
         std::vector<size_t> shape = { 2, 3 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> original( "CPU", shape );
 
@@ -104,18 +104,18 @@ namespace Dnn::Tensors::Tests
     // Tensor Name (getName/setName) Tests
     // ====================================================================
 
-    TEST( TensorIdentityMetadataTest, GetName_DefaultEmpty ) {
+    TEST( TensorIdentityTest, GetName_DefaultEmpty ) {
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( "CPU", std::vector<size_t>{} );
         EXPECT_TRUE( tensor.getName().empty() );
     }
 
-    TEST( TensorIdentityMetadataTest, SetName_BasicFunctionality ) {
+    TEST( TensorIdentityTest, SetName_BasicFunctionality ) {
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( "CPU", std::vector<size_t>{} );
         tensor.setName( "test_tensor" );
         EXPECT_EQ( tensor.getName(), "test_tensor" );
     }
 
-    TEST( TensorIdentityMetadataTest, SetName_OverwriteExisting ) {
+    TEST( TensorIdentityTest, SetName_OverwriteExisting ) {
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( "CPU", std::vector<size_t>{} );
         tensor.setName( "first_name" );
         EXPECT_EQ( tensor.getName(), "first_name" );
@@ -124,12 +124,12 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( tensor.getName(), "second_name" );
     }
 
-    TEST( TensorIdentityMetadataTest, SetName_EmptyStringThrows ) {
+    TEST( TensorIdentityTest, SetName_EmptyStringThrows ) {
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( "CPU", std::vector<size_t>{} );
         EXPECT_THROW( tensor.setName( "" ), std::invalid_argument );
     }
 
-    TEST( TensorIdentityMetadataTest, SetName_WhitespaceOnly ) {
+    TEST( TensorIdentityTest, SetName_WhitespaceOnly ) {
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( "CPU", std::vector<size_t>{} );
 
         EXPECT_NO_THROW( tensor.setName( " " ) );
@@ -139,7 +139,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( tensor.getName(), "  \t  " );
     }
 
-    TEST( TensorIdentityMetadataTest, SetName_SpecialCharacters ) {
+    TEST( TensorIdentityTest, SetName_SpecialCharacters ) {
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( "CPU", std::vector<size_t>{} );
 
         std::string special_name = "tensor_123!@#$%^&*()_+-=[]{}|;':\",./<>?";
@@ -147,7 +147,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( tensor.getName(), special_name );
     }
 
-    TEST( TensorIdentityMetadataTest, SetName_LongName ) {
+    TEST( TensorIdentityTest, SetName_LongName ) {
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( "CPU", std::vector<size_t>{} );
 
         std::string long_name( 1000, 'a' );
@@ -155,7 +155,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( tensor.getName(), long_name );
     }
 
-    TEST( TensorIdentityMetadataTest, SetName_Unicode ) {
+    TEST( TensorIdentityTest, SetName_Unicode ) {
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( "CPU", std::vector<size_t>{} );
 
         std::string unicode_name = "??????_??_????";
@@ -163,7 +163,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( tensor.getName(), unicode_name );
     }
 
-    TEST( TensorIdentityMetadataTest, Name_PreservedInMove ) {
+    TEST( TensorIdentityTest, Name_PreservedInMove ) {
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> original( "CPU", std::vector<size_t>{} );
         original.setName( "movable_tensor" );
 
@@ -171,7 +171,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( moved.getName(), "movable_tensor" );
     }
 
-    TEST( TensorIdentityMetadataTest, Name_PreservedInMoveAssignment ) {
+    TEST( TensorIdentityTest, Name_PreservedInMoveAssignment ) {
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> original( "CPU", std::vector<size_t>{} );
         original.setName( "assignable_tensor" );
 
@@ -180,7 +180,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( target.getName(), "assignable_tensor" );
     }
 
-    TEST( TensorIdentityMetadataTest, Name_PreservedInClone ) {
+    TEST( TensorIdentityTest, Name_PreservedInClone ) {
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> original( "CPU", std::vector<size_t>{} );
         original.setName( "cloneable_tensor" );
 
@@ -192,7 +192,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( cloned.getName(), "modified_clone" );
     }
 
-    TEST( TensorIdentityMetadataTest, Name_PreservedInShapeOperations ) {
+    TEST( TensorIdentityTest, Name_PreservedInShapeOperations ) {
         std::vector<size_t> shape = { 2, 3, 4 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( "CPU", shape );
         tensor.setName( "reshapeable_tensor" );
@@ -207,7 +207,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( flattened.getName(), "reshapeable_tensor" );
     }
 
-    TEST( TensorIdentityMetadataTest, Name_PreservedInDataOperations ) {
+    TEST( TensorIdentityTest, Name_PreservedInDataOperations ) {
         std::vector<size_t> shape = { 2, 3 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( "CPU", shape );
         tensor.setName( "fillable_tensor" );
@@ -225,7 +225,7 @@ namespace Dnn::Tensors::Tests
     // Cross-Memory Resource Identity Tests (simplified for CPU-only tests)
     // ====================================================================
 
-    TEST( TensorIdentityMetadataTest, CrossMemoryAssignment_CreatesNewTensor ) {
+    TEST( TensorIdentityTest, CrossMemoryAssignment_CreatesNewTensor ) {
         std::vector<size_t> shape = { 2, 3 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> host_tensor( "CPU", shape );
         host_tensor.setName( "host_source" );
@@ -240,7 +240,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( new_tensor.getName(), "host_source" );
     }
 
-    TEST( TensorIdentityMetadataTest, CrossMemoryMoveAssignment_PreservesTargetUID ) {
+    TEST( TensorIdentityTest, CrossMemoryMoveAssignment_PreservesTargetUID ) {
         std::vector<size_t> shape = { 2, 3 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> host_tensor( "CPU", shape );
         host_tensor.setName( "host_source" );
@@ -259,7 +259,7 @@ namespace Dnn::Tensors::Tests
     // Identity Consistency Tests
     // ====================================================================
 
-    TEST( TensorIdentityMetadataTest, Identity_ConsistencyAfterOperations ) {
+    TEST( TensorIdentityTest, Identity_ConsistencyAfterOperations ) {
         std::vector<size_t> shape = { 2, 3 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( "CPU", shape );
         tensor.setName( "consistent_tensor" );
@@ -284,7 +284,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( tensor.getName(), "consistent_tensor" );
     }
 
-    TEST( TensorIdentityMetadataTest, Identity_IndependentAfterClone ) {
+    TEST( TensorIdentityTest, Identity_IndependentAfterClone ) {
         std::vector<size_t> shape = { 2, 3 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> original( "CPU", shape );
         original.setName( "original_tensor" );
@@ -304,7 +304,7 @@ namespace Dnn::Tensors::Tests
     // Deleted Operations Tests
     // ====================================================================
 
-    TEST( TensorIdentityMetadataTest, CopyOperationsAreDeleted ) {
+    TEST( TensorIdentityTest, CopyOperationsAreDeleted ) {
         // These operations should not compile with move-only tensors
         // Uncomment to verify compilation errors:
 
@@ -321,7 +321,7 @@ namespace Dnn::Tensors::Tests
     // Edge Cases and Error Conditions
     // ====================================================================
 
-    TEST( TensorIdentityMetadataTest, Name_EmptyTensorOperations ) {
+    TEST( TensorIdentityTest, Name_EmptyTensorOperations ) {
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> empty_tensor( "CPU", std::vector<size_t>{} );
         empty_tensor.setName( "empty_tensor" );
 
@@ -333,7 +333,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_NE( cloned_empty.getUId(), empty_tensor.getUId() );
     }
 
-    TEST( TensorIdentityMetadataTest, Name_SingleElementTensor ) {
+    TEST( TensorIdentityTest, Name_SingleElementTensor ) {
         std::vector<size_t> shape = { 1 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> single_tensor( "CPU", shape );
         single_tensor.setName( "single_element" );
@@ -345,7 +345,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( single_tensor.getName(), "single_element" );
     }
 
-    TEST( TensorIdentityMetadataTest, UID_MonotonicIncreasing ) {
+    TEST( TensorIdentityTest, UID_MonotonicIncreasing ) {
         std::vector<size_t> tensor_ids;
 
         for (int i = 0; i < 10; ++i) {
@@ -365,7 +365,7 @@ namespace Dnn::Tensors::Tests
     // Thread Safety Tests (Basic)
     // ====================================================================
 
-    TEST( TensorIdentityMetadataTest, UID_ThreadSafety_Sequential ) {
+    TEST( TensorIdentityTest, UID_ThreadSafety_Sequential ) {
         std::vector<std::string> uids;
 
         for (int i = 0; i < 100; ++i) {
@@ -384,7 +384,7 @@ namespace Dnn::Tensors::Tests
     // Type Alias Identity Tests
     // ====================================================================
 
-    TEST( TensorIdentityMetadataTest, TypeAliases_UniqueIdentities ) {
+    TEST( TensorIdentityTest, TypeAliases_UniqueIdentities ) {
         std::vector<size_t> shape = { 2, 3 };
 
         HostTensor<TensorDataType::FP32> host_tensor( "CPU", shape );

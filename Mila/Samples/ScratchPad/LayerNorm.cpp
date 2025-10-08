@@ -18,7 +18,7 @@
 //        }
 //        std::cout << std::endl;
 //
-//        std::cout << "The current Compute Device is: " << Mila::getDevice()->getName() << std::endl;
+//        std::cout << "The current Compute Device is: " << Mila::getDevice()->getDeviceName() << std::endl;
 //
 //        std::unique_ptr<LayerNorm<float, float, Compute::HostMemoryResource> cpu_layernorm{ nullptr };
 //        //std::unique_ptr<Modules::LayerNorm<float, Compute::CudaDeviceMemoryResource>> cuda_layernorm{ nullptr };

@@ -1,14 +1,10 @@
 /**
  * @file ExecutionContext.ixx
- * @brief Abstract execution context framework for compute operations and stream management.
+ * @brief Templated execution context framework for compute operations and stream management.
  *
  * ExecutionContext provides the interface for managing execution streams, synchronization,
- * and compute library handles across different hardware platforms. This is separate from
- * DeviceContext, which handles device identification and activation for memory allocation.
- *
- * Responsibilities:
- * - DeviceContext: Device selection and activation (used for memory allocation)
- * - ExecutionContext: Stream management and synchronization (used for compute operations)
+ * and compute library handles across different hardware platforms. The template parameter
+ * provides compile-time device type safety and eliminates runtime dispatch overhead.
  */
 
 module;
@@ -17,35 +13,37 @@ module;
 
 export module Compute.ExecutionContext;
 
-import Compute.DeviceContext;
+import Compute.ComputeDevice;
 import Compute.DeviceType;
 
 namespace Mila::Dnn::Compute
 {
     /**
-     * @brief Abstract base class for execution-specific contexts.
+     * @brief Templated execution context for device-specific operations.
      *
      * ExecutionContext manages the resources needed for executing operations:
      * streams for asynchronous execution, library handles (cuBLAS, cuDNN),
-     * and synchronization primitives. Multiple ExecutionContexts can share
-     * the same DeviceContext, allowing different modules/graphs to have
-     * independent execution streams on the same device.
+     * and synchronization primitives. The template parameter provides compile-time
+     * device type checking and enables device-specific optimizations.
      *
      * Design rationale:
-     * - Tensors hold device_name strings and use DeviceContext transiently for allocation
-     * - Modules own ExecutionContexts and pass them to TensorOps for compute operations
-     * - This separation ensures proper stream management in multi-module scenarios
+     * - Template parameter eliminates runtime type checking overhead
+     * - Each device type has a specialized implementation
+     * - Modules are templated on device type, ensuring type safety throughout
+     * - No virtual function overhead for device-specific operations
+     *
+     * @tparam TDeviceType The device type (Cpu, Cuda, Metal, etc.)
      */
-    export class ExecutionContext {
+    export template<DeviceType TDeviceType>
+    class ExecutionContext {
     public:
         /**
-         * @brief Virtual destructor for proper cleanup of derived classes.
+         * @brief Destructor for proper cleanup of derived classes.
          */
-        virtual ~ExecutionContext() = default;
+        ~ExecutionContext() = default;
 
         /**
          * @brief Copy constructor (deleted).
-         * @note ExecutionContext is not copyable due to unique resource ownership.
          */
         ExecutionContext( const ExecutionContext& ) = delete;
 
@@ -65,39 +63,29 @@ namespace Mila::Dnn::Compute
         ExecutionContext& operator=( ExecutionContext&& other ) noexcept = default;
 
         // ====================================================================
-        // Pure Virtual Interface - Must be implemented by derived classes
+        // Interface - Implemented by specializations
         // ====================================================================
 
         /**
          * @brief Synchronizes execution, waiting for all queued operations to complete.
          *
          * Blocks the calling thread until all operations submitted to this execution
-         * context have completed. For CUDA, this synchronizes the associated stream.
-         * For CPU, this is typically a no-op.
+         * context have completed. Implementation is device-specific.
          */
-        virtual void synchronize() = 0;
+        void synchronize();
 
         /**
-         * @brief Gets the underlying device context.
-         *
-         * Returns the DeviceContext that this execution context is bound to.
-         * The device context is used to query device properties and ensure
-         * operations are executed on the correct device.
-         *
-         * @return Shared pointer to the associated device context
+         * @brief Gets the underlying device.
+         * @return Shared pointer to the associated device
          */
-        virtual std::shared_ptr<DeviceContext> getDeviceContext() const = 0;
-
-        // ====================================================================
-        // Common Interface with Default Implementations
-        // ====================================================================
+        std::shared_ptr<ComputeDevice> getDevice() const;
 
         /**
          * @brief Gets the device type for this execution context.
-         * @return DeviceType enumeration value
+         * @return DeviceType enumeration value (known at compile time)
          */
-        DeviceType getDeviceType() const {
-            return getDeviceContext()->getDeviceType();
+        static constexpr DeviceType getDeviceType() {
+            return TDeviceType;
         }
 
         /**
@@ -105,7 +93,7 @@ namespace Mila::Dnn::Compute
          * @return String identifier for the device
          */
         std::string getDeviceName() const {
-            return getDeviceContext()->getDeviceName();
+            return getDevice()->getDeviceName();
         }
 
         /**
@@ -113,58 +101,34 @@ namespace Mila::Dnn::Compute
          * @return Device ID or -1 if not applicable
          */
         int getDeviceId() const {
-            return getDeviceContext()->getDeviceId();
+            return getDevice()->getDeviceId();
         }
 
         /**
          * @brief Checks if this execution context is for a CUDA device.
          */
-        bool isCudaDevice() const {
-            return getDeviceType() == DeviceType::Cuda;
+        static constexpr bool isCudaDevice() {
+            return TDeviceType == DeviceType::Cuda;
         }
 
         /**
          * @brief Checks if this execution context is for a CPU device.
          */
-        bool isCpuDevice() const {
-            return getDeviceType() == DeviceType::Cpu;
+        static constexpr bool isCpuDevice() {
+            return TDeviceType == DeviceType::Cpu;
         }
-
-        /**
-         * @brief Factory method to create execution context from device context.
-         *
-         * Creates an appropriate execution context implementation based on the
-         * device type. Each execution context owns its own stream and library
-         * handles, allowing independent execution even when sharing a device.
-         *
-         * @param device_context Device context to bind this execution context to
-         * @return Shared pointer to appropriate execution context implementation
-         * @throws std::runtime_error If device type is unsupported or creation fails
-         *
-         * @note Multiple execution contexts can share the same device context
-         * @note Each execution context has independent streams for asynchronous execution
-         */
-        static std::shared_ptr<ExecutionContext> create(
-            std::shared_ptr<DeviceContext> device_context
-        );
-
-        /**
-         * @brief Factory method to create execution context from device name.
-         *
-         * Convenience method that creates both device context and execution context
-         * from a device name string. Equivalent to:
-         * create(DeviceContext::create(device_name))
-         *
-         * @param device_name Device identifier string (e.g., "CPU", "CUDA:0")
-         * @return Shared pointer to appropriate execution context implementation
-         * @throws std::runtime_error If device name is invalid or creation fails
-         */
-        static std::shared_ptr<ExecutionContext> create( const std::string& device_name );
 
     protected:
         /**
-         * @brief Protected default constructor for derived classes.
+         * @brief Protected default constructor for specialized implementations.
          */
         ExecutionContext() = default;
     };
+
+    // ====================================================================
+    // Type Aliases for Common Device Types
+    // ====================================================================
+
+    export using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
+    export using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 }

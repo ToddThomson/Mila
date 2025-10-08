@@ -131,7 +131,7 @@ namespace Dnn::Compute::Devices::Cuda::Tests {
 
         ASSERT_NE( device, nullptr );
         EXPECT_EQ( device->getDeviceType(), DeviceType::Cuda );
-        EXPECT_EQ( device->getName(), valid_device_name_ );
+        EXPECT_EQ( device->getDeviceName(), valid_device_name_ );
 
         // Verify it's actually a CudaDevice
         auto cuda_device = std::dynamic_pointer_cast<CudaDevice>(device);
@@ -197,7 +197,7 @@ namespace Dnn::Compute::Devices::Cuda::Tests {
 
         // Device should still be valid due to shared ownership
         EXPECT_EQ( device->getDeviceType(), DeviceType::Cuda );
-        EXPECT_EQ( device->getName(), valid_device_name_ );
+        EXPECT_EQ( device->getDeviceName(), valid_device_name_ );
     }
 
     // ============================================================================
@@ -275,7 +275,7 @@ namespace Dnn::Compute::Devices::Cuda::Tests {
 
         // Both should be CUDA devices (separate instances from registry)
         EXPECT_EQ( device_from_registry->getDeviceType(), device_from_context->getDeviceType() );
-        EXPECT_EQ( device_from_registry->getName(), device_from_context->getName() );
+        EXPECT_EQ( device_from_registry->getDeviceName(), device_from_context->getDeviceName() );
     }
 
     // ============================================================================
@@ -303,8 +303,8 @@ namespace Dnn::Compute::Devices::Cuda::Tests {
         ASSERT_NE( device0, nullptr );
         ASSERT_NE( device1, nullptr );
 
-        EXPECT_EQ( device0->getName(), "CUDA:0" );
-        EXPECT_EQ( device1->getName(), "CUDA:1" );
+        EXPECT_EQ( device0->getDeviceName(), "CUDA:0" );
+        EXPECT_EQ( device1->getDeviceName(), "CUDA:1" );
     }
 
     TEST_F( CudaDeviceContextTest, MultiGpuComputeCapabilitiesDifferent ) {

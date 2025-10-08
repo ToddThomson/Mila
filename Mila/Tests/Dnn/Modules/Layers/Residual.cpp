@@ -165,7 +165,7 @@ namespace Modules::Tests
     // Common test function templates
     template<DeviceType TDeviceType, typename TInput = float, typename TOutput = TInput>
     void TestGetName( const ResidualTestData<TDeviceType, TInput, TOutput>& data, const std::string& expected_name ) {
-        EXPECT_EQ( data.residual_module->getName(), expected_name );
+        EXPECT_EQ( data.residual_module->getDeviceName(), expected_name );
     }
 
     template<DeviceType TDeviceType, typename TInput = float, typename TOutput = TInput>

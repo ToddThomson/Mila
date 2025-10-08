@@ -283,7 +283,7 @@ namespace Operations::Tests
      * @brief Test name property of CudaSoftmaxOp
      */
     TYPED_TEST( CudaSoftmaxOpPrecisionTests, Name ) {
-        EXPECT_EQ( this->cuda_softmax_op_->getName(), "Cuda::SoftmaxOp" );
+        EXPECT_EQ( this->cuda_softmax_op_->getDeviceName(), "Cuda::SoftmaxOp" );
     }
 
     /**
@@ -881,7 +881,7 @@ namespace Operations::Tests
      * @brief Test name property of CudaSoftmaxOp (legacy)
      */
     TEST_F( CudaSoftmaxOpTests, Name ) {
-        EXPECT_EQ( cuda_softmax_op_->getName(), "Cuda::SoftmaxOp" );
+        EXPECT_EQ( cuda_softmax_op_->getDeviceName(), "Cuda::SoftmaxOp" );
     }
 
     /**

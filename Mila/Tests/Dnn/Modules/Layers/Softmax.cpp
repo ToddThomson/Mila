@@ -207,7 +207,7 @@ namespace Modules::Tests
     // Common test function templates
     template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
     void TestGetName( const SoftmaxTestData<TDevice, TInput, TOutput>& data, const std::string& expected_name ) {
-        EXPECT_EQ( data.softmax_module->getName(), expected_name );
+        EXPECT_EQ( data.softmax_module->getDeviceName(), expected_name );
     }
 
     template<DeviceType TDevice, typename TInput, typename TOutput = TInput>

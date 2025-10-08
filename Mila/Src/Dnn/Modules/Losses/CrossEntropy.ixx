@@ -269,7 +269,7 @@ namespace Mila::Dnn
         std::string toString() const override {
             std::ostringstream oss;
             oss << "--------------------" << std::endl;
-            oss << "CrossEntropy: " << this->getName() << std::endl;
+            oss << "CrossEntropy: " << this->getDeviceName() << std::endl;
             oss << "Vocabulary Size: " << config_.getVocabSize() << std::endl;
 
             if ( config_.ignorePadding() ) {
@@ -335,7 +335,7 @@ namespace Mila::Dnn
         void initializeClassWeights( const std::vector<float>& weights ) {
             class_weights_ = std::make_shared<Tensor<TLogits, MR>>(
                 std::vector<size_t>{static_cast<size_t>(config_.getVocabSize())} );
-            class_weights_->setName( this->getName() + ".class_weights" );
+            class_weights_->setName( this->getDeviceName() + ".class_weights" );
 
             // Copy the weights into the tensor
             // This is a simplified placeholder - actual implementation would copy the data to device

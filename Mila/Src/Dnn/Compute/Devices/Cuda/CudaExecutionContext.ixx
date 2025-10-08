@@ -1,10 +1,6 @@
 /**
  * @file CudaExecutionContext.ixx
- * @brief CUDA-specific execution context implementation.
- *
- * Manages CUDA execution resources including streams and library handles (cuBLAS, cuDNN).
- * Separated from CudaDeviceContext to allow multiple independent execution streams
- * on the same device, enabling proper module isolation and stream management.
+ * @brief CUDA-specific execution context specialization.
  */
 
 module;
@@ -21,238 +17,240 @@ module;
 export module Compute.CudaExecutionContext;
 
 import Compute.ExecutionContext;
-import Compute.DeviceContext;
+import Compute.ComputeDevice;
+import Compute.CudaDevice;
 import Compute.DeviceType;
 import Cuda.Helpers;
 
 namespace Mila::Dnn::Compute
 {
     /**
-     * @brief CUDA-specific execution context implementation.
+     * @brief CUDA execution context specialization.
      *
-     * Manages CUDA execution resources that are independent per execution stream:
-     * - CUDA stream for asynchronous operations
-     * - cuBLAS handle bound to the stream
-     * - cuDNN handle bound to the stream (if enabled)
-     *
-     * Multiple CudaExecutionContexts can share the same DeviceContext (device),
-     * each with independent streams for concurrent execution or module isolation.
-     *
-     * Design rationale:
-     * - DeviceContext handles device selection (cudaSetDevice)
-     * - ExecutionContext handles stream management and library handles
-     * - Modules own ExecutionContexts to control their execution streams
+     * Manages CUDA execution resources including streams and library handles.
      */
-    export class CudaExecutionContext : public ExecutionContext {
-    public:
-        /**
-         * @brief Constructs CUDA execution context from device context.
-         *
-         * Creates a new CUDA stream and initializes library handles bound to that stream.
-         * Multiple execution contexts can share the same device context.
-         *
-         * @param device_context Device context for this execution context
-         * @throws std::invalid_argument If device_context is null or not a CUDA device
-         * @throws std::runtime_error If CUDA stream or handle creation fails
-         */
-        explicit CudaExecutionContext( std::shared_ptr<DeviceContext> device_context )
-            : device_context_( device_context ) {
+    export template<>
+        class ExecutionContext<DeviceType::Cuda> {
+        public:
+            /**
+             * @brief Constructs CUDA execution context for a specific device.
+             *
+             * @param device_id CUDA device ID (0-based)
+             * @throws std::invalid_argument If device_id is invalid
+             * @throws std::runtime_error If CUDA stream creation fails
+             */
+            explicit ExecutionContext( int device_id )
+                : device_( std::make_shared<CudaDevice>( device_id ) ),
+                device_id_( device_id ) {
 
-            if (!device_context_) {
-                throw std::invalid_argument( "Device context cannot be null" );
+                if (device_id_ < 0) {
+                    throw std::invalid_argument( "Device ID must be non-negative" );
+                }
+
+                initializeExecutionResources();
             }
 
-            if (!device_context_->isCudaDevice()) {
-                throw std::invalid_argument(
-                    "CudaExecutionContext requires CUDA device context"
-                );
-            }
+            /**
+             * @brief Constructs CUDA execution context from device.
+             *
+             * @param device CUDA device instance
+             * @throws std::invalid_argument If device is null or not CUDA
+             * @throws std::runtime_error If CUDA stream creation fails
+             */
+            explicit ExecutionContext( std::shared_ptr<ComputeDevice> device )
+                : device_( device ),
+                device_id_( device ? device->getDeviceId() : -1 ) {
 
-            device_id_ = device_context_->getDeviceId();
+                if (!device_) {
+                    throw std::invalid_argument( "Device cannot be null" );
+                }
 
-            initializeExecutionResources();
-        }
-
-        /**
-         * @brief Destructor with CUDA resource cleanup.
-         *
-         * Destroys CUDA stream and library handles in reverse order of creation.
-         * Ensures proper resource cleanup even in multi-GPU scenarios.
-         */
-        ~CudaExecutionContext() override {
-            releaseResources();
-        }
-
-        // ExecutionContext interface implementation
-
-        /**
-         * @brief Synchronizes the CUDA stream.
-         *
-         * Blocks until all operations submitted to this execution context's
-         * stream have completed. Does not affect other streams on the same device.
-         */
-        void synchronize() override {
-            if (stream_) {
-                setCurrentDevice( device_id_ );
-                cudaError_t error = cudaStreamSynchronize( stream_ );
-                if (error != cudaSuccess) {
-                    throw std::runtime_error(
-                        "CUDA stream synchronization failed: " +
-                        std::string( cudaGetErrorString( error ) )
+                if (device_->getDeviceType() != DeviceType::Cuda) {
+                    throw std::invalid_argument(
+                        "CudaExecutionContext requires CUDA device"
                     );
                 }
+
+                initializeExecutionResources();
             }
-        }
 
-        // CUDA-specific methods
-
-        /**
-         * @brief Gets the CUDA stream for this execution context.
-         *
-         * Returns the non-blocking CUDA stream associated with this execution context.
-         * Operations submitted to this stream execute asynchronously and independently
-         * from other streams on the same device.
-         *
-         * @return CUDA stream handle
-         */
-        cudaStream_t getStream() const {
-            return stream_;
-        }
-
-        /**
-         * @brief Gets the cuBLAS handle for this execution context.
-         *
-         * Lazily creates the cuBLAS handle on first access and binds it to this
-         * execution context's stream. Thread-safe via mutex protection.
-         *
-         * @return cuBLAS handle bound to this execution context's stream
-         * @throws std::runtime_error If cuBLAS handle creation fails
-         */
-        cublasLtHandle_t getCublasLtHandle() {
-            std::lock_guard<std::mutex> lock( handle_mutex_ );
-
-            if (!cublasLtHandle_) {
-                setCurrentDevice( device_id_ );
-
-                cublasStatus_t status = cublasLtCreate( &cublasLtHandle_ );
-
-                if (status != CUBLAS_STATUS_SUCCESS) {
-                    const char* errorMsg;
-                    switch (status) {
-                    case CUBLAS_STATUS_NOT_INITIALIZED:
-                        errorMsg = "CUBLAS library not initialized";
-                        break;
-                    case CUBLAS_STATUS_ALLOC_FAILED:
-                        errorMsg = "Resource allocation failed";
-                        break;
-                    default:
-                        errorMsg = "Unknown cuBLASLt error";
-                        break;
-                    }
-                    throw std::runtime_error(
-                        std::string( "Failed to create cuBLASLt handle: " ) + errorMsg
-                    );
-                }
+            ~ExecutionContext() {
+                releaseResources();
             }
-            return cublasLtHandle_;
-        }
 
-#ifdef USE_CUDNN
-        /**
-         * @brief Gets the cuDNN handle for this execution context.
-         *
-         * Lazily creates the cuDNN handle on first access and binds it to this
-         * execution context's stream. Thread-safe via mutex protection.
-         *
-         * @return cuDNN handle bound to this execution context's stream
-         * @throws std::runtime_error If cuDNN handle creation fails
-         */
-        cudnnHandle_t getCudnnHandle() {
-            std::lock_guard<std::mutex> lock( handle_mutex_ );
+            ExecutionContext( const ExecutionContext& ) = delete;
+            ExecutionContext& operator=( const ExecutionContext& ) = delete;
+            ExecutionContext( ExecutionContext&& ) = delete;
+            ExecutionContext& operator=( ExecutionContext&& ) = delete;
 
-            if (!cudnnHandle_) {
-                setCurrentDevice( device_id_ );
-
-                cudnnStatus_t status = cudnnCreate( &cudnnHandle_ );
-                if (status != CUDNN_STATUS_SUCCESS) {
-                    throw std::runtime_error( "Failed to create cuDNN handle" );
-                }
-
+            /**
+             * @brief Synchronizes the CUDA stream.
+             */
+            void synchronize() {
                 if (stream_) {
-                    status = cudnnSetStream( cudnnHandle_, stream_ );
-                    if (status != CUDNN_STATUS_SUCCESS) {
-                        cudnnDestroy( cudnnHandle_ );
-                        cudnnHandle_ = nullptr;
-                        throw std::runtime_error( "Failed to set cuDNN stream" );
+                    Cuda::setCurrentDevice( device_id_ );
+                    cudaError_t error = cudaStreamSynchronize( stream_ );
+                    if (error != cudaSuccess) {
+                        throw std::runtime_error(
+                            "CUDA stream synchronization failed: " +
+                            std::string( cudaGetErrorString( error ) )
+                        );
                     }
                 }
             }
-            return cudnnHandle_;
-        }
-#endif
 
-    private:
-        std::shared_ptr<DeviceContext> device_context_;
-        int device_id_{ -1 };
-        cudaStream_t stream_ = nullptr;
-        bool stream_created_ = false;
-        mutable cublasLtHandle_t cublasLtHandle_ = nullptr;
+            /**
+             * @brief Gets the CUDA device.
+             */
+            std::shared_ptr<ComputeDevice> getDevice() const {
+                return device_;
+            }
+
+            /**
+             * @brief Gets the device type (always CUDA).
+             */
+            static constexpr DeviceType getDeviceType() {
+                return DeviceType::Cuda;
+            }
+
+            /**
+             * @brief Gets the device name.
+             */
+            std::string getDeviceName() const {
+                return device_->getDeviceName();
+            }
+
+            /**
+             * @brief Gets the CUDA device ID.
+             */
+            int getDeviceId() const {
+                return device_id_;
+            }
+
+            /**
+             * @brief Checks if this is a CUDA device (always true).
+             */
+            static constexpr bool isCudaDevice() {
+                return true;
+            }
+
+            /**
+             * @brief Checks if this is a CPU device (always false).
+             */
+            static constexpr bool isCpuDevice() {
+                return false;
+            }
+
+            /**
+             * @brief Gets the CUDA stream.
+             */
+            cudaStream_t getStream() const {
+                return stream_;
+            }
+
+            /**
+             * @brief Gets the cuBLAS handle.
+             */
+            cublasLtHandle_t getCublasLtHandle() {
+                std::lock_guard<std::mutex> lock( handle_mutex_ );
+
+                if (!cublasLtHandle_) {
+                    Cuda::setCurrentDevice( device_id_ );
+
+                    cublasStatus_t status = cublasLtCreate( &cublasLtHandle_ );
+
+                    if (status != CUBLAS_STATUS_SUCCESS) {
+                        const char* errorMsg;
+                        switch (status) {
+                        case CUBLAS_STATUS_NOT_INITIALIZED:
+                            errorMsg = "CUBLAS library not initialized";
+                            break;
+                        case CUBLAS_STATUS_ALLOC_FAILED:
+                            errorMsg = "Resource allocation failed";
+                            break;
+                        default:
+                            errorMsg = "Unknown cuBLASLt error";
+                            break;
+                        }
+                        throw std::runtime_error(
+                            std::string( "Failed to create cuBLASLt handle: " ) + errorMsg
+                        );
+                    }
+                }
+                return cublasLtHandle_;
+            }
+
 #ifdef USE_CUDNN
-        mutable cudnnHandle_t cudnnHandle_ = nullptr;
+            cudnnHandle_t getCudnnHandle() {
+                std::lock_guard<std::mutex> lock( handle_mutex_ );
+
+                if (!cudnnHandle_) {
+                    Cuda::setCurrentDevice( device_id_ );
+
+                    cudnnStatus_t status = cudnnCreate( &cudnnHandle_ );
+                    if (status != CUDNN_STATUS_SUCCESS) {
+                        throw std::runtime_error( "Failed to create cuDNN handle" );
+                    }
+
+                    if (stream_) {
+                        status = cudnnSetStream( cudnnHandle_, stream_ );
+                        if (status != CUDNN_STATUS_SUCCESS) {
+                            cudnnDestroy( cudnnHandle_ );
+                            cudnnHandle_ = nullptr;
+                            throw std::runtime_error( "Failed to set cuDNN stream" );
+                        }
+                    }
+                }
+                return cudnnHandle_;
+            }
 #endif
-        mutable std::mutex handle_mutex_;
 
-        /**
-         * @brief Initializes CUDA execution resources.
-         *
-         * Creates a non-blocking CUDA stream for this execution context.
-         * Library handles are created lazily on first access.
-         *
-         * @throws std::runtime_error If stream creation fails
-         */
-        void initializeExecutionResources() {
-            setCurrentDevice( device_id_ );
+        private:
+            std::shared_ptr<ComputeDevice> device_;
+            int device_id_{ -1 };
+            cudaStream_t stream_ = nullptr;
+            bool stream_created_ = false;
+            mutable cublasLtHandle_t cublasLtHandle_ = nullptr;
+#ifdef USE_CUDNN
+            mutable cudnnHandle_t cudnnHandle_ = nullptr;
+#endif
+            mutable std::mutex handle_mutex_;
 
-            cudaError_t streamErr = cudaStreamCreateWithFlags(
-                &stream_,
-                cudaStreamNonBlocking
-            );
+            void initializeExecutionResources() {
+                Cuda::setCurrentDevice( device_id_ );
 
-            if (streamErr != cudaSuccess) {
-                throw std::runtime_error(
-                    "Failed to create CUDA stream: " +
-                    std::string( cudaGetErrorString( streamErr ) )
+                cudaError_t streamErr = cudaStreamCreateWithFlags(
+                    &stream_,
+                    cudaStreamNonBlocking
                 );
-            }
-            stream_created_ = true;
-        }
 
-        /**
-         * @brief Releases all CUDA execution resources.
-         *
-         * Destroys library handles and CUDA stream in reverse order of creation.
-         * Called by destructor. Does not throw exceptions.
-         */
-        void releaseResources() noexcept {
-            // Destroy library handles first
-#ifdef USE_CUDNN
-            if (cudnnHandle_) {
-                cudnnDestroy( cudnnHandle_ );
-                cudnnHandle_ = nullptr;
+                if (streamErr != cudaSuccess) {
+                    throw std::runtime_error(
+                        "Failed to create CUDA stream: " +
+                        std::string( cudaGetErrorString( streamErr ) )
+                    );
+                }
+                stream_created_ = true;
             }
+
+            void releaseResources() noexcept {
+#ifdef USE_CUDNN
+                if (cudnnHandle_) {
+                    cudnnDestroy( cudnnHandle_ );
+                    cudnnHandle_ = nullptr;
+                }
 #endif
 
-            if (cublasLtHandle_) {
-                cublasLtDestroy( cublasLtHandle_ );
-                cublasLtHandle_ = nullptr;
-            }
+                if (cublasLtHandle_) {
+                    cublasLtDestroy( cublasLtHandle_ );
+                    cublasLtHandle_ = nullptr;
+                }
 
-            // Destroy stream last
-            if (stream_created_ && stream_) {
-                cudaStreamDestroy( stream_ );
-                stream_ = nullptr;
-                stream_created_ = false;
+                if (stream_created_ && stream_) {
+                    cudaStreamDestroy( stream_ );
+                    stream_ = nullptr;
+                    stream_created_ = false;
+                }
             }
-        }
     };
 }
