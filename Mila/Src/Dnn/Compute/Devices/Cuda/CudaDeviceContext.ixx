@@ -41,87 +41,87 @@ namespace Mila::Dnn::Compute
      * - Library handles (handled by CudaExecutionContext)
      * - Execution synchronization (handled by CudaExecutionContext)
      */
-    export class CudaDeviceContext : public DeviceContext {
-    public:
-        /**
-         * @brief Constructor with CUDA device name.
-         *
-         * Creates a device context for the specified CUDA device.
-         * Does NOT create streams or library handles.
-         *
-         * @param device_name CUDA device identifier (e.g., "CUDA:0")
-         * @throws std::runtime_error If device initialization fails
-         */
-        explicit CudaDeviceContext( const std::string& device_name ) {
-            device_ = DeviceRegistry::instance().createDevice( device_name );
+    //export class CudaDeviceContext : public DeviceContext {
+    //public:
+    //    /**
+    //     * @brief Constructor with CUDA device name.
+    //     *
+    //     * Creates a device context for the specified CUDA device.
+    //     * Does NOT create streams or library handles.
+    //     *
+    //     * @param device_name CUDA device identifier (e.g., "CUDA:0")
+    //     * @throws std::runtime_error If device initialization fails
+    //     */
+    //    explicit CudaDeviceContext( const std::string& device_name ) {
+    //        device_ = DeviceRegistry::instance().createDevice( device_name );
 
-            if (!device_ || device_->getDeviceType() != DeviceType::Cuda) {
-                throw std::runtime_error( "Invalid CUDA device name: " + device_name );
-            }
+    //        if (!device_ || device_->getDeviceType() != DeviceType::Cuda) {
+    //            throw std::runtime_error( "Invalid CUDA device name: " + device_name );
+    //        }
 
-            auto cudaDevice = std::dynamic_pointer_cast<CudaDevice>(device_);
-            if (cudaDevice) {
-                device_id_ = cudaDevice->getDeviceId();
-            }
-        }
+    //        auto cudaDevice = std::dynamic_pointer_cast<CudaDevice>(device_);
+    //        if (cudaDevice) {
+    //            device_id_ = cudaDevice->getDeviceId();
+    //        }
+    //    }
 
-        /**
-         * @brief Destructor.
-         *
-         * No CUDA resources to clean up - streams and handles are managed
-         * by CudaExecutionContext.
-         */
-        ~CudaDeviceContext() override = default;
+    //    /**
+    //     * @brief Destructor.
+    //     *
+    //     * No CUDA resources to clean up - streams and handles are managed
+    //     * by CudaExecutionContext.
+    //     */
+    //    ~CudaDeviceContext() override = default;
 
-        // DeviceContext interface implementation
+    //    // DeviceContext interface implementation
 
-        /**
-         * @brief Gets the device type.
-         * @return DeviceType::Cuda
-         */
-        DeviceType getDeviceType() const override {
-            return DeviceType::Cuda;
-        }
+    //    /**
+    //     * @brief Gets the device type.
+    //     * @return DeviceType::Cuda
+    //     */
+    //    DeviceType getDeviceType() const override {
+    //        return DeviceType::Cuda;
+    //    }
 
-        /**
-         * @brief Gets the device name.
-         * @return Device name string (e.g., "CUDA:0")
-         */
-        std::string getDeviceName() const override {
-            return device_ ? device_->getDeviceName() : "CUDA:INVALID";
-        }
+    //    /**
+    //     * @brief Gets the device name.
+    //     * @return Device name string (e.g., "CUDA:0")
+    //     */
+    //    std::string getDeviceName() const override {
+    //        return device_ ? device_->getDeviceName() : "CUDA:INVALID";
+    //    }
 
-        /**
-         * @brief Gets the CUDA device ID.
-         * @return CUDA device ID (0, 1, 2, etc.)
-         */
-        int getDeviceId() const override {
-            return device_id_;
-        }
+    //    /**
+    //     * @brief Gets the CUDA device ID.
+    //     * @return CUDA device ID (0, 1, 2, etc.)
+    //     */
+    //    int getDeviceId() const override {
+    //        return device_id_;
+    //    }
 
-        /**
-         * @brief Gets the compute device.
-         * @return Shared pointer to ComputeDevice
-         */
-        std::shared_ptr<ComputeDevice> getDevice() const override {
-            return device_;
-        }
+    //    /**
+    //     * @brief Gets the compute device.
+    //     * @return Shared pointer to ComputeDevice
+    //     */
+    //    std::shared_ptr<ComputeDevice> getDevice() const override {
+    //        return device_;
+    //    }
 
-        // CUDA-specific methods
+    //    // CUDA-specific methods
 
-        /**
-         * @brief Gets the compute capability of this device.
-         * @return Pair of (major, minor) version numbers
-         */
-        std::pair<int, int> getComputeCapability() const {
-            auto cudaDevice = std::dynamic_pointer_cast<CudaDevice>(device_);
-            return cudaDevice ?
-                cudaDevice->getProperties().getComputeCapability() :
-                std::make_pair( 0, 0 );
-        }
+    //    /**
+    //     * @brief Gets the compute capability of this device.
+    //     * @return Pair of (major, minor) version numbers
+    //     */
+    //    std::pair<int, int> getComputeCapability() const {
+    //        auto cudaDevice = std::dynamic_pointer_cast<CudaDevice>(device_);
+    //        return cudaDevice ?
+    //            cudaDevice->getProperties().getComputeCapability() :
+    //            std::make_pair( 0, 0 );
+    //    }
 
-    private:
-        std::shared_ptr<ComputeDevice> device_;
-        int device_id_ = -1;
-    };
+    //private:
+    //    std::shared_ptr<ComputeDevice> device_;
+    //    int device_id_ = -1;
+    //};
 }

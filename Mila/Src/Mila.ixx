@@ -71,11 +71,11 @@ export import Compute.CpuDevice;
 export import Compute.CudaDevice;
 
 // ====================================================================
-// Compute - Device Context
+// Compute - Device Context (Deprecated? Use ExecutionContext)
 // ====================================================================
-export import Compute.DeviceContext;
-export import Compute.CpuDeviceContext;
-export import Compute.CudaDeviceContext;
+//export import Compute.DeviceContext;
+//export import Compute.CpuDeviceContext;
+//export import Compute.CudaDeviceContext;
 
 // ====================================================================
 // Compute - Device Registry

@@ -233,7 +233,7 @@ namespace Mila::Dnn
                 return;
             }
 
-            Cuda::setCurrentDevice( exec_ctx->device_id_ );
+            Cuda::setCurrentDevice( exec_ctx->getDeviceId() );
 
             using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::native_type;
 

@@ -36,8 +36,8 @@ add_executable( MilaTests
     # --------------------------------------------------------------
     "Dnn/Compute/Devices/DeviceHelpers.cpp"
     "Dnn/Compute/Devices/DeviceTypes.cpp"
-    "Dnn/Compute/Devices/Cpu/CpuDeviceContext.cpp"
-    "Dnn/Compute/Devices/Cuda/CudaDeviceContext.cpp"
+    
+    
     "Dnn/Compute/Devices/Cpu/CpuDevicePlugin.cpp"
     "Dnn/Compute/Devices/Cuda/CudaDevicePlugin.cpp"
 
