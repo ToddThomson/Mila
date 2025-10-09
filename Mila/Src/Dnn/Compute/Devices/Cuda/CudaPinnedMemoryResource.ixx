@@ -15,8 +15,6 @@ import Cuda.Error;
 
 namespace Mila::Dnn::Compute
 {
-    export struct CudaComputeDeviceTag {};
-
     /**
      * @brief CUDA pinned memory resource for fast host/device transfer memory.
      *
@@ -26,7 +24,6 @@ namespace Mila::Dnn::Compute
      */
     export class CudaPinnedMemoryResource : public MemoryResource {
     public:
-        using ComputeDeviceTag = CudaComputeDeviceTag;
         static constexpr DeviceType device_type = DeviceType::Cuda;
 
         /**

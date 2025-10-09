@@ -21,8 +21,6 @@ import Cuda.Error;
 
 namespace Mila::Dnn::Compute
 {
-    export struct CudaComputeDeviceTag {};
-
     /**
      * @brief CUDA device memory resource for GPU-accessible memory allocation.
      *
@@ -33,6 +31,11 @@ namespace Mila::Dnn::Compute
     export class CudaDeviceMemoryResource : public MemoryResource {
     public:
         /**
+         * @brief Device type constant for CUDA memory resources.
+         */
+        static constexpr DeviceType device_type = DeviceType::Cuda;
+
+        /**
          * @brief Indicates CUDA device memory is not accessible from host code.
          */
         static constexpr bool is_host_accessible = false;
@@ -41,13 +44,6 @@ namespace Mila::Dnn::Compute
          * @brief Indicates CUDA device memory is accessible from device code.
          */
         static constexpr bool is_device_accessible = DeviceAccessible::is_device_accessible;
-
-        /**
-         * @brief Device type constant for CUDA memory resources.
-         */
-        static constexpr DeviceType device_type = DeviceType::Cuda;
-
-		using ComputeDeviceTag = CudaComputeDeviceTag;
 
         /**
          * @brief Constructs CUDA managed memory resource with device ID

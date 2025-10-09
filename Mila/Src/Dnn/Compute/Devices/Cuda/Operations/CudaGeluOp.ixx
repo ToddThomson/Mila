@@ -199,9 +199,9 @@ namespace Mila::Dnn::Compute
             }*/
 
             // Get tensor data pointers
-            const TDataType* X = input.rawData();
-            const TDataType* dY = output_gradient.rawData();
-            TDataType* dX = input_gradient.rawData();
+            const TDataType* X = input.data();
+            const TDataType* dY = output_gradient.data();
+            TDataType* dX = input_gradient.data();
             int N = input.size();
 
             // Get CUDA stream from device context

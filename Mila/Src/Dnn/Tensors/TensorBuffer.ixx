@@ -346,7 +346,7 @@ namespace Mila::Dnn
 		 * @warning No type safety or bounds checking
 		 * @note Use with appropriate casting based on data type requirements
 		 */
-		void* rawData() noexcept {
+		void* data() noexcept {
 			return data_;
 		}
 
@@ -359,7 +359,7 @@ namespace Mila::Dnn
 		 *
 		 * @warning No type safety or bounds checking
 		 */
-		const void* rawData() const noexcept {
+		const void* data() const noexcept {
 			return data_;
 		}
 

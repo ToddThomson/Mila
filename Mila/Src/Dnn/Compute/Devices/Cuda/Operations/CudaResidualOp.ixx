@@ -133,9 +133,9 @@ namespace Mila::Dnn::Compute
             // Get precision policy from operation base class
             ComputePrecision::Policy policy = config_.getPrecisionPolicy();
 
-            auto X1 = input1.rawData();
-            auto X2 = input2.rawData();
-            auto Y = output.rawData();
+            auto X1 = input1.data();
+            auto X2 = input2.data();
+            auto Y = output.data();
             int N = input1.size();
 
             cudaStream_t stream = this->getDeviceContext()->getStream();

@@ -135,9 +135,9 @@ namespace Mila::Dnn::Compute
             const TInput* X = input.data();
             TOutput* Y = output.data();
 
-            const TInput* weight = static_cast<const TInput*>(parameters[ 0 ]->rawData());
+            const TInput* weight = static_cast<const TInput*>(parameters[ 0 ]->data());
             const TInput* bias = (parameters.size() > 1 && parameters[ 1 ]) ?
-                static_cast<const TInput*>(parameters[ 1 ]->rawData()) : nullptr;
+                static_cast<const TInput*>(parameters[ 1 ]->data()) : nullptr;
 
             TOutput* mean = output_state[ 0 ]->data();
             TOutput* rstd = output_state[ 1 ]->data();

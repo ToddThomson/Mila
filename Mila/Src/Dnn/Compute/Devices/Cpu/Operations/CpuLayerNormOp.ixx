@@ -103,8 +103,8 @@ namespace Mila::Dnn::Compute
             const float* X = input.data();
             float* Y = output.data();
 
-            const float* weight = static_cast<const float*>( parameters[ 0 ]->rawData() );
-            const float* bias = (parameters.size() > 1 && parameters[ 1 ]) ? static_cast<const float*>(parameters[ 1 ]->rawData()) : nullptr;
+            const float* weight = static_cast<const float*>( parameters[ 0 ]->data() );
+            const float* bias = (parameters.size() > 1 && parameters[ 1 ]) ? static_cast<const float*>(parameters[ 1 ]->data()) : nullptr;
 
             float* mean = output_state[ 0 ]->data();
             float* rstd = output_state[ 1 ]->data();

@@ -208,7 +208,7 @@ namespace Mila::Dnn::Compute
             int NH = att->shape()[ 1 ];
             int C = C3 / 3;
 
-            //backward_impl( dinp, dpreatt, datt, dout, inp, att->rawData(), B, T, C, NH );
+            //backward_impl( dinp, dpreatt, datt, dout, inp, att->data(), B, T, C, NH );
         }
 
         /**

@@ -18,8 +18,6 @@ import Compute.MemoryResourceProperties;
 
 namespace Mila::Dnn::Compute
 {
-    export struct CpuComputeDeviceTag {};
-
     /**
      * @brief CPU memory resource for host-accessible memory allocation.
      *
@@ -30,7 +28,6 @@ namespace Mila::Dnn::Compute
      */
     export class CpuMemoryResource : public MemoryResource {
     public:
-        using ComputeDeviceTag = CpuComputeDeviceTag;
         static constexpr DeviceType device_type = DeviceType::Cpu;
 
         /**

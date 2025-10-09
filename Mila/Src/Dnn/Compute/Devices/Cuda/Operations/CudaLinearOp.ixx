@@ -173,8 +173,8 @@ namespace Mila::Dnn::Compute
                 throw std::runtime_error( "LinearOp requires input tensor with at least 2 dimensions" );
             }
 
-            auto X = input.rawData();
-            auto Y = output.rawData();
+            auto X = input.data();
+            auto Y = output.data();
 
             // Safely get weight tensor and its raw data pointer
             const auto& weight_tensor = this->template getTypedParameter<TDataType>( parameters[ 0 ] );

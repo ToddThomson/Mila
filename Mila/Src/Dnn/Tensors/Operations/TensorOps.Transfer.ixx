@@ -6,7 +6,7 @@ module;
 export module Dnn.TensorOps:Transfer;
 
 export import :Transfer.Cpu;
-//export import :Transfer.Cuda;
+export import :Transfer.Cuda;
 
 import Dnn.Tensor;
 import Dnn.TensorDataType;
@@ -45,11 +45,11 @@ namespace Mila::Dnn
         requires isValidTensor<TSrcDataType, TSrcMemoryResource> && isValidTensor<TDstDataType, TDstMemoryResource>
     void copy( const Tensor<TSrcDataType, TSrcMemoryResource>& src, Tensor<TDstDataType, TDstMemoryResource>& dst ) {
 
-        if constexpr (!TSrcMemoryResource::is_host_accessible && !TDstMemoryResource::is_host_accessible) {
+        if constexpr (!TSrcMemoryResource::is_host_accessible && !TDstMemoryResource::is_host_accessible)
+        {
             // Both are device-only, must be same device type
-            static_assert(std::is_same_v<typename TSrcMemoryResource::ComputeDeviceTag,
-                typename TDstMemoryResource::ComputeDeviceTag>,
-                "Cannot copy between different device types. "
+            static_assert(TSrcMemoryResource::device_type == TDstMemoryResource::device_type,
+                "Cannot copy between different device types (e.g., CUDA to Metal). "
                 "Use host-accessible memory as intermediate step.");
         }
 
@@ -58,19 +58,19 @@ namespace Mila::Dnn
             // At least one tensor is device-only, must use device operations
             if constexpr (!TSrcMemoryResource::is_host_accessible) {
                 // Source is device-only, use source device
-                using DeviceTag = typename TSrcMemoryResource::ComputeDeviceTag;
-                //TensorOps<DeviceTag>::template copy<TSrcDataType, TSrcMemoryResource, TDstDataType, TDstMemoryResource>( src, dst );
+                constexpr DeviceType device = TSrcMemoryResource::device_type;
+                TensorOps<device>::template copy<TSrcDataType, TSrcMemoryResource, TDstDataType, TDstMemoryResource>( src, dst );
             }
             else {
-                // Destination is device-only, use destination device  
-                using DeviceTag = typename TDstMemoryResource::ComputeDeviceTag;
-                //TensorOps<DeviceTag>::template copy<TSrcDataType, TSrcMemoryResource, TDstDataType, TDstMemoryResource>( src, dst );
+                // Destination is device-only, use destination device
+                constexpr DeviceType device = TDstMemoryResource::device_type;
+                TensorOps<device>::template copy<TSrcDataType, TSrcMemoryResource, TDstDataType, TDstMemoryResource>( src, dst );
             }
         }
         else {
 			// Both are host-accessible, use Source device (arbitrary choice)
-            using DeviceTag = typename TSrcMemoryResource::ComputeDeviceTag;
-            TensorOps<DeviceTag>::template copy<TSrcDataType, TSrcMemoryResource, TDstDataType, TDstMemoryResource>( src, dst );
+            constexpr DeviceType device = TSrcMemoryResource::device_type;
+            //TensorOps<device>::template copy<TSrcDataType, TSrcMemoryResource, TDstDataType, TDstMemoryResource>( src, dst );
         }
     }
 }

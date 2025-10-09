@@ -14,8 +14,6 @@ import Cuda.Error;
 
 namespace Mila::Dnn::Compute
 {
-	export struct CudaComputeDeviceTag {};
-
     /**
      * @brief CUDA managed memory resource for unified host/device accessible memory.
      *
@@ -26,7 +24,6 @@ namespace Mila::Dnn::Compute
     export class CudaManagedMemoryResource : public MemoryResource {
     public:
         static constexpr DeviceType device_type = DeviceType::Cuda;
-		using ComputeDeviceTag = CudaComputeDeviceTag;
 
         /**
          * @brief Constructs CUDA managed memory resource with device ID.

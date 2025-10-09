@@ -1,6 +1,15 @@
 /**
  * @file CpuTensorOps.Fill.ixx
  * @brief CPU tensor fill operations partition
+ *
+ * Provides CPU-specific implementations of tensor fill operations using
+ * optimized standard library algorithms for host memory. All operations
+ * execute synchronously with no device synchronization overhead.
+ *
+ * ExecutionContext handling:
+ * - Accepts ExecutionContext parameter for API consistency with device implementations
+ * - Parameter is unused for CPU operations (all operations are synchronous)
+ * - No stream management needed on CPU
  */
 
 module;
@@ -16,9 +25,11 @@ import Dnn.Tensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeMap;
 import Dnn.TensorDataTypeTraits;
+import Compute.DeviceType;
 import Compute.DeviceTraits;
 import Compute.CpuMemoryResource;
 import Compute.CpuTensorDataTypeTraits;
+import Compute.ExecutionContext;
 
 namespace Mila::Dnn
 {
@@ -36,15 +47,15 @@ namespace Mila::Dnn
      * - STL algorithm optimizations (vectorization, cache efficiency)
      * - Automatic type conversion when needed
      * - Compile-time dispatch for optimal code generation
+     * - Accepts ExecutionContext for API consistency (unused on CPU)
      */
-    template<typename TComputeDeviceTag> struct TensorOps;
+    template<DeviceType TDevice> struct TensorOps;
 
     export template<>
-    struct TensorOps<Compute::CpuComputeDeviceTag>
+        struct TensorOps<DeviceType::Cpu>
     {
         template<TensorDataType TDataType>
-        using host_value_t = std::conditional_t<
-            TensorDataTypeTraits<TDataType>::is_integer_type, int32_t, float>;
+        using host_value_t = std::conditional_t<TensorDataTypeTraits<TDataType>::is_integer_type, int32_t, float>;
 
         /**
          * @brief Fill tensor with array of host values
@@ -60,14 +71,18 @@ namespace Mila::Dnn
          * @tparam TDataType Abstract tensor data type
          * @param tensor Destination CPU tensor to fill
          * @param host_values Span of host values in canonical representation
+         * @param exec_context Optional execution context (unused for CPU, accepted for API consistency)
          *
          * @note Handles size mismatches gracefully (uses minimum size)
          * @note Type conversion handled automatically via static_cast
          * @note No synchronization needed - operations are synchronous on CPU
+         * @note ExecutionContext parameter ignored but present for uniform API across devices
          */
         template<TensorDataType TDataType>
-        static void fill(Tensor<TDataType, CpuMemoryResource>& tensor, 
-                        std::span<const host_value_t<TDataType>> host_values)
+        static void fill(
+            Tensor<TDataType, CpuMemoryResource>& tensor,
+            std::span<const host_value_t<TDataType>> host_values,
+            [[maybe_unused]] ExecutionContext<DeviceType::Cpu>* exec_context = nullptr )
         {
             if (tensor.size() == 0 || host_values.empty())
                 return;
@@ -75,21 +90,23 @@ namespace Mila::Dnn
             using HostValueType = host_value_t<TDataType>;
             using NativeType = typename CpuTensorDataTypeTraits::template native_type<TDataType>;
 
-            const size_t count = std::min(tensor.size(), host_values.size());
-            NativeType* typed_dst = static_cast<NativeType*>(tensor.rawData());
+            const size_t count = std::min( tensor.size(), host_values.size() );
+            NativeType* typed_dst = static_cast<NativeType*>(tensor.data());
 
             // Optimization: Direct copy when types match
-            if constexpr (std::is_same_v<NativeType, HostValueType>) {
-                std::copy_n(host_values.data(), count, typed_dst);
+            if constexpr (std::is_same_v<NativeType, HostValueType>)
+            {
+                std::copy_n( host_values.data(), count, typed_dst );
             }
-            else {
+            else
+            {
                 // Element-wise conversion when types differ
-                std::transform(host_values.begin(), 
-                             host_values.begin() + count,
-                             typed_dst,
-                             [](HostValueType val) { 
-                                 return static_cast<NativeType>(val); 
-                             });
+                std::transform( host_values.begin(),
+                    host_values.begin() + count,
+                    typed_dst,
+                    []( HostValueType val ) {
+                        return static_cast<NativeType>(val);
+                    } );
             }
         }
 
@@ -107,13 +124,17 @@ namespace Mila::Dnn
          * @tparam TDataType Abstract tensor data type
          * @param tensor Destination CPU tensor to fill
          * @param host_value Scalar value in canonical host representation
+         * @param exec_context Optional execution context (unused for CPU, accepted for API consistency)
          *
          * @note Conversion happens once before fill operation
          * @note No synchronization needed - operations are synchronous on CPU
+         * @note ExecutionContext parameter ignored but present for uniform API across devices
          */
         template<TensorDataType TDataType>
-        static void fill(Tensor<TDataType, CpuMemoryResource>& tensor, 
-                        host_value_t<TDataType> host_value)
+        static void fill(
+            Tensor<TDataType, CpuMemoryResource>& tensor,
+            host_value_t<TDataType> host_value,
+            [[maybe_unused]] ExecutionContext<DeviceType::Cpu>* exec_context = nullptr )
         {
             if (tensor.size() == 0)
                 return;
@@ -123,7 +144,7 @@ namespace Mila::Dnn
             NativeType* typed_dst = static_cast<NativeType*>(tensor.data());
             NativeType native_value = static_cast<NativeType>(host_value);
 
-            std::fill_n(typed_dst, tensor.size(), native_value);
+            std::fill_n( typed_dst, tensor.size(), native_value );
         }
     };
 }

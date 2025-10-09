@@ -5,6 +5,11 @@
  * This interface defines the essential methods needed to access tensor information
  * in a type-erased manner, allowing different tensor implementations to be used
  * interchangeably through a common base interface.
+ *
+ * Memory Access Design:
+ * - Public API: Type-safe, host-only access via Tensor::data() (only for host-accessible memory)
+ * - Protected API: Raw pointer access via ITensor::rawData() (for TensorOps implementations)
+ * - Device code: Kernel parameters receive raw pointers directly (not through this interface)
  */
 
 module;
@@ -16,7 +21,6 @@ export module Dnn.ITensor;
 
 import Dnn.TensorDataType;
 import Compute.DeviceType;
-import Compute.DeviceContext;
 import Compute.MemoryResource;
 
 namespace Mila::Dnn
@@ -30,10 +34,15 @@ namespace Mila::Dnn
      * with different tensor implementations.
      *
      * The interface provides:
-     * - Raw data access through void pointers
+     * - Raw data access through void pointers (protected, for TensorOps)
      * - Shape and dimensional information
      * - Data type identification and validation
      * - Type checking utilities for compile-time safety
+     *
+     * Memory Access Levels:
+     * - Public Tensor::data(): Type-safe, host-accessible only (requires constraint)
+     * - Protected rawData(): Type-erased, for TensorOps implementations (CPU/CUDA)
+     * - Device kernels: Raw pointers passed as kernel parameters (not through this interface)
      *
      * @note This interface is implemented by concrete tensor classes like Tensor<T, MR>
      * @see Tensor
@@ -55,8 +64,8 @@ namespace Mila::Dnn
          * @return Total element count (product of all dimension sizes)
          * @note Scalars (rank 0) have size 1 by convention
          * @note Empty tensors (any dimension size 0) have size 0
-		 */
-		virtual size_t size() const = 0;
+         */
+        virtual size_t size() const = 0;
 
         /**
          * @brief Get tensor element data type identifier
@@ -94,8 +103,7 @@ namespace Mila::Dnn
          * @code
          * std::shared_ptr<ITensor> tensor = getTensor();
          * if (tensor->isType<float>()) {
-         *     float* data = static_cast<float*>(tensor->data());
-         *     // Safe to use data as float*
+         *     // Safe to use with float operations
          * }
          * @endcode
          */
@@ -105,6 +113,51 @@ namespace Mila::Dnn
         }
 
     protected:
+        /**
+         * @brief Get raw pointer to tensor data (protected internal API)
+         *
+         * Provides type-erased access to the underlying tensor memory for
+         * TensorOps implementations. This is the internal API used by
+         * device-specific operations (CPU, CUDA, etc.) to access tensor memory.
+         *
+         * Access Control:
+         * - Public API: Use Tensor::data() for type-safe host access
+         * - Protected API: Use rawData() in TensorOps for device operations
+         * - Not exposed to end users for safety
+         *
+         * Safety Contract:
+         * - For host-accessible memory: Pointer is valid for host dereferencing
+         * - For device-only memory: Pointer is ONLY valid for device operations
+         *   (kernel launches, cudaMemcpy, etc.) - DO NOT dereference on host
+         * - Returns nullptr for empty or uninitialized tensors
+         *
+         * @return Raw void pointer to tensor data, or nullptr if empty
+         *
+         * @note This pointer's lifetime is tied to the tensor's buffer
+         * @note For device memory, this pointer must not be dereferenced on host
+         * @note TensorOps implementations are responsible for proper device handling
+         *
+         * Example Usage (in TensorOps):
+         * @code
+         * // In CudaTensorOps::copy()
+         * const void* src_data = static_cast<const ITensor&>(src).rawData();
+         * void* dst_data = static_cast<ITensor&>(dst).rawData();
+         * 
+         * // Safe: Used for cudaMemcpy (doesn't dereference on host)
+         * cudaMemcpyAsync(dst_data, src_data, bytes, cudaMemcpyDeviceToDevice, stream);
+         * @endcode
+         */
+        virtual void* rawData() = 0;
+
+        /**
+         * @brief Get raw pointer to tensor data (const version)
+         *
+         * Const version of rawData() for read-only access to tensor memory.
+         *
+         * @return Raw const void pointer to tensor data, or nullptr if empty
+         * @see rawData() for detailed documentation
+         */
+        virtual const void* rawData() const = 0;
 
         /**
          * @brief Get the memory resource managing this tensor's storage
@@ -118,6 +171,10 @@ namespace Mila::Dnn
          * @note Enables efficient type-safe downcasting and dispatch
          */
         virtual Compute::MemoryResource* getMemoryResource() const = 0;
+
+        // Allow TensorOps to access protected members
+        template<Compute::DeviceType>
+        friend struct TensorOps;
 
         // Allow Module to access protected members
         template<Compute::DeviceType>

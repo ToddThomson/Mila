@@ -109,8 +109,8 @@ namespace Compute::Cpu::Operations::Tests
             int T = input.shape()[ 1 ];
             int C = input.shape()[ 2 ];
 
-            const float* weight = static_cast<const float*>(params[ 0 ]->rawData());
-            const float* bias = static_cast<const float*>(params[ 1 ]->rawData());
+            const float* weight = static_cast<const float*>(params[ 0 ]->data());
+            const float* bias = static_cast<const float*>(params[ 1 ]->data());
 
             means.resize( B * T );
             rstds.resize( B * T );

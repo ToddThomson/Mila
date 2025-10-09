@@ -149,8 +149,8 @@ namespace Mila::Dnn::Compute
             Tensor<TOutput, MR>& output,
             std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const override {
 
-            auto X = input.rawData();
-            auto Y = output.rawData();
+            auto X = input.data();
+            auto Y = output.data();
 
             int64_t axis = config_.getAxis();
 

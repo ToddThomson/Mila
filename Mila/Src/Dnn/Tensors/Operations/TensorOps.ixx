@@ -24,7 +24,10 @@ export import :Math;
 export import :Transfer;
 export import :Fill;
 
+import Compute.DeviceType;
+
 namespace Mila::Dnn
 {
-	export template<typename TComputeDeviceTag> struct TensorOps;
+	export template<Compute::DeviceType TDevice> 
+	struct TensorOps;
 }

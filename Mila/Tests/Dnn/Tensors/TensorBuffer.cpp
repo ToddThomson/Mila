@@ -51,14 +51,14 @@ namespace Dnn::Tensors::Tests
         // Default construction with size only
         TensorBuffer<TensorDataType::FP32, Compute::CpuMemoryResource> buffer( cpu_device_id_, 100 );
         EXPECT_EQ( buffer.size(), 100 );
-        EXPECT_NE( buffer.rawData(), nullptr );
+        EXPECT_NE( buffer.data(), nullptr );
         EXPECT_TRUE( buffer.isAligned() );
         EXPECT_FALSE( buffer.empty() );
 
         // Construction with zero size
         TensorBuffer<TensorDataType::FP32, Compute::CpuMemoryResource> zero_buffer( cpu_device_id_, 0 );
         EXPECT_EQ( zero_buffer.size(), 0 );
-        EXPECT_EQ( zero_buffer.rawData(), nullptr );
+        EXPECT_EQ( zero_buffer.data(), nullptr );
         EXPECT_TRUE( zero_buffer.empty() );
     }
 
@@ -69,12 +69,12 @@ namespace Dnn::Tensors::Tests
 
         TensorBuffer<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> buffer( cuda_device_id_, 100 );
         EXPECT_EQ( buffer.size(), 100 );
-        EXPECT_NE( buffer.rawData(), nullptr );
+        EXPECT_NE( buffer.data(), nullptr );
 
         // Construction with zero size
         TensorBuffer<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> zero_buffer( cuda_device_id_, 0 );
         EXPECT_EQ( zero_buffer.size(), 0 );
-        EXPECT_EQ( zero_buffer.rawData(), nullptr );
+        EXPECT_EQ( zero_buffer.data(), nullptr );
         EXPECT_TRUE( zero_buffer.empty() );
     }
 
@@ -85,7 +85,7 @@ namespace Dnn::Tensors::Tests
     TEST_F( TensorBufferTests, MoveConstructor ) {
         // Create original buffer
         TensorBuffer<TensorDataType::FP32, Compute::CpuMemoryResource> original( cpu_device_id_, 100 );
-        auto original_ptr = original.rawData();
+        auto original_ptr = original.data();
         auto original_size = original.size();
 
         // Move construct
@@ -93,11 +93,11 @@ namespace Dnn::Tensors::Tests
 
         // Verify moved buffer has original's data
         EXPECT_EQ( moved.size(), original_size );
-        EXPECT_EQ( moved.rawData(), original_ptr );
+        EXPECT_EQ( moved.data(), original_ptr );
 
         // Verify original is in valid but empty state
         EXPECT_EQ( original.size(), 0 );
-        EXPECT_EQ( original.rawData(), nullptr );
+        EXPECT_EQ( original.data(), nullptr );
         EXPECT_TRUE( original.empty() );
     }
 
@@ -106,7 +106,7 @@ namespace Dnn::Tensors::Tests
         TensorBuffer<TensorDataType::FP32, Compute::CpuMemoryResource> source( cpu_device_id_, 100 );
         TensorBuffer<TensorDataType::FP32, Compute::CpuMemoryResource> target( cpu_device_id_, 50 );
 
-        auto source_ptr = source.rawData();
+        auto source_ptr = source.data();
         auto source_size = source.size();
 
         // Move assign
@@ -114,23 +114,23 @@ namespace Dnn::Tensors::Tests
 
         // Verify target has source's data
         EXPECT_EQ( target.size(), source_size );
-        EXPECT_EQ( target.rawData(), source_ptr );
+        EXPECT_EQ( target.data(), source_ptr );
 
         // Verify source is in valid but empty state
         EXPECT_EQ( source.size(), 0 );
-        EXPECT_EQ( source.rawData(), nullptr );
+        EXPECT_EQ( source.data(), nullptr );
     }
 
     TEST_F( TensorBufferTests, MoveAssignmentSelfAssignment ) {
         TensorBuffer<TensorDataType::FP32, Compute::CpuMemoryResource> buffer( cpu_device_id_, 100 );
-        auto original_ptr = buffer.rawData();
+        auto original_ptr = buffer.data();
         auto original_size = buffer.size();
 
         // Self-assignment should be safe
         buffer = std::move( buffer );
 
         EXPECT_EQ( buffer.size(), original_size );
-        EXPECT_EQ( buffer.rawData(), original_ptr );
+        EXPECT_EQ( buffer.data(), original_ptr );
     }
 
     // ============================================================================
@@ -143,28 +143,28 @@ namespace Dnn::Tensors::Tests
         // Resize larger
         buffer.resize( 100 );
         EXPECT_EQ( buffer.size(), 100 );
-        EXPECT_NE( buffer.rawData(), nullptr );
+        EXPECT_NE( buffer.data(), nullptr );
 
         // Resize smaller
         buffer.resize( 25 );
         EXPECT_EQ( buffer.size(), 25 );
-        EXPECT_NE( buffer.rawData(), nullptr );
+        EXPECT_NE( buffer.data(), nullptr );
 
         // Resize to zero
         buffer.resize( 0 );
         EXPECT_EQ( buffer.size(), 0 );
-        EXPECT_EQ( buffer.rawData(), nullptr );
+        EXPECT_EQ( buffer.data(), nullptr );
         EXPECT_TRUE( buffer.empty() );
 
         // Resize from zero
         buffer.resize( 10 );
         EXPECT_EQ( buffer.size(), 10 );
-        EXPECT_NE( buffer.rawData(), nullptr );
+        EXPECT_NE( buffer.data(), nullptr );
 
         // Resize to same size (should be no-op)
-        auto original_ptr = buffer.rawData();
+        auto original_ptr = buffer.data();
         buffer.resize( 10 );
-        EXPECT_EQ( buffer.rawData(), original_ptr );
+        EXPECT_EQ( buffer.data(), original_ptr );
     }
 
     TEST_F( TensorBufferTests, CudaBufferResize ) {
@@ -173,12 +173,12 @@ namespace Dnn::Tensors::Tests
         }
 
         TensorBuffer<TensorDataType::INT32, Compute::CudaDeviceMemoryResource> buffer( cuda_device_id_, 50 );
-        auto original_ptr = buffer.rawData();
+        auto original_ptr = buffer.data();
 
         // Resize larger
         buffer.resize( 100 );
         EXPECT_EQ( buffer.size(), 100 );
-        EXPECT_NE( buffer.rawData(), original_ptr );
+        EXPECT_NE( buffer.data(), original_ptr );
 
         // Resize smaller
         buffer.resize( 25 );
@@ -187,7 +187,7 @@ namespace Dnn::Tensors::Tests
         // Resize to zero
         buffer.resize( 0 );
         EXPECT_EQ( buffer.size(), 0 );
-        EXPECT_EQ( buffer.rawData(), nullptr );
+        EXPECT_EQ( buffer.data(), nullptr );
     }
 
     // ============================================================================
@@ -214,7 +214,7 @@ namespace Dnn::Tensors::Tests
         // Test with memory tracking enabled
         TensorBuffer<TensorDataType::FP32, Compute::CpuMemoryResource, true> tracked_buffer( cpu_device_id_, 100 );
         EXPECT_EQ( tracked_buffer.size(), 100 );
-        EXPECT_NE( tracked_buffer.rawData(), nullptr );
+        EXPECT_NE( tracked_buffer.data(), nullptr );
 
         tracked_buffer.resize( 200 );
         EXPECT_EQ( tracked_buffer.size(), 200 );
@@ -364,9 +364,9 @@ namespace Dnn::Tensors::Tests
     TEST_F( TensorBufferTests, ConstRawDataAccess ) {
         TensorBuffer<TensorDataType::FP32, Compute::CpuMemoryResource> buffer( cpu_device_id_, 10 );
         const auto& const_buffer = buffer;
-        const void* const_ptr = const_buffer.rawData();
+        const void* const_ptr = const_buffer.data();
         EXPECT_NE( const_ptr, nullptr );
-        EXPECT_EQ( const_ptr, buffer.rawData() );
+        EXPECT_EQ( const_ptr, buffer.data() );
     }
 
     // ============================================================================
@@ -388,13 +388,13 @@ namespace Dnn::Tensors::Tests
 
     TEST_F( TensorBufferTests, ZeroInitializationValidation ) {
         TensorBuffer<TensorDataType::FP32, Compute::CpuMemoryResource> float_buffer( cpu_device_id_, 100 );
-        auto float_data = static_cast<float*>(float_buffer.rawData());
+        auto float_data = static_cast<float*>(float_buffer.data());
         for (size_t i = 0; i < 100; ++i) {
             EXPECT_FLOAT_EQ( float_data[i], 0.0f );
         }
 
         TensorBuffer<TensorDataType::INT32, Compute::CpuMemoryResource> int_buffer( cpu_device_id_, 50 );
-        auto int_data = static_cast<int32_t*>( int_buffer.rawData() );
+        auto int_data = static_cast<int32_t*>( int_buffer.data() );
         for (size_t i = 0; i < 50; ++i) {
             EXPECT_EQ( int_data[i], 0 );
         }
@@ -402,7 +402,7 @@ namespace Dnn::Tensors::Tests
         if (has_cuda_) {
             TensorBuffer<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> cuda_buffer( cuda_device_id_, 10 );
             std::vector<float> host_data( 10 );
-            cudaMemcpy( host_data.data(), cuda_buffer.rawData(), 10 * sizeof( float ), cudaMemcpyDeviceToHost );
+            cudaMemcpy( host_data.data(), cuda_buffer.data(), 10 * sizeof( float ), cudaMemcpyDeviceToHost );
             for (float val : host_data) {
                 EXPECT_FLOAT_EQ( val, 0.0f );
             }
@@ -417,14 +417,14 @@ namespace Dnn::Tensors::Tests
         TensorBuffer<TensorDataType::INT32, Compute::CpuMemoryResource> buffer( cpu_device_id_, 10 );
 
         // Initialize with test pattern
-        auto data = static_cast<int32_t*>(buffer.rawData());
+        auto data = static_cast<int32_t*>(buffer.data());
         for (size_t i = 0; i < 10; ++i) {
             data[i] = static_cast<int32_t>( i * 10 );
         }
 
         // Resize larger
         buffer.resize( 20 );
-        auto new_data = static_cast<int32_t*>( buffer.rawData() );
+        auto new_data = static_cast<int32_t*>( buffer.data() );
         for (size_t i = 0; i < 10; ++i) {
             EXPECT_EQ( new_data[i], static_cast<int32_t>( i * 10 ) );
         }
@@ -436,7 +436,7 @@ namespace Dnn::Tensors::Tests
 
         // Resize smaller
         buffer.resize( 5 );
-        auto smaller_data = static_cast<int32_t*>( buffer.rawData() );
+        auto smaller_data = static_cast<int32_t*>( buffer.data() );
         for (size_t i = 0; i < 5; ++i) {
             EXPECT_EQ( smaller_data[i], static_cast<int32_t>( i * 10 ) );
         }
@@ -461,7 +461,7 @@ namespace Dnn::Tensors::Tests
         TensorBuffer<TensorDataType::FP32, Compute::CpuMemoryResource> buffer( cpu_device_id_, 100 );
 
         // Memory management primitives
-        EXPECT_NE( buffer.rawData(), nullptr );
+        EXPECT_NE( buffer.data(), nullptr );
         EXPECT_EQ( buffer.size(), 100 );
         EXPECT_GT( buffer.storageBytes(), 0 );
         EXPECT_GT( buffer.alignedSize(), 0 );

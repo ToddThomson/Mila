@@ -36,7 +36,7 @@ namespace Dnn::Compute::ExecutionContexts::Tests
 
     TEST_F( ExecutionContextIntegrationTest, TypeSafetyCompileTime ) {
         // CPU context
-        ExecutionContext<DeviceType::Cpu> cpu_ctx( 0 );
+        ExecutionContext<DeviceType::Cpu> cpu_ctx;
         EXPECT_TRUE( cpu_ctx.isCpuDevice() );
 
         // CUDA context (if available)
@@ -53,7 +53,7 @@ namespace Dnn::Compute::ExecutionContexts::Tests
 
     TEST_F( ExecutionContextIntegrationTest, MixedDeviceTypes ) {
         // Can create contexts for different devices
-        ExecutionContext<DeviceType::Cpu> cpu_ctx( 0 );
+        ExecutionContext<DeviceType::Cpu> cpu_ctx;
 
         if (cuda_available_) {
             ExecutionContext<DeviceType::Cuda> cuda_ctx( 0 );

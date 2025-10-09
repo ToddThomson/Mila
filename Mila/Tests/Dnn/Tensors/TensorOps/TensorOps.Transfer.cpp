@@ -18,14 +18,16 @@ namespace Dnn::Tensors::TensorOps::Tests
     class TensorOpsTransferTest : public ::testing::Test {
     protected:
         void SetUp() override {
-            cpu_context_ = std::make_shared<Compute::CpuDeviceContext>();
+            cpu_exec_context_ = std::make_shared<Compute::CpuExecutionContext>();
 
             // Initialize CUDA context if available
-            try {
-                cuda_context_ = Compute::DeviceContext::create( "CUDA:0" );
+            try
+            {
+                cuda_exec_context_ = std::make_shared<Compute::CudaExecutionContext>( 0 );
             }
-            catch (const std::exception&) {
-                cuda_context_ = nullptr;
+            catch (const std::exception&)
+            {
+                cuda_exec_context_ = nullptr;
                 // CUDA not available - tests will skip appropriately
             }
 
@@ -53,12 +55,14 @@ namespace Dnn::Tensors::TensorOps::Tests
             using HostValueType = std::conditional_t<TensorDataTypeTraits<TDataType>::is_integer_type, int32_t, float>;
             //using HostValueType = host_value_t<TDataType>;
 
-            if constexpr (TensorDataTypeTraits<TDataType>::is_integer_type) {
+            if constexpr (TensorDataTypeTraits<TDataType>::is_integer_type)
+            {
                 // Fill integer tensors with sequential values: 1, 2, 3, ...
                 HostValueType value = static_cast<HostValueType>(1);
                 fill( tensor, value );
             }
-            else {
+            else
+            {
                 // Fill floating-point tensors with a known test value
                 HostValueType value = static_cast<HostValueType>(3.14159f);
                 fill( tensor, value );
@@ -77,13 +81,15 @@ namespace Dnn::Tensors::TensorOps::Tests
 
             using HostValueType = std::conditional_t<TensorDataTypeTraits<TDataType>::is_integer_type, int32_t, float>;
 
-            if constexpr (TensorDataTypeTraits<TDataType>::is_integer_type) {
+            if constexpr (TensorDataTypeTraits<TDataType>::is_integer_type)
+            {
                 // Random integers in range [1, 100]
                 std::uniform_int_distribution<int> dist( 1, 100 );
                 HostValueType value = static_cast<HostValueType>(dist( rng_ ));
                 fill( tensor, value );
             }
-            else {
+            else
+            {
                 // Random floats in range [0.0, 1.0]
                 std::uniform_real_distribution<float> dist( 0.0f, 1.0f );
                 HostValueType value = static_cast<HostValueType>(dist( rng_ ));
@@ -105,8 +111,8 @@ namespace Dnn::Tensors::TensorOps::Tests
             // Future: Add actual data validation when tensor data access is available
         }
 
-        std::shared_ptr<Compute::CpuDeviceContext> cpu_context_;
-        std::shared_ptr<Compute::DeviceContext> cuda_context_;
+        std::shared_ptr<Compute::CpuExecutionContext> cpu_exec_context_;
+        std::shared_ptr<Compute::CudaExecutionContext> cuda_exec_context_;
         std::mt19937 rng_; // Random number generator for test data
     };
 
@@ -117,8 +123,8 @@ namespace Dnn::Tensors::TensorOps::Tests
     TEST_F( TensorOpsTransferTest, CpuToCpu_SameType_FP32 ) {
         const std::vector<size_t> shape = { 2, 3, 4 };
 
-        auto src = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, shape );
-        auto dst = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, shape );
+        auto src = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), shape );
+        auto dst = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), shape );
 
         initializeTensorWithTestData( src );
 
@@ -134,8 +140,8 @@ namespace Dnn::Tensors::TensorOps::Tests
     TEST_F( TensorOpsTransferTest, CpuToCpu_TypeConversion_FP32_to_INT32 ) {
         const std::vector<size_t> shape = { 2, 3 };
 
-        auto src = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, shape );
-        auto dst = Tensor<TensorDataType::INT32, Compute::CpuMemoryResource>( cpu_context_, shape );
+        auto src = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), shape );
+        auto dst = Tensor<TensorDataType::INT32, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), shape );
 
         initializeTensorWithTestData( src );
 
@@ -147,8 +153,8 @@ namespace Dnn::Tensors::TensorOps::Tests
     }
 
     TEST_F( TensorOpsTransferTest, CpuToCpu_DifferentShapes_ThrowsException ) {
-        auto src = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, { 2, 3 } );
-        auto dst = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, { 3, 2 } );
+        auto src = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), { 2, 3 } );
+        auto dst = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), { 3, 2 } );
 
         initializeTensorWithTestData( src );
 
@@ -156,8 +162,8 @@ namespace Dnn::Tensors::TensorOps::Tests
     }
 
     TEST_F( TensorOpsTransferTest, CpuToCpu_EmptyTensors_NoOperation ) {
-        auto src = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, {} );
-        auto dst = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, {} );
+        auto src = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), {} );
+        auto dst = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), {} );
 
         EXPECT_NO_THROW( copy( src, dst ) );
         EXPECT_TRUE( src.empty() );
@@ -169,14 +175,15 @@ namespace Dnn::Tensors::TensorOps::Tests
     // ====================================================================
 
     TEST_F( TensorOpsTransferTest, CpuToCuda_SameType_FP32 ) {
-        if (!cuda_context_) {
+        if (!cuda_exec_context_)
+        {
             GTEST_SKIP() << "CUDA not available for testing";
         }
 
         const std::vector<size_t> shape = { 2, 3 };
 
-        auto src = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, shape );
-        auto dst = Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_context_, shape );
+        auto src = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), shape );
+        auto dst = Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_exec_context_->getDevice(), shape );
 
         initializeTensorWithTestData( src );
 
@@ -191,14 +198,15 @@ namespace Dnn::Tensors::TensorOps::Tests
     }
 
     TEST_F( TensorOpsTransferTest, CpuToCuda_TypeConversion_FP32_to_FP16 ) {
-        if (!cuda_context_) {
+        if (!cuda_exec_context_)
+        {
             GTEST_SKIP() << "CUDA not available for testing";
         }
 
         const std::vector<size_t> shape = { 3, 3 };
 
-        auto src = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, shape );
-        auto dst = Tensor<TensorDataType::FP16, Compute::CudaDeviceMemoryResource>( cuda_context_, shape );
+        auto src = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), shape );
+        auto dst = Tensor<TensorDataType::FP16, Compute::CudaDeviceMemoryResource>( cuda_exec_context_->getDevice(), shape );
 
         initializeTensorWithTestData( src );
 
@@ -214,14 +222,15 @@ namespace Dnn::Tensors::TensorOps::Tests
     // ====================================================================
 
     TEST_F( TensorOpsTransferTest, CudaToCpu_SameType_FP32 ) {
-        if (!cuda_context_) {
+        if (!cuda_exec_context_)
+        {
             GTEST_SKIP() << "CUDA not available for testing";
         }
 
         const std::vector<size_t> shape = { 2, 2 };
 
-        auto src = Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_context_, shape );
-        auto dst = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, shape );
+        auto src = Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_exec_context_->getDevice(), shape );
+        auto dst = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), shape );
 
         EXPECT_NO_THROW( copy( src, dst ) );
 
@@ -234,14 +243,15 @@ namespace Dnn::Tensors::TensorOps::Tests
     }
 
     TEST_F( TensorOpsTransferTest, CudaToCpu_TypeConversion_FP16_to_FP32 ) {
-        if (!cuda_context_) {
+        if (!cuda_exec_context_)
+        {
             GTEST_SKIP() << "CUDA not available for testing";
         }
 
         const std::vector<size_t> shape = { 4, 2 };
 
-        auto src = Tensor<TensorDataType::FP16, Compute::CudaDeviceMemoryResource>( cuda_context_, shape );
-        auto dst = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, shape );
+        auto src = Tensor<TensorDataType::FP16, Compute::CudaDeviceMemoryResource>( cuda_exec_context_->getDevice(), shape );
+        auto dst = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), shape );
 
         EXPECT_NO_THROW( copy( src, dst ) );
 
@@ -255,14 +265,15 @@ namespace Dnn::Tensors::TensorOps::Tests
     // ====================================================================
 
     TEST_F( TensorOpsTransferTest, CudaToCuda_SameType_FP32 ) {
-        if (!cuda_context_) {
+        if (!cuda_exec_context_)
+        {
             GTEST_SKIP() << "CUDA not available for testing";
         }
 
         const std::vector<size_t> shape = { 3, 3 };
 
-        auto src = Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_context_, shape );
-        auto dst = Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_context_, shape );
+        auto src = Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_exec_context_->getDevice(), shape );
+        auto dst = Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_exec_context_->getDevice(), shape );
 
         EXPECT_NO_THROW( copy( src, dst ) );
 
@@ -275,14 +286,15 @@ namespace Dnn::Tensors::TensorOps::Tests
     }
 
     TEST_F( TensorOpsTransferTest, CudaToCuda_TypeConversion_FP32_to_FP16 ) {
-        if (!cuda_context_) {
+        if (!cuda_exec_context_)
+        {
             GTEST_SKIP() << "CUDA not available for testing";
         }
 
         const std::vector<size_t> shape = { 2, 4 };
 
-        auto src = Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_context_, shape );
-        auto dst = Tensor<TensorDataType::FP16, Compute::CudaDeviceMemoryResource>( cuda_context_, shape );
+        auto src = Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_exec_context_->getDevice(), shape );
+        auto dst = Tensor<TensorDataType::FP16, Compute::CudaDeviceMemoryResource>( cuda_exec_context_->getDevice(), shape );
 
         EXPECT_NO_THROW( copy( src, dst ) );
 
@@ -296,14 +308,15 @@ namespace Dnn::Tensors::TensorOps::Tests
     // ====================================================================
 
     TEST_F( TensorOpsTransferTest, CpuToPinned_SameType ) {
-        if (!cuda_context_) {
+        if (!cuda_exec_context_)
+        {
             GTEST_SKIP() << "CUDA not available for testing";
         }
 
         const std::vector<size_t> shape = { 2, 3 };
 
-        auto src = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, shape );
-        auto dst = Tensor<TensorDataType::FP32, Compute::CudaPinnedMemoryResource>( cuda_context_, shape );
+        auto src = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), shape );
+        auto dst = Tensor<TensorDataType::FP32, Compute::CudaPinnedMemoryResource>( cuda_exec_context_->getDevice(), shape );
 
         initializeTensorWithTestData( src );
 
@@ -316,14 +329,15 @@ namespace Dnn::Tensors::TensorOps::Tests
     }
 
     TEST_F( TensorOpsTransferTest, PinnedToCuda_SameType ) {
-        if (!cuda_context_) {
+        if (!cuda_exec_context_)
+        {
             GTEST_SKIP() << "CUDA not available for testing";
         }
 
         const std::vector<size_t> shape = { 3, 2 };
 
-        auto src = Tensor<TensorDataType::FP32, Compute::CudaPinnedMemoryResource>( cuda_context_, shape );
-        auto dst = Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_context_, shape );
+        auto src = Tensor<TensorDataType::FP32, Compute::CudaPinnedMemoryResource>( cuda_exec_context_->getDevice(), shape );
+        auto dst = Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_exec_context_->getDevice(), shape );
 
         EXPECT_NO_THROW( copy( src, dst ) );
 
@@ -339,8 +353,8 @@ namespace Dnn::Tensors::TensorOps::Tests
     // ====================================================================
 
     TEST_F( TensorOpsTransferTest, ZeroSizedTensor_NoOperation ) {
-        auto src = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, { 0 } );
-        auto dst = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, { 0 } );
+        auto src = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), { 0 } );
+        auto dst = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), { 0 } );
 
         EXPECT_NO_THROW( copy( src, dst ) );
         EXPECT_EQ( src.size(), 0 );
@@ -350,8 +364,8 @@ namespace Dnn::Tensors::TensorOps::Tests
     TEST_F( TensorOpsTransferTest, SingleElementTensor ) {
         const std::vector<size_t> shape = { 1 };
 
-        auto src = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, shape );
-        auto dst = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, shape );
+        auto src = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), shape );
+        auto dst = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), shape );
 
         initializeTensorWithTestData( src );
 
@@ -364,8 +378,8 @@ namespace Dnn::Tensors::TensorOps::Tests
     TEST_F( TensorOpsTransferTest, LargeTensor_Performance ) {
         const std::vector<size_t> shape = { 100, 100 };
 
-        auto src = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, shape );
-        auto dst = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, shape );
+        auto src = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), shape );
+        auto dst = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), shape );
 
         initializeTensorWithRandomData( src );
 
@@ -382,8 +396,8 @@ namespace Dnn::Tensors::TensorOps::Tests
     TEST_F( TensorOpsTransferTest, IntegerTypes_INT8_to_INT32 ) {
         const std::vector<size_t> shape = { 2, 2 };
 
-        auto src = Tensor<TensorDataType::INT8, Compute::CpuMemoryResource>( cpu_context_, shape );
-        auto dst = Tensor<TensorDataType::INT32, Compute::CpuMemoryResource>( cpu_context_, shape );
+        auto src = Tensor<TensorDataType::INT8, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), shape );
+        auto dst = Tensor<TensorDataType::INT32, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), shape );
 
         initializeTensorWithTestData( src );
 
@@ -397,8 +411,8 @@ namespace Dnn::Tensors::TensorOps::Tests
     TEST_F( TensorOpsTransferTest, UnsignedTypes_UINT8_to_UINT16 ) {
         const std::vector<size_t> shape = { 3, 2 };
 
-        auto src = Tensor<TensorDataType::UINT8, Compute::CpuMemoryResource>( cpu_context_, shape );
-        auto dst = Tensor<TensorDataType::UINT16, Compute::CpuMemoryResource>( cpu_context_, shape );
+        auto src = Tensor<TensorDataType::UINT8, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), shape );
+        auto dst = Tensor<TensorDataType::UINT16, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), shape );
 
         initializeTensorWithTestData( src );
 
@@ -414,15 +428,16 @@ namespace Dnn::Tensors::TensorOps::Tests
     // ====================================================================
 
     TEST_F( TensorOpsTransferTest, RoundTrip_CpuToCudaToCpu ) {
-        if (!cuda_context_) {
+        if (!cuda_exec_context_)
+        {
             GTEST_SKIP() << "CUDA not available for testing";
         }
 
         const std::vector<size_t> shape = { 2, 3 };
 
-        auto original = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, shape );
-        auto gpu_copy = Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_context_, shape );
-        auto final_copy = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, shape );
+        auto original = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), shape );
+        auto gpu_copy = Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>( cuda_exec_context_->getDevice(), shape );
+        auto final_copy = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), shape );
 
         initializeTensorWithTestData( original );
 
@@ -438,15 +453,16 @@ namespace Dnn::Tensors::TensorOps::Tests
     }
 
     TEST_F( TensorOpsTransferTest, RoundTrip_WithTypeConversion ) {
-        if (!cuda_context_) {
+        if (!cuda_exec_context_)
+        {
             GTEST_SKIP() << "CUDA not available for testing";
         }
 
         const std::vector<size_t> shape = { 2, 2 };
 
-        auto original = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, shape );
-        auto fp16_gpu = Tensor<TensorDataType::FP16, Compute::CudaDeviceMemoryResource>( cuda_context_, shape );
-        auto final_copy = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_context_, shape );
+        auto original = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), shape );
+        auto fp16_gpu = Tensor<TensorDataType::FP16, Compute::CudaDeviceMemoryResource>( cuda_exec_context_->getDevice(), shape );
+        auto final_copy = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), shape );
 
         initializeTensorWithTestData( original );
 
@@ -472,15 +488,17 @@ namespace Dnn::Tensors::TensorOps::Tests
         tensors.reserve( num_copies );
 
         // Create multiple tensors
-        for (int i = 0; i < num_copies; ++i) {
-            tensors.emplace_back( cpu_context_, shape );
+        for (int i = 0; i < num_copies; ++i)
+        {
+            tensors.emplace_back( cpu_exec_context_->getDevice(), shape );
         }
 
         // Initialize first tensor with test data
         initializeTensorWithTestData( tensors[0] );
 
         // Perform sequential copies
-        for (int i = 1; i < num_copies; ++i) {
+        for (int i = 1; i < num_copies; ++i)
+        {
             EXPECT_NO_THROW( copy( tensors[i - 1], tensors[i] ) );
             EXPECT_EQ( tensors[i].shape(), shape );
             verifyTensorData( tensors[i] );

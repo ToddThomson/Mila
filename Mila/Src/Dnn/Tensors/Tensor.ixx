@@ -173,6 +173,46 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
+         * @brief Creates a tensor with an existing compute device and specified shape
+         *
+         * Constructs a tensor using an already-created compute device, avoiding
+         * device registry lookups. Useful when multiple tensors share the same
+         * device or when working with devices obtained from other sources.
+         *
+         * @param device Shared pointer to compute device
+         * @param shape Vector defining the size of each dimension in row-major order
+         *
+         * @throws std::invalid_argument If device is null
+         * @throws std::runtime_error If device type doesn't match memory resource
+         * @throws std::bad_alloc If memory allocation fails
+         *
+         * @note Device type must match TMemoryResource::device_type
+         * @note More efficient than string-based constructor (no registry lookup)
+         * @note Empty shape {} creates a scalar (0D tensor) with size 1
+         * @note Shape {0} creates an empty 1D tensor with size 0
+         *
+         * Example:
+         * @code
+         * auto device = std::make_shared<CpuDevice>();
+         *
+         * // Create multiple tensors sharing the same device
+         * auto tensor1 = Tensor<TensorDataType::FP32, CpuMemoryResource>(device, {3, 4});
+         * auto tensor2 = Tensor<TensorDataType::FP32, CpuMemoryResource>(device, {5, 6});
+         *
+         * // From ExecutionContext
+         * auto exec_ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>(0);
+         * auto tensor3 = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>(
+         *     exec_ctx->getDevice(), {10, 20});
+         * @endcode
+         */
+        explicit Tensor( std::shared_ptr<Compute::ComputeDevice> device, const std::vector<size_t>& shape )
+            : device_( validateAndGetDevice( device ) ), uid_( setUId() ), shape_( shape ),
+            strides_( computeStrides( shape ) ), size_( computeSize( shape ) ) {
+
+            allocateBuffer();
+        }
+
+        /**
          * @brief Creates a tensor with device name and specified shape
          *
          * Constructs a tensor by verifying the device name through DeviceRegistry
@@ -201,11 +241,8 @@ namespace Mila::Dnn
          * @endcode
          */
         explicit Tensor( const std::string& device_name, const std::vector<size_t>& shape )
-            : device_( createDevice( device_name ) ),
-            uid_( setUId() ),
-            shape_( shape ),
-            strides_( computeStrides( shape ) ),
-            size_( computeSize( shape ) ) {
+            : device_( createDevice( device_name ) ), uid_( setUId() ), shape_( shape ),
+            strides_( computeStrides( shape ) ), size_( computeSize( shape ) ) {
 
             allocateBuffer();
         }
@@ -222,14 +259,15 @@ namespace Mila::Dnn
         /**
          * @brief Efficiently transfers ownership from another tensor
          *
-         * Moves all resources from the source tensor, leaving it in a valid
-         * but empty state. No data copying occurs, making this operation
-         * extremely efficient for large tensors.
+         * Moves all resources from the source tensor, leaving it in a
+         * clearly invalid "moved-from" state that is distinguishable from
+         * an intentionally empty tensor.
          *
-         * @param other Source tensor to move from (will be left in empty state)
+         * @param other Source tensor to move from (will be left in moved-from state)
          *
-         * @note Source tensor will have size 0, empty shape, and null buffer after move
-         * @note Move operations preserve tensor semantics (scalars remain scalars)
+         * @note Source tensor will be in moved-from state after move
+         * @note Moved-from tensors should not be used except for reassignment
+         * @note empty() will return true for moved-from tensors
          */
         Tensor( Tensor&& other ) noexcept
             : device_( std::move( other.device_ ) ),
@@ -239,9 +277,13 @@ namespace Mila::Dnn
             shape_( std::move( other.shape_ ) ),
             strides_( std::move( other.strides_ ) ),
             buffer_( std::move( other.buffer_ ) ) {
+
+            // Leave moved-from object in clearly invalid state
+            // Use a sentinel shape that indicates "moved-from" rather than "empty"
             other.size_ = 0;
-            other.shape_.clear();
-            other.strides_.clear();
+            other.shape_ = {};
+            other.strides_ = {};
+            other.device_ = nullptr;
         }
 
         /**
@@ -266,7 +308,8 @@ namespace Mila::Dnn
          * @note All metadata including name, shape, and device context are transferred
          */
         Tensor& operator=( Tensor&& other ) noexcept {
-            if (this != &other) {
+            if (this != &other)
+            {
                 device_ = std::move( other.device_ );
                 uid_ = std::move( other.uid_ );
                 name_ = std::move( other.name_ );
@@ -281,6 +324,7 @@ namespace Mila::Dnn
             }
             return *this;
         }
+
 
         /**
          * @brief Destructor with automatic resource cleanup via RAII
@@ -455,7 +499,7 @@ namespace Mila::Dnn
             }
 
             using HostType = typename TensorHostTypeMap<TDataType>::host_type;
-            return static_cast<HostType*>(buffer_->rawData())[0];
+            return static_cast<HostType*>(buffer_->data())[0];
         }
 
         /**
@@ -479,7 +523,7 @@ namespace Mila::Dnn
             }
 
             using HostType = typename TensorHostTypeMap<TDataType>::host_type;
-            return static_cast<const HostType*>(buffer_->rawData())[0];
+            return static_cast<const HostType*>(buffer_->data())[0];
         }
 
         // ====================================================================
@@ -531,7 +575,7 @@ namespace Mila::Dnn
             size_t flat_index = computeFlatIndex( indices );
             using HostType = typename TensorHostTypeMap<TDataType>::host_type;
 
-            return static_cast<HostType*>(buffer_->rawData())[flat_index];
+            return static_cast<HostType*>(buffer_->data())[flat_index];
         }
 
         /**
@@ -565,7 +609,7 @@ namespace Mila::Dnn
             size_t flat_index = computeFlatIndex( indices );
             using HostType = typename TensorHostTypeMap<TDataType>::host_type;
 
-            return static_cast<const HostType*>(buffer_->rawData())[flat_index];
+            return static_cast<const HostType*>(buffer_->data())[flat_index];
         }
 
         /**
@@ -626,6 +670,22 @@ namespace Mila::Dnn
         // ====================================================================
         // Tensor Properties and Introspection
         // ====================================================================
+
+        /**
+         * @brief Gets the compute device associated with this tensor.
+         *
+         * Returns the device that this tensor's memory is bound to, providing
+         * access to device properties and capabilities.
+         *
+         * @return Shared pointer to the compute device
+         *
+         * @note Used by TensorOps for device-aware operations
+         * @note Enables device property queries without accessing context
+         * @note Device is set during construction and remains constant
+         */
+        std::shared_ptr<Compute::ComputeDevice> getDevice() const {
+            return device_;
+        }
 
         /**
          * @brief Returns the tensor's dimensional shape vector
@@ -705,6 +765,35 @@ namespace Mila::Dnn
          *
          * @return true if tensor has no elements (size == 0), false otherwise
          *
+         * A tensor is empty when any dimension is 0, resulting in size() == 0.
+         * 
+         * Construction:
+         *   Tensor<FP32, CpuMemoryResource> empty(device, {0});         // Valid
+         *   Tensor<FP32, CpuMemoryResource> empty2d(device, {0, 5});    // Valid
+         *   Tensor<FP32, CpuMemoryResource> empty3d(device, {3, 0, 4}); // Valid
+         * 
+         * Properties:
+         *   empty.size() == 0
+         *   empty.empty() == true
+         *   empty.rank() == number of dimensions (? 1)
+         *   empty.shape() contains the dimensions (at least one is 0)
+         *   empty.data() == nullptr (no allocation)
+         * 
+         * Operations:
+         *   - Reduction ops (sum, mean, etc.) return identity or throw
+         *   - Element-wise ops propagate emptiness
+         *   - Reshape allowed if size remains 0
+         *   - Concatenation allowed (concatenating with non-empty changes size)
+         * 
+         * Not Empty:
+         *   Tensor<FP32, CpuMemoryResource> scalar(device, {});  // NOT empty!
+         *   scalar.size() == 1   // Scalar has one element
+         *   scalar.empty() == false
+         * 
+         * Moved-From State:
+         *   Should be distinguishable from intentionally empty tensors.
+         *   Consider: moved-from -> shape {0}, empty -> shape {0}, but different semantics
+         * 
          * @note Scalars (rank 0) are NOT empty - they have size 1
          * @note Empty shape {} -> scalar (size 1) -> NOT empty
          * @note Shape {0} -> empty 1D vector (size 0) -> empty
@@ -758,6 +847,13 @@ namespace Mila::Dnn
             return shape_.size();
         }
 
+        /**
+         * @brief Check if tensor is in a valid state (not moved-from)
+         */
+        bool isValid() const noexcept {
+            return device_ != nullptr;
+        }
+
         // ====================================================================
         // Data Pointers
         // ====================================================================
@@ -793,7 +889,7 @@ namespace Mila::Dnn
          */
         [[nodiscard]] constexpr auto* data() noexcept requires TMemoryResource::is_host_accessible {
             using HostType = typename TensorHostTypeMap<TDataType>::host_type;
-            return static_cast<HostType*>(buffer_ ? buffer_->rawData() : nullptr);
+            return static_cast<HostType*>(buffer_ ? buffer_->data() : nullptr);
         }
 
         /**
@@ -815,7 +911,7 @@ namespace Mila::Dnn
          */
         [[nodiscard]] constexpr const auto* data() const noexcept requires TMemoryResource::is_host_accessible {
             using HostType = typename TensorHostTypeMap<TDataType>::host_type;
-            return static_cast<const HostType*>(buffer_ ? buffer_->rawData() : nullptr);
+            return static_cast<const HostType*>(buffer_ ? buffer_->data() : nullptr);
         }
 
         // ====================================================================
@@ -911,7 +1007,7 @@ namespace Mila::Dnn
             if (size_ > 0) {
                 // TODO: Implement TensorBuffer::copyFrom() for deep copy support
                 // For now, clone() creates allocated but uninitialized tensor
-                // cloned_tensor.buffer_->copyFrom(rawData(), buffer_->storageBytes());
+                // cloned_tensor.buffer_->copyFrom(data(), buffer_->storageBytes());
             }
 
             if (!name_.empty()) {
@@ -1131,6 +1227,27 @@ namespace Mila::Dnn
 
     protected:
         /**
+         * @brief Returns raw pointer to tensor data (implements ITensor protected API)
+         *
+         * Provides type-erased access to tensor memory for TensorOps implementations.
+         * This is the internal API that allows device-specific operations to access
+         * tensor data uniformly across all memory resource types.
+         *
+         * @return Raw void pointer to tensor data
+         * @note Implements ITensor::rawData()
+         */
+        void* rawData() override {
+            return buffer_ ? buffer_->data() : nullptr;
+        }
+
+        /**
+         * @brief Returns raw pointer to tensor data (const version)
+         */
+        const void* rawData() const override {
+            return buffer_ ? buffer_->data() : nullptr;
+        }
+
+        /**
          * @brief Returns pointer to the memory resource managing this tensor's storage
          *
          * Provides efficient access to the memory resource for dispatch optimization,
@@ -1172,6 +1289,41 @@ private:
         // ====================================================================
         // Private Helper Methods
         // ====================================================================
+
+        /**
+         * @brief Validates device and returns it if valid
+         *
+         * Ensures the provided device is not null and matches the memory resource's
+         * required device type.
+         *
+         * @param device Device to validate
+         * @return The validated device
+         * @throws std::invalid_argument If device is null
+         * @throws std::runtime_error If device type doesn't match memory resource
+         */
+        static std::shared_ptr<Compute::ComputeDevice> validateAndGetDevice(
+            std::shared_ptr<Compute::ComputeDevice> device )
+        {
+            if (!device)
+            {
+                throw std::invalid_argument( "Device cannot be null" );
+            }
+
+            // Validate device type matches memory resource requirement
+            constexpr Compute::DeviceType required_type = TMemoryResource::device_type;
+
+            if (device->getDeviceType() != required_type)
+            {
+                throw std::runtime_error(
+                    "Device type mismatch: Memory resource requires " +
+                    deviceToString( required_type ) +
+                    " but provided device is " +
+                    deviceToString( device->getDeviceType() )
+                );
+            }
+
+            return device;
+        }
 
         /**
          * @brief Creates appropriate device context based on device name
@@ -1341,8 +1493,7 @@ private:
          * @endcode
          */
         size_t computeSize( const std::vector<size_t>& shape ) {
-            // Product of empty sequence is 1 (multiplicative identity)
-            // This correctly makes scalars (empty shape) have size 1
+            // Product of empty sequence is 1 (multiplicative identity) for scalar construction
             return std::accumulate( shape.begin(), shape.end(), 1ull, std::multiplies<size_t>() );
         }
 

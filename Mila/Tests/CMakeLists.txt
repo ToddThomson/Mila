@@ -36,8 +36,6 @@ add_executable( MilaTests
     # --------------------------------------------------------------
     "Dnn/Compute/Devices/DeviceHelpers.cpp"
     "Dnn/Compute/Devices/DeviceTypes.cpp"
-    
-    
     "Dnn/Compute/Devices/Cpu/CpuDevicePlugin.cpp"
     "Dnn/Compute/Devices/Cuda/CudaDevicePlugin.cpp"
 
@@ -58,9 +56,9 @@ add_executable( MilaTests
     #"Dnn/Tensors/Tensor.Initializers.cpp"
 
     # TensorOps
-    #"Dnn/Tensors/TensorOps/Math.Cpu.cpp"
-    #"Dnn/Tensors/TensorOps/Fill.Cpu.cpp"
-    #"Dnn/Tensors/TensorOps/TensorOps.Transfer.cpp"
+    "Dnn/Tensors/TensorOps/Math.Cpu.cpp"
+    "Dnn/Tensors/TensorOps/Fill.Cpu.cpp"
+    "Dnn/Tensors/TensorOps/TensorOps.Transfer.cpp"
 
     # --------------------------------------------------------------
     # Compute::Device::Cpu Operations Tests
@@ -124,12 +122,16 @@ add_executable( MilaTests
     #"Dnn/Compute/Operations/Cuda/CudaMultHeadAttentionOpTests.cpp"
     #"Dnn/Compute/Operations/Cuda/CudaResidualOpTests.cpp"
     #"Dnn/Compute/Operations/Cuda/CudaSoftmaxOpTests.cpp"
+    
     #"Dnn/Modules/Blocks/MLPConfig.cpp" 
     #"Dnn/Seriaalization/ZipSerializer.cpp"
     #"Dnn/Tensors/TensorBuffer.Tracking.cpp"
 
     "Dnn/Compute/Registry/DeviceRegistry.cpp"
-  "Dnn/Compute/ExecutionContext/ExecutionContext.cpp" "Dnn/Compute/ExecutionContext/CudaExecutionContext.cpp" "Dnn/Compute/ExecutionContext/CpuExecutionContext.cpp")
+    "Dnn/Compute/ExecutionContext/ExecutionContext.cpp"
+    "Dnn/Compute/ExecutionContext/CudaExecutionContext.cpp"
+    "Dnn/Compute/ExecutionContext/CpuExecutionContext.cpp"
+)
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
 

@@ -109,10 +109,10 @@ namespace Mila::Dnn::Compute
             cudaStream_t stream = device_context->getStream();
             cublasLtHandle_t cuda_handle = device_context->getCublasLtHandle();
 
-            const auto* input_data = input.rawData();
-            const auto* weights_data = weights.rawData();
-            const auto* bias_data = bias.rawData();
-            auto* output_data = output.rawData();
+            const auto* input_data = input.data();
+            const auto* weights_data = weights.data();
+            const auto* bias_data = bias.data();
+            auto* output_data = output.data();
 
             auto input_shape = input.shape();
             auto weights_shape = weights.shape();
@@ -161,8 +161,8 @@ namespace Mila::Dnn::Compute
 
             // Extract tensors
             const auto* X = input.data();
-            const auto* dY = output_gradient.rawData();
-            const auto* W = parameters[ 0 ]->rawData();
+            const auto* dY = output_gradient.data();
+            const auto* W = parameters[ 0 ]->data();
 
             auto* dX = input_gradient.data();
             auto* dW = parameter_gradients[ 0 ]->data();

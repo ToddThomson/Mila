@@ -110,7 +110,7 @@ namespace Operations::Tests
                     // Normalize by the sum
                     for ( int64_t i = 0; i < dim_size; ++i ) {
                         int64_t idx = (outer * dim_size * inner_size) + (i * inner_size) + inner;
-                        output.rawData()[ idx ] /= sum;
+                        output.data()[ idx ] /= sum;
                     }
                 }
             }

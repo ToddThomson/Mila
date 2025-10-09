@@ -150,7 +150,7 @@ namespace Operations::Tests
             Tensor<float, HostMemoryResource> perturbed_output( input.shape() );
 
             // Copy input to perturbed input
-            std::copy( input.rawData(), input.rawData() + input.size(), perturbed_input.rawData() );
+            std::copy( input.data(), input.data() + input.size(), perturbed_input.data() );
 
             // Compute input gradients
             for ( size_t i = 0; i < input.size(); ++i ) {
@@ -158,7 +158,7 @@ namespace Operations::Tests
                 referenceLayerNorm( input, weight, bias, output, mean, rstd, epsilon );
                 float original_loss = 0.0f;
                 for ( size_t j = 0; j < output.size(); ++j ) {
-                    original_loss += output.rawData()[ j ] * output_grad.rawData()[ j ];
+                    original_loss += output.data()[ j ] * output_grad.data()[ j ];
                 }
 
                 // Perturb input
@@ -180,7 +180,7 @@ namespace Operations::Tests
 
             // Compute weight gradients
             Tensor<float, HostMemoryResource> perturbed_weight( weight.shape() );
-            std::copy( weight.rawData(), weight.rawData() + weight.size(), perturbed_weight.rawData() );
+            std::copy( weight.data(), weight.data() + weight.size(), perturbed_weight.data() );
 
             for ( size_t i = 0; i < weight.size(); ++i ) {
                 // Compute output with original weights
@@ -209,7 +209,7 @@ namespace Operations::Tests
 
             // Compute bias gradients
             Tensor<float, HostMemoryResource> perturbed_bias( bias.shape() );
-            std::copy( bias.rawData(), bias.rawData() + bias.size(), perturbed_bias.rawData() );
+            std::copy( bias.data(), bias.data() + bias.size(), perturbed_bias.data() );
 
             for ( size_t i = 0; i < bias.size(); ++i ) {
                 // Compute output with original bias

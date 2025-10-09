@@ -51,10 +51,10 @@ namespace Operations::Tests
             if ( a.size() != b.size() ) return false;
 
             for ( size_t i = 0; i < a.size(); ++i ) {
-                float diff = std::abs( a.rawData()[ i ] - b.rawData()[ i ] );
+                float diff = std::abs( a.data()[ i ] - b.data()[ i ] );
                 if ( diff > epsilon ) {
                     std::cout << "Mismatch at index " << i << ": "
-                        << a.rawData()[ i ] << " vs " << b.rawData()[ i ]
+                        << a.data()[ i ] << " vs " << b.data()[ i ]
                         << " (diff = " << diff << ")" << std::endl;
                         return false;
                 }
@@ -65,8 +65,8 @@ namespace Operations::Tests
         // Helper method to check for NaNs or Infs
         bool hasNaNorInf( const Tensor<float, HostMemoryResource>& tensor ) {
             for ( size_t i = 0; i < tensor.size(); ++i ) {
-                if ( std::isnan( tensor.rawData()[ i ] ) || std::isinf( tensor.rawData()[ i ] ) ) {
-                    std::cout << "Found NaN or Inf at index " << i << ": " << tensor.rawData()[ i ] << std::endl;
+                if ( std::isnan( tensor.data()[ i ] ) || std::isinf( tensor.data()[ i ] ) ) {
+                    std::cout << "Found NaN or Inf at index " << i << ": " << tensor.data()[ i ] << std::endl;
                     return true;
                 }
             }
@@ -80,7 +80,7 @@ namespace Operations::Tests
             std::uniform_real_distribution<float> dist( min, max );
 
             for ( size_t i = 0; i < tensor.size(); ++i ) {
-                tensor.rawData()[ i ] = dist( gen );
+                tensor.data()[ i ] = dist( gen );
             }
         }
 
@@ -105,7 +105,7 @@ namespace Operations::Tests
 
             // Clear output
             for ( size_t i = 0; i < output.size(); ++i ) {
-                output.rawData()[ i ] = 0.0f;
+                output.data()[ i ] = 0.0f;
             }
 
             // Calculate embedding dimension per head
@@ -123,9 +123,9 @@ namespace Operations::Tests
                             // Calculate attention score (simplified dot-product)
                             for ( size_t d = 0; d < head_dim; ++d ) {
                                 // Query for current position
-                                float q = input.rawData()[ (b * T + t) * C + h * head_dim + d ];
+                                float q = input.data()[ (b * T + t) * C + h * head_dim + d ];
                                 // Key for position to attend to
-                                float k = input.rawData()[ (b * T + t2) * C + h * head_dim + d + C ];
+                                float k = input.data()[ (b * T + t2) * C + h * head_dim + d + C ];
                                 score += q * k;
                             }
 
@@ -133,27 +133,27 @@ namespace Operations::Tests
                             score /= std::sqrt( static_cast<float>( head_dim ) );
 
                             // Store attention score
-                            attn_scores.rawData()[ (b * num_heads + h) * T * T + t * T + t2 ] = score;
+                            attn_scores.data()[ (b * num_heads + h) * T * T + t * T + t2 ] = score;
                         }
 
                         // Apply softmax to get attention weights
                         float max_score = -std::numeric_limits<float>::infinity();
                         for ( size_t t2 = 0; t2 < T; ++t2 ) {
-                            float score = attn_scores.rawData()[ (b * num_heads + h) * T * T + t * T + t2 ];
+                            float score = attn_scores.data()[ (b * num_heads + h) * T * T + t * T + t2 ];
                             max_score = std::max( max_score, score );
                         }
 
                         float sum_exp = 0.0f;
                         for ( size_t t2 = 0; t2 < T; ++t2 ) {
-                            float score = attn_scores.rawData()[ (b * num_heads + h) * T * T + t * T + t2 ];
+                            float score = attn_scores.data()[ (b * num_heads + h) * T * T + t * T + t2 ];
                             float exp_score = std::exp( score - max_score );
-                            attn_weights.rawData()[ (b * num_heads + h) * T * T + t * T + t2 ] = exp_score;
+                            attn_weights.data()[ (b * num_heads + h) * T * T + t * T + t2 ] = exp_score;
                             sum_exp += exp_score;
                         }
 
                         // Normalize attention weights
                         for ( size_t t2 = 0; t2 < T; ++t2 ) {
-                            attn_weights.rawData()[ (b * num_heads + h) * T * T + t * T + t2 ] /= sum_exp;
+                            attn_weights.data()[ (b * num_heads + h) * T * T + t * T + t2 ] /= sum_exp;
                         }
 
                         // Apply attention weights to values
@@ -161,27 +161,27 @@ namespace Operations::Tests
                             float weighted_sum = 0.0f;
 
                             for ( size_t t2 = 0; t2 < T; ++t2 ) {
-                                float weight = attn_weights.rawData()[ (b * num_heads + h) * T * T + t * T + t2 ];
-                                float value = input.rawData()[ (b * T + t2) * C + h * head_dim + d + 2 * C ];
+                                float weight = attn_weights.data()[ (b * num_heads + h) * T * T + t * T + t2 ];
+                                float value = input.data()[ (b * T + t2) * C + h * head_dim + d + 2 * C ];
                                 weighted_sum += weight * value;
                             }
 
                             // Store in output
-                            output.rawData()[ (b * T + t) * C + h * head_dim + d ] = weighted_sum;
+                            output.data()[ (b * T + t) * C + h * head_dim + d ] = weighted_sum;
                         }
                     }
 
                     // Apply output projection and bias
                     // This is simplified - real implementation would use matrix multiplication
                     for ( size_t oc = 0; oc < C; ++oc ) {
-                        float sum = bias.rawData()[ oc ];
+                        float sum = bias.data()[ oc ];
 
                         for ( size_t ic = 0; ic < C; ++ic ) {
-                            sum += output.rawData()[ (b * T + t) * C + ic ] * weights.rawData()[ C * oc + ic ];
+                            sum += output.data()[ (b * T + t) * C + ic ] * weights.data()[ C * oc + ic ];
                         }
 
                         // Final output
-                        output.rawData()[ (b * T + t) * C + oc ] = sum;
+                        output.data()[ (b * T + t) * C + oc ] = sum;
                     }
                 }
             }
@@ -260,7 +260,7 @@ namespace Operations::Tests
 
         // Initialize bias to zeros
         for ( size_t i = 0; i < host_bias.size(); ++i ) {
-            host_bias.rawData()[ i ] = 0.0f;
+            host_bias.data()[ i ] = 0.0f;
         }
 
         // Copy to device
@@ -344,7 +344,7 @@ namespace Operations::Tests
 
         // Initialize bias to zeros
         for ( size_t i = 0; i < cpu_bias->size(); ++i ) {
-            cpu_bias->rawData()[ i ] = 0.0f;
+            cpu_bias->data()[ i ] = 0.0f;
         }
 
         // Copy to CUDA device
@@ -415,7 +415,7 @@ namespace Operations::Tests
 
             // Initialize bias to zeros
             for ( size_t i = 0; i < host_bias.size(); ++i ) {
-                host_bias.rawData()[ i ] = 0.0f;
+                host_bias.data()[ i ] = 0.0f;
             }
 
             // Copy to device
@@ -484,7 +484,7 @@ namespace Operations::Tests
 
             // Initialize bias to zeros
             for ( size_t i = 0; i < host_bias.size(); ++i ) {
-                host_bias.rawData()[ i ] = 0.0f;
+                host_bias.data()[ i ] = 0.0f;
             }
 
             // Copy to device
@@ -553,7 +553,7 @@ namespace Operations::Tests
 
             // Initialize bias to zeros
             for ( size_t i = 0; i < host_bias.size(); ++i ) {
-                host_bias.rawData()[ i ] = 0.0f;
+                host_bias.data()[ i ] = 0.0f;
             }
 
             // Copy to device
@@ -625,7 +625,7 @@ namespace Operations::Tests
 
         // Initialize bias to zeros
         for ( size_t i = 0; i < host_bias.size(); ++i ) {
-            host_bias.rawData()[ i ] = 0.0f;
+            host_bias.data()[ i ] = 0.0f;
         }
 
         // Copy to device
@@ -636,15 +636,15 @@ namespace Operations::Tests
 
         // Zero out device gradients
         for ( size_t i = 0; i < device_weight_grad->size(); ++i ) {
-            device_weight_grad->rawData()[ i ] = 0.0f;
+            device_weight_grad->data()[ i ] = 0.0f;
         }
 
         for ( size_t i = 0; i < device_bias_grad->size(); ++i ) {
-            device_bias_grad->rawData()[ i ] = 0.0f;
+            device_bias_grad->data()[ i ] = 0.0f;
         }
 
         for ( size_t i = 0; i < device_input_grad.size(); ++i ) {
-            device_input_grad.rawData()[ i ] = 0.0f;
+            device_input_grad.data()[ i ] = 0.0f;
         }
 
         // Forward pass
@@ -790,7 +790,7 @@ namespace Operations::Tests
 
         // Initialize bias to zeros
         for ( size_t i = 0; i < host_bias.size(); ++i ) {
-            host_bias.rawData()[ i ] = 0.0f;
+            host_bias.data()[ i ] = 0.0f;
         }
 
         // Copy to device

@@ -141,7 +141,7 @@ namespace Mila::Dnn::Compute
 
                 cudaStream_t stream = this->getDeviceContext()->getStream();
 
-                // FIXME: Detail::cuda_encoder_impl<TOutput>::forward( Y, X, wte->rawData(), wpe->rawData(), B, T, C, stream );
+                // FIXME: Detail::cuda_encoder_impl<TOutput>::forward( Y, X, wte->data(), wpe->data(), B, T, C, stream );
             }
 
             /**

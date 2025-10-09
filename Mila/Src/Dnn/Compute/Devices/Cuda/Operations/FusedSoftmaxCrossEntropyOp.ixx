@@ -144,9 +144,9 @@ namespace Mila::Dnn::Compute
             auto vocab_size = logits.shape()[ 2 ];
 
             // Get pointers to raw data
-            const TPrecision* logits = logits.rawData();
-            const int* targets = targets.rawData();
-            TPrecision* losses = losses.rawData();
+            const TPrecision* logits = logits.data();
+            const int* targets = targets.data();
+            TPrecision* losses = losses.data();
 
             // Ensure output_state has a tensor to store probabilities
             if ( output_state.empty() ) {
@@ -156,7 +156,7 @@ namespace Mila::Dnn::Compute
                 output_state[ 0 ]->reshape( logits.shape() );
             }
 
-            TPrecision* probs = output_state[ 0 ]->rawData();
+            TPrecision* probs = output_state[ 0 ]->data();
 
             // Get CUDA stream from device context
             cudaStream_t stream = this->getDeviceContext()->getStream();
@@ -202,15 +202,15 @@ namespace Mila::Dnn::Compute
             auto vocab_size = input1.shape()[ 2 ];
 
             // Get pointers to raw data
-            const int* targets = input2.rawData();
-            const TPrecision* dlosses = output_gradient.rawData();
-            TPrecision* dlogits = input1_gradient.rawData();
+            const int* targets = input2.data();
+            const TPrecision* dlosses = output_gradient.data();
+            TPrecision* dlogits = input1_gradient.data();
 
             // Get probabilities from output_state
             if ( output_state.empty() || output_state[ 0 ]->shape() != input1.shape() ) {
                 throw std::runtime_error( "Missing or invalid probabilities in output_state" );
             }
-            const TPrecision* probs = output_state[ 0 ]->rawData();
+            const TPrecision* probs = output_state[ 0 ]->data();
 
             // Get CUDA stream from device context
             cudaStream_t stream = this->getDeviceContext()->getStream();

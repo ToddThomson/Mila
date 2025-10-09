@@ -92,7 +92,7 @@ namespace Mila::Dnn::Compute
             auto T = input.shape()[ 1 ];
             auto Vp = parameters[ 0 ]->shape()[ 2 ];
             
-            float* probs = static_cast<float*>( parameters[ 0 ]->rawData() );
+            float* probs = static_cast<float*>( parameters[ 0 ]->data() );
             auto targets = input.data();
             auto losses = output.data();
 
@@ -148,7 +148,7 @@ namespace Mila::Dnn::Compute
 
                 float* dlogits = parameter_gradients[ 0 ]->data();
                 const float* dlosses = output_gradient.data();
-                const float* probs = static_cast<float*>(parameters[ 0 ]->rawData() );
+                const float* probs = static_cast<float*>(parameters[ 0 ]->data() );
 
                 backward_impl( dlogits, dlosses, probs, input, B, T, V, Vp );
             }

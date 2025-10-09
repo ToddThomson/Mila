@@ -25,35 +25,15 @@ namespace Mila::Dnn::Compute
      * without additional overhead.
      */
     export template<>
-        class ExecutionContext<DeviceType::Cpu> {
+    class ExecutionContext<DeviceType::Cpu> {
         public:
             /**
              * @brief Constructs CPU execution context.
              *
              * @param device_id Ignored for CPU (CPU has no device ID)
              */
-            explicit ExecutionContext( int device_id = -1 )
+            explicit ExecutionContext()
                 : device_( std::make_shared<CpuDevice>() ) {
-            }
-
-            /**
-             * @brief Constructs CPU execution context from device.
-             *
-             * @param device CPU device instance
-             * @throws std::invalid_argument If device is null or not CPU
-             */
-            explicit ExecutionContext( std::shared_ptr<ComputeDevice> device )
-                : device_( device ) {
-
-                if (!device_) {
-                    throw std::invalid_argument( "Device cannot be null" );
-                }
-
-                if (device_->getDeviceType() != DeviceType::Cpu) {
-                    throw std::invalid_argument(
-                        "CpuExecutionContext requires CPU device"
-                    );
-                }
             }
 
             ~ExecutionContext() = default;

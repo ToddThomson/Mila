@@ -184,11 +184,11 @@ namespace Mila::Dnn::Compute
         //    }
 
         //    // Get the softmax probabilities (output of forward pass)
-        //    const float* probs = output.rawData();
+        //    const float* probs = output.data();
         //    // Get the gradient of the loss with respect to the output
-        //    const float* dout = output_gradient.rawData();
+        //    const float* dout = output_gradient.data();
         //    // Get the gradient buffer for the input
-        //    float* dinp = input_gradient.rawData();
+        //    float* dinp = input_gradient.data();
 
         //    // Get the axis parameter from operation properties
         //    int64_t axis = properties.axis;
