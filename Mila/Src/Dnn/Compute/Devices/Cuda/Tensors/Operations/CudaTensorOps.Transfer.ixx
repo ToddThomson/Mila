@@ -22,7 +22,7 @@ module;
 #include <cstring>
 #include "Kernels/Transfer.Copy.h"
 
-export module Dnn.TensorOps:Transfer.Cuda;
+export module Compute.CudaTensorOps:Transfer;
 
 import Dnn.Tensor;
 import Dnn.ITensor;
@@ -31,6 +31,7 @@ import Dnn.TensorDataTypeMap;
 import Dnn.TensorDataTypeTraits;
 import Compute.CudaTensorDataType;
 import Compute.ExecutionContext;
+import Compute.IExecutionContext;
 import Compute.CudaExecutionContext;
 import Compute.CudaDevice;
 import Compute.CudaDeviceMemoryResource;
@@ -40,11 +41,9 @@ import Compute.DeviceType;
 import Cuda.Helpers;
 import Cuda.Error;
 
-namespace Mila::Dnn
+namespace Mila::Dnn::Compute::Cuda
 {
     using namespace Mila::Dnn::Compute;
-
-    template<DeviceType TDevice> struct TensorOps;
 
     /**
      * @brief CUDA specialization of TensorOps for tensor transfer operations
@@ -61,13 +60,8 @@ namespace Mila::Dnn
      * - Automatic fallback to default stream with explicit sync
      * - Memory-efficient staging for host-device conversions
      */
-    export template<>
-    struct TensorOps<DeviceType::Cuda>
+    export struct TransferOps
     {
-        // ================================================================
-        // High-Level Tensor Copy Operations
-        // ================================================================
-
         /**
          * @brief Copies tensor data with optional ExecutionContext
          *
@@ -114,14 +108,13 @@ namespace Mila::Dnn
          * @endcode
          */
         template<TensorDataType TSrcDataType, typename TSrcMemoryResource,
-            TensorDataType TDstDataType, typename TDstMemoryResource>
+                 TensorDataType TDstDataType, typename TDstMemoryResource>
             requires isValidTensor<TSrcDataType, TSrcMemoryResource> && isValidTensor<TDstDataType, TDstMemoryResource>
         static void copy(
             const Tensor<TSrcDataType, TSrcMemoryResource>& src,
             Tensor<TDstDataType, TDstMemoryResource>& dst,
-            ExecutionContext<DeviceType::Cuda>* exec_context = nullptr )
+            IExecutionContext* exec_context = nullptr )
         {
-            // Validate tensor compatibility
             if (src.shape() != dst.shape())
             {
                 throw std::invalid_argument(
@@ -131,7 +124,7 @@ namespace Mila::Dnn
 
             if (src.size() == 0)
             {
-                return; // Nothing to copy
+                return;
             }
 
             // Determine stream and synchronization requirements
@@ -141,14 +134,13 @@ namespace Mila::Dnn
 
             if (exec_context)
             {
-                // Caller-provided context - borrow stream, let caller control sync
-                stream = exec_context->getStream();
-                device_id = exec_context->getDeviceId();
+                auto* cuda_exec_context = cast_context<DeviceType::Cuda>( exec_context );
+                
+                stream = cuda_exec_context->getStream();
+                device_id = cuda_exec_context->getDeviceId();
             }
             else
             {
-                // No context - determine device from tensors and use default stream
-                // Try source tensor first, then destination
                 if constexpr (!TSrcMemoryResource::is_host_accessible)
                 {
                     auto src_device = std::dynamic_pointer_cast<CudaDevice>(src.getDevice());

@@ -19,7 +19,7 @@ module;
 #include <type_traits>
 #include <stdexcept>
 
-export module Dnn.TensorOps:Fill.Cpu;
+export module Compute.CpuTensorOps:Fill;
 
 import Dnn.Tensor;
 import Dnn.TensorDataType;
@@ -31,7 +31,7 @@ import Compute.CpuMemoryResource;
 import Compute.CpuTensorDataTypeTraits;
 import Compute.ExecutionContext;
 
-namespace Mila::Dnn
+namespace Mila::Dnn::Compute::Cpu
 {
     using namespace Mila::Dnn::Compute;
 
@@ -49,10 +49,8 @@ namespace Mila::Dnn
      * - Compile-time dispatch for optimal code generation
      * - Accepts ExecutionContext for API consistency (unused on CPU)
      */
-    template<DeviceType TDevice> struct TensorOps;
 
-    export template<>
-        struct TensorOps<DeviceType::Cpu>
+    export struct FillOps
     {
         template<TensorDataType TDataType>
         using host_value_t = std::conditional_t<TensorDataTypeTraits<TDataType>::is_integer_type, int32_t, float>;
@@ -78,9 +76,10 @@ namespace Mila::Dnn
          * @note No synchronization needed - operations are synchronous on CPU
          * @note ExecutionContext parameter ignored but present for uniform API across devices
          */
-        template<TensorDataType TDataType>
+        template<TensorDataType TDataType, typename TMemoryResource>
+			requires isValidTensor<TDataType, TMemoryResource> /*&& std::is_same_v<TMemoryResource, CpuMemoryResource> */
         static void fill(
-            Tensor<TDataType, CpuMemoryResource>& tensor,
+            Tensor<TDataType, TMemoryResource>& tensor,
             std::span<const host_value_t<TDataType>> host_values,
             [[maybe_unused]] ExecutionContext<DeviceType::Cpu>* exec_context = nullptr )
         {
@@ -130,9 +129,10 @@ namespace Mila::Dnn
          * @note No synchronization needed - operations are synchronous on CPU
          * @note ExecutionContext parameter ignored but present for uniform API across devices
          */
-        template<TensorDataType TDataType>
+        template<TensorDataType TDataType, typename TMemoryResource>
+			requires isValidTensor<TDataType, TMemoryResource> /* && std::is_same_v<TMemoryResource, CpuMemoryResource> */
         static void fill(
-            Tensor<TDataType, CpuMemoryResource>& tensor,
+            Tensor<TDataType, TMemoryResource>& tensor,
             host_value_t<TDataType> host_value,
             [[maybe_unused]] ExecutionContext<DeviceType::Cpu>* exec_context = nullptr )
         {

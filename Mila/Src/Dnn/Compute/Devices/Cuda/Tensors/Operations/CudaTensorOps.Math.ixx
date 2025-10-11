@@ -23,9 +23,10 @@ module;
 #include <vector>
 #include "Kernels/Math.Elementwise.h"
 
-export module Dnn.TensorOps:Math.Cuda;
+export module Compute.CudaTensorOps:Math;
 
 import Dnn.Tensor;
+import Dnn.ITensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeMap;
 import Dnn.TensorDataTypeTraits;
@@ -41,11 +42,9 @@ import Compute.DeviceType;
 import Cuda.Helpers;
 import Cuda.Error;
 
-namespace Mila::Dnn
+namespace Mila::Dnn::Compute::Cuda
 {
     using namespace Mila::Dnn::Compute;
-
-    template<DeviceType TDevice> struct TensorOps;
 
     /**
      * @brief CUDA specialization of TensorOps for mathematical operations
@@ -64,8 +63,7 @@ namespace Mila::Dnn
      * - Zero-overhead ExecutionContext borrowing (raw pointer)
      * - Automatic fallback to default stream
      */
-    export template<>
-        struct TensorOps<DeviceType::Cuda>
+    export struct MathOps
     {
         // ================================================================
         // Element-wise Binary Operations
@@ -148,10 +146,10 @@ namespace Mila::Dnn
                 needs_sync = true;  // Must sync default stream before returning
             }
 
-            // Get data pointers
-            const void* a_data = a.data();
-            const void* b_data = b.data();
-            void* result_data = result.data();
+            // Get data pointers through ITensor interface
+            const void* a_data = static_cast<const ITensor&>(a).rawData();
+            const void* b_data = static_cast<const ITensor&>(b).rawData();
+            void* result_data = static_cast<ITensor&>(result).rawData();
 
             if (!a_data || !b_data || !result_data)
             {
@@ -224,9 +222,10 @@ namespace Mila::Dnn
                 needs_sync = true;
             }
 
-            const void* a_data = a.data();
-            const void* b_data = b.data();
-            void* result_data = result.data();
+            // Get data pointers through ITensor interface
+            const void* a_data = static_cast<const ITensor&>(a).rawData();
+            const void* b_data = static_cast<const ITensor&>(b).rawData();
+            void* result_data = static_cast<ITensor&>(result).rawData();
 
             if (!a_data || !b_data || !result_data)
             {
@@ -298,9 +297,10 @@ namespace Mila::Dnn
                 needs_sync = true;
             }
 
-            const void* a_data = a.data();
-            const void* b_data = b.data();
-            void* result_data = result.data();
+            // Get data pointers through ITensor interface
+            const void* a_data = static_cast<const ITensor&>(a).rawData();
+            const void* b_data = static_cast<const ITensor&>(b).rawData();
+            void* result_data = static_cast<ITensor&>(result).rawData();
 
             if (!a_data || !b_data || !result_data)
             {
@@ -308,6 +308,88 @@ namespace Mila::Dnn
             }
 
             multiplyImpl<TDataType>( a_data, b_data, result_data, a.size(), stream, device_id );
+
+            if (needs_sync)
+            {
+                cudaStreamSynchronize( stream );
+            }
+        }
+
+        /**
+         * @brief Element-wise division of two tensors
+         *
+         * Computes result[i] = a[i] / b[i] for all elements using CUDA kernels.
+         * Follows IEEE 754 standards for floating-point division by zero.
+         *
+         * @tparam TDataType Abstract tensor data type
+         * @tparam TMemoryResource Memory resource type
+         * @param a First input tensor (dividend)
+         * @param b Second input tensor (divisor)
+         * @param result Output tensor (must be pre-allocated with matching shape)
+         * @param exec_context Optional execution context for stream control (borrowed, not owned)
+         *
+         * @throws std::invalid_argument If tensor shapes don't match
+         * @throws std::runtime_error If CUDA operations fail
+         *
+         * @note For floating-point types, division by zero produces infinity or NaN per IEEE 754
+         * @note For integer types, division by zero behavior depends on kernel implementation
+         */
+        template<TensorDataType TDataType, typename TMemoryResource>
+            requires isValidTensor<TDataType, TMemoryResource>
+        static void divide(
+            const Tensor<TDataType, TMemoryResource>& a,
+            const Tensor<TDataType, TMemoryResource>& b,
+            Tensor<TDataType, TMemoryResource>& result,
+            ExecutionContext<DeviceType::Cuda>* exec_context = nullptr )
+        {
+            if (a.shape() != b.shape() || a.shape() != result.shape())
+            {
+                throw std::invalid_argument(
+                    "All tensors must have the same shape for element-wise division"
+                );
+            }
+
+            if (a.size() == 0)
+            {
+                return;
+            }
+
+            cudaStream_t stream;
+            bool needs_sync = false;
+            int device_id = -1;
+
+            if (exec_context)
+            {
+                stream = exec_context->getStream();
+                device_id = exec_context->getDeviceId();
+            }
+            else
+            {
+                auto device = std::dynamic_pointer_cast<CudaDevice>(a.getDevice());
+                if (!device)
+                {
+                    throw std::runtime_error(
+                        "Tensor does not have valid CUDA device for math operations"
+                    );
+                }
+
+                device_id = device->getDeviceId();
+                Cuda::setCurrentDevice( device_id );
+                stream = nullptr;
+                needs_sync = true;
+            }
+
+            // Get data pointers through ITensor interface
+            const void* a_data = static_cast<const ITensor&>(a).rawData();
+            const void* b_data = static_cast<const ITensor&>(b).rawData();
+            void* result_data = static_cast<ITensor&>(result).rawData();
+
+            if (!a_data || !b_data || !result_data)
+            {
+                throw std::runtime_error( "Invalid tensor data pointers for divide operation" );
+            }
+
+            divideImpl<TDataType>( a_data, b_data, result_data, a.size(), stream, device_id );
 
             if (needs_sync)
             {
@@ -368,7 +450,8 @@ namespace Mila::Dnn
                 stream = nullptr;
             }
 
-            const void* tensor_data = tensor.data();
+            // Get data pointer through ITensor interface
+            const void* tensor_data = static_cast<const ITensor&>(tensor).rawData();
             if (!tensor_data)
             {
                 throw std::runtime_error( "Invalid tensor data pointer for sum operation" );
@@ -403,11 +486,8 @@ namespace Mila::Dnn
             const auto* typed_b = static_cast<const NativeType*>(b_data);
             auto* typed_result = static_cast<NativeType*>(result_data);
 
-            constexpr int block = 256;
-            const int grid = static_cast<int>((count + block - 1) / block);
-
-            launch_elementwise_add_kernel<NativeType>(
-                typed_a, typed_b, typed_result, count, grid, block, stream
+            Kernels::launch_elementwise_add_kernel<NativeType>(
+                typed_a, typed_b, typed_result, count, stream
             );
 
             cudaError_t status = cudaGetLastError();
@@ -435,11 +515,8 @@ namespace Mila::Dnn
             const auto* typed_b = static_cast<const NativeType*>(b_data);
             auto* typed_result = static_cast<NativeType*>(result_data);
 
-            constexpr int block = 256;
-            const int grid = static_cast<int>((count + block - 1) / block);
-
-            launch_elementwise_subtract_kernel<NativeType>(
-                typed_a, typed_b, typed_result, count, grid, block, stream
+            Kernels::launch_elementwise_subtract_kernel<NativeType>(
+                typed_a, typed_b, typed_result, count, stream
             );
 
             cudaError_t status = cudaGetLastError();
@@ -467,11 +544,37 @@ namespace Mila::Dnn
             const auto* typed_b = static_cast<const NativeType*>(b_data);
             auto* typed_result = static_cast<NativeType*>(result_data);
 
-            constexpr int block = 256;
-            const int grid = static_cast<int>((count + block - 1) / block);
+            Kernels::launch_elementwise_multiply_kernel<NativeType>(
+                typed_a, typed_b, typed_result, count, stream
+            );
 
-            launch_elementwise_multiply_kernel<NativeType>(
-                typed_a, typed_b, typed_result, count, grid, block, stream
+            cudaError_t status = cudaGetLastError();
+            cudaCheckStatus( status, std::source_location::current() );
+        }
+
+        template<TensorDataType TDataType>
+        static void divideImpl(
+            const void* a_data,
+            const void* b_data,
+            void* result_data,
+            size_t count,
+            cudaStream_t stream,
+            int device_id )
+        {
+            if (!a_data || !b_data || !result_data || count == 0)
+            {
+                return;
+            }
+
+            Cuda::setCurrentDevice( device_id );
+
+            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::native_type;
+            const auto* typed_a = static_cast<const NativeType*>(a_data);
+            const auto* typed_b = static_cast<const NativeType*>(b_data);
+            auto* typed_result = static_cast<NativeType*>(result_data);
+
+            launch_elementwise_divide_kernel<NativeType>(
+                typed_a, typed_b, typed_result, count, stream
             );
 
             cudaError_t status = cudaGetLastError();
@@ -511,10 +614,11 @@ namespace Mila::Dnn
             try
             {
                 // Launch reduction kernel
-                launch_sum_reduction_kernel<NativeType>(
+                // FIXME:
+                /*Kernels::launch_sum_reduction_kernel<NativeType>(
                     typed_src, d_partial_sums, count, grid, block,
                     block * sizeof( float ), stream
-                );
+                );*/
 
                 // Copy partial sums to host
                 std::vector<float> h_partial_sums( grid );

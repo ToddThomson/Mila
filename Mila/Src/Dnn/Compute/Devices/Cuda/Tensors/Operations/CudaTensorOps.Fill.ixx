@@ -25,9 +25,10 @@ module;
 #include <stdexcept>
 #include "Kernels/TensorOps.Fill.h"
 
-export module Dnn.TensorOps:Fill.Cuda;
+export module Compute.CudaTensorOps:Fill;
 
 import Dnn.Tensor;
+import Dnn.ITensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeMap;
 import Dnn.TensorDataTypeTraits;
@@ -40,12 +41,9 @@ import Compute.DeviceType;
 import Compute.CudaTensorDataType;
 import Cuda.Helpers;
 
-namespace Mila::Dnn
+namespace Mila::Dnn::Compute::Cuda
 {
     using namespace Mila::Dnn::Compute;
-    using namespace Mila::Dnn::Compute::Cuda;
-
-    template<DeviceType TDevice> struct TensorOps;
 
     /**
      * @brief CUDA specialization of TensorOps for initialization operations
@@ -64,8 +62,7 @@ namespace Mila::Dnn
      * - Compile-time type dispatch for zero runtime overhead
      * - Support for FP32, FP16, BF16, FP8, and integer types
      */
-    export template<>
-    struct TensorOps<DeviceType::Cuda>
+    export struct FillOps
     {
         template<TensorDataType TDataType>
         using host_value_t = std::conditional_t<
@@ -86,6 +83,7 @@ namespace Mila::Dnn
          * - Compile-time type dispatch based on tensor data type
          *
          * @tparam TDataType Abstract tensor data type
+         * @tparam TMemoryResource Memory resource type
          * @param tensor Destination CUDA device tensor to fill
          * @param host_values Span of host values in canonical host representation
          * @param exec_context Optional execution context for stream control (borrowed, not owned)
@@ -108,9 +106,10 @@ namespace Mila::Dnn
          * fill(tensor, values);  // Uses default stream, returns after sync
          * @endcode
          */
-        template<TensorDataType TDataType>
+        template<TensorDataType TDataType, typename TMemoryResource>
+            requires isValidTensor<TDataType, TMemoryResource>
         static void fill(
-            Tensor<TDataType, CudaDeviceMemoryResource>& tensor,
+            Tensor<TDataType, TMemoryResource>& tensor,
             std::span<const host_value_t<TDataType>> host_values,
             ExecutionContext<DeviceType::Cuda>* exec_context = nullptr )
         {
@@ -142,7 +141,8 @@ namespace Mila::Dnn
             }
 
             const size_t count = std::min(tensor.size(), host_values.size());
-            void* raw_dst = tensor.data();
+            
+            void* raw_dst = static_cast<ITensor&>(tensor).rawData();
 
             using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::native_type;
 
@@ -177,6 +177,7 @@ namespace Mila::Dnn
          * - Compile-time type dispatch based on tensor data type
          *
          * @tparam TDataType Abstract tensor data type
+         * @tparam TMemoryResource Memory resource type
          * @param tensor Destination CUDA device tensor to fill
          * @param host_value Scalar value in canonical host representation
          * @param exec_context Optional execution context for stream control (borrowed, not owned)
@@ -200,9 +201,10 @@ namespace Mila::Dnn
          * fill(tensor, 3.14f);  // Uses default stream, returns after sync
          * @endcode
          */
-        template<TensorDataType TDataType>
+        template<TensorDataType TDataType, typename TMemoryResource>
+            requires isValidTensor<TDataType, TMemoryResource>
         static void fill(
-            Tensor<TDataType, CudaDeviceMemoryResource>& tensor,
+            Tensor<TDataType, TMemoryResource>& tensor,
             host_value_t<TDataType> host_value,
             ExecutionContext<DeviceType::Cuda>* exec_context = nullptr )
         {
@@ -230,7 +232,8 @@ namespace Mila::Dnn
                 needs_sync = true;  // Must sync default stream before returning
             }
 
-            void* raw_dst = tensor.data();
+            // Access raw data through TensorOps helper (which has friend access)
+			void* raw_dst = static_cast<ITensor&>(tensor).rawData();
 
             using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::native_type;
 

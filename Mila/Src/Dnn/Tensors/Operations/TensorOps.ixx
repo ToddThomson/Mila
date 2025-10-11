@@ -1,33 +1,10 @@
-/**
- * @file TensorOps.ixx
- * @brief Module that re-exports tensor operation partitions and declares the primary TensorOps template.
- *
- * This module collects and re-exports device-agnostic operation partitions (Math, Fill, ...)
- * and declares the primary `TensorOps<TComputeDeviceTag>` template that device-specific specializations
- * must provide (for example `TensorOps<Compute::CpuComputeDeviceTag>`).
- *
- * The primary template is intentionally left as a declaration here; concrete device implementations
- * live in per-device partitions (e.g., `:Math.Cpu`, `:Fill.Cpu`).  High-level free-function
- * helpers forward to the appropriate `TensorOps<Tag>::...` implementation based on the tensor's
- * memory resource `ComputeDeviceTag`.
- *
- * Note: Add new operation partitions as submodules and re-export them here so callers can import
- * `Dnn.TensorOps` to access the high-level operation entry points.
- */
-
-module;
-#include <type_traits>
-
 export module Dnn.TensorOps;
 
+export import Dnn.TensorOps.Base;
+export import Compute.CpuTensorOps;
+export import Compute.CudaTensorOps;
+
+export import :Fill;
 export import :Math;
 export import :Transfer;
-export import :Fill;
 
-import Compute.DeviceType;
-
-namespace Mila::Dnn
-{
-	export template<Compute::DeviceType TDevice> 
-	struct TensorOps;
-}

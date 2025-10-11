@@ -914,108 +914,6 @@ namespace Mila::Dnn
             return static_cast<const HostType*>(buffer_ ? buffer_->data() : nullptr);
         }
 
-        // ====================================================================
-        // Memory Transfer Operations
-        // ====================================================================
-
-        /**
-         * @brief Transfers tensor data to host memory with host-compatible type conversion
-         *
-         * Creates a new tensor stored in CPU memory using the centralized host type mapping
-         * system. This method automatically converts the tensor's abstract data type to the
-         * appropriate host-compatible type as defined by TensorHostTypeMap.
-         *
-         * Host type mapping rules:
-         * - Floating-point types (FP16, BF16, FP8_*) -> TensorDataType::FP32
-         * - Integer types preserve their original types (INT8 -> INT8, UINT16 -> UINT16, etc.)
-         * - FP32 and INT32 map directly to themselves
-         *
-         * @tparam TDstMemoryResource Target memory resource type (defaults to CpuMemoryResource)
-         * @return New host tensor with host-compatible data type and transferred data
-         *
-         * @throws std::bad_alloc If CPU memory allocation fails
-         * @throws std::runtime_error If transfer operation fails
-         *
-         * @note Result data type is determined by TensorHostTypeMap<TDataType>::host_data_type
-         * @note Preserves tensor shape and metadata (name if set)
-         * @note Uses device-aware transfer operations with type conversion when needed
-         * @note Scalars are transferred preserving scalar semantics
-         *
-         * @see TensorHostTypeMap for complete type mapping rules
-         *
-         * Example usage:
-         * @code
-         * auto fp16_tensor = Tensor<TensorDataType::FP16, CudaDeviceMemoryResource>(...);
-         * auto host_tensor = fp16_tensor.toHost(); // -> Tensor<TensorDataType::FP32, CpuMemoryResource>
-         *
-         * auto int8_tensor = Tensor<TensorDataType::INT8, CudaDeviceMemoryResource>(...);
-         * auto host_tensor = int8_tensor.toHost(); // -> Tensor<TensorDataType::INT8, CpuMemoryResource>
-         *
-         * auto scalar = Tensor<TensorDataType::FP16, CudaDeviceMemoryResource>("CUDA:0", {});
-         * auto host_scalar = scalar.toHost(); // -> Tensor<TensorDataType::FP32, CpuMemoryResource> with shape {}
-         * @endcode
-         */
-
-		 // FIXME: Re-enable once transferTo is implemented
-        //template<typename TDstMemoryResource = Compute::CpuMemoryResource>
-        //    requires TDstMemoryResource::is_host_accessible
-        //auto toHost() const {
-        //    constexpr TensorDataType HostDataType = TensorHostTypeMap<TDataType>::host_data_type;
-
-        //    // Create CPU device context
-        //    auto cpu_context = createDeviceContext( "CPU" );
-
-        //    // Use transfer operations to create host tensor with mapped type
-        //    return transferTo<HostDataType, TDstMemoryResource>( *this, cpu_context );
-        //}
-
-        // ====================================================================
-        // Data Manipulation Operations
-        // ====================================================================
-
-        /**
-         * @brief Creates an independent deep copy of the tensor
-         *
-         * Constructs a new tensor with its own memory buffer. Device context and
-         * metadata are preserved. Data copying is currently not implemented.
-         *
-         * @return New tensor with independent memory (currently uninitialized)
-         *
-         * @throws std::bad_alloc If memory allocation fails
-         *
-         * @note Creates completely independent tensor with unique identifier
-         * @note Preserves name, device context, and shape metadata
-         * @note Scalars are cloned preserving scalar semantics (rank 0, size 1)
-         * @note TODO: Data copying not yet implemented - buffer is allocated but uninitialized
-         *
-         * @warning Current implementation creates allocated but uninitialized tensor
-         *
-         * Example:
-         * @code
-         * Tensor<TensorDataType::FP32, CpuMemoryResource> original("CPU", {3, 4});
-         * auto copy = original.clone();
-         * // copy has same shape but uninitialized data
-         *
-         * Tensor<TensorDataType::FP32, CpuMemoryResource> scalar("CPU", {});
-         * auto scalar_copy = scalar.clone();
-         * EXPECT_TRUE(scalar_copy.isScalar());
-         * @endcode
-         */
-        Tensor<TDataType, TMemoryResource> clone() const {
-            Tensor<TDataType, TMemoryResource> cloned_tensor( device_->getDeviceName(), shape_);
-
-            if (size_ > 0) {
-                // TODO: Implement TensorBuffer::copyFrom() for deep copy support
-                // For now, clone() creates allocated but uninitialized tensor
-                // cloned_tensor.buffer_->copyFrom(data(), buffer_->storageBytes());
-            }
-
-            if (!name_.empty()) {
-                cloned_tensor.setName( name_ );
-            }
-
-            return cloned_tensor;
-        }
 
         // ====================================================================
         // Shape Transformation Operations
@@ -1082,46 +980,11 @@ namespace Mila::Dnn
          * @note Scalars remain unchanged (rank 0)
          */
         Tensor<TDataType, TMemoryResource>& flatten() {
-            if (rank() <= 1) {
-                return *this;
-            }
-
-            size_t flat_dim = 1;
-            for (size_t i = 0; i < shape().size() - 1; i++) {
-                flat_dim *= shape()[i];
-            }
-
-            std::vector<size_t> new_shape = { flat_dim, shape().back() };
-            reshape( new_shape );
-
-            return *this;
+            throw std::runtime_error( "Tensor::flattened() is not implemented. Use TensorOps for deep copy and shape transformation." );
         }
 
-        /**
-         * @brief Creates a flattened copy of the tensor
-         *
-         * Returns a new tensor that is a 2D representation of this tensor,
-         * leaving the original tensor unchanged. Creates an independent copy
-         * with flattened shape suitable for linear algebra operations.
-         *
-         * @return Flattened tensor with independent memory containing copied data
-         *
-         * @note Original tensor remains unchanged
-         * @note Result is independent copy (deep copy)
-         * @note For tensors with rank <= 1 (scalars and vectors), returns clone of original
-         * @note Result shape is [product_of_first_n-1_dims, last_dim]
-         * @note Useful for neural network layer compatibility
-         * @note Scalars return cloned scalars (rank 0 preserved)
-         */
         Tensor<TDataType, TMemoryResource> flattened() const {
-            if (rank() <= 1) {
-                return clone();
-            }
-
-            Tensor<TDataType, TMemoryResource> flattened_tensor = clone();
-            flattened_tensor.flatten();
-
-            return flattened_tensor;
+            throw std::runtime_error( "Tensor::flattened() is not implemented. Use TensorOps for deep copy and shape transformation." );
         }
 
         // ====================================================================

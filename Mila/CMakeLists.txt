@@ -25,7 +25,7 @@ add_library( Mila STATIC
     "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.h"
     "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.cu"
     
-    )
+     "Src/Dnn/Tensors/Operations/TensorOps-Base.ixx")
 
  # FIXME: add_dependencies(Mila MilaUpdateVersion)
 
@@ -112,7 +112,7 @@ PUBLIC
         "Src/Dnn/Tensors/TensorHostTypeMap.ixx"
 
         # Dnn / Tensors / Operations
-        "Src/Dnn/Tensors/Operations/TensorOps.ixx"
+        
         "Src/Dnn/Tensors/Operations/TensorOps.Math.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps.Fill.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps.Transfer.ixx"
@@ -173,6 +173,7 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Cpu/CpuDeviceTraits.ixx"
 
         "Src/Dnn/Compute/Devices/Cpu/Tensors/CpuTensorDataTypeTraits.ixx"
+        "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.ixx"
         "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Fill.ixx"
         "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Math.ixx"
         "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Transfer.ixx"
@@ -214,6 +215,7 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType-Specializations.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType-Maps.ixx"
         
+        "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Math.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Fill.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Transfer.ixx"
@@ -306,7 +308,11 @@ PUBLIC
         # WIP / Attributes
         #"Src/Dnn/Modules/Layers/LinearAttributes.ixx"
         #"Src/Dnn/Common/Attributes.ixx"
-   "Src/Dnn/Compute/DeviceType.ixx")
+        "Src/Dnn/Compute/DeviceType.ixx"
+        
+        "Src/Dnn/Tensors/Operations/TensorOps.ixx"
+
+         "Src/Dnn/Tensors/Operations/TensorOps-Base.ixx" "Src/Dnn/Compute/IExecutionContext.ixx")
 
 target_link_libraries(Mila PRIVATE 
     miniz

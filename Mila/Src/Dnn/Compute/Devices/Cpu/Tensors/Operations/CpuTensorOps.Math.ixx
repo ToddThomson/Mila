@@ -21,7 +21,7 @@ module;
 #include <algorithm>
 #include <execution>
 
-export module Dnn.TensorOps:Math.Cpu;
+export module Compute.CpuTensorOps:Math;
 
 import Dnn.Tensor;
 import Dnn.TensorDataType;
@@ -32,11 +32,9 @@ import Compute.DeviceTraits;
 import Compute.CpuMemoryResource;
 import Compute.ExecutionContext;
 
-namespace Mila::Dnn
+namespace Mila::Dnn::Compute::Cpu
 {
     using namespace Mila::Dnn::Compute;
-
-    template<DeviceType TDevice> struct TensorOps;
 
     /**
      * @brief CPU specialization of TensorOps for mathematical operations.
@@ -51,8 +49,7 @@ namespace Mila::Dnn
      * - Automatic type conversion via TensorHostTypeMap
      * - Zero-copy direct memory access
      */
-    export template<>
-        struct TensorOps<DeviceType::Cpu>
+    export struct MathOps
     {
         /**
          * @brief Element-wise addition of two tensors (CPU implementation)

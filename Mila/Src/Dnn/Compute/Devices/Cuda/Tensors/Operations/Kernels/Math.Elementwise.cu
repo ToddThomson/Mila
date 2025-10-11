@@ -336,14 +336,99 @@ namespace Mila::Dnn::Compute::Cuda::Kernels
     }
 
     // ================================================================
-    // Explicit Template Instantiations
-    // ================================================================
+// Explicit Template Instantiations
+// ================================================================
 
-    // Instantiate for common types to reduce compilation time
-    template void launch_elementwise_add_kernel<float>(const float*, const float*, float*, size_t, cudaStream_t);
-    template void launch_elementwise_add_kernel<double>(const double*, const double*, double*, size_t, cudaStream_t);
-    template void launch_elementwise_add_kernel<int>(const int*, const int*, int*, size_t, cudaStream_t);
-    template void launch_elementwise_add_kernel<__half>(const __half*, const __half*, __half*, size_t, cudaStream_t);
+// Addition kernels
+    template void launch_elementwise_add_kernel<float>( const float*, const float*, float*, size_t, cudaStream_t );
+    template void launch_elementwise_add_kernel<double>( const double*, const double*, double*, size_t, cudaStream_t );
+    template void launch_elementwise_add_kernel<int>( const int*, const int*, int*, size_t, cudaStream_t );
+    template void launch_elementwise_add_kernel<__half>( const __half*, const __half*, __half*, size_t, cudaStream_t );
 
-    // Additional instantiations for other operations would follow the same pattern...
+    // Subtraction kernels
+    template void launch_elementwise_subtract_kernel<float>( const float*, const float*, float*, size_t, cudaStream_t );
+    template void launch_elementwise_subtract_kernel<double>( const double*, const double*, double*, size_t, cudaStream_t );
+    template void launch_elementwise_subtract_kernel<int>( const int*, const int*, int*, size_t, cudaStream_t );
+    template void launch_elementwise_subtract_kernel<__half>( const __half*, const __half*, __half*, size_t, cudaStream_t );
+
+    // Multiplication kernels
+    template void launch_elementwise_multiply_kernel<float>( const float*, const float*, float*, size_t, cudaStream_t );
+    template void launch_elementwise_multiply_kernel<double>( const double*, const double*, double*, size_t, cudaStream_t );
+    template void launch_elementwise_multiply_kernel<int>( const int*, const int*, int*, size_t, cudaStream_t );
+    template void launch_elementwise_multiply_kernel<__half>( const __half*, const __half*, __half*, size_t, cudaStream_t );
+
+    // Division kernels
+    template void launch_elementwise_divide_kernel<float>( const float*, const float*, float*, size_t, cudaStream_t );
+    template void launch_elementwise_divide_kernel<double>( const double*, const double*, double*, size_t, cudaStream_t );
+    template void launch_elementwise_divide_kernel<int>( const int*, const int*, int*, size_t, cudaStream_t );
+    template void launch_elementwise_divide_kernel<__half>( const __half*, const __half*, __half*, size_t, cudaStream_t );
+
+    // Max/Min kernels
+    template void launch_elementwise_max_kernel<float>( const float*, const float*, float*, size_t, cudaStream_t );
+    template void launch_elementwise_max_kernel<double>( const double*, const double*, double*, size_t, cudaStream_t );
+    template void launch_elementwise_max_kernel<int>( const int*, const int*, int*, size_t, cudaStream_t );
+    template void launch_elementwise_max_kernel<__half>( const __half*, const __half*, __half*, size_t, cudaStream_t );
+
+    template void launch_elementwise_min_kernel<float>( const float*, const float*, float*, size_t, cudaStream_t );
+    template void launch_elementwise_min_kernel<double>( const double*, const double*, double*, size_t, cudaStream_t );
+    template void launch_elementwise_min_kernel<int>( const int*, const int*, int*, size_t, cudaStream_t );
+    template void launch_elementwise_min_kernel<__half>( const __half*, const __half*, __half*, size_t, cudaStream_t );
+
+    // Scalar operation kernels
+    template void launch_scalar_add_kernel<float>( const float*, float*, float, size_t, cudaStream_t );
+    template void launch_scalar_add_kernel<double>( const double*, double*, double, size_t, cudaStream_t );
+    template void launch_scalar_add_kernel<int>( const int*, int*, int, size_t, cudaStream_t );
+    template void launch_scalar_add_kernel<__half>( const __half*, __half*, __half, size_t, cudaStream_t );
+
+    template void launch_scalar_multiply_kernel<float>( const float*, float*, float, size_t, cudaStream_t );
+    template void launch_scalar_multiply_kernel<double>( const double*, double*, double, size_t, cudaStream_t );
+    template void launch_scalar_multiply_kernel<int>( const int*, int*, int, size_t, cudaStream_t );
+    template void launch_scalar_multiply_kernel<__half>( const __half*, __half*, __half, size_t, cudaStream_t );
+
+    template void launch_scalar_divide_kernel<float>( const float*, float*, float, size_t, cudaStream_t );
+    template void launch_scalar_divide_kernel<double>( const double*, double*, double, size_t, cudaStream_t );
+    template void launch_scalar_divide_kernel<int>( const int*, int*, int, size_t, cudaStream_t );
+    template void launch_scalar_divide_kernel<__half>( const __half*, __half*, __half, size_t, cudaStream_t );
+
+    template void launch_scalar_subtract_kernel<float>( const float*, float*, float, size_t, cudaStream_t );
+    template void launch_scalar_subtract_kernel<double>( const double*, double*, double, size_t, cudaStream_t );
+    template void launch_scalar_subtract_kernel<int>( const int*, int*, int, size_t, cudaStream_t );
+    template void launch_scalar_subtract_kernel<__half>( const __half*, __half*, __half, size_t, cudaStream_t );
+
+    // Comparison operation kernels
+    template void launch_elementwise_equal_kernel<float>( const float*, const float*, float*, size_t, cudaStream_t );
+    template void launch_elementwise_equal_kernel<double>( const double*, const double*, double*, size_t, cudaStream_t );
+    template void launch_elementwise_equal_kernel<int>( const int*, const int*, int*, size_t, cudaStream_t );
+    template void launch_elementwise_equal_kernel<__half>( const __half*, const __half*, __half*, size_t, cudaStream_t );
+
+    template void launch_elementwise_greater_kernel<float>( const float*, const float*, float*, size_t, cudaStream_t );
+    template void launch_elementwise_greater_kernel<double>( const double*, const double*, double*, size_t, cudaStream_t );
+    template void launch_elementwise_greater_kernel<int>( const int*, const int*, int*, size_t, cudaStream_t );
+    template void launch_elementwise_greater_kernel<__half>( const __half*, const __half*, __half*, size_t, cudaStream_t );
+
+    template void launch_elementwise_less_kernel<float>( const float*, const float*, float*, size_t, cudaStream_t );
+    template void launch_elementwise_less_kernel<double>( const double*, const double*, double*, size_t, cudaStream_t );
+    template void launch_elementwise_less_kernel<int>( const int*, const int*, int*, size_t, cudaStream_t );
+    template void launch_elementwise_less_kernel<__half>( const __half*, const __half*, __half*, size_t, cudaStream_t );
+
+    // Unary operation kernels
+    template void launch_abs_kernel<float>( const float*, float*, size_t, cudaStream_t );
+    template void launch_abs_kernel<double>( const double*, double*, size_t, cudaStream_t );
+    template void launch_abs_kernel<int>( const int*, int*, size_t, cudaStream_t );
+    template void launch_abs_kernel<__half>( const __half*, __half*, size_t, cudaStream_t );
+
+    template void launch_negate_kernel<float>( const float*, float*, size_t, cudaStream_t );
+    template void launch_negate_kernel<double>( const double*, double*, size_t, cudaStream_t );
+    template void launch_negate_kernel<int>( const int*, int*, size_t, cudaStream_t );
+    template void launch_negate_kernel<__half>( const __half*, __half*, size_t, cudaStream_t );
+
+    template void launch_square_kernel<float>( const float*, float*, size_t, cudaStream_t );
+    template void launch_square_kernel<double>( const double*, double*, size_t, cudaStream_t );
+    template void launch_square_kernel<int>( const int*, int*, size_t, cudaStream_t );
+    template void launch_square_kernel<__half>( const __half*, __half*, size_t, cudaStream_t );
+
+    template void launch_sqrt_kernel<float>( const float*, float*, size_t, cudaStream_t );
+    template void launch_sqrt_kernel<double>( const double*, double*, size_t, cudaStream_t );
+    template void launch_sqrt_kernel<int>( const int*, int*, size_t, cudaStream_t );
+    template void launch_sqrt_kernel<__half>( const __half*, __half*, size_t, cudaStream_t );
 }

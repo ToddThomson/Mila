@@ -15,7 +15,6 @@ import Compute.DeviceType;
 import Compute.CudaExecutionContext;
 import Compute.ExecutionContext;
 import Cuda.Helpers;
-//import Cuda.Utils;
 import Cuda.BadAlloc;
 import Cuda.Error;
 

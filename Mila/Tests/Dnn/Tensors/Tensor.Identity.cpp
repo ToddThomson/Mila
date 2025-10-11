@@ -92,14 +92,6 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( moved.getUId(), original_uid );
     }
 
-    TEST( TensorIdentityTest, GetUID_NewInClone ) {
-        std::vector<size_t> shape = { 2, 3 };
-        Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> original( "CPU", shape );
-
-        auto cloned = original.clone();
-        EXPECT_NE( original.getUId(), cloned.getUId() );
-    }
-
     // ====================================================================
     // Tensor Name (getName/setName) Tests
     // ====================================================================
@@ -178,18 +170,6 @@ namespace Dnn::Tensors::Tests
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> target( "CPU", std::vector<size_t>{} );
         target = std::move( original );
         EXPECT_EQ( target.getName(), "assignable_tensor" );
-    }
-
-    TEST( TensorIdentityTest, Name_PreservedInClone ) {
-        Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> original( "CPU", std::vector<size_t>{} );
-        original.setName( "cloneable_tensor" );
-
-        auto cloned = original.clone();
-        EXPECT_EQ( cloned.getName(), "cloneable_tensor" );
-
-        cloned.setName( "modified_clone" );
-        EXPECT_EQ( original.getName(), "cloneable_tensor" );
-        EXPECT_EQ( cloned.getName(), "modified_clone" );
     }
 
     TEST( TensorIdentityTest, Name_PreservedInShapeOperations ) {
@@ -284,21 +264,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( tensor.getName(), "consistent_tensor" );
     }
 
-    TEST( TensorIdentityTest, Identity_IndependentAfterClone ) {
-        std::vector<size_t> shape = { 2, 3 };
-        Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> original( "CPU", shape );
-        original.setName( "original_tensor" );
-
-        auto cloned = original.clone();
-
-        original.setName( "modified_original" );
-        EXPECT_EQ( original.getName(), "modified_original" );
-        EXPECT_EQ( cloned.getName(), "original_tensor" );
-
-        cloned.setName( "modified_clone" );
-        EXPECT_EQ( original.getName(), "modified_original" );
-        EXPECT_EQ( cloned.getName(), "modified_clone" );
-    }
+    
 
     // ====================================================================
     // Deleted Operations Tests
@@ -321,17 +287,7 @@ namespace Dnn::Tensors::Tests
     // Edge Cases and Error Conditions
     // ====================================================================
 
-    TEST( TensorIdentityTest, Name_EmptyTensorOperations ) {
-        Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> empty_tensor( "CPU", std::vector<size_t>{} );
-        empty_tensor.setName( "empty_tensor" );
-
-        EXPECT_EQ( empty_tensor.getName(), "empty_tensor" );
-        EXPECT_FALSE( empty_tensor.getUId().empty() );
-
-        auto cloned_empty = empty_tensor.clone();
-        EXPECT_EQ( cloned_empty.getName(), "empty_tensor" );
-        EXPECT_NE( cloned_empty.getUId(), empty_tensor.getUId() );
-    }
+    
 
     TEST( TensorIdentityTest, Name_SingleElementTensor ) {
         std::vector<size_t> shape = { 1 };

@@ -38,13 +38,12 @@ module;
 #include <span>
 
 export module Dnn.TensorOps:Fill;
-export import :Fill.Cpu;
-//export import :Fill.Cuda;
 
 import Dnn.Tensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeMap;
 import Dnn.TensorDataTypeTraits;
+import Dnn.TensorOps.Base;
 import Compute.DeviceTraits;
 import Compute.ExecutionContext;
 import Compute.DeviceType;

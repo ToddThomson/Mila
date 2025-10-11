@@ -35,12 +35,11 @@ module;
 #include <concepts>
 
 export module Dnn.TensorOps:Math;
-export import :Math.Cpu;
-//export import :Math.Cuda;
 
 import Dnn.Tensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeMap;
+import Dnn.TensorOps.Base;
 import Compute.DeviceTraits;
 import Compute.ExecutionContext;
 import Compute.DeviceType;
@@ -48,7 +47,7 @@ import Compute.DeviceType;
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
-
+	
     /**
      * @brief Element-wise addition with optional ExecutionContext (device-dispatched).
      *

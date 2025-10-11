@@ -20,7 +20,7 @@ module;
 #include <type_traits>
 #include <stdexcept>
 
-export module Dnn.TensorOps:Transfer.Cpu;
+export module Compute.CpuTensorOps:Transfer;
 
 import Dnn.Tensor;
 import Dnn.TensorDataType;
@@ -31,8 +31,9 @@ import Compute.DeviceTraits;
 import Compute.CpuMemoryResource;
 import Compute.CpuTensorDataTypeTraits;
 import Compute.ExecutionContext;
+import Compute.IExecutionContext;
 
-namespace Mila::Dnn
+namespace Mila::Dnn::Compute::Cpu
 {
     using namespace Mila::Dnn::Compute;
 
@@ -49,10 +50,8 @@ namespace Mila::Dnn
      * - Accepts ExecutionContext for API consistency (unused on CPU)
      * - All operations are synchronous (no stream management)
      */
-    template<DeviceType TDevice> struct TensorOps;
 
-    export template<>
-        struct TensorOps<DeviceType::Cpu>
+    export struct TransferOps
     {
         // ================================================================
         // Same-Type Transfer Operations (No Conversion)
@@ -141,13 +140,12 @@ namespace Mila::Dnn
          * @note Uses element-wise conversion for different-type transfers
          */
         template<TensorDataType TSrcDataType, typename TSrcMemoryResource,
-            TensorDataType TDstDataType, typename TDstMemoryResource>
-            requires isValidTensor<TSrcDataType, TSrcMemoryResource>&&
-        isValidTensor<TDstDataType, TDstMemoryResource>
-            static void copy(
-                const Tensor<TSrcDataType, TSrcMemoryResource>& src,
-                Tensor<TDstDataType, TDstMemoryResource>& dst,
-                [[maybe_unused]] ExecutionContext<DeviceType::Cpu>* exec_context = nullptr )
+                 TensorDataType TDstDataType, typename TDstMemoryResource>
+            requires isValidTensor<TSrcDataType, TSrcMemoryResource> && isValidTensor<TDstDataType, TDstMemoryResource>
+        static void copy(
+            const Tensor<TSrcDataType, TSrcMemoryResource>& src,
+            Tensor<TDstDataType, TDstMemoryResource>& dst,
+            [[maybe_unused]] IExecutionContext* exec_context = nullptr )
         {
             if (src.shape() != dst.shape())
             {

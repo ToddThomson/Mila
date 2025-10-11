@@ -18,7 +18,7 @@ module;
 #include <string>
 
 export module Dnn.ITensor;
-
+import Dnn.TensorOps.Base;
 import Dnn.TensorDataType;
 import Compute.DeviceType;
 import Compute.MemoryResource;
@@ -112,7 +112,6 @@ namespace Mila::Dnn
             return getDataType() == getTensorDataTypeEnum<T>();
         }
 
-    protected:
         /**
          * @brief Get raw pointer to tensor data (protected internal API)
          *
@@ -171,13 +170,5 @@ namespace Mila::Dnn
          * @note Enables efficient type-safe downcasting and dispatch
          */
         virtual Compute::MemoryResource* getMemoryResource() const = 0;
-
-        // Allow TensorOps to access protected members
-        template<Compute::DeviceType>
-        friend struct TensorOps;
-
-        // Allow Module to access protected members
-        template<Compute::DeviceType>
-        friend class Module;
     };
 }
