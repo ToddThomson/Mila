@@ -118,4 +118,10 @@ namespace Mila::Dnn
             TensorOps<device>::copy( src, dst, exec_context );
         }
     }
+
+    // ----------------------------------------------------------------
+    // Convenience conversion helpers (create destination tensor + copy)
+    // ----------------------------------------------------------------
+
+	// TODO: add to(..., device_name) and to(..., device_ptr)
 }

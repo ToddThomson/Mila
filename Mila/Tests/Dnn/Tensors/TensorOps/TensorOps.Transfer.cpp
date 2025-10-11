@@ -1,13 +1,10 @@
-/**
- * @file TensorOps.Transfer.cpp
- * @brief Unit tests for TensorOps Transfer operations
- */
 
 #include <gtest/gtest.h>
 #include <memory>
 #include <vector>
 #include <random>
 #include <algorithm>
+#include <cmath>
 
 import Mila;
 
@@ -47,7 +44,7 @@ namespace Dnn::Tensors::TensorOps::Tests
          */
         template<TensorDataType TDataType>
         void initializeTensorWithTestData( Tensor<TDataType, Compute::CpuMemoryResource>& tensor ) {
-            // Ensure tensor is properly allocated
+
             ASSERT_FALSE( tensor.empty() );
             ASSERT_EQ( tensor.getDataType(), TDataType );
 
@@ -57,8 +54,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
             if constexpr (TensorDataTypeTraits<TDataType>::is_integer_type)
             {
-                // Fill integer tensors with sequential values: 1, 2, 3, ...
-                HostValueType value = static_cast<HostValueType>(1);
+                HostValueType value = static_cast<HostValueType>(42);
                 fill( tensor, value );
             }
             else
@@ -98,17 +94,90 @@ namespace Dnn::Tensors::TensorOps::Tests
         }
 
         /**
-         * @brief Verify tensor contains expected test data after copy
+         * @brief Per-data-type tolerances factory.
          *
-         * For now, just validates tensor properties. In the future, could
-         * be extended to validate actual data content if data access methods
-         * are available.
+         * Returns (relative_tolerance, absolute_tolerance) for the given abstract type.
          */
         template<TensorDataType TDataType>
-        void verifyTensorData( const Tensor<TDataType, Compute::CpuMemoryResource>& tensor ) {
+        static constexpr std::pair<double, double> getTolerances() noexcept
+        {
+            if constexpr (TDataType == TensorDataType::FP32)
+            {
+                return { 1e-5, 1e-8 };
+            }
+            else if constexpr (TDataType == TensorDataType::FP16)
+            {
+                return { 1e-2, 1e-6 };
+            }
+            else if constexpr (TDataType == TensorDataType::BF16)
+            {
+                return { 1e-2, 1e-6 };
+            }
+            else if constexpr (TDataType == TensorDataType::FP8_E4M3)
+            {
+                return { 5e-2, 1e-3 };
+            }
+            else if constexpr (TDataType == TensorDataType::FP8_E5M2)
+            {
+                return { 5e-2, 1e-3 };
+            }
+            else
+            {
+                return { 1e-5, 1e-8 };
+            }
+        }
+
+        // Helper to deduce tolerances from a tensor (convenience)
+        template<TensorDataType TDataType, typename TM>
+        static constexpr std::pair<double, double> getTolerancesFromTensor( const Tensor<TDataType, TM>& ) noexcept {
+            return getTolerances<TDataType>();
+        }
+
+        /**
+         * @brief Verify tensor contains expected test data after copy
+         *
+         * Accepts explicit tolerances (rtol, atol) so callers may pass
+         * appropriate values for FP16/BF16/FP8.
+         */
+        template<TensorDataType TDataType>
+        void verifyTensorData( const Tensor<TDataType, Compute::CpuMemoryResource>& tensor,
+            std::pair<double, double> tolerances )
+        {
             EXPECT_FALSE( tensor.empty() );
             EXPECT_EQ( tensor.getDataType(), TDataType );
-            // Future: Add actual data validation when tensor data access is available
+
+            const size_t n = tensor.size();
+            if (n == 0) return;
+
+            using HostType = typename TensorHostTypeMap<TDataType>::host_type;
+            auto* data = tensor.data();
+
+            const double rtol = tolerances.first;
+            const double atol = tolerances.second;
+
+            if constexpr (TensorDataTypeTraits<TDataType>::is_integer_type)
+            {
+                const HostType expected = static_cast<HostType>(42);
+                for (size_t i = 0; i < n; ++i)
+                {
+                    EXPECT_EQ( data[i], expected ) << "Mismatch at index " << i;
+                }
+            }
+            else
+            {
+                // Floating-point: use combined absolute + relative tolerance:
+                // pass if |actual - expected| <= atol + rtol * |expected|
+                const double expected = 3.14159;
+                for (size_t i = 0; i < n; ++i)
+                {
+                    const double actual = static_cast<double>( data[i] );
+                    const double diff = std::fabs( actual - expected );
+                    const double threshold = atol + rtol * std::fabs( expected );
+                    EXPECT_LE( diff, threshold ) << "Mismatch at index " << i
+                        << " actual=" << actual << " expected=" << expected
+                        << " diff=" << diff << " thresh=" << threshold;
+                }
+            }
         }
 
         std::shared_ptr<Compute::CpuExecutionContext> cpu_exec_context_;
@@ -134,7 +203,7 @@ namespace Dnn::Tensors::TensorOps::Tests
         EXPECT_EQ( dst.shape(), src.shape() );
         EXPECT_EQ( dst.size(), src.size() );
         EXPECT_EQ( dst.getDataType(), src.getDataType() );
-        verifyTensorData( dst );
+        verifyTensorData( dst, TensorOpsTransferTest::getTolerancesFromTensor( dst ) );
     }
 
     TEST_F( TensorOpsTransferTest, CpuToCpu_TypeConversion_FP32_to_INT32 ) {
@@ -189,12 +258,16 @@ namespace Dnn::Tensors::TensorOps::Tests
 
         EXPECT_NO_THROW( copy( src, dst ) );
 
-        // Verify transfer properties
         EXPECT_EQ( dst.shape(), src.shape() );
         EXPECT_EQ( dst.size(), src.size() );
         EXPECT_EQ( dst.getDataType(), src.getDataType() );
         EXPECT_FALSE( dst.is_host_accessible() );
         EXPECT_TRUE( dst.is_device_accessible() );
+
+        // Verify data by copying back to CPU
+        auto verify_host = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), shape );
+        EXPECT_NO_THROW( copy( dst, verify_host ) );
+        verifyTensorData( verify_host, TensorOpsTransferTest::getTolerancesFromTensor( verify_host ) );
     }
 
     TEST_F( TensorOpsTransferTest, CpuToCuda_TypeConversion_FP32_to_FP16 ) {
@@ -212,9 +285,12 @@ namespace Dnn::Tensors::TensorOps::Tests
 
         EXPECT_NO_THROW( copy( src, dst ) );
 
-        // Verify conversion occurred
         EXPECT_EQ( dst.getDataType(), TensorDataType::FP16 );
         EXPECT_EQ( dst.shape(), src.shape() );
+
+        auto verify_host = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_exec_context_->getDevice(), shape );
+        EXPECT_NO_THROW( copy( dst, verify_host ) );
+        verifyTensorData( verify_host, TensorOpsTransferTest::getTolerancesFromTensor( dst ) );
     }
 
     // ====================================================================
@@ -322,10 +398,9 @@ namespace Dnn::Tensors::TensorOps::Tests
 
         EXPECT_NO_THROW( copy( src, dst ) );
 
-        // Verify pinned memory properties
         EXPECT_EQ( dst.shape(), src.shape() );
         EXPECT_EQ( dst.getDataType(), src.getDataType() );
-        EXPECT_TRUE( dst.is_host_accessible() );  // Pinned memory is host-accessible
+        EXPECT_TRUE( dst.is_host_accessible() );
     }
 
     TEST_F( TensorOpsTransferTest, PinnedToCuda_SameType ) {
@@ -372,7 +447,7 @@ namespace Dnn::Tensors::TensorOps::Tests
         EXPECT_NO_THROW( copy( src, dst ) );
         EXPECT_EQ( dst.size(), 1 );
         EXPECT_EQ( dst.shape(), src.shape() );
-        verifyTensorData( dst );
+        verifyTensorData( dst, TensorOpsTransferTest::getTolerancesFromTensor( dst ) );
     }
 
     TEST_F( TensorOpsTransferTest, LargeTensor_Performance ) {
@@ -383,8 +458,8 @@ namespace Dnn::Tensors::TensorOps::Tests
 
         initializeTensorWithRandomData( src );
 
-        // This test verifies that large tensor copies don't cause issues
         EXPECT_NO_THROW( copy( src, dst ) );
+
         EXPECT_EQ( dst.size(), 10000 );
         EXPECT_EQ( dst.shape(), src.shape() );
     }
@@ -449,7 +524,7 @@ namespace Dnn::Tensors::TensorOps::Tests
         EXPECT_EQ( final_copy.shape(), original.shape() );
         EXPECT_EQ( final_copy.size(), original.size() );
         EXPECT_EQ( final_copy.getDataType(), original.getDataType() );
-        verifyTensorData( final_copy );
+        verifyTensorData( final_copy, TensorOpsTransferTest::getTolerancesFromTensor( final_copy ) );
     }
 
     TEST_F( TensorOpsTransferTest, RoundTrip_WithTypeConversion ) {
@@ -501,7 +576,7 @@ namespace Dnn::Tensors::TensorOps::Tests
         {
             EXPECT_NO_THROW( copy( tensors[i - 1], tensors[i] ) );
             EXPECT_EQ( tensors[i].shape(), shape );
-            verifyTensorData( tensors[i] );
+            verifyTensorData( tensors[i], TensorOpsTransferTest::getTolerancesFromTensor( tensors[i] ) );
         }
     }
 
