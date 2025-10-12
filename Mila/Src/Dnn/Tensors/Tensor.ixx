@@ -325,7 +325,6 @@ namespace Mila::Dnn
             return *this;
         }
 
-
         /**
          * @brief Destructor with automatic resource cleanup via RAII
          *
