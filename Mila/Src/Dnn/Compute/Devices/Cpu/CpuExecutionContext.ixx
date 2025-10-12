@@ -11,6 +11,7 @@ module;
 export module Compute.CpuExecutionContext;
 
 import Compute.ExecutionContext;
+import Compute.IExecutionContext;
 import Compute.ComputeDevice;
 import Compute.CpuDevice;
 import Compute.DeviceType;
@@ -25,15 +26,18 @@ namespace Mila::Dnn::Compute
      * without additional overhead.
      */
     export template<>
-    class ExecutionContext<DeviceType::Cpu> {
+    class ExecutionContext<DeviceType::Cpu> :public IExecutionContext
+    {
         public:
             /**
              * @brief Constructs CPU execution context.
              *
              * @param device_id Ignored for CPU (CPU has no device ID)
              */
-            explicit ExecutionContext()
-                : device_( std::make_shared<CpuDevice>() ) {
+            explicit ExecutionContext( [[maybe_unused]] int device_id = -1)
+                : IExecutionContext( DeviceType::Cpu ), device_( std::make_shared<CpuDevice>() ) {
+
+				// No additional resources needed for CPU
             }
 
             ~ExecutionContext() = default;

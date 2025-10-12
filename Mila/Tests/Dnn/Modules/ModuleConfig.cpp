@@ -5,14 +5,14 @@
 
 import Mila;
 
-namespace Modules::Base::Tests
+namespace Dnn::Modules::Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
 
     class TestConfigurationBase : public ConfigurationBase {
     public:
-        // Add any test-specific methods here if needed
+        // Test-only derived class; no additional behavior required.
     };
 
     class ConfigurationBaseTests : public ::testing::Test {
@@ -33,7 +33,8 @@ namespace Modules::Base::Tests
     TEST_F( ConfigurationBaseTests, DefaultConstructor_ShouldSetDefaultValues ) {
         TestConfigurationBase config;
 
-        EXPECT_EQ( config.getName(), "unnamed" );  // Default name is now "unnamed" instead of empty string
+        // ConfigurationBase default values (see ConfigurationBase.ixx)
+        EXPECT_EQ( config.getName(), "unnamed" );
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Auto );
         EXPECT_FALSE( config.isTraining() );
     }
@@ -93,15 +94,13 @@ namespace Modules::Base::Tests
 
     TEST_F( ConfigurationBaseTests, Validate_WithEmptyName_ShouldThrow ) {
         TestConfigurationBase config;
-        // Name is "unnamed" by default, so we need to set it to empty explicitly
+        // Default name is "unnamed"; explicitly set empty to test validation failure
         config.withName( "" );
 
         EXPECT_THROW( config.validate(), std::invalid_argument );
     }
 
-    // The following tests need to be updated since we no longer have device or context methods in the base class
-    // These might need to be implemented in a derived class for testing
-
+    // Derived test configuration to exercise extension and custom validation
     class DerivedConfigurationBase : public ConfigurationBase {
     public:
         DerivedConfigurationBase& withCustomOption( int value ) {
@@ -114,29 +113,24 @@ namespace Modules::Base::Tests
             return *this;
         }
 
-        DerivedConfigurationBase& withContext( std::shared_ptr<DeviceContext> context ) {
-            context_ = context;
-            return *this;
-        }
-
         const std::string& getDeviceName() const { return device_name_; }
-        std::shared_ptr<DeviceContext> getContext() const { return context_; }
         int getCustomOption() const { return custom_option_; }
 
         void validate() const override {
+            // Enforce base validation first
             ConfigurationBase::validate();
 
-            if ( custom_option_ < 0 ) {
+            if (custom_option_ < 0)
+            {
                 throw std::invalid_argument( "Custom option must be non-negative" );
             }
 
-            // Add validation for device_name_ and context_ if needed
+            // Additional validation for device_name_ could go here if desired
         }
 
     private:
         int custom_option_ = 0;
         std::string device_name_;
-        std::shared_ptr<DeviceContext> context_;
     };
 
     TEST_F( ConfigurationBaseTests, DeducedThis_ShouldAllowMethodChaining ) {
@@ -186,7 +180,7 @@ namespace Modules::Base::Tests
     TEST_F( ConfigurationBaseTests, DerivedConfig_Validate_ShouldEnforceBaseRules ) {
         DerivedConfigurationBase config;
         config.withCustomOption( 42 )
-            .withName( "" ); // Set name to empty to trigger base validation error
+            .withName( "" ); // Set name empty to trigger base validation
 
         EXPECT_THROW( config.validate(), std::invalid_argument );
     }

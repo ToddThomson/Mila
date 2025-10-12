@@ -91,7 +91,7 @@ namespace Mila::Dnn
      * gelu.forward(scalar, scalar_out); // Activates single value
      * @endcode
      */
-    export template<DeviceType TDeviceType = DeviceType::Cuda /*, TensorDataType TDataType = TensorDataType::FP32 */>
+    export template<DeviceType TDeviceType /*, TensorDataType TDataType = TensorDataType::FP32 */>
     class Gelu : public Module<TDeviceType /*, TDataType */> {
         public:
             /**

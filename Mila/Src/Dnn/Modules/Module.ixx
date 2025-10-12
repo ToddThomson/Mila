@@ -99,8 +99,7 @@ namespace Mila::Dnn
              * @param config Configuration for the module including training mode and precision.
              * @throws std::invalid_argument If the provided context is nullptr.
              */
-            explicit Module( std::shared_ptr<ExecutionContextType> exec_context,
-                const ConfigurationBase& config )
+            explicit Module( std::shared_ptr<ExecutionContextType> exec_context, const ConfigurationBase& config )
                 : execution_context_( exec_context ),
                 config_( config ),
                 training_mode_( config.isTraining() ) {

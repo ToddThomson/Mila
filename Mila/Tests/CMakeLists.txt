@@ -55,8 +55,10 @@ add_executable( MilaTests
     "Dnn/Tensors/TensorOps/Fill.Cpu.cpp"
     "Dnn/Tensors/TensorOps/Fill.Cuda.cpp"
     "Dnn/Tensors/TensorOps/Math.Cpu.cpp"
+    "Dnn/Tensors/TensorOps/Math.Cuda.cpp"
     "Dnn/Tensors/TensorOps/TensorOps.Transfer.cpp"
 
+    # Tensor Helpers
     "Dnn/Tensors/Tensor.Initializers.cpp"
 
     # --------------------------------------------------------------
@@ -89,8 +91,8 @@ add_executable( MilaTests
     # Dnn::Modules Tests
     # --------------------------------------------------------------
 
-    #"Dnn/Modules/Module.cpp"
-    #"Dnn/Modules/ModuleConfig.cpp"
+    "Dnn/Modules/Module.cpp"
+    "Dnn/Modules/ModuleConfig.cpp"
     
     #"Dnn/Modules/Layers/Encoder.cpp"
     #"Dnn/Modules/Layers/EncoderConfig.cpp"
@@ -131,7 +133,7 @@ add_executable( MilaTests
     "Dnn/Compute/ExecutionContext/CudaExecutionContext.cpp"
     "Dnn/Compute/ExecutionContext/CpuExecutionContext.cpp"
     
- "Dnn/Tensors/TensorOps/Math.Cuda.cpp")
+)
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
 

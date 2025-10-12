@@ -71,13 +71,6 @@ export import Compute.CpuDevice;
 export import Compute.CudaDevice;
 
 // ====================================================================
-// Compute - Device Context (Deprecated? Use ExecutionContext)
-// ====================================================================
-//export import Compute.DeviceContext;
-//export import Compute.CpuDeviceContext;
-//export import Compute.CudaDeviceContext;
-
-// ====================================================================
 // Compute - Device Registry
 // ====================================================================
 //export import Compute.DevicePlugin; // Base class for device plugins: Not yet ready for export
