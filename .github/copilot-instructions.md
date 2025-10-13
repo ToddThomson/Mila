@@ -1,7 +1,7 @@
 # Mila — Copilot Instructions
 
 ## Purpose
-- Primary focus: `Tensor.ixx` system redesign. All guidance and code should prioritize a correct, type-safe, device-aware tensor foundation.
+- Primary focus: Module and Operation component redesign. All guidance and code should prioritize a correct, type-safe, device-aware module foundation.
 
 ## Code generation policy
 - Generate code only when explicitly requested (e.g., "implement", "update", "write code", "generate", "create code"). Otherwise provide analysis, design guidance, and minimal examples.
@@ -21,6 +21,6 @@
 ## Notes for AI assistant
 - When recommending code, prefer modern C++ idioms (RAII, smart pointers, STL algorithms).
 - Always include testing suggestions and consider CPU/CUDA parity.
-- Keep suggestions concise and focused on the `Tensor.ixx` design.
 - In explanatory text (not code), you may use formatting symbols for clarity, but generated code comments must follow the comment policy above
 - Keep commit messages and explanatory responses separate from code documentation
+- Unit tests are structured by project, namespace and class — place tests under the Tests tree following the repository project layout and mirror the production namespace/class organization.

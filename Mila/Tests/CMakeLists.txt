@@ -133,7 +133,7 @@ add_executable( MilaTests
     "Dnn/Compute/ExecutionContext/CudaExecutionContext.cpp"
     "Dnn/Compute/ExecutionContext/CpuExecutionContext.cpp"
     
-)
+ "Dnn/Compute/Operations/OperationBase.cpp" "Dnn/Compute/Operations/UnaryOperation.cpp" "Dnn/Compute/Operations/BinaryOperation.cpp")
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
 

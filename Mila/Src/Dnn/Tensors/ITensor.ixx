@@ -52,6 +52,11 @@ namespace Mila::Dnn
         virtual ~ITensor() = default;
 
         /**
+		 * @brief Check if the tensor is a scalar (rank 0)
+         */
+		virtual bool isScalar() const = 0;
+
+        /**
          * @brief Get tensor dimensional structure
          * @return Immutable reference to vector containing the size of each dimension
          * @note The returned vector's length equals the tensor's rank (number of dimensions)

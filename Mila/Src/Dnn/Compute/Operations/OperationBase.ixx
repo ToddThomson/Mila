@@ -84,7 +84,7 @@ namespace Mila::Dnn::Compute
      * };
      * @endcode
      */
-    export template <DeviceType TDeviceType = DeviceType::Cuda, TensorDataType TDataType = TensorDataType::FP32>
+    export template <DeviceType TDeviceType, TensorDataType TDataType>
     class OperationBase {
     public:
         /**
@@ -128,15 +128,17 @@ namespace Mila::Dnn::Compute
          * @note Protected constructor - only derived classes can instantiate
          * @note Execution context validation ensures type safety at runtime
          */
-        OperationBase(OperationType operation_type, std::shared_ptr<ExecutionContext> context)
-            : operation_type_(operation_type), execution_context_(context) {
-            if (!execution_context_) {
-                throw std::invalid_argument("Execution context must not be null.");
+        OperationBase( OperationType operation_type, std::shared_ptr<ExecutionContext<TDeviceType>> context )
+            : operation_type_( operation_type ), execution_context_( context ) {
+            if (!execution_context_)
+            {
+                throw std::invalid_argument( "Execution context must not be null." );
             }
 
             // Optional: Validate execution context device type matches template parameter
-            if (execution_context_->getDeviceContext()->getDevice()->getDeviceType() != TDeviceType) {
-                throw std::runtime_error("Execution context device type mismatch with template parameter.");
+            if (execution_context_->getDevice()->getDeviceType() != TDeviceType)
+            {
+                throw std::runtime_error( "Execution context device type mismatch with template parameter." );
             }
         }
 
@@ -176,20 +178,13 @@ namespace Mila::Dnn::Compute
          *
          * @return std::shared_ptr<ExecutionContext> The execution context for this operation (never null).
          */
-        std::shared_ptr<ExecutionContext> getExecutionContext() const {
+        std::shared_ptr<ExecutionContext<TDeviceType>> getExecutionContext() const {
             return execution_context_;
         }
 
-        /**
-         * @brief Gets the device context associated with this operation.
-         *
-         * @details Convenience method that retrieves the device context from the execution context.
-         * The device context contains device selection and basic device management functionality.
-         *
-         * @return std::shared_ptr<DeviceContext> The device context for this operation (never null).
-         */
-        std::shared_ptr<DeviceContext> getDeviceContext() const {
-            return execution_context_->getDeviceContext();
+        
+        std::string getDeviceName() const {
+            return execution_context_->getDevice()->getDeviceName();
         }
 
         /**
@@ -204,7 +199,7 @@ namespace Mila::Dnn::Compute
          * @note This is the runtime device type; compile-time type is available via device_type constant
          */
         DeviceType getDeviceType() const {
-            return execution_context_->getDeviceContext()->getDevice()->getDeviceType();
+            return execution_context_->getDevice()->getDeviceType();
         }
 
         /**
@@ -313,7 +308,7 @@ namespace Mila::Dnn::Compute
 
     private:
         OperationType operation_type_;                          ///< The operation type identifier.
-        std::shared_ptr<ExecutionContext> execution_context_;   ///< The execution context for this operation (never null).
+        std::shared_ptr<ExecutionContext<TDeviceType>> execution_context_;   ///< The execution context for this operation (never null).
     };
 
     /**

@@ -28,9 +28,12 @@ import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
+import Compute.ExecutionContext;
+import Compute.IExecutionContext;
 import Compute.Precision;
 import Compute.ComputeDevice;
 import Compute.DeviceType;
+import Compute.DeviceTypeTraits;
 import Compute.DeviceContext;
 import Compute.DeviceContextHelpers;
 import Compute.CudaDeviceMemoryResource;
@@ -113,19 +116,17 @@ namespace Mila::Dnn::Compute
      * };
      * @endcode
      */
-    export template <DeviceType TDeviceType = DeviceType::Cuda, TensorDataType TDataType = TensorDataType::FP32>
-        class UnaryOperation : public OperationBase<TDeviceType, TDataType> {
+    export template <DeviceType TDeviceType, TensorDataType TDataType>
+    class UnaryOperation : public OperationBase<TDeviceType, TDataType> 
+    {
         public:
-            // ====================================================================
-            // Type Aliases and Compile-Time Properties
-            // ====================================================================
-
             /**
              * @brief Memory resource type based on device type.
              *
-             * Automatically selects CudaDeviceMemoryResource for CUDA or CpuMemoryResource for CPU.
+             * @details This type alias derives the canonical memory resource for the
+             * template device type via the DeviceTypeTraits mapping.
              */
-            using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
+            using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
 
             /**
              * @brief Tensor type used by this operation.
@@ -148,7 +149,7 @@ namespace Mila::Dnn::Compute
              * State tensors store intermediate computations needed for gradient calculation.
              * May include scalar tensors for normalization factors or reduction values.
              */
-            using OutputState = std::vector<std::shared_ptr<TensorType>>;
+            using OutputState = std::vector<std::shared_ptr<ITensor>>;
 
             // ====================================================================
             // Construction and Destruction
@@ -198,7 +199,7 @@ namespace Mila::Dnn::Compute
              * ReLU op(OperationType::Activation, context);
              * @endcode
              */
-            UnaryOperation( OperationType operation_type, std::shared_ptr<DeviceContext> context )
+            UnaryOperation( OperationType operation_type, std::shared_ptr<ExecutionContext<TDeviceType>> context )
                 : OperationBase<TDeviceType, TDataType>(
                     operation_type,
                     ValidateContext<TDeviceType>( context ) ) {
@@ -277,9 +278,9 @@ namespace Mila::Dnn::Compute
              * @endcode
              */
             virtual void forward(
-                const TensorType& input,
+                const ITensor& input,
                 const Parameters& parameters,
-                TensorType& output,
+                ITensor& output,
                 OutputState& output_state ) const = 0;
 
             /**
@@ -302,9 +303,9 @@ namespace Mila::Dnn::Compute
              * @note Suitable for operations at computation graph boundaries
              */
             virtual void backward(
-                const TensorType& output_grad,
+                const ITensor& output_grad,
                 const Parameters& parameters,
-                std::vector<std::shared_ptr<TensorType>>& parameter_grads ) const {
+                std::vector<std::shared_ptr<ITensor>>& parameter_grads ) const {
                 throw std::runtime_error(
                     "Operation '" + this->getDeviceName() + "' does not support simplified backward pass." );
             }
@@ -360,11 +361,11 @@ namespace Mila::Dnn::Compute
              * @endcode
              */
             virtual void backward(
-                const TensorType& input,
-                const TensorType& output_grad,
+                const ITensor& input,
+                const ITensor& output_grad,
                 const Parameters& parameters,
-                std::vector<std::shared_ptr<TensorType>>& parameter_grads,
-                TensorType& input_grad,
+                std::vector<std::shared_ptr<ITensor>>& parameter_grads,
+                ITensor& input_grad,
                 const OutputState& output_state ) const {
                 throw std::runtime_error(
                     "Operation '" + this->getDeviceName() + "' does not support comprehensive backward pass." );
@@ -399,7 +400,8 @@ namespace Mila::Dnn::Compute
              * }
              * @endcode
              */
-            template<TensorDataType TParamDataType>
+            //FIXME:
+            /*template<TensorDataType TParamDataType>
             static const Tensor<TParamDataType, MR>& getTypedParameter(
                 const std::shared_ptr<ITensor>& param ) {
 
@@ -415,7 +417,7 @@ namespace Mila::Dnn::Compute
                 }
 
                 return static_cast<const Tensor<TParamDataType, MR>&>(*param);
-            }
+            }*/
 
             /**
              * @brief Provides mutable type-safe access to operation parameters
@@ -433,7 +435,8 @@ namespace Mila::Dnn::Compute
              * @note Enables in-place parameter updates during optimization
              * @note Use with caution to maintain computational graph integrity
              */
-            template<TensorDataType TParamDataType>
+            // FIXME:
+            /*template<TensorDataType TParamDataType>
             static Tensor<TParamDataType, MR>& getMutableTypedParameter(
                 const std::shared_ptr<ITensor>& param ) {
 
@@ -449,7 +452,7 @@ namespace Mila::Dnn::Compute
                 }
 
                 return static_cast<Tensor<TParamDataType, MR>&>(*param);
-            }
+            }*/
 
             // ====================================================================
             // Operation Properties and Introspection
@@ -467,8 +470,8 @@ namespace Mila::Dnn::Compute
             virtual std::string getOperationInfo() const {
                 return this->getDeviceName() +
                     " (DataType: " + std::string( this->getDataTypeName() ) +
-                    ", Device: " + (TDeviceType == DeviceType::Cuda ? "CUDA" : "CPU") +
-                    ", Memory: " + (MR::is_host_accessible ? "Host" : "Device") + ")";
+                    ", Device: " + (TDeviceType == DeviceType::Cuda ? "CUDA" : "CPU");
+                    //", Memory: " + (MR::is_host_accessible ? "Host" : "Device") + ")";
             }
 
             /**
@@ -486,9 +489,8 @@ namespace Mila::Dnn::Compute
              * @note Default implementation performs basic compatibility checks
              * @note Handles scalar tensors correctly
              */
-            virtual bool validateTensors( const TensorType& input, const TensorType& output ) const {
-                return input.getDataType() == TDataType &&
-                    output.getDataType() == TDataType;
+            virtual bool validateTensors( const ITensor& input, const ITensor& output ) const {
+                return input.getDataType() == TDataType && output.getDataType() == TDataType;
             }
     };
 

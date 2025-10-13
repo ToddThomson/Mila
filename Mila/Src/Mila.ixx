@@ -49,10 +49,10 @@ export import Cuda.Helpers;
 // ====================================================================
 // Compute - Base
 // ====================================================================
-//export import Compute.OperationBase;
-//export import Compute.OperationType;
-//export import Compute.UnaryOperation;
-//export import Compute.BinaryOperation;
+export import Compute.OperationBase;
+export import Compute.OperationType;
+export import Compute.UnaryOperation;
+export import Compute.BinaryOperation;
 export import Compute.Precision;
 
 // ====================================================================
@@ -67,6 +67,9 @@ export import Compute.CudaExecutionContext;
 // ====================================================================
 export import Compute.ComputeDevice;
 export import Compute.DeviceType;
+export import Compute.DeviceTypeTraits;
+export import Compute.DeviceTypeTraits.Cpu;
+export import Compute.DeviceTypeTraits.Cuda;
 export import Compute.CpuDevice;
 export import Compute.CudaDevice;
 

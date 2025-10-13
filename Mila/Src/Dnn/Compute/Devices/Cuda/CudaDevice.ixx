@@ -33,8 +33,10 @@ namespace Mila::Dnn::Compute
      * - FP8: Hopper and newer (SM 9.0+)
      * - INT8: Turing and newer (SM 7.5+)
      */
-    export class CudaDevice : public ComputeDevice {
+    export class CudaDevice : public ComputeDevice 
+    {
     public:
+
         /**
          * @brief Constructs a CudaDevice with specified device ID.
          *

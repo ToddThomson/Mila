@@ -34,9 +34,12 @@ import Compute.CudaDevice;
 import Compute.OperationBase;
 import Compute.OperationType;
 import Compute.OperationAttributes;
-import Compute.DeviceContext;
-import Compute.DeviceContextHelpers;
+import Compute.ExecutionContext;
+import Compute.IExecutionContext;
+//import Compute.DeviceContext;
+//import Compute.DeviceContextHelpers;
 import Compute.DeviceType;
+import Compute.DeviceTypeTraits;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CpuMemoryResource;
 
@@ -84,18 +87,17 @@ namespace Mila::Dnn::Compute
      * };
      * @endcode
      */
-    export template <DeviceType TDeviceType = DeviceType::Cuda, TensorDataType TDataType = TensorDataType::FP32>
-        class BinaryOperation : public OperationBase<TDeviceType, TDataType> {
+    export template <DeviceType TDeviceType, TensorDataType TDataType>
+    class BinaryOperation : public OperationBase<TDeviceType, TDataType> 
+    {
         public:
             /**
              * @brief Memory resource type based on device type.
              *
-             * @details This type alias automatically selects the appropriate memory resource type
-             * based on the template device type. For CUDA devices, it uses CudaDeviceMemoryResource;
-             * for CPU devices, it uses CpuMemoryResource. This ensures memory allocation is
-             * performed correctly for the target device.
+             * @details This type alias derives the canonical memory resource for the
+             * template device type via the DeviceTypeTraits mapping.
              */
-            using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
+            using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
 
             /**
              * @brief Tensor type used by this operation.
@@ -110,7 +112,7 @@ namespace Mila::Dnn::Compute
              * Parameters are stored as type-erased ITensor pointers to support
              * dynamic parameter management across different tensor types.
              */
-            using Parameters = std::vector<std::shared_ptr<ITensor>>;
+            using Parameters = std::vector<std::shared_ptr<TensorType>>;
 
             /**
              * @brief Type alias for operation state (cached values for backward pass)
@@ -140,9 +142,7 @@ namespace Mila::Dnn::Compute
              * @endcode
              */
             BinaryOperation( OperationType operation_type )
-                : OperationBase<TDeviceType, TDataType>(
-                    operation_type,
-                    CreateCompatibleContext<TDeviceType>() ) {
+                : OperationBase<TDeviceType, TDataType>( operation_type, CreateCompatibleContext<TDeviceType>() ) {
             }
 
             /**
@@ -163,10 +163,8 @@ namespace Mila::Dnn::Compute
              * MatMul op(OperationType::MatMul, context);
              * @endcode
              */
-            BinaryOperation( OperationType operation_type, std::shared_ptr<DeviceContext> context )
-                : OperationBase<TDeviceType, TDataType>(
-                    operation_type,
-                    ValidateContext<TDeviceType>( context ) ) {
+            BinaryOperation( OperationType operation_type, std::shared_ptr<ExecutionContext<TDeviceType>> execution_context )
+                : OperationBase<TDeviceType, TDataType>( operation_type, execution_context ) {
             }
 
             /**
@@ -231,10 +229,10 @@ namespace Mila::Dnn::Compute
              * @endcode
              */
             virtual void forward(
-                const TensorType& inputA,
-                const TensorType& inputB,
+                const ITensor& inputA,
+                const ITensor& inputB,
                 const Parameters& parameters,
-                TensorType& output,
+                ITensor& output,
                 OutputState& output_state ) const = 0;
 
             /**
