@@ -128,6 +128,10 @@ PUBLIC
         #---------------------------------------------------------------
         "Src/Dnn/Compute/ComputeDevice.ixx"
         "Src/Dnn/Compute/ComputeDeviceTraits.ixx"
+        "Src/Dnn/Compute/DeviceType.ixx"
+        "Src/Dnn/Compute/DeviceTypeTraits.ixx"
+        "Src/Dnn/Compute/Devices/Cuda/CudaDeviceTypeTraits.ixx"
+        "Src/Dnn/Compute/Devices/Cpu/CpuDeviceTypeTraits.ixx"
         "Src/Dnn/Compute/ComputePrecision.ixx"
         
         "Src/Dnn/Compute/ExecutionContext.ixx"
@@ -147,8 +151,8 @@ PUBLIC
         "Src/Dnn/Compute/Operations/OperationAttributes.ixx"
         "Src/Dnn/Compute/Operations/UnaryOperation.ixx"
         "Src/Dnn/Compute/Operations/BinaryOperation.ixx"
-        #"Src/Dnn/Compute/Operations/OperationRegistry.ixx"
-        #"Src/Dnn/Compute/Operations/OperationsRegistrar.ixx"
+        "Src/Dnn/Compute/Operations/OperationRegistry.ixx"
+        "Src/Dnn/Compute/Operations/OperationsRegistrar.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Compute / Devices (general)
@@ -264,8 +268,8 @@ PUBLIC
         #"Src/Dnn/Modules/CompositeModule.ixx"
 
         # Modules - Activations
-        #Src/Dnn/Modules/Activations/Gelu.ixx"
-        #Src/Dnn/Modules/Activations/GeluConfig.ixx"
+        "Src/Dnn/Modules/Activations/Gelu.ixx"
+        "Src/Dnn/Modules/Activations/GeluConfig.ixx"
 
         # Modules - Layers
         #"Src/Dnn/Modules/Layers/Linear.ixx"
@@ -308,12 +312,13 @@ PUBLIC
         # WIP / Attributes
         #"Src/Dnn/Modules/Layers/LinearAttributes.ixx"
         #"Src/Dnn/Common/Attributes.ixx"
-        "Src/Dnn/Compute/DeviceType.ixx"
+
         
         "Src/Dnn/Tensors/Operations/TensorOps.ixx"
+        "Src/Dnn/Tensors/Operations/TensorOps-Base.ixx"
 
-         "Src/Dnn/Tensors/Operations/TensorOps-Base.ixx"
-          "Src/Dnn/Compute/DeviceTypeTraits.ixx" "Src/Dnn/Compute/Devices/Cuda/CudaDeviceTypeTraits.ixx" "Src/Dnn/Compute/Devices/Cpu/CpuDeviceTypeTraits.ixx")
+        
+ "Src/Dnn/Compute/Operations/OperationRegistryHelpers.ixx")
 
 target_link_libraries(Mila PRIVATE 
     miniz

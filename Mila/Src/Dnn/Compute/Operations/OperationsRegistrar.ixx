@@ -4,14 +4,15 @@ module;
 #include <unordered_map>
 #include <memory>
 #include <type_traits>
-#include <utility>      // This contains std::_Tuple_get implementations
-#include <tuple>        // Additional tuple utilities
+#include <utility>
+#include <tuple>
 #include <cuda_fp16.h>
 
 export module Compute.OperationsRegistrar;
 
-import Compute.CpuOperations;
-import Compute.CudaOperations;
+// FIXME:
+//import Compute.CpuOperations;
+//import Compute.CudaOperations;
 
 namespace Mila::Dnn::Compute
 {

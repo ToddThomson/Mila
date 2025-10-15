@@ -97,8 +97,8 @@ add_executable( MilaTests
     #"Dnn/Modules/Layers/Encoder.cpp"
     #"Dnn/Modules/Layers/EncoderConfig.cpp"
     #"Dnn/Modules/Attention.cpp"
-    #"Dnn/Modules/Activations/Gelu.cpp" 
-    #"Dnn/Modules/Activations/GeluConfig.cpp"
+    "Dnn/Modules/Activations/Gelu.Cpu.cpp" 
+    "Dnn/Modules/Activations/GeluConfig.cpp"
     #"Dnn/Modules/Layers/Linear.cpp"
     #"Dnn/Modules/Layers/LinearConfig.cpp"
     #"Dnn/Modules/Normalization/LayerNorm.cpp"
@@ -133,7 +133,10 @@ add_executable( MilaTests
     "Dnn/Compute/ExecutionContext/CudaExecutionContext.cpp"
     "Dnn/Compute/ExecutionContext/CpuExecutionContext.cpp"
     
- "Dnn/Compute/Operations/OperationBase.cpp" "Dnn/Compute/Operations/UnaryOperation.cpp" "Dnn/Compute/Operations/BinaryOperation.cpp")
+    "Dnn/Compute/Operations/OperationBase.cpp"
+    "Dnn/Compute/Operations/UnaryOperation.cpp"
+    "Dnn/Compute/Operations/BinaryOperation.cpp"
+ "Dnn/Modules/Activations/Gelu.Cuda.cpp")
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
 

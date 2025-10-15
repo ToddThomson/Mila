@@ -1,0 +1,202 @@
+/**
+ * @file Gelu.Cuda.cpp
+ * @brief Unit tests for GELU activation module on CUDA device.
+ *
+ * Tests assert behavior for both registered and unregistered backend operation:
+ * - If the backend operation is registered the module should construct and operate.
+ * - If the backend operation is not registered the Gelu constructor must throw.
+ */
+
+#include <gtest/gtest.h>
+#include <memory>
+#include <vector>
+#include <string>
+#include <iostream>
+#include <cmath>
+
+import Mila;
+
+namespace Modules::Activations::Tests
+{
+    using namespace Mila::Dnn;
+    using namespace Mila::Dnn::Compute;
+
+    // Memory resource for CUDA device
+    using MR = CudaDeviceMemoryResource;
+
+    struct GeluCudaTestData {
+        std::vector<size_t> shape;
+        std::shared_ptr<Gelu<DeviceType::Cuda>> gelu_module;
+
+        static GeluCudaTestData CreateWithDeviceId( int device_id, size_t batch, size_t seq, size_t chan ) {
+            GeluCudaTestData d;
+            d.shape = { batch, seq, chan };
+            GeluConfig config;
+            d.gelu_module = std::make_shared<Gelu<DeviceType::Cuda>>( device_id, config );
+            return d;
+        }
+
+        static GeluCudaTestData CreateWithExecutionContext( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> ctx, size_t batch, size_t seq, size_t chan ) {
+            GeluCudaTestData d;
+            d.shape = { batch, seq, chan };
+            GeluConfig config;
+            d.gelu_module = std::make_shared<Gelu<DeviceType::Cuda>>( ctx, config );
+            return d;
+        }
+    };
+
+    class GeluCudaTests : public ::testing::Test {
+    protected:
+        void SetUp() override {
+            batch_ = 2;
+            seq_ = 4;
+            chan_ = 8;
+        }
+
+        void TearDown() override {
+            data_by_id_.gelu_module.reset();
+            data_by_ctx_.gelu_module.reset();
+        }
+
+        size_t batch_{ 0 }, seq_{ 0 }, chan_{ 0 };
+        GeluCudaTestData data_by_id_;
+        GeluCudaTestData data_by_ctx_;
+    };
+
+    TEST_F( GeluCudaTests, Construct_WithDeviceId_BehaviorDependsOnRegistration ) {
+        // If CUDA GELU op is registered construction should succeed; otherwise it must throw.
+        if (isOperationRegistered<DeviceType::Cuda, TensorDataType::FP32>( "Cuda::GeluOp" ))
+        {
+            EXPECT_NO_THROW( (Gelu<DeviceType::Cuda>( 0, GeluConfig() )) );
+        }
+        else
+        {
+            EXPECT_THROW( (Gelu<DeviceType::Cuda>( 0, GeluConfig() )), std::runtime_error );
+        }
+    }
+
+    TEST_F( GeluCudaTests, Construct_WithExecutionContext_BehaviorDependsOnRegistration ) {
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+
+        if (isOperationRegistered<DeviceType::Cuda, TensorDataType::FP32>( "Cuda::GeluOp" ))
+        {
+            EXPECT_NO_THROW( (Gelu<DeviceType::Cuda>( ctx, GeluConfig() )) );
+        }
+        else
+        {
+            EXPECT_THROW( (Gelu<DeviceType::Cuda>( ctx, GeluConfig() )), std::runtime_error );
+        }
+    }
+
+    TEST_F( GeluCudaTests, Forward_BehaviorDependsOnRegistration ) {
+        if (!isOperationRegistered<DeviceType::Cuda, TensorDataType::FP32>( "Cuda::GeluOp" ))
+        {
+            // Expect constructor to fail when op is not registered.
+            EXPECT_THROW( (Gelu<DeviceType::Cuda>( 0, GeluConfig() )), std::runtime_error );
+            return;
+        }
+
+        auto d = GeluCudaTestData::CreateWithDeviceId( 0, batch_, seq_, chan_ );
+
+        // Construct CUDA tensors with the device from module's execution context
+        auto cuda_device = d.gelu_module->getExecutionContext()->getDevice();
+        Tensor<TensorDataType::FP32, MR> input( cuda_device, d.shape );
+        Tensor<TensorDataType::FP32, MR> output( cuda_device, d.shape );
+
+        // Initialize on host then copy to device using a host tensor constructed with a CPU device
+        auto cpu_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>( -1 );
+        auto cpu_device = cpu_ctx->getDevice();
+        Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( cpu_device, d.shape );
+
+        for (size_t i = 0; i < host_input.size(); ++i)
+            host_input.data()[i] = static_cast<float>( i ) / host_input.size() * 4.0f - 2.0f;
+
+        copy( host_input, input );
+
+        ASSERT_NO_THROW( d.gelu_module->forward( input, output ) );
+        EXPECT_EQ( output.size(), input.size() );
+    }
+
+    TEST_F( GeluCudaTests, ToString_ContainsGeluOrConstructorThrows ) {
+        if (!isOperationRegistered<DeviceType::Cuda, TensorDataType::FP32>( "Cuda::GeluOp" ))
+        {
+            EXPECT_THROW( (Gelu<DeviceType::Cuda>( 0, GeluConfig() )), std::runtime_error );
+            return;
+        }
+
+        auto d = GeluCudaTestData::CreateWithDeviceId( 0, batch_, seq_, chan_ );
+        auto s = d.gelu_module->toString();
+        EXPECT_FALSE( s.empty() );
+        EXPECT_NE( s.find( "Gelu" ), std::string::npos );
+    }
+
+    TEST_F( GeluCudaTests, Construct_WithExecutionContext_WorksOrThrows ) {
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+
+        if (!isOperationRegistered<DeviceType::Cuda, TensorDataType::FP32>( "Cuda::GeluOp" ))
+        {
+            EXPECT_THROW( (Gelu<DeviceType::Cuda>( ctx, GeluConfig() )), std::runtime_error );
+            return;
+        }
+
+        auto d = GeluCudaTestData::CreateWithExecutionContext( ctx, batch_, seq_, chan_ );
+        EXPECT_EQ( d.gelu_module->getExecutionContext()->getDevice()->getDeviceType(), DeviceType::Cuda );
+    }
+
+    TEST_F( GeluCudaTests, CpuCuda_Equivalence_OrConstructorThrows ) {
+        bool cpu_registered = isOperationRegistered<DeviceType::Cpu, TensorDataType::FP32>( "Cpu::GeluOp" );
+        bool cuda_registered = isOperationRegistered<DeviceType::Cuda, TensorDataType::FP32>( "Cuda::GeluOp" );
+
+        if (!cpu_registered || !cuda_registered)
+        {
+            // If either backend is missing, at least one constructor must throw.
+            if (!cpu_registered)
+            {
+                EXPECT_THROW( (Gelu<DeviceType::Cpu>( -1, GeluConfig() )), std::runtime_error );
+            }
+            if (!cuda_registered)
+            {
+                EXPECT_THROW( (Gelu<DeviceType::Cuda>( 0, GeluConfig() )), std::runtime_error );
+            }
+            return;
+        }
+
+        // Both registered: validate numerical equivalence.
+        std::vector<size_t> shape = { 2, 2, 4 };
+        GeluConfig config;
+        auto cpu_gelu = std::make_shared<Gelu<DeviceType::Cpu>>( -1, config );
+        auto cuda_gelu = std::make_shared<Gelu<DeviceType::Cuda>>( 0, config );
+
+        // Construct CPU tensors using CPU module's device
+        auto cpu_device = cpu_gelu->getExecutionContext()->getDevice();
+        Tensor<TensorDataType::FP32, CpuMemoryResource> cpu_input( cpu_device, shape );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> cpu_output( cpu_device, shape );
+
+        for (size_t i = 0; i < cpu_input.size(); ++i)
+            cpu_input.data()[i] = static_cast<float>( i ) / cpu_input.size() * 4.0f - 2.0f;
+
+        cpu_gelu->forward( cpu_input, cpu_output );
+
+        // Move to device and run CUDA module
+        Tensor<TensorDataType::FP32, MR> cuda_input( cuda_gelu->getExecutionContext()->getDevice(), shape );
+        copy( cpu_input, cuda_input );
+
+        auto cuda_device = cuda_gelu->getExecutionContext()->getDevice();
+        Tensor<TensorDataType::FP32, MR> cuda_output( cuda_device, shape );
+
+        cuda_gelu->forward( cuda_input, cuda_output );
+
+        auto cuda_output_host = toHost<TensorDataType::FP32>( cuda_output );
+
+        const float epsilon = 1e-3f;
+        for (size_t i = 0; i < cpu_output.size(); ++i)
+        {
+            float cpu_val = cpu_output.data()[i];
+            float gpu_val = cuda_output_host.data()[i];
+            float diff = std::abs( cpu_val - gpu_val );
+            EXPECT_LT( diff, epsilon ) << "Mismatch at index " << i
+                << ": CPU=" << cpu_val
+                << ", CUDA=" << gpu_val;
+        }
+    }
+}

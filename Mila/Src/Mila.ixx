@@ -19,7 +19,7 @@
  * DEALINGS IN THE SOFTWARE.
  */
 module;
-#include <cuda_fp16.h>
+//#include <cuda_fp16.h>
 #include <string>
 #include <iostream>
 #include <memory>
@@ -94,7 +94,7 @@ export import Compute.CudaPinnedMemoryResource;
 // ====================================================================
 // Compute - Operations Registry
 // ====================================================================
-//export import Compute.OperationRegistry;
+export import Compute.OperationRegistryHelpers;
 //export import Compute.OperationAttributes;
 
 // ====================================================================
@@ -161,7 +161,7 @@ export import Dnn.TensorInitializers;
 // ====================================================================
 //export import Dnn.Modules.Attention;
 //export import Dnn.Modules.Encoder;
-//export import Dnn.Modules.Gelu;
+export import Dnn.Modules.Gelu;
 //export import Dnn.Modules.LayerNorm;
 //export import Dnn.Modules.Linear;
 //export import Dnn.Modules.Residual;
