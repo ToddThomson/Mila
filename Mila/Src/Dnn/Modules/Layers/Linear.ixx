@@ -53,7 +53,7 @@ namespace Mila::Dnn
      * @tparam TDeviceType The device type (CPU or CUDA) on which to perform computations.
      * @tparam TDataType The data type of the tensor elements, defaults to float.
      */
-    export template<DeviceType TDeviceType = DeviceType::Cuda, typename TDataType = float>
+    export template<DeviceType TDeviceType, TensorDataType TDataType>
         requires ValidFloatTensorType<TDataType>
     class Linear : public Module<TDeviceType, TDataType, TDataType> {
     public:

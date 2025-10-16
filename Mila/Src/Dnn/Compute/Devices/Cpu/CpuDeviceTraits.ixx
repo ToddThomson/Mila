@@ -6,9 +6,9 @@ import Compute.CpuDevice;
 
 namespace Mila::Dnn::Compute
 {
-    template<>
+    /*template<>
     struct ComputeDeviceTraits<CpuMemoryResource>
     {
         using type = CpuDevice;
-    };
+    };*/
 }

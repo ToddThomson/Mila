@@ -21,6 +21,7 @@ export module Dnn.Modules.Gelu;
 export import :Config;
 
 import Dnn.Module;
+import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
 import Compute.DeviceType;
@@ -44,12 +45,15 @@ namespace Mila::Dnn
      *
      * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda)
      */
-    export template<DeviceType TDeviceType>
+    export template<DeviceType TDeviceType, TensorDataType TPrecision>
+        /* TODO: requires isValid??? */
     class Gelu : public Module<TDeviceType> {
     public:
         using ModuleBase = Module<TDeviceType>;
-        using ExecutionContextType = typename ModuleBase::ExecutionContextType;
-
+		using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
+        using ExecutionContextType = typename ModuleBase::ExecutionContextType; // ExecutionContext<TDeviceType>
+        using TensorType = Tensor<TPrecision, MR>;
+        
         /**
          * @brief Construct GELU with a device id.
          *
@@ -109,14 +113,14 @@ namespace Mila::Dnn
             }
 
             std::vector<std::shared_ptr<ITensor>> parameter_gradients;
-            operation_->backward(
-                input,
-                output_grad,
-                parameters_,
-                parameter_gradients,
-                input_grad,
-                output_state_
-            );
+            //FIXME:Loperation_->backward(
+            //    //input,
+            //    output_grad,
+            //    parameters_,
+            //    parameter_gradients,
+            //    input_grad,
+            //    output_state_
+            //);
         }
 
         GeluConfig::ApproximationMethod getApproximationMethod() const {
@@ -142,8 +146,8 @@ namespace Mila::Dnn
 
     private:
         GeluConfig config_;
-        std::vector<std::shared_ptr<ITensor>> parameters_;
-        std::vector<std::shared_ptr<ITensor>> output_state_;
+        std::vector<std::shared_ptr<TensorType>> parameters_;
+        std::vector<std::shared_ptr<TensorType>> output_state_;
         std::shared_ptr<UnaryOperation<TDeviceType, TensorDataType::FP32>> operation_{ nullptr };
 
         static std::string approximationMethodToString( GeluConfig::ApproximationMethod method ) {

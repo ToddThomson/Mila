@@ -141,7 +141,7 @@ namespace Mila::Dnn::Compute
              * };
              * @endcode
              */
-            BinaryOperation( OperationType operation_type )
+            BinaryOperation( OperationType operation_type, int device_id )
                 : OperationBase<TDeviceType, TDataType>( operation_type, CreateCompatibleContext<TDeviceType>() ) {
             }
 

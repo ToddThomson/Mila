@@ -191,7 +191,7 @@ export import Serialization.ModelArchive;
 // ====================================================================
 // Internal Imports (not exported)
 // ====================================================================
-//import Compute.OperationsRegistrar;
+import Compute.OperationsRegistrar;
 import Compute.DeviceRegistrar;
 
 namespace Mila
@@ -239,7 +239,7 @@ namespace Mila
                 Utils::Logger::info( "Initialized random generator with non-deterministic seed." );
             }
 
-            // FIXME: Dnn::Compute::OperationsRegistrar::instance();
+            Dnn::Compute::OperationsRegistrar::instance();
             Dnn::Compute::DeviceRegistrar::instance();
 
             Utils::Logger::info( "Mila framework initialized successfully." );

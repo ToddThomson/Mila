@@ -24,15 +24,19 @@ namespace Modules::Activations::Tests
     // Memory resource for CUDA device
     using MR = CudaDeviceMemoryResource;
 
+    // Gelu module aliases with explicit precision to match Gelu.ixx
+    using GeluCudaModule = Gelu<DeviceType::Cuda, TensorDataType::FP32>;
+    using GeluCpuModule  = Gelu<DeviceType::Cpu,  TensorDataType::FP32>;
+
     struct GeluCudaTestData {
         std::vector<size_t> shape;
-        std::shared_ptr<Gelu<DeviceType::Cuda>> gelu_module;
+        std::shared_ptr<GeluCudaModule> gelu_module;
 
         static GeluCudaTestData CreateWithDeviceId( int device_id, size_t batch, size_t seq, size_t chan ) {
             GeluCudaTestData d;
             d.shape = { batch, seq, chan };
             GeluConfig config;
-            d.gelu_module = std::make_shared<Gelu<DeviceType::Cuda>>( device_id, config );
+            d.gelu_module = std::make_shared<GeluCudaModule>( device_id, config );
             return d;
         }
 
@@ -40,7 +44,7 @@ namespace Modules::Activations::Tests
             GeluCudaTestData d;
             d.shape = { batch, seq, chan };
             GeluConfig config;
-            d.gelu_module = std::make_shared<Gelu<DeviceType::Cuda>>( ctx, config );
+            d.gelu_module = std::make_shared<GeluCudaModule>( ctx, config );
             return d;
         }
     };
@@ -67,11 +71,11 @@ namespace Modules::Activations::Tests
         // If CUDA GELU op is registered construction should succeed; otherwise it must throw.
         if (isOperationRegistered<DeviceType::Cuda, TensorDataType::FP32>( "Cuda::GeluOp" ))
         {
-            EXPECT_NO_THROW( (Gelu<DeviceType::Cuda>( 0, GeluConfig() )) );
+            EXPECT_NO_THROW( (GeluCudaModule( 0, GeluConfig() )) );
         }
         else
         {
-            EXPECT_THROW( (Gelu<DeviceType::Cuda>( 0, GeluConfig() )), std::runtime_error );
+            EXPECT_THROW( (GeluCudaModule( 0, GeluConfig() )), std::runtime_error );
         }
     }
 
@@ -80,11 +84,11 @@ namespace Modules::Activations::Tests
 
         if (isOperationRegistered<DeviceType::Cuda, TensorDataType::FP32>( "Cuda::GeluOp" ))
         {
-            EXPECT_NO_THROW( (Gelu<DeviceType::Cuda>( ctx, GeluConfig() )) );
+            EXPECT_NO_THROW( (GeluCudaModule( ctx, GeluConfig() )) );
         }
         else
         {
-            EXPECT_THROW( (Gelu<DeviceType::Cuda>( ctx, GeluConfig() )), std::runtime_error );
+            EXPECT_THROW( (GeluCudaModule( ctx, GeluConfig() )), std::runtime_error );
         }
     }
 
@@ -92,7 +96,7 @@ namespace Modules::Activations::Tests
         if (!isOperationRegistered<DeviceType::Cuda, TensorDataType::FP32>( "Cuda::GeluOp" ))
         {
             // Expect constructor to fail when op is not registered.
-            EXPECT_THROW( (Gelu<DeviceType::Cuda>( 0, GeluConfig() )), std::runtime_error );
+            EXPECT_THROW( (GeluCudaModule( 0, GeluConfig() )), std::runtime_error );
             return;
         }
 
@@ -120,7 +124,7 @@ namespace Modules::Activations::Tests
     TEST_F( GeluCudaTests, ToString_ContainsGeluOrConstructorThrows ) {
         if (!isOperationRegistered<DeviceType::Cuda, TensorDataType::FP32>( "Cuda::GeluOp" ))
         {
-            EXPECT_THROW( (Gelu<DeviceType::Cuda>( 0, GeluConfig() )), std::runtime_error );
+            EXPECT_THROW( (GeluCudaModule( 0, GeluConfig() )), std::runtime_error );
             return;
         }
 
@@ -135,7 +139,7 @@ namespace Modules::Activations::Tests
 
         if (!isOperationRegistered<DeviceType::Cuda, TensorDataType::FP32>( "Cuda::GeluOp" ))
         {
-            EXPECT_THROW( (Gelu<DeviceType::Cuda>( ctx, GeluConfig() )), std::runtime_error );
+            EXPECT_THROW( (GeluCudaModule( ctx, GeluConfig() )), std::runtime_error );
             return;
         }
 
@@ -152,11 +156,11 @@ namespace Modules::Activations::Tests
             // If either backend is missing, at least one constructor must throw.
             if (!cpu_registered)
             {
-                EXPECT_THROW( (Gelu<DeviceType::Cpu>( -1, GeluConfig() )), std::runtime_error );
+                EXPECT_THROW( (GeluCpuModule( -1, GeluConfig() )), std::runtime_error );
             }
             if (!cuda_registered)
             {
-                EXPECT_THROW( (Gelu<DeviceType::Cuda>( 0, GeluConfig() )), std::runtime_error );
+                EXPECT_THROW( (GeluCudaModule( 0, GeluConfig() )), std::runtime_error );
             }
             return;
         }
@@ -164,8 +168,8 @@ namespace Modules::Activations::Tests
         // Both registered: validate numerical equivalence.
         std::vector<size_t> shape = { 2, 2, 4 };
         GeluConfig config;
-        auto cpu_gelu = std::make_shared<Gelu<DeviceType::Cpu>>( -1, config );
-        auto cuda_gelu = std::make_shared<Gelu<DeviceType::Cuda>>( 0, config );
+        auto cpu_gelu = std::make_shared<GeluCpuModule>( -1, config );
+        auto cuda_gelu = std::make_shared<GeluCudaModule>( 0, config );
 
         // Construct CPU tensors using CPU module's device
         auto cpu_device = cpu_gelu->getExecutionContext()->getDevice();

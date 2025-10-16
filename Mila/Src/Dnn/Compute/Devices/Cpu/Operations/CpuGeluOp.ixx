@@ -14,12 +14,15 @@ export module Compute.CpuGeluOp;
 
 import Dnn.Modules.Gelu;
 import Dnn.Tensor;
+import Dnn.ITensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorHostTypeMap;
 import Dnn.ConfigurationBase;
 import Compute.DeviceType;
-import Compute.DeviceContext;
+import Compute.ExecutionContext;
+import Compute.IExecutionContext;
+import Compute.CpuExecutionContext;
 import Compute.OperationType;
 import Compute.OperationAttributes;
 import Compute.OperationBase;
@@ -62,13 +65,15 @@ namespace Mila::Dnn::Compute
      * @note Currently only FP32 (float) is fully supported
      * @note Other data types will require template specialization
      */
-    export template<TensorDataType TDataType = TensorDataType::FP32>
-        class CpuGeluOp : public UnaryOperation<DeviceType::Cpu, TDataType> {
+    export template<TensorDataType TDataType>
+    class CpuGeluOp : public UnaryOperation<DeviceType::Cpu, TDataType> 
+    {
         public:
             using MR = CpuMemoryResource;
             using UnaryOperationBase = UnaryOperation<DeviceType::Cpu, TDataType>;
             using TensorType = Tensor<TDataType, MR>;
             using HostType = typename TensorHostTypeMap<TDataType>::host_type;
+            using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
 
             /**
              * @brief Constructs a new CpuGeluOp with the default device context.
@@ -76,21 +81,27 @@ namespace Mila::Dnn::Compute
              * @param config Configuration for GELU operation (approximation method, etc.)
              */
             CpuGeluOp( const GeluConfig& config )
-                : UnaryOperationBase( OperationType::GeluOp ), config_( config ) {
+                : UnaryOperationBase( OperationType::GeluOp, std::make_shared<ExecutionContext<DeviceType::Cpu>>() ), config_( config ) {
             }
 
             /**
-             * @brief Constructs a new CpuGeluOp with a specific device context.
+             * @brief Constructs a new CpuGeluOp with a specific execution context.
              *
-             * @param context The device context to use for this operation.
+             * @param context The execution context to use for this operation.
              * @param config Configuration for GELU operation.
              * @throws std::runtime_error If the context is not for a CPU device.
              */
-            CpuGeluOp( std::shared_ptr<DeviceContext> context, const GeluConfig& config )
+            CpuGeluOp( std::shared_ptr<CpuExecutionContext> context, const GeluConfig& config )
                 : UnaryOperationBase( OperationType::GeluOp, context ), config_( config ) {
 
-                if (context->getDevice()->getDeviceType() != DeviceType::Cpu) {
-                    throw std::runtime_error( "CpuGeluOp requires a CPU device context" );
+                if (!context)
+                {
+                    throw std::invalid_argument( "CpuGeluOp requires a non-null execution context" );
+                }
+
+                if (context->getDevice()->getDeviceType() != DeviceType::Cpu)
+                {
+                    throw std::runtime_error( "CpuGeluOp requires a CPU execution context" );
                 }
             }
 
@@ -110,49 +121,41 @@ namespace Mila::Dnn::Compute
              * @param parameters Parameter tensors (not used in GELU).
              * @param output The output tensor (resized to match input shape).
              * @param output_state Cache for intermediate results (not used in current implementation).
-             *
-             * Example:
-             * @code
-             * // Regular tensor
-             * Tensor<TensorDataType::FP32, CpuMemoryResource> input("CPU", {128, 768});
-             * Tensor<TensorDataType::FP32, CpuMemoryResource> output("CPU", {});
-             * op.forward(input, {}, output, {});
-             * // output.shape() == {128, 768}
-             *
-             * // Scalar tensor
-             * Tensor<TensorDataType::FP32, CpuMemoryResource> scalar("CPU", {});
-             * scalar.item() = 1.5f;
-             * Tensor<TensorDataType::FP32, CpuMemoryResource> scalar_out("CPU", {});
-             * op.forward(scalar, {}, scalar_out, {});
-             * // scalar_out.item() contains activated value
-             * @endcode
              */
             void forward(
-                const TensorType& input,
-                const std::vector<std::shared_ptr<ITensor>>& parameters,
-                TensorType& output,
+                const ITensor& input,
+                const std::vector<std::shared_ptr<TensorType>>& parameters,
+                ITensor& output,
                 std::vector<std::shared_ptr<TensorType>>& output_state ) const override {
 
                 // Resize output to match input shape
-                output.reshape( input.shape() );
+                //output.reshape( input.shape() );
 
                 // Handle scalar case specially
-                if (input.isScalar()) {
+                // FIXME:
+                /*if (input.isScalar())
+                {
                     HostType x = input.item();
                     HostType cube = 0.044715f * x * x * x;
                     output.item() = static_cast<HostType>(0.5f * x * (1.0f + tanhf( GELU_SCALING_FACTOR * (x + cube) )));
                     return;
-                }
+                }*/
 
-                // General tensor case
-                auto X = input.data();
-                auto Y = output.data();
+                // Obtain typed raw pointers (casted to HostType) once before the loop.
+                const HostType* X = static_cast<const HostType*>(input.rawData());
+                HostType* Y = static_cast<HostType*>(output.rawData());
+
+                if (!X || !Y)
+                {
+                    throw std::runtime_error( "CpuGeluOp::forward - null tensor data pointer" );
+                }
 
                 const size_t N = input.size();
 
                 // Use OpenMP for larger tensors
 #pragma omp parallel for if(N > 1000)
-                for (int i = 0; i < static_cast<int>( N ); i++) {
+                for (int i = 0; i < static_cast<int>( N ); i++)
+                {
                     HostType x = X[i];
                     HostType cube = static_cast<HostType>( 0.044715f * x * x * x );
                     Y[i] = static_cast<HostType>( 0.5f * x * (1.0f + tanhf( GELU_SCALING_FACTOR * (x + cube) )) );
@@ -163,16 +166,6 @@ namespace Mila::Dnn::Compute
              * @brief Performs the backward pass of the GELU activation function.
              *
              * Computes the gradient of the GELU function with respect to its input.
-             * The derivative of GELU using tanh approximation is:
-             *
-             * d/dx GELU(x) = 0.5 * (1 + tanh(arg)) + x * 0.5 * sech^2(arg) * sqrt(2/pi) * (1 + 3 * 0.044715 * x^2)
-             *
-             * where arg = sqrt(2/pi) * (x + 0.044715 * x^3)
-             *
-             * Gradient computation:
-             * - Scalar gradient: grad_out is scalar -> grad_in is scalar
-             * - Tensor gradient: element-wise multiplication preserving shape
-             * - Uses cached input values for efficient computation
              *
              * @param input Original input tensor from forward pass (may be scalar).
              * @param output_grad Gradient from next layer (dL/doutput, may be scalar).
@@ -180,44 +173,30 @@ namespace Mila::Dnn::Compute
              * @param parameter_grads Parameter gradients (not used in GELU).
              * @param input_grad Gradient to propagate to previous layer (dL/dinput, may be scalar).
              * @param output_state Cached tensors from forward pass (not used currently).
-             *
-             * @note input_grad is accumulated (+=), not overwritten, to support gradient accumulation
-             *
-             * Example:
-             * @code
-             * // Regular tensor backward
-             * Tensor<TensorDataType::FP32, CpuMemoryResource> input("CPU", {128, 768});
-             * Tensor<TensorDataType::FP32, CpuMemoryResource> output_grad("CPU", {128, 768});
-             * Tensor<TensorDataType::FP32, CpuMemoryResource> input_grad("CPU", {128, 768});
-             * op.backward(input, output_grad, {}, {}, input_grad, {});
-             *
-             * // Scalar backward
-             * Tensor<TensorDataType::FP32, CpuMemoryResource> scalar_in("CPU", {});
-             * Tensor<TensorDataType::FP32, CpuMemoryResource> scalar_grad_out("CPU", {});
-             * Tensor<TensorDataType::FP32, CpuMemoryResource> scalar_grad_in("CPU", {});
-             * op.backward(scalar_in, scalar_grad_out, {}, {}, scalar_grad_in, {});
-             * @endcode
              */
             void backward(
-                const TensorType& input,
+                const ITensor& input,
                 const TensorType& output_grad,
                 const std::vector<std::shared_ptr<ITensor>>& parameters,
                 std::vector<std::shared_ptr<TensorType>>& parameter_grads,
                 TensorType& input_grad,
-                const std::vector<std::shared_ptr<TensorType>>& output_state ) const override {
+                const std::vector<std::shared_ptr<TensorType>>& output_state ) const {
 
-                // Verify CPU device
-                if (this->getDeviceContext()->getDevice()->getDeviceType() != DeviceType::Cpu) {
+                // Verify CPU device via execution context
+                if (this->getExecutionContext()->getDevice()->getDeviceType() != DeviceType::Cpu)
+                {
                     throw std::runtime_error( "CpuGeluOp::backward can only be executed on CPU memory" );
                 }
 
                 // Resize input_grad to match input shape if needed
-                if (input_grad.shape() != input.shape()) {
+                if (input_grad.shape() != input.shape())
+                {
                     input_grad.reshape( input.shape() );
                 }
 
                 // Handle scalar case specially
-                if (input.isScalar()) {
+                /*if (input.isScalar())
+                {
                     HostType x = input.item();
                     HostType cube = static_cast<HostType>(0.044715f * x * x * x);
                     float tanh_arg = GELU_SCALING_FACTOR * (x + cube);
@@ -230,18 +209,19 @@ namespace Mila::Dnn::Compute
                         );
                     input_grad.item() += local_grad * output_grad.item();
                     return;
-                }
+                }*/
 
                 // General tensor case
-                auto inp = input.data();
-                auto dout = output_grad.data();
-                auto dinp = input_grad.data();
+                auto inp = input.rawData();
+                auto dout = output_grad.rawData();
+                auto dinp = input_grad.rawData();
 
                 const size_t N = input.size();
 
                 // Use OpenMP for larger tensors
 #pragma omp parallel for if(N > 1000)
-                for (int i = 0; i < static_cast<int>( N ); i++) {
+                for (int i = 0; i < static_cast<int>( N ); i++)
+                {
                     HostType x = inp[i];
                     HostType cube = static_cast<HostType>( 0.044715f * x * x * x );
                     float tanh_arg = GELU_SCALING_FACTOR * (x + cube);
@@ -293,23 +273,19 @@ namespace Mila::Dnn::Compute
          * Registers factory functions for creating CPU GELU operations with
          * different data types. Currently registers:
          * - FP32 (TensorDataType::FP32)
-         *
-         * Future data types (FP16, etc.) can be added here.
          */
         static void registerOperations() {
             // Register FP32 version
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32>(
                 "Cpu::GeluOp",
-                []( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config )
+                []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context, const ConfigurationBase& config )
                 -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>> {
                     const auto& geluConfig = static_cast<const GeluConfig&>(config);
                     return context
-                        ? std::make_shared<CpuGeluOpFP32>( context, geluConfig )
-                        : std::make_shared<CpuGeluOpFP32>( geluConfig );
+                        ? std::make_shared<CpuGeluOp<TensorDataType::FP32>>( context, geluConfig )
+                        : std::make_shared<CpuGeluOp<TensorDataType::FP32>>( geluConfig );
                 }
             );
-
-            
         }
 
         /**

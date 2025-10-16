@@ -8,7 +8,7 @@ import Compute.CudaDevice;
 
 namespace Mila::Dnn::Compute
 {
-    template<>
+    /*template<>
     struct ComputeDeviceTraits<CudaDeviceMemoryResource>
     {
         using type = CudaDevice;
@@ -24,5 +24,5 @@ namespace Mila::Dnn::Compute
     struct ComputeDeviceTraits<CudaPinnedMemoryResource>
     {
         using type = CudaDevice;
-    };
+    };*/
 }

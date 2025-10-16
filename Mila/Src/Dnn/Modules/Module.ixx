@@ -63,7 +63,8 @@ namespace Mila::Dnn
      * @tparam TDeviceType The device type (Cpu or Cuda) on which the module will operate.
      */
     export template<DeviceType TDeviceType>
-        class Module {
+    class Module 
+    {
         public:
             /**
              * @brief Type alias for the device-specific execution context
@@ -104,7 +105,8 @@ namespace Mila::Dnn
                 config_( config ),
                 training_mode_( config.isTraining() ) {
 
-                if (!exec_context) {
+                if (!exec_context)
+                {
                     throw std::invalid_argument(
                         "ExecutionContext cannot be nullptr. Please provide a valid ExecutionContext."
                     );
@@ -149,8 +151,7 @@ namespace Mila::Dnn
              * @note Scalar gradients supported for reduction operations
              * @note All operations execute on this module's stream
              */
-            virtual void backward( const ITensor& input, const ITensor& output_grad,
-                ITensor& input_grad ) = 0;
+            virtual void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad ) = 0;
 
             /**
              * @brief Get the execution context for this module.

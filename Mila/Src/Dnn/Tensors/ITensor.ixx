@@ -99,6 +99,25 @@ namespace Mila::Dnn
         virtual Compute::DeviceType getDeviceType() const = 0;
 
         /**
+         * @brief Returns the tensor's unique identifier
+         *
+         * Provides a stable identifier assigned during tensor construction useful for
+         * diagnostics and error reporting at the operation layer.
+         *
+         * @return Unique identifier string (implementation-defined format)
+         */
+        virtual std::string getUId() const = 0;
+
+        /**
+         * @brief Returns the tensor's optional user-assigned name
+         *
+         * Provides a human-friendly name when available for diagnostics and logging.
+         *
+         * @return Name string (may be empty if not assigned)
+         */
+        virtual std::string getName() const = 0;
+
+        /**
          * @brief Type-safe check for tensor element type
          * @tparam T The element type to check against
          * @return true if the tensor's elements are of type T, false otherwise

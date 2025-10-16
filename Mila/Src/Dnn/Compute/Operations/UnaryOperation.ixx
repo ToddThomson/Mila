@@ -34,6 +34,7 @@ import Compute.Precision;
 import Compute.ComputeDevice;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
+import Compute.DeviceTypeTraits.Cpu;
 import Compute.DeviceContext;
 import Compute.DeviceContextHelpers;
 import Compute.CudaDeviceMemoryResource;
@@ -126,8 +127,8 @@ namespace Mila::Dnn::Compute
              * @details This type alias derives the canonical memory resource for the
              * template device type via the DeviceTypeTraits mapping.
              */
-            using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
-
+            // FIXME: using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
+            using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
             /**
              * @brief Tensor type used by this operation.
              *
@@ -141,7 +142,7 @@ namespace Mila::Dnn::Compute
              * Parameters are stored as type-erased ITensor pointers to support
              * dynamic parameter management across different tensor types.
              */
-            using Parameters = std::vector<std::shared_ptr<ITensor>>;
+            using Parameters = std::vector<std::shared_ptr<TensorType>>;
 
             /**
              * @brief Type alias for operation state (cached values for backward pass)
@@ -149,7 +150,7 @@ namespace Mila::Dnn::Compute
              * State tensors store intermediate computations needed for gradient calculation.
              * May include scalar tensors for normalization factors or reduction values.
              */
-            using OutputState = std::vector<std::shared_ptr<ITensor>>;
+            using OutputState = std::vector<std::shared_ptr<TensorType>>;
 
             // ====================================================================
             // Construction and Destruction
@@ -175,9 +176,8 @@ namespace Mila::Dnn::Compute
              * };
              * @endcode
              */
-            explicit UnaryOperation( OperationType operation_type )
-                : OperationBase<TDeviceType, TDataType>(
-                    operation_type,
+            explicit UnaryOperation( OperationType operation_type, int device_id )
+                : OperationBase<TDeviceType, TDataType>( operation_type,
                     CreateCompatibleContext<TDeviceType>() ) {
             }
 
@@ -201,8 +201,8 @@ namespace Mila::Dnn::Compute
              */
             UnaryOperation( OperationType operation_type, std::shared_ptr<ExecutionContext<TDeviceType>> context )
                 : OperationBase<TDeviceType, TDataType>(
-                    operation_type,
-                    ValidateContext<TDeviceType>( context ) ) {
+					operation_type, context )
+            {
             }
 
             /**

@@ -43,7 +43,7 @@ namespace Mila::Dnn::Compute::Cuda
      * @note All specializations use CUDA-native types that require device compilation
      */
     export template<TensorDataType TDataType>
-        struct TensorDataTypeMap {
+    struct TensorDataTypeMap {
         static_assert(TDataType != TDataType, "Unsupported CUDA data type mapping");
     };
 

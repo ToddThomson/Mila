@@ -15,27 +15,15 @@ export module Compute.DeviceContextHelpers;
 
 import Compute.ComputeDevice;
 import Compute.CudaDevice;
-import Compute.DeviceContext;
+import Compute.ExecutionContext;
 import Compute.DeviceType;
 
 namespace Mila::Dnn::Compute
 {
-    /**
-     * @brief Creates a device context compatible with the specified device type.
-     *
-     * @tparam TDevice The device type to create a context for.
-     * @return std::shared_ptr<DeviceContext> A new context of the appropriate type.
-     */
-	 // REVIEW: This function is just plain bad. Delete it.
-    /*export template <DeviceType TDeviceType>
-    std::shared_ptr<DeviceContext> CreateCompatibleContext() {
-        if constexpr ( TDeviceType == DeviceType::Cuda ) {
-            return std::make_shared<CudaDeviceContext>( "CUDA:0" );
-        }
-        else {
-            return std::make_shared<CpuDeviceContext>();
-        }
-    }*/
+    export template <DeviceType TDeviceType>
+    std::shared_ptr<ExecutionContext<TDeviceType>> CreateExecutionContext( int device_id ) {
+        return std::make_shared<ExecutionContext<TDeviceType>>( device_id );
+    }
 
     /**
      * @brief Validates that the provided context is compatible with the specified device type.
@@ -46,7 +34,7 @@ namespace Mila::Dnn::Compute
      * @throws std::invalid_argument If the context is null.
      * @throws std::runtime_error If the context is incompatible with TDevice.
      */
-    export template <DeviceType TDeviceType>
+    /*export template <DeviceType TDeviceType>
     std::shared_ptr<DeviceContext> ValidateContext( std::shared_ptr<DeviceContext> context ) {
         if ( !context ) {
             throw std::invalid_argument( "Device context cannot be null" );
@@ -57,5 +45,5 @@ namespace Mila::Dnn::Compute
         }
 
         return context;
-    }
+    }*/
 }

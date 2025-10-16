@@ -9,5 +9,5 @@ namespace Mila::Dnn::Compute
 {
     // Primary unspecialized template -- will fail to instantiate for unsupported devices.
     export template <DeviceType TDevice>
-        struct DeviceTypeTraits;
+    struct DeviceTypeTraits;
 }

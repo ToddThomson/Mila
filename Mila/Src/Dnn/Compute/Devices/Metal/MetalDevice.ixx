@@ -54,6 +54,14 @@ namespace Mila::Dnn::Compute
 		}
 
 		/**
+		 * @brief Gets the CUDA device ID.
+		 * @return int The device ID for this CUDA device (0-based)
+		 */
+		constexpr int getDeviceId() const override {
+			return device_index_;
+		}
+
+		/**
 		 * @brief Gets the Metal device index.
 		 *
 		 * @return int The device index for this Metal device.

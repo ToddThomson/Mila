@@ -130,8 +130,10 @@ PUBLIC
         "Src/Dnn/Compute/ComputeDeviceTraits.ixx"
         "Src/Dnn/Compute/DeviceType.ixx"
         "Src/Dnn/Compute/DeviceTypeTraits.ixx"
+
         "Src/Dnn/Compute/Devices/Cuda/CudaDeviceTypeTraits.ixx"
         "Src/Dnn/Compute/Devices/Cpu/CpuDeviceTypeTraits.ixx"
+        
         "Src/Dnn/Compute/ComputePrecision.ixx"
         
         "Src/Dnn/Compute/ExecutionContext.ixx"
@@ -161,7 +163,7 @@ PUBLIC
         "Src/Dnn/Compute/Registry/DeviceRegistrar.ixx"
         "Src/Dnn/Compute/Registry/DeviceRegistryHelpers.ixx"
         "Src/Dnn/Compute/DeviceContext.ixx"
-        "Src/Dnn/Compute/DeviceContextHelpers.ixx"
+        "Src/Dnn/Compute/ExecutionContextHelpers.ixx"
         
         "Src/Dnn/Compute/Registry/DevicePlugin.ixx"
 
@@ -182,9 +184,9 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Math.ixx"
         "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Transfer.ixx"
         
-        #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuOperations.ixx"
+        "Src/Dnn/Compute/Devices/Cpu/Operations/CpuOperations.ixx"
         #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuEncoderOp.ixx"
-        #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuGeluOp.ixx"
+        "Src/Dnn/Compute/Devices/Cpu/Operations/CpuGeluOp.ixx"
         #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuLayerNormOp.ixx"
         #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuLinearOp.ixx"
         #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuMultiHeadAttentionOp.ixx"
@@ -241,7 +243,7 @@ PUBLIC
         # Dnn / Compute / Devices / Metal
         #---------------------------------------------------------------
         "Src/Dnn/Compute/Devices/Metal/MetalDevice.ixx"
-        "Src/Dnn/Compute/Devices/Metal/MetalDeviceContext.ixx"
+        "Src/Dnn/Compute/Devices/Metal/MetalExecutionContext.ixx"
         "Src/Dnn/Compute/Devices/Metal/MetalDevicePlugin.ixx"
         "Src/Dnn/Compute/Devices/Metal/MetalMemoryResource.ixx"
         "Src/Dnn/Compute/Devices/Metal/Tensors/MetalTensorTraits.ixx"
@@ -249,14 +251,14 @@ PUBLIC
         #---------------------------------------------------------------
         # Dnn / Compute / Devices / OpenCL
         #---------------------------------------------------------------
-        "Src/Dnn/Compute/Devices/OpenCL/OpenCLDeviceContext.ixx"
+        "Src/Dnn/Compute/Devices/OpenCL/OpenCLExecutionContext.ixx"
         "Src/Dnn/Compute/Devices/OpenCL/OpenCLMemoryResource.ixx"
         "Src/Dnn/Compute/Devices/OpenCL/Tensors/OpenCLTensorTraits.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Compute / Devices / Vulkan
         #---------------------------------------------------------------
-        "Src/Dnn/Compute/Devices/Vulkan/VulkanDeviceContext.ixx"
+        "Src/Dnn/Compute/Devices/Vulkan/VulkanExecutionContext.ixx"
         "Src/Dnn/Compute/Devices/Vulkan/VulkanMemoryResource.ixx"
         "Src/Dnn/Compute/Devices/Vulkan/Tensors/VulkanTensorTraits.ixx"
 
@@ -318,7 +320,7 @@ PUBLIC
         "Src/Dnn/Tensors/Operations/TensorOps-Base.ixx"
 
         
- "Src/Dnn/Compute/Operations/OperationRegistryHelpers.ixx")
+ "Src/Dnn/Compute/Operations/OperationRegistryHelpers.ixx" "Src/Dnn/Compute/Devices/Vulkan/VulkanDevice.ixx" "Src/Dnn/Compute/Devices/OpenCL/OpenCLDevice.ixx")
 
 target_link_libraries(Mila PRIVATE 
     miniz

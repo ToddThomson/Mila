@@ -39,6 +39,15 @@ add_executable( MilaTests
     "Dnn/Compute/Devices/Cpu/CpuDevicePlugin.cpp"
     "Dnn/Compute/Devices/Cuda/CudaDevicePlugin.cpp"
 
+    "Dnn/Compute/Devices/Registry/DeviceRegistry.cpp"
+
+    # --------------------------------------------------------------
+    # Dnn::Compute::Execution Context Tests
+    # --------------------------------------------------------------
+    "Dnn/Compute/ExecutionContext/ExecutionContext.cpp"
+    "Dnn/Compute/ExecutionContext/CudaExecutionContext.cpp"
+    "Dnn/Compute/ExecutionContext/CpuExecutionContext.cpp"
+
     # --------------------------------------------------------------
     # Tensor Tests
     # --------------------------------------------------------------
@@ -128,10 +137,7 @@ add_executable( MilaTests
     #"Dnn/Seriaalization/ZipSerializer.cpp"
     #"Dnn/Tensors/TensorBuffer.Tracking.cpp"
 
-    "Dnn/Compute/Registry/DeviceRegistry.cpp"
-    "Dnn/Compute/ExecutionContext/ExecutionContext.cpp"
-    "Dnn/Compute/ExecutionContext/CudaExecutionContext.cpp"
-    "Dnn/Compute/ExecutionContext/CpuExecutionContext.cpp"
+    
     
     "Dnn/Compute/Operations/OperationBase.cpp"
     "Dnn/Compute/Operations/UnaryOperation.cpp"

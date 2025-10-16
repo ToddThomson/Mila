@@ -4,12 +4,11 @@ Mila Deep Neural Network Library
 
 ## Prerelease Notice
 Mila, version 0.9.XXX-alpha is currently an early preview release.
-
-We are currently working on the core Module and Operation component and the various compute devices which provide specific Module operations. 
-This is a work in prgress, but I wanted to share the library and its features to show where we are headed and to update the github repository 
-so as to track our changes.
-
 The Mila API is still too immature for any end-user development. I am working on the API and will be releasing a stable version as soon as possible.
+
+We are currently working on the core Module and Operation components and the various compute devices which provide specific Module operations.
+The Tensor API is now fairly stable and provides a solid foundation for future development. There may be some breaking changes to the Tensor API
+as we finalize the Module and Operation design.
 
 ## Description
 Achilles Mila Deep Neural Network library provides a comprehensive API to model, train and evaluate 

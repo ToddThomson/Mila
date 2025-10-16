@@ -10,8 +10,7 @@ module;
 
 export module Compute.OperationsRegistrar;
 
-// FIXME:
-//import Compute.CpuOperations;
+import Compute.CpuOperations;
 //import Compute.CudaOperations;
 
 namespace Mila::Dnn::Compute
@@ -51,8 +50,9 @@ namespace Mila::Dnn::Compute
 		static void registerOperations() {
 			// TJT: This is rather an ugly way of registering operations but it is all I can think of for now.
 			// It's good enough for now. I will revisit
+
 			//CpuEncoderOpRegistrar::registerOperations();
-			//CpuGeluOpRegistrar::registerOperations();
+			CpuGeluOpRegistrar::registerOperations();
 			//CpuLinearOpRegistrar::registerOperations();
 			//CpuLayerNormOpRegistrar::registerOperations();
 			//CpuMultiHeadAttentionOpRegistrar::registerOperations();
