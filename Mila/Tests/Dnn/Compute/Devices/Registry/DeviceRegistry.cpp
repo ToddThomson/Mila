@@ -35,28 +35,25 @@ namespace Dnn::Compute::Registry::Tests
         int id_;
     };
 
-    // Test fixture for DeviceRegistrar
+    // Test fixture for DeviceRegistrar / DeviceRegistry
     class DeviceRegistrarTest : public ::testing::Test {
     protected:
         void SetUp() override {
-            // Get fresh instances for each test
+            // Ensure registrar/registry are initialized (registration happens in registrar ctor)
             auto& registry = DeviceRegistry::instance();
             auto& registrar = DeviceRegistrar::instance();
 
-            // Clear any existing devices by accessing instance
-            // Note: In production, devices are registered once during static initialization
-            // For testing, we work with the existing registered devices
+            (void)registry;
+            (void)registrar;
         }
 
         void TearDown() override {
-            // DeviceRegistry is a singleton, so state persists between tests
-            // This is intentional as device registration typically happens once
+            // DeviceRegistry is a singleton; state persists between tests by design
         }
     };
 
     // Test DeviceRegistrar singleton behavior
     TEST_F( DeviceRegistrarTest, SingletonInstance ) {
-        // Test that we get the same instance
         auto& registrar1 = DeviceRegistrar::instance();
         auto& registrar2 = DeviceRegistrar::instance();
 
@@ -71,145 +68,111 @@ namespace Dnn::Compute::Registry::Tests
 
         instances.resize( num_threads );
 
-        // Create multiple threads that access the singleton
-        for (int i = 0; i < num_threads; ++i) {
+        for (int i = 0; i < num_threads; ++i)
+        {
             threads.emplace_back( [&instances, i]() {
                 instances[i] = &DeviceRegistrar::instance();
                 } );
         }
 
-        // Wait for all threads to complete
-        for (auto& thread : threads) {
+        for (auto& thread : threads)
+        {
             thread.join();
         }
 
-        // Verify all threads got the same instance
-        for (int i = 1; i < num_threads; ++i) {
+        for (int i = 1; i < num_threads; ++i)
+        {
             EXPECT_EQ( instances[0], instances[i] );
         }
     }
 
-    // Test that DeviceRegistrar registers expected devices
-    TEST_F( DeviceRegistrarTest, RegistersExpectedDevices ) {
-        // Trigger registration by accessing singleton
-        auto& registrar = DeviceRegistrar::instance();
+    // Test that DeviceRegistrar registers expected device types (API-aligned)
+    TEST_F( DeviceRegistrarTest, RegistersExpectedDeviceTypes ) {
         auto& registry = DeviceRegistry::instance();
 
-        // Check that CPU device is always registered
-        EXPECT_TRUE( registry.hasDevice( "CPU" ) );
+        // CPU factory should always be registered
+        EXPECT_TRUE( registry.hasDeviceType( "CPU" ) );
 
-        // Check that devices are listed
-        auto devices = registry.listDevices();
-        EXPECT_FALSE( devices.empty() );
-
-        // CPU should always be present
-        auto cpu_found = std::find( devices.begin(), devices.end(), "CPU" );
-        EXPECT_NE( cpu_found, devices.end() );
+        // Device types list should contain at least CPU
+        auto types = registry.listDeviceTypes();
+        auto cpu_it = std::find( types.begin(), types.end(), "CPU" );
+        EXPECT_NE( cpu_it, types.end() );
     }
 
-    // Test device creation through registrar
-    TEST_F( DeviceRegistrarTest, DeviceCreation ) {
-        auto& registrar = DeviceRegistrar::instance();
+    // Test device creation through registry using getDevice (API changed)
+    TEST_F( DeviceRegistrarTest, DeviceCreationAndCaching ) {
         auto& registry = DeviceRegistry::instance();
 
-        // Test CPU device creation
-        auto cpu_device = registry.createDevice( "CPU" );
+        // Create CPU device via getDevice
+        auto cpu_device = registry.getDevice( "CPU" );
         ASSERT_NE( cpu_device, nullptr );
         EXPECT_EQ( cpu_device->getDeviceType(), DeviceType::Cpu );
         EXPECT_EQ( cpu_device->getDeviceName(), "CPU" );
 
-        // Test multiple instances creation
-        auto cpu_device2 = registry.createDevice( "CPU" );
+        // Repeated calls with same name should return the same cached instance
+        auto cpu_device2 = registry.getDevice( "CPU" );
         ASSERT_NE( cpu_device2, nullptr );
-
-        // Should create different instances
-        EXPECT_NE( cpu_device.get(), cpu_device2.get() );
+        EXPECT_EQ( cpu_device.get(), cpu_device2.get() );
     }
 
-    // Test CUDA device registration (when available)
-    TEST_F( DeviceRegistrarTest, CudaDeviceRegistration ) {
-        auto& registrar = DeviceRegistrar::instance();
+    // Test CUDA device registration only via registry API (if available)
+    TEST_F( DeviceRegistrarTest, CudaDeviceRegistrationIfAvailable ) {
         auto& registry = DeviceRegistry::instance();
 
-        auto devices = registry.listDevices();
-
-        // Check if any CUDA devices are registered
-        bool has_cuda = false;
-        for (const auto& device : devices) {
-            if (device.find( "CUDA:" ) != std::string::npos) {
-                has_cuda = true;
-
-                // Test CUDA device creation
-                auto cuda_device = registry.createDevice( device );
+        if (registry.hasDeviceType( "CUDA" ))
+        {
+            // If CUDA factory is registered, creating "CUDA:0" should not throw (but may if device invalid)
+            EXPECT_NO_THROW( {
+                auto cuda_device = registry.getDevice( "CUDA:0" );
                 ASSERT_NE( cuda_device, nullptr );
                 EXPECT_EQ( cuda_device->getDeviceType(), DeviceType::Cuda );
-                EXPECT_EQ( cuda_device->getDeviceName(), device );
-
-                break;
-            }
+                } );
         }
-
-        // This test will pass whether CUDA is available or not
-        // If CUDA is available, it tests device creation
-        // If CUDA is not available, it just confirms no CUDA devices are registered
-        EXPECT_TRUE( true ); // Always pass - the real test is in the loop above
+        else
+        {
+            // If CUDA factory not registered, registry should not claim CUDA device type
+            EXPECT_FALSE( registry.hasDeviceType( "CUDA" ) );
+        }
     }
 
-    // Test device listing functionality
-    TEST_F( DeviceRegistrarTest, DeviceListing ) {
-        auto& registrar = DeviceRegistrar::instance();
+    // Test device listing after instantiation
+    TEST_F( DeviceRegistrarTest, DeviceListingAfterInstantiation ) {
         auto& registry = DeviceRegistry::instance();
+
+        // Ensure at least CPU exists by instantiating it
+        auto cpu_device = registry.getDevice( "CPU" );
+        ASSERT_NE( cpu_device, nullptr );
 
         auto devices = registry.listDevices();
-
-        // Should have at least CPU device
         EXPECT_GE( devices.size(), 1 );
 
-        // All device names should be non-empty
-        for (const auto& device : devices) {
-            EXPECT_FALSE( device.empty() );
+        auto cpu_it = std::find( devices.begin(), devices.end(), "CPU" );
+        EXPECT_NE( cpu_it, devices.end() );
+
+        for (const auto& dev : devices)
+        {
+            EXPECT_FALSE( dev.empty() );
         }
-
-        // CPU should be present
-        auto cpu_found = std::find( devices.begin(), devices.end(), "CPU" );
-        EXPECT_NE( cpu_found, devices.end() );
     }
 
-    // Test device existence checking
-    TEST_F( DeviceRegistrarTest, DeviceExistenceCheck ) {
-        auto& registrar = DeviceRegistrar::instance();
+    // Test getDevice throws for unknown device types / invalid names
+    TEST_F( DeviceRegistrarTest, DeviceExistenceAndInvalidInputs ) {
         auto& registry = DeviceRegistry::instance();
 
-        // CPU should always exist
-        EXPECT_TRUE( registry.hasDevice( "CPU" ) );
+        // Existing device should be retrievable
+        EXPECT_NO_THROW( {
+            auto cpu = registry.getDevice( "CPU" );
+            ASSERT_NE( cpu, nullptr );
+            } );
 
-        // Non-existent device should return false
-        EXPECT_FALSE( registry.hasDevice( "NonExistentDevice" ) );
-        EXPECT_FALSE( registry.hasDevice( "" ) );
-        EXPECT_FALSE( registry.hasDevice( "INVALID:999" ) );
+        // Non-existent device type should throw std::runtime_error
+        EXPECT_THROW( registry.getDevice( "NonExistentDevice" ), std::runtime_error );
+        EXPECT_THROW( registry.getDevice( "" ), std::runtime_error );
+        EXPECT_THROW( registry.getDevice( "INVALID:999" ), std::runtime_error );
     }
 
-    // Test invalid device creation
-    TEST_F( DeviceRegistrarTest, InvalidDeviceCreation ) {
-        auto& registrar = DeviceRegistrar::instance();
-        auto& registry = DeviceRegistry::instance();
-
-        // Test creation of non-existent device
-        auto invalid_device = registry.createDevice( "NonExistentDevice" );
-        EXPECT_EQ( invalid_device, nullptr );
-
-        // Test creation with empty name
-        auto empty_device = registry.createDevice( "" );
-        EXPECT_EQ( empty_device, nullptr );
-
-        // Test creation with invalid CUDA device
-        auto invalid_cuda = registry.createDevice( "CUDA:999" );
-        EXPECT_EQ( invalid_cuda, nullptr );
-    }
-
-    // Test thread safety of device operations
+    // Test thread safety of device operations using getDevice
     TEST_F( DeviceRegistrarTest, ThreadSafeDeviceOperations ) {
-        auto& registrar = DeviceRegistrar::instance();
         auto& registry = DeviceRegistry::instance();
 
         constexpr int num_threads = 20;
@@ -218,33 +181,42 @@ namespace Dnn::Compute::Registry::Tests
         std::vector<std::thread> threads;
         std::vector<bool> results( num_threads, false );
 
-        // Create threads that perform various registry operations
-        for (int i = 0; i < num_threads; ++i) {
-            threads.emplace_back( [&registry, &results, i, operations_per_thread]() {
+        for (int i = 0; i < num_threads; ++i)
+        {
+            threads.emplace_back( [&registry, &results, i]() {
                 bool thread_success = true;
 
-                for (int j = 0; j < operations_per_thread; ++j) {
-                    // Test device creation
-                    auto device = registry.createDevice( "CPU" );
-                    if (!device || device->getDeviceName() != "CPU") {
+                for (int j = 0; j < operations_per_thread; ++j)
+                {
+                    // Use getDevice (cached) to exercise registry concurrency
+                    try
+                    {
+                        auto device = registry.getDevice( "CPU" );
+                        if (!device || device->getDeviceName() != "CPU")
+                        {
+                            thread_success = false;
+                            break;
+                        }
+
+                        auto devices = registry.listDevices();
+                        if (devices.empty())
+                        {
+                            thread_success = false;
+                            break;
+                        }
+
+                        if (!registry.hasDeviceType( "CPU" ))
+                        {
+                            thread_success = false;
+                            break;
+                        }
+                    }
+                    catch (...)
+                    {
                         thread_success = false;
                         break;
                     }
 
-                    // Test device listing
-                    auto devices = registry.listDevices();
-                    if (devices.empty()) {
-                        thread_success = false;
-                        break;
-                    }
-
-                    // Test device existence check
-                    if (!registry.hasDevice( "CPU" )) {
-                        thread_success = false;
-                        break;
-                    }
-
-                    // Small delay to increase chance of race conditions
                     std::this_thread::sleep_for( std::chrono::microseconds( 1 ) );
                 }
 
@@ -252,105 +224,122 @@ namespace Dnn::Compute::Registry::Tests
                 } );
         }
 
-        // Wait for all threads to complete
-        for (auto& thread : threads) {
+        for (auto& thread : threads)
+        {
             thread.join();
         }
 
-        // Verify all threads succeeded
-        for (int i = 0; i < num_threads; ++i) {
+        for (int i = 0; i < num_threads; ++i)
+        {
             EXPECT_TRUE( results[i] ) << "Thread " << i << " failed";
         }
     }
 
-    // Test registration initialization order
+    // Test registration initialization order (registry/registrar cooperate)
     TEST_F( DeviceRegistrarTest, RegistrationInitializationOrder ) {
-        // This test verifies that the DeviceRegistrar properly initializes
-        // and registers devices when accessed for the first time
-
         auto& registrar = DeviceRegistrar::instance();
         auto& registry = DeviceRegistry::instance();
 
-        // After accessing the registrar instance, devices should be registered
-        auto devices = registry.listDevices();
-        EXPECT_FALSE( devices.empty() );
+        auto types = registry.listDeviceTypes();
+        EXPECT_FALSE( types.empty() );
 
-        // CPU should be registered (it's always available)
-        EXPECT_TRUE( registry.hasDevice( "CPU" ) );
+        EXPECT_TRUE( registry.hasDeviceType( "CPU" ) );
 
-        // Verify CPU device can be created successfully
-        auto cpu_device = registry.createDevice( "CPU" );
+        auto cpu_device = registry.getDevice( "CPU" );
         ASSERT_NE( cpu_device, nullptr );
         EXPECT_EQ( cpu_device->getDeviceType(), DeviceType::Cpu );
+
+        (void)registrar;
     }
 
-    // Test device factory consistency
+    // Test device factory consistency: getDevice returns same cached instance
     TEST_F( DeviceRegistrarTest, DeviceFactoryConsistency ) {
-        auto& registrar = DeviceRegistrar::instance();
         auto& registry = DeviceRegistry::instance();
 
-        // Get list of available devices
-        auto devices = registry.listDevices();
+        // Instantiate devices list
+        auto names = registry.listDeviceTypes();
+        // Ensure CPU is present for testing
+        if (std::find( names.begin(), names.end(), "CPU" ) == names.end())
+        {
+            names.push_back( "CPU" );
+        }
 
-        // Test that each registered device can be created multiple times
-        for (const auto& device_name : devices) {
-            // Create multiple instances
-            auto device1 = registry.createDevice( device_name );
-            auto device2 = registry.createDevice( device_name );
+        for (const auto& device_name : names)
+        {
+            // Create instances via getDevice
+            std::shared_ptr<ComputeDevice> device1;
+            std::shared_ptr<ComputeDevice> device2;
+
+            // Some device types may throw on creation (e.g. CUDA when no runtime) - guard that
+            try
+            {
+                device1 = registry.getDevice( device_name == "CPU" ? "CPU" : device_name + ":0" );
+                device2 = registry.getDevice( device_name == "CPU" ? "CPU" : device_name + ":0" );
+            }
+            catch (...)
+            {
+                // Skip devices that cannot be instantiated in this environment
+                continue;
+            }
 
             ASSERT_NE( device1, nullptr ) << "Failed to create device: " << device_name;
             ASSERT_NE( device2, nullptr ) << "Failed to create device: " << device_name;
 
-            // Verify properties are consistent
             EXPECT_EQ( device1->getDeviceName(), device2->getDeviceName() );
             EXPECT_EQ( device1->getDeviceType(), device2->getDeviceType() );
 
-            // Verify they are different instances
-            EXPECT_NE( device1.get(), device2.get() );
+            // Registry caches instances: expect same pointer
+            EXPECT_EQ( device1.get(), device2.get() );
         }
     }
 
-    // Test device naming conventions
+    // Test device naming conventions using getDevice where possible
     TEST_F( DeviceRegistrarTest, DeviceNamingConventions ) {
-        auto& registrar = DeviceRegistrar::instance();
         auto& registry = DeviceRegistry::instance();
 
-        auto devices = registry.listDevices();
+        auto types = registry.listDeviceTypes();
 
-        for (const auto& device_name : devices) {
-            // Device names should not be empty
-            EXPECT_FALSE( device_name.empty() );
+        for (const auto& device_type : types)
+        {
+            // instantiate a representative device (index 0) where applicable
+            std::string name = device_type == "CPU" ? "CPU" : device_type + ":0";
 
-            // Test device creation and name consistency
-            auto device = registry.createDevice( device_name );
-            ASSERT_NE( device, nullptr );
+            try
+            {
+                auto device = registry.getDevice( name );
+                ASSERT_NE( device, nullptr );
 
-            // The device's getName() should match the registry name
-            EXPECT_EQ( device->getDeviceName(), device_name );
+                EXPECT_EQ( device->getDeviceName(), name );
 
-            // Verify naming conventions
-            if (device_name == "CPU") {
-                EXPECT_EQ( device->getDeviceType(), DeviceType::Cpu );
+                if (device_type == "CPU")
+                {
+                    EXPECT_EQ( device->getDeviceType(), DeviceType::Cpu );
+                }
+                else if (device_type == "CUDA")
+                {
+                    EXPECT_EQ( device->getDeviceType(), DeviceType::Cuda );
+                    size_t colon_pos = name.find( ':' );
+                    ASSERT_NE( colon_pos, std::string::npos );
+
+                    std::string id_str = name.substr( colon_pos + 1 );
+                    EXPECT_FALSE( id_str.empty() );
+
+                    try
+                    {
+                        int device_id = std::stoi( id_str );
+                        EXPECT_GE( device_id, 0 );
+                        EXPECT_EQ( device->getDeviceId(), device_id );
+                    }
+                    catch (const std::exception&)
+                    {
+                        FAIL() << "Device ID should be numeric: " << name;
+                    }
+                }
             }
-            else if (device_name.find( "CUDA:" ) == 0) {
-                EXPECT_EQ( device->getDeviceType(), DeviceType::Cuda );
-
-                // CUDA devices should have numeric suffix
-                size_t colon_pos = device_name.find( ':' );
-                ASSERT_NE( colon_pos, std::string::npos );
-
-                std::string id_str = device_name.substr( colon_pos + 1 );
-                EXPECT_FALSE( id_str.empty() );
-
-                // Should be parseable as integer
-                try {
-                    int device_id = std::stoi( id_str );
-                    EXPECT_GE( device_id, 0 );
-                    EXPECT_EQ( device->getDeviceId(), device_id );
-                }
-                catch (const std::exception&) {
-                    FAIL() << "CUDA device ID should be numeric: " << device_name;
-                }
+            catch (...)
+            {
+                // Skip devices that cannot be instantiated in this environment
+                continue;
             }
         }
     }

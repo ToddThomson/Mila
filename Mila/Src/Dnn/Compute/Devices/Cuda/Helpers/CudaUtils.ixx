@@ -32,80 +32,80 @@ namespace Mila::Dnn::Compute::Cuda
      *
      * @throws CudaError If any CUDA operation fails
      */
-    export void fillMemory(
-        void* data,
-        std::size_t count,
-        const void* value_ptr,
-        std::size_t value_size,
-        const std::source_location& src_location = std::source_location::current() ) {
-        if ( count == 0 || value_size == 0 ) {
-            return;
-        }
+    //export void fillMemory(
+    //    void* data,
+    //    std::size_t count,
+    //    const void* value_ptr,
+    //    std::size_t value_size,
+    //    const std::source_location& src_location = std::source_location::current() ) {
+    //    if ( count == 0 || value_size == 0 ) {
+    //        return;
+    //    }
 
-        // Check if the value is all zeros for optimization
-        bool is_zero = true;
-        const unsigned char* bytes = static_cast<const unsigned char*>(value_ptr);
-        for ( size_t i = 0; i < value_size; i++ ) {
-            if ( bytes[ i ] != 0 ) {
-                is_zero = false;
-                break;
-            }
-        }
+    //    // Check if the value is all zeros for optimization
+    //    bool is_zero = true;
+    //    const unsigned char* bytes = static_cast<const unsigned char*>(value_ptr);
+    //    for ( size_t i = 0; i < value_size; i++ ) {
+    //        if ( bytes[ i ] != 0 ) {
+    //            is_zero = false;
+    //            break;
+    //        }
+    //    }
 
-        if ( is_zero ) {
-            // Zero-fill optimization using cudaMemset
-            cudaError_t status = cudaMemset( data, 0, count * value_size );
-            cudaCheckStatus( status, src_location );
-            return;
-        }
+    //    if ( is_zero ) {
+    //        // Zero-fill optimization using cudaMemset
+    //        cudaError_t status = cudaMemset( data, 0, count * value_size );
+    //        cudaCheckStatus( status, src_location );
+    //        return;
+    //    }
 
-        // For non-zero patterns, use a temporary buffer approach
-        void* pattern_buffer = nullptr;
-        cudaError_t status = cudaMalloc( &pattern_buffer, value_size );
-        cudaCheckStatus( status, src_location );
+    //    // For non-zero patterns, use a temporary buffer approach
+    //    void* pattern_buffer = nullptr;
+    //    cudaError_t status = cudaMalloc( &pattern_buffer, value_size );
+    //    cudaCheckStatus( status, src_location );
 
-        try {
-            // Copy the pattern to device memory
-            status = cudaMemcpy( pattern_buffer, value_ptr, value_size, cudaMemcpyHostToDevice );
-            cudaCheckStatus( status, src_location );
+    //    try {
+    //        // Copy the pattern to device memory
+    //        status = cudaMemcpy( pattern_buffer, value_ptr, value_size, cudaMemcpyHostToDevice );
+    //        cudaCheckStatus( status, src_location );
 
-            // For small counts, copy directly
-            if ( count <= 16 ) {
-                for ( size_t i = 0; i < count; i++ ) {
-                    void* dst = static_cast<char*>( data ) + (i * value_size);
-                    status = cudaMemcpy( dst, pattern_buffer, value_size, cudaMemcpyDeviceToDevice );
-                    cudaCheckStatus( status, src_location );
-                }
-            }
-            else {
-                // For larger counts, use an exponential filling strategy
-                // First, copy the initial pattern
-                status = cudaMemcpy( data, pattern_buffer, value_size, cudaMemcpyDeviceToDevice );
-                cudaCheckStatus( status, src_location );
+    //        // For small counts, copy directly
+    //        if ( count <= 16 ) {
+    //            for ( size_t i = 0; i < count; i++ ) {
+    //                void* dst = static_cast<char*>( data ) + (i * value_size);
+    //                status = cudaMemcpy( dst, pattern_buffer, value_size, cudaMemcpyDeviceToDevice );
+    //                cudaCheckStatus( status, src_location );
+    //            }
+    //        }
+    //        else {
+    //            // For larger counts, use an exponential filling strategy
+    //            // First, copy the initial pattern
+    //            status = cudaMemcpy( data, pattern_buffer, value_size, cudaMemcpyDeviceToDevice );
+    //            cudaCheckStatus( status, src_location );
 
-                // Double the filled region until we've covered the entire buffer
-                size_t filled = 1;
-                while ( filled < count ) {
-                    size_t copy_size = std::min( filled, count - filled ) * value_size;
-                    status = cudaMemcpy(
-                        static_cast<char*>( data ) + (filled * value_size),
-                        data,
-                        copy_size,
-                        cudaMemcpyDeviceToDevice
-                    );
-                    cudaCheckStatus( status, src_location );
-                    filled = std::min( filled * 2, count );
-                }
-            }
-        }
-        catch ( ... ) {
-            // Clean up pattern buffer on error
-            cudaFree( pattern_buffer );
-            throw;
-        }
+    //            // Double the filled region until we've covered the entire buffer
+    //            size_t filled = 1;
+    //            while ( filled < count ) {
+    //                size_t copy_size = std::min( filled, count - filled ) * value_size;
+    //                status = cudaMemcpy(
+    //                    static_cast<char*>( data ) + (filled * value_size),
+    //                    data,
+    //                    copy_size,
+    //                    cudaMemcpyDeviceToDevice
+    //                );
+    //                cudaCheckStatus( status, src_location );
+    //                filled = std::min( filled * 2, count );
+    //            }
+    //        }
+    //    }
+    //    catch ( ... ) {
+    //        // Clean up pattern buffer on error
+    //        cudaFree( pattern_buffer );
+    //        throw;
+    //    }
 
-        // Free the temporary pattern buffer
-        status = cudaFree( pattern_buffer );
-        cudaCheckStatus( status, src_location );
-    }
+    //    // Free the temporary pattern buffer
+    //    status = cudaFree( pattern_buffer );
+    //    cudaCheckStatus( status, src_location );
+    //}
 }

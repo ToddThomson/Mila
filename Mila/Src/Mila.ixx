@@ -71,6 +71,7 @@ export import Compute.DeviceTypeTraits;
 export import Compute.DeviceTypeTraits.Cpu;
 export import Compute.DeviceTypeTraits.Cuda;
 export import Compute.CpuDevice;
+export import Compute.CpuDevicePlugin;
 export import Compute.CudaDevice;
 
 // ====================================================================

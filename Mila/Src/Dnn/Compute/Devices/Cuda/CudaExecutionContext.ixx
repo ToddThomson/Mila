@@ -20,6 +20,7 @@ import Compute.ExecutionContext;
 import Compute.IExecutionContext;
 import Compute.ComputeDevice;
 import Compute.CudaDevice;
+import Compute.CudaDeviceResources;
 import Compute.DeviceType;
 import Cuda.Helpers;
 
@@ -46,9 +47,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If CUDA stream creation fails
          */
         explicit ExecutionContext( int device_id )
-            : IExecutionContext( DeviceType::Cuda ), device_( std::make_shared<CudaDevice>( device_id ) ) {
-
-            initializeExecutionResources();
+            : ExecutionContext( std::make_shared<CudaDevice>( device_id ) ) {
         }
 
         /**
@@ -63,7 +62,7 @@ namespace Mila::Dnn::Compute
         explicit ExecutionContext( std::shared_ptr<ComputeDevice> device )
             : IExecutionContext( DeviceType::Cuda ), device_( validateDevice( device ) ) {
 
-            initializeExecutionResources();
+            initializeResources();
         }
 
         /**
@@ -95,6 +94,7 @@ namespace Mila::Dnn::Compute
             Cuda::setCurrentDevice( device_->getDeviceId() );
 
             cudaError_t error = cudaStreamSynchronize( stream_ );
+            
             if (error != cudaSuccess)
             {
                 throw std::runtime_error(
@@ -153,73 +153,19 @@ namespace Mila::Dnn::Compute
             return stream_;
         }
 
-        /**
-         * @brief Gets the cuBLAS handle (lazy initialization).
-         *
-         * Thread-safe lazy creation of cuBLAS handle bound to this context's stream.
-         *
-         * @return cuBLAS handle
-         * @throws std::runtime_error If cuBLAS handle creation fails
-         */
-        cublasLtHandle_t getCublasLtHandle() {
-            std::lock_guard<std::mutex> lock( handle_mutex_ );
+        std::shared_ptr<CudaDeviceResources> getResources() const { return resources_; }
 
-            if (!cublasLtHandle_)
-            {
-                Cuda::setCurrentDevice( device_->getDeviceId() );
-
-                cublasStatus_t status = cublasLtCreate( &cublasLtHandle_ );
-
-                if (status != CUBLAS_STATUS_SUCCESS)
-                {
-                    throw std::runtime_error(
-                        "Failed to create cuBLASLt handle: " + cublasStatusToString( status )
-                    );
-                }
-            }
-            return cublasLtHandle_;
-        }
+        cublasLtHandle_t getCublasLtHandle() const { return resources_->getCublasLtHandle(); }
 
 #ifdef USE_CUDNN
-        /**
-         * @brief Gets the cuDNN handle (lazy initialization).
-         *
-         * Thread-safe lazy creation of cuDNN handle bound to this context's stream.
-         *
-         * @return cuDNN handle
-         * @throws std::runtime_error If cuDNN handle creation fails
-         */
-        cudnnHandle_t getCudnnHandle() {
-            std::lock_guard<std::mutex> lock( handle_mutex_ );
-
-            if (!cudnnHandle_)
-            {
-                Cuda::setCurrentDevice( device_->getDeviceId() );
-
-                cudnnStatus_t status = cudnnCreate( &cudnnHandle_ );
-                if (status != CUDNN_STATUS_SUCCESS)
-                {
-                    throw std::runtime_error( "Failed to create cuDNN handle" );
-                }
-
-                if (stream_)
-                {
-                    status = cudnnSetStream( cudnnHandle_, stream_ );
-                    if (status != CUDNN_STATUS_SUCCESS)
-                    {
-                        cudnnDestroy( cudnnHandle_ );
-                        cudnnHandle_ = nullptr;
-                        throw std::runtime_error( "Failed to set cuDNN stream" );
-                    }
-                }
-            }
-            return cudnnHandle_;
-        }
+        cudnnHandle_t getCudnnHandle() const { return resources_->getCudnnHandle(); }
 #endif
 
     private:
 
         std::shared_ptr<ComputeDevice> device_;
+        std::shared_ptr<CudaDeviceResources> resources_;
+
         cudaStream_t stream_{ nullptr };
         bool stream_created_{ false };
         mutable cublasLtHandle_t cublasLtHandle_{ nullptr };
@@ -257,7 +203,7 @@ namespace Mila::Dnn::Compute
          *
          * @throws std::runtime_error If stream creation fails
          */
-        void initializeExecutionResources() {
+        void initializeResources() {
             Cuda::setCurrentDevice( device_->getDeviceId() );
 
             cudaError_t error = cudaStreamCreateWithFlags(
@@ -307,31 +253,6 @@ namespace Mila::Dnn::Compute
             }
         }
 
-		// REVIEW: Move to Cuda or Cublas Helpers
-
-        /**
-         * @brief Converts cuBLAS status to error message.
-         */
-        static std::string cublasStatusToString( cublasStatus_t status ) {
-            switch (status)
-            {
-            case CUBLAS_STATUS_NOT_INITIALIZED:
-                return "CUBLAS library not initialized";
-            case CUBLAS_STATUS_ALLOC_FAILED:
-                return "Resource allocation failed";
-            case CUBLAS_STATUS_INVALID_VALUE:
-                return "Invalid value";
-            case CUBLAS_STATUS_ARCH_MISMATCH:
-                return "Architecture mismatch";
-            case CUBLAS_STATUS_MAPPING_ERROR:
-                return "Mapping error";
-            case CUBLAS_STATUS_EXECUTION_FAILED:
-                return "Execution failed";
-            case CUBLAS_STATUS_INTERNAL_ERROR:
-                return "Internal error";
-            default:
-                return "Unknown cuBLAS error";
-            }
-        }
+		
     };
 }

@@ -11,7 +11,7 @@ module;
 export module Compute.OperationsRegistrar;
 
 import Compute.CpuOperations;
-//import Compute.CudaOperations;
+import Compute.CudaOperations;
 
 namespace Mila::Dnn::Compute
 {
@@ -60,7 +60,7 @@ namespace Mila::Dnn::Compute
 			//CpuSoftmaxOpRegistrar::registerOperations();
 
 			//CudaEncoderOpRegistrar::registerOperations();
-			//CudaGeluOpRegistrar::registerOperations();
+			CudaGeluOpRegistrar::registerOperations();
 			//CudaLinearOpRegistrar::registerOperations();
 			//CudaLayerNormOpRegistrar::registerOperations();
 			//CudaMultiHeadAttentionOpRegistrar::registerOperations();

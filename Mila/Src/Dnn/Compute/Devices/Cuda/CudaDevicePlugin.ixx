@@ -13,10 +13,12 @@ module;
 #include <string>
 #include <memory>
 #include <functional>
+#include <optional>
 
 export module Compute.CudaDevicePlugin;
 
 import Compute.DeviceRegistry;
+import Compute.ComputeDevice;
 import Compute.CudaDevice;
 
 namespace Mila::Dnn::Compute
@@ -31,39 +33,40 @@ namespace Mila::Dnn::Compute
     export class CudaDevicePlugin {
     public:
         /**
-         * @brief Type alias for device registration callback.
-         */
-        using RegistrationCallback = std::function<void( const std::string&, DeviceRegistry::DeviceFactory )>;
-
-        /**
-         * @brief Registers all available CUDA devices using the provided callback.
+         * @brief Returns an optional index-aware factory for CUDA devices.
          *
-         * Performs CUDA runtime initialization, enumerates available CUDA devices,
-         * and registers each device through the callback. Handles CUDA unavailability
-         * gracefully without throwing exceptions.
+         * If no usable CUDA devices are present, returns std::nullopt. Otherwise
+         * returns a factory that constructs a `CudaDevice` for the requested index.
          *
-         * @param registerCallback Function to call for registering devices
+         * @return Optional factory callable taking an int index and returning a ComputeDevice instance.
          */
-        static void registerDevices( RegistrationCallback registerCallback ) {
+        static std::optional<std::function<std::shared_ptr<ComputeDevice>(int)>> getDeviceFactory() {
             try {
                 int deviceCount = 0;
                 cudaError_t error = cudaGetDeviceCount( &deviceCount );
 
                 if (error != cudaSuccess || deviceCount == 0) {
-                    return;
+                    return std::nullopt;
                 }
 
+                bool foundUsable = false;
                 for (int deviceId = 0; deviceId < deviceCount; ++deviceId) {
                     if (isDeviceUsable( deviceId )) {
-                        std::string deviceName = "CUDA:" + std::to_string( deviceId );
-                        registerCallback( deviceName, [deviceId]() {
-                            return std::make_shared<CudaDevice>( deviceId );
-                            } );
+                        foundUsable = true;
+                        break;
                     }
                 }
+
+                if (!foundUsable) {
+                    return std::nullopt;
+                }
+
+                return std::function<std::shared_ptr<ComputeDevice>(int)>( []( int deviceIndex ) {
+                    return std::make_shared<CudaDevice>( deviceIndex );
+                } );
             }
             catch (...) {
-                // Suppress exceptions during registration
+                return std::nullopt;
             }
         }
 

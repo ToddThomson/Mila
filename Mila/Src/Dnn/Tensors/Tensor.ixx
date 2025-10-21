@@ -219,7 +219,7 @@ namespace Mila::Dnn
          * and creating an appropriate device context internally. The device name is
          * validated to ensure the device exists before tensor construction proceeds.
          *
-         * @param device_name Device identifier string (e.g., "CPU", "CUDA:0")
+         * @param device_name Device identifier string (e.g., "CPU", "CUDA:0", METAL:1, etc. )
          * @param shape Vector defining the size of each dimension in row-major order
          *
          * @throws std::invalid_argument If device name is invalid or not registered
@@ -1204,16 +1204,13 @@ private:
          * @note Initializes device registrar automatically
          */
         static std::shared_ptr<Compute::ComputeDevice> createDevice( const std::string& device_name ) {
-            // Initialize device registrar to ensure devices are available
+            // Lazy Initialize device registrar to ensure all devices are available upon first use
             Compute::DeviceRegistrar::instance();
 
-            if (!Compute::DeviceRegistry::instance().hasDevice( device_name )) {
-                throw std::invalid_argument( "Device '" + device_name + "' is not registered with DeviceRegistry" );
-            }
-
             std::shared_ptr<Compute::ComputeDevice> device;
+            
             try {
-                device = Compute::DeviceRegistry::instance().createDevice( device_name );
+                device = Compute::DeviceRegistry::instance().getDevice( device_name );
             }
             catch (const std::exception& e) {
                 throw std::runtime_error(

@@ -17,6 +17,7 @@ module;
 export module Compute.CpuDevicePlugin;
 
 import Compute.DeviceRegistry;
+import Compute.ComputeDevice;
 import Compute.CpuDevice;
 
 namespace Mila::Dnn::Compute
@@ -31,27 +32,18 @@ namespace Mila::Dnn::Compute
     export class CpuDevicePlugin {
     public:
         /**
-         * @brief Type alias for device registration callback.
-         */
-        using RegistrationCallback = std::function<void( const std::string&, DeviceRegistry::DeviceFactory )>;
-
-        /**
-         * @brief Registers the CPU device using the provided callback.
+         * @brief Returns an index-aware device factory for CPU.
          *
-         * CPU is always available as a fallback compute device. Uses the registration
-         * callback to register the device.
+         * The DeviceRegistry expects factories of the form
+         * std::function<std::shared_ptr<ComputeDevice>(int)>. CPU ignores the
+         * index parameter and always returns the same type of device for any index.
          *
-         * @param registerCallback Function to call for registering devices
+         * @return Factory callable taking an int index and returning a ComputeDevice instance.
          */
-        static void registerDevices( RegistrationCallback registerCallback ) {
-            try {
-                registerCallback( "CPU", []() {
-                    return std::make_shared<CpuDevice>();
-                    } );
-            }
-            catch (...) {
-                // CPU registration should never fail
-            }
+        static std::function<std::shared_ptr<ComputeDevice>(int)> getDeviceFactory() {
+            return [] ( int /*index*/ ) {
+                return std::make_shared<CpuDevice>();
+            };
         }
 
         /**

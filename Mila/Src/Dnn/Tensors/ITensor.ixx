@@ -20,6 +20,7 @@ module;
 export module Dnn.ITensor;
 import Dnn.TensorOps.Base;
 import Dnn.TensorDataType;
+import Compute.ComputeDevice;
 import Compute.DeviceType;
 import Compute.MemoryResource;
 
@@ -87,6 +88,8 @@ namespace Mila::Dnn
          * @see getDataType(), isType()
          */
         virtual std::string getDataTypeName() const = 0;
+
+		virtual std::shared_ptr<Compute::ComputeDevice> getDevice() const = 0;
 
         /**
          * @brief Get the device type from the memory resource

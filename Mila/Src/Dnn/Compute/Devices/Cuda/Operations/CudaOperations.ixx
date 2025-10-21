@@ -4,7 +4,7 @@ export module Compute.CudaOperations;
 
 // Aggregates the CUDA operations.
 //export import Compute.CudaEncoderOp;
-//export import Compute.CudaGeluOp;
+export import Compute.CudaGeluOp;
 //export import Compute.CudaLayerNormOp;
 //export import Compute.CudaLinearOp;
 //export import Compute.CudaMatMulBiasGeluOp;

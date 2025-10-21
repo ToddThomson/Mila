@@ -3,11 +3,11 @@
 
 import Mila;
 
-namespace Dnn::Compute::Devices::Tests
+namespace Dnn::Compute::Registry::Tests
 {
     using namespace Mila::Dnn::Compute;
 
-    TEST( DeviceHelpersTests, ListDevices ) {
+    TEST( DeviceRegistryHelpersTests, ListDevices ) {
         auto gpu_device_count = Cuda::getDeviceCount();
 		auto cpu_device_count = 1;
 

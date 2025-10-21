@@ -73,10 +73,10 @@ namespace Mila::Dnn::Compute
      * @param device_name The name of the device to check (e.g., "CPU", "CUDA:0").
      * @return bool True if the device is available, false otherwise.
      */
-    export bool isDeviceAvailable( const std::string& device_name ) {
+    /*export bool isDeviceAvailable( const std::string& device_name ) {
         auto& registry = DeviceRegistry::instance();
         return registry.hasDevice( device_name );
-    }
+    }*/
 
     /**
      * @brief Gets the best device of a specific type based on performance characteristics.

@@ -17,18 +17,22 @@ export module Compute.CudaGeluOp;
 import Dnn.Modules.Gelu;
 import Dnn.Tensor;
 import Dnn.ITensor;
-import Dnn.TensorTraits;
+import Dnn.TensorDataType;
+import Dnn.TensorDataTypeTraits;
 import Dnn.ConfigurationBase;
 import Compute.Precision;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
-import Compute.DeviceContext;
+import Compute.ExecutionContext;
+import Compute.CudaExecutionContext;
+import Compute.CudaDeviceResources;
 import Compute.OperationType;
 import Compute.OperationAttributes;
 import Compute.MemoryResource;
 import Compute.CudaDeviceMemoryResource;
+import Compute.CudaTensorDataType;
 import Compute.CudaDevice;
 
 namespace Mila::Dnn::Compute
@@ -51,8 +55,8 @@ namespace Mila::Dnn::Compute
         ////void gelu_sigmoid_backward_fp32( float* dX, const float* X, const float* dY, int N, cudaStream_t stream );
 
         // Primary template - will cause a compile error if no specialization exists
-        template <typename TDataType>
-			requires ValidFloatTensorType<TDataType>
+        template <typename TNative>
+            requires std::is_same_v<TNative, float> || std::is_same_v<TNative, half>
         struct cuda_gelu_impl;
 
         template <>
@@ -61,7 +65,8 @@ namespace Mila::Dnn::Compute
             BackwardFp32Func backward_func;
 
             cuda_gelu_impl( const GeluConfig& config ) {
-                switch ( config.getApproximationMethod() ) {
+                switch (config.getApproximationMethod())
+                {
                     /*case GeluConfig::ApproximationMethod::Exact:
                         forward_func = &gelu_exact_forward_fp32;
                         backward_func = &gelu_exact_backward_fp32;
@@ -70,11 +75,11 @@ namespace Mila::Dnn::Compute
                         forward_func = &gelu_sigmoid_forward_fp32;
                         backward_func = &gelu_sigmoid_backward_fp32;
                         break;*/
-                    case GeluConfig::ApproximationMethod::Tanh:
-                    default:
-                        forward_func = &cuda_gelu_forward_fp32;
-                        backward_func = &cuda_gelu_backward_fp32;
-                        break;
+                case GeluConfig::ApproximationMethod::Tanh:
+                default:
+                    forward_func = &cuda_gelu_forward_fp32;
+                    backward_func = &cuda_gelu_backward_fp32;
+                    break;
                 }
             }
 
@@ -89,8 +94,14 @@ namespace Mila::Dnn::Compute
 
         template <>
         struct cuda_gelu_impl<half> {
-            static inline void forward( half* Y, const half* X, int N, cudaStream_t stream ) {
+            cuda_gelu_impl( const GeluConfig& /*config*/ ) { /* Nothing to select for half yet */ }
+
+            inline void forward( half* Y, const half* X, int N, cudaStream_t stream ) const {
                 cuda_gelu_forward_fp16( Y, X, N, stream );
+            }
+
+            inline void backward( half* dX, const half* X, const half* dY, int N, cudaStream_t stream ) const {
+                // FIXME: implement or call half backward kernel when available
             }
         };
     }
@@ -108,23 +119,37 @@ namespace Mila::Dnn::Compute
      * for large neural network models. It also supports different precision modes via the
      * ComputePrecision policy.
      *
-     * @tparam TDataType The data type of the output tensor elements.
-     * @tparam TInput The data type of the input tensor elements (defaults to TDataType).
+     * @tparam TPrecision Abstract TensorDataType for the operation (FP32, FP16, BF16, etc.).
      */
-    export template<typename TDataType>
-		requires ValidFloatTensorType<TDataType>
-    class CudaGeluOp : public UnaryOperation<DeviceType::Cuda, TDataType, TDataType> {
+    export template<TensorDataType TPrecision>
+        requires ValidFloatTensorDataType<TPrecision>
+    class CudaGeluOp : public UnaryOperation<DeviceType::Cuda, TPrecision>
+    {
     public:
-        using MR = typename CudaDevice::MR;
-        using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TDataType, TDataType>;
+        using MR = CudaDeviceMemoryResource;
+        using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TPrecision>;
+        using TensorType = Tensor<TPrecision, MR>;
+        using Parameters = std::vector<std::shared_ptr<TensorType>>;
+        using OutputState = std::vector<std::shared_ptr<TensorType>>;
+        using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::native_type;
+        using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 
-        CudaGeluOp( const GeluConfig& config )
-            : UnaryOperationBase( OperationType::GeluOp ), config_( config ), impl_( config ) {
-            config_.validate();
-        }
-
-        CudaGeluOp( std::shared_ptr<DeviceContext> context, const GeluConfig& config )
-            : UnaryOperationBase( OperationType::GeluOp, context), config_( config ), impl_( config ) {
+        // TJT: Design Note:
+		// Operations now use a 2 phase initialization:
+		// 1) Constructor with config only - no context binding
+		// 2) Optional context binding via bind_context() or with_context()
+		// This allows operations to be created in a context-agnostic way
+		/// and then bound to a specific execution context later (for device pinning).
+		// This is especially useful for registries and factories.
+		// The context can be set before execution.
+		// The base class OperationBase now has a set_context() method for this purpose.
+		// The constructor below does not take a context.
+		/// The context can be set later via bind_context() or with_context().
+		/// @param config Configuration for the GELU operation.
+        /// 
+           
+        CudaGeluOp( const GeluConfig& config, std::shared_ptr<CudaExecutionContext> context = nullptr )
+            : config_( config ), context_( context ), impl_( config ) {
             config_.validate();
         }
 
@@ -132,38 +157,62 @@ namespace Mila::Dnn::Compute
         * @brief Performs the forward pass of the GELU activation function on CUDA.
         *
         * Computes the GELU transformation of the input elements:
-        * GELU(x) = 0.5 * x * (1 + tanh(sqrt(2/?) * (x + 0.044715 * x^3)))
+        * GELU(x) = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
         *
         * The precision policy affects how the computation is performed:
         * - Performance: May use faster but less precise algorithms
         * - Accuracy: Will use the most accurate algorithm available
         * - Auto: Will select an appropriate balance based on the hardware
-        * - Disabled: Will use the standard precision of the input/output types
+        * - Native: Use native precision of the tensor type
         *
         * @param input Input tensor containing the values to transform.
         * @param parameters Additional parameters (not used in this operation).
-        * @param properties Additional attributes for the operation.
         * @param output Output tensor to store the transformed values.
         * @param output_state Cache for intermediate results (not used in this operation).
         */
         void forward(
-            const Tensor<TDataType, MR>& input,
-            const std::vector<std::shared_ptr<ITensor>>& parameters,
-            Tensor<TDataType, MR>& output,
-            std::vector<std::shared_ptr<Tensor<TDataType, MR>>>& output_state ) const override {
+            const ITensor& input,
+            const Parameters& parameters,
+            ITensor& output,
+            OutputState& output_state ) const override {
+
+            cudaStream_t stream;
+            std::shared_ptr<CudaDeviceResources> resources;
+
+            if (context_)
+            {
+                // Bound: dedicated non-blocking stream
+                stream = this->context_->getStream();
+                resources = this->context_->getResources();
+            }
+            else
+            {
+				// Unbound: per-thread stream from device
+                auto* cuda_device = static_cast<CudaDevice*>(input.getDevice().get());
+                
+                //stream = cuda_device->getDefaultStream();
+                resources = cuda_device->getResources();
+            }
+
+			// Set cuBLAS and cuDNN streams if needed
+
+            //auto cublas = resources->getCublasHandle();
+            //auto cudnn = resources->getCudnnHandle();
+            
+            //cublasSetStream( cublas, stream );
+            //cudnnSetStream( cudnn, stream );
 
             ComputePrecision::Policy policy = config_.getPrecisionPolicy();
 
-            auto X = input.data();
-            auto Y = output.data();
-            int N = input.size();
-            cudaStream_t stream = this->getDeviceContext()->getStream();
+            // Get raw device pointers (native type)
+            auto X = static_cast<const NativeType*>(input.rawData());
+            auto Y = static_cast<NativeType*>(output.rawData());
+            int N = static_cast<int>(input.size());
+            
+            //cudaStream_t stream = this->getExecutionContext()->getStream();
 
-            // For now, we use the same implementation regardless of policy
-            // In a more advanced implementation, different kernels could be selected based on the policy
-            if constexpr ( std::is_same_v<TDataType, TDataType> ) {
-                impl_.forward( Y, X, N, stream );
-            }
+            // Dispatch to implementation based on native type
+            impl_.forward( reinterpret_cast<NativeType*>(Y), reinterpret_cast<const NativeType*>(X), N, stream );
         }
 
         /**
@@ -178,38 +227,35 @@ namespace Mila::Dnn::Compute
         * @param parameters Parameters tensor from forward pass (not used).
         * @param parameter_gradients Gradients for parameters (not used).
         * @param input_gradient Gradient of the loss with respect to the input.
-        * @param properties Additional attributes for the operation.
         * @param output_state Cache tensors from forward pass.
         */
         void backward(
-            const Tensor<TDataType, MR>& input,
-            const Tensor<TDataType, MR>& output,
-            const Tensor<TDataType, MR>& output_gradient,
-            const std::vector<std::shared_ptr<ITensor>>& parameters,
-            std::vector<std::shared_ptr<Tensor<TDataType, MR>>>& parameter_gradients,
-            Tensor<TDataType, MR>& input_gradient,
-            const std::vector<std::shared_ptr<Tensor<TDataType, MR>>>& output_state ) const {
+            const ITensor& output_gradient,
+            const ITensor& input,
+            const Parameters& parameters,
+            const OutputState& output_state,
+            ITensor& input_gradient,
+            Parameters& parameter_gradients ) const {
 
             // Get precision policy from operation base class or override from properties
-            ComputePrecision::Policy policy = this->getPrecisionPolicy();
+            //ComputePrecision::Policy policy = this->getPrecisionPolicy();
 
-            // Check if properties override the precision policy
-            /*if ( properties.has( "precision_policy" ) ) {
-                policy = static_cast<ComputePrecision::Policy>(properties.get( "precision_policy", static_cast<int>(policy) ));
-            }*/
+            // Get tensor data pointers (native)
+            const NativeType* X = static_cast<const NativeType*>(input.rawData());
+            const NativeType* dY = static_cast<const NativeType*>(output_gradient.rawData());
+            NativeType* dX = static_cast<NativeType*>(input_gradient.rawData());
+            
+            int N = static_cast<int>(input.size());
 
-            // Get tensor data pointers
-            const TDataType* X = input.data();
-            const TDataType* dY = output_gradient.data();
-            TDataType* dX = input_gradient.data();
-            int N = input.size();
+            // Get CUDA stream from execution context
+            //cudaStream_t stream = this->getExecutionContext()->getStream();
 
-            // Get CUDA stream from device context
-            cudaStream_t stream = this->getDeviceContext()->getStream();
+            // Call CUDA kernel with stream (not implemented yet for all native types)
+            // impl_.backward( dX, X, dY, N, stream );
+        }
 
-            // Call CUDA kernel with stream
-            // FIXME: cuda_gelu_backward(dX, X, dY, N, stream);
-            // Future implementation should respect the precision policy
+        OperationType getOperationType() const override {
+            return OperationType::GeluOp;
         }
 
         /**
@@ -223,11 +269,12 @@ namespace Mila::Dnn::Compute
 
         const GeluConfig& getConfig() const {
             return config_;
-		}
-        
+        }
+
     private:
-            GeluConfig config_; ///< Configuration for the GELU operation.
-			Detail::cuda_gelu_impl<TDataType> impl_; ///< Implementation details for the GELU operation.
+        GeluConfig config_; ///< Configuration for the GELU operation.
+		std::shared_ptr<CudaExecutionContext> context_; ///< Optional execution context for CUDA resources.
+        Detail::cuda_gelu_impl<NativeType> impl_; ///< Implementation details for the GELU operation.
     };
 
     /**
@@ -248,24 +295,23 @@ namespace Mila::Dnn::Compute
         static void registerOperations() {
             const std::string opName = "Cuda::GeluOp";
 
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, float, float>(
+            // Register FP32 version
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP32>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, float>> {
+                [](  const ConfigurationBase& config, std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>> {
                     const auto& geluConfig = static_cast<const GeluConfig&>(config);
-                    return context ? std::make_shared<CudaGeluOp<float>>( context, geluConfig )
-                        : std::make_shared<CudaGeluOp<float>>( geluConfig );
+                    return std::make_shared<CudaGeluOp<TensorDataType::FP32>>( geluConfig, context );
                 }
             );
 
-			// FIXME: Uncomment when half precision is supported
-            /*OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, half, half>(
+            // Register FP16 version (if/when supported)
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP16>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half, half>> {
-                    const auto& geluConfig = static_cast<const GeluConfig&>( config );
-                    return context ? std::make_shared<CudaGeluOp<half>>( context, geluConfig )
-                        : std::make_shared<CudaGeluOp<half>>( geluConfig );
+                [](  const ConfigurationBase& config, std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>> {
+                    const auto& geluConfig = static_cast<const GeluConfig&>(config);
+                    return std::make_shared<CudaGeluOp<TensorDataType::FP16>>( geluConfig, context );
                 }
-            );*/
+            );
         }
 
         /**

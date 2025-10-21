@@ -6,7 +6,8 @@ Mila Deep Neural Network Library
 Mila, version 0.9.XXX-alpha is currently an early preview release.
 The Mila API is still too immature for any end-user development. I am working on the API and will be releasing a stable version as soon as possible.
 
-We are currently working on the core Module and Operation components and the various compute devices which provide specific Module operations.
+We are currently working on the core Module and Operation design and the various compute devices which provide specific Module operations.
+
 The Tensor API is now fairly stable and provides a solid foundation for future development. There may be some breaking changes to the Tensor API
 as we finalize the Module and Operation design.
 

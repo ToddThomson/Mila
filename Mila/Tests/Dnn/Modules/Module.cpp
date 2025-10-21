@@ -34,14 +34,8 @@ namespace Dnn::Modules::Tests
         using ModuleBase = Module<TDeviceType>;
         using ExecutionContextType = typename ModuleBase::ExecutionContextType;
 
-        // NOTE: Module.ixx now constructs modules by device id (int) or with a
-        // shared ExecutionContext. Update mock constructors to match.
-        explicit MockModule( int device_id, const MockModuleConfig& config = MockModuleConfig() )
-            : ModuleBase( device_id, config ) {
-        }
-
-        explicit MockModule( std::shared_ptr<ExecutionContextType> exec_context, const MockModuleConfig& config = MockModuleConfig() )
-            : ModuleBase( exec_context, config ) {
+        explicit MockModule( const MockModuleConfig& config, std::shared_ptr<ExecutionContextType> exec_context )
+            : ModuleBase( config, exec_context ) {
         }
 
         /**
@@ -137,7 +131,7 @@ namespace Dnn::Modules::Tests
         std::shared_ptr<MockModule<TDeviceType>> module;
         bool is_training;
 
-        // Create by device id (Module.ixx now expects int device id)
+        // Create by device id (now create ExecutionContext and forward to module ctor)
         static ModuleTestData Create(
             int device_id,
             bool is_training = false )
@@ -149,7 +143,18 @@ namespace Dnn::Modules::Tests
             config.withName( "mock_module" )
                 .withTraining( is_training );
 
-            data.module = std::make_shared<MockModule<TDeviceType>>( device_id, config );
+            // Build an execution context appropriate for the device type
+            std::shared_ptr<typename MockModule<TDeviceType>::ExecutionContextType> exec_ctx;
+            if constexpr (TDeviceType == DeviceType::Cuda)
+            {
+                exec_ctx = std::make_shared<typename MockModule<TDeviceType>::ExecutionContextType>( device_id );
+            }
+            else
+            {
+                exec_ctx = std::make_shared<typename MockModule<TDeviceType>::ExecutionContextType>();
+            }
+
+            data.module = std::make_shared<MockModule<TDeviceType>>( config, exec_ctx );
             return data;
         }
 
@@ -164,7 +169,7 @@ namespace Dnn::Modules::Tests
             config.withName( "mock_module_context" )
                 .withTraining( is_training );
 
-            data.module = std::make_shared<MockModule<TDeviceType>>( exec_context, config );
+            data.module = std::make_shared<MockModule<TDeviceType>>( config, exec_context );
             return data;
         }
     };
@@ -372,17 +377,18 @@ namespace Dnn::Modules::Tests
 
         if constexpr (TDeviceType == DeviceType::Cuda)
         {
-            // Negative device id should be invalid for CUDA
+            // Negative device id should be invalid for CUDA: creating the ExecutionContext must fail
             EXPECT_THROW(
-                (std::make_shared<MockModule<TDeviceType>>( -1, config )),
+                (std::make_shared<typename MockModule<TDeviceType>::ExecutionContextType>( -1 )),
                 std::invalid_argument
             );
         }
         else
         {
             // CPU may accept the id (ignored), ensure construction succeeds
+            auto exec_ctx = std::make_shared<typename MockModule<TDeviceType>::ExecutionContextType>();
             EXPECT_NO_THROW(
-                (std::make_shared<MockModule<TDeviceType>>( 0, config ))
+                (std::make_shared<MockModule<TDeviceType>>( config, exec_ctx ))
             );
         }
     }
@@ -395,7 +401,7 @@ namespace Dnn::Modules::Tests
         std::shared_ptr<typename MockModule<TDeviceType>::ExecutionContextType> null_context;
 
         EXPECT_THROW(
-            (std::make_shared<MockModule<TDeviceType>>( null_context, config )),
+            (std::make_shared<MockModule<TDeviceType>>( config, null_context )),
             std::invalid_argument
         );
     }
@@ -405,8 +411,18 @@ namespace Dnn::Modules::Tests
         MockModuleConfig config;
         config.withName( "" );
 
+        std::shared_ptr<typename MockModule<TDeviceType>::ExecutionContextType> exec_ctx;
+        if constexpr (TDeviceType == DeviceType::Cuda)
+        {
+            exec_ctx = std::make_shared<typename MockModule<TDeviceType>::ExecutionContextType>( 0 );
+        }
+        else
+        {
+            exec_ctx = std::make_shared<typename MockModule<TDeviceType>::ExecutionContextType>();
+        }
+
         EXPECT_THROW(
-            (std::make_shared<MockModule<TDeviceType>>( 0, config )),
+            (std::make_shared<MockModule<TDeviceType>>( config, exec_ctx )),
             std::invalid_argument
         );
     }
@@ -550,7 +566,8 @@ namespace Dnn::Modules::Tests
         training_config.withName( "training_module" )
             .withTraining( true );
 
-        auto module = std::make_shared<MockModule<DeviceType::Cpu>>( 0, training_config );
+        auto exec_ctx = std::make_shared<MockModule<DeviceType::Cpu>::ExecutionContextType>();
+        auto module = std::make_shared<MockModule<DeviceType::Cpu>>( training_config, exec_ctx );
 
         EXPECT_TRUE( module->isTraining() );
     }

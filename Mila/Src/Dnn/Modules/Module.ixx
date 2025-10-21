@@ -72,25 +72,6 @@ namespace Mila::Dnn
             using ExecutionContextType = ExecutionContext<TDeviceType>;
 
             /**
-             * @brief Constructor with device ID.
-             *
-             * Creates a module with an execution context for the specified device ID.
-             * Each module gets its own execution context (stream) even if sharing a device.
-             *
-             * @param device_id The device ID to use (0-based for CUDA, -1 or 0 for CPU).
-             * @param config Configuration for the module including training mode and precision.
-             * @throws std::invalid_argument If device_id is invalid for the device type.
-             * @throws std::runtime_error If execution context creation fails.
-             */
-            explicit Module( int device_id, const ConfigurationBase& config )
-                : execution_context_( std::make_shared<ExecutionContextType>( device_id ) ),
-                config_( config ),
-                training_mode_( config.isTraining() ) {
-
-                config.validate();
-            }
-
-            /**
              * @brief Constructor with a specific execution context.
              *
              * Allows modules to share an execution context (stream) if desired, or for
@@ -100,10 +81,8 @@ namespace Mila::Dnn
              * @param config Configuration for the module including training mode and precision.
              * @throws std::invalid_argument If the provided context is nullptr.
              */
-            explicit Module( std::shared_ptr<ExecutionContextType> exec_context, const ConfigurationBase& config )
-                : execution_context_( exec_context ),
-                config_( config ),
-                training_mode_( config.isTraining() ) {
+            explicit Module(  const ConfigurationBase& config, std::shared_ptr<ExecutionContextType> exec_context )
+                : config_( config ), execution_context_( exec_context ), training_mode_( config.isTraining() ) {
 
                 if (!exec_context)
                 {
@@ -151,7 +130,10 @@ namespace Mila::Dnn
              * @note Scalar gradients supported for reduction operations
              * @note All operations execute on this module's stream
              */
-            virtual void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad ) = 0;
+            virtual void backward( 
+                const ITensor& input, 
+                const ITensor& output_grad,
+                ITensor& input_grad ) = 0;
 
             /**
              * @brief Get the execution context for this module.

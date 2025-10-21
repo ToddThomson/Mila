@@ -5,10 +5,6 @@
 #include <functional>
 
 import Mila;
-import Compute.DeviceRegistry;
-import Compute.DeviceRegistrar;
-import Compute.CpuDevicePlugin;
-import Compute.CpuDevice;
 
 namespace Dnn::Compute::Devices::Tests
 {
@@ -49,46 +45,13 @@ namespace Dnn::Compute::Devices::Tests
     TEST_F( CpuDevicePluginTests, DeviceRegistration ) {
         auto& registry = DeviceRegistry::instance();
 
-        EXPECT_TRUE( registry.hasDevice( "CPU" ) );
+        EXPECT_TRUE( registry.hasDeviceType( "CPU" ) );
 
-        auto device = registry.createDevice( "CPU" );
+        auto device = registry.getDevice( "CPU" );
+        
         EXPECT_NE( device, nullptr );
         EXPECT_EQ( device->getDeviceType(), DeviceType::Cpu );
         EXPECT_EQ( device->getDeviceName(), "CPU" );
-    }
-
-    TEST_F( CpuDevicePluginTests, DeviceRegistrationCallback ) {
-        bool callbackInvoked = false;
-        std::string registeredName;
-
-        auto testCallback = [&callbackInvoked, &registeredName](
-            const std::string& name,
-            DeviceRegistry::DeviceFactory factory ) {
-                callbackInvoked = true;
-                registeredName = name;
-
-                auto device = factory();
-                EXPECT_NE( device, nullptr );
-            };
-
-        CpuDevicePlugin::registerDevices( testCallback );
-
-        EXPECT_TRUE( callbackInvoked );
-        EXPECT_EQ( registeredName, "CPU" );
-    }
-
-    TEST_F( CpuDevicePluginTests, DeviceFactoryFunction ) {
-        auto& registry = DeviceRegistry::instance();
-
-        auto device1 = registry.createDevice( "CPU" );
-        auto device2 = registry.createDevice( "CPU" );
-
-        EXPECT_NE( device1, nullptr );
-        EXPECT_NE( device2, nullptr );
-        EXPECT_NE( device1.get(), device2.get() );
-
-        EXPECT_EQ( device1->getDeviceType(), device2->getDeviceType() );
-        EXPECT_EQ( device1->getDeviceName(), device2->getDeviceName() );
     }
 
     // ============================================================================
@@ -119,17 +82,7 @@ namespace Dnn::Compute::Devices::Tests
     // Exception Safety Tests
     // ============================================================================
 
-    TEST_F( CpuDevicePluginTests, ExceptionSafetyRegistration ) {
-        auto noopCallback = []( const std::string&, DeviceRegistry::DeviceFactory ) {};
-
-        EXPECT_NO_THROW( {
-            for (int i = 0; i < 100; ++i) {
-                CpuDevicePlugin::registerDevices( noopCallback );
-            }
-            } );
-    }
-
-    TEST_F( CpuDevicePluginTests, ExceptionSafetyAvailabilityCheck ) {
+   TEST_F( CpuDevicePluginTests, ExceptionSafetyAvailabilityCheck ) {
         EXPECT_NO_THROW( {
             for (int i = 0; i < 100; ++i) {
                 bool available = CpuDevicePlugin::isAvailable();
@@ -199,50 +152,16 @@ namespace Dnn::Compute::Devices::Tests
         EXPECT_EQ( CpuDevicePlugin::getDeviceCount(), 1 );
     }
 
-    TEST_F( CpuDevicePluginTests, DeviceCreationConsistency ) {
-        auto& registry = DeviceRegistry::instance();
-
-        std::vector<std::shared_ptr<ComputeDevice>> devices;
-        for (int i = 0; i < 10; ++i) {
-            auto device = registry.createDevice( "CPU" );
-            EXPECT_NE( device, nullptr );
-            devices.push_back( device );
-        }
-
-        for (const auto& device : devices) {
-            EXPECT_EQ( device->getDeviceType(), DeviceType::Cpu );
-            EXPECT_EQ( device->getDeviceName(), "CPU" );
-        }
-
-        for (size_t i = 0; i < devices.size(); ++i) {
-            for (size_t j = i + 1; j < devices.size(); ++j) {
-                EXPECT_NE( devices[i].get(), devices[j].get() );
-            }
-        }
-    }
+    
 
     // ============================================================================
     // Integration Tests
     // ============================================================================
 
-    TEST_F( CpuDevicePluginTests, RegistryIntegration ) {
-        auto& registry = DeviceRegistry::instance();
-
-        auto availableDevices = registry.listDevices();
-        EXPECT_TRUE( std::find( availableDevices.begin(), availableDevices.end(), "CPU" ) != availableDevices.end() );
-
-        EXPECT_TRUE( registry.hasDevice( "CPU" ) );
-        auto device = registry.createDevice( "CPU" );
-        EXPECT_NE( device, nullptr );
-
-        auto cpuDevice = std::dynamic_pointer_cast<CpuDevice>(device);
-        EXPECT_NE( cpuDevice, nullptr );
-    }
+    
 
     TEST_F( CpuDevicePluginTests, PluginStaticInterface ) {
-        auto noopCallback = []( const std::string&, DeviceRegistry::DeviceFactory ) {};
-
-        EXPECT_NO_THROW( CpuDevicePlugin::registerDevices( noopCallback ) );
+        
         EXPECT_NO_THROW( CpuDevicePlugin::isAvailable() );
         EXPECT_NO_THROW( CpuDevicePlugin::getDeviceCount() );
         EXPECT_NO_THROW( CpuDevicePlugin::getPluginName() );
@@ -255,9 +174,5 @@ namespace Dnn::Compute::Devices::Tests
         EXPECT_GE( CpuDevicePlugin::getLogicalCoreCount(), 1u );
     }
 
-    TEST_F( CpuDevicePluginTests, CallbackNullSafety ) {
-        auto nullCallback = CpuDevicePlugin::RegistrationCallback();
-
-        EXPECT_NO_THROW( CpuDevicePlugin::registerDevices( nullCallback ) );
-    }
+    
 }

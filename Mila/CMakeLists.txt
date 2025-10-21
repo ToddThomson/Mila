@@ -226,14 +226,14 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Fill.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Transfer.ixx"
 
-        # CUDA / Operations (kept as originally commented where applicable)
-        #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaOperations.ixx"
+        # CUDA / Operations
+        "Src/Dnn/Compute/Devices/Cuda/Operations/CudaOperations.ixx"
         #"Src/Dnn/Compute/Operations/Cuda/CudaDataTypeTraits.ixx"
         #"Src/Dnn/Compute/Operations/Cuda/CublasLtMatMulBias.ixx"
         #"Src/Dnn/Compute/Operations/Cuda/MatMulBiasActivation.ixx"
         #"Src/Dnn/Compute/Operations/Cuda/CudaLinearOp.ixx"
         #"Src/Dnn/Compute/Operations/Cuda/CudaResidualOp.ixx"
-        #"Src/Dnn/Compute/Operations/Cuda/CudaGeluOp.ixx"
+        "Src/Dnn/Compute/Devices/Cuda/Operations/CudaGeluOp.ixx"
         #"Src/Dnn/Compute/Operations/Cuda/CudaSoftmaxOp.ixx"
         #"Src/Dnn/Compute/Operations/Cuda/CudaLayerNormOp.ixx"
         #"Src/Dnn/Compute/Operations/Cuda/CudaMultiHeadAttentionOp.ixx"
@@ -318,9 +318,11 @@ PUBLIC
         
         "Src/Dnn/Tensors/Operations/TensorOps.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps-Base.ixx"
-
         
- "Src/Dnn/Compute/Operations/OperationRegistryHelpers.ixx" "Src/Dnn/Compute/Devices/Vulkan/VulkanDevice.ixx" "Src/Dnn/Compute/Devices/OpenCL/OpenCLDevice.ixx")
+        "Src/Dnn/Compute/Operations/OperationRegistryHelpers.ixx"
+        "Src/Dnn/Compute/Devices/Vulkan/VulkanDevice.ixx"
+        "Src/Dnn/Compute/Devices/OpenCL/OpenCLDevice.ixx"
+ "Src/Dnn/Compute/DeviceDescriptor.ixx" "Src/Dnn/Compute/Devices/Cuda/CudaDeviceResources.ixx")
 
 target_link_libraries(Mila PRIVATE 
     miniz

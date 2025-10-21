@@ -46,7 +46,7 @@ namespace Mila::Dnn::Compute
 		/**
 		 * @brief Gets the name of this compute device.
 		 *
-		 * @return std::string The human-readable name of the device (e.g., "CPU", "CUDA:N", etc).
+		 * @return std::string The human-readable name of the device (e.g., "CPU", "CUDA:0", "METAL:1", etc).
 		 */
 		virtual std::string getDeviceName() const = 0;
 

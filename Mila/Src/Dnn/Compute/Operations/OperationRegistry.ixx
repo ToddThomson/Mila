@@ -72,6 +72,12 @@ namespace Mila::Dnn::Compute
      */
     export class OperationRegistry {
     public:
+        
+        /*using UnaryOpFactory = std::function<std::shared_ptr<UnaryOperation<TDeviceType, TDataType>>(
+            std::shared_ptr<ExecutionContext<TDeviceType>>,
+            const ConfigurationBase& )>;*/
+        
+
         /**
          * @brief Composite key for registry lookup.
          */
@@ -111,19 +117,15 @@ namespace Mila::Dnn::Compute
         void registerUnaryOperation(
             const std::string& operation_name,
             std::function<std::shared_ptr<UnaryOperation<TDeviceType, TDataType>>(
-                std::shared_ptr<ExecutionContext<TDeviceType>>,
-                const ConfigurationBase& )> creator ) {
+                const ConfigurationBase&,
+                std::shared_ptr<ExecutionContext<TDeviceType>> )> creator ) {
 
             TypeID type_id{ TDataType, TDeviceType };
 
             // Wrap typed creator into a generic creator that accepts IExecutionContext
             auto genericCreator = [creator](
-                std::shared_ptr<IExecutionContext> ictx,
-                const ConfigurationBase& config ) -> std::shared_ptr<void> {
-
-                if (!ictx) {
-                    throw std::invalid_argument( "ExecutionContext cannot be null when creating an operation" );
-                }
+                const ConfigurationBase& config,
+                std::shared_ptr<IExecutionContext> ictx) -> std::shared_ptr<void> {
 
                 // Safe cast: ExecutionContext<TDeviceType> inherits from IExecutionContext
                 auto ctx = std::static_pointer_cast<ExecutionContext<TDeviceType>>(ictx);
@@ -131,7 +133,7 @@ namespace Mila::Dnn::Compute
                     throw std::runtime_error( "ExecutionContext cast failed in registry creator." );
                 }
 
-                return creator( ctx, config );
+                return creator( config, ctx );
             };
 
             registry_[type_id][operation_name] = std::move( genericCreator );
@@ -204,8 +206,8 @@ namespace Mila::Dnn::Compute
         template<DeviceType TDeviceType, TensorDataType TDataType>
         std::shared_ptr<UnaryOperation<TDeviceType, TDataType>> createUnaryOperation(
             const std::string& operation_name,
-            std::shared_ptr<ExecutionContext<TDeviceType>> context,
-            const ConfigurationBase& config ) const {
+            const ConfigurationBase& config,
+            std::shared_ptr<ExecutionContext<TDeviceType>> context ) const {
 
             TypeID type_id{ TDataType, TDeviceType };
 
@@ -237,7 +239,7 @@ namespace Mila::Dnn::Compute
 
             // Invoke generic creator with type-erased IExecutionContext and cast result
             auto op = std::static_pointer_cast<UnaryOperation<TDeviceType, TDataType>>(
-                op_it->second( std::static_pointer_cast<IExecutionContext>(context), config ) );
+                op_it->second(  config, std::static_pointer_cast<IExecutionContext>(context) ) );
 
             return op;
         }
@@ -335,8 +337,8 @@ namespace Mila::Dnn::Compute
 
     private:
         using GenericCreator = std::function<std::shared_ptr<void>(
-            std::shared_ptr<IExecutionContext>,
-            const ConfigurationBase& )>;
+            const ConfigurationBase&,
+            std::shared_ptr<IExecutionContext> )>;
 
         std::vector<FusedOpMeta> fused_ops_;
         std::unordered_map<TypeID, std::unordered_map<std::string, GenericCreator>, TypeIDHash> registry_;

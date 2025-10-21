@@ -5,6 +5,7 @@
 
 module;
 #include <cuda_runtime.h>
+#include <memory>
 #include <string>
 #include <stdexcept>
 #include <source_location>
@@ -13,6 +14,7 @@ export module Compute.CudaDevice;
 
 import Compute.ComputeDevice;
 import Compute.DeviceType;
+import Compute.CudaDeviceResources;
 import Compute.CudaDeviceProps;
 import Cuda.Error;
 
@@ -47,8 +49,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If device_id exceeds available device count
          */
         explicit CudaDevice( int device_id )
-            : device_id_( validateDeviceId( device_id ) ),
-            props_( device_id_ ) {
+            : device_id_( validateDeviceId( device_id ) ), resources_( std::make_shared<CudaDeviceResources>( device_id ) ), props_( device_id ) {
         }
 
         /**
@@ -57,6 +58,10 @@ namespace Mila::Dnn::Compute
          */
         constexpr int getDeviceId() const override {
             return device_id_;
+        }
+
+        std::shared_ptr<CudaDeviceResources> getResources() const { 
+            return resources_; 
         }
 
         /**
@@ -192,6 +197,7 @@ namespace Mila::Dnn::Compute
     private:
         int device_id_;
         CudaDeviceProps props_;
+        std::shared_ptr<CudaDeviceResources> resources_;
 
         /**
          * @brief Validates CUDA device ID.

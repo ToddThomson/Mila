@@ -82,9 +82,7 @@ namespace Dnn::Compute::ExecutionContexts::Tests
 
         auto device = std::make_shared<CudaDevice>( 0 );
 
-        EXPECT_NO_THROW( {
-            ExecutionContext<DeviceType::Cuda> exec_ctx( device );
-            } );
+        EXPECT_NO_THROW( { ExecutionContext<DeviceType::Cuda> exec_ctx( device ); } );
     }
 
     TEST_F( CudaExecutionContextTest, ConstructionFromNullDevice ) {
