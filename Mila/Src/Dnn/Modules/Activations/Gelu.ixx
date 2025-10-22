@@ -24,6 +24,7 @@ import Dnn.Module;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
+import Dnn.TensorDataTypeTraits;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.UnaryOperation;
@@ -34,6 +35,7 @@ import Serialization.ModelArchive;
 
 namespace Mila::Dnn
 {
+    // TJT: Review: Does this pollute our API surface?
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Serialization;
 
@@ -46,137 +48,133 @@ namespace Mila::Dnn
      * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda)
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
-        /* TODO: requires isValid??? */
-        class Gelu : public Module<TDeviceType> {
-        public:
-            using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
-            using ExecutionContextType = ExecutionContext<TDeviceType>;
-            using TensorType = Tensor<TPrecision, MR>;
+        requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
+    class Gelu : public Module<TDeviceType>
+    {
+    public:
+        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
+        using ExecutionContextType = ExecutionContext<TDeviceType>;
+        using TensorType = Tensor<TPrecision, MR>;
 
-            /**
-             * @brief Construct GELU with an existing execution context.
-             *
-             * @param exec_context Shared execution context for this module.
-             * @param config GELU configuration.
-             */
-            explicit Gelu( const GeluConfig& config, std::shared_ptr<ExecutionContextType> exec_context )
-				: config_( config ), exec_context_( exec_context )
+        /**
+         * @brief Construct GELU with an existing execution context.
+         *
+         * @param exec_context Shared execution context for this module.
+         * @param config GELU configuration.
+         */
+        explicit Gelu( const GeluConfig& config, std::shared_ptr<ExecutionContextType> exec_context )
+            : config_( config ), exec_context_( exec_context )
+        {
+            if (!exec_context_)
             {
-                if (!exec_context_)
-                {
-                    throw std::invalid_argument( "ExecutionContext cannot be null." );
-                }
-                
-                config_.validate();
+                throw std::invalid_argument( "ExecutionContext cannot be null." );
+            }
 
+            config_.validate();
+
+            createOperation();
+        }
+
+        ~Gelu() override = default;
+
+        size_t parameterCount() const override
+        {
+            return 0;
+        }
+
+        void forward( const ITensor& input, ITensor& output ) override
+        {
+            // Dispatch to backend operation
+            operation_->forward( input, parameters_, output, output_state_ );
+        }
+
+        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad ) override
+        {
+
+            if (!operation_)
+            {
                 createOperation();
             }
 
-            ~Gelu() override = default;
+            std::vector<std::shared_ptr<ITensor>> parameter_gradients;
+            //FIXME:Loperation_->backward(
+            //    //input,
+            //    output_grad,
+            //    parameters_,
+            //    parameter_gradients,
+            //    input_grad,
+            //    output_state_
+            //);
+        }
 
-            size_t parameterCount() const override {
-                return 0;
+        void synchronize() override
+        {
+            exec_context_->synchronize();
+        }
+
+        GeluConfig::ApproximationMethod getApproximationMethod() const
+        {
+            return config_.getApproximationMethod();
+        }
+
+        void save( ModelArchive& /*archive*/ ) const override
+        {
+            // No-op: stateless activation
+        }
+
+        void load( ModelArchive& /*archive*/ ) override
+        {
+            // No-op: stateless activation
+        }
+
+        std::string toString() const override
+        {
+            std::ostringstream oss;
+            oss << "--------------------" << std::endl;
+            oss << "Gelu: " << getName() << std::endl;
+            oss << "Device: " << deviceToString( this->getDeviceType() ) << std::endl;
+            oss << "Approximation Method: " << config_.toString( config_.getApproximationMethod() ) << std::endl;
+            return oss.str();
+        }
+
+        // ====================================================================
+        // State and Configuration Implementation
+        // ====================================================================
+
+        void setTraining( bool is_training ) override
+        {
+            training_mode_ = is_training;
+        }
+
+        bool isTraining() const override
+        {
+            return training_mode_;
+        }
+
+        std::string getName() const override
+        {
+            return config_.getName();
+        }
+
+    private:
+
+        bool training_mode_{ false };
+        GeluConfig config_;
+        std::shared_ptr<ExecutionContextType> exec_context_;
+        std::vector<std::shared_ptr<TensorType>> parameters_;
+        std::vector<std::shared_ptr<TensorType>> output_state_;
+        std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
+
+        void createOperation()
+        {
+            operation_ = OperationRegistry::instance()
+                .createUnaryOperation<TDeviceType, TPrecision>(
+                    "GeluOp",  exec_context_, config_ );
+
+            if (!operation_)
+            {
+                throw std::runtime_error( "Failed to create GELU compute backend operation." );
             }
-
-            void forward( const ITensor& input, ITensor& output ) override {
-                // Validate device compatibility
-                //validateTensorDevice( input, "input" );
-                //validateTensorDevice( output, "output" );
-
-                if (!operation_)
-                {
-                    createOperation();
-                }
-
-                operation_->forward( input, parameters_, output, output_state_ );
-            }
-
-            void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad ) override {
-                //validateTensorDevice( input, "input" );
-                //validateTensorDevice( output_grad, "output_grad" );
-                //validateTensorDevice( input_grad, "input_grad" );
-
-                if (!operation_)
-                {
-                    createOperation();
-                }
-
-                std::vector<std::shared_ptr<ITensor>> parameter_gradients;
-                //FIXME:Loperation_->backward(
-                //    //input,
-                //    output_grad,
-                //    parameters_,
-                //    parameter_gradients,
-                //    input_grad,
-                //    output_state_
-                //);
-            }
-
-            GeluConfig::ApproximationMethod getApproximationMethod() const {
-                return config_.getApproximationMethod();
-            }
-
-            void save( ModelArchive& /*archive*/ ) const override {
-                // No-op: stateless activation
-            }
-
-            void load( ModelArchive& /*archive*/ ) override {
-                // No-op: stateless activation
-            }
-
-            std::string toString() const override {
-                std::ostringstream oss;
-                oss << "--------------------" << std::endl;
-                //oss << "Gelu: " << this->getDeviceName() << std::endl;
-                //oss << "Device: " << deviceToString( this->getExecutionContext()->getDevice()->getDeviceType() ) << std::endl;
-                oss << "Approximation Method: " << approximationMethodToString( config_.getApproximationMethod() ) << std::endl;
-                return oss.str();
-            }
-
-            // ====================================================================
-            // State and Configuration Implementation
-            // ====================================================================
-
-            void setTraining( bool is_training ) override {
-                training_mode_ = is_training;
-            }
-
-            bool isTraining() const override {
-                return training_mode_;
-            }
-
-            std::string getName() const override {
-                return config_.getName();
-            }
-
-        private:
-
-			bool training_mode_{ false };
-            GeluConfig config_;
-			std::shared_ptr<ExecutionContextType> exec_context_;
-            std::vector<std::shared_ptr<TensorType>> parameters_;
-            std::vector<std::shared_ptr<TensorType>> output_state_;
-            std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
-
-            static std::string approximationMethodToString( GeluConfig::ApproximationMethod method ) {
-                switch (method)
-                {
-                case GeluConfig::ApproximationMethod::Exact: return "Exact";
-                case GeluConfig::ApproximationMethod::Tanh: return "Tanh";
-                case GeluConfig::ApproximationMethod::Sigmoid: return "Sigmoid";
-                default: return "Unknown";
-                }
-            }
-
-            void createOperation() {
-                operation_ = OperationRegistry::instance()
-                    .createUnaryOperation<TDeviceType, TPrecision>(
-                    "GeluOp", config_, exec_context_ );
-
-                if (!operation_)
-                {
-                    throw std::runtime_error( "Failed to create GELU backend operation." );
-                }
-            }
+        }
     };
 }

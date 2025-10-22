@@ -386,9 +386,6 @@ endif()
 
 add_subdirectory( Docs )
 
-# Add GBench subdirectory for Google Benchmark-based benchmarks
-add_subdirectory( GBench )
-
  # Configure code coverage for MSVC
  if( MILA_ENABLE_COVERAGE AND MSVC)
     add_compile_options(/Zi /Od)
@@ -399,12 +396,11 @@ endif()
 
 if (MILA_ENABLE_TESTING)  
     enable_testing()
-    
     add_subdirectory(Tests) 
 endif()
 
 if (MILA_ENABLE_BENCHMARKS)
-#add_subdirectory(Benchmarks)
+    add_subdirectory(Benchmarks)
 endif()
  
 if (MILA_ENABLE_SAMPLES)  

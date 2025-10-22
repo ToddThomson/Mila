@@ -61,8 +61,11 @@ namespace Mila::Dnn::Compute
                     return std::nullopt;
                 }
 
+                // Use CudaDevice::create(...) factory instead of calling the constructor directly.
+                // This ensures all device instances are created through the controlled factory,
+                // matching the DeviceRegistry and preventing accidental direct construction.
                 return std::function<std::shared_ptr<ComputeDevice>(int)>( []( int deviceIndex ) {
-                    return std::make_shared<CudaDevice>( deviceIndex );
+                    return CudaDevice::create( deviceIndex );
                 } );
             }
             catch (...) {

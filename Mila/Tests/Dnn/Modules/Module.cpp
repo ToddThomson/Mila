@@ -96,6 +96,10 @@ namespace Dnn::Modules::Tests
             // Minimal semantics for mock
         }
 
+        void synchronize() override {
+            exec_context_->synchronize();
+		}
+
         size_t parameterCount() const override {
             return 0;
         }

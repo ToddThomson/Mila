@@ -80,7 +80,8 @@ namespace Dnn::Compute::ExecutionContexts::Tests
             GTEST_SKIP() << "No CUDA devices available";
         }
 
-        auto device = std::make_shared<CudaDevice>( 0 );
+        auto device = DeviceRegistry::instance().getDevice( "CUDA:0" );
+        //auto device = std::make_shared<CudaDevice>( 0 );
 
         EXPECT_NO_THROW( { ExecutionContext<DeviceType::Cuda> exec_ctx( device ); } );
     }

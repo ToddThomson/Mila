@@ -128,6 +128,7 @@ namespace Modules::Activations::Tests
         auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
         auto d = GeluCudaTestData::CreateWithExecutionContext( ctx, batch_, seq_, chan_ );
         auto s = d.gelu_module->toString();
+        
         EXPECT_FALSE( s.empty() );
         EXPECT_NE( s.find( "Gelu" ), std::string::npos );
     }

@@ -22,6 +22,7 @@ import Compute.ComputeDevice;
 import Compute.CudaDevice;
 import Compute.CudaDeviceResources;
 import Compute.DeviceType;
+import Compute.DeviceRegistry;
 import Cuda.Helpers;
 
 namespace Mila::Dnn::Compute
@@ -30,24 +31,25 @@ namespace Mila::Dnn::Compute
      * @brief CUDA execution context specialization.
      *
      * Manages CUDA execution resources including streams and library handles.
-     * Each context owns an independent CUDA stream for asynchronous execution.
+     * Each context owns an independent CUDA stream for asynchronous execution and
+     * reuses device-level resources exposed by CudaDeviceResources.
      */
     export template<>
-    class ExecutionContext<DeviceType::Cuda> :public IExecutionContext
+    class ExecutionContext<DeviceType::Cuda> : public IExecutionContext
     {
     public:
         /**
          * @brief Constructs CUDA execution context for a specific device.
          *
-         * Creates a CUDA device and initializes execution resources (stream).
-         * Library handles (cuBLAS, cuDNN) are created lazily on first access.
+         * Obtains the device through DeviceRegistry to ensure shared device instances
+         * are reused rather than creating a new CudaDevice directly.
          *
          * @param device_id CUDA device ID (0-based)
          * @throws std::invalid_argument If device_id is invalid
          * @throws std::runtime_error If CUDA stream creation fails
          */
         explicit ExecutionContext( int device_id )
-            : ExecutionContext( std::make_shared<CudaDevice>( device_id ) ) {
+            : ExecutionContext( DeviceRegistry::instance().getDevice( std::string("CUDA:") + std::to_string(device_id) ) ) {
         }
 
         /**
@@ -62,14 +64,13 @@ namespace Mila::Dnn::Compute
         explicit ExecutionContext( std::shared_ptr<ComputeDevice> device )
             : IExecutionContext( DeviceType::Cuda ), device_( validateDevice( device ) ) {
 
-            initializeResources();
+            resources_ = std::make_shared<CudaDeviceResources>( device_->getDeviceId() );
         }
 
         /**
          * @brief Destructor with proper CUDA resource cleanup.
          */
         ~ExecutionContext() {
-            releaseResources();
         }
 
         // Non-copyable, non-movable (owns CUDA resources)
@@ -153,12 +154,41 @@ namespace Mila::Dnn::Compute
             return stream_;
         }
 
+        /**
+         * @brief Returns the shared device-level resources backing this context.
+         */
         std::shared_ptr<CudaDeviceResources> getResources() const { return resources_; }
 
-        cublasLtHandle_t getCublasLtHandle() const { return resources_->getCublasLtHandle(); }
+        /**
+         * @brief Get a cuBLASLt handle bound to this context's stream.
+         *
+         * The handle is provided by the device resources; we bind it to the
+         * context stream just prior to use to guarantee correct stream ordering.
+         *
+         * Note: binding the same handle concurrently to different streams is
+         * a race unless callers serialize. For concurrent multi-stream use,
+         * prefer per-context or per-thread handles created via device resources.
+         */
+        cublasLtHandle_t getCublasLtHandle() const {
+            return resources_->getCublasLtHandle();
+        }
 
 #ifdef USE_CUDNN
-        cudnnHandle_t getCudnnHandle() const { return resources_->getCudnnHandle(); }
+        /**
+         * @brief Get a cuDNN handle bound to this context's stream.
+         *
+         * Similar semantics/notes as getCublasLtHandle().
+         */
+        cudnnHandle_t getCudnnHandle() const {
+            auto handle = resources_->getCudnnHandle();
+            if (handle && stream_) {
+                cudnnStatus_t status = cudnnSetStream( handle, stream_ );
+                if (status != CUDNN_STATUS_SUCCESS) {
+                    throw std::runtime_error( "Failed to set cuDNN handle stream." );
+                }
+            }
+            return handle;
+        }
 #endif
 
     private:
@@ -168,11 +198,6 @@ namespace Mila::Dnn::Compute
 
         cudaStream_t stream_{ nullptr };
         bool stream_created_{ false };
-        mutable cublasLtHandle_t cublasLtHandle_{ nullptr };
-#ifdef USE_CUDNN
-        mutable cudnnHandle_t cudnnHandle_{ nullptr };
-#endif
-        mutable std::mutex handle_mutex_;
 
         /**
          * @brief Validates device for construction.
@@ -225,25 +250,10 @@ namespace Mila::Dnn::Compute
         /**
          * @brief Releases all CUDA resources.
          *
-         * Destroys library handles and stream in reverse order of creation.
+         * Destroys stream in reverse order of creation.
          * Called by destructor - does not throw exceptions.
          */
         void releaseResources() noexcept {
-            // Destroy library handles first
-#ifdef USE_CUDNN
-            if (cudnnHandle_)
-            {
-                cudnnDestroy( cudnnHandle_ );
-                cudnnHandle_ = nullptr;
-            }
-#endif
-
-            if (cublasLtHandle_)
-            {
-                cublasLtDestroy( cublasLtHandle_ );
-                cublasLtHandle_ = nullptr;
-            }
-
             // Destroy stream last
             if (stream_created_ && stream_)
             {
@@ -252,7 +262,5 @@ namespace Mila::Dnn::Compute
                 stream_created_ = false;
             }
         }
-
-		
     };
 }

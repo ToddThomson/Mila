@@ -86,10 +86,10 @@ namespace Mila::Dnn::Compute
          * @param config Configuration for GELU operation.
          * @throws std::runtime_error If the context is not for a CPU device.
          */
-        CpuGeluOp( const GeluConfig& config, std::shared_ptr<CpuExecutionContext> context = nullptr )
-            : config_( config ), context_( context ) {
-
-            if ( context_ && context_->getDevice()->getDeviceType() != DeviceType::Cpu )
+        CpuGeluOp(  std::shared_ptr<CpuExecutionContext> context, const GeluConfig& config )
+            : config_( config ), context_( context )
+        {
+            if (context_ && context_->getDevice()->getDeviceType() != DeviceType::Cpu)
             {
                 throw std::runtime_error( "CpuGeluOp requires a CPU execution context" );
             }
@@ -114,10 +114,10 @@ namespace Mila::Dnn::Compute
          */
         void forward(
             const ITensor& input,
-            const std::vector<std::shared_ptr<TensorType>>& parameters,
+            [[maybe_unused]] const std::vector<std::shared_ptr<TensorType>>& parameters,
             ITensor& output,
-            std::vector<std::shared_ptr<TensorType>>& output_state ) const override {
-
+            [[maybe_unused]] std::vector<std::shared_ptr<TensorType>>& output_state ) const override
+        {
             // Obtain host element buffers (HostType) once before the loop.
             const HostType* input_data = static_cast<const HostType*>(input.rawData());
             HostType* output_data = static_cast<HostType*>(output.rawData());
@@ -154,10 +154,10 @@ namespace Mila::Dnn::Compute
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            const Parameters& parameters,
-            const OutputState& output_state,
+            [[maybe_unused]] const Parameters& parameters,
+            [[maybe_unused]] const OutputState& output_state,
             ITensor& input_grad,
-            Parameters& parameter_grads ) const {
+            [[maybe_unused]] Parameters& parameter_grads ) const {
 
             // Resize input_grad to match input shape if needed
             if (input_grad.shape() != input.shape())
@@ -238,14 +238,16 @@ namespace Mila::Dnn::Compute
          * different data types. Currently registers:
          * - FP32 (TensorDataType::FP32)
          */
-        static void registerOperations() 
+        static void registerOperations()
         {
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32>(
                 "GeluOp",
-                []( const ConfigurationBase& config, std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context )
-                -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>> {
+                []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
+                    const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
+                {
                     const auto& geluConfig = static_cast<const GeluConfig&>(config);
-                    return std::make_shared<CpuGeluOp<TensorDataType::FP32>>( geluConfig, context );
+                    
+                    return std::make_shared<CpuGeluOp<TensorDataType::FP32>>( context, geluConfig );
                 }
             );
         }

@@ -40,7 +40,6 @@ namespace Mila::Dnn::Compute
         DeviceRegistrar() {
             registerAllDevices();
         }
-
         
         static void registerAllDevices() {
             auto& registry = DeviceRegistry::instance();
@@ -51,6 +50,7 @@ namespace Mila::Dnn::Compute
 
             // Register CUDA factory if available
             auto cudaFactoryOpt = CudaDevicePlugin::getDeviceFactory();
+            
             if (cudaFactoryOpt.has_value()) {
                 registry.registerDeviceType( CudaDevicePlugin::getPluginName(),
                                             cudaFactoryOpt.value() );

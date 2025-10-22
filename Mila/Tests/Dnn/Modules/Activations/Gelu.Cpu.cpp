@@ -102,13 +102,17 @@ namespace Modules::Activations::Tests
         if (!isOperationRegistered<DeviceType::Cpu, TensorDataType::FP32>( "GeluOp" ))
         {
             auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
+            
             EXPECT_THROW( GeluCpuModule( GeluConfig(), ctx ), std::runtime_error );
+            
             return;
         }
 
         auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
         auto d = GeluCpuTestData::CreateWithExecutionContext( ctx, batch_, seq_, chan_ );
+        
         auto s = d.gelu_module->toString();
+        
         EXPECT_FALSE( s.empty() );
         EXPECT_NE( s.find( "Gelu" ), std::string::npos );
     }

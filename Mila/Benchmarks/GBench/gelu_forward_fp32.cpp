@@ -43,7 +43,7 @@ namespace GBench::GeluBenchmarks
 
 		// Use operation registry to create op
 		auto op = Mila::Dnn::Compute::OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TensorDataType::FP32>(
-			"GeluOp", config, ctx );
+			"GeluOp", ctx, config );
 
 		if (!op)
 		{
@@ -73,17 +73,14 @@ namespace GBench::GeluBenchmarks
 		for (int i = 0; i < 5; ++i)
 		{
 			op->forward( input, params, output, out_state );
-			auto h = toHost<TensorDataType::FP32>( output );
-			(void)h.data();
+			ctx->synchronize();
 		}
 
 		// Benchmark loop
 		for (auto _ : state)
 		{
 			op->forward( input, params, output, out_state );
-			auto h = toHost<TensorDataType::FP32>( output );
-			
-			(void)h.data();
+			ctx->synchronize();
 			
 			// report bytes (approx)
 			state.SetBytesProcessed( static_cast<int64_t>(input.size() * sizeof( float )) );

@@ -5,6 +5,9 @@ module;
 #ifdef USE_CUDNN
 #include <cudnn.h>
 #endif
+#include <unordered_map> // for per-thread stream map
+#include <utility>
+#include <stdexcept>
 
 export module Compute.CudaDeviceResources;
 
@@ -56,7 +59,7 @@ namespace Mila::Dnn::Compute
 
         cudnnHandle_t getCudnnHandle() {
             std::call_once( cudnn_init_flag_, [this]() {
-                cudaSetDevice( device_id_ );
+                Cuda::setCurrentDevice( device_id_ );
                 cudnnCreate( &cudnn_handle_ );
                 } );
             
@@ -65,6 +68,70 @@ namespace Mila::Dnn::Compute
 #endif
 
         int getDeviceId() const { return device_id_; }
+
+        /**
+         * @brief Get the device-global stream created during initialization.
+         *
+         * This is a single stream associated with the device resources instance.
+         */
+        cudaStream_t getStream() const { return stream_; }
+
+        /**
+         * @brief Get or create a per-thread non-blocking stream for this device.
+         *
+         * Creates one non-blocking stream per-device per-thread on demand. Streams are
+         * destroyed automatically on thread exit. This should be used as a fallback when
+         * no explicit ExecutionContext / bound stream is provided.
+         *
+         * @throws std::runtime_error If stream creation fails
+         */
+        cudaStream_t getPerThreadStream()
+        {
+            // Lightweight wrapper type that destroys stream on thread exit
+            struct ThreadStreamWrapper
+            {
+                cudaStream_t s{ nullptr };
+                ~ThreadStreamWrapper()
+                {
+                    if (s)
+                    {
+                        // best-effort destroy; do not throw in destructor
+                        cudaStreamDestroy( s );
+                        s = nullptr;
+                    }
+                }
+            };
+
+            // thread-local storage: map device_id -> ThreadStreamWrapper
+            static thread_local std::unordered_map<int, ThreadStreamWrapper> tls_streams;
+
+            auto it = tls_streams.find( device_id_ );
+
+            if (it != tls_streams.end() && it->second.s != nullptr)
+            {
+                return it->second.s;
+            }
+
+            // Need to create a new per-thread stream for this device
+            Cuda::setCurrentDevice( device_id_ );
+
+            cudaStream_t new_stream = nullptr;
+            cudaError_t err = cudaStreamCreateWithFlags( &new_stream, cudaStreamNonBlocking );
+            
+            if (err != cudaSuccess)
+            {
+                throw std::runtime_error(
+                    "Failed to create per-thread CUDA stream: " + std::string( cudaGetErrorString( err ) )
+                );
+            }
+
+            // Emplace wrapper into thread-local map; wrapper will destroy stream on thread exit.
+            ThreadStreamWrapper wrapper;
+            wrapper.s = new_stream;
+            tls_streams.emplace( device_id_, std::move( wrapper ) );
+
+            return new_stream;
+        }
 
     private:
         int device_id_;

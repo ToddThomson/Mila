@@ -49,7 +49,7 @@ namespace Modules::Activations::PerfTests
 		Tensor<TensorDataType::FP32, MR> output( ctx->getDevice(), shape );
 
 		// Prepare host input and copy
-		auto cpu_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>( -1 );
+		auto cpu_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
 		auto cpu_device = cpu_ctx->getDevice();
 		Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( cpu_device, shape );
 
@@ -62,6 +62,8 @@ namespace Modules::Activations::PerfTests
 		for (size_t i = 0; i < warmup_iters; ++i)
 		{
 			gelu->forward( input, output );
+			gelu->synchronize();
+			
 			// Ensure work completes by copying a small portion back (toHost will synchronize)
 			auto tmp = toHost<TensorDataType::FP32>( output );
 			(void)tmp.data();

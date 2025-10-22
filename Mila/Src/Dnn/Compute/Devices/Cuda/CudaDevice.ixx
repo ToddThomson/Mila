@@ -35,40 +35,36 @@ namespace Mila::Dnn::Compute
      * - FP8: Hopper and newer (SM 9.0+)
      * - INT8: Turing and newer (SM 7.5+)
      */
-    export class CudaDevice : public ComputeDevice 
+    export class CudaDevice : public ComputeDevice
     {
     public:
 
         /**
-         * @brief Constructs a CudaDevice with specified device ID.
+         * @brief Controlled factory to create a shared CudaDevice instance.
          *
-         * Validates the device ID and initializes device properties.
-         *
-         * @param device_id The CUDA device ID to initialize (0-based)
-         * @throws std::invalid_argument If device_id is negative
-         * @throws std::runtime_error If device_id exceeds available device count
+         * All construction should go through this method (or DeviceRegistry).
+         * This ensures shared ownership and prevents accidental direct construction.
          */
-        explicit CudaDevice( int device_id )
-            : device_id_( validateDeviceId( device_id ) ), resources_( std::make_shared<CudaDeviceResources>( device_id ) ), props_( device_id ) {
+        static std::shared_ptr<CudaDevice> create( int device_id )
+        {
+            return std::shared_ptr<CudaDevice>( new CudaDevice( device_id ) );
         }
 
         /**
          * @brief Gets the CUDA device ID.
          * @return int The device ID for this CUDA device (0-based)
          */
-        constexpr int getDeviceId() const override {
+        constexpr int getDeviceId() const override
+        {
             return device_id_;
-        }
-
-        std::shared_ptr<CudaDeviceResources> getResources() const { 
-            return resources_; 
         }
 
         /**
          * @brief Gets the type of this compute device.
          * @return DeviceType The device type (Cuda)
          */
-        constexpr DeviceType getDeviceType() const override {
+        constexpr DeviceType getDeviceType() const override
+        {
             return DeviceType::Cuda;
         }
 
@@ -76,7 +72,8 @@ namespace Mila::Dnn::Compute
          * @brief Gets the name of this CUDA device.
          * @return std::string The device name in format "CUDA:N" where N is device_id
          */
-        std::string getDeviceName() const override {
+        std::string getDeviceName() const override
+        {
             return "CUDA:" + std::to_string( device_id_ );
         }
 
@@ -84,7 +81,8 @@ namespace Mila::Dnn::Compute
          * @brief Gets the properties of this CUDA device.
          * @return const CudaDeviceProps& Reference to the device properties
          */
-        const CudaDeviceProps& getProperties() const {
+        const CudaDeviceProps& getProperties() const
+        {
             return props_;
         }
 
@@ -92,7 +90,8 @@ namespace Mila::Dnn::Compute
          * @brief Gets the compute capability version.
          * @return std::pair<int, int> Major and minor version (e.g., {8, 6} for SM 8.6)
          */
-        std::pair<int, int> getComputeCapability() const {
+        std::pair<int, int> getComputeCapability() const
+        {
             return { props_.major, props_.minor };
         }
 
@@ -100,7 +99,8 @@ namespace Mila::Dnn::Compute
          * @brief Gets the compute capability as a single number.
          * @return int Compute capability (e.g., 86 for SM 8.6)
          */
-        int getComputeCapabilityVersion() const {
+        int getComputeCapabilityVersion() const
+        {
             return props_.major * 10 + props_.minor;
         }
 
@@ -111,7 +111,8 @@ namespace Mila::Dnn::Compute
          *
          * @return bool True if FP16 is supported
          */
-        bool isFp16Supported() const {
+        bool isFp16Supported() const
+        {
             return props_.major >= 6;
         }
 
@@ -122,7 +123,8 @@ namespace Mila::Dnn::Compute
          *
          * @return bool True if BF16 is supported
          */
-        bool isBf16Supported() const {
+        bool isBf16Supported() const
+        {
             return props_.major >= 8;
         }
 
@@ -133,7 +135,8 @@ namespace Mila::Dnn::Compute
          *
          * @return bool True if FP8 is supported
          */
-        bool isFp8Supported() const {
+        bool isFp8Supported() const
+        {
             return props_.major >= 9;
         }
 
@@ -144,7 +147,8 @@ namespace Mila::Dnn::Compute
          *
          * @return bool True if INT8 tensor cores are supported
          */
-        bool isInt8Supported() const {
+        bool isInt8Supported() const
+        {
             return getComputeCapabilityVersion() >= 75;
         }
 
@@ -155,49 +159,60 @@ namespace Mila::Dnn::Compute
          *
          * @return bool True if Tensor Cores are available
          */
-        bool hasTensorCores() const {
+        bool hasTensorCores() const
+        {
             return props_.major >= 7;
         }
 
         /**
          * @brief Gets the maximum number of threads per block.
          */
-        int getMaxThreadsPerBlock() const {
+        int getMaxThreadsPerBlock() const
+        {
             return props_.maxThreadsPerBlock;
         }
 
         /**
          * @brief Gets the total global memory size in bytes.
          */
-        size_t getTotalGlobalMemory() const {
+        size_t getTotalGlobalMemory() const
+        {
             return props_.totalGlobalMem;
         }
 
         /**
          * @brief Gets the shared memory per block in bytes.
          */
-        size_t getSharedMemoryPerBlock() const {
+        size_t getSharedMemoryPerBlock() const
+        {
             return props_.sharedMemPerBlock;
         }
 
         /**
          * @brief Gets the number of multiprocessors.
          */
-        int getMultiprocessorCount() const {
+        int getMultiprocessorCount() const
+        {
             return props_.multiProcessorCount;
         }
 
         /**
          * @brief Gets the warp size.
          */
-        int getWarpSize() const {
+        int getWarpSize() const
+        {
             return props_.warpSize;
         }
 
     private:
+        // Private constructor - force use of create() or DeviceRegistry
+        explicit CudaDevice( int device_id )
+            : device_id_( validateDeviceId( device_id ) ), props_( device_id )
+        {
+        }
+
         int device_id_;
         CudaDeviceProps props_;
-        std::shared_ptr<CudaDeviceResources> resources_;
 
         /**
          * @brief Validates CUDA device ID.
@@ -209,8 +224,10 @@ namespace Mila::Dnn::Compute
          * @throws std::invalid_argument If device_id is negative
          * @throws std::runtime_error If device_id exceeds device count or CUDA error occurs
          */
-        static int validateDeviceId( int device_id ) {
-            if (device_id < 0) {
+        static int validateDeviceId( int device_id )
+        {
+            if (device_id < 0)
+            {
                 throw std::invalid_argument(
                     "CUDA device ID must be non-negative, got: " + std::to_string( device_id )
                 );
@@ -219,18 +236,21 @@ namespace Mila::Dnn::Compute
             int device_count = 0;
             cudaError_t error = cudaGetDeviceCount( &device_count );
 
-            if (error != cudaSuccess) {
+            if (error != cudaSuccess)
+            {
                 throw std::runtime_error(
                     "Failed to get CUDA device count: " +
                     std::string( cudaGetErrorString( error ) )
                 );
             }
 
-            if (device_count == 0) {
+            if (device_count == 0)
+            {
                 throw std::runtime_error( "No CUDA devices available" );
             }
 
-            if (device_id >= device_count) {
+            if (device_id >= device_count)
+            {
                 throw std::runtime_error(
                     "CUDA device ID " + std::to_string( device_id ) +
                     " exceeds available device count " + std::to_string( device_count ) +

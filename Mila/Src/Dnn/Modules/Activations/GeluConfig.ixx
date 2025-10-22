@@ -35,6 +35,17 @@ namespace Mila::Dnn
             Sigmoid      ///< Fast approximation using sigmoid
         };
 
+        static constexpr std::string_view toString( GeluConfig::ApproximationMethod method ) noexcept
+        {
+            switch (method)
+            {
+                case GeluConfig::ApproximationMethod::Exact:   return "Exact";
+                case GeluConfig::ApproximationMethod::Tanh:    return "Tanh";
+                case GeluConfig::ApproximationMethod::Sigmoid: return "Sigmoid";
+                default:                                       return "Unknown";
+            }
+        }
+
         /**
          * @brief Default constructor.
          */

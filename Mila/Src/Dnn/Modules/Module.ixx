@@ -14,22 +14,13 @@ module;
 #include <type_traits>
 #include <sstream>
 #include <format>
+#include <ostream>
+#include <cstddef>
 
 export module Dnn.Module;
 
-import Dnn.Tensor;
 import Dnn.ITensor;
-import Dnn.TensorDataType;
-import Dnn.TensorDataTypeTraits;
-import Dnn.ConfigurationBase;
 import Compute.DeviceType;
-import Compute.ExecutionContext;
-import Compute.CpuExecutionContext;
-import Compute.CudaExecutionContext;
-import Compute.MemoryResource;
-import Compute.CpuMemoryResource;
-import Compute.CudaDeviceMemoryResource;
-import Compute.Precision;
 import Serialization.ModelArchive;
 
 namespace Mila::Dnn
@@ -47,12 +38,23 @@ namespace Mila::Dnn
         // Core Interface (Pure Virtual)
         // ====================================================================
 
-        virtual void forward( const ITensor& input, ITensor& output ) = 0;
+        virtual void forward(
+            const ITensor& input,
+            ITensor& output ) = 0;
         
         virtual void backward( 
             const ITensor& input,
             const ITensor& output_grad,
             ITensor& input_grad ) = 0;
+
+        /**
+         * @brief Synchronize this module's execution stream.
+         *
+         * Blocks until all operations submitted by this module have completed.
+         * Useful for timing, debugging, or ensuring computation finishes before
+         * accessing results.
+         */
+        virtual void synchronize() = 0;
 
         virtual size_t parameterCount() const = 0;
 

@@ -134,8 +134,14 @@ namespace Mila::Dnn::Compute
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::native_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 
-        CudaGeluOp( const GeluConfig& config, std::shared_ptr<CudaExecutionContext> context = nullptr )
-            : config_( config ), context_( context ), impl_( config ) {
+        CudaGeluOp( std::shared_ptr<CudaExecutionContext> context, const GeluConfig& config )
+            : context_( context ), config_( config ), impl_( config ) 
+        {
+            if (!context_)
+            {
+                throw std::invalid_argument( "CudaExecutionContext cannot be null." );
+            }
+
             config_.validate();
         }
 
@@ -160,34 +166,28 @@ namespace Mila::Dnn::Compute
             const ITensor& input,
             [[maybe_unused]] const Parameters& parameters,
             ITensor& output,
-            [[maybe_unused]] OutputState& output_state ) const override {
+            [[maybe_unused]] OutputState& output_state ) const override
+        {
+            // TJT: This boilerplate code is fine for now but all ops should share a common helper for this.
 
-			// TJT: This boilerplate code is fine for now but all ops should share a common helper for this.
+			// ITensors must be of the same device type as the operation
+            if ( input.getDeviceType() != DeviceType::Cuda || output.getDeviceType() != DeviceType::Cuda ) {
+                throw std::invalid_argument( "CudaGeluOp: Input and output tensors must be on CUDA device." );
+			}
 
             cudaStream_t stream;
             std::shared_ptr<CudaDeviceResources> resources;
 
-            if (context_)
-            {
-                // Bound: dedicated non-blocking stream
-                stream = this->context_->getStream();
-                resources = this->context_->getResources();
-            }
-            else
-            {
-				// Unbound: per-thread stream from device
-                auto* cuda_device = static_cast<CudaDevice*>(input.getDevice().get());
-                
-                //stream = cuda_device->getDefaultStream();
-                resources = cuda_device->getResources();
-            }
+            stream = this->context_->getStream();
+            resources = this->context_->getResources();
 
-            ComputePrecision::Policy policy = config_.getPrecisionPolicy();
+            // TODO: Use precision policy from config
+            // ComputePrecision::Policy policy = config_.getPrecisionPolicy();
 
             auto X = static_cast<const NativeType*>(input.rawData());
             auto Y = static_cast<NativeType*>(output.rawData());
             int N = static_cast<int>(input.size());
-            
+
             impl_.forward( Y, X, N, stream );
         }
 
@@ -266,25 +266,31 @@ namespace Mila::Dnn::Compute
         * with the OperationRegistry. It associates the operation name "Cuda::GeluOp"
         * with a factory function that creates instances of CudaGeluOp.
         */
-        static void registerOperations() {
+        static void registerOperations()
+        {
             const std::string opName = "GeluOp";
 
             // Register FP32 version
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP32>(
                 opName,
-                [](  const ConfigurationBase& config, std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>> {
+                []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
+                    const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
+                {
                     const auto& geluConfig = static_cast<const GeluConfig&>(config);
-                    
-                    return std::make_shared<CudaGeluOp<TensorDataType::FP32>>( geluConfig, context );
+
+                    return std::make_shared<CudaGeluOp<TensorDataType::FP32>>( context, geluConfig );
                 }
             );
 
             // Register FP16 version
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP16>(
                 opName,
-                [](  const ConfigurationBase& config, std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>> {
+                []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
+                    const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
+                {
                     const auto& geluConfig = static_cast<const GeluConfig&>(config);
-                    return std::make_shared<CudaGeluOp<TensorDataType::FP16>>( geluConfig, context );
+
+                    return std::make_shared<CudaGeluOp<TensorDataType::FP16>>( context, geluConfig );
                 }
             );
         }

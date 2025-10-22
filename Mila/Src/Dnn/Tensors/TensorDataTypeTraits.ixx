@@ -17,6 +17,7 @@ module;
 export module Dnn.TensorDataTypeTraits;
 
 import Dnn.TensorDataType;
+import Compute.DeviceType;
 import Compute.MemoryResource;
 
 namespace Mila::Dnn
@@ -58,6 +59,9 @@ namespace Mila::Dnn
         static constexpr size_t size_in_bytes = 4;      ///< Memory footprint per element
         static constexpr size_t alignment = 4;          ///< Required memory alignment
         static constexpr const char* type_name = "FP32"; ///< Human-readable type identifier
+        static constexpr bool supported_on_cpu = true;
+        static constexpr bool supported_on_cuda = true;
+        static constexpr bool supported_on_metal = true;
     };
 
     /**
@@ -74,6 +78,9 @@ namespace Mila::Dnn
         static constexpr size_t size_in_bytes = 2;      ///< Memory footprint per element
         static constexpr size_t alignment = 2;          ///< Required memory alignment
         static constexpr const char* type_name = "FP16"; ///< Human-readable type identifier
+        static constexpr bool supported_on_cpu = false;
+        static constexpr bool supported_on_cuda = true;
+        static constexpr bool supported_on_metal = true;
     };
 
     /**
@@ -91,6 +98,9 @@ namespace Mila::Dnn
         static constexpr size_t size_in_bytes = 2;      ///< Memory footprint per element
         static constexpr size_t alignment = 2;          ///< Required memory alignment
         static constexpr const char* type_name = "BF16"; ///< Human-readable type identifier
+        static constexpr bool supported_on_cpu = false;
+        static constexpr bool supported_on_cuda = true;
+        static constexpr bool supported_on_metal = false;
     };
 
     /**
@@ -108,6 +118,9 @@ namespace Mila::Dnn
         static constexpr size_t size_in_bytes = 1;       ///< Memory footprint per element
         static constexpr size_t alignment = 1;           ///< Required memory alignment
         static constexpr const char* type_name = "FP8_E4M3"; ///< Human-readable type identifier
+        static constexpr bool supported_on_cpu = false;
+        static constexpr bool supported_on_cuda = true;
+        static constexpr bool supported_on_metal = false;
     };
 
     /**
@@ -124,6 +137,9 @@ namespace Mila::Dnn
         static constexpr size_t size_in_bytes = 1;       ///< Memory footprint per element
         static constexpr size_t alignment = 1;           ///< Required memory alignment
         static constexpr const char* type_name = "FP8_E5M2"; ///< Human-readable type identifier
+        static constexpr bool supported_on_cpu = false;
+        static constexpr bool supported_on_cuda = true;
+        static constexpr bool supported_on_metal = false;
     };
 
     /**
@@ -282,6 +298,16 @@ namespace Mila::Dnn
      */
     export template<TensorDataType TDataType>
         concept ValidFloatTensorDataType = TensorDataTypeTraits<TDataType>::is_float_type;
+
+    /**
+     * @brief Concept to validate precision is supported on a device at compile-time.
+     */
+    export template<TensorDataType TPrecision, Compute::DeviceType TDeviceType>
+    concept PrecisionSupportedOnDevice =
+        ValidFloatTensorDataType<TPrecision> &&
+            ((TDeviceType == Compute::DeviceType::Cpu && TensorDataTypeTraits<TPrecision>::supported_on_cpu) ||
+            (TDeviceType == Compute::DeviceType::Cuda && TensorDataTypeTraits<TPrecision>::supported_on_cuda) ||
+            (TDeviceType == Compute::DeviceType::Metal && TensorDataTypeTraits<TPrecision>::supported_on_metal));
 
     /**
      * @brief Concept constraining abstract data types to integer formats
