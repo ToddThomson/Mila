@@ -14,18 +14,18 @@ add_library( Mila STATIC
 	"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaGelu.cu"
 	"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaResidual.cu"
 	"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaSoftmax.cu"
-    #--------------------------------------------------------------------------
-    # Cuda TensorOps Kernels
-    #--------------------------------------------------------------------------
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Transfer.Copy.h"
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorCopy.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorOps.Fill.h"
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorOps.Fill.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/CudaTensorOps.h"
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.h"
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.cu"
-    
-     "Src/Dnn/Tensors/Operations/TensorOps-Base.ixx")
+ #--------------------------------------------------------------------------
+ # Cuda TensorOps Kernels
+ #--------------------------------------------------------------------------
+ "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Transfer.Copy.h"
+ "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorCopy.cu"
+ "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorOps.Fill.h"
+ "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorOps.Fill.cu"
+ "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/CudaTensorOps.h"
+ "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.h"
+ "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.cu"
+ 
+ "Src/Dnn/Tensors/Operations/TensorOps-Base.ixx")
 
  # FIXME: add_dependencies(Mila MilaUpdateVersion)
 
@@ -322,7 +322,9 @@ PUBLIC
         "Src/Dnn/Compute/Operations/OperationRegistryHelpers.ixx"
         "Src/Dnn/Compute/Devices/Vulkan/VulkanDevice.ixx"
         "Src/Dnn/Compute/Devices/OpenCL/OpenCLDevice.ixx"
- "Src/Dnn/Compute/DeviceDescriptor.ixx" "Src/Dnn/Compute/Devices/Cuda/CudaDeviceResources.ixx")
+        "Src/Dnn/Compute/DeviceDescriptor.ixx" 
+        "Src/Dnn/Compute/Devices/Cuda/CudaDeviceResources.ixx"
+)
 
 target_link_libraries(Mila PRIVATE 
     miniz
@@ -383,6 +385,9 @@ else()
 endif()
 
 add_subdirectory( Docs )
+
+# Add GBench subdirectory for Google Benchmark-based benchmarks
+add_subdirectory( GBench )
 
  # Configure code coverage for MSVC
  if( MILA_ENABLE_COVERAGE AND MSVC)

@@ -32,16 +32,6 @@ namespace Modules::Activations::Tests
         std::vector<size_t> shape;
         std::shared_ptr<GeluCudaModule> gelu_module;
 
-        static GeluCudaTestData CreateWithDeviceId( int device_id, size_t batch, size_t seq, size_t chan ) {
-            GeluCudaTestData d;
-            d.shape = { batch, seq, chan };
-            GeluConfig config;
-            // Create an execution context from device_id and forward to Gelu ctor
-            auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( device_id );
-            d.gelu_module = std::make_shared<GeluCudaModule>( config, ctx );
-            return d;
-        }
-
         static GeluCudaTestData CreateWithExecutionContext( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> ctx, size_t batch, size_t seq, size_t chan ) {
             GeluCudaTestData d;
             d.shape = { batch, seq, chan };
@@ -60,25 +50,23 @@ namespace Modules::Activations::Tests
         }
 
         void TearDown() override {
-            data_by_id_.gelu_module.reset();
             data_by_ctx_.gelu_module.reset();
         }
 
         size_t batch_{ 0 }, seq_{ 0 }, chan_{ 0 };
-        GeluCudaTestData data_by_id_;
         GeluCudaTestData data_by_ctx_;
     };
 
     TEST_F( GeluCudaTests, Construct_WithDeviceId_BehaviorDependsOnRegistration ) {
         // If CUDA GELU op is registered construction should succeed; otherwise it must throw.
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+
         if (isOperationRegistered<DeviceType::Cuda, TensorDataType::FP32>( "GeluOp" ))
         {
-            auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
             EXPECT_NO_THROW( (GeluCudaModule( GeluConfig(), ctx )) );
         }
         else
         {
-            auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
             EXPECT_THROW( (GeluCudaModule( GeluConfig(), ctx )), std::runtime_error );
         }
     }
@@ -105,10 +93,13 @@ namespace Modules::Activations::Tests
             return;
         }
 
-        auto d = GeluCudaTestData::CreateWithDeviceId( 0, batch_, seq_, chan_ );
+        // Create an execution context up-front and pass it to the factory
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto d = GeluCudaTestData::CreateWithExecutionContext( ctx, batch_, seq_, chan_ );
 
-        // Construct CUDA tensors with the device from module's execution context
-        auto cuda_device = d.gelu_module->getExecutionContext()->getDevice();
+        // Use the same execution context (ctx) to obtain device for tensor construction
+        auto cuda_device = ctx->getDevice();
+
         Tensor<TensorDataType::FP32, MR> input( cuda_device, d.shape );
         Tensor<TensorDataType::FP32, MR> output( cuda_device, d.shape );
 
@@ -134,7 +125,8 @@ namespace Modules::Activations::Tests
             return;
         }
 
-        auto d = GeluCudaTestData::CreateWithDeviceId( 0, batch_, seq_, chan_ );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto d = GeluCudaTestData::CreateWithExecutionContext( ctx, batch_, seq_, chan_ );
         auto s = d.gelu_module->toString();
         EXPECT_FALSE( s.empty() );
         EXPECT_NE( s.find( "Gelu" ), std::string::npos );
@@ -150,7 +142,7 @@ namespace Modules::Activations::Tests
         }
 
         auto d = GeluCudaTestData::CreateWithExecutionContext( ctx, batch_, seq_, chan_ );
-        EXPECT_EQ( d.gelu_module->getExecutionContext()->getDevice()->getDeviceType(), DeviceType::Cuda );
+        EXPECT_EQ( ctx->getDevice()->getDeviceType(), DeviceType::Cuda );
     }
 
     TEST_F( GeluCudaTests, CpuCuda_Equivalence_OrConstructorThrows ) {
@@ -170,19 +162,20 @@ namespace Modules::Activations::Tests
                 auto cuda_ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
                 EXPECT_THROW( (GeluCudaModule( GeluConfig(), cuda_ctx )), std::runtime_error );
             }
+
             return;
         }
 
         // Both registered: validate numerical equivalence.
         std::vector<size_t> shape = { 2, 2, 4 };
         GeluConfig config;
-        auto cpu_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>( -1 );
+        auto cpu_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
         auto cuda_ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
         auto cpu_gelu = std::make_shared<GeluCpuModule>( config, cpu_ctx );
         auto cuda_gelu = std::make_shared<GeluCudaModule>( config, cuda_ctx );
 
-        // Construct CPU tensors using CPU module's device
-        auto cpu_device = cpu_gelu->getExecutionContext()->getDevice();
+        // Construct CPU tensors using the cpu_ctx device
+        auto cpu_device = cpu_ctx->getDevice();
         Tensor<TensorDataType::FP32, CpuMemoryResource> cpu_input( cpu_device, shape );
         Tensor<TensorDataType::FP32, CpuMemoryResource> cpu_output( cpu_device, shape );
 
@@ -191,18 +184,19 @@ namespace Modules::Activations::Tests
 
         cpu_gelu->forward( cpu_input, cpu_output );
 
-        // Move to device and run CUDA module
-        Tensor<TensorDataType::FP32, MR> cuda_input( cuda_gelu->getExecutionContext()->getDevice(), shape );
+        // Move to device and run CUDA module using cuda_ctx device
+        Tensor<TensorDataType::FP32, MR> cuda_input( cuda_ctx->getDevice(), shape );
+
         copy( cpu_input, cuda_input );
 
-        auto cuda_device = cuda_gelu->getExecutionContext()->getDevice();
-        Tensor<TensorDataType::FP32, MR> cuda_output( cuda_device, shape );
+        Tensor<TensorDataType::FP32, MR> cuda_output( cuda_ctx->getDevice(), shape );
 
         cuda_gelu->forward( cuda_input, cuda_output );
 
         auto cuda_output_host = toHost<TensorDataType::FP32>( cuda_output );
 
         const float epsilon = 1e-3f;
+
         for (size_t i = 0; i < cpu_output.size(); ++i)
         {
             float cpu_val = cpu_output.data()[i];

@@ -8,9 +8,9 @@ module;
 #include <memory>
 #include <iostream>
 #include <cuda_fp16.h>
-#include "Kernels/CudaOps.h"
 #include <stdexcept>
 #include <type_traits>
+#include "Kernels/CudaOps.h"
 
 export module Compute.CudaGeluOp;
 
@@ -101,7 +101,7 @@ namespace Mila::Dnn::Compute
             }
 
             inline void backward( half* dX, const half* X, const half* dY, int N, cudaStream_t stream ) const {
-                // FIXME: implement or call half backward kernel when available
+				cuda_gelu_backward_fp16( dX, X, dY, N, stream );
             }
         };
     }
@@ -134,20 +134,6 @@ namespace Mila::Dnn::Compute
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::native_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 
-        // TJT: Design Note:
-		// Operations now use a 2 phase initialization:
-		// 1) Constructor with config only - no context binding
-		// 2) Optional context binding via bind_context() or with_context()
-		// This allows operations to be created in a context-agnostic way
-		/// and then bound to a specific execution context later (for device pinning).
-		// This is especially useful for registries and factories.
-		// The context can be set before execution.
-		// The base class OperationBase now has a set_context() method for this purpose.
-		// The constructor below does not take a context.
-		/// The context can be set later via bind_context() or with_context().
-		/// @param config Configuration for the GELU operation.
-        /// 
-           
         CudaGeluOp( const GeluConfig& config, std::shared_ptr<CudaExecutionContext> context = nullptr )
             : config_( config ), context_( context ), impl_( config ) {
             config_.validate();
@@ -172,9 +158,11 @@ namespace Mila::Dnn::Compute
         */
         void forward(
             const ITensor& input,
-            const Parameters& parameters,
+            [[maybe_unused]] const Parameters& parameters,
             ITensor& output,
-            OutputState& output_state ) const override {
+            [[maybe_unused]] OutputState& output_state ) const override {
+
+			// TJT: This boilerplate code is fine for now but all ops should share a common helper for this.
 
             cudaStream_t stream;
             std::shared_ptr<CudaDeviceResources> resources;
@@ -194,25 +182,13 @@ namespace Mila::Dnn::Compute
                 resources = cuda_device->getResources();
             }
 
-			// Set cuBLAS and cuDNN streams if needed
-
-            //auto cublas = resources->getCublasHandle();
-            //auto cudnn = resources->getCudnnHandle();
-            
-            //cublasSetStream( cublas, stream );
-            //cudnnSetStream( cudnn, stream );
-
             ComputePrecision::Policy policy = config_.getPrecisionPolicy();
 
-            // Get raw device pointers (native type)
             auto X = static_cast<const NativeType*>(input.rawData());
             auto Y = static_cast<NativeType*>(output.rawData());
             int N = static_cast<int>(input.size());
             
-            //cudaStream_t stream = this->getExecutionContext()->getStream();
-
-            // Dispatch to implementation based on native type
-            impl_.forward( reinterpret_cast<NativeType*>(Y), reinterpret_cast<const NativeType*>(X), N, stream );
+            impl_.forward( Y, X, N, stream );
         }
 
         /**
@@ -232,12 +208,11 @@ namespace Mila::Dnn::Compute
         void backward(
             const ITensor& output_gradient,
             const ITensor& input,
-            const Parameters& parameters,
-            const OutputState& output_state,
+            [[maybe_unused]] const Parameters& parameters,
+            [[maybe_unused]] const OutputState& output_state,
             ITensor& input_gradient,
-            Parameters& parameter_gradients ) const {
+            [[maybe_unused]] Parameters& parameter_gradients ) const {
 
-            // Get precision policy from operation base class or override from properties
             //ComputePrecision::Policy policy = this->getPrecisionPolicy();
 
             // Get tensor data pointers (native)
@@ -247,11 +222,10 @@ namespace Mila::Dnn::Compute
             
             int N = static_cast<int>(input.size());
 
-            // Get CUDA stream from execution context
-            //cudaStream_t stream = this->getExecutionContext()->getStream();
+            cudaStream_t stream = context_->getStream();
 
             // Call CUDA kernel with stream (not implemented yet for all native types)
-            // impl_.backward( dX, X, dY, N, stream );
+            impl_.backward( dX, X, dY, N, stream );
         }
 
         OperationType getOperationType() const override {
@@ -293,18 +267,19 @@ namespace Mila::Dnn::Compute
         * with a factory function that creates instances of CudaGeluOp.
         */
         static void registerOperations() {
-            const std::string opName = "Cuda::GeluOp";
+            const std::string opName = "GeluOp";
 
             // Register FP32 version
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP32>(
                 opName,
                 [](  const ConfigurationBase& config, std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>> {
                     const auto& geluConfig = static_cast<const GeluConfig&>(config);
+                    
                     return std::make_shared<CudaGeluOp<TensorDataType::FP32>>( geluConfig, context );
                 }
             );
 
-            // Register FP16 version (if/when supported)
+            // Register FP16 version
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP16>(
                 opName,
                 [](  const ConfigurationBase& config, std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>> {

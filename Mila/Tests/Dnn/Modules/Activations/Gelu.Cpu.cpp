@@ -31,18 +31,6 @@ namespace Modules::Activations::Tests
         std::vector<size_t> shape;
         std::shared_ptr<GeluCpuModule> gelu_module;
 
-        static GeluCpuTestData CreateWithDeviceId( int device_id, size_t batch, size_t seq, size_t chan ) {
-            GeluCpuTestData d;
-            d.shape = { batch, seq, chan };
-            GeluConfig config;
-
-            // Create an execution context from the device_id and forward to the Gelu ctor.
-            auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>( device_id );
-            d.gelu_module = std::make_shared<GeluCpuModule>( config, ctx );
-
-            return d;
-        }
-
         static GeluCpuTestData CreateWithExecutionContext( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> ctx, size_t batch, size_t seq, size_t chan ) {
             GeluCpuTestData d;
             d.shape = { batch, seq, chan };
@@ -63,17 +51,15 @@ namespace Modules::Activations::Tests
         }
 
         void TearDown() override {
-            data_by_id_.gelu_module.reset();
             data_by_ctx_.gelu_module.reset();
         }
 
         size_t batch_{ 0 }, seq_{ 0 }, chan_{ 0 };
-        GeluCpuTestData data_by_id_;
         GeluCpuTestData data_by_ctx_;
     };
 
     TEST_F( GeluCpuTests, Construct_WithExecutionContext_ThrowsWhenOpNotRegistered ) {
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>( -1 );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
 
         // Operation name used by Gelu::createOperation is "GeluOp"
         if (!isOperationRegistered<DeviceType::Cpu, TensorDataType::FP32>( "GeluOp" ))
@@ -90,20 +76,19 @@ namespace Modules::Activations::Tests
         // If not registered, constructor is expected to throw.
         if (!isOperationRegistered<DeviceType::Cpu, TensorDataType::FP32>( "GeluOp" ))
         {
-            auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>( -1 );
+            auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
             EXPECT_THROW( GeluCpuModule( GeluConfig(), ctx ), std::runtime_error );
             return;
         }
 
-        auto d = GeluCpuTestData::CreateWithDeviceId( -1, batch_, seq_, chan_ );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
+        auto d = GeluCpuTestData::CreateWithExecutionContext( ctx, batch_, seq_, chan_ );
 
-        // Construct tensors using the device-aware constructors defined in Tensor.ixx
-        auto device = d.gelu_module->getExecutionContext()->getDevice();
+        auto device = ctx->getDevice();
 
         Tensor<TensorDataType::FP32, MR> input( device, d.shape );
         Tensor<TensorDataType::FP32, MR> output( device, d.shape );
 
-        // Fill input with deterministic values (host-accessible)
         for (size_t i = 0; i < input.size(); ++i)
         {
             input.data()[i] = static_cast<float>( i ) / input.size() * 4.0f - 2.0f;
@@ -116,12 +101,13 @@ namespace Modules::Activations::Tests
     TEST_F( GeluCpuTests, ToString_ContainsGeluOrConstructorThrows ) {
         if (!isOperationRegistered<DeviceType::Cpu, TensorDataType::FP32>( "GeluOp" ))
         {
-            auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>( -1 );
+            auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
             EXPECT_THROW( GeluCpuModule( GeluConfig(), ctx ), std::runtime_error );
             return;
         }
 
-        auto d = GeluCpuTestData::CreateWithDeviceId( -1, batch_, seq_, chan_ );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
+        auto d = GeluCpuTestData::CreateWithExecutionContext( ctx, batch_, seq_, chan_ );
         auto s = d.gelu_module->toString();
         EXPECT_FALSE( s.empty() );
         EXPECT_NE( s.find( "Gelu" ), std::string::npos );
@@ -130,33 +116,35 @@ namespace Modules::Activations::Tests
     TEST_F( GeluCpuTests, DefaultApproximationMethod_IsTanhOrConstructorThrows ) {
         if (!isOperationRegistered<DeviceType::Cpu, TensorDataType::FP32>( "GeluOp" ))
         {
-            auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>( -1 );
+            auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
             EXPECT_THROW( GeluCpuModule( GeluConfig(), ctx ), std::runtime_error );
             return;
         }
 
-        auto d = GeluCpuTestData::CreateWithDeviceId( -1, batch_, seq_, chan_ );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
+        auto d = GeluCpuTestData::CreateWithExecutionContext( ctx, batch_, seq_, chan_ );
         EXPECT_EQ( d.gelu_module->getApproximationMethod(), GeluConfig::ApproximationMethod::Tanh );
     }
 
     TEST_F( GeluCpuTests, ExecutionContext_DeviceTypeMatchesOrConstructorThrows ) {
         if (!isOperationRegistered<DeviceType::Cpu, TensorDataType::FP32>( "GeluOp" ))
         {
-            auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>( -1 );
+            auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
             EXPECT_THROW( GeluCpuModule( GeluConfig(), ctx ), std::runtime_error );
             return;
         }
 
-        auto d = GeluCpuTestData::CreateWithDeviceId( -1, batch_, seq_, chan_ );
-        auto exec_ctx = d.gelu_module->getExecutionContext();
-        ASSERT_NE( exec_ctx, nullptr );
-        auto dev = exec_ctx->getDevice();
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
+        auto d = GeluCpuTestData::CreateWithExecutionContext( ctx, batch_, seq_, chan_ );
+        
+        auto dev = ctx->getDevice();
+        
         ASSERT_NE( dev, nullptr );
         EXPECT_EQ( dev->getDeviceType(), DeviceType::Cpu );
     }
 
     TEST_F( GeluCpuTests, Construct_WithExecutionContext_WorksOrThrows ) {
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>( -1 );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
 
         if (!isOperationRegistered<DeviceType::Cpu, TensorDataType::FP32>( "GeluOp" ))
         {
@@ -165,6 +153,6 @@ namespace Modules::Activations::Tests
         }
 
         auto d = GeluCpuTestData::CreateWithExecutionContext( ctx, batch_, seq_, chan_ );
-        EXPECT_EQ( d.gelu_module->getExecutionContext()->getDevice()->getDeviceType(), DeviceType::Cpu );
+        EXPECT_EQ( ctx->getDevice()->getDeviceType(), DeviceType::Cpu );
     }
 }

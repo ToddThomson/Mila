@@ -23,8 +23,9 @@ namespace Dnn::Modules::Tests
     /**
      * @brief Mock module for testing base Module functionality
      *
-     * Uses ITensor interface for forward/backward, demonstrating the new
-     * polymorphic design that accepts any compatible memory resource.
+     * Implements the slimmer Module<TDeviceType> interface introduced in Module.ixx.
+     * The mock owns an ExecutionContext for tests and exposes minimal helpers used
+     * by the unit tests (execution context access, simple string helpers).
      *
      * @tparam TDeviceType The compute device (CPU or CUDA)
      */
@@ -32,67 +33,67 @@ namespace Dnn::Modules::Tests
     class MockModule : public Module<TDeviceType> {
     public:
         using ModuleBase = Module<TDeviceType>;
-        using ExecutionContextType = typename ModuleBase::ExecutionContextType;
+        using ExecutionContextType = ExecutionContext<TDeviceType>;
 
         explicit MockModule( const MockModuleConfig& config, std::shared_ptr<ExecutionContextType> exec_context )
-            : ModuleBase( config, exec_context ) {
+            : config_( config ), exec_context_( exec_context ), training_( config.isTraining() ) {
+
+            // Basic validation to keep behavior aligned with tests
+            if (!exec_context_)
+            {
+                throw std::invalid_argument( "ExecutionContext cannot be null" );
+            }
+
+            // Validate config (throws if name is empty)
+            config_.validate();
         }
 
-        /**
-         * @brief Forward pass using ITensor polymorphic interface
-         *
-         * Validates tensor compatibility and performs identity operation
-         * (copies input to output) for testing purposes.
-         */
-        void forward( const ITensor& input, ITensor& output ) override {
-            // Validate device compatibility
-            this->validateTensorDevice( input, "input" );
-            this->validateTensorDevice( output, "output" );
+        // Expose execution context for tests
+        std::shared_ptr<ExecutionContextType> getExecutionContext() const {
+            return exec_context_;
+        }
 
-            // Validate data type compatibility
+        // ====================================================================
+        // Module interface implementation
+        // ====================================================================
+
+        void forward( const ITensor& input, ITensor& output ) override {
+            validateTensorDevice( input, "input" );
+            validateTensorDevice( output, "output" );
+
             if (input.getDataType() != output.getDataType())
             {
                 throw std::runtime_error( "Input and output data types must match" );
             }
 
-            // Validate size compatibility
             if (input.size() != output.size())
             {
                 throw std::runtime_error( "Input and output tensors must have the same size" );
             }
 
-            // Identity semantics are intentionally left minimal for this mock.
+            // Minimal semantics for mock: no actual data copy required for these tests
         }
 
-        /**
-         * @brief Backward pass using ITensor polymorphic interface
-         *
-         * Validates tensor compatibility and copies output gradient to
-         * input gradient for testing purposes.
-         */
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
             ITensor& input_grad ) override {
 
-            // Validate device compatibility
-            this->validateTensorDevice( input, "input" );
-            this->validateTensorDevice( output_grad, "output_grad" );
-            this->validateTensorDevice( input_grad, "input_grad" );
+            validateTensorDevice( input, "input" );
+            validateTensorDevice( output_grad, "output_grad" );
+            validateTensorDevice( input_grad, "input_grad" );
 
-            // Validate data type compatibility
             if (output_grad.getDataType() != input_grad.getDataType())
             {
                 throw std::runtime_error( "Gradient data types must match" );
             }
 
-            // Validate size compatibility
             if (output_grad.size() != input_grad.size())
             {
                 throw std::runtime_error( "Gradient tensors must have the same size" );
             }
 
-            // Gradient pass-through left minimal for mock
+            // Minimal semantics for mock
         }
 
         size_t parameterCount() const override {
@@ -100,27 +101,71 @@ namespace Dnn::Modules::Tests
         }
 
         void save( ModelArchive& archive ) const override {}
-
         void load( ModelArchive& archive ) override {}
 
         std::string toString() const override {
             std::ostringstream oss;
-            // Align to Module.ixx: include module name (from config), device info, training and precision
-            oss << "MockModule: " << this->getName() << std::endl;
-            oss << "Device: " << deviceToString( this->getDeviceType() ) << std::endl;
-            oss << "Training: " << (this->isTraining() ? "true" : "false") << std::endl;
-            oss << "Precision: " << static_cast<int>(this->getPrecisionPolicy()) << std::endl;
+            oss << "MockModule: " << getName() << std::endl;
+            //oss << "Device: " << deviceToString( getDeviceType() ) << std::endl;
+            oss << "Training: " << (isTraining() ? "true" : "false") << std::endl;
+            //oss << config_.getPrecisionPolicy(); // left as a placeholder representation
             return oss.str();
         }
 
-        // Test helpers to access protected methods
+        // ====================================================================
+        // State/config helpers required by tests
+        // ====================================================================
+
+        void setTraining( bool is_training ) override {
+            training_ = is_training;
+        }
+
+        bool isTraining() const override {
+            return training_;
+        }
+
+        std::string getName() const override {
+            return config_.getName();
+        }
+
+        // Expose precision policy for tests
+        ComputePrecision::Policy getPrecisionPolicy() const {
+            return config_.getPrecisionPolicy();
+        }
+
+        // Test helpers to mimic original test expectations
         std::string testParametersToString() const {
-            return this->parametersToString();
+            return parametersToString();
         }
 
         std::string testStateToString() const {
-            return this->stateToString();
+            return stateToString();
         }
+
+    private:
+        // Simple device validation helper used by the mock
+        void validateTensorDevice( const ITensor& tensor, const char* name ) const {
+            if (tensor.getDeviceType() != TDeviceType)
+            {
+                throw std::invalid_argument( std::string( name ) + ": tensor device type mismatch" );
+            }
+        }
+
+        std::string parametersToString() const {
+            std::ostringstream oss;
+            oss << "Parameters:\n";
+            oss << "Total parameter count: " << parameterCount() << std::endl;
+            return oss.str();
+        }
+
+        std::string stateToString() const {
+            // Empty state for this simple mock
+            return std::string();
+        }
+
+        MockModuleConfig config_;
+        std::shared_ptr<ExecutionContextType> exec_context_;
+        bool training_{ false };
     };
 
     /**
@@ -254,7 +299,6 @@ namespace Dnn::Modules::Tests
 
     template<DeviceType TDeviceType>
     void TestGetName( const ModuleTestData<TDeviceType>& data, const std::string& expected_name ) {
-        // Module.ixx exposes getName() for module name (config)
         EXPECT_EQ( data.module->getName(), expected_name );
     }
 
@@ -286,10 +330,10 @@ namespace Dnn::Modules::Tests
         EXPECT_EQ( data.module->getDeviceType(), TDeviceType );
     }
 
+    // Minimal precision test to match new Module API (mock exposes precision via config)
     template<DeviceType TDeviceType>
     void TestPrecision( const ModuleTestData<TDeviceType>& data ) {
-        auto precision = data.module->getPrecisionPolicy();
-        EXPECT_EQ( precision, ComputePrecision::Policy::Auto );
+        EXPECT_EQ( data.module->getPrecisionPolicy(), ComputePrecision::Policy::Auto );
     }
 
     template<DeviceType TDeviceType>
@@ -353,9 +397,7 @@ namespace Dnn::Modules::Tests
                 host_grad_data[i] = 0.5f;
             }
 
-            // Transfer to device using TensorOps (left commented if not available)
-            /*TensorOps<CudaComputeDeviceTag>::copy( host_input, input, exec_ctx );
-            TensorOps<CudaComputeDeviceTag>::copy( host_grad, output_grad, exec_ctx );*/
+            // Transfer to device using TensorOps if available (kept minimal here)
             exec_ctx->synchronize();
         }
 

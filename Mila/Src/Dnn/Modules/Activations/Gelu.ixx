@@ -49,9 +49,8 @@ namespace Mila::Dnn
         /* TODO: requires isValid??? */
         class Gelu : public Module<TDeviceType> {
         public:
-            using ModuleBase = Module<TDeviceType>;
             using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
-            using ExecutionContextType = typename ModuleBase::ExecutionContextType;
+            using ExecutionContextType = ExecutionContext<TDeviceType>;
             using TensorType = Tensor<TPrecision, MR>;
 
             /**
@@ -61,12 +60,13 @@ namespace Mila::Dnn
              * @param config GELU configuration.
              */
             explicit Gelu( const GeluConfig& config, std::shared_ptr<ExecutionContextType> exec_context )
-                : ModuleBase( config, exec_context ), config_( config )
+				: config_( config ), exec_context_( exec_context )
             {
-                if (!exec_context)
+                if (!exec_context_)
                 {
                     throw std::invalid_argument( "ExecutionContext cannot be null." );
                 }
+                
                 config_.validate();
 
                 createOperation();
@@ -127,17 +127,36 @@ namespace Mila::Dnn
             std::string toString() const override {
                 std::ostringstream oss;
                 oss << "--------------------" << std::endl;
-                oss << "Gelu: " << this->getDeviceName() << std::endl;
-                oss << "Device: " << deviceToString( this->getExecutionContext()->getDevice()->getDeviceType() ) << std::endl;
+                //oss << "Gelu: " << this->getDeviceName() << std::endl;
+                //oss << "Device: " << deviceToString( this->getExecutionContext()->getDevice()->getDeviceType() ) << std::endl;
                 oss << "Approximation Method: " << approximationMethodToString( config_.getApproximationMethod() ) << std::endl;
                 return oss.str();
             }
 
+            // ====================================================================
+            // State and Configuration Implementation
+            // ====================================================================
+
+            void setTraining( bool is_training ) override {
+                training_mode_ = is_training;
+            }
+
+            bool isTraining() const override {
+                return training_mode_;
+            }
+
+            std::string getName() const override {
+                return config_.getName();
+            }
+
         private:
+
+			bool training_mode_{ false };
             GeluConfig config_;
+			std::shared_ptr<ExecutionContextType> exec_context_;
             std::vector<std::shared_ptr<TensorType>> parameters_;
             std::vector<std::shared_ptr<TensorType>> output_state_;
-            std::shared_ptr<UnaryOperation<TDeviceType, TensorDataType::FP32>> operation_{ nullptr };
+            std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
 
             static std::string approximationMethodToString( GeluConfig::ApproximationMethod method ) {
                 switch (method)
@@ -150,8 +169,9 @@ namespace Mila::Dnn
             }
 
             void createOperation() {
-                operation_ = OperationRegistry::instance().createUnaryOperation<TDeviceType, TPrecision>(
-                    "GeluOp", config_, this->getExecutionContext() );
+                operation_ = OperationRegistry::instance()
+                    .createUnaryOperation<TDeviceType, TPrecision>(
+                    "GeluOp", config_, exec_context_ );
 
                 if (!operation_)
                 {

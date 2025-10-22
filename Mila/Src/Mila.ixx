@@ -19,7 +19,6 @@
  * DEALINGS IN THE SOFTWARE.
  */
 module;
-//#include <cuda_fp16.h>
 #include <string>
 #include <iostream>
 #include <memory>
@@ -95,6 +94,7 @@ export import Compute.CudaPinnedMemoryResource;
 // ====================================================================
 // Compute - Operations Registry
 // ====================================================================
+export import Compute.OperationRegistry;
 export import Compute.OperationRegistryHelpers;
 //export import Compute.OperationAttributes;
 
