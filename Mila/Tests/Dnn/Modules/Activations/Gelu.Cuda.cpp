@@ -36,7 +36,7 @@ namespace Modules::Activations::Tests
             GeluCudaTestData d;
             d.shape = { batch, seq, chan };
             GeluConfig config;
-            d.gelu_module = std::make_shared<GeluCudaModule>( config, ctx );
+            d.gelu_module = std::make_shared<GeluCudaModule>( ctx, config );
             return d;
         }
     };
@@ -63,11 +63,11 @@ namespace Modules::Activations::Tests
 
         if (isOperationRegistered<DeviceType::Cuda, TensorDataType::FP32>( "GeluOp" ))
         {
-            EXPECT_NO_THROW( (GeluCudaModule( GeluConfig(), ctx )) );
+            EXPECT_NO_THROW( (GeluCudaModule( ctx, GeluConfig() )) );
         }
         else
         {
-            EXPECT_THROW( (GeluCudaModule( GeluConfig(), ctx )), std::runtime_error );
+            EXPECT_THROW( (GeluCudaModule( ctx, GeluConfig() )), std::runtime_error );
         }
     }
 
@@ -76,11 +76,11 @@ namespace Modules::Activations::Tests
 
         if (isOperationRegistered<DeviceType::Cuda, TensorDataType::FP32>( "GeluOp" ))
         {
-            EXPECT_NO_THROW( (GeluCudaModule( GeluConfig(), ctx )) );
+            EXPECT_NO_THROW( (GeluCudaModule( ctx, GeluConfig() )) );
         }
         else
         {
-            EXPECT_THROW( (GeluCudaModule( GeluConfig(), ctx )), std::runtime_error );
+            EXPECT_THROW( (GeluCudaModule( ctx, GeluConfig() )), std::runtime_error );
         }
     }
 
@@ -89,7 +89,7 @@ namespace Modules::Activations::Tests
         {
             // Expect constructor to fail when op is not registered.
             auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
-            EXPECT_THROW( (GeluCudaModule( GeluConfig(), ctx )), std::runtime_error );
+            EXPECT_THROW( (GeluCudaModule( ctx, GeluConfig() )), std::runtime_error );
             return;
         }
 
@@ -121,7 +121,7 @@ namespace Modules::Activations::Tests
         if (!isOperationRegistered<DeviceType::Cuda, TensorDataType::FP32>( "GeluOp" ))
         {
             auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
-            EXPECT_THROW( (GeluCudaModule( GeluConfig(), ctx )), std::runtime_error );
+            EXPECT_THROW( (GeluCudaModule( ctx, GeluConfig() )), std::runtime_error );
             return;
         }
 
@@ -138,7 +138,7 @@ namespace Modules::Activations::Tests
 
         if (!isOperationRegistered<DeviceType::Cuda, TensorDataType::FP32>( "GeluOp" ))
         {
-            EXPECT_THROW( (GeluCudaModule( GeluConfig(), ctx )), std::runtime_error );
+            EXPECT_THROW( (GeluCudaModule( ctx, GeluConfig() )), std::runtime_error );
             return;
         }
 
@@ -156,12 +156,12 @@ namespace Modules::Activations::Tests
             if (!cpu_registered)
             {
                 auto cpu_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>( -1 );
-                EXPECT_THROW( (GeluCpuModule( GeluConfig(), cpu_ctx )), std::runtime_error );
+                EXPECT_THROW( (GeluCpuModule( cpu_ctx, GeluConfig() )), std::runtime_error );
             }
             if (!cuda_registered)
             {
                 auto cuda_ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
-                EXPECT_THROW( (GeluCudaModule( GeluConfig(), cuda_ctx )), std::runtime_error );
+                EXPECT_THROW( (GeluCudaModule( cuda_ctx, GeluConfig() )), std::runtime_error );
             }
 
             return;
@@ -172,8 +172,8 @@ namespace Modules::Activations::Tests
         GeluConfig config;
         auto cpu_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
         auto cuda_ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
-        auto cpu_gelu = std::make_shared<GeluCpuModule>( config, cpu_ctx );
-        auto cuda_gelu = std::make_shared<GeluCudaModule>( config, cuda_ctx );
+        auto cpu_gelu = std::make_shared<GeluCpuModule>( cpu_ctx, config );
+        auto cuda_gelu = std::make_shared<GeluCudaModule>( cuda_ctx, config );
 
         // Construct CPU tensors using the cpu_ctx device
         auto cpu_device = cpu_ctx->getDevice();

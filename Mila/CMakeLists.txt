@@ -185,14 +185,14 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Transfer.ixx"
         
         "Src/Dnn/Compute/Devices/Cpu/Operations/CpuOperations.ixx"
+        #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuCrossEntropyOp.ixx"
         #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuEncoderOp.ixx"
         "Src/Dnn/Compute/Devices/Cpu/Operations/CpuGeluOp.ixx"
-        #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuLayerNormOp.ixx"
-        #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuLinearOp.ixx"
+        "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLayerNormOp.ixx"
+        "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLinearOp.ixx"
         #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuMultiHeadAttentionOp.ixx"
         #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuResidualOp.ixx"
-        #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxOp.ixx"
-        #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuCrossEntropyOp.ixx"
+        "Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxOp.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Compute / Devices / Cuda
@@ -231,11 +231,11 @@ PUBLIC
         #"Src/Dnn/Compute/Operations/Cuda/CudaDataTypeTraits.ixx"
         #"Src/Dnn/Compute/Operations/Cuda/CublasLtMatMulBias.ixx"
         #"Src/Dnn/Compute/Operations/Cuda/MatMulBiasActivation.ixx"
-        #"Src/Dnn/Compute/Operations/Cuda/CudaLinearOp.ixx"
         #"Src/Dnn/Compute/Operations/Cuda/CudaResidualOp.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Operations/CudaGeluOp.ixx"
-        #"Src/Dnn/Compute/Operations/Cuda/CudaSoftmaxOp.ixx"
-        #"Src/Dnn/Compute/Operations/Cuda/CudaLayerNormOp.ixx"
+        "Src/Dnn/Compute/Devices/Cuda/Operations/CudaLayerNormOp.ixx"
+        "Src/Dnn/Compute/Devices/Cuda/Operations/CudaLinearOp.ixx"
+        "Src/Dnn/Compute/Devices/Cuda/Operations/CudaSoftmaxOp.ixx"
         #"Src/Dnn/Compute/Operations/Cuda/CudaMultiHeadAttentionOp.ixx"
         #"Src/Dnn/Compute/Operations/Cuda/CudaEncoderOp.ixx"
 
@@ -274,20 +274,20 @@ PUBLIC
         "Src/Dnn/Modules/Activations/GeluConfig.ixx"
 
         # Modules - Layers
-        #"Src/Dnn/Modules/Layers/Linear.ixx"
-        #"Src/Dnn/Modules/Layers/LinearConfig.ixx"
+        "Src/Dnn/Modules/Layers/Linear.ixx"
+        "Src/Dnn/Modules/Layers/LinearConfig.ixx"
         #"Src/Dnn/Modules/Layers/Encoder.ixx"
         #"Src/Dnn/Modules/Layers/EncoderConfig.ixx"
         #"Src/Dnn/Modules/Layers/MultiHeadAttention.ixx"
         #"Src/Dnn/Modules/Layers/MultiHeadAttentionConfig.ixx"
         #"Src/Dnn/Modules/Layers/Residual.ixx"
         #"Src/Dnn/Modules/Layers/ResidualConfig.ixx"
-        #"Src/Dnn/Modules/Layers/Softmax.ixx"
-        #"Src/Dnn/Modules/Layers/SoftmaxConfig.ixx"
+        "Src/Dnn/Modules/Layers/Softmax.ixx"
+        "Src/Dnn/Modules/Layers/SoftmaxConfig.ixx"
 
         # Normalization / Losses / Regularization / Blocks / Models / Data / Serialization (originally commented)
-        #"Src/Dnn/Modules/Normalization/LayerNorm.ixx"
-        #"Src/Dnn/Modules/Normalization/LayerNormConfig.ixx"
+        "Src/Dnn/Modules/Normalization/LayerNorm.ixx"
+        "Src/Dnn/Modules/Normalization/LayerNormConfig.ixx"
         #"Src/Dnn/Modules/Losses/CrossEntropy.ixx"
         #"Src/Dnn/Modules/Losses/CrossEntropyConfig.ixx"
         #"Src/Dnn/Modules/Regularization/Dropout.ixx"
@@ -314,7 +314,6 @@ PUBLIC
         # WIP / Attributes
         #"Src/Dnn/Modules/Layers/LinearAttributes.ixx"
         #"Src/Dnn/Common/Attributes.ixx"
-
         
         "Src/Dnn/Tensors/Operations/TensorOps.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps-Base.ixx"

@@ -42,7 +42,7 @@ namespace Modules::Activations::PerfTests
 		size_t timed_iters = 50 )
 	{
 		GeluConfig config;
-		auto gelu = std::make_shared<GeluCudaModule>( config, ctx );
+		auto gelu = std::make_shared<GeluCudaModule>( ctx, config );
 
 		// Allocate device tensors
 		Tensor<TensorDataType::FP32, MR> input( ctx->getDevice(), shape );
@@ -123,5 +123,4 @@ namespace Modules::Activations::PerfTests
 			RunGeluEndToEndPerf( ctx, s, /*warmup=*/5, /*timed=*/50 );
 		}
 	}
-
 }

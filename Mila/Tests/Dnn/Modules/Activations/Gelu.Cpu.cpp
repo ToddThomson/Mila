@@ -23,7 +23,6 @@ namespace Modules::Activations::Tests
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
 
-    // Memory resource for CPU device
     using MR = CpuMemoryResource;
     using GeluCpuModule = Gelu<DeviceType::Cpu, TensorDataType::FP32>;
 
@@ -36,7 +35,7 @@ namespace Modules::Activations::Tests
             d.shape = { batch, seq, chan };
             GeluConfig config;
 
-            d.gelu_module = std::make_shared<GeluCpuModule>( config, ctx );
+            d.gelu_module = std::make_shared<GeluCpuModule>( ctx, config );
 
             return d;
         }
@@ -64,11 +63,11 @@ namespace Modules::Activations::Tests
         // Operation name used by Gelu::createOperation is "GeluOp"
         if (!isOperationRegistered<DeviceType::Cpu, TensorDataType::FP32>( "GeluOp" ))
         {
-            EXPECT_THROW( GeluCpuModule( GeluConfig(), ctx ), std::runtime_error );
+            EXPECT_THROW( GeluCpuModule( ctx, GeluConfig() ), std::runtime_error );
         }
         else
         {
-            EXPECT_NO_THROW( GeluCpuModule( GeluConfig(), ctx ) );
+            EXPECT_NO_THROW( GeluCpuModule( ctx, GeluConfig() ) );
         }
     }
 
@@ -77,7 +76,7 @@ namespace Modules::Activations::Tests
         if (!isOperationRegistered<DeviceType::Cpu, TensorDataType::FP32>( "GeluOp" ))
         {
             auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-            EXPECT_THROW( GeluCpuModule( GeluConfig(), ctx ), std::runtime_error );
+            EXPECT_THROW( GeluCpuModule( ctx, GeluConfig() ), std::runtime_error );
             return;
         }
 
@@ -103,7 +102,7 @@ namespace Modules::Activations::Tests
         {
             auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
             
-            EXPECT_THROW( GeluCpuModule( GeluConfig(), ctx ), std::runtime_error );
+            EXPECT_THROW( GeluCpuModule( ctx, GeluConfig() ), std::runtime_error );
             
             return;
         }
@@ -121,7 +120,7 @@ namespace Modules::Activations::Tests
         if (!isOperationRegistered<DeviceType::Cpu, TensorDataType::FP32>( "GeluOp" ))
         {
             auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-            EXPECT_THROW( GeluCpuModule( GeluConfig(), ctx ), std::runtime_error );
+            EXPECT_THROW( GeluCpuModule( ctx, GeluConfig() ), std::runtime_error );
             return;
         }
 
@@ -134,7 +133,7 @@ namespace Modules::Activations::Tests
         if (!isOperationRegistered<DeviceType::Cpu, TensorDataType::FP32>( "GeluOp" ))
         {
             auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-            EXPECT_THROW( GeluCpuModule( GeluConfig(), ctx ), std::runtime_error );
+            EXPECT_THROW( GeluCpuModule( ctx, GeluConfig() ), std::runtime_error );
             return;
         }
 
@@ -152,7 +151,7 @@ namespace Modules::Activations::Tests
 
         if (!isOperationRegistered<DeviceType::Cpu, TensorDataType::FP32>( "GeluOp" ))
         {
-            EXPECT_THROW( GeluCpuModule( GeluConfig(), ctx ), std::runtime_error );
+            EXPECT_THROW( GeluCpuModule( ctx, GeluConfig() ), std::runtime_error );
             return;
         }
 

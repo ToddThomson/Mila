@@ -913,7 +913,6 @@ namespace Mila::Dnn
             return static_cast<const HostType*>(buffer_ ? buffer_->data() : nullptr);
         }
 
-
         // ====================================================================
         // Shape Transformation Operations
         // ====================================================================
@@ -979,11 +978,24 @@ namespace Mila::Dnn
          * @note Scalars remain unchanged (rank 0)
          */
         Tensor<TDataType, TMemoryResource>& flatten() {
-            throw std::runtime_error( "Tensor::flattened() is not implemented. Use TensorOps for deep copy and shape transformation." );
-        }
+            // No-op for scalars and vectors
+            if (rank() <= 1)
+            {
+                return *this;
+            }
 
-        Tensor<TDataType, TMemoryResource> flattened() const {
-            throw std::runtime_error( "Tensor::flattened() is not implemented. Use TensorOps for deep copy and shape transformation." );
+            // Compute product of all dims except the last
+            size_t first = 1;
+            for (size_t i = 0; i + 1 < shape_.size(); ++i)
+            {
+                first *= shape_[i];
+            }
+            size_t last = shape_.back();
+
+            // reshape will validate size compatibility and allocate if needed
+            this->reshape( std::vector<size_t>{ first, last } );
+
+            return *this;
         }
 
         // ====================================================================
@@ -1087,7 +1099,10 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-    protected:
+    //protected:
+
+		// TJT: Review: Should these be protected or public? 
+
         /**
          * @brief Returns raw pointer to tensor data (implements ITensor protected API)
          *
@@ -1099,6 +1114,7 @@ namespace Mila::Dnn
          * @note Implements ITensor::rawData()
          */
         void* rawData() override {
+			// TJT: Review: can buffer_ be null here?
             return buffer_ ? buffer_->data() : nullptr;
         }
 
@@ -1138,9 +1154,11 @@ namespace Mila::Dnn
             return buffer_ ? buffer_->getMemoryResource() : nullptr;
         }
 
-private:
+    private:
 
+		// TJT: Review: This seems rather heavy. Consider storing device type, device ID separately to avoid repeated calls to device_->getDeviceId()
         std::shared_ptr<Compute::ComputeDevice> device_{ nullptr };       ///< Device for proper device binding and resource management
+        
         std::string uid_;                                                          ///< Unique identifier for this tensor instance
         std::string name_;                                                         ///< Optional user-assigned name for debugging
         size_t size_{ 0 };                                                         ///< Total number of logical elements in the tensor

@@ -102,22 +102,22 @@ export import Compute.OperationRegistryHelpers;
 // Compute - CPU Operations
 // ====================================================================
 //export import Compute.CpuEncoderOp;
-//export import Compute.CpuGeluOp;
-//export import Compute.CpuLayerNormOp;
-//export import Compute.CpuLinearOp;
+export import Compute.CpuGeluOp;
+export import Compute.CpuLayerNormOp;
+export import Compute.CpuLinearOp;
 //export import Compute.CpuResidualOp;
-//export import Compute.CpuSoftmaxOp;
+export import Compute.CpuSoftmaxOp;
 
 // ====================================================================
 // Compute - CUDA Operations
 // ====================================================================
 //export import Compute.CudaEncoderOp;
-//export import Compute.CudaGeluOp;
-//export import Compute.CudaSoftmaxOp;
+export import Compute.CudaGeluOp;
 //export import Compute.CudaMHAOp;
-//export import Compute.CudaLinearOp;
-//export import Compute.CudaLayerNormOp;
+export import Compute.CudaLinearOp;
+export import Compute.CudaLayerNormOp;
 //export import Compute.CudaResidualOp;
+export import Compute.CudaSoftmaxOp;
 
 // ====================================================================
 // Compute - Tensor Data Types
@@ -163,10 +163,10 @@ export import Dnn.TensorInitializers;
 //export import Dnn.Modules.Attention;
 //export import Dnn.Modules.Encoder;
 export import Dnn.Modules.Gelu;
-//export import Dnn.Modules.LayerNorm;
-//export import Dnn.Modules.Linear;
+export import Dnn.Modules.LayerNorm;
+export import Dnn.Modules.Linear;
 //export import Dnn.Modules.Residual;
-//export import Dnn.Modules.Softmax;
+export import Dnn.Modules.Softmax;
 
 // ====================================================================
 // Dnn - Blocks

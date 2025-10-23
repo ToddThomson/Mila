@@ -1,6 +1,9 @@
 /**
  * @file CpuLinearOp.ixx
- * @brief Implementation of the CPU-based Fully Connected operation for neural networks.
+ * @brief CPU implementation of the Fully Connected operation (TensorDataType-based).
+ *
+ * Ported to the ExecutionContext / TensorDataType UnaryOperation interface following
+ * the pattern used by CpuGeluOp.
  */
 
 module;
@@ -19,16 +22,22 @@ export module Compute.CpuLinearOp;
 import Dnn.Modules.Linear;
 import Dnn.Tensor;
 import Dnn.ITensor;
+import Dnn.TensorDataType;
+import Dnn.TensorDataTypeTraits;
+import Dnn.TensorHostTypeMap;
 import Dnn.ConfigurationBase;
+import Compute.DeviceType;
+import Compute.ExecutionContext;
+import Compute.IExecutionContext;
+import Compute.CpuExecutionContext;
+import Compute.OperationType;
+import Compute.OperationAttributes;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
-import Compute.DeviceType;
-import Compute.DeviceContext;
-import Compute.OperationType;
-import Compute.OperationAttributes;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
+import Compute.CpuTensorDataTypeTraits;
 import Compute.CpuDevice;
 import Compute.Precision;
 
@@ -37,276 +46,256 @@ namespace Mila::Dnn::Compute
     using namespace Mila::Dnn;
 
     /**
-     * @brief CPU implementation of the Fully Connected operation for neural networks.
+     * @brief CPU implementation of the Fully Connected / Linear operation using abstract TensorDataType.
      *
-     * This class provides a CPU-based implementation of the Fully Connected operation,
-     * which performs a matrix multiplication between the input and a weight matrix,
-     * optionally adds a bias, and produces an output. This operation implements the
-     * standard linear layer commonly used in neural networks.
-     *
-     * The implementation includes both a performance-optimized version with loop
-     * unrolling and a naive fallback implementation for special cases.
-     *
-     * @tparam float The data type of the input tensor elements.
-     * @tparam TDataType The data type used for computation and output (defaults to the input type).
+     * Forward: Y = X * W^T + b
+     * Backward:
+     *  - dX += dY * W
+     *  - dW += dY^T * X
+     *  - db += sum(dY)
      */
-    export class CpuLinearOp : public UnaryOperation<DeviceType::Cpu, float> {
+    export template<TensorDataType TPrecision>
+        requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cpu>
+    class CpuLinearOp : public UnaryOperation<DeviceType::Cpu, TPrecision>
+    {
     public:
-        using MR = typename CpuDevice::MR;
-        using OperationBase = UnaryOperation<DeviceType::Cpu, float>;
+        using MR = CpuMemoryResource;
+        using UnaryOperationBase = UnaryOperation<DeviceType::Cpu, TPrecision>;
+        using TensorType = Tensor<TPrecision, MR>;
+        using Parameters = std::vector<std::shared_ptr<TensorType>>;
+        using OutputState = std::vector<std::shared_ptr<TensorType>>;
+        using HostType = typename TensorHostTypeMap<TPrecision>::host_type;
+        using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
 
-        /**
-         * @brief Constructs a new CPU Fully Connected operation with the default device context.
-         *
-         * CPU operations always use full precision regardless of policy settings.
-         *
-         * @param precision_policy Ignored for CPU operations, as they always use full precision.
-         */
-        CpuLinearOp( const LinearConfig& config )
-            : OperationBase( OperationType::LinearOp ), config_( config ) {}
+        CpuLinearOp( std::shared_ptr<CpuExecutionContext> context, const LinearConfig& config )
+            : config_( config ), context_( context )
+        {
+            if (context_ && context_->getDevice()->getDeviceType() != DeviceType::Cpu)
+            {
+                throw std::runtime_error( "CpuLinearOp requires a CPU execution context" );
+            }
 
-        /**
-         * @brief Constructs a new CPU Fully Connected operation with a specific device context.
-         *
-         * CPU operations always use full precision regardless of policy settings.
-         *
-         * @param context The device context to use for this operation.
-         * @param precision_policy Ignored for CPU operations, as they always use full precision.
-         * @throws std::runtime_error If the context is not for a CPU device.
-         */
-        CpuLinearOp( std::shared_ptr<DeviceContext> context, const LinearConfig& config )
-            : OperationBase( OperationType::LinearOp, context ), config_( config ) {}
+            config_.validate();
+        }
 
-        /**
-         * @brief Performs the forward pass of the Linear operation.
-         *
-         * Computes the matrix multiplication between input and weights, adds bias if provided,
-         * and stores the result in the output tensor. Uses loop unrolling for performance optimization
-         * when possible, otherwise falls back to a naive implementation.
-         *
-         * @param input Input tensor of shape [B, TDataType, C] where B is batch size, TDataType is sequence length, and C is input feature dimension.
-         * @param parameters Vector of parameter tensors [weight, bias] where weight is of shape [OC, C] and bias (optional) is of shape [OC].
-         * @param properties Additional attributes for the operation.
-         * @param output Output tensor of shape [B, TDataType, OC] where OC is output feature dimension.
-         * @param output_state Cache for intermediate results (not used in this operation).
-         */
         void forward(
-            const Tensor<float, MR>& input,
-            const std::vector<std::shared_ptr<ITensor>>& parameters,
-            Tensor<float, MR>& output,
-            std::vector<std::shared_ptr<Tensor<float, MR>>>& output_state ) const override {
+            const ITensor& input,
+            const Parameters& parameters,
+            ITensor& output,
+            OutputState& output_state ) const override
+        {
+            const HostType* X = static_cast<const HostType*>(input.rawData());
+            HostType* Y = static_cast<HostType*>(output.rawData());
 
-            // Verify we're operating on CPU memory
-            if ( this->getDeviceContext()->getDevice()->getDeviceType() != DeviceType::Cpu ) {
-                throw std::runtime_error( "CpuLinearOp::forward can only be executed on CPU memory" );
+            if (!X || !Y)
+            {
+                throw std::runtime_error( "CpuLinearOp::forward - null tensor data pointer" );
             }
 
-            // FIXME: Remove after testing
-            auto t = input.toString( true );
-
-            auto outer_dims = input.rank() - 1;
-
-            if ( outer_dims <= 0 ) {
-                throw std::runtime_error( "LinearOp requires input tensor with at least 2 dimensions" );
+            if (parameters.empty() || !parameters[0])
+            {
+                throw std::invalid_argument( "CpuLinearOp::forward requires weight parameter" );
             }
 
-            const float* X = input.data();
-            float* Y = output.data();
-
-            auto weight = std::static_pointer_cast<Tensor<float, MR>>(parameters[ 0 ]);
-            std::shared_ptr<Tensor<float, MR>> bias = nullptr;
-
-            if ( parameters.size() > 1 ) {
-                bias = std::static_pointer_cast<Tensor<float, MR>>(parameters[ 1 ]);
+            const HostType* W = static_cast<const HostType*>(parameters[0]->data());
+            const HostType* B = nullptr;
+            
+            if (parameters.size() > 1 && parameters[1])
+            {
+                B = static_cast<const HostType*>(parameters[1]->data());
             }
 
-            int C = input.shape().back();
-            int OC = output.shape().back();
+            const auto& in_shape = input.shape();
+            if (in_shape.size() < 2)
+            {
+                throw std::runtime_error( "CpuLinearOp::forward - expected input rank >= 2" );
+            }
 
-			auto input_features = config_.getInputFeatures();
-			auto output_features = config_.getOutputFeatures();
-
+            // compute outer size = product of leading dims except last (features)
+            int C = static_cast<int>(in_shape.back());
             size_t outer_size = 1;
-            for ( size_t i = 0; i < outer_dims; i++ ) {
-                outer_size *= input.shape()[ i ];
-            }
+            for (size_t i = 0; i + 1 < in_shape.size(); ++i) outer_size *= in_shape[i];
 
+            // Output feature dimension from output tensor shape
+            const auto& out_shape = output.shape();
+            if (out_shape.size() < 2)
+            {
+                throw std::runtime_error( "CpuLinearOp::forward - expected output rank >= 2" );
+            }
+            int OC = static_cast<int>(out_shape.back());
+
+            // weight expected shape: [OC, C] (row-major)
+            // input layout: outer index -> contiguous C features
+            // output layout: outer index -> contiguous OC features
+
+            // loop-unroll optimization retained from previous implementation
             const int LOOP_UNROLL = 8;
-            if ( outer_size % LOOP_UNROLL != 0 ) {
-                // TODO: Write a unit test for this case
-                forward_naive( input, weight, bias, output, outer_size, C, OC );
+            if (outer_size % LOOP_UNROLL != 0)
+            {
+                // fallback naive
+#pragma omp parallel for
+                for (size_t idx = 0; idx < outer_size; ++idx)
+                {
+                    const size_t in_base = idx * static_cast<size_t>( C );
+                    const size_t out_base = idx * static_cast<size_t>( OC );
+                    for (int o = 0; o < OC; ++o)
+                    {
+                        long double acc = 0.0L;
+                        for (int i = 0; i < C; ++i)
+                        {
+                            acc += static_cast<long double>( X[in_base + i] ) * static_cast<long double>( W[o * C + i] );
+                        }
+                        if (B) acc += static_cast<long double>( B[o] );
+                        Y[out_base + o] = static_cast<HostType>( acc );
+                    }
+                }
                 return;
             }
 
-            // Optimized implementation with loop unrolling
-        #pragma omp parallel for
-            for ( int out_idx = 0; out_idx < outer_size; out_idx += LOOP_UNROLL ) {
-                for ( int o = 0; o < OC; o++ ) {
-                    float result[ LOOP_UNROLL ];
-                    for ( int i_idx = 0; i_idx < LOOP_UNROLL; i_idx++ ) {
-                        result[ i_idx ] = (bias ? bias->data()[ o ] : 0.0f);
+#pragma omp parallel for
+            for (int out_idx = 0; out_idx < static_cast<int>( outer_size ); out_idx += LOOP_UNROLL)
+            {
+                for (int o = 0; o < OC; ++o)
+                {
+                    HostType result[LOOP_UNROLL];
+                    for (int i_idx = 0; i_idx < LOOP_UNROLL; ++i_idx)
+                    {
+                        result[i_idx] = (B ? B[o] : static_cast<HostType>( 0 ));
                     }
 
-                    for ( int i = 0; i < C; i++ ) {
-                        float w = weight->data()[ o * C + i ];
-                        for ( int i_idx = 0; i_idx < LOOP_UNROLL; i_idx++ ) {
+                    for (int i = 0; i < C; ++i)
+                    {
+                        HostType w = W[o * C + i];
+                        for (int i_idx = 0; i_idx < LOOP_UNROLL; ++i_idx)
+                        {
                             int idx = out_idx + i_idx;
-                            result[ i_idx ] += X[ idx * C + i ] * w;
+                            result[i_idx] += X[idx * C + i] * w;
                         }
                     }
 
-                    for ( int i_idx = 0; i_idx < LOOP_UNROLL; i_idx++ ) {
+                    for (int i_idx = 0; i_idx < LOOP_UNROLL; ++i_idx)
+                    {
                         int idx = out_idx + i_idx;
-                        Y[ idx * OC + o ] = result[ i_idx ];
+                        Y[idx * OC + o] = result[i_idx];
                     }
                 }
             }
         }
 
-        /**
-         * @brief Performs the backward pass of the Fully Connected operation.
-         *
-         * Computes gradients with respect to inputs, weights, and biases based
-         * on the output gradient.
-         *
-         * @param dinp Pointer to the gradient buffer for input.
-         * @param dweight Pointer to the gradient buffer for weight parameters.
-         * @param dbias Pointer to the gradient buffer for bias parameters (can be NULL if no bias is used).
-         * @param dout Pointer to the gradient buffer from the output.
-         * @param inp Pointer to the original input values.
-         * @param weight Pointer to the weight parameters.
-         * @param B Batch size.
-         * @param TDataType Sequence length.
-         * @param C Input feature dimension.
-         * @param OC Output feature dimension.
-         */
         void backward(
-            Tensor<float, MR>& input_grad,
-            const std::vector<std::shared_ptr<Tensor<float, MR>>>& parameter_grads,
-            const Tensor<float, MR>& output_grad,
-            const Tensor<float, MR> input,
-            const Tensor<float, MR> weight,
-            int B, int T, int C, int OC ) {
+            const ITensor& grad_output,
+            const ITensor& input,
+            const Parameters& parameters,
+            const OutputState& output_state,
+            ITensor& grad_input,
+            Parameters& grad_parameters ) const override
+        {
+            const HostType* X = static_cast<const HostType*>(input.rawData());
+            const HostType* dY = static_cast<const HostType*>(grad_output.rawData());
+            HostType* dX = static_cast<HostType*>(grad_input.rawData());
 
-            // Verify we're operating on CPU memory
-            if ( this->getDeviceContext()->getDevice()->getDeviceType() != DeviceType::Cpu ) {
-                throw std::runtime_error( "CpuLinearOp::backward can only be executed on CPU memory" );
+            if (!X || !dY || !dX)
+            {
+                throw std::runtime_error( "CpuLinearOp::backward - null tensor data pointer" );
             }
 
-            //#pragma omp parallel for collapse(2)
-            //    for ( int b = 0; b < B; b++ ) {
-            //        for ( int t = 0; t < T; t++ ) {
-            //            const float* dout_bt = output_grad + b * T * OC + t * OC;
-            //            float* dinp_bt = input_grad + b * T * C + t * C;
-            //            for ( int o = 0; o < OC; o++ ) {
-            //                const float* wrow = weight + o * C;
-            //                float d = dout_bt[ o ];
-            //                for ( int i = 0; i < C; i++ ) {
-            //                    dinp_bt[ i ] += wrow[ i ] * d;
-            //                }
-            //            }
-            //        }
-            //    }
-            //#pragma omp parallel for
-            //    for ( int o = 0; o < OC; o++ ) {
-            //        for ( int b = 0; b < B; b++ ) {
-            //            for ( int t = 0; t < T; t++ ) {
-            //                const float* dout_bt = output_grad + b * T * OC + t * OC;
-            //                const float* inp_bt = input + b * T * C + t * C;
-            //                float* dwrow = weight_grad + o * C;
-            //                float d = dout_bt[ o ];
-            //                if ( dbias_grad != NULL ) { dbias[ o ] += d; }
-            //                for ( int i = 0; i < C; i++ ) {
-            //                    dwrow[ i ] += inp_bt[ i ] * d;
-            //                }
-            //            }
-            //        }
-            //    }
+            if (parameters.empty() || !parameters[0])
+            {
+                throw std::invalid_argument( "CpuLinearOp::backward requires weight parameter" );
+            }
+
+            const HostType* W = static_cast<const HostType*>(parameters[0]->data());
+
+            const auto& in_shape = input.shape();
+            int C = static_cast<int>(in_shape.back());
+            size_t outer_size = 1;
+            for (size_t i = 0; i + 1 < in_shape.size(); ++i) outer_size *= in_shape[i];
+
+            const auto& out_shape = grad_output.shape();
+            int OC = static_cast<int>(out_shape.back());
+
+            // Prepare gradients for parameters if provided
+            HostType* dW = nullptr;
+            HostType* dB = nullptr;
+            if (grad_parameters.size() > 0 && grad_parameters[0])
+            {
+                dW = static_cast<HostType*>(grad_parameters[0]->data());
+            }
+            if (grad_parameters.size() > 1 && grad_parameters[1])
+            {
+                dB = static_cast<HostType*>(grad_parameters[1]->data());
+            }
+
+#pragma omp parallel for collapse(1)
+            for (size_t idx = 0; idx < outer_size; ++idx)
+            {
+                const size_t in_base = idx * static_cast<size_t>( C );
+                const size_t out_base = idx * static_cast<size_t>( OC );
+
+                // compute dX for this outer index
+                for (int i = 0; i < C; ++i)
+                {
+                    long double acc = 0.0L;
+                    for (int o = 0; o < OC; ++o)
+                    {
+                        acc += static_cast<long double>( W[o * C + i] ) * static_cast<long double>( dY[out_base + o] );
+                    }
+#pragma omp atomic
+                    dX[in_base + i] += static_cast<HostType>( acc );
+                }
+
+                // accumulate dW and dB
+                for (int o = 0; o < OC; ++o)
+                {
+                    long double dy = static_cast<long double>( dY[out_base + o] );
+                    if (dB)
+                    {
+#pragma omp atomic
+                        dB[o] += static_cast<HostType>( dy );
+                    }
+                    if (dW)
+                    {
+                        for (int i = 0; i < C; ++i)
+                        {
+#pragma omp atomic
+                            dW[o * C + i] += static_cast<HostType>( static_cast<long double>( X[in_base + i] ) * dy );
+                        }
+                    }
+                }
+            }
         }
 
-        /**
-         * @brief Gets the name of this operation.
-         *
-         * @return std::string The name of the operation ("Cpu::LinearOp").
-         */
-        std::string getName() const override {
+        OperationType getOperationType() const override
+        {
+            return OperationType::LinearOp;
+        }
+
+        std::string getName() const override
+        {
             return "Cpu::LinearOp";
         }
 
     private:
-		const LinearConfig config_; ///< Configuration for the linear operation.
-
-        /**
-         * @brief Naive implementation of the forward pass for the Fully Connected operation.
-         *
-         * This is a simple implementation without optimizations that serves as a
-         * fallback for cases where the optimized implementation cannot be used.
-         *
-         * @param input Input tensor.
-         * @param weight Weight tensor.
-         * @param bias Bias tensor (optional).
-         * @param output Output tensor.
-         * @param B Batch size.
-         * @param TDataType Sequence length.
-         * @param C Input feature dimension.
-         * @param OC Output feature dimension.
-         */
-        void forward_naive(
-            const Tensor<float, MR>& input,
-            const std::shared_ptr<Tensor<float, MR>>& weight,
-            const std::shared_ptr<Tensor<float, MR>>& bias,
-            Tensor<float, MR>& output,
-            int outer_size, int C, int OC ) const {
-
-            // Simple implementation of matrix multiplication with bias
-        #pragma omp parallel for
-            for ( int idx = 0; idx < outer_size; idx++ ) {
-                for ( int o = 0; o < OC; o++ ) {
-                    float val = (bias ? bias->data()[ o ] : 0.0f);
-                    for ( int i = 0; i < C; i++ ) {
-                        val += input.data()[ idx * C + i ] * weight->data()[ o * C + i ];
-                    }
-                    output.data()[ idx * OC + o ] = val;
-                }
-            }
-        }
+        LinearConfig config_;
+        std::shared_ptr<CpuExecutionContext> context_;
     };
 
-    /**
-     * @brief Class responsible for registering the CpuLinearOp operation.
-     *
-     * The CpuLinearOpRegistrar class registers the CpuLinearOp operation with the OperationRegistry.
-     * It associates the operation name "Cpu::LinearOp" with a factory function that creates
-     * instances of CpuLinearOp.
-     */
-    export class CpuLinearOpRegistrar {
+    export class CpuLinearOpRegistrar
+    {
     public:
-        /**
-         * @brief Registers the CpuLinearOp operation with the OperationRegistry.
-         *
-         * This function registers the CpuLinearOp operation for the CPU device type
-         * with the OperationRegistry. It associates the operation name "Cpu::LinearOp"
-         * with a factory function that creates instances of CpuLinearOp.
-         */
-        static void registerOperations() {
-            const std::string opName = "Cpu::LinearOp";
-
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, float, float>(
-                opName,
-                []( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float>> {
-                    const auto& linearConfig = dynamic_cast<const LinearConfig&>( config );
-                    return context ? std::make_shared<CpuLinearOp>( context, linearConfig )
-                        : std::make_shared<CpuLinearOp>( linearConfig );
+        static void registerOperations()
+        {
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32>(
+                "LinearOp",
+                []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
+                    const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
+                {
+                    const auto& linearConfig = static_cast<const LinearConfig&>(config);
+                    return std::make_shared<CpuLinearOp<TensorDataType::FP32>>( context, linearConfig );
                 }
             );
         }
 
-        /**
-         * @brief Self-registration mechanism that registers the operation during startup.
-         *
-         * This static member ensures the operation is registered when the program starts
-         * without requiring explicit registration calls.
-         */
         static inline bool isRegistered = []() {
             registerOperations();
             return true;

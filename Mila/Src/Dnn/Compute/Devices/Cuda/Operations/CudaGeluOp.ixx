@@ -174,12 +174,14 @@ namespace Mila::Dnn::Compute
             if ( input.getDeviceType() != DeviceType::Cuda || output.getDeviceType() != DeviceType::Cuda ) {
                 throw std::invalid_argument( "CudaGeluOp: Input and output tensors must be on CUDA device." );
 			}
+			
+            if ( input.size() != output.size() ) {
+                throw std::invalid_argument( "CudaGeluOp: Input and output tensors must have the same size." );
+			}
 
-            cudaStream_t stream;
-            std::shared_ptr<CudaDeviceResources> resources;
+			// TODO: Validate tensor data types match TPrecision
 
-            stream = this->context_->getStream();
-            resources = this->context_->getResources();
+            cudaStream_t stream = context_->getStream();
 
             // TODO: Use precision policy from config
             // ComputePrecision::Policy policy = config_.getPrecisionPolicy();

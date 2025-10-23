@@ -108,12 +108,12 @@ add_executable( MilaTests
     #"Dnn/Modules/Attention.cpp"
     "Dnn/Modules/Activations/Gelu.Cpu.cpp" 
     "Dnn/Modules/Activations/GeluConfig.cpp"
-    #"Dnn/Modules/Layers/Linear.cpp"
-    #"Dnn/Modules/Layers/LinearConfig.cpp"
+    "Dnn/Modules/Layers/Linear.Cpu.cpp"
+    "Dnn/Modules/Layers/LinearConfig.cpp"
     #"Dnn/Modules/Normalization/LayerNorm.cpp"
     #"Dnn/Modules/Normalization/LayerNormConfig.cpp"
     #"Dnn/Modules/Layers/Residual.cpp"
-    #"Dnn/Modules/Layers/Softmax.cpp"
+    "Dnn/Modules/Layers/Softmax.cpp"
     
     # --------------------------------------------------------------
     # Modules::Blocks Tests
@@ -141,7 +141,7 @@ add_executable( MilaTests
     "Dnn/Compute/Operations/UnaryOperation.cpp"
     #"Dnn/Compute/Operations/BinaryOperation.cpp"
     "Dnn/Modules/Activations/Gelu.Cuda.cpp" 
-)
+ "Dnn/Modules/Layers/Linear.Cuda.cpp")
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
 

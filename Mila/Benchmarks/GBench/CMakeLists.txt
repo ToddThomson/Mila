@@ -13,7 +13,7 @@ FetchContent_MakeAvailable(benchmark)
 
 add_executable(mila_gbench
  "gelu_forward_fp32.cpp"
- "main.cpp")
+ "main.cpp" "softmax_forward_fp32.cpp" "linear_forward_fp32.cpp")
 
 target_compile_features(mila_gbench PUBLIC cxx_std_23)
 

@@ -20,40 +20,76 @@ import Dnn.ConfigurationBase;
 namespace Mila::Dnn
 {
     /**
-     * @brief Configuration class for Linear module.
+     * @class LinearConfig
+     * @brief Configuration object for a Linear (fully connected) layer.
      *
-     * Provides a type-safe fluent interface for configuring Linear modules.
+     * LinearConfig provides a minimal, type-safe fluent interface for describing the
+     * parameters required to construct a Linear layer: the number of input features,
+     * the number of output features, and whether the layer contains a bias term.
+     *
+     * Typical usage:
+     * @code
+     * LinearConfig cfg{128, 64};
+     * cfg.withBias(true).validate();
+     * @endcode
+     *
+     * @note Instances are lightweight value objects intended to be passed into module
+     *       factories or constructors. Validation should be invoked prior to creating
+     *       runtime objects to surface configuration errors early.
      */
     export class LinearConfig : public ConfigurationBase {
     public:
         /**
-         * @brief Constructor with required parameters.
+         * @brief Construct a LinearConfig with required feature dimensions.
          *
-         * @param input_features The number of input features
-         * @param output_features The number of output features
+         * The constructor initializes the two required dimensions for the Linear layer.
+         *
+         * @param input_features Number of input features (channels). Must be > 0.
+         * @param output_features Number of output features (channels). Must be > 0.
          */
         LinearConfig( size_t input_features, size_t output_features )
             : input_features_( input_features ), output_features_( output_features ) {}
 
         /**
-         * @brief Configure whether the linear layer uses bias.
+         * @brief Set whether the Linear layer includes a bias term.
          *
-         * @param has_bias Whether to include bias term
-         * @return LinearConfig& Reference to this for method chaining
+         * This method implements a fluent setter: it modifies this configuration and
+         * returns a reference to allow chaining of additional setters.
+         *
+         * @param has_bias True to include a bias parameter, false to omit it.
+         * @return LinearConfig& Reference to this configuration (for chaining).
          */
         LinearConfig& withBias( bool has_bias ) {
             has_bias_ = has_bias;
             return *this;
         }
 
+        /**
+         * @brief Get the configured number of input features.
+         * @return size_t Number of input features configured.
+         */
         size_t getInputFeatures() const { return input_features_; }
+        
+        /**
+         * @brief Get the configured number of output features.
+         * @return size_t Number of output features configured.
+         */
         size_t getOutputFeatures() const { return output_features_; }
+        
+        /**
+         * @brief Query whether the bias term is enabled.
+         * @return bool True if bias is enabled; false otherwise.
+         */
         bool hasBias() const { return has_bias_; }
 
         /**
-         * @brief Validate configuration parameters.
+         * @brief Validate the configuration values.
          *
-         * @throws std::invalid_argument If validation fails
+         * This method performs checks that the configuration is usable for constructing
+         * a runtime Linear module. It calls the base class validate implementation and
+         * then checks Linear-specific constraints.
+         *
+         * @throws std::invalid_argument If any required parameter is invalid.
          */
         void validate() const {
             ConfigurationBase::validate();
@@ -64,8 +100,25 @@ namespace Mila::Dnn
         }
 
     private:
+        /**
+         * @brief Number of input features (channels) expected by the layer.
+         *
+         * Must be greater than zero.
+         */
         size_t input_features_;
+
+        /**
+         * @brief Number of output features (channels) produced by the layer.
+         *
+         * Must be greater than zero.
+         */
         size_t output_features_;
+
+        /**
+         * @brief Whether the layer has a bias term.
+         *
+         * Default is true.
+         */
         bool has_bias_ = true;
     };
 }

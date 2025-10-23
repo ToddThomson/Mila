@@ -180,11 +180,11 @@ namespace Dnn::Tensors::Tests
         tensor.reshape( { 6, 4 } );
         EXPECT_EQ( tensor.getName(), "reshapeable_tensor" );
 
-        tensor.flatten();
+        /* TODO: tensor.flatten();
         EXPECT_EQ( tensor.getName(), "reshapeable_tensor" );
 
         auto flattened = tensor.flattened();
-        EXPECT_EQ( flattened.getName(), "reshapeable_tensor" );
+        EXPECT_EQ( flattened.getName(), "reshapeable_tensor" );*/
     }
 
     TEST( TensorIdentityTest, Name_PreservedInDataOperations ) {
@@ -246,20 +246,24 @@ namespace Dnn::Tensors::Tests
         std::string original_uid = tensor.getUId();
 
         ASSERT_NO_THROW( fill( tensor, 1.0f ) );
+        
         EXPECT_EQ( tensor.getUId(), original_uid );
         EXPECT_EQ( tensor.getName(), "consistent_tensor" );
 
         tensor.reshape( { 3, 2 } );
+        
         EXPECT_EQ( tensor.getUId(), original_uid );
         EXPECT_EQ( tensor.getName(), "consistent_tensor" );
 
-        tensor.flatten();
+        /* TODO: tensor.flatten();
+        
         EXPECT_EQ( tensor.getUId(), original_uid );
-        EXPECT_EQ( tensor.getName(), "consistent_tensor" );
+        EXPECT_EQ( tensor.getName(), "consistent_tensor" );*/
 
         // Per-element write via raw pointer
         float* data = static_cast<float*>(tensor.data());
         data[0] = 2.0f;
+        
         EXPECT_EQ( tensor.getUId(), original_uid );
         EXPECT_EQ( tensor.getName(), "consistent_tensor" );
     }

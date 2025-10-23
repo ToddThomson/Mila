@@ -1,6 +1,9 @@
 /**
  * @file CpuLayerNormOp.ixx
- * @brief Implementation of the CPU-based Layer Normalization operation for neural networks.
+ * @brief CPU implementation of Layer Normalization operation (TensorDataType-based).
+ *
+ * Ported to the ExecutionContext / TensorDataType UnaryOperation interface following
+ * the pattern used by CpuGeluOp.
  */
 
 module;
@@ -17,16 +20,23 @@ export module Compute.CpuLayerNormOp;
 
 import Dnn.Modules.LayerNorm;
 import Dnn.Tensor;
+import Dnn.ITensor;
+import Dnn.TensorDataType;
+import Dnn.TensorDataTypeTraits;
+import Dnn.TensorHostTypeMap;
 import Dnn.ConfigurationBase;
-import Compute.OperationBase;
+import Compute.DeviceType;
+import Compute.ExecutionContext;
+import Compute.IExecutionContext;
+import Compute.CpuExecutionContext;
+import Compute.OperationType;
 import Compute.OperationAttributes;
+import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
-import Compute.DeviceType;
-import Compute.DeviceContext;
-import Compute.OperationType;
-import Compute.CpuMemoryResource;
 import Compute.MemoryResource;
+import Compute.CpuMemoryResource;
+import Compute.CpuTensorDataTypeTraits;
 import Compute.CpuDevice;
 import Compute.Precision;
 
@@ -35,245 +45,289 @@ namespace Mila::Dnn::Compute
     using namespace Mila::Dnn;
 
     /**
-     * @brief CPU implementation of the Layer Normalization operation for neural networks.
+     * @brief CPU implementation of Layer Normalization using abstract TensorDataType API.
      *
-     * This class provides a CPU-based implementation of the Layer Normalization operation,
-     * which normalizes inputs across the features dimension for each sample in a batch.
-     * Layer normalization helps stabilize training by reducing internal covariate shift
-     * and is commonly used in transformer architectures and other deep neural networks.
-     *
-     * The operation normalizes each input vector independently, unlike batch normalization
-     * which normalizes across the batch dimension.
-     *
-     * CPU operations always use full precision regardless of policy settings.
-     *
-     * @tparam TInput The data type of the input tensor elements.
-     * @tparam TDataType The data type used for computation and output (defaults to the input type).
+     * Template parameter TPrecision selects the abstract tensor precision (e.g. FP32).
+     * HostType is the corresponding CPU host representation for that precision.
      */
-    export class CpuLayerNormOp : public UnaryOperation<DeviceType::Cpu, float> {
+    export template<TensorDataType TPrecision>
+        requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cpu>
+    class CpuLayerNormOp : public UnaryOperation<DeviceType::Cpu, TPrecision>
+    {
     public:
-        using MR = typename CpuDevice::MR;
-        using OperationBase = UnaryOperation<DeviceType::Cpu, float>;
+        using MR = CpuMemoryResource;
+        using UnaryOperationBase = UnaryOperation<DeviceType::Cpu, TPrecision>;
+        using TensorType = Tensor<TPrecision, MR>;
+        using Parameters = std::vector<std::shared_ptr<TensorType>>;
+        using OutputState = std::vector<std::shared_ptr<TensorType>>;
+        using HostType = typename TensorHostTypeMap<TPrecision>::host_type;
+        using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
 
-        /**
-         * @brief Constructs a new CPU Layer Normalization operation with the default device context.
-         *
-         * CPU operations always use full precision regardless of policy settings.
-         *
-         * @param precision_policy Ignored for CPU operations, as they always use full precision.
-         */
-        CpuLayerNormOp( const LayerNormConfig& config )
-            : OperationBase( OperationType::LayerNormOp ), config_( config ) {}
-
-        /**
-         * @brief Constructs a new CPU Layer Normalization operation with a specific device context.
-         *
-         * CPU operations always use full precision regardless of policy settings.
-         *
-         * @param context The device context to use for this operation.
-         * @param precision_policy Ignored for CPU operations, as they always use full precision.
-         * @throws std::runtime_error If the context is not for a CPU device.
-         */
-        CpuLayerNormOp( std::shared_ptr<DeviceContext> context, const LayerNormConfig& config )
-            : OperationBase( OperationType::LayerNormOp, context ), config_( config ) {}
-
-        /**
-         * @brief Performs the forward pass of the Layer Normalization operation.
-         *
-         * Normalizes each input vector across the feature dimension, then applies
-         * a learnable scaling factor and bias.
-         *
-         * @param input Input tensor of shape [B, TDataType, C] where B is batch size, TDataType is sequence length, and C is feature dimension.
-         * @param parameters Vector of parameter tensors [weight, bias] where weight and bias are of shape [C].
-         * @param attributes Additional attributes for the operation.
-         * @param output Output tensor of the same shape as input, containing the normalized values.
-         * @param output_state Cache for intermediate results [mean, rstd] used in the backward pass.
-         */
-        void forward(
-            const Tensor<float, MR>& input,
-            const std::vector<std::shared_ptr<ITensor>>& parameters,
-            Tensor<float, MR>& output,
-            std::vector<std::shared_ptr<Tensor<float, MR>>>& output_state ) const override {
-
-            // Verify we're operating on CPU memory
-            if ( this->getDeviceContext()->getDevice()->getDeviceType() != DeviceType::Cpu ) {
-                throw std::runtime_error( "CpuLayerNormOp::forward can only be executed on CPU memory" );
+        CpuLayerNormOp( std::shared_ptr<CpuExecutionContext> context, const LayerNormConfig& config )
+            : config_( config ), context_( context )
+        {
+            if (context_ && context_->getDevice()->getDeviceType() != DeviceType::Cpu)
+            {
+                throw std::runtime_error( "CpuLayerNormOp requires a CPU execution context" );
             }
 
-            const float* X = input.data();
-            float* Y = output.data();
+            config_.validate();
+        }
 
-            const float* weight = static_cast<const float*>( parameters[ 0 ]->data() );
-            const float* bias = (parameters.size() > 1 && parameters[ 1 ]) ? static_cast<const float*>(parameters[ 1 ]->data()) : nullptr;
+        /**
+         * Forward:
+         * - input: ITensor containing input values
+         * - parameters: [weight, bias] as TensorType shared_ptrs (bias optional)
+         * - output: ITensor to write normalized result
+         * - output_state: must contain two allocated tensors for mean and rstd
+         */
+        void forward(
+            const ITensor& input,
+            const Parameters& parameters,
+            ITensor& output,
+            OutputState& output_state ) const override
+        {
+            const HostType* X = static_cast<const HostType*>(input.rawData());
+            HostType* Y = static_cast<HostType*>(output.rawData());
 
-            float* mean = output_state[ 0 ]->data();
-            float* rstd = output_state[ 1 ]->data();
+            if (!X || !Y)
+            {
+                throw std::runtime_error( "CpuLayerNormOp::forward - null tensor data pointer" );
+            }
 
-            // B: batch size, T: sequence length, C: number of channels
-            int B = input.shape()[ 0 ];
-            int T = input.shape()[ 1 ];
-            int C = input.shape()[ 2 ];
+            const HostType* weight = nullptr;
+            const HostType* bias = nullptr;
+            if (!parameters.empty() && parameters[0])
+            {
+                weight = static_cast<const HostType*>(parameters[0]->data());
+            }
+            if (parameters.size() > 1 && parameters[1])
+            {
+                bias = static_cast<const HostType*>(parameters[1]->data());
+            }
 
-            float eps = config_.getEpsilon();
+            if (output_state.size() < 2 || !output_state[0] || !output_state[1])
+            {
+                throw std::invalid_argument( "CpuLayerNormOp::forward requires output_state[0]=mean and output_state[1]=rstd tensors." );
+            }
 
-            for ( int b = 0; b < B; b++ ) {
-                for ( int t = 0; t < T; t++ ) {
-                    // seek to the input position inp[b,t,:]
-                    int input_offset = b * T * C + t * C;
+            HostType* mean = static_cast<HostType*>(output_state[0]->data());
+            HostType* rstd = static_cast<HostType*>(output_state[1]->data());
 
-                    // calculate the mean
-                    float m = 0.0f;
-                    for ( int i = 0; i < C; i++ ) {
-                        m += input.data()[ input_offset + i ];
+            const auto& shape = input.shape();
+            if (shape.size() < 3)
+            {
+                throw std::runtime_error( "CpuLayerNormOp::forward - expected input rank >= 3 [B,T,C]" );
+            }
+
+            int B = static_cast<int>(shape[0]);
+            int T = static_cast<int>(shape[1]);
+            int C = static_cast<int>(shape[2]);
+
+            HostType eps = static_cast<HostType>(config_.getEpsilon());
+
+#pragma omp parallel for collapse(2) if( (size_t)B * (size_t)T * (size_t)C > 1000 )
+            for (int b = 0; b < B; ++b)
+            {
+                for (int t = 0; t < T; ++t)
+                {
+                    int offset = b * T * C + t * C;
+
+                    // compute mean
+                    long double m = 0.0L;
+                    for (int i = 0; i < C; ++i)
+                    {
+                        m += static_cast<long double>( X[offset + i] );
                     }
-                    m = m / C;
+                    m = m / static_cast<long double>( C );
 
-                    // calculate the variance (without any bias correction)
-                    float v = 0.0f;
-                    for ( int i = 0; i < C; i++ ) {
-                        float xshift = X[ input_offset + i ] - m;
+                    // compute variance
+                    long double v = 0.0L;
+                    for (int i = 0; i < C; ++i)
+                    {
+                        long double xshift = static_cast<long double>( X[offset + i] ) - m;
                         v += xshift * xshift;
                     }
-                    v = v / C;
+                    v = v / static_cast<long double>( C );
 
-                    // calculate the rstd
-                    float s = 1.0f / sqrtf( v + eps );
+                    long double s = 1.0L / std::sqrt( v + static_cast<long double>( eps ) );
 
-                    // seek to the output position in out[b,t,:]
-                    int out_offset = b * T * C + t * C;
-
-                    for ( int i = 0; i < C; i++ ) {
-                        float n = (s * (X[ input_offset + i ] - m)); // normalized output
-                        float o = n * weight[ i ];
-                        
-                        if ( bias ) {
-							auto temp_bias = bias[ i ];
-                            o += bias[ i ];
+                    // normalize and apply weight/bias
+                    for (int i = 0; i < C; ++i)
+                    {
+                        HostType n = static_cast<HostType>( s * (static_cast<long double>( X[offset + i] ) - m) );
+                        long double o = static_cast<long double>( n );
+                        if (weight)
+                        {
+                            o *= static_cast<long double>( weight[i] );
                         }
-                        
-                        Y[ out_offset + i ] = o;
+                        if (bias)
+                        {
+                            o += static_cast<long double>( bias[i] );
+                        }
+                        Y[offset + i] = static_cast<HostType>(o);
                     }
 
-                    // cache the mean and rstd for the backward pass later
-                    mean[ b * T + t ] = m;
-                    rstd[ b * T + t ] = s;
+                    mean[b * T + t] = static_cast<HostType>(m);
+                    rstd[b * T + t] = static_cast<HostType>(s);
                 }
             }
         }
 
         /**
-         * @brief Performs the backward pass of the Layer Normalization operation.
-         *
-         * Computes gradients with respect to inputs, weights, and biases based
-         * on the output gradient and the forward pass results.
-         *
-         * @param dinp Pointer to the gradient buffer for input.
-         * @param dweight Pointer to the gradient buffer for weight parameters.
-         * @param dbias Pointer to the gradient buffer for bias parameters.
-         * @param dout Pointer to the gradient buffer from the output.
-         * @param inp Pointer to the original input values.
-         * @param weight Pointer to the weight parameters.
-         * @param mean Pointer to the mean values computed during forward pass.
-         * @param rstd Pointer to the reciprocal standard deviation values computed during forward pass.
-         * @param B Batch size.
-         * @param TDataType Sequence length.
-         * @param C Number of features/channels.
+         * Backward:
+         * - input: ITensor of original inputs (same as forward input)
+         * - output_grad: gradient w.r.t. output (dout)
+         * - parameters: [weight, bias] (weight required for gradient w.r.t. input)
+         * - output_state: [mean, rstd] produced by forward
+         * - input_grad: output gradient buffer to accumulate dinput
+         * - parameter_grads: vector to accumulate [dweight, dbias] (optional)
          */
         void backward(
-            float* dinp,
-            float* dweight, float* dbias,
-            float* dout,
-            float* inp, float* weight, float* mean, float* rstd,
-            int B, int T, int C ) {
+            const ITensor& input,
+            const ITensor& output_grad,
+            const Parameters& parameters,
+            const OutputState& output_state,
+            ITensor& input_grad,
+            Parameters& parameter_grads ) const override
+        {
+            const HostType* inp = static_cast<const HostType*>(input.rawData());
+            const HostType* dout = static_cast<const HostType*>(output_grad.rawData());
+            HostType* dinp = static_cast<HostType*>(input_grad.rawData());
 
-            // Verify we're operating on CPU memory
-            if ( this->getDeviceContext()->getDevice()->getDeviceType() != DeviceType::Cpu ) {
-                throw std::runtime_error( "CpuLayerNormOp::backward can only be executed on CPU memory" );
+            if (!inp || !dout || !dinp)
+            {
+                throw std::runtime_error( "CpuLayerNormOp::backward - null tensor data pointer" );
             }
 
-            for ( int b = 0; b < B; b++ ) {
-                for ( int t = 0; t < T; t++ ) {
-                    float* dout_bt = dout + b * T * C + t * C;
-                    float* inp_bt = inp + b * T * C + t * C;
-                    float* dinp_bt = dinp + b * T * C + t * C;
-                    float mean_bt = mean[ b * T + t ];
-                    float rstd_bt = rstd[ b * T + t ];
+            const HostType* weight = nullptr;
+            if (!parameters.empty() && parameters[0])
+            {
+                weight = static_cast<const HostType*>(parameters[0]->data());
+            }
+            else
+            {
+                throw std::runtime_error( "CpuLayerNormOp::backward requires weight parameter." );
+            }
 
-                    float dnorm_mean = 0.0f;
-                    float dnorm_norm_mean = 0.0f;
-                    for ( int i = 0; i < C; i++ ) {
-                        float norm_bti = (inp_bt[ i ] - mean_bt) * rstd_bt;
-                        float dnorm_i = weight[ i ] * dout_bt[ i ];
+            HostType* dweight = nullptr;
+            HostType* dbias = nullptr;
+            if (parameter_grads.size() > 0 && parameter_grads[0])
+            {
+                dweight = static_cast<HostType*>(parameter_grads[0]->data());
+            }
+            if (parameter_grads.size() > 1 && parameter_grads[1])
+            {
+                dbias = static_cast<HostType*>(parameter_grads[1]->data());
+            }
+
+            if (output_state.size() < 2 || !output_state[0] || !output_state[1])
+            {
+                throw std::invalid_argument( "CpuLayerNormOp::backward requires output_state[0]=mean and output_state[1]=rstd tensors." );
+            }
+
+            const HostType* mean = static_cast<const HostType*>(output_state[0]->data());
+            const HostType* rstd = static_cast<const HostType*>(output_state[1]->data());
+
+            const auto& shape = input.shape();
+            if (shape.size() < 3)
+            {
+                throw std::runtime_error( "CpuLayerNormOp::backward - expected input rank >= 3 [B,T,C]" );
+            }
+
+            int B = static_cast<int>(shape[0]);
+            int T = static_cast<int>(shape[1]);
+            int C = static_cast<int>(shape[2]);
+
+#pragma omp parallel for collapse(2) if( (size_t)B * (size_t)T * (size_t)C > 1000 )
+            for (int b = 0; b < B; ++b)
+            {
+                for (int t = 0; t < T; ++t)
+                {
+                    int base = b * T * C + t * C;
+                    const HostType* dout_bt = dout + base;
+                    const HostType* inp_bt = inp + base;
+                    HostType* dinp_bt = dinp + base;
+                    long double mean_bt = static_cast<long double>( mean[b * T + t] );
+                    long double rstd_bt = static_cast<long double>( rstd[b * T + t] );
+
+                    // accumulate intermediate sums
+                    long double dnorm_mean = 0.0L;
+                    long double dnorm_norm_mean = 0.0L;
+
+                    for (int i = 0; i < C; ++i)
+                    {
+                        long double norm_bti = (static_cast<long double>( inp_bt[i] ) - mean_bt) * rstd_bt;
+                        long double dnorm_i = static_cast<long double>( weight[i] ) * static_cast<long double>( dout_bt[i] );
                         dnorm_mean += dnorm_i;
                         dnorm_norm_mean += dnorm_i * norm_bti;
                     }
-                    dnorm_mean = dnorm_mean / C;
-                    dnorm_norm_mean = dnorm_norm_mean / C;
+                    dnorm_mean /= static_cast<long double>( C );
+                    dnorm_norm_mean /= static_cast<long double>( C );
 
-                    for ( int i = 0; i < C; i++ ) {
-                        float norm_bti = (inp_bt[ i ] - mean_bt) * rstd_bt;
-                        float dnorm_i = weight[ i ] * dout_bt[ i ];
-                        dbias[ i ] += dout_bt[ i ];
-                        dweight[ i ] += norm_bti * dout_bt[ i ];
-                        float dval = 0.0f;
-                        dval += dnorm_i;
+                    for (int i = 0; i < C; ++i)
+                    {
+                        long double norm_bti = (static_cast<long double>( inp_bt[i] ) - mean_bt) * rstd_bt;
+                        long double dnorm_i = static_cast<long double>( weight[i] ) * static_cast<long double>( dout_bt[i] );
+
+                        if (dbias)
+                        {
+                            // accumulate dbias (sum over B and T)
+#pragma omp atomic
+                            dbias[i] += static_cast<HostType>( dout_bt[i] );
+                        }
+
+                        if (dweight)
+                        {
+                            // accumulate dweight (sum over B and T)
+#pragma omp atomic
+                            dweight[i] += static_cast<HostType>(norm_bti * static_cast<long double>(dout_bt[i]));
+                        }
+
+                        long double dval = dnorm_i;
                         dval -= dnorm_mean;
                         dval -= norm_bti * dnorm_norm_mean;
                         dval *= rstd_bt;
-                        dinp_bt[ i ] += dval;
+
+#pragma omp atomic
+                        dinp_bt[i] += static_cast<HostType>(dval);
                     }
                 }
             }
         }
 
-        /**
-         * @brief Gets the name of this operation.
-         *
-         * @return std::string The name of the operation ("Cpu::LayerNormOp").
-         */
-        std::string getName() const override {
+        OperationType getOperationType() const override
+        {
+            return OperationType::LayerNormOp;
+        }
+
+        std::string getName() const override
+        {
             return "Cpu::LayerNormOp";
         }
 
-        private:
-            LayerNormConfig config_; ///< Configuration for the LayerNorm operation.
+    private:
+        LayerNormConfig config_;
+        std::shared_ptr<CpuExecutionContext> context_;
     };
 
-    /**
-     * @brief Class responsible for registering the CpuLayerNormOp operation.
-     *
-     * The CpuLayerNormOpRegistrar class registers the CpuLayerNormOp operation with the OperationRegistry.
-     * It associates the operation name "Cpu::LayerNormOp" with a factory function that creates
-     * instances of CpuLayerNormOp.
-     */
-    export class CpuLayerNormOpRegistrar {
+    // Register CPU LayerNorm (FP32)
+    export class CpuLayerNormOpRegistrar
+    {
     public:
-        /**
-         * @brief Registers the CpuLayerNormOp operation with the OperationRegistry.
-         *
-         * This function registers the CpuLayerNormOp operation for the CPU device type
-         * with the OperationRegistry. It associates the operation name "Cpu::LayerNormOp"
-         * with a factory function that creates instances of CpuLayerNormOp.
-         */
-        static void registerOperations() {
-            const std::string opName = "Cpu::LayerNormOp";
-
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, float, float>(
-                opName,
-                []( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, float, float>> {
-                    const auto& layerNormConfig = dynamic_cast<const LayerNormConfig&>(config);
-                    return context ? std::make_shared<CpuLayerNormOp>( context, layerNormConfig )
-                        : std::make_shared<CpuLayerNormOp>( layerNormConfig );
+        static void registerOperations()
+        {
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32>(
+                "LayerNormOp",
+                []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
+                    const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
+                {
+                    const auto& lnConfig = static_cast<const LayerNormConfig&>(config);
+                    return std::make_shared<CpuLayerNormOp<TensorDataType::FP32>>( context, lnConfig );
                 }
             );
         }
 
-        /**
-         * @brief Self-registration mechanism that registers the operation during startup.
-         *
-         * This static member ensures the operation is registered when the program starts
-         * without requiring explicit registration calls.
-         */
         static inline bool isRegistered = []() {
             registerOperations();
             return true;

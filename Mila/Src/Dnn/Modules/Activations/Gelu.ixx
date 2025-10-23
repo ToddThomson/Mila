@@ -62,8 +62,8 @@ namespace Mila::Dnn
          * @param exec_context Shared execution context for this module.
          * @param config GELU configuration.
          */
-        explicit Gelu( const GeluConfig& config, std::shared_ptr<ExecutionContextType> exec_context )
-            : config_( config ), exec_context_( exec_context )
+        explicit Gelu(  std::shared_ptr<ExecutionContextType> exec_context, const GeluConfig& config )
+            : exec_context_( exec_context ), config_( config )
         {
             if (!exec_context_)
             {
@@ -84,7 +84,6 @@ namespace Mila::Dnn
 
         void forward( const ITensor& input, ITensor& output ) override
         {
-            // Dispatch to backend operation
             operation_->forward( input, parameters_, output, output_state_ );
         }
 

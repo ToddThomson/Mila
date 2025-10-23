@@ -1,6 +1,11 @@
 /**
  * @file Linear.ixx
- * @brief Implementation of the Linear (fully connected) module for neural networks.
+ * @brief Device-templated Linear (fully connected) module.
+ *
+ * Refactored to follow the pattern used by Gelu.ixx:
+ * - Uses abstract TensorDataType (TPrecision)
+ * - Accepts a shared ExecutionContext<TDeviceType> at construction
+ * - Delegates compute to a UnaryOperation<DeviceType, TPrecision> backend
  */
 
 module;
@@ -15,19 +20,17 @@ module;
 
 export module Dnn.Modules.Linear;
 export import :Config;
-export import :Attributes;
+//export import :Attributes;
 
 import Dnn.Module;
 import Dnn.Tensor;
 import Dnn.ITensor;
-import Dnn.TensorTraits;
-import Dnn.TensorHelpers;
+import Dnn.TensorDataType;
+import Dnn.TensorDataTypeTraits;
 import Compute.Precision;
 import Compute.ComputeDevice;
 import Compute.DeviceType;
-import Compute.DeviceContext;
-import Compute.OperationBase;
-import Compute.OperationAttributes;
+import Compute.ExecutionContext;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
@@ -41,389 +44,220 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Serialization;
 
     /**
-     * @brief A class representing a linear transformation module.
+     * @brief Device-templated Linear (fully connected) module.
      *
-     * The linear module (also known as fully-connected or dense layer) performs
-     * a linear transformation of the input data. The operation is defined as:
-     * output = input * weight + bias
+     * Delegates computation to a compute device specific implementation
+     * registered in the OperationRegistry.
      *
-     * This is a fundamental building block in neural networks that connects
-     * every input neuron to every output neuron with learnable weights.
-     *
-     * @tparam TDeviceType The device type (CPU or CUDA) on which to perform computations.
-     * @tparam TDataType The data type of the tensor elements, defaults to float.
+     * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda)
+     * @tparam TPrecision Abstract tensor precision (TensorDataType)
      */
-    export template<DeviceType TDeviceType, TensorDataType TDataType>
-        requires ValidFloatTensorType<TDataType>
-    class Linear : public Module<TDeviceType, TDataType, TDataType> {
+    export template<DeviceType TDeviceType, TensorDataType TPrecision>
+        requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
+    class Linear : public Module<TDeviceType>
+    {
     public:
-        /**
-         * @brief Memory resource type used for tensors, selected based on device type.
-         *
-         * Uses CudaDeviceMemoryResource for CUDA devices and CpuMemoryResource for CPU.
-         */
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
+        using ExecutionContextType = ExecutionContext<TDeviceType>;
+        using TensorType = Tensor<TPrecision, MR>;
+        using Parameters = std::vector<std::shared_ptr<TensorType>>;
+        using OutputState = std::vector<std::shared_ptr<TensorType>>;
 
         /**
-         * @brief Alias for base module type.
-         */
-        using ModuleBase = Module<TDeviceType, TDataType, TDataType>;
-
-        /**
-         * @brief Constructs a new Linear module with a device name.
+         * Construct with an existing execution context.
          *
-         * Creates a new DeviceContext internally using the provided device name.
-         * This constructor is useful for creating standalone modules without
-         * pre-existing device contexts.
-         *
-         * @param device_name The name of the device to use (e.g., "CPU", "CUDA:0").
-         * @param config Configuration parameters for the Linear module.
-         * @throws std::invalid_argument If the device name is invalid or the configuration is invalid
-         * @throws std::runtime_error If device type doesn't match template parameter TDeviceType
+         * @param config Linear configuration.
+         * @param exec_context Shared execution context for device resources.
          */
-        explicit Linear( const std::string& device_name, const LinearConfig& config )
-            : ModuleBase( std::make_shared<DeviceContext>( device_name ), config ), config_( config ) {
+        explicit Linear( std::shared_ptr<ExecutionContextType> exec_context, const LinearConfig& config )
+            : exec_context_( exec_context ), config_( config )
+        {
+            if (!exec_context_)
+            {
+                throw std::invalid_argument( "ExecutionContext cannot be null." );
+            }
 
-            config.validate();
+            config_.validate();
 
             initializeParameters();
 
-            if ( this->isTraining() ) {
-                initializeParameterGradients();
+            if (this->isTraining())
+            {
+                //initializeParameterGradients();
             }
 
             createOperation();
         }
 
-        /**
-         * @brief Constructs a new Linear module with a provided device context.
-         *
-         * Uses a pre-existing DeviceContext instance. This constructor is useful when integrating
-         * the module into a larger network that shares device contexts across modules.
-         *
-         * @param device_context The device context to use for this module.
-         * @param config Configuration parameters for the Linear module.
-         * @throws std::invalid_argument If device_context is null or configuration is invalid
-         * @throws std::runtime_error If device context type doesn't match template parameter TDeviceType
-         */
-        explicit Linear( std::shared_ptr<DeviceContext> device_context, const LinearConfig& config )
-            : ModuleBase( device_context, config ), config_( config ) {
+        ~Linear() override = default;
 
-            config.validate();
-
-            initializeParameters();
-
-            if ( this->isTraining() ) {
-                initializeParameterGradients();
-            }
-
-            createOperation();
-        }
-
-        /**
-         * @brief Performs the forward pass of the Linear operation.
-         *
-         * Applies the linear transformation to the input tensor:
-         * output = input * weight + bias (if bias is enabled)
-         *
-         * @param input The input tensor to be transformed.
-         * @param output The output tensor where the results will be stored.
-         */
-        void forward( const Tensor<TDataType, MR>& input, Tensor<TDataType, MR>& output ) {
-            operation_->forward( input, parameters_, output, output_state_ );
-        }
-
-        /**
-         * @brief Performs the backward pass of the Linear operation.
-         *
-         * Computes gradients for the input tensor and parameters based on the output gradients.
-         *
-         * @param input The input tensor from the forward pass.
-         * @param output_grad The gradient of loss with respect to the output.
-         * @param input_grad The tensor to store gradients with respect to input.
-         */
-        void backward(
-            const Tensor<TDataType, MR>& input,
-            const Tensor<TDataType, MR>& output_grad,
-            Tensor<TDataType, MR>& input_grad ) {
-            operation_->backward(
-                input,            // Input tensor
-                output_grad,      // Gradient from next layer
-                parameters_,      // Original parameters (weight, bias)
-                parameter_grads_, // Gradient tensors for parameters
-                input_grad,       // Gradient to propagate to previous layer
-                output_state_     // Cached tensors from forward pass
-            );
-        }
-
-        /**
-         * @brief Gets the number of trainable parameters in this module.
-         *
-         * Counts the total number of trainable parameters, which includes
-         * the weight tensor and, if present, the bias tensor.
-         *
-         * @return size_t The total number of parameters.
-         */
-        size_t parameterCount() const override {
-            size_t num_params = weight_->size();
-            if ( config_.hasBias() ) {
-                num_params += bias_->size();
-            }
+        size_t parameterCount() const override
+        {
+            size_t num_params = weight_ ? weight_->size() : 0;
+            if (config_.hasBias() && bias_) num_params += bias_->size();
             return num_params;
         }
 
-        /**
-         * @brief Retrieves the weight tensor for this linear layer.
-         *
-         * The weight tensor has shape [output_features, input_features] and
-         * is initialized with Xavier/Glorot uniform distribution.
-         *
-         * @return std::shared_ptr<Tensor<TDataType, MR>> The weight tensor used in the linear transformation.
-         */
-        std::shared_ptr<Tensor<TDataType, MR>> getWeight() {
+        void forward( const ITensor& input, ITensor& output ) override
+        {
+            operation_->forward( input, parameters_, output, output_state_ );
+        }
+
+        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad ) override
+        {
+            // Ensure parameter_grads vector exists when training
+            /* FIXME: operation_->backward(
+                input,
+                output_grad,
+                parameters_,
+                output_state_,
+                input_grad,
+                parameter_grads_
+            );*/
+        }
+
+        void synchronize() override
+        {
+            exec_context_->synchronize();
+        }
+
+        std::shared_ptr<TensorType> getWeight()
+        {
             return weight_;
         }
 
-        /**
-         * @brief Retrieves the bias tensor if present.
-         *
-         * The bias tensor has shape [output_features] and is initialized to zeros
-         * if bias is enabled in the layer configuration.
-         *
-         * @return std::optional<std::shared_ptr<Tensor<TDataType, MR>>> An optional containing the bias tensor if bias is enabled, otherwise std::nullopt.
-         */
-        std::optional<std::shared_ptr<Tensor<TDataType, MR>>> getBias() {
+        std::optional<std::shared_ptr<TensorType>> getBias()
+        {
             return config_.hasBias() ? std::optional{ bias_ } : std::nullopt;
         }
 
-        /**
-         * @brief Checks whether the module has a bias tensor.
-         *
-         * @return bool True if the module has a bias tensor, false otherwise.
-         */
-        bool hasBias() const {
+        bool hasBias() const
+        {
             return config_.hasBias();
         }
 
-        /**
-         * @brief Serializes the module state to a ZIP archive.
-         *
-         * Saves the trainable parameters (weight, bias) to the provided archive.
-         * Note: This method is currently a placeholder and needs implementation.
-         *
-         * @param zip The ZIP archive to save the module state to.
-         * @throws std::runtime_error If the serialization fails.
-         */
-        void save( ModelArchive& zip ) const override {
-            // Save the state of the parameters
-            for ( const auto& [name, tensor] : this->getParameterTensors() ) {
-                // Save tensor data to zip archive
-                // Implementation will depend on how tensors are serialized
-            }
+        void save( ModelArchive& zip ) const override
+        {
+            // No-op placeholder; serialize parameter tensors if needed
         }
 
-        /**
-         * @brief Deserializes the module state from a ZIP archive.
-         *
-         * Loads the trainable parameters (weight, bias) from the provided archive.
-         * Note: This method is currently a placeholder and needs implementation.
-         *
-         * @param zip The ZIP archive to load the module state from.
-         * @throws std::runtime_error If the deserialization fails.
-         */
-        void load( ModelArchive& archive ) override {
-            for ( const auto& [name, tensor] : this->getParameterTensors() ) {
-                // Load tensor data from zip archive
-                // Implementation will depend on how tensors are deserialized
-            }
+        void load( ModelArchive& archive ) override
+        {
+            // No-op placeholder; deserialize parameter tensors if needed
         }
 
-        /**
-         * @brief Converts the module information to a human-readable string.
-         *
-         * Includes detailed information about the module configuration including:
-         * - Module name
-         * - Input/output features
-         * - Device type
-         * - Precision policy
-         * - Parameter information
-         *
-         * @return std::string A string representation of the module information.
-         */
-        std::string toString() const override {
+        void setTraining( bool is_training ) override
+        {
+            training_mode_ = is_training;
+        }
+
+        bool isTraining() const override
+        {
+            return training_mode_;
+        }
+
+        std::string getName() const override
+        {
+            return config_.getName();
+        }
+
+        std::string toString() const override
+        {
             std::ostringstream oss;
             oss << "--------------------" << std::endl;
-            oss << "Linear: " << this->getDeviceName() << std::endl;
+            oss << "Linear: " << this->getName() << std::endl;
             oss << "Input features: " << config_.getInputFeatures();
             oss << ", Output features: " << config_.getOutputFeatures() << std::endl;
-            oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
-            // FIXME: oss << this->getComputePrecision().toString() << std::endl;
+            oss << "Device: " << deviceToString( this->getDeviceType() ) << std::endl;
             oss << "Parameter count: " << parameterCount() << std::endl;
-
             return oss.str();
         }
 
     private:
-        /**
-         * @brief Configuration for the Linear module.
-         */
         LinearConfig config_;
+		bool training_mode_{ false };
 
-        /**
-         * @brief The weight tensor for the linear transformation.
-         *
-         * Shape is [output_features, input_features] to transform input features
-         * to output features through matrix multiplication.
-         */
-        std::shared_ptr<Tensor<TDataType, MR>> weight_{ nullptr };
+        std::shared_ptr<TensorType> weight_{ nullptr };
+        std::shared_ptr<TensorType> bias_{ nullptr };
 
-        /**
-         * @brief The bias tensor added after the matrix multiplication.
-         *
-         * Shape is [output_features]. This tensor is only used if has_bias_ is true.
-         */
-        std::shared_ptr<Tensor<TDataType, MR>> bias_{ nullptr };
+        // Module-visible parameter containers (backends expect ITensor-like parameters)
+        std::vector<std::shared_ptr<TensorType>> parameters_;
+        // Gradients for parameters (allocated when training)
+        std::vector<std::shared_ptr<TensorType>> parameter_grads_;
+        // Cached forward-state tensors (if backend requires them)
+        OutputState output_state_;
 
-        /**
-         * @brief Collection of trainable parameters for this module.
-         *
-         * Contains the weight tensor and optionally the bias tensor if has_bias_ is true.
-         * These parameters are passed to the underlying operation during forward pass.
-         */
-        std::vector<std::shared_ptr<ITensor>> parameters_;
+        std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<ExecutionContextType> exec_context_;
 
-        /**
-         * @brief Gradients for the parameters of this module.
-         *
-         * Contains gradients for the weight tensor and optionally the bias tensor.
-         * These are computed during the backward pass.
-         */
-        std::vector<std::shared_ptr<Tensor<TDataType, MR>>> parameter_grads_;
-
-        /**
-         * @brief Cache of intermediate tensors needed for backward pass.
-         *
-         * Stores tensors that are computed during the forward pass and
-         * are needed for gradient computation during backpropagation.
-         */
-        std::vector<std::shared_ptr<Tensor<TDataType, MR>>> output_state_;
-
-        /**
-         * @brief The underlying operation that implements the Linear transformation.
-         *
-         * This operation performs the actual computation for the linear layer,
-         * with different implementations for CPU and CUDA devices.
-         */
-        std::shared_ptr<UnaryOperation<TDeviceType, TDataType, TDataType>> operation_{ nullptr };
-
-        /**
-         * @brief Initializes the tensors needed for the Linear operation.
-         *
-         * Creates and initializes:
-         * - weight tensor (initialized with Xavier/Glorot uniform distribution)
-         * - bias tensor (initialized to zeros if has_bias_ is true)
-         *
-         * The tensors are created on the appropriate device (CPU or CUDA)
-         * based on the current device context.
-         */
-        void initializeParameters() {
-
+        void initializeParameters()
+        {
             parameters_.clear();
 
             size_t input_features = config_.getInputFeatures();
             size_t output_features = config_.getOutputFeatures();
 
-            weight_ = std::make_shared<Tensor<TDataType, MR>>(
-                std::vector<size_t>{output_features, input_features} );
-            weight_->setName( this->getDeviceName() + ".weight" );
+            // Construct tensors bound to the execution context's device.
+            auto device = exec_context_->getDevice();
 
-            // REVIEW: Set inputs 
-            //attributes_.inputs[ LinearAttributes::input_names::X ] = x;
-            //attributes.inputs[ Layernorm_attributes::input_names::SCALE ] = scale;
-            //attributes.inputs[ Layernorm_attributes::input_names::BIAS ] = bias;
+            weight_ = std::make_shared<TensorType>( device, std::vector<size_t>{ output_features, input_features } );
+            weight_->setName( this->getName() + ".weight" );
 
-            xavier<TDataType, MR>( *weight_, input_features, output_features );
-
-            if ( hasBias() ) {
-                bias_ = std::make_shared<Tensor<TDataType, MR>>(
-                    std::vector<size_t>{output_features} );
-                bias_->setName( this->getDeviceName() + ".bias" );
-            }
+            xavier<TPrecision, MR>( *weight_, input_features, output_features );
 
             parameters_.emplace_back( weight_ );
-            this->parameter_map_[ "weight" ] = weight_;
+            //this->parameter_map_["weight"] = weight_;
 
-            if ( hasBias() ) {
+            if (config_.hasBias())
+            {
+                bias_ = std::make_shared<TensorType>( device, std::vector<size_t>{ output_features } );
+                bias_->setName( this->getName() + ".bias" );
                 parameters_.emplace_back( bias_ );
-                this->parameter_map_[ "bias" ] = bias_;
+                //this->parameter_map_["bias"] = bias_;
             }
         }
 
-        /**
-         * @brief Initializes gradient tensors for parameters.
-         *
-         * Creates tensors to store gradients for weights and biases (if present).
-         * These tensors will be populated during backpropagation.
-         */
-        void initializeParameterGradients() {
+        void initializeParameterGradients()
+        {
             parameter_grads_.clear();
 
             size_t input_features = config_.getInputFeatures();
             size_t output_features = config_.getOutputFeatures();
 
-            auto weight_grad = std::make_shared<Tensor<TDataType, MR>>(
-                std::vector<size_t>{output_features, input_features} );
-            weight_grad->setName( this->getDeviceName() + ".weight_grad" );
+            auto device = exec_context_->getDevice();
+
+            auto weight_grad = std::make_shared<TensorType>( device, std::vector<size_t>{ output_features, input_features } );
+            weight_grad->setName( this->getName() + ".weight_grad" );
             parameter_grads_.push_back( weight_grad );
 
-            if ( hasBias() ) {
-                auto bias_grad = std::make_shared<Tensor<TDataType, MR>>(
-                    std::vector<size_t>{output_features} );
-                bias_grad->setName( this->getDeviceName() + ".bias_grad" );
+            if (config_.hasBias())
+            {
+                auto bias_grad = std::make_shared<TensorType>( device, std::vector<size_t>{ output_features } );
+                bias_grad->setName( this->getName() + ".bias_grad" );
                 parameter_grads_.emplace_back( bias_grad );
             }
         }
 
-        /**
-         * @brief Creates the appropriate Linear operation based on the current device context.
-         *
-         * This method initializes the operation_ member with the appropriate implementation
-         * of Linear for either CPU or CUDA, based on the current device context.
-         * It also passes the compute precision policy to the operation.
-         *
-         * @throws std::runtime_error If the operation creation fails.
-         */
-        void createOperation() {
-            if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TDataType, TDataType>(
-                    "Cpu::LinearOp",
-                    this->getDeviceContext(),
+        void createOperation()
+        {
+            // Create backend operation using the ExecutionContext
+            operation_ = OperationRegistry::instance()
+                .createUnaryOperation<TDeviceType, TPrecision>(
+                    "LinearOp",
+                    exec_context_,
                     config_ );
-                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cpu, TDataType, TDataType>>(base_op);
-            }
-            else {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TDataType, TDataType>(
-                    "Cuda::LinearOp",
-                    this->getDeviceContext(),
-                    config_ );
-                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cuda, TDataType, TDataType>>(base_op);
+
+            if (!operation_)
+            {
+                throw std::runtime_error( "Failed to create Linear compute backend operation." );
             }
         }
     };
 
-    /**
-     * @brief Type alias for CPU-based linear module with customizable tensor type.
-     *
-     * @tparam TDataType Data type of the tensor elements, defaults to float.
-     */
-    export template<typename TDataType = float>
-        using CpuLinear = Linear<DeviceType::Cpu, TDataType>;
+    // Convenience aliases
+    export template<TensorDataType TPrecision>
+        using CpuLinear = Linear<DeviceType::Cpu, TPrecision>;
 
-    /**
-     * @brief Type alias for CUDA-based linear module with customizable tensor type.
-     *
-     * @tparam TDataType Data type of the tensor elements, defaults to float.
-     */
-    export template<typename TDataType = float>
-        using CudaLinear = Linear<DeviceType::Cuda, TDataType>;
+    export template<TensorDataType TPrecision>
+        using CudaLinear = Linear<DeviceType::Cuda, TPrecision>;
 }

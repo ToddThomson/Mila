@@ -1,6 +1,9 @@
 /**
  * @file CudaLayerNormOp.ixx
- * @brief Implementation of the CUDA-based Layer Normalization operation for neural networks.
+ * @brief CUDA implementation of Layer Normalization (TensorDataType-based).
+ *
+ * Ported to the ExecutionContext / TensorDataType UnaryOperation interface
+ * following the pattern used by CudaGeluOp.
  */
 
 module;
@@ -8,257 +11,297 @@ module;
 #include <memory>
 #include <string>
 #include <stdexcept>
+#include <cuda_fp16.h>
 #include "Kernels/CudaOps.h"
 
 export module Compute.CudaLayerNormOp;
 
 import Dnn.Modules.LayerNorm;
 import Dnn.Tensor;
-import Dnn.TensorTraits;
+import Dnn.ITensor;
+import Dnn.TensorDataType;
+import Dnn.TensorDataTypeTraits;
 import Dnn.ConfigurationBase;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
-import Compute.DeviceContext;
+import Compute.ExecutionContext;
+import Compute.CudaExecutionContext;
+import Compute.CudaDeviceResources;
 import Compute.OperationType;
 import Compute.OperationAttributes;
 import Compute.MemoryResource;
 import Compute.CudaDeviceMemoryResource;
+import Compute.CudaTensorDataType;
 import Compute.CudaDevice;
-
-using namespace Mila::Dnn;
 
 namespace Mila::Dnn::Compute
 {
-	/**
-	 * @brief Namespace for CUDA layer normalization implementation details.
-	 *
-	 * This namespace contains the implementation details for the CUDA layer normalization operation,
-	 * including specialized templates for different data types (float, half).
-	 */
-	namespace Detail
-	{
-		// Primary template - will cause a compile error if no specialization exists
-		template <typename T>
-		struct cuda_layernorm_impl;
-		
-        // Specialization for float
-		template <>
-		struct cuda_layernorm_impl<float> {
-			static inline void forward( float* Y, const float* X,
-				const float* weight, const float* bias,
-				float* mean, float* rstd,
-				int B, int T, int C, float epsilon, 
-                cudaStream_t stream ) {
-				cuda_layernorm_forward_fp32( Y, mean, rstd, X, weight, bias, B, T, C, epsilon, stream );
-			}
-		};
-		
-        // Specialization for half
-		template <>
-		struct cuda_layernorm_impl<half> {
-			static inline void forward( half* Y, const half* X,
-				const half* weight, const half* bias,
-				half* mean, half* rstd,
-				int B, int T, int C, float epsilon, 
-                cudaStream_t stream ) {
-				cuda_layernorm_forward_fp16( Y, mean, rstd, X, weight, bias, B, T, C, epsilon, stream );
-			}
-		};
-	}
+    namespace Detail
+    {
+        // Primary template - will cause a compile error if no specialization exists
+        template <typename TNative>
+            requires std::is_same_v<TNative, float> || std::is_same_v<TNative, half>
+        struct cuda_layernorm_impl;
 
-    /**
-     * @brief CUDA implementation of the Layer Normalization operation for neural networks.
-     *
-     * This class provides a CUDA-based implementation of the Layer Normalization operation,
-     * which normalizes the activations of a layer for each example in a batch, usually applied
-     * before the activation function. Layer normalization helps stabilize the learning process
-     * and reduce the training time required to learn the parameters of neural networks.
-     *
-     * The normalization is applied across the last dimension (feature dimension) and includes
-     * learnable scale (gamma) and shift (beta) parameters. The implementation is optimized for
-     * NVIDIA GPUs using CUDA for high-performance computation.
-     *
-     * @tparam TPrecision The data type of the input tensor elements.
-     * @tparam TDataType The data type of the output tensor elements (defaults to the input type).
-     */
-    export template<typename TInput = float, typename TOutput = TInput>
-    class CudaLayerNormOp : public UnaryOperation<DeviceType::Cuda, TInput, TOutput> {
-    public:
-        using MR = typename CudaDevice::MR;
-		using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TInput, TOutput>;
+        template <>
+        struct cuda_layernorm_impl<float>
+        {
+            cuda_layernorm_impl() = default;
 
-        /**
-         * @brief Constructs a new CUDA Layer Normalization operation with the default device context.
-         *
-         * Initializes the operation with a CUDA device context (defaults to CUDA:0).
-         */
-        CudaLayerNormOp( const LayerNormConfig& config )
-            : UnaryOperationBase( OperationType::LayerNormOp ), config_( config ) {}
-
-        /**
-         * @brief Constructs a new CUDA Layer Normalization operation with a specific device context.
-         *
-         * @param context The device context to use for this operation.
-         * @throws std::runtime_error If the context is not for a CUDA device.
-         */
-        CudaLayerNormOp( std::shared_ptr<DeviceContext> context, const LayerNormConfig& config )
-            : UnaryOperationBase( OperationType::LayerNormOp, context ), config_( config ) {
-        }
-
-        /**
-         * @brief Performs the forward pass of the Layer Normalization operation on CUDA.
-         *
-         * Normalizes the input tensor across the feature dimension (last dimension) by:
-         * 1. Computing the mean and standard deviation of each sample
-         * 2. Normalizing the values using these statistics
-         * 3. Applying learnable scale and shift parameters
-         *
-         * The computation is performed on the GPU using CUDA kernels for optimal performance.
-         *
-         * @param input Input tensor of shape [B, TDataType, C] to be normalized, where B is batch size,
-         *              TDataType is sequence length, and C is feature dimension.
-         * @param parameters Vector of parameter tensors [weight, bias] where weight (gamma) and
-         *                   bias (beta) are both of shape [C].
-         * @param properties Additional attributes for the operation.
-         * @param output Output tensor of shape [B, TDataType, C] containing the normalized values.
-         * @param output_state Vector containing tensors for intermediate results [mean, rstd],
-         *                     where mean is the mean values and rstd is the reciprocal of standard deviation.
-         */
-        void forward(
-            const Tensor<TInput, MR>& input,
-            const std::vector<std::shared_ptr<ITensor>>& parameters,
-            Tensor<TOutput, MR>& output,
-            std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const override {
-
-            const TInput* X = input.data();
-            TOutput* Y = output.data();
-
-            const TInput* weight = static_cast<const TInput*>(parameters[ 0 ]->data());
-            const TInput* bias = (parameters.size() > 1 && parameters[ 1 ]) ?
-                static_cast<const TInput*>(parameters[ 1 ]->data()) : nullptr;
-
-            TOutput* mean = output_state[ 0 ]->data();
-            TOutput* rstd = output_state[ 1 ]->data();
-
-            int B = input.shape()[ 0 ];
-            int T = input.shape()[ 1 ];
-            int C = input.shape()[ 2 ];
-			float epsilon = config_.getEpsilon();
-
-            cudaStream_t stream = this->getDeviceContext()->getStream();
-
-            Detail::cuda_layernorm_impl<TInput>::forward( Y, X, weight, bias, mean, rstd, B, T, C, epsilon, stream );
-        }
-
-        /**
-         * @brief Performs the backward pass of the Layer Normalization operation.
-         *
-         * Computes gradients with respect to inputs, weights, and biases.
-         *
-         * @param input Input tensor from the forward pass.
-         * @param output Output tensor from the forward pass.
-         * @param output_gradient Gradient of the loss with respect to the output.
-         * @param parameters Parameters tensor from forward pass [weight, bias].
-         * @param parameter_gradients Gradients for parameters [d_weight, d_bias].
-         * @param input_gradient Gradient of the loss with respect to the input.
-         * @param properties Additional attributes for the operation.
-         * @param output_state Cache tensors from forward pass [mean, rstd].
-         */
-        void backward(
-            const Tensor<TInput, MR>& input,
-            const Tensor<TOutput, MR>& output,
-            const Tensor<TOutput, MR>& output_gradient,
-            const std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameters,
-            std::vector<std::shared_ptr<Tensor<TInput, MR>>>& parameter_gradients,
-            Tensor<TInput, MR>& input_gradient,
-            const std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const {
-
-            // Verify we're operating on CUDA memory
-            if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cuda ) ) {
-                throw std::runtime_error( "CudaLayerNormOp::backward can only be executed on CUDA memory" );
+            static inline void forward(
+                float* Y, const float* X,
+                const float* weight, const float* bias,
+                float* mean, float* rstd,
+                int B, int T, int C, float epsilon,
+                cudaStream_t stream )
+            {
+                cuda_layernorm_forward_fp32( Y, mean, rstd, X, weight, bias, B, T, C, epsilon, stream );
             }
 
-            // Extract dimensions
-            int B = input.shape()[ 0 ];
-            int T = input.shape()[ 1 ];
-            int C = input.shape()[ 2 ];
+            static inline void backward(
+                float* dX, float* dweight, float* dbias,
+                const float* dY, const float* X, const float* weight,
+                const float* mean, const float* rstd,
+                int B, int T, int C, cudaStream_t stream )
+            {
+                // FIXME: cuda_layernorm_backward_fp32( dX, dweight, dbias, dY, X, weight, mean, rstd, B, T, C, stream );
+            }
+        };
 
-            const float* X = input.data();
-            const float* dY = output_gradient.data();
-            float* dX = input_gradient.data();
+        template <>
+        struct cuda_layernorm_impl<half>
+        {
+            cuda_layernorm_impl() = default;
 
-            const float* weight = parameters[ 0 ]->data();
-            float* dweight = parameter_gradients[ 0 ]->data();
-            float* dbias = parameter_gradients[ 1 ]->data();
+            static inline void forward(
+                half* Y, const half* X,
+                const half* weight, const half* bias,
+                half* mean, half* rstd,
+                int B, int T, int C, float epsilon,
+                cudaStream_t stream )
+            {
+                cuda_layernorm_forward_fp16( Y, mean, rstd, X, weight, bias, B, T, C, epsilon, stream );
+            }
 
-            const float* mean = output_state[ 0 ]->data();
-            const float* rstd = output_state[ 1 ]->data();
-            float epsilon = config_.epsilon;
+            static inline void backward(
+                half* dX, half* dweight, half* dbias,
+                const half* dY, const half* X, const half* weight,
+                const half* mean, const half* rstd,
+                int B, int T, int C, cudaStream_t stream )
+            {
+                // FIXME: cuda_layernorm_backward_fp16( dX, dweight, dbias, dY, X, weight, mean, rstd, B, T, C, stream );
+            }
+        };
+    }
 
-            cudaStream_t stream = this->getDeviceContext()->getStream();
+    using namespace Mila::Dnn;
 
-            //cuda_layernorm_backward( dX, dweight, dbias, dY, X, weight, mean, rstd, B, TDataType, C, stream );
+    export template<TensorDataType TPrecision>
+        requires ValidFloatTensorDataType<TPrecision>
+    class CudaLayerNormOp : public UnaryOperation<DeviceType::Cuda, TPrecision>
+    {
+    public:
+        using MR = CudaDeviceMemoryResource;
+        using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TPrecision>;
+        using TensorType = Tensor<TPrecision, MR>;
+        using Parameters = std::vector<std::shared_ptr<TensorType>>;
+        using OutputState = std::vector<std::shared_ptr<TensorType>>;
+        using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::native_type;
+        using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
+
+        CudaLayerNormOp( std::shared_ptr<CudaExecutionContext> context, const LayerNormConfig& config )
+            : context_( context ), config_( config ), impl_()
+        {
+            if (!context_)
+            {
+                throw std::invalid_argument( "CudaExecutionContext cannot be null." );
+            }
+            config_.validate();
         }
 
-        /**
-         * @brief Gets the name of this operation.
-         *
-         * @return std::string The name of the operation ("Cuda::LayerNormOp").
-         */
-        std::string getName() const override {
+        void forward(
+            const ITensor& input,
+            const Parameters& parameters,
+            ITensor& output,
+            OutputState& output_state ) const override
+        {
+            if (input.getDeviceType() != DeviceType::Cuda || output.getDeviceType() != DeviceType::Cuda)
+            {
+                throw std::invalid_argument( "CudaLayerNormOp: Input and output tensors must be on CUDA device." );
+            }
+
+            // Validate shapes and state
+            const NativeType* X = static_cast<const NativeType*>(input.rawData());
+            NativeType* Y = static_cast<NativeType*>(output.rawData());
+
+            if (!X || !Y)
+            {
+                throw std::runtime_error( "CudaLayerNormOp::forward - null tensor data pointer" );
+            }
+
+            if (parameters.empty() || !parameters[0])
+            {
+                throw std::invalid_argument( "CudaLayerNormOp::forward requires weight parameter" );
+            }
+
+            const NativeType* weight = static_cast<const NativeType*>(parameters[0]->rawData());
+            const NativeType* bias = (parameters.size() > 1 && parameters[1]) ? static_cast<const NativeType*>(parameters[1]->rawData()) : nullptr;
+
+            if (output_state.size() < 2 || !output_state[0] || !output_state[1])
+            {
+                throw std::invalid_argument( "CudaLayerNormOp::forward requires output_state[0]=mean and output_state[1]=rstd tensors." );
+            }
+
+            NativeType* mean = static_cast<NativeType*>(output_state[0]->rawData());
+            NativeType* rstd = static_cast<NativeType*>(output_state[1]->rawData());
+
+            const auto& shape = input.shape();
+            if (shape.size() < 3)
+            {
+                throw std::runtime_error( "CudaLayerNormOp::forward - expected input rank >= 3 [B,T,C]" );
+            }
+
+            int B = static_cast<int>(shape[0]);
+            int T = static_cast<int>(shape[1]);
+            int C = static_cast<int>(shape[2]);
+            float epsilon = config_.getEpsilon();
+
+            cudaStream_t stream = context_->getStream();
+
+            Detail::cuda_layernorm_impl<NativeType>::forward(
+                reinterpret_cast<NativeType*>(Y),
+                reinterpret_cast<const NativeType*>(X),
+                reinterpret_cast<const NativeType*>(weight),
+                reinterpret_cast<const NativeType*>(bias),
+                reinterpret_cast<NativeType*>(mean),
+                reinterpret_cast<NativeType*>(rstd),
+                B, T, C, epsilon,
+                stream );
+        }
+
+        void backward(
+            const ITensor& output_gradient,
+            const ITensor& input,
+            const Parameters& parameters,
+            const OutputState& output_state,
+            ITensor& input_gradient,
+            Parameters& parameter_gradients ) const override
+        {
+            if (input.getDeviceType() != DeviceType::Cuda || output_gradient.getDeviceType() != DeviceType::Cuda || input_gradient.getDeviceType() != DeviceType::Cuda)
+            {
+                throw std::invalid_argument( "CudaLayerNormOp::backward: tensors must be on CUDA device." );
+            }
+
+            const auto& shape = input.shape();
+            if (shape.size() < 3)
+            {
+                throw std::runtime_error( "CudaLayerNormOp::backward - expected input rank >= 3 [B,T,C]" );
+            }
+
+            int B = static_cast<int>(shape[0]);
+            int T = static_cast<int>(shape[1]);
+            int C = static_cast<int>(shape[2]);
+
+            const NativeType* X = static_cast<const NativeType*>(input.rawData());
+            const NativeType* dY = static_cast<const NativeType*>(output_gradient.rawData());
+            NativeType* dX = static_cast<NativeType*>(input_gradient.rawData());
+
+            if (!X || !dY || !dX)
+            {
+                throw std::runtime_error( "CudaLayerNormOp::backward - null tensor data pointer" );
+            }
+
+            if (parameters.empty() || !parameters[0])
+            {
+                throw std::invalid_argument( "CudaLayerNormOp::backward requires weight parameter" );
+            }
+
+            const NativeType* weight = static_cast<const NativeType*>(parameters[0]->rawData());
+
+            NativeType* dweight = nullptr;
+            NativeType* dbias = nullptr;
+            if (parameter_gradients.size() > 0 && parameter_gradients[0])
+            {
+                dweight = static_cast<NativeType*>(parameter_gradients[0]->rawData());
+            }
+            if (parameter_gradients.size() > 1 && parameter_gradients[1])
+            {
+                dbias = static_cast<NativeType*>(parameter_gradients[1]->rawData());
+            }
+
+            if (output_state.size() < 2 || !output_state[0] || !output_state[1])
+            {
+                throw std::invalid_argument( "CudaLayerNormOp::backward requires output_state[0]=mean and output_state[1]=rstd tensors." );
+            }
+
+            const NativeType* mean = static_cast<const NativeType*>(output_state[0]->rawData());
+            const NativeType* rstd = static_cast<const NativeType*>(output_state[1]->rawData());
+
+            cudaStream_t stream = context_->getStream();
+
+            Detail::cuda_layernorm_impl<NativeType>::backward(
+                reinterpret_cast<NativeType*>(dX),
+                reinterpret_cast<NativeType*>(dweight),
+                reinterpret_cast<NativeType*>(dbias),
+                reinterpret_cast<const NativeType*>(dY),
+                reinterpret_cast<const NativeType*>(X),
+                reinterpret_cast<const NativeType*>(weight),
+                reinterpret_cast<const NativeType*>(mean),
+                reinterpret_cast<const NativeType*>(rstd),
+                B, T, C, stream );
+        }
+
+        OperationType getOperationType() const override
+        {
+            return OperationType::LayerNormOp;
+        }
+
+        std::string getName() const override
+        {
             return "Cuda::LayerNormOp";
         }
 
-        private:
-			LayerNormConfig config_; ///< Configuration for the layer normalization operation.
+        const LayerNormConfig& getConfig() const
+        {
+            return config_;
+        }
+
+    private:
+        LayerNormConfig config_;
+        std::shared_ptr<CudaExecutionContext> context_;
+        Detail::cuda_layernorm_impl<NativeType> impl_;
     };
 
-    /**
-     * @brief Class responsible for registering the CudaLayerNormOp operation.
-     *
-     * The CudaLayerNormOpRegistrar class registers the CudaLayerNormOp operation with the OperationRegistry.
-     * It associates the operation name "Cuda::LayerNormOp" with a factory function that creates
-     * instances of CudaLayerNormOp.
-     */
-    export class CudaLayerNormOpRegistrar {
+    export class CudaLayerNormOpRegistrar
+    {
     public:
-        /**
-         * @brief Registers the CudaLayerNormOp operation with the OperationRegistry.
-         *
-         * This function registers the CudaLayerNormOp operation for the CUDA device type
-         * with the OperationRegistry. It associates the operation name "Cuda::LayerNormOp"
-         * with a factory function that creates instances of CudaLayerNormOp.
-         */
-        static void registerOperations() {
-            const std::string opName = "Cuda::LayerNormOp";
+        static void registerOperations()
+        {
+            const std::string opName = "LayerNormOp";
 
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, float, float>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP32>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, float, float>> {
-                    const auto& layerNormConfig = static_cast<const LayerNormConfig&>( config );
-                    return context ? std::make_shared<CudaLayerNormOp<float>>( context, layerNormConfig )
-                        : std::make_shared<CudaLayerNormOp<float>>( layerNormConfig );
+                []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
+                    const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
+                {
+                    const auto& lnConfig = static_cast<const LayerNormConfig&>(config);
+                    return std::make_shared<CudaLayerNormOp<TensorDataType::FP32>>( context, lnConfig );
                 }
             );
 
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, half, half>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP16>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, half, half>> {
-                    const auto& layerNormConfig = static_cast<const LayerNormConfig&>(config);
-                    return context ? std::make_shared<CudaLayerNormOp<half>>( context, layerNormConfig )
-                        : std::make_shared<CudaLayerNormOp<half>>( layerNormConfig );
+                []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
+                    const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
+                {
+                    const auto& lnConfig = static_cast<const LayerNormConfig&>(config);
+                    return std::make_shared<CudaLayerNormOp<TensorDataType::FP16>>( context, lnConfig );
                 }
             );
         }
 
-        /**
-         * @brief Self-registration mechanism that registers the operation during startup.
-         *
-         * This static member ensures the operation is registered when the program starts
-         * without requiring explicit registration calls.
-         */
         static inline bool isRegistered = []() {
             registerOperations();
             return true;
