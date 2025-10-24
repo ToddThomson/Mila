@@ -1,10 +1,6 @@
 /**
  * @file CudaLinearOp.ixx
- * @brief CUDA implementation of the Linear (Fully Connected) operation using
- *        the abstract TensorDataType + ExecutionContext UnaryOperation API.
- *
- * Ported to follow the CudaGeluOp pattern: uses ExecutionContext<DeviceType::Cuda>,
- * TensorDataType template, and the new OperationRegistry registration model.
+ * @brief CUDA implementation of the Linear (Fully Connected) operation.
  */
 
 module;
@@ -40,6 +36,7 @@ import Compute.MemoryResource;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaDevice;
 import Compute.CudaTensorDataType;
+import Compute.CublasLtMatMulBias;
 import Utils.Logger;
 
 namespace Mila::Dnn::Compute
@@ -229,7 +226,8 @@ namespace Mila::Dnn::Compute
 
             int C = static_cast<int>(shape.back());
             int outer_size = 1;
-            for (size_t i = 0; i + 1 < shape.size(); ++i) outer_size *= static_cast<int>(shape[i]);
+            for (size_t i = 0; i + 1 < shape.size(); ++i)
+                outer_size *= static_cast<int>(shape[i]);
 
             const auto& out_shape = output.shape();
             if (out_shape.size() < 2)
@@ -247,9 +245,22 @@ namespace Mila::Dnn::Compute
                 cublasLtHandle_t cublasLtHandle = context_->getCublasLtHandle();
                 if (cublasLtHandle)
                 {
-                    // Optional: user may implement cublaslt path here (commented earlier)
-                    // cublaslt_matmul_forward<NativeType>( Y, X, weight, bias, outer_size, C, OC, stream, cublasLtHandle, precision_policy );
-                    return;
+                    // Only attempt the cuBLASLt path for native types that the cuBLASLt wrapper supports.
+                    // Use a compile-time check so the call is not instantiated for unsupported types (e.g. FP8).
+                    if constexpr ( std::is_same_v<NativeType, float> ||
+                                   std::is_same_v<NativeType, half> ||
+                                   std::is_same_v<NativeType, nv_bfloat16> )
+                    {
+                        cublaslt_matmul_forward<NativeType>(
+                            Y, X,
+                            weight, bias,
+                            outer_size,
+                            C, OC,
+                            stream, cublasLtHandle,
+                            precision_policy );
+
+                        return;
+                    }
                 }
             }
             catch (const std::exception& e)
@@ -376,7 +387,7 @@ namespace Mila::Dnn::Compute
                 }
             );
 
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP8_E4M3>(
+            /*OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP8_E4M3>(
                 opName,
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
                     const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP8_E4M3>>
@@ -394,7 +405,7 @@ namespace Mila::Dnn::Compute
                     const auto& linearConfig = static_cast<const LinearConfig&>(config);
                     return std::make_shared<CudaLinearOp<TensorDataType::FP8_E5M2>>( context, linearConfig );
                 }
-            );
+            );*/
         }
 
         static inline bool isRegistered = []() {

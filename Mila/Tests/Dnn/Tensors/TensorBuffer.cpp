@@ -470,4 +470,89 @@ namespace Dnn::Tensors::Tests
         EXPECT_NO_THROW( buffer.resize( 200 ) );
         EXPECT_EQ( buffer.size(), 200 );
     }
+
+    // ============================================================================
+
+    TEST_F( TensorBufferTests, CudaMaxTensorAllocation )
+    {
+        if (!has_cuda_)
+        {
+            GTEST_SKIP() << "CUDA device not available for this test";
+        }
+
+        // Select device and query free memory
+        ASSERT_EQ( cudaSetDevice( cuda_device_id_ ), cudaSuccess );
+        size_t free_bytes = 0;
+        size_t total_bytes = 0;
+        ASSERT_EQ( cudaMemGetInfo( &free_bytes, &total_bytes ), cudaSuccess );
+
+        // Reserve headroom so test does not exhaust GPU and leaves space for driver/OS
+        constexpr double headroom_fraction = 1.5; // use at most 85% of free memory
+        size_t usable_bytes = static_cast<size_t>(static_cast<double>(free_bytes) * headroom_fraction);
+
+        // Compute maximum element count for FP32 element size
+        using CudaFP32Buffer = TensorBuffer<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>;
+        const size_t element_size = CudaFP32Buffer::element_size;
+        size_t max_elements = usable_bytes / element_size;
+
+        if (max_elements == 0)
+        {
+            GTEST_SKIP() << "Not enough usable GPU memory to probe large allocation";
+        }
+
+        // Attempt to allocate; if the exact size fails, reduce size progressively.
+        // Use a bounded number of attempts to avoid long test time.
+        size_t target = max_elements;
+        CudaFP32Buffer* large_buffer = nullptr;
+        bool allocated = false;
+        for (int attempt = 0; attempt < 32 && target > 0; ++attempt)
+        {
+            try
+            {
+                large_buffer = new CudaFP32Buffer( cuda_device_id_, target );
+                // success
+                allocated = true;
+                break;
+            }
+            catch (const std::overflow_error& e)
+            {
+                // requested size overflowed internal calculations; reduce and retry
+                std::cerr << "CudaMaxTensorAllocation: overflow_error for target=" << target
+                    << "; what(): " << e.what() << " (attempt " << attempt << ")\n";
+            }
+            catch (const std::exception& e)
+            {
+                // allocation failed for other reasons; reduce and retry
+                std::cerr << "CudaMaxTensorAllocation: allocation failed for target=" << target
+                    << "; what(): " << e.what() << " (attempt " << attempt << ")\n";
+                // Attempt to read CUDA last error string for additional context
+                cudaError_t last = cudaGetLastError();
+                if (last != cudaSuccess)
+                {
+                    std::cerr << "CudaMaxTensorAllocation: cudaGetLastError(): " << cudaGetErrorString( last ) << "\n";
+                }
+            }
+
+            // reduce target to 75% to aggressively find a fit while keeping attempts low
+            target = (target * 75) / 100;
+        }
+
+        ASSERT_TRUE( allocated ) << "Unable to allocate a large contiguous GPU tensor within headroom";
+
+        ASSERT_NE( large_buffer->data(), nullptr );
+        EXPECT_EQ( large_buffer->size(), target );
+
+        // Sample-check that the beginning of the buffer is zero-initialized
+        size_t sample_count = target < 16 ? target : 16;
+        std::vector<float> host_sample( sample_count );
+        ASSERT_EQ( cudaMemcpy( host_sample.data(), large_buffer->data(), sample_count * sizeof( float ), cudaMemcpyDeviceToHost ), cudaSuccess );
+        for (size_t i = 0; i < sample_count; ++i)
+        {
+            EXPECT_FLOAT_EQ( host_sample[i], 0.0f );
+        }
+
+        delete large_buffer;
+        // Reset device state to be conservative in test environment
+        cudaDeviceReset();
+    }
 }

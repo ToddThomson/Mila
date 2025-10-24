@@ -65,6 +65,8 @@ namespace Mila::Dnn::Compute
             : IExecutionContext( DeviceType::Cuda ), device_( validateDevice( device ) ) {
 
             resources_ = std::make_shared<CudaDeviceResources>( device_->getDeviceId() );
+
+            initializeResources();
         }
 
         /**
@@ -87,10 +89,10 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If stream synchronization fails
          */
         void synchronize() {
-            if (!stream_)
+            /*if (!stream_)
             {
                 return;
-            }
+            }*/
 
             Cuda::setCurrentDevice( device_->getDeviceId() );
 

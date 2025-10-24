@@ -229,7 +229,7 @@ PUBLIC
         # CUDA / Operations
         "Src/Dnn/Compute/Devices/Cuda/Operations/CudaOperations.ixx"
         #"Src/Dnn/Compute/Operations/Cuda/CudaDataTypeTraits.ixx"
-        #"Src/Dnn/Compute/Operations/Cuda/CublasLtMatMulBias.ixx"
+        "Src/Dnn/Compute/Devices/Cuda/Operations/CublasLtMatMulBias.ixx"
         #"Src/Dnn/Compute/Operations/Cuda/MatMulBiasActivation.ixx"
         #"Src/Dnn/Compute/Operations/Cuda/CudaResidualOp.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Operations/CudaGeluOp.ixx"

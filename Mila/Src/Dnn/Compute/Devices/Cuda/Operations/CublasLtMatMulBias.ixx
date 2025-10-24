@@ -27,9 +27,8 @@ module;
 export module Compute.CublasLtMatMulBias;
 
 import Dnn.ITensor;
-import Dnn.TensorTraits;
+import Dnn.TensorDataTypeTraits;
 import Compute.Precision;
-import Cuda.DataTypeTraits;
 import CublasLt.Error;
 import Utils.Logger;
 
@@ -57,10 +56,11 @@ namespace Mila::Dnn::Compute
     * @param cublasLtHandle cuBLASLt library handle
     * @param precision_policy Policy controlling computation precision and performance tradeoffs
     */
-    export template <typename TDataType>
-        requires ValidFloatTensorType<TDataType>
+    export template <typename TNativeType>
+        // FIME: requires ValidFloatTensorType<TNativeType>
     void cublaslt_matmul_forward(
-        TDataType* Y, const TDataType* X, const TDataType& weight, void* bias,
+        TNativeType* Y, const TNativeType* X, 
+        const TNativeType* weight, const TNativeType* bias,
         int outer_size, int C, int OC,
         cudaStream_t stream,
         cublasLtHandle_t cublasLtHandle,
@@ -78,23 +78,24 @@ namespace Mila::Dnn::Compute
 
 		// The TDataType here is the Linear layer input/output type
 
-        if constexpr ( std::is_same_v<TDataType, float> ) {
+        // TJT: REVIEW: traits to do this mapping
+        if constexpr ( std::is_same_v<TNativeType, float> ) {
             cuda_data_type = CUDA_R_32F;
         }
-        else if constexpr ( std::is_same_v<TDataType, half> ) {
+        else if constexpr ( std::is_same_v<TNativeType, half> ) {
             cuda_data_type = CUDA_R_16F;
         }
-        else if constexpr ( std::is_same_v<TDataType, __nv_bfloat16> ) {
+        else if constexpr ( std::is_same_v<TNativeType, __nv_bfloat16> ) {
             cuda_data_type = CUDA_R_16BF;
         }
-        else if constexpr ( std::is_same_v<TDataType, __nv_fp8_e4m3> ) {
+        else if constexpr ( std::is_same_v<TNativeType, __nv_fp8_e4m3> ) {
             cuda_data_type = CUDA_R_8F_E4M3;
         }
-        else if constexpr ( std::is_same_v<TDataType, __nv_fp8_e5m2> ) {
+        else if constexpr ( std::is_same_v<TNativeType, __nv_fp8_e5m2> ) {
             cuda_data_type = CUDA_R_8F_E5M2;
         }
         else {
-            static_assert(always_false<TDataType>, "Unsupported data type");
+            static_assert(always_false<TNativeType>, "Unsupported data type");
         }
 
         cublasComputeType_t compute_type;
@@ -103,11 +104,11 @@ namespace Mila::Dnn::Compute
         switch ( precision_policy ) {
             case ComputePrecision::Policy::Native:
             case ComputePrecision::Policy::Accuracy:
-                if constexpr ( std::is_same_v<TDataType, half> ) {
+                if constexpr ( std::is_same_v<TNativeType, half> ) {
                     compute_type = CUBLAS_COMPUTE_16F;
                     scale_type = CUDA_R_16F;
                 }
-                else if constexpr ( std::is_same_v<TDataType, __nv_bfloat16> ) {
+                else if constexpr ( std::is_same_v<TNativeType, __nv_bfloat16> ) {
                     compute_type = CUBLAS_COMPUTE_32F;
                     scale_type = CUDA_R_32F;
                 }
@@ -119,11 +120,11 @@ namespace Mila::Dnn::Compute
             case ComputePrecision::Policy::Performance:
             case ComputePrecision::Policy::Auto:
             default:
-                if constexpr ( std::is_same_v<TDataType, half> ) {
+                if constexpr ( std::is_same_v<TNativeType, half> ) {
                     compute_type = CUBLAS_COMPUTE_32F_FAST_16F;
                     scale_type = CUDA_R_32F;
                 }
-                else if constexpr ( std::is_same_v<TDataType, __nv_bfloat16> ) {
+                else if constexpr ( std::is_same_v<TNativeType, __nv_bfloat16> ) {
                     compute_type = CUBLAS_COMPUTE_32F_FAST_16BF;
                     scale_type = CUDA_R_32F;
                 }
