@@ -165,7 +165,7 @@ namespace Mila::Dnn::Compute
             {
                 throw std::invalid_argument(
                     "Vulkan ExecutionContext requires Vulkan device, got: " +
-                    std::string( deviceToString( device->getDeviceType() ) )
+                    std::string( deviceTypeToString( device->getDeviceType() ) )
                 );
             }
 

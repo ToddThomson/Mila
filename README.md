@@ -9,7 +9,7 @@ The Mila API is still too immature for any end-user development. I am working on
 We are currently working on the core Module and Operation design and the various compute devices which provide specific Module operations.
 
 The Tensor API is now fairly stable and provides a solid foundation for future development. There may be some breaking changes to the Tensor API
-as we finalize the Module and Operation design.
+as we finalize the Module and Operation design.a
 
 ## Description
 Achilles Mila Deep Neural Network library provides a comprehensive API to model, train and evaluate 

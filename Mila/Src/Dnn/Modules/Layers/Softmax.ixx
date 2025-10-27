@@ -132,7 +132,7 @@ namespace Mila::Dnn
             oss << "--------------------" << std::endl;
             oss << "Softmax: " << getName() << std::endl;
             oss << "Axis: " << config_.getAxis() << std::endl;
-            oss << "Device: " << deviceToString( this->getDeviceType() ) << std::endl;
+            oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
             return oss.str();
         }
 

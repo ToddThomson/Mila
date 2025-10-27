@@ -122,7 +122,7 @@ namespace Mila::Benchmark
                 result.name = name();
                 result.iterations = iterations;
                 result.elementCount = input_.size();
-                result.deviceName = deviceToString( deviceContext_->getDevice()->getDeviceType() );
+                result.deviceName = deviceTypeToString( deviceContext_->getDevice()->getDeviceType() );
 
                 // Include precision policy directly from the operation
                 ComputePrecision::Policy precisionPolicy = operation_->getPrecisionPolicy();

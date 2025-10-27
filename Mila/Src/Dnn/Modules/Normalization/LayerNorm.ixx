@@ -70,8 +70,8 @@ namespace Mila::Dnn
          * @param config LayerNorm configuration.
          * @param exec_context Shared execution context for device resources.
          */
-        explicit LayerNorm( const LayerNormConfig& config, std::shared_ptr<ExecutionContextType> exec_context )
-            : config_( config ), exec_context_( exec_context )
+        explicit LayerNorm( std::shared_ptr<ExecutionContextType> exec_context, const LayerNormConfig& config )
+            : exec_context_( exec_context ), config_( config )
         {
             if (!exec_context_)
             {
@@ -95,34 +95,42 @@ namespace Mila::Dnn
 
         void forward( const ITensor& input, ITensor& output ) override
         {
-            if (!operation_) createOperation();
             operation_->forward( input, parameters_, output, output_state_ );
         }
 
         void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad ) override
         {
-            if (!operation_) createOperation();
-
+            
             // prepare parameter gradients containers
-            std::vector<std::shared_ptr<ITensor>> parameter_grads;
-            parameter_grads.resize( parameters_.size() );
-            for (size_t i = 0; i < parameters_.size(); ++i)
-            {
-                // allocate gradient tensor with same shape as parameter
-                auto p = std::static_pointer_cast<TensorType>( parameters_[i] );
-                parameter_grads[i] = std::make_shared<TensorType>( p->shape() );
-            }
+            //std::vector<std::shared_ptr<ITensor>> parameter_grads;
+            //parameter_grads.resize( parameters_.size() );
+            //for (size_t i = 0; i < parameters_.size(); ++i)
+            //{
+            //    // allocate gradient tensor with same shape as parameter
+            //    auto p = std::static_pointer_cast<TensorType>( parameters_[i] );
+            //    parameter_grads[i] = std::make_shared<TensorType>( p->shape() );
+            //}
 
             // delegate to backend
-            operation_->backward(
-                input,
-                output_grad,
-                parameters_,
-                // cast parameter_grads to proper type for backend signature
-                reinterpret_cast<std::vector<std::shared_ptr<TensorType>>&>(parameter_grads),
-                input_grad,
-                output_state_
-            );
+            // FIXME: operation_->backward(
+            //    input,
+            //    output_grad,
+            //    parameters_,
+            //    // cast parameter_grads to proper type for backend signature
+            //    reinterpret_cast<std::vector<std::shared_ptr<TensorType>>&>(parameter_grads),
+            //    input_grad,
+            //    output_state_
+            //);
+        }
+
+        void save( ModelArchive& /*archive*/ ) const override
+        {
+            // No-op: stateless activation
+        }
+
+        void load( ModelArchive& /*archive*/ ) override
+        {
+            // No-op: stateless activation
         }
 
         std::string getName() const override
@@ -133,6 +141,16 @@ namespace Mila::Dnn
         void synchronize() override
         {
             exec_context_->synchronize();
+        }
+
+        void setTraining( bool is_training ) override
+        {
+            training_mode_ = is_training;
+        }
+
+        bool isTraining() const override
+        {
+            return training_mode_;
         }
 
         std::string toString() const override
@@ -151,20 +169,21 @@ namespace Mila::Dnn
             oss << ")" << std::endl;
             oss << "Epsilon: " << config_.getEpsilon() << std::endl;
             oss << "Has Bias: " << (config_.hasBias() ? "Yes" : "No") << std::endl;
-            oss << "Device: " << deviceToString( this->getDeviceType() ) << std::endl;
+            oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
             oss << "Parameter count: " << parameterCount() << std::endl;
             return oss.str();
         }
 
     private:
         LayerNormConfig config_;
+		bool training_mode_{ false };
 
         std::shared_ptr<TensorType> weight_{ nullptr };
         std::shared_ptr<TensorType> bias_{ nullptr };
         std::shared_ptr<TensorType> mean_{ nullptr };
         std::shared_ptr<TensorType> rstd_{ nullptr };
 
-        std::vector<std::shared_ptr<ITensor>> parameters_;
+        std::vector<std::shared_ptr<TensorType>> parameters_;
         OutputState output_state_;
 
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
@@ -174,8 +193,8 @@ namespace Mila::Dnn
         {
             parameters_.clear();
             output_state_.clear();
-            this->parameter_map_.clear();
-            this->state_map_.clear();
+            //this->parameter_map_.clear();
+            //this->state_map_.clear();
 
             const auto& input_shape = config_.getInputShape();
             if (input_shape.size() < 3)
@@ -187,34 +206,38 @@ namespace Mila::Dnn
             size_t seq_len = input_shape[1];
             size_t channels = input_shape[2];
 
+            // Construct tensors bound to the execution context's device.
+            auto device = exec_context_->getDevice();
+
             // weight defaults to ones
-            weight_ = std::make_shared<TensorType>( std::vector<size_t>{ channels }, static_cast<HostType>(1.0) );
+            weight_ = std::make_shared<TensorType>( device, std::vector<size_t>{ channels } );
             weight_->setName( this->getName() + ".weight" );
 
             if (config_.hasBias())
             {
-                bias_ = std::make_shared<TensorType>( std::vector<size_t>{ channels }, static_cast<HostType>(0.0) );
+                bias_ = std::make_shared<TensorType>( device, std::vector<size_t>{ channels } );
                 bias_->setName( this->getName() + ".bias" );
             }
 
-            mean_ = std::make_shared<TensorType>( std::vector<size_t>{ batch_size, seq_len } );
+            mean_ = std::make_shared<TensorType>( device, std::vector<size_t>{ batch_size, seq_len } );
             mean_->setName( this->getName() + ".mean" );
 
-            rstd_ = std::make_shared<TensorType>( std::vector<size_t>{ batch_size, seq_len } );
+            rstd_ = std::make_shared<TensorType>( device, std::vector<size_t>{ batch_size, seq_len } );
             rstd_->setName( this->getName() + ".rstd" );
 
             parameters_.emplace_back( weight_ );
-            this->parameter_map_["weight"] = weight_;
+            //this->parameter_map_["weight"] = weight_;
+            
             if (config_.hasBias())
             {
                 parameters_.emplace_back( bias_ );
-                this->parameter_map_["bias"] = bias_;
+                //this->parameter_map_["bias"] = bias_;
             }
 
             output_state_.emplace_back( mean_ );
             output_state_.emplace_back( rstd_ );
-            this->state_map_["mean"] = mean_;
-            this->state_map_["rstd"] = rstd_;
+            //this->state_map_["mean"] = mean_;
+            //this->state_map_["rstd"] = rstd_;
         }
 
         void createOperation()
@@ -231,11 +254,4 @@ namespace Mila::Dnn
             }
         }
     };
-
-    // Convenience aliases
-    export template<TensorDataType TPrecision>
-        using CpuLayerNorm = LayerNorm<DeviceType::Cpu, TPrecision>;
-
-    export template<TensorDataType TPrecision>
-        using CudaLayerNorm = LayerNorm<DeviceType::Cuda, TPrecision>;
 }

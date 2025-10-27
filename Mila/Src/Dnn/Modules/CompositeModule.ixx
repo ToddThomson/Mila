@@ -1,9 +1,13 @@
 /**
  * @file CompositeModule.ixx
- * @brief Implementation of the composite module pattern for neural network components
+ * @brief Composite container module for Mila DNN components.
+ *
+ * Provides a container that owns and manages child modules. CompositeModule
+ * is intentionally an abstract container (it does not implement forward/backward)
+ * and focuses on module composition, lifecycle and state propagation.
  */
 
-module;
+    module;
 #include <vector>
 #include <string>
 #include <memory>
@@ -14,188 +18,144 @@ module;
 export module Dnn.CompositeModule;
 
 import Dnn.Module;
-import Dnn.Tensor;
-import Dnn.ConfigurationBase;
-import Dnn.TensorTraits;
-import Compute.Precision;
 import Compute.DeviceType;
-import Compute.DeviceContext;
-import Compute.CudaDeviceMemoryResource;
-import Compute.CpuMemoryResource;
 import Serialization.ModelArchive;
 
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
-	using namespace Mila::Dnn::Serialization;
+    using namespace Mila::Dnn::Serialization;
 
     /**
-     * @brief A module class that can contain and manage child modules.
+     * @brief A module that contains and manages child modules.
      *
-     * CompositeModule extends the base Module class with functionality to
-     * add, remove, and manage child modules. This is used for composite
-     * neural network components like MLPs, transformers, etc. that are
-     * built by composing simpler modules.
-     *
-     * A single type parameter is used for data consistency across the module,
-     * as the output of one layer becomes the input of the next in a feed-forward
-     * composite architecture.
-     *
-     * @tparam TDeviceType The device type (CPU or CUDA) on which the module will operate.
-     * @tparam TDataType Data type used for both input and output tensor elements.
+     * CompositeModule is a device-parameterized abstract container. It does not
+     * implement the computational interface (forward/backward/synchronize) so
+     * derived types must provide execution semantics while benefiting from
+     * standardized child management.
      */
-    export template<DeviceType TDeviceType = DeviceType::Cuda, typename TDataType = float>
-        requires ValidTensorType<TDataType>
-    class CompositeModule : public Module<TDeviceType, TDataType, TDataType> {
+    export template<DeviceType TDeviceType>
+        class CompositeModule : public Module<TDeviceType>
+    {
     public:
-        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, HostMemoryResource>; ///< Memory resource type based on device type
-        using ModuleBase = Module<TDeviceType, TDataType, TDataType>; ///< Base class type for the module
+        using ModuleBase = Module<TDeviceType>;
+        using ModulePtr = std::shared_ptr<Module<TDeviceType>>;
 
         /**
-         * @brief Default constructor.
-         */
-        CompositeModule()
-            : ModuleBase() {}
-
-        /**
-         * @brief Constructor with device name.
+         * @brief Construct a composite module with an optional name.
          *
-         * @param device_name The device name to use for this module.
-         * @param precision The compute precision policy to use (defaults to Auto).
+         * @param name Stable identifier returned by `getName()`.
          */
-        explicit CompositeModule(
-			const std::string& device_name, const ConfigurationBase& config )
-            : ModuleBase( device_name, config ) {}
+        explicit CompositeModule()
+            : is_training_( false )
+        {
+        }
 
-        /**
-         * @brief Constructor with device context.
-         *
-         * @param context The device context to use for this module.
-         * @param precision The compute precision policy to use (defaults to Auto).
-         */
-        explicit CompositeModule(
-            std::shared_ptr<DeviceContext> context, const ConfigurationBase& config )
-            : ModuleBase( context, config ) {}
-
-        /**
-         * @brief Virtual destructor.
-         */
         virtual ~CompositeModule() = default;
 
         /**
-         * @brief Add a named child module to this module.
+         * @brief Add a named child module.
          *
-         * @param name The name to identify the child module.
-         * @param module The child module to register.
-         * @throws std::invalid_argument If the name is empty or already exists.
-         * @throws std::invalid_argument If the module pointer is null.
-         * @return Reference to this module for method chaining.
+         * Throws on empty name, null module or duplicate name.
          */
-        CompositeModule& addModule( const std::string& name, std::shared_ptr<Module<TDeviceType, TDataType, TDataType>> module ) {
-            if ( name.empty() ) {
+        CompositeModule& addModule( const std::string& name, ModulePtr module )
+        {
+            if (name.empty())
+            {
                 throw std::invalid_argument( "Sub-module name cannot be empty." );
             }
 
-            if ( !module ) {
+            if (!module)
+            {
                 throw std::invalid_argument( "Cannot add null module." );
             }
 
-            if ( child_module_map_.find( name ) != child_module_map_.end() ) {
+            if (child_module_map_.find( name ) != child_module_map_.end())
+            {
                 throw std::invalid_argument( "Sub-module name '" + name + "' already exists." );
             }
 
-            // Add to both map and vector for different access patterns
-            child_module_map_[ name ] = module;
+            child_module_map_[name] = module;
             child_modules_.push_back( module );
 
-            // Propagate training mode to the newly added module
-            module->setTraining( this->isTraining() );
+            module->setTraining( is_training_ );
 
             return *this;
         }
 
         /**
-         * @brief Add an unnamed child module to this module.
-         *
-         * @param module The child module to register.
-         * @throws std::invalid_argument If the module pointer is null.
-         * @return Reference to this module for method chaining.
+         * @brief Add an unnamed child module; a stable auto-generated name is assigned.
          */
-        CompositeModule& addModule( std::shared_ptr<Module<TDeviceType, TDataType, TDataType>> module ) {
-            if ( !module ) {
+        CompositeModule& addModule( ModulePtr module )
+        {
+            if (!module)
+            {
                 throw std::invalid_argument( "Cannot add null module." );
             }
 
-            // Generate a unique name based on index
             std::string auto_name = "module_" + std::to_string( child_modules_.size() );
+            
             return addModule( auto_name, module );
         }
 
         /**
-         * @brief Get a specific sub-module by name.
-         *
-         * @param name The name of the sub-module to retrieve.
-         * @return std::shared_ptr<Module<TDeviceType, TDataType, TDataType>> The requested module.
-         * @throws std::out_of_range If no module with the given name exists.
+         * @brief Return a child module by name or throw std::out_of_range.
          */
-        std::shared_ptr<Module<TDeviceType, TDataType, TDataType>> getModule( const std::string& name ) const {
+        ModulePtr getModule( const std::string& name ) const
+        {
             auto it = child_module_map_.find( name );
-            if ( it == child_module_map_.end() ) {
+            if (it == child_module_map_.end())
+            {
                 throw std::out_of_range( "No module named '" + name + "' found." );
             }
+            
             return it->second;
         }
 
         /**
-         * @brief Check if a sub-module with the given name exists.
-         *
-         * @param name The name to check.
-         * @return bool True if a sub-module with the given name exists.
+         * @brief True if a named child exists.
          */
-        bool hasModule( const std::string& name ) const {
+        bool hasModule( const std::string& name ) const
+        {
             return child_module_map_.find( name ) != child_module_map_.end();
         }
 
         /**
-         * @brief Get all sub-modules contained in this module.
-         *
-         * @return const std::vector<std::shared_ptr<Module<TDeviceType, TDataType, TDataType>>>&
-         *         Vector of child module pointers.
+         * @brief All child modules in insertion order.
          */
-        const std::vector<std::shared_ptr<Module<TDeviceType, TDataType, TDataType>>>& getModules() const {
+        const std::vector<ModulePtr>& getModules() const
+        {
             return child_modules_;
         }
 
         /**
-         * @brief Get all named sub-modules contained in this module.
-         *
-         * @return const std::unordered_map<std::string, std::shared_ptr<Module<TDeviceType, TDataType, TDataType>>>&
-         *         Map of child module names to pointers.
+         * @brief Named child modules map.
          */
-        const std::unordered_map<std::string, std::shared_ptr<Module<TDeviceType, TDataType, TDataType>>>& getNamedModules() const {
+        const std::unordered_map<std::string, ModulePtr>& getNamedModules() const
+        {
             return child_module_map_;
         }
 
         /**
-         * @brief Remove a sub-module by name.
+         * @brief Remove a child module by name.
          *
-         * @param name The name of the sub-module to remove.
-         * @return bool True if a module was removed, false if no module with that name existed.
+         * Returns true if removed, false if not found.
          */
-        bool removeModule( const std::string& name ) {
+        bool removeModule( const std::string& name )
+        {
             auto it = child_module_map_.find( name );
-            if ( it == child_module_map_.end() ) {
+            if (it == child_module_map_.end())
+            {
                 return false;
             }
 
             auto module_ptr = it->second;
 
-            // Remove from map
             child_module_map_.erase( it );
 
-            // Remove from vector
             auto vector_it = std::find( child_modules_.begin(), child_modules_.end(), module_ptr );
-            if ( vector_it != child_modules_.end() ) {
+            if (vector_it != child_modules_.end())
+            {
                 child_modules_.erase( vector_it );
             }
 
@@ -203,62 +163,67 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Replace an existing sub-module with a new one.
+         * @brief Replace a named child module.
          *
-         * @param name The name of the sub-module to replace.
-         * @param module The new module to use as replacement.
-         * @return bool True if a module was replaced, false if no module with that name existed.
-         * @throws std::invalid_argument If the replacement module pointer is null.
+         * Returns true if replaced, false if not found. Throws if replacement is null.
          */
-        bool replaceModule( const std::string& name, std::shared_ptr<Module<TDeviceType, TDataType, TDataType>> module ) {
-            if ( !module ) {
+        bool replaceModule( const std::string& name, ModulePtr module )
+        {
+            if (!module)
+            {
                 throw std::invalid_argument( "Cannot replace with null module." );
             }
 
             auto it = child_module_map_.find( name );
-            if ( it == child_module_map_.end() ) {
+            if (it == child_module_map_.end())
+            {
                 return false;
             }
 
             auto old_module = it->second;
             it->second = module;
 
-            // Update in vector
             auto vector_it = std::find( child_modules_.begin(), child_modules_.end(), old_module );
-            if ( vector_it != child_modules_.end() ) {
+            if (vector_it != child_modules_.end())
+            {
                 *vector_it = module;
             }
 
-            // Propagate training mode to the new module
-            module->setTraining( this->isTraining() );
+            module->setTraining( is_training_ );
 
             return true;
         }
 
         /**
-         * @brief Set the training mode for this module and all its sub-modules.
-         *
-         * @param is_training True if the module is in training mode, false for inference mode.
+         * @brief Set training mode and propagate to children.
          */
-        void setTraining( bool is_training ) override {
-            ModuleBase::setTraining( is_training );
+        void setTraining( bool is_training ) override
+        {
+            is_training_ = is_training;
 
-            // Propagate to all sub-modules
-            for ( auto& module : child_modules_ ) {
+            for (auto& module : child_modules_)
+            {
                 module->setTraining( is_training );
             }
         }
 
         /**
-         * @brief Count the total number of parameters in this module and all sub-modules.
-         *
-         * @return size_t Total number of parameters.
+         * @brief Query training mode.
          */
-        size_t parameterCount() const override {
+        bool isTraining() const override
+        {
+            return is_training_;
+        }
+
+        /**
+         * @brief Count parameters across all children.
+         */
+        size_t parameterCount() const override
+        {
             size_t count = 0;
 
-            // Count parameters from sub-modules
-            for ( const auto& module : child_modules_ ) {
+            for (const auto& module : child_modules_)
+            {
                 count += module->parameterCount();
             }
 
@@ -266,62 +231,56 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Default save implementation for container modules.
-         *
-         * Saves all child modules. Override if container has its own parameters.
-         *
-         * @param zip The ZIP archive to save the module state to.
+         * @brief Default save: delegate to child modules.
          */
-        void save( ModelArchive& archive ) const override {
-            for ( const auto& module : child_modules_ ) {
+        void save( ModelArchive& archive ) const override
+        {
+            for (const auto& module : child_modules_)
+            {
                 module->save( archive );
             }
         }
 
         /**
-         * @brief Default load implementation for container modules.
-         *
-         * Loads all child modules. Override if container has its own parameters.
-         *
-         * @param zip The ZIP archive to load the module state from.
+         * @brief Default load: delegate to child modules.
          */
-        void load( ModelArchive& archive ) override {
-            for ( const auto& module : child_modules_ ) {
+        void load( ModelArchive& archive ) override
+        {
+            for (const auto& module : child_modules_)
+            {
                 module->load( archive );
             }
         }
 
         /**
-         * @brief Default toString implementation for container modules.
-         *
-         * Lists all child modules. Override for custom string representation.
-         *
-         * @return std::string A string representation of the module information.
+         * @brief Human-readable description.
          */
-        std::string toString() const override {
+        std::string toString() const override
+        {
             std::ostringstream oss;
-            oss << "CompositeModule: " << this->getDeviceName() << std::endl;
-            oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
-            //oss << this->getComputePrecision().toString() << std::endl;
-            oss << "Child Modules:" << std::endl;
-            for ( const auto& [name, module] : child_module_map_ ) {
-                oss << "  - " << name << ": " << module->toString() << std::endl;
+            //oss << name_ << " (Composite)";
+
+            oss << " { children: [";
+
+            bool first = true;
+            for (const auto& [name, module] : child_module_map_)
+            {
+                if (!first)
+                {
+                    oss << ", ";
+                }
+                first = false;
+                oss << name << ": " << module->toString();
             }
+
+            oss << "] }";
+
             return oss.str();
         }
 
     private:
-        /** @brief Child modules in the order they were added (ordered) */
-        std::vector<std::shared_ptr<Module<TDeviceType, TDataType, TDataType>>> child_modules_;
-
-        /** @brief Named child modules for efficient lookup by name */
-        std::unordered_map<std::string, std::shared_ptr<Module<TDeviceType, TDataType, TDataType>>> child_module_map_;
+        std::vector<ModulePtr> child_modules_;
+        std::unordered_map<std::string, ModulePtr> child_module_map_;
+        bool is_training_;
     };
-
-    // Convenient type aliases
-    export template<typename TDataType = float>
-        using CpuCompositeModule = CompositeModule<DeviceType::Cpu, TDataType>;
-
-    export template<typename TDataType = float>
-        using CudaCompositeModule = CompositeModule<DeviceType::Cuda, TDataType>;
 }

@@ -1,10 +1,17 @@
 /**
  * @file Residual.ixx
- * @brief Implementation of the Residual connection module for neural networks.
+ * @brief Device-templated Residual connection module.
  *
- * Provides a flexible implementation of residual connections which can be configured
- * with different connection types and scaling factors. Supports automatic dimension
- * matching via projection layers.
+ * The `Residual` module implements a residual shortcut y = x + F(x) with
+ * configurable connection types (Addition, ScaledAddition, Gated) and optional
+ * projection when input/output dimensions differ. Computation is delegated to
+ * a device-specific binary operation backend obtained from the OperationRegistry.
+ *
+ * This implementation is device- and precision-parameterized and follows the
+ * same module interface used by other layers (see `Module.ixx` and `Linear.ixx`).
+ *
+ * @tparam TDeviceType Compile-time device identifier (DeviceType::Cpu or DeviceType::Cuda).
+ * @tparam TPrecision  Abstract tensor precision (TensorDataType).
  */
 
 module;
@@ -22,12 +29,12 @@ export import :Config;
 import Dnn.Module;
 import Dnn.Tensor;
 import Dnn.ITensor;
-import Dnn.TensorTraits;
-import Dnn.TensorHelpers;
+import Dnn.TensorDataType;
+import Dnn.TensorDataTypeTraits;
 import Compute.Precision;
 import Compute.ComputeDevice;
 import Compute.DeviceType;
-import Compute.DeviceContext;
+import Compute.ExecutionContext;
 import Compute.OperationBase;
 import Compute.OperationAttributes;
 import Compute.BinaryOperation;
@@ -42,231 +49,217 @@ import Dnn.Modules.Linear;
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
-	using namespace Mila::Dnn::Serialization;
+    using namespace Mila::Dnn::Serialization;
 
     /**
-     * @brief A class implementing a residual connection module.
+     * @brief Device-templated Residual connection module.
      *
-     * Residual connections help deep neural networks avoid vanishing gradients by
-     * providing shortcut connections. The basic formula is y = x + F(x), where F
-     * is a differentiable function (usually a sequence of neural network layers).
+     * Delegates binary residual computation to a device-specific backend
+     * operation. Parameters (if any) and any projection tensors are stored as
+     * `Tensor` instances bound to the associated execution context.
      *
-     * This implementation supports three types of residual connections:
-     * 1. Addition: y = x + F(x)
-     * 2. Scaled Addition: y = x + alpha*F(x), where alpha is a scaling factor
-     * 3. Gated: y = g*x + (1-g)*F(x), where g is a learnable parameter
-     *
-     * When input and output dimensions don't match, an optional projection layer
-     * can be automatically added to make the dimensions compatible.
-     *
-     * @tparam TDeviceType The device type (CPU or CUDA) on which to perform computations.
-     * @tparam TInput The data type of the input tensor elements.
-     * @tparam TOutput The data type of the output tensor elements, defaults to TInput.
+     * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda).
+     * @tparam TPrecision  Abstract tensor precision (TensorDataType).
      */
-    export template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput>
-        requires ValidFloatTensorTypes<TInput, TOutput>
-    class Residual : public Module<TDeviceType, TInput, TOutput> {
+    export template<DeviceType TDeviceType, TensorDataType TPrecision>
+        requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
+    class Residual : public Module<TDeviceType>
+    {
     public:
-        /**
-         * @brief Memory resource type used for tensors, selected based on device type.
-         */
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
+        using ExecutionContextType = ExecutionContext<TDeviceType>;
+        using TensorType = Tensor<TPrecision, MR>;
+        using Parameters = std::vector<std::shared_ptr<TensorType>>;
+        using OutputState = std::vector<std::shared_ptr<TensorType>>;
 
         /**
-         * @brief Alias for base module type.
-         */
-        using ModuleBase = Module<TDeviceType, TInput, TOutput>;
-
-        /**
-         * @brief Constructs a new Residual module with a device name.
+         * @brief Construct with an existing execution context.
          *
-         * Creates a new DeviceContext internally using the provided device name.
-         * This constructor is useful for creating standalone modules without
-         * pre-existing device contexts.
+         * @param exec_context Shared execution context for device resources.
+         * @param config       Residual configuration (connection type, scaling, projection rules).
          *
-         * @param device_name The name of the device to use (e.g., "CPU", "CUDA:0").
-         * @param config Configuration parameters for the Residual module.
-         * @throws std::invalid_argument If the device name is invalid or the configuration is invalid
-         * @throws std::runtime_error If device type doesn't match template parameter TDeviceType or inner module type mismatch
+         * Throws std::invalid_argument if exec_context is null.
          */
-        explicit Residual( const std::string& device_name, const ResidualConfig& config )
-            : ModuleBase( std::make_shared<DeviceContext>( device_name ), config ), config_( config ) {
+        explicit Residual( std::shared_ptr<ExecutionContextType> exec_context, const ResidualConfig& config )
+            : exec_context_( exec_context ), config_( config )
+        {
+            if (!exec_context_)
+            {
+                throw std::invalid_argument( "ExecutionContext cannot be null." );
+            }
 
-            config.validate();
+            config_.validate();
+            initializeParameters();
             createOperation();
         }
 
-        /**
-         * @brief Constructs a new Residual module with a provided device context.
-         *
-         * Uses a pre-existing DeviceContext instance. This constructor is useful when integrating
-         * the module into a larger network that shares device contexts across modules.
-         *
-         * @param device_context The device context to use for this module.
-         * @param config Configuration parameters for the Residual module.
-         * @throws std::invalid_argument If device_context is null or configuration is invalid
-         * @throws std::runtime_error If device context type doesn't match template parameter TDeviceType or inner module type mismatch
-         */
-        explicit Residual( std::shared_ptr<DeviceContext> device_context, const ResidualConfig& config )
-            : ModuleBase( device_context, config ), config_( config ) {
+        ~Residual() override = default;
 
-            config.validate();
-            createOperation();
+        /**
+         * @brief Return the total number of scalar parameters in this module.
+         *
+         * This includes gating/scaling parameters and any projection parameters.
+         */
+        size_t parameterCount() const override
+        {
+            size_t count = 0;
+            for (const auto& p : parameters_)
+            {
+                if (p) count += p->size();
+            }
+            return count;
         }
 
         /**
-         * @brief Gets the number of trainable parameters in this module.
+         * @brief Execute the forward pass.
          *
-         * Counts the total number of trainable parameters in the residual module,
-         * including the inner module, projection layer (if present), and gating
-         * parameters (if using gated connections).
-         *
-         * @return size_t The total number of parameters.
+         * Delegates to the backend binary operation. Inputs and outputs are
+         * provided as abstract `ITensor` references to remain device-agnostic.
          */
-        size_t parameterCount() const override {
-            return 0;
+        void forward( const ITensor& input, ITensor& output ) override
+        {
+            // TJT: 2nd input needs to be fixed
+            operation_->forward( input, input, parameters_, output, output_state_ );
         }
 
         /**
-         * @brief Performs the forward pass of the Residual connection.
+         * @brief Execute the backward pass (gradient computation).
          *
-         * Applies the residual transformation based on the configured connection type:
-         * - Addition: y = x + F(x)
-         * - Scaled Addition: y = x + alpha*F(x)
-         * - Gated: y = g*x + (1-g)*F(x)
-         *
-         * Handles projection when input and inner module dimensions don't match.
-         *
-         * @param input The input tensor to be processed.
-         * @param output The output tensor where the results will be stored.
-         * @throws std::runtime_error If dimensions don't match and projection is disabled.
+         * Currently a placeholder; backend gradient support should be invoked
+         * here when available.
          */
-        void forward( const Tensor<TInput, MR>& input, Tensor<TOutput, MR>& output ) {
-			operation_->forward( input, parameters_, output, output_state_ );
+        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad ) override
+        {
+            /* FIXME: operation_->backward(
+                input,
+                output_grad,
+                parameters_,
+                output_state_,
+                input_grad,
+                parameter_grads_
+            );*/
         }
 
         /**
-         * @brief Performs the backward pass of the Residual connection.
-         *
-         * Computes gradients for the input tensor and parameters based on the output gradients.
-         * Handles backpropagation through the inner module and projection layer (if present).
-         *
-         * @param input The input tensor from the forward pass.
-         * @param output_grad The gradient of loss with respect to the output.
-         * @param input_grad The tensor to store gradients with respect to input.
+         * @brief Block until all device operations submitted by this module complete.
          */
-        void backward(
-            const Tensor<TInput, MR>& input,
-            const Tensor<TOutput, MR>& output_grad,
-            Tensor<TInput, MR>& input_grad ) {
+        void synchronize() override
+        {
+            exec_context_->synchronize();
         }
 
         /**
-         * @brief Serializes the module state to a ZIP archive.
+         * @brief Serialize module parameters into the provided archive.
          *
-         * Saves the state of the inner module, projection layer (if present),
-         * and gating parameters (if used) to the provided ZIP archive.
-         *
-         * @param zip The ZIP archive to save the module state to.
+         * Placeholder; concrete implementations should write named parameter
+         * tensors into the archive.
          */
-        void save( ModelArchive& zip ) const override {
-            // TODO:
+        void save( ModelArchive& archive ) const override
+        {
+            // No-op placeholder; serialize parameter tensors if needed
         }
 
         /**
-         * @brief Deserializes the module state from a ZIP archive.
+         * @brief Load module parameters from the provided archive.
          *
-         * Loads the state of the inner module, projection layer (if present),
-         * and gating parameters (if used) from the provided ZIP archive.
-         *
-         * @param zip The ZIP archive to load the module state from.
+         * Placeholder; concrete implementations should restore parameter tensor contents.
          */
-        void load( ModelArchive& archive ) override {
+        void load( ModelArchive& archive ) override
+        {
+            // No-op placeholder; deserialize parameter tensors if needed
         }
 
         /**
-         * @brief Converts the module information to a human-readable string.
-         *
-         * Includes detailed information about the module configuration including:
-         * - Module name
-         * - Connection type
-         * - Scaling factor (for scaled addition)
-         * - Projection status
-         * - Inner module information
-         *
-         * @return std::string A string representation of the module information.
+         * @brief Set training/evaluation mode for this module.
          */
-        std::string toString() const override {
+        void setTraining( bool is_training ) override
+        {
+            training_mode_ = is_training;
+        }
+
+        /**
+         * @brief Query training mode.
+         */
+        bool isTraining() const override
+        {
+            return training_mode_;
+        }
+
+        /**
+         * @brief Get the module name from configuration.
+         *
+         * @returns Module name string.
+         */
+        std::string getName() const override
+        {
+            return config_.getName();
+        }
+
+        /**
+         * @brief Return a human-readable description of the module.
+         */
+        std::string toString() const override
+        {
             std::ostringstream oss;
             oss << "--------------------" << std::endl;
-            oss << "Residual: " << this->getDeviceName() << std::endl;
-
+            oss << "Residual" << std::endl;
+			//oss << "Name: " << this->getName() << std::endl;
+			//oss << config_ << std::endl;
+            oss << "Parameter count: " << parameterCount() << std::endl;
+            
             return oss.str();
         }
 
     private:
-        /**
-         * @brief Configuration for the Residual module.
-         */
         ResidualConfig config_;
+        bool training_mode_{ false };
 
+        // Parameters and gradients
+        Parameters parameters_;
+        std::vector<std::shared_ptr<TensorType>> parameter_grads_;
+        OutputState output_state_;
 
-        /**
-         * @brief Collection of trainable parameters.
-         */
-        std::vector<std::shared_ptr<ITensor>> parameters_;
+        std::shared_ptr<BinaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<ExecutionContextType> exec_context_;
 
-        /**
-         * @brief Gradients for trainable parameters.
-         */
-        std::vector<std::shared_ptr<Tensor<TOutput, MR>>> parameter_grads_;
+        void initializeParameters()
+        {
+            parameters_.clear();
 
-        /**
-         * @brief Output state tensors for backward pass.
-         */
-        std::vector<std::shared_ptr<Tensor<TOutput, MR>>> output_state_;
+            // If gated or projection enabled, allocate parameter tensors here.
+            // For now, defer allocation to configuration-driven code when needed.
+            if (config_.useProjection())
+            {
+                auto device = exec_context_->getDevice();
+                size_t in_features = config_.getInputFeatures();
+                size_t out_features = config_.getOutputFeatures();
 
-        /**
-         * @brief Binary operation for standard and scaled residual connections.
-         */
-        std::shared_ptr<BinaryOperation<TDeviceType, TInput, TOutput>> operation_;
+                auto proj = std::make_shared<TensorType>( device, std::vector<size_t>{ out_features, in_features } );
+                proj->setName( std::string( "residual.proj" ) );
+                parameters_.emplace_back( proj );
+            }
 
-
-        /**
-         * @brief Creates an appropriate operation based on the connection type.
-         *
-         * Instantiates the correct operation implementation based on the configured
-         * connection type (Addition, ScaledAddition, or Gated) and device type.
-         */
-        void createOperation() {
-
-            if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createBinaryOperation<DeviceType::Cpu, TInput, TOutput, TOutput>(
-                    "Cpu::ResidualOp",
-                    this->getDeviceContext(),
-                    config_ );
-
-                operation_ = std::static_pointer_cast<BinaryOperation<DeviceType::Cpu, TInput, TOutput, TOutput>>(base_op);
+            if (config_.isGated())
+            {
+                auto device = exec_context_->getDevice();
+                auto gate = std::make_shared<TensorType>( device, std::vector<size_t>{ config_.getGateSize() } );
+                gate->setName( std::string( "residual.gate" ) );
+                parameters_.emplace_back( gate );
             }
         }
 
+        void createOperation()
+        {
+            operation_ = OperationRegistry::instance()
+                .createBinaryOperation<TDeviceType, TPrecision>(
+                    "ResidualOp",
+                    exec_context_,
+                    config_ );
+
+            if (!operation_)
+            {
+                throw std::runtime_error( "Failed to create Residual compute backend operation." );
+            }
+        }
     };
-
-    /**
-     * @brief Type alias for CPU-based residual module with customizable tensor types.
-     *
-     * @tparam TInput Data type of the input tensor elements.
-     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
-     */
-    export template<typename TInput = float, typename TOutput = TInput>
-        using CpuResidual = Residual<DeviceType::Cpu, TInput, TOutput>;
-
-    /**
-     * @brief Type alias for CUDA-based residual module with customizable tensor types.
-     *
-     * @tparam TInput Data type of the input tensor elements.
-     * @tparam TOutput Data type of the output tensor elements, defaults to TInput.
-     */
-    export template<typename TInput = float, typename TOutput = TInput>
-        using CudaResidual = Residual<DeviceType::Cuda, TInput, TOutput>;
 }

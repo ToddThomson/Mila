@@ -22,7 +22,6 @@ module;
 
 export module Compute.DeviceRegistryHelpers;
 
-import Compute.DeviceContext;
 import Compute.DeviceRegistry;
 import Compute.DeviceType;
 import Cuda.Helpers;
@@ -56,7 +55,7 @@ namespace Mila::Dnn::Compute
         auto& registry = DeviceRegistry::instance();
         auto allDevices = registry.listDevices();
         std::vector<std::string> filteredDevices;
-        std::string typePrefix = deviceToString( type );
+        std::string typePrefix = deviceTypeToString( type );
 
         for ( const auto& device : allDevices ) {
             if ( device.find( typePrefix ) == 0 ) {
@@ -89,7 +88,7 @@ namespace Mila::Dnn::Compute
         if ( type == DeviceType::Cuda ) {
             auto cudaDevices = listDevices();
             std::vector<std::string> filteredDevices;
-            std::string typePrefix = deviceToString( type );
+            std::string typePrefix = deviceTypeToString( type );
 
             // Filter devices by type
             for ( const auto& device : cudaDevices ) {
@@ -119,7 +118,7 @@ namespace Mila::Dnn::Compute
 
         // For non-CUDA devices, just return the first one of that type
         auto devices = listDevices();
-        std::string typePrefix = deviceToString( type );
+        std::string typePrefix = deviceTypeToString( type );
 
         for ( const auto& device : devices ) {
             if ( device.find( typePrefix ) == 0 ) {

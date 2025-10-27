@@ -16,6 +16,7 @@ module;
 #include <vector>
 #include <string>
 #include <sstream>
+#include <type_traits>
 
 export module Dnn.Modules.Gelu;
 export import :Config;
@@ -36,6 +37,11 @@ import Serialization.ModelArchive;
 namespace Mila::Dnn
 {
     // TJT: Review: Does this pollute our API surface?
+	// For Mila namespaces the following using directives are acceptable.
+	// They improve readability without significant risk of name collisions.
+	// The Compute and Serialization API used here is small and it is likely
+	// that use of Compute:: and Serialization:: prefixes be better though
+
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Serialization;
 
@@ -131,7 +137,7 @@ namespace Mila::Dnn
             std::ostringstream oss;
             oss << "--------------------" << std::endl;
             oss << "Gelu: " << getName() << std::endl;
-            oss << "Device: " << deviceToString( this->getDeviceType() ) << std::endl;
+            oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
             oss << "Approximation Method: " << config_.toString( config_.getApproximationMethod() ) << std::endl;
             return oss.str();
         }

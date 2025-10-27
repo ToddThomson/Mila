@@ -89,9 +89,6 @@ We expect all contributors to be respectful and constructive. By participating i
    - Type "CMake: Run Tests" and select it
    - Alternatively, use the Test Explorer extension to browse and run tests
 
-
-
-
 ## Coding Standards
 
 ### Naming Conventions

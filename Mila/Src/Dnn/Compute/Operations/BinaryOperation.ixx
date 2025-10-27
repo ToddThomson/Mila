@@ -1,26 +1,17 @@
 /**
  * @file BinaryOperation.ixx
- * @brief Abstract base class for binary operations in the Mila neural network framework.
- * @details Provides an interface for operations that take two input tensors and produce
- *          a single output tensor. This serves as the foundation for operations like
- *          addition, multiplication, convolution, and other binary neural network functions.
+ * @brief Abstract device-agnostic binary operation interface.
  *
- * Key features:
- * - Abstract data type system using TensorDataType enumeration
- * - Device-agnostic design (CPU, CUDA)
- * - Support for scalar tensor operations (broadcasting, reductions)
- * - Type-safe operation dispatch
- * - Compile-time type validation
- *
- * The class supports operations on tensors of any rank, including scalars (rank 0).
- * Broadcasting semantics are handled by derived classes based on operation requirements.
+ * Provides the typed abstract interface used by device-specific binary operation
+ * implementations. See member documentation for API contracts and semantics.
  */
 
 module;
 #include <memory>
 #include <vector>
-#include <type_traits>
 #include <stdexcept>
+#include <type_traits>
+#include <string>
 
 export module Compute.BinaryOperation;
 
@@ -28,205 +19,66 @@ import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
-import Compute.Precision;
-import Compute.ComputeDevice;
-import Compute.CudaDevice;
-import Compute.OperationBase;
-import Compute.OperationType;
-import Compute.OperationAttributes;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
-//import Compute.DeviceContext;
-//import Compute.DeviceContextHelpers;
+import Compute.Precision;
+import Compute.ComputeDevice;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CpuMemoryResource;
+import Compute.CudaDevice;
+import Compute.OperationBase;
+import Compute.OperationType;
+import Compute.OperationAttributes;
 
 namespace Mila::Dnn::Compute
 {
     /**
-     * @brief Abstract class for binary operations in the neural network framework.
+     * @brief Abstract interface for binary operations (two inputs -> one output).
      *
-     * @details This class extends OperationBase to provide specialized functionality for
-     * operations that take two input tensors and produce a single output tensor. Derived classes
-     * must implement the forward() method to define the specific computation for the operation.
+     * Implementations perform a device- and precision-specific computation that
+     * consumes two inputs and produces a single output. Implementations should
+     * document allocation and accumulation semantics (e.g., whether gradients
+     * are accumulated or overwritten) and are free to use the provided
+     * execution context or the device associated with input tensors.
      *
-     * Binary operations include:
-     * - Element-wise operations: Add, Subtract, Multiply, Divide
-     * - Matrix operations: MatMul, BatchedMatMul
-     * - Broadcasting operations: AddBias, ScalarMultiply
-     * - Comparison operations: Equal, Greater, Less
-     * - Complex operations: Convolution, CrossCorrelation
-     *
-     * Scalar tensor support:
-     * - Scalar-tensor operations (e.g., scalar + tensor)
-     * - Tensor-scalar operations (e.g., tensor * scalar)
-     * - Scalar-scalar operations (e.g., scalar * scalar -> scalar)
-     *
-     * The class uses abstract TensorDataType enumeration for type safety across different
-     * precision formats while maintaining compile-time optimization and device independence.
-     *
-     * @tparam TDeviceType The target device type for the operation, defaults to DeviceType::Cuda.
-     * @tparam TPrecision Abstract compute precision (TensorDataType enum, default: FP32).
-     *
-     * Example usage:
-     * @code
-     * // FP32 CUDA matrix multiplication
-     * class MatMul : public BinaryOperation<DeviceType::Cuda, TensorDataType::FP32> {
-     *     void forward(const TensorType& A, const TensorType& B,
-     *                  const Parameters& params, TensorType& output,
-     *                  OutputState& state) const override;
-     * };
-     *
-     * // FP16 CPU element-wise addition
-     * class Add : public BinaryOperation<DeviceType::Cpu, TensorDataType::FP16> {
-     *     void forward(const TensorType& A, const TensorType& B,
-     *                  const Parameters& params, TensorType& output,
-     *                  OutputState& state) const override;
-     * };
-     * @endcode
+     * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda)
+     * @tparam TPrecision  Abstract tensor precision (TensorDataType)
      */
     export template <DeviceType TDeviceType, TensorDataType TPrecision>
-        class BinaryOperation : public OperationBase<TDeviceType, TPrecision>
+    class BinaryOperation : public OperationBase<TDeviceType, TPrecision>
     {
     public:
-        /**
-         * @brief Memory resource type based on device type.
-         *
-         * @details This type alias derives the canonical memory resource for the
-         * template device type via the DeviceTypeTraits mapping.
-         */
-        using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
-
-        /**
-         * @brief Tensor type used by this operation.
-         *
-         * Convenient alias for the concrete tensor type with matching precision and memory resource.
-         */
+        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
         using TensorType = Tensor<TPrecision, MR>;
-
-        /**
-         * @brief Type alias for operation parameters (learnable weights, biases, etc.)
-         *
-         * Parameters are stored as type-erased ITensor pointers to support
-         * dynamic parameter management across different tensor types.
-         */
         using Parameters = std::vector<std::shared_ptr<TensorType>>;
-
-        /**
-         * @brief Type alias for operation state (cached values for backward pass)
-         *
-         * State tensors store intermediate computations needed for gradient calculation.
-         * May include scalar tensors for normalization factors or reduction values.
-         */
         using OutputState = std::vector<std::shared_ptr<TensorType>>;
 
-        /**
-         * @brief Constructs a BinaryOperation with the specified operation type.
-         *
-         * @details Creates a device context that matches the TDeviceType template parameter
-         * using the CreateCompatibleContext helper function. This constructor simplifies
-         * creation when a custom device context is not needed.
-         *
-         * @param operation_type The type of the operation from the OperationType enumeration.
-         *
-         * @throws std::runtime_error If device context creation fails.
-         *
-         * Example:
-         * @code
-         * class Add : public BinaryOperation<DeviceType::Cuda, TensorDataType::FP32> {
-         * public:
-         *     Add() : BinaryOperation(OperationType::Add) {}
-         * };
-         * @endcode
-         */
-        BinaryOperation( OperationType operation_type, int device_id )
-            : OperationBase<TDeviceType, TPrecision>( operation_type, CreateCompatibleContext<TDeviceType>() ) {
-        }
-
-        /**
-         * @brief Constructs a BinaryOperation with the specified operation type and device context.
-         *
-         * @details Validates that the provided context is compatible with the TDeviceType template
-         * parameter. This allows for more control over the execution environment by providing a
-         * pre-configured device context (e.g., specific GPU, custom streams).
-         *
-         * @param operation_type The type of the operation from the OperationType enumeration.
-         * @param context The device context to use for this operation. Must be compatible with TDeviceType.
-         *
-         * @throws std::runtime_error If the provided context is incompatible with TDeviceType.
-         *
-         * Example:
-         * @code
-         * auto context = DeviceContext::create("CUDA:1"); // Specific GPU
-         * MatMul op(OperationType::MatMul, context);
-         * @endcode
-         */
-        BinaryOperation( OperationType operation_type, std::shared_ptr<ExecutionContext<TDeviceType>> execution_context )
-            : OperationBase<TDeviceType, TPrecision>( operation_type, execution_context ) {
-        }
-
-        /**
-         * @brief Virtual destructor for proper cleanup of derived classes.
-         *
-         * @details Ensures proper cleanup of derived class resources when destroyed through
-         * a base class pointer. Default implementation is sufficient for this base class.
-         */
         virtual ~BinaryOperation() = default;
 
         /**
-         * @brief Executes the forward pass of a binary operation.
+         * @brief Forward pass.
          *
-         * @details Performs the computation defined by the specific binary operation,
-         * transforming the two input tensors into an output tensor according to the operation's
-         * rules. Derived classes must implement this method to define their specific computation.
+         * Compute output = f(inputA, inputB, parameters).
          *
-         * Input tensor requirements:
-         * - May have any rank (0 for scalars, 1 for vectors, 2+ for higher dimensions)
-         * - Broadcasting semantics depend on the specific operation
-         * - Scalar inputs are fully supported (e.g., scalar + tensor, scalar * scalar)
+         * Parameters:
+         *  - inputA, inputB: Forward inputs (type-erased `ITensor`). Implementations
+         *    should validate shapes and types as required.
+         *  - parameters: Optional vector of parameter tensors (learnable weights,
+         *    biases, gates, projection matrices). May be empty for stateless ops.
+         *  - output: Output tensor to write results into. Implementations may resize
+         *    or reallocate `output`. Callers must not rely on prior contents.
+         *  - output_state: Optional container for any intermediate tensors that must
+         *    be preserved for the backward pass (e.g., reduction indices, cached
+         *    normalization factors). Implementations should push any required
+         *    shared_ptr<Tensor> objects into this vector.
          *
-         * Output tensor:
-         * - Will be resized by the operation if needed
-         * - Shape determined by operation semantics and broadcasting rules
-         * - May be scalar (rank 0) for reduction operations
-         *
-         * @param inputA The first input tensor to the operation (may be scalar).
-         * @param inputB The second input tensor to the operation (may be scalar).
-         * @param parameters Optional operation-specific learnable parameters (e.g., weights, biases).
-         *                   May include scalar parameters (e.g., bias values).
-         * @param output Pre-allocated or unallocated tensor where operation results will be stored.
-         *               Will be resized if necessary.
-         * @param output_state Optional cache for intermediate values needed during backward pass.
-         *                     May include scalar tensors (e.g., normalization factors).
-         *
-         * @throws std::runtime_error If input shapes are incompatible for the operation.
-         * @throws std::runtime_error If device context operations fail.
-         *
-         * Example implementation:
-         * @code
-         * void forward(const TensorType& inputA, const TensorType& inputB,
-         *              const Parameters& parameters,
-         *              TensorType& output, OutputState& output_state) const override {
-         *     // Element-wise addition with broadcasting
-         *     if (inputA.isScalar() && inputB.isScalar()) {
-         *         // Scalar + scalar -> scalar
-         *         output.reshape({});
-         *     } else if (inputA.isScalar()) {
-         *         // Scalar + tensor -> tensor (broadcast scalar)
-         *         output.reshape(inputB.shape());
-         *     } else if (inputB.isScalar()) {
-         *         // Tensor + scalar -> tensor (broadcast scalar)
-         *         output.reshape(inputA.shape());
-         *     } else {
-         *         // Tensor + tensor -> validate shapes and compute
-         *         validateBroadcastable(inputA.shape(), inputB.shape());
-         *         output.reshape(computeOutputShape(inputA.shape(), inputB.shape()));
-         *     }
-         *     // Perform the actual computation...
-         * }
-         * @endcode
+         * Allocation / ownership notes:
+         *  - Implementations decide whether to reuse, rebind or allocate device
+         *    memory for `output` and `output_state` members.
+         *  - Concrete operation documentation must state whether outputs are
+         *    overwritten or accumulated.
          */
         virtual void forward(
             const ITensor& inputA,
@@ -236,110 +88,42 @@ namespace Mila::Dnn::Compute
             OutputState& output_state ) const = 0;
 
         /**
-         * @brief Executes the backward pass of a binary operation.
+         * @brief Backward pass (gradient computation).
          *
-         * @details Computes gradients with respect to both inputs and parameters by propagating the output
-         * gradient backward through the operation. Derived classes may override this method to define
-         * their specific backward computation.
+         * Compute gradients with respect to inputs and parameters using the
+         * forward inputs/output and the provided output gradient.
          *
-         * Gradient computation:
-         * - Propagates output gradient to both input tensors
-         * - Computes parameter gradients if operation has learnable parameters
-         * - Handles broadcasting by summing gradients over broadcast dimensions
-         * - Supports scalar gradients (e.g., scalar loss value)
+         * Parameters:
+         *  - inputA, inputB: The forward inputs as provided to `forward`.
+         *  - output: The forward output as produced by `forward`.
+         *  - output_gradient: Gradient of the loss with respect to `output`.
+         *  - parameters: Same parameter vector passed to `forward`.
+         *  - parameter_gradients: Output vector for parameter gradients. Implementations
+         *    should ensure `parameter_gradients.size()` matches `parameters.size()` and
+         *    accumulate into entries (or assign, as documented by the concrete op).
+         *  - inputA_gradient, inputB_gradient: Output tensors to receive gradients
+         *    for the corresponding inputs. Implementations should document whether
+         *    these are accumulated (added) or overwritten.
+         *  - output_state: Forward-pass cached tensors required for gradient computation.
          *
-         * Scalar gradient handling:
-         * - If output is scalar, output_gradient is also scalar (rank 0)
-         * - If inputs are scalars, corresponding gradients will be scalars
-         * - Broadcasting requires gradient reduction (sum) over expanded dimensions
-         *
-         * The default implementation throws an exception indicating that the operation
-         * does not support a backward pass (e.g., inference-only operations).
-         *
-         * @param inputA First input tensor from the forward pass (may be scalar).
-         * @param inputB Second input tensor from the forward pass (may be scalar).
-         * @param output Output tensor from the forward pass (may be scalar).
-         * @param output_gradient Gradient of the loss with respect to the output (may be scalar).
-         * @param parameters Parameters tensor from forward pass (may include scalars).
-         * @param parameter_gradients Output vector where parameter gradients will be stored (may include scalars).
-         * @param inputA_gradient Output tensor where gradients for the first input will be stored (may be scalar).
-         * @param inputB_gradient Output tensor where gradients for the second input will be stored (may be scalar).
-         * @param output_state Cache tensors from forward pass (may include scalars).
-         *
-         * @throws std::runtime_error If the operation does not support backward pass.
-         * @throws std::runtime_error If gradient shapes are incompatible.
-         *
-         * Example implementation:
-         * @code
-         * void backward(const TensorType& inputA, const TensorType& inputB,
-         *               const TensorType& output, const TensorType& output_gradient,
-         *               const std::shared_ptr<ITensor>& parameters,
-         *               std::vector<std::shared_ptr<TensorType>>& parameter_gradients,
-         *               TensorType& inputA_gradient, TensorType& inputB_gradient,
-         *               const OutputState& output_state) const override {
-         *     // Element-wise addition: gradient flows equally to both inputs
-         *     if (inputA.isScalar() && inputB.isScalar()) {
-         *         // Scalar gradient -> scalar gradients
-         *         inputA_gradient.reshape({});
-         *         inputB_gradient.reshape({});
-         *         inputA_gradient.item() = output_gradient.item();
-         *         inputB_gradient.item() = output_gradient.item();
-         *     } else if (inputA.isScalar()) {
-         *         // Reduce gradient for scalar input
-         *         inputA_gradient.reshape({});
-         *         inputA_gradient.item() = sum(output_gradient);
-         *         inputB_gradient = output_gradient;
-         *     } else {
-         *         // Handle broadcasting and compute gradients...
-         *     }
-         * }
-         * @endcode
+         * Behavior and expectations:
+         *  - Implementations must handle broadcasting/reduction semantics consistently
+         *    with forward. When broadcasting was applied in forward, backward must
+         *    reduce gradients appropriately.
+         *  - Implementations should validate shapes and provide clear error messages
+         *    on mismatch.
+         *  - Thread-safety and accumulation semantics are implementation-specific;
+         *    callers should follow the concrete operation documentation.
          */
-        virtual void backward(
-            const TensorType& inputA,
-            const TensorType& inputB,
-            const TensorType& output,
-            const TensorType& output_gradient,
-            const std::shared_ptr<ITensor>& parameters,
-            std::vector<std::shared_ptr<TensorType>>& parameter_gradients,
-            TensorType& inputA_gradient,
-            TensorType& inputB_gradient,
-            const OutputState& output_state ) const {
-            throw std::runtime_error( "Operation does not support backward pass." );
-        }
+            virtual void backward(
+                const ITensor& inputA,
+                const ITensor& inputB,
+                const ITensor& output,
+                const ITensor& output_gradient,
+                const Parameters& parameters,
+                Parameters& parameter_gradients,
+                ITensor& inputA_gradient,
+                ITensor& inputB_gradient,
+                const OutputState& output_state ) const = 0;
     };
-
-    /**
-     * @brief Type alias for CPU-based binary operations with customizable precision.
-     *
-     * Convenient alias for creating CPU binary operations with specific precision requirements.
-     *
-     * @tparam TPrecision Abstract compute precision (TensorDataType enum, default: FP32).
-     *
-     * Example:
-     * @code
-     * class CpuAdd : public CpuBinaryOperation<TensorDataType::FP32> {
-     *     // Implementation
-     * };
-     * @endcode
-     */
-    export template<TensorDataType TPrecision = TensorDataType::FP32>
-        using CpuBinaryOperation = BinaryOperation<DeviceType::Cpu, TPrecision>;
-
-    /**
-     * @brief Type alias for CUDA-based binary operations with customizable precision.
-     *
-     * Convenient alias for creating CUDA binary operations with specific precision requirements.
-     *
-     * @tparam TPrecision Abstract compute precision (TensorDataType enum, default: FP32).
-     *
-     * Example:
-     * @code
-     * class CudaMatMul : public CudaBinaryOperation<TensorDataType::FP16> {
-     *     // Implementation
-     * };
-     * @endcode
-     */
-    export template<TensorDataType TPrecision = TensorDataType::FP32>
-        using CudaBinaryOperation = BinaryOperation<DeviceType::Cuda, TPrecision>;
 }

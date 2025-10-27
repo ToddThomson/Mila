@@ -181,7 +181,7 @@ namespace Mila::Dnn::Compute
             {
                 throw std::invalid_argument(
                     "Metal ExecutionContext requires Metal device, got: " +
-                    std::string( deviceToString( device->getDeviceType() ) )
+                    std::string( deviceTypeToString( device->getDeviceType() ) )
                 );
             }
 

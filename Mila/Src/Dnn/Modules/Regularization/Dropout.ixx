@@ -262,7 +262,7 @@ namespace Mila::Dnn
             oss << "Scale during inference: " << (config_.scalesDuringInference() ? "Yes" : "No") << std::endl;
             oss << "Same mask per batch: " << (config_.usesSameMaskPerBatch() ? "Yes" : "No") << std::endl;
             oss << "Random seed: " << seed_ << std::endl;
-            oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
+            oss << "Device: " << deviceTypeToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
             oss << this->getComputePrecision().toString() << std::endl;
 
             return oss.str();

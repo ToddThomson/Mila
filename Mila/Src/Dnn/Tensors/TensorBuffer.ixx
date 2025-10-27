@@ -32,7 +32,6 @@ import Compute.MemoryResource;
 import Compute.MemoryResourceTracker;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
-import Compute.DeviceContext;
 
 namespace Mila::Dnn
 {

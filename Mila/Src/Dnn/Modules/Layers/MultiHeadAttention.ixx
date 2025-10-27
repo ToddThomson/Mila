@@ -265,7 +265,7 @@ namespace Mila::Dnn
             oss << ", Causal mask: " << (config_.useCausalMask() ? "enabled" : "disabled") << std::endl;
             oss << "Scale factor: " << config_.getScaleFactor();
             oss << ", Separate projections: " << (config_.useSeparateProjections() ? "yes" : "no") << std::endl;
-            oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
+            oss << "Device: " << deviceTypeToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
             oss << this->getComputePrecision().toString() << std::endl;
 
             return oss.str();

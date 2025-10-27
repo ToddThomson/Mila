@@ -66,17 +66,16 @@ namespace Mila::Dnn::Compute
      * @note Currently only FP32 (float) is fully supported
      * @note Other precisions will require template specialization
      */
-    export template<TensorDataType TPrecision>
-    class CpuGeluOp : public UnaryOperation<DeviceType::Cpu, TPrecision>
+    export class CpuGeluOp : public UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>
     {
     public:
         using MR = CpuMemoryResource;
-        using UnaryOperationBase = UnaryOperation<DeviceType::Cpu, TPrecision>;
-        using TensorType = Tensor<TPrecision, MR>;
+        using UnaryOperationBase = UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>;
+        using TensorType = Tensor<TensorDataType::FP32, MR>;
         using Parameters = std::vector<std::shared_ptr<TensorType>>;
         using OutputState = std::vector<std::shared_ptr<TensorType>>;
-        using NativeType = typename CpuTensorDataTypeTraits::template native_type<TPrecision>;
-        using HostType = typename TensorHostTypeMap<TPrecision>::host_type;
+        using NativeType = typename CpuTensorDataTypeTraits::template native_type<TensorDataType::FP32>;
+        using HostType = typename TensorHostTypeMap<TensorDataType::FP32>::host_type;
         using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
 
         /**
@@ -214,13 +213,6 @@ namespace Mila::Dnn::Compute
     };
 
     /**
-     * @brief Template specialization for FP32 (float) precision
-     *
-     * This is the primary implementation used by most CPU operations.
-     */
-    using CpuGeluOpFP32 = CpuGeluOp<TensorDataType::FP32>;
-
-    /**
      * @brief Class responsible for registering CPU GELU operations
      *
      * Registers CPU GELU operation implementations with the OperationRegistry
@@ -247,7 +239,7 @@ namespace Mila::Dnn::Compute
                 {
                     const auto& geluConfig = static_cast<const GeluConfig&>(config);
                     
-                    return std::make_shared<CpuGeluOp<TensorDataType::FP32>>( context, geluConfig );
+                    return std::make_shared<CpuGeluOp>( context, geluConfig );
                 }
             );
         }

@@ -200,7 +200,7 @@ namespace Mila::Dnn
             oss << "Encoder: " << this->getDeviceName() << std::endl;
             oss << "Channels: " << config_.getChannels() << ", Max Sequence Length: " << config_.getMaxSequenceLength();
             oss << ", Vocabulary Length: " << config_.getVocabularyLength() << std::endl;
-            oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
+            oss << "Device: " << deviceTypeToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
             oss << this->getComputePrecision().toString() << std::endl;
             oss << "Parameter count: " << parameterCount() << std::endl;
 

@@ -75,10 +75,10 @@ add_executable( MilaTests
     # --------------------------------------------------------------
     #"Dnn/Compute/Devices/Cpu/Operations/CpuEncoderOpTests.cpp"
     #"Dnn/Compute/Devices/Cpu/Operations/CpuLinearOpTests.cpp"
-    #"Dnn/Compute/Devices/Cpu/Operations/CpuGeluOpTests.cpp"
+    "Dnn/Compute/Devices/Cpu/Operations/CpuGeluOpTests.cpp"
     #"Dnn/Compute/Devices/Cpu/Operations/CpuLayerNormOpTests.cpp"
     #"Dnn/Compute/Devices/Cpu/Operations/CpuResidualOpTests.cpp"
-    #"Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxOpTests.cpp"
+    "Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxOpTests.cpp"
     
     # --------------------------------------------------------------
     # Compute::Device::Cuda Operations Tests
@@ -99,26 +99,27 @@ add_executable( MilaTests
     # --------------------------------------------------------------
     # Dnn::Modules Tests
     # --------------------------------------------------------------
-
     "Dnn/Modules/Module.cpp"
     "Dnn/Modules/ModuleConfig.cpp"
     
+    #"Dnn/Modules/Layers/Attention.cpp"
     #"Dnn/Modules/Layers/Encoder.cpp"
     #"Dnn/Modules/Layers/EncoderConfig.cpp"
-    #"Dnn/Modules/Attention.cpp"
-    "Dnn/Modules/Activations/Gelu.Cpu.cpp" 
-    "Dnn/Modules/Activations/GeluConfig.cpp"
     "Dnn/Modules/Layers/Linear.Cpu.cpp"
     "Dnn/Modules/Layers/LinearConfig.cpp"
-    #"Dnn/Modules/Normalization/LayerNorm.cpp"
-    #"Dnn/Modules/Normalization/LayerNormConfig.cpp"
-    #"Dnn/Modules/Layers/Residual.cpp"
+    "Dnn/Modules/Layers/Residual.cpp"
     "Dnn/Modules/Layers/Softmax.cpp"
+
+    "Dnn/Modules/Activations/Gelu.Cpu.cpp" 
+    "Dnn/Modules/Activations/GeluConfig.cpp"
+
+    "Dnn/Modules/Normalization/LayerNorm.cpp"
+    "Dnn/Modules/Normalization/LayerNormConfig.cpp"
     
     # --------------------------------------------------------------
     # Modules::Blocks Tests
     # --------------------------------------------------------------
-    #"Dnn/Modules/Blocks/MLP.cpp" 
+    "Dnn/Modules/Blocks/MLP.cpp" 
     #"Dnn/Modules/Blocks/TransformerBlock.cpp"
 
     #"Dnn/Data/DataLoader.cpp"

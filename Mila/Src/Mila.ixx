@@ -105,7 +105,7 @@ export import Compute.OperationRegistryHelpers;
 export import Compute.CpuGeluOp;
 export import Compute.CpuLayerNormOp;
 export import Compute.CpuLinearOp;
-//export import Compute.CpuResidualOp;
+export import Compute.CpuResidualOp;
 export import Compute.CpuSoftmaxOp;
 
 // ====================================================================
@@ -165,13 +165,13 @@ export import Dnn.TensorInitializers;
 export import Dnn.Modules.Gelu;
 export import Dnn.Modules.LayerNorm;
 export import Dnn.Modules.Linear;
-//export import Dnn.Modules.Residual;
+export import Dnn.Modules.Residual;
 export import Dnn.Modules.Softmax;
 
 // ====================================================================
 // Dnn - Blocks
 // ====================================================================
-//export import Dnn.Blocks.MLP;
+export import Dnn.Blocks.MLP;
 //export import Dnn.Blocks.TransformerBlock;
 
 // ====================================================================

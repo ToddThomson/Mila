@@ -32,7 +32,7 @@ namespace Mila::Dnn::Compute
      * @return std::string The string representation of the device type ("CPU" or "CUDA").
      * @throws std::runtime_error If the device type is invalid.
      */
-    export std::string deviceToString(DeviceType device_type) {
+    export std::string deviceTypeToString(DeviceType device_type) {
         switch (device_type) {
         case DeviceType::Cpu: return "CPU";
         case DeviceType::Cuda: return "CUDA";

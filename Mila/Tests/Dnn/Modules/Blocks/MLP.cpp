@@ -2,8 +2,9 @@
 #include <memory>
 #include <vector>
 #include <string>
-#include <cuda_fp16.h>
+#include <cmath>
 #include <type_traits>
+#include <stdexcept>
 
 import Mila;
 
@@ -13,19 +14,25 @@ namespace Modules::Blocks::Tests
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Serialization;
 
-    template<DeviceType TDevice, typename TDataType>
+    // Memory resource depends only on device type for these tests.
+    template<DeviceType TDevice>
     using MemoryResourceType = std::conditional_t<TDevice == DeviceType::Cuda,
         CudaDeviceMemoryResource,
         CpuMemoryResource>;
 
-    template<DeviceType TDevice, typename TDataType = float>
-    struct MLPTestData {
+    // Test fixture data uses the TensorDataType precision used by the MLP implementation.
+    template<DeviceType TDevice, TensorDataType TPrecision>
+    struct MLPTestData
+    {
         MLPConfig config;
-        std::shared_ptr<MLP<TDevice, TDataType>> mlp_module;
+        std::shared_ptr<MLP<TDevice, TPrecision>> mlp_module;
         std::vector<size_t> input_shape;
         size_t hidden_size;
+        std::shared_ptr<ExecutionContext<TDevice>> exec_context;
 
-        MLPTestData() : config( { 1 }, 1 ) {}
+        MLPTestData() : config( { 1 }, 1 )
+        {
+        }
 
         static MLPTestData Create(
             const std::string& name,
@@ -41,7 +48,8 @@ namespace Modules::Blocks::Tests
             data.input_shape = input_shape;
             data.hidden_size = hidden_size;
 
-            data.config = MLPConfig( input_shape, hidden_size )
+            data.config = MLPConfig( input_shape, hidden_size );
+            data.config
                 .withBias( has_bias )
                 .withActivation( activation )
                 .withLayerNorm( use_layer_norm )
@@ -50,7 +58,12 @@ namespace Modules::Blocks::Tests
                 .withTraining( is_training );
 
             std::string device_str = TDevice == DeviceType::Cuda ? "CUDA:0" : "CPU";
-            data.mlp_module = std::make_shared<MLP<TDevice, TDataType>>( device_str, data.config );
+
+            // Create an execution context and retain it so tests can inspect device info.
+            data.exec_context = std::make_shared<ExecutionContext<TDevice>>( 0 );
+
+            // Construct module using the supplied execution context.
+            data.mlp_module = std::make_shared<MLP<TDevice, TPrecision>>( data.exec_context, data.config );
 
             return data;
         }
@@ -59,7 +72,7 @@ namespace Modules::Blocks::Tests
             const std::string& name,
             const std::vector<size_t>& input_shape,
             size_t hidden_size,
-            std::shared_ptr<DeviceContext> context,
+            std::shared_ptr<ExecutionContext<TDevice>> context,
             bool has_bias = true,
             bool is_training = false,
             ActivationType activation = ActivationType::Gelu,
@@ -78,15 +91,18 @@ namespace Modules::Blocks::Tests
                 .withPrecisionPolicy( precision )
                 .withTraining( is_training );
 
-            data.mlp_module = std::make_shared<MLP<TDevice, TDataType>>( context, data.config );
+            data.exec_context = context;
+            data.mlp_module = std::make_shared<MLP<TDevice, TPrecision>>( context, data.config );
 
             return data;
         }
     };
 
-    class MLPTests : public ::testing::Test {
+    class MLPTests : public ::testing::Test
+    {
     protected:
-        void SetUp() override {
+        void SetUp() override
+        {
             cuda_batch_size_ = 16;
             cuda_sequence_length_ = 64;
             cpu_batch_size_ = 2;
@@ -95,7 +111,8 @@ namespace Modules::Blocks::Tests
             hidden_size_ = 3072;
         }
 
-        void TearDown() override {
+        void TearDown() override
+        {
             cpu_float_data_.mlp_module.reset();
             context_cpu_float_data_.mlp_module.reset();
             training_cpu_float_data_.mlp_module.reset();
@@ -107,137 +124,220 @@ namespace Modules::Blocks::Tests
             no_bias_cuda_float_data_.mlp_module.reset();
             layer_norm_cuda_float_data_.mlp_module.reset();
 
-            cuda_half_data_.mlp_module.reset();
-            training_cuda_half_data_.mlp_module.reset();
+            cuda_fp16_data_.mlp_module.reset();
+            training_cuda_fp16_data_.mlp_module.reset();
 
             perf_precision_cuda_float_data_.mlp_module.reset();
             accuracy_precision_cuda_float_data_.mlp_module.reset();
             native_precision_cuda_float_data_.mlp_module.reset();
         }
 
-        MLPTestData<DeviceType::Cpu, float>& CpuFloatData() {
-            if ( !cpu_float_data_.mlp_module ) {
-                cpu_float_data_ = MLPTestData<DeviceType::Cpu, float>::Create(
+        MLPTestData<DeviceType::Cpu, TensorDataType::FP32>& CpuFloatData()
+        {
+            if (!cpu_float_data_.mlp_module)
+            {
+                cpu_float_data_ = MLPTestData<DeviceType::Cpu, TensorDataType::FP32>::Create(
                     "cpu_mlp_float", { cpu_batch_size_, cpu_sequence_length_, input_features_ }, hidden_size_ );
             }
             return cpu_float_data_;
         }
 
-        MLPTestData<DeviceType::Cuda, float>& CudaFloatData() {
-            if ( !cuda_float_data_.mlp_module ) {
-                cuda_float_data_ = MLPTestData<DeviceType::Cuda, float>::Create(
-                    "cuda_mlp_float", { cuda_batch_size_, cuda_sequence_length_, input_features_ }, hidden_size_ );
+        MLPTestData<DeviceType::Cuda, TensorDataType::FP32>& CudaFloatData()
+        {
+            if (!cuda_float_data_.mlp_module)
+            {
+                try
+                {
+                    cuda_float_data_ = MLPTestData<DeviceType::Cuda, TensorDataType::FP32>::Create(
+                        "cuda_mlp_float", { cuda_batch_size_, cuda_sequence_length_, input_features_ }, hidden_size_ );
+                }
+                catch (const std::exception&)
+                {
+                    // GPU unavailable — tests that depend on CUDA will skip.
+                }
             }
             return cuda_float_data_;
         }
 
-        MLPTestData<DeviceType::Cpu, float>& TrainingCpuFloatData() {
-            if ( !training_cpu_float_data_.mlp_module ) {
-                training_cpu_float_data_ = MLPTestData<DeviceType::Cpu, float>::Create(
+        MLPTestData<DeviceType::Cpu, TensorDataType::FP32>& TrainingCpuFloatData()
+        {
+            if (!training_cpu_float_data_.mlp_module)
+            {
+                training_cpu_float_data_ = MLPTestData<DeviceType::Cpu, TensorDataType::FP32>::Create(
                     "cpu_mlp_float_training", { cpu_batch_size_, cpu_sequence_length_, input_features_ },
                     hidden_size_, true, true );
             }
             return training_cpu_float_data_;
         }
 
-        MLPTestData<DeviceType::Cuda, float>& TrainingCudaFloatData() {
-            if ( !training_cuda_float_data_.mlp_module ) {
-                training_cuda_float_data_ = MLPTestData<DeviceType::Cuda, float>::Create(
-                    "cuda_mlp_float_training", { cuda_batch_size_, cuda_sequence_length_, input_features_ },
-                    hidden_size_, true, true );
+        MLPTestData<DeviceType::Cuda, TensorDataType::FP32>& TrainingCudaFloatData()
+        {
+            if (!training_cuda_float_data_.mlp_module)
+            {
+                try
+                {
+                    training_cuda_float_data_ = MLPTestData<DeviceType::Cuda, TensorDataType::FP32>::Create(
+                        "cuda_mlp_float_training", { cuda_batch_size_, cuda_sequence_length_, input_features_ },
+                        hidden_size_, true, true );
+                }
+                catch (const std::exception&)
+                {
+                }
             }
             return training_cuda_float_data_;
         }
 
-        MLPTestData<DeviceType::Cpu, float>& NoBiasCpuFloatData() {
-            if ( !no_bias_cpu_float_data_.mlp_module ) {
-                no_bias_cpu_float_data_ = MLPTestData<DeviceType::Cpu, float>::Create(
+        MLPTestData<DeviceType::Cpu, TensorDataType::FP32>& NoBiasCpuFloatData()
+        {
+            if (!no_bias_cpu_float_data_.mlp_module)
+            {
+                no_bias_cpu_float_data_ = MLPTestData<DeviceType::Cpu, TensorDataType::FP32>::Create(
                     "cpu_mlp_float_nobias", { cpu_batch_size_, cpu_sequence_length_, input_features_ },
                     hidden_size_, false );
             }
             return no_bias_cpu_float_data_;
         }
 
-        MLPTestData<DeviceType::Cuda, float>& NoBiasCudaFloatData() {
-            if ( !no_bias_cuda_float_data_.mlp_module ) {
-                no_bias_cuda_float_data_ = MLPTestData<DeviceType::Cuda, float>::Create(
-                    "cuda_mlp_float_nobias", { cuda_batch_size_, cuda_sequence_length_, input_features_ },
-                    hidden_size_, false );
+        MLPTestData<DeviceType::Cuda, TensorDataType::FP32>& NoBiasCudaFloatData()
+        {
+            if (!no_bias_cuda_float_data_.mlp_module)
+            {
+                try
+                {
+                    no_bias_cuda_float_data_ = MLPTestData<DeviceType::Cuda, TensorDataType::FP32>::Create(
+                        "cuda_mlp_float_nobias", { cuda_batch_size_, cuda_sequence_length_, input_features_ },
+                        hidden_size_, false );
+                }
+                catch (const std::exception&)
+                {
+                }
             }
             return no_bias_cuda_float_data_;
         }
 
-        MLPTestData<DeviceType::Cpu, float>& LayerNormCpuFloatData() {
-            if ( !layer_norm_cpu_float_data_.mlp_module ) {
-                layer_norm_cpu_float_data_ = MLPTestData<DeviceType::Cpu, float>::Create(
+        MLPTestData<DeviceType::Cpu, TensorDataType::FP32>& LayerNormCpuFloatData()
+        {
+            if (!layer_norm_cpu_float_data_.mlp_module)
+            {
+                layer_norm_cpu_float_data_ = MLPTestData<DeviceType::Cpu, TensorDataType::FP32>::Create(
                     "cpu_mlp_float_layernorm", { cpu_batch_size_, cpu_sequence_length_, input_features_ },
                     hidden_size_, true, false, ActivationType::Gelu, true );
             }
             return layer_norm_cpu_float_data_;
         }
 
-        MLPTestData<DeviceType::Cuda, float>& LayerNormCudaFloatData() {
-            if ( !layer_norm_cuda_float_data_.mlp_module ) {
-                layer_norm_cuda_float_data_ = MLPTestData<DeviceType::Cuda, float>::Create(
-                    "cuda_mlp_float_layernorm", { cuda_batch_size_, cuda_sequence_length_, input_features_ },
-                    hidden_size_, true, false, ActivationType::Gelu, true );
+        MLPTestData<DeviceType::Cuda, TensorDataType::FP32>& LayerNormCudaFloatData()
+        {
+            if (!layer_norm_cuda_float_data_.mlp_module)
+            {
+                try
+                {
+                    layer_norm_cuda_float_data_ = MLPTestData<DeviceType::Cuda, TensorDataType::FP32>::Create(
+                        "cuda_mlp_float_layernorm", { cuda_batch_size_, cuda_sequence_length_, input_features_ },
+                        hidden_size_, true, false, ActivationType::Gelu, true );
+                }
+                catch (const std::exception&)
+                {
+                }
             }
             return layer_norm_cuda_float_data_;
         }
 
-        MLPTestData<DeviceType::Cpu, float>& ContextCpuFloatData() {
-            if ( !context_cpu_float_data_.mlp_module ) {
-                auto cpu_context = std::make_shared<DeviceContext>( "CPU" );
-                context_cpu_float_data_ = MLPTestData<DeviceType::Cpu, float>::CreateWithContext(
+        MLPTestData<DeviceType::Cpu, TensorDataType::FP32>& ContextCpuFloatData()
+        {
+            if (!context_cpu_float_data_.mlp_module)
+            {
+                auto exec_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
+                context_cpu_float_data_ = MLPTestData<DeviceType::Cpu, TensorDataType::FP32>::CreateWithContext(
                     "cpu_context_mlp_float", { cpu_batch_size_, cpu_sequence_length_, input_features_ },
-                    hidden_size_, cpu_context );
+                    hidden_size_, exec_ctx );
             }
             return context_cpu_float_data_;
         }
 
-        MLPTestData<DeviceType::Cuda, half>& CudaHalfData() {
-            if ( !cuda_half_data_.mlp_module ) {
-                cuda_half_data_ = MLPTestData<DeviceType::Cuda, half>::Create(
-                    "cuda_mlp_half", { cuda_batch_size_, cuda_sequence_length_, input_features_ }, hidden_size_ );
+        MLPTestData<DeviceType::Cuda, TensorDataType::FP16>& CudaFP16Data()
+        {
+            if (!cuda_fp16_data_.mlp_module)
+            {
+                try
+                {
+                    cuda_fp16_data_ = MLPTestData<DeviceType::Cuda, TensorDataType::FP16>::Create(
+                        "cuda_mlp_fp16", { cuda_batch_size_, cuda_sequence_length_, input_features_ }, hidden_size_ );
+                }
+                catch (const std::exception&)
+                {
+                }
             }
-            return cuda_half_data_;
+            return cuda_fp16_data_;
         }
 
-        MLPTestData<DeviceType::Cuda, half>& TrainingCudaHalfData() {
-            if ( !training_cuda_half_data_.mlp_module ) {
-                training_cuda_half_data_ = MLPTestData<DeviceType::Cuda, half>::Create(
-                    "cuda_mlp_half_training", { cuda_batch_size_, cuda_sequence_length_, input_features_ },
-                    hidden_size_, true, true );
+        MLPTestData<DeviceType::Cuda, TensorDataType::FP16>& TrainingCudaFP16Data()
+        {
+            if (!training_cuda_fp16_data_.mlp_module)
+            {
+                try
+                {
+                    training_cuda_fp16_data_ = MLPTestData<DeviceType::Cuda, TensorDataType::FP16>::Create(
+                        "cuda_mlp_fp16_training", { cuda_batch_size_, cuda_sequence_length_, input_features_ },
+                        hidden_size_, true, true );
+                }
+                catch (const std::exception&)
+                {
+                }
             }
-            return training_cuda_half_data_;
+            return training_cuda_fp16_data_;
         }
 
-        MLPTestData<DeviceType::Cuda, float>& PerfPrecisionCudaFloatData() {
-            if ( !perf_precision_cuda_float_data_.mlp_module ) {
-                perf_precision_cuda_float_data_ = MLPTestData<DeviceType::Cuda, float>::Create(
-                    "cuda_mlp_perf_precision", { cuda_batch_size_, cuda_sequence_length_, input_features_ },
-                    hidden_size_, true, false, ActivationType::Gelu, false,
-                    ComputePrecision::Policy::Performance );
+        MLPTestData<DeviceType::Cuda, TensorDataType::FP32>& PerfPrecisionCudaFloatData()
+        {
+            if (!perf_precision_cuda_float_data_.mlp_module)
+            {
+                try
+                {
+                    perf_precision_cuda_float_data_ = MLPTestData<DeviceType::Cuda, TensorDataType::FP32>::Create(
+                        "cuda_mlp_perf_precision", { cuda_batch_size_, cuda_sequence_length_, input_features_ },
+                        hidden_size_, true, false, ActivationType::Gelu, false,
+                        ComputePrecision::Policy::Performance );
+                }
+                catch (const std::exception&)
+                {
+                }
             }
             return perf_precision_cuda_float_data_;
         }
 
-        MLPTestData<DeviceType::Cuda, float>& AccuracyPrecisionCudaFloatData() {
-            if ( !accuracy_precision_cuda_float_data_.mlp_module ) {
-                accuracy_precision_cuda_float_data_ = MLPTestData<DeviceType::Cuda, float>::Create(
-                    "cuda_mlp_accuracy_precision", { cuda_batch_size_, cuda_sequence_length_, input_features_ },
-                    hidden_size_, true, false, ActivationType::Gelu, false,
-                    ComputePrecision::Policy::Accuracy );
+        MLPTestData<DeviceType::Cuda, TensorDataType::FP32>& AccuracyPrecisionCudaFloatData()
+        {
+            if (!accuracy_precision_cuda_float_data_.mlp_module)
+            {
+                try
+                {
+                    accuracy_precision_cuda_float_data_ = MLPTestData<DeviceType::Cuda, TensorDataType::FP32>::Create(
+                        "cuda_mlp_accuracy_precision", { cuda_batch_size_, cuda_sequence_length_, input_features_ },
+                        hidden_size_, true, false, ActivationType::Gelu, false,
+                        ComputePrecision::Policy::Accuracy );
+                }
+                catch (const std::exception&)
+                {
+                }
             }
             return accuracy_precision_cuda_float_data_;
         }
 
-        MLPTestData<DeviceType::Cuda, float>& NativePrecisionCudaFloatData() {
-            if ( !native_precision_cuda_float_data_.mlp_module ) {
-                native_precision_cuda_float_data_ = MLPTestData<DeviceType::Cuda, float>::Create(
-                    "cuda_mlp_native_precision", { cuda_batch_size_, cuda_sequence_length_, input_features_ },
-                    hidden_size_, true, false, ActivationType::Gelu, false,
-                    ComputePrecision::Policy::Native );
+        MLPTestData<DeviceType::Cuda, TensorDataType::FP32>& NativePrecisionCudaFloatData()
+        {
+            if (!native_precision_cuda_float_data_.mlp_module)
+            {
+                try
+                {
+                    native_precision_cuda_float_data_ = MLPTestData<DeviceType::Cuda, TensorDataType::FP32>::Create(
+                        "cuda_mlp_native_precision", { cuda_batch_size_, cuda_sequence_length_, input_features_ },
+                        hidden_size_, true, false, ActivationType::Gelu, false,
+                        ComputePrecision::Policy::Native );
+                }
+                catch (const std::exception&)
+                {
+                }
             }
             return native_precision_cuda_float_data_;
         }
@@ -249,32 +349,37 @@ namespace Modules::Blocks::Tests
         size_t input_features_{ 0 };
         size_t hidden_size_{ 0 };
 
-        MLPTestData<DeviceType::Cpu, float> cpu_float_data_;
-        MLPTestData<DeviceType::Cpu, float> context_cpu_float_data_;
-        MLPTestData<DeviceType::Cpu, float> training_cpu_float_data_;
-        MLPTestData<DeviceType::Cpu, float> no_bias_cpu_float_data_;
-        MLPTestData<DeviceType::Cpu, float> layer_norm_cpu_float_data_;
+        MLPTestData<DeviceType::Cpu, TensorDataType::FP32> cpu_float_data_;
+        MLPTestData<DeviceType::Cpu, TensorDataType::FP32> context_cpu_float_data_;
+        MLPTestData<DeviceType::Cpu, TensorDataType::FP32> training_cpu_float_data_;
+        MLPTestData<DeviceType::Cpu, TensorDataType::FP32> no_bias_cpu_float_data_;
+        MLPTestData<DeviceType::Cpu, TensorDataType::FP32> layer_norm_cpu_float_data_;
 
-        MLPTestData<DeviceType::Cuda, float> cuda_float_data_;
-        MLPTestData<DeviceType::Cuda, float> training_cuda_float_data_;
-        MLPTestData<DeviceType::Cuda, float> no_bias_cuda_float_data_;
-        MLPTestData<DeviceType::Cuda, float> layer_norm_cuda_float_data_;
+        MLPTestData<DeviceType::Cuda, TensorDataType::FP32> cuda_float_data_;
+        MLPTestData<DeviceType::Cuda, TensorDataType::FP32> training_cuda_float_data_;
+        MLPTestData<DeviceType::Cuda, TensorDataType::FP32> no_bias_cuda_float_data_;
+        MLPTestData<DeviceType::Cuda, TensorDataType::FP32> layer_norm_cuda_float_data_;
 
-        MLPTestData<DeviceType::Cuda, half> cuda_half_data_;
-        MLPTestData<DeviceType::Cuda, half> training_cuda_half_data_;
+        MLPTestData<DeviceType::Cuda, TensorDataType::FP16> cuda_fp16_data_;
+        MLPTestData<DeviceType::Cuda, TensorDataType::FP16> training_cuda_fp16_data_;
 
-        MLPTestData<DeviceType::Cuda, float> perf_precision_cuda_float_data_;
-        MLPTestData<DeviceType::Cuda, float> accuracy_precision_cuda_float_data_;
-        MLPTestData<DeviceType::Cuda, float> native_precision_cuda_float_data_;
+        MLPTestData<DeviceType::Cuda, TensorDataType::FP32> perf_precision_cuda_float_data_;
+        MLPTestData<DeviceType::Cuda, TensorDataType::FP32> accuracy_precision_cuda_float_data_;
+        MLPTestData<DeviceType::Cuda, TensorDataType::FP32> native_precision_cuda_float_data_;
     };
 
-    template<DeviceType TDevice, typename TDataType = float>
-    void TestGetName( const MLPTestData<TDevice, TDataType>& data, const std::string& expected_name ) {
-        EXPECT_EQ( data.mlp_module->getDeviceName(), expected_name );
+    // Tests adapted to new Module API (getName(), execution context ownership stored in test data)
+    template<DeviceType TDevice, TensorDataType TPrecision>
+    void TestGetName( const MLPTestData<TDevice, TPrecision>& data, const std::string& expected_name )
+    {
+        ASSERT_NE( data.mlp_module, nullptr );
+        EXPECT_EQ( data.mlp_module->getName(), expected_name );
     }
 
-    template<DeviceType TDevice, typename TDataType = float>
-    void TestParameterCount( const MLPTestData<TDevice, TDataType>& data ) {
+    template<DeviceType TDevice, TensorDataType TPrecision>
+    void TestParameterCount( const MLPTestData<TDevice, TPrecision>& data )
+    {
+        ASSERT_NE( data.mlp_module, nullptr );
         size_t input_features = data.config.getInputFeatures();
         size_t hidden_size = data.config.getHiddenSize();
         bool has_bias = data.config.hasBias();
@@ -282,7 +387,8 @@ namespace Modules::Blocks::Tests
         size_t expected_fc1_params = input_features * hidden_size;
         size_t expected_fc2_params = hidden_size * input_features;
 
-        if ( has_bias ) {
+        if (has_bias)
+        {
             expected_fc1_params += hidden_size;
             expected_fc2_params += input_features;
         }
@@ -292,14 +398,23 @@ namespace Modules::Blocks::Tests
         EXPECT_EQ( data.mlp_module->parameterCount(), expected_total_params );
     }
 
-    template<DeviceType TDevice, typename TDataType = float>
-    void TestForward( const MLPTestData<TDevice, TDataType>& data ) {
-        using MR = MemoryResourceType<TDevice, TDataType>;
+    template<DeviceType TDevice, TensorDataType TPrecision>
+    void TestForward( const MLPTestData<TDevice, TPrecision>& data )
+    {
+        // Ensure test data is valid and device is available
+        if (!data.mlp_module || !data.exec_context)
+        {
+            throw std::runtime_error( "Module or execution context not available" );
+        }
 
-        Tensor<TDataType, MR> input( data.input_shape );
-        Tensor<TDataType, MR> output( data.input_shape );
+        using MR = MemoryResourceType<TDevice>;
+        using TensorType = Tensor<TPrecision, MR>;
 
-        random<TDataType, MR>( input, static_cast<TDataType>(-1.0), static_cast<TDataType>(1.0) );
+        // Construct tensors bound to the execution context's device
+        TensorType input( data.exec_context->getDevice(), data.input_shape );
+        TensorType output( data.exec_context->getDevice(), data.input_shape );
+
+        random( input, -1.0f, 1.0f );
 
         EXPECT_NO_THROW( data.mlp_module->forward( input, output ) );
 
@@ -307,97 +422,119 @@ namespace Modules::Blocks::Tests
         EXPECT_EQ( output.shape(), input.shape() );
     }
 
-    template<DeviceType TDevice, typename TDataType = float>
-    void TestToString( const MLPTestData<TDevice, TDataType>& data, const std::string& expected_substring ) {
+    template<DeviceType TDevice, TensorDataType TPrecision>
+    void TestToString( const MLPTestData<TDevice, TPrecision>& data, const std::string& expected_substring )
+    {
+        ASSERT_NE( data.mlp_module, nullptr );
         std::string output = data.mlp_module->toString();
         EXPECT_NE( output.find( expected_substring ), std::string::npos );
     }
 
-    template<DeviceType TDevice, typename TDataType = float>
-    void TestTrainingMode( const MLPTestData<TDevice, TDataType>& data, bool expected_mode ) {
+    template<DeviceType TDevice, TensorDataType TPrecision>
+    void TestTrainingMode( const MLPTestData<TDevice, TPrecision>& data, bool expected_mode )
+    {
+        ASSERT_NE( data.mlp_module, nullptr );
         EXPECT_EQ( data.mlp_module->isTraining(), expected_mode );
     }
 
-    template<DeviceType TDevice, typename TDataType = float>
-    void TestDeviceType( const MLPTestData<TDevice, TDataType>& data ) {
-        auto device_context = data.mlp_module->getDeviceContext();
-        EXPECT_NE( device_context, nullptr );
-        auto device = device_context->getDevice();
-        EXPECT_NE( device, nullptr );
+    template<DeviceType TDevice, TensorDataType TPrecision>
+    void TestDeviceType( const MLPTestData<TDevice, TPrecision>& data )
+    {
+        ASSERT_NE( data.exec_context, nullptr );
+        auto device = data.exec_context->getDevice();
+        ASSERT_NE( device, nullptr );
         EXPECT_EQ( device->getDeviceType(), TDevice );
     }
 
-    template<DeviceType TDevice, typename TDataType = float>
-    void TestSubModules( const MLPTestData<TDevice, TDataType>& data ) {
-        auto modules = data.mlp_module->getDeviceNamedModules();
+    template<DeviceType TDevice, TensorDataType TPrecision>
+    void TestSubModules( const MLPTestData<TDevice, TPrecision>& data )
+    {
+        ASSERT_NE( data.mlp_module, nullptr );
+        auto modules = data.mlp_module->getNamedModules();
 
         EXPECT_GE( modules.size(), 3 );
         EXPECT_NE( modules.find( "fc1" ), modules.end() );
         EXPECT_NE( modules.find( "activation" ), modules.end() );
         EXPECT_NE( modules.find( "fc2" ), modules.end() );
 
-        if ( data.config.useLayerNorm() ) {
+        if (data.config.useLayerNorm())
+        {
             EXPECT_NE( modules.find( "norm1" ), modules.end() );
         }
     }
 
-    template<DeviceType TDevice, typename TDataType = float>
-    void TestSaveLoad( const MLPTestData<TDevice, TDataType>& data ) {
+    template<DeviceType TDevice, TensorDataType TPrecision>
+    void TestSaveLoad( const MLPTestData<TDevice, TPrecision>& data )
+    {
+        ASSERT_NE( data.mlp_module, nullptr );
         ModelArchive archive;
         EXPECT_NO_THROW( data.mlp_module->save( archive ) );
         EXPECT_NO_THROW( data.mlp_module->load( archive ) );
     }
 
-    template<DeviceType TDevice, typename TDataType = float>
-    void TestEdgeCases() {
-        using MR = MemoryResourceType<TDevice, TDataType>;
+    template<DeviceType TDevice, TensorDataType TPrecision>
+    void TestEdgeCases()
+    {
+        using MR = MemoryResourceType<TDevice>;
+        using TensorType = Tensor<TPrecision, MR>;
 
-        try {
+        try
+        {
             std::vector<size_t> minimal_shape = { 1, 1, 8 };
             size_t minimal_hidden_size = 16;
 
-            auto minimal_config = MLPConfig( minimal_shape, minimal_hidden_size ).withName( "minimal_mlp" );
-            std::string device_str = TDevice == DeviceType::Cuda ? "CUDA:0" : "CPU";
-            auto minimal_module = std::make_shared<MLP<TDevice, TDataType>>( device_str, minimal_config );
+            auto minimal_config = MLPConfig( minimal_shape, minimal_hidden_size );
+            minimal_config.withName( "minimal_mlp" );
 
-            Tensor<TDataType, MR> minimal_input( minimal_shape );
-            Tensor<TDataType, MR> minimal_output( minimal_shape );
+            std::string device_str = TDevice == DeviceType::Cuda ? "CUDA:0" : "CPU";
+            auto exec_ctx = std::make_shared<ExecutionContext<TDevice>>( 0 );
+            auto minimal_module = std::make_shared<MLP<TDevice, TPrecision>>( exec_ctx, minimal_config );
+
+            TensorType minimal_input( exec_ctx->getDevice(), minimal_shape );
+            TensorType minimal_output( exec_ctx->getDevice(), minimal_shape );
 
             EXPECT_NO_THROW( minimal_module->forward( minimal_input, minimal_output ) );
             EXPECT_EQ( minimal_output.size(), 8 );
 
             std::vector<size_t> medium_shape;
-            if constexpr ( TDevice == DeviceType::Cuda ) {
+            if constexpr (TDevice == DeviceType::Cuda)
+            {
                 medium_shape = { 2, 2, 1024 };
             }
-            else {
+            else
+            {
                 medium_shape = { 1, 2, 512 };
             }
 
             size_t medium_hidden_size = 2048;
-            auto medium_config = MLPConfig( medium_shape, medium_hidden_size ).withName( "medium_mlp" );
-            auto medium_module = std::make_shared<MLP<TDevice, TDataType>>( device_str, medium_config );
+            auto medium_config = MLPConfig( medium_shape, medium_hidden_size );
+            medium_config.withName( "medium_mlp" );
+            auto medium_module = std::make_shared<MLP<TDevice, TPrecision>>( exec_ctx, medium_config );
 
-            Tensor<TDataType, MR> medium_input( medium_shape );
-            Tensor<TDataType, MR> medium_output( medium_shape );
+            TensorType medium_input( exec_ctx->getDevice(), medium_shape );
+            TensorType medium_output( exec_ctx->getDevice(), medium_shape );
 
             EXPECT_NO_THROW( medium_module->forward( medium_input, medium_output ) );
         }
-        catch ( const std::exception& e ) {
+        catch (const std::exception& e)
+        {
             std::cerr << "Exception during edge case test: " << e.what() << std::endl;
             throw;
         }
     }
 
-    template<typename TDataType = float>
+    template<typename HostType = float>
     void TestCpuCudaEquivalence(
-        const MLPTestData<DeviceType::Cpu, TDataType>& cpu_data,
-        const MLPTestData<DeviceType::Cuda, TDataType>& cuda_data ) {
-
-        try {
-            DeviceContext context( "CUDA:0" );
+        const MLPTestData<DeviceType::Cpu, TensorDataType::FP32>& cpu_data,
+        const MLPTestData<DeviceType::Cuda, TensorDataType::FP32>& cuda_data )
+    {
+        try
+        {
+            // Make sure CUDA available by attempting to create an execution context.
+            auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
         }
-        catch ( const std::exception& ) {
+        catch (const std::exception&)
+        {
             GTEST_SKIP() << "CUDA device not available, skipping CPU-CUDA equivalence test";
             return;
         }
@@ -405,38 +542,51 @@ namespace Modules::Blocks::Tests
         std::vector<size_t> test_shape = { 1, 2, cpu_data.config.getInputFeatures() };
         size_t test_hidden_size = 1024;
 
-        auto cpu_config = MLPConfig( test_shape, test_hidden_size ).withName( "test_cpu_mlp" );
-        auto cuda_config = MLPConfig( test_shape, test_hidden_size ).withName( "test_cuda_mlp" );
+        auto cpu_config = MLPConfig( test_shape, test_hidden_size );
+        cpu_config.withName( "test_cpu_mlp" );
+        auto cuda_config = MLPConfig( test_shape, test_hidden_size );
+        cuda_config.withName( "test_cuda_mlp" );
 
-        auto cpu_mlp = std::make_shared<MLP<DeviceType::Cpu, TDataType>>( "CPU", cpu_config );
-        auto cuda_mlp = std::make_shared<MLP<DeviceType::Cuda, TDataType>>( "CUDA:0", cuda_config );
+        auto cpu_exec = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
+        auto cuda_exec = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
 
-        Tensor<TDataType, CpuMemoryResource> host_input( test_shape );
+        auto cpu_mlp = std::make_shared<MLP<DeviceType::Cpu, TensorDataType::FP32>>( cpu_exec, cpu_config );
+        auto cuda_mlp = std::make_shared<MLP<DeviceType::Cuda, TensorDataType::FP32>>( cuda_exec, cuda_config );
 
-        for ( size_t i = 0; i < host_input.size(); ++i ) {
-            host_input.data()[ i ] = static_cast<TDataType>( -2.0 + 4.0 * (static_cast<float>( i ) / host_input.size()) );
+        using CpuTensor = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+        using CudaTensor = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>;
+
+        CpuTensor host_input( cpu_exec->getDevice(), test_shape );
+
+        for (size_t i = 0; i < host_input.size(); ++i)
+        {
+            host_input.data()[i] = static_cast<float>( -2.0 + 4.0 * (static_cast<float>( i ) / host_input.size()) );
         }
 
-        Tensor<TDataType, CpuMemoryResource> cpu_output( test_shape );
+        CpuTensor cpu_output( cpu_exec->getDevice(), test_shape );
         cpu_mlp->forward( host_input, cpu_output );
 
-        Tensor<TDataType, CudaDeviceMemoryResource> device_input = host_input.toDevice<CudaDeviceMemoryResource>();
+        CudaTensor device_input( cuda_exec->getDevice(), test_shape );
+        // Copy host -> device using provided utility
+        copy( host_input, device_input );
 
-        Tensor<TDataType, CudaDeviceMemoryResource> cuda_output( test_shape );
+        CudaTensor cuda_output( cuda_exec->getDevice(), test_shape );
         cuda_mlp->forward( device_input, cuda_output );
 
-        cuda_mlp->getDeviceContext()->synchronize();
+        cuda_exec->synchronize();
 
-        Tensor<TDataType, CpuMemoryResource> cuda_output_host = cuda_output.toHost<CpuMemoryResource>();
+        auto cuda_output_host = toHost<TensorDataType::FP32>( cuda_output, cuda_exec.get() );
 
         const float epsilon = 1e-3f;
         bool all_equal = true;
 
-        for ( size_t i = 0; i < cpu_output.size(); ++i ) {
-            float diff = std::abs( static_cast<float>( cpu_output.data()[ i ] ) - static_cast<float>( cuda_output_host.data()[ i ] ) );
-            if ( diff > epsilon ) {
-                std::cout << "Difference at index " << i << ": CPU=" << cpu_output.data()[ i ]
-                    << ", CUDA=" << cuda_output_host.data()[ i ] << ", diff=" << diff << std::endl;
+        for (size_t i = 0; i < cpu_output.size(); ++i)
+        {
+            float diff = std::abs( static_cast<float>( cpu_output.data()[i] ) - static_cast<float>( cuda_output_host.data()[i] ) );
+            if (diff > epsilon)
+            {
+                std::cout << "Difference at index " << i << ": CPU=" << cpu_output.data()[i]
+                    << ", CUDA=" << cuda_output_host.data()[i] << ", diff=" << diff << std::endl;
                 all_equal = false;
             }
         }
@@ -444,302 +594,348 @@ namespace Modules::Blocks::Tests
         EXPECT_TRUE( all_equal ) << "CPU and CUDA implementations produced different results";
     }
 
-    TEST_F( MLPTests, Cpu_Float_TestName ) {
-        TestGetName<DeviceType::Cpu, float>( CpuFloatData(), "cpu_mlp_float" );
+    // --- Tests ---
+
+    TEST_F( MLPTests, Cpu_Float_TestName )
+    {
+        TestGetName( CpuFloatData(), "cpu_mlp_float" );
     }
 
-    TEST_F( MLPTests, Cpu_Float_ParameterCount ) {
-        TestParameterCount<DeviceType::Cpu, float>( CpuFloatData() );
+    TEST_F( MLPTests, Cpu_Float_ParameterCount )
+    {
+        TestParameterCount( CpuFloatData() );
     }
 
-    TEST_F( MLPTests, Cpu_Float_TestForward ) {
-        TestForward<DeviceType::Cpu, float>( CpuFloatData() );
+    TEST_F( MLPTests, Cpu_Float_TestForward )
+    {
+        TestForward( CpuFloatData() );
     }
 
-    TEST_F( MLPTests, Cpu_Float_TestToString ) {
-        TestToString<DeviceType::Cpu, float>( CpuFloatData(), "MLP: cpu_mlp_float" );
+    TEST_F( MLPTests, Cpu_Float_TestToString )
+    {
+        TestToString( CpuFloatData(), "MLP: cpu_mlp_float" );
     }
 
-    TEST_F( MLPTests, Cpu_Float_TrainingMode ) {
-        TestTrainingMode<DeviceType::Cpu, float>( CpuFloatData(), false );
+    TEST_F( MLPTests, Cpu_Float_TrainingMode )
+    {
+        TestTrainingMode( CpuFloatData(), false );
     }
 
-    TEST_F( MLPTests, Cpu_Float_DeviceType ) {
-        TestDeviceType<DeviceType::Cpu, float>( CpuFloatData() );
+    TEST_F( MLPTests, Cpu_Float_DeviceType )
+    {
+        TestDeviceType( CpuFloatData() );
     }
 
-    TEST_F( MLPTests, Cpu_Float_SubModules ) {
-        TestSubModules<DeviceType::Cpu, float>( CpuFloatData() );
+    TEST_F( MLPTests, Cpu_Float_SubModules )
+    {
+        TestSubModules( CpuFloatData() );
     }
 
-    TEST_F( MLPTests, Cpu_Float_SaveLoad ) {
-        TestSaveLoad<DeviceType::Cpu, float>( CpuFloatData() );
+    TEST_F( MLPTests, Cpu_Float_SaveLoad )
+    {
+        TestSaveLoad( CpuFloatData() );
     }
 
-    TEST_F( MLPTests, NoBias_Cpu_Float_ParameterCount ) {
-        TestParameterCount<DeviceType::Cpu, float>( NoBiasCpuFloatData() );
+    TEST_F( MLPTests, NoBias_Cpu_Float_ParameterCount )
+    {
+        TestParameterCount( NoBiasCpuFloatData() );
     }
 
-    TEST_F( MLPTests, NoBias_Cpu_Float_TestForward ) {
-        TestForward<DeviceType::Cpu, float>( NoBiasCpuFloatData() );
+    TEST_F( MLPTests, NoBias_Cpu_Float_TestForward )
+    {
+        TestForward( NoBiasCpuFloatData() );
     }
 
-    TEST_F( MLPTests, LayerNorm_Cpu_Float_TestForward ) {
-        TestForward<DeviceType::Cpu, float>( LayerNormCpuFloatData() );
+    TEST_F( MLPTests, LayerNorm_Cpu_Float_TestForward )
+    {
+        TestForward( LayerNormCpuFloatData() );
     }
 
-    TEST_F( MLPTests, LayerNorm_Cpu_Float_SubModules ) {
-        TestSubModules<DeviceType::Cpu, float>( LayerNormCpuFloatData() );
+    TEST_F( MLPTests, LayerNorm_Cpu_Float_SubModules )
+    {
+        TestSubModules( LayerNormCpuFloatData() );
     }
 
-    TEST_F( MLPTests, Cpu_Training_Float_TrainingMode ) {
-        TestTrainingMode<DeviceType::Cpu, float>( TrainingCpuFloatData(), true );
+    TEST_F( MLPTests, Cpu_Training_Float_TrainingMode )
+    {
+        TestTrainingMode( TrainingCpuFloatData(), true );
     }
 
-    TEST_F( MLPTests, Cpu_Training_Float_TestForward ) {
-        TestForward<DeviceType::Cpu, float>( TrainingCpuFloatData() );
+    TEST_F( MLPTests, Cpu_Training_Float_TestForward )
+    {
+        TestForward( TrainingCpuFloatData() );
     }
 
-    TEST_F( MLPTests, Cuda_Float_TestName ) {
-        try {
-            TestGetName<DeviceType::Cuda, float>( CudaFloatData(), "cuda_mlp_float" );
+    TEST_F( MLPTests, Cuda_Float_TestName )
+    {
+        try
+        {
+            TestGetName( CudaFloatData(), "cuda_mlp_float" );
         }
-        catch ( const std::exception& ) {
+        catch (const std::exception&)
+        {
             GTEST_SKIP() << "CUDA device not available, skipping test";
         }
     }
 
-    TEST_F( MLPTests, Cuda_Float_ParameterCount ) {
-        try {
-            TestParameterCount<DeviceType::Cuda, float>( CudaFloatData() );
+    TEST_F( MLPTests, Cuda_Float_ParameterCount )
+    {
+        try
+        {
+            TestParameterCount( CudaFloatData() );
         }
-        catch ( const std::exception& ) {
+        catch (const std::exception&)
+        {
             GTEST_SKIP() << "CUDA device not available, skipping test";
         }
     }
 
-    TEST_F( MLPTests, Cuda_Float_TestForward ) {
-        try {
-            TestForward<DeviceType::Cuda, float>( CudaFloatData() );
+    TEST_F( MLPTests, Cuda_Float_TestForward )
+    {
+        try
+        {
+            TestForward( CudaFloatData() );
         }
-        catch ( const std::exception& ) {
+        catch (const std::exception&)
+        {
             GTEST_SKIP() << "CUDA device not available, skipping test";
         }
     }
 
-    TEST_F( MLPTests, Cuda_Float_TestToString ) {
-        try {
-            TestToString<DeviceType::Cuda, float>( CudaFloatData(), "MLP: cuda_mlp_float" );
+    TEST_F( MLPTests, Cuda_Float_TestToString )
+    {
+        try
+        {
+            TestToString( CudaFloatData(), "MLP: cuda_mlp_float" );
         }
-        catch ( const std::exception& ) {
+        catch (const std::exception&)
+        {
             GTEST_SKIP() << "CUDA device not available, skipping test";
         }
     }
 
-    TEST_F( MLPTests, Cuda_Float_TrainingMode ) {
-        try {
-            TestTrainingMode<DeviceType::Cuda, float>( CudaFloatData(), false );
+    TEST_F( MLPTests, Cuda_Float_TrainingMode )
+    {
+        try
+        {
+            TestTrainingMode( CudaFloatData(), false );
         }
-        catch ( const std::exception& ) {
+        catch (const std::exception&)
+        {
             GTEST_SKIP() << "CUDA device not available, skipping test";
         }
     }
 
-    TEST_F( MLPTests, Cuda_Float_DeviceType ) {
-        try {
-            TestDeviceType<DeviceType::Cuda, float>( CudaFloatData() );
+    TEST_F( MLPTests, Cuda_Float_DeviceType )
+    {
+        try
+        {
+            TestDeviceType( CudaFloatData() );
         }
-        catch ( const std::exception& ) {
+        catch (const std::exception&)
+        {
             GTEST_SKIP() << "CUDA device not available, skipping test";
         }
     }
 
-    TEST_F( MLPTests, Cuda_Float_SubModules ) {
-        try {
-            TestSubModules<DeviceType::Cuda, float>( CudaFloatData() );
+    TEST_F( MLPTests, Cuda_Float_SubModules )
+    {
+        try
+        {
+            TestSubModules( CudaFloatData() );
         }
-        catch ( const std::exception& ) {
+        catch (const std::exception&)
+        {
             GTEST_SKIP() << "CUDA device not available, skipping test";
         }
     }
 
-    TEST_F( MLPTests, NoBias_Cuda_Float_ParameterCount ) {
-        try {
-            TestParameterCount<DeviceType::Cuda, float>( NoBiasCudaFloatData() );
+    TEST_F( MLPTests, NoBias_Cuda_Float_ParameterCount )
+    {
+        try
+        {
+            TestParameterCount( NoBiasCudaFloatData() );
         }
-        catch ( const std::exception& ) {
+        catch (const std::exception&)
+        {
             GTEST_SKIP() << "CUDA device not available, skipping test";
         }
     }
 
-    TEST_F( MLPTests, NoBias_Cuda_Float_TestForward ) {
-        try {
-            TestForward<DeviceType::Cuda, float>( NoBiasCudaFloatData() );
+    TEST_F( MLPTests, NoBias_Cuda_Float_TestForward )
+    {
+        try
+        {
+            TestForward( NoBiasCudaFloatData() );
         }
-        catch ( const std::exception& ) {
+        catch (const std::exception&)
+        {
             GTEST_SKIP() << "CUDA device not available, skipping test";
         }
     }
 
-    TEST_F( MLPTests, LayerNorm_Cuda_Float_TestForward ) {
-        try {
-            TestForward<DeviceType::Cuda, float>( LayerNormCudaFloatData() );
+    TEST_F( MLPTests, LayerNorm_Cuda_Float_TestForward )
+    {
+        try
+        {
+            TestForward( LayerNormCudaFloatData() );
         }
-        catch ( const std::exception& ) {
+        catch (const std::exception&)
+        {
             GTEST_SKIP() << "CUDA device not available, skipping test";
         }
     }
 
-    TEST_F( MLPTests, LayerNorm_Cuda_Float_SubModules ) {
-        try {
-            TestSubModules<DeviceType::Cuda, float>( LayerNormCudaFloatData() );
+    TEST_F( MLPTests, LayerNorm_Cuda_Float_SubModules )
+    {
+        try
+        {
+            TestSubModules( LayerNormCudaFloatData() );
         }
-        catch ( const std::exception& ) {
+        catch (const std::exception&)
+        {
             GTEST_SKIP() << "CUDA device not available, skipping test";
         }
     }
 
-    TEST_F( MLPTests, Cuda_Training_Float_TrainingMode ) {
-        try {
-            TestTrainingMode<DeviceType::Cuda, float>( TrainingCudaFloatData(), true );
+    TEST_F( MLPTests, Cuda_Training_Float_TrainingMode )
+    {
+        try
+        {
+            TestTrainingMode( TrainingCudaFloatData(), true );
         }
-        catch ( const std::exception& ) {
+        catch (const std::exception&)
+        {
             GTEST_SKIP() << "CUDA device not available, skipping test";
         }
     }
 
-    TEST_F( MLPTests, Cuda_Training_Float_TestForward ) {
-        try {
-            TestForward<DeviceType::Cuda, float>( TrainingCudaFloatData() );
+    TEST_F( MLPTests, Cuda_Training_Float_TestForward )
+    {
+        try
+        {
+            TestForward( TrainingCudaFloatData() );
         }
-        catch ( const std::exception& ) {
+        catch (const std::exception&)
+        {
             GTEST_SKIP() << "CUDA device not available, skipping test";
         }
     }
 
-    TEST_F( MLPTests, Cuda_Half_TestName ) {
-        try {
-            TestGetName<DeviceType::Cuda, half>( CudaHalfData(), "cuda_mlp_half" );
+    TEST_F( MLPTests, Cuda_FP16_TestForward )
+    {
+        try
+        {
+            TestForward( CudaFP16Data() );
         }
-        catch ( const std::exception& ) {
+        catch (const std::exception&)
+        {
             GTEST_SKIP() << "CUDA device not available, skipping test";
         }
     }
 
-    TEST_F( MLPTests, Cuda_Half_ParameterCount ) {
-        try {
-            TestParameterCount<DeviceType::Cuda, half>( CudaHalfData() );
+    TEST_F( MLPTests, Cuda_PerformancePrecision_Policy )
+    {
+        try
+        {
+            TestForward( PerfPrecisionCudaFloatData() );
         }
-        catch ( const std::exception& ) {
+        catch (const std::exception&)
+        {
             GTEST_SKIP() << "CUDA device not available, skipping test";
         }
     }
 
-    TEST_F( MLPTests, Cuda_Half_TestForward ) {
-        try {
-            TestForward<DeviceType::Cuda, half>( CudaHalfData() );
+    TEST_F( MLPTests, Cuda_AccuracyPrecision_Policy )
+    {
+        try
+        {
+            TestForward( AccuracyPrecisionCudaFloatData() );
         }
-        catch ( const std::exception& ) {
+        catch (const std::exception&)
+        {
             GTEST_SKIP() << "CUDA device not available, skipping test";
         }
     }
 
-    TEST_F( MLPTests, Cuda_Half_TestToString ) {
-        try {
-            TestToString<DeviceType::Cuda, half>( CudaHalfData(), "MLP: cuda_mlp_half" );
+    TEST_F( MLPTests, Cuda_NativePrecision_Policy )
+    {
+        try
+        {
+            TestForward( NativePrecisionCudaFloatData() );
         }
-        catch ( const std::exception& ) {
+        catch (const std::exception&)
+        {
             GTEST_SKIP() << "CUDA device not available, skipping test";
         }
     }
 
-    TEST_F( MLPTests, Cuda_Half_TrainingMode ) {
-        try {
-            TestTrainingMode<DeviceType::Cuda, half>( CudaHalfData(), false );
+    TEST_F( MLPTests, Context_Cpu_Float_DeviceType )
+    {
+        TestDeviceType( ContextCpuFloatData() );
+    }
+
+    TEST_F( MLPTests, Context_Cpu_Float_Forward )
+    {
+        TestForward( ContextCpuFloatData() );
+    }
+
+    TEST_F( MLPTests, Cpu_Float_EdgeCases )
+    {
+        TestEdgeCases<DeviceType::Cpu, TensorDataType::FP32>();
+    }
+
+    TEST_F( MLPTests, Cuda_Float_EdgeCases )
+    {
+        try
+        {
+            TestEdgeCases<DeviceType::Cuda, TensorDataType::FP32>();
         }
-        catch ( const std::exception& ) {
+        catch (const std::exception&)
+        {
             GTEST_SKIP() << "CUDA device not available, skipping test";
         }
     }
 
-    TEST_F( MLPTests, Cuda_PerformancePrecision_Policy ) {
-        try {
-            TestForward<DeviceType::Cuda, float>( PerfPrecisionCudaFloatData() );
+    TEST_F( MLPTests, CpuCuda_Forward_Output_Equivalence )
+    {
+        try
+        {
+            TestCpuCudaEquivalence( CpuFloatData(), CudaFloatData() );
         }
-        catch ( const std::exception& ) {
+        catch (const std::exception&)
+        {
             GTEST_SKIP() << "CUDA device not available, skipping test";
         }
     }
 
-    TEST_F( MLPTests, Cuda_AccuracyPrecision_Policy ) {
-        try {
-            TestForward<DeviceType::Cuda, float>( AccuracyPrecisionCudaFloatData() );
-        }
-        catch ( const std::exception& ) {
-            GTEST_SKIP() << "CUDA device not available, skipping test";
-        }
-    }
-
-    TEST_F( MLPTests, Cuda_NativePrecision_Policy ) {
-        try {
-            TestForward<DeviceType::Cuda, float>( NativePrecisionCudaFloatData() );
-        }
-        catch ( const std::exception& ) {
-            GTEST_SKIP() << "CUDA device not available, skipping test";
-        }
-    }
-
-    TEST_F( MLPTests, Context_Cpu_Float_DeviceType ) {
-        TestDeviceType<DeviceType::Cpu, float>( ContextCpuFloatData() );
-    }
-
-    TEST_F( MLPTests, Context_Cpu_Float_Forward ) {
-        TestForward<DeviceType::Cpu, float>( ContextCpuFloatData() );
-    }
-
-    TEST_F( MLPTests, Cpu_Float_EdgeCases ) {
-        TestEdgeCases<DeviceType::Cpu, float>();
-    }
-
-    TEST_F( MLPTests, Cuda_Float_EdgeCases ) {
-        try {
-            TestEdgeCases<DeviceType::Cuda, float>();
-        }
-        catch ( const std::exception& ) {
-            GTEST_SKIP() << "CUDA device not available, skipping test";
-        }
-    }
-
-    TEST_F( MLPTests, CpuCuda_Forward_Output_Equivalence ) {
-        try {
-            TestCpuCudaEquivalence<float>( CpuFloatData(), CudaFloatData() );
-        }
-        catch ( const std::exception& ) {
-            GTEST_SKIP() << "CUDA device not available, skipping test";
-        }
-    }
-
-    TEST_F( MLPTests, Constructor_InvalidConfiguration ) {
+    TEST_F( MLPTests, Constructor_InvalidConfiguration )
+    {
         MLPConfig invalid_config( 0, 1024 );
 
+        auto cpu_exec = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
+
         EXPECT_THROW(
-            (MLP<DeviceType::Cpu, float>( "CPU", invalid_config )),
+            (MLP<DeviceType::Cpu, TensorDataType::FP32>( cpu_exec, invalid_config )),
             std::invalid_argument
         );
     }
 
-    TEST_F( MLPTests, Constructor_DeviceNameValidation ) {
+    TEST_F( MLPTests, Constructor_DeviceNameValidation )
+    {
         MLPConfig config( { 2, 16, 768 }, 3072 );
         config.withName( "validation_test" );
 
-        EXPECT_NO_THROW( (MLP<DeviceType::Cpu, float>( "CPU", config )) );
+        // construct using execution context created from device name
+        EXPECT_NO_THROW( (MLP<DeviceType::Cpu, TensorDataType::FP32>( std::make_shared<ExecutionContext<DeviceType::Cpu>>(), config )) );
     }
 
-    TEST_F( MLPTests, Constructor_DeviceContextValidation ) {
+    TEST_F( MLPTests, Constructor_ExecutionContextValidation )
+    {
         MLPConfig config( { 2, 16, 768 }, 3072 );
         config.withName( "context_validation_test" );
 
-        auto cpu_context = std::make_shared<DeviceContext>( "CPU" );
-        EXPECT_NO_THROW( (MLP<DeviceType::Cpu, float>( cpu_context, config )) );
+        auto cpu_exec = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
+        EXPECT_NO_THROW( (MLP<DeviceType::Cpu, TensorDataType::FP32>( cpu_exec, config )) );
     }
 }

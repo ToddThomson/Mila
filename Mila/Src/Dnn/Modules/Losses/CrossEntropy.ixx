@@ -286,7 +286,7 @@ namespace Mila::Dnn
                 oss << "Label smoothing: " << config_.getLabelSmoothing() << std::endl;
             }
 
-            oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
+            oss << "Device: " << deviceTypeToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
             oss << this->getComputePrecision().toString() << std::endl;
 
             return oss.str();

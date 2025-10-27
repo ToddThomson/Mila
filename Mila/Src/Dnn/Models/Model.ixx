@@ -567,7 +567,7 @@ namespace Mila::Dnn
         void print() const {
             std::cout << "Model Summary:" << std::endl;
             std::cout << "=============" << std::endl;
-            std::cout << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
+            std::cout << "Device: " << deviceTypeToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
 
             std::cout << "Modules: " << std::endl;
             for ( const auto& [name, module] : this->getModules() ) {

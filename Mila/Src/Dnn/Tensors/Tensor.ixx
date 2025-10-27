@@ -53,7 +53,6 @@ import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaManagedMemoryResource;
 import Compute.CudaPinnedMemoryResource;
-import Compute.DeviceContext;
 import Compute.ComputeDevice;
 import Compute.CpuDevice;
 import Compute.CudaDevice;
@@ -1196,9 +1195,9 @@ namespace Mila::Dnn
             {
                 throw std::runtime_error(
                     "Device type mismatch: Memory resource requires " +
-                    deviceToString( required_type ) +
+                    deviceTypeToString( required_type ) +
                     " but provided device is " +
-                    deviceToString( device->getDeviceType() )
+                    deviceTypeToString( device->getDeviceType() )
                 );
             }
 
@@ -1242,9 +1241,9 @@ namespace Mila::Dnn
             if (device->getDeviceType() != required_type) {
                 throw std::runtime_error(
                     "Device type mismatch: Memory resource requires " +
-                    deviceToString( required_type ) +
+                    deviceTypeToString( required_type ) +
                     " but device '" + device_name + "' is " +
-                    deviceToString( device->getDeviceType() )
+                    deviceTypeToString( device->getDeviceType() )
                 );
             }
 

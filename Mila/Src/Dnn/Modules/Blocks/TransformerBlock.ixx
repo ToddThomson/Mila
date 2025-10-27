@@ -242,7 +242,7 @@ namespace Mila::Dnn
 
             oss << "Architecture: " << (config_.usePreLayerNorm() ? "Pre-LN" : "Post-LN") << std::endl;
             oss << "Bias: " << (config_.useBias() ? "enabled" : "disabled") << std::endl;
-            oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
+            oss << "Device: " << deviceTypeToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
             oss << this->getComputePrecision().toString() << std::endl;
             oss << "Parameter count: " << parameterCount() << std::endl;
             oss << "Sub-Modules..." << std::endl;

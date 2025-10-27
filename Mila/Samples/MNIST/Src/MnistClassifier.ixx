@@ -133,7 +133,7 @@ namespace Mila::Mnist
                 oss << "- Hidden layer 2: 64 neurons" << std::endl;
                 oss << "- Output layer: 10 classes" << std::endl;
                 oss << "- Total parameters: " << parameterCount() << std::endl;
-                oss << "- Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
+                oss << "- Device: " << deviceTypeToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
                 oss << this->getComputePrecision().toString() << std::endl;
                 oss << "====================" << std::endl;
 

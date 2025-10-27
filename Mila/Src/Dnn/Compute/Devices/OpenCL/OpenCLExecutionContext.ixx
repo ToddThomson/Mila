@@ -167,7 +167,7 @@ namespace Mila::Dnn::Compute
             {
                 throw std::invalid_argument(
                     "OpenCL ExecutionContext requires OpenCL device, got: " +
-                    std::string( deviceToString( device->getDeviceType() ) )
+                    std::string( deviceTypeToString( device->getDeviceType() ) )
                 );
             }
 

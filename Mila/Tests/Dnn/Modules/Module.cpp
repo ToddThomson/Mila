@@ -110,7 +110,7 @@ namespace Dnn::Modules::Tests
         std::string toString() const override {
             std::ostringstream oss;
             oss << "MockModule: " << getName() << std::endl;
-            //oss << "Device: " << deviceToString( getDeviceType() ) << std::endl;
+            //oss << "Device: " << deviceTypeToString( getDeviceType() ) << std::endl;
             oss << "Training: " << (isTraining() ? "true" : "false") << std::endl;
             //oss << config_.getPrecisionPolicy(); // left as a placeholder representation
             return oss.str();

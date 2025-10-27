@@ -9,11 +9,11 @@
 module;
 #include <string>
 #include <stdexcept>
+#include <utility>
 
 export module Dnn.ConfigurationBase;
 
 import Compute.Precision;
-import Compute.DeviceContext;
 
 namespace Mila::Dnn
 {
@@ -32,7 +32,8 @@ namespace Mila::Dnn
      * @see GeluConfig
      * @see LinearConfig
      */
-    export class ConfigurationBase {
+    export class ConfigurationBase
+    {
     public:
         /**
          * @brief Virtual destructor to support proper polymorphic destruction
@@ -48,9 +49,11 @@ namespace Mila::Dnn
          * @note Names are validated during the validate() call, not at assignment time
          */
         template <typename Self>
-        auto& withName( this Self&& self, std::string name ) {
+        decltype(auto) withName( this Self&& self, std::string name )
+        {
             self.name_ = std::move( name );
-            return self;
+
+            return std::forward<Self>( self );
         }
 
         /**
@@ -60,9 +63,11 @@ namespace Mila::Dnn
          * @return Reference to self for method chaining
          */
         template <typename Self>
-        auto& withPrecisionPolicy( this Self&& self, ComputePrecision::Policy policy ) {
+        decltype(auto) withPrecisionPolicy( this Self&& self, ComputePrecision::Policy policy )
+        {
             self.precision_ = policy;
-            return self;
+
+            return std::forward<Self>( self );
         }
 
         /**
@@ -72,9 +77,11 @@ namespace Mila::Dnn
          * @return Reference to self for method chaining
          */
         template <typename Self>
-        auto& withTraining( this Self&& self, bool is_training ) {
+        decltype(auto) withTraining( this Self&& self, bool is_training )
+        {
             self.is_training_ = is_training;
-            return self;
+
+            return std::forward<Self>( self );
         }
 
         /**
@@ -82,21 +89,30 @@ namespace Mila::Dnn
          *
          * @return const std::string& The component name
          */
-        const std::string& getName() const { return name_; }
+        const std::string& getName() const
+        {
+            return name_;
+        }
 
         /**
          * @brief Gets the configured precision policy
          *
          * @return ComputePrecision::Policy The precision policy
          */
-        ComputePrecision::Policy getPrecisionPolicy() const { return precision_; }
+        ComputePrecision::Policy getPrecisionPolicy() const
+        {
+            return precision_;
+        }
 
         /**
          * @brief Gets the configured training mode
          *
          * @return bool True if in training mode, false if in inference mode
          */
-        bool isTraining() const { return is_training_; }
+        bool isTraining() const
+        {
+            return is_training_;
+        }
 
         /**
          * @brief Validates the configuration
@@ -107,8 +123,10 @@ namespace Mila::Dnn
          *
          * @throws std::invalid_argument If the configuration is invalid
          */
-        virtual void validate() const {
-            if ( name_.empty() ) {
+        virtual void validate() const
+        {
+            if (name_.empty())
+            {
                 throw std::invalid_argument( "name cannot be empty" );
             }
         }

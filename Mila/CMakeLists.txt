@@ -1,31 +1,33 @@
 ﻿set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 
 add_library( Mila STATIC
-	"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaUtils.h"
-	"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaOps.h"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaUtils.h"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaOps.h"
 
-	"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaEncoder.cu"
-	"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaLayerNorm.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaEncoder.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaLayerNorm.cu"
 
-	"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/CudaMatMulFp32.cu"
-	"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/CudaMatMulFp16.cu"
-	"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/FusedMatMulBiasGelu.cu"
-	#"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaMHA.cu"
-	"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaGelu.cu"
-	"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaResidual.cu"
-	"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaSoftmax.cu"
- #--------------------------------------------------------------------------
- # Cuda TensorOps Kernels
- #--------------------------------------------------------------------------
- "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Transfer.Copy.h"
- "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorCopy.cu"
- "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorOps.Fill.h"
- "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorOps.Fill.cu"
- "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/CudaTensorOps.h"
- "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.h"
- "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/CudaMatMulFp32.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/CudaMatMulFp16.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/FusedMatMulBiasGelu.cu"
+    #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaMHA.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaGelu.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaResidual.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaSoftmax.cu"
+    
+    #--------------------------------------------------------------------------
+    # Cuda TensorOps Kernels
+    #--------------------------------------------------------------------------
+    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Transfer.Copy.h"
+    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorCopy.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorOps.Fill.h"
+    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorOps.Fill.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/CudaTensorOps.h"
+    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.h"
+    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.cu"
  
- "Src/Dnn/Tensors/Operations/TensorOps-Base.ixx")
+    "Src/Dnn/Tensors/Operations/TensorOps-Base.ixx"
+)
 
  # FIXME: add_dependencies(Mila MilaUpdateVersion)
 
@@ -120,7 +122,7 @@ PUBLIC
         #---------------------------------------------------------------
         # Dnn / Common Components
         #---------------------------------------------------------------
-        #"Src/Dnn/Modules/Activations/ActivationType.ixx"
+        "Src/Dnn/Modules/Activations/ActivationType.ixx"
         #"Src/Dnn/Common/PrecisionConfig.ixx"
 
         #---------------------------------------------------------------
@@ -162,7 +164,7 @@ PUBLIC
         "Src/Dnn/Compute/Registry/DeviceRegistry.ixx"
         "Src/Dnn/Compute/Registry/DeviceRegistrar.ixx"
         "Src/Dnn/Compute/Registry/DeviceRegistryHelpers.ixx"
-        "Src/Dnn/Compute/DeviceContext.ixx"
+        
         "Src/Dnn/Compute/ExecutionContextHelpers.ixx"
         
         "Src/Dnn/Compute/Registry/DevicePlugin.ixx"
@@ -191,7 +193,7 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLayerNormOp.ixx"
         "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLinearOp.ixx"
         #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuMultiHeadAttentionOp.ixx"
-        #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuResidualOp.ixx"
+        "Src/Dnn/Compute/Devices/Cpu/Operations/CpuResidualOp.ixx"
         "Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxOp.ixx"
 
         #---------------------------------------------------------------
@@ -206,7 +208,7 @@ PUBLIC
 
         # CUDA Devices
         "Src/Dnn/Compute/Devices/Cuda/CudaDevice.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/CudaDeviceContext.ixx"
+        
         "Src/Dnn/Compute/Devices/Cuda/CudaDeviceProps.ixx"
         "Src/Dnn/Compute/Devices/Cuda/CudaDeviceMemoryResource.ixx"
         "Src/Dnn/Compute/Devices/Cuda/CudaManagedMemoryResource.ixx"
@@ -231,13 +233,13 @@ PUBLIC
         #"Src/Dnn/Compute/Operations/Cuda/CudaDataTypeTraits.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Operations/CublasLtMatMulBias.ixx"
         #"Src/Dnn/Compute/Operations/Cuda/MatMulBiasActivation.ixx"
-        #"Src/Dnn/Compute/Operations/Cuda/CudaResidualOp.ixx"
+        #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaResidualOp.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Operations/CudaGeluOp.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Operations/CudaLayerNormOp.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Operations/CudaLinearOp.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Operations/CudaSoftmaxOp.ixx"
-        #"Src/Dnn/Compute/Operations/Cuda/CudaMultiHeadAttentionOp.ixx"
-        #"Src/Dnn/Compute/Operations/Cuda/CudaEncoderOp.ixx"
+        #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaAttentionOp.ixx"
+        #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaEncoderOp.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Compute / Devices / Metal
@@ -266,8 +268,9 @@ PUBLIC
         # Module Framework and Implementations
         #---------------------------------------------------------------
         "Src/Dnn/Modules/Module.ixx"
+        "Src/Dnn/Modules/CompositeModule.ixx"
+        
         "Src/Dnn/Common/ConfigurationBase.ixx"
-        #"Src/Dnn/Modules/CompositeModule.ixx"
 
         # Modules - Activations
         "Src/Dnn/Modules/Activations/Gelu.ixx"
@@ -280,27 +283,32 @@ PUBLIC
         #"Src/Dnn/Modules/Layers/EncoderConfig.ixx"
         #"Src/Dnn/Modules/Layers/MultiHeadAttention.ixx"
         #"Src/Dnn/Modules/Layers/MultiHeadAttentionConfig.ixx"
-        #"Src/Dnn/Modules/Layers/Residual.ixx"
-        #"Src/Dnn/Modules/Layers/ResidualConfig.ixx"
+        "Src/Dnn/Modules/Layers/Residual.ixx"
+        "Src/Dnn/Modules/Layers/ResidualConfig.ixx"
         "Src/Dnn/Modules/Layers/Softmax.ixx"
         "Src/Dnn/Modules/Layers/SoftmaxConfig.ixx"
 
-        # Normalization / Losses / Regularization / Blocks / Models / Data / Serialization (originally commented)
+        # Normalization / Losses / Regularization / Blocks / Models / Data / Serialization
         "Src/Dnn/Modules/Normalization/LayerNorm.ixx"
         "Src/Dnn/Modules/Normalization/LayerNormConfig.ixx"
         #"Src/Dnn/Modules/Losses/CrossEntropy.ixx"
         #"Src/Dnn/Modules/Losses/CrossEntropyConfig.ixx"
         #"Src/Dnn/Modules/Regularization/Dropout.ixx"
         #"Src/Dnn/Modules/Regularization/DropoutConfig.ixx"
-        #"Src/Dnn/Modules/Blocks/MLP.ixx"
-        #"Src/Dnn/Modules/Blocks/MLPConfig.ixx"
+        "Src/Dnn/Modules/Blocks/MLP.ixx"
+        "Src/Dnn/Modules/Blocks/MLPConfig.ixx"
         #"Src/Dnn/Modules/Blocks/TransformerBlock.ixx"
         #"Src/Dnn/Modules/Blocks/TransformerBlockConfig.ixx"
+        
+        #"Src/Dnn/Data/DataLoader.ixx"
+
+        #---------------------------------------------------------------
+        # Dnn / Models
+        #---------------------------------------------------------------
         #"Src/Dnn/Models/Model.ixx"
         #"Src/Dnn/Models/Graph.ixx"
         #"Src/Dnn/Models/ModelCallback.ixx"
         #"Src/Dnn/Models/Gpt2/Gpt2DatasetReader.ixx"
-        #"Src/Dnn/Data/DataLoader.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Serialization

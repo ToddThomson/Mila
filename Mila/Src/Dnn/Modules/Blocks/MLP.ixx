@@ -1,6 +1,8 @@
 /**
  * @file MLP.ixx
- * @brief Implementation of Multi-Layer Perceptron (MLP) block for neural networks.
+ * @brief Multi-Layer Perceptron (MLP) block for neural networks.
+ *
+ * Refactored to use the new CompositeModule<TDeviceType> and ExecutionContext.
  */
 
 module;
@@ -10,12 +12,15 @@ module;
 #include <string>
 #include <type_traits>
 #include <vector>
+#include <stdexcept>
 
 export module Dnn.Blocks.MLP;
 export import :Config;
 
+import Dnn.ITensor;
 import Dnn.Tensor;
-import Dnn.TensorTraits;
+import Dnn.TensorDataType;
+import Dnn.TensorDataTypeTraits;
 import Dnn.Module;
 import Dnn.CompositeModule;
 import Dnn.ActivationType;
@@ -23,7 +28,7 @@ import Compute.Precision;
 import Compute.MemoryResource;
 import Compute.ComputeDevice;
 import Compute.DeviceType;
-import Compute.DeviceContext;
+import Compute.ExecutionContext;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
 import Compute.OperationRegistry;
@@ -40,105 +45,144 @@ namespace Mila::Dnn
     /**
      * @brief Multi-Layer Perceptron (MLP) block for neural networks.
      *
-     * This module implements a two-layer MLP with an activation function in between:
-     * input -> Linear -> Activation -> Linear -> output
-     *
-     * Optionally includes layer normalization after the first linear layer.
-     *
-     * MLP blocks are fundamental components in many network architectures, including
-     * transformers where they typically follow attention layers and process token
-     * representations.
-     *
-     * @tparam TDeviceType The device type (CPU or CUDA) on which to perform computations.
-     * @tparam TDataType The data type used for tensor elements throughout the network.
+     * Device-templated MLP that composes linear / activation / optional layer-norm
+     * modules. Uses TensorDataType precision parameter to match other modules (see Gelu).
      */
-    export template<DeviceType TDeviceType = DeviceType::Cuda, typename TDataType = float>
-        requires ValidFloatTensorType<TDataType>
-    class MLP : public CompositeModule<TDeviceType, TDataType> {
+    export template<DeviceType TDeviceType, TensorDataType TPrecision>
+        requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
+    class MLP : public CompositeModule<TDeviceType>
+    {
     public:
+        // TODO: The MR here must support any compute backend DeviceType
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
-        using CompositeModuleBase = CompositeModule<TDeviceType, TDataType>;
+        using CompositeModuleBase = CompositeModule<TDeviceType>;
+        using ExecutionContextType = ExecutionContext<TDeviceType>;
+        using TensorType = Tensor<TPrecision, MR>;
 
-        explicit MLP( const std::string& device_name, const MLPConfig& config )
-            : CompositeModuleBase( std::make_shared<DeviceContext>( device_name ), config ), config_( config ) {
-            config.validate();
+        /**
+         * Construct with an existing execution context.
+         *
+         * @param exec_context Shared execution context used to create tensors and child modules.
+         * @param config MLP configuration.
+         */
+        explicit MLP( std::shared_ptr<ExecutionContextType> exec_context, const MLPConfig& config )
+            : exec_context_( exec_context ), config_( config )
+        {
+            if (!exec_context_)
+            {
+                throw std::invalid_argument( "ExecutionContext cannot be null." );
+            }
+
+            config_.validate();
+            
             initializeModules();
         }
 
-        explicit MLP( std::shared_ptr<DeviceContext> device_context, const MLPConfig& config )
-            : CompositeModuleBase( device_context, config ), config_( config ) {
-            config.validate();
-            initializeModules();
-        }
+        ~MLP() override = default;
 
-        void forward( const Tensor<TDataType, MR>& input, Tensor<TDataType, MR>& output ) {
-            fc1_->forward( input, fc1_output_ );
+        // Module interface (ITensor-based): forward/backward/synchronize
 
-            if ( config_.useLayerNorm() ) {
+        void forward( const ITensor& input, ITensor& output ) override
+        {
+            const auto& in = dynamic_cast<const TensorType&>(input);
+            auto& out = dynamic_cast<TensorType&>(output);
+
+            fc1_->forward( in, fc1_output_ );
+
+            if (config_.useLayerNorm())
+            {
                 norm1_->forward( fc1_output_, norm1_output_ );
                 activation_->forward( norm1_output_, act_output_ );
             }
-            else {
+            else
+            {
                 activation_->forward( fc1_output_, act_output_ );
             }
 
-            fc2_->forward( act_output_, output );
+            fc2_->forward( act_output_, out );
         }
 
-        void backward(
-            const Tensor<TDataType, MR>& input,
-            const Tensor<TDataType, MR>& output_grad,
-            Tensor<TDataType, MR>& input_grad ) {
+        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad ) override
+        {
+            const auto& in = dynamic_cast<const TensorType&>(input);
+            const auto& out_grad = dynamic_cast<const TensorType&>(output_grad);
+            auto& in_grad = dynamic_cast<TensorType&>(input_grad);
 
-            Tensor<TDataType, MR> fc2_grad( act_output_.shape() );
-            fc2_->backward( act_output_, output_grad, fc2_grad );
+            TensorType fc2_grad( exec_context_->getDevice(), act_output_.shape() );
+            fc2_->backward( act_output_, out_grad, fc2_grad );
 
-            Tensor<TDataType, MR> act_grad( config_.useLayerNorm() ? norm1_output_.shape() : fc1_output_.shape() );
-            activation_->backward(
-                config_.useLayerNorm() ? norm1_output_ : fc1_output_,
-                fc2_grad,
-                act_grad );
+            TensorType act_grad( exec_context_->getDevice(), config_.useLayerNorm() ? norm1_output_.shape() : fc1_output_.shape() );
+            activation_->backward( config_.useLayerNorm() ? norm1_output_ : fc1_output_, fc2_grad, act_grad );
 
-            if ( config_.useLayerNorm() ) {
-                Tensor<TDataType, MR> norm1_grad( fc1_output_.shape() );
+            if (config_.useLayerNorm())
+            {
+                TensorType norm1_grad( exec_context_->getDevice(), fc1_output_.shape() );
                 norm1_->backward( fc1_output_, act_grad, norm1_grad );
-                fc1_->backward( input, norm1_grad, input_grad );
+                fc1_->backward( in, norm1_grad, in_grad );
             }
-            else {
-                fc1_->backward( input, act_grad, input_grad );
+            else
+            {
+                fc1_->backward( in, act_grad, in_grad );
             }
         }
 
-        size_t parameterCount() const override {
+        void synchronize() override
+        {
+            if (exec_context_)
+            {
+                exec_context_->synchronize();
+            }
+
+            for (const auto& m : this->getModules())
+            {
+                m->synchronize();
+            }
+        }
+
+        size_t parameterCount() const override
+        {
             size_t total_parameters = 0;
-            for ( const auto& module : this->getModules() ) {
+            for (const auto& module : this->getModules())
+            {
                 total_parameters += module->parameterCount();
             }
             return total_parameters;
         }
 
-        void save( ModelArchive& archive ) const override {
-            for ( const auto& module : this->getModules() ) {
+        void save( ModelArchive& archive ) const override
+        {
+            for (const auto& module : this->getModules())
+            {
                 module->save( archive );
             }
         }
 
-        void load( ModelArchive& archive ) override {
-            for ( const auto& module : this->getModules() ) {
+        void load( ModelArchive& archive ) override
+        {
+            for (const auto& module : this->getModules())
+            {
                 module->load( archive );
             }
         }
 
-        std::string toString() const override {
+        std::string getName() const override
+        {
+            return "MLP";
+		}
+
+        std::string toString() const override
+        {
             std::ostringstream oss;
             oss << "====================" << std::endl;
-            oss << "MLP: " << this->getDeviceName() << std::endl;
+            oss << "MLP: " << this->getName() << std::endl;
 
             const auto& input_shape = config_.getInputShape();
             oss << "Input shape: (";
-            for ( size_t i = 0; i < input_shape.size(); ++i ) {
-                oss << input_shape[ i ];
-                if ( i != input_shape.size() - 1 ) {
+            for (size_t i = 0; i < input_shape.size(); ++i)
+            {
+                oss << input_shape[i];
+                if (i != input_shape.size() - 1)
+                {
                     oss << ",";
                 }
             }
@@ -149,16 +193,22 @@ namespace Mila::Dnn
             oss << "Bias: " << (config_.hasBias() ? "enabled" : "disabled") << std::endl;
             oss << "Activation: " << activationTypeToString( config_.getActivationType() ) << std::endl;
 
-            if ( config_.useLayerNorm() ) {
+            if (config_.useLayerNorm())
+            {
                 oss << "Layer Norm: enabled" << std::endl;
             }
 
-            oss << "Device: " << deviceToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
+            if (exec_context_ && exec_context_->getDevice())
+            {
+                oss << "Device: " << deviceTypeToString( exec_context_->getDevice()->getDeviceType() ) << std::endl;
+            }
+
             oss << "Parameter count: " << parameterCount() << std::endl;
             oss << "Sub-Modules..." << std::endl;
 
-            for ( const auto& [name, module] : this->getDeviceNamedModules() ) {
-                oss << module->toString();
+            for (const auto& [name, module] : this->getNamedModules())
+            {
+                oss << "  - " << name << ": " << module->toString() << std::endl;
             }
 
             return oss.str();
@@ -166,82 +216,104 @@ namespace Mila::Dnn
 
     private:
         MLPConfig config_;
+        std::shared_ptr<ExecutionContextType> exec_context_{ nullptr };
 
-        std::shared_ptr<Linear<TDeviceType, TDataType>> fc1_{ nullptr };
-        std::shared_ptr<Module<TDeviceType, TDataType>> activation_{ nullptr };
-        std::shared_ptr<Linear<TDeviceType, TDataType>> fc2_{ nullptr };
-        std::shared_ptr<LayerNorm<TDeviceType, TDataType>> norm1_{ nullptr };
+        // store children as Module<TDeviceType> pointers for uniform handling
+        std::shared_ptr<Module<TDeviceType>> fc1_{ nullptr };
+        std::shared_ptr<Module<TDeviceType>> activation_{ nullptr };
+        std::shared_ptr<Module<TDeviceType>> fc2_{ nullptr };
+        std::shared_ptr<Module<TDeviceType>> norm1_{ nullptr };
 
-        Tensor<TDataType, MR> fc1_output_;
-        Tensor<TDataType, MR> norm1_output_;
-        Tensor<TDataType, MR> act_output_;
+        TensorType fc1_output_{ exec_context_ ? exec_context_->getDevice() : std::shared_ptr<Compute::ComputeDevice>( nullptr ), std::vector<size_t>{} };
+        TensorType norm1_output_{ exec_context_ ? exec_context_->getDevice() : std::shared_ptr<Compute::ComputeDevice>( nullptr ), std::vector<size_t>{} };
+        TensorType act_output_{ exec_context_ ? exec_context_->getDevice() : std::shared_ptr<Compute::ComputeDevice>( nullptr ), std::vector<size_t>{} };
 
-        void initializeModules() {
-            for ( const auto& [name, _] : this->getDeviceNamedModules() ) {
+        void initializeModules()
+        {
+            // Clear any previously registered children
+            for (const auto& [name, _] : this->getNamedModules())
+            {
                 this->removeModule( name );
             }
 
+            // fc1
             auto fc1_config = LinearConfig( config_.getInputFeatures(), config_.getHiddenSize() )
-                .withName( this->getDeviceName() + ".fc1" )
+                .withName( this->getName() + ".fc1" )
                 .withBias( config_.hasBias() )
                 .withTraining( this->isTraining() );
 
-            fc1_ = std::make_shared<Linear<TDeviceType, TDataType>>( this->getDeviceContext(), fc1_config );
+            fc1_ = std::static_pointer_cast<Module<TDeviceType>>(
+                std::make_shared<Linear<TDeviceType, TPrecision>>( exec_context_, fc1_config )
+            );
             this->addModule( "fc1", fc1_ );
 
-            if ( config_.useLayerNorm() ) {
+            // optional layer norm
+            if (config_.useLayerNorm())
+            {
                 auto norm1_config = LayerNormConfig( config_.getHiddenSize() )
-                    .withName( this->getDeviceName() + ".norm1" )
+                    .withName( this->getName() + ".norm1" )
                     .withTraining( this->isTraining() );
 
-                norm1_ = std::make_shared<LayerNorm<TDeviceType, TDataType>>( this->getDeviceContext(), norm1_config );
+                norm1_ = std::static_pointer_cast<Module<TDeviceType>>(
+                    std::make_shared<LayerNorm<TDeviceType, TPrecision>>( exec_context_, norm1_config )
+                );
+                
                 this->addModule( "norm1", norm1_ );
             }
 
-            switch ( config_.getActivationType() ) {
+            // activation
+            switch (config_.getActivationType())
+            {
                 case ActivationType::Gelu:
                 {
                     auto gelu_config = GeluConfig()
-                        .withName( this->getDeviceName() + ".gelu" )
+                        .withName( this->getName() + ".gelu" )
                         .withTraining( this->isTraining() );
 
-                    activation_ = std::make_shared<Gelu<TDeviceType, TDataType>>( this->getDeviceContext(), gelu_config );
+                    activation_ = std::static_pointer_cast<Module<TDeviceType>>(
+                        std::make_shared<Gelu<TDeviceType, TPrecision>>( exec_context_, gelu_config )
+                    );
                     break;
                 }
+                default:
+                    break;
             }
 
             this->addModule( "activation", activation_ );
 
+            // fc2
             auto fc2_config = LinearConfig( config_.getHiddenSize(), config_.getInputFeatures() )
-                .withName( this->getDeviceName() + ".fc2" )
+                .withName( this->getName() + ".fc2" )
                 .withBias( config_.hasBias() )
                 .withTraining( this->isTraining() );
 
-            fc2_ = std::make_shared<Linear<TDeviceType, TDataType>>( this->getDeviceContext(), fc2_config );
+            fc2_ = std::static_pointer_cast<Module<TDeviceType>>(
+                std::make_shared<Linear<TDeviceType, TPrecision>>( exec_context_, fc2_config )
+            );
             this->addModule( "fc2", fc2_ );
 
+            // prepare intermediate buffers using execution context's device
             const auto& input_shape = config_.getInputShape();
             std::vector<size_t> hidden_shape = input_shape;
-            if ( !hidden_shape.empty() ) {
+            if (!hidden_shape.empty())
+            {
                 hidden_shape.back() = config_.getHiddenSize();
             }
-            else {
+            else
+            {
                 hidden_shape = { config_.getHiddenSize() };
             }
 
-            fc1_output_ = Tensor<TDataType, MR>( hidden_shape );
-
-            if ( config_.useLayerNorm() ) {
-                norm1_output_ = Tensor<TDataType, MR>( hidden_shape );
+            if (exec_context_ && exec_context_->getDevice())
+            {
+                auto device = exec_context_->getDevice();
+                fc1_output_ = TensorType( device, hidden_shape );
+                if (config_.useLayerNorm())
+                {
+                    norm1_output_ = TensorType( device, hidden_shape );
+                }
+                act_output_ = TensorType( device, hidden_shape );
             }
-
-            act_output_ = Tensor<TDataType, MR>( hidden_shape );
         }
     };
-
-    export template<typename TDataType = float>
-        using CpuMLP = MLP<DeviceType::Cpu, TDataType>;
-
-    export template<typename TDataType = float>
-        using CudaMLP = MLP<DeviceType::Cuda, TDataType>;
 }

@@ -3,19 +3,14 @@
  * @brief Configuration interface for the Softmax module in the Mila DNN framework.
  *
  * Defines the SoftmaxConfig class, providing a type-safe fluent interface for configuring
- * Softmax activation function modules. Inherits from ConfigurationBase CRTP base and adds
- * Softmax-specific options such as the axis along which to apply the operation.
- *
- * Exposed as part of the Softmax module via module partitions.
+ * Softmax activation function modules.
  */
 
 module;
-#include <stdexcept>
 #include <cstdint>
 
 export module Dnn.Modules.Softmax:Config;
 
-import Dnn.Module;
 import Dnn.ConfigurationBase;
 
 namespace Mila::Dnn

@@ -35,8 +35,6 @@ import Compute.ComputeDevice;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
 import Compute.DeviceTypeTraits.Cpu;
-import Compute.DeviceContext;
-import Compute.DeviceContextHelpers;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaDevice;
