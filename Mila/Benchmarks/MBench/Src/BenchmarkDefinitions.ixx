@@ -40,7 +40,7 @@ namespace Mila::Benchmark
 
     // Parse shapes from JSON array
     std::vector<size_t> parseShapeFromJson( const json& shapeJson ) {
-        std::vector<size_t> shape;
+        std::vector<int64_t> shape;
         for ( const auto& dim : shapeJson ) {
             shape.push_back( dim.get<size_t>() );
         }

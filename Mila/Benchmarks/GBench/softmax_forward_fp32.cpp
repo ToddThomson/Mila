@@ -2,6 +2,7 @@
 #include <vector>
 #include <memory>
 #include <iostream>
+#include <cstdint>
 
 import Mila;
 
@@ -14,21 +15,21 @@ namespace GBench::GeluBenchmarks
 	{
 		// Prefer explicit triple: [batch, seq, channels]
 		// Backward-compatible: if only a single non-zero arg is provided treat it as total elements.
-		size_t batch = 0;
-		size_t seq = 1;
-		size_t channels = 0;
+		int64_t batch = 0;
+		int64_t seq = 1;
+		int64_t channels = 0;
 
 		// If caller passed three non-zero ranges interpret them directly.
 		if (state.range( 2 ) != 0)
 		{
-			batch = static_cast<size_t>(state.range( 0 ));
-			seq = static_cast<size_t>(state.range( 1 ));
-			channels = static_cast<size_t>(state.range( 2 ));
+			batch = state.range( 0 );
+			seq = state.range( 1 );
+			channels = state.range( 2 );
 		}
 		else
 		{
 			// Fallback: single-arg mode (total elements). Keep channels default to 1024 to match prior behavior.
-			size_t total = static_cast<size_t>(state.range( 0 ));
+			int64_t total = state.range( 0 );
 			channels = 1024;
 			seq = 1;
 			batch = total / (seq * channels);
@@ -36,7 +37,7 @@ namespace GBench::GeluBenchmarks
 		}
 
 		// build shape [batch, seq, channels]
-		std::vector<size_t> shape = { batch, seq, channels };
+		std::vector<int64_t> shape = { batch, seq, channels };
 
 		// Create CUDA execution context (device0)
 		auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );

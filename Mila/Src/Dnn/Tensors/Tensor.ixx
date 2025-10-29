@@ -43,6 +43,7 @@ export module Dnn.Tensor;
 
 import Dnn.TensorBuffer;
 import Dnn.ITensor;
+import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeMap;
 import Dnn.TensorHostTypeMap;
@@ -204,7 +205,7 @@ namespace Mila::Dnn
          *     exec_ctx->getDevice(), {10, 20});
          * @endcode
          */
-        explicit Tensor( std::shared_ptr<Compute::ComputeDevice> device, const std::vector<size_t>& shape )
+        explicit Tensor( std::shared_ptr<Compute::ComputeDevice> device, const shape_t& shape )
             : device_( validateAndGetDevice( device ) ), uid_( setUId() ), shape_( shape ),
             strides_( computeStrides( shape ) ), size_( computeSize( shape ) ) {
 
@@ -239,7 +240,7 @@ namespace Mila::Dnn
          * auto vector = Tensor<TensorDataType::FP16, CudaDeviceMemoryResource>("CUDA:0", {100});
          * @endcode
          */
-        explicit Tensor( const std::string& device_name, const std::vector<size_t>& shape )
+        explicit Tensor( const std::string& device_name, const shape_t& shape )
             : device_( createDevice( device_name ) ), uid_( setUId() ), shape_( shape ),
             strides_( computeStrides( shape ) ), size_( computeSize( shape ) ) {
 
@@ -561,7 +562,7 @@ namespace Mila::Dnn
          * // scalar[{}] throws! Use: scalar.item() = 5.0f;
          * @endcode
          */
-        auto& operator[]( const std::vector<size_t>& indices )
+        auto& operator[]( const std::vector<int64_t>& indices )
             requires TMemoryResource::is_host_accessible {
 
             if (isScalar()) {
@@ -570,7 +571,7 @@ namespace Mila::Dnn
 
             validateIndices( indices, "operator[]" );
 
-            size_t flat_index = computeFlatIndex( indices );
+            int64_t flat_index = computeFlatIndex( indices );
             using HostType = typename TensorHostTypeMap<TDataType>::host_type;
 
             return static_cast<HostType*>(buffer_->data())[flat_index];
@@ -595,7 +596,7 @@ namespace Mila::Dnn
          * @note Uses host-compatible type mapping for element access
          * @note Indices are validated against shape before access
          */
-        const auto& operator[]( const std::vector<size_t>& indices ) const
+        const auto& operator[]( const std::vector<int64_t>& indices ) const
             requires TMemoryResource::is_host_accessible {
 
             if (isScalar()) {
@@ -604,7 +605,7 @@ namespace Mila::Dnn
 
             validateIndices( indices, "operator[] const" );
 
-            size_t flat_index = computeFlatIndex( indices );
+            int64_t flat_index = computeFlatIndex( indices );
             using HostType = typename TensorHostTypeMap<TDataType>::host_type;
 
             return static_cast<const HostType*>(buffer_->data())[flat_index];
@@ -632,8 +633,8 @@ namespace Mila::Dnn
          */
         template<typename... Indices>
         auto& operator[]( Indices... indices )
-            requires TMemoryResource::is_host_accessible && (std::convertible_to<Indices, size_t> && ...) {
-            std::vector<size_t> idx{ static_cast<size_t>(indices)... };
+            requires TMemoryResource::is_host_accessible && (std::convertible_to<Indices, int64_t> && ...) {
+            std::vector<int64_t> idx{ static_cast<int64_t>(indices)... };
             return this->operator[]( idx );
         }
 
@@ -654,14 +655,14 @@ namespace Mila::Dnn
          *
          * @note Only available for host-accessible memory resources at compile time
          * @note For scalars, use item() instead
-         * @note All index arguments must be convertible to size_t
          * @note Convenient for accessing known-rank tensors: tensor[i, j, k]
          */
         template<typename... Indices>
         const auto& operator[]( Indices... indices ) const
-            requires TMemoryResource::is_host_accessible &&
-        (std::convertible_to<Indices, size_t> && ...) {
-            std::vector<size_t> idx{ static_cast<size_t>(indices)... };
+            requires TMemoryResource::is_host_accessible && (std::convertible_to<Indices, int64_t> && ...)
+        {
+            index_t idx{ static_cast<int64_t>(indices)... };
+
             return this->operator[]( idx );
         }
 
@@ -706,7 +707,7 @@ namespace Mila::Dnn
          * - {0} = empty 1D vector (rank 1, size 0)
          * - {0, n} = empty 2D matrix (rank 2, size 0)
          */
-        const std::vector<size_t>& shape() const override {
+        const shape_t& shape() const override {
             return shape_;
         }
 
@@ -725,7 +726,7 @@ namespace Mila::Dnn
          * @note Empty for scalars (rank 0)
          * @note Enables efficient multi-dimensional memory access
          */
-        const std::vector<size_t>& strides() const {
+        const stride_t& strides() const {
             return strides_;
         }
 
@@ -945,8 +946,8 @@ namespace Mila::Dnn
          * EXPECT_TRUE(vec1.isScalar());
          * @endcode
          */
-        void reshape( const std::vector<size_t>& new_shape ) {
-            size_t new_size = computeSize( new_shape );
+        void reshape( const shape_t& new_shape ) {
+            int64_t new_size = computeSize( new_shape );
             if (!empty() && (new_size != size_)) {
                 throw std::runtime_error( "The new shape must match the size of the tensor or the tensor must be empty." );
             }
@@ -956,6 +957,7 @@ namespace Mila::Dnn
 
             if (empty() && new_size > 0) {
                 size_ = new_size;
+                
                 allocateBuffer();
             }
         }
@@ -976,7 +978,8 @@ namespace Mila::Dnn
          * @note Essential for neural network layer transitions
          * @note Scalars remain unchanged (rank 0)
          */
-        Tensor<TDataType, TMemoryResource>& flatten() {
+        Tensor<TDataType, TMemoryResource>& flatten() 
+        {
             // No-op for scalars and vectors
             if (rank() <= 1)
             {
@@ -984,15 +987,17 @@ namespace Mila::Dnn
             }
 
             // Compute product of all dims except the last
-            size_t first = 1;
-            for (size_t i = 0; i + 1 < shape_.size(); ++i)
+            int64_t first = 1;
+            
+            for (int64_t i = 0; i + 1 < shape_.size(); ++i)
             {
                 first *= shape_[i];
             }
-            size_t last = shape_.back();
+            
+            int64_t last = shape_.back();
 
             // reshape will validate size compatibility and allocate if needed
-            this->reshape( std::vector<size_t>{ first, last } );
+            this->reshape( shape_t{ first, last } );
 
             return *this;
         }
@@ -1161,8 +1166,8 @@ namespace Mila::Dnn
         std::string uid_;                                                          ///< Unique identifier for this tensor instance
         std::string name_;                                                         ///< Optional user-assigned name for debugging
         size_t size_{ 0 };                                                         ///< Total number of logical elements in the tensor
-        std::vector<size_t> shape_{};                                              ///< Dimensional sizes for each tensor dimension
-        std::vector<size_t> strides_{};                                            ///< Memory stride values for multi-dimensional indexing
+        std::vector<int64_t> shape_{};                                              ///< Dimensional sizes for each tensor dimension
+        std::vector<int64_t> strides_{};                                            ///< Memory stride values for multi-dimensional indexing
         std::shared_ptr<TensorBuffer<TDataType, TMemoryResource>> buffer_{ nullptr }; ///< Managed buffer containing tensor data
 
         // ====================================================================
@@ -1275,7 +1280,7 @@ namespace Mila::Dnn
          * @throws std::runtime_error If indices size doesn't match tensor rank
          * @throws std::out_of_range If any index exceeds its dimension's size
          */
-        void validateIndices( const std::vector<size_t>& indices, const char* fn ) const {
+        void validateIndices( const std::vector<int64_t>& indices, const char* fn ) const {
             if (indices.size() != shape_.size()) {
                 throw std::runtime_error( std::string( fn ) + ": number of indices must match tensor rank" );
             }
@@ -1299,11 +1304,13 @@ namespace Mila::Dnn
          * @note Assumes indices are already validated
          * @note Uses row-major stride computation
          */
-        size_t computeFlatIndex( const std::vector<size_t>& indices ) const {
-            size_t idx = 0;
+        int64_t computeFlatIndex( const std::vector<int64_t>& indices ) const {
+            int64_t idx = 0;
+
             for (size_t d = 0; d < indices.size(); ++d) {
                 idx += indices[d] * strides_[d];
             }
+            
             return idx;
         }
 
@@ -1368,9 +1375,9 @@ namespace Mila::Dnn
          * computeSize({2, 3, 4}) -> 24  // 3D tensor
          * @endcode
          */
-        size_t computeSize( const std::vector<size_t>& shape ) {
+        int64_t computeSize( const std::vector<int64_t>& shape ) {
             // Product of empty sequence is 1 (multiplicative identity) for scalar construction
-            return std::accumulate( shape.begin(), shape.end(), 1ull, std::multiplies<size_t>() );
+            return std::accumulate( shape.begin(), shape.end(), 1ull, std::multiplies<int64_t>() );
         }
 
         /**
@@ -1378,14 +1385,14 @@ namespace Mila::Dnn
          * @param shape Dimensional sizes
          * @return Vector of stride values for each dimension
          */
-        std::vector<size_t> computeStrides(const std::vector<size_t>& shape) {
-            std::vector<size_t> strides(shape.size(), 1);
+        std::vector<int64_t> computeStrides(const std::vector<int64_t>& shape) {
+            std::vector<int64_t> strides(shape.size(), 1);
 
             if (shape.empty()) {
                 return strides;
             }
 
-            for (size_t i = shape.size() - 1; i > 0; --i) {
+            for (int64_t i = shape.size() - 1; i > 0; --i) {
                 strides[i - 1] = strides[i] * shape[i];
             }
 

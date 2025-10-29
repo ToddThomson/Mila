@@ -98,9 +98,9 @@ namespace Operations::Tests
         std::shared_ptr<BinaryOperation<float, float, float, DeviceType::Cpu>> cpu_residual_op_;
 
         // Test shapes
-        std::vector<size_t> small_shape_;
-        std::vector<size_t> medium_shape_;
-        std::vector<size_t> large_shape_;
+        shape_t small_shape_;
+        shape_t medium_shape_;
+        shape_t large_shape_;
     };
 
     /**
@@ -327,7 +327,7 @@ namespace Operations::Tests
      */
     TEST_F( CudaResidualOpTests, NonStandardShapes ) {
         // Create non-standard shapes
-        std::vector<size_t> odd_shape = { 3, 5, 7 };
+        shape_t odd_shape = { 3, 5, 7 };
 
         // Create input and output tensors
         Tensor<float, CudaDeviceMemoryResource> device_input1( odd_shape );
@@ -645,8 +645,8 @@ namespace Operations::Tests
      */
     TEST_F( CudaResidualOpTests, Forward_MismatchedShapes ) {
         // Create tensors with different shapes
-        std::vector<size_t> shape1 = { 2, 3, 4 };
-        std::vector<size_t> shape2 = { 2, 3, 5 };  // Different last dimension
+        std::vector<int64_t> shape1 = { 2, 3, 4 };
+        std::vector<int64_t> shape2 = { 2, 3, 5 };  // Different last dimension
 
         Tensor<float, CudaDeviceMemoryResource> device_input1( shape1 );
         Tensor<float, CudaDeviceMemoryResource> device_input2( shape2 );

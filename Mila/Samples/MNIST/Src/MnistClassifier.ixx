@@ -141,7 +141,7 @@ namespace Mila::Mnist
             }
 
         private:
-            std::vector<size_t> input_shape_;
+            shape_t input_shape_;
 
             // Network layers
             std::shared_ptr<MLP<TDeviceType, TDataType>> mlp1_;
@@ -177,7 +177,7 @@ namespace Mila::Mnist
 
                 // Layer 2: Hidden1 (128) -> Hidden2 (64)
                 // Create second MLP block
-                std::vector<size_t> hidden1_shape = { input_shape_[ 0 ], 128 };
+                shape_t hidden1_shape = { input_shape_[ 0 ], 128 };
                 mlp2_ = std::make_shared<MLP<TDeviceType, TDataType>>(
                     this->getDeviceName() + ".mlp2",
                     this->getDeviceContext(),

@@ -5,6 +5,7 @@
 #include <cmath>
 #include <stdexcept>
 #include <exception>
+#include <type_traits>
 
 import Mila;
 
@@ -25,35 +26,33 @@ namespace Modules::Normalization::Tests
         LayerNormConfig config;
         std::shared_ptr<LayerNorm<TDevice, TPrecision>> module;
         std::shared_ptr<ExecutionContext<TDevice>> exec_context;
-        std::vector<size_t> input_shape;
-        size_t channels{ 0 };
+        shape_t input_shape;
+        dim_t channels{ 0 };
 
         LayerNormTestData() = default;
 
         static LayerNormTestData Create(
-            const std::string& name,
-            const std::vector<size_t>& input_shape,
+            const std::string& /*name*/,
+            const shape_t& input_shape,
             bool has_bias = true,
             float epsilon = 1e-5f,
-            int64_t axis = -1 )
+            dim_t axis = -1 )
         {
             LayerNormTestData d;
             d.input_shape = input_shape;
 
+            // LayerNormConfig API no longer supports setting input shape/name/training via fluent setters.
+            // Only set the supported parameters here (bias, epsilon, axis).
             d.config = LayerNormConfig()
-                .withInputShape( input_shape )
                 .withBias( has_bias )
                 .withEpsilon( epsilon )
-                .withAxis( axis )
-                .withName( name )
-                .withTraining( false );
+                .withAxis( axis );
 
             if (input_shape.size() >= 3)
             {
-                d.channels = input_shape[2];
+                d.channels = static_cast<dim_t>( input_shape[2] );
             }
 
-            std::string device_str = TDevice == DeviceType::Cuda ? "CUDA:0" : "CPU";
             d.exec_context = std::make_shared<ExecutionContext<TDevice>>(0);
 
             d.module = std::make_shared<LayerNorm<TDevice, TPrecision>>( d.exec_context, d.config );
@@ -62,27 +61,25 @@ namespace Modules::Normalization::Tests
         }
 
         static LayerNormTestData CreateWithContext(
-            const std::string& name,
-            const std::vector<size_t>& input_shape,
+            const std::string& /*name*/,
+            const shape_t& input_shape,
             std::shared_ptr<ExecutionContext<TDevice>> ctx,
             bool has_bias = true,
             float epsilon = 1e-5f,
-            int64_t axis = -1 )
+            dim_t axis = -1 )
         {
             LayerNormTestData d;
             d.input_shape = input_shape;
 
+            // See note in Create(): configure only supported options.
             d.config = LayerNormConfig()
-                .withInputShape( input_shape )
                 .withBias( has_bias )
                 .withEpsilon( epsilon )
-                .withAxis( axis )
-                .withName( name )
-                .withTraining( false );
+                .withAxis( axis );
 
             if (input_shape.size() >= 3)
             {
-                d.channels = input_shape[2];
+                d.channels = static_cast<dim_t>( input_shape[2] );
             }
 
             d.exec_context = ctx;
@@ -101,23 +98,36 @@ namespace Modules::Normalization::Tests
             cuda_shape_ = { 8, 16, 64 };
         }
 
-        std::vector<size_t> cpu_shape_;
-        std::vector<size_t> cuda_shape_;
+        shape_t cpu_shape_;
+        shape_t cuda_shape_;
     };
 
     template<DeviceType TDevice, TensorDataType TPrecision>
-    void TestGetName( const LayerNormTestData<TDevice, TPrecision>& d, const std::string& expected )
+    void TestGetName( const LayerNormTestData<TDevice, TPrecision>& d, const std::string& expected = "" )
     {
         ASSERT_NE( d.module, nullptr );
-        EXPECT_EQ( d.module->getName(), expected );
+        auto name = d.module->getName();
+        // Ensure module provides a non-empty name; if caller provided an expected name, check equality.
+        EXPECT_FALSE( name.empty() );
+        if (!expected.empty())
+        {
+            EXPECT_EQ( name, expected );
+        }
     }
 
     template<DeviceType TDevice, TensorDataType TPrecision>
     void TestParameterCount( const LayerNormTestData<TDevice, TPrecision>& d )
     {
         ASSERT_NE( d.module, nullptr );
-        size_t expected = d.channels;
-        if (d.config.hasBias()) expected += d.channels;
+
+        // normalize comparison to size_t because parameterCount() returns size_t
+        size_t expected = static_cast<size_t>( d.channels );
+
+        if ( d.config.hasBias() )
+        {
+            expected += static_cast<size_t>( d.channels );
+        }
+
         EXPECT_EQ( d.module->parameterCount(), expected );
     }
 
@@ -182,10 +192,11 @@ namespace Modules::Normalization::Tests
     TEST_F( LayerNormTests, Cpu_FP32_Basic )
     {
         auto data = LayerNormTestData<DeviceType::Cpu, TensorDataType::FP32>::Create( "ln_cpu_fp32", { 2,4,16 } );
-        TestGetName( data, "ln_cpu_fp32" );
+        
+        TestGetName( data );
         TestParameterCount( data );
         TestForward( data );
-        TestToString( data, "LayerNorm: ln_cpu_fp32" );
+        TestToString( data, "LayerNorm" );
         TestSaveLoad( data );
         TestDeviceType( data );
     }
@@ -208,10 +219,10 @@ namespace Modules::Normalization::Tests
         try
         {
             auto data = LayerNormTestData<DeviceType::Cuda, TensorDataType::FP32>::Create( "ln_cuda_fp32", { 8,16,64 } );
-            TestGetName( data, "ln_cuda_fp32" );
+            TestGetName( data );
             TestParameterCount( data );
             TestForward( data );
-            TestToString( data, "LayerNorm: ln_cuda_fp32" );
+            TestToString( data, "LayerNorm" );
             TestSaveLoad( data );
             TestDeviceType( data );
         }
@@ -226,7 +237,7 @@ namespace Modules::Normalization::Tests
         try
         {
             auto data = LayerNormTestData<DeviceType::Cuda, TensorDataType::FP16>::Create( "ln_cuda_fp16", { 8,16,64 } );
-            TestForward( data ); // primarily smoke; backend may differ
+            TestForward( data );
         }
         catch (const std::exception&)
         {
@@ -237,19 +248,19 @@ namespace Modules::Normalization::Tests
     TEST_F( LayerNormTests, Constructor_InvalidConfig )
     {
         LayerNormConfig cfg;
-        cfg.withInputShape( {} ); // empty shape invalid
-        cfg.withName( "invalid" );
+        cfg.withEpsilon( 0.0f ); // invalid epsilon should trigger validation failure
         auto exec = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        
+
         EXPECT_THROW( (LayerNorm<DeviceType::Cpu, TensorDataType::FP32>( exec, cfg )), std::invalid_argument );
     }
 
     TEST_F( LayerNormTests, Constructor_ExecutionContextValidation )
     {
         LayerNormConfig cfg;
-        cfg.withInputShape( { 2,2,8 } ).withName( "valid" );
+        cfg.withEpsilon( 1e-5f ).withAxis( -1 );
+
         auto exec = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        
+
         EXPECT_NO_THROW( (LayerNorm<DeviceType::Cpu, TensorDataType::FP32>( exec, cfg )) );
     }
 }

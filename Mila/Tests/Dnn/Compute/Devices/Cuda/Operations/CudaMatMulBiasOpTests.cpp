@@ -132,14 +132,14 @@ namespace Operations::Tests
         std::shared_ptr<UnaryOperation<float, float, DeviceType::Cpu>> cpu_fc_op_;
 
         // Test dimensions
-        size_t small_batch_, small_seq_len_, small_in_features_, small_out_features_;
-        size_t medium_batch_, medium_seq_len_, medium_in_features_, medium_out_features_;
-        size_t large_batch_, large_seq_len_, large_in_features_, large_out_features_;
+        dim_t small_batch_, small_seq_len_, small_in_features_, small_out_features_;
+        dim_t medium_batch_, medium_seq_len_, medium_in_features_, medium_out_features_;
+        dim_t large_batch_, large_seq_len_, large_in_features_, large_out_features_;
 
         // Test shapes
-        std::vector<size_t> small_input_shape_, small_output_shape_, small_weight_shape_, small_bias_shape_;
-        std::vector<size_t> medium_input_shape_, medium_output_shape_, medium_weight_shape_, medium_bias_shape_;
-        std::vector<size_t> large_input_shape_, large_output_shape_, large_weight_shape_, large_bias_shape_;
+        shape_t small_input_shape_, small_output_shape_, small_weight_shape_, small_bias_shape_;
+        shape_t medium_input_shape_, medium_output_shape_, medium_weight_shape_, medium_bias_shape_;
+        shape_t large_input_shape_, large_output_shape_, large_weight_shape_, large_bias_shape_;
     };
 
     /**
@@ -417,10 +417,10 @@ namespace Operations::Tests
      */
     TEST_F( CudaFullyConnectedOpTests, NonStandardShapes ) {
         // Create a shape that might not align well with warp size or memory access patterns
-        std::vector<size_t> odd_input_shape = { 3, 5, 17 };
-        std::vector<size_t> odd_output_shape = { 3, 5, 11 };
-        std::vector<size_t> odd_weight_shape = { 11, 17 };
-        std::vector<size_t> odd_bias_shape = { 11 };
+        shape_t odd_input_shape = { 3, 5, 17 };
+        shape_t odd_output_shape = { 3, 5, 11 };
+        shape_t odd_weight_shape = { 11, 17 };
+        shape_t odd_bias_shape = { 11 };
 
         Tensor<float, CudaDeviceMemoryResource> device_input( odd_input_shape );
         auto device_weights = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( odd_weight_shape );

@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 #include <memory>
 #include <vector>
+#include <string>
 
 import Mila;
 
@@ -46,7 +47,7 @@ namespace Dnn::Tensors::TensorOps::Tests
     template<TensorDataType TDataType>
     Tensor<TDataType, CpuMemoryResource> makeCpuTensor(
         const std::string& device_name,
-        const std::vector<size_t>& shape,
+        const std::vector<int64_t>& shape,
         const std::vector<typename TensorHostTypeMap<TDataType>::host_type>& values = {} )
     {
         Tensor<TDataType, CpuMemoryResource> tensor( device_name, shape );

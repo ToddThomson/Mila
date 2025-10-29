@@ -57,18 +57,20 @@ namespace Mila::Dnn
     /**
      * @brief Converts TensorDataType enumeration to human-readable string
      */
-    export inline std::string tensorDataTypeToString( TensorDataType type ) {
-        switch ( type ) {
+    export inline std::string tensorDataTypeToString( TensorDataType type )
+    {
+        switch (type)
+        {
             case TensorDataType::FP32: return "FP32";
             case TensorDataType::FP16: return "FP16";
             case TensorDataType::BF16: return "BF16";
             case TensorDataType::FP8_E4M3: return "FP8_E4M3";
             case TensorDataType::FP8_E5M2: return "FP8_E5M2";
-            // Future packed types commented out
-            // case TensorDataType::FP4_E2M1: return "FP4_E2M1";
-            // case TensorDataType::FP4_E3M0: return "FP4_E3M0";
-            // case TensorDataType::INT4: return "INT4";
-            // case TensorDataType::UINT4: return "UINT4";
+                // FUTURE: packed types commented out
+                // case TensorDataType::FP4_E2M1: return "FP4_E2M1";
+                // case TensorDataType::FP4_E3M0: return "FP4_E3M0";
+                // case TensorDataType::INT4: return "INT4";
+                // case TensorDataType::UINT4: return "UINT4";
             case TensorDataType::INT8: return "INT8";
             case TensorDataType::INT16: return "INT16";
             case TensorDataType::INT32: return "INT32";
@@ -77,63 +79,13 @@ namespace Mila::Dnn
             case TensorDataType::UINT32: return "UINT32";
             default: return "Unknown";
         }
-    }
-    
-    /**
-     * @brief Helper template for compile-time assertion failures
-     *
-     * Enables static_assert to fail only when template is instantiated,
-     * allowing conditional compilation based on template parameters.
-     * Used in getTensorDataTypeEnum for unsupported type detection.
-     *
-     * @tparam T Type parameter for instantiation-dependent failure
-     */
-    /*template <typename T>
-    struct dependent_false : std::false_type {};*/
+    };
 
     /**
-     * @brief Maps concrete C++ types to abstract TensorDataType enumeration
+     * @brief Alias for TensorDataType enumeration
      *
-     * Provides reverse mapping from device-specific concrete types to abstract
-     * TensorDataType enumeration values. Maintains compatibility with existing
-     * TensorTrait system during migration to abstract type system.
-     *
-     * @tparam T Concrete C++ type to map (float, half, int32_t, etc.)
-     * @return Corresponding TensorDataType enumeration value
-     *
-     * @throws Compilation error via static_assert for unsupported types
-     *
-     * @note This function maintains backward compatibility during migration
-     * @note Device-specific types (half, nv_bfloat16) map to device-only enums
-     * @note Host types (float, int32_t) map to host-compatible enums
-     *
-     * Supported mappings:
-     * - float ? TensorDataType::FP32
-     * - half ? TensorDataType::FP16
-     * - nv_bfloat16 ? TensorDataType::BF16
-     * - __nv_fp8_e4m3 ? TensorDataType::FP8_E4M3
-     * - __nv_fp8_e5m2 ? TensorDataType::FP8_E5M2
-     * - int16_t ? TensorDataType::INT16
-     * - int32_t ? TensorDataType::INT32
-     * - uint16_t ? TensorDataType::UINT16
-     * - uint32_t ? TensorDataType::UINT32
-     */
-    //export template <typename T>
-    //    constexpr TensorDataType getTensorDataTypeEnum() {
-    //    if constexpr ( std::is_same_v<T, float> ) return TensorDataType::FP32;
-    //    else if constexpr ( std::is_same_v<T, half> ) return TensorDataType::FP16;
-    //    else if constexpr ( std::is_same_v<T, nv_bfloat16> ) return TensorDataType::BF16;
-    //    else if constexpr ( std::is_same_v<T, __nv_fp8_e4m3> ) return TensorDataType::FP8_E4M3;
-    //    else if constexpr ( std::is_same_v<T, __nv_fp8_e5m2> ) return TensorDataType::FP8_E5M2;
-    //    else if constexpr ( std::is_same_v<T, int8_t> ) return TensorDataType::INT8;
-    //    else if constexpr ( std::is_same_v<T, int16_t> ) return TensorDataType::INT16;
-    //    else if constexpr ( std::is_same_v<T, int32_t> ) return TensorDataType::INT32;
-    //    else if constexpr ( std::is_same_v<T, uint8_t> ) return TensorDataType::UINT8;
-    //    else if constexpr ( std::is_same_v<T, uint16_t> ) return TensorDataType::UINT16;
-    //    else if constexpr ( std::is_same_v<T, uint32_t> ) return TensorDataType::UINT32;
-    //    else {
-    //        static_assert(dependent_false<T>::value, "Unsupported tensor data type");
-    //        return TensorDataType::FP32;
-    //    }
-    //}
+     * Provides a concise alias for the TensorDataType enumeration
+     * to improve code readability in tensor-related contexts.
+	 */
+	export using dtype_t = TensorDataType;
 }

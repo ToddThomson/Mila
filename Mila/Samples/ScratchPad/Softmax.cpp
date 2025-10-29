@@ -28,8 +28,8 @@
 //    size_t sequence_length = 4;
 //    size_t channels = 3;
 //
-//    std::vector<size_t> cpu_input_shape = std::vector<size_t>{ cpu_batch_size, sequence_length, channels };
-//    //std::vector<size_t> cuda_input_shape = { cuda_batch_size, sequence_length, channels };
+//    shape_t cpu_input_shape = shape_t{ cpu_batch_size, sequence_length, channels };
+//    //shape_t cuda_input_shape = { cuda_batch_size, sequence_length, channels };
 //
 //    auto cpu_softmax = Softmax<float>(
 //        "Cpu_softmax", cpu_input_shape );

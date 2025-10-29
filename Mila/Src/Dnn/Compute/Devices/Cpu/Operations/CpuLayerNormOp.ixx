@@ -15,6 +15,7 @@ module;
 #ifdef USE_OMP
 #include <omp.h>
 #endif
+#include <cstdint>
 
 export module Compute.CpuLayerNormOp;
 
@@ -24,6 +25,7 @@ import Dnn.ITensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorHostTypeMap;
+import Dnn.TensorPartitioning;
 import Dnn.ConfigurationBase;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
@@ -66,7 +68,7 @@ namespace Mila::Dnn::Compute
         CpuLayerNormOp( std::shared_ptr<CpuExecutionContext> context, const LayerNormConfig& config )
             : config_( config ), context_( context )
         {
-            if (context_ && context_->getDevice()->getDeviceType() != DeviceType::Cpu)
+            if (!context_)
             {
                 throw std::runtime_error( "CpuLayerNormOp requires a CPU execution context" );
             }
@@ -97,10 +99,12 @@ namespace Mila::Dnn::Compute
 
             const HostType* weight = nullptr;
             const HostType* bias = nullptr;
+            
             if (!parameters.empty() && parameters[0])
             {
                 weight = static_cast<const HostType*>(parameters[0]->data());
             }
+            
             if (parameters.size() > 1 && parameters[1])
             {
                 bias = static_cast<const HostType*>(parameters[1]->data());
@@ -115,61 +119,94 @@ namespace Mila::Dnn::Compute
             HostType* rstd = static_cast<HostType*>(output_state[1]->data());
 
             const auto& shape = input.shape();
-            if (shape.size() < 3)
+            const int64_t ndim = shape.size();
+
+            if ( ndim < 1 )
             {
-                throw std::runtime_error( "CpuLayerNormOp::forward - expected input rank >= 3 [B,T,C]" );
+                throw std::runtime_error( "CpuLayerNormOp::forward - input must have rank >= 1" );
             }
 
-            int B = static_cast<int>(shape[0]);
-            int T = static_cast<int>(shape[1]);
-            int C = static_cast<int>(shape[2]);
-
-            HostType eps = static_cast<HostType>(config_.getEpsilon());
-
-#pragma omp parallel for collapse(2) if( (size_t)B * (size_t)T * (size_t)C > 1000 )
-            for (int b = 0; b < B; ++b)
+            // Option 1: Using axis (single dimension normalization)
+            if (config_.getAxis().has_value())
             {
-                for (int t = 0; t < T; ++t)
-                {
-                    int offset = b * T * C + t * C;
+                auto partition = computeAxisPartition(
+                    shape,
+                    config_.getAxis().value(),
+                    "CpuLayerNormOp::forward"
+                );
+            }
 
-                    // compute mean
+            auto axis = -1;
+            if ( axis < 0 )
+                axis += ndim;
+            
+            int64_t outer_size = 1;
+            for (int64_t i = 0; i < axis; ++i) outer_size *= static_cast<int64_t>( shape[i] );
+
+            const int64_t dim_size = static_cast<int64_t>( shape[axis] );
+
+            int64_t inner_size = 1;
+            for (int64_t i = axis + 1; i < ndim; ++i)
+                inner_size *= static_cast<int64_t>( shape[i] );
+
+            // Validate output_state shape matches expected number of slices
+            const int64_t expected_slices = outer_size * inner_size;
+            const auto& mean_shape = output_state[0]->shape();
+            int64_t mean_elems = 1;
+            
+            for (auto d : mean_shape)
+                mean_elems *= static_cast<int64_t>(d);
+            
+            if ( mean_elems != expected_slices )
+            {
+                throw std::runtime_error( "CpuLayerNormOp::forward - output_state mean tensor has unexpected size" );
+            }
+
+#pragma omp parallel for collapse(2) if( (size_t)outer_size * (size_t)inner_size > 100 )
+            for (int64_t outer = 0; outer < outer_size; ++outer)
+            {
+                for (int64_t inner = 0; inner < inner_size; ++inner)
+                {
+                    const HostType* slice_in = X + (outer * dim_size * inner_size) + inner;
+                    HostType* slice_out = Y + (outer * dim_size * inner_size) + inner;
+
+                    // compute mean over the reduction axis
                     long double m = 0.0L;
-                    for (int i = 0; i < C; ++i)
+                    for (int64_t i = 0; i < dim_size; ++i)
                     {
-                        m += static_cast<long double>( X[offset + i] );
+                        m += static_cast<long double>( slice_in[i * inner_size] );
                     }
-                    m = m / static_cast<long double>( C );
+                    m /= static_cast<long double>( dim_size );
 
                     // compute variance
                     long double v = 0.0L;
-                    for (int i = 0; i < C; ++i)
+                    for (int64_t i = 0; i < dim_size; ++i)
                     {
-                        long double xshift = static_cast<long double>( X[offset + i] ) - m;
-                        v += xshift * xshift;
+                        long double diff = static_cast<long double>( slice_in[i * inner_size] ) - m;
+                        v += diff * diff;
                     }
-                    v = v / static_cast<long double>( C );
+                    v /= static_cast<long double>( dim_size );
 
-                    long double s = 1.0L / std::sqrt( v + static_cast<long double>( eps ) );
+                    long double s = 1.0L / std::sqrt( v + static_cast<long double>( config_.getEpsilon() ) );
 
-                    // normalize and apply weight/bias
-                    for (int i = 0; i < C; ++i)
+                    // normalize and apply weight/bias (weight/bias indexed along reduction dim)
+                    for (int64_t i = 0; i < dim_size; ++i)
                     {
-                        HostType n = static_cast<HostType>( s * (static_cast<long double>( X[offset + i] ) - m) );
-                        long double o = static_cast<long double>( n );
-                        if (weight)
+                        long double n = s * (static_cast<long double>( slice_in[i * inner_size] ) - m);
+                        if ( weight )
                         {
-                            o *= static_cast<long double>( weight[i] );
+                            n *= static_cast<long double>( weight[i] );
                         }
-                        if (bias)
+                        if ( bias )
                         {
-                            o += static_cast<long double>( bias[i] );
+                            n += static_cast<long double>( bias[i] );
                         }
-                        Y[offset + i] = static_cast<HostType>(o);
+                        slice_out[i * inner_size] = static_cast<HostType>( n );
                     }
 
-                    mean[b * T + t] = static_cast<HostType>(m);
-                    rstd[b * T + t] = static_cast<HostType>(s);
+                    const int64_t slice_index = outer * inner_size + inner;
+                    mean[slice_index] = static_cast<HostType>( m );
+                    rstd[slice_index] = static_cast<HostType>( s );
                 }
             }
         }
@@ -212,10 +249,12 @@ namespace Mila::Dnn::Compute
 
             HostType* dweight = nullptr;
             HostType* dbias = nullptr;
+            
             if (parameter_grads.size() > 0 && parameter_grads[0])
             {
                 dweight = static_cast<HostType*>(parameter_grads[0]->data());
             }
+            
             if (parameter_grads.size() > 1 && parameter_grads[1])
             {
                 dbias = static_cast<HostType*>(parameter_grads[1]->data());
@@ -230,67 +269,93 @@ namespace Mila::Dnn::Compute
             const HostType* rstd = static_cast<const HostType*>(output_state[1]->data());
 
             const auto& shape = input.shape();
-            if (shape.size() < 3)
+            const int64_t ndim = static_cast<int64_t>( shape.size() );
+
+            if ( ndim < 1 )
             {
-                throw std::runtime_error( "CpuLayerNormOp::backward - expected input rank >= 3 [B,T,C]" );
+                throw std::runtime_error( "CpuLayerNormOp::backward - input must have rank >= 1" );
             }
 
-            int B = static_cast<int>(shape[0]);
-            int T = static_cast<int>(shape[1]);
-            int C = static_cast<int>(shape[2]);
-
-#pragma omp parallel for collapse(2) if( (size_t)B * (size_t)T * (size_t)C > 1000 )
-            for (int b = 0; b < B; ++b)
+            if (config_.getAxis().has_value())
             {
-                for (int t = 0; t < T; ++t)
+                auto partition = computeAxisPartition(
+                    shape,
+                    config_.getAxis().value(),
+                    "CpuLayerNormOp::forward"
+                );
+            }
+
+            int64_t axis = -1;
+
+            if ( axis < 0 )
+                axis += ndim;
+            
+            if ( axis < 0 || axis >= ndim )
+            {
+                throw std::runtime_error( "CpuLayerNormOp::backward - axis out of range" );
+            }
+
+            int64_t outer_size = 1;
+            for (int64_t i = 0; i < axis; ++i) outer_size *= static_cast<int64_t>( shape[i] );
+
+            const int64_t dim_size = static_cast<int64_t>( shape[axis] );
+
+            int64_t inner_size = 1;
+            for (int64_t i = axis + 1; i < ndim; ++i) inner_size *= static_cast<int64_t>( shape[i] );
+
+#pragma omp parallel for collapse(2) if( (size_t)outer_size * (size_t)inner_size > 100 )
+            for (int64_t outer = 0; outer < outer_size; ++outer)
+            {
+                for (int64_t inner = 0; inner < inner_size; ++inner)
                 {
-                    int base = b * T * C + t * C;
-                    const HostType* dout_bt = dout + base;
-                    const HostType* inp_bt = inp + base;
-                    HostType* dinp_bt = dinp + base;
-                    long double mean_bt = static_cast<long double>( mean[b * T + t] );
-                    long double rstd_bt = static_cast<long double>( rstd[b * T + t] );
+                    const HostType* inp_slice = inp + (outer * dim_size * inner_size) + inner;
+                    const HostType* dout_slice = dout + (outer * dim_size * inner_size) + inner;
+                    HostType* dinp_slice = dinp + (outer * dim_size * inner_size) + inner;
+
+                    const int64_t slice_index = outer * inner_size + inner;
+                    long double mean_slice = static_cast<long double>( mean[slice_index] );
+                    long double rstd_slice = static_cast<long double>( rstd[slice_index] );
 
                     // accumulate intermediate sums
                     long double dnorm_mean = 0.0L;
                     long double dnorm_norm_mean = 0.0L;
 
-                    for (int i = 0; i < C; ++i)
+                    for (int64_t i = 0; i < dim_size; ++i)
                     {
-                        long double norm_bti = (static_cast<long double>( inp_bt[i] ) - mean_bt) * rstd_bt;
-                        long double dnorm_i = static_cast<long double>( weight[i] ) * static_cast<long double>( dout_bt[i] );
+                        long double norm_bti = (static_cast<long double>( inp_slice[i * inner_size] ) - mean_slice) * rstd_slice;
+                        long double dnorm_i = static_cast<long double>( weight[i] ) * static_cast<long double>( dout_slice[i * inner_size] );
                         dnorm_mean += dnorm_i;
                         dnorm_norm_mean += dnorm_i * norm_bti;
                     }
-                    dnorm_mean /= static_cast<long double>( C );
-                    dnorm_norm_mean /= static_cast<long double>( C );
+                    dnorm_mean /= static_cast<long double>( dim_size );
+                    dnorm_norm_mean /= static_cast<long double>( dim_size );
 
-                    for (int i = 0; i < C; ++i)
+                    for (int64_t i = 0; i < dim_size; ++i)
                     {
-                        long double norm_bti = (static_cast<long double>( inp_bt[i] ) - mean_bt) * rstd_bt;
-                        long double dnorm_i = static_cast<long double>( weight[i] ) * static_cast<long double>( dout_bt[i] );
+                        long double norm_bti = (static_cast<long double>( inp_slice[i * inner_size] ) - mean_slice) * rstd_slice;
+                        long double dnorm_i = static_cast<long double>( weight[i] ) * static_cast<long double>( dout_slice[i * inner_size] );
 
                         if (dbias)
                         {
-                            // accumulate dbias (sum over B and T)
+                            // accumulate dbias (sum over slices)
 #pragma omp atomic
-                            dbias[i] += static_cast<HostType>( dout_bt[i] );
+                            dbias[i] += static_cast<HostType>( dout_slice[i * inner_size] );
                         }
 
                         if (dweight)
                         {
-                            // accumulate dweight (sum over B and T)
+                            // accumulate dweight (sum over slices)
 #pragma omp atomic
-                            dweight[i] += static_cast<HostType>(norm_bti * static_cast<long double>(dout_bt[i]));
+                            dweight[i] += static_cast<HostType>( norm_bti * static_cast<long double>( dout_slice[i * inner_size] ) );
                         }
 
                         long double dval = dnorm_i;
                         dval -= dnorm_mean;
                         dval -= norm_bti * dnorm_norm_mean;
-                        dval *= rstd_bt;
+                        dval *= rstd_slice;
 
 #pragma omp atomic
-                        dinp_bt[i] += static_cast<HostType>(dval);
+                        dinp_slice[i * inner_size] += static_cast<HostType>( dval );
                     }
                 }
             }

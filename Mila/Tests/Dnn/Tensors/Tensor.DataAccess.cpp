@@ -17,35 +17,35 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST( TensorElementAccessTest, OperatorIndex1D ) {
-        std::vector<size_t> shape = { 6 };
+        std::vector<int64_t> shape = { 6 };
         auto tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( "CPU", shape );
         tensor[{0}] = 1.0f;
         EXPECT_FLOAT_EQ( (tensor[{0}]), 1.0f );
     }
 
     TEST( TensorElementAccessTest, OperatorIndex2D ) {
-        std::vector<size_t> shape = { 2, 3 };
+        std::vector<int64_t> shape = { 2, 3 };
         auto tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( "CPU", shape );
         tensor[0, 1] = 1.0f;
         EXPECT_FLOAT_EQ( (tensor[0, 1]), 1.0f );
     }
 
     TEST( TensorElementAccessTest, OperatorIndex3D ) {
-        std::vector<size_t> shape = { 2, 3, 4 };
+        std::vector<int64_t> shape = { 2, 3, 4 };
         auto tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( "CPU", shape );
         tensor[1, 2, 3] = 5.5f;
         EXPECT_FLOAT_EQ( (tensor[1, 2, 3]), 5.5f );
     }
 
     TEST( TensorElementAccessTest, OperatorIndex4D ) {
-        std::vector<size_t> shape = { 2, 2, 2, 2 };
+        std::vector<int64_t> shape = { 2, 2, 2, 2 };
         auto tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( "CPU", shape );
         tensor[1, 0, 1, 0] = 7.7f;
         EXPECT_FLOAT_EQ( (tensor[1, 0, 1, 0]), 7.7f );
     }
 
     TEST( TensorElementAccessTest, OperatorIndexOutOfBounds ) {
-        std::vector<size_t> shape = { 2, 3 };
+        std::vector<int64_t> shape = { 2, 3 };
         auto tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( "CPU", shape );
         EXPECT_THROW( (tensor[2, 0]), std::out_of_range );
         EXPECT_THROW( (tensor[0, 3]), std::out_of_range );
@@ -53,7 +53,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorElementAccessTest, OperatorIndexWrongDimensions ) {
-        std::vector<size_t> shape = { 2, 3 };
+        std::vector<int64_t> shape = { 2, 3 };
         auto tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( "CPU", shape );
 
         EXPECT_THROW( (tensor[{0}]), std::runtime_error );
@@ -65,27 +65,27 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST( TensorElementAccessTest, VectorOperatorIndex ) {
-        std::vector<size_t> shape = { 2, 3, 4 };
+        std::vector<int64_t> shape = { 2, 3, 4 };
         auto tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( "CPU", shape );
 
-        std::vector<size_t> indices = { 1, 2, 3 };
+        std::vector<int64_t> indices = { 1, 2, 3 };
         tensor[indices] = 9.9f;
         EXPECT_FLOAT_EQ( (tensor[indices]), 9.9f );
     }
 
     TEST( TensorElementAccessTest, VectorOperatorIndexConst ) {
-        std::vector<size_t> shape = { 2, 3 };
+        shape_t shape = { 2, 3 };
         auto tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( "CPU", shape );
 
         // Initialize all elements to 4.4f
-        for (size_t i = 0; i < shape[0]; ++i) {
-            for (size_t j = 0; j < shape[1]; ++j) {
+        for (int64_t i = 0; i < shape[0]; ++i) {
+            for (int64_t j = 0; j < shape[1]; ++j) {
                 tensor[i, j] = 4.4f;
             }
         }
 
         const auto& const_tensor = tensor;
-        std::vector<size_t> indices = { 1, 2 };
+        index_t indices = { 1, 2 };
         EXPECT_FLOAT_EQ( (const_tensor[indices]), 4.4f );
     }
 
@@ -94,7 +94,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST( TensorElementAccessTest, DeviceMemoryDirectAccessThrows ) {
-        std::vector<size_t> shape = { 2, 3 };
+        std::vector<int64_t> shape = { 2, 3 };
         // Note: This test would require CUDA to be available
         // For now, we'll test the compile-time constraint behavior
 
@@ -112,7 +112,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST( TensorElementAccessTest, IntegerTypes ) {
-        std::vector<size_t> shape = { 2, 2 };
+        std::vector<int64_t> shape = { 2, 2 };
 
         {
             auto int32_tensor = Tensor<TensorDataType::INT32, Compute::CpuMemoryResource>( "CPU", shape );
@@ -138,7 +138,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST( TensorElementAccessTest, PinnedMemoryAccess ) {
-        std::vector<size_t> shape = { 2, 3 };
+        std::vector<int64_t> shape = { 2, 3 };
         auto pinned_tensor = Tensor<TensorDataType::FP32, Compute::CudaPinnedMemoryResource>( "CUDA:0", shape );
 
         pinned_tensor[0, 0] = 1.1f;
@@ -149,7 +149,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorElementAccessTest, ManagedMemoryAccess ) {
-        std::vector<size_t> shape = { 2, 2 };
+        std::vector<int64_t> shape = { 2, 2 };
         auto managed_tensor = Tensor<TensorDataType::FP32, Compute::CudaManagedMemoryResource>( "CUDA:0", shape );
 
         managed_tensor[0, 0] = 4.4f;
@@ -164,7 +164,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST( TensorElementAccessTest, SingleElementTensor ) {
-        std::vector<size_t> shape = { 1 };
+        std::vector<int64_t> shape = { 1 };
         auto single_tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( "CPU", shape );
 
         single_tensor[{0}] = 99.0f;
@@ -172,7 +172,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorElementAccessTest, MultiDimensionalSingleElement ) {
-        std::vector<size_t> shape = { 1, 1, 1 };
+        std::vector<int64_t> shape = { 1, 1, 1 };
         auto tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( "CPU", shape );
 
         tensor[0, 0, 0] = 77.0f;
@@ -180,7 +180,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorElementAccessTest, LargeTensorAccess ) {
-        std::vector<size_t> shape = { 100, 200 };
+        std::vector<int64_t> shape = { 100, 200 };
         auto large_tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( "CPU", shape );
 
         // Initialize all to 1.0f
@@ -205,20 +205,20 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST( TensorElementAccessTest, SequentialAccess ) {
-        std::vector<size_t> shape = { 3, 4 };
+        shape_t shape = { 3, 4 };
         auto tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( "CPU", shape );
 
         float value = 1.0f;
-        for (size_t i = 0; i < shape[0]; ++i) {
-            for (size_t j = 0; j < shape[1]; ++j) {
+        for (int64_t i = 0; i < shape[0]; ++i) {
+            for (int64_t j = 0; j < shape[1]; ++j) {
                 tensor[i, j] = value;
                 value += 1.0f;
             }
         }
 
         value = 1.0f;
-        for (size_t i = 0; i < shape[0]; ++i) {
-            for (size_t j = 0; j < shape[1]; ++j) {
+        for (int64_t i = 0; i < shape[0]; ++i) {
+            for (int64_t j = 0; j < shape[1]; ++j) {
                 EXPECT_FLOAT_EQ( (tensor[i, j]), value );
                 EXPECT_FLOAT_EQ( (tensor[{i, j}]), value );
                 value += 1.0f;
@@ -227,7 +227,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorElementAccessTest, RandomAccess ) {
-        std::vector<size_t> shape = { 5, 5 };
+        std::vector<int64_t> shape = { 5, 5 };
         auto tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( "CPU", shape );
 
         // Initialize all to 0.0f
@@ -258,7 +258,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST( TensorElementAccessTest, ConstTensorAccess ) {
-        std::vector<size_t> shape = { 2, 3 };
+        shape_t shape = { 2, 3 };
         auto tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( "CPU", shape );
 
         // Initialize all to 7.0f
@@ -273,7 +273,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_FLOAT_EQ( (const_tensor[0, 0]), 7.0f );
         EXPECT_FLOAT_EQ( (const_tensor[1, 2]), 7.0f );
 
-        std::vector<size_t> indices = { 1, 1 };
+        index_t indices = { 1, 1 };
         EXPECT_FLOAT_EQ( (const_tensor[indices]), 7.0f );
     }
 
@@ -282,7 +282,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST( TensorElementAccessTest, ErrorMessageValidation ) {
-        std::vector<size_t> shape = { 2, 3 };
+        std::vector<int64_t> shape = { 2, 3 };
         auto tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( "CPU", shape );
 
         try {
@@ -321,7 +321,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST( TensorElementAccessTest, AccessPerformance ) {
-        std::vector<size_t> shape = { 100, 100 };
+        std::vector<int64_t> shape = { 100, 100 };
         auto tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( "CPU", shape );
 
         for (size_t i = 0; i < 100; ++i) {
@@ -343,7 +343,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST( TensorElementAccessTest, HostTypeMappingInt8 ) {
-        std::vector<size_t> shape = { 2, 2 };
+        std::vector<int64_t> shape = { 2, 2 };
         auto int8_tensor = Tensor<TensorDataType::INT8, Compute::CpuMemoryResource>( "CPU", shape );
 
         // INT8 should map to std::int8_t for host access
@@ -359,7 +359,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST( TensorElementAccessTest, TypeSafetyCompileTime ) {
-        std::vector<size_t> shape = { 2, 2 };
+        std::vector<int64_t> shape = { 2, 2 };
 
         // Test that different data types work correctly
         auto fp32_tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( "CPU", shape );

@@ -269,10 +269,10 @@ namespace Operations::Tests
         size_t large_batch_, large_seq_len_, large_vocab_size_;
 
         // Test shapes
-        std::vector<size_t> small_shape_;
-        std::vector<size_t> medium_shape_;
-        std::vector<size_t> large_shape_;
-        std::vector<size_t> shape_2d_;
+        shape_t small_shape_;
+        shape_t medium_shape_;
+        shape_t large_shape_;
+        shape_t shape_2d_;
     };
 
     // Define the types to test
@@ -874,7 +874,7 @@ namespace Operations::Tests
         std::shared_ptr<DeviceContext> cuda_context_;
         std::shared_ptr<DeviceContext> cpu_context_;
         std::shared_ptr<CudaSoftmaxOp<float>> cuda_softmax_op_;
-        std::vector<size_t> small_shape_;
+        shape_t small_shape_;
     };
 
     /**
@@ -909,7 +909,7 @@ namespace Operations::Tests
         auto fp16_op = std::make_shared<CudaSoftmaxOp<half>>( cuda_context );
 
         // Define test shape
-        std::vector<size_t> shape = { 16, 32, 1024 }; // Large shape for significant performance difference
+        std::vector<int64_t> shape = { 16, 32, 1024 }; // Large shape for significant performance difference
 
         // Create tensors
         Tensor<float, CudaDeviceMemoryResource> input( shape );

@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <numeric>
 #include <cmath>
+#include <cstdint>
 
 import Mila;
 
@@ -37,7 +38,7 @@ namespace Modules::Activations::PerfTests
 	// Run an end-to-end performance measurement for a single shape.
 	static void RunGeluEndToEndPerf( 
 		std::shared_ptr<ExecutionContext<DeviceType::Cuda>> ctx,
-		const std::vector<size_t>& shape,
+		const std::vector<int64_t>& shape,
 		size_t warmup_iters = 5,
 		size_t timed_iters = 50 )
 	{
@@ -111,7 +112,7 @@ namespace Modules::Activations::PerfTests
 		auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
 
 		// A set of realistic sizes: small, medium, large, very large
-		std::vector<std::vector<size_t>> shapes = {
+		std::vector<std::vector<int64_t>> shapes = {
 			{1,128,768}, // typical small transformer batch
 			{8,256,1024}, // medium
 			{16,512,2048}, // large

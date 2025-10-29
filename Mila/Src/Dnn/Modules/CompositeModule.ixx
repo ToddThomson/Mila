@@ -14,6 +14,7 @@
 #include <unordered_map>
 #include <stdexcept>
 #include <sstream>
+#include <algorithm>
 
 export module Dnn.CompositeModule;
 
@@ -47,7 +48,7 @@ namespace Mila::Dnn
          * @param name Stable identifier returned by `getName()`.
          */
         explicit CompositeModule()
-            : is_training_( false )
+            : is_training_( false ), is_built_(false)
         {
         }
 
@@ -60,6 +61,13 @@ namespace Mila::Dnn
          */
         CompositeModule& addModule( const std::string& name, ModulePtr module )
         {
+            if (is_built_)
+            {
+                throw std::runtime_error(
+                    "Cannot add modules after build() has been called"
+                );
+            }
+
             if (name.empty())
             {
                 throw std::invalid_argument( "Sub-module name cannot be empty." );
@@ -143,6 +151,13 @@ namespace Mila::Dnn
          */
         bool removeModule( const std::string& name )
         {
+            if (is_built_)
+            {
+                throw std::runtime_error(
+                    "Cannot remove modules after build() has been called"
+                );
+            }
+
             auto it = child_module_map_.find( name );
             if (it == child_module_map_.end())
             {
@@ -169,6 +184,13 @@ namespace Mila::Dnn
          */
         bool replaceModule( const std::string& name, ModulePtr module )
         {
+            if (is_built_)
+            {
+                throw std::runtime_error(
+                    "Cannot replace modules after build() has been called"
+                );
+            }
+
             if (!module)
             {
                 throw std::invalid_argument( "Cannot replace with null module." );
@@ -192,6 +214,48 @@ namespace Mila::Dnn
             module->setTraining( is_training_ );
 
             return true;
+        }
+
+        // ====================================================================
+        // Build Lifecycle
+		// ====================================================================
+
+        /**
+            * @brief Check if this module and all children are built.
+            */
+        bool isBuilt() const override
+        {
+            if (!is_built_)
+            {
+                return false;
+            }
+
+            // All children must also be built
+            return std::all_of( child_modules_.begin(), child_modules_.end(),
+                []( const auto& module ) {
+                    return module->isBuilt();
+                } );
+        }
+
+        /**
+         * @brief Build this module and all children with given input shape.
+         *
+         * Derived classes should override buildImpl() to provide shape inference
+         * logic. This method handles recursion and idempotency.
+         *
+         * @param input_shape Expected input tensor shape
+         */
+        void build( const shape_t& input_shape ) override
+        {
+            if (is_built_)
+            {
+                return;  // Idempotent
+            }
+
+            // Let derived class handle shape propagation to children
+            buildImpl( input_shape );
+
+            is_built_ = true;
         }
 
         /**
@@ -220,6 +284,13 @@ namespace Mila::Dnn
          */
         size_t parameterCount() const override
         {
+            if (!isBuilt())
+            {
+                throw std::runtime_error(
+                    "Cannot query parameter count before build() is called"
+                );
+            }
+
             size_t count = 0;
 
             for (const auto& module : child_modules_)
@@ -231,26 +302,101 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Default save: delegate to child modules.
+         * @brief Collect all parameters from children.
+         *
+         * @throws std::runtime_error if not built
+         */
+        /*std::vector<Tensor*> parameters() override
+        {
+            if (!isBuilt())
+            {
+                throw std::runtime_error(
+                    "Cannot get parameters before build() is called"
+                );
+            }
+
+            std::vector<Tensor*> params;
+            for (auto& module : child_modules_)
+            {
+                auto child_params = module->parameters();
+                params.insert( params.end(), child_params.begin(), child_params.end() );
+            }
+
+            return params;
+        }*/
+
+		// ====================================================================
+		// Serialization
+		// ====================================================================
+
+        /**
+         * @brief Save all child modules.
+         *
+         * @throws std::runtime_error if not built
          */
         void save( ModelArchive& archive ) const override
         {
-            for (const auto& module : child_modules_)
-            {
-                module->save( archive );
-            }
+            //if (!isBuilt())
+            //{
+            //    throw std::runtime_error(
+            //        "Cannot save before build() is called"
+            //    );
+            //}
+
+            //// Save build state
+            //archive.write( "is_built", is_built_ );
+            //archive.write( "num_children", child_modules_.size() );
+
+            //// Save each child with its name
+            //for (const auto& [name, module] : child_module_map_)
+            //{
+            //    archive.beginGroup( name );
+            //    module->save( archive );
+            //    archive.endGroup();
+            //}
         }
 
         /**
-         * @brief Default load: delegate to child modules.
+         * @brief Load all child modules and mark as built.
          */
         void load( ModelArchive& archive ) override
         {
-            for (const auto& module : child_modules_)
-            {
-                module->load( archive );
-            }
+            //bool was_built;
+            //archive.read( "is_built", was_built );
+
+            //if (!was_built)
+            //{
+            //    throw std::runtime_error(
+            //        "Cannot load model that was not built before saving"
+            //    );
+            //}
+
+            //size_t num_children;
+            //archive.read( "num_children", num_children );
+
+            //if (num_children != child_modules_.size())
+            //{
+            //    throw std::runtime_error(
+            //        "Model structure mismatch: expected " +
+            //        std::to_string( num_children ) + " children, found " +
+            //        std::to_string( child_modules_.size() )
+            //    );
+            //}
+
+            //// Load each child
+            //for (const auto& [name, module] : child_module_map_)
+            //{
+            //    archive.beginGroup( name );
+            //    module->load( archive );
+            //    archive.endGroup();
+            //}
+
+            //is_built_ = true;  // Now built after loading
         }
+
+		// ====================================================================
+		// Description
+		// ====================================================================
 
         /**
          * @brief Human-readable description.
@@ -278,9 +424,29 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-    private:
+    protected:
+
+        /**
+         * @brief Override in derived classes to implement shape propagation logic.
+         *
+         * Default implementation calls build() on all children with the same input shape.
+         * Sequential modules would propagate shapes through the chain.
+         *
+         * @param input_shape Shape of input to this composite module
+         */
+        virtual void buildImpl( const shape_t& input_shape )
+        {
+            // Default: build all children with same input shape
+            for (auto& module : child_modules_)
+            {
+                module->build( input_shape );
+            }
+        }
+
+
         std::vector<ModulePtr> child_modules_;
         std::unordered_map<std::string, ModulePtr> child_module_map_;
         bool is_training_;
+		bool is_built_;
     };
 }

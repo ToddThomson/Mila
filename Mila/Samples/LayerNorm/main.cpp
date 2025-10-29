@@ -31,15 +31,15 @@ int main() {
  //   size_t C = 4;
 
  //   // Create the required layernorm tensors
-	//auto input = Tensor<float>( std::vector<size_t>{ B, T, C } );
+	//auto input = Tensor<float>( shape_t{ B, T, C } );
  //   random<float>( input, -1.0f, 1.0f );
  //   std::cout << input.toString();
 
 
-	//auto ln_normalized_shape = std::vector<size_t>{ C };
+	//auto ln_normalized_shape = shape_t{ C };
 
- //   // auto weights = Tensor<float>( std::vector<size_t>{ C }, 1.0f );
- //   //auto bias = Tensor<float>( std::vector<size_t>{ C });
+ //   // auto weights = Tensor<float>( shape_t{ C }, 1.0f );
+ //   //auto bias = Tensor<float>( shape_t{ C });
  //  
 	//// Register the tensors with the model
 	////auto X = layernorm_model.tensor( "X", input );

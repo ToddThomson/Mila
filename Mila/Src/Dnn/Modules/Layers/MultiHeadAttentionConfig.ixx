@@ -38,7 +38,7 @@ namespace Mila::Dnn
          * @param input_shape Vector containing input tensor dimensions [batch_size, seq_len, embedding_dim]
          * @return MultiHeadAttentionConfig& Reference to this for method chaining
          */
-        MultiHeadAttentionConfig& withInputShape( const std::vector<size_t>& input_shape ) {
+        MultiHeadAttentionConfig& withInputShape( const shape_t& input_shape ) {
             input_shape_ = input_shape;
             return *this;
         }
@@ -90,17 +90,17 @@ namespace Mila::Dnn
         /**
          * @brief Get the embedding dimension.
          */
-        size_t getEmbeddingDim() const { return embedding_dim_; }
+        dim_t getEmbeddingDim() const { return embedding_dim_; }
 
         /**
          * @brief Get the number of attention heads.
          */
-        size_t getNumHeads() const { return num_heads_; }
+        dim_t getNumHeads() const { return num_heads_; }
 
         /**
          * @brief Get the input shape.
          */
-        const std::vector<size_t>& getInputShape() const { return input_shape_; }
+        const shape_t& getInputShape() const { return input_shape_; }
 
         /**
          * @brief Get the dropout rate.
@@ -162,9 +162,9 @@ namespace Mila::Dnn
         }
 
     private:
-        size_t embedding_dim_;
+        dim_t embedding_dim_;
         size_t num_heads_;
-        std::vector<size_t> input_shape_;
+        shape_t input_shape_;
         float dropout_ = 0.0f;
         bool use_causal_mask_ = false;
         float scale_factor_ = 1.0f;

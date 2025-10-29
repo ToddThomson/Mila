@@ -184,16 +184,16 @@ namespace Mila::Dnn
          *
          * @return size_t The number of attention heads.
          */
-        size_t getNumHeads() const {
+        dim_t getNumHeads() const {
             return config_.getNumHeads();
         }
 
         /**
          * @brief Gets the input shape.
          *
-         * @return const std::vector<size_t>& The input shape.
+         * @return const shape_t& The input shape.
          */
-        const std::vector<size_t>& getInputShape() const {
+        const shape_t& getInputShape() const {
             return config_.getInputShape();
         }
 
@@ -327,11 +327,11 @@ namespace Mila::Dnn
             size_t num_heads = config_.getNumHeads();
 
             pre_attn_ = std::make_shared<Tensor<TOutput, MR>>(
-                std::vector<size_t>{batch_size, num_heads, sequence_length, sequence_length} );
+                shape_t{batch_size, num_heads, sequence_length, sequence_length} );
             pre_attn_->setName( this->getDeviceName() + ".pre_attn" );
 
             attn_ = std::make_shared<Tensor<TOutput, MR>>(
-                std::vector<size_t>{batch_size, num_heads, sequence_length, sequence_length} );
+                shape_t{batch_size, num_heads, sequence_length, sequence_length} );
             attn_->setName( this->getDeviceName() + ".attn" );
 
             output_state_.emplace_back( pre_attn_ );

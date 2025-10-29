@@ -26,6 +26,7 @@ module;
 #include <sstream>
 #include <type_traits>
 #include <stdexcept>
+#include <cstdint>
 
 export module Dnn.Modules.Linear;
 export import :Config;
@@ -34,6 +35,7 @@ export import :Config;
 import Dnn.Module;
 import Dnn.Tensor;
 import Dnn.ITensor;
+import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Compute.Precision;
@@ -154,6 +156,22 @@ namespace Mila::Dnn
                 parameter_grads_
             );*/
         }
+
+		// ====================================================================
+        // Lifecycle
+		// ====================================================================
+
+        bool isBuilt() const override
+        {
+            return (weight_ != nullptr) &&
+                   (!config_.hasBias() || (bias_ != nullptr));
+		}
+
+        void build( const shape_t& input_shape ) override
+        {
+            // Linear layer parameters are eagerly created in the constructor
+            // based on the configuration. No further action is needed here.
+		}
 
         /**
          * @brief Synchronize device work submitted by this module.
@@ -301,13 +319,13 @@ namespace Mila::Dnn
         {
             parameters_.clear();
 
-            size_t input_features = config_.getInputFeatures();
-            size_t output_features = config_.getOutputFeatures();
+            int64_t input_features = config_.getInputFeatures();
+            int64_t output_features = config_.getOutputFeatures();
 
             // Construct tensors bound to the execution context's device.
             auto device = exec_context_->getDevice();
 
-            weight_ = std::make_shared<TensorType>( device, std::vector<size_t>{ output_features, input_features } );
+            weight_ = std::make_shared<TensorType>( device, shape_t{ output_features, input_features } );
             weight_->setName( this->getName() + ".weight" );
 
             xavier<TPrecision, MR>( *weight_, input_features, output_features );
@@ -317,7 +335,7 @@ namespace Mila::Dnn
 
             if (config_.hasBias())
             {
-                bias_ = std::make_shared<TensorType>( device, std::vector<size_t>{ output_features } );
+                bias_ = std::make_shared<TensorType>( device, shape_t{ output_features } );
                 bias_->setName( this->getName() + ".bias" );
                 parameters_.emplace_back( bias_ );
                 //this->parameter_map_["bias"] = bias_;
@@ -340,13 +358,13 @@ namespace Mila::Dnn
 
             auto device = exec_context_->getDevice();
 
-            auto weight_grad = std::make_shared<TensorType>( device, std::vector<size_t>{ output_features, input_features } );
+            auto weight_grad = std::make_shared<TensorType>( device, shape_t{ output_features, input_features } );
             weight_grad->setName( this->getName() + ".weight_grad" );
             parameter_grads_.push_back( weight_grad );
 
             if (config_.hasBias())
             {
-                auto bias_grad = std::make_shared<TensorType>( device, std::vector<size_t>{ output_features } );
+                auto bias_grad = std::make_shared<TensorType>( device, shape_t{ output_features } );
                 bias_grad->setName( this->getName() + ".bias_grad" );
                 parameter_grads_.emplace_back( bias_grad );
             }

@@ -100,10 +100,10 @@ int main() {
         size_t in_features = 256;
         size_t out_features = 512;
 
-        std::vector<size_t> input_shape = { batch_size, seq_len, in_features };
-        std::vector<size_t> output_shape = { batch_size, seq_len, out_features };
-        std::vector<size_t> weight_shape = { out_features, in_features };
-        std::vector<size_t> bias_shape = { out_features };
+        shape_t input_shape = { batch_size, seq_len, in_features };
+        shape_t output_shape = { batch_size, seq_len, out_features };
+        shape_t weight_shape = { out_features, in_features };
+        shape_t bias_shape = { out_features };
 
         // Create host tensors
         Tensor<float, HostMemoryResource> host_input( input_shape );
@@ -195,7 +195,7 @@ int main() {
         std::cout << "Testing MLP with ComputePrecision..." << std::endl;
 
         // Define a simple MLP for testing
-        std::vector<size_t> mlp_input_shape = { 2, 16, 64 };  // Small batch for quick testing
+        shape_t mlp_input_shape = { 2, 16, 64 };  // Small batch for quick testing
         size_t mlp_output_channels = 128;
 
         // Create MLPs with different precision policies

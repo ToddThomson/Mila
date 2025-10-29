@@ -113,7 +113,7 @@ namespace Mila::Dnn::Compute::Tests
     TEST_F( BinaryOperationTests, Forward_ElementwiseAdd ) {
         using T = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>;
 
-        std::vector<size_t> shape = { 2, 3 };
+        std::vector<int64_t> shape = { 2, 3 };
         auto device = exec_ctx_->getDevice();
 
         T a( device, shape );
@@ -144,9 +144,9 @@ namespace Mila::Dnn::Compute::Tests
         auto device = exec_ctx_->getDevice();
 
         // Scalar + tensor
-        T scalar( device, std::vector<size_t>{} );
-        T vec( device, std::vector<size_t>{ 4 } );
-        T out( device, std::vector<size_t>{ 4 } );
+        T scalar( device, shape_t{} );
+        T vec( device, shape_t{ 4 } );
+        T out( device, shape_t{ 4 } );
 
         scalar.item() = 2.5f;
         for (size_t i = 0; i < vec.size(); ++i) vec.data()[i] = static_cast<float>( i );
@@ -162,7 +162,7 @@ namespace Mila::Dnn::Compute::Tests
         }
 
         // Tensor + scalar
-        T out2( device, std::vector<size_t>{} );
+        T out2( device, shape_t{} );
         scalar.item() = -1.0f;
         EXPECT_NO_THROW( op_->forward( vec, scalar, params, out2, state ) );
         EXPECT_EQ( out2.shape(), vec.shape() );
@@ -172,9 +172,9 @@ namespace Mila::Dnn::Compute::Tests
         }
 
         // Scalar + scalar -> scalar
-        T s1( device, std::vector<size_t>{} );
-        T s2( device, std::vector<size_t>{} );
-        T sout( device, std::vector<size_t>{} );
+        T s1( device, shape_t{} );
+        T s2( device, shape_t{} );
+        T sout( device, shape_t{} );
 
         s1.item() = 1.5f;
         s2.item() = 0.5f;
@@ -187,9 +187,9 @@ namespace Mila::Dnn::Compute::Tests
         using T = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>;
         auto device = exec_ctx_->getDevice();
 
-        T a( device, std::vector<size_t>{ 2, 2 } );
-        T b( device, std::vector<size_t>{ 3 } );
-        T out( device, std::vector<size_t>{} );
+        T a( device, shape_t{ 2, 2 } );
+        T b( device, shape_t{ 3 } );
+        T out( device, shape_t{} );
 
         MockAddOp::Parameters params;
         MockAddOp::OutputState state;
@@ -201,12 +201,12 @@ namespace Mila::Dnn::Compute::Tests
         using T = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>;
         auto device = exec_ctx_->getDevice();
 
-        T a( device, std::vector<size_t>{ 2 } );
-        T b( device, std::vector<size_t>{ 2 } );
-        T out( device, std::vector<size_t>{ 2 } );
-        T out_grad( device, std::vector<size_t>{ 2 } );
-        T a_grad( device, std::vector<size_t>{} );
-        T b_grad( device, std::vector<size_t>{} );
+        T a( device, shape_t{ 2 } );
+        T b( device, shape_t{ 2 } );
+        T out( device, shape_t{ 2 } );
+        T out_grad( device, shape_t{ 2 } );
+        T a_grad( device, shape_t{} );
+        T b_grad( device, shape_t{} );
 
         MockAddOp::Parameters params_vec;
         std::shared_ptr<ITensor> params_ptr; // nullptr allowed

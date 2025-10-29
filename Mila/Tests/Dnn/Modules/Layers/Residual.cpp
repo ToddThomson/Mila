@@ -18,7 +18,7 @@ namespace Modules::Layers::Tests
 
     template <DeviceType TDevice, TensorDataType TPrecision> struct ResidualTestData
     {
-        std::vector<size_t> shape;
+        shape_t shape;
         ResidualConfig config;
         std::shared_ptr<ExecutionContext<TDevice>> exec_context;
         std::shared_ptr<Residual<TDevice, TPrecision>> residual_module;
@@ -29,7 +29,7 @@ namespace Modules::Layers::Tests
             bool is_training = false )
         {
             ResidualTestData data;
-            data.shape = { batch_size, sequence_length, channels };
+            data.shape = { static_cast<dim_t>(batch_size), static_cast<dim_t>(sequence_length), static_cast<dim_t>(channels) };
             data.is_training = is_training;
 
             data.config = ResidualConfig();
@@ -56,7 +56,7 @@ namespace Modules::Layers::Tests
             bool is_training = false )
         {
             ResidualTestData data;
-            data.shape = { batch_size, sequence_length, channels };
+            data.shape = { static_cast<dim_t>(batch_size), static_cast<dim_t>(sequence_length), static_cast<dim_t>(channels) };
             data.is_training = is_training;
 
             data.config = ResidualConfig();
@@ -238,7 +238,7 @@ namespace Modules::Layers::Tests
         auto cpu = CpuFp32Data();
         auto cuda = CudaFp32Data();
 
-        std::vector<size_t> test_shape = { 2, 4, 8 };
+        shape_t test_shape = { 2, 4, 8 };
 
         Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( "CPU", test_shape );
 
@@ -284,7 +284,7 @@ namespace Modules::Layers::Tests
         cfg.withName( "minimal_residual" );
         auto module = std::make_shared<Residual<DeviceType::Cpu, TensorDataType::FP32>>( ctx, cfg );
 
-        std::vector<size_t> minimal_shape = { 1, 1, 8 };
+        shape_t minimal_shape = { 1, 1, 8 };
         Tensor<TensorDataType::FP32, CpuMemoryResource> in( "CPU", minimal_shape );
         Tensor<TensorDataType::FP32, CpuMemoryResource> out( "CPU", minimal_shape );
 
@@ -293,7 +293,7 @@ namespace Modules::Layers::Tests
 
         cfg = ResidualConfig();
         cfg.withName( "large_residual" );
-        std::vector<size_t> large_shape = { 2, 2, 1024 };
+        shape_t large_shape = { 2, 2, 1024 };
         auto module2 = std::make_shared<Residual<DeviceType::Cpu, TensorDataType::FP32>>( ctx, cfg );
 
         Tensor<TensorDataType::FP32, CpuMemoryResource> in2( "CPU", large_shape );
@@ -310,14 +310,14 @@ namespace Modules::Layers::Tests
         cfg.withName( "minimal_residual_cuda" );
         auto module = std::make_shared<Residual<DeviceType::Cuda, TensorDataType::FP32>>( ctx, cfg );
 
-        std::vector<size_t> minimal_shape = { 1, 1, 8 };
+        shape_t minimal_shape = { 1, 1, 8 };
         Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> in( "CUDA:0", minimal_shape );
         Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> out( "CUDA:0", minimal_shape );
 
         EXPECT_NO_THROW( module->forward( in, out ) );
         EXPECT_EQ( out.size(), 8 );
 
-        std::vector<size_t> large_shape = { 2, 2, 1024 };
+        shape_t large_shape = { 2, 2, 1024 };
         cfg = ResidualConfig();
         cfg.withName( "large_residual_cuda" );
         auto module2 = std::make_shared<Residual<DeviceType::Cuda, TensorDataType::FP32>>( ctx, cfg );

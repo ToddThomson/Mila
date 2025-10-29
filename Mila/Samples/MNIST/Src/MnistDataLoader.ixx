@@ -145,7 +145,7 @@ namespace Mila::Mnist
 
         std::vector<unsigned char> images_;
         std::vector<unsigned char> labels_;
-        std::vector<size_t> indices_;
+        index_t indices_;
 
         // Pre-allocated tensors for batch processing
         Tensor<TInput, TMemoryResource> input_tensor_;

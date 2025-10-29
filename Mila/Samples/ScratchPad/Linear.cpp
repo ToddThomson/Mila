@@ -14,8 +14,8 @@
 //        size_t sequence_length = 1024;
 //        size_t channels = 768;
 //
-//        std::vector<size_t> cpu_input_shape = { cpu_batch_size, sequence_length, channels };
-//        std::vector<size_t> cuda_input_shape = { cuda_batch_size, sequence_length, channels };
+//        shape_t cpu_input_shape = { cpu_batch_size, sequence_length, channels };
+//        shape_t cuda_input_shape = { cuda_batch_size, sequence_length, channels };
 //
 //		auto A = std::shared_ptr<Tensor<float, Compute::HostMemoryResource>>( cpu_input_shape );
 //

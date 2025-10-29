@@ -331,7 +331,7 @@ PUBLIC
         "Src/Dnn/Compute/Devices/OpenCL/OpenCLDevice.ixx"
         "Src/Dnn/Compute/DeviceDescriptor.ixx" 
         "Src/Dnn/Compute/Devices/Cuda/CudaDeviceResources.ixx"
-)
+ "Src/Dnn/Tensors/Tensor.Partitioning.ixx" "Src/Dnn/Tensors/Tensor.Types.ixx")
 
 target_link_libraries(Mila PRIVATE 
     miniz

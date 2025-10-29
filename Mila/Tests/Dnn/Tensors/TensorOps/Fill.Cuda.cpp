@@ -192,7 +192,7 @@ namespace Dnn::Tensors::TensorOps::Tests
         EXPECT_EQ( scalar.item(), 777 );
 
         // Verify operator[] throws for scalars
-        EXPECT_THROW( scalar[std::vector<size_t>{}], std::runtime_error );
+        EXPECT_THROW( scalar[std::vector<int64_t>{}], std::runtime_error );
     }
 
     TEST( TensorOpsFillCuda, FillLargeTensor_PerformanceAndCorrectness ) {

@@ -26,6 +26,7 @@ import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
+import Dnn.TensorTypes;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.UnaryOperation;
@@ -88,6 +89,10 @@ namespace Mila::Dnn
             return 0;
         }
 
+		// ====================================================================
+		// Computation
+		// ====================================================================
+
         void forward( const ITensor& input, ITensor& output ) override
         {
             operation_->forward( input, parameters_, output, output_state_ );
@@ -111,6 +116,18 @@ namespace Mila::Dnn
             //    output_state_
             //);
         }
+
+		// ====================================================================
+		// Lifecycle
+		// ====================================================================
+        bool isBuilt() const override
+        {
+            return (operation_ != nullptr);
+		}
+        void build( const shape_t& /*input_shape*/ ) override
+        {
+			// No-op: stateless activation
+		}
 
         void synchronize() override
         {

@@ -60,13 +60,13 @@ namespace Compute::Cpu::Operations::Tests
         std::vector<std::shared_ptr<ITensor>> createParameters( size_t feature_dim ) {
             std::vector<std::shared_ptr<ITensor>> params;
 
-            auto weight = std::make_shared<Tensor<float, HostMemoryResource>>( std::vector<size_t>{feature_dim} );
+            auto weight = std::make_shared<Tensor<float, HostMemoryResource>>( shape_t{feature_dim} );
             for ( size_t i = 0; i < feature_dim; ++i ) {
                 weight->data()[ i ] = 1.0f;
             }
             params.push_back( weight );
 
-            auto bias = std::make_shared<Tensor<float, HostMemoryResource>>( std::vector<size_t>{feature_dim} );
+            auto bias = std::make_shared<Tensor<float, HostMemoryResource>>( shape_t{feature_dim} );
             for ( size_t i = 0; i < feature_dim; ++i ) {
                 bias->data()[ i ] = 0.0f;
             }
@@ -78,10 +78,10 @@ namespace Compute::Cpu::Operations::Tests
         std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> createOutputState( size_t batch_size, size_t sequence_length ) {
             std::vector<std::shared_ptr<Tensor<float, HostMemoryResource>>> output_state;
 
-            auto mean = std::make_shared<Tensor<float, HostMemoryResource>>( std::vector<size_t>{batch_size, sequence_length} );
+            auto mean = std::make_shared<Tensor<float, HostMemoryResource>>( shape_t{batch_size, sequence_length} );
             output_state.push_back( mean );
 
-            auto rstd = std::make_shared<Tensor<float, HostMemoryResource>>( std::vector<size_t>{batch_size, sequence_length} );
+            auto rstd = std::make_shared<Tensor<float, HostMemoryResource>>( shape_t{batch_size, sequence_length} );
             output_state.push_back( rstd );
 
             return output_state;
@@ -146,13 +146,13 @@ namespace Compute::Cpu::Operations::Tests
 
         std::shared_ptr<DeviceContext> cpu_context_;
 
-        size_t small_batch_, small_seq_len_, small_feature_dim_;
-        size_t medium_batch_, medium_seq_len_, medium_feature_dim_;
-        size_t large_batch_, large_seq_len_, large_feature_dim_;
+        dim_t small_batch_, small_seq_len_, small_feature_dim_;
+        dim_t medium_batch_, medium_seq_len_, medium_feature_dim_;
+        dim_t large_batch_, large_seq_len_, large_feature_dim_;
 
-        std::vector<size_t> small_shape_;
-        std::vector<size_t> medium_shape_;
-        std::vector<size_t> large_shape_;
+        shape_t small_shape_;
+        shape_t medium_shape_;
+        shape_t large_shape_;
     };
 
     /**

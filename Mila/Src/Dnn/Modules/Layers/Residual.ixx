@@ -22,6 +22,7 @@ module;
 #include <sstream>
 #include <type_traits>
 #include <stdexcept>
+#include <cstdint>
 
 export module Dnn.Modules.Residual;
 export import :Config;
@@ -29,6 +30,7 @@ export import :Config;
 import Dnn.Module;
 import Dnn.Tensor;
 import Dnn.ITensor;
+import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Compute.Precision;
@@ -140,6 +142,24 @@ namespace Mila::Dnn
             );*/
         }
 
+		// ====================================================================
+		// Module lifecycle
+		// ====================================================================
+        
+        bool isBuilt() const override
+        {
+            // Placeholder; concrete implementations may track build state
+            return true;
+		}
+        
+        void build( const shape_t& input_shape ) override
+        {
+            // Placeholder; concrete implementations may infer shapes and
+            // allocate parameters as needed based on input_shape.
+		}
+
+
+
         /**
          * @brief Block until all device operations submitted by this module complete.
          */
@@ -231,10 +251,10 @@ namespace Mila::Dnn
             if (config_.useProjection())
             {
                 auto device = exec_context_->getDevice();
-                size_t in_features = config_.getInputFeatures();
-                size_t out_features = config_.getOutputFeatures();
+                int64_t in_features = config_.getInputFeatures();
+                int64_t out_features = config_.getOutputFeatures();
 
-                auto proj = std::make_shared<TensorType>( device, std::vector<size_t>{ out_features, in_features } );
+                auto proj = std::make_shared<TensorType>( device, shape_t{ out_features, in_features } );
                 proj->setName( std::string( "residual.proj" ) );
                 parameters_.emplace_back( proj );
             }
@@ -242,7 +262,7 @@ namespace Mila::Dnn
             if (config_.isGated())
             {
                 auto device = exec_context_->getDevice();
-                auto gate = std::make_shared<TensorType>( device, std::vector<size_t>{ config_.getGateSize() } );
+                auto gate = std::make_shared<TensorType>( device, shape_t{ config_.getGateSize() } );
                 gate->setName( std::string( "residual.gate" ) );
                 parameters_.emplace_back( gate );
             }

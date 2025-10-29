@@ -15,6 +15,7 @@
 #include <vector>
 #include <string>
 #include <cmath>
+#include <cstdint>
 
 import Mila;
 
@@ -27,10 +28,10 @@ namespace Modules::Activations::Tests
     using GeluCpuModule = Gelu<DeviceType::Cpu, TensorDataType::FP32>;
 
     struct GeluCpuTestData {
-        std::vector<size_t> shape;
+        std::vector<int64_t> shape;
         std::shared_ptr<GeluCpuModule> gelu_module;
 
-        static GeluCpuTestData CreateWithExecutionContext( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> ctx, size_t batch, size_t seq, size_t chan ) {
+        static GeluCpuTestData CreateWithExecutionContext( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> ctx, int64_t batch, int64_t seq, int64_t chan ) {
             GeluCpuTestData d;
             d.shape = { batch, seq, chan };
             GeluConfig config;

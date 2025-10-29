@@ -63,9 +63,9 @@ class CpuResidualOpTests : public ::testing::Test {
     std::shared_ptr<BinaryOperation<DeviceType::Cpu, TensorDataType::FP32>> op_; // may be null if not registered
     std::shared_ptr<CpuResidual<TensorDataType::FP32>> module_;
 
-    std::vector<size_t> small_shape_;
-    std::vector<size_t> medium_shape_;
-    std::vector<size_t> large_shape_;
+    shape_t small_shape_;
+    shape_t medium_shape_;
+    shape_t large_shape_;
 };
 
 TEST_F(CpuResidualOpTests, ModuleToString) {

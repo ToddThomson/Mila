@@ -106,6 +106,26 @@ namespace Mila::Dnn
             );*/
         }
 
+		// ==========================================================================
+		// Lifecycle
+		// ==========================================================================
+        bool isBuilt() const override
+        {
+            return operation_ != nullptr;
+		}
+
+        void build( const shape_t& input_shape ) override
+        {
+            if (!operation_)
+            {
+                createOperation();
+            }
+            
+            //eration_->build( input_shape, parameters_ );
+		}
+
+		// ==========================================================================
+
         void synchronize() override
         {
             exec_context_->synchronize();

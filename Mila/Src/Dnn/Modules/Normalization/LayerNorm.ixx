@@ -17,6 +17,8 @@ module;
 #include <type_traits>
 #include <cstdint>
 #include <stdexcept>
+#include <mutex>
+#include <utility>
 
 export module Dnn.Modules.LayerNorm;
 export import :Config;
@@ -24,9 +26,11 @@ export import :Config;
 import Dnn.Module;
 import Dnn.Tensor;
 import Dnn.ITensor;
+import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorHostTypeMap;
+import Dnn.TensorPartitioning;
 import Compute.Precision;
 import Compute.ComputeDevice;
 import Compute.DeviceType;
@@ -79,7 +83,13 @@ namespace Mila::Dnn
             }
 
             config_.validate();
-            initializeTensors();
+
+            // Eagerly initialize parameters if the normalized shape is known at construction.
+            if ( config_.hasNormalizedShape() )
+            {
+                initializeParameters();
+            }
+
             createOperation();
         }
 
@@ -90,38 +100,49 @@ namespace Mila::Dnn
             size_t count = 0;
             if (weight_) count += weight_->size();
             if (config_.hasBias() && bias_) count += bias_->size();
+
             return count;
         }
 
         void forward( const ITensor& input, ITensor& output ) override
         {
+            // validate incoming shape against configured normalized_shape (if present)
+            validateInputShape( input );
+
+            // Initialize parameters (if not already) and allocate per-forward statistics
+            // exactly once on the first forward call.
+            std::call_once( init_flag_, [this, &input]() {
+                lazyInitializeTensors( input );
+                } );
+
             operation_->forward( input, parameters_, output, output_state_ );
         }
 
         void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad ) override
         {
-            
-            // prepare parameter gradients containers
-            //std::vector<std::shared_ptr<ITensor>> parameter_grads;
-            //parameter_grads.resize( parameters_.size() );
-            //for (size_t i = 0; i < parameters_.size(); ++i)
-            //{
-            //    // allocate gradient tensor with same shape as parameter
-            //    auto p = std::static_pointer_cast<TensorType>( parameters_[i] );
-            //    parameter_grads[i] = std::make_shared<TensorType>( p->shape() );
-            //}
-
-            // delegate to backend
-            // FIXME: operation_->backward(
-            //    input,
-            //    output_grad,
-            //    parameters_,
-            //    // cast parameter_grads to proper type for backend signature
-            //    reinterpret_cast<std::vector<std::shared_ptr<TensorType>>&>(parameter_grads),
-            //    input_grad,
-            //    output_state_
-            //);
+            // Backward not implemented yet.
         }
+
+		// ====================================================================
+		// Lifecycle
+		// ====================================================================
+        
+        bool isBuilt() const override
+        {
+            return (operation_ != nullptr) &&
+                   (weight_ != nullptr) &&
+				(!config_.hasBias() || (bias_ != nullptr));
+		}
+        
+        void build( const shape_t& /*input_shape*/ ) override
+        {
+            // Parameters are eagerly created in the constructor or lazily
+			// on first forward. No further action is needed here.
+		}
+
+		// ====================================================================
+		// Serialization
+		// ====================================================================
 
         void save( ModelArchive& /*archive*/ ) const override
         {
@@ -158,30 +179,26 @@ namespace Mila::Dnn
             std::ostringstream oss;
             oss << "--------------------" << std::endl;
             oss << "LayerNorm: " << getName() << std::endl;
-            oss << "Axis: " << config_.getAxis() << std::endl;
-            const auto& shape = config_.getInputShape();
-            oss << "Input shape: (";
-            for (size_t i = 0; i < shape.size(); ++i)
-            {
-                oss << shape[i];
-                if (i + 1 < shape.size()) oss << ",";
-            }
-            oss << ")" << std::endl;
+            oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
+            // FIXME: oss << "Axis: " << config_.getAxis() << std::endl;
             oss << "Epsilon: " << config_.getEpsilon() << std::endl;
             oss << "Has Bias: " << (config_.hasBias() ? "Yes" : "No") << std::endl;
-            oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
             oss << "Parameter count: " << parameterCount() << std::endl;
+
             return oss.str();
         }
 
     private:
         LayerNormConfig config_;
-		bool training_mode_{ false };
+        bool training_mode_{ false };
 
         std::shared_ptr<TensorType> weight_{ nullptr };
         std::shared_ptr<TensorType> bias_{ nullptr };
         std::shared_ptr<TensorType> mean_{ nullptr };
         std::shared_ptr<TensorType> rstd_{ nullptr };
+
+        std::vector<int64_t> outer_shape_;
+        std::once_flag init_flag_;
 
         std::vector<std::shared_ptr<TensorType>> parameters_;
         OutputState output_state_;
@@ -189,55 +206,166 @@ namespace Mila::Dnn
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
         std::shared_ptr<ExecutionContextType> exec_context_;
 
-        void initializeTensors()
+        void validateInputShape( const ITensor& input ) const
+        {
+            const auto& norm_shape = config_.getNormalizedShape();
+            const auto& input_shape = input.shape();
+
+            if (input_shape.size() < norm_shape.size())
+            {
+                throw std::invalid_argument(
+                    "Input rank must be >= normalized_shape rank" );
+            }
+
+            // Check trailing dimensions match normalized_shape
+            size_t offset = input_shape.size() - norm_shape.size();
+            for (size_t i = 0; i < norm_shape.size(); ++i)
+            {
+                if (input_shape[offset + i] != norm_shape[i])
+                {
+                    throw std::invalid_argument(
+                        "Input trailing dimensions don't match normalized_shape" );
+                }
+            }
+        }
+
+        void validateStatisticsShape( const ITensor& input ) const
+        {
+            auto current_outer = getOuterDims( input );
+            if (current_outer != outer_shape_)
+            {
+                throw std::runtime_error(
+                    "Input outer dimensions changed after initialization. "
+                    "Expected outer dims to remain constant across forward passes." );
+            }
+
+        }
+
+        shape_t getOuterDims( const ITensor& input ) const
+        {
+            const auto& input_shape = input.shape();
+            const auto& norm_shape = config_.getNormalizedShape();
+
+            size_t num_outer = input_shape.size() - norm_shape.size();
+
+            return shape_t(
+                input_shape.begin(),
+                input_shape.begin() + num_outer
+            );
+        }
+
+        void lazyInitializeTensors( const ITensor& input )
+        {
+            // This method is executed exactly once (via call_once) on first forward.
+            // It must ensure parameters exist (create if they were not eagerly created)
+            // and allocate statistics tensors (mean, rstd) sized per outer grouping.
+
+            const auto& input_shape = input.shape();
+            auto device = exec_context_->getDevice();
+
+            // Clear any partially populated containers (defensive)
+            parameters_.clear();
+            output_state_.clear();
+
+            int64_t channels = 1;
+
+            if (config_.getAxis().has_value())
+            {
+                // Axis-based normalization: compute axis partition and derive outer_shape_
+                // (all dims except the normalized axis) and channels = axis size.
+                const dim_t axis = config_.getAxis().value();
+                AxisPartition ap = computeAxisPartition( input_shape, axis, "LayerNorm" );
+
+                channels = ap.axis_size;
+
+                outer_shape_.clear();
+                if (ap.normalized_axis > 0)
+                {
+                    outer_shape_.insert( outer_shape_.end(),
+                        input_shape.begin(),
+                        input_shape.begin() + ap.normalized_axis );
+                }
+
+                if (ap.normalized_axis + 1 < static_cast<int64_t>(input_shape.size()))
+                {
+                    outer_shape_.insert( outer_shape_.end(),
+                        input_shape.begin() + ap.normalized_axis + 1,
+                        input_shape.end() );
+                }
+            }
+            else
+            {
+                // Trailing-dims normalization: verify and partition normalized_shape against input
+                const auto& normalized_shape = config_.getNormalizedShape();
+                MultiAxisPartition mp = computeNormalizedShapePartition( input_shape, normalized_shape, "LayerNorm" );
+
+                channels = mp.normalized_size;
+                outer_shape_ = std::move( mp.outer_shape );
+            }
+
+            // Create or re-create parameter tensors (weight and optional bias)
+            weight_ = std::make_shared<TensorType>( device, shape_t{ channels } );
+            weight_->setName( this->getName() + ".weight" );
+            parameters_.emplace_back( weight_ );
+
+            if (config_.hasBias())
+            {
+                bias_ = std::make_shared<TensorType>( device, shape_t{ channels } );
+                bias_->setName( this->getName() + ".bias" );
+                parameters_.emplace_back( bias_ );
+            }
+
+            // Statistics tensors are per-outer grouping; if there are no outer dims use scalar shape {1}
+            shape_t stats_shape = outer_shape_.empty() ? shape_t{ 1 } : outer_shape_;
+
+            mean_ = std::make_shared<TensorType>( device, stats_shape );
+            mean_->setName( this->getName() + ".mean" );
+
+            rstd_ = std::make_shared<TensorType>( device, stats_shape );
+            rstd_->setName( this->getName() + ".rstd" );
+
+            output_state_.emplace_back( mean_ );
+            output_state_.emplace_back( rstd_ );
+        }
+
+        void initializeParameters()
         {
             parameters_.clear();
             output_state_.clear();
-            //this->parameter_map_.clear();
-            //this->state_map_.clear();
 
-            const auto& input_shape = config_.getInputShape();
-            if (input_shape.size() < 3)
+            // If the normalization axis is specified we must wait for the input shape to
+            // determine channels and outer_shape_ (lazy initialization).
+            if ( config_.getAxis().has_value() )
             {
-                throw std::invalid_argument( "Input shape must have at least 3 dimensions [batch, seq_len, features]" );
+                return;
             }
 
-            size_t batch_size = input_shape[0];
-            size_t seq_len = input_shape[1];
-            size_t channels = input_shape[2];
+            // Eager initialization based on normalized_shape available in config_
+            const auto& normalized_shape = config_.getNormalizedShape();
+
+            int64_t channels = 1;
+
+            for (const auto& dim : normalized_shape)
+            {
+                channels *= dim;
+            }
 
             // Construct tensors bound to the execution context's device.
             auto device = exec_context_->getDevice();
 
-            // weight defaults to ones
-            weight_ = std::make_shared<TensorType>( device, std::vector<size_t>{ channels } );
+            weight_ = std::make_shared<TensorType>( device, shape_t{ channels } );
             weight_->setName( this->getName() + ".weight" );
-
-            if (config_.hasBias())
-            {
-                bias_ = std::make_shared<TensorType>( device, std::vector<size_t>{ channels } );
-                bias_->setName( this->getName() + ".bias" );
-            }
-
-            mean_ = std::make_shared<TensorType>( device, std::vector<size_t>{ batch_size, seq_len } );
-            mean_->setName( this->getName() + ".mean" );
-
-            rstd_ = std::make_shared<TensorType>( device, std::vector<size_t>{ batch_size, seq_len } );
-            rstd_->setName( this->getName() + ".rstd" );
-
             parameters_.emplace_back( weight_ );
-            //this->parameter_map_["weight"] = weight_;
-            
+
             if (config_.hasBias())
             {
+                bias_ = std::make_shared<TensorType>( device, shape_t{ channels } );
+                bias_->setName( this->getName() + ".bias" );
                 parameters_.emplace_back( bias_ );
-                //this->parameter_map_["bias"] = bias_;
             }
 
-            output_state_.emplace_back( mean_ );
-            output_state_.emplace_back( rstd_ );
-            //this->state_map_["mean"] = mean_;
-            //this->state_map_["rstd"] = rstd_;
+            // Statistics (mean/rstd) are allocated on first forward where input outer dims
+            // are known (lazyInitializeTensors will allocate them).
         }
 
         void createOperation()

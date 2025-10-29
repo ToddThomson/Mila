@@ -11,6 +11,7 @@ module;
 #include <string>
 #include <ostream>
 #include <sstream>
+#include <cstdint>
 
 export module Dnn.Modules.Residual:Config;
 
@@ -219,7 +220,7 @@ namespace Mila::Dnn
          *
          * @return std::size_t Gate size (may be zero if gating disabled)
          */
-        std::size_t getGateSize() const
+        int64_t getGateSize() const
         {
             return gate_size_;
         }
@@ -284,12 +285,12 @@ namespace Mila::Dnn
 
         // FUTURE: Projection control
         bool projection_enabled_ = false;
-        std::size_t input_features_ = 0;
-        std::size_t output_features_ = 0;
+        int64_t input_features_ = 0;
+        int64_t output_features_ = 0;
 
         // FUTURE: Gating control
         bool gated_ = false;
-        std::size_t gate_size_ = 0;
+        int64_t gate_size_ = 0;
 
         /**
          * @brief Append a compact textual representation of this config to an output stream.

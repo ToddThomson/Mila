@@ -12,6 +12,8 @@ module;
 #ifdef USE_OMP
 #include <omp.h>
 #endif
+#include <cstdint>
+#include <limits>
 
 export module Compute.CpuSoftmaxOp;
 
@@ -21,6 +23,7 @@ import Dnn.ITensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorHostTypeMap;
+import Dnn.TensorPartitioning;
 import Dnn.ConfigurationBase;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
@@ -62,9 +65,9 @@ namespace Mila::Dnn::Compute
         using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
 
         CpuSoftmaxOp( std::shared_ptr<CpuExecutionContext> context, const SoftmaxConfig& config )
-            : config_( config ), context_( context )
+            : context_( context ), config_( config )
         {
-            if (context_ && context_->getDevice()->getDeviceType() != DeviceType::Cpu)
+            if (context_)
             {
                 throw std::runtime_error( "CpuSoftmaxOp requires a CPU execution context" );
             }
@@ -85,20 +88,36 @@ namespace Mila::Dnn::Compute
             {
                 throw std::runtime_error( "CpuSoftmaxOp::forward - null tensor data pointer" );
             }
+            auto& shape = input.shape();
+
+            auto partition = computeAxisPartition(
+                shape,
+                config_.getAxis(),
+                "CpuSoftmaxOp::forward"
+            );
 
             int64_t axis = config_.getAxis();
-            const auto& shape = input.shape();
+            
             const int64_t ndim = static_cast<int64_t>(shape.size());
-            if (axis < 0) axis = ndim + axis;
+            
+            if (axis < 0)
+                axis = ndim + axis;
+
             if (axis < 0 || axis >= ndim)
             {
                 throw std::runtime_error( "Softmax axis out of bounds" );
             }
 
             int64_t outer_size = 1;
-            for (int64_t i = 0; i < axis; ++i) outer_size *= shape[i];
+            for (int64_t i = 0; i < axis; ++i) 
+                outer_size *= shape[i];
+            
             const int64_t dim_size = shape[axis];
             int64_t inner_size = 1;
+            
+            
+            
+            
             for (int64_t i = axis + 1; i < ndim; ++i) inner_size *= shape[i];
 
             // Iterate over slices [outer, inner] and compute softmax along dim_size

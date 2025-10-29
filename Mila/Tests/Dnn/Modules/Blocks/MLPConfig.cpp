@@ -16,7 +16,7 @@ namespace Modules::Blocks::Tests
     };
 
     TEST_F( MLPConfigTests, ConstructorWithInputShapeAndHiddenSize ) {
-        std::vector<size_t> input_shape = { 32, 128, 768 };
+        shape_t input_shape = { 32, 128, 768 };
         size_t hidden_size = 3072;
 
         MLPConfig config( input_shape, hidden_size );
@@ -30,7 +30,7 @@ namespace Modules::Blocks::Tests
     }
 
     TEST_F( MLPConfigTests, ConstructorWithEmptyInputShape ) {
-        std::vector<size_t> empty_shape = {};
+        shape_t empty_shape = {};
         size_t hidden_size = 1024;
 
         MLPConfig config( empty_shape, hidden_size );
@@ -46,7 +46,7 @@ namespace Modules::Blocks::Tests
 
         MLPConfig config( input_features, hidden_size );
 
-        EXPECT_EQ( config.getInputShape(), std::vector<size_t>{ input_features } );
+        EXPECT_EQ( config.getInputShape(), shape_t{ input_features } );
         EXPECT_EQ( config.getInputFeatures(), input_features );
         EXPECT_EQ( config.getHiddenSize(), hidden_size );
         EXPECT_TRUE( config.hasBias() );
@@ -86,7 +86,7 @@ namespace Modules::Blocks::Tests
     }
 
     TEST_F( MLPConfigTests, FluentInterfaceChaining ) {
-        std::vector<size_t> input_shape = { 16, 64, 512 };
+        shape_t input_shape = { 16, 64, 512 };
         size_t hidden_size = 2048;
 
         MLPConfig config( input_shape, hidden_size );
@@ -119,7 +119,7 @@ namespace Modules::Blocks::Tests
     }
 
     TEST_F( MLPConfigTests, ValidationFailure_ZeroInputFeatures ) {
-        std::vector<size_t> empty_shape = {};
+        shape_t empty_shape = {};
         MLPConfig config( empty_shape, 1024 );
         config.withName( "test_config" );
 
@@ -134,7 +134,7 @@ namespace Modules::Blocks::Tests
     }
 
     TEST_F( MLPConfigTests, ValidationErrorMessage_ZeroInputFeatures ) {
-        std::vector<size_t> empty_shape = {};
+        shape_t empty_shape = {};
         MLPConfig config( empty_shape, 1024 );
         config.withName( "test_config" );
 
@@ -163,7 +163,7 @@ namespace Modules::Blocks::Tests
     }
 
     TEST_F( MLPConfigTests, BaseClassInteraction ) {
-        std::vector<size_t> input_shape = { 32, 512, 768 };
+        shape_t input_shape = { 32, 512, 768 };
         MLPConfig config( input_shape, 3072 );
 
         config.withBias( false )
@@ -185,7 +185,7 @@ namespace Modules::Blocks::Tests
     }
 
     TEST_F( MLPConfigTests, ConfigurationPersistence ) {
-        std::vector<size_t> input_shape = { 8, 32, 256 };
+        shape_t input_shape = { 8, 32, 256 };
         size_t hidden_size = 1024;
 
         MLPConfig config( input_shape, hidden_size );
@@ -206,7 +206,7 @@ namespace Modules::Blocks::Tests
     }
 
     TEST_F( MLPConfigTests, EdgeCases_LargeInputShape ) {
-        std::vector<size_t> large_shape = { 128, 2048, 4096 };
+        shape_t large_shape = { 128, 2048, 4096 };
         size_t hidden_size = 16384;
 
         MLPConfig config( large_shape, hidden_size );
@@ -225,7 +225,7 @@ namespace Modules::Blocks::Tests
     }
 
     TEST_F( MLPConfigTests, EdgeCases_HighDimensionalInputShape ) {
-        std::vector<size_t> high_dim_shape = { 2, 4, 8, 16, 32 };
+        shape_t high_dim_shape = { 2, 4, 8, 16, 32 };
         size_t hidden_size = 128;
 
         MLPConfig config( high_dim_shape, hidden_size );
@@ -252,7 +252,7 @@ namespace Modules::Blocks::Tests
     }
 
     TEST_F( MLPConfigTests, TypicalTransformerMLPConfiguration ) {
-        std::vector<size_t> transformer_shape = { 32, 512, 768 };
+        shape_t transformer_shape = { 32, 512, 768 };
         size_t ffn_hidden_size = 3072;
 
         MLPConfig config( transformer_shape, ffn_hidden_size );
@@ -281,7 +281,7 @@ namespace Modules::Blocks::Tests
     }
 
     TEST_F( MLPConfigTests, MethodChainPreservation ) {
-        std::vector<size_t> original_shape = { 16, 32, 64 };
+        shape_t original_shape = { 16, 32, 64 };
         size_t original_hidden = 256;
 
         MLPConfig config( original_shape, original_hidden );

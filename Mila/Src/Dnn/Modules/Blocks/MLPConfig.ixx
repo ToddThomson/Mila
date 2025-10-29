@@ -13,6 +13,7 @@ module;
 
 export module Dnn.Blocks.MLP:Config;
 
+import Dnn.TensorTypes;
 import Dnn.ConfigurationBase;
 import Dnn.ActivationType;
 
@@ -60,7 +61,7 @@ namespace Mila::Dnn
          * Postconditions:
          * - If `input_shape` is non-empty, `input_features_` is initialized to the last element.
          */
-        MLPConfig( const std::vector<size_t>& input_shape, size_t hidden_size )
+        MLPConfig( const shape_t& input_shape, dim_t hidden_size )
             : input_shape_( input_shape ), hidden_size_( hidden_size ) {
 
             if ( !input_shape.empty() ) {
@@ -79,7 +80,7 @@ namespace Mila::Dnn
          * Postconditions:
          * - `input_shape_` is set to a single-element vector containing `input_features`.
          */
-        MLPConfig( size_t input_features, size_t hidden_size )
+        MLPConfig( dim_t input_features, dim_t hidden_size )
             : input_features_( input_features ), hidden_size_( hidden_size ) {
 
             input_shape_ = { input_features };
@@ -133,21 +134,21 @@ namespace Mila::Dnn
          * @note An empty vector represents a scalar/unspecified-shape case and
          *       may fail validation depending on other fields.
          */
-        const std::vector<size_t>& getInputShape() const { return input_shape_; }
+        const shape_t& getInputShape() const { return input_shape_; }
 
         /**
          * @brief Get the configured number of input features.
          *
          * @return Number of input features inferred from input_shape or set directly.
          */
-        size_t getInputFeatures() const { return input_features_; }
+        dim_t getInputFeatures() const { return input_features_; }
 
         /**
          * @brief Get the hidden (intermediate) layer size.
          *
          * @return Hidden layer dimension.
          */
-        size_t getHiddenSize() const { return hidden_size_; }
+        dim_t getHiddenSize() const { return hidden_size_; }
 
         /**
          * @brief Query whether linear layers include bias terms.
@@ -188,9 +189,9 @@ namespace Mila::Dnn
         }
 
     private:
-        std::vector<size_t> input_shape_;
-        size_t input_features_{ 0 };
-        size_t hidden_size_{ 0 };
+        shape_t input_shape_;
+        dim_t input_features_{ 0 };
+        dim_t hidden_size_{ 0 };
         bool has_bias_{ true };
         ActivationType activation_type_{ ActivationType::Gelu};
         bool use_layer_norm_{ false };

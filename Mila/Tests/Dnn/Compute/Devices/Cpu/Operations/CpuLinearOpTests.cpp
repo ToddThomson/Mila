@@ -140,13 +140,13 @@ namespace Compute::Cpu::Operations::Tests
 
         std::shared_ptr<DeviceContext> cpu_context_;
 
-        size_t small_batch_, small_seq_len_, small_in_features_, small_out_features_;
-        size_t medium_batch_, medium_seq_len_, medium_in_features_, medium_out_features_;
-        size_t large_batch_, large_seq_len_, large_in_features_, large_out_features_;
+        dim_t small_batch_, small_seq_len_, small_in_features_, small_out_features_;
+        dim_t medium_batch_, medium_seq_len_, medium_in_features_, medium_out_features_;
+        dim_t large_batch_, large_seq_len_, large_in_features_, large_out_features_;
 
-        std::vector<size_t> small_input_shape_, small_output_shape_, small_weight_shape_, small_bias_shape_;
-        std::vector<size_t> medium_input_shape_, medium_output_shape_, medium_weight_shape_, medium_bias_shape_;
-        std::vector<size_t> large_input_shape_, large_output_shape_, large_weight_shape_, large_bias_shape_;
+        shape_t small_input_shape_, small_output_shape_, small_weight_shape_, small_bias_shape_;
+        shape_t medium_input_shape_, medium_output_shape_, medium_weight_shape_, medium_bias_shape_;
+        shape_t large_input_shape_, large_output_shape_, large_weight_shape_, large_bias_shape_;
     };
 
     /**
@@ -238,8 +238,8 @@ namespace Compute::Cpu::Operations::Tests
      * @brief Test optimized path (divisible by LOOP_UNROLL=8)
      */
     TEST_F( CpuLinearOpTests, OptimizedPathDivisibleBy8 ) {
-        std::vector<size_t> opt_input_shape = { 4, 2, small_in_features_ };   // 4*2 = 8, divisible by 8
-        std::vector<size_t> opt_output_shape = { 4, 2, small_out_features_ };
+        shape_t opt_input_shape = { 4, 2, small_in_features_ };   // 4*2 = 8, divisible by 8
+        shape_t opt_output_shape = { 4, 2, small_out_features_ };
 
         auto op = createLinearOp( small_in_features_, small_out_features_ );
 
@@ -267,8 +267,8 @@ namespace Compute::Cpu::Operations::Tests
      * @brief Test naive path (not divisible by LOOP_UNROLL=8)
      */
     TEST_F( CpuLinearOpTests, NaivePathNotDivisibleBy8 ) {
-        std::vector<size_t> naive_input_shape = { 3, 5, small_in_features_ };   // 3*5 = 15, not divisible by 8
-        std::vector<size_t> naive_output_shape = { 3, 5, small_out_features_ };
+        shape_t naive_input_shape = { 3, 5, small_in_features_ };   // 3*5 = 15, not divisible by 8
+        shape_t naive_output_shape = { 3, 5, small_out_features_ };
 
         auto op = createLinearOp( small_in_features_, small_out_features_ );
 
@@ -296,8 +296,8 @@ namespace Compute::Cpu::Operations::Tests
      * @brief Test edge cases with different input dimensions
      */
     TEST_F( CpuLinearOpTests, DifferentInputDimensions ) {
-        std::vector<size_t> input_2d_shape = { 4, small_in_features_ };
-        std::vector<size_t> output_2d_shape = { 4, small_out_features_ };
+        shape_t input_2d_shape = { 4, small_in_features_ };
+        shape_t output_2d_shape = { 4, small_out_features_ };
 
         auto op = createLinearOp( small_in_features_, small_out_features_ );
 
@@ -313,8 +313,8 @@ namespace Compute::Cpu::Operations::Tests
 
         ASSERT_NO_THROW( op->forward( input, parameters, output, output_state ) );
 
-        std::vector<size_t> input_4d_shape = { 2, 3, 4, small_in_features_ };
-        std::vector<size_t> output_4d_shape = { 2, 3, 4, small_out_features_ };
+        shape_t input_4d_shape = { 2, 3, 4, small_in_features_ };
+        shape_t output_4d_shape = { 2, 3, 4, small_out_features_ };
 
         Tensor<float, HostMemoryResource> input_4d( input_4d_shape );
         Tensor<float, HostMemoryResource> output_4d( output_4d_shape );
@@ -330,7 +330,7 @@ namespace Compute::Cpu::Operations::Tests
     TEST_F( CpuLinearOpTests, ErrorHandling ) {
         auto op = createLinearOp( small_in_features_, small_out_features_ );
 
-        std::vector<size_t> input_1d_shape = { small_in_features_ };
+        shape_t input_1d_shape = { small_in_features_ };
         Tensor<float, HostMemoryResource> input_1d( input_1d_shape );
         auto weights = std::make_shared<Tensor<float, HostMemoryResource>>( small_weight_shape_ );
         Tensor<float, HostMemoryResource> output( small_output_shape_ );
@@ -521,8 +521,8 @@ namespace Compute::Cpu::Operations::Tests
     TEST_F( CpuLinearOpTests, SingleInputFeature ) {
         auto op = createLinearOp( 1, small_out_features_ );
 
-        std::vector<size_t> input_shape = { small_batch_, small_seq_len_, 1 };
-        std::vector<size_t> weight_shape = { small_out_features_, 1 };
+        shape_t input_shape = { small_batch_, small_seq_len_, 1 };
+        shape_t weight_shape = { small_out_features_, 1 };
 
         Tensor<float, HostMemoryResource> input( input_shape );
         auto weights = std::make_shared<Tensor<float, HostMemoryResource>>( weight_shape );
@@ -543,9 +543,9 @@ namespace Compute::Cpu::Operations::Tests
     TEST_F( CpuLinearOpTests, SingleOutputFeature ) {
         auto op = createLinearOp( small_in_features_, 1 );
 
-        std::vector<size_t> output_shape = { small_batch_, small_seq_len_, 1 };
-        std::vector<size_t> weight_shape = { 1, small_in_features_ };
-        std::vector<size_t> bias_shape = { 1 };
+        shape_t output_shape = { small_batch_, small_seq_len_, 1 };
+        shape_t weight_shape = { 1, small_in_features_ };
+        shape_t bias_shape = { 1 };
 
         Tensor<float, HostMemoryResource> input( small_input_shape_ );
         auto weights = std::make_shared<Tensor<float, HostMemoryResource>>( weight_shape );

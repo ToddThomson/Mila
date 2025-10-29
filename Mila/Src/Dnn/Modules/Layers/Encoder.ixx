@@ -265,11 +265,11 @@ namespace Mila::Dnn
             size_t max_seq_len = config_.getMaxSequenceLength();
             size_t vocab_len = config_.getVocabularyLength();
 
-            wte_ = std::make_shared<Tensor<TOutput, MR>>( std::vector<size_t>{vocab_len, channels} );
+            wte_ = std::make_shared<Tensor<TOutput, MR>>( shape_t{vocab_len, channels} );
             wte_->setName( this->getDeviceName() + ".wte" );
             xavier<TOutput, MR>( *wte_, vocab_len, channels );
 
-            wpe_ = std::make_shared<Tensor<TOutput, MR>>( std::vector<size_t>{max_seq_len, channels} );
+            wpe_ = std::make_shared<Tensor<TOutput, MR>>( shape_t{max_seq_len, channels} );
             wpe_->setName( this->getDeviceName() + ".wpe" );
             xavier<TOutput, MR>( *wpe_, max_seq_len, channels );
 

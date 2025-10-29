@@ -207,8 +207,8 @@ namespace Mila::Dnn::Gpt2
             int* raw_targets = batch.second;
 
             // Create the tensors with the appropriate shape
-            std::vector<size_t> input_shape = { batch_size_, seq_len_ };
-            std::vector<size_t> target_shape = { batch_size_, seq_len_ };
+            shape_t input_shape = { batch_size_, seq_len_ };
+            shape_t target_shape = { batch_size_, seq_len_ };
             TensorType inputs, targets;
 
             // Create tensors based on the tensor type

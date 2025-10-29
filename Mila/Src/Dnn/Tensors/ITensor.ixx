@@ -16,6 +16,7 @@ module;
 #include <vector>
 #include <memory>
 #include <string>
+#include <cstdint>
 
 export module Dnn.ITensor;
 import Dnn.TensorOps.Base;
@@ -63,7 +64,7 @@ namespace Mila::Dnn
          * @note The returned vector's length equals the tensor's rank (number of dimensions)
          * @note Shape values represent the number of elements along each dimension
          */
-        virtual const std::vector<size_t>& shape() const = 0;
+        virtual const std::vector<int64_t>& shape() const = 0;
 
         /**
          * @brief Get total number of elements in the tensor

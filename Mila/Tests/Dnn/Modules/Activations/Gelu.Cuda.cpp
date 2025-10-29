@@ -29,10 +29,10 @@ namespace Modules::Activations::Tests
     using GeluCpuModule = Gelu<DeviceType::Cpu, TensorDataType::FP32>;
 
     struct GeluCudaTestData {
-        std::vector<size_t> shape;
+        std::vector<int64_t> shape;
         std::shared_ptr<GeluCudaModule> gelu_module;
 
-        static GeluCudaTestData CreateWithExecutionContext( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> ctx, size_t batch, size_t seq, size_t chan ) {
+        static GeluCudaTestData CreateWithExecutionContext( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> ctx, int64_t batch, int64_t seq, int64_t chan ) {
             GeluCudaTestData d;
             d.shape = { batch, seq, chan };
             GeluConfig config;
@@ -168,7 +168,7 @@ namespace Modules::Activations::Tests
         }
 
         // Both registered: validate numerical equivalence.
-        std::vector<size_t> shape = { 2, 2, 4 };
+        std::vector<int64_t> shape = { 2, 2, 4 };
         GeluConfig config;
         auto cpu_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
         auto cuda_ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );

@@ -23,6 +23,7 @@ module;
 #include <iostream>
 #include <memory>
 #include "Version.h"
+#include <exception>
 
 export module Mila;
 
@@ -142,6 +143,7 @@ export import Dnn.ConfigurationBase;
 export import Dnn.Tensor;
 export import Dnn.ITensor;
 export import Dnn.TensorBuffer; // TJT: Remove after testing
+export import Dnn.TensorTypes;
 export import Dnn.TensorDataType;
 export import Dnn.TensorDataTypeTraits;
 export import Dnn.TensorDataTypeMap;
@@ -202,7 +204,7 @@ namespace Mila
         std::shared_ptr<Utils::DefaultLogger> g_defaultLogger;
     }
 
-    void initializeLogger( Utils::LogLevel level = Utils::LogLevel::Info ) {
+    static void initializeLogger( Utils::LogLevel level = Utils::LogLevel::Info ) {
         detail::g_defaultLogger = std::make_shared<Utils::DefaultLogger>( level );
         Utils::Logger::setDefaultLogger( detail::g_defaultLogger.get() );
     }

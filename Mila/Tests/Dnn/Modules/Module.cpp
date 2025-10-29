@@ -13,9 +13,11 @@ namespace Dnn::Modules::Tests
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Serialization;
 
-    class MockModuleConfig : public ConfigurationBase {
+    class MockModuleConfig : public ConfigurationBase
+    {
     public:
-        MockModuleConfig() {
+        MockModuleConfig()
+        {
             withName( "mock_module" );
         }
     };
@@ -30,14 +32,15 @@ namespace Dnn::Modules::Tests
      * @tparam TDeviceType The compute device (CPU or CUDA)
      */
     template<DeviceType TDeviceType>
-    class MockModule : public Module<TDeviceType> {
+    class MockModule : public Module<TDeviceType>
+    {
     public:
         using ModuleBase = Module<TDeviceType>;
         using ExecutionContextType = ExecutionContext<TDeviceType>;
 
         explicit MockModule( const MockModuleConfig& config, std::shared_ptr<ExecutionContextType> exec_context )
-            : config_( config ), exec_context_( exec_context ), training_( config.isTraining() ) {
-
+            : config_( config ), exec_context_( exec_context ), training_( config.isTraining() )
+        {
             // Basic validation to keep behavior aligned with tests
             if (!exec_context_)
             {
@@ -49,7 +52,8 @@ namespace Dnn::Modules::Tests
         }
 
         // Expose execution context for tests
-        std::shared_ptr<ExecutionContextType> getExecutionContext() const {
+        std::shared_ptr<ExecutionContextType> getExecutionContext() const
+        {
             return exec_context_;
         }
 
@@ -57,7 +61,8 @@ namespace Dnn::Modules::Tests
         // Module interface implementation
         // ====================================================================
 
-        void forward( const ITensor& input, ITensor& output ) override {
+        void forward( const ITensor& input, ITensor& output ) override
+        {
             validateTensorDevice( input, "input" );
             validateTensorDevice( output, "output" );
 
@@ -77,8 +82,8 @@ namespace Dnn::Modules::Tests
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            ITensor& input_grad ) override {
-
+            ITensor& input_grad ) override
+        {
             validateTensorDevice( input, "input" );
             validateTensorDevice( output_grad, "output_grad" );
             validateTensorDevice( input_grad, "input_grad" );
@@ -96,73 +101,107 @@ namespace Dnn::Modules::Tests
             // Minimal semantics for mock
         }
 
-        void synchronize() override {
+        void synchronize() override
+        {
             exec_context_->synchronize();
-		}
+        }
 
-        size_t parameterCount() const override {
+        size_t parameterCount() const override
+        {
             return 0;
         }
 
-        void save( ModelArchive& archive ) const override {}
-        void load( ModelArchive& archive ) override {}
+        void save( ModelArchive& archive ) const override
+        {
+        }
+        void load( ModelArchive& archive ) override
+        {
+        }
 
-        std::string toString() const override {
+        std::string toString() const override
+        {
             std::ostringstream oss;
             oss << "MockModule: " << getName() << std::endl;
-            //oss << "Device: " << deviceTypeToString( getDeviceType() ) << std::endl;
             oss << "Training: " << (isTraining() ? "true" : "false") << std::endl;
-            //oss << config_.getPrecisionPolicy(); // left as a placeholder representation
             return oss.str();
+        }
+
+        // ====================================================================
+        // Build / lifecycle
+        // ====================================================================
+
+        void build( const shape_t& /*input_shape*/ ) override
+        {
+            if (is_built_)
+            {
+                return;
+            }
+
+            // Mock has no parameters to allocate but implements the contract.
+            is_built_ = true;
+        }
+
+        bool isBuilt() const override
+        {
+            return is_built_;
         }
 
         // ====================================================================
         // State/config helpers required by tests
         // ====================================================================
 
-        void setTraining( bool is_training ) override {
+        void setTraining( bool is_training ) override
+        {
             training_ = is_training;
         }
 
-        bool isTraining() const override {
+        bool isTraining() const override
+        {
             return training_;
         }
 
-        std::string getName() const override {
+        std::string getName() const override
+        {
             return config_.getName();
         }
 
         // Expose precision policy for tests
-        ComputePrecision::Policy getPrecisionPolicy() const {
+        ComputePrecision::Policy getPrecisionPolicy() const
+        {
             return config_.getPrecisionPolicy();
         }
 
         // Test helpers to mimic original test expectations
-        std::string testParametersToString() const {
+        std::string testParametersToString() const
+        {
             return parametersToString();
         }
 
-        std::string testStateToString() const {
+        std::string testStateToString() const
+        {
             return stateToString();
         }
 
     private:
         // Simple device validation helper used by the mock
-        void validateTensorDevice( const ITensor& tensor, const char* name ) const {
+        void validateTensorDevice( const ITensor& tensor, const char* name ) const
+        {
             if (tensor.getDeviceType() != TDeviceType)
             {
                 throw std::invalid_argument( std::string( name ) + ": tensor device type mismatch" );
             }
         }
 
-        std::string parametersToString() const {
+        std::string parametersToString() const
+        {
             std::ostringstream oss;
             oss << "Parameters:\n";
             oss << "Total parameter count: " << parameterCount() << std::endl;
             return oss.str();
         }
 
-        std::string stateToString() const {
+        std::string stateToString() const
+        {
             // Empty state for this simple mock
             return std::string();
         }
@@ -170,13 +209,15 @@ namespace Dnn::Modules::Tests
         MockModuleConfig config_;
         std::shared_ptr<ExecutionContextType> exec_context_;
         bool training_{ false };
+        bool is_built_{ false };
     };
 
     /**
      * @brief Test data structure holding module and test configuration
      */
     template<DeviceType TDeviceType>
-    struct ModuleTestData {
+    struct ModuleTestData
+    {
         std::shared_ptr<MockModule<TDeviceType>> module;
         bool is_training;
 
@@ -223,11 +264,15 @@ namespace Dnn::Modules::Tests
         }
     };
 
-    class ModuleTests : public ::testing::Test {
+    class ModuleTests : public ::testing::Test
+    {
     protected:
-        void SetUp() override {}
+        void SetUp() override
+        {
+        }
 
-        void TearDown() override {
+        void TearDown() override
+        {
             cpu_data_.module.reset();
             cuda_data_.module.reset();
             training_cpu_data_.module.reset();
@@ -236,7 +281,8 @@ namespace Dnn::Modules::Tests
             context_cuda_data_.module.reset();
         }
 
-        ModuleTestData<DeviceType::Cpu>& CpuData() {
+        ModuleTestData<DeviceType::Cpu>& CpuData()
+        {
             if (!cpu_data_.module)
             {
                 // CPU device id: 0 (CPU implementations may ignore the id)
@@ -245,7 +291,8 @@ namespace Dnn::Modules::Tests
             return cpu_data_;
         }
 
-        ModuleTestData<DeviceType::Cuda>& CudaData() {
+        ModuleTestData<DeviceType::Cuda>& CudaData()
+        {
             if (!cuda_data_.module)
             {
                 cuda_data_ = ModuleTestData<DeviceType::Cuda>::Create( 0 );
@@ -253,7 +300,8 @@ namespace Dnn::Modules::Tests
             return cuda_data_;
         }
 
-        ModuleTestData<DeviceType::Cpu>& TrainingCpuData() {
+        ModuleTestData<DeviceType::Cpu>& TrainingCpuData()
+        {
             if (!training_cpu_data_.module)
             {
                 training_cpu_data_ = ModuleTestData<DeviceType::Cpu>::Create( 0, true );
@@ -261,7 +309,8 @@ namespace Dnn::Modules::Tests
             return training_cpu_data_;
         }
 
-        ModuleTestData<DeviceType::Cuda>& TrainingCudaData() {
+        ModuleTestData<DeviceType::Cuda>& TrainingCudaData()
+        {
             if (!training_cuda_data_.module)
             {
                 training_cuda_data_ = ModuleTestData<DeviceType::Cuda>::Create( 0, true );
@@ -269,7 +318,8 @@ namespace Dnn::Modules::Tests
             return training_cuda_data_;
         }
 
-        ModuleTestData<DeviceType::Cpu>& ContextCpuData() {
+        ModuleTestData<DeviceType::Cpu>& ContextCpuData()
+        {
             if (!context_cpu_data_.module)
             {
                 // Create a CPU execution context explicitly (CPU execution context has default ctor)
@@ -279,7 +329,8 @@ namespace Dnn::Modules::Tests
             return context_cpu_data_;
         }
 
-        ModuleTestData<DeviceType::Cuda>& ContextCudaData() {
+        ModuleTestData<DeviceType::Cuda>& ContextCudaData()
+        {
             if (!context_cuda_data_.module)
             {
                 // Create a CUDA execution context for device 0
@@ -302,28 +353,33 @@ namespace Dnn::Modules::Tests
     // ====================================================================
 
     template<DeviceType TDeviceType>
-    void TestGetName( const ModuleTestData<TDeviceType>& data, const std::string& expected_name ) {
+    void TestGetName( const ModuleTestData<TDeviceType>& data, const std::string& expected_name )
+    {
         EXPECT_EQ( data.module->getName(), expected_name );
     }
 
     template<DeviceType TDeviceType>
-    void TestParameterCount( const ModuleTestData<TDeviceType>& data, size_t expected_count ) {
+    void TestParameterCount( const ModuleTestData<TDeviceType>& data, size_t expected_count )
+    {
         EXPECT_EQ( data.module->parameterCount(), expected_count );
     }
 
     template<DeviceType TDeviceType>
-    void TestPrint( const ModuleTestData<TDeviceType>& data, const std::string& expected_substring ) {
+    void TestPrint( const ModuleTestData<TDeviceType>& data, const std::string& expected_substring )
+    {
         std::string output = data.module->toString();
         EXPECT_NE( output.find( expected_substring ), std::string::npos );
     }
 
     template<DeviceType TDeviceType>
-    void TestTrainingMode( const ModuleTestData<TDeviceType>& data, bool expected_mode ) {
+    void TestTrainingMode( const ModuleTestData<TDeviceType>& data, bool expected_mode )
+    {
         EXPECT_EQ( data.module->isTraining(), expected_mode );
     }
 
     template<DeviceType TDeviceType>
-    void TestDeviceType( const ModuleTestData<TDeviceType>& data ) {
+    void TestDeviceType( const ModuleTestData<TDeviceType>& data )
+    {
         auto exec_context = data.module->getExecutionContext();
         EXPECT_NE( exec_context, nullptr );
 
@@ -336,12 +392,14 @@ namespace Dnn::Modules::Tests
 
     // Minimal precision test to match new Module API (mock exposes precision via config)
     template<DeviceType TDeviceType>
-    void TestPrecision( const ModuleTestData<TDeviceType>& data ) {
+    void TestPrecision( const ModuleTestData<TDeviceType>& data )
+    {
         EXPECT_EQ( data.module->getPrecisionPolicy(), ComputePrecision::Policy::Auto );
     }
 
     template<DeviceType TDeviceType>
-    void TestHelperMethods( const ModuleTestData<TDeviceType>& data ) {
+    void TestHelperMethods( const ModuleTestData<TDeviceType>& data )
+    {
         std::string params_str = data.module->testParametersToString();
         std::string state_str = data.module->testStateToString();
 
@@ -356,13 +414,14 @@ namespace Dnn::Modules::Tests
      * memory resource for the same device type.
      */
     template<DeviceType TDeviceType>
-    void TestForwardBackward( const ModuleTestData<TDeviceType>& data ) {
+    void TestForwardBackward( const ModuleTestData<TDeviceType>& data )
+    {
         // Determine appropriate memory resource for device
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda,
             CudaDeviceMemoryResource,
             CpuMemoryResource>;
 
-        std::vector<size_t> shape = { 2, 3 };
+        std::vector<int64_t> shape = { 2, 3 };
 
         // Get execution context & device from module
         auto exec_ctx = data.module->getExecutionContext();
@@ -417,7 +476,8 @@ namespace Dnn::Modules::Tests
     }
 
     template<DeviceType TDeviceType>
-    void TestInvalidDeviceId() {
+    void TestInvalidDeviceId()
+    {
         MockModuleConfig config;
         config.withName( "test_module" );
 
@@ -440,7 +500,8 @@ namespace Dnn::Modules::Tests
     }
 
     template<DeviceType TDeviceType>
-    void TestNullExecutionContext() {
+    void TestNullExecutionContext()
+    {
         MockModuleConfig config;
         config.withName( "test_module" );
 
@@ -453,7 +514,8 @@ namespace Dnn::Modules::Tests
     }
 
     template<DeviceType TDeviceType>
-    void TestEmptyNameInConfig() {
+    void TestEmptyNameInConfig()
+    {
         MockModuleConfig config;
         config.withName( "" );
 
@@ -477,43 +539,53 @@ namespace Dnn::Modules::Tests
     // CPU Tests
     // ====================================================================
 
-    TEST_F( ModuleTests, Cpu_GetName ) {
+    TEST_F( ModuleTests, Cpu_GetName )
+    {
         TestGetName( CpuData(), "mock_module" );
     }
 
-    TEST_F( ModuleTests, Cpu_ParameterCount ) {
+    TEST_F( ModuleTests, Cpu_ParameterCount )
+    {
         TestParameterCount( CpuData(), 0 );
     }
 
-    TEST_F( ModuleTests, Cpu_Print ) {
+    TEST_F( ModuleTests, Cpu_Print )
+    {
         TestPrint( CpuData(), "MockModule: mock_module" );
     }
 
-    TEST_F( ModuleTests, Cpu_TrainingMode ) {
+    TEST_F( ModuleTests, Cpu_TrainingMode )
+    {
         TestTrainingMode( CpuData(), false );
     }
 
-    TEST_F( ModuleTests, Cpu_DeviceType ) {
+    TEST_F( ModuleTests, Cpu_DeviceType )
+    {
         TestDeviceType( CpuData() );
     }
 
-    TEST_F( ModuleTests, Cpu_Precision ) {
+    TEST_F( ModuleTests, Cpu_Precision )
+    {
         TestPrecision( CpuData() );
     }
 
-    TEST_F( ModuleTests, Cpu_HelperMethods ) {
+    TEST_F( ModuleTests, Cpu_HelperMethods )
+    {
         TestHelperMethods( CpuData() );
     }
 
-    TEST_F( ModuleTests, Cpu_ForwardBackward ) {
+    TEST_F( ModuleTests, Cpu_ForwardBackward )
+    {
         TestForwardBackward( CpuData() );
     }
 
-    TEST_F( ModuleTests, Cpu_Training_TrainingMode ) {
+    TEST_F( ModuleTests, Cpu_Training_TrainingMode )
+    {
         TestTrainingMode( TrainingCpuData(), true );
     }
 
-    TEST_F( ModuleTests, Context_Cpu_DeviceType ) {
+    TEST_F( ModuleTests, Context_Cpu_DeviceType )
+    {
         TestDeviceType( ContextCpuData() );
     }
 
@@ -521,39 +593,48 @@ namespace Dnn::Modules::Tests
     // CUDA Tests
     // ====================================================================
 
-    TEST_F( ModuleTests, Cuda_GetName ) {
+    TEST_F( ModuleTests, Cuda_GetName )
+    {
         TestGetName( CudaData(), "mock_module" );
     }
 
-    TEST_F( ModuleTests, Cuda_ParameterCount ) {
+    TEST_F( ModuleTests, Cuda_ParameterCount )
+    {
         TestParameterCount( CudaData(), 0 );
     }
 
-    TEST_F( ModuleTests, Cuda_Print ) {
+    TEST_F( ModuleTests, Cuda_Print )
+    {
         TestPrint( CudaData(), "MockModule: mock_module" );
     }
 
-    TEST_F( ModuleTests, Cuda_TrainingMode ) {
+    TEST_F( ModuleTests, Cuda_TrainingMode )
+    {
         TestTrainingMode( CudaData(), false );
     }
 
-    TEST_F( ModuleTests, Cuda_DeviceType ) {
+    TEST_F( ModuleTests, Cuda_DeviceType )
+    {
         TestDeviceType( CudaData() );
     }
 
-    TEST_F( ModuleTests, Cuda_Precision ) {
+    TEST_F( ModuleTests, Cuda_Precision )
+    {
         TestPrecision( CudaData() );
     }
 
-    TEST_F( ModuleTests, Cuda_ForwardBackward ) {
+    TEST_F( ModuleTests, Cuda_ForwardBackward )
+    {
         TestForwardBackward( CudaData() );
     }
 
-    TEST_F( ModuleTests, Cuda_Training_TrainingMode ) {
+    TEST_F( ModuleTests, Cuda_Training_TrainingMode )
+    {
         TestTrainingMode( TrainingCudaData(), true );
     }
 
-    TEST_F( ModuleTests, Context_Cuda_DeviceType ) {
+    TEST_F( ModuleTests, Context_Cuda_DeviceType )
+    {
         TestDeviceType( ContextCudaData() );
     }
 
@@ -561,14 +642,16 @@ namespace Dnn::Modules::Tests
     // Configuration Tests
     // ====================================================================
 
-    TEST_F( ModuleTests, ModuleConfig_DefaultValues ) {
+    TEST_F( ModuleTests, ModuleConfig_DefaultValues )
+    {
         MockModuleConfig config;
         EXPECT_EQ( config.getName(), "mock_module" );
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Auto );
         EXPECT_FALSE( config.isTraining() );
     }
 
-    TEST_F( ModuleTests, ModuleConfig_CustomValues ) {
+    TEST_F( ModuleTests, ModuleConfig_CustomValues )
+    {
         MockModuleConfig config;
         config.withName( "custom_module" )
             .withPrecisionPolicy( ComputePrecision::Policy::Performance )
@@ -583,31 +666,38 @@ namespace Dnn::Modules::Tests
     // Error Handling Tests
     // ====================================================================
 
-    TEST_F( ModuleTests, InvalidDeviceId_Cpu ) {
+    TEST_F( ModuleTests, InvalidDeviceId_Cpu )
+    {
         TestInvalidDeviceId<DeviceType::Cpu>();
     }
 
-    TEST_F( ModuleTests, InvalidDeviceId_Cuda ) {
+    TEST_F( ModuleTests, InvalidDeviceId_Cuda )
+    {
         TestInvalidDeviceId<DeviceType::Cuda>();
     }
 
-    TEST_F( ModuleTests, NullExecutionContext_Cpu ) {
+    TEST_F( ModuleTests, NullExecutionContext_Cpu )
+    {
         TestNullExecutionContext<DeviceType::Cpu>();
     }
 
-    TEST_F( ModuleTests, NullExecutionContext_Cuda ) {
+    TEST_F( ModuleTests, NullExecutionContext_Cuda )
+    {
         TestNullExecutionContext<DeviceType::Cuda>();
     }
 
-    TEST_F( ModuleTests, EmptyNameInConfig_Cpu ) {
+    TEST_F( ModuleTests, EmptyNameInConfig_Cpu )
+    {
         TestEmptyNameInConfig<DeviceType::Cpu>();
     }
 
-    TEST_F( ModuleTests, EmptyNameInConfig_Cuda ) {
+    TEST_F( ModuleTests, EmptyNameInConfig_Cuda )
+    {
         TestEmptyNameInConfig<DeviceType::Cuda>();
     }
 
-    TEST_F( ModuleTests, ModuleReflectsConfigTrainingMode ) {
+    TEST_F( ModuleTests, ModuleReflectsConfigTrainingMode )
+    {
         MockModuleConfig training_config;
         training_config.withName( "training_module" )
             .withTraining( true );

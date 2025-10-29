@@ -5,6 +5,7 @@
 #include <optional>
 #include <random>
 #include <iostream>
+#include <cstdint>
 
 import Mila;
 
@@ -22,8 +23,8 @@ namespace Modules::Layers::Tests
     template<DeviceType TDevice, TensorDataType TPrecision = TensorDataType::FP32>
     struct LinearTestData
     {
-        std::vector<size_t> input_shape;
-        std::vector<size_t> output_shape;
+        shape_t input_shape;
+        shape_t output_shape;
         std::shared_ptr<Linear<TDevice, TPrecision>> linear_module;
         LinearConfig config;
         std::shared_ptr<ExecutionContext<TDevice>> exec_context;
@@ -36,8 +37,8 @@ namespace Modules::Layers::Tests
             bool has_bias = true )
         {
             LinearTestData data;
-            data.input_shape = { batch_size, sequence_length, input_features };
-            data.output_shape = { batch_size, sequence_length, output_features };
+            data.input_shape = { static_cast<dim_t>(batch_size), static_cast<dim_t>(sequence_length), static_cast<dim_t>(input_features) };
+            data.output_shape = { static_cast<dim_t>(batch_size), static_cast<dim_t>(sequence_length), static_cast<dim_t>(output_features) };
 
             data.config = LinearConfig( input_features, output_features );
             data.config
@@ -100,10 +101,10 @@ namespace Modules::Layers::Tests
             return cuda_no_bias_float_data_;
         }
 
-        size_t batch_size_{ 0 };
-        size_t sequence_length_{ 0 };
-        size_t input_features_{ 0 };
-        size_t output_features_{ 0 };
+        int64_t batch_size_{ 0 };
+        int64_t sequence_length_{ 0 };
+        int64_t input_features_{ 0 };
+        int64_t output_features_{ 0 };
 
         LinearTestData<DeviceType::Cuda, TensorDataType::FP32> cuda_float_data_;
         LinearTestData<DeviceType::Cuda, TensorDataType::FP32> cuda_no_bias_float_data_;
@@ -144,7 +145,7 @@ namespace Modules::Layers::Tests
         }
 
         ASSERT_NO_THROW( data.linear_module->forward( input, output ) );
-        EXPECT_EQ( output.size(), data.output_shape[0] * data.output_shape[1] * data.output_shape[2] );
+        EXPECT_EQ( output.size(), static_cast<size_t>( data.output_shape[0] * data.output_shape[1] * data.output_shape[2] ) );
     }
 
     template<DeviceType TDevice, TensorDataType TPrecision>
@@ -163,8 +164,8 @@ namespace Modules::Layers::Tests
         auto weight = data.linear_module->getWeight();
         EXPECT_NE( weight, nullptr );
 
-        EXPECT_EQ( weight->shape()[0], data.config.getOutputFeatures() );
-        EXPECT_EQ( weight->shape()[1], data.config.getInputFeatures() );
+        EXPECT_EQ( weight->shape()[0], static_cast<dim_t>( data.config.getOutputFeatures() ) );
+        EXPECT_EQ( weight->shape()[1], static_cast<dim_t>( data.config.getInputFeatures() ) );
     }
 
     template<DeviceType TDevice, TensorDataType TPrecision>
@@ -177,7 +178,7 @@ namespace Modules::Layers::Tests
             EXPECT_TRUE( bias_opt.has_value() );
             auto bias = bias_opt.value();
             EXPECT_NE( bias, nullptr );
-            EXPECT_EQ( bias->shape()[0], data.config.getOutputFeatures() );
+            EXPECT_EQ( bias->shape()[0], static_cast<dim_t>( data.config.getOutputFeatures() ) );
         }
         else
         {
@@ -193,8 +194,8 @@ namespace Modules::Layers::Tests
 
     void TestCpuCudaEquivalence()
     {
-        std::vector<size_t> test_input_shape = { 2, 4, 8 };
-        std::vector<size_t> test_output_shape = { 2, 4, 16 };
+        shape_t test_input_shape = { 2, 4, 8 };
+        shape_t test_output_shape = { 2, 4, 16 };
 
         LinearConfig cpu_config( 8, 16 );
         cpu_config.withBias( true ).withName( "cpu_test" );

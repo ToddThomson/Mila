@@ -21,8 +21,8 @@ namespace Modules::Tests
     // Test data structure for Encoder tests
     template<DeviceType TDevice, typename TInput = int, typename TOutput = float>
     struct EncoderTestData {
-        std::vector<size_t> input_shape;
-        std::vector<size_t> output_shape;
+        shape_t input_shape;
+        shape_t output_shape;
         std::shared_ptr<Encoder<TDevice, TInput, TOutput>> encoder_module;
         size_t channels;
         size_t max_seq_len;
@@ -390,8 +390,8 @@ namespace Modules::Tests
         }
 
         // Create small test shapes for quick comparison
-        std::vector<size_t> test_input_shape = { 2, 4 }; // Small shape for verification
-        std::vector<size_t> test_output_shape = { 2, 4, cpu_data.channels };
+        shape_t test_input_shape = { 2, 4 }; // Small shape for verification
+        shape_t test_output_shape = { 2, 4, cpu_data.channels };
 
         // Create and fill host input data
         Tensor<TInput, HostMemoryResource> host_input( test_input_shape );
@@ -448,8 +448,8 @@ namespace Modules::Tests
         }
 
         // Create small test shapes for quick comparison
-        std::vector<size_t> test_input_shape = { 2, 4 }; // Small shape for verification
-        std::vector<size_t> test_output_shape = { 2, 4, float_data.channels };
+        shape_t test_input_shape = { 2, 4 }; // Small shape for verification
+        shape_t test_output_shape = { 2, 4, float_data.channels };
 
         // Create and fill host input data
         Tensor<TInput, HostMemoryResource> host_input( test_input_shape );
@@ -517,8 +517,8 @@ namespace Modules::Tests
 
         try {
             // Test with minimal sizes
-            std::vector<size_t> minimal_input_shape = { 1, 1 };
-            std::vector<size_t> minimal_output_shape = { 1, 1, 32 };
+            shape_t minimal_input_shape = { 1, 1 };
+            shape_t minimal_output_shape = { 1, 1, 32 };
 
             auto minimal_module = std::make_shared<Encoder<TDevice, TInput, TOutput>>(
                 "minimal_encoder", device_str, 32, 16, 100 );

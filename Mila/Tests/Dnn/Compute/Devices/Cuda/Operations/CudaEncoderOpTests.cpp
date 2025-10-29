@@ -49,12 +49,12 @@ namespace Operations::Tests
 
         void SetupParameters() {
             // Create token embedding table (wte)
-            wte_ = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( std::vector<size_t>{vocab_size_, channels_} );
-            wpe_ = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( std::vector<size_t>{sequence_length_, channels_} );
+            wte_ = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( shape_t{vocab_size_, channels_} );
+            wpe_ = std::make_shared<Tensor<float, CudaDeviceMemoryResource>>( shape_t{sequence_length_, channels_} );
 
             // Create host tensors for initialization
-            Tensor<float, HostMemoryResource> host_wte( std::vector<size_t>{vocab_size_, channels_} );
-            Tensor<float, HostMemoryResource> host_wpe( std::vector<size_t>{sequence_length_, channels_} );
+            Tensor<float, HostMemoryResource> host_wte( shape_t{vocab_size_, channels_} );
+            Tensor<float, HostMemoryResource> host_wpe( shape_t{sequence_length_, channels_} );
 
             // Initialize with deterministic values
             for ( size_t i = 0; i < host_wte.size(); ++i ) {
@@ -117,13 +117,13 @@ namespace Operations::Tests
         std::shared_ptr<CudaEncoderOp<float>> cuda_op_float_;
         std::shared_ptr<CudaEncoderOp<half>> cuda_op_half_;
 
-        size_t batch_size_;
-        size_t sequence_length_;
-        size_t channels_;
-        size_t vocab_size_;
+        dim_t batch_size_;
+        dim_t sequence_length_;
+        dim_t channels_;
+        dim_t vocab_size_;
 
-        std::vector<size_t> input_shape_;
-        std::vector<size_t> output_shape_;
+        shape_t input_shape_;
+        shape_t output_shape_;
 
         std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>> wte_;
         std::shared_ptr<Tensor<float, CudaDeviceMemoryResource>> wpe_;
@@ -543,8 +543,8 @@ namespace Operations::Tests
 
         // Performance test with larger batch size
         size_t large_batch = 32;
-        std::vector<size_t> large_input_shape = { large_batch, sequence_length_ };
-        std::vector<size_t> large_output_shape = { large_batch, sequence_length_, channels_ };
+        shape_t large_input_shape = { large_batch, sequence_length_ };
+        shape_t large_output_shape = { large_batch, sequence_length_, channels_ };
 
         // Create tensors
         Tensor<int, CudaDeviceMemoryResource> input( large_input_shape );

@@ -121,7 +121,7 @@ bool parseCommandLine( int argc, char* argv[], BenchmarkConfig& config ) {
         }
         else if ( arg == "--shape" && i + 1 < argc ) {
             std::string shapeStr = argv[ ++i ];
-            std::vector<size_t> shape;
+            std::vector<int64_t> shape;
             std::stringstream ss( shapeStr );
             std::string dim;
 

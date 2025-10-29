@@ -34,10 +34,13 @@ module;
 #include <format>
 #include <ostream>
 #include <cstddef>
+#include <vector>
 
 export module Dnn.Module;
 
+import Dnn.Tensor;
 import Dnn.ITensor;
+import Dnn.TensorTypes;
 import Compute.DeviceType;
 import Serialization.ModelArchive;
 
@@ -63,7 +66,7 @@ namespace Mila::Dnn
         virtual ~Module() = default;
 
         // ====================================================================
-        // Core Interface (Pure Virtual)
+		// Computation
         // ====================================================================
 
         /**
@@ -104,6 +107,59 @@ namespace Mila::Dnn
             const ITensor& output_grad,
             ITensor& input_grad ) = 0;
 
+        // ====================================================================
+        // Lifecycle
+        // ====================================================================
+
+        /**
+         * @brief Check if this module has been built and is ready for use.
+         *
+         * A module is considered built when all its parameters have been allocated
+         * and initialized based on the input shape. This method should return true
+         * only after build() has been successfully called with a valid input shape.
+         *
+         * For composite modules, this should recursively check that all child modules
+         * are also built.
+         *
+         * @return true if the module is fully built and ready for forward/backward passes
+         * @return false if build() has not been called or shape inference is incomplete
+         *
+         * @note Operations like parameterCount(), parameters(), save(), and forward()
+         *       should only be called when isBuilt() returns true
+         * @note Calling build() multiple times is idempotent - subsequent calls after
+         *       the first successful build should have no effect
+         *
+         * @see build()
+         */
+        virtual bool isBuilt() const = 0;
+
+        /**
+         * @brief Initialize module parameters based on input tensor shape.
+         *
+         * This method performs shape inference and parameter allocation for modules
+         * that cannot fully initialize during construction. Parameters are allocated
+         * using the ExecutionContext provided at construction time.
+         *
+         * The build process typically involves:
+         * - Inferring any unknown dimensions from the input shape
+         * - Allocating and initializing learnable parameters using exec_context_
+         * - Validating shape compatibility with module configuration
+         * - Recursively building child modules for composite modules
+         *
+         * @param input_shape Expected shape of input tensors for this module
+         *
+         * @throws std::invalid_argument if input_shape is incompatible with module config
+         * @throws std::runtime_error if parameter allocation fails
+         *
+         * @note All allocations use the ExecutionContext provided at construction
+         * @note Must be called before forward(), parameterCount(), or save()
+         * @note Idempotent - subsequent calls after first successful build have no effect
+         *
+         * @see isBuilt()
+         * @see ExecutionContext
+         */
+        virtual void build( const shape_t& input_shape ) = 0;
+
         /**
          * @brief Synchronize this module's execution stream.
          *
@@ -113,6 +169,12 @@ namespace Mila::Dnn
          */
         virtual void synchronize() = 0;
 
+		// ====================================================================
+        // Parameters
+		// ====================================================================
+
+        //virtual std::vector<Tensor*> parameters() = 0;
+
         /**
          * @brief Return the number of trainable parameters in this module.
          *
@@ -120,6 +182,10 @@ namespace Mila::Dnn
          * stored by the module and would be persisted by `save`.
          */
         virtual size_t parameterCount() const = 0;
+
+		// ====================================================================
+		// Serialization
+		// ====================================================================
 
         /**
          * @brief Persist module parameters into the provided archive.
@@ -155,7 +221,7 @@ namespace Mila::Dnn
         virtual std::string toString() const = 0;
 
         // ====================================================================
-        // State and Configuration (Pure Virtual)
+        // State and Configuration
         // ====================================================================
 
         /**

@@ -125,9 +125,9 @@ namespace Gpt2App
 			size_t NH = config_.num_heads;
 
 			encoder_ = std::make_unique<Encoder<int, float>>( "gpt2.enc", C, config_.max_seq_len, config_.padded_vocab_size, device_context_, is_training_ );
-			encoder_output_ = Tensor<TPrecision, MR>( std::vector<size_t>( { B,T,C } ));
+			encoder_output_ = Tensor<TPrecision, MR>( shape_t( { B,T,C } ));
 
-			auto tf_io_shape = std::vector<size_t>( { batch_size_, seq_len_, C } );
+			auto tf_io_shape = shape_t( { batch_size_, seq_len_, C } );
 			tf_output_ = Tensor<TPrecision, MR>( tf_io_shape );
 
 			for ( size_t l = 0; l < config_.num_layers; l++ ) {
@@ -139,10 +139,10 @@ namespace Gpt2App
 			ln_f_output_ = Tensor<TPrecision, MR>( tf_io_shape );
 
 			fc_f_ = std::make_unique<FullyConnected<TPrecision, TPrecision>>( "gpt2.fc_f", C, Vp, /* has_bias */ false );
-			fc_logits_output_ = Tensor<TPrecision, MR>( std::vector<size_t>( { B, T, Vp } ) );
+			fc_logits_output_ = Tensor<TPrecision, MR>( shape_t( { B, T, Vp } ) );
 
 			smax_ = std::make_unique<Softmax<TPrecision, TPrecision>>( "gpt2.smax" );
-			smax_probs_output_ = Tensor<TPrecision, MR>( std::vector<size_t>( { B, T, Vp } ) );
+			smax_probs_output_ = Tensor<TPrecision, MR>( shape_t( { B, T, Vp } ) );
 		}
 
 		float get_mean_loss() const {

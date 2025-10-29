@@ -13,6 +13,7 @@ module;
 
 export module Dnn.Blocks.TransformerBlock:Config;
 
+import Dnn.TensorTypes;
 import Dnn.ConfigurationBase;
 import Dnn.ActivationType;
 
@@ -31,7 +32,7 @@ namespace Mila::Dnn
          * @param input_shape The shape of the input tensor [batch_size, sequence_length, embedding_dim]
          * @param num_heads The number of attention heads
          */
-        TransformerBlockConfig( const std::vector<size_t>& input_shape, size_t num_heads )
+        TransformerBlockConfig( const shape_t& input_shape, dim_t num_heads )
             : input_shape_( input_shape ), num_heads_( num_heads ) {}
 
         /**
@@ -40,7 +41,7 @@ namespace Mila::Dnn
          * @param hidden_dim Size of the hidden layer in the feed-forward network
          * @return TransformerBlockConfig& Reference to this for method chaining
          */
-        TransformerBlockConfig& withHiddenDimension( size_t hidden_dim ) {
+        TransformerBlockConfig& withHiddenDimension( dim_t hidden_dim ) {
             hidden_dim_ = hidden_dim;
             return *this;
         }
@@ -92,12 +93,12 @@ namespace Mila::Dnn
         /**
          * @brief Get the input shape.
          */
-        const std::vector<size_t>& getInputShape() const { return input_shape_; }
+        const shape_t& getInputShape() const { return input_shape_; }
 
         /**
          * @brief Get the number of attention heads.
          */
-        size_t getNumHeads() const { return num_heads_; }
+        dim_t getNumHeads() const { return num_heads_; }
 
         /**
          * @brief Get the hidden dimension for the feed-forward network.
@@ -155,9 +156,9 @@ namespace Mila::Dnn
         }
 
     private:
-        std::vector<size_t> input_shape_;
-        size_t num_heads_;
-        size_t hidden_dim_ = 0;  // If 0, will default to 4x embedding dimension
+        shape_t input_shape_;
+        dim_t num_heads_;
+        dim_t hidden_dim_ = 0;  // If 0, will default to 4x embedding dimension
         float dropout_ = 0.0f;
         bool use_pre_ln_ = true;
         bool use_bias_ = true;

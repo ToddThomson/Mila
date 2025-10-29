@@ -19,6 +19,7 @@ export import :Config;
 
 import Dnn.ITensor;
 import Dnn.Tensor;
+import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.Module;
@@ -74,7 +75,7 @@ namespace Mila::Dnn
             }
 
             config_.validate();
-            
+
             initializeModules();
         }
 
@@ -87,19 +88,19 @@ namespace Mila::Dnn
             const auto& in = dynamic_cast<const TensorType&>(input);
             auto& out = dynamic_cast<TensorType&>(output);
 
-            fc1_->forward( in, fc1_output_ );
+            fc1_->forward( in, *fc1_output_ );
 
             if (config_.useLayerNorm())
             {
-                norm1_->forward( fc1_output_, norm1_output_ );
-                activation_->forward( norm1_output_, act_output_ );
+                norm_->forward( *fc1_output_, *norm_output_ );
+                activation_->forward( *norm_output_, *act_output_ );
             }
             else
             {
-                activation_->forward( fc1_output_, act_output_ );
+                activation_->forward( *fc1_output_, *act_output_ );
             }
 
-            fc2_->forward( act_output_, out );
+            fc2_->forward( *act_output_, out );
         }
 
         void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad ) override
@@ -108,17 +109,17 @@ namespace Mila::Dnn
             const auto& out_grad = dynamic_cast<const TensorType&>(output_grad);
             auto& in_grad = dynamic_cast<TensorType&>(input_grad);
 
-            TensorType fc2_grad( exec_context_->getDevice(), act_output_.shape() );
-            fc2_->backward( act_output_, out_grad, fc2_grad );
+            TensorType fc2_grad( exec_context_->getDevice(), act_output_->shape() );
+            fc2_->backward( *act_output_, out_grad, fc2_grad );
 
-            TensorType act_grad( exec_context_->getDevice(), config_.useLayerNorm() ? norm1_output_.shape() : fc1_output_.shape() );
-            activation_->backward( config_.useLayerNorm() ? norm1_output_ : fc1_output_, fc2_grad, act_grad );
+            TensorType act_grad( exec_context_->getDevice(), config_.useLayerNorm() ? norm_output_->shape() : fc1_output_->shape() );
+            activation_->backward( config_.useLayerNorm() ? *norm_output_ : *fc1_output_, fc2_grad, act_grad );
 
             if (config_.useLayerNorm())
             {
-                TensorType norm1_grad( exec_context_->getDevice(), fc1_output_.shape() );
-                norm1_->backward( fc1_output_, act_grad, norm1_grad );
-                fc1_->backward( in, norm1_grad, in_grad );
+                TensorType norm_grad( exec_context_->getDevice(), fc1_output_->shape() );
+                norm_->backward( *fc1_output_, act_grad, norm_grad );
+                fc1_->backward( in, norm_grad, in_grad );
             }
             else
             {
@@ -168,7 +169,7 @@ namespace Mila::Dnn
         std::string getName() const override
         {
             return "MLP";
-		}
+        }
 
         std::string toString() const override
         {
@@ -214,6 +215,25 @@ namespace Mila::Dnn
             return oss.str();
         }
 
+    protected:
+        /**
+            * @brief Override buildImpl for sequential shape propagation
+            */
+        void buildImpl( const shape_t& input_shape ) override
+        {
+            shape_t current_shape = input_shape;
+
+            // Propagate shapes through the layer chain
+            for (auto& module : this->child_modules_)
+            {
+                module->build( current_shape );
+
+                // Update shape for next layer
+                // (most layers preserve shape except Linear which changes last dim)
+                //current_shape = module->outputShape( current_shape );
+            }
+        }
+
     private:
         MLPConfig config_;
         std::shared_ptr<ExecutionContextType> exec_context_{ nullptr };
@@ -222,11 +242,12 @@ namespace Mila::Dnn
         std::shared_ptr<Module<TDeviceType>> fc1_{ nullptr };
         std::shared_ptr<Module<TDeviceType>> activation_{ nullptr };
         std::shared_ptr<Module<TDeviceType>> fc2_{ nullptr };
-        std::shared_ptr<Module<TDeviceType>> norm1_{ nullptr };
+        std::shared_ptr<Module<TDeviceType>> norm_{ nullptr };
 
-        TensorType fc1_output_{ exec_context_ ? exec_context_->getDevice() : std::shared_ptr<Compute::ComputeDevice>( nullptr ), std::vector<size_t>{} };
-        TensorType norm1_output_{ exec_context_ ? exec_context_->getDevice() : std::shared_ptr<Compute::ComputeDevice>( nullptr ), std::vector<size_t>{} };
-        TensorType act_output_{ exec_context_ ? exec_context_->getDevice() : std::shared_ptr<Compute::ComputeDevice>( nullptr ), std::vector<size_t>{} };
+        // use heap-allocated tensors so we can construct them after exec_context_ exists
+        std::shared_ptr<TensorType> fc1_output_{ nullptr };
+        std::shared_ptr<TensorType> norm_output_{ nullptr };
+        std::shared_ptr<TensorType> act_output_{ nullptr };
 
         void initializeModules()
         {
@@ -250,15 +271,16 @@ namespace Mila::Dnn
             // optional layer norm
             if (config_.useLayerNorm())
             {
-                auto norm1_config = LayerNormConfig( config_.getHiddenSize() )
-                    .withName( this->getName() + ".norm1" )
+                auto norm1_config = LayerNormConfig()
+                    .withAxis(-1 ) //config_.getHiddenSize() )
+                    .withName( this->getName() + ".norm" )
                     .withTraining( this->isTraining() );
 
-                norm1_ = std::static_pointer_cast<Module<TDeviceType>>(
+                norm_ = std::static_pointer_cast<Module<TDeviceType>>(
                     std::make_shared<LayerNorm<TDeviceType, TPrecision>>( exec_context_, norm1_config )
                 );
                 
-                this->addModule( "norm1", norm1_ );
+                this->addModule( "norm", norm_ );
             }
 
             // activation
@@ -267,7 +289,7 @@ namespace Mila::Dnn
                 case ActivationType::Gelu:
                 {
                     auto gelu_config = GeluConfig()
-                        .withName( this->getName() + ".gelu" )
+                        .withName( this->getName() + ".gelu_act" )
                         .withTraining( this->isTraining() );
 
                     activation_ = std::static_pointer_cast<Module<TDeviceType>>(
@@ -279,7 +301,7 @@ namespace Mila::Dnn
                     break;
             }
 
-            this->addModule( "activation", activation_ );
+            this->addModule( "act", activation_ );
 
             // fc2
             auto fc2_config = LinearConfig( config_.getHiddenSize(), config_.getInputFeatures() )
@@ -294,7 +316,7 @@ namespace Mila::Dnn
 
             // prepare intermediate buffers using execution context's device
             const auto& input_shape = config_.getInputShape();
-            std::vector<size_t> hidden_shape = input_shape;
+            shape_t hidden_shape = input_shape;
             if (!hidden_shape.empty())
             {
                 hidden_shape.back() = config_.getHiddenSize();
@@ -303,17 +325,16 @@ namespace Mila::Dnn
             {
                 hidden_shape = { config_.getHiddenSize() };
             }
-
-            if (exec_context_ && exec_context_->getDevice())
+            
+            auto device = exec_context_->getDevice();
+            fc1_output_ = std::make_shared<TensorType>( device, hidden_shape );
+            
+            if (config_.useLayerNorm())
             {
-                auto device = exec_context_->getDevice();
-                fc1_output_ = TensorType( device, hidden_shape );
-                if (config_.useLayerNorm())
-                {
-                    norm1_output_ = TensorType( device, hidden_shape );
-                }
-                act_output_ = TensorType( device, hidden_shape );
+                norm_output_ = std::make_shared<TensorType>( device, hidden_shape );
             }
+            
+            act_output_ = std::make_shared<TensorType>( device, hidden_shape );
         }
     };
 }

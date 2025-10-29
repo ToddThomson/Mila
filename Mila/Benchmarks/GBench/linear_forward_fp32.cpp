@@ -2,6 +2,7 @@
 #include <vector>
 #include <memory>
 #include <iostream>
+#include <cstdint>
 
 import Mila;
 
@@ -12,12 +13,9 @@ namespace GBench::GeluBenchmarks
 
 	// Helper to create a 4-tuple Args vector with named semantics:
 	// (batch, sequence_length, input_channels, output_channels)
-	static std::vector<int64_t> Arg4( size_t batch, size_t seq, size_t in_ch, size_t out_ch )
+	static std::vector<int64_t> Arg4( int64_t batch, int64_t seq, int64_t in_ch, int64_t out_ch )
 	{
-		return std::vector<int64_t>{ static_cast<int64_t>(batch),
-			static_cast<int64_t>(seq),
-			static_cast<int64_t>(in_ch),
-			static_cast<int64_t>(out_ch) };
+		return std::vector<int64_t>{ batch, seq, in_ch, out_ch };
 	}
 
 	static void BM_CudaLinearForward( benchmark::State& state )
@@ -29,15 +27,15 @@ namespace GBench::GeluBenchmarks
 			return;
 		}
 
-		const size_t batch = static_cast<size_t>(state.range( 0 ));
-		const size_t seq = static_cast<size_t>(state.range( 1 ));
-		const size_t input_features = static_cast<size_t>(state.range( 2 ));
-		const size_t output_features = static_cast<size_t>(state.range( 3 ));
+		const int64_t batch = state.range( 0 );
+		const int64_t seq = state.range( 1 );
+		const int64_t input_features = state.range( 2 );
+		const int64_t output_features = state.range( 3 );
 
-		// Calculate memory requirements upfront
-		const size_t input_bytes = batch * seq * input_features * sizeof( float );
-		const size_t weight_bytes = output_features * input_features * sizeof( float );
-		const size_t output_bytes = batch * seq * output_features * sizeof( float );
+		// Calculate memory requirements upfront (compute in size_t to represent bytes)
+		const size_t input_bytes = static_cast<size_t>(batch) * static_cast<size_t>(seq) * static_cast<size_t>(input_features) * sizeof( float );
+		const size_t weight_bytes = static_cast<size_t>(output_features) * static_cast<size_t>(input_features) * sizeof( float );
+		const size_t output_bytes = static_cast<size_t>(batch) * static_cast<size_t>(seq) * static_cast<size_t>(output_features) * sizeof( float );
 		const size_t total_bytes = input_bytes + weight_bytes + output_bytes;
 
 		// Check GPU memory availability
@@ -53,9 +51,9 @@ namespace GBench::GeluBenchmarks
 		//	return;
 		//}
 
-		// Build shapes
-		std::vector<size_t> input_shape = { batch, seq, input_features };
-		std::vector<size_t> output_shape = { batch, seq, output_features };
+		// Build shapes (use int64_t shapes to match tensor APIs)
+		std::vector<int64_t> input_shape = { batch, seq, input_features };
+		std::vector<int64_t> output_shape = { batch, seq, output_features };
 
 		try
 		{
@@ -88,8 +86,8 @@ namespace GBench::GeluBenchmarks
 			copy( host_input, input );
 
 			// Initialize weights and bias
-			std::vector<size_t> weight_shape = { output_features, input_features };
-			std::vector<size_t> bias_shape = { output_features };
+			std::vector<int64_t> weight_shape = { output_features, input_features };
+			std::vector<int64_t> bias_shape = { output_features };
 
 			Tensor<TensorDataType::FP32, CpuMemoryResource> host_weight( cpu_dev, weight_shape );
 			xavier<TensorDataType::FP32, CpuMemoryResource>( host_weight, input_features, output_features );
@@ -165,20 +163,6 @@ namespace GBench::GeluBenchmarks
 				static_cast<double>(flops_per_iter) / static_cast<double>(bytes_per_iter),
 				benchmark::Counter::kAvgThreads
 			);
-
-			// Optional: Efficiency vs theoretical peak (adjust for your GPU)
-			// RTX 3090: ~35.6 TFLOPS FP32
-			// RTX 4090: ~82.6 TFLOPS FP32
-			// A100: ~19.5 TFLOPS FP32 (156 TFLOPS with sparsity)
-			//constexpr double theoretical_tflops = 35.6;  // Change based on your GPU
-			//const double achieved_tflops = (flops_per_iter / 1e12) /
-			//	(state.iterations() * benchmark::CPUInfo::Get().cycles_per_second * 1e-9 *
-			//		state.min_time / state.iterations());
-			//state.counters["PeakUtil%"] = benchmark::Counter(
-			//	100.0 * (flops_per_iter / 1e12) * state.iterations() /
-			//	(theoretical_tflops * (state.iterations() * state. .min_time)),
-			//	benchmark::Counter::kAvgThreads
-			//);
 
 			// Add dimension labels for clarity
 			state.SetLabel(

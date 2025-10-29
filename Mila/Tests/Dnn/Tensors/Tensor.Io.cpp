@@ -14,11 +14,11 @@ namespace Dnn::Tensors::Tests
     protected:
         void SetUp() override {
             // Test tensors with different shapes and properties using host-compatible types
-            scalar_tensor_ = std::make_unique<HostTensor<TensorDataType::FP32>>( "CPU", std::vector<size_t>{} );
-            vector_tensor_ = std::make_unique<HostTensor<TensorDataType::FP32>>( "CPU", std::vector<size_t>{5} );
-            matrix_tensor_ = std::make_unique<HostTensor<TensorDataType::INT32>>( "CPU", std::vector<size_t>{3, 4} );
-            tensor_3d_ = std::make_unique<HostTensor<TensorDataType::INT8>>( "CPU", std::vector<size_t>{2, 3, 4} );
-            tensor_4d_ = std::make_unique<HostTensor<TensorDataType::UINT8>>( "CPU", std::vector<size_t>{2, 3, 4, 5} );
+            scalar_tensor_ = std::make_unique<HostTensor<TensorDataType::FP32>>( "CPU", shape_t{} );
+            vector_tensor_ = std::make_unique<HostTensor<TensorDataType::FP32>>( "CPU", shape_t{5} );
+            matrix_tensor_ = std::make_unique<HostTensor<TensorDataType::INT32>>( "CPU", shape_t{3, 4} );
+            tensor_3d_ = std::make_unique<HostTensor<TensorDataType::INT8>>( "CPU", shape_t{2, 3, 4} );
+            tensor_4d_ = std::make_unique<HostTensor<TensorDataType::UINT8>>( "CPU", shape_t{2, 3, 4, 5} );
 
             // Set descriptive names for testing
             vector_tensor_->setName( "test_vector" );

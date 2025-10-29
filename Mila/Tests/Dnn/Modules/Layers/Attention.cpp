@@ -25,7 +25,7 @@ namespace Modules::Tests
         size_t sequence_length;
         size_t channels;
         size_t num_heads;
-        std::vector<size_t> input_shape;
+        shape_t input_shape;
         std::shared_ptr<MultiHeadAttention<TDevice, TInput, TOutput>> attention_module;
 
         // Make the test data structure self-initializing
@@ -362,7 +362,7 @@ namespace Modules::Tests
         }
 
         // Create a small test shape to make comparison faster
-        std::vector<size_t> test_shape = { 2, 16, 3 * 32 }; // Small shape for quick verification
+        shape_t test_shape = { 2, 16, 3 * 32 }; // Small shape for quick verification
         size_t num_heads = 4;
 
         // Create test modules with smaller dimensions
@@ -430,7 +430,7 @@ namespace Modules::Tests
         }
 
         // Create small test shapes
-        std::vector<size_t> test_shape = { 2, 16, 3 * 32 };
+        shape_t test_shape = { 2, 16, 3 * 32 };
         size_t num_heads = 4;
 
         // Create test modules with smaller dimensions
@@ -501,7 +501,7 @@ namespace Modules::Tests
     void TestDifferentHeadCounts( const AttentionTestData<TDevice, TInput, TOutput>& data ) {
         using MR = MemoryResourceType<TDevice>;
         std::vector<size_t> head_counts = { 1, 4, 8, 16 };
-        std::vector<size_t> small_shape = { 2, 16, 3 * 64 };
+        shape_t small_shape = { 2, 16, 3 * 64 };
 
         for ( auto num_heads : head_counts ) {
             auto test_module = std::make_shared<MultiHeadAttention<TDevice, TInput, TOutput>>(
@@ -536,7 +536,7 @@ namespace Modules::Tests
     void TestEdgeCases( const AttentionTestData<TDevice, TInput, TOutput>& data ) {
         using MR = MemoryResourceType<TDevice>;
         // Test with minimal batch size and sequence length
-        std::vector<size_t> minimal_shape = { 1, 1, 3 * 64 };
+        shape_t minimal_shape = { 1, 1, 3 * 64 };
         auto minimal_module = std::make_shared<MultiHeadAttention<TDevice, TInput, TOutput>>(
             "minimal", TDevice == DeviceType::Cuda ? "CUDA:0" : "CPU", minimal_shape, 1 );
 
@@ -546,7 +546,7 @@ namespace Modules::Tests
         EXPECT_NO_THROW( minimal_module->forward( minimal_input, minimal_output ) );
 
         // Test with large sequence length
-        std::vector<size_t> long_seq_shape = { 2, 128, 3 * 64 }; // Reduced for test performance
+        shape_t long_seq_shape = { 2, 128, 3 * 64 }; // Reduced for test performance
         auto long_seq_module = std::make_shared<MultiHeadAttention<TDevice, TInput, TOutput>>(
             "long_seq", TDevice == DeviceType::Cuda ? "CUDA:0" : "CPU", long_seq_shape, 4 );
 
@@ -560,7 +560,7 @@ namespace Modules::Tests
     template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
     void TestTrainingModeBehavior( const AttentionTestData<TDevice, TInput, TOutput>& data ) {
         using MR = MemoryResourceType<TDevice>;
-        std::vector<size_t> shape = { 2, 16, 3 * 64 };
+        std::vector<int64_t> shape = { 2, 16, 3 * 64 };
         auto train_module = std::make_shared<MultiHeadAttention<TDevice, TInput, TOutput>>(
             "train_mode", TDevice == DeviceType::Cuda ? "CUDA:0" : "CPU", shape, 4, true ); // training mode enabled
 
@@ -603,7 +603,7 @@ namespace Modules::Tests
     template<DeviceType TDevice, typename TInput, typename TOutput = TInput>
     void TestNumericalStability( const AttentionTestData<TDevice, TInput, TOutput>& data ) {
         using MR = MemoryResourceType<TDevice>;
-        std::vector<size_t> shape = { 2, 16, 3 * 64 };
+        std::vector<int64_t> shape = { 2, 16, 3 * 64 };
         auto stability_module = std::make_shared<MultiHeadAttention<TDevice, TInput, TOutput>>(
             "stability", TDevice == DeviceType::Cuda ? "CUDA:0" : "CPU", shape, 4 );
 
@@ -696,7 +696,7 @@ namespace Modules::Tests
     void TestDeterministicBehavior(
         const AttentionTestData<DeviceType::Cuda, TInput, TOutput>& data ) {
 
-        std::vector<size_t> shape = { 2, 16, 3 * 64 };
+        std::vector<int64_t> shape = { 2, 16, 3 * 64 };
         auto deterministic_module = std::make_shared<MultiHeadAttention<DeviceType::Cuda, TInput, TOutput>>(
             "deterministic", "CUDA:0", shape, 4 );
 

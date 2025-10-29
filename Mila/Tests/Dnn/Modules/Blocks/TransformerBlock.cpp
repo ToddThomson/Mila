@@ -18,7 +18,7 @@ namespace Modules::Tests
 
     template<typename TPrecision, Compute::DeviceType TDevice>
     struct TransformerBlockTestData {
-        std::vector<size_t> input_shape;
+        shape_t input_shape;
         size_t num_heads;
         std::shared_ptr<TransformerBlock<TPrecision, TDevice>> transformer_module;
         bool is_training;
@@ -268,7 +268,7 @@ namespace Modules::Tests
         }
 
         // Create a very small test shape to make comparison faster
-        std::vector<size_t> test_shape = { 1, 2, 64 }; // Minimal shape for quick verification
+        shape_t test_shape = { 1, 2, 64 }; // Minimal shape for quick verification
         size_t test_num_heads = 2;
 
         // Create new, smaller TransformerBlocks specifically for this test
@@ -331,7 +331,7 @@ namespace Modules::Tests
 
         try {
             // Test with minimal sizes
-            std::vector<size_t> minimal_shape = { 1, 1, 64 }; // Head size needs to be divisible by num_heads
+            shape_t minimal_shape = { 1, 1, 64 }; // Head size needs to be divisible by num_heads
             size_t minimal_num_heads = 2;
 
             auto minimal_module = std::make_shared<TransformerBlock<TPrecision, TDevice>>(
@@ -344,7 +344,7 @@ namespace Modules::Tests
             EXPECT_EQ( minimal_output.size(), minimal_input.size() );
 
             // Test with medium dimensions - adjusted by device type
-            std::vector<size_t> medium_shape;
+            shape_t medium_shape;
             if constexpr ( TDevice == Compute::DeviceType::Cuda ) {
                 medium_shape = { 2, 2, 128 };
             }
@@ -374,7 +374,7 @@ namespace Modules::Tests
         std::string device_name = TDevice == Compute::DeviceType::Cuda ? "CUDA:0" : "CPU";
 
         // Test with invalid shape (not rank 3)
-        std::vector<size_t> invalid_shape = { 1, 64 }; // Only 2 dimensions
+        shape_t invalid_shape = { 1, 64 }; // Only 2 dimensions
         size_t num_heads = 2;
 
         EXPECT_THROW( (

@@ -44,8 +44,8 @@ namespace Operations::Cpu::Tests
 
         void SetupParameters() {
             // Create token embedding table (wte)
-            wte_ = std::make_shared<Tensor<float, HostMemoryResource>>( std::vector<size_t>{vocab_size_, channels_} );
-            wpe_ = std::make_shared<Tensor<float, HostMemoryResource>>( std::vector<size_t>{sequence_length_, channels_} );
+            wte_ = std::make_shared<Tensor<float, HostMemoryResource>>( shape_t{vocab_size_, channels_} );
+            wpe_ = std::make_shared<Tensor<float, HostMemoryResource>>( shape_t{sequence_length_, channels_} );
 
             // Initialize with deterministic values
             for ( size_t i = 0; i < wte_->size(); ++i ) {
@@ -92,8 +92,8 @@ namespace Operations::Cpu::Tests
         size_t channels_;
         size_t vocab_size_;
 
-        std::vector<size_t> input_shape_;
-        std::vector<size_t> output_shape_;
+        shape_t input_shape_;
+        shape_t output_shape_;
 
         std::shared_ptr<Tensor<float, HostMemoryResource>> wte_;
         std::shared_ptr<Tensor<float, HostMemoryResource>> wpe_;

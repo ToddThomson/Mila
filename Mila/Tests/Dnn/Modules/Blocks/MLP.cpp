@@ -5,6 +5,8 @@
 #include <cmath>
 #include <type_traits>
 #include <stdexcept>
+#include <exception>
+#include <cstdint>
 
 import Mila;
 
@@ -26,8 +28,8 @@ namespace Modules::Blocks::Tests
     {
         MLPConfig config;
         std::shared_ptr<MLP<TDevice, TPrecision>> mlp_module;
-        std::vector<size_t> input_shape;
-        size_t hidden_size;
+        shape_t input_shape;
+        int64_t hidden_size;
         std::shared_ptr<ExecutionContext<TDevice>> exec_context;
 
         MLPTestData() : config( { 1 }, 1 )
@@ -36,8 +38,8 @@ namespace Modules::Blocks::Tests
 
         static MLPTestData Create(
             const std::string& name,
-            const std::vector<size_t>& input_shape,
-            size_t hidden_size,
+            const shape_t& input_shape,
+            int64_t hidden_size,
             bool has_bias = true,
             bool is_training = false,
             ActivationType activation = ActivationType::Gelu,
@@ -48,7 +50,12 @@ namespace Modules::Blocks::Tests
             data.input_shape = input_shape;
             data.hidden_size = hidden_size;
 
-            data.config = MLPConfig( input_shape, hidden_size );
+            // Convert shape_t (dim_t / int64_t) to canonical size_t vector for MLPConfig
+            shape_t size_shape;
+            size_shape.reserve( input_shape.size() );
+            for (auto d : input_shape) size_shape.push_back( static_cast<size_t>( d ) );
+
+            data.config = MLPConfig( size_shape, hidden_size );
             data.config
                 .withBias( has_bias )
                 .withActivation( activation )
@@ -70,8 +77,8 @@ namespace Modules::Blocks::Tests
 
         static MLPTestData CreateWithContext(
             const std::string& name,
-            const std::vector<size_t>& input_shape,
-            size_t hidden_size,
+            const shape_t& input_shape,
+            int64_t hidden_size,
             std::shared_ptr<ExecutionContext<TDevice>> context,
             bool has_bias = true,
             bool is_training = false,
@@ -83,7 +90,11 @@ namespace Modules::Blocks::Tests
             data.input_shape = input_shape;
             data.hidden_size = hidden_size;
 
-            data.config = MLPConfig( input_shape, hidden_size )
+            shape_t size_shape;
+            size_shape.reserve( input_shape.size() );
+            for (auto d : input_shape) size_shape.push_back( static_cast<size_t>( d ) );
+
+            data.config = MLPConfig( size_shape, hidden_size )
                 .withBias( has_bias )
                 .withActivation( activation )
                 .withLayerNorm( use_layer_norm )
@@ -105,8 +116,10 @@ namespace Modules::Blocks::Tests
         {
             cuda_batch_size_ = 16;
             cuda_sequence_length_ = 64;
+
             cpu_batch_size_ = 2;
             cpu_sequence_length_ = 16;
+            
             input_features_ = 768;
             hidden_size_ = 3072;
         }
@@ -137,7 +150,7 @@ namespace Modules::Blocks::Tests
             if (!cpu_float_data_.mlp_module)
             {
                 cpu_float_data_ = MLPTestData<DeviceType::Cpu, TensorDataType::FP32>::Create(
-                    "cpu_mlp_float", { cpu_batch_size_, cpu_sequence_length_, input_features_ }, hidden_size_ );
+                    "cpu_mlp_float", shape_t{ cpu_batch_size_, cpu_sequence_length_, input_features_ }, hidden_size_ );
             }
             return cpu_float_data_;
         }
@@ -149,7 +162,7 @@ namespace Modules::Blocks::Tests
                 try
                 {
                     cuda_float_data_ = MLPTestData<DeviceType::Cuda, TensorDataType::FP32>::Create(
-                        "cuda_mlp_float", { cuda_batch_size_, cuda_sequence_length_, input_features_ }, hidden_size_ );
+                        "cuda_mlp_float", shape_t{ cuda_batch_size_, cuda_sequence_length_, input_features_ }, hidden_size_ );
                 }
                 catch (const std::exception&)
                 {
@@ -164,7 +177,7 @@ namespace Modules::Blocks::Tests
             if (!training_cpu_float_data_.mlp_module)
             {
                 training_cpu_float_data_ = MLPTestData<DeviceType::Cpu, TensorDataType::FP32>::Create(
-                    "cpu_mlp_float_training", { cpu_batch_size_, cpu_sequence_length_, input_features_ },
+                    "cpu_mlp_float_training", shape_t{ cpu_batch_size_, cpu_sequence_length_, input_features_ },
                     hidden_size_, true, true );
             }
             return training_cpu_float_data_;
@@ -177,7 +190,7 @@ namespace Modules::Blocks::Tests
                 try
                 {
                     training_cuda_float_data_ = MLPTestData<DeviceType::Cuda, TensorDataType::FP32>::Create(
-                        "cuda_mlp_float_training", { cuda_batch_size_, cuda_sequence_length_, input_features_ },
+                        "cuda_mlp_float_training", shape_t{ cuda_batch_size_, cuda_sequence_length_, input_features_ },
                         hidden_size_, true, true );
                 }
                 catch (const std::exception&)
@@ -192,7 +205,7 @@ namespace Modules::Blocks::Tests
             if (!no_bias_cpu_float_data_.mlp_module)
             {
                 no_bias_cpu_float_data_ = MLPTestData<DeviceType::Cpu, TensorDataType::FP32>::Create(
-                    "cpu_mlp_float_nobias", { cpu_batch_size_, cpu_sequence_length_, input_features_ },
+                    "cpu_mlp_float_nobias", shape_t{ cpu_batch_size_, cpu_sequence_length_, input_features_ },
                     hidden_size_, false );
             }
             return no_bias_cpu_float_data_;
@@ -205,7 +218,7 @@ namespace Modules::Blocks::Tests
                 try
                 {
                     no_bias_cuda_float_data_ = MLPTestData<DeviceType::Cuda, TensorDataType::FP32>::Create(
-                        "cuda_mlp_float_nobias", { cuda_batch_size_, cuda_sequence_length_, input_features_ },
+                        "cuda_mlp_float_nobias", shape_t{ cuda_batch_size_, cuda_sequence_length_, input_features_ },
                         hidden_size_, false );
                 }
                 catch (const std::exception&)
@@ -220,8 +233,13 @@ namespace Modules::Blocks::Tests
             if (!layer_norm_cpu_float_data_.mlp_module)
             {
                 layer_norm_cpu_float_data_ = MLPTestData<DeviceType::Cpu, TensorDataType::FP32>::Create(
-                    "cpu_mlp_float_layernorm", { cpu_batch_size_, cpu_sequence_length_, input_features_ },
-                    hidden_size_, true, false, ActivationType::Gelu, true );
+                    "cpu_mlp_float_layernorm", 
+                    shape_t{ cpu_batch_size_, cpu_sequence_length_, input_features_ },
+                    hidden_size_, 
+                    true, 
+                    false, 
+                    ActivationType::Gelu,
+                    true );
             }
             return layer_norm_cpu_float_data_;
         }
@@ -233,7 +251,7 @@ namespace Modules::Blocks::Tests
                 try
                 {
                     layer_norm_cuda_float_data_ = MLPTestData<DeviceType::Cuda, TensorDataType::FP32>::Create(
-                        "cuda_mlp_float_layernorm", { cuda_batch_size_, cuda_sequence_length_, input_features_ },
+                        "cuda_mlp_float_layernorm", shape_t{ cuda_batch_size_, cuda_sequence_length_, input_features_ },
                         hidden_size_, true, false, ActivationType::Gelu, true );
                 }
                 catch (const std::exception&)
@@ -249,7 +267,7 @@ namespace Modules::Blocks::Tests
             {
                 auto exec_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
                 context_cpu_float_data_ = MLPTestData<DeviceType::Cpu, TensorDataType::FP32>::CreateWithContext(
-                    "cpu_context_mlp_float", { cpu_batch_size_, cpu_sequence_length_, input_features_ },
+                    "cpu_context_mlp_float", shape_t{ cpu_batch_size_, cpu_sequence_length_, input_features_ },
                     hidden_size_, exec_ctx );
             }
             return context_cpu_float_data_;
@@ -262,7 +280,7 @@ namespace Modules::Blocks::Tests
                 try
                 {
                     cuda_fp16_data_ = MLPTestData<DeviceType::Cuda, TensorDataType::FP16>::Create(
-                        "cuda_mlp_fp16", { cuda_batch_size_, cuda_sequence_length_, input_features_ }, hidden_size_ );
+                        "cuda_mlp_fp16", shape_t{ cuda_batch_size_, cuda_sequence_length_, input_features_ }, hidden_size_ );
                 }
                 catch (const std::exception&)
                 {
@@ -278,7 +296,7 @@ namespace Modules::Blocks::Tests
                 try
                 {
                     training_cuda_fp16_data_ = MLPTestData<DeviceType::Cuda, TensorDataType::FP16>::Create(
-                        "cuda_mlp_fp16_training", { cuda_batch_size_, cuda_sequence_length_, input_features_ },
+                        "cuda_mlp_fp16_training", shape_t{ cuda_batch_size_, cuda_sequence_length_, input_features_ },
                         hidden_size_, true, true );
                 }
                 catch (const std::exception&)
@@ -295,7 +313,7 @@ namespace Modules::Blocks::Tests
                 try
                 {
                     perf_precision_cuda_float_data_ = MLPTestData<DeviceType::Cuda, TensorDataType::FP32>::Create(
-                        "cuda_mlp_perf_precision", { cuda_batch_size_, cuda_sequence_length_, input_features_ },
+                        "cuda_mlp_perf_precision", shape_t{ cuda_batch_size_, cuda_sequence_length_, input_features_ },
                         hidden_size_, true, false, ActivationType::Gelu, false,
                         ComputePrecision::Policy::Performance );
                 }
@@ -313,7 +331,7 @@ namespace Modules::Blocks::Tests
                 try
                 {
                     accuracy_precision_cuda_float_data_ = MLPTestData<DeviceType::Cuda, TensorDataType::FP32>::Create(
-                        "cuda_mlp_accuracy_precision", { cuda_batch_size_, cuda_sequence_length_, input_features_ },
+                        "cuda_mlp_accuracy_precision", shape_t{ cuda_batch_size_, cuda_sequence_length_, input_features_ },
                         hidden_size_, true, false, ActivationType::Gelu, false,
                         ComputePrecision::Policy::Accuracy );
                 }
@@ -331,7 +349,7 @@ namespace Modules::Blocks::Tests
                 try
                 {
                     native_precision_cuda_float_data_ = MLPTestData<DeviceType::Cuda, TensorDataType::FP32>::Create(
-                        "cuda_mlp_native_precision", { cuda_batch_size_, cuda_sequence_length_, input_features_ },
+                        "cuda_mlp_native_precision", shape_t{ cuda_batch_size_, cuda_sequence_length_, input_features_ },
                         hidden_size_, true, false, ActivationType::Gelu, false,
                         ComputePrecision::Policy::Native );
                 }
@@ -342,12 +360,12 @@ namespace Modules::Blocks::Tests
             return native_precision_cuda_float_data_;
         }
 
-        size_t cuda_batch_size_{ 0 };
-        size_t cpu_batch_size_{ 0 };
-        size_t cuda_sequence_length_{ 0 };
-        size_t cpu_sequence_length_{ 0 };
-        size_t input_features_{ 0 };
-        size_t hidden_size_{ 0 };
+        int64_t cuda_batch_size_{ 0 };
+        int64_t cpu_batch_size_{ 0 };
+        int64_t cuda_sequence_length_{ 0 };
+        int64_t cpu_sequence_length_{ 0 };
+        int64_t input_features_{ 0 };
+        int64_t hidden_size_{ 0 };
 
         MLPTestData<DeviceType::Cpu, TensorDataType::FP32> cpu_float_data_;
         MLPTestData<DeviceType::Cpu, TensorDataType::FP32> context_cpu_float_data_;
@@ -480,10 +498,15 @@ namespace Modules::Blocks::Tests
 
         try
         {
-            std::vector<size_t> minimal_shape = { 1, 1, 8 };
+            shape_t minimal_shape = { 1, 1, 8 };
             size_t minimal_hidden_size = 16;
 
-            auto minimal_config = MLPConfig( minimal_shape, minimal_hidden_size );
+            shape_t size_shape;
+            size_shape.reserve( minimal_shape.size() );
+            for (auto d : minimal_shape)
+                size_shape.push_back( static_cast<size_t>( d ) );
+
+            auto minimal_config = MLPConfig( size_shape, minimal_hidden_size );
             minimal_config.withName( "minimal_mlp" );
 
             std::string device_str = TDevice == DeviceType::Cuda ? "CUDA:0" : "CPU";
@@ -496,7 +519,7 @@ namespace Modules::Blocks::Tests
             EXPECT_NO_THROW( minimal_module->forward( minimal_input, minimal_output ) );
             EXPECT_EQ( minimal_output.size(), 8 );
 
-            std::vector<size_t> medium_shape;
+            shape_t medium_shape;
             if constexpr (TDevice == DeviceType::Cuda)
             {
                 medium_shape = { 2, 2, 1024 };
@@ -506,8 +529,12 @@ namespace Modules::Blocks::Tests
                 medium_shape = { 1, 2, 512 };
             }
 
+            shape_t medium_size_shape;
+            medium_size_shape.reserve( medium_shape.size() );
+            for (auto d : medium_shape) medium_size_shape.push_back( static_cast<size_t>( d ) );
+
             size_t medium_hidden_size = 2048;
-            auto medium_config = MLPConfig( medium_shape, medium_hidden_size );
+            auto medium_config = MLPConfig( medium_size_shape, medium_hidden_size );
             medium_config.withName( "medium_mlp" );
             auto medium_module = std::make_shared<MLP<TDevice, TPrecision>>( exec_ctx, medium_config );
 
@@ -539,12 +566,16 @@ namespace Modules::Blocks::Tests
             return;
         }
 
-        std::vector<size_t> test_shape = { 1, 2, cpu_data.config.getInputFeatures() };
+        shape_t test_shape = { 1, 2, static_cast<dim_t>(cpu_data.config.getInputFeatures()) };
         size_t test_hidden_size = 1024;
 
-        auto cpu_config = MLPConfig( test_shape, test_hidden_size );
+        shape_t size_shape;
+        size_shape.reserve( test_shape.size() );
+        for (auto d : test_shape) size_shape.push_back( static_cast<size_t>( d ) );
+
+        auto cpu_config = MLPConfig( size_shape, test_hidden_size );
         cpu_config.withName( "test_cpu_mlp" );
-        auto cuda_config = MLPConfig( test_shape, test_hidden_size );
+        auto cuda_config = MLPConfig( size_shape, test_hidden_size );
         cuda_config.withName( "test_cuda_mlp" );
 
         auto cpu_exec = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
@@ -646,12 +677,12 @@ namespace Modules::Blocks::Tests
         TestForward( NoBiasCpuFloatData() );
     }
 
-    TEST_F( MLPTests, LayerNorm_Cpu_Float_TestForward )
+    TEST_F( MLPTests, Cpu_withLayerNorm_TestForward )
     {
         TestForward( LayerNormCpuFloatData() );
     }
 
-    TEST_F( MLPTests, LayerNorm_Cpu_Float_SubModules )
+    TEST_F( MLPTests, Cpu_withLayerNorm_SubModules )
     {
         TestSubModules( LayerNormCpuFloatData() );
     }

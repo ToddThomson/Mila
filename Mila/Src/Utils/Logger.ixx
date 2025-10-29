@@ -6,8 +6,6 @@ module;
 
 export module Utils.Logger;
 
-//import Dnn.Tensor;
-
 namespace Mila::Utils
 {
     export enum class LogLevel {

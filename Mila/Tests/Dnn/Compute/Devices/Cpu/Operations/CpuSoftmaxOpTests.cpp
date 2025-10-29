@@ -23,7 +23,7 @@
 
 import Mila;
 
-    namespace Dnn::Compute::Device::Cpu::Operations::Tests
+namespace Dnn::Compute::Device::Cpu::Operations::Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
@@ -136,9 +136,9 @@ import Mila;
         std::shared_ptr<ExecutionContext<DeviceType::Cpu>> exec_ctx_;
         std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>> op_; // may be null if not registered
 
-        std::vector<size_t> small_shape_;
-        std::vector<size_t> medium_shape_;
-        std::vector<size_t> large_shape_;
+        shape_t small_shape_;
+        shape_t medium_shape_;
+        shape_t large_shape_;
     };
 
     TEST_F( CpuSoftmaxOpTests, OperationRegisteredName )

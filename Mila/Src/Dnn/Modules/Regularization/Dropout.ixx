@@ -315,7 +315,7 @@ namespace Mila::Dnn
          * @param mask The tensor to populate with the mask values
          * @param shape The shape of the input/mask tensor
          */
-        void generateMask( Tensor<TOutput, MR>& mask, const std::vector<size_t>& shape ) {
+        void generateMask( Tensor<TOutput, MR>& mask, const std::vector<int64_t>& shape ) {
             // CPU-side implementations for mask generation
             // In practice, the actual implementation would offload this to GPU for CUDA
 

@@ -99,9 +99,9 @@ namespace Dnn::Compute::Device::Cpu::Operations::Tests
 		std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>> op_; // may be null if not registered
 		GeluConfig config_;
 
-		std::vector<size_t> small_shape_;
-		std::vector<size_t> medium_shape_;
-		std::vector<size_t> large_shape_;
+		shape_t small_shape_;
+		shape_t medium_shape_;
+		shape_t large_shape_;
 	};
 
 	TEST_F( CpuGeluOpTests, OperationRegisteredName )

@@ -16,7 +16,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST( TensorMemoryPropertiesTest, HostCompatibleDataTypes_AllMemoryResources ) {
-        std::vector<size_t> shape = { 2, 3 };
+        std::vector<int64_t> shape = { 2, 3 };
 
         // FP32 (host-compatible floating-point)
         {
@@ -147,7 +147,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST( TensorMemoryPropertiesTest, DeviceOnlyDataTypes_CudaMemoryResources ) {
-        std::vector<size_t> shape = { 2, 3 };
+        std::vector<int64_t> shape = { 2, 3 };
 
         // FP16 (device-only half precision)
         {
@@ -316,7 +316,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST( TensorMemoryPropertiesTest, TypeAliasProperties_AbstractDataTypes ) {
-        std::vector<size_t> shape = { 2, 3 };
+        std::vector<int64_t> shape = { 2, 3 };
 
         // Test type aliases with different abstract data types
 
@@ -383,7 +383,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST( TensorMemoryPropertiesTest, PropertyConsistencyAcrossOperations_AbstractDataTypes ) {
-        std::vector<size_t> shape = { 3, 3 };
+        std::vector<int64_t> shape = { 3, 3 };
 
         // Test with FP32
         {
@@ -444,7 +444,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST( TensorMemoryPropertiesTest, DataTypeInformation_AbstractDataTypes ) {
-        std::vector<size_t> shape = { 2, 2 };
+        std::vector<int64_t> shape = { 2, 2 };
 
         // Test data type information for all supported abstract types
         {
@@ -666,7 +666,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST( TensorMemoryPropertiesTest, DeviceContextCompatibility ) {
-        std::vector<size_t> shape = { 2, 2 };
+        std::vector<int64_t> shape = { 2, 2 };
 
         // Test that tensors properly report their device types
         {

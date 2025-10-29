@@ -4,6 +4,7 @@
 #include <string>
 #include <random>
 #include <iostream>
+#include <cstdint>
 
 import Mila;
 
@@ -22,7 +23,7 @@ namespace Modules::Layers::Tests
     template<DeviceType TDevice, TensorDataType TPrecision>
     struct SoftmaxTestData
     {
-        std::vector<size_t> shape;
+        shape_t shape;
         SoftmaxConfig config;
         std::shared_ptr<ExecutionContext<TDevice>> exec_context;
         std::shared_ptr<Softmax<TDevice, TPrecision>> softmax_module;
@@ -39,7 +40,7 @@ namespace Modules::Layers::Tests
             bool is_training = false )
         {
             SoftmaxTestData data;
-            data.shape = { batch_size, sequence_length, vocab_size };
+            data.shape = { static_cast<dim_t>(batch_size), static_cast<dim_t>(sequence_length), static_cast<dim_t>(vocab_size) };
             data.axis = axis;
             data.is_training = is_training;
 
@@ -73,7 +74,7 @@ namespace Modules::Layers::Tests
             bool is_training = false )
         {
             SoftmaxTestData data;
-            data.shape = { batch_size, sequence_length, vocab_size };
+            data.shape = { static_cast<dim_t>(batch_size), static_cast<dim_t>(sequence_length), static_cast<dim_t>(vocab_size) };
             data.axis = axis;
             data.is_training = is_training;
 
@@ -232,11 +233,11 @@ namespace Modules::Layers::Tests
             // Verify normalization along last axis (vocab dim)
             const auto& shape = output.shape();
             ASSERT_GE( shape.size(), 1u );
-            size_t last_dim = shape.back();
+            size_t last_dim = static_cast<size_t>( shape.back() );
 
             // compute product of leading dims
             size_t outer = 1;
-            for (size_t i = 0; i + 1 < shape.size(); ++i) outer *= shape[i];
+            for (size_t i = 0; i + 1 < shape.size(); ++i) outer *= static_cast<size_t>( shape[i] );
 
             for (size_t outer_idx = 0; outer_idx < outer; ++outer_idx)
             {
@@ -380,7 +381,7 @@ namespace Modules::Layers::Tests
         auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
         auto module = std::make_shared<Softmax<DeviceType::Cpu, TensorDataType::FP32>>( cfg, ctx );
 
-        std::vector<size_t> minimal_shape = { 1, 1, 8 };
+        shape_t minimal_shape = { static_cast<dim_t>(1), static_cast<dim_t>(1), static_cast<dim_t>(8) };
         Tensor<TensorDataType::FP32, CpuMemoryResource> in( "CPU", minimal_shape );
         Tensor<TensorDataType::FP32, CpuMemoryResource> out( "CPU", minimal_shape );
 
@@ -388,8 +389,8 @@ namespace Modules::Layers::Tests
         EXPECT_EQ( out.size(), 8 );
 
         // large
-		cfg = SoftmaxConfig().withAxis( -1 ).withName( "large_softmax" );
-        std::vector<size_t> large_shape = { 2, 2, 1024 };
+        cfg = SoftmaxConfig().withAxis( -1 ).withName( "large_softmax" );
+        shape_t large_shape = { static_cast<dim_t>(2), static_cast<dim_t>(2), static_cast<dim_t>(1024) };
         auto module2 = std::make_shared<Softmax<DeviceType::Cpu, TensorDataType::FP32>>( cfg, ctx );
         
         Tensor<TensorDataType::FP32, CpuMemoryResource> in2( "CPU", large_shape );
@@ -402,19 +403,19 @@ namespace Modules::Layers::Tests
     TEST_F( SoftmaxTests, Cuda_Fp32_EdgeCases )
     {
         auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
-		auto cfg = SoftmaxConfig().withAxis( -1 ).withName( "minimal_softmax_cuda" );
+        auto cfg = SoftmaxConfig().withAxis( -1 ).withName( "minimal_softmax_cuda" );
 
         auto module = std::make_shared<Softmax<DeviceType::Cuda, TensorDataType::FP32>>( cfg, ctx );
 
-        std::vector<size_t> minimal_shape = { 1, 1, 8 };
+        shape_t minimal_shape = { static_cast<dim_t>(1), static_cast<dim_t>(1), static_cast<dim_t>(8) };
         Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> in( "CUDA:0", minimal_shape );
         Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> out( "CUDA:0", minimal_shape );
 
         EXPECT_NO_THROW( module->forward( in, out ) );
         EXPECT_EQ( out.size(), 8 );
 
-        std::vector<size_t> large_shape = { 2, 2, 1024 };
-		cfg = SoftmaxConfig().withAxis( -1 ).withName( "large_softmax_cuda" );
+        shape_t large_shape = { static_cast<dim_t>(2), static_cast<dim_t>(2), static_cast<dim_t>(1024) };
+        cfg = SoftmaxConfig().withAxis( -1 ).withName( "large_softmax_cuda" );
         auto module2 = std::make_shared<Softmax<DeviceType::Cuda, TensorDataType::FP32>>( cfg, ctx );
         Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> in2( "CUDA:0", large_shape );
         Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> out2( "CUDA:0", large_shape );
@@ -428,7 +429,7 @@ namespace Modules::Layers::Tests
     {
         auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
 
-        std::vector<size_t> test_shape = { 2, 3, 4 };
+        shape_t test_shape = { static_cast<dim_t>(2), static_cast<dim_t>(3), static_cast<dim_t>(4) };
         Tensor<TensorDataType::FP32, CpuMemoryResource> input( "CPU", test_shape );
 
         SoftmaxConfig cfg = SoftmaxConfig();
@@ -444,7 +445,7 @@ namespace Modules::Layers::Tests
         Tensor<TensorDataType::FP32, CpuMemoryResource> out1( "CPU", test_shape );
         EXPECT_NO_THROW( axis1->forward( input, out1 ) );
 
-		cfg.withName( "axis2" ).withAxis( 2 );
+        cfg.withName( "axis2" ).withAxis( 2 );
         auto axis2 = std::make_shared<Softmax<DeviceType::Cpu, TensorDataType::FP32>>( cfg, ctx );
         Tensor<TensorDataType::FP32, CpuMemoryResource> out2( "CPU", test_shape );
         EXPECT_NO_THROW( axis2->forward( input, out2 ) );
@@ -454,7 +455,7 @@ namespace Modules::Layers::Tests
     {
         auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
 
-        std::vector<size_t> test_shape = { 2, 3, 4 };
+        shape_t test_shape = { static_cast<dim_t>(2), static_cast<dim_t>(3), static_cast<dim_t>(4) };
         Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> input( "CUDA:0", test_shape );
         auto cfg = SoftmaxConfig();
         cfg.withName( "axis0_cuda" ).withAxis( 0 );
@@ -464,12 +465,12 @@ namespace Modules::Layers::Tests
         Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> out0( "CUDA:0", test_shape );
         EXPECT_NO_THROW( axis0->forward( input, out0 ) );
 
-		cfg.withName( "axis1_cuda" ).withAxis( 1 );
+        cfg.withName( "axis1_cuda" ).withAxis( 1 );
         auto axis1 = std::make_shared<Softmax<DeviceType::Cuda, TensorDataType::FP32>>( cfg, ctx );
         Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> out1( "CUDA:0", test_shape );
         EXPECT_NO_THROW( axis1->forward( input, out1 ) );
 
-		cfg.withName( "axis2_cuda" ).withAxis( 2 );
+        cfg.withName( "axis2_cuda" ).withAxis( 2 );
         auto axis2 = std::make_shared<Softmax<DeviceType::Cuda, TensorDataType::FP32>>( cfg, ctx );
         Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> out2( "CUDA:0", test_shape );
         EXPECT_NO_THROW( axis2->forward( input, out2 ) );
@@ -482,7 +483,7 @@ namespace Modules::Layers::Tests
         auto cuda = CudaFp32Data();
 
         // small shape for quick comparison
-        std::vector<size_t> test_shape = { 2, 4, 8 };
+        shape_t test_shape = { static_cast<dim_t>(2), static_cast<dim_t>(4), static_cast<dim_t>(8) };
 
         Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( "CPU", test_shape );
         

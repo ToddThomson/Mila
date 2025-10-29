@@ -13,10 +13,14 @@ module;
 #include <stdexcept>
 #include <vector>
 #include <cstdint>
+#include <optional>
+#include <string>
+#include <utility>
 
 export module Dnn.Modules.LayerNorm:Config;
 
 import Dnn.ConfigurationBase;
+import Dnn.TensorTypes;
 
 namespace Mila::Dnn
 {
@@ -33,33 +37,42 @@ namespace Mila::Dnn
         LayerNormConfig() = default;
 
         /**
-         * @brief Constructor with normalized dimension size.
+         * @brief Set the normalized shape (size of features to normalize).
          *
-         * @param normalized_dim The dimension size to normalize
-         */
-        explicit LayerNormConfig( size_t normalized_dim ) {
-            // Store the normalized dimension as a single-element vector
-            input_shape_ = { 1, 1, normalized_dim };
-        }
-
-        /**
-         * @brief Set the input shape for the layer normalization.
+         * When using this method, the weight and bias tensors will be created
+         * at module construction time with this exact shape.
          *
-         * @param input_shape The input tensor shape [batch_size, sequence_length, channels]
+         * @param shape Vector of dimensions representing the feature shape
          * @return LayerNormConfig& Reference to this for method chaining
          */
-        LayerNormConfig& withInputShape( const std::vector<size_t>& input_shape ) {
-            input_shape_ = input_shape;
+        LayerNormConfig& withNormalizedShape( shape_t shape )
+        {
+            if (axis_.has_value())
+            {
+                throw std::invalid_argument(
+                    "Cannot specify both normalized_shape and axis. Choose one approach." );
+            }
+            normalized_shape_ = std::move( shape );
+            
             return *this;
         }
 
         /**
          * @brief Set the normalization axis.
          *
+         * When using this method, the weight and bias tensors will be lazy-initialized
+         * on the first forward pass based on the input tensor shape.
+         *
          * @param axis The axis along which to normalize (default is -1, the last dimension)
          * @return LayerNormConfig& Reference to this for method chaining
          */
-        LayerNormConfig& withAxis( int64_t axis ) {
+        LayerNormConfig& withAxis( int64_t axis )
+        {
+            if (!normalized_shape_.empty())
+            {
+                throw std::invalid_argument(
+                    "Cannot specify both axis and normalized_shape. Choose one approach." );
+            }
             axis_ = axis;
             return *this;
         }
@@ -87,18 +100,34 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Get the configured input shape.
+         * @brief Get the configured normalized shape.
          *
-         * @return const std::vector<size_t>& The input tensor shape
+         * @return const std::vector<int64_t>& The normalized feature shape (empty if using axis mode)
          */
-        const std::vector<size_t>& getInputShape() const { return input_shape_; }
+        const std::vector<int64_t>& getNormalizedShape() const
+        {
+            return normalized_shape_;
+        }
+
+        /**
+         * @brief Check if normalized shape was specified.
+         *
+         * @return bool True if using normalized_shape mode, false if using axis mode
+         */
+        bool hasNormalizedShape() const
+        {
+            return !normalized_shape_.empty();
+        }
 
         /**
          * @brief Get the configured normalization axis.
          *
-         * @return int64_t The axis along which to normalize
+         * @return std::optional<int64_t> The axis if specified, std::nullopt if using normalized_shape
          */
-        int64_t getAxis() const { return axis_; }
+        std::optional<int64_t> getAxis() const
+        {
+            return axis_;
+        }
 
         /**
          * @brief Check if bias is enabled.
@@ -119,21 +148,53 @@ namespace Mila::Dnn
          *
          * @throws std::invalid_argument If validation fails
          */
-        void validate() const {
+        void validate() const
+        {
             ConfigurationBase::validate();
 
-            if ( input_shape_.empty() ) {
-                throw std::invalid_argument( "Input shape cannot be empty" );
-            }
-
-            if ( epsilon_ <= 0.0f ) {
+            if (epsilon_ <= 0.0f)
+            {
                 throw std::invalid_argument( "Epsilon must be a positive value" );
             }
-        }
 
+            // Must specify either normalized_shape OR axis
+            bool has_shape = !normalized_shape_.empty();
+            bool has_axis = axis_.has_value();
+
+            if (!has_shape && !has_axis)
+            {
+                throw std::invalid_argument(
+                    "Must specify either normalized_shape (via withNormalizedShape) "
+                    "or axis (via withAxis)" );
+            }
+
+            if (has_shape && has_axis)
+            {
+                throw std::invalid_argument(
+                    "Cannot specify both normalized_shape and axis. "
+                    "Use withNormalizedShape() OR withAxis(), not both." );
+            }
+
+            // Validate normalized_shape if provided
+            if (has_shape)
+            {
+                for (size_t i = 0; i < normalized_shape_.size(); ++i)
+                {
+                    if (normalized_shape_[i] <= 0)
+                    {
+                        throw std::invalid_argument(
+                            "All normalized_shape dimensions must be positive. "
+                            "Found invalid dimension at index " + std::to_string( i ) +
+                            ": " + std::to_string( normalized_shape_[i] ) );
+                    }
+                }
+            }
+        }
+        
     private:
-        std::vector<size_t> input_shape_{};  ///< Shape of the input tensor [batch_size, sequence_length, channels]
-        int64_t axis_{ -1 };                   ///< The axis along which to normalize (default: -1 for last dimension)
+        
+        shape_t normalized_shape_;    ///< Shape of features to normalize (empty if using axis mode)
+        std::optional<dim_t> axis_;              ///< The axis along which to normalize (nullopt if using shape mode)
         bool has_bias_{ true };                ///< Whether to include a learnable bias term
         float epsilon_{ 1e-5f };               ///< Small constant added to variance for numerical stability
     };

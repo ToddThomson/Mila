@@ -254,6 +254,21 @@ namespace Mila::Dnn
             return oss.str();
         }
 
+    protected:
+
+        void buildImpl( const shape_t& input_shape ) override
+        {
+            // Attention gets {batch, seq_len, d_model}
+            attention_->build( input_shape );
+
+            // LayerNorms get same shape
+            ln1_->build( input_shape );
+            ln2_->build( input_shape );
+
+            // FFN might expand/contract dimensions
+            ffn_->build( input_shape );
+        }
+
     private:
         /**
          * @brief Configuration for the TransformerBlock module.
