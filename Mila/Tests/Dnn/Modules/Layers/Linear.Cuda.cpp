@@ -2,10 +2,10 @@
 #include <memory>
 #include <vector>
 #include <string>
-#include <optional>
-#include <random>
-#include <iostream>
+#include <cmath>
+#include <stdexcept>
 #include <cstdint>
+#include <cuda_runtime.h>
 
 import Mila;
 
@@ -14,53 +14,80 @@ namespace Modules::Layers::Tests
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
 
-    template<DeviceType TDevice>
-    using MemoryResourceType = std::conditional_t<TDevice == DeviceType::Cuda,
-        CudaDeviceMemoryResource,
-        CpuMemoryResource>;
+    template<TensorDataType TPrecision>
+    using CudaTensor = Tensor<TPrecision, CudaDeviceMemoryResource>;
 
-    // CUDA-specialized test-data and helpers (keeps templates for reuse but tests instantiate CUDA)
-    template<DeviceType TDevice, TensorDataType TPrecision = TensorDataType::FP32>
-    struct LinearTestData
+    template<TensorDataType TPrecision>
+    using CpuTensor = Tensor<TPrecision, CpuMemoryResource>;
+
+    template<TensorDataType TPrecision>
+    struct LinearCudaTestData
     {
         shape_t input_shape;
         shape_t output_shape;
-        std::shared_ptr<Linear<TDevice, TPrecision>> linear_module;
         LinearConfig config;
-        std::shared_ptr<ExecutionContext<TDevice>> exec_context;
+        std::shared_ptr<ExecutionContext<DeviceType::Cuda>> exec_context;
+        std::shared_ptr<Linear<DeviceType::Cuda, TPrecision>> module;
+        int64_t input_features;
+        int64_t output_features;
+        bool has_bias;
 
-        static LinearTestData Create(
-            size_t batch_size,
-            size_t sequence_length,
-            size_t input_features,
-            size_t output_features,
+        // Default constructor needed for test fixture member variables
+        LinearCudaTestData() : config( 1, 1 ), input_features( 0 ), output_features( 0 ), has_bias( true )
+        {
+        }
+
+        static LinearCudaTestData Create(
+            const std::string& name,
+            const shape_t& input_shape,
+            int64_t input_features,
+            int64_t output_features,
             bool has_bias = true )
         {
-            LinearTestData data;
-            data.input_shape = { static_cast<dim_t>(batch_size), static_cast<dim_t>(sequence_length), static_cast<dim_t>(input_features) };
-            data.output_shape = { static_cast<dim_t>(batch_size), static_cast<dim_t>(sequence_length), static_cast<dim_t>(output_features) };
+            LinearCudaTestData data;
+            data.input_shape = input_shape;
+            data.input_features = input_features;
+            data.output_features = output_features;
+            data.has_bias = has_bias;
+
+            data.output_shape = input_shape;
+            data.output_shape.back() = output_features;
 
             data.config = LinearConfig( input_features, output_features );
-            data.config
-                .withBias( has_bias )
-                .withName( "test_linear" );
+            data.config.withName( name )
+                .withBias( has_bias );
 
-            if constexpr (TDevice == DeviceType::Cuda)
-            {
-                data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
-            }
-            else
-            {
-                data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-            }
-
-            data.linear_module = std::make_shared<Linear<TDevice, TPrecision>>(  data.exec_context, data.config );
+            data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+            data.module = std::make_shared<Linear<DeviceType::Cuda, TPrecision>>( data.exec_context, data.config );
 
             return data;
         }
 
-        LinearTestData() : config( 1, 1 )
+        static LinearCudaTestData CreateWithContext(
+            const std::string& name,
+            const shape_t& input_shape,
+            int64_t input_features,
+            int64_t output_features,
+            std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
+            bool has_bias = true )
         {
+            LinearCudaTestData data;
+            data.input_shape = input_shape;
+            data.input_features = input_features;
+            data.output_features = output_features;
+            data.has_bias = has_bias;
+
+            data.output_shape = input_shape;
+            data.output_shape.back() = output_features;
+
+            data.config = LinearConfig( input_features, output_features );
+            data.config.withName( name )
+                .withBias( has_bias );
+
+            data.exec_context = context;
+            data.module = std::make_shared<Linear<DeviceType::Cuda, TPrecision>>( data.exec_context, data.config );
+
+            return data;
         }
     };
 
@@ -69,299 +96,654 @@ namespace Modules::Layers::Tests
     protected:
         void SetUp() override
         {
-            batch_size_ = 4;
-            sequence_length_ = 8;
+            int device_count = 0;
+            cudaError_t error = cudaGetDeviceCount( &device_count );
+            cuda_available_ = (error == cudaSuccess && device_count > 0);
+
+            if (!cuda_available_)
+            {
+                return;
+            }
+
+            small_shape_ = { 2, 3, 16 };
+            medium_shape_ = { 64, 128, 512 };
+            large_shape_ = { 128, 256, 1024 };
+
             input_features_ = 16;
             output_features_ = 32;
         }
 
-        void TearDown() override
+        LinearCudaTestData<TensorDataType::FP32>& SmallFp32Data()
         {
-            cuda_float_data_.linear_module.reset();
-            cuda_no_bias_float_data_.linear_module.reset();
-        }
-
-        LinearTestData<DeviceType::Cuda, TensorDataType::FP32>& CudaFp32Data()
-        {
-            if (!cuda_float_data_.linear_module)
+            if (!small_fp32_.module)
             {
-                cuda_float_data_ = LinearTestData<DeviceType::Cuda, TensorDataType::FP32>::Create(
-                    batch_size_, sequence_length_, input_features_, output_features_ );
+                small_fp32_ = LinearCudaTestData<TensorDataType::FP32>::Create(
+                    "small_linear_cuda", small_shape_, input_features_, output_features_ );
             }
-            return cuda_float_data_;
+            return small_fp32_;
         }
 
-        LinearTestData<DeviceType::Cuda, TensorDataType::FP32>& CudaNoBiasFp32Data()
+        LinearCudaTestData<TensorDataType::FP32>& MediumFp32Data()
         {
-            if (!cuda_no_bias_float_data_.linear_module)
+            if (!medium_fp32_.module)
             {
-                cuda_no_bias_float_data_ = LinearTestData<DeviceType::Cuda, TensorDataType::FP32>::Create(
-                    batch_size_, sequence_length_, input_features_, output_features_, false );
+                medium_fp32_ = LinearCudaTestData<TensorDataType::FP32>::Create(
+                    "medium_linear_cuda", medium_shape_, 512, 256 );
             }
-            return cuda_no_bias_float_data_;
+            return medium_fp32_;
         }
 
-        int64_t batch_size_{ 0 };
-        int64_t sequence_length_{ 0 };
-        int64_t input_features_{ 0 };
-        int64_t output_features_{ 0 };
+        LinearCudaTestData<TensorDataType::FP32>& LargeFp32Data()
+        {
+            if (!large_fp32_.module)
+            {
+                large_fp32_ = LinearCudaTestData<TensorDataType::FP32>::Create(
+                    "large_linear_cuda", large_shape_, 1024, 768 );
+            }
+            return large_fp32_;
+        }
 
-        LinearTestData<DeviceType::Cuda, TensorDataType::FP32> cuda_float_data_;
-        LinearTestData<DeviceType::Cuda, TensorDataType::FP32> cuda_no_bias_float_data_;
+        LinearCudaTestData<TensorDataType::FP32>& NoBiasFp32Data()
+        {
+            if (!no_bias_fp32_.module)
+            {
+                no_bias_fp32_ = LinearCudaTestData<TensorDataType::FP32>::Create(
+                    "no_bias_linear_cuda", small_shape_, input_features_, output_features_, false );
+            }
+            return no_bias_fp32_;
+        }
+
+        bool cuda_available_{ false };
+
+        shape_t small_shape_;
+        shape_t medium_shape_;
+        shape_t large_shape_;
+        int64_t input_features_;
+        int64_t output_features_;
+
+        LinearCudaTestData<TensorDataType::FP32> small_fp32_;
+        LinearCudaTestData<TensorDataType::FP32> medium_fp32_;
+        LinearCudaTestData<TensorDataType::FP32> large_fp32_;
+        LinearCudaTestData<TensorDataType::FP32> no_bias_fp32_;
     };
 
-    template<DeviceType TDevice, TensorDataType TPrecision>
-    void TestParameterCount( const LinearTestData<TDevice, TPrecision>& data )
+    template<TensorDataType TPrecision>
+    void TestGetName( const LinearCudaTestData<TPrecision>& data, const std::string& expected_name )
     {
-        size_t expected_count = data.config.getInputFeatures() * data.config.getOutputFeatures();
-        if (data.config.hasBias())
+        EXPECT_EQ( data.module->getName(), expected_name );
+    }
+
+    template<TensorDataType TPrecision>
+    void TestDeviceType( const LinearCudaTestData<TPrecision>& data )
+    {
+        EXPECT_EQ( data.module->getDeviceType(), DeviceType::Cuda );
+        ASSERT_NE( data.exec_context, nullptr );
+
+        auto device = data.exec_context->getDevice();
+        ASSERT_NE( device, nullptr );
+        EXPECT_EQ( device->getDeviceType(), DeviceType::Cuda );
+    }
+
+    template<TensorDataType TPrecision>
+    void TestIsBuilt( const LinearCudaTestData<TPrecision>& data, bool expected_built )
+    {
+        EXPECT_EQ( data.module->isBuilt(), expected_built );
+    }
+
+    template<TensorDataType TPrecision>
+    void TestBuild( LinearCudaTestData<TPrecision>& data )
+    {
+        EXPECT_NO_THROW( data.module->build( data.input_shape ) );
+        EXPECT_TRUE( data.module->isBuilt() );
+
+        data.module->build( data.input_shape );
+        EXPECT_TRUE( data.module->isBuilt() );
+    }
+
+    template<TensorDataType TPrecision>
+    void TestParameterCount( const LinearCudaTestData<TPrecision>& data )
+    {
+        size_t expected_count = data.input_features * data.output_features;
+        if (data.has_bias)
         {
-            expected_count += data.config.getOutputFeatures();
+            expected_count += data.output_features;
         }
-        EXPECT_EQ( data.linear_module->parameterCount(), expected_count );
+        EXPECT_EQ( data.module->parameterCount(), expected_count );
     }
 
-    template<DeviceType TDevice, TensorDataType TPrecision>
-    void TestForward( const LinearTestData<TDevice, TPrecision>& data )
+    template<TensorDataType TPrecision>
+    void TestGetWeight( const LinearCudaTestData<TPrecision>& data )
     {
-        using MR = MemoryResourceType<TDevice>;
-        using TensorType = Tensor<TPrecision, MR>;
+        auto weight = data.module->getWeight();
+        ASSERT_NE( weight, nullptr );
+        EXPECT_EQ( weight->shape()[0], data.output_features );
+        EXPECT_EQ( weight->shape()[1], data.input_features );
+    }
 
-        const std::string device_name = (TDevice == DeviceType::Cuda) ? "CUDA:0" : "CPU";
+    template<TensorDataType TPrecision>
+    void TestGetBias( const LinearCudaTestData<TPrecision>& data )
+    {
+        auto bias = data.module->getBias();
 
-        TensorType input( device_name, data.input_shape );
-        TensorType output( device_name, data.output_shape );
-
-        if constexpr (TDevice == DeviceType::Cuda)
+        if (data.has_bias)
         {
-            // Fill host tensor and copy to device using TensorOps::copy
-            Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( "CPU", data.input_shape );
-            std::mt19937 rng( 1234 );
-            std::uniform_real_distribution<float> dist( -1.0f, 1.0f );
-            for (size_t i = 0; i < host_input.size(); ++i) host_input.data()[i] = dist( rng );
-
-            // perform host->device transfer via copy()
-            copy( host_input, input, data.exec_context.get() );
-        }
-
-        ASSERT_NO_THROW( data.linear_module->forward( input, output ) );
-        EXPECT_EQ( output.size(), static_cast<size_t>( data.output_shape[0] * data.output_shape[1] * data.output_shape[2] ) );
-    }
-
-    template<DeviceType TDevice, TensorDataType TPrecision>
-    void TestToString( const LinearTestData<TDevice, TPrecision>& data )
-    {
-        std::string result = data.linear_module->toString();
-        EXPECT_FALSE( result.empty() );
-        EXPECT_NE( result.find( "Linear" ), std::string::npos );
-        EXPECT_NE( result.find( "Input features" ), std::string::npos );
-        EXPECT_NE( result.find( "Output features" ), std::string::npos );
-    }
-
-    template<DeviceType TDevice, TensorDataType TPrecision>
-    void TestGetWeight( const LinearTestData<TDevice, TPrecision>& data )
-    {
-        auto weight = data.linear_module->getWeight();
-        EXPECT_NE( weight, nullptr );
-
-        EXPECT_EQ( weight->shape()[0], static_cast<dim_t>( data.config.getOutputFeatures() ) );
-        EXPECT_EQ( weight->shape()[1], static_cast<dim_t>( data.config.getInputFeatures() ) );
-    }
-
-    template<DeviceType TDevice, TensorDataType TPrecision>
-    void TestGetBias( const LinearTestData<TDevice, TPrecision>& data )
-    {
-        auto bias_opt = data.linear_module->getBias();
-
-        if (data.config.hasBias())
-        {
-            EXPECT_TRUE( bias_opt.has_value() );
-            auto bias = bias_opt.value();
-            EXPECT_NE( bias, nullptr );
-            EXPECT_EQ( bias->shape()[0], static_cast<dim_t>( data.config.getOutputFeatures() ) );
+            ASSERT_NE( bias, nullptr );
+            EXPECT_EQ( bias->shape()[0], data.output_features );
         }
         else
         {
-            EXPECT_FALSE( bias_opt.has_value() );
+            EXPECT_EQ( bias, nullptr );
         }
     }
 
-    template<DeviceType TDevice, TensorDataType TPrecision>
-    void TestHasBias( const LinearTestData<TDevice, TPrecision>& data )
+    template<TensorDataType TPrecision>
+    void TestHasBias( const LinearCudaTestData<TPrecision>& data )
     {
-        EXPECT_EQ( data.linear_module->hasBias(), data.config.hasBias() );
+        EXPECT_EQ( data.module->hasBias(), data.has_bias );
     }
 
-    void TestCpuCudaEquivalence()
+    template<TensorDataType TPrecision>
+    void TestToString( const LinearCudaTestData<TPrecision>& data )
     {
-        shape_t test_input_shape = { 2, 4, 8 };
-        shape_t test_output_shape = { 2, 4, 16 };
+        std::string output = data.module->toString();
+
+        EXPECT_NE( output.find( "Linear" ), std::string::npos );
+        EXPECT_NE( output.find( data.config.getName() ), std::string::npos );
+        EXPECT_NE( output.find( "Input features:" ), std::string::npos );
+        EXPECT_NE( output.find( "Output features:" ), std::string::npos );
+        EXPECT_NE( output.find( "Device:" ), std::string::npos );
+    }
+
+    template<TensorDataType TPrecision>
+    void TestForward( LinearCudaTestData<TPrecision>& data )
+    {
+        using DeviceTensorType = CudaTensor<TPrecision>;
+        using HostTensorType = CpuTensor<TensorDataType::FP32>;
+
+        data.module->build( data.input_shape );
+
+        HostTensorType host_input( "CPU", data.input_shape );
+        random( host_input, -1.0f, 1.0f );
+
+        DeviceTensorType device_input( "CUDA:0", data.input_shape );
+        DeviceTensorType device_output( "CUDA:0", data.output_shape );
+
+        copy( host_input, device_input );
+
+        EXPECT_NO_THROW( data.module->forward( device_input, device_output ) );
+        EXPECT_EQ( device_output.size(),
+            data.output_shape[0] * data.output_shape[1] * data.output_shape[2] );
+        EXPECT_EQ( device_output.shape(), data.output_shape );
+
+        HostTensorType host_output = toHost<TensorDataType::FP32>( device_output );
+        EXPECT_EQ( host_output.size(), device_output.size() );
+    }
+
+    template<TensorDataType TPrecision>
+    void TestGetParameters( const LinearCudaTestData<TPrecision>& data )
+    {
+        auto params = data.module->getParameters();
+
+        if (data.has_bias)
+        {
+            EXPECT_EQ( params.size(), 2 );
+            EXPECT_NE( params[0], nullptr );
+            EXPECT_NE( params[1], nullptr );
+        }
+        else
+        {
+            EXPECT_EQ( params.size(), 1 );
+            EXPECT_NE( params[0], nullptr );
+        }
+    }
+
+    TEST_F( LinearCudaTests, GetName )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        TestGetName( SmallFp32Data(), "small_linear_cuda" );
+    }
+
+    TEST_F( LinearCudaTests, DeviceType )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        TestDeviceType( SmallFp32Data() );
+    }
+
+    TEST_F( LinearCudaTests, IsBuilt_BeforeBuild )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        TestIsBuilt( SmallFp32Data(), false );
+    }
+
+    TEST_F( LinearCudaTests, IsBuilt_AfterBuild )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = SmallFp32Data();
+
+        EXPECT_FALSE( data.module->isBuilt() );
+
+        data.module->build( data.input_shape );
+
+        EXPECT_TRUE( data.module->isBuilt() );
+    }
+
+    TEST_F( LinearCudaTests, Build )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = SmallFp32Data();
+        TestBuild( data );
+    }
+
+    TEST_F( LinearCudaTests, ParameterCount_WithBias )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        TestParameterCount( SmallFp32Data() );
+    }
+
+    TEST_F( LinearCudaTests, ParameterCount_WithoutBias )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        TestParameterCount( NoBiasFp32Data() );
+    }
+
+    TEST_F( LinearCudaTests, GetWeight )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        TestGetWeight( SmallFp32Data() );
+    }
+
+    TEST_F( LinearCudaTests, GetBias_WithBias )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        TestGetBias( SmallFp32Data() );
+    }
+
+    TEST_F( LinearCudaTests, GetBias_WithoutBias )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        TestGetBias( NoBiasFp32Data() );
+    }
+
+    TEST_F( LinearCudaTests, HasBias_True )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        TestHasBias( SmallFp32Data() );
+    }
+
+    TEST_F( LinearCudaTests, HasBias_False )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        TestHasBias( NoBiasFp32Data() );
+    }
+
+    TEST_F( LinearCudaTests, GetParameters_WithBias )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        TestGetParameters( SmallFp32Data() );
+    }
+
+    TEST_F( LinearCudaTests, GetParameters_WithoutBias )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        TestGetParameters( NoBiasFp32Data() );
+    }
+
+    TEST_F( LinearCudaTests, ToString )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = SmallFp32Data();
+        TestToString( data );
+    }
+
+    TEST_F( LinearCudaTests, Forward_SmallShape )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = SmallFp32Data();
+        TestForward( data );
+    }
+
+    TEST_F( LinearCudaTests, Forward_MediumShape )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = MediumFp32Data();
+        TestForward( data );
+    }
+
+    TEST_F( LinearCudaTests, Forward_LargeShape )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = LargeFp32Data();
+        TestForward( data );
+    }
+
+    TEST_F( LinearCudaTests, Forward_WithoutBias )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = NoBiasFp32Data();
+        TestForward( data );
+    }
+
+    TEST_F( LinearCudaTests, WithContext_Construction )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+
+        auto data = LinearCudaTestData<TensorDataType::FP32>::CreateWithContext(
+            "context_linear_cuda", small_shape_, input_features_, output_features_, ctx );
+
+        EXPECT_EQ( data.module->getName(), "context_linear_cuda" );
+        EXPECT_EQ( data.exec_context, ctx );
+    }
+
+    TEST_F( LinearCudaTests, EdgeCase_MinimalShape )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        shape_t shape = { 1, 1, 1 };
+
+        auto data = LinearCudaTestData<TensorDataType::FP32>::Create(
+            "minimal_cuda", shape, 1, 1 );
+
+        TestForward( data );
+    }
+
+    TEST_F( LinearCudaTests, EdgeCase_LargeFeatures )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = LargeFp32Data();
+        TestForward( data );
+    }
+
+    TEST_F( LinearCudaTests, EdgeCase_BatchSize1 )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        shape_t shape = { 1, 8, 16 };
+
+        auto data = LinearCudaTestData<TensorDataType::FP32>::Create(
+            "batch1_cuda", shape, 16, 32 );
+
+        TestForward( data );
+    }
+
+    TEST_F( LinearCudaTests, Error_NullExecutionContext )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        LinearConfig config( 16, 32 );
+        config.withName( "test_cuda" );
+
+        std::shared_ptr<ExecutionContext<DeviceType::Cuda>> null_ctx;
+
+        EXPECT_THROW(
+            (std::make_shared<Linear<DeviceType::Cuda, TensorDataType::FP32>>( null_ctx, config )),
+            std::invalid_argument
+        );
+    }
+
+    TEST_F( LinearCudaTests, Error_ForwardBeforeBuild )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = LinearCudaTestData<TensorDataType::FP32>::Create(
+            "unbuild_cuda", small_shape_, input_features_, output_features_ );
+
+        CudaTensor<TensorDataType::FP32> input( "CUDA:0", data.input_shape );
+        CudaTensor<TensorDataType::FP32> output( "CUDA:0", data.output_shape );
+
+        EXPECT_THROW(
+            data.module->forward( input, output ),
+            std::runtime_error
+        );
+    }
+
+    TEST_F( LinearCudaTests, Error_ShapeMismatch )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = SmallFp32Data();
+        data.module->build( data.input_shape );
+
+        shape_t wrong_shape = { 2, 3, 64 };
+
+        CudaTensor<TensorDataType::FP32> input( "CUDA:0", wrong_shape );
+        CudaTensor<TensorDataType::FP32> output( "CUDA:0", { 2, 3, 32 } );
+
+        EXPECT_THROW(
+            data.module->forward( input, output ),
+            std::invalid_argument
+        );
+    }
+
+    TEST_F( LinearCudaTests, Synchronize )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = SmallFp32Data();
+
+        EXPECT_NO_THROW( data.module->synchronize() );
+    }
+
+    TEST_F( LinearCudaTests, SetTrainingMode )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = SmallFp32Data();
+
+        EXPECT_FALSE( data.module->isTraining() );
+
+        data.module->setTraining( true );
+        EXPECT_TRUE( data.module->isTraining() );
+
+        data.module->setTraining( false );
+        EXPECT_FALSE( data.module->isTraining() );
+    }
+
+    TEST_F( LinearCudaTests, MultipleForwardCalls )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = MediumFp32Data();
+        data.module->build( data.input_shape );
+
+        CpuTensor<TensorDataType::FP32> host_input( "CPU", data.input_shape );
+        CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", data.input_shape );
+        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", data.output_shape );
+
+        for (int iter = 0; iter < 10; ++iter)
+        {
+            random( host_input, -1.0f, 1.0f );
+            copy( host_input, device_input );
+
+            EXPECT_NO_THROW( data.module->forward( device_input, device_output ) );
+        }
+    }
+
+    TEST_F( LinearCudaTests, CpuCuda_OutputEquivalence )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        shape_t test_shape = { 2, 4, 8 };
 
         LinearConfig cpu_config( 8, 16 );
-        cpu_config.withBias( true ).withName( "cpu_test" );
+        cpu_config.withName( "cpu_equiv" ).withBias( true );
 
-        LinearConfig cuda_config( 8, 16 );
-        cuda_config.withBias( true ).withName( "cuda_test" );
+        auto cpu_exec_context = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
+        auto cpu_module = std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>( cpu_exec_context, cpu_config );
 
-        auto cpu_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        auto cuda_ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto cuda_data = LinearCudaTestData<TensorDataType::FP32>::Create(
+            "cuda_equiv", test_shape, 8, 16, true );
 
-        auto cpu_linear = std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>(  cpu_ctx, cpu_config );
-        auto cuda_linear = std::make_shared<Linear<DeviceType::Cuda, TensorDataType::FP32>>(  cuda_ctx, cuda_config );
+        cpu_module->build( test_shape );
+        cuda_data.module->build( test_shape );
 
-        Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( "CPU", test_input_shape );
-        for (size_t i = 0; i < host_input.size(); ++i)
+        CpuTensor<TensorDataType::FP32> host_input( "CPU", test_shape );
+        random( host_input, -1.0f, 1.0f );
+
+        // Initialize parameters with same values
+        auto cpu_weight = cpu_module->getWeight();
+        auto cuda_weight = cuda_data.module->getWeight();
+
+        CpuTensor<TensorDataType::FP32> init_weight( "CPU", cpu_weight->shape() );
+        fill( init_weight, 0.1f );
+
+        copy( init_weight, *cpu_weight );
+        copy( init_weight, *cuda_weight );
+
+        auto cpu_bias = cpu_module->getBias();
+        auto cuda_bias = cuda_data.module->getBias();
+
+        if (cpu_bias && cuda_bias)
         {
-            host_input.data()[i] = static_cast<float>( i ) / host_input.size() * 2.0f - 1.0f;
+            CpuTensor<TensorDataType::FP32> init_bias( "CPU", cpu_bias->shape() );
+            zeros( init_bias );
+
+            copy( init_bias, *cpu_bias );
+            copy( init_bias, *cuda_bias );
         }
 
-        auto cpu_weight = cpu_linear->getWeight(); // Cpu tensor
-        auto cuda_weight = cuda_linear->getWeight(); // Cuda tensor
+        // Run CPU forward
+        shape_t output_shape = test_shape;
+        output_shape.back() = 16;
 
-        for (size_t i = 0; i < cpu_weight->size(); ++i)
-        {
-            cpu_weight->data()[i] = 0.1f;
-        }
+        CpuTensor<TensorDataType::FP32> cpu_output( "CPU", output_shape );
+        cpu_module->forward( host_input, cpu_output );
 
-        copy( *cpu_weight, *cuda_weight, cuda_ctx.get() );
+        // Run CUDA forward
+        CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", test_shape );
+        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", output_shape );
+        copy( host_input, device_input );
+        cuda_data.module->forward( device_input, device_output );
 
-        auto cpu_bias_opt = cpu_linear->getBias();
-        auto cuda_bias_opt = cuda_linear->getBias();
-
-        if (cpu_bias_opt.has_value() && cuda_bias_opt.has_value())
-        {
-            auto cpu_bias = cpu_bias_opt.value();
-            auto cuda_bias = cuda_bias_opt.value();
-
-            for (size_t i = 0; i < cpu_bias->size(); ++i)
-            {
-                cpu_bias->data()[i] = 0.0f;
-            }
-
-            copy( *cpu_bias, *cuda_bias, cuda_ctx.get() );
-        }
-
-        Tensor<TensorDataType::FP32, CpuMemoryResource> cpu_output( "CPU", test_output_shape );
-        cpu_linear->forward( host_input, cpu_output );
-
-        auto cuda_input = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( "CUDA:0", test_input_shape );
-        copy( host_input, cuda_input, cuda_ctx.get() );
-
-        Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> cuda_output( "CUDA:0", test_output_shape );
-        cuda_linear->forward( cuda_input, cuda_output );
-
-        Tensor<TensorDataType::FP32, CpuMemoryResource> cuda_output_host( "CPU", test_output_shape );
-        copy( cuda_output, cuda_output_host, cuda_ctx.get() );
+        CpuTensor<TensorDataType::FP32> cuda_output_host = toHost<TensorDataType::FP32>( device_output );
 
         const float epsilon = 1e-4f;
+        bool all_close = true;
+
         for (size_t i = 0; i < cpu_output.size(); ++i)
         {
-            float diff = std::abs( cpu_output.data()[i] - cuda_output_host.data()[i] );
-            EXPECT_LT( diff, epsilon ) << "Mismatch at index " << i;
-        }
-    }
+            float cpu_val = cpu_output.data()[i];
+            float cuda_val = cuda_output_host.data()[i];
+            float diff = std::abs( cpu_val - cuda_val );
 
-    TEST_F( LinearCudaTests, Cuda_Fp32_ParameterCount )
-    {
-        try
-        {
-            TestParameterCount( CudaFp32Data() );
+            if (diff > epsilon)
+            {
+                all_close = false;
+                break;
+            }
         }
-        catch (const std::exception&)
-        {
-            std::cout << "CUDA device not available, skipping test" << std::endl;
-            SUCCEED();
-        }
-    }
 
-    TEST_F( LinearCudaTests, Cuda_Fp32_Forward )
-    {
-        try
-        {
-            TestForward( CudaFp32Data() );
-        }
-        catch (const std::exception&)
-        {
-            std::cout << "CUDA device not available, skipping test" << std::endl;
-            SUCCEED();
-        }
-    }
-
-    TEST_F( LinearCudaTests, Cuda_Fp32_ToString )
-    {
-        try
-        {
-            TestToString( CudaFp32Data() );
-        }
-        catch (const std::exception&)
-        {
-            std::cout << "CUDA device not available, skipping test" << std::endl;
-            SUCCEED();
-        }
-    }
-
-    TEST_F( LinearCudaTests, Cuda_Fp32_GetWeight )
-    {
-        try
-        {
-            TestGetWeight( CudaFp32Data() );
-        }
-        catch (const std::exception&)
-        {
-            std::cout << "CUDA device not available, skipping test" << std::endl;
-            SUCCEED();
-        }
-    }
-
-    TEST_F( LinearCudaTests, Cuda_Fp32_GetBias )
-    {
-        try
-        {
-            TestGetBias( CudaFp32Data() );
-        }
-        catch (const std::exception&)
-        {
-            std::cout << "CUDA device not available, skipping test" << std::endl;
-            SUCCEED();
-        }
-    }
-
-    TEST_F( LinearCudaTests, Cuda_NoBias_Fp32_HasBias )
-    {
-        try
-        {
-            TestHasBias( CudaNoBiasFp32Data() );
-        }
-        catch (const std::exception&)
-        {
-            std::cout << "CUDA device not available, skipping test" << std::endl;
-            SUCCEED();
-        }
-    }
-
-    TEST_F( LinearCudaTests, Cuda_NoBias_Fp32_Forward )
-    {
-        try
-        {
-            TestForward( CudaNoBiasFp32Data() );
-        }
-        catch (const std::exception&)
-        {
-            std::cout << "CUDA device not available, skipping test" << std::endl;
-            SUCCEED();
-        }
-    }
-
-    TEST_F( LinearCudaTests, CpuCuda_EquivalenceTest )
-    {
-        try
-        {
-            TestCpuCudaEquivalence();
-        }
-        catch (const std::exception&)
-        {
-            std::cout << "CUDA device not available, skipping equivalence test" << std::endl;
-            SUCCEED();
-        }
+        EXPECT_TRUE( all_close ) << "CPU and CUDA implementations produced different results";
     }
 }

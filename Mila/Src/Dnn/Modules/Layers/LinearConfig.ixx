@@ -11,11 +11,13 @@
 
 module;
 #include <stdexcept>
+#include <cstdint>
 
 export module Dnn.Modules.Linear:Config;
 
 import Dnn.Module;
 import Dnn.ConfigurationBase;
+import Dnn.TensorTypes;
 
 namespace Mila::Dnn
 {
@@ -37,7 +39,8 @@ namespace Mila::Dnn
      *       factories or constructors. Validation should be invoked prior to creating
      *       runtime objects to surface configuration errors early.
      */
-    export class LinearConfig : public ConfigurationBase {
+    export class LinearConfig : public ConfigurationBase
+    {
     public:
         /**
          * @brief Construct a LinearConfig with required feature dimensions.
@@ -47,8 +50,10 @@ namespace Mila::Dnn
          * @param input_features Number of input features (channels). Must be > 0.
          * @param output_features Number of output features (channels). Must be > 0.
          */
-        LinearConfig( size_t input_features, size_t output_features )
-            : input_features_( input_features ), output_features_( output_features ) {}
+        LinearConfig( dim_t input_features, dim_t output_features )
+            : input_features_( input_features ), output_features_( output_features )
+        {
+        }
 
         /**
          * @brief Set whether the Linear layer includes a bias term.
@@ -59,28 +64,38 @@ namespace Mila::Dnn
          * @param has_bias True to include a bias parameter, false to omit it.
          * @return LinearConfig& Reference to this configuration (for chaining).
          */
-        LinearConfig& withBias( bool has_bias ) {
+        LinearConfig& withBias( bool has_bias )
+        {
             has_bias_ = has_bias;
             return *this;
         }
 
         /**
          * @brief Get the configured number of input features.
-         * @return size_t Number of input features configured.
+         * @return dim_t Number of input features configured.
          */
-        size_t getInputFeatures() const { return input_features_; }
-        
+        dim_t getInputFeatures() const noexcept
+        {
+            return input_features_;
+        }
+
         /**
          * @brief Get the configured number of output features.
-         * @return size_t Number of output features configured.
+         * @return dim_t Number of output features configured.
          */
-        size_t getOutputFeatures() const { return output_features_; }
-        
+        dim_t getOutputFeatures() const noexcept
+        {
+            return output_features_;
+        }
+
         /**
          * @brief Query whether the bias term is enabled.
          * @return bool True if bias is enabled; false otherwise.
          */
-        bool hasBias() const { return has_bias_; }
+        bool hasBias() const noexcept
+        {
+            return has_bias_;
+        }
 
         /**
          * @brief Validate the configuration values.
@@ -91,11 +106,13 @@ namespace Mila::Dnn
          *
          * @throws std::invalid_argument If any required parameter is invalid.
          */
-        void validate() const {
+        void validate() const override
+        {
             ConfigurationBase::validate();
 
-            if ( input_features_ == 0 || output_features_ == 0 ) {
-                throw std::invalid_argument( "Input and output features must be greater than zero" );
+            if (input_features_ <= 0 || output_features_ <= 0)
+            {
+                throw std::invalid_argument( "LinearConfig: Input and output features must be greater than zero" );
             }
         }
 
@@ -105,20 +122,20 @@ namespace Mila::Dnn
          *
          * Must be greater than zero.
          */
-        size_t input_features_;
+        dim_t input_features_;
 
         /**
          * @brief Number of output features (channels) produced by the layer.
          *
          * Must be greater than zero.
          */
-        size_t output_features_;
+        dim_t output_features_;
 
         /**
          * @brief Whether the layer has a bias term.
          *
          * Default is true.
          */
-        bool has_bias_ = true;
+        bool has_bias_{ true };
     };
 }

@@ -1,22 +1,23 @@
 /**
  * @file CpuLinearOp.ixx
- * @brief CPU implementation of the Fully Connected operation (TensorDataType-based).
+ * @brief CPU implementation of Linear (fully connected) operation (TensorDataType-based).
  *
- * Ported to the ExecutionContext / TensorDataType UnaryOperation interface following
- * the pattern used by CpuGeluOp.
+ * Ported to the ExecutionContext / TensorDataType UnaryOperation interface
+ * following the two-phase initialization pattern used by CpuLayerNormOp.
  */
 
 module;
-#include <math.h>
-#include <string>
 #include <memory>
 #include <vector>
+#include <string>
 #include <stdexcept>
 #include <sstream>
+#include <numeric>
+#include <functional>
+#include <cstdint>
 #ifdef USE_OMP
 #include <omp.h>
 #endif
-#include <functional>
 
 export module Compute.CpuLinearOp;
 
@@ -47,7 +48,17 @@ namespace Mila::Dnn::Compute
     using namespace Mila::Dnn;
 
     /**
-     * @brief CPU implementation of the Fully Connected / Linear operation using abstract TensorDataType.
+     * @brief CPU implementation of Linear operation using abstract TensorDataType API.
+     *
+     * Template parameter TPrecision selects the abstract tensor precision (e.g. FP32).
+     * HostType is the corresponding CPU host representation for that precision.
+     *
+     * Design philosophy:
+     * - Two-phase initialization: build() does all setup, forward()/backward() are pure dispatch
+     * - Module owns weight/bias parameters and binds them via setParameters()
+     * - All dimension computation happens once in build()
+     * - Forward/backward are hot-path methods with minimal overhead
+     * - Implements: y = x * W^T + b where W is (out_features, in_features)
      *
      * Forward: Y = X * W^T + b
      * Backward:
@@ -69,9 +80,9 @@ namespace Mila::Dnn::Compute
         using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
 
         CpuLinearOp( std::shared_ptr<CpuExecutionContext> context, const LinearConfig& config )
-            : config_( config ), context_( context )
+            : context_( context ), config_( config )
         {
-            if (context_ && context_->getDevice()->getDeviceType() != DeviceType::Cpu)
+            if (!context_)
             {
                 throw std::runtime_error( "CpuLinearOp requires a CPU execution context" );
             }
@@ -79,262 +90,240 @@ namespace Mila::Dnn::Compute
             config_.validate();
         }
 
-		// ====================================================================
-		// Parameters
-		// ====================================================================
+        // ====================================================================
+        // Parameters
+        // ====================================================================
 
         /**
-         * @brief Set weight and optional bias parameters.
+         * @brief Set parameter tensor references (module remains owner).
          *
-         * @param weight Weight matrix of shape (out_features, in_features)
-         * @param bias Optional bias vector of shape (out_features)
+         * The operation caches native host pointers for hot-path access. The
+         * weight tensor is required; bias is bound only when the Linear
+         * config indicates a bias is present.
+         *
+         * Note: build() requires parameters to be bound before it is called.
          */
-        void setParameters( const TensorType* weight, const TensorType* bias )
+        void setParameters( ITensor* weight, ITensor* bias ) override
         {
             if (!weight)
             {
-                throw std::invalid_argument( "Weight cannot be null" );
+                throw std::invalid_argument( "CpuLinearOp::setParameters - weight parameter is required" );
             }
 
-            weight_ptr_ = weight->data();
-            bias_ptr_ = bias ? bias->data() : nullptr;
-            has_bias_ = (bias_ptr_ != nullptr);
+            weight_ = static_cast<const HostType*>(weight->rawData());
 
-            // Validate weight dimensions match config
-            auto weight_shape = weight->shape();
+            // Validate weight is 2D
+            const auto& weight_shape = weight->shape();
             if (weight_shape.size() != 2)
             {
-                throw std::invalid_argument( "Weight must be 2D" );
+                throw std::invalid_argument( "CpuLinearOp::setParameters - weight must be 2D tensor" );
             }
-            if (weight_shape[0] != config_.getOutputFeatures() )
+
+            // Store weight dimensions for validation
+            weight_out_features_ = weight_shape[0];
+            weight_in_features_ = weight_shape[1];
+
+            if (config_.hasBias())
             {
-                throw std::invalid_argument(
-                    "Weight dim 0 must match config outputfeatures"
-                );
+                if (!bias)
+                {
+                    throw std::invalid_argument( "CpuLinearOp::setParameters - bias parameter expected but null was provided" );
+                }
+
+                bias_ = static_cast<const HostType*>(bias->rawData());
             }
-            if (input_features_ > 0 && weight_shape[1] != input_features_)
+            else
             {
-                throw std::invalid_argument(
-                    "Weight dim 1 must match input_features"
-                );
+                bias_ = nullptr;
             }
         }
 
-		// ====================================================================
-		// Lifecycle
-		// ====================================================================
+        // ====================================================================
+        // Lifecycle
+        // ====================================================================
 
+        /**
+         * @brief Build the operation for a concrete input shape.
+         *
+         * This is the COLD PATH where all setup, validation, and computation happens ONCE.
+         * After build() completes, forward() and backward() become pure dispatch methods.
+         *
+         * Responsibilities:
+         *  1. Validate parameters were bound via setParameters()
+         *  2. Validate input shape compatibility with weight dimensions
+         *  3. Compute and cache batch size and feature dimensions
+         *  4. Determine optimal loop unrolling strategy
+         *  5. Cache OMP parallelization threshold
+         *
+         * After build(), the operation is ready for zero-overhead forward/backward dispatch.
+         */
         void build( const shape_t& input_shape ) override
         {
-            if (this->is_built_ && input_shape == cached_input_shape_)
+            if (weight_ == nullptr)
             {
-                return;  // Already built for this shape
+                throw std::runtime_error( "CpuLinearOp::build requires parameters bound via setParameters() before build()." );
+            }
+
+            if (config_.hasBias() && bias_ == nullptr)
+            {
+                throw std::runtime_error( "CpuLinearOp::build - bias expected by config but not bound via setParameters()." );
             }
 
             if (input_shape.empty())
             {
-                throw std::invalid_argument( "Input shape cannot be empty" );
+                throw std::invalid_argument( "CpuLinearOp::build - input shape cannot be empty" );
             }
 
-            // Extract dimensions
-            // Input: (batch_dims..., in_features)
-            input_features_ = input_shape.back();
+            // Extract dimensions: input is (..., in_features)
+            cached_in_features_ = input_shape.back();
 
-            if (config_.getInputFeatures() > 0 && config_.getInputFeatures() != input_features_)
+            // Validate weight dimensions match configuration
+            if (weight_out_features_ != config_.getOutputFeatures())
             {
-                throw std::invalid_argument(
-                    "Input features " + std::to_string( in_features_ ) +
-                    " don't match config " + std::to_string( config_.in_features )
-                );
+                std::ostringstream oss;
+                oss << "CpuLinearOp::build - weight output features mismatch. Expected "
+                    << config_.getOutputFeatures() << ", got " << weight_out_features_;
+                throw std::invalid_argument( oss.str() );
             }
 
-            // Compute batch size (flatten all but last dimension)
-            batch_size_ = std::accumulate(
-                input_shape.begin(),
-                input_shape.end() - 1,
-                dim_t{ 1 },
-                std::multiplies{}
-            );
+            if (weight_in_features_ != cached_in_features_)
+            {
+                std::ostringstream oss;
+                oss << "CpuLinearOp::build - weight input features mismatch. Expected "
+                    << cached_in_features_ << ", got " << weight_in_features_;
+                throw std::invalid_argument( oss.str() );
+            }
 
-            output_features_ = config_.getOutputFeatures();
+            // Compute batch size (flatten all dimensions except last)
+            cached_batch_size_ = 1;
+            for (size_t i = 0; i + 1 < input_shape.size(); ++i)
+            {
+                cached_batch_size_ *= input_shape[i];
+            }
 
-            cached_input_shape_ = input_shape;
-            
-            this->is_built_ = true;
+            cached_out_features_ = config_.getOutputFeatures();
+
+            // Determine loop unrolling strategy
+            use_loop_unroll_ = (cached_batch_size_ % LOOP_UNROLL == 0);
+
+            // Cache OMP parallelization threshold
+            enable_omp_ = (cached_batch_size_ > 100);
+
+            UnaryOperationBase::build( input_shape );
         }
 
-		// ====================================================================
-		// Computation
-		// ====================================================================
+        // ====================================================================
+        // Computation
+        // ====================================================================
 
+        /**
+         * @brief Forward pass - HOT PATH, pure dispatch to CPU kernel.
+         *
+         * All setup, validation, and dimension computation was done in build().
+         * This method extracts raw pointers and dispatches directly to the
+         * optimized matrix multiplication kernel using pre-computed cached dimensions.
+         *
+         * Algorithm: Y = X * W^T + b
+         * Zero redundant work - maximum performance.
+         */
         void forward( const ITensor& input, ITensor& output ) const override
         {
-            if (!this->is_built_)
-            {
-                throw std::runtime_error( "LinearOp not built - call build() first" );
-            }
             const HostType* X = static_cast<const HostType*>(input.rawData());
             HostType* Y = static_cast<HostType*>(output.rawData());
 
-            if (!X || !Y)
+            const int64_t batch_size = cached_batch_size_;
+            const int64_t in_features = cached_in_features_;
+            const int64_t out_features = cached_out_features_;
+            const HostType* W = weight_;
+            const HostType* B = bias_;
+
+            if (use_loop_unroll_)
             {
-                throw std::runtime_error( "CpuLinearOp::forward - null tensor data pointer" );
+                forwardUnrolled( X, Y, W, B, batch_size, in_features, out_features );
             }
-
-            const auto& in_shape = input.shape();
-            if (in_shape.size() < 2)
+            else
             {
-                throw std::runtime_error( "CpuLinearOp::forward - expected input rank >= 2" );
-            }
-
-            // compute outer size = product of leading dims except last (features)
-            int C = static_cast<int>(in_shape.back());
-            size_t outer_size = 1;
-            for (size_t i = 0; i + 1 < in_shape.size(); ++i) outer_size *= in_shape[i];
-
-            // Output feature dimension from output tensor shape
-            const auto& out_shape = output.shape();
-            if (out_shape.size() < 2)
-            {
-                throw std::runtime_error( "CpuLinearOp::forward - expected output rank >= 2" );
-            }
-            int OC = static_cast<int>(out_shape.back());
-
-            // weight expected shape: [OC, C] (row-major)
-            // input layout: outer index -> contiguous C features
-            // output layout: outer index -> contiguous OC features
-
-            // loop-unroll optimization retained from previous implementation
-            const int LOOP_UNROLL = 8;
-            if (outer_size % LOOP_UNROLL != 0)
-            {
-                // fallback naive
-#pragma omp parallel for
-                for (size_t idx = 0; idx < outer_size; ++idx)
-                {
-                    const size_t in_base = idx * static_cast<size_t>( C );
-                    const size_t out_base = idx * static_cast<size_t>( OC );
-                    for (int o = 0; o < OC; ++o)
-                    {
-                        long double acc = 0.0L;
-                        for (int i = 0; i < C; ++i)
-                        {
-                            acc += static_cast<long double>( X[in_base + i] ) * static_cast<long double>( W[o * C + i] );
-                        }
-                        if (B) acc += static_cast<long double>( B[o] );
-                        Y[out_base + o] = static_cast<HostType>( acc );
-                    }
-                }
-                return;
-            }
-
-#pragma omp parallel for
-            for (int out_idx = 0; out_idx < static_cast<int>( outer_size ); out_idx += LOOP_UNROLL)
-            {
-                for (int o = 0; o < OC; ++o)
-                {
-                    HostType result[LOOP_UNROLL];
-                    for (int i_idx = 0; i_idx < LOOP_UNROLL; ++i_idx)
-                    {
-                        result[i_idx] = (B ? B[o] : static_cast<HostType>( 0 ));
-                    }
-
-                    for (int i = 0; i < C; ++i)
-                    {
-                        HostType w = W[o * C + i];
-                        for (int i_idx = 0; i_idx < LOOP_UNROLL; ++i_idx)
-                        {
-                            int idx = out_idx + i_idx;
-                            result[i_idx] += X[idx * C + i] * w;
-                        }
-                    }
-
-                    for (int i_idx = 0; i_idx < LOOP_UNROLL; ++i_idx)
-                    {
-                        int idx = out_idx + i_idx;
-                        Y[idx * OC + o] = result[i_idx];
-                    }
-                }
+                forwardNaive( X, Y, W, B, batch_size, in_features, out_features );
             }
         }
 
+        /**
+         * @brief Backward pass - HOT PATH, pure dispatch to CPU kernel.
+         *
+         * Similar to forward(), this method does minimal work and dispatches
+         * directly to the backward kernel using cached dimensions from build().
+         *
+         * Algorithm:
+         *  - dX += dY * W
+         *  - dW += dY^T * X
+         *  - db += sum(dY)
+         */
         void backward(
-            const ITensor& grad_output,
             const ITensor& input,
-            const Parameters& parameters,
-            const OutputState& output_state,
-            ITensor& grad_input,
-            Parameters& grad_parameters ) const override
+            const ITensor& output_grad,
+            ITensor& input_grad,
+            Parameters& parameter_grads ) const override
         {
             const HostType* X = static_cast<const HostType*>(input.rawData());
-            const HostType* dY = static_cast<const HostType*>(grad_output.rawData());
-            HostType* dX = static_cast<HostType*>(grad_input.rawData());
+            const HostType* dY = static_cast<const HostType*>(output_grad.rawData());
+            HostType* dX = static_cast<HostType*>(input_grad.rawData());
 
-            if (!X || !dY || !dX)
-            {
-                throw std::runtime_error( "CpuLinearOp::backward - null tensor data pointer" );
-            }
+            const HostType* W = weight_;
 
-            if (parameters.empty() || !parameters[0])
-            {
-                throw std::invalid_argument( "CpuLinearOp::backward requires weight parameter" );
-            }
-
-            const HostType* W = static_cast<const HostType*>(parameters[0]->data());
-
-            const auto& in_shape = input.shape();
-            int C = static_cast<int>(in_shape.back());
-            size_t outer_size = 1;
-            for (size_t i = 0; i + 1 < in_shape.size(); ++i) outer_size *= in_shape[i];
-
-            const auto& out_shape = grad_output.shape();
-            int OC = static_cast<int>(out_shape.back());
-
-            // Prepare gradients for parameters if provided
             HostType* dW = nullptr;
             HostType* dB = nullptr;
-            if (grad_parameters.size() > 0 && grad_parameters[0])
+
+            if (parameter_grads.size() > 0 && parameter_grads[0])
             {
-                dW = static_cast<HostType*>(grad_parameters[0]->data());
-            }
-            if (grad_parameters.size() > 1 && grad_parameters[1])
-            {
-                dB = static_cast<HostType*>(grad_parameters[1]->data());
+                dW = static_cast<HostType*>(parameter_grads[0]->data());
             }
 
-#pragma omp parallel for collapse(1)
-            for (size_t idx = 0; idx < outer_size; ++idx)
+            if (parameter_grads.size() > 1 && parameter_grads[1])
             {
-                const size_t in_base = idx * static_cast<size_t>( C );
-                const size_t out_base = idx * static_cast<size_t>( OC );
+                dB = static_cast<HostType*>(parameter_grads[1]->data());
+            }
 
-                // compute dX for this outer index
-                for (int i = 0; i < C; ++i)
+            const int64_t batch_size = cached_batch_size_;
+            const int64_t in_features = cached_in_features_;
+            const int64_t out_features = cached_out_features_;
+
+#pragma omp parallel for if(enable_omp_)
+            for (int64_t idx = 0; idx < batch_size; ++idx)
+            {
+                const int64_t in_base = idx * in_features;
+                const int64_t out_base = idx * out_features;
+
+                // Compute dX for this batch element
+                for (int64_t i = 0; i < in_features; ++i)
                 {
                     long double acc = 0.0L;
-                    for (int o = 0; o < OC; ++o)
+                    for (int64_t o = 0; o < out_features; ++o)
                     {
-                        acc += static_cast<long double>( W[o * C + i] ) * static_cast<long double>( dY[out_base + o] );
+                        acc += static_cast<long double>( W[o * in_features + i] ) *
+                            static_cast<long double>( dY[out_base + o] );
                     }
 #pragma omp atomic
                     dX[in_base + i] += static_cast<HostType>( acc );
                 }
 
-                // accumulate dW and dB
-                for (int o = 0; o < OC; ++o)
+                // Accumulate dW and dB
+                for (int64_t o = 0; o < out_features; ++o)
                 {
                     long double dy = static_cast<long double>( dY[out_base + o] );
+
                     if (dB)
                     {
 #pragma omp atomic
                         dB[o] += static_cast<HostType>( dy );
                     }
+
                     if (dW)
                     {
-                        for (int i = 0; i < C; ++i)
+                        for (int64_t i = 0; i < in_features; ++i)
                         {
 #pragma omp atomic
-                            dW[o * C + i] += static_cast<HostType>( static_cast<long double>( X[in_base + i] ) * dy );
+                            dW[o * in_features + i] += static_cast<HostType>(
+                                static_cast<long double>( X[in_base + i] ) * dy );
                         }
                     }
                 }
@@ -351,9 +340,110 @@ namespace Mila::Dnn::Compute
             return "Cpu::LinearOp";
         }
 
+        const LinearConfig& getConfig() const
+        {
+            return config_;
+        }
+
     private:
+        static constexpr int LOOP_UNROLL = 8;
+
         LinearConfig config_;
         std::shared_ptr<CpuExecutionContext> context_;
+
+        // Cached native host parameter pointers (module owns underlying tensors)
+        const HostType* weight_{ nullptr };
+        const HostType* bias_{ nullptr };
+
+        // Weight dimensions for validation
+        int64_t weight_out_features_{ 0 };
+        int64_t weight_in_features_{ 0 };
+
+        // Cached dimension values computed once in build() for hot-path dispatch
+        int64_t cached_batch_size_{ 0 };
+        int64_t cached_in_features_{ 0 };
+        int64_t cached_out_features_{ 0 };
+        bool use_loop_unroll_{ false };
+        bool enable_omp_{ false };
+
+        /**
+         * @brief Naive forward implementation without loop unrolling.
+         *
+         * Used when batch size doesn't align with unroll factor.
+         */
+        void forwardNaive(
+            const HostType* X, HostType* Y,
+            const HostType* W, const HostType* B,
+            int64_t batch_size, int64_t in_features, int64_t out_features ) const
+        {
+#pragma omp parallel for if(enable_omp_)
+            for (int64_t idx = 0; idx < batch_size; ++idx)
+            {
+                const int64_t in_base = idx * in_features;
+                const int64_t out_base = idx * out_features;
+
+                for (int64_t o = 0; o < out_features; ++o)
+                {
+                    long double acc = 0.0L;
+
+                    for (int64_t i = 0; i < in_features; ++i)
+                    {
+                        acc += static_cast<long double>( X[in_base + i] ) *
+                            static_cast<long double>( W[o * in_features + i] );
+                    }
+
+                    if (B)
+                        acc += static_cast<long double>( B[o] );
+
+                    Y[out_base + o] = static_cast<HostType>( acc );
+                }
+            }
+        }
+
+        /**
+         * @brief Optimized forward implementation with loop unrolling.
+         *
+         * Processes LOOP_UNROLL batch elements simultaneously for better cache utilization.
+         */
+        void forwardUnrolled(
+            const HostType* X, HostType* Y,
+            const HostType* W, const HostType* B,
+            int64_t batch_size, int64_t in_features, int64_t out_features ) const
+        {
+#pragma omp parallel for if(enable_omp_)
+            for (int64_t out_idx = 0; out_idx < batch_size; out_idx += LOOP_UNROLL)
+            {
+                for (int64_t o = 0; o < out_features; ++o)
+                {
+                    HostType result[LOOP_UNROLL];
+
+                    // Initialize with bias
+                    for (int i_idx = 0; i_idx < LOOP_UNROLL; ++i_idx)
+                    {
+                        result[i_idx] = B ? B[o] : static_cast<HostType>( 0 );
+                    }
+
+                    // Accumulate weighted inputs
+                    for (int64_t i = 0; i < in_features; ++i)
+                    {
+                        HostType w = W[o * in_features + i];
+
+                        for (int i_idx = 0; i_idx < LOOP_UNROLL; ++i_idx)
+                        {
+                            int64_t idx = out_idx + i_idx;
+                            result[i_idx] += X[idx * in_features + i] * w;
+                        }
+                    }
+
+                    // Store results
+                    for (int i_idx = 0; i_idx < LOOP_UNROLL; ++i_idx)
+                    {
+                        int64_t idx = out_idx + i_idx;
+                        Y[idx * out_features + o] = result[i_idx];
+                    }
+                }
+            }
+        }
     };
 
     export class CpuLinearOpRegistrar

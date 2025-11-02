@@ -191,7 +191,7 @@ PUBLIC
         #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuEncoderOp.ixx"
         "Src/Dnn/Compute/Devices/Cpu/Operations/CpuGeluOp.ixx"
         "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLayerNormOp.ixx"
-        #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuLinearOp.ixx"
+        "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLinearOp.ixx"
         #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuMultiHeadAttentionOp.ixx"
         #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuResidualOp.ixx"
         "Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxOp.ixx"
@@ -231,12 +231,12 @@ PUBLIC
         # CUDA / Operations
         "Src/Dnn/Compute/Devices/Cuda/Operations/CudaOperations.ixx"
         #"Src/Dnn/Compute/Operations/Cuda/CudaDataTypeTraits.ixx"
-        #"Src/Dnn/Compute/Devices/Cuda/Operations/CublasLtMatMulBias.ixx"
+        "Src/Dnn/Compute/Devices/Cuda/Operations/CublasLtMatMulBias.ixx"
         #"Src/Dnn/Compute/Operations/Cuda/MatMulBiasActivation.ixx"
         #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaResidualOp.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Operations/CudaGeluOp.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Operations/CudaLayerNormOp.ixx"
-        #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaLinearOp.ixx"
+        "Src/Dnn/Compute/Devices/Cuda/Operations/CudaLinearOp.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Operations/CudaSoftmaxOp.ixx"
         #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaAttentionOp.ixx"
         #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaEncoderOp.ixx"
@@ -277,8 +277,8 @@ PUBLIC
         "Src/Dnn/Modules/Activations/GeluConfig.ixx"
 
         # Modules - Layers
-        #"Src/Dnn/Modules/Layers/Linear.ixx"
-        #"Src/Dnn/Modules/Layers/LinearConfig.ixx"
+        "Src/Dnn/Modules/Layers/Linear.ixx"
+        "Src/Dnn/Modules/Layers/LinearConfig.ixx"
         #"Src/Dnn/Modules/Layers/Encoder.ixx"
         #"Src/Dnn/Modules/Layers/EncoderConfig.ixx"
         #"Src/Dnn/Modules/Layers/MultiHeadAttention.ixx"
@@ -295,8 +295,8 @@ PUBLIC
         #"Src/Dnn/Modules/Losses/CrossEntropyConfig.ixx"
         #"Src/Dnn/Modules/Regularization/Dropout.ixx"
         #"Src/Dnn/Modules/Regularization/DropoutConfig.ixx"
-        #"Src/Dnn/Modules/Blocks/MLP.ixx"
-        #"Src/Dnn/Modules/Blocks/MLPConfig.ixx"
+        "Src/Dnn/Modules/Blocks/MLP.ixx"
+        "Src/Dnn/Modules/Blocks/MLPConfig.ixx"
         #"Src/Dnn/Modules/Blocks/TransformerBlock.ixx"
         #"Src/Dnn/Modules/Blocks/TransformerBlockConfig.ixx"
         
@@ -332,7 +332,8 @@ PUBLIC
         "Src/Dnn/Compute/DeviceDescriptor.ixx" 
         "Src/Dnn/Compute/Devices/Cuda/CudaDeviceResources.ixx"
         "Src/Dnn/Tensors/Tensor.Partitioning.ixx"
-        "Src/Dnn/Tensors/Tensor.Types.ixx")
+        "Src/Dnn/Tensors/Tensor.Types.ixx"
+        )
 
 target_link_libraries(Mila PRIVATE 
     miniz

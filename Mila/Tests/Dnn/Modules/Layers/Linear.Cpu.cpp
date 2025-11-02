@@ -2,11 +2,8 @@
 #include <memory>
 #include <vector>
 #include <string>
-#include <optional>
-#include <random>
-#include <iostream>
+#include <cmath>
 #include <cstdint>
-#include <stdexcept>
 
 import Mila;
 
@@ -15,76 +12,78 @@ namespace Modules::Layers::Tests
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
 
-    template<DeviceType TDevice>
-    using MemoryResourceType = std::conditional_t<TDevice == DeviceType::Cuda,
-        CudaDeviceMemoryResource,
-        CpuMemoryResource>;
+    template<TensorDataType TPrecision>
+    using CpuTensor = Tensor<TPrecision, CpuMemoryResource>;
 
-    // CPU-specialized test-data and helpers (keeps templates for reuse but tests instantiate CPU)
-    template<DeviceType TDevice, TensorDataType TPrecision = TensorDataType::FP32>
-    struct LinearTestData
+    template<TensorDataType TPrecision>
+    struct LinearCpuTestData
     {
         shape_t input_shape;
         shape_t output_shape;
-        std::shared_ptr<Linear<TDevice, TPrecision>> linear_module;
         LinearConfig config;
-        std::shared_ptr<ExecutionContext<TDevice>> exec_context;
+        std::shared_ptr<ExecutionContext<DeviceType::Cpu>> exec_context;
+        std::shared_ptr<Linear<DeviceType::Cpu, TPrecision>> module;
+        int64_t input_features;
+        int64_t output_features;
+        bool has_bias;
 
-        static LinearTestData Create(
-            int64_t batch_size,
-            int64_t sequence_length,
+        // Default constructor needed for test fixture member variables
+        LinearCpuTestData() : config( 1, 1 ), input_features( 0 ), output_features( 0 ), has_bias( true )
+        {
+        }
+
+        static LinearCpuTestData Create(
+            const std::string& name,
+            const shape_t& input_shape,
             int64_t input_features,
             int64_t output_features,
             bool has_bias = true )
         {
-            LinearTestData data;
-            data.input_shape = { static_cast<dim_t>(batch_size), static_cast<dim_t>(sequence_length), static_cast<dim_t>(input_features) };
-            data.output_shape = { static_cast<dim_t>(batch_size), static_cast<dim_t>(sequence_length), static_cast<dim_t>(output_features) };
+            LinearCpuTestData data;
+            data.input_shape = input_shape;
+            data.input_features = input_features;
+            data.output_features = output_features;
+            data.has_bias = has_bias;
 
-            data.config = LinearConfig( static_cast<size_t>(input_features), static_cast<size_t>(output_features) );
-            data.config
-                .withBias( has_bias )
-                .withName( "test_linear" );
+            // Output shape: same leading dims, replace last dim with output_features
+            data.output_shape = input_shape;
+            data.output_shape.back() = output_features;
 
-            if constexpr (TDevice == DeviceType::Cuda)
-            {
-                data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
-            }
-            else
-            {
-                data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-            }
+            data.config = LinearConfig( input_features, output_features );
+            data.config.withName( name )
+                .withBias( has_bias );
 
-            data.linear_module = std::make_shared<Linear<TDevice, TPrecision>>( data.exec_context, data.config );
+            data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
+            data.module = std::make_shared<Linear<DeviceType::Cpu, TPrecision>>( data.exec_context, data.config );
 
             return data;
         }
 
-        static LinearTestData CreateWithContext(
-            std::shared_ptr<ExecutionContext<TDevice>> context,
-            int64_t batch_size,
-            int64_t sequence_length,
+        static LinearCpuTestData CreateWithContext(
+            const std::string& name,
+            const shape_t& input_shape,
             int64_t input_features,
             int64_t output_features,
+            std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
             bool has_bias = true )
         {
-            LinearTestData data;
-            data.input_shape = { static_cast<dim_t>(batch_size), static_cast<dim_t>(sequence_length), static_cast<dim_t>(input_features) };
-            data.output_shape = { static_cast<dim_t>(batch_size), static_cast<dim_t>(sequence_length), static_cast<dim_t>(output_features) };
+            LinearCpuTestData data;
+            data.input_shape = input_shape;
+            data.input_features = input_features;
+            data.output_features = output_features;
+            data.has_bias = has_bias;
 
-            data.config = LinearConfig( static_cast<size_t>(input_features), static_cast<size_t>(output_features) );
-            data.config
-                .withBias( has_bias )
-                .withName( "test_linear_context" );
+            data.output_shape = input_shape;
+            data.output_shape.back() = output_features;
+
+            data.config = LinearConfig( input_features, output_features );
+            data.config.withName( name )
+                .withBias( has_bias );
 
             data.exec_context = context;
-            data.linear_module = std::make_shared<Linear<TDevice, TPrecision>>( data.exec_context, data.config );
+            data.module = std::make_shared<Linear<DeviceType::Cpu, TPrecision>>( data.exec_context, data.config );
 
             return data;
-        }
-
-        LinearTestData() : config( 1, 1 )
-        {
         }
     };
 
@@ -93,266 +92,435 @@ namespace Modules::Layers::Tests
     protected:
         void SetUp() override
         {
-            batch_size_ = 4;
-            sequence_length_ = 8;
+            small_shape_ = { 2, 3, 16 };
+            medium_shape_ = { 4, 128, 512 };
+            large_shape_ = { 8, 256, 1024 };
+
             input_features_ = 16;
             output_features_ = 32;
         }
 
-        void TearDown() override
+        LinearCpuTestData<TensorDataType::FP32>& SmallFp32Data()
         {
-            cpu_float_data_.linear_module.reset();
-            cpu_no_bias_float_data_.linear_module.reset();
-            context_cpu_float_data_.linear_module.reset();
-        }
-
-        LinearTestData<DeviceType::Cpu, TensorDataType::FP32>& CpuFp32Data()
-        {
-            if (!cpu_float_data_.linear_module)
+            if (!small_fp32_.module)
             {
-                cpu_float_data_ = LinearTestData<DeviceType::Cpu, TensorDataType::FP32>::Create(
-                    batch_size_, sequence_length_, input_features_, output_features_ );
+                small_fp32_ = LinearCpuTestData<TensorDataType::FP32>::Create(
+                    "small_linear_cpu", small_shape_, input_features_, output_features_ );
             }
-            return cpu_float_data_;
+            return small_fp32_;
         }
 
-        LinearTestData<DeviceType::Cpu, TensorDataType::FP32>& CpuNoBiasFp32Data()
+        LinearCpuTestData<TensorDataType::FP32>& MediumFp32Data()
         {
-            if (!cpu_no_bias_float_data_.linear_module)
+            if (!medium_fp32_.module)
             {
-                cpu_no_bias_float_data_ = LinearTestData<DeviceType::Cpu, TensorDataType::FP32>::Create(
-                    batch_size_, sequence_length_, input_features_, output_features_, false );
+                medium_fp32_ = LinearCpuTestData<TensorDataType::FP32>::Create(
+                    "medium_linear_cpu", medium_shape_, 512, 256 );
             }
-            return cpu_no_bias_float_data_;
+            return medium_fp32_;
         }
 
-        LinearTestData<DeviceType::Cpu, TensorDataType::FP32>& ContextCpuFp32Data()
+        LinearCpuTestData<TensorDataType::FP32>& LargeFp32Data()
         {
-            if (!context_cpu_float_data_.linear_module)
+            if (!large_fp32_.module)
             {
-                auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-                context_cpu_float_data_ = LinearTestData<DeviceType::Cpu, TensorDataType::FP32>::CreateWithContext(
-                    ctx, batch_size_, sequence_length_, input_features_, output_features_ );
+                large_fp32_ = LinearCpuTestData<TensorDataType::FP32>::Create(
+                    "large_linear_cpu", large_shape_, 1024, 768 );
             }
-            return context_cpu_float_data_;
+            return large_fp32_;
         }
 
-        int64_t batch_size_{ 0 };
-        int64_t sequence_length_{ 0 };
-        int64_t input_features_{ 0 };
-        int64_t output_features_{ 0 };
+        LinearCpuTestData<TensorDataType::FP32>& NoBiasFp32Data()
+        {
+            if (!no_bias_fp32_.module)
+            {
+                no_bias_fp32_ = LinearCpuTestData<TensorDataType::FP32>::Create(
+                    "no_bias_linear_cpu", small_shape_, input_features_, output_features_, false );
+            }
+            return no_bias_fp32_;
+        }
 
-        LinearTestData<DeviceType::Cpu, TensorDataType::FP32> cpu_float_data_;
-        LinearTestData<DeviceType::Cpu, TensorDataType::FP32> cpu_no_bias_float_data_;
-        LinearTestData<DeviceType::Cpu, TensorDataType::FP32> context_cpu_float_data_;
+        shape_t small_shape_;
+        shape_t medium_shape_;
+        shape_t large_shape_;
+        int64_t input_features_;
+        int64_t output_features_;
+
+        LinearCpuTestData<TensorDataType::FP32> small_fp32_;
+        LinearCpuTestData<TensorDataType::FP32> medium_fp32_;
+        LinearCpuTestData<TensorDataType::FP32> large_fp32_;
+        LinearCpuTestData<TensorDataType::FP32> no_bias_fp32_;
     };
 
-    template<DeviceType TDevice, TensorDataType TPrecision>
-    void TestParameterCount( const LinearTestData<TDevice, TPrecision>& data )
+    template<TensorDataType TPrecision>
+    void TestGetName( const LinearCpuTestData<TPrecision>& data, const std::string& expected_name )
     {
-        size_t expected_count = data.config.getInputFeatures() * data.config.getOutputFeatures();
-        if (data.config.hasBias())
+        EXPECT_EQ( data.module->getName(), expected_name );
+    }
+
+    template<TensorDataType TPrecision>
+    void TestDeviceType( const LinearCpuTestData<TPrecision>& data )
+    {
+        EXPECT_EQ( data.module->getDeviceType(), DeviceType::Cpu );
+        ASSERT_NE( data.exec_context, nullptr );
+
+        auto device = data.exec_context->getDevice();
+        ASSERT_NE( device, nullptr );
+        EXPECT_EQ( device->getDeviceType(), DeviceType::Cpu );
+    }
+
+    template<TensorDataType TPrecision>
+    void TestIsBuilt( const LinearCpuTestData<TPrecision>& data, bool expected_built )
+    {
+        EXPECT_EQ( data.module->isBuilt(), expected_built );
+    }
+
+    template<TensorDataType TPrecision>
+    void TestBuild( LinearCpuTestData<TPrecision>& data )
+    {
+        EXPECT_NO_THROW( data.module->build( data.input_shape ) );
+        EXPECT_TRUE( data.module->isBuilt() );
+
+        data.module->build( data.input_shape );
+        EXPECT_TRUE( data.module->isBuilt() );
+    }
+
+    template<TensorDataType TPrecision>
+    void TestParameterCount( const LinearCpuTestData<TPrecision>& data )
+    {
+        size_t expected_count = data.input_features * data.output_features;
+        if (data.has_bias)
         {
-            expected_count += data.config.getOutputFeatures();
+            expected_count += data.output_features;
         }
-        EXPECT_EQ( data.linear_module->parameterCount(), expected_count );
+        EXPECT_EQ( data.module->parameterCount(), expected_count );
     }
 
-    template<DeviceType TDevice, TensorDataType TPrecision>
-    void TestForward( const LinearTestData<TDevice, TPrecision>& data )
+    template<TensorDataType TPrecision>
+    void TestGetWeight( const LinearCpuTestData<TPrecision>& data )
     {
-        using MR = MemoryResourceType<TDevice>;
-        using TensorType = Tensor<TPrecision, MR>;
+        auto weight = data.module->getWeight();
+        ASSERT_NE( weight, nullptr );
+        EXPECT_EQ( weight->shape()[0], data.output_features );
+        EXPECT_EQ( weight->shape()[1], data.input_features );
+    }
 
-        const std::string device_name = (TDevice == DeviceType::Cuda) ? "CUDA:0" : "CPU";
+    template<TensorDataType TPrecision>
+    void TestGetBias( const LinearCpuTestData<TPrecision>& data )
+    {
+        auto bias = data.module->getBias();
 
-        TensorType input( device_name, data.input_shape );
-        TensorType output( device_name, data.output_shape );
-
-        if constexpr (TDevice == DeviceType::Cpu)
+        if (data.has_bias)
         {
-            // Fill CPU tensor directly
-            std::mt19937 rng( 1234 );
-            std::uniform_real_distribution<float> dist( -1.0f, 1.0f );
-            auto ptr = input.data();
-            for (size_t i = 0; i < input.size(); ++i) ptr[i] = static_cast<typename TensorHostTypeMap<TPrecision>::host_type>( dist( rng ) );
-        }
-
-        ASSERT_NO_THROW( data.linear_module->forward( input, output ) );
-        EXPECT_EQ( output.size(), static_cast<size_t>( data.output_shape[0] * data.output_shape[1] * data.output_shape[2] ) );
-    }
-
-    template<DeviceType TDevice, TensorDataType TPrecision>
-    void TestToString( const LinearTestData<TDevice, TPrecision>& data )
-    {
-        std::string result = data.linear_module->toString();
-        EXPECT_FALSE( result.empty() );
-        EXPECT_NE( result.find( "Linear" ), std::string::npos );
-        EXPECT_NE( result.find( "Input features" ), std::string::npos );
-        EXPECT_NE( result.find( "Output features" ), std::string::npos );
-    }
-
-    template<DeviceType TDevice, TensorDataType TPrecision>
-    void TestGetWeight( const LinearTestData<TDevice, TPrecision>& data )
-    {
-        auto weight = data.linear_module->getWeight();
-        EXPECT_NE( weight, nullptr );
-
-        EXPECT_EQ( weight->shape()[0], static_cast<dim_t>( data.config.getOutputFeatures() ) );
-        EXPECT_EQ( weight->shape()[1], static_cast<dim_t>( data.config.getInputFeatures() ) );
-    }
-
-    template<DeviceType TDevice, TensorDataType TPrecision>
-    void TestGetBias( const LinearTestData<TDevice, TPrecision>& data )
-    {
-        auto bias_opt = data.linear_module->getBias();
-
-        if (data.config.hasBias())
-        {
-            EXPECT_TRUE( bias_opt.has_value() );
-            auto bias = bias_opt.value();
-            EXPECT_NE( bias, nullptr );
-            EXPECT_EQ( bias->shape()[0], static_cast<dim_t>( data.config.getOutputFeatures() ) );
+            ASSERT_NE( bias, nullptr );
+            EXPECT_EQ( bias->shape()[0], data.output_features );
         }
         else
         {
-            EXPECT_FALSE( bias_opt.has_value() );
+            EXPECT_EQ( bias, nullptr );
         }
     }
 
-    template<DeviceType TDevice, TensorDataType TPrecision>
-    void TestHasBias( const LinearTestData<TDevice, TPrecision>& data )
+    template<TensorDataType TPrecision>
+    void TestHasBias( const LinearCpuTestData<TPrecision>& data )
     {
-        EXPECT_EQ( data.linear_module->hasBias(), data.config.hasBias() );
+        EXPECT_EQ( data.module->hasBias(), data.has_bias );
     }
 
-    template<DeviceType TDevice, TensorDataType TPrecision>
-    void TestDeviceType( const LinearTestData<TDevice, TPrecision>& data )
+    template<TensorDataType TPrecision>
+    void TestToString( const LinearCpuTestData<TPrecision>& data )
     {
-        ASSERT_NE( data.exec_context, nullptr );
-        auto device = data.exec_context->getDevice();
-        ASSERT_NE( device, nullptr );
-        EXPECT_EQ( device->getDeviceType(), TDevice );
+        std::string output = data.module->toString();
+
+        EXPECT_NE( output.find( "Linear" ), std::string::npos );
+        EXPECT_NE( output.find( data.config.getName() ), std::string::npos );
+        EXPECT_NE( output.find( "Input features:" ), std::string::npos );
+        EXPECT_NE( output.find( "Output features:" ), std::string::npos );
+        EXPECT_NE( output.find( "Device:" ), std::string::npos );
     }
 
-    void TestEdgeCases()
+    template<TensorDataType TPrecision>
+    void TestForward( LinearCpuTestData<TPrecision>& data )
+    {
+        using TensorType = CpuTensor<TPrecision>;
+
+        data.module->build( data.input_shape );
+
+        TensorType input( "CPU", data.input_shape );
+        TensorType output( "CPU", data.output_shape );
+
+        random( input, -1.0f, 1.0f );
+
+        EXPECT_NO_THROW( data.module->forward( input, output ) );
+        EXPECT_EQ( output.size(),
+            data.output_shape[0] * data.output_shape[1] * data.output_shape[2] );
+        EXPECT_EQ( output.shape(), data.output_shape );
+    }
+
+    template<TensorDataType TPrecision>
+    void TestGetParameters( const LinearCpuTestData<TPrecision>& data )
+    {
+        auto params = data.module->getParameters();
+
+        if (data.has_bias)
+        {
+            EXPECT_EQ( params.size(), 2 );
+            EXPECT_NE( params[0], nullptr );
+            EXPECT_NE( params[1], nullptr );
+        }
+        else
+        {
+            EXPECT_EQ( params.size(), 1 );
+            EXPECT_NE( params[0], nullptr );
+        }
+    }
+
+    TEST_F( LinearCpuTests, GetName )
+    {
+        TestGetName( SmallFp32Data(), "small_linear_cpu" );
+    }
+
+    TEST_F( LinearCpuTests, DeviceType )
+    {
+        TestDeviceType( SmallFp32Data() );
+    }
+
+    TEST_F( LinearCpuTests, IsBuilt_BeforeBuild )
+    {
+        TestIsBuilt( SmallFp32Data(), false );
+    }
+
+    TEST_F( LinearCpuTests, IsBuilt_AfterBuild )
+    {
+        auto data = SmallFp32Data();
+
+        EXPECT_FALSE( data.module->isBuilt() );
+
+        data.module->build( data.input_shape );
+
+        EXPECT_TRUE( data.module->isBuilt() );
+    }
+
+    TEST_F( LinearCpuTests, Build )
+    {
+        auto data = SmallFp32Data();
+        TestBuild( data );
+    }
+
+    TEST_F( LinearCpuTests, ParameterCount_WithBias )
+    {
+        TestParameterCount( SmallFp32Data() );
+    }
+
+    TEST_F( LinearCpuTests, ParameterCount_WithoutBias )
+    {
+        TestParameterCount( NoBiasFp32Data() );
+    }
+
+    TEST_F( LinearCpuTests, GetWeight )
+    {
+        TestGetWeight( SmallFp32Data() );
+    }
+
+    TEST_F( LinearCpuTests, GetBias_WithBias )
+    {
+        TestGetBias( SmallFp32Data() );
+    }
+
+    TEST_F( LinearCpuTests, GetBias_WithoutBias )
+    {
+        TestGetBias( NoBiasFp32Data() );
+    }
+
+    TEST_F( LinearCpuTests, HasBias_True )
+    {
+        TestHasBias( SmallFp32Data() );
+    }
+
+    TEST_F( LinearCpuTests, HasBias_False )
+    {
+        TestHasBias( NoBiasFp32Data() );
+    }
+
+    TEST_F( LinearCpuTests, GetParameters_WithBias )
+    {
+        TestGetParameters( SmallFp32Data() );
+    }
+
+    TEST_F( LinearCpuTests, GetParameters_WithoutBias )
+    {
+        TestGetParameters( NoBiasFp32Data() );
+    }
+
+    TEST_F( LinearCpuTests, ToString )
+    {
+        auto data = SmallFp32Data();
+        TestToString( data );
+    }
+
+    TEST_F( LinearCpuTests, Forward_SmallShape )
+    {
+        auto data = SmallFp32Data();
+        TestForward( data );
+    }
+
+    TEST_F( LinearCpuTests, Forward_MediumShape )
+    {
+        auto data = MediumFp32Data();
+        TestForward( data );
+    }
+
+    TEST_F( LinearCpuTests, Forward_LargeShape )
+    {
+        auto data = LargeFp32Data();
+        TestForward( data );
+    }
+
+    TEST_F( LinearCpuTests, Forward_WithoutBias )
+    {
+        auto data = NoBiasFp32Data();
+        TestForward( data );
+    }
+
+    TEST_F( LinearCpuTests, WithContext_Construction )
     {
         auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
 
-        LinearConfig minimal_config( 1, 1 );
-        minimal_config.withName( "minimal_linear" );
+        auto data = LinearCpuTestData<TensorDataType::FP32>::CreateWithContext(
+            "context_linear_cpu", small_shape_, input_features_, output_features_, ctx );
 
-        auto minimal_linear = std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>(  ctx, minimal_config );
-
-        Tensor<TensorDataType::FP32, CpuMemoryResource> minimal_input( "CPU", shape_t{1, 1, 1} );
-        Tensor<TensorDataType::FP32, CpuMemoryResource> minimal_output( "CPU", shape_t{1, 1, 1} );
-
-        minimal_input.data()[0] = 1.0f;
-
-        EXPECT_NO_THROW( minimal_linear->forward( minimal_input, minimal_output ) );
-
-        LinearConfig large_config( 128, 64 );
-        large_config.withName( "large_linear" );
-
-        auto large_linear = std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>( ctx, large_config );
-
-        Tensor<TensorDataType::FP32, CpuMemoryResource> large_input( "CPU", shape_t{2, 4, 128} );
-        Tensor<TensorDataType::FP32, CpuMemoryResource> large_output( "CPU", shape_t{2, 4, 64} );
-
-        for (size_t i = 0; i < large_input.size(); ++i)
-        {
-            large_input.data()[i] = static_cast<float>( i ) / large_input.size();
-        }
-
-        EXPECT_NO_THROW( large_linear->forward( large_input, large_output ) );
-        EXPECT_EQ( large_output.size(), 512 );
+        EXPECT_EQ( data.module->getName(), "context_linear_cpu" );
+        EXPECT_EQ( data.exec_context, ctx );
     }
 
-    TEST_F( LinearCpuTests, Cpu_Fp32_ParameterCount )
+    TEST_F( LinearCpuTests, EdgeCase_MinimalShape )
     {
-        TestParameterCount( CpuFp32Data() );
+        shape_t shape = { 1, 1, 1 };
+
+        auto data = LinearCpuTestData<TensorDataType::FP32>::Create(
+            "minimal_cpu", shape, 1, 1 );
+
+        TestForward( data );
     }
 
-    TEST_F( LinearCpuTests, Cpu_Fp32_Forward )
+    TEST_F( LinearCpuTests, EdgeCase_LargeFeatures )
     {
-        TestForward( CpuFp32Data() );
+        auto data = LargeFp32Data();
+        TestForward( data );
     }
 
-    TEST_F( LinearCpuTests, Cpu_Fp32_ToString )
+    TEST_F( LinearCpuTests, EdgeCase_BatchSize1 )
     {
-        TestToString( CpuFp32Data() );
+        shape_t shape = { 1, 8, 16 };
+
+        auto data = LinearCpuTestData<TensorDataType::FP32>::Create(
+            "batch1_cpu", shape, 16, 32 );
+
+        TestForward( data );
     }
 
-    TEST_F( LinearCpuTests, Cpu_Fp32_GetWeight )
-    {
-        TestGetWeight( CpuFp32Data() );
-    }
-
-    TEST_F( LinearCpuTests, Cpu_Fp32_GetBias )
-    {
-        TestGetBias( CpuFp32Data() );
-    }
-
-    TEST_F( LinearCpuTests, Cpu_Fp32_HasBias )
-    {
-        TestHasBias( CpuFp32Data() );
-    }
-
-    TEST_F( LinearCpuTests, Cpu_Fp32_DeviceType )
-    {
-        TestDeviceType( CpuFp32Data() );
-    }
-
-    TEST_F( LinearCpuTests, Cpu_NoBias_Fp32_ParameterCount )
-    {
-        TestParameterCount( CpuNoBiasFp32Data() );
-    }
-
-    TEST_F( LinearCpuTests, Cpu_NoBias_Fp32_GetBias )
-    {
-        TestGetBias( CpuNoBiasFp32Data() );
-    }
-
-    TEST_F( LinearCpuTests, Cpu_NoBias_Fp32_HasBias )
-    {
-        TestHasBias( CpuNoBiasFp32Data() );
-    }
-
-    TEST_F( LinearCpuTests, Cpu_NoBias_Fp32_Forward )
-    {
-        TestForward( CpuNoBiasFp32Data() );
-    }
-
-    TEST_F( LinearCpuTests, Context_Cpu_Fp32_Forward )
-    {
-        TestForward( ContextCpuFp32Data() );
-    }
-
-    TEST_F( LinearCpuTests, Context_Cpu_Fp32_DeviceType )
-    {
-        TestDeviceType( ContextCpuFp32Data() );
-    }
-
-    TEST_F( LinearCpuTests, EdgeCases )
-    {
-        TestEdgeCases();
-    }
-
-    TEST_F( LinearCpuTests, Constructor_ExecutionContextConstruction )
+    TEST_F( LinearCpuTests, Error_NullExecutionContext )
     {
         LinearConfig config( 16, 32 );
-        config.withName( "validation_test" );
+        config.withName( "test_cpu" );
 
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        EXPECT_NO_THROW( (Linear<DeviceType::Cpu, TensorDataType::FP32>( ctx, config )) );
+        std::shared_ptr<ExecutionContext<DeviceType::Cpu>> null_ctx;
+
+        EXPECT_THROW(
+            (std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>( null_ctx, config )),
+            std::invalid_argument
+        );
     }
 
-    TEST_F( LinearCpuTests, Constructor_InvalidConfig )
+    TEST_F( LinearCpuTests, Error_InvalidConfig_ZeroInputFeatures )
     {
         LinearConfig invalid_config( 0, 32 );
-        invalid_config.withName( "invalid_test" );
+        invalid_config.withName( "invalid_cpu" );
 
         auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        EXPECT_THROW( (Linear<DeviceType::Cpu, TensorDataType::FP32>( ctx, invalid_config )), std::invalid_argument );
+
+        EXPECT_THROW(
+            (std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>( ctx, invalid_config )),
+            std::invalid_argument
+        );
+    }
+
+    TEST_F( LinearCpuTests, Error_InvalidConfig_ZeroOutputFeatures )
+    {
+        LinearConfig invalid_config( 16, 0 );
+        invalid_config.withName( "invalid_cpu" );
+
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
+
+        EXPECT_THROW(
+            (std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>( ctx, invalid_config )),
+            std::invalid_argument
+        );
+    }
+
+    TEST_F( LinearCpuTests, Error_ForwardBeforeBuild )
+    {
+        auto data = LinearCpuTestData<TensorDataType::FP32>::Create(
+            "unbuild_cpu", small_shape_, input_features_, output_features_ );
+
+        CpuTensor<TensorDataType::FP32> input( "CPU", data.input_shape );
+        CpuTensor<TensorDataType::FP32> output( "CPU", data.output_shape );
+
+        EXPECT_THROW(
+            data.module->forward( input, output ),
+            std::runtime_error
+        );
+    }
+
+    TEST_F( LinearCpuTests, Error_ShapeMismatch )
+    {
+        auto data = SmallFp32Data();
+        data.module->build( data.input_shape );
+
+        shape_t wrong_shape = { 2, 3, 64 };
+
+        CpuTensor<TensorDataType::FP32> input( "CPU", wrong_shape );
+        CpuTensor<TensorDataType::FP32> output( "CPU", { 2, 3, 32 } );
+
+        EXPECT_THROW(
+            data.module->forward( input, output ),
+            std::invalid_argument
+        );
+    }
+
+    TEST_F( LinearCpuTests, Synchronize )
+    {
+        auto data = SmallFp32Data();
+
+        EXPECT_NO_THROW( data.module->synchronize() );
+    }
+
+    TEST_F( LinearCpuTests, SetTrainingMode )
+    {
+        auto data = SmallFp32Data();
+
+        EXPECT_FALSE( data.module->isTraining() );
+
+        data.module->setTraining( true );
+        EXPECT_TRUE( data.module->isTraining() );
+
+        data.module->setTraining( false );
+        EXPECT_FALSE( data.module->isTraining() );
+    }
+
+    TEST_F( LinearCpuTests, MultipleForwardCalls )
+    {
+        auto data = MediumFp32Data();
+        data.module->build( data.input_shape );
+
+        CpuTensor<TensorDataType::FP32> input( "CPU", data.input_shape );
+        CpuTensor<TensorDataType::FP32> output( "CPU", data.output_shape );
+
+        for (int iter = 0; iter < 10; ++iter)
+        {
+            random( input, -1.0f, 1.0f );
+
+            EXPECT_NO_THROW( data.module->forward( input, output ) );
+        }
     }
 }

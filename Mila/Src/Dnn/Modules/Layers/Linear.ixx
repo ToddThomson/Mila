@@ -2,19 +2,8 @@
  * @file Linear.ixx
  * @brief Device-templated Linear (fully connected) module.
  *
- * The `Linear` class implements a fully connected (dense) layer parameterized
- * by device and tensor precision. It exposes a device-agnostic interface that
- * operates on `ITensor` views and delegates numerical work to a device-specific
- * `UnaryOperation` backend obtained from the `OperationRegistry`.
- *
- * Usage notes:
- * - Construct with a shared `ExecutionContext<TDeviceType>` to bind resources
- *   to the target device.
- * - Parameters (weight and optional bias) are stored as `Tensor` instances
- *   managed by the module and are exposed through accessor methods.
- *
- * @tparam TDeviceType Compile-time device identifier (e.g. DeviceType::Cpu).
- * @tparam TPrecision  Abstract tensor precision (TensorDataType).
+ * Delegates compute to a UnaryOperation backend. Module owns weight/bias
+ * parameters and exposes them to callers (optimizers, serializers).
  */
 
 module;
@@ -30,7 +19,6 @@ module;
 
 export module Dnn.Modules.Linear;
 export import :Config;
-//export import :Attributes;
 
 import Dnn.Module;
 import Dnn.Tensor;
@@ -55,15 +43,17 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Serialization;
 
     /**
-     * @brief Device-templated Linear (fully connected) module.
+     * @brief Linear (fully connected) module (device-templated).
      *
-     * This module implements a standard linear map y = x * W^T + b where W is
-     * the weight matrix and b is an optional bias vector. Computation is
-     * forwarded to a backend `UnaryOperation` instance created via the
-     * `OperationRegistry`.
+     * Delegates computation to a device-specific UnaryOperation implementation
+     * registered in the OperationRegistry.
      *
-     * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda).
-     * @tparam TPrecision  Abstract tensor precision (TensorDataType).
+     * Module owns trainable parameters (weight, optional bias) and exposes them
+     * via accessors. The operation implements y = x * W^T + b where W is the
+     * weight matrix and b is an optional bias vector.
+     *
+     * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda)
+     * @tparam TPrecision Abstract tensor precision (TensorDataType)
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
@@ -77,14 +67,10 @@ namespace Mila::Dnn
         using OutputState = std::vector<std::shared_ptr<TensorType>>;
 
         /**
-         * @brief Construct a Linear module bound to an execution context.
+         * @brief Construct with an existing execution context.
          *
-         * @param exec_context Shared execution context providing device and memory resources.
-         * @param config       Layer configuration describing input/output sizes and bias usage.
-         *
-         * The constructor allocates parameter tensors and creates the compute
-         * backend operation. Throws std::invalid_argument if `exec_context`
-         * is null or std::runtime_error if the backend operation cannot be created.
+         * @param exec_context Shared execution context for device resources.
+         * @param config Linear configuration.
          */
         explicit Linear( std::shared_ptr<ExecutionContextType> exec_context, const LinearConfig& config )
             : exec_context_( exec_context ), config_( config )
@@ -95,113 +81,192 @@ namespace Mila::Dnn
             }
 
             config_.validate();
+            this->setTraining( config_.isTraining() );
 
             initializeParameters();
-
-            if (this->isTraining())
-            {
-                //FIXME: initializeParameterGradients();
-            }
-
             createOperation();
         }
 
         ~Linear() override = default;
 
-        /**
-         * @brief Return the total number of scalar parameters (weights + bias).
-         *
-         * @returns Number of scalar parameters stored by the module.
-         */
-        size_t parameterCount() const override
-        {
-            size_t num_params = weight_ ? weight_->size() : 0;
-            if (config_.hasBias() && bias_) num_params += bias_->size();
-            return num_params;
-        }
-
-        /**
-         * @brief Execute the forward pass.
-         *
-         * @param input  Input tensor view.
-         * @param output Output tensor that receives the result.
-         *
-         * The call delegates to the backend operation. The caller is expected
-         * to provide a correctly shaped `output` tensor unless the backend
-         * documents otherwise.
-         */
-        void forward( const ITensor& input, ITensor& output ) override
-        {
-            operation_->forward( input, parameters_, output, output_state_ );
-        }
-
-        /**
-         * @brief Execute the backward pass (gradient computation).
-         *
-         * @param input       Original forward input.
-         * @param output_grad Gradient with respect to the module output.
-         * @param input_grad  Tensor to receive gradient with respect to the input.
-         *
-         * Backward is currently a placeholder and should be implemented by the
-         * compute backend when gradient support is required.
-         */
-        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad ) override
-        {
-            /* FIXME: operation_->backward(
-                input,
-                output_grad,
-                parameters_,
-                output_state_,
-                input_grad,
-                parameter_grads_
-            );*/
-        }
-
-		// ====================================================================
+        // ====================================================================
         // Lifecycle
-		// ====================================================================
+        // ====================================================================
 
         bool isBuilt() const override
         {
-            return (weight_ != nullptr) &&
-                   (!config_.hasBias() || (bias_ != nullptr));
-		}
-
-        void build( const shape_t& input_shape ) override
-        {
-            // Linear layer parameters are eagerly created in the constructor
-            // based on the configuration. No further action is needed here.
-		}
+            return (operation_ != nullptr) &&
+                (weight_ != nullptr) &&
+                (!config_.hasBias() || (bias_ != nullptr)) &&
+                built_;
+        }
 
         /**
-         * @brief Synchronize device work submitted by this module.
+         * @brief Build the module using an input shape.
          *
-         * Blocks until all operations submitted through the associated execution
-         * context have completed.
+         * Linear layer parameters are eagerly created in the constructor based
+         * on the configuration. This method binds parameters to the backend
+         * operation and triggers backend-specific setup.
          */
+        void build( const shape_t& input_shape ) override
+        {
+            if (built_)
+                return;
+
+            validateInputShape( input_shape );
+
+            operation_->setParameters( weight_.get(), bias_.get() );
+            operation_->build( input_shape );
+
+            built_ = true;
+        }
+
+        // ====================================================================
+        // Compute operation dispatch
+        // ====================================================================
+
+        /**
+         * @brief Forward pass - delegates to backend operation.
+         *
+         * Computes y = x * W^T + b (if bias is enabled).
+         */
+        void forward( const ITensor& input, ITensor& output ) override
+        {
+            if (!isBuilt())
+            {
+                throw std::runtime_error( "Linear module must be built before calling forward." );
+            }
+
+            validateInputShape( input );
+
+            operation_->forward( input, output );
+        }
+
+        /**
+         * @brief Backward pass - delegates to backend operation.
+         *
+         * Computes gradients with respect to input and parameters.
+         */
+        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad ) override
+        {
+            if (!isBuilt())
+            {
+                throw std::runtime_error( "Linear module must be built before calling backward." );
+            }
+
+            Parameters parameter_grads;
+            operation_->backward( input, output_grad, input_grad, parameter_grads );
+        }
+
+        // ====================================================================
+        // Serialization
+        // ====================================================================
+
+        void save( ModelArchive& archive ) const override
+        {
+            // Persist parameters if present
+            if (weight_)
+            {
+                // archive.saveTensor( this->getName() + ".weight", *weight_ );
+            }
+
+            if (config_.hasBias() && bias_)
+            {
+                // archive.saveTensor( this->getName() + ".bias", *bias_ );
+            }
+        }
+
+        void load( ModelArchive& archive ) override
+        {
+            // Load parameters from archive
+        }
+
+        // ====================================================================
+        // Module interface
+        // ====================================================================
+
+        std::string getName() const override
+        {
+            return config_.getName();
+        }
+
         void synchronize() override
         {
             exec_context_->synchronize();
         }
 
+        void setTraining( bool is_training ) override
+        {
+            training_mode_ = is_training;
+        }
+
+        bool isTraining() const override
+        {
+            return training_mode_;
+        }
+
+        size_t parameterCount() const override
+        {
+            size_t count = 0;
+
+            if (weight_)
+                count += weight_->size();
+
+            if (config_.hasBias() && bias_)
+                count += bias_->size();
+
+            return count;
+        }
+
+        std::string toString() const override
+        {
+            std::ostringstream oss;
+            oss << "--------------------" << std::endl;
+            oss << "Linear: " << getName() << std::endl;
+            oss << "Input features: " << config_.getInputFeatures();
+            oss << ", Output features: " << config_.getOutputFeatures() << std::endl;
+            oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
+            oss << "Has Bias: " << (config_.hasBias() ? "Yes" : "No") << std::endl;
+            oss << "Parameter count: " << parameterCount() << std::endl;
+
+            return oss.str();
+        }
+
+        // ====================================================================
+        // Parameter accessors
+        // ====================================================================
+
         /**
-         * @brief Access the weight tensor.
+         * @brief Return shared ownership of the weight tensor.
          *
          * @returns Shared pointer to the weight tensor.
          */
-        std::shared_ptr<TensorType> getWeight()
+        std::shared_ptr<TensorType> getWeight() const noexcept
         {
             return weight_;
         }
 
         /**
-         * @brief Access the bias tensor if present.
+         * @brief Return shared ownership of the bias tensor.
          *
-         * @returns Optional containing the bias tensor when configured.
+         * @returns Shared pointer to the bias tensor, or nullptr if no bias.
          */
-        std::optional<std::shared_ptr<TensorType>> getBias()
+        std::shared_ptr<TensorType> getBias() const noexcept
         {
-            return config_.hasBias() ? std::optional{ bias_ } : std::nullopt;
+            return bias_;
+        }
+
+        /**
+         * @brief Return parameters in canonical order (weight, then bias if present).
+         *
+         * Useful for optimizers and parameter iteration helpers.
+         */
+        Parameters getParameters() const
+        {
+            Parameters p;
+            if (weight_) p.emplace_back( weight_ );
+            if (bias_)   p.emplace_back( bias_ );
+            return p;
         }
 
         /**
@@ -209,120 +274,77 @@ namespace Mila::Dnn
          *
          * @returns True if bias is enabled in the configuration.
          */
-        bool hasBias() const
+        bool hasBias() const noexcept
         {
             return config_.hasBias();
         }
 
         /**
-         * @brief Serialize module parameters into the provided archive.
+         * @brief Get the configuration.
          *
-         * @param zip Archive used to write parameter blobs.
-         *
-         * This implementation is a placeholder; concrete persistence should
-         * serialize weight and bias tensors as named entries in the archive.
+         * @returns Reference to the LinearConfig.
          */
-        void save( ModelArchive& zip ) const override
+        const LinearConfig& getConfig() const noexcept
         {
-            // No-op placeholder; serialize parameter tensors if needed
-        }
-
-        /**
-         * @brief Load module parameters from the provided archive.
-         *
-         * @param archive Archive used to read parameter blobs.
-         *
-         * This implementation is a placeholder; concrete loading should
-         * restore weight and bias tensor contents.
-         */
-        void load( ModelArchive& archive ) override
-        {
-            // No-op placeholder; deserialize parameter tensors if needed
-        }
-
-        /**
-         * @brief Set training/evaluation mode for the module.
-         *
-         * Some layers change behavior between training and evaluation modes.
-         *
-         * @param is_training True for training mode; false for evaluation.
-         */
-        void setTraining( bool is_training ) override
-        {
-            training_mode_ = is_training;
-        }
-
-        /**
-         * @brief Query whether the module is in training mode.
-         *
-         * @returns True if training mode is enabled.
-         */
-        bool isTraining() const override
-        {
-            return training_mode_;
-        }
-
-        /**
-         * @brief Get the module name from configuration.
-         *
-         * @returns Module name string.
-         */
-        std::string getName() const override
-        {
-            return config_.getName();
-        }
-
-        /**
-         * @brief Produce a multi-line human-readable description.
-         *
-         * The returned string contains the module name, feature sizes,
-         * device type, and parameter count.
-         */
-        std::string toString() const override
-        {
-            std::ostringstream oss;
-            oss << "--------------------" << std::endl;
-            oss << "Linear: " << this->getName() << std::endl;
-            oss << "Input features: " << config_.getInputFeatures();
-            oss << ", Output features: " << config_.getOutputFeatures() << std::endl;
-            oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
-            oss << "Parameter count: " << parameterCount() << std::endl;
-            
-            return oss.str();
+            return config_;
         }
 
     private:
         LinearConfig config_;
-		bool training_mode_{ false };
+        bool training_mode_{ false };
+        bool built_{ false };
 
         std::shared_ptr<TensorType> weight_{ nullptr };
         std::shared_ptr<TensorType> bias_{ nullptr };
-
-        // Module-visible parameter containers (backends expect ITensor-like parameters)
-        std::vector<std::shared_ptr<TensorType>> parameters_;
-        // Gradients for parameters (allocated when training)
-        std::vector<std::shared_ptr<TensorType>> parameter_grads_;
-        // Cached forward-state tensors (if backend requires them)
-        OutputState output_state_;
 
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
         std::shared_ptr<ExecutionContextType> exec_context_;
 
         /**
+         * @brief Validate input shape for linear operation.
+         *
+         * Ensures the last dimension matches the configured input_features.
+         */
+        void validateInputShape( const ITensor& input ) const
+        {
+            const auto& input_shape = input.shape();
+            validateInputShape( input_shape );
+        }
+
+        /**
+         * @brief Validate input shape for linear operation.
+         *
+         * Ensures the last dimension matches the configured input_features.
+         */
+        void validateInputShape( const shape_t& input_shape ) const
+        {
+            if (input_shape.empty())
+            {
+                throw std::invalid_argument( "Linear: input must have rank >= 1" );
+            }
+
+            int64_t input_features = input_shape.back();
+
+            if (input_features != config_.getInputFeatures())
+            {
+                std::ostringstream oss;
+                oss << "Linear: input feature dimension mismatch. Expected "
+                    << config_.getInputFeatures() << ", got " << input_features;
+                throw std::invalid_argument( oss.str() );
+            }
+        }
+
+        /**
          * @brief Allocate and initialize weight and optional bias tensors.
          *
-         * Tensors are created on the execution context device and appended to
-         * the module parameter list. Weight is initialized using Xavier
-         * initialization for the configured dimensions.
+         * Tensors are created on the execution context device and initialized
+         * using Xavier initialization for weights. Bias is zero-initialized.
          */
         void initializeParameters()
         {
-            parameters_.clear();
-
             int64_t input_features = config_.getInputFeatures();
             int64_t output_features = config_.getOutputFeatures();
 
-            // Construct tensors bound to the execution context's device.
             auto device = exec_context_->getDevice();
 
             weight_ = std::make_shared<TensorType>( device, shape_t{ output_features, input_features } );
@@ -330,56 +352,22 @@ namespace Mila::Dnn
 
             xavier<TPrecision, MR>( *weight_, input_features, output_features );
 
-            parameters_.emplace_back( weight_ );
-            //this->parameter_map_["weight"] = weight_;
-
             if (config_.hasBias())
             {
                 bias_ = std::make_shared<TensorType>( device, shape_t{ output_features } );
                 bias_->setName( this->getName() + ".bias" );
-                parameters_.emplace_back( bias_ );
-                //this->parameter_map_["bias"] = bias_;
+                zeros( *bias_ );
             }
         }
 
         /**
-         * @brief Allocate gradient tensors for parameters.
+         * @brief Create the backend compute operation.
          *
-         * Gradients are created on the execution context device and named
-         * consistently with their parameter counterparts. This is invoked when
-         * training-mode gradient storage is required.
-         */
-        void initializeParameterGradients()
-        {
-            parameter_grads_.clear();
-
-            size_t input_features = config_.getInputFeatures();
-            size_t output_features = config_.getOutputFeatures();
-
-            auto device = exec_context_->getDevice();
-
-            auto weight_grad = std::make_shared<TensorType>( device, shape_t{ output_features, input_features } );
-            weight_grad->setName( this->getName() + ".weight_grad" );
-            parameter_grads_.push_back( weight_grad );
-
-            if (config_.hasBias())
-            {
-                auto bias_grad = std::make_shared<TensorType>( device, shape_t{ output_features } );
-                bias_grad->setName( this->getName() + ".bias_grad" );
-                parameter_grads_.emplace_back( bias_grad );
-            }
-        }
-
-        /**
-         * @brief Create the device-specific compute operation for this layer.
-         *
-         * The operation is obtained from the global OperationRegistry and is
-         * expected to implement the forward (and optionally backward) kernels.
-         * Throws std::runtime_error if operation creation fails.
+         * Looks up the appropriate device-specific operation from the registry
+         * and creates an instance bound to this module's execution context.
          */
         void createOperation()
         {
-            // Create backend operation using the ExecutionContext
             operation_ = OperationRegistry::instance()
                 .createUnaryOperation<TDeviceType, TPrecision>(
                     "LinearOp",
@@ -393,7 +381,7 @@ namespace Mila::Dnn
         }
     };
 
-    // Convenience aliases
+    // Convenience aliases for common usages
     export template<TensorDataType TPrecision>
         using CpuLinear = Linear<DeviceType::Cpu, TPrecision>;
 

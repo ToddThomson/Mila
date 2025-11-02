@@ -166,14 +166,14 @@ export import Dnn.TensorInitializers;
 //export import Dnn.Modules.Encoder;
 export import Dnn.Modules.Gelu;
 export import Dnn.Modules.LayerNorm;
-//export import Dnn.Modules.Linear;
+export import Dnn.Modules.Linear;
 //export import Dnn.Modules.Residual;
 export import Dnn.Modules.Softmax;
 
 // ====================================================================
 // Dnn - Blocks
 // ====================================================================
-//export import Dnn.Blocks.MLP;
+export import Dnn.Blocks.MLP;
 //export import Dnn.Blocks.TransformerBlock;
 
 // ====================================================================
