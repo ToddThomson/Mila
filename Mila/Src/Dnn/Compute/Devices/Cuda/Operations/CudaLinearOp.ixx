@@ -187,11 +187,7 @@ namespace Mila::Dnn::Compute
             config_.validate();
         }
 
-        void forward(
-            const ITensor& input,
-            const Parameters& parameters,
-            ITensor& output,
-            OutputState& output_state ) const override
+        void forward( const ITensor& input, ITensor& output ) const override
         {
             if (input.getDeviceType() != DeviceType::Cuda || output.getDeviceType() != DeviceType::Cuda)
             {

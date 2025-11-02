@@ -1,9 +1,9 @@
 /**
  * @file Softmax.ixx
- * @brief Implementation of the Softmax activation module (device-templated).
+ * @brief Device-templated Softmax activation module.
  *
- * Device-templated module that delegates computation to a device-specific
- * UnaryOperation backend registered in the OperationRegistry.
+ * Delegates compute to a UnaryOperation backend. Module is stateless (no trainable
+ * parameters) and exposes configuration to callers.
  */
 
 module;
@@ -12,6 +12,7 @@ module;
 #include <string>
 #include <sstream>
 #include <stdexcept>
+#include <cstdint>
 
 export module Dnn.Modules.Softmax;
 export import :Config;
@@ -21,10 +22,12 @@ import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
+import Compute.Precision;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
+import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
 import Serialization.ModelArchive;
@@ -35,7 +38,14 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Serialization;
 
     /**
-     * @brief Softmax module that delegates to a device-specific compute backend.
+     * @brief Softmax activation module (device-templated).
+     *
+     * Delegates computation to a device-specific UnaryOperation implementation
+     * registered in the OperationRegistry.
+     *
+     * Softmax is a stateless activation function with no trainable parameters.
+     * The operation computes: softmax(x) = exp(x - max(x)) / sum(exp(x - max(x)))
+     * across a specified axis.
      *
      * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda)
      * @tparam TPrecision Abstract tensor precision (TensorDataType)
@@ -52,13 +62,13 @@ namespace Mila::Dnn
         using OutputState = std::vector<std::shared_ptr<TensorType>>;
 
         /**
-         * @brief Construct Softmax with an existing execution context.
+         * @brief Construct with an existing execution context.
          *
+         * @param exec_context Shared execution context for device resources.
          * @param config Softmax configuration.
-         * @param exec_context Shared execution context for this module.
          */
-        explicit Softmax( const SoftmaxConfig& config, std::shared_ptr<ExecutionContextType> exec_context )
-            : config_( config ), exec_context_( exec_context )
+        explicit Softmax( std::shared_ptr<ExecutionContextType> exec_context, const SoftmaxConfig& config )
+            : exec_context_( exec_context ), config_( config )
         {
             if (!exec_context_)
             {
@@ -66,94 +76,106 @@ namespace Mila::Dnn
             }
 
             config_.validate();
+            this->setTraining( config_.isTraining() );
 
             createOperation();
         }
 
         ~Softmax() override = default;
 
-        size_t parameterCount() const override
-        {
-            return 0;
-        }
+        // ====================================================================
+        // Lifecycle
+        // ====================================================================
 
-        void forward( const ITensor& input, ITensor& output ) override
-        {
-            if (!operation_)
-            {
-                createOperation();
-            }
-
-            operation_->forward( input, parameters_, output, output_state_ );
-        }
-
-        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad ) override
-        {
-            if (!operation_)
-            {
-                createOperation();
-            }
-
-            std::vector<std::shared_ptr<ITensor>> parameter_gradients;
-            
-            /*FIXME: operation_->backward(
-                output_grad,
-                input,
-                parameters_,
-                output_state_,
-                input_grad,
-                parameter_gradients
-            );*/
-        }
-
-		// ==========================================================================
-		// Lifecycle
-		// ==========================================================================
         bool isBuilt() const override
         {
-            return operation_ != nullptr;
-		}
+            return (operation_ != nullptr) && built_;
+        }
 
+        /**
+         * @brief Build the module using an input shape.
+         *
+         * Softmax is stateless and has no parameters to allocate. This method
+         * validates the input shape and delegates to the backend operation's
+         * build method to cache dimension computations.
+         */
         void build( const shape_t& input_shape ) override
         {
-            if (!operation_)
-            {
-                createOperation();
-            }
-            
-            //eration_->build( input_shape, parameters_ );
-		}
+            if (built_)
+                return;
 
-		// ==========================================================================
+            validateInputShape( input_shape );
+
+            operation_->setParameters( nullptr, nullptr );
+            operation_->build( input_shape );
+
+            built_ = true;
+        }
+
+        // ====================================================================
+        // Compute operation dispatch
+        // ====================================================================
+
+        /**
+         * @brief Forward pass - delegates to backend operation.
+         *
+         * Computes softmax activation across the configured axis.
+         */
+        void forward( const ITensor& input, ITensor& output ) override
+        {
+            if (!isBuilt())
+            {
+                throw std::runtime_error( "Softmax module must be built before calling forward." );
+            }
+
+            validateInputShape( input );
+
+            operation_->forward( input, output );
+        }
+
+        /**
+         * @brief Backward pass - delegates to backend operation.
+         *
+         * Computes gradient: dX = Y * (dY - dot(Y, dY))
+         * where Y is the softmax output.
+         */
+        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad ) override
+        {
+            if (!isBuilt())
+            {
+                throw std::runtime_error( "Softmax module must be built before calling backward." );
+            }
+
+            Parameters parameter_grads;
+            operation_->backward( input, output_grad, input_grad, parameter_grads );
+        }
+
+        // ====================================================================
+        // Serialization
+        // ====================================================================
+
+        void save( ModelArchive& archive ) const override
+        {
+            // No-op: stateless activation
+        }
+
+        void load( ModelArchive& archive ) override
+        {
+            // No-op: stateless activation
+        }
+
+        // ====================================================================
+        // Module interface
+        // ====================================================================
+
+        std::string getName() const override
+        {
+            return config_.getName();
+        }
 
         void synchronize() override
         {
             exec_context_->synchronize();
-        }
-
-        int64_t getAxis() const
-        {
-            return config_.getAxis();
-        }
-
-        void save( ModelArchive& /*archive*/ ) const override
-        {
-            // No-op: stateless activation
-        }
-
-        void load( ModelArchive& /*archive*/ ) override
-        {
-            // No-op: stateless activation
-        }
-
-        std::string toString() const override
-        {
-            std::ostringstream oss;
-            oss << "--------------------" << std::endl;
-            oss << "Softmax: " << getName() << std::endl;
-            oss << "Axis: " << config_.getAxis() << std::endl;
-            oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
-            return oss.str();
         }
 
         void setTraining( bool is_training ) override
@@ -166,24 +188,103 @@ namespace Mila::Dnn
             return training_mode_;
         }
 
-        std::string getName() const override
+        size_t parameterCount() const override
         {
-            return config_.getName();
+            return 0;
+        }
+
+        std::string toString() const override
+        {
+            std::ostringstream oss;
+            oss << "--------------------" << std::endl;
+            oss << "Softmax: " << getName() << std::endl;
+            oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
+            oss << "Axis: " << config_.getAxis() << std::endl;
+            oss << "Parameter count: 0 (stateless)" << std::endl;
+
+            return oss.str();
+        }
+
+        // ====================================================================
+        // Configuration accessors
+        // ====================================================================
+
+        /**
+         * @brief Get the softmax axis.
+         *
+         * @return The axis along which softmax is computed.
+         */
+        int64_t getAxis() const noexcept
+        {
+            return config_.getAxis();
+        }
+
+        /**
+         * @brief Get the configuration.
+         *
+         * @return Reference to the SoftmaxConfig.
+         */
+        const SoftmaxConfig& getConfig() const noexcept
+        {
+            return config_;
         }
 
     private:
-        bool training_mode_{ false };
         SoftmaxConfig config_;
-        std::shared_ptr<ExecutionContextType> exec_context_;
-        Parameters parameters_;
-        OutputState output_state_;
-        std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
+        bool training_mode_{ false };
+        bool built_{ false };
 
+        std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<ExecutionContextType> exec_context_;
+
+        /**
+         * @brief Validate input shape for softmax operation.
+         *
+         * Ensures the input has valid rank and the configured axis is within bounds.
+         */
+        void validateInputShape( const ITensor& input ) const
+        {
+            const auto& input_shape = input.shape();
+            validateInputShape( input_shape );
+        }
+
+        /**
+         * @brief Validate input shape for softmax operation.
+         *
+         * Ensures the input has valid rank and the configured axis is within bounds.
+         */
+        void validateInputShape( const shape_t& input_shape ) const
+        {
+            if (input_shape.empty())
+            {
+                throw std::invalid_argument( "Softmax: input must have rank >= 1" );
+            }
+
+            int64_t axis = config_.getAxis();
+            const int64_t ndim = static_cast<int64_t>(input_shape.size());
+
+            if (axis < 0)
+                axis = ndim + axis;
+
+            if (axis < 0 || axis >= ndim)
+            {
+                throw std::invalid_argument( "Softmax: axis out of bounds for input shape" );
+            }
+        }
+
+        /**
+         * @brief Create the backend compute operation.
+         *
+         * Looks up the appropriate device-specific operation from the registry
+         * and creates an instance bound to this module's execution context.
+         */
         void createOperation()
         {
             operation_ = OperationRegistry::instance()
                 .createUnaryOperation<TDeviceType, TPrecision>(
-                    "SoftmaxOp", exec_context_, config_ );
+                    "SoftmaxOp",
+                    exec_context_,
+                    config_ );
 
             if (!operation_)
             {

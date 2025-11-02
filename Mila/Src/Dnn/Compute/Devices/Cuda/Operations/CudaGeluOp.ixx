@@ -145,6 +145,20 @@ namespace Mila::Dnn::Compute
             config_.validate();
         }
 
+        // ====================================================================
+		// Lifecycle
+        // ====================================================================
+        /**
+        * @brief Check if the operation is ready for execution.
+        *
+        * @return true if the operation is ready, false otherwise.
+        */
+        
+
+		// ====================================================================
+		// Compute
+		// ====================================================================
+
         /**
         * @brief Performs the forward pass of the GELU activation function on CUDA.
         *
@@ -162,11 +176,7 @@ namespace Mila::Dnn::Compute
         * @param output Output tensor to store the transformed values.
         * @param output_state Cache for intermediate results (not used in this operation).
         */
-        void forward(
-            const ITensor& input,
-            [[maybe_unused]] const Parameters& parameters,
-            ITensor& output,
-            [[maybe_unused]] OutputState& output_state ) const override
+        void forward( const ITensor& input, ITensor& output ) const override
         {
             // TJT: This boilerplate code is fine for now but all ops should share a common helper for this.
 
@@ -210,8 +220,6 @@ namespace Mila::Dnn::Compute
         void backward(
             const ITensor& output_gradient,
             const ITensor& input,
-            [[maybe_unused]] const Parameters& parameters,
-            [[maybe_unused]] const OutputState& output_state,
             ITensor& input_gradient,
             [[maybe_unused]] Parameters& parameter_gradients ) const {
 

@@ -83,9 +83,7 @@ namespace Mila::Dnn::Compute
         virtual void forward(
             const ITensor& inputA,
             const ITensor& inputB,
-            const Parameters& parameters,
-            ITensor& output,
-            OutputState& output_state ) const = 0;
+            ITensor& output ) const = 0;
 
         /**
          * @brief Backward pass (gradient computation).

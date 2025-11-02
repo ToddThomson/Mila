@@ -16,6 +16,7 @@ module;
 #ifdef USE_OMP
 #include <omp.h>
 #endif
+#include <functional>
 
 export module Compute.CpuLinearOp;
 
@@ -78,31 +79,106 @@ namespace Mila::Dnn::Compute
             config_.validate();
         }
 
-        void forward(
-            const ITensor& input,
-            const Parameters& parameters,
-            ITensor& output,
-            OutputState& output_state ) const override
+		// ====================================================================
+		// Parameters
+		// ====================================================================
+
+        /**
+         * @brief Set weight and optional bias parameters.
+         *
+         * @param weight Weight matrix of shape (out_features, in_features)
+         * @param bias Optional bias vector of shape (out_features)
+         */
+        void setParameters( const TensorType* weight, const TensorType* bias )
         {
+            if (!weight)
+            {
+                throw std::invalid_argument( "Weight cannot be null" );
+            }
+
+            weight_ptr_ = weight->data();
+            bias_ptr_ = bias ? bias->data() : nullptr;
+            has_bias_ = (bias_ptr_ != nullptr);
+
+            // Validate weight dimensions match config
+            auto weight_shape = weight->shape();
+            if (weight_shape.size() != 2)
+            {
+                throw std::invalid_argument( "Weight must be 2D" );
+            }
+            if (weight_shape[0] != config_.getOutputFeatures() )
+            {
+                throw std::invalid_argument(
+                    "Weight dim 0 must match config outputfeatures"
+                );
+            }
+            if (input_features_ > 0 && weight_shape[1] != input_features_)
+            {
+                throw std::invalid_argument(
+                    "Weight dim 1 must match input_features"
+                );
+            }
+        }
+
+		// ====================================================================
+		// Lifecycle
+		// ====================================================================
+
+        void build( const shape_t& input_shape ) override
+        {
+            if (this->is_built_ && input_shape == cached_input_shape_)
+            {
+                return;  // Already built for this shape
+            }
+
+            if (input_shape.empty())
+            {
+                throw std::invalid_argument( "Input shape cannot be empty" );
+            }
+
+            // Extract dimensions
+            // Input: (batch_dims..., in_features)
+            input_features_ = input_shape.back();
+
+            if (config_.getInputFeatures() > 0 && config_.getInputFeatures() != input_features_)
+            {
+                throw std::invalid_argument(
+                    "Input features " + std::to_string( in_features_ ) +
+                    " don't match config " + std::to_string( config_.in_features )
+                );
+            }
+
+            // Compute batch size (flatten all but last dimension)
+            batch_size_ = std::accumulate(
+                input_shape.begin(),
+                input_shape.end() - 1,
+                dim_t{ 1 },
+                std::multiplies{}
+            );
+
+            output_features_ = config_.getOutputFeatures();
+
+            cached_input_shape_ = input_shape;
+            
+            this->is_built_ = true;
+        }
+
+		// ====================================================================
+		// Computation
+		// ====================================================================
+
+        void forward( const ITensor& input, ITensor& output ) const override
+        {
+            if (!this->is_built_)
+            {
+                throw std::runtime_error( "LinearOp not built - call build() first" );
+            }
             const HostType* X = static_cast<const HostType*>(input.rawData());
             HostType* Y = static_cast<HostType*>(output.rawData());
 
             if (!X || !Y)
             {
                 throw std::runtime_error( "CpuLinearOp::forward - null tensor data pointer" );
-            }
-
-            if (parameters.empty() || !parameters[0])
-            {
-                throw std::invalid_argument( "CpuLinearOp::forward requires weight parameter" );
-            }
-
-            const HostType* W = static_cast<const HostType*>(parameters[0]->data());
-            const HostType* B = nullptr;
-            
-            if (parameters.size() > 1 && parameters[1])
-            {
-                B = static_cast<const HostType*>(parameters[1]->data());
             }
 
             const auto& in_shape = input.shape();

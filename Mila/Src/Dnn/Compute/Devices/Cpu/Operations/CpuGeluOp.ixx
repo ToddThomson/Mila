@@ -86,13 +86,36 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If the context is not for a CPU device.
          */
         CpuGeluOp(  std::shared_ptr<CpuExecutionContext> context, const GeluConfig& config )
-            : config_( config ), context_( context )
+            : context_( context ), config_( config )
         {
-            if (context_ && context_->getDevice()->getDeviceType() != DeviceType::Cpu)
+            if (!context_)
             {
                 throw std::runtime_error( "CpuGeluOp requires a CPU execution context" );
             }
         }
+
+		// ====================================================================
+		// Parameters
+        // 
+		// Note: GELU has no learnable parameters. 
+		//       The OperationBase setParameters() is used as a no-op.
+		// ====================================================================
+        
+		// ====================================================================
+		// Lifecycle
+		// ====================================================================
+
+        void build( const shape_t& input_shape ) override
+        {
+			// No shape-dependent setup required for this implementation.
+			// The default OperationBase build() could be used instead.
+
+			this->is_built_ = true;
+		}
+
+		// ====================================================================
+		// Computation
+		// ====================================================================
 
         /**
          * @brief Performs the forward pass of the GELU activation function.
@@ -111,12 +134,13 @@ namespace Mila::Dnn::Compute
          * @param output The output tensor (resized to match input shape).
          * @param output_state Cache for intermediate results (not used in current implementation).
          */
-        void forward(
-            const ITensor& input,
-            [[maybe_unused]] const std::vector<std::shared_ptr<TensorType>>& parameters,
-            ITensor& output,
-            [[maybe_unused]] std::vector<std::shared_ptr<TensorType>>& output_state ) const override
+        void forward( const ITensor& input, ITensor& output ) const override
         {
+            if (!this->is_built_)
+            {
+                throw std::runtime_error( "GeluOp not built - call build() first" );
+            }
+
             // Obtain host element buffers (HostType) once before the loop.
             const HostType* input_data = static_cast<const HostType*>(input.rawData());
             HostType* output_data = static_cast<HostType*>(output.rawData());
@@ -153,8 +177,6 @@ namespace Mila::Dnn::Compute
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            [[maybe_unused]] const Parameters& parameters,
-            [[maybe_unused]] const OutputState& output_state,
             ITensor& input_grad,
             [[maybe_unused]] Parameters& parameter_grads ) const {
 

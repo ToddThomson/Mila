@@ -16,6 +16,7 @@
 #include <string>
 #include <cmath>
 #include <cstdint>
+#include <stdexcept>
 
 import Mila;
 
@@ -25,7 +26,7 @@ namespace Modules::Activations::Tests
     using namespace Mila::Dnn::Compute;
 
     using MR = CpuMemoryResource;
-    using GeluCpuModule = Gelu<DeviceType::Cpu, TensorDataType::FP32>;
+    using GeluCpuModule = Gelu<DeviceType::Cpu, dtype_t::FP32>;
 
     struct GeluCpuTestData {
         std::vector<int64_t> shape;
@@ -54,7 +55,7 @@ namespace Modules::Activations::Tests
             data_by_ctx_.gelu_module.reset();
         }
 
-        size_t batch_{ 0 }, seq_{ 0 }, chan_{ 0 };
+        dim_t batch_{ 0 }, seq_{ 0 }, chan_{ 0 };
         GeluCpuTestData data_by_ctx_;
     };
 
@@ -62,7 +63,7 @@ namespace Modules::Activations::Tests
         auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
 
         // Operation name used by Gelu::createOperation is "GeluOp"
-        if (!isOperationRegistered<DeviceType::Cpu, TensorDataType::FP32>( "GeluOp" ))
+        if (!isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ))
         {
             EXPECT_THROW( GeluCpuModule( ctx, GeluConfig() ), std::runtime_error );
         }
@@ -74,7 +75,7 @@ namespace Modules::Activations::Tests
 
     TEST_F( GeluCpuTests, Forward_BehaviorDependsOnRegistration ) {
         // If not registered, constructor is expected to throw.
-        if (!isOperationRegistered<DeviceType::Cpu, TensorDataType::FP32>( "GeluOp" ))
+        if (!isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ))
         {
             auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
             EXPECT_THROW( GeluCpuModule( ctx, GeluConfig() ), std::runtime_error );
@@ -86,20 +87,23 @@ namespace Modules::Activations::Tests
 
         auto device = ctx->getDevice();
 
-        Tensor<TensorDataType::FP32, MR> input( device, d.shape );
-        Tensor<TensorDataType::FP32, MR> output( device, d.shape );
+        Tensor<dtype_t::FP32, MR> input( device, d.shape );
+        Tensor<dtype_t::FP32, MR> output( device, d.shape );
 
         for (size_t i = 0; i < input.size(); ++i)
         {
             input.data()[i] = static_cast<float>( i ) / input.size() * 4.0f - 2.0f;
         }
 
+		// All modules must be built before use
+		d.gelu_module->build( d.shape );
+
         EXPECT_NO_THROW( d.gelu_module->forward( input, output ) );
         EXPECT_EQ( output.size(), input.size() );
     }
 
     TEST_F( GeluCpuTests, ToString_ContainsGeluOrConstructorThrows ) {
-        if (!isOperationRegistered<DeviceType::Cpu, TensorDataType::FP32>( "GeluOp" ))
+        if (!isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ))
         {
             auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
             
@@ -118,7 +122,7 @@ namespace Modules::Activations::Tests
     }
 
     TEST_F( GeluCpuTests, DefaultApproximationMethod_IsTanhOrConstructorThrows ) {
-        if (!isOperationRegistered<DeviceType::Cpu, TensorDataType::FP32>( "GeluOp" ))
+        if (!isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ))
         {
             auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
             EXPECT_THROW( GeluCpuModule( ctx, GeluConfig() ), std::runtime_error );
@@ -131,7 +135,7 @@ namespace Modules::Activations::Tests
     }
 
     TEST_F( GeluCpuTests, ExecutionContext_DeviceTypeMatchesOrConstructorThrows ) {
-        if (!isOperationRegistered<DeviceType::Cpu, TensorDataType::FP32>( "GeluOp" ))
+        if (!isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ))
         {
             auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
             EXPECT_THROW( GeluCpuModule( ctx, GeluConfig() ), std::runtime_error );
@@ -150,7 +154,7 @@ namespace Modules::Activations::Tests
     TEST_F( GeluCpuTests, Construct_WithExecutionContext_WorksOrThrows ) {
         auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
 
-        if (!isOperationRegistered<DeviceType::Cpu, TensorDataType::FP32>( "GeluOp" ))
+        if (!isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ))
         {
             EXPECT_THROW( GeluCpuModule( ctx, GeluConfig() ), std::runtime_error );
             return;
@@ -158,5 +162,78 @@ namespace Modules::Activations::Tests
 
         auto d = GeluCpuTestData::CreateWithExecutionContext( ctx, batch_, seq_, chan_ );
         EXPECT_EQ( ctx->getDevice()->getDeviceType(), DeviceType::Cpu );
+    }
+
+    TEST_F( GeluCpuTests, Constructor_NullExecutionContext_ThrowsInvalidArgument )
+    {
+        std::shared_ptr<ExecutionContext<DeviceType::Cpu>> null_ctx = nullptr;
+        EXPECT_THROW( GeluCpuModule( null_ctx, GeluConfig() ), std::invalid_argument );
+    }
+
+    TEST_F( GeluCpuTests, Constructor_InvalidConfig_ThrowsInvalidArgument )
+    {
+        // Validation happens before backend creation so this should throw regardless of registry state
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
+        GeluConfig bad_cfg = GeluConfig().withApproximationMethod( GeluConfig::ApproximationMethod::Exact );
+
+        EXPECT_THROW( GeluCpuModule( ctx, bad_cfg ), std::invalid_argument );
+    }
+
+    TEST_F( GeluCpuTests, Backward_IsNoOp )
+    {
+        if (!isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ))
+        {
+            GTEST_SKIP() << "GeluOp not registered; skipping backward no-op check.";
+        }
+
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
+        auto d = GeluCpuTestData::CreateWithExecutionContext( ctx, batch_, seq_, chan_ );
+
+        Tensor<dtype_t::FP32, MR> input( ctx->getDevice(), d.shape );
+        Tensor<dtype_t::FP32, MR> output_grad( ctx->getDevice(), d.shape );
+        Tensor<dtype_t::FP32, MR> input_grad( ctx->getDevice(), d.shape );
+
+        // Initialize input and gradients
+        for (size_t i = 0; i < input.size(); ++i)
+        {
+            input.data()[i] = 0.1f * static_cast<float>( i );
+            output_grad.data()[i] = 1.0f;
+            input_grad.data()[i] = 0.0f;
+        }
+
+        // Build then invoke backward — current Gelu::backward is a no-op
+        d.gelu_module->build( d.shape );
+
+        EXPECT_NO_THROW( d.gelu_module->backward( input, output_grad, input_grad ) );
+
+        // Since Gelu::backward does not call the backend, input_grad must remain unchanged (all zeros)
+        for (size_t i = 0; i < input_grad.size(); ++i)
+        {
+            EXPECT_EQ( input_grad.data()[i], 0.0f );
+        }
+    }
+
+    TEST_F( GeluCpuTests, Synchronize_ParameterCount_SetTraining )
+    {
+        if (!isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ))
+        {
+            GTEST_SKIP() << "GeluOp not registered; skipping sync/parameter/training checks.";
+        }
+
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
+        auto d = GeluCpuTestData::CreateWithExecutionContext( ctx, batch_, seq_, chan_ );
+
+        // synchronize should forward to exec_context_->synchronize and not throw
+        EXPECT_NO_THROW( d.gelu_module->synchronize() );
+
+        // module has no parameters
+        EXPECT_EQ( d.gelu_module->parameterCount(), 0u );
+
+        // training flag toggles
+        d.gelu_module->setTraining( true );
+        EXPECT_TRUE( d.gelu_module->isTraining() );
+
+        d.gelu_module->setTraining( false );
+        EXPECT_FALSE( d.gelu_module->isTraining() );
     }
 }

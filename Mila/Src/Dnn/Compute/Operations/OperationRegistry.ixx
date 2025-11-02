@@ -217,9 +217,9 @@ namespace Mila::Dnn::Compute
             if (type_it == registry_.end())
             {
                 throw std::runtime_error( std::format(
-                    "createUnaryOperation: No operations registered for DataType: {}, Device: {}",
-                    TensorDataTypeTraits<TDataType>::type_name,
-                    TDeviceType == DeviceType::Cpu ? "CPU" : "CUDA"
+                    "createUnaryOperation: No operations registered for Device: {}, DataType: {}",
+                    TDeviceType == DeviceType::Cpu ? "CPU" : "CUDA",
+                    TensorDataTypeTraits<TDataType>::type_name
                 ) );
             }
 
@@ -228,10 +228,10 @@ namespace Mila::Dnn::Compute
             if (op_it == type_it->second.end())
             {
                 throw std::runtime_error( std::format(
-                    "createUnaryOperation: Operation '{}' not found for DataType: {}, Device: {}",
+                    "createUnaryOperation: Operation '{}' not found for Device: {}, DataType: {}",
                     operation_name,
-                    TensorDataTypeTraits<TDataType>::type_name,
-                    TDeviceType == DeviceType::Cpu ? "CPU" : "CUDA"
+                    TDeviceType == DeviceType::Cpu ? "CPU" : "CUDA",
+                    TensorDataTypeTraits<TDataType>::type_name
                 ) );
             }
 

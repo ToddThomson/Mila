@@ -37,23 +37,57 @@ The documentation includes class references, usage examples, and architecture gu
 
 ## What's New
 
-* Modernized ConfigurationBase with deduced `this` parameters for a more elegant fluent interface
-* Refactored Module class to use ConfigurationBase for all configuration options
-* Simplified module creation with consistent validation and configuration approach
-* Eliminated redundant configuration code with unified parameter handling
-* Improved type safety throughout the framework with more comprehensive constraints
+### Major Architecture Refactoring (v0.9.XXX-alpha)
 
-* Added Docker support (WIP) for Linux Ubuntu builds
-  * Ready-to-use container with all dependencies pre-installed
-  * Optimized environment for CI/CD pipelines and development
-  * Multi-stage build process for smaller production images
-  * Includes CUDA runtime for GPU acceleration on Linux systems
-  * Simplified development setup across different Linux distributions
+* **Two-Phase Operation Initialization Pattern**
+  * Introduced industry-standard `build()` ? `forward()` pattern across all operations
+  * Cold-path `build()`: All setup, validation, and dimension computation happens once
+  * Hot-path `forward()`/`backward()`: Zero-overhead dispatch with cached values
+  * Eliminates redundant computation and maximizes performance
+  * Pattern applied to LayerNorm, Softmax, and all future operations
 
-* Added ComputePrecision policy framework to support automatic mixed precision operations
-* Enhanced GELU operations with precision-aware implementations for both CPU and CUDA
-* Implemented mixed precision support in operation registry with type-specific operation creation
+* **Unified Module and Operation Interface**
+  * Consistent lifecycle: `setParameters()` ? `build()` ? `forward()`/`backward()`
+  * Modules own trainable parameters; operations cache device pointers
+  * Backend operations allocate device-specific runtime storage during `build()`
+  * Clear separation of concerns between module logic and compute implementation
 
+* **Device-Agnostic Operation Design**
+  * CPU and CUDA operations follow identical patterns and interfaces
+  * Consistent validation, error handling, and dimension caching
+  * Type-safe device-specific specializations via `PrecisionSupportedOnDevice` concept
+  * Seamless CPU-CUDA equivalence testing with numerical validation
+
+* **Configuration System Improvements**
+  * Modernized `ConfigurationBase` with deduced `this` parameters for elegant fluent interface
+  * Training mode initialization from config: `config.withTraining(true)` ? `module.setTraining()`
+  * Consistent validation across all configuration types
+  * Type-safe parameter handling with comprehensive constraints
+
+* **Performance Optimizations**
+  * Dimension caching eliminates redundant shape computations in hot paths
+  * Kernel variant selection (optimized vs. general) pre-computed during `build()`
+  * OpenMP parallelization thresholds cached for CPU operations
+  * Direct kernel dispatch without intermediate function calls or branching
+
+* **Enhanced Testing Infrastructure**
+  * Separated CPU and CUDA tests for better organization and maintenance
+  * Comprehensive test coverage: lifecycle, validation, edge cases, error conditions
+  * Numerical validation functions for normalization and probability distributions
+  * CPU-CUDA equivalence tests ensure implementation correctness across devices
+
+* **Improved Code Quality**
+  * Fixed critical bugs: inverted null checks, incorrect `isBuilt()` logic, constructor parameter order
+  * Comprehensive Doxygen documentation with architecture explanations
+  * Consistent error messages and exception types across all operations
+  * Removed deprecated APIs and obsolete code patterns
+
+### Next Steps
+* Backward pass implementation for all Modules and Operations
+* Additional module refactoring (Residual, Linear, etc.) to match new patterns
+* Gradient accumulation and parameter update infrastructure
+* Optimizer framework with AdamW, SGD, and learning rate schedulers
+* Distributed training support for multi-GPU environments
 
 ## Mila Build Instructions
 Mila uses CMake build. To build Mila, follow the steps below:  

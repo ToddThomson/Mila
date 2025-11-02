@@ -62,11 +62,7 @@ namespace Mila::Dnn::Compute
          * - A bound execution context (if provided at construction), or
          * - The input tensor's device (for unbound operations)
          */
-        virtual void forward(
-            const ITensor& input,
-            const Parameters& parameters,
-            ITensor& output,
-            OutputState& output_state ) const = 0;
+        virtual void forward( const ITensor& input, ITensor& output ) const = 0;
 
         /**
          * @brief Backward pass computation.
@@ -74,8 +70,6 @@ namespace Mila::Dnn::Compute
         virtual void backward(
             const ITensor& grad_output,
             const ITensor& input,
-            const Parameters& parameters,
-            const OutputState& output_state,
             ITensor& grad_input,
             Parameters& grad_parameters ) const = 0;
     };

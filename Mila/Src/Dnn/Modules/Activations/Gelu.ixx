@@ -1,14 +1,9 @@
 /**
  * @file Gelu.ixx
- * @brief GELU activation module implementation (device-templated).
+ * @brief GELU activation module implementation.
  *
- * Provides a device-aware GELU activation Module that delegates computation to a
- * device-specific UnaryOperation backend. The module is templated on the device
- * type only and accepts either a device id (creates its own ExecutionContext)
- * or a shared ExecutionContext<TDeviceType> provided by the caller.
- *
- * The module is stateless (no trainable parameters). It validates tensor device
- * compatibility and forwards ITensor instances to the backend operation.
+ * Device-templated GELU module that delegates computation to a registered
+ * device-specific UnaryOperation backend.
  */
 
 module;
@@ -17,6 +12,7 @@ module;
 #include <string>
 #include <sstream>
 #include <type_traits>
+#include <stdexcept>
 
 export module Dnn.Modules.Gelu;
 export import :Config;
@@ -40,19 +36,40 @@ namespace Mila::Dnn
     // TJT: Review: Does this pollute our API surface?
 	// For Mila namespaces the following using directives are acceptable.
 	// They improve readability without significant risk of name collisions.
+    // Possible patch..
 	// The Compute and Serialization API used here is small and it is likely
-	// that use of Compute:: and Serialization:: prefixes be better though
+	// that use of Compute:: and Serialization:: prefixes would be better
 
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Serialization;
 
     /**
-     * @brief Gaussian Error Linear Unit (GELU) activation function module.
+     * @brief Gaussian Error Linear Unit (GELU) activation module.
      *
-     * Device-templated module. GELU delegates computation to a device-specific
-     * UnaryOperation implementation registered in the OperationRegistry.
+     * Device-templated GELU module that performs forward (and optionally
+     * backward) computation by delegating to a registered device-specific
+     * UnaryOperation implementation found via the OperationRegistry.
      *
-     * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda)
+     * @tparam TDeviceType Compile-time device identifier (DeviceType::Cpu or DeviceType::Cuda).
+     * @tparam TPrecision  Tensor data precision used by this module.
+     *
+     * Preconditions:
+     * - A valid (non-null) std::shared_ptr<ExecutionContext<TDeviceType>> must be
+     *   supplied to the constructor.
+     * - The module's `build(const shape_t&)` must be called before `forward()` to
+     *   fully initialize the backend operation.
+     *
+     * Behavior:
+     * - Stateless: no trainable parameters; `parameterCount()` returns 0 and
+     *   `save()`/`load()` are no-ops.
+     * - `forward()` delegates to the backend UnaryOperation. The caller is
+     *   responsible for providing device-compatible `ITensor` objects.
+     * - `backward()` is currently not implemented and will not compute parameter
+     *   gradients (placeholder in source).
+     *
+     * Threading / Synchronization:
+     * - Module does not guarantee thread-safety; call `synchronize()` to wait
+     *   for outstanding device work to complete when needed.
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
@@ -66,8 +83,11 @@ namespace Mila::Dnn
         /**
          * @brief Construct GELU with an existing execution context.
          *
-         * @param exec_context Shared execution context for this module.
-         * @param config GELU configuration.
+         * @param exec_context Shared execution context for this module. Must be non-null.
+         * @param config GELU configuration (name and approximation method).
+         *
+         * @throws std::invalid_argument if `exec_context` is null.
+         * @throws std::invalid_argument or std::runtime_error if `config` validation fails.
          */
         explicit Gelu(  std::shared_ptr<ExecutionContextType> exec_context, const GeluConfig& config )
             : exec_context_( exec_context ), config_( config )
@@ -83,30 +103,75 @@ namespace Mila::Dnn
         }
 
         ~Gelu() override = default;
+       
 
-        size_t parameterCount() const override
+        // ====================================================================
+        // Lifecycle
+        // ====================================================================
+        
+        /**
+         * @brief Check whether the module has completed its build process.
+         *
+         * Returns true when the backend operation has been prepared and the
+         * module is ready for forward/backward calls.
+         */
+        bool isBuilt() const override
         {
-            return 0;
+            return is_built_;
+        }
+        
+        /**
+         * @brief Initialize backend operation and perform any shape-dependent allocation.
+         *
+         * Allocates or configures the underlying UnaryOperation using the provided
+         * input shape. Must be called before `forward()`.
+         *
+         * @param input_shape Expected shape for input tensors.
+         *
+         * @throws std::invalid_argument If `input_shape` is incompatible with the module configuration.
+         * @throws std::runtime_error If backend allocation or build fails.
+         */
+        void build( const shape_t& input_shape ) override
+        {
+			operation_->build( input_shape );
         }
 
 		// ====================================================================
 		// Computation
 		// ====================================================================
 
+        /**
+         * @brief Run the forward computation for this GELU module.
+         *
+         * Delegates the computation to the device-specific UnaryOperation backend.
+         * The caller must ensure `input` and `output` are allocated on the same
+         * device as this module and that `build()` has been called.
+         *
+         * @param input Const reference to the input tensor (non-owning).
+         * @param output Reference to the tensor that will receive results (caller-allocated).
+         */
         void forward( const ITensor& input, ITensor& output ) override
         {
-            operation_->forward( input, parameters_, output, output_state_ );
+            operation_->forward( input, output );
         }
 
+        /**
+         * @brief Compute gradients with respect to the module input.
+         *
+         * NOTE: Backward is currently a placeholder. The implementation should
+         * delegate to the backend `UnaryOperation::backward` when available.
+         *
+         * @param input Const reference to the original forward input.
+         * @param output_grad Const reference to the gradient w.r.t. module output.
+         * @param input_grad Reference to the tensor to be populated with the gradient
+         *                   w.r.t. the module input (caller-allocated).
+         *
+         * Implementations should document whether they overwrite or accumulate into `input_grad`.
+         */
         void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad ) override
         {
-
-            if (!operation_)
-            {
-                createOperation();
-            }
-
             std::vector<std::shared_ptr<ITensor>> parameter_gradients;
+            
             //FIXME:Loperation_->backward(
             //    //input,
             //    output_grad,
@@ -117,33 +182,42 @@ namespace Mila::Dnn
             //);
         }
 
-		// ====================================================================
-		// Lifecycle
-		// ====================================================================
-        bool isBuilt() const override
-        {
-            return (operation_ != nullptr);
-		}
-        void build( const shape_t& /*input_shape*/ ) override
-        {
-			// No-op: stateless activation
-		}
-
+        /**
+         * @brief Wait for all asynchronous work submitted by this module to complete.
+         *
+         * On CPU implementations this may be a no-op. Use to ensure results are
+         * visible on the host or to measure synchronous timings.
+         */
         void synchronize() override
         {
             exec_context_->synchronize();
         }
 
+        /**
+         * @brief Return the configured GELU approximation method.
+         *
+         * @return Configured GeluConfig::ApproximationMethod value.
+         */
         GeluConfig::ApproximationMethod getApproximationMethod() const
         {
             return config_.getApproximationMethod();
         }
 
+        /**
+         * @brief Persist module state.
+         *
+         * No-op for stateless activations; kept to satisfy the Module interface.
+         */
         void save( ModelArchive& /*archive*/ ) const override
         {
             // No-op: stateless activation
         }
 
+        /**
+         * @brief Restore module state.
+         *
+         * No-op for stateless activations; kept to satisfy the Module interface.
+         */
         void load( ModelArchive& /*archive*/ ) override
         {
             // No-op: stateless activation
@@ -163,28 +237,57 @@ namespace Mila::Dnn
         // State and Configuration Implementation
         // ====================================================================
 
+        /**
+         * @brief Set training/evaluation mode for this module.
+         *
+         * GELU has no mode-dependent state internally, however this flag is
+         * stored so composite modules can propagate mode to children.
+         *
+         * @param is_training True to enable training behavior.
+         */
         void setTraining( bool is_training ) override
         {
             training_mode_ = is_training;
         }
 
+        /**
+         * @brief Query whether the module is in training mode.
+         *
+         * @return True if training mode is enabled.
+         */
         bool isTraining() const override
         {
             return training_mode_;
         }
 
+        /**
+         * @brief Number of trainable parameters.
+         *
+         * GELU is stateless and exposes no trainable parameters.
+         *
+         * @return 0
+         */
+        size_t parameterCount() const override
+        {
+            return 0;
+        }
+
+        /**
+         * @brief Module name for logging and diagnostics.
+         *
+         * Returns the name stored in the GeluConfig (may be empty).
+         */
         std::string getName() const override
         {
             return config_.getName();
         }
 
     private:
-
+		
+        bool is_built_{ false };
         bool training_mode_{ false };
         GeluConfig config_;
         std::shared_ptr<ExecutionContextType> exec_context_;
-        std::vector<std::shared_ptr<TensorType>> parameters_;
-        std::vector<std::shared_ptr<TensorType>> output_state_;
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
 
         void createOperation()

@@ -194,8 +194,8 @@ namespace Mila::Dnn
     private:
         
         shape_t normalized_shape_;    ///< Shape of features to normalize (empty if using axis mode)
-        std::optional<dim_t> axis_;              ///< The axis along which to normalize (nullopt if using shape mode)
-        bool has_bias_{ true };                ///< Whether to include a learnable bias term
-        float epsilon_{ 1e-5f };               ///< Small constant added to variance for numerical stability
+        std::optional<dim_t> axis_;   ///< The axis along which to normalize (nullopt if using shape mode)
+        bool has_bias_{ true };       ///< Whether to include a learnable bias term
+        float epsilon_{ 1e-5f };      ///< Small constant added to variance for numerical stability
     };
 }

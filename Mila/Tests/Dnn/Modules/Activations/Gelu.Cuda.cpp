@@ -172,6 +172,7 @@ namespace Modules::Activations::Tests
         GeluConfig config;
         auto cpu_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
         auto cuda_ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        
         auto cpu_gelu = std::make_shared<GeluCpuModule>( cpu_ctx, config );
         auto cuda_gelu = std::make_shared<GeluCudaModule>( cuda_ctx, config );
 
@@ -183,6 +184,7 @@ namespace Modules::Activations::Tests
         for (size_t i = 0; i < cpu_input.size(); ++i)
             cpu_input.data()[i] = static_cast<float>( i ) / cpu_input.size() * 4.0f - 2.0f;
 
+		cpu_gelu->build( cpu_input.shape() );
         cpu_gelu->forward( cpu_input, cpu_output );
 
         // Move to device and run CUDA module using cuda_ctx device
@@ -192,6 +194,7 @@ namespace Modules::Activations::Tests
 
         Tensor<TensorDataType::FP32, MR> cuda_output( cuda_ctx->getDevice(), shape );
 
+		cuda_gelu->build( cuda_input.shape() );
         cuda_gelu->forward( cuda_input, cuda_output );
 
         auto cuda_output_host = toHost<TensorDataType::FP32>( cuda_output );

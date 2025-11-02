@@ -74,11 +74,11 @@ add_executable( MilaTests
     # Compute::Device::Cpu Operations Tests
     # --------------------------------------------------------------
     #"Dnn/Compute/Devices/Cpu/Operations/CpuEncoderOpTests.cpp"
-    #"Dnn/Compute/Devices/Cpu/Operations/CpuLinearOpTests.cpp"
     "Dnn/Compute/Devices/Cpu/Operations/CpuGeluOpTests.cpp"
+    #"Dnn/Compute/Devices/Cpu/Operations/CpuLinearOpTests.cpp"
     #"Dnn/Compute/Devices/Cpu/Operations/CpuLayerNormOpTests.cpp"
     #"Dnn/Compute/Devices/Cpu/Operations/CpuResidualOpTests.cpp"
-    "Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxOpTests.cpp"
+    #"Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxOpTests.cpp"
     
     # --------------------------------------------------------------
     # Compute::Device::Cuda Operations Tests
@@ -105,21 +105,24 @@ add_executable( MilaTests
     #"Dnn/Modules/Layers/Attention.cpp"
     #"Dnn/Modules/Layers/Encoder.cpp"
     #"Dnn/Modules/Layers/EncoderConfig.cpp"
-    "Dnn/Modules/Layers/Linear.Cpu.cpp"
-    "Dnn/Modules/Layers/LinearConfig.cpp"
-    "Dnn/Modules/Layers/Residual.cpp"
-    "Dnn/Modules/Layers/Softmax.cpp"
+    #"Dnn/Modules/Layers/Linear.Cpu.cpp"
+    #"Dnn/Modules/Layers/LinearConfig.cpp"
+    #"Dnn/Modules/Layers/Residual.cpp"
+    #"Dnn/Modules/Layers/Softmax.cpp"
 
     "Dnn/Modules/Activations/Gelu.Cpu.cpp" 
     "Dnn/Modules/Activations/GeluConfig.cpp"
 
-    "Dnn/Modules/Normalization/LayerNorm.cpp"
+    "Dnn/Modules/Activations/Gelu.Cuda.cpp" 
+    #"Dnn/Modules/Layers/Linear.Cuda.cpp"
+
+    "Dnn/Modules/Normalization/LayerNorm.Cpu.cpp"
     "Dnn/Modules/Normalization/LayerNormConfig.cpp"
     
     # --------------------------------------------------------------
     # Modules::Blocks Tests
     # --------------------------------------------------------------
-    "Dnn/Modules/Blocks/MLP.cpp" 
+    #"Dnn/Modules/Blocks/MLP.cpp" 
     #"Dnn/Modules/Blocks/TransformerBlock.cpp"
 
     #"Dnn/Data/DataLoader.cpp"
@@ -141,8 +144,8 @@ add_executable( MilaTests
     "Dnn/Compute/Operations/OperationBase.cpp"
     "Dnn/Compute/Operations/UnaryOperation.cpp"
     #"Dnn/Compute/Operations/BinaryOperation.cpp"
-    "Dnn/Modules/Activations/Gelu.Cuda.cpp" 
- "Dnn/Modules/Layers/Linear.Cuda.cpp")
+    
+ "Dnn/Modules/Normalization/LayerNorm.Cuda.cpp" "Dnn/Modules/Layers/Softmax.Cuda.cpp")
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
 

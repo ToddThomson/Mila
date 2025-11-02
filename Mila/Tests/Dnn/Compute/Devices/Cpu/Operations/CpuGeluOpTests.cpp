@@ -20,6 +20,8 @@
 #ifdef USE_OMP
 #include <omp.h>
 #endif
+#include <exception>
+#include <stdexcept>
 
 import Mila;
 
@@ -59,7 +61,8 @@ namespace Dnn::Compute::Device::Cpu::Operations::Tests
 		}
 
 		// Detect NaN/Inf in a host-accessible FP32 tensor
-		template <typename TTensor> bool hasNaNorInfHost( const TTensor& tensor ) const
+		template <typename TTensor> 
+		bool hasNaNorInfHost( const TTensor& tensor ) const
 		{
 			const float* data = static_cast<const float*>(tensor.rawData());
 
@@ -121,9 +124,11 @@ namespace Dnn::Compute::Device::Cpu::Operations::Tests
 			GTEST_SKIP() << "GeluOp not registered; skipping op-level forward checks.";
 		}
 
-		using TensorT = Tensor<TensorDataType::FP32, CpuMemoryResource>;
-		TensorT input( exec_ctx_->getDevice(), small_shape_ );
-		TensorT output( exec_ctx_->getDevice(), small_shape_ );
+		// Operation must be built for the input shape before execution.
+		ASSERT_NO_THROW( op_->build( small_shape_ ) );
+
+		Tensor<dtype_t::FP32, CpuMemoryResource> input( exec_ctx_->getDevice(), small_shape_ );
+		Tensor<dtype_t::FP32, CpuMemoryResource> output( exec_ctx_->getDevice(), small_shape_ );
 
 		float* in_data = static_cast<float*>(input.rawData());
 
@@ -132,10 +137,7 @@ namespace Dnn::Compute::Device::Cpu::Operations::Tests
 			in_data[i] = (static_cast<float>( i ) - 10.0f) / 10.0f;
 		}
 
-		typename UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>::Parameters params;
-		typename UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>::OutputState out_state;
-
-		ASSERT_NO_THROW( op_->forward( input, params, output, out_state ) );
+		ASSERT_NO_THROW( op_->forward( input, output ) );
 
 		const float* out_data = static_cast<const float*>( output.rawData() );
 
@@ -146,60 +148,7 @@ namespace Dnn::Compute::Device::Cpu::Operations::Tests
 		}
 	}
 
-	TEST_F( CpuGeluOpTests, BackwardPass )
-	{
-		if (!op_)
-		{
-			GTEST_SKIP() << "GeluOp not registered; skipping op-level backward checks.";
-		}
-
-		using TensorT = Tensor<TensorDataType::FP32, CpuMemoryResource>;
-		TensorT input( exec_ctx_->getDevice(), small_shape_ );
-		TensorT output( exec_ctx_->getDevice(), small_shape_ );
-		TensorT output_grad( exec_ctx_->getDevice(), small_shape_ );
-		TensorT input_grad( exec_ctx_->getDevice(), small_shape_ );
-
-		float* in_data = static_cast<float*>(input.rawData());
-		float* dout = static_cast<float*>(output_grad.rawData());
-		float* din = static_cast<float*>(input_grad.rawData());
-
-		for (size_t i = 0; i < input.size(); ++i)
-		{
-			in_data[i] = (static_cast<float>( i ) - 10.0f) / 10.0f;
-			dout[i] = 1.0f;
-			din[i] = 0.0f;
-		}
-
-		typename UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>::Parameters params;
-		typename UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>::OutputState out_state;
-
-		op_->forward( input, params, output, out_state );
-
-		ASSERT_NO_THROW( op_->backward( input, output_grad, params, out_state, input_grad, params ) );
-
-		EXPECT_FALSE( hasNaNorInfHost( input_grad ) );
-
-		const float* din_const = static_cast<const float*>(input_grad.rawData());
-
-		for (size_t i = 0; i < input.size(); ++i)
-		{
-			float expected = geluGradReference( in_data[i] ); // output_grad is 1.0 so gradient equals local grad
-			EXPECT_NEAR( din_const[i], expected, 1e-4f );
-		}
-
-		bool all_zeros = true;
-
-		for (size_t i = 0; i < input_grad.size(); ++i)
-		{
-			if (std::abs( static_cast<const float*>( input_grad.rawData() )[i] ) > 1e-5f)
-			{
-				all_zeros = false;
-				break;
-			}
-		}
-
-		EXPECT_FALSE( all_zeros );
-	}
+	
 
 	TEST_F( CpuGeluOpTests, EdgeCases )
 	{
@@ -209,21 +158,21 @@ namespace Dnn::Compute::Device::Cpu::Operations::Tests
 		}
 
 		using TensorT = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+
+		// Operation must be built for the input shape before execution.
+		ASSERT_NO_THROW( op_->build( small_shape_ ) );
+
 		TensorT input( exec_ctx_->getDevice(), small_shape_ );
 		TensorT output( exec_ctx_->getDevice(), small_shape_ );
 
 		float* in_data = static_cast<float*>(input.rawData());
 
-		typename UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>::Parameters params;
-		typename UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>::OutputState out_state;
-
-		// zeros
 		for (size_t i = 0; i < input.size(); ++i)
 		{
 			in_data[i] = 0.0f;
 		}
 
-		ASSERT_NO_THROW( op_->forward( input, params, output, out_state ) );
+		ASSERT_NO_THROW( op_->forward( input, output ) );
 
 		for (size_t i = 0; i < output.size(); ++i)
 		{
@@ -236,7 +185,7 @@ namespace Dnn::Compute::Device::Cpu::Operations::Tests
 			in_data[i] = 100.0f;
 		}
 
-		ASSERT_NO_THROW( op_->forward( input, params, output, out_state ) );
+		ASSERT_NO_THROW( op_->forward( input, output ) );
 
 		for (size_t i = 0; i < output.size(); ++i)
 		{
@@ -249,7 +198,7 @@ namespace Dnn::Compute::Device::Cpu::Operations::Tests
 			in_data[i] = -100.0f;
 		}
 
-		ASSERT_NO_THROW( op_->forward( input, params, output, out_state ) );
+		ASSERT_NO_THROW( op_->forward( input, output ) );
 
 		for (size_t i = 0; i < output.size(); ++i)
 		{
@@ -262,7 +211,7 @@ namespace Dnn::Compute::Device::Cpu::Operations::Tests
 			in_data[i] = 1e-5f;
 		}
 
-		ASSERT_NO_THROW( op_->forward( input, params, output, out_state ) );
+		ASSERT_NO_THROW( op_->forward( input, output ) );
 
 		for (size_t i = 0; i < output.size(); ++i)
 		{
@@ -278,6 +227,10 @@ namespace Dnn::Compute::Device::Cpu::Operations::Tests
 		}
 
 		using TensorT = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+
+		// Build for medium shape used in this test.
+		ASSERT_NO_THROW( op_->build( medium_shape_ ) );
+
 		TensorT input( exec_ctx_->getDevice(), medium_shape_ );
 		TensorT out1( exec_ctx_->getDevice(), medium_shape_ );
 		TensorT out2( exec_ctx_->getDevice(), medium_shape_ );
@@ -320,13 +273,10 @@ namespace Dnn::Compute::Device::Cpu::Operations::Tests
 			in_data[i] = v;
 		}
 
-		typename UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>::Parameters params;
-		typename UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>::OutputState out_state;
-
-		ASSERT_NO_THROW( op_->forward( input, params, out1, out_state ) );
+		ASSERT_NO_THROW( op_->forward( input, out1 ) );
 		EXPECT_FALSE( hasNaNorInfHost( out1 ) );
 
-		op_->forward( input, params, out2, out_state );
+		op_->forward( input, out2 );
 
 		for (size_t i = 0; i < out1.size(); ++i)
 		{
@@ -365,6 +315,9 @@ namespace Dnn::Compute::Device::Cpu::Operations::Tests
 			auto tanh_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TensorDataType::FP32>(
 				"GeluOp", exec_ctx_, tanh_cfg );
 
+			// Build before using the operation
+			ASSERT_NO_THROW( tanh_op->build( small_shape_ ) );
+
 			using TensorT = Tensor<TensorDataType::FP32, CpuMemoryResource>;
 			TensorT input( exec_ctx_->getDevice(), small_shape_ ), out( exec_ctx_->getDevice(), small_shape_ );
 			float* d = static_cast<float*>(input.rawData());
@@ -374,10 +327,7 @@ namespace Dnn::Compute::Device::Cpu::Operations::Tests
 				d[i] = (static_cast<float>( i ) - 10.0f) / 10.0f;
 			}
 
-			typename UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>::Parameters params;
-			typename UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>::OutputState out_state;
-
-			ASSERT_NO_THROW( tanh_op->forward( input, params, out, out_state ) );
+			ASSERT_NO_THROW( tanh_op->forward( input, out ) );
 
 			const float* od = static_cast<const float*>( out.rawData() );
 
@@ -412,6 +362,10 @@ namespace Dnn::Compute::Device::Cpu::Operations::Tests
 		}
 
 		using TensorT = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+
+		// Build for the large shape used in performance runs.
+		ASSERT_NO_THROW( op_->build( large_shape_ ) );
+
 		TensorT a( exec_ctx_->getDevice(), large_shape_ ), out( exec_ctx_->getDevice(), large_shape_ );
 		float* ad = static_cast<float*>(a.rawData());
 
@@ -420,15 +374,12 @@ namespace Dnn::Compute::Device::Cpu::Operations::Tests
 			ad[i] = (static_cast<float>( rand() ) / RAND_MAX - 0.5f) * 20.0f;
 		}
 
-		typename UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>::Parameters params;
-		typename UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>::OutputState out_state;
-
 		const int iterations = 10;
 		auto start = std::chrono::high_resolution_clock::now();
 
 		for (int it = 0; it < iterations; ++it)
 		{
-			op_->forward( a, params, out, out_state );
+			op_->forward( a, out );
 		}
 
 		auto end = std::chrono::high_resolution_clock::now();

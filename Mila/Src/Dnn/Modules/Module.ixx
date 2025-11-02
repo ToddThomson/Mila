@@ -64,49 +64,7 @@ namespace Mila::Dnn
     {
     public:
         virtual ~Module() = default;
-
-        // ====================================================================
-		// Computation
-        // ====================================================================
-
-        /**
-         * @brief Run the forward computation for this module.
-         *
-         * @param input Const reference to the input tensor. Implementations
-         *        should not assume ownership. The input may be a view or a
-         *        scalar tensor depending on the operation.
-         * @param output Reference to the tensor that will receive the result.
-         *        The caller is responsible for allocating an appropriately
-         *        sized tensor unless the implementation documents otherwise.
-         *
-         * Implementations should document whether they support in-place
-         * operations (i.e. where `output` aliases `input`) and any shape
-         * broadcasting rules they follow.
-         */
-        virtual void forward(
-            const ITensor& input,
-            ITensor& output ) = 0;
         
-        /**
-         * @brief Compute gradients for this module's input given the gradient
-         *        of the module output.
-         *
-         * @param input Const reference to the original forward input. Used by
-         *        some layers to compute input gradients.
-         * @param output_grad Const reference to the gradient with respect to
-         *        the module output.
-         * @param input_grad Reference to the tensor that will be populated
-         *        with the gradient with respect to the module input. The
-         *        caller is responsible for allocation unless noted.
-         *
-         * Implementations should document whether they accumulate into
-         * `input_grad` or overwrite it.
-         */
-        virtual void backward( 
-            const ITensor& input,
-            const ITensor& output_grad,
-            ITensor& input_grad ) = 0;
-
         // ====================================================================
         // Lifecycle
         // ====================================================================
@@ -160,6 +118,50 @@ namespace Mila::Dnn
          */
         virtual void build( const shape_t& input_shape ) = 0;
 
+        // ====================================================================
+		// Compute Operation dispatch
+        // ====================================================================
+
+        /**
+         * @brief Run the forward computation for this module.
+         *
+         * @param input Const reference to the input tensor. Implementations
+         *        should not assume ownership. The input may be a view or a
+         *        scalar tensor depending on the operation.
+         * @param output Reference to the tensor that will receive the result.
+         *        The caller is responsible for allocating an appropriately
+         *        sized tensor unless the implementation documents otherwise.
+         *
+         * Implementations should document whether they support in-place
+         * operations (i.e. where `output` aliases `input`) and any shape
+         * broadcasting rules they follow.
+         */
+        virtual void forward( const ITensor& input, ITensor& output ) = 0;
+        
+        /**
+         * @brief Compute gradients for this module's input given the gradient
+         *        of the module output.
+         *
+         * @param input Const reference to the original forward input. Used by
+         *        some layers to compute input gradients.
+         * @param output_grad Const reference to the gradient with respect to
+         *        the module output.
+         * @param input_grad Reference to the tensor that will be populated
+         *        with the gradient with respect to the module input. The
+         *        caller is responsible for allocation unless noted.
+         *
+         * Implementations should document whether they accumulate into
+         * `input_grad` or overwrite it.
+         */
+        virtual void backward( 
+            const ITensor& input,
+            const ITensor& output_grad,
+            ITensor& input_grad ) = 0;
+
+		// ====================================================================
+		// Synchronization
+		// ====================================================================
+
         /**
          * @brief Synchronize this module's execution stream.
          *
@@ -172,6 +174,9 @@ namespace Mila::Dnn
 		// ====================================================================
         // Parameters
 		// ====================================================================
+
+		// TJT: Access to parameters is required for optimizers, but the ownership
+		// model is unclear. Leaving this commented out for now.
 
         //virtual std::vector<Tensor*> parameters() = 0;
 
@@ -208,17 +213,6 @@ namespace Mila::Dnn
          * so that subsequent forward/backward calls are valid.
          */
         virtual void load( ModelArchive& archive ) = 0;
-
-        /**
-         * @brief Produce a short, human-readable description of the module.
-         *
-         * The returned string should be a single-line description suitable for
-         * logging. It typically contains the module type, name (if any), and
-         * key configuration values (shapes, sizes).
-         *
-         * @returns A human-readable single-line description.
-         */
-        virtual std::string toString() const = 0;
 
         // ====================================================================
         // State and Configuration
@@ -278,5 +272,20 @@ namespace Mila::Dnn
             os << module.toString();
             return os;
         }
+
+		// ====================================================================
+		// Debugging and Description
+		// ====================================================================
+
+        /**
+         * @brief Produce a short, human-readable description of the module.
+         *
+         * The returned string should be a single-line description suitable for
+         * logging. It typically contains the module type, name (if any), and
+         * key configuration values (shapes, sizes).
+         *
+         * @returns A human-readable single-line description.
+         */
+        virtual std::string toString() const = 0;
     };
 }
