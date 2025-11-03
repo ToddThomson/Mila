@@ -24,7 +24,7 @@ using namespace Mila::Mnist;
 
 struct MnistConfig
 {
-    std::string data_directory = "./Data/Mnist";
+    std::string data_directory = "./Data/DataSets/Mnist";
     size_t batch_size = 128;
     size_t epochs = 5;
     float learning_rate = 0.01f;
@@ -36,7 +36,7 @@ void printUsage()
 {
     std::cout << "Usage: mnist [options]\n";
     std::cout << "Options:\n";
-    std::cout << "  --data-dir <path>     Path to MNIST data directory (default: ./Data/Mnist)\n";
+    std::cout << "  --data-dir <path>     Path to MNIST data directory (default: ./Data/DataSets/Mnist)\n";
     std::cout << "  --batch-size <int>    Batch size (default: 128)\n";
     std::cout << "  --epochs <int>        Number of epochs (default: 5)\n";
     std::cout << "  --learning-rate <float> Learning rate (default: 0.01)\n";
