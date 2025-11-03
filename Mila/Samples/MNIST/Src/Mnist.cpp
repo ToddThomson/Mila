@@ -4,6 +4,12 @@
 #include <chrono>
 #include <filesystem>
 #include <format>
+#include <limits>
+#include <type_traits>
+#include <memory>
+#include <ios>
+#include <exception>
+#include <cstdint>
 
 import Mila;
 
@@ -16,16 +22,18 @@ using namespace Mila::Dnn;
 using namespace Mila::Dnn::Compute;
 using namespace Mila::Mnist;
 
-struct MnistConfig {
-    std::string dataDir = "./Data/Mnist";
-    size_t batchSize = 128;
+struct MnistConfig
+{
+    std::string data_directory = "./Data/Mnist";
+    size_t batch_size = 128;
     size_t epochs = 5;
-    float learningRate = 0.01f;
-    DeviceType computeDeviceType = DeviceType::Cuda;
+    float learning_rate = 0.01f;
+    DeviceType compute_device = DeviceType::Cuda;
     ComputePrecision::Policy precisionPolicy = ComputePrecision::Policy::Auto;
 };
 
-void printUsage() {
+void printUsage()
+{
     std::cout << "Usage: mnist [options]\n";
     std::cout << "Options:\n";
     std::cout << "  --data-dir <path>     Path to MNIST data directory (default: ./Data/Mnist)\n";
@@ -37,74 +45,91 @@ void printUsage() {
     std::cout << "  --help                Show this help message\n";
 }
 
-// Parse command line arguments and fill the configuration
-bool parseCommandLine( int argc, char** argv, MnistConfig& config ) {
-    for ( int i = 1; i < argc; i++ ) {
-        std::string arg = argv[ i ];
+bool parseCommandLine( int argc, char** argv, MnistConfig& config )
+{
+    for (int i = 1; i < argc; i++)
+    {
+        std::string arg = argv[i];
 
-        if ( arg == "--help" ) {
+        if (arg == "--help")
+        {
             printUsage();
             return false;
         }
-        else if ( arg == "--data-dir" && i + 1 < argc ) {
-            config.dataDir = argv[ ++i ];
+        else if (arg == "--data-dir" && i + 1 < argc)
+        {
+            config.data_directory = argv[++i];
         }
-        else if ( arg == "--batch-size" && i + 1 < argc ) {
-            config.batchSize = std::stoi( argv[ ++i ] );
+        else if (arg == "--batch-size" && i + 1 < argc)
+        {
+            config.batch_size = std::stoi( argv[++i] );
         }
-        else if ( arg == "--epochs" && i + 1 < argc ) {
-            config.epochs = std::stoi( argv[ ++i ] );
+        else if (arg == "--epochs" && i + 1 < argc)
+        {
+            config.epochs = std::stoi( argv[++i] );
         }
-        else if ( arg == "--learning-rate" && i + 1 < argc ) {
-            config.learningRate = std::stof( argv[ ++i ] );
+        else if (arg == "--learning-rate" && i + 1 < argc)
+        {
+            config.learning_rate = std::stof( argv[++i] );
         }
-        else if ( arg == "--device" && i + 1 < argc ) {
-            std::string device = argv[ ++i ];
-            if ( device == "cpu" ) {
-                config.computeDeviceType = DeviceType::Cpu;
+        else if (arg == "--device" && i + 1 < argc)
+        {
+            std::string device = argv[++i];
+            if (device == "cpu")
+            {
+                config.compute_device = DeviceType::Cpu;
             }
-            else if ( device == "cuda" ) {
-                config.computeDeviceType = DeviceType::Cuda;
+            else if (device == "cuda")
+            {
+                config.compute_device = DeviceType::Cuda;
             }
-            else {
+            else
+            {
                 std::cerr << "Unknown device type: " << device << ". Using default: cuda" << std::endl;
             }
         }
-        else if ( arg == "--precision" && i + 1 < argc ) {
-            std::string precision = argv[ ++i ];
-            if ( precision == "auto" ) {
+        else if (arg == "--precision" && i + 1 < argc)
+        {
+            std::string precision = argv[++i];
+            if (precision == "auto")
+            {
                 config.precisionPolicy = ComputePrecision::Policy::Auto;
             }
-            else if ( precision == "performance" ) {
+            else if (precision == "performance")
+            {
                 config.precisionPolicy = ComputePrecision::Policy::Performance;
             }
-            else if ( precision == "accuracy" ) {
+            else if (precision == "accuracy")
+            {
                 config.precisionPolicy = ComputePrecision::Policy::Accuracy;
             }
-            else if ( precision == "disabled" ) {
+            else if (precision == "disabled")
+            {
                 config.precisionPolicy = ComputePrecision::Policy::Native;
             }
-            else {
+            else
+            {
                 std::cerr << "Unknown precision policy: " << precision << ". Using default: auto" << std::endl;
             }
         }
-        else if ( arg.substr( 0, 2 ) == "--" ) {
+        else if (arg.substr( 0, 2 ) == "--")
+        {
             std::cerr << "Unknown option: " << arg << std::endl;
             printUsage();
             return false;
         }
     }
 
-    // Print configuration
     std::cout << "Configuration:" << std::endl;
-    std::cout << "  Data directory: " << config.dataDir << std::endl;
-    std::cout << "  Batch size: " << config.batchSize << std::endl;
+    std::cout << "  Data directory: " << config.data_directory << std::endl;
+    std::cout << "  Batch size: " << config.batch_size << std::endl;
     std::cout << "  Epochs: " << config.epochs << std::endl;
-    std::cout << "  Learning rate: " << config.learningRate << std::endl;
-    std::cout << "  Device: " << (config.computeDeviceType == DeviceType::Cuda ? "CUDA" : "CPU") << std::endl;
+    std::cout << "  Learning rate: " << config.learning_rate << std::endl;
+    std::cout << "  Device: " << (config.compute_device == DeviceType::Cuda ? "CUDA" : "CPU") << std::endl;
     std::cout << "  Precision policy: ";
 
-    switch ( config.precisionPolicy ) {
+    switch (config.precisionPolicy)
+    {
         case ComputePrecision::Policy::Auto:
             std::cout << "Auto"; break;
         case ComputePrecision::Policy::Performance:
@@ -116,45 +141,46 @@ bool parseCommandLine( int argc, char** argv, MnistConfig& config ) {
     }
     std::cout << std::endl << std::endl;
 
-    // Validate data directory
-    if ( !fs::exists( config.dataDir ) ) {
-        std::cerr << "MNIST data directory not found: " << config.dataDir << std::endl;
+    if (!fs::exists( config.data_directory ))
+    {
+        std::cerr << "MNIST data directory not found: " << config.data_directory << std::endl;
         std::cerr << "Please download the MNIST dataset from http://yann.lecun.com/exdb/mnist/" << std::endl;
-        std::cerr << "and extract the files to " << config.dataDir << std::endl;
+        std::cerr << "and extract the files to " << config.data_directory << std::endl;
         return false;
     }
 
     return true;
 }
 
-// Cross-entropy loss function for classification
-template<typename TDataType>
-float softmaxCrossEntropyLoss( const Tensor<TDataType, HostMemoryResource>& logits, const Tensor<TDataType, HostMemoryResource>& targets ) {
-
-    // Apply softmax and compute cross-entropy loss
-    size_t batch_size = logits.shape()[ 0 ];
-    size_t num_classes = logits.shape()[ 1 ];
+template<TensorDataType TDataType>
+float softmaxCrossEntropyLoss( const Tensor<TDataType, CpuMemoryResource>& logits,
+    const Tensor<TDataType, CpuMemoryResource>& targets )
+{
+    size_t batch_size = logits.shape()[0];
+    size_t num_classes = logits.shape()[1];
     float loss = 0.0f;
 
-    for ( size_t i = 0; i < batch_size; ++i ) {
-        // Find max logit for numerical stability
+    for (size_t i = 0; i < batch_size; ++i)
+    {
         float max_logit = -std::numeric_limits<float>::infinity();
-        for ( size_t j = 0; j < num_classes; ++j ) {
-            max_logit = std::max( max_logit, static_cast<float>( logits.data()[ i * num_classes + j ] ) );
+        for (size_t j = 0; j < num_classes; ++j)
+        {
+            max_logit = std::max( max_logit, static_cast<float>( logits.data()[i * num_classes + j] ) );
         }
 
-        // Compute softmax denominator (sum of exp(logit - max_logit))
         float denom = 0.0f;
-        for ( size_t j = 0; j < num_classes; ++j ) {
-            float exp_val = std::exp( static_cast<float>( logits.data()[ i * num_classes + j ] ) - max_logit );
+        for (size_t j = 0; j < num_classes; ++j)
+        {
+            float exp_val = std::exp( static_cast<float>( logits.data()[i * num_classes + j] ) - max_logit );
             denom += exp_val;
         }
 
-        // Compute cross-entropy loss for each sample
-        for ( size_t j = 0; j < num_classes; ++j ) {
-            float target = static_cast<float>( targets.data()[ i * num_classes + j ] );
-            if ( target > 0.0f ) {  // Only calculate for the true class (one-hot encoding)
-                float prob = std::exp( static_cast<float>( logits.data()[ i * num_classes + j ] ) - max_logit ) / denom;
+        for (size_t j = 0; j < num_classes; ++j)
+        {
+            float target = static_cast<float>( targets.data()[i * num_classes + j] );
+            if (target > 0.0f)
+            {
+                float prob = std::exp( static_cast<float>( logits.data()[i * num_classes + j] ) - max_logit ) / denom;
                 loss += -std::log( prob ) * target;
             }
         }
@@ -163,38 +189,41 @@ float softmaxCrossEntropyLoss( const Tensor<TDataType, HostMemoryResource>& logi
     return loss / batch_size;
 }
 
-// Compute accuracy for classification
-template<typename TDataType, typename MR>
+template<TensorDataType TDataType, typename MR>
 float computeAccuracy( const Tensor<TDataType, MR>& logits,
-    const Tensor<TDataType, MR>& targets ) {
-    size_t batch_size = logits.shape()[ 0 ];
-    size_t num_classes = logits.shape()[ 1 ];
+    const Tensor<TDataType, MR>& targets )
+{
+    size_t batch_size = logits.shape()[0];
+    size_t num_classes = logits.shape()[1];
     size_t correct = 0;
 
-    for ( size_t i = 0; i < batch_size; ++i ) {
-        // Find predicted class (max logit)
+    for (size_t i = 0; i < batch_size; ++i)
+    {
         size_t pred_class = 0;
-        float max_logit = static_cast<float>( logits.data()[ i * num_classes ] );
+        float max_logit = static_cast<float>( logits.data()[i * num_classes] );
 
-        for ( size_t j = 1; j < num_classes; ++j ) {
-            float logit = static_cast<float>( logits.data()[ i * num_classes + j ] );
-            if ( logit > max_logit ) {
+        for (size_t j = 1; j < num_classes; ++j)
+        {
+            float logit = static_cast<float>( logits.data()[i * num_classes + j] );
+            if (logit > max_logit)
+            {
                 max_logit = logit;
                 pred_class = j;
             }
         }
 
-        // Find true class (one-hot encoded)
         size_t true_class = 0;
-        for ( size_t j = 0; j < num_classes; ++j ) {
-            if ( targets.data()[ i * num_classes + j ] > 0.5f ) {
+        for (size_t j = 0; j < num_classes; ++j)
+        {
+            if (targets.data()[i * num_classes + j] > 0.5f)
+            {
                 true_class = j;
                 break;
             }
         }
 
-        // Check if prediction was correct
-        if ( pred_class == true_class ) {
+        if (pred_class == true_class)
+        {
             correct++;
         }
     }
@@ -202,35 +231,47 @@ float computeAccuracy( const Tensor<TDataType, MR>& logits,
     return static_cast<float>(correct) / batch_size;
 }
 
-// Simple SGD optimizer for demonstration
-template<typename TDataType, typename MR>
-void sgdUpdate( Tensor<TDataType, MR>& param, Tensor<TDataType, MR>& grad, float learning_rate ) {
-    for ( size_t i = 0; i < param.size(); ++i ) {
-        param.data()[ i ] -= learning_rate * grad.data()[ i ];
+template<TensorDataType TDataType, typename MR>
+void sgdUpdate( Tensor<TDataType, MR>& param, Tensor<TDataType, MR>& grad, float learning_rate )
+{
+    for (size_t i = 0; i < param.size(); ++i)
+    {
+        param.data()[i] -= learning_rate * grad.data()[i];
     }
 }
 
-template<DeviceType TDeviceType, typename TDataType, typename THostMR>
-    requires ValidFloatTensorType<TDataType> &&
-(std::is_same_v<THostMR, CudaPinnedMemoryResource> || std::is_same_v<THostMR, CpuMemoryResource>)
+template<DeviceType TDeviceType, TensorDataType TDataType, typename THostMR>
+    requires PrecisionSupportedOnDevice<TDataType, TDeviceType> &&
+    (std::is_same_v<THostMR, CudaPinnedMemoryResource> || std::is_same_v<THostMR, CpuMemoryResource>)
 void runMnistTrainingLoop(
     std::shared_ptr<MnistClassifier<TDeviceType, TDataType>>& model,
-    const MnistConfig& config ) {
+    const MnistConfig& config )
+{
+    using DeviceMR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
 
-    using DeviceMR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, HostMemoryResource>;
+    // Get device from model's execution context
+    auto device = model->getDevice();
 
-    MnistDataLoader<float, THostMR> train_loader( config.dataDir, config.batchSize, true );
-    MnistDataLoader<float, THostMR> test_loader( config.dataDir, config.batchSize, false );
+    MnistDataLoader<TensorDataType::FP32, THostMR> train_loader( config.data_directory, config.batch_size, true, device );
+    MnistDataLoader<TensorDataType::FP32, THostMR> test_loader( config.data_directory, config.batch_size, false, device );
 
-    Tensor<TDataType, DeviceMR> input_batch( { train_loader.batchSize(), static_cast<size_t>(MNIST_IMAGE_SIZE) } );
-    Tensor<TDataType, HostMemoryResource> target_batch( { train_loader.batchSize(), static_cast<size_t>(MNIST_NUM_CLASSES) } );
+    // Build the model with the input shape from the data loader
+    shape_t input_shape = { static_cast<int64_t>(train_loader.batchSize()), MNIST_IMAGE_SIZE };
+    model->build( input_shape );
 
-    Tensor<TDataType, HostMemoryResource> logits( { train_loader.batchSize(), static_cast<size_t>(MNIST_NUM_CLASSES) } );
-    Tensor<TDataType, DeviceMR> output( { train_loader.batchSize(), static_cast<size_t>(MNIST_NUM_CLASSES) } );
+    std::cout << "Model built successfully!" << std::endl;
+    std::cout << model->toString() << std::endl;
+
+    Tensor<TDataType, DeviceMR> input_batch( device, input_shape );
+    Tensor<TDataType, CpuMemoryResource> target_batch( "CPU", { static_cast<int64_t>(train_loader.batchSize()), MNIST_NUM_CLASSES } );
+
+    Tensor<TDataType, CpuMemoryResource> logits( "CPU", { static_cast<int64_t>(train_loader.batchSize()), MNIST_NUM_CLASSES } );
+    Tensor<TDataType, DeviceMR> output( device, { static_cast<int64_t>(train_loader.batchSize()), MNIST_NUM_CLASSES } );
 
     std::cout << "Starting training for " << config.epochs << " epochs..." << std::endl;
 
-    for ( size_t epoch = 0; epoch < config.epochs; ++epoch ) {
+    for (size_t epoch = 0; epoch < config.epochs; ++epoch)
+    {
         train_loader.reset();
 
         float epoch_loss = 0.0f;
@@ -239,15 +280,16 @@ void runMnistTrainingLoop(
 
         auto start_time = std::chrono::high_resolution_clock::now();
 
-        while ( batches < train_loader.numBatches() ) {
+        while (train_loader.hasNext())
+        {
             train_loader.nextBatch();
 
-            input_batch.copyFrom( train_loader.inputs() );
-            target_batch.copyFrom( train_loader.targets() );
+            copy( train_loader.inputs(), input_batch );
+            copy( train_loader.targets(), target_batch );
 
             model->forward( input_batch, output );
 
-            logits.copyFrom( output );
+            copy( output, logits );
 
             float batch_loss = softmaxCrossEntropyLoss( logits, target_batch );
             float batch_acc = computeAccuracy( logits, target_batch );
@@ -256,12 +298,8 @@ void runMnistTrainingLoop(
             epoch_acc += batch_acc;
             batches++;
 
-            // Now perform the Backward pass and update parameters
-            //model->backward( logits, target_batch );
-            // sgdUpdate( model->getParameters(), model->getGradients(), config.learningRate );
-
-
-            if ( batches % 100 == 0 || batches == train_loader.numBatches() ) {
+            if (batches % 100 == 0 || batches == train_loader.numBatches())
+            {
                 std::cout << "Epoch " << (epoch + 1) << " [" << batches << "/"
                     << train_loader.numBatches() << "] - Loss: " << std::fixed
                     << std::setprecision( 4 ) << batch_loss << " - Accuracy: "
@@ -280,18 +318,18 @@ void runMnistTrainingLoop(
         float test_acc = 0.0f;
         size_t test_batches = 0;
 
-        // Switch to evaluation mode
         model->setTraining( false );
 
-        while ( test_batches < test_loader.numBatches() ) {
+        while (test_loader.hasNext())
+        {
             test_loader.nextBatch();
 
-            input_batch.copyFrom( test_loader.inputs() );
-            target_batch.copyFrom( test_loader.targets() );
+            copy( test_loader.inputs(), input_batch );
+            copy( test_loader.targets(), target_batch );
 
             model->forward( input_batch, output );
 
-            logits.copyFrom( output );
+            copy( output, logits );
 
             test_loss += softmaxCrossEntropyLoss( logits, target_batch );
             test_acc += computeAccuracy( logits, target_batch );
@@ -299,13 +337,11 @@ void runMnistTrainingLoop(
             test_batches++;
         }
 
-        // Calculate test statistics
         test_loss /= test_batches;
         test_acc /= test_batches;
 
         model->setTraining( true );
 
-        // Print epoch summary
         std::cout << "Epoch " << (epoch + 1) << "/" << config.epochs
             << " - Time: " << epoch_time << "s - Loss: " << std::fixed << std::setprecision( 4 ) << epoch_loss
             << " - Accuracy: " << std::setprecision( 2 ) << (epoch_acc * 100.0f) << "%"
@@ -315,57 +351,71 @@ void runMnistTrainingLoop(
     }
 }
 
-int main( int argc, char** argv ) {
-    try {
+int main( int argc, char** argv )
+{
+    try
+    {
         std::cout << "MNIST Classification Example using Mila MLP" << std::endl;
         std::cout << "===========================================" << std::endl;
 
         Mila::initialize();
 
         MnistConfig config;
-        if ( !parseCommandLine( argc, argv, config ) ) {
+        if (!parseCommandLine( argc, argv, config ))
+        {
             return 1;
         }
 
-        if ( config.computeDeviceType == DeviceType::Cuda ) {
-            try {
-                std::string deviceName = "CUDA:0";
+        if (config.compute_device == DeviceType::Cuda)
+        {
+            try
+            {
                 std::cout << "Using CUDA device" << std::endl;
 
-                auto model = std::make_shared<MnistClassifier<DeviceType::Cuda, float>>(
-                    "MnistMLP", deviceName, config.batchSize, config.precisionPolicy );
+                // Create execution context
+                auto exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+
+                // Create model with execution context
+                auto model = std::make_shared<CudaMnistClassifier<TensorDataType::FP32>>(
+                    exec_context,
+                    "MnistMLP",
+                    static_cast<int64_t>(config.batch_size) );
 
                 model->setTraining( true );
 
-                std::cout << model->toString() << std::endl;
-
-                runMnistTrainingLoop<DeviceType::Cuda, float, CudaPinnedMemoryResource>( model, config );
+                runMnistTrainingLoop<DeviceType::Cuda, TensorDataType::FP32, CudaPinnedMemoryResource>(
+                    model, config );
             }
-            catch ( const std::exception& e ) {
+            catch (const std::exception& e)
+            {
                 std::cerr << "CUDA error: " << e.what() << ", falling back to CPU" << std::endl;
-                config.computeDeviceType = DeviceType::Cpu;
+                config.compute_device = DeviceType::Cpu;
             }
         }
 
-        if ( config.computeDeviceType == DeviceType::Cpu ) {
-            std::string deviceName = "CPU";
+        if (config.compute_device == DeviceType::Cpu)
+        {
             std::cout << "Using CPU device" << std::endl;
 
-            std::cout << "Creating model..." << std::endl;
-            auto model = std::make_shared<MnistClassifier<DeviceType::Cpu, float>>(
-                "MnistMLP", deviceName, config.batchSize, config.precisionPolicy );
+            // Create execution context
+            auto exec_context = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
+
+            // Create model with execution context
+            auto model = std::make_shared<CpuMnistClassifier<TensorDataType::FP32>>(
+                exec_context,
+                "MnistMLP",
+                static_cast<int64_t>(config.batch_size) );
 
             model->setTraining( true );
 
-            std::cout << model->toString() << std::endl;
-
-            runMnistTrainingLoop<DeviceType::Cpu, float, HostMemoryResource>(
+            runMnistTrainingLoop<DeviceType::Cpu, TensorDataType::FP32, CpuMemoryResource>(
                 model, config );
         }
 
         std::cout << "Training complete!" << std::endl;
     }
-    catch ( const std::exception& e ) {
+    catch (const std::exception& e)
+    {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;
     }

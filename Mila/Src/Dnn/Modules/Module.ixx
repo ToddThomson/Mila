@@ -41,6 +41,7 @@ export module Dnn.Module;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
+import Compute.ComputeDevice;
 import Compute.DeviceType;
 import Serialization.ModelArchive;
 
@@ -248,7 +249,7 @@ namespace Mila::Dnn
         virtual std::string getName() const = 0;
         
         // ====================================================================
-        // Device Information (Static - constexpr)
+        // Device information and access
         // ====================================================================
 
         /**
@@ -259,6 +260,42 @@ namespace Mila::Dnn
         static constexpr DeviceType getDeviceType() {
             return TDeviceType;
         }
+
+        /**
+         * @brief Get the compute device associated with this module.
+         *
+         * Returns the device on which this module's parameters are allocated and
+         * operations are executed. The device is determined by the ExecutionContext
+         * provided at module construction time.
+         *
+         * This method is typically used to:
+         * - Allocate intermediate tensors on the same device as the module
+         * - Ensure input tensors are on the correct device before forward pass
+         * - Create compatible output tensors with proper device placement
+         *
+         * For composite modules, all child modules should share the same device.
+         *
+         * @return Shared pointer to the ComputeDevice associated with this module
+         *
+         * @throws std::runtime_error if called before module construction or if
+         *         the ExecutionContext has been destroyed
+         *
+         * @note The returned device pointer remains valid for the lifetime of the module
+         * @note This is a runtime (virtual) method, not compile-time like getDeviceType()
+         *
+         * @see getDeviceType() for compile-time device type information
+         * @see ExecutionContext::getDevice()
+         *
+         * Example usage:
+         * @code
+         * auto model = std::make_shared<MLP<DeviceType::Cuda, TensorDataType::FP32>>( exec_ctx, config );
+         * auto device = model->getDevice();
+         *
+         * // Create intermediate tensor on same device as model
+         * Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> buffer( device, shape );
+         * @endcode
+         */
+        virtual std::shared_ptr<ComputeDevice> getDevice() const = 0;
 
         // ====================================================================
         // Operators

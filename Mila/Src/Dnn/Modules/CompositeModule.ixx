@@ -36,7 +36,7 @@ namespace Mila::Dnn
      * standardized child management.
      */
     export template<DeviceType TDeviceType>
-        class CompositeModule : public Module<TDeviceType>
+    class CompositeModule : public Module<TDeviceType>
     {
     public:
         using ModuleBase = Module<TDeviceType>;

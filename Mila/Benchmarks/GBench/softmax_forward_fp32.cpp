@@ -69,21 +69,17 @@ namespace GBench::GeluBenchmarks
 
 		copy( host_input, input );
 
-		// Prepare empty parameters and output_state to match UnaryOperation::forward signature
-		std::vector<std::shared_ptr<Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>>> params;
-		std::vector<std::shared_ptr<Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>>> out_state;
-
 		// Warm up
 		for (int i = 0; i < 5; ++i)
 		{
-			op->forward( input, params, output, out_state );
+			op->forward( input, output );
 			ctx->synchronize();
 		}
 
 		// Benchmark loop
 		for (auto _ : state)
 		{
-			op->forward( input, params, output, out_state );
+			op->forward( input, output );
 			ctx->synchronize();
 
 			// report bytes (approx)

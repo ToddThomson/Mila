@@ -78,7 +78,7 @@ namespace GBench::GeluBenchmarks
 			Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> output( ctx->getDevice(), output_shape );
 
 			// Prepare host input
-			auto cpu_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>( -1 );
+			auto cpu_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
 			auto cpu_dev = cpu_ctx->getDevice();
 			Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( cpu_dev, input_shape );
 
@@ -118,14 +118,14 @@ namespace GBench::GeluBenchmarks
 			// Warm up (single synchronization after all warmup iterations)
 			for (int i = 0; i < 5; ++i)
 			{
-				op->forward( input, params, output, out_state );
+				op->forward( input, output );
 			}
 			ctx->synchronize();
 
 			// Benchmark loop
 			for (auto _ : state)
 			{
-				op->forward( input, params, output, out_state );
+				op->forward( input, output );
 				ctx->synchronize();
 			}
 

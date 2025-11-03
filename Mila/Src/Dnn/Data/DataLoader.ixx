@@ -21,18 +21,21 @@ module;
 #include <cstddef>
 #include <memory>
 #include <stdexcept>
+#include <cstdint>
+#include <string>
+#include <sstream>
 
 export module Data.DataLoader;
 
 import Dnn.Tensor;
 import Dnn.TensorDataType;
-import Dnn.TensorTraits;
+import Dnn.TensorDataTypeTraits;
 import Compute.DeviceType;
 import Compute.MemoryResource;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaPinnedMemoryResource;
 import Compute.CpuMemoryResource;
-//import Compute.TensorDataTypeCompatibility;
+
 
 namespace Mila::Dnn::Data
 {
@@ -82,14 +85,8 @@ namespace Mila::Dnn::Data
      * };
      * @endcode
      */
-    export template<TensorDataType TInputDataType = TensorDataType::FP32,
-        TensorDataType TTargetDataType = TInputDataType,
-        typename TMemoryResource = CpuMemoryResource>
-        requires isValidTensorConfiguration<TInputDataType, TMemoryResource>&&
-    isValidTensorConfiguration<TTargetDataType, TMemoryResource> &&
-        (std::is_same_v<TMemoryResource, CudaPinnedMemoryResource> ||
-            std::is_same_v<TMemoryResource, CpuMemoryResource>)
-        class DataLoader {
+    export template<TensorDataType TInputDataType, TensorDataType TTargetDataType, typename TMemoryResource>
+    class DataLoader {
         public:
             // ====================================================================
             // Type Aliases and Compile-Time Properties
@@ -125,7 +122,7 @@ namespace Mila::Dnn::Data
              * @note Larger batches generally improve throughput but require more memory
              * @note Consider GPU memory constraints when selecting batch size for device training
              */
-            explicit DataLoader( size_t batch_size )
+            explicit DataLoader( int64_t batch_size )
                 : batch_size_( batch_size ), current_batch_( 0 ) {
                 if ( batch_size == 0 ) {
                     throw std::invalid_argument( "Batch size must be greater than zero" );
@@ -175,7 +172,7 @@ namespace Mila::Dnn::Data
              * @note Value may change if dataset is modified or resampled
              * @note Used for training progress reporting and epoch boundary detection
              */
-            virtual size_t numBatches() const = 0;
+            virtual int64_t numBatches() const = 0;
 
             /**
              * @brief Returns the configured batch size
@@ -189,7 +186,7 @@ namespace Mila::Dnn::Data
              * @note Final batch may contain fewer samples if dataset size is not divisible by batch size
              * @note Batch size affects memory requirements and processing efficiency
              */
-            size_t batchSize() const noexcept {
+            int64_t batchSize() const noexcept {
                 return batch_size_;
             }
 
@@ -206,7 +203,7 @@ namespace Mila::Dnn::Data
              * @note Index increments with each successful nextBatch() call
              * @note Reset to 0 when reset() method is called
              */
-            size_t currentBatch() const noexcept {
+            int64_t currentBatch() const noexcept {
                 return current_batch_;
             }
 
@@ -414,7 +411,7 @@ namespace Mila::Dnn::Data
              * @note Should be called by derived classes after successful batch loading
              * @note Enables consistent progress tracking across all loader types
              */
-            void setCurrentBatch( size_t batch_index ) noexcept {
+            void setCurrentBatch( int64_t batch_index ) noexcept {
                 current_batch_ = batch_index;
             }
 
@@ -432,13 +429,10 @@ namespace Mila::Dnn::Data
                 ++current_batch_;
             }
 
-        private:
-            // ====================================================================
-            // Private Member Variables
-            // ====================================================================
+	    private:
 
-            size_t batch_size_;     ///< Number of samples in each batch (immutable after construction)
-            size_t current_batch_;  ///< Zero-based index of currently loaded batch
+            int64_t batch_size_;     ///< Number of samples in each batch (immutable after construction)
+            int64_t current_batch_;  ///< Zero-based index of currently loaded batch
     };
 
     // ====================================================================

@@ -128,11 +128,12 @@ add_executable( MilaTests
     # Modules::Blocks Tests
     # --------------------------------------------------------------
     "Dnn/Modules/Blocks/MLP.Cpu.cpp"
+    "Dnn/Modules/Blocks/MLP.Cuda.cpp"
     "Dnn/Modules/Blocks/MLPConfig.cpp"
 
     #"Dnn/Modules/Blocks/TransformerBlock.cpp"
 
-    #"Dnn/Data/DataLoader.cpp"
+    "Dnn/Data/DataLoader.cpp"
     #"Dnn/Models/Gpt2/DatasetReader.cpp"
 
     # Cuda Operations...
@@ -151,9 +152,8 @@ add_executable( MilaTests
     "Dnn/Compute/Operations/OperationBase.cpp"
     "Dnn/Compute/Operations/UnaryOperation.cpp"
     #"Dnn/Compute/Operations/BinaryOperation.cpp"
-    
 
- "Dnn/Modules/Blocks/MLP.Cuda.cpp")
+)
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
 

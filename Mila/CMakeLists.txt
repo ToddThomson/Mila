@@ -300,7 +300,10 @@ PUBLIC
         #"Src/Dnn/Modules/Blocks/TransformerBlock.ixx"
         #"Src/Dnn/Modules/Blocks/TransformerBlockConfig.ixx"
         
-        #"Src/Dnn/Data/DataLoader.ixx"
+        #----------------------------------------------------------------------
+        # Dnn / Data
+        #----------------------------------------------------------------------
+        "Src/Dnn/Data/DataLoader.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Models
@@ -403,15 +406,18 @@ add_subdirectory( Docs )
     message(STATUS "Code coverage enabled for MSVC")
 endif()
 
-if (MILA_ENABLE_TESTING)  
+if(MILA_ENABLE_TESTING)  
     enable_testing()
     add_subdirectory(Tests) 
 endif()
 
-if (MILA_ENABLE_BENCHMARKS)
-    #add_subdirectory(Benchmarks)
+if(MILA_ENABLE_BENCHMARKS)
+    add_subdirectory(Benchmarks)
 endif()
  
-if (MILA_ENABLE_SAMPLES)  
-#add_subdirectory(Samples)  
-endif()
+#if(MILA_ENABLE_SAMPLES)
+     message(STATUS "MILA_ENABLE_SAMPLES is ON - adding Samples subdirectory")
+     add_subdirectory(Samples)
+ #else()
+ #    message(STATUS "MILA_ENABLE_SAMPLES is OFF - skipping Samples")
+ #endif()

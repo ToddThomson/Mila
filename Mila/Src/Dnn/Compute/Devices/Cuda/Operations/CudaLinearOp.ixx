@@ -6,7 +6,7 @@
  * following the two-phase initialization pattern used by CudaLayerNormOp.
  */
 
-    module;
+module;
 #include <cublasLt.h>
 #include <cuda_fp16.h>
 #include <cuda_fp8.h>

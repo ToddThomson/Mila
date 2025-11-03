@@ -134,7 +134,7 @@ export import Compute.CpuTensorDataTypeTraits;
 // ====================================================================
 export import Dnn.Module;
 export import Dnn.ConfigurationBase;
-//export import Dnn.CompositeModule;
+export import Dnn.CompositeModule;
 //export import Dnn.Model;
 
 // ====================================================================
@@ -182,9 +182,9 @@ export import Dnn.Blocks.MLP;
 //export import Dnn.Gpt2.DatasetReader;
 
 // ====================================================================
-// Data
+// Dnn - Data
 // ====================================================================
-//export import Data.DataLoader;
+export import Data.DataLoader;
 
 // ====================================================================
 // Serialization

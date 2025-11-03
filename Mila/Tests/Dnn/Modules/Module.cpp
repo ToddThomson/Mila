@@ -165,6 +165,11 @@ namespace Dnn::Modules::Tests
             return config_.getName();
         }
 
+        std::shared_ptr<ComputeDevice> getDevice() const override
+        {
+            return exec_context_->getDevice();
+		}
+
         // Expose precision policy for tests
         ComputePrecision::Policy getPrecisionPolicy() const
         {

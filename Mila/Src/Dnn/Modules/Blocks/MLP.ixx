@@ -252,6 +252,11 @@ namespace Mila::Dnn
             return config_.getName();
         }
 
+        std::shared_ptr<ComputeDevice> getDevice() const override
+        {
+            return exec_context_->getDevice();
+		}
+
         void synchronize() override
         {
             if (exec_context_)
