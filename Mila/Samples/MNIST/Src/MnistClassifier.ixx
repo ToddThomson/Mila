@@ -178,10 +178,13 @@ namespace Mila::Mnist
 
             // Backprop through output layer
             TensorType hidden2_grad( device, cached_hidden2_shape_ );
+			zeros( hidden2_grad );
+
             output_fc_->backward( *hidden2_, output_grad, hidden2_grad );
 
             // Backprop through MLP2
             TensorType hidden1_grad( device, cached_hidden1_shape_ );
+			zeros( hidden1_grad );
             mlp2_->backward( *hidden1_, hidden2_grad, hidden1_grad );
 
             // Backprop through MLP1
@@ -267,9 +270,9 @@ namespace Mila::Mnist
             oss << "MNIST Classifier: " << name_ << std::endl;
             oss << "Architecture:" << std::endl;
             oss << "  Input:  784 features (28x28 flattened)" << std::endl;
-            oss << "  MLP1:   784 ? " << HIDDEN1_SIZE << " (with GELU activation)" << std::endl;
-            oss << "  MLP2:   " << HIDDEN1_SIZE << " ? " << HIDDEN2_SIZE << " (with GELU activation)" << std::endl;
-            oss << "  Output: " << HIDDEN2_SIZE << " ? " << MNIST_NUM_CLASSES << " classes" << std::endl;
+            oss << "  MLP1:   784 -> " << HIDDEN1_SIZE << " (with GELU activation)" << std::endl;
+            oss << "  MLP2:   " << HIDDEN1_SIZE << " -> " << HIDDEN2_SIZE << " (with GELU activation)" << std::endl;
+            oss << "  Output: " << HIDDEN2_SIZE << " -> " << MNIST_NUM_CLASSES << " classes" << std::endl;
             oss << "Parameters: " << parameterCount() << std::endl;
 
             if (exec_context_ && exec_context_->getDevice())
@@ -382,36 +385,33 @@ namespace Mila::Mnist
          */
         void createModules()
         {
-            // MLP1: 784 ? 128
+            // MLP1: 784 -> 128
             auto mlp1_config = MLPConfig( MNIST_IMAGE_SIZE, HIDDEN1_SIZE );
             mlp1_config.withName( name_ + ".mlp1" )
-                .withBias( true )
-                //.withActivation( ActivationType::Gelu )
-                .withLayerNorm( false )
-                .withTraining( this->isTraining() );
+                .withBias( false /* was true */ )
+                .withActivation( ActivationType::Gelu )
+                .withLayerNorm( false );
 
             mlp1_ = std::make_shared<MLP<TDeviceType, TPrecision>>( exec_context_, mlp1_config );
             this->addModule( "mlp1", mlp1_ );
 
-            // MLP2: 128 ? 64
+            // MLP2: 128 -> 64
             auto mlp2_config = MLPConfig( HIDDEN1_SIZE, HIDDEN2_SIZE );
             mlp2_config.withName( name_ + ".mlp2" )
-                .withBias( true )
-                //.withActivation( ActivationType::Gelu )
-                .withLayerNorm( false )
-                .withTraining( this->isTraining() );
+                .withBias( false /* was true */ )
+                .withActivation( ActivationType::Gelu )
+                .withLayerNorm( false );
 
             mlp2_ = std::make_shared<MLP<TDeviceType, TPrecision>>( exec_context_, mlp2_config );
             this->addModule( "mlp2", mlp2_ );
 
-            // Output layer: 64 ? 10
+            // Output layer: 64 -> 10
             auto output_config = LinearConfig( HIDDEN2_SIZE, MNIST_NUM_CLASSES );
             output_config.withName( name_ + ".output" )
-                .withBias( true )
-                .withTraining( this->isTraining() );
+                .withBias( false /* was true */ );
 
             output_fc_ = std::make_shared<Linear<TDeviceType, TPrecision>>( exec_context_, output_config );
-            this->addModule( "output", output_fc_ );
+            this->addModule( "fc", output_fc_ );
         }
     };
 

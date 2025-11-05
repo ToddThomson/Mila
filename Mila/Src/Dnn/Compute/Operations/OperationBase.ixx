@@ -92,6 +92,42 @@ namespace Mila::Dnn::Compute
         }
 
         /**
+         * @brief Bind module-owned parameter gradient tensors to the operation.
+         *
+         * - The Module remains the canonical owner of parameter gradient tensors.
+         * - The operation MUST NOT take ownership or free the provided pointers.
+         * - Implementations may cache `rawData()` pointers derived from the provided
+         *   `ITensor` during `build()` for hot-path use.
+         *
+         * Default: no-op for stateless operations.
+         */
+        virtual void setParameterGradients( ITensor* weight_grad, ITensor* bias_grad )
+        {
+            (void)weight_grad;
+            (void)bias_grad;
+        }
+
+        /**
+         * @brief Set whether the operation is in training mode.
+         *
+         * @param is_training True to enable training-mode behavior.
+         */
+        virtual void setTraining( bool is_training )
+        {
+			is_training_ = is_training;
+        }
+
+        /**
+         * @brief Query whether the operation is in training mode.
+         *
+         * @returns True if the operation is configured for training behavior.
+         */
+        virtual bool isTraining() const 
+        {
+			return is_training_;
+        }
+
+        /**
          * @brief Gets the operation type identifier.
          */
         virtual OperationType getOperationType() const = 0;
@@ -118,11 +154,12 @@ namespace Mila::Dnn::Compute
          * Used for logging, debugging, and naming associated tensors.
          *
          * @return std::string Name of the operation
-		 */
+         */
         virtual std::string getName() const = 0;
 
     protected:
-        
+
         bool is_built_{ false };
-    };
+        bool is_training_{ false };
+	};
 }

@@ -9,6 +9,7 @@ module;
 #include <cstdlib>   // For std::aligned_alloc and std::free
 #endif
 #include <cstring>
+#include <cstddef>
 
 export module Compute.CpuMemoryResource;
 

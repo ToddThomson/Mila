@@ -85,7 +85,6 @@ namespace Mila::Dnn
             }
 
             config_.validate();
-            this->setTraining( config_.isTraining() );
 
             createModules();
         }
@@ -419,8 +418,7 @@ namespace Mila::Dnn
             // fc1: input_features ? hidden_size
             auto fc1_config = LinearConfig( config_.getInputFeatures(), config_.getHiddenSize() );
             fc1_config.withName( config_.getName() + ".fc1" )
-                .withBias( config_.hasBias() )
-                .withTraining( this->isTraining() );
+                .withBias( config_.hasBias() );
 
             fc1_ = std::make_shared<Linear<TDeviceType, TPrecision>>( exec_context_, fc1_config );
             this->addModule( "fc1", fc1_ );
@@ -430,8 +428,7 @@ namespace Mila::Dnn
             {
                 auto norm_config = LayerNormConfig();
                 norm_config.withAxis( -1 )
-                    .withName( config_.getName() + ".norm" )
-                    .withTraining( this->isTraining() );
+                    .withName( config_.getName() + ".norm" );
 
                 norm_ = std::make_shared<LayerNorm<TDeviceType, TPrecision>>( exec_context_, norm_config );
                 this->addModule( "norm", norm_ );
@@ -443,8 +440,7 @@ namespace Mila::Dnn
                 case ActivationType::Gelu:
                 {
                     auto gelu_config = GeluConfig();
-                    gelu_config.withName( config_.getName() + ".gelu" )
-                        .withTraining( this->isTraining() );
+                    gelu_config.withName( config_.getName() + ".gelu" );
 
                     activation_ = std::make_shared<Gelu<TDeviceType, TPrecision>>( exec_context_, gelu_config );
                     break;
@@ -458,8 +454,7 @@ namespace Mila::Dnn
             // fc2: hidden_size ? input_features
             auto fc2_config = LinearConfig( config_.getHiddenSize(), config_.getInputFeatures() );
             fc2_config.withName( config_.getName() + ".fc2" )
-                .withBias( config_.hasBias() )
-                .withTraining( this->isTraining() );
+                .withBias( config_.hasBias() );
 
             fc2_ = std::make_shared<Linear<TDeviceType, TPrecision>>( exec_context_, fc2_config );
             this->addModule( "fc2", fc2_ );

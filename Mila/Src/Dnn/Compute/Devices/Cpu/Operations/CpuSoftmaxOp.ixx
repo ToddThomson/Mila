@@ -224,8 +224,7 @@ namespace Mila::Dnn::Compute
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            ITensor& input_grad,
-            Parameters& parameter_grads ) const override
+            ITensor& input_grad ) const override
         {
             const HostType* probs = static_cast<const HostType*>(input.rawData());
             const HostType* dY = static_cast<const HostType*>(output_grad.rawData());

@@ -73,8 +73,7 @@ namespace Modules::Normalization::Tests
             .withAxis( 2 )
             .withBias( false )
             .withEpsilon( 1e-4f )
-            .withName( "test_layernorm" )
-            .withTraining( true );
+            .withName( "test_layernorm" );
 
         EXPECT_EQ( &result, &config );
         ASSERT_TRUE( config.getAxis().has_value() );
@@ -82,7 +81,6 @@ namespace Modules::Normalization::Tests
         EXPECT_FALSE( config.hasBias() );
         EXPECT_FLOAT_EQ( config.getEpsilon(), 1e-4f );
         EXPECT_EQ( config.getName(), "test_layernorm" );
-        EXPECT_TRUE( config.isTraining() );
     }
 
     TEST_F( LayerNormConfigTests, Validate_Throws_WhenInputShapeMissing ) {
@@ -116,8 +114,7 @@ namespace Modules::Normalization::Tests
             .withBias( true )
             .withEpsilon( 1e-5f )
             .withName( "test_layernorm" )
-            .withPrecisionPolicy( ComputePrecision::Policy::Performance )
-            .withTraining( false );
+            .withPrecisionPolicy( ComputePrecision::Policy::Performance );
 
         ASSERT_TRUE( config.getAxis().has_value() );
         EXPECT_EQ( config.getAxis().value(), -1 );
@@ -125,7 +122,6 @@ namespace Modules::Normalization::Tests
         EXPECT_FLOAT_EQ( config.getEpsilon(), 1e-5f );
         EXPECT_EQ( config.getName(), "test_layernorm" );
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Performance );
-        EXPECT_FALSE( config.isTraining() );
     }
 
     TEST_F( LayerNormConfigTests, ConfigurationPersistence_NoInputShape ) {
@@ -205,16 +201,14 @@ namespace Modules::Normalization::Tests
         config.withAxis( -1 )
             .withBias( true )
             .withEpsilon( 1e-12f )
-            .withName( "transformer_layernorm" )
-            .withTraining( true );
+            .withName( "transformer_layernorm" );
 
         ASSERT_TRUE( config.getAxis().has_value() );
         EXPECT_EQ( config.getAxis().value(), -1 );
         EXPECT_TRUE( config.hasBias() );
         EXPECT_FLOAT_EQ( config.getEpsilon(), 1e-12f );
         EXPECT_EQ( config.getName(), "transformer_layernorm" );
-        EXPECT_TRUE( config.isTraining() );
-
+        
         // With axis explicitly set, validate should succeed (axis is considered specified)
         EXPECT_NO_THROW( config.validate() );
     }

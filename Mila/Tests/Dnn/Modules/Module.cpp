@@ -39,7 +39,7 @@ namespace Dnn::Modules::Tests
         using ExecutionContextType = ExecutionContext<TDeviceType>;
 
         explicit MockModule( const MockModuleConfig& config, std::shared_ptr<ExecutionContextType> exec_context )
-            : config_( config ), exec_context_( exec_context ), training_( config.isTraining() )
+            : config_( config ), exec_context_( exec_context )
         {
             // Basic validation to keep behavior aligned with tests
             if (!exec_context_)
@@ -235,8 +235,7 @@ namespace Dnn::Modules::Tests
             data.is_training = is_training;
 
             MockModuleConfig config;
-            config.withName( "mock_module" )
-                .withTraining( is_training );
+            config.withName( "mock_module" );
 
             // Build an execution context appropriate for the device type
             std::shared_ptr<typename MockModule<TDeviceType>::ExecutionContextType> exec_ctx;
@@ -261,8 +260,7 @@ namespace Dnn::Modules::Tests
             data.is_training = is_training;
 
             MockModuleConfig config;
-            config.withName( "mock_module_context" )
-                .withTraining( is_training );
+            config.withName( "mock_module_context" );
 
             data.module = std::make_shared<MockModule<TDeviceType>>( config, exec_context );
             return data;
@@ -652,19 +650,16 @@ namespace Dnn::Modules::Tests
         MockModuleConfig config;
         EXPECT_EQ( config.getName(), "mock_module" );
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Auto );
-        EXPECT_FALSE( config.isTraining() );
     }
 
     TEST_F( ModuleTests, ModuleConfig_CustomValues )
     {
         MockModuleConfig config;
         config.withName( "custom_module" )
-            .withPrecisionPolicy( ComputePrecision::Policy::Performance )
-            .withTraining( true );
+            .withPrecisionPolicy( ComputePrecision::Policy::Performance );
 
         EXPECT_EQ( config.getName(), "custom_module" );
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Performance );
-        EXPECT_TRUE( config.isTraining() );
     }
 
     // ====================================================================
@@ -704,8 +699,7 @@ namespace Dnn::Modules::Tests
     TEST_F( ModuleTests, ModuleReflectsConfigTrainingMode )
     {
         MockModuleConfig training_config;
-        training_config.withName( "training_module" )
-            .withTraining( true );
+        training_config.withName( "training_module" );
 
         auto exec_ctx = std::make_shared<MockModule<DeviceType::Cpu>::ExecutionContextType>();
         auto module = std::make_shared<MockModule<DeviceType::Cpu>>( training_config, exec_ctx );

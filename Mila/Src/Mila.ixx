@@ -162,6 +162,8 @@ export import Dnn.TensorInitializers;
 // ====================================================================
 // Dnn - Modules
 // ====================================================================
+export import Dnn.ActivationType;
+
 //export import Dnn.Modules.Attention;
 //export import Dnn.Modules.Encoder;
 export import Dnn.Modules.Gelu;

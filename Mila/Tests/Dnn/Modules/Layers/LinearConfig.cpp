@@ -46,8 +46,7 @@ namespace Modules::Layers::Tests
         auto& result = config
             .withBias( false )
             .withName( "test_linear" )
-            .withPrecisionPolicy( ComputePrecision::Policy::Performance )
-            .withTraining( true );
+            .withPrecisionPolicy( ComputePrecision::Policy::Performance );
 
         EXPECT_EQ( &result, &config );
         EXPECT_EQ( config.getInputFeatures(), input_features );
@@ -55,7 +54,6 @@ namespace Modules::Layers::Tests
         EXPECT_FALSE( config.hasBias() );
         EXPECT_EQ( config.getName(), "test_linear" );
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Performance );
-        EXPECT_TRUE( config.isTraining() );
     }
 
     TEST_F( LinearConfigTests, ValidationSuccess ) {
@@ -105,15 +103,13 @@ namespace Modules::Layers::Tests
 
         config.withBias( false )
             .withName( "test_linear" )
-            .withPrecisionPolicy( ComputePrecision::Policy::Accuracy )
-            .withTraining( false );
+            .withPrecisionPolicy( ComputePrecision::Policy::Accuracy );
 
         EXPECT_EQ( config.getInputFeatures(), 512 );
         EXPECT_EQ( config.getOutputFeatures(), 256 );
         EXPECT_FALSE( config.hasBias() );
         EXPECT_EQ( config.getName(), "test_linear" );
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Accuracy );
-        EXPECT_FALSE( config.isTraining() );
     }
 
     TEST_F( LinearConfigTests, ConfigurationPersistence ) {
@@ -183,26 +179,22 @@ namespace Modules::Layers::Tests
     TEST_F( LinearConfigTests, TypicalNeuralNetworkConfigurations ) {
         LinearConfig hidden_layer( 768, 3072 );
         hidden_layer.withName( "transformer_ffn_hidden" )
-            .withBias( true )
-            .withTraining( true );
+            .withBias( true );
 
         EXPECT_EQ( hidden_layer.getInputFeatures(), 768 );
         EXPECT_EQ( hidden_layer.getOutputFeatures(), 3072 );
         EXPECT_TRUE( hidden_layer.hasBias() );
         EXPECT_EQ( hidden_layer.getName(), "transformer_ffn_hidden" );
-        EXPECT_TRUE( hidden_layer.isTraining() );
         EXPECT_NO_THROW( hidden_layer.validate() );
 
         LinearConfig output_layer( 3072, 768 );
         output_layer.withName( "transformer_ffn_output" )
-            .withBias( true )
-            .withTraining( true );
+            .withBias( true );
 
         EXPECT_EQ( output_layer.getInputFeatures(), 3072 );
         EXPECT_EQ( output_layer.getOutputFeatures(), 768 );
         EXPECT_TRUE( output_layer.hasBias() );
         EXPECT_EQ( output_layer.getName(), "transformer_ffn_output" );
-        EXPECT_TRUE( output_layer.isTraining() );
         EXPECT_NO_THROW( output_layer.validate() );
     }
 
@@ -210,15 +202,13 @@ namespace Modules::Layers::Tests
         LinearConfig classification_head( 768, 1000 );
         classification_head.withName( "classification_head" )
             .withBias( false )
-            .withPrecisionPolicy( ComputePrecision::Policy::Accuracy )
-            .withTraining( false );
+            .withPrecisionPolicy( ComputePrecision::Policy::Accuracy );
 
         EXPECT_EQ( classification_head.getInputFeatures(), 768 );
         EXPECT_EQ( classification_head.getOutputFeatures(), 1000 );
         EXPECT_FALSE( classification_head.hasBias() );
         EXPECT_EQ( classification_head.getName(), "classification_head" );
         EXPECT_EQ( classification_head.getPrecisionPolicy(), ComputePrecision::Policy::Accuracy );
-        EXPECT_FALSE( classification_head.isTraining() );
         EXPECT_NO_THROW( classification_head.validate() );
     }
 

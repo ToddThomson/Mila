@@ -11,11 +11,12 @@ namespace Mila::Dnn::Compute
     namespace cg = cooperative_groups;
 
     __global__ void layernorm_forward_fp32_kernel( float* __restrict__ Y, float* __restrict__ mean, float* __restrict__ rstd,
-        const float* __restrict__ X, const float* __restrict__ weight,
-        const float* __restrict__ bias, int N, int C, float epsilon ) {
+        const float* __restrict__ X, const float* __restrict__ weight,  const float* __restrict__ bias, int N, int C, float epsilon ) 
+    {
         cg::thread_block block = cg::this_thread_block();
         cg::thread_block_tile<32> warp = cg::tiled_partition<32>( block );
         int idx = blockIdx.x * warp.meta_group_size() + warp.meta_group_rank();
+        
         if ( idx >= N ) {
             return;
         }
@@ -28,8 +29,10 @@ namespace Mila::Dnn::Compute
         for ( int i = warp.thread_rank(); i < C; i += warp.size() ) {
             sum += x[ i ];
         }
+        
         sum = cg::reduce( warp, sum, cg::plus<float>{} );
         float m = sum / C;
+        
         if ( warp.thread_rank() == 0 && mean != nullptr ) {
             __stcs( mean + idx, m );
         }
@@ -62,11 +65,12 @@ namespace Mila::Dnn::Compute
     }
 
     __global__ void layernorm_forward_fp16_kernel( half* __restrict__ Y, half* __restrict__ mean, half* __restrict__ rstd,
-        const half* __restrict__ X, const half* __restrict__ weight,
-        const half* __restrict__ bias, int N, int C, float epsilon ) {
+        const half* __restrict__ X, const half* __restrict__ weight, const half* __restrict__ bias, int N, int C, float epsilon ) 
+    {
         cg::thread_block block = cg::this_thread_block();
         cg::thread_block_tile<32> warp = cg::tiled_partition<32>( block );
         int idx = blockIdx.x * warp.meta_group_size() + warp.meta_group_rank();
+        
         if ( idx >= N ) {
             return;
         }
@@ -74,8 +78,8 @@ namespace Mila::Dnn::Compute
         // The row of input that this group of threads is responsible for
         const half* x = X + idx * C;
 
-        // Accumulate in float for better precision
-        // Mean calculation
+        // 
+        // Mean calculation - Accumulate in float for better precision
         float sum = 0.0f;
         for ( int i = warp.thread_rank(); i < C; i += warp.size() ) {
             sum += __half2float( x[ i ] );

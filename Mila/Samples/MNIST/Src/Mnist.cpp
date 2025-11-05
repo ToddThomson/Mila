@@ -153,6 +153,50 @@ bool parseCommandLine( int argc, char** argv, MnistConfig& config )
 }
 
 template<TensorDataType TDataType>
+void softmaxCrossEntropyGradient(
+    const Tensor<TDataType, CpuMemoryResource>& logits,
+    const Tensor<TDataType, CpuMemoryResource>& targets,
+    Tensor<TDataType, CpuMemoryResource>& output_grad )
+{
+    using HostType = typename TensorHostTypeMap<TDataType>::host_type;
+
+    size_t batch_size = logits.shape()[0];
+    size_t num_classes = logits.shape()[1];
+
+    for (size_t i = 0; i < batch_size; ++i)
+    {
+        // Numerical stability: subtract max
+        float max_logit = -std::numeric_limits<float>::infinity();
+        for (size_t j = 0; j < num_classes; ++j)
+        {
+            max_logit = std::max( max_logit,
+                static_cast<float>( logits.data()[i * num_classes + j] ) );
+        }
+
+        // Compute softmax denominator
+        float denom = 0.0f;
+        for (size_t j = 0; j < num_classes; ++j)
+        {
+            float exp_val = std::exp(
+                static_cast<float>( logits.data()[i * num_classes + j] ) - max_logit );
+            denom += exp_val;
+        }
+
+        // Gradient: softmax(logits) - targets
+        for (size_t j = 0; j < num_classes; ++j)
+        {
+            float prob = std::exp(
+                static_cast<float>( logits.data()[i * num_classes + j] ) - max_logit ) / denom;
+            float target = static_cast<float>( targets.data()[i * num_classes + j] );
+
+            // dL/dlogit = (prob - target) / batch_size
+            output_grad.data()[i * num_classes + j] =
+                static_cast<HostType>( (prob - target) / static_cast<float>( batch_size ) );
+        }
+    }
+}
+
+template<TensorDataType TDataType>
 float softmaxCrossEntropyLoss( const Tensor<TDataType, CpuMemoryResource>& logits,
     const Tensor<TDataType, CpuMemoryResource>& targets )
 {
@@ -242,7 +286,7 @@ void sgdUpdate( Tensor<TDataType, MR>& param, Tensor<TDataType, MR>& grad, float
 
 template<DeviceType TDeviceType, TensorDataType TDataType, typename THostMR>
     requires PrecisionSupportedOnDevice<TDataType, TDeviceType> &&
-    (std::is_same_v<THostMR, CudaPinnedMemoryResource> || std::is_same_v<THostMR, CpuMemoryResource>)
+(std::is_same_v<THostMR, CudaPinnedMemoryResource> || std::is_same_v<THostMR, CpuMemoryResource>)
 void runMnistTrainingLoop(
     std::shared_ptr<MnistClassifier<TDeviceType, TDataType>>& model,
     const MnistConfig& config )
@@ -262,11 +306,17 @@ void runMnistTrainingLoop(
     std::cout << "Model built successfully!" << std::endl;
     std::cout << model->toString() << std::endl;
 
+    // Allocate tensors for training
     Tensor<TDataType, DeviceMR> input_batch( device, input_shape );
     Tensor<TDataType, CpuMemoryResource> target_batch( "CPU", { static_cast<int64_t>(train_loader.batchSize()), MNIST_NUM_CLASSES } );
 
     Tensor<TDataType, CpuMemoryResource> logits( "CPU", { static_cast<int64_t>(train_loader.batchSize()), MNIST_NUM_CLASSES } );
     Tensor<TDataType, DeviceMR> output( device, { static_cast<int64_t>(train_loader.batchSize()), MNIST_NUM_CLASSES } );
+
+    // Allocate gradient tensors for backward pass
+    Tensor<TDataType, CpuMemoryResource> output_grad_cpu( "CPU", { static_cast<int64_t>(train_loader.batchSize()), MNIST_NUM_CLASSES } );
+    Tensor<TDataType, DeviceMR> output_grad( device, { static_cast<int64_t>(train_loader.batchSize()), MNIST_NUM_CLASSES } );
+    Tensor<TDataType, DeviceMR> input_grad( device, input_shape );
 
     std::cout << "Starting training for " << config.epochs << " epochs..." << std::endl;
 
@@ -284,15 +334,42 @@ void runMnistTrainingLoop(
         {
             train_loader.nextBatch();
 
+            // Copy batch data
             copy( train_loader.inputs(), input_batch );
             copy( train_loader.targets(), target_batch );
 
+            // Forward pass
             model->forward( input_batch, output );
 
+            // Copy output to CPU for loss computation
             copy( output, logits );
 
+            // Compute loss and accuracy
             float batch_loss = softmaxCrossEntropyLoss( logits, target_batch );
             float batch_acc = computeAccuracy( logits, target_batch );
+
+            // ============================================================
+            // BACKWARD PASS - Compute gradients and update parameters
+            // ============================================================
+
+            // 1. Compute loss gradient on CPU
+            zeros( output_grad_cpu );  // Zero-initialize gradient
+            softmaxCrossEntropyGradient( logits, target_batch, output_grad_cpu );
+
+            // 2. Copy gradient to device
+            copy( output_grad_cpu, output_grad );
+
+            // 3. Zero input gradient before backward pass
+            zeros( input_grad );
+
+            // 4. Backward pass through model (computes and accumulates parameter gradients)
+            model->backward( input_batch, output_grad, input_grad );
+
+            // 5. TODO: Parameter update will be handled by optimizer
+            // For now, parameters are accumulated in gradient tensors via setParameterGradients()
+            // Next step: implement SGD optimizer to update parameters using these gradients
+
+            // ============================================================
 
             epoch_loss += batch_loss;
             epoch_acc += batch_acc;
@@ -313,6 +390,7 @@ void runMnistTrainingLoop(
         auto end_time = std::chrono::high_resolution_clock::now();
         auto epoch_time = std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time).count();
 
+        // Evaluation on test set
         test_loader.reset();
         float test_loss = 0.0f;
         float test_acc = 0.0f;

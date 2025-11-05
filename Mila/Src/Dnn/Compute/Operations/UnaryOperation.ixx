@@ -70,7 +70,6 @@ namespace Mila::Dnn::Compute
         virtual void backward(
             const ITensor& grad_output,
             const ITensor& input,
-            ITensor& grad_input,
-            Parameters& grad_parameters ) const = 0;
+            ITensor& grad_input ) const = 0;
     };
 }

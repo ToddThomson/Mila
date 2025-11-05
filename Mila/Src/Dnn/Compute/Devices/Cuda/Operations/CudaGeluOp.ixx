@@ -11,6 +11,7 @@ module;
 #include <stdexcept>
 #include <type_traits>
 #include "Kernels/CudaOps.h"
+#include <string>
 
 export module Compute.CudaGeluOp;
 
@@ -148,12 +149,6 @@ namespace Mila::Dnn::Compute
         // ====================================================================
 		// Lifecycle
         // ====================================================================
-        /**
-        * @brief Check if the operation is ready for execution.
-        *
-        * @return true if the operation is ready, false otherwise.
-        */
-        
 
 		// ====================================================================
 		// Compute
@@ -220,8 +215,7 @@ namespace Mila::Dnn::Compute
         void backward(
             const ITensor& output_gradient,
             const ITensor& input,
-            ITensor& input_gradient,
-            [[maybe_unused]] Parameters& parameter_gradients ) const {
+            ITensor& input_gradient ) const {
 
             //ComputePrecision::Policy policy = this->getPrecisionPolicy();
 

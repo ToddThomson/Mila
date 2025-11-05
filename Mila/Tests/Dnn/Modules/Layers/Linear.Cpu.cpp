@@ -4,6 +4,7 @@
 #include <string>
 #include <cmath>
 #include <cstdint>
+#include <algorithm>
 
 import Mila;
 
@@ -27,7 +28,6 @@ namespace Modules::Layers::Tests
         int64_t output_features;
         bool has_bias;
 
-        // Default constructor needed for test fixture member variables
         LinearCpuTestData() : config( 1, 1 ), input_features( 0 ), output_features( 0 ), has_bias( true )
         {
         }
@@ -45,7 +45,6 @@ namespace Modules::Layers::Tests
             data.output_features = output_features;
             data.has_bias = has_bias;
 
-            // Output shape: same leading dims, replace last dim with output_features
             data.output_shape = input_shape;
             data.output_shape.back() = output_features;
 
@@ -274,6 +273,79 @@ namespace Modules::Layers::Tests
             EXPECT_NE( params[0], nullptr );
         }
     }
+
+    template<TensorDataType TPrecision>
+    void TestGetWeightGrad( LinearCpuTestData<TPrecision>& data )
+    {
+        data.module->setTraining( true );
+        data.module->build( data.input_shape );
+
+        auto weight_grad = data.module->getWeightGrad();
+
+        ASSERT_NE( weight_grad, nullptr ) << "Weight gradients should be allocated in training mode";
+        EXPECT_EQ( weight_grad->shape()[0], data.output_features );
+        EXPECT_EQ( weight_grad->shape()[1], data.input_features );
+    }
+
+    template<TensorDataType TPrecision>
+    void TestGetBiasGrad( LinearCpuTestData<TPrecision>& data )
+    {
+        data.module->setTraining( true );
+        data.module->build( data.input_shape );
+
+        auto bias_grad = data.module->getBiasGrad();
+
+        if (data.has_bias)
+        {
+            ASSERT_NE( bias_grad, nullptr ) << "Bias gradients should be allocated in training mode";
+            EXPECT_EQ( bias_grad->shape()[0], data.output_features );
+        }
+        else
+        {
+            EXPECT_EQ( bias_grad, nullptr ) << "No bias gradient when bias is disabled";
+        }
+    }
+
+    template<TensorDataType TPrecision>
+    void TestBackward( LinearCpuTestData<TPrecision>& data )
+    {
+        using TensorType = CpuTensor<TPrecision>;
+
+        data.module->setTraining( true );
+        data.module->build( data.input_shape );
+
+        TensorType input( "CPU", data.input_shape );
+        TensorType output( "CPU", data.output_shape );
+        TensorType output_grad( "CPU", data.output_shape );
+        TensorType input_grad( "CPU", data.input_shape );
+
+        random( input, -1.0f, 1.0f );
+        random( output_grad, -0.1f, 0.1f );
+        zeros( input_grad );
+
+        data.module->forward( input, output );
+
+        EXPECT_NO_THROW(
+            data.module->backward( input, output_grad, input_grad )
+        ) << "Backward pass should succeed for CPU Linear operation in training mode";
+
+        EXPECT_EQ( input_grad.shape(), data.input_shape );
+
+        bool has_nonzero_grad = false;
+        for (size_t i = 0; i < input_grad.size(); ++i)
+        {
+            if (std::abs( input_grad.data()[i] ) > 1e-6f)
+            {
+                has_nonzero_grad = true;
+                break;
+            }
+        }
+        EXPECT_TRUE( has_nonzero_grad ) << "Input gradients should contain non-zero values";
+    }
+
+    // ====================================================================
+    // Existing Tests
+    // ====================================================================
 
     TEST_F( LinearCpuTests, GetName )
     {
@@ -522,5 +594,211 @@ namespace Modules::Layers::Tests
 
             EXPECT_NO_THROW( data.module->forward( input, output ) );
         }
+    }
+
+    // ====================================================================
+    // Backward Pass Tests
+    // ====================================================================
+
+    TEST_F( LinearCpuTests, GetWeightGrad_BeforeBackward )
+    {
+        auto data = SmallFp32Data();
+        TestGetWeightGrad( data );
+    }
+
+    TEST_F( LinearCpuTests, GetBiasGrad_BeforeBackward_WithBias )
+    {
+        auto data = SmallFp32Data();
+        TestGetBiasGrad( data );
+    }
+
+    TEST_F( LinearCpuTests, GetBiasGrad_BeforeBackward_WithoutBias )
+    {
+        auto data = NoBiasFp32Data();
+        TestGetBiasGrad( data );
+    }
+
+    TEST_F( LinearCpuTests, Backward_SmallShape )
+    {
+        auto data = SmallFp32Data();
+        TestBackward( data );
+    }
+
+    TEST_F( LinearCpuTests, Backward_MediumShape )
+    {
+        auto data = MediumFp32Data();
+        TestBackward( data );
+    }
+
+    TEST_F( LinearCpuTests, Backward_LargeShape )
+    {
+        auto data = LargeFp32Data();
+        TestBackward( data );
+    }
+
+    TEST_F( LinearCpuTests, Backward_WithoutBias )
+    {
+        auto data = NoBiasFp32Data();
+        TestBackward( data );
+    }
+
+    TEST_F( LinearCpuTests, Error_BackwardBeforeBuild )
+    {
+        auto data = LinearCpuTestData<TensorDataType::FP32>::Create(
+            "unbuild_backward_cpu", small_shape_, input_features_, output_features_ );
+
+        CpuTensor<TensorDataType::FP32> input( "CPU", data.input_shape );
+        CpuTensor<TensorDataType::FP32> output_grad( "CPU", data.output_shape );
+        CpuTensor<TensorDataType::FP32> input_grad( "CPU", data.input_shape );
+
+        EXPECT_THROW(
+            data.module->backward( input, output_grad, input_grad ),
+            std::runtime_error
+        );
+    }
+
+    TEST_F( LinearCpuTests, Backward_MultipleIterations )
+    {
+        auto data = SmallFp32Data();
+
+        data.module->setTraining( true );
+        data.module->build( data.input_shape );
+
+        CpuTensor<TensorDataType::FP32> input( "CPU", data.input_shape );
+        CpuTensor<TensorDataType::FP32> output( "CPU", data.output_shape );
+        CpuTensor<TensorDataType::FP32> output_grad( "CPU", data.output_shape );
+        CpuTensor<TensorDataType::FP32> input_grad( "CPU", data.input_shape );
+
+        for (int iter = 0; iter < 5; ++iter)
+        {
+            random( input, -1.0f, 1.0f );
+            random( output_grad, -0.1f, 0.1f );
+            zeros( input_grad );
+
+            data.module->forward( input, output );
+
+            EXPECT_NO_THROW(
+                data.module->backward( input, output_grad, input_grad )
+            ) << "Backward iteration " << iter << " failed";
+        }
+    }
+
+    TEST_F( LinearCpuTests, Backward_EdgeCase_MinimalShape )
+    {
+        shape_t shape = { 1, 1, 1 };
+
+        auto data = LinearCpuTestData<TensorDataType::FP32>::Create(
+            "minimal_backward_cpu", shape, 1, 1 );
+
+        TestBackward( data );
+    }
+
+    TEST_F( LinearCpuTests, Backward_EdgeCase_BatchSize1 )
+    {
+        shape_t shape = { 1, 8, 16 };
+
+        auto data = LinearCpuTestData<TensorDataType::FP32>::Create(
+            "batch1_backward_cpu", shape, 16, 32 );
+
+        TestBackward( data );
+    }
+
+    TEST_F( LinearCpuTests, Training_InferenceToTrainingToInference )
+    {
+        auto data = SmallFp32Data();
+
+        EXPECT_FALSE( data.module->isTraining() );
+        data.module->build( data.input_shape );
+
+        CpuTensor<TensorDataType::FP32> input( "CPU", data.input_shape );
+        CpuTensor<TensorDataType::FP32> output( "CPU", data.output_shape );
+        CpuTensor<TensorDataType::FP32> output_grad( "CPU", data.output_shape );
+        CpuTensor<TensorDataType::FP32> input_grad( "CPU", data.input_shape );
+
+        random( input, -1.0f, 1.0f );
+        random( output_grad, -0.1f, 0.1f );
+
+        EXPECT_NO_THROW( data.module->forward( input, output ) );
+
+        EXPECT_THROW(
+            data.module->backward( input, output_grad, input_grad ),
+            std::runtime_error
+        ) << "Backward should fail in inference mode";
+
+        data.module->setTraining( true );
+        EXPECT_TRUE( data.module->isTraining() );
+
+        auto weight_grad = data.module->getWeightGrad();
+        ASSERT_NE( weight_grad, nullptr ) << "Gradients should be initialized when switching to training";
+
+        EXPECT_NO_THROW( data.module->forward( input, output ) );
+
+        zeros( input_grad );
+        EXPECT_NO_THROW(
+            data.module->backward( input, output_grad, input_grad )
+        ) << "Backward should work after switching to training mode";
+
+        data.module->setTraining( false );
+        EXPECT_FALSE( data.module->isTraining() );
+
+        EXPECT_NO_THROW( data.module->forward( input, output ) );
+
+        EXPECT_THROW(
+            data.module->backward( input, output_grad, input_grad ),
+            std::runtime_error
+        ) << "Backward should fail after switching back to inference mode";
+    }
+
+    TEST_F( LinearCpuTests, Training_EnableBeforeBuild )
+    {
+        auto data = SmallFp32Data();
+
+        data.module->setTraining( true );
+        EXPECT_TRUE( data.module->isTraining() );
+
+        data.module->build( data.input_shape );
+
+        auto weight_grad = data.module->getWeightGrad();
+        ASSERT_NE( weight_grad, nullptr ) << "Weight gradients should be allocated when training enabled before build";
+
+        if (data.has_bias)
+        {
+            auto bias_grad = data.module->getBiasGrad();
+            ASSERT_NE( bias_grad, nullptr ) << "Bias gradients should be allocated when training enabled before build";
+        }
+
+        CpuTensor<TensorDataType::FP32> input( "CPU", data.input_shape );
+        CpuTensor<TensorDataType::FP32> output( "CPU", data.output_shape );
+        CpuTensor<TensorDataType::FP32> output_grad( "CPU", data.output_shape );
+        CpuTensor<TensorDataType::FP32> input_grad( "CPU", data.input_shape );
+
+        random( input, -1.0f, 1.0f );
+        random( output_grad, -0.1f, 0.1f );
+        zeros( input_grad );
+
+        EXPECT_NO_THROW( data.module->forward( input, output ) );
+        EXPECT_NO_THROW( data.module->backward( input, output_grad, input_grad ) );
+    }
+
+    TEST_F( LinearCpuTests, Error_BackwardInInferenceMode )
+    {
+        auto data = SmallFp32Data();
+
+        data.module->build( data.input_shape );
+        EXPECT_FALSE( data.module->isTraining() );
+
+        CpuTensor<TensorDataType::FP32> input( "CPU", data.input_shape );
+        CpuTensor<TensorDataType::FP32> output( "CPU", data.output_shape );
+        CpuTensor<TensorDataType::FP32> output_grad( "CPU", data.output_shape );
+        CpuTensor<TensorDataType::FP32> input_grad( "CPU", data.input_shape );
+
+        random( input, -1.0f, 1.0f );
+
+        data.module->forward( input, output );
+
+        EXPECT_THROW(
+            data.module->backward( input, output_grad, input_grad ),
+            std::runtime_error
+        ) << "Backward should throw when module is not in training mode";
     }
 }

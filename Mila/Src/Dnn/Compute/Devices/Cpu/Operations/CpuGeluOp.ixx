@@ -95,10 +95,10 @@ namespace Mila::Dnn::Compute
         }
 
 		// ====================================================================
-		// Parameters
+		// Parameters and Gradients
         // 
 		// Note: GELU has no learnable parameters. 
-		//       The OperationBase setParameters() is used as a no-op.
+		//       The OperationBase setParameters() add setParameterGradients() is used as a no-op.
 		// ====================================================================
         
 		// ====================================================================
@@ -177,8 +177,7 @@ namespace Mila::Dnn::Compute
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            ITensor& input_grad,
-            [[maybe_unused]] Parameters& parameter_grads ) const {
+            ITensor& input_grad ) const {
 
             // Resize input_grad to match input shape if needed
             if (input_grad.shape() != input.shape())

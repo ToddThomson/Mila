@@ -43,8 +43,7 @@ namespace Modules::Normalization::Tests
             data.config.withName( name )
                 .withNormalizedShape( normalized_shape )
                 .withBias( has_bias )
-                .withEpsilon( epsilon )
-                .withTraining( is_training );
+                .withEpsilon( epsilon );
 
             data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
             data.module = std::make_shared<LayerNorm<DeviceType::Cpu, TPrecision>>( data.exec_context, data.config );
@@ -68,8 +67,7 @@ namespace Modules::Normalization::Tests
             data.config.withName( name )
                 .withAxis( axis )
                 .withBias( has_bias )
-                .withEpsilon( epsilon )
-                .withTraining( is_training );
+                .withEpsilon( epsilon );
 
             data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
             data.module = std::make_shared<LayerNorm<DeviceType::Cpu, TPrecision>>( data.exec_context, data.config );
@@ -95,8 +93,7 @@ namespace Modules::Normalization::Tests
             data.config.withName( name )
                 .withNormalizedShape( normalized_shape )
                 .withBias( has_bias )
-                .withEpsilon( epsilon )
-                .withTraining( is_training );
+                .withEpsilon( epsilon );
 
             data.exec_context = context;
             data.module = std::make_shared<LayerNorm<DeviceType::Cpu, TPrecision>>( data.exec_context, data.config );

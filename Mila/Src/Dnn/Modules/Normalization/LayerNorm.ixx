@@ -85,7 +85,6 @@ namespace Mila::Dnn
             }
 
             config_.validate();
-			this->setTraining( config_.isTraining() );
 
             // REVIEW: init in build or eagerly create parameter tensors if normalized_shape is configured
             if (config_.hasNormalizedShape())

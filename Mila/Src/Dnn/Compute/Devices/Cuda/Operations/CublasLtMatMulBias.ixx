@@ -76,7 +76,7 @@ namespace Mila::Dnn::Compute
 
         cudaDataType_t cuda_data_type;
 
-		// The TDataType here is the Linear layer input/output type
+		// The TNativeType here is the Linear layer precision type
 
         // TJT: REVIEW: traits to do this mapping
         if constexpr ( std::is_same_v<TNativeType, float> ) {

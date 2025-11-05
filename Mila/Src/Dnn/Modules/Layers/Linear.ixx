@@ -81,7 +81,6 @@ namespace Mila::Dnn
             }
 
             config_.validate();
-            this->setTraining( config_.isTraining() );
 
             initializeParameters();
             createOperation();
@@ -98,7 +97,7 @@ namespace Mila::Dnn
             return (operation_ != nullptr) &&
                 (weight_ != nullptr) &&
                 (!config_.hasBias() || (bias_ != nullptr)) &&
-                built_;
+                is_built_;
         }
 
         /**
@@ -107,18 +106,32 @@ namespace Mila::Dnn
          * Linear layer parameters are eagerly created in the constructor based
          * on the configuration. This method binds parameters to the backend
          * operation and triggers backend-specific setup.
+         *
+         * If in training mode, also initializes gradient tensors and binds them
+         * to the operation.
          */
         void build( const shape_t& input_shape ) override
         {
-            if (built_)
+            if (is_built_)
                 return;
 
             validateInputShape( input_shape );
 
+			operation_->setTraining( is_training_ );
+
+            // Bind forward parameters to operation
             operation_->setParameters( weight_.get(), bias_.get() );
+
+            // If training mode, initialize gradients and bind to operation
+            if (is_training_)
+            {
+                initializeParameterGradients();
+                operation_->setParameterGradients( weight_grad_.get(), bias_grad_.get() );
+            }
+
             operation_->build( input_shape );
 
-            built_ = true;
+            is_built_ = true;
         }
 
         // ====================================================================
@@ -154,8 +167,23 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Linear module must be built before calling backward." );
             }
 
-            Parameters parameter_grads;
-            operation_->backward( input, output_grad, input_grad, parameter_grads );
+            if (!is_training_)
+            {
+                throw std::runtime_error( "Linear module must be in training mode to call backward. Call setTraining(true) first." );
+            }
+
+            // Ensure gradients are initialized (defensive check)
+            if (!weight_grad_)
+            {
+                throw std::runtime_error( "Linear module weight gradients not initialized. This is a bug." );
+            }
+
+            if (config_.hasBias() && !bias_grad_)
+            {
+                throw std::runtime_error( "Linear module bias gradients not initialized. This is a bug." );
+            }
+
+            operation_->backward( input, output_grad, input_grad );
         }
 
         // ====================================================================
@@ -182,6 +210,29 @@ namespace Mila::Dnn
         }
 
         // ====================================================================
+        // Parameter Gradients
+        // ====================================================================
+        /**
+         * @brief Get weight gradient tensor.
+         *
+         * @return Shared pointer to weight gradient, or nullptr if not in training mode
+         */
+        std::shared_ptr<TensorType> getWeightGrad() const noexcept
+        {
+            return weight_grad_;
+        }
+
+        /**
+         * @brief Get bias gradient tensor.
+         *
+         * @return Shared pointer to bias gradient, or nullptr if bias disabled or not in training mode
+         */
+        std::shared_ptr<TensorType> getBiasGrad() const noexcept
+        {
+            return bias_grad_;
+        }
+
+        // ====================================================================
         // Module interface
         // ====================================================================
 
@@ -202,12 +253,34 @@ namespace Mila::Dnn
 
         void setTraining( bool is_training ) override
         {
-            training_mode_ = is_training;
+            if (is_training_ == is_training)
+                return;
+
+            is_training_ = is_training;
+
+            // Propagate training mode to operation (if created)
+            if (operation_)
+            {
+                operation_->setTraining( is_training );
+            }
+
+            // If switching TO training mode after build, initialize gradients and bind them
+            if (is_training && is_built_ && operation_)
+            {
+                // Allocate gradient tensors if not already done
+                initializeParameterGradients();
+
+                // Bind gradients to operation
+                operation_->setParameterGradients( weight_grad_.get(), bias_grad_.get() );
+            }
+
+            // Optional: If switching FROM training to inference, could deallocate gradients
+            // to save memory, but we'll keep them for simplicity (allows toggling back)
         }
 
         bool isTraining() const override
         {
-            return training_mode_;
+            return is_training_;
         }
 
         size_t parameterCount() const override
@@ -296,11 +369,14 @@ namespace Mila::Dnn
 
     private:
         LinearConfig config_;
-        bool training_mode_{ false };
-        bool built_{ false };
+        bool is_training_{ false };
+        bool is_built_{ false };
 
         std::shared_ptr<TensorType> weight_{ nullptr };
         std::shared_ptr<TensorType> bias_{ nullptr };
+
+        std::shared_ptr<TensorType> weight_grad_{ nullptr };
+        std::shared_ptr<TensorType> bias_grad_{ nullptr };
 
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
         std::shared_ptr<ExecutionContextType> exec_context_;
@@ -336,6 +412,32 @@ namespace Mila::Dnn
                 oss << "Linear: input feature dimension mismatch. Expected "
                     << config_.getInputFeatures() << ", got " << input_features;
                 throw std::invalid_argument( oss.str() );
+            }
+        }
+
+        /**
+        * @brief Ensure gradient tensors are allocated with correct shapes.
+        */
+        void initializeParameterGradients()
+        {
+            auto device = exec_context_->getDevice();
+
+            if (!weight_grad_)
+            {
+                weight_grad_ = std::make_shared<TensorType>(
+                    device,
+                    weight_->shape() );
+                weight_grad_->setName( this->getName() + ".weight.grad" );
+                zeros( *weight_grad_ );
+            }
+
+            if (config_.hasBias() && !bias_grad_)
+            {
+                bias_grad_ = std::make_shared<TensorType>(
+                    device,
+                    bias_->shape() );
+                bias_grad_->setName( this->getName() + ".bias.grad" );
+                zeros( *bias_grad_ );
             }
         }
 

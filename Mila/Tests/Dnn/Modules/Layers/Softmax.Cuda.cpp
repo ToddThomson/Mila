@@ -43,8 +43,7 @@ namespace Modules::Layers::Tests
 
             data.config = SoftmaxConfig();
             data.config.withName( name )
-                .withAxis( axis )
-                .withTraining( is_training );
+                .withAxis( axis );
 
             data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
             data.module = std::make_shared<Softmax<DeviceType::Cuda, TPrecision>>( data.exec_context, data.config );
@@ -66,8 +65,7 @@ namespace Modules::Layers::Tests
 
             data.config = SoftmaxConfig();
             data.config.withName( name )
-                .withAxis( axis )
-                .withTraining( is_training );
+                .withAxis( axis );
 
             data.exec_context = context;
             data.module = std::make_shared<Softmax<DeviceType::Cuda, TPrecision>>( data.exec_context, data.config );

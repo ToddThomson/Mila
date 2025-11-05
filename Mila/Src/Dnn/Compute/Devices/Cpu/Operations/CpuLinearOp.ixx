@@ -91,7 +91,7 @@ namespace Mila::Dnn::Compute
         }
 
         // ====================================================================
-        // Parameters
+		// Parameters and Gradients
         // ====================================================================
 
         /**
@@ -135,6 +135,30 @@ namespace Mila::Dnn::Compute
             else
             {
                 bias_ = nullptr;
+            }
+        }
+
+        void setParameterGradients( ITensor* weight_grad, ITensor* bias_grad ) override
+        {
+            if (!weight_grad)
+            {
+                throw std::invalid_argument( "CpuLinearOp::setParameterGradients - weight gradient is required" );
+            }
+
+            weight_grad_ = static_cast<HostType*>(weight_grad->rawData());
+
+            if (config_.hasBias())
+            {
+                if (!bias_grad)
+                {
+                    throw std::invalid_argument( "CpuLinearOp::setParameterGradients - bias gradient expected but null was provided" );
+                }
+
+                bias_grad_ = static_cast<HostType*>(bias_grad->rawData());
+            }
+            else
+            {
+                bias_grad_ = nullptr;
             }
         }
 
@@ -253,6 +277,8 @@ namespace Mila::Dnn::Compute
          * Similar to forward(), this method does minimal work and dispatches
          * directly to the backward kernel using cached dimensions from build().
          *
+         * Gradients are accumulated into the tensors provided via setParameterGradients().
+         *
          * Algorithm:
          *  - dX += dY * W
          *  - dW += dY^T * X
@@ -261,27 +287,15 @@ namespace Mila::Dnn::Compute
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            ITensor& input_grad,
-            Parameters& parameter_grads ) const override
+            ITensor& input_grad ) const override
         {
             const HostType* X = static_cast<const HostType*>(input.rawData());
             const HostType* dY = static_cast<const HostType*>(output_grad.rawData());
             HostType* dX = static_cast<HostType*>(input_grad.rawData());
 
             const HostType* W = weight_;
-
-            HostType* dW = nullptr;
-            HostType* dB = nullptr;
-
-            if (parameter_grads.size() > 0 && parameter_grads[0])
-            {
-                dW = static_cast<HostType*>(parameter_grads[0]->data());
-            }
-
-            if (parameter_grads.size() > 1 && parameter_grads[1])
-            {
-                dB = static_cast<HostType*>(parameter_grads[1]->data());
-            }
+            HostType* dW = weight_grad_;
+            HostType* dB = bias_grad_;
 
             const int64_t batch_size = cached_batch_size_;
             const int64_t in_features = cached_in_features_;
@@ -351,9 +365,13 @@ namespace Mila::Dnn::Compute
         LinearConfig config_;
         std::shared_ptr<CpuExecutionContext> context_;
 
-        // Cached native host parameter pointers (module owns underlying tensors)
+        // Cached native host parameter pointers
         const HostType* weight_{ nullptr };
         const HostType* bias_{ nullptr };
+
+		// Cached native host parameter gradient pointers
+		HostType* weight_grad_{ nullptr };
+		HostType* bias_grad_{ nullptr };
 
         // Weight dimensions for validation
         int64_t weight_out_features_{ 0 };

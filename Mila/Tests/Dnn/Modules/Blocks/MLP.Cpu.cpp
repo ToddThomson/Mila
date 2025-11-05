@@ -54,8 +54,7 @@ namespace Modules::Blocks::Tests
                 .withActivation( activation )
                 .withLayerNorm( use_layer_norm )
                 .withName( name )
-                .withPrecisionPolicy( precision )
-                .withTraining( is_training );
+                .withPrecisionPolicy( precision );
 
             data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
             data.mlp_module = std::make_shared<MLP<DeviceType::Cpu, TPrecision>>( data.exec_context, data.config );
@@ -85,8 +84,7 @@ namespace Modules::Blocks::Tests
                 .withActivation( activation )
                 .withLayerNorm( use_layer_norm )
                 .withName( name )
-                .withPrecisionPolicy( precision )
-                .withTraining( is_training );
+                .withPrecisionPolicy( precision );
 
             data.exec_context = context;
             data.mlp_module = std::make_shared<MLP<DeviceType::Cpu, TPrecision>>( context, data.config );

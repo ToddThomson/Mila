@@ -77,7 +77,7 @@ namespace Mila::Dnn::Compute
         }
 
         // ====================================================================
-        // Parameters
+        // Parameters and Gradients
         // ====================================================================
 
         /**
@@ -110,6 +110,43 @@ namespace Mila::Dnn::Compute
             else
             {
                 bias_ = nullptr;
+            }
+        }
+
+        /**
+         * @brief Set parameter gradient tensor references for training.
+         *
+         * The operation caches native gradient pointers for hot-path write access
+         * during backward(). Weight gradient is required; bias gradient is bound
+         * only when the LayerNorm config indicates a bias is present.
+         *
+         * @param weight_grad Gradient tensor for weight parameter
+         * @param bias_grad Gradient tensor for bias parameter (optional based on config)
+         *
+         * @throws std::invalid_argument If weight_grad is null
+         * @throws std::invalid_argument If bias_grad is null when config requires bias
+         */
+        void setParameterGradients( ITensor* weight_grad, ITensor* bias_grad ) override
+        {
+            if (!weight_grad)
+            {
+                throw std::invalid_argument( "CpuLayerNormOp::setParameterGradients - weight gradient is required" );
+            }
+
+            weight_grad_ = static_cast<HostType*>(weight_grad->rawData());
+
+            if (config_.hasBias())
+            {
+                if (!bias_grad)
+                {
+                    throw std::invalid_argument( "CpuLayerNormOp::setParameterGradients - bias gradient expected but null was provided" );
+                }
+
+                bias_grad_ = static_cast<HostType*>(bias_grad->rawData());
+            }
+            else
+            {
+                bias_grad_ = nullptr;
             }
         }
 
@@ -207,6 +244,10 @@ namespace Mila::Dnn::Compute
             // Mark built
             UnaryOperationBase::build( input_shape );
         }
+
+        // ====================================================================
+        // Computation
+        // ====================================================================
 
         /**
          * Forward:
@@ -313,13 +354,15 @@ namespace Mila::Dnn::Compute
          * Backward:
          * - input: ITensor of original inputs (same as forward input)
          * - output_grad: gradient w.r.t. output (dout)
-         * - parameter_grads: vector to accumulate [dweight, dbias] (optional)
+         * - input_grad: gradient w.r.t. input (accumulated)
+         *
+         * Parameter gradients are written directly to the pointers provided
+         * via setParameterGradients() (weight_grad_, bias_grad_).
          */
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            ITensor& input_grad,
-            Parameters& parameter_grads ) const override
+            ITensor& input_grad ) const override
         {
             const HostType* inp = static_cast<const HostType*>(input.rawData());
             const HostType* dout = static_cast<const HostType*>(output_grad.rawData());
@@ -331,19 +374,8 @@ namespace Mila::Dnn::Compute
             }
 
             const HostType* weight = weight_;
-
-            HostType* dweight = nullptr;
-            HostType* dbias = nullptr;
-
-            if (parameter_grads.size() > 0 && parameter_grads[0])
-            {
-                dweight = static_cast<HostType*>(parameter_grads[0]->data());
-            }
-
-            if (parameter_grads.size() > 1 && parameter_grads[1])
-            {
-                dbias = static_cast<HostType*>(parameter_grads[1]->data());
-            }
+            HostType* dweight = weight_grad_;
+            HostType* dbias = bias_grad_;
 
             const HostType* mean = mean_;
             const HostType* rstd = rstd_;
@@ -361,7 +393,7 @@ namespace Mila::Dnn::Compute
                 auto partition = computeAxisPartition(
                     shape,
                     config_.getAxis().value(),
-                    "CpuLayerNormOp::forward"
+                    "CpuLayerNormOp::backward"
                 );
                 (void)partition;
             }
@@ -456,6 +488,10 @@ namespace Mila::Dnn::Compute
         // Cached native parameter pointers (module owns underlying tensors)
         HostType* weight_{ nullptr };
         HostType* bias_{ nullptr };
+
+        // Cached native parameter gradient pointers (module owns underlying tensors)
+        HostType* weight_grad_{ nullptr };
+        HostType* bias_grad_{ nullptr };
 
         // Backend-owned runtime statistics storage
         std::vector<HostType> mean_storage_;

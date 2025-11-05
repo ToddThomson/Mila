@@ -32,7 +32,6 @@ namespace Modules::Layers::Tests
         int64_t output_features;
         bool has_bias;
 
-        // Default constructor needed for test fixture member variables
         LinearCudaTestData() : config( 1, 1 ), input_features( 0 ), output_features( 0 ), has_bias( true )
         {
         }
@@ -153,6 +152,26 @@ namespace Modules::Layers::Tests
             return no_bias_fp32_;
         }
 
+        LinearCudaTestData<TensorDataType::FP16>& SmallFp16Data()
+        {
+            if (!small_fp16_.module)
+            {
+                small_fp16_ = LinearCudaTestData<TensorDataType::FP16>::Create(
+                    "small_linear_cuda_fp16", small_shape_, input_features_, output_features_ );
+            }
+            return small_fp16_;
+        }
+
+        LinearCudaTestData<TensorDataType::BF16>& SmallBf16Data()
+        {
+            if (!small_bf16_.module)
+            {
+                small_bf16_ = LinearCudaTestData<TensorDataType::BF16>::Create(
+                    "small_linear_cuda_bf16", small_shape_, input_features_, output_features_ );
+            }
+            return small_bf16_;
+        }
+
         bool cuda_available_{ false };
 
         shape_t small_shape_;
@@ -165,6 +184,8 @@ namespace Modules::Layers::Tests
         LinearCudaTestData<TensorDataType::FP32> medium_fp32_;
         LinearCudaTestData<TensorDataType::FP32> large_fp32_;
         LinearCudaTestData<TensorDataType::FP32> no_bias_fp32_;
+        LinearCudaTestData<TensorDataType::FP16> small_fp16_;
+        LinearCudaTestData<TensorDataType::BF16> small_bf16_;
     };
 
     template<TensorDataType TPrecision>
@@ -296,6 +317,94 @@ namespace Modules::Layers::Tests
             EXPECT_NE( params[0], nullptr );
         }
     }
+
+    template<TensorDataType TPrecision>
+    void TestGetWeightGrad( LinearCudaTestData<TPrecision>& data )
+    {
+        // Enable training mode BEFORE build to initialize gradients
+        data.module->setTraining( true );
+        data.module->build( data.input_shape );
+
+        auto weight_grad = data.module->getWeightGrad();
+
+        // In training mode, gradients should be allocated
+        ASSERT_NE( weight_grad, nullptr ) << "Weight gradients should be allocated in training mode";
+        EXPECT_EQ( weight_grad->shape()[0], data.output_features );
+        EXPECT_EQ( weight_grad->shape()[1], data.input_features );
+    }
+
+    template<TensorDataType TPrecision>
+    void TestGetBiasGrad( LinearCudaTestData<TPrecision>& data )
+    {
+        // Enable training mode BEFORE build to initialize gradients
+        data.module->setTraining( true );
+        data.module->build( data.input_shape );
+
+        auto bias_grad = data.module->getBiasGrad();
+
+        if (data.has_bias)
+        {
+            // In training mode with bias, bias gradient should be allocated
+            ASSERT_NE( bias_grad, nullptr ) << "Bias gradients should be allocated in training mode";
+            EXPECT_EQ( bias_grad->shape()[0], data.output_features );
+        }
+        else
+        {
+            EXPECT_EQ( bias_grad, nullptr ) << "No bias gradient when bias is disabled";
+        }
+    }
+
+    template<TensorDataType TPrecision>
+    void TestBackward( LinearCudaTestData<TPrecision>& data )
+    {
+        using DeviceTensorType = CudaTensor<TPrecision>;
+        using HostTensorType = CpuTensor<TensorDataType::FP32>;
+
+        // CRITICAL: Enable training mode BEFORE build
+        data.module->setTraining( true );
+        data.module->build( data.input_shape );
+
+        HostTensorType host_input( "CPU", data.input_shape );
+        HostTensorType host_output_grad( "CPU", data.output_shape );
+        random( host_input, -1.0f, 1.0f );
+        random( host_output_grad, -0.1f, 0.1f );
+
+        DeviceTensorType device_input( "CUDA:0", data.input_shape );
+        DeviceTensorType device_output( "CUDA:0", data.output_shape );
+        DeviceTensorType device_output_grad( "CUDA:0", data.output_shape );
+        DeviceTensorType device_input_grad( "CUDA:0", data.input_shape );
+
+        copy( host_input, device_input );
+        copy( host_output_grad, device_output_grad );
+        zeros( device_input_grad );
+
+        data.module->forward( device_input, device_output );
+
+        EXPECT_NO_THROW(
+            data.module->backward( device_input, device_output_grad, device_input_grad )
+        ) << "Backward pass should succeed for CUDA Linear operation in training mode";
+
+        EXPECT_EQ( device_input_grad.shape(), data.input_shape );
+
+        HostTensorType host_input_grad = toHost<TensorDataType::FP32>( device_input_grad );
+        EXPECT_EQ( host_input_grad.size(), device_input_grad.size() );
+
+        // Verify gradients were computed (non-zero)
+        bool has_nonzero_grad = false;
+        for (size_t i = 0; i < host_input_grad.size(); ++i)
+        {
+            if (std::abs( host_input_grad.data()[i] ) > 1e-6f)
+            {
+                has_nonzero_grad = true;
+                break;
+            }
+        }
+        EXPECT_TRUE( has_nonzero_grad ) << "Input gradients should contain non-zero values";
+    }
+
+    // ====================================================================
+    // Existing Tests
+    // ====================================================================
 
     TEST_F( LinearCudaTests, GetName )
     {
@@ -499,6 +608,28 @@ namespace Modules::Layers::Tests
         TestForward( data );
     }
 
+    TEST_F( LinearCudaTests, Forward_FP16 )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = SmallFp16Data();
+        TestForward( data );
+    }
+
+    TEST_F( LinearCudaTests, Forward_BF16 )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = SmallBf16Data();
+        TestForward( data );
+    }
+
     TEST_F( LinearCudaTests, WithContext_Construction )
     {
         if (!cuda_available_)
@@ -691,7 +822,6 @@ namespace Modules::Layers::Tests
         CpuTensor<TensorDataType::FP32> host_input( "CPU", test_shape );
         random( host_input, -1.0f, 1.0f );
 
-        // Initialize parameters with same values
         auto cpu_weight = cpu_module->getWeight();
         auto cuda_weight = cuda_data.module->getWeight();
 
@@ -713,14 +843,12 @@ namespace Modules::Layers::Tests
             copy( init_bias, *cuda_bias );
         }
 
-        // Run CPU forward
         shape_t output_shape = test_shape;
         output_shape.back() = 16;
 
         CpuTensor<TensorDataType::FP32> cpu_output( "CPU", output_shape );
         cpu_module->forward( host_input, cpu_output );
 
-        // Run CUDA forward
         CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", test_shape );
         CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", output_shape );
         copy( host_input, device_input );
@@ -745,5 +873,341 @@ namespace Modules::Layers::Tests
         }
 
         EXPECT_TRUE( all_close ) << "CPU and CUDA implementations produced different results";
+    }
+
+    // ====================================================================
+// Backward Pass Tests
+// ====================================================================
+
+    TEST_F( LinearCudaTests, GetWeightGrad_BeforeBackward )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = SmallFp32Data();
+        TestGetWeightGrad( data );
+    }
+
+    TEST_F( LinearCudaTests, GetBiasGrad_BeforeBackward_WithBias )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = SmallFp32Data();
+        TestGetBiasGrad( data );
+    }
+
+    TEST_F( LinearCudaTests, GetBiasGrad_BeforeBackward_WithoutBias )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = NoBiasFp32Data();
+        TestGetBiasGrad( data );
+    }
+
+    TEST_F( LinearCudaTests, Backward_FP32 )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = SmallFp32Data();
+        TestBackward( data );
+    }
+
+    TEST_F( LinearCudaTests, Backward_FP16 )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = SmallFp16Data();
+        TestBackward( data );
+    }
+
+    TEST_F( LinearCudaTests, Backward_BF16 )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = SmallBf16Data();
+
+        // BF16 forward is not yet implemented, so backward will fail
+        EXPECT_THROW(
+            TestBackward( data ),
+            std::logic_error
+        ) << "BF16 forward not yet implemented";
+    }
+
+    TEST_F( LinearCudaTests, Backward_WithoutBias_FP32 )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = NoBiasFp32Data();
+        TestBackward( data );
+    }
+
+    TEST_F( LinearCudaTests, Backward_MediumShape_FP32 )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = MediumFp32Data();
+        TestBackward( data );
+    }
+
+    TEST_F( LinearCudaTests, Backward_LargeShape_FP32 )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = LargeFp32Data();
+        TestBackward( data );
+    }
+
+    TEST_F( LinearCudaTests, Error_BackwardBeforeBuild_FP32 )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = LinearCudaTestData<TensorDataType::FP32>::Create(
+            "unbuild_backward_cuda", small_shape_, input_features_, output_features_ );
+
+        CudaTensor<TensorDataType::FP32> input( "CUDA:0", data.input_shape );
+        CudaTensor<TensorDataType::FP32> output_grad( "CUDA:0", data.output_shape );
+        CudaTensor<TensorDataType::FP32> input_grad( "CUDA:0", data.input_shape );
+
+        EXPECT_THROW(
+            data.module->backward( input, output_grad, input_grad ),
+            std::runtime_error
+        );
+    }
+
+    TEST_F( LinearCudaTests, Backward_EdgeCase_MinimalShape_FP32 )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        shape_t shape = { 1, 1, 1 };
+
+        auto data = LinearCudaTestData<TensorDataType::FP32>::Create(
+            "minimal_backward_cuda", shape, 1, 1 );
+
+        TestBackward( data );
+    }
+
+    TEST_F( LinearCudaTests, Backward_EdgeCase_BatchSize1_FP32 )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        shape_t shape = { 1, 8, 16 };
+
+        auto data = LinearCudaTestData<TensorDataType::FP32>::Create(
+            "batch1_backward_cuda", shape, 16, 32 );
+
+        TestBackward( data );
+    }
+
+    TEST_F( LinearCudaTests, Backward_MultipleIterations_FP32 )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = SmallFp32Data();
+
+        // Enable training mode BEFORE build
+        data.module->setTraining( true );
+        data.module->build( data.input_shape );
+
+        CpuTensor<TensorDataType::FP32> host_input( "CPU", data.input_shape );
+        CpuTensor<TensorDataType::FP32> host_output_grad( "CPU", data.output_shape );
+
+        CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", data.input_shape );
+        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_output_grad( "CUDA:0", data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_input_grad( "CUDA:0", data.input_shape );
+
+        for (int iter = 0; iter < 5; ++iter)
+        {
+            random( host_input, -1.0f, 1.0f );
+            random( host_output_grad, -0.1f, 0.1f );
+
+            copy( host_input, device_input );
+            copy( host_output_grad, device_output_grad );
+            zeros( device_input_grad );
+
+            data.module->forward( device_input, device_output );
+
+            EXPECT_NO_THROW(
+                data.module->backward( device_input, device_output_grad, device_input_grad )
+            ) << "Backward iteration " << iter << " failed";
+        }
+    }
+
+    TEST_F( LinearCudaTests, Training_InferenceToTrainingToInference_FP32 )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = SmallFp32Data();
+
+        // Build in inference mode (default)
+        EXPECT_FALSE( data.module->isTraining() );
+        data.module->build( data.input_shape );
+
+        CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", data.input_shape );
+        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_output_grad( "CUDA:0", data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_input_grad( "CUDA:0", data.input_shape );
+
+        CpuTensor<TensorDataType::FP32> host_input( "CPU", data.input_shape );
+        random( host_input, -1.0f, 1.0f );
+        copy( host_input, device_input );
+
+        // Forward in inference mode should work
+        EXPECT_NO_THROW( data.module->forward( device_input, device_output ) );
+
+        // Backward should fail in inference mode
+        EXPECT_THROW(
+            data.module->backward( device_input, device_output_grad, device_input_grad ),
+            std::runtime_error
+        ) << "Backward should fail in inference mode";
+
+        // Switch to training mode AFTER build
+        data.module->setTraining( true );
+        EXPECT_TRUE( data.module->isTraining() );
+
+        // Verify gradients were initialized by setTraining(true)
+        auto weight_grad = data.module->getWeightGrad();
+        ASSERT_NE( weight_grad, nullptr ) << "Gradients should be initialized when switching to training";
+
+        // Forward and backward should now work
+        EXPECT_NO_THROW( data.module->forward( device_input, device_output ) );
+
+        CpuTensor<TensorDataType::FP32> host_output_grad( "CPU", data.output_shape );
+        random( host_output_grad, -0.1f, 0.1f );
+        copy( host_output_grad, device_output_grad );
+        zeros( device_input_grad );
+
+        EXPECT_NO_THROW(
+            data.module->backward( device_input, device_output_grad, device_input_grad )
+        ) << "Backward should work after switching to training mode";
+
+        // Switch back to inference
+        data.module->setTraining( false );
+        EXPECT_FALSE( data.module->isTraining() );
+
+        // Forward should still work
+        EXPECT_NO_THROW( data.module->forward( device_input, device_output ) );
+
+        // Backward should fail again
+        EXPECT_THROW(
+            data.module->backward( device_input, device_output_grad, device_input_grad ),
+            std::runtime_error
+        ) << "Backward should fail after switching back to inference mode";
+    }
+
+    TEST_F( LinearCudaTests, Training_EnableBeforeBuild_FP32 )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = SmallFp32Data();
+
+        // Enable training BEFORE build
+        data.module->setTraining( true );
+        EXPECT_TRUE( data.module->isTraining() );
+
+        data.module->build( data.input_shape );
+
+        // Verify gradients were allocated during build
+        auto weight_grad = data.module->getWeightGrad();
+        ASSERT_NE( weight_grad, nullptr ) << "Weight gradients should be allocated when training enabled before build";
+
+        if (data.has_bias)
+        {
+            auto bias_grad = data.module->getBiasGrad();
+            ASSERT_NE( bias_grad, nullptr ) << "Bias gradients should be allocated when training enabled before build";
+        }
+
+        // Run a training iteration
+        CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", data.input_shape );
+        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_output_grad( "CUDA:0", data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_input_grad( "CUDA:0", data.input_shape );
+
+        CpuTensor<TensorDataType::FP32> host_input( "CPU", data.input_shape );
+        CpuTensor<TensorDataType::FP32> host_output_grad( "CPU", data.output_shape );
+        random( host_input, -1.0f, 1.0f );
+        random( host_output_grad, -0.1f, 0.1f );
+
+        copy( host_input, device_input );
+        copy( host_output_grad, device_output_grad );
+        zeros( device_input_grad );
+
+        EXPECT_NO_THROW( data.module->forward( device_input, device_output ) );
+        EXPECT_NO_THROW( data.module->backward( device_input, device_output_grad, device_input_grad ) );
+    }
+
+    TEST_F( LinearCudaTests, Error_BackwardInInferenceMode_FP32 )
+    {
+        if (!cuda_available_)
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        auto data = SmallFp32Data();
+
+        // Build in inference mode (default)
+        data.module->build( data.input_shape );
+        EXPECT_FALSE( data.module->isTraining() );
+
+        CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", data.input_shape );
+        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_output_grad( "CUDA:0", data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_input_grad( "CUDA:0", data.input_shape );
+
+        CpuTensor<TensorDataType::FP32> host_input( "CPU", data.input_shape );
+        random( host_input, -1.0f, 1.0f );
+        copy( host_input, device_input );
+
+        data.module->forward( device_input, device_output );
+
+        // Backward should throw when not in training mode
+        EXPECT_THROW(
+            data.module->backward( device_input, device_output_grad, device_input_grad ),
+            std::runtime_error
+        ) << "Backward should throw when module is not in training mode";
     }
 }

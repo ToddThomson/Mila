@@ -94,9 +94,7 @@ namespace Mila::Dnn::Compute
         void forward(
             const ITensor& inputA,
             const ITensor& inputB,
-            [[maybe_unused]] const Parameters& parameters,
-            ITensor& output,
-            [[maybe_unused]] OutputState& output_state ) const override
+            ITensor& output ) const override
         {
             const HostType* a = static_cast<const HostType*>(inputA.rawData());
             const HostType* b = static_cast<const HostType*>(inputB.rawData());

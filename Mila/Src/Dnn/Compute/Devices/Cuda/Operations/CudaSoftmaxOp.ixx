@@ -269,8 +269,7 @@ namespace Mila::Dnn::Compute
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            ITensor& input_grad,
-            Parameters& parameter_grads ) const override
+            ITensor& input_grad ) const override
         {
             const NativeType* Y = static_cast<const NativeType*>(input.rawData());
             const NativeType* dY = static_cast<const NativeType*>(output_grad.rawData());

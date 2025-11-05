@@ -145,7 +145,7 @@ namespace Mila::Dnn::Compute
         }
 
         // ====================================================================
-        // Parameters
+		// Parameters and Gradients
         // ====================================================================
 
         /**
@@ -188,6 +188,55 @@ namespace Mila::Dnn::Compute
             else
             {
                 bias_ = nullptr;
+            }
+        }
+
+        /**
+         * @brief Set parameter gradient tensor references for training.
+         *
+         * The operation caches native device gradient pointers for hot-path write access
+         * during backward(). Weight gradient is required; bias gradient is bound
+         * only when the LayerNorm config indicates a bias is present.
+         *
+         * @param weight_grad Gradient tensor for weight parameter
+         * @param bias_grad Gradient tensor for bias parameter (optional based on config)
+         *
+         * @throws std::invalid_argument If weight_grad is null
+         * @throws std::invalid_argument If weight_grad is not a CUDA tensor
+         * @throws std::invalid_argument If bias_grad is null when config requires bias
+         * @throws std::invalid_argument If bias_grad is not a CUDA tensor when required
+         */
+        void setParameterGradients( ITensor* weight_grad, ITensor* bias_grad ) override
+        {
+            if (!weight_grad)
+            {
+                throw std::invalid_argument( "CudaLayerNormOp::setParameterGradients - weight gradient is required" );
+            }
+
+            if (weight_grad->getDeviceType() != DeviceType::Cuda)
+            {
+                throw std::invalid_argument( "CudaLayerNormOp::setParameterGradients - weight gradient must be a CUDA tensor" );
+            }
+
+            weight_grad_ = static_cast<NativeType*>(weight_grad->rawData());
+
+            if (config_.hasBias())
+            {
+                if (!bias_grad)
+                {
+                    throw std::invalid_argument( "CudaLayerNormOp::setParameterGradients - bias gradient expected but null was provided" );
+                }
+
+                if (bias_grad->getDeviceType() != DeviceType::Cuda)
+                {
+                    throw std::invalid_argument( "CudaLayerNormOp::setParameterGradients - bias gradient must be a CUDA tensor" );
+                }
+
+                bias_grad_ = static_cast<NativeType*>(bias_grad->rawData());
+            }
+            else
+            {
+                bias_grad_ = nullptr;
             }
         }
 
@@ -330,25 +379,14 @@ namespace Mila::Dnn::Compute
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            ITensor& input_grad,
-            Parameters& parameter_grads ) const override
+            ITensor& input_grad ) const override
         {
             const NativeType* X = static_cast<const NativeType*>(input.rawData());
             const NativeType* dY = static_cast<const NativeType*>(output_grad.rawData());
             NativeType* dX = static_cast<NativeType*>(input_grad.rawData());
 
-            NativeType* dweight = nullptr;
-            NativeType* dbias = nullptr;
-
-            if (parameter_grads.size() > 0 && parameter_grads[0])
-            {
-                dweight = static_cast<NativeType*>(parameter_grads[0]->rawData());
-            }
-
-            if (parameter_grads.size() > 1 && parameter_grads[1])
-            {
-                dbias = static_cast<NativeType*>(parameter_grads[1]->rawData());
-            }
+            NativeType* dweight = weight_grad_;
+            NativeType* dbias = bias_grad_;
 
             cudaStream_t stream = context_->getStream();
 
@@ -384,6 +422,10 @@ namespace Mila::Dnn::Compute
         // Cached native device parameter pointers (module owns underlying tensors)
         NativeType* weight_{ nullptr };
         NativeType* bias_{ nullptr };
+
+        // Cached native device parameter gradient pointers (module owns underlying tensors)
+        NativeType* weight_grad_{ nullptr };
+        NativeType* bias_grad_{ nullptr };
 
         // Backend-owned device runtime statistics storage
         std::shared_ptr<TensorType> mean_storage_;

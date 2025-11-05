@@ -1,9 +1,9 @@
 /**
  * @file ConfigurationBase.ixx
- * @brief Modern configuration system using fluent interface design for neural network components
+ * @brief Base configuration class for neural network component architecture parameters.
  *
- * Provides a base configuration class with a type-safe fluent interface that all
- * component-specific configuration classes should inherit from.
+ * Configurations define WHAT a component is (structure, hyperparameters),
+ * not HOW it's used (training mode, device placement).
  */
 
 module;
@@ -20,44 +20,39 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Compute;
 
     /**
-     * @brief Base configuration class for all neural network components
+     * @brief Base configuration class for neural network component architecture.
      *
-     * ConfigurationBase serves as the foundation for all configuration classes in the Mila DNN
-     * framework. It provides common configuration properties like name, precision policy,
-     * and training mode that are shared across different neural network components.
+     * ConfigurationBase provides common architectural configuration properties:
+     * - Name: Component identifier for logging/debugging
+     * - Precision policy: Computation precision strategy (performance vs accuracy)
      *
-     * Derived configuration classes should extend this base with component-specific
-     * configuration options and override validate() when needed.
+     * These are CONSTRUCTION-TIME parameters that define the component's structure.
+     * Runtime state (training mode, device, etc.) is managed by the Module itself.
      *
-     * @see GeluConfig
-     * @see LinearConfig
+     * @note Training mode is NOT part of configuration - it's runtime state
+     *       managed by Module::setTraining(). Configuration should be immutable
+     *       after construction.
      */
     export class ConfigurationBase
     {
     public:
-        /**
-         * @brief Virtual destructor to support proper polymorphic destruction
-         */
         virtual ~ConfigurationBase() = default;
 
         /**
-         * @brief Sets the name of the component with fluent interface
+         * @brief Sets the name of the component with fluent interface.
          *
          * @param name The name to assign to this component
          * @return Reference to self for method chaining
-         *
-         * @note Names are validated during the validate() call, not at assignment time
          */
         template <typename Self>
         decltype(auto) withName( this Self&& self, std::string name )
         {
             self.name_ = std::move( name );
-
             return std::forward<Self>( self );
         }
 
         /**
-         * @brief Sets the compute precision policy with fluent interface
+         * @brief Sets the compute precision policy with fluent interface.
          *
          * @param policy The compute precision policy to use
          * @return Reference to self for method chaining
@@ -66,26 +61,11 @@ namespace Mila::Dnn
         decltype(auto) withPrecisionPolicy( this Self&& self, ComputePrecision::Policy policy )
         {
             self.precision_ = policy;
-
             return std::forward<Self>( self );
         }
 
         /**
-         * @brief Sets the training mode with fluent interface
-         *
-         * @param is_training True to put component in training mode, false for inference mode
-         * @return Reference to self for method chaining
-         */
-        template <typename Self>
-        decltype(auto) withTraining( this Self&& self, bool is_training )
-        {
-            self.is_training_ = is_training;
-
-            return std::forward<Self>( self );
-        }
-
-        /**
-         * @brief Gets the configured component name
+         * @brief Gets the configured component name.
          *
          * @return const std::string& The component name
          */
@@ -95,7 +75,7 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Gets the configured precision policy
+         * @brief Gets the configured precision policy.
          *
          * @return ComputePrecision::Policy The precision policy
          */
@@ -105,21 +85,7 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Gets the configured training mode
-         *
-         * @return bool True if in training mode, false if in inference mode
-         */
-        bool isTraining() const
-        {
-            return is_training_;
-        }
-
-        /**
-         * @brief Validates the configuration
-         *
-         * Base implementation validates that the component name is not empty.
-         * Derived classes should call this base implementation and add their
-         * own validation logic.
+         * @brief Validates the configuration.
          *
          * @throws std::invalid_argument If the configuration is invalid
          */
@@ -132,13 +98,10 @@ namespace Mila::Dnn
         }
 
     protected:
-        /** @brief Component name, defaults to "unnamed" if not explicitly set */
+        /** @brief Component name for identification */
         std::string name_ = "unnamed";
 
-        /** @brief Precision policy for computation, defaults to Auto */
+        /** @brief Precision policy for computation */
         ComputePrecision::Policy precision_ = ComputePrecision::Policy::Auto;
-
-        /** @brief Training mode flag, defaults to false (inference mode) */
-        bool is_training_ = false;
     };
 }

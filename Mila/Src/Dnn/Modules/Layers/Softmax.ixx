@@ -76,7 +76,6 @@ namespace Mila::Dnn
             }
 
             config_.validate();
-            this->setTraining( config_.isTraining() );
 
             createOperation();
         }
@@ -146,8 +145,7 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Softmax module must be built before calling backward." );
             }
 
-            Parameters parameter_grads;
-            operation_->backward( input, output_grad, input_grad, parameter_grads );
+            operation_->backward( input, output_grad, input_grad );
         }
 
         // ====================================================================

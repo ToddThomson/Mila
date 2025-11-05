@@ -93,8 +93,7 @@ namespace Modules::Blocks::Tests
             .withActivation( ActivationType::Gelu )
             .withLayerNorm( true )
             .withName( "test_mlp" )
-            .withPrecisionPolicy( ComputePrecision::Policy::Performance )
-            .withTraining( true );
+            .withPrecisionPolicy( ComputePrecision::Policy::Performance );
 
         EXPECT_EQ( &result, &config );
         EXPECT_EQ( config.getInputFeatures(), input_features );
@@ -104,7 +103,6 @@ namespace Modules::Blocks::Tests
         EXPECT_TRUE( config.useLayerNorm() );
         EXPECT_EQ( config.getName(), "test_mlp" );
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Performance );
-        EXPECT_TRUE( config.isTraining() );
     }
 
     TEST_F( MLPConfigTests, Validation_Success )
@@ -191,8 +189,7 @@ namespace Modules::Blocks::Tests
             .withActivation( ActivationType::Gelu )
             .withLayerNorm( true )
             .withName( "test_mlp" )
-            .withPrecisionPolicy( ComputePrecision::Policy::Accuracy )
-            .withTraining( false );
+            .withPrecisionPolicy( ComputePrecision::Policy::Accuracy );
 
         EXPECT_EQ( config.getInputFeatures(), 768 );
         EXPECT_EQ( config.getHiddenSize(), 3072 );
@@ -201,7 +198,6 @@ namespace Modules::Blocks::Tests
         EXPECT_TRUE( config.useLayerNorm() );
         EXPECT_EQ( config.getName(), "test_mlp" );
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Accuracy );
-        EXPECT_FALSE( config.isTraining() );
     }
 
     TEST_F( MLPConfigTests, Configuration_Persistence )
@@ -271,8 +267,7 @@ namespace Modules::Blocks::Tests
         config.withBias( true )
             .withActivation( ActivationType::Gelu )
             .withLayerNorm( false )
-            .withName( "transformer_ffn" )
-            .withTraining( true );
+            .withName( "transformer_ffn" );
 
         EXPECT_EQ( config.getInputFeatures(), transformer_features );
         EXPECT_EQ( config.getHiddenSize(), ffn_hidden_size );
@@ -280,7 +275,6 @@ namespace Modules::Blocks::Tests
         EXPECT_EQ( config.getActivationType(), ActivationType::Gelu );
         EXPECT_FALSE( config.useLayerNorm() );
         EXPECT_EQ( config.getName(), "transformer_ffn" );
-        EXPECT_TRUE( config.isTraining() );
 
         EXPECT_NO_THROW( config.validate() );
     }

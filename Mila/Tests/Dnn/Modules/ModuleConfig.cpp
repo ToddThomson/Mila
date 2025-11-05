@@ -36,7 +36,6 @@ namespace Dnn::Modules::Tests
         // ConfigurationBase default values (see ConfigurationBase.ixx)
         EXPECT_EQ( config.getName(), "unnamed" );
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Auto );
-        EXPECT_FALSE( config.isTraining() );
     }
 
     TEST_F( ConfigurationBaseTests, WithName_ShouldSetName ) {
@@ -63,26 +62,14 @@ namespace Dnn::Modules::Tests
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Accuracy );
     }
 
-    TEST_F( ConfigurationBaseTests, Training_ShouldSetTrainingMode ) {
-        TestConfigurationBase config;
-
-        config.withTraining( true );
-        EXPECT_TRUE( config.isTraining() );
-
-        config.withTraining( false );
-        EXPECT_FALSE( config.isTraining() );
-    }
-
     TEST_F( ConfigurationBaseTests, MethodChaining_ShouldReturnCorrectValues ) {
         TestConfigurationBase config;
 
         config.withName( test_module_name_ )
-            .withPrecisionPolicy( ComputePrecision::Policy::Performance )
-            .withTraining( true );
+            .withPrecisionPolicy( ComputePrecision::Policy::Performance );
 
         EXPECT_EQ( config.getName(), test_module_name_ );
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Performance );
-        EXPECT_TRUE( config.isTraining() );
     }
 
     TEST_F( ConfigurationBaseTests, Validate_WithValidConfig_ShouldNotThrow ) {
@@ -138,15 +125,12 @@ namespace Dnn::Modules::Tests
 
         auto& ref1 = config.withName( test_module_name_ );
         auto& ref2 = ref1.withPrecisionPolicy( ComputePrecision::Policy::Accuracy );
-        auto& ref3 = ref2.withTraining( true );
 
         EXPECT_EQ( &ref1, &config );
         EXPECT_EQ( &ref2, &config );
-        EXPECT_EQ( &ref3, &config );
 
         EXPECT_EQ( config.getName(), test_module_name_ );
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Accuracy );
-        EXPECT_TRUE( config.isTraining() );
     }
 
     TEST_F( ConfigurationBaseTests, DerivedConfig_ShouldInheritAndExtendBaseConfig ) {
@@ -155,13 +139,11 @@ namespace Dnn::Modules::Tests
         config.withName( test_module_name_ )
             .withDeviceName( cuda_device_name_ )
             .withCustomOption( 42 )
-            .withPrecisionPolicy( ComputePrecision::Policy::Native )
-            .withTraining( true );
+            .withPrecisionPolicy( ComputePrecision::Policy::Native );
 
         EXPECT_EQ( config.getName(), test_module_name_ );
         EXPECT_EQ( config.getDeviceName(), cuda_device_name_ );
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Native );
-        EXPECT_TRUE( config.isTraining() );
         EXPECT_EQ( config.getCustomOption(), 42 );
     }
 
