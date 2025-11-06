@@ -10,7 +10,7 @@
 
 #include <cuda_runtime.h>
 #include "device_launch_parameters.h"
-#include "../CudaUtils.h"
+#include "../../../Helpers/CudaUtils.h"
 
 namespace Mila::Dnn::Compute
 {

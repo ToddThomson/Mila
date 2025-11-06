@@ -210,8 +210,40 @@ namespace Mila::Dnn
         }
 
         // ====================================================================
-        // Parameter Gradients
+        // Parameters and Gradients
         // ====================================================================
+
+        std::vector<ITensor*> getParameters() const override
+        {
+            std::vector<ITensor*> params;
+            
+            if (weight_)
+                params.push_back( weight_.get() );
+            
+            if (bias_)
+                params.push_back( bias_.get() );
+
+            return params;
+        }
+
+        std::vector<ITensor*> getParameterGradients() const override
+        {
+            if (!is_training_)
+            {
+                throw std::runtime_error( "Linear: getParameterGradients called when not in training mode" );
+            }
+
+            std::vector<ITensor*> grads;
+
+            if (weight_grad_)
+                grads.push_back( weight_grad_.get() );
+
+            if (bias_grad_)
+                grads.push_back( bias_grad_.get() );
+
+            return grads;
+        }
+
         /**
          * @brief Get weight gradient tensor.
          *
@@ -296,6 +328,8 @@ namespace Mila::Dnn
             return count;
         }
 
+        
+
         std::string toString() const override
         {
             std::ostringstream oss;
@@ -339,7 +373,7 @@ namespace Mila::Dnn
          *
          * Useful for optimizers and parameter iteration helpers.
          */
-        Parameters getParameters() const
+        Parameters getParametersTyped() const
         {
             Parameters p;
             if (weight_) p.emplace_back( weight_ );

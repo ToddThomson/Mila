@@ -153,7 +153,7 @@ add_executable( MilaTests
     "Dnn/Compute/Operations/UnaryOperation.cpp"
     #"Dnn/Compute/Operations/BinaryOperation.cpp"
 
-)
+ "Dnn/Optimizers/AdamW.Cuda.cpp" "Dnn/Optimizers/AdamW.Cpu.cpp")
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
 

@@ -4,7 +4,7 @@
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
 #include "device_launch_parameters.h"
-#include "CudaUtils.h"
+#include "../../Helpers/CudaUtils.h"
 
 namespace Mila::Dnn::Compute
 {
@@ -178,6 +178,7 @@ namespace Mila::Dnn::Compute
         const int grid_size = ceil_div( N, block_size );
 
         softmax_forward_fp32_kernel << <grid_size, block_size, 0, stream >> > (Y, X, N, C);
+        
         cudaCheck( cudaGetLastError() );
     }
 

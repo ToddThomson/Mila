@@ -27,7 +27,6 @@
 
 namespace Mila::Dnn::Compute
 {
-
     // Reduction kernels
     void cuda_reduce_sum_batch_fp32(
         float* bias_grad,

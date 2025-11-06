@@ -173,13 +173,10 @@ namespace Mila::Dnn
         virtual void synchronize() = 0;
 
 		// ====================================================================
-        // Parameters
+        // Parameters and Gradients
 		// ====================================================================
 
-		// TJT: Access to parameters is required for optimizers, but the ownership
-		// model is unclear. Leaving this commented out for now.
-
-        //virtual std::vector<Tensor*> parameters() = 0;
+		// REVIEW: Default implementations for stateless modules?
 
         /**
          * @brief Return the number of trainable parameters in this module.
@@ -188,6 +185,37 @@ namespace Mila::Dnn
          * stored by the module and would be persisted by `save`.
          */
         virtual size_t parameterCount() const = 0;
+
+        /**
+         * @brief Return pointers to trainable parameters in this module.
+         *
+         * The module retains ownership of the parameter tensors. Returned pointers
+         * remain valid for the lifetime of the module.
+         *
+         * @return Vector of non-owning ITensor pointers to parameters
+         *
+         * @throws std::runtime_error if called before build()
+         *
+         * @note Implementations should return parameters in a canonical order
+         *       (e.g., weights before biases) for consistent optimizer behavior
+         */
+        virtual std::vector<ITensor*> getParameters() const = 0;
+
+        /**
+         * @brief Return pointers to parameter gradient tensors in this module.
+         *
+         * Only valid when the module is in training mode. The module retains
+         * ownership of the gradient tensors. Returned pointers remain valid for
+         * the lifetime of the module.
+         *
+         * @return Vector of non-owning ITensor pointers to parameter gradients
+         *
+         * @throws std::runtime_error if called before build()
+         * @throws std::runtime_error if not in training mode
+         *
+         * @note Gradient tensor order must match getParameters() order
+         */
+        virtual std::vector<ITensor*> getParameterGradients() const = 0;
 
 		// ====================================================================
 		// Serialization

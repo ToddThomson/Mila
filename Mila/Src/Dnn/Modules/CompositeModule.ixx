@@ -301,29 +301,44 @@ namespace Mila::Dnn
             return count;
         }
 
-        /**
-         * @brief Collect all parameters from children.
-         *
-         * @throws std::runtime_error if not built
-         */
-        /*std::vector<Tensor*> parameters() override
+        std::vector<ITensor*> getParameters() const override
         {
             if (!isBuilt())
             {
-                throw std::runtime_error(
-                    "Cannot get parameters before build() is called"
-                );
+                throw std::runtime_error( "Cannot get parameters before build()" );
             }
 
-            std::vector<Tensor*> params;
+            std::vector<ITensor*> params;
             for (auto& module : child_modules_)
             {
-                auto child_params = module->parameters();
+                auto child_params = module->getParameters();
                 params.insert( params.end(), child_params.begin(), child_params.end() );
             }
-
+            
             return params;
-        }*/
+        }
+
+        std::vector<ITensor*> getParameterGradients() const override
+        {
+            if (!isBuilt())
+            {
+                throw std::runtime_error( "Cannot get parameter gradients before build()" );
+            }
+
+            if (!is_training_)
+            {
+                throw std::runtime_error( "Cannot get parameter gradients when not in training mode" );
+            }
+
+            std::vector<ITensor*> grads;
+            for (auto& module : child_modules_)
+            {
+                auto child_grads = module->getParameterGradients();
+                grads.insert( grads.end(), child_grads.begin(), child_grads.end() );
+            }
+            
+            return grads;
+        }
 
 		// ====================================================================
 		// Serialization
@@ -442,7 +457,6 @@ namespace Mila::Dnn
                 module->build( input_shape );
             }
         }
-
 
         std::vector<ModulePtr> child_modules_;
         std::unordered_map<std::string, ModulePtr> child_module_map_;

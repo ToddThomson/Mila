@@ -872,7 +872,6 @@ namespace Mila::Dnn::Compute
             assert( output_grad.shape().back() == cached_out_features_ &&
                 "Output grad last dimension must match out_features" );
 
-
             cudaStream_t stream = context_->getStream();
 
             if (use_cublaslt_)

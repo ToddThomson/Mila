@@ -1,9 +1,12 @@
 ﻿set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 
 add_library( Mila STATIC
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaUtils.h"
+    "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaUtils.h"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaOps.h"
 
+    #--------------------------------------------------------------------------
+    # Cuda Operations Kernels
+    #--------------------------------------------------------------------------
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaEncoder.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaLayerNorm.cu"
 
@@ -25,8 +28,12 @@ add_library( Mila STATIC
     "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/CudaTensorOps.h"
     "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.h"
     "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.cu"
- 
-    "Src/Dnn/Tensors/Operations/TensorOps-Base.ixx"
+
+    #--------------------------------------------------------------------------
+    # Cuda Optimizer Kernels
+    #--------------------------------------------------------------------------
+    "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaOptimizers.h"
+    "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaAdamW.cu"
 )
 
  # FIXME: add_dependencies(Mila MilaUpdateVersion)
@@ -147,6 +154,11 @@ PUBLIC
         "Src/Dnn/Compute/MemoryResourceProperties.ixx"
         "Src/Dnn/Compute/MemoryResourceTracker.ixx"
 
+        #----------------------------------------------------------------------
+        # Dnn / Compute / Optimizers
+        #----------------------------------------------------------------------
+        "Src/Dnn/Compute/Optimizers/OptimizerBase.ixx"
+
         #---------------------------------------------------------------
         # Dnn / Compute / Operations
         #---------------------------------------------------------------
@@ -204,7 +216,7 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaHelpers.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaBadAlloc.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Helpers/CublasLtError.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaUtils.ixx"
+        
 
         # CUDA Devices
         "Src/Dnn/Compute/Devices/Cuda/CudaDevice.ixx"
@@ -240,6 +252,9 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Cuda/Operations/CudaSoftmaxOp.ixx"
         #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaAttentionOp.ixx"
         #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaEncoderOp.ixx"
+
+        # CUDA / Optimizers
+        "Src/Dnn/Compute/Devices/Cuda/Optimizers/CudaAdamWOptimizer.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Compute / Devices / Metal
@@ -336,7 +351,7 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Cuda/CudaDeviceResources.ixx"
         "Src/Dnn/Tensors/Tensor.Partitioning.ixx"
         "Src/Dnn/Tensors/Tensor.Types.ixx"
-        )
+ "Src/Dnn/Compute/Devices/Cpu/Optimizers/CpuAdamWOptimizer.ixx" "Src/Dnn/Optimizers/AdamW.ixx" "Src/Dnn/Optimizers/AdamWConfig.ixx" )
 
 target_link_libraries(Mila PRIVATE 
     miniz

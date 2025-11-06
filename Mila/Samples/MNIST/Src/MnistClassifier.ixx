@@ -1,6 +1,6 @@
 /**
  * @file MnistClassifier.ixx
- * @brief MNIST digit classifier using multi-layer perceptron architecture.
+ * @brief MNIST digit classifier using feedforward neural network architecture.
  *
  * Device-templated composite module implementing a three-layer neural network
  * for MNIST handwritten digit classification (784 -> 128 -> 64 -> 10).
@@ -29,12 +29,12 @@ namespace Mila::Mnist
     /**
      * @brief MNIST handwritten digit classifier.
      *
-     * Three-layer neural network architecture:
-     *   Input (784) -> MLP1 (128) -> MLP2 (64) -> Linear (10) -> Output
+     * Three-layer feed-forward neural network architecture:
+     *   Input (784) -> Linear (128) -> GELU -> Linear (64) -> GELU -> Linear (10) -> Output
      *
      * Design philosophy:
      * - Two-phase initialization: build() performs shape validation and buffer allocation
-     * - Composite module pattern: manages child modules (2x MLP + 1x Linear)
+     * - Composite module pattern: manages child modules (3x Linear + 2x Gelu)
      * - Shape-agnostic configuration: batch size and MNIST dimensions define structure
      * - Runtime shapes determined at build() time from actual input tensor
      *
@@ -83,7 +83,7 @@ namespace Mila::Mnist
 
         bool isBuilt() const override
         {
-            return built_ && mlp1_ && mlp2_ && output_fc_;
+            return built_ && fc1_ && gelu1_ && fc2_ && gelu2_ && output_fc_;
         }
 
         /**
@@ -115,16 +115,24 @@ namespace Mila::Mnist
             cached_output_shape_ = input_shape;
             cached_output_shape_.back() = MNIST_NUM_CLASSES;
 
-            // Build child modules
-            mlp1_->build( input_shape );
-            mlp2_->build( cached_hidden1_shape_ );
+            // Build child modules with correct shapes
+            fc1_->build( input_shape );
+            gelu1_->build( cached_hidden1_shape_ );
+            fc2_->build( cached_hidden1_shape_ );
+            gelu2_->build( cached_hidden2_shape_ );
             output_fc_->build( cached_hidden2_shape_ );
 
             // Allocate intermediate buffers
             auto device = exec_context_->getDevice();
 
+            hidden1_pre_act_ = std::make_shared<TensorType>( device, cached_hidden1_shape_ );
+            hidden1_pre_act_->setName( name_ + ".hidden1_pre_act" );
+
             hidden1_ = std::make_shared<TensorType>( device, cached_hidden1_shape_ );
             hidden1_->setName( name_ + ".hidden1" );
+
+            hidden2_pre_act_ = std::make_shared<TensorType>( device, cached_hidden2_shape_ );
+            hidden2_pre_act_->setName( name_ + ".hidden2_pre_act" );
 
             hidden2_ = std::make_shared<TensorType>( device, cached_hidden2_shape_ );
             hidden2_->setName( name_ + ".hidden2" );
@@ -152,13 +160,19 @@ namespace Mila::Mnist
                 throw std::runtime_error( "MnistClassifier must be built before calling forward." );
             }
 
-            // Input (784) ? MLP1 ? Hidden1 (128)
-            mlp1_->forward( input, *hidden1_ );
+            // Layer 1: Input (784) -> Linear -> Hidden1_pre (128)
+            fc1_->forward( input, *hidden1_pre_act_ );
 
-            // Hidden1 (128) ? MLP2 ? Hidden2 (64)
-            mlp2_->forward( *hidden1_, *hidden2_ );
+            // Activation 1: Hidden1_pre (128) -> GELU -> Hidden1 (128)
+            gelu1_->forward( *hidden1_pre_act_, *hidden1_ );
 
-            // Hidden2 (64) ? Linear ? Output (10 logits)
+            // Layer 2: Hidden1 (128) -> Linear -> Hidden2_pre (64)
+            fc2_->forward( *hidden1_, *hidden2_pre_act_ );
+
+            // Activation 2: Hidden2_pre (64) -> GELU -> Hidden2 (64)
+            gelu2_->forward( *hidden2_pre_act_, *hidden2_ );
+
+            // Output layer: Hidden2 (64) -> Linear -> Output (10 logits)
             output_fc_->forward( *hidden2_, output );
         }
 
@@ -176,19 +190,28 @@ namespace Mila::Mnist
 
             auto device = exec_context_->getDevice();
 
-            // Backprop through output layer
+            // Backprop through output layer: dL/dHidden2
             TensorType hidden2_grad( device, cached_hidden2_shape_ );
-			zeros( hidden2_grad );
-
+            zeros( hidden2_grad );
             output_fc_->backward( *hidden2_, output_grad, hidden2_grad );
 
-            // Backprop through MLP2
-            TensorType hidden1_grad( device, cached_hidden1_shape_ );
-			zeros( hidden1_grad );
-            mlp2_->backward( *hidden1_, hidden2_grad, hidden1_grad );
+            // Backprop through GELU2: dL/dHidden2_pre
+            TensorType hidden2_pre_grad( device, cached_hidden2_shape_ );
+            zeros( hidden2_pre_grad );
+            gelu2_->backward( *hidden2_pre_act_, hidden2_grad, hidden2_pre_grad );
 
-            // Backprop through MLP1
-            mlp1_->backward( input, hidden1_grad, input_grad );
+            // Backprop through fc2: dL/dHidden1
+            TensorType hidden1_grad( device, cached_hidden1_shape_ );
+            zeros( hidden1_grad );
+            fc2_->backward( *hidden1_, hidden2_pre_grad, hidden1_grad );
+
+            // Backprop through GELU1: dL/dHidden1_pre
+            TensorType hidden1_pre_grad( device, cached_hidden1_shape_ );
+            zeros( hidden1_pre_grad );
+            gelu1_->backward( *hidden1_pre_act_, hidden1_grad, hidden1_pre_grad );
+
+            // Backprop through fc1: dL/dInput
+            fc1_->backward( input, hidden1_pre_grad, input_grad );
         }
 
         // ====================================================================
@@ -223,7 +246,7 @@ namespace Mila::Mnist
         std::shared_ptr<ComputeDevice> getDevice() const override
         {
             return exec_context_->getDevice();
-		}
+        }
 
         void synchronize() override
         {
@@ -269,10 +292,10 @@ namespace Mila::Mnist
             oss << "====================" << std::endl;
             oss << "MNIST Classifier: " << name_ << std::endl;
             oss << "Architecture:" << std::endl;
-            oss << "  Input:  784 features (28x28 flattened)" << std::endl;
-            oss << "  MLP1:   784 -> " << HIDDEN1_SIZE << " (with GELU activation)" << std::endl;
-            oss << "  MLP2:   " << HIDDEN1_SIZE << " -> " << HIDDEN2_SIZE << " (with GELU activation)" << std::endl;
-            oss << "  Output: " << HIDDEN2_SIZE << " -> " << MNIST_NUM_CLASSES << " classes" << std::endl;
+            oss << "  Input:   784 features (28x28 flattened)" << std::endl;
+            oss << "  Layer 1: 784 -> " << HIDDEN1_SIZE << " + GELU" << std::endl;
+            oss << "  Layer 2: " << HIDDEN1_SIZE << " -> " << HIDDEN2_SIZE << " + GELU" << std::endl;
+            oss << "  Output:  " << HIDDEN2_SIZE << " -> " << MNIST_NUM_CLASSES << " classes" << std::endl;
             oss << "Parameters: " << parameterCount() << std::endl;
 
             if (exec_context_ && exec_context_->getDevice())
@@ -345,13 +368,17 @@ namespace Mila::Mnist
         shape_t cached_hidden2_shape_;
         shape_t cached_output_shape_;
 
-        // Child modules
-        std::shared_ptr<Module<TDeviceType>> mlp1_{ nullptr };
-        std::shared_ptr<Module<TDeviceType>> mlp2_{ nullptr };
+        // Child modules (3x Linear + 2x Gelu)
+        std::shared_ptr<Module<TDeviceType>> fc1_{ nullptr };
+        std::shared_ptr<Module<TDeviceType>> gelu1_{ nullptr };
+        std::shared_ptr<Module<TDeviceType>> fc2_{ nullptr };
+        std::shared_ptr<Module<TDeviceType>> gelu2_{ nullptr };
         std::shared_ptr<Module<TDeviceType>> output_fc_{ nullptr };
 
         // Intermediate buffer tensors (allocated at build time)
+        std::shared_ptr<TensorType> hidden1_pre_act_{ nullptr };
         std::shared_ptr<TensorType> hidden1_{ nullptr };
+        std::shared_ptr<TensorType> hidden2_pre_act_{ nullptr };
         std::shared_ptr<TensorType> hidden2_{ nullptr };
 
         /**
@@ -385,33 +412,43 @@ namespace Mila::Mnist
          */
         void createModules()
         {
-            // MLP1: 784 -> 128
-            auto mlp1_config = MLPConfig( MNIST_IMAGE_SIZE, HIDDEN1_SIZE );
-            mlp1_config.withName( name_ + ".mlp1" )
-                .withBias( false /* was true */ )
-                .withActivation( ActivationType::Gelu )
-                .withLayerNorm( false );
+            // Layer 1: 784 -> 128
+            auto fc1_config = LinearConfig( MNIST_IMAGE_SIZE, HIDDEN1_SIZE );
+            fc1_config.withName( name_ + ".fc1" )
+                .withBias( false );
 
-            mlp1_ = std::make_shared<MLP<TDeviceType, TPrecision>>( exec_context_, mlp1_config );
-            this->addModule( "mlp1", mlp1_ );
+            fc1_ = std::make_shared<Linear<TDeviceType, TPrecision>>( exec_context_, fc1_config );
+            this->addModule( "fc1", fc1_ );
 
-            // MLP2: 128 -> 64
-            auto mlp2_config = MLPConfig( HIDDEN1_SIZE, HIDDEN2_SIZE );
-            mlp2_config.withName( name_ + ".mlp2" )
-                .withBias( false /* was true */ )
-                .withActivation( ActivationType::Gelu )
-                .withLayerNorm( false );
+            // Activation 1: GELU
+            auto gelu1_config = GeluConfig();
+            gelu1_config.withName( name_ + ".gelu1" );
 
-            mlp2_ = std::make_shared<MLP<TDeviceType, TPrecision>>( exec_context_, mlp2_config );
-            this->addModule( "mlp2", mlp2_ );
+            gelu1_ = std::make_shared<Gelu<TDeviceType, TPrecision>>( exec_context_, gelu1_config );
+            this->addModule( "gelu1", gelu1_ );
+
+            // Layer 2: 128 -> 64
+            auto fc2_config = LinearConfig( HIDDEN1_SIZE, HIDDEN2_SIZE );
+            fc2_config.withName( name_ + ".fc2" )
+                .withBias( false );
+
+            fc2_ = std::make_shared<Linear<TDeviceType, TPrecision>>( exec_context_, fc2_config );
+            this->addModule( "fc2", fc2_ );
+
+            // Activation 2: GELU
+            auto gelu2_config = GeluConfig();
+            gelu2_config.withName( name_ + ".gelu2" );
+
+            gelu2_ = std::make_shared<Gelu<TDeviceType, TPrecision>>( exec_context_, gelu2_config );
+            this->addModule( "gelu2", gelu2_ );
 
             // Output layer: 64 -> 10
             auto output_config = LinearConfig( HIDDEN2_SIZE, MNIST_NUM_CLASSES );
             output_config.withName( name_ + ".output" )
-                .withBias( false /* was true */ );
+                .withBias( false );
 
             output_fc_ = std::make_shared<Linear<TDeviceType, TPrecision>>( exec_context_, output_config );
-            this->addModule( "fc", output_fc_ );
+            this->addModule( "output", output_fc_ );
         }
     };
 

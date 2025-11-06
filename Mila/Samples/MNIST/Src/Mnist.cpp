@@ -10,6 +10,7 @@
 #include <ios>
 #include <exception>
 #include <cstdint>
+#include <stdexcept>
 
 import Mila;
 
@@ -20,14 +21,19 @@ namespace fs = std::filesystem;
 
 using namespace Mila::Dnn;
 using namespace Mila::Dnn::Compute;
+using namespace Mila::Dnn::Optimizers;
 using namespace Mila::Mnist;
 
 struct MnistConfig
 {
     std::string data_directory = "./Data/DataSets/Mnist";
-    size_t batch_size = 128;
+    int64_t batch_size = 128;
     size_t epochs = 5;
-    float learning_rate = 0.01f;
+    float learning_rate = 0.001f;
+    float beta1 = 0.9f;
+    float beta2 = 0.999f;
+    float epsilon = 1e-8f;
+    float weight_decay = 0.01f;
     DeviceType compute_device = DeviceType::Cuda;
     ComputePrecision::Policy precisionPolicy = ComputePrecision::Policy::Auto;
 };
@@ -36,13 +42,16 @@ void printUsage()
 {
     std::cout << "Usage: mnist [options]\n";
     std::cout << "Options:\n";
-    std::cout << "  --data-dir <path>     Path to MNIST data directory (default: ./Data/DataSets/Mnist)\n";
-    std::cout << "  --batch-size <int>    Batch size (default: 128)\n";
-    std::cout << "  --epochs <int>        Number of epochs (default: 5)\n";
-    std::cout << "  --learning-rate <float> Learning rate (default: 0.01)\n";
-    std::cout << "  --device <string>     Compute device (cpu or cuda, default: cuda)\n";
-    std::cout << "  --precision <string>  Precision policy (auto, performance, accuracy, disabled, default: auto)\n";
-    std::cout << "  --help                Show this help message\n";
+    std::cout << "  --data-dir <path>       Path to MNIST data directory (default: ./Data/DataSets/Mnist)\n";
+    std::cout << "  --batch-size <int>      Batch size (default: 128)\n";
+    std::cout << "  --epochs <int>          Number of epochs (default: 5)\n";
+    std::cout << "  --learning-rate <float> Learning rate (default: 0.001)\n";
+    std::cout << "  --beta1 <float>         Adam beta1 parameter (default: 0.9)\n";
+    std::cout << "  --beta2 <float>         Adam beta2 parameter (default: 0.999)\n";
+    std::cout << "  --weight-decay <float>  Weight decay (default: 0.01)\n";
+    std::cout << "  --device <string>       Compute device (cpu or cuda, default: cuda)\n";
+    std::cout << "  --precision <string>    Precision policy (auto, performance, accuracy, disabled, default: auto)\n";
+    std::cout << "  --help                  Show this help message\n";
 }
 
 bool parseCommandLine( int argc, char** argv, MnistConfig& config )
@@ -71,6 +80,18 @@ bool parseCommandLine( int argc, char** argv, MnistConfig& config )
         else if (arg == "--learning-rate" && i + 1 < argc)
         {
             config.learning_rate = std::stof( argv[++i] );
+        }
+        else if (arg == "--beta1" && i + 1 < argc)
+        {
+            config.beta1 = std::stof( argv[++i] );
+        }
+        else if (arg == "--beta2" && i + 1 < argc)
+        {
+            config.beta2 = std::stof( argv[++i] );
+        }
+        else if (arg == "--weight-decay" && i + 1 < argc)
+        {
+            config.weight_decay = std::stof( argv[++i] );
         }
         else if (arg == "--device" && i + 1 < argc)
         {
@@ -125,6 +146,9 @@ bool parseCommandLine( int argc, char** argv, MnistConfig& config )
     std::cout << "  Batch size: " << config.batch_size << std::endl;
     std::cout << "  Epochs: " << config.epochs << std::endl;
     std::cout << "  Learning rate: " << config.learning_rate << std::endl;
+    std::cout << "  Beta1: " << config.beta1 << std::endl;
+    std::cout << "  Beta2: " << config.beta2 << std::endl;
+    std::cout << "  Weight decay: " << config.weight_decay << std::endl;
     std::cout << "  Device: " << (config.compute_device == DeviceType::Cuda ? "CUDA" : "CPU") << std::endl;
     std::cout << "  Precision policy: ";
 
@@ -275,23 +299,33 @@ float computeAccuracy( const Tensor<TDataType, MR>& logits,
     return static_cast<float>(correct) / batch_size;
 }
 
-template<TensorDataType TDataType, typename MR>
-void sgdUpdate( Tensor<TDataType, MR>& param, Tensor<TDataType, MR>& grad, float learning_rate )
-{
-    for (size_t i = 0; i < param.size(); ++i)
-    {
-        param.data()[i] -= learning_rate * grad.data()[i];
-    }
-}
-
 template<DeviceType TDeviceType, TensorDataType TDataType, typename THostMR>
     requires PrecisionSupportedOnDevice<TDataType, TDeviceType> &&
 (std::is_same_v<THostMR, CudaPinnedMemoryResource> || std::is_same_v<THostMR, CpuMemoryResource>)
-void runMnistTrainingLoop(
-    std::shared_ptr<MnistClassifier<TDeviceType, TDataType>>& model,
-    const MnistConfig& config )
+void trainMnist( const MnistConfig& config )
 {
     using DeviceMR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
+
+	// ============================================================
+	// Model setup
+	// ============================================================
+
+    std::shared_ptr<ExecutionContext<TDeviceType>> exec_context;
+    if constexpr (TDeviceType == DeviceType::Cuda)
+    {
+        exec_context = std::make_shared<ExecutionContext<TDeviceType>>( 0 );
+    }
+    else
+    {
+        exec_context = std::make_shared<ExecutionContext<TDeviceType>>();
+    }
+
+    auto model = std::make_shared<MnistClassifier<TDeviceType, TDataType>>(
+        exec_context,
+        "MnistMLP",
+        config.batch_size );
+
+    model->setTraining( true );
 
     // Get device from model's execution context
     auto device = model->getDevice();
@@ -300,11 +334,58 @@ void runMnistTrainingLoop(
     MnistDataLoader<TensorDataType::FP32, THostMR> test_loader( config.data_directory, config.batch_size, false, device );
 
     // Build the model with the input shape from the data loader
-    shape_t input_shape = { static_cast<int64_t>(train_loader.batchSize()), MNIST_IMAGE_SIZE };
+    shape_t input_shape = { train_loader.batchSize(), MNIST_IMAGE_SIZE };
     model->build( input_shape );
 
     std::cout << "Model built successfully!" << std::endl;
     std::cout << model->toString() << std::endl;
+
+    // ============================================================
+	// AdamW optimizer setup
+    // ============================================================
+
+    // Create AdamW optimizer configuration
+    auto adamw_config = AdamWConfig()
+        .withLearningRate( config.learning_rate )
+        .withBeta1( config.beta1 )
+        .withBeta2( config.beta2 )
+        .withEpsilon( config.epsilon )
+        .withWeightDecay( config.weight_decay )
+        .withName( "AdamW" );
+
+    // Validate configuration
+    adamw_config.validate();
+
+    /*auto optimizer = std::make_shared<AdamWOptimizer<TDeviceType, TDataType>>(
+        exec_context,
+        adamw_config );*/
+
+    auto optimizer = std::make_shared<AdamWOptimizer<TDeviceType, TDataType>>(
+        exec_context,
+        config.learning_rate,
+        config.beta1,
+        config.beta2,
+        config.epsilon,
+        config.weight_decay );
+
+    // Register all model parameters with the optimizer
+    auto params = model->getParameters();
+    auto param_grads = model->getParameterGradients();
+
+    if (params.size() != param_grads.size())
+    {
+        throw std::runtime_error( "Parameter count mismatch between parameters and gradients" );
+    }
+
+    for (size_t i = 0; i < params.size(); ++i)
+    {
+        optimizer->addParameter( params[i], param_grads[i] );
+    }
+
+    std::cout << "Optimizer initialized with " << optimizer->getParameterCount()
+        << " parameter groups" << std::endl;
+
+    // ============================================================
 
     // Allocate tensors for training
     Tensor<TDataType, DeviceMR> input_batch( device, input_shape );
@@ -349,25 +430,25 @@ void runMnistTrainingLoop(
             float batch_acc = computeAccuracy( logits, target_batch );
 
             // ============================================================
-            // BACKWARD PASS - Compute gradients and update parameters
+            // BACKWARD PASS AND OPTIMIZER UPDATE
             // ============================================================
 
             // 1. Compute loss gradient on CPU
-            zeros( output_grad_cpu );  // Zero-initialize gradient
+            zeros( output_grad_cpu );
             softmaxCrossEntropyGradient( logits, target_batch, output_grad_cpu );
 
             // 2. Copy gradient to device
             copy( output_grad_cpu, output_grad );
 
-            // 3. Zero input gradient before backward pass
+            // 3. Zero gradients before backward pass
+            optimizer->zeroGrad();
             zeros( input_grad );
 
-            // 4. Backward pass through model (computes and accumulates parameter gradients)
+            // 4. Backward pass through model (computes parameter gradients)
             model->backward( input_batch, output_grad, input_grad );
 
-            // 5. TODO: Parameter update will be handled by optimizer
-            // For now, parameters are accumulated in gradient tensors via setParameterGradients()
-            // Next step: implement SGD optimizer to update parameters using these gradients
+            // 5. Update parameters using computed gradients
+            optimizer->step();
 
             // ============================================================
 
@@ -425,6 +506,7 @@ void runMnistTrainingLoop(
             << " - Accuracy: " << std::setprecision( 2 ) << (epoch_acc * 100.0f) << "%"
             << " - Test Loss: " << std::setprecision( 4 ) << test_loss
             << " - Test Accuracy: " << std::setprecision( 2 ) << (test_acc * 100.0f) << "%"
+            << " - LR: " << optimizer->getLearningRate()
             << std::endl;
     }
 }
@@ -433,8 +515,8 @@ int main( int argc, char** argv )
 {
     try
     {
-        std::cout << "MNIST Classification Example using Mila MLP" << std::endl;
-        std::cout << "===========================================" << std::endl;
+        std::cout << "MNIST Classification Example using Mila" << std::endl;
+        std::cout << "=======================================" << std::endl;
 
         Mila::initialize();
 
@@ -449,24 +531,15 @@ int main( int argc, char** argv )
             try
             {
                 std::cout << "Using CUDA device" << std::endl;
-
-                // Create execution context
-                auto exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
-
-                // Create model with execution context
-                auto model = std::make_shared<CudaMnistClassifier<TensorDataType::FP32>>(
-                    exec_context,
-                    "MnistMLP",
-                    static_cast<int64_t>(config.batch_size) );
-
-                model->setTraining( true );
-
-                runMnistTrainingLoop<DeviceType::Cuda, TensorDataType::FP32, CudaPinnedMemoryResource>(
-                    model, config );
+                
+                trainMnist<DeviceType::Cuda, TensorDataType::FP32, CudaPinnedMemoryResource>( config );
             }
             catch (const std::exception& e)
             {
-                std::cerr << "CUDA error: " << e.what() << ", falling back to CPU" << std::endl;
+                // REVIEW: This really doesn't make any sense
+                std::cerr << "CUDA error: " << e.what()
+                    << ", falling back to CPU" << std::endl;
+                
                 config.compute_device = DeviceType::Cpu;
             }
         }
@@ -474,20 +547,7 @@ int main( int argc, char** argv )
         if (config.compute_device == DeviceType::Cpu)
         {
             std::cout << "Using CPU device" << std::endl;
-
-            // Create execution context
-            auto exec_context = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-
-            // Create model with execution context
-            auto model = std::make_shared<CpuMnistClassifier<TensorDataType::FP32>>(
-                exec_context,
-                "MnistMLP",
-                static_cast<int64_t>(config.batch_size) );
-
-            model->setTraining( true );
-
-            runMnistTrainingLoop<DeviceType::Cpu, TensorDataType::FP32, CpuMemoryResource>(
-                model, config );
+            trainMnist<DeviceType::Cpu, TensorDataType::FP32, CpuMemoryResource>( config );
         }
 
         std::cout << "Training complete!" << std::endl;

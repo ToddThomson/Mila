@@ -10,7 +10,6 @@ export module Compute.CudaPinnedMemoryResource;
 import Compute.MemoryResource;
 import Compute.MemoryResourceProperties;
 import Compute.DeviceType;
-import Cuda.Utils;
 import Cuda.Error;
 
 namespace Mila::Dnn::Compute

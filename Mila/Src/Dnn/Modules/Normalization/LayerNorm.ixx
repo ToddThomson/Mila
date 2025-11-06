@@ -233,13 +233,24 @@ namespace Mila::Dnn
          *
          * Useful for optimizers and parameter iteration helpers.
          */
-        Parameters getParameters() const
+        std::vector<ITensor*> getParameters() const override
         {
-            Parameters p;
-            if (weight_) p.emplace_back( weight_ );
-            if (bias_)   p.emplace_back( bias_ );
-            return p;
-        }
+            std::vector<ITensor*> params;
+            
+            if (weight_)
+                params.push_back( weight_.get() );
+            
+            if (bias_)
+                params.push_back( bias_.get() );
+            
+            return params;
+		}
+
+        std::vector<ITensor*> getParameterGradients() const override
+        {
+            // Backward not implemented yet.
+            return {};
+		}
 
         size_t parameterCount() const override
         {

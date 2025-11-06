@@ -273,6 +273,16 @@ namespace Mila::Dnn
             return 0;
         }
 
+        std::vector<ITensor*> getParameters() const override
+        {
+            return {};
+		}
+
+        std::vector<ITensor*> getParameterGradients() const override
+        {
+            return {};
+        }
+
         /**
          * @brief Module name for logging and diagnostics.
          *

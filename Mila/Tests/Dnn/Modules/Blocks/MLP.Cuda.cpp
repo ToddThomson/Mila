@@ -43,7 +43,6 @@ namespace Modules::Blocks::Tests
             int64_t input_features,
             int64_t hidden_size,
             bool has_bias = true,
-            bool is_training = false,
             ActivationType activation = ActivationType::Gelu,
             bool use_layer_norm = false,
             ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
@@ -73,7 +72,6 @@ namespace Modules::Blocks::Tests
             int64_t hidden_size,
             std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
             bool has_bias = true,
-            bool is_training = false,
             ActivationType activation = ActivationType::Gelu,
             bool use_layer_norm = false,
             ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
@@ -138,9 +136,9 @@ namespace Modules::Blocks::Tests
                     "training_mlp_cuda",
                     shape_t{ batch_size_, sequence_length_, input_features_ },
                     input_features_,
-                    hidden_size_,
-                    true,
-                    true );
+                    hidden_size_ );
+
+                training_fp32_.mlp_module->setTraining( true );
             }
             return training_fp32_;
         }
@@ -169,7 +167,6 @@ namespace Modules::Blocks::Tests
                     input_features_,
                     hidden_size_,
                     true,
-                    false,
                     ActivationType::Gelu,
                     true );
             }
@@ -199,7 +196,6 @@ namespace Modules::Blocks::Tests
                     input_features_,
                     hidden_size_,
                     true,
-                    false,
                     ActivationType::Gelu,
                     false,
                     ComputePrecision::Policy::Performance );
@@ -217,7 +213,6 @@ namespace Modules::Blocks::Tests
                     input_features_,
                     hidden_size_,
                     true,
-                    false,
                     ActivationType::Gelu,
                     false,
                     ComputePrecision::Policy::Accuracy );
@@ -235,7 +230,6 @@ namespace Modules::Blocks::Tests
                     input_features_,
                     hidden_size_,
                     true,
-                    false,
                     ActivationType::Gelu,
                     false,
                     ComputePrecision::Policy::Native );

@@ -1,3 +1,3 @@
 export module MnistConfig;
 
-export void MyFunc();
+// TJT: TODO: Fill in MnistConfig contents.

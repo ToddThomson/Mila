@@ -4,7 +4,7 @@
 #include "device_launch_parameters.h"
 #include <cooperative_groups.h>
 #include <cooperative_groups/reduce.h>
-#include "CudaUtils.h"
+#include "../../Helpers/CudaUtils.h"
 
 namespace Mila::Dnn::Compute
 {

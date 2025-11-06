@@ -1,4 +1,5 @@
 #pragma once
+
 #include <cuda_runtime.h>
 #include <cstdio>
 #include <cstdlib>
@@ -14,10 +15,9 @@ constexpr int ceil_div(int M, int N) {
 class CudaException : public std::runtime_error {
 public:
     CudaException( cudaError_t error, const std::string& file, int line )
-        : std::runtime_error( buildMessage( error, file, line ) )
-        , m_error( error ) {}
+        : std::runtime_error( buildMessage( error, file, line ) ) , error_( error ) {}
 
-    cudaError_t getError() const { return m_error; }
+    cudaError_t getError() const { return error_; }
 
 private:
     static std::string buildMessage( cudaError_t error, const std::string& file, int line ) {
@@ -25,7 +25,7 @@ private:
             ":\n" + cudaGetErrorString( error );
     }
 
-    cudaError_t m_error;
+    cudaError_t error_;
 };
 
 inline void cudaCheck( cudaError_t error, const std::source_location& loc = std::source_location::current() ) {

@@ -154,7 +154,7 @@ namespace Mila::Dnn
         }
 
         // ====================================================================
-        // Compute operation dispatch
+        // Compute operation forward and backward dispatch
         // ====================================================================
 
         /**
@@ -434,7 +434,6 @@ namespace Mila::Dnn
                 this->addModule( "norm", norm_ );
             }
 
-            // Activation
             switch (config_.getActivationType())
             {
                 case ActivationType::Gelu:

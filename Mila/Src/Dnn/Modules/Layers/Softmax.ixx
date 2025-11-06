@@ -13,6 +13,7 @@ module;
 #include <sstream>
 #include <stdexcept>
 #include <cstdint>
+#include <type_traits>
 
 export module Dnn.Modules.Softmax;
 export import :Config;
@@ -195,6 +196,16 @@ namespace Mila::Dnn
         {
             return 0;
         }
+
+        std::vector<ITensor*> getParameters() const override
+        {
+            return {};
+		}
+        
+        std::vector<ITensor*> getParameterGradients() const override
+        {
+            return {};
+		}
 
         std::string toString() const override
         {
