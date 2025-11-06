@@ -221,8 +221,8 @@ namespace Mila::Dnn
 		// ====================================================================
 
         /**
-            * @brief Check if this module and all children are built.
-            */
+         * @brief Check if this module and all children are built.
+         */
         bool isBuilt() const override
         {
             if (!is_built_)

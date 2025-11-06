@@ -75,6 +75,15 @@ namespace Mila::Dnn
         virtual size_t size() const = 0;
 
         /**
+         * @brief Get the size in bytes of a single tensor element.
+         *
+         * Returns the byte size for the tensor's data type (e.g., 4 for FP32, 2 for FP16).
+         *
+         * @return Size in bytes of one element
+         */
+        virtual size_t elementSize() const = 0;
+
+        /**
          * @brief Get tensor element data type identifier
          * @return TensorDataType enumeration value corresponding to the element type
          * @note This can be used for runtime type checking and dispatch

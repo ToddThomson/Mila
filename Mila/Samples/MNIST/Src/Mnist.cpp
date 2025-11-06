@@ -356,7 +356,8 @@ void trainMnist( const MnistConfig& config )
     // Validate configuration
     adamw_config.validate();
 
-    /*auto optimizer = std::make_shared<AdamWOptimizer<TDeviceType, TDataType>>(
+	/* TODO: AdamW config object constructor
+    auto optimizer = std::make_shared<AdamWOptimizer<TDeviceType, TDataType>>(
         exec_context,
         adamw_config );*/
 
@@ -423,6 +424,7 @@ void trainMnist( const MnistConfig& config )
             model->forward( input_batch, output );
 
             // Copy output to CPU for loss computation
+			// REVIEW: Without passing the exec_context, we are implicitly synchronizing here
             copy( output, logits );
 
             // Compute loss and accuracy
@@ -430,7 +432,7 @@ void trainMnist( const MnistConfig& config )
             float batch_acc = computeAccuracy( logits, target_batch );
 
             // ============================================================
-            // BACKWARD PASS AND OPTIMIZER UPDATE
+			// Backward pass and optimization step
             // ============================================================
 
             // 1. Compute loss gradient on CPU
@@ -506,7 +508,7 @@ void trainMnist( const MnistConfig& config )
             << " - Accuracy: " << std::setprecision( 2 ) << (epoch_acc * 100.0f) << "%"
             << " - Test Loss: " << std::setprecision( 4 ) << test_loss
             << " - Test Accuracy: " << std::setprecision( 2 ) << (test_acc * 100.0f) << "%"
-            << " - LR: " << optimizer->getLearningRate()
+            << " - LR: " << std::scientific << std::setprecision( 3 ) << optimizer->getLearningRate()
             << std::endl;
     }
 }
@@ -532,6 +534,7 @@ int main( int argc, char** argv )
             {
                 std::cout << "Using CUDA device" << std::endl;
                 
+				// TODO: Configurable dtype_t. Add FP16 and BF16 first
                 trainMnist<DeviceType::Cuda, TensorDataType::FP32, CudaPinnedMemoryResource>( config );
             }
             catch (const std::exception& e)

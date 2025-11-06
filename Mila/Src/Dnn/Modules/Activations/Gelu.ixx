@@ -135,6 +135,8 @@ namespace Mila::Dnn
         void build( const shape_t& input_shape ) override
         {
 			operation_->build( input_shape );
+			
+            is_built_ = true;
         }
 
 		// ====================================================================
@@ -159,28 +161,37 @@ namespace Mila::Dnn
         /**
          * @brief Compute gradients with respect to the module input.
          *
-         * NOTE: Backward is currently a placeholder. The implementation should
-         * delegate to the backend `UnaryOperation::backward` when available.
+         * Delegates to the backend UnaryOperation::backward implementation to compute
+         * the gradient of GELU with respect to the input. For GELU, there are no
+         * trainable parameters, so this only computes input gradients.
+         *
+         * The gradient computation follows the chain rule:
+         * ?L/?input = ?L/?output * ?GELU(input)/?input
          *
          * @param input Const reference to the original forward input.
-         * @param output_grad Const reference to the gradient w.r.t. module output.
+         * @param output_grad Const reference to the gradient w.r.t. module output (?L/?output).
          * @param input_grad Reference to the tensor to be populated with the gradient
-         *                   w.r.t. the module input (caller-allocated).
+         *                   w.r.t. the module input (?L/?input, caller-allocated).
          *
-         * Implementations should document whether they overwrite or accumulate into `input_grad`.
+         * @throws std::runtime_error if module has not been built via build()
+         * @throws std::runtime_error if backend operation is not available
+         *
+         * @note GELU has no parameters, so no parameter gradients are computed
+         * @note The implementation accumulates into input_grad (does not overwrite)
+         * @note Requires setTraining(true) for gradient computation in some backends
          */
         void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad ) override
         {
-            std::vector<std::shared_ptr<ITensor>> parameter_gradients;
-            
-            //FIXME:Loperation_->backward(
-            //    //input,
-            //    output_grad,
-            //    parameters_,
-            //    parameter_gradients,
-            //    input_grad,
-            //    output_state_
-            //);
+            if (!is_built_)
+            {
+                throw std::runtime_error( "Gelu::backward: module must be built before backward pass" );
+            }
+
+            operation_->backward(
+                output_grad,     // Gradient w.r.t. output (?L/?output)
+                input,           // Forward input (required for GELU gradient computation)
+                input_grad       // Output: gradient w.r.t. input (?L/?input)
+            );
         }
 
         /**

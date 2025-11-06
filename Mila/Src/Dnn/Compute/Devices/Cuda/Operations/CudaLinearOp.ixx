@@ -367,10 +367,10 @@ namespace Mila::Dnn::Compute
         }
 
         /**
-     * @brief Compute bias gradient using CUDA reduction kernel.
-     *
-     * Sums output_grad across the batch dimension: dB = sum(dY, dim=batch)
-     */
+         * @brief Compute bias gradient using CUDA reduction kernel.
+         *
+         * Sums output_grad across the batch dimension: dB = sum(dY, dim=batch)
+         */
         template <typename TNative>
         void compute_bias_gradient(
             TNative* bias_grad,
@@ -379,9 +379,27 @@ namespace Mila::Dnn::Compute
             int out_features,
             cudaStream_t stream )
         {
-            // Use CUDA kernel to sum across batch dimension
-            // This is a reduction: bias_grad[o] = sum over batch of output_grad[batch, o]
-            // FIXME: cuda_reduce_sum_batch( bias_grad, output_grad, batch_size, out_features, stream );
+            if constexpr (std::is_same_v<TNative, float>)
+            {
+                cuda_reduce_sum_batch_fp32( bias_grad, output_grad, batch_size, out_features, stream );
+            }
+            else if constexpr (std::is_same_v<TNative, half>)
+            {
+				throw std::logic_error( "Bias gradient computation for half is not yet implemented" );
+                //cuda_reduce_sum_batch_fp16( bias_grad, output_grad, batch_size, out_features, stream );
+            }
+            else if constexpr (std::is_same_v<TNative, nv_bfloat16>)
+            {
+				throw std::logic_error( "Bias gradient computation for bfloat16 is not yet implemented" );
+                //cuda_reduce_sum_batch_bfp16( bias_grad, output_grad, batch_size, out_features, stream );
+            }
+            else
+            {
+                static_assert(std::is_same_v<TNative, float> ||
+                    std::is_same_v<TNative, half> ||
+                    std::is_same_v<TNative, nv_bfloat16>,
+                    "compute_bias_gradient only supports float, half, and nv_bfloat16 types");
+            }
         }
 
         /**
@@ -776,6 +794,7 @@ namespace Mila::Dnn::Compute
                 throw std::invalid_argument( oss.str() );
             }
 
+			// TJT: Better here is outer_size_. The use of batch_size_ is misleading.
             cached_batch_size_ = 1;
             for (size_t i = 0; i + 1 < input_shape.size(); ++i)
             {
@@ -927,7 +946,7 @@ namespace Mila::Dnn::Compute
                 return;
             }
 
-            // Fallback to custom kernels
+            // Fallback to custom non-cublasLt kernels
             Detail::cuda_matmul_impl<NativeType>::backward(
                 input_grad_ptr, weight_grad_, bias_grad_,
                 output_grad_ptr, input_ptr, weight_,

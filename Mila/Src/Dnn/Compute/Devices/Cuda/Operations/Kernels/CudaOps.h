@@ -31,23 +31,23 @@ namespace Mila::Dnn::Compute
     void cuda_reduce_sum_batch_fp32(
         float* bias_grad,
         const float* output_grad,
-        int batch_size,
+        int outer_size,
         int out_features,
         cudaStream_t stream );
 
-    void cuda_reduce_sum_batch_fp16(
+    /* TODO: void cuda_reduce_sum_batch_fp16(
         half* bias_grad,
         const half* output_grad,
         int batch_size,
         int out_features,
         cudaStream_t stream );
 
-    void cuda_reduce_sum_batch_fp16b(
+    void cuda_reduce_sum_batch_bfp16(
         __nv_bfloat16* bias_grad,
         const __nv_bfloat16* output_grad,
         int batch_size,
         int out_features,
-        cudaStream_t stream );
+        cudaStream_t stream );*/
     
     // Attention functions
     void cuda_mha_forward_fp32(

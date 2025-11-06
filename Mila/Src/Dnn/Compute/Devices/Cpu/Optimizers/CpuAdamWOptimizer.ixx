@@ -242,7 +242,7 @@ namespace Mila::Dnn::Compute
             for (auto* grad : grads_)
             {
                 // Zero gradient using memset
-                // FIXME:std::memset( grad->rawData(), 0, grad->size() * grad->elementSize() );
+                std::memset( grad->rawData(), 0, grad->size() * grad->elementSize() );
             }
         }
 

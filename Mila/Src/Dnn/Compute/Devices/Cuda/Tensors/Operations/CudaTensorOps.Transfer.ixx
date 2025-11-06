@@ -233,6 +233,9 @@ namespace Mila::Dnn::Compute::Cuda
                         src_data, dst_data, src.size(), stream, device_id
                     );
                 }
+
+                // Always sync D2H transfers
+                needs_sync = true;
             }
             else
             {
@@ -454,6 +457,7 @@ namespace Mila::Dnn::Compute::Cuda
                 src_bytes,
                 stream
             );
+            
             cudaCheckStatus( status, std::source_location::current() );
 
             try

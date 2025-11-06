@@ -10,6 +10,8 @@ add_library( Mila STATIC
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaEncoder.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaLayerNorm.cu"
 
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/CudaReduction.cu"
+
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/CudaMatMulFp32.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/CudaMatMulFp16.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/FusedMatMulBiasGelu.cu"

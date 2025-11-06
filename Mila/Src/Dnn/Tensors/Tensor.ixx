@@ -362,6 +362,33 @@ namespace Mila::Dnn
         // ====================================================================
         // Type Information and Interface Compliance
         // ====================================================================
+        
+        /**
+         * @brief Returns the size in bytes of a single tensor element
+         *
+         * Provides the byte size of one logical element based on the tensor's
+         * abstract data type. Essential for memory operations like memset, memcpy,
+         * and buffer size calculations.
+         *
+         * @return Size in bytes of one element
+         *
+         * @note Required by ITensor polymorphic interface
+         * @note Compile-time constant derived from TensorDataTypeTraits
+         * @note Examples: FP32=4, FP16=2, INT8=1, BF16=2
+         * @note Packed types (FP4, INT4) return sub-byte sizes appropriately
+         *
+         * Example:
+         * @code
+         * Tensor<TensorDataType::FP32, CpuMemoryResource> t("CPU", {10, 20});
+         * EXPECT_EQ(t.elementSize(), 4u);  // FP32 = 4 bytes
+         *
+         * size_t buffer_bytes = t.size() * t.elementSize();  // Total memory
+         * @endcode
+         */
+        size_t elementSize() const override
+        {
+            return DataTypeTraits::size_in_bytes;
+        }
 
         /**
          * @brief Returns the tensor's abstract data type identifier
