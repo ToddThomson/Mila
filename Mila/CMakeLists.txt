@@ -14,11 +14,13 @@ add_library( Mila STATIC
 
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/CudaMatMulFp32.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/CudaMatMulFp16.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/FusedMatMulBiasGelu.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/CudaLinearGelu.cu"
+
     #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaMHA.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaGelu.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaResidual.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaSoftmax.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaSoftmaxCrossEntropy.cu"
     
     #--------------------------------------------------------------------------
     # Cuda TensorOps Kernels
@@ -201,13 +203,14 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Transfer.ixx"
         
         "Src/Dnn/Compute/Devices/Cpu/Operations/CpuOperations.ixx"
-        #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuCrossEntropyOp.ixx"
+        
         #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuEncoderOp.ixx"
         "Src/Dnn/Compute/Devices/Cpu/Operations/CpuGeluOp.ixx"
         "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLayerNormOp.ixx"
         "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLinearOp.ixx"
         #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuMultiHeadAttentionOp.ixx"
         #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuResidualOp.ixx"
+        "Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxCrossEntropyOp.ixx"
         "Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxOp.ixx"
 
         #---------------------------------------------------------------
@@ -244,6 +247,8 @@ PUBLIC
 
         # CUDA / Operations
         "Src/Dnn/Compute/Devices/Cuda/Operations/CudaOperations.ixx"
+        #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaAttentionOp.ixx"
+        #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaEncoderOp.ixx"
         #"Src/Dnn/Compute/Operations/Cuda/CudaDataTypeTraits.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Operations/CublasLtMatMulBias.ixx"
         #"Src/Dnn/Compute/Operations/Cuda/MatMulBiasActivation.ixx"
@@ -252,8 +257,7 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Cuda/Operations/CudaLayerNormOp.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Operations/CudaLinearOp.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Operations/CudaSoftmaxOp.ixx"
-        #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaAttentionOp.ixx"
-        #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaEncoderOp.ixx"
+        "Src/Dnn/Compute/Devices/Cuda/Operations/CudaSoftmaxCrossEntropyOp.ixx"
 
         # CUDA / Optimizers
         "Src/Dnn/Compute/Devices/Cuda/Optimizers/CudaAdamWOptimizer.ixx"
@@ -308,10 +312,13 @@ PUBLIC
         # Normalization / Losses / Regularization / Blocks / Models / Data / Serialization
         "Src/Dnn/Modules/Normalization/LayerNorm.ixx"
         "Src/Dnn/Modules/Normalization/LayerNormConfig.ixx"
-        #"Src/Dnn/Modules/Losses/CrossEntropy.ixx"
-        #"Src/Dnn/Modules/Losses/CrossEntropyConfig.ixx"
+        
+        "Src/Dnn/Modules/Losses/SoftmaxCrossEntropy.ixx"
+        "Src/Dnn/Modules/Losses/CrossEntropyConfig.ixx"
+        
         #"Src/Dnn/Modules/Regularization/Dropout.ixx"
         #"Src/Dnn/Modules/Regularization/DropoutConfig.ixx"
+        
         "Src/Dnn/Modules/Blocks/MLP.ixx"
         "Src/Dnn/Modules/Blocks/MLPConfig.ixx"
         #"Src/Dnn/Modules/Blocks/TransformerBlock.ixx"
@@ -353,7 +360,10 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Cuda/CudaDeviceResources.ixx"
         "Src/Dnn/Tensors/Tensor.Partitioning.ixx"
         "Src/Dnn/Tensors/Tensor.Types.ixx"
- "Src/Dnn/Compute/Devices/Cpu/Optimizers/CpuAdamWOptimizer.ixx" "Src/Dnn/Optimizers/AdamW.ixx" "Src/Dnn/Optimizers/AdamWConfig.ixx" )
+        "Src/Dnn/Compute/Devices/Cpu/Optimizers/CpuAdamWOptimizer.ixx" 
+        "Src/Dnn/Optimizers/AdamW.ixx"
+        "Src/Dnn/Optimizers/AdamWConfig.ixx"
+)
 
 target_link_libraries(Mila PRIVATE 
     miniz

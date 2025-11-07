@@ -172,6 +172,8 @@ export import Dnn.Modules.Linear;
 //export import Dnn.Modules.Residual;
 export import Dnn.Modules.Softmax;
 
+export import Dnn.Modules.SoftmaxCrossEntropy;
+
 // ====================================================================
 // Dnn - Blocks
 // ====================================================================

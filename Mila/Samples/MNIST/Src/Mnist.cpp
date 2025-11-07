@@ -221,7 +221,8 @@ void softmaxCrossEntropyGradient(
 }
 
 template<TensorDataType TDataType>
-float softmaxCrossEntropyLoss( const Tensor<TDataType, CpuMemoryResource>& logits,
+float softmaxCrossEntropyLoss( 
+    const Tensor<TDataType, CpuMemoryResource>& logits,
     const Tensor<TDataType, CpuMemoryResource>& targets )
 {
     size_t batch_size = logits.shape()[0];
@@ -230,12 +231,22 @@ float softmaxCrossEntropyLoss( const Tensor<TDataType, CpuMemoryResource>& logit
 
     for (size_t i = 0; i < batch_size; ++i)
     {
+        // ============================================================
+        // SOFTMAX: Numerical stability with max subtraction
+        // ============================================================
+
+        // Find max logit for numerical stability (prevents overflow in exp)
         float max_logit = -std::numeric_limits<float>::infinity();
         for (size_t j = 0; j < num_classes; ++j)
         {
             max_logit = std::max( max_logit, static_cast<float>( logits.data()[i * num_classes + j] ) );
         }
 
+        // ============================================================
+        // SOFTMAX: Compute denominator (sum of exp(logit - max))
+        // ============================================================
+
+        // Compute sum of exp(logit - max_logit) for softmax denominator
         float denom = 0.0f;
         for (size_t j = 0; j < num_classes; ++j)
         {
@@ -243,17 +254,26 @@ float softmaxCrossEntropyLoss( const Tensor<TDataType, CpuMemoryResource>& logit
             denom += exp_val;
         }
 
+        // ============================================================
+        // CROSS-ENTROPY: Compute -sum(target * log(softmax(logit)))
+        // ============================================================
+
+        // For each class, compute cross-entropy contribution
         for (size_t j = 0; j < num_classes; ++j)
         {
             float target = static_cast<float>( targets.data()[i * num_classes + j] );
             if (target > 0.0f)
             {
-                float prob = std::exp( static_cast<float>( logits.data()[i * num_classes + j] ) - max_logit ) / denom;
+                // SOFTMAX: prob = exp(logit - max) / denom
+                float prob = std::exp( static_cast<float>(logits.data()[i * num_classes + j]) - max_logit ) / denom;
+
+                // CROSS-ENTROPY: loss += -target * log(prob)
                 loss += -std::log( prob ) * target;
             }
         }
     }
 
+    // Average loss over batch
     return loss / batch_size;
 }
 

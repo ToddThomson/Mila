@@ -20,7 +20,7 @@ import Compute.OperationType;
 namespace Mila::Dnn::Compute
 {
     export template <DeviceType TDeviceType, TensorDataType TPrecision>
-        class OperationBase
+    class OperationBase
     {
     public:
         static constexpr DeviceType device_type = TDeviceType;
