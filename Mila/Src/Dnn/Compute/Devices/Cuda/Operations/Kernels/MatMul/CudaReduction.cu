@@ -1,9 +1,12 @@
 #include <cuda_runtime.h>
 #include "device_launch_parameters.h"
 #include "../../../Helpers/CudaUtils.h"
+#include <stdexcept>
+#include <string>
 
 namespace Mila::Dnn::Compute
 {
+    // Optimized kernel for out_features divisible by 32
     // this kernel performs a column-wise reduction over dout, in PyTorch equivalent to:
     // dbias = dout.sum((0,1))
     // the idea is to employ one block to reduce along several columns,
@@ -49,6 +52,54 @@ namespace Mila::Dnn::Compute
         }
     }
 
+    /**
+     * @brief Fallback kernel for bias gradient reduction (works for any out_features)
+     *
+     * Simple parallel reduction where each thread block handles one output feature.
+     * Each block reduces across all batch elements for its assigned feature.
+     * Less efficient than kernel4 but works for arbitrary dimensions.
+     *
+     * @param dbias Output bias gradients [out_features]
+     * @param dout Input gradients [batch_size, out_features]
+     * @param outer_size Total batch size (product of all non-feature dimensions)
+     * @param out_features Number of output features
+     */
+    __global__ void reduce_sum_batch_fallback( float* dbias, const float* dout, int outer_size, int out_features )
+    {
+        // Each block handles one output feature column
+        const int col = blockIdx.x;
+        if (col >= out_features) return;
+
+        extern __shared__ float smem[];
+
+        // Each thread accumulates a partial sum
+        float thread_sum = 0.0f;
+        for (int row = threadIdx.x; row < outer_size; row += blockDim.x)
+        {
+            thread_sum += dout[row * out_features + col];
+        }
+
+        // Store partial sum in shared memory
+        smem[threadIdx.x] = thread_sum;
+        __syncthreads();
+
+        // Reduce within block using shared memory
+        for (int stride = blockDim.x / 2; stride > 0; stride >>= 1)
+        {
+            if (threadIdx.x < stride)
+            {
+                smem[threadIdx.x] += smem[threadIdx.x + stride];
+            }
+            __syncthreads();
+        }
+
+        // Thread 0 writes the final result (accumulate into existing gradient)
+        if (threadIdx.x == 0)
+        {
+            dbias[col] += smem[0];
+        }
+    }
+
     void cuda_reduce_sum_batch_fp32(
         float* bias_grad,
         const float* output_grad,
@@ -56,10 +107,24 @@ namespace Mila::Dnn::Compute
         int out_features,
         cudaStream_t stream )
     {
-        const int block_size = 1024;
-        const int grid_size = out_features / 32; // for now, OC must be divisible by 32 for this kernel to work
+        // Use optimized kernel if out_features is divisible by 32
+        if (out_features % 32 == 0)
+        {
+            const int block_size = 1024;
+            const int grid_size = out_features / 32;
 
-        matmul_backward_bias_kernel4 <<<grid_size, block_size, block_size * sizeof( float ) >>> ( bias_grad, output_grad, batch_size, out_features );
+            matmul_backward_bias_kernel4<<<grid_size, block_size, block_size * sizeof( float ), stream>>>(
+                bias_grad, output_grad, batch_size, out_features );
+        }
+        else
+        {
+            // Fallback to simpler kernel for arbitrary out_features
+            const int block_size = 256;
+            const int grid_size = out_features;
+
+            reduce_sum_batch_fallback<<<grid_size, block_size, block_size * sizeof( float ), stream>>>(
+                bias_grad, output_grad, batch_size, out_features );
+        }
 
         cudaCheck( cudaGetLastError() );
     }

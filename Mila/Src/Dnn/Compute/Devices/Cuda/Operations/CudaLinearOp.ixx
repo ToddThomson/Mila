@@ -369,7 +369,36 @@ namespace Mila::Dnn::Compute
         /**
          * @brief Compute bias gradient using CUDA reduction kernel.
          *
-         * Sums output_grad across the batch dimension: dB = sum(dY, dim=batch)
+         * Performs a reduction sum across the batch dimension to compute the bias gradient.
+         * In PyTorch notation: dB = dY.sum(dim=0), where all non-feature dimensions are
+         * flattened into a single batch dimension.
+         *
+         * The function dispatches to type-specific CUDA kernels based on the native type:
+         * - float (FP32): uses cuda_reduce_sum_batch_fp32
+         * - half (FP16): not yet implemented (throws)
+         * - nv_bfloat16 (BF16): not yet implemented (throws)
+         *
+         * @tparam TNative Native CUDA data type (float, half, or nv_bfloat16)
+         *
+         * @param bias_grad Output tensor for bias gradients [out_features].
+         *                  Must be pre-allocated. Gradients are accumulated (+=) into this buffer.
+         * @param output_grad Input tensor containing output gradients [batch_size, out_features].
+         *                    Represents dL/dY from the downstream layer.
+         * @param batch_size Total number of vectors across all batch dimensions.
+         *                   Computed as the product of all tensor dimensions except the last
+         *                   (feature) dimension. For example, a tensor of shape [B, T, C] has
+         *                   batch_size = B × T.
+         * @param out_features Number of output features (last dimension of output_grad).
+         *                     Must be divisible by 32 for the FP32 kernel.
+         * @param stream CUDA stream for asynchronous execution.
+         *
+         * @throws std::logic_error if TNative is half or nv_bfloat16 (not yet implemented)
+         * @throws std::invalid_argument (from kernel) if out_features is not divisible by 32
+         *
+         * @note The reduction kernel requires out_features to be divisible by 32 due to
+         *       warp-level coalesced memory access patterns.
+         * @note This function accumulates into bias_grad; ensure it is zero-initialized
+         *       before the first backward pass if not using gradient accumulation.
          */
         template <typename TNative>
         void compute_bias_gradient(

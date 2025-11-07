@@ -298,7 +298,8 @@ namespace Mila::Dnn::Compute
             for (auto* grad : grads_)
             {
                 // Zero gradient using ITensor interface
-                cudaMemsetAsync( grad->rawData(), 0, grad->size() * grad->elementSize(), exec_context_->getStream() );
+				auto total_size = grad->size() * grad->elementSize();
+                cudaMemsetAsync( grad->rawData(), 0, total_size, exec_context_->getStream() );
             }
         }
 

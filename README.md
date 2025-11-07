@@ -3,13 +3,13 @@
 Mila Deep Neural Network Library
 
 ## Prerelease Notice
-Mila, version 0.9.XXX-alpha is currently an early preview release.
-The Mila API is still too immature for any end-user development. I am working on the API and will be releasing a stable version as soon as possible.
+Mila, version 0.9.9XX-alpha is a preview release.
 
-We are currently working on the core Module and Operation design and the various compute devices which provide specific Module operations.
-
-The Tensor API is now fairly stable and provides a solid foundation for future development. There may be some breaking changes to the Tensor API
-as we finalize the Module and Operation design.a
+With the milestone of training a complete neural network model achieved, the library is now
+entering a phase of rapid development. While core functionalities such as linear layers,
+optimizers, and training loops are operational, many advanced features and optimizations
+are still under development. Users are encouraged to explore the library and provide feedback,
+but should be aware that APIs and functionalities may change in future releases.
 
 ## Description
 Achilles Mila Deep Neural Network library provides a comprehensive API to model, train and evaluate 
@@ -37,57 +37,42 @@ The documentation includes class references, usage examples, and architecture gu
 
 ## What's New
 
-### Major Architecture Refactoring (v0.9.XXX-alpha)
+### Recent Updates (v0.9.9XX-alpha)
 
-* **Two-Phase Operation Initialization Pattern**
-  * Introduced industry-standard `build()` ? `forward()` pattern across all operations
-  * Cold-path `build()`: All setup, validation, and dimension computation happens once
-  * Hot-path `forward()`/`backward()`: Zero-overhead dispatch with cached values
-  * Eliminates redundant computation and maximizes performance
-  * Pattern applied to LayerNorm, Softmax, and all future operations
+**Training Infrastructure Complete** ??
+- Successfully trained MNIST classifier achieving **97.5% test accuracy** with 3-layer MLP
+- Implemented complete forward and backward pass for Linear layers using cuBLASLt
+- AdamW optimizer fully operational with momentum, weight decay, and bias correction
+- Achieved **~136,000 samples/second** training throughput on CUDA
 
-* **Unified Module and Operation Interface**
-  * Consistent lifecycle: `setParameters()` ? `build()` ? `forward()`/`backward()`
-  * Modules own trainable parameters; operations cache device pointers
-  * Backend operations allocate device-specific runtime storage during `build()`
-  * Clear separation of concerns between module logic and compute implementation
+**Critical Fixes**
+- **Race Condition Resolution**: Fixed GPU-CPU memory transfer synchronization issues that caused intermittent forward pass failures
+- **cuBLASLt Integration**: Resolved stream synchronization in tensor copy operations for reliable GPU computation
+- **Gradient Management**: Fixed gradient accumulation vs. overwrite semantics in backward pass (beta parameter handling)
+- **Optimizer Registration**: Verified correct parameter and gradient tensor registration for multi-layer networks
 
-* **Device-Agnostic Operation Design**
-  * CPU and CUDA operations follow identical patterns and interfaces
-  * Consistent validation, error handling, and dimension caching
-  * Type-safe device-specific specializations via `PrecisionSupportedOnDevice` concept
-  * Seamless CPU-CUDA equivalence testing with numerical validation
+**Performance Optimizations**
+- Optimized cuBLASLt matrix multiplication with proper layout configurations for forward and backward passes
+- Implemented efficient bias gradient reduction kernels using CUDA warp-level operations
+- Stream-ordered execution eliminates unnecessary synchronization overhead
+- Zero-copy operations where possible using pinned memory for host-device transfers
 
-* **Configuration System Improvements**
-  * Modernized `ConfigurationBase` with deduced `this` parameters for elegant fluent interface
-  * Training mode initialization from config: `config.withTraining(true)` ? `module.setTraining()`
-  * Consistent validation across all configuration types
-  * Type-safe parameter handling with comprehensive constraints
-
-* **Performance Optimizations**
-  * Dimension caching eliminates redundant shape computations in hot paths
-  * Kernel variant selection (optimized vs. general) pre-computed during `build()`
-  * OpenMP parallelization thresholds cached for CPU operations
-  * Direct kernel dispatch without intermediate function calls or branching
-
-* **Enhanced Testing Infrastructure**
-  * Separated CPU and CUDA tests for better organization and maintenance
-  * Comprehensive test coverage: lifecycle, validation, edge cases, error conditions
-  * Numerical validation functions for normalization and probability distributions
-  * CPU-CUDA equivalence tests ensure implementation correctness across devices
-
-* **Improved Code Quality**
-  * Fixed critical bugs: inverted null checks, incorrect `isBuilt()` logic, constructor parameter order
-  * Comprehensive Doxygen documentation with architecture explanations
-  * Consistent error messages and exception types across all operations
-  * Removed deprecated APIs and obsolete code patterns
+**Validated Components**
+- ? Linear layer forward pass (784?128?64?10 architecture tested)
+- ? Linear layer backward pass (input gradients, weight gradients, bias gradients)
+- ? AdamW optimizer step with all hyperparameters
+- ? Gradient zeroing and accumulation
+- ? Multi-layer network training convergence
+- ? Test set evaluation with proper inference mode
 
 ### Next Steps
-* Backward pass implementation for all Modules and Operations
-* Additional module refactoring (Residual, Linear, etc.) to match new patterns
-* Gradient accumulation and parameter update infrastructure
-* Optimizer framework with AdamW, SGD, and learning rate schedulers
+* Additional activation functions (GELU, SiLU) and their backward passes
+* Layer normalization and batch normalization modules
+* Attention mechanism implementation for transformer models
+* Gradient clipping and learning rate scheduling
+* Model checkpointing and weight serialization
 * Distributed training support for multi-GPU environments
+* Mixed precision training (FP16/BF16) support
 
 ## Mila Build Instructions
 Mila uses CMake build. To build Mila, follow the steps below:  

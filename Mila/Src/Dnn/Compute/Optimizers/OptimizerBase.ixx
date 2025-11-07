@@ -73,7 +73,7 @@ namespace Mila::Dnn::Compute
      *       (e.g., CUDA streams) without requiring explicit synchronization in step().
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
-        class Optimizer
+    class Optimizer
     {
     public:
         virtual ~Optimizer() = default;

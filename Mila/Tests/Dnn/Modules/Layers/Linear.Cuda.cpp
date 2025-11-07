@@ -360,12 +360,12 @@ namespace Modules::Layers::Tests
         using DeviceTensorType = CudaTensor<TPrecision>;
         using HostTensorType = CpuTensor<TensorDataType::FP32>;
 
-        // CRITICAL: Enable training mode BEFORE build
         data.module->setTraining( true );
         data.module->build( data.input_shape );
 
         HostTensorType host_input( "CPU", data.input_shape );
         HostTensorType host_output_grad( "CPU", data.output_shape );
+
         random( host_input, -1.0f, 1.0f );
         random( host_output_grad, -0.1f, 0.1f );
 

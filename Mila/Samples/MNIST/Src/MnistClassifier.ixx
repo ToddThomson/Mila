@@ -14,6 +14,7 @@ module;
 #include <type_traits>
 #include <stdexcept>
 #include <cstdint>
+#include <ostream>
 
 export module Mnist.Classifier;
 
@@ -289,7 +290,7 @@ namespace Mila::Mnist
         std::string toString() const override
         {
             std::ostringstream oss;
-            oss << "====================" << std::endl;
+            oss << std::endl;
             oss << "MNIST Classifier: " << name_ << std::endl;
             oss << "Architecture:" << std::endl;
             oss << "  Input:   784 features (28x28 flattened)" << std::endl;
@@ -332,7 +333,7 @@ namespace Mila::Mnist
                 oss << "  - " << name << std::endl;
             }
 
-            oss << "====================" << std::endl;
+            oss << std::endl;
 
             return oss.str();
         }
