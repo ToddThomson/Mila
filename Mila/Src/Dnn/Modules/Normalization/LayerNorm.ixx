@@ -248,7 +248,7 @@ namespace Mila::Dnn
 
         std::vector<ITensor*> getParameterGradients() const override
         {
-            // Backward not implemented yet.
+            // TODO: Backward not implemented yet.
             return {};
 		}
 
