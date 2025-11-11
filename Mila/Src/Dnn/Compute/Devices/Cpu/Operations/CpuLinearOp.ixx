@@ -51,7 +51,7 @@ namespace Mila::Dnn::Compute
      * @brief CPU implementation of Linear operation using abstract TensorDataType API.
      *
      * Template parameter TPrecision selects the abstract tensor precision (e.g. FP32).
-     * HostType is the corresponding CPU host representation for that precision.
+     * float is the corresponding CPU host representation for that precision.
      *
      * Design philosophy:
      * - Two-phase initialization: build() does all setup, forward()/backward() are pure dispatch
@@ -66,17 +66,15 @@ namespace Mila::Dnn::Compute
      *  - dW += dY^T * X
      *  - db += sum(dY)
      */
-    export template<TensorDataType TPrecision>
-        requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cpu>
-    class CpuLinearOp : public UnaryOperation<DeviceType::Cpu, TPrecision>
+    export class CpuLinearOp : public UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>
     {
     public:
         using MR = CpuMemoryResource;
-        using UnaryOperationBase = UnaryOperation<DeviceType::Cpu, TPrecision>;
-        using TensorType = Tensor<TPrecision, MR>;
-        using Parameters = std::vector<std::shared_ptr<TensorType>>;
-        using OutputState = std::vector<std::shared_ptr<TensorType>>;
-        using HostType = typename TensorHostTypeMap<TPrecision>::host_type;
+        using UnaryOperationBase = UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>;
+        using TensorType = Tensor<TensorDataType::FP32, MR>;
+        //using Parameters = std::vector<std::shared_ptr<TensorType>>;
+        //using OutputState = std::vector<std::shared_ptr<TensorType>>;
+        //using float = typename TensorfloatMap<TPrecision>::host_type;
         using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
 
         CpuLinearOp( std::shared_ptr<CpuExecutionContext> context, const LinearConfig& config )
@@ -110,7 +108,7 @@ namespace Mila::Dnn::Compute
                 throw std::invalid_argument( "CpuLinearOp::setParameters - weight parameter is required" );
             }
 
-            weight_ = static_cast<const HostType*>(weight->rawData());
+            weight_ = static_cast<const float*>(weight->rawData());
 
             // Validate weight is 2D
             const auto& weight_shape = weight->shape();
@@ -130,7 +128,7 @@ namespace Mila::Dnn::Compute
                     throw std::invalid_argument( "CpuLinearOp::setParameters - bias parameter expected but null was provided" );
                 }
 
-                bias_ = static_cast<const HostType*>(bias->rawData());
+                bias_ = static_cast<const float*>(bias->rawData());
             }
             else
             {
@@ -145,7 +143,7 @@ namespace Mila::Dnn::Compute
                 throw std::invalid_argument( "CpuLinearOp::setParameterGradients - weight gradient is required" );
             }
 
-            weight_grad_ = static_cast<HostType*>(weight_grad->rawData());
+            weight_grad_ = static_cast<float*>(weight_grad->rawData());
 
             if (config_.hasBias())
             {
@@ -154,7 +152,7 @@ namespace Mila::Dnn::Compute
                     throw std::invalid_argument( "CpuLinearOp::setParameterGradients - bias gradient expected but null was provided" );
                 }
 
-                bias_grad_ = static_cast<HostType*>(bias_grad->rawData());
+                bias_grad_ = static_cast<float*>(bias_grad->rawData());
             }
             else
             {
@@ -199,7 +197,7 @@ namespace Mila::Dnn::Compute
             }
 
             // Extract dimensions: input is (..., in_features)
-            cached_in_features_ = input_shape.back();
+            in_features_ = input_shape.back();
 
             // Validate weight dimensions match configuration
             if (weight_out_features_ != config_.getOutputFeatures())
@@ -210,28 +208,28 @@ namespace Mila::Dnn::Compute
                 throw std::invalid_argument( oss.str() );
             }
 
-            if (weight_in_features_ != cached_in_features_)
+            if (weight_in_features_ != in_features_)
             {
                 std::ostringstream oss;
                 oss << "CpuLinearOp::build - weight input features mismatch. Expected "
-                    << cached_in_features_ << ", got " << weight_in_features_;
+                    << in_features_ << ", got " << weight_in_features_;
                 throw std::invalid_argument( oss.str() );
             }
 
             // Compute batch size (flatten all dimensions except last)
-            cached_batch_size_ = 1;
+            batch_size_ = 1;
             for (size_t i = 0; i + 1 < input_shape.size(); ++i)
             {
-                cached_batch_size_ *= input_shape[i];
+                batch_size_ *= input_shape[i];
             }
 
-            cached_out_features_ = config_.getOutputFeatures();
+            out_features_ = config_.getOutputFeatures();
 
             // Determine loop unrolling strategy
-            use_loop_unroll_ = (cached_batch_size_ % LOOP_UNROLL == 0);
+            use_loop_unroll_ = (batch_size_ % LOOP_UNROLL == 0);
 
             // Cache OMP parallelization threshold
-            enable_omp_ = (cached_batch_size_ > 100);
+            enable_omp_ = (batch_size_ > 100);
 
             UnaryOperationBase::build( input_shape );
         }
@@ -252,22 +250,20 @@ namespace Mila::Dnn::Compute
          */
         void forward( const ITensor& input, ITensor& output ) const override
         {
-            const HostType* X = static_cast<const HostType*>(input.rawData());
-            HostType* Y = static_cast<HostType*>(output.rawData());
+            const float* X = static_cast<const float*>(input.rawData());
+            float* Y = static_cast<float*>(output.rawData());
 
-            const int64_t batch_size = cached_batch_size_;
-            const int64_t in_features = cached_in_features_;
-            const int64_t out_features = cached_out_features_;
-            const HostType* W = weight_;
-            const HostType* B = bias_;
+            const float* W = weight_;
+            const float* B = bias_;
 
             if (use_loop_unroll_)
             {
-                forwardUnrolled( X, Y, W, B, batch_size, in_features, out_features );
+                forwardUnrolled( X, Y, W, B, batch_size_, in_features_, out_features_ );
             }
+
             else
             {
-                forwardNaive( X, Y, W, B, batch_size, in_features, out_features );
+                forwardNaive( X, Y, W, B, batch_size_, in_features_, out_features_ );
             }
         }
 
@@ -289,54 +285,51 @@ namespace Mila::Dnn::Compute
             const ITensor& output_grad,
             ITensor& input_grad ) const override
         {
-            const HostType* X = static_cast<const HostType*>(input.rawData());
-            const HostType* dY = static_cast<const HostType*>(output_grad.rawData());
-            HostType* dX = static_cast<HostType*>(input_grad.rawData());
+            const float* X = static_cast<const float*>(input.rawData());
+            const float* dY = static_cast<const float*>(output_grad.rawData());
+            float* dX = static_cast<float*>(input_grad.rawData());
 
-            const HostType* W = weight_;
-            HostType* dW = weight_grad_;
-            HostType* dB = bias_grad_;
-
-            const int64_t batch_size = cached_batch_size_;
-            const int64_t in_features = cached_in_features_;
-            const int64_t out_features = cached_out_features_;
+            const float* W = weight_;
+            float* dW = weight_grad_;
+            float* dB = bias_grad_;
 
 #pragma omp parallel for if(enable_omp_)
-            for (int64_t idx = 0; idx < batch_size; ++idx)
+            for (int64_t idx = 0; idx < batch_size_; ++idx)
             {
-                const int64_t in_base = idx * in_features;
-                const int64_t out_base = idx * out_features;
+                const int64_t in_base = idx * in_features_;
+                const int64_t out_base = idx * out_features_;
 
                 // Compute dX for this batch element
-                for (int64_t i = 0; i < in_features; ++i)
+                for (int64_t i = 0; i < in_features_; ++i)
                 {
                     long double acc = 0.0L;
-                    for (int64_t o = 0; o < out_features; ++o)
+                    for (int64_t o = 0; o < out_features_; ++o)
                     {
-                        acc += static_cast<long double>( W[o * in_features + i] ) *
+                        acc += static_cast<long double>( W[o * in_features_ + i] ) *
                             static_cast<long double>( dY[out_base + o] );
                     }
+
 #pragma omp atomic
-                    dX[in_base + i] += static_cast<HostType>( acc );
+                    dX[in_base + i] += static_cast<float>( acc );
                 }
 
                 // Accumulate dW and dB
-                for (int64_t o = 0; o < out_features; ++o)
+                for (int64_t o = 0; o < out_features_; ++o)
                 {
                     long double dy = static_cast<long double>( dY[out_base + o] );
 
                     if (dB)
                     {
 #pragma omp atomic
-                        dB[o] += static_cast<HostType>( dy );
+                        dB[o] += static_cast<float>( dy );
                     }
 
                     if (dW)
                     {
-                        for (int64_t i = 0; i < in_features; ++i)
+                        for (int64_t i = 0; i < in_features_; ++i)
                         {
 #pragma omp atomic
-                            dW[o * in_features + i] += static_cast<HostType>(
+                            dW[o * in_features_ + i] += static_cast<float>(
                                 static_cast<long double>( X[in_base + i] ) * dy );
                         }
                     }
@@ -365,22 +358,22 @@ namespace Mila::Dnn::Compute
         LinearConfig config_;
         std::shared_ptr<CpuExecutionContext> context_;
 
-        // Cached native host parameter pointers
-        const HostType* weight_{ nullptr };
-        const HostType* bias_{ nullptr };
+        const float* weight_{ nullptr };
+        const float* bias_{ nullptr };
 
 		// Cached native host parameter gradient pointers
-		HostType* weight_grad_{ nullptr };
-		HostType* bias_grad_{ nullptr };
+		float* weight_grad_{ nullptr };
+		float* bias_grad_{ nullptr };
 
         // Weight dimensions for validation
         int64_t weight_out_features_{ 0 };
         int64_t weight_in_features_{ 0 };
 
-        // Cached dimension values computed once in build() for hot-path dispatch
-        int64_t cached_batch_size_{ 0 };
-        int64_t cached_in_features_{ 0 };
-        int64_t cached_out_features_{ 0 };
+        // Dimension values computed once in build() for hot-path dispatch
+        int64_t batch_size_{ 0 };
+        int64_t in_features_{ 0 };
+        int64_t out_features_{ 0 };
+        
         bool use_loop_unroll_{ false };
         bool enable_omp_{ false };
 
@@ -390,8 +383,8 @@ namespace Mila::Dnn::Compute
          * Used when batch size doesn't align with unroll factor.
          */
         void forwardNaive(
-            const HostType* X, HostType* Y,
-            const HostType* W, const HostType* B,
+            const float* X, float* Y,
+            const float* W, const float* B,
             int64_t batch_size, int64_t in_features, int64_t out_features ) const
         {
 #pragma omp parallel for if(enable_omp_)
@@ -413,7 +406,7 @@ namespace Mila::Dnn::Compute
                     if (B)
                         acc += static_cast<long double>( B[o] );
 
-                    Y[out_base + o] = static_cast<HostType>( acc );
+                    Y[out_base + o] = static_cast<float>( acc );
                 }
             }
         }
@@ -424,8 +417,8 @@ namespace Mila::Dnn::Compute
          * Processes LOOP_UNROLL batch elements simultaneously for better cache utilization.
          */
         void forwardUnrolled(
-            const HostType* X, HostType* Y,
-            const HostType* W, const HostType* B,
+            const float* X, float* Y,
+            const float* W, const float* B,
             int64_t batch_size, int64_t in_features, int64_t out_features ) const
         {
 #pragma omp parallel for if(enable_omp_)
@@ -433,18 +426,18 @@ namespace Mila::Dnn::Compute
             {
                 for (int64_t o = 0; o < out_features; ++o)
                 {
-                    HostType result[LOOP_UNROLL];
+                    float result[LOOP_UNROLL];
 
                     // Initialize with bias
                     for (int i_idx = 0; i_idx < LOOP_UNROLL; ++i_idx)
                     {
-                        result[i_idx] = B ? B[o] : static_cast<HostType>( 0 );
+                        result[i_idx] = B ? B[o] : static_cast<float>( 0 );
                     }
 
                     // Accumulate weighted inputs
                     for (int64_t i = 0; i < in_features; ++i)
                     {
-                        HostType w = W[o * in_features + i];
+                        float w = W[o * in_features + i];
 
                         for (int i_idx = 0; i_idx < LOOP_UNROLL; ++i_idx)
                         {
@@ -469,13 +462,13 @@ namespace Mila::Dnn::Compute
     public:
         static void registerOperations()
         {
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>(
                 "LinearOp",
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
                     const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
                 {
                     const auto& linearConfig = static_cast<const LinearConfig&>(config);
-                    return std::make_shared<CpuLinearOp<TensorDataType::FP32>>( context, linearConfig );
+                    return std::make_shared<CpuLinearOp>( context, linearConfig );
                 }
             );
         }

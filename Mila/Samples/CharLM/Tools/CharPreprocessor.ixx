@@ -14,6 +14,7 @@ module;
 #include <iostream>
 #include <stdexcept>
 #include <cstdint>
+#include <utility>
 
 export module CharLM.Preprocessor;
 

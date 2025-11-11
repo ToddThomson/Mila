@@ -19,16 +19,15 @@
  *  - These implementations target NVIDIA CUDA devices and depend on the
  *    project's CUDA kernels and device context abstractions.
  *  - For CPU equivalents see the Compute.CpuOperations module.
- *
- * @since Alpha
  */
 export module Compute.CudaOperations;
 
-//export import Compute.CudaEncoderOp;
+//export import Compute.CudaAttentionOp;
+export import Compute.CudaEncoderOp;
 export import Compute.CudaGeluOp;
 export import Compute.CudaLayerNormOp;
 export import Compute.CudaLinearOp;
 //export import Compute.CudaMatMulBiasGeluOp;
-//export import Compute.CudaAttentionOp;
 //export import Compute.CudaResidualOp;
 export import Compute.CudaSoftmaxOp;
+export import Compute.CudaSoftmaxCrossEntropyOp;

@@ -73,7 +73,6 @@ namespace Mila::Dnn
     template<>
     struct TensorHostTypeMap<TensorDataType::FP32> {
         using host_type = float;
-        static constexpr TensorDataType host_data_type = TensorDataType::FP32;
     };
 
     /**
@@ -85,7 +84,6 @@ namespace Mila::Dnn
     template<>
     struct TensorHostTypeMap<TensorDataType::FP16> {
         using host_type = float;
-        static constexpr TensorDataType host_data_type = TensorDataType::FP32;
     };
 
     /**
@@ -97,7 +95,6 @@ namespace Mila::Dnn
     template<>
     struct TensorHostTypeMap<TensorDataType::BF16> {
         using host_type = float;
-        static constexpr TensorDataType host_data_type = TensorDataType::FP32;
     };
 
     /**
@@ -109,7 +106,6 @@ namespace Mila::Dnn
     template<>
     struct TensorHostTypeMap<TensorDataType::FP8_E4M3> {
         using host_type = float;
-        static constexpr TensorDataType host_data_type = TensorDataType::FP32;
     };
 
     /**
@@ -121,7 +117,6 @@ namespace Mila::Dnn
     template<>
     struct TensorHostTypeMap<TensorDataType::FP8_E5M2> {
         using host_type = float;
-        static constexpr TensorDataType host_data_type = TensorDataType::FP32;
     };
 
     // ====================================================================
@@ -137,7 +132,6 @@ namespace Mila::Dnn
     template<>
     struct TensorHostTypeMap<TensorDataType::INT8> {
         using host_type = std::int8_t;
-        static constexpr TensorDataType host_data_type = TensorDataType::INT8;
     };
 
     /**
@@ -149,7 +143,6 @@ namespace Mila::Dnn
     template<>
     struct TensorHostTypeMap<TensorDataType::INT16> {
         using host_type = std::int16_t;
-        static constexpr TensorDataType host_data_type = TensorDataType::INT16;
     };
 
     /**
@@ -160,7 +153,6 @@ namespace Mila::Dnn
     template<>
     struct TensorHostTypeMap<TensorDataType::INT32> {
         using host_type = std::int32_t;
-        static constexpr TensorDataType host_data_type = TensorDataType::INT32;
     };
 
     /**
@@ -172,7 +164,6 @@ namespace Mila::Dnn
     template<>
     struct TensorHostTypeMap<TensorDataType::UINT8> {
         using host_type = std::uint8_t;
-        static constexpr TensorDataType host_data_type = TensorDataType::UINT8;
     };
 
     /**
@@ -184,7 +175,6 @@ namespace Mila::Dnn
     template<>
     struct TensorHostTypeMap<TensorDataType::UINT16> {
         using host_type = std::uint16_t;
-        static constexpr TensorDataType host_data_type = TensorDataType::UINT16;
     };
 
     /**
@@ -196,7 +186,6 @@ namespace Mila::Dnn
     template<>
     struct TensorHostTypeMap<TensorDataType::UINT32> {
         using host_type = std::uint32_t;
-        static constexpr TensorDataType host_data_type = TensorDataType::UINT32;
     };
 
     // ====================================================================
@@ -220,22 +209,6 @@ namespace Mila::Dnn
     export template<TensorDataType TDataType>
         using host_type_t = typename TensorHostTypeMap<TDataType>::host_type;
 
-    /**
-     * @brief Convenience alias for accessing host TensorDataType mapping
-     *
-     * Provides a more concise way to access the host TensorDataType for a given
-     * abstract tensor data type, simplifying toHost() implementations.
-     *
-     * @tparam TDataType Abstract tensor data type
-     *
-     * Example usage:
-     * ```cpp
-     * constexpr auto HostDataType = host_data_type_v<TensorDataType::FP16>;  // -> TensorDataType::FP32
-     * constexpr auto IntHostDataType = host_data_type_v<TensorDataType::INT8>;  // -> TensorDataType::INT8
-     * ```
-     */
-    export template<TensorDataType TDataType>
-        constexpr TensorDataType host_data_type_v = TensorHostTypeMap<TDataType>::host_data_type;
 
     /**
      * @brief Checks if a TensorDataType maps to a floating-point host type

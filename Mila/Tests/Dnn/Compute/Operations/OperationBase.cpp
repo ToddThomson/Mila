@@ -26,7 +26,7 @@ namespace Dnn::Compute::Operations::Tests
 	};
 
 	TEST_F( OperationBaseTest, CpuFp32Traits ) {
-		using Op = OperationBase<DeviceType::Cpu, TensorDataType::FP32>;
+		using Op = Operation<DeviceType::Cpu, TensorDataType::FP32>;
 
 		// Compile-time constants should be exposed correctly
 		static_assert(Op::data_type == TensorDataType::FP32);

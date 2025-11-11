@@ -61,7 +61,7 @@ namespace Dnn::Modules::Tests
         // Module interface implementation
         // ====================================================================
 
-        void forward( const ITensor& input, ITensor& output ) override
+        void forward( const ITensor& input, ITensor& output )
         {
             validateTensorDevice( input, "input" );
             validateTensorDevice( output, "output" );
@@ -79,10 +79,7 @@ namespace Dnn::Modules::Tests
             // Minimal semantics for mock: no actual data copy required for these tests
         }
 
-        void backward(
-            const ITensor& input,
-            const ITensor& output_grad,
-            ITensor& input_grad ) override
+        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
         {
             validateTensorDevice( input, "input" );
             validateTensorDevice( output_grad, "output_grad" );

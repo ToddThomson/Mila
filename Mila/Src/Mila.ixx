@@ -97,7 +97,9 @@ export import Compute.CudaPinnedMemoryResource;
 // ====================================================================
 export import Compute.OperationRegistry;
 export import Compute.OperationRegistryHelpers;
-//export import Compute.OperationAttributes;
+
+// Deprecated to be removed later
+// export import Compute.OperationAttributes;
 
 // ====================================================================
 // Compute - CPU Operations
@@ -164,14 +166,13 @@ export import Dnn.TensorInitializers;
 // ====================================================================
 export import Dnn.ActivationType;
 
-//export import Dnn.Modules.Attention;
-//export import Dnn.Modules.Encoder;
+export import Dnn.Modules.Attention;
+export import Dnn.Modules.Encoder;
 export import Dnn.Modules.Gelu;
 export import Dnn.Modules.LayerNorm;
 export import Dnn.Modules.Linear;
-//export import Dnn.Modules.Residual;
+export import Dnn.Modules.Residual;
 export import Dnn.Modules.Softmax;
-
 export import Dnn.Modules.SoftmaxCrossEntropy;
 
 // ====================================================================

@@ -154,16 +154,16 @@ namespace Mila::Dnn::Compute
      * @tparam TLogitsPrecision Precision for logits/gradients (FP32, FP16)
      * @tparam TTargets Target indices data type (typically INT32)
      */
-    export template<TensorDataType TLogitsPrecision, TensorDataType TTargets = TensorDataType::INT32>
-        requires PrecisionSupportedOnDevice<TLogitsPrecision, DeviceType::Cuda>
-    class CudaSoftmaxCrossEntropyOp : public BinaryOperation<DeviceType::Cuda, TLogitsPrecision>
+    export template<TensorDataType TPrecision, TensorDataType TLogits = TPrecision, TensorDataType TTargets = TensorDataType::INT32>
+        requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cuda> && PrecisionSupportedOnDevice<TLogits, DeviceType::Cuda>
+    class CudaSoftmaxCrossEntropyOp : public BinaryOperation<DeviceType::Cuda, TPrecision, TLogits, TTargets>
     {
     public:
         using MR = CudaDeviceMemoryResource;
-        using BinaryOperationBase = BinaryOperation<DeviceType::Cuda, TLogitsPrecision>;
-        using LogitsTensorType = Tensor<TLogitsPrecision, MR>;
+        using BinaryOperationBase = BinaryOperation<DeviceType::Cuda, TPrecision, TLogits, TTargets>;
+        using LogitsTensorType = Tensor<TLogits, MR>;
         using TargetsTensorType = Tensor<TTargets, MR>;
-        using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TLogitsPrecision>::native_type;
+        using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TLogits>::native_type;
         using TargetsNativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TTargets>::native_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 
@@ -430,32 +430,35 @@ namespace Mila::Dnn::Compute
         {
             const std::string opName = "SoftmaxCrossEntropyOp";
 
-            // Register FP32 variant with INT32 targets
             OperationRegistry::instance().registerBinaryOperation<
                 DeviceType::Cuda,
-                TensorDataType::FP32>(
+				TensorDataType::FP32,
+                TensorDataType::FP32,
+				TensorDataType::INT32>(
                     opName,
                     []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
                         const ConfigurationBase& config )
-                    -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
+                    -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32, TensorDataType::INT32>>
                     {
-                        const auto& ceConfig = static_cast<const CrossEntropyConfig&>(config);
-                        return std::make_shared<CudaSoftmaxCrossEntropyOp<TensorDataType::FP32, TensorDataType::INT32>>(
-                            context, ceConfig );
+                        const auto& crossEntropyConfig = static_cast<const CrossEntropyConfig&>(config);
+                        return std::make_shared<CudaSoftmaxCrossEntropyOp<TensorDataType::FP32, TensorDataType::FP32, TensorDataType::INT32>>(
+                            context, crossEntropyConfig );
                     }
                 );
 
             // Register FP16 variant with INT32 targets
             OperationRegistry::instance().registerBinaryOperation<
                 DeviceType::Cuda,
-                TensorDataType::FP16>(
+				TensorDataType::FP16,
+                TensorDataType::FP16,
+				TensorDataType::INT32>(
                     opName,
                     []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
                         const ConfigurationBase& config )
-                    -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
+                    -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, TensorDataType::FP16, TensorDataType::FP16, TensorDataType::INT32>>
                     {
                         const auto& ceConfig = static_cast<const CrossEntropyConfig&>(config);
-                        return std::make_shared<CudaSoftmaxCrossEntropyOp<TensorDataType::FP16, TensorDataType::INT32>>(
+                        return std::make_shared<CudaSoftmaxCrossEntropyOp<TensorDataType::FP16, TensorDataType::FP16, TensorDataType::INT32>>(
                             context, ceConfig );
                     }
                 );

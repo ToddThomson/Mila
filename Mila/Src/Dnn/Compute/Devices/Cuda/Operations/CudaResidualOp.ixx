@@ -21,6 +21,7 @@ module;
 #include <cuda_fp16.h>
 #include <stdexcept>
 #include "Kernels/CudaOps.h"
+#include <string>
 
 export module Compute.CudaResidualOp;
 
@@ -49,7 +50,7 @@ namespace Mila::Dnn::Compute
      */
     namespace Detail
     {
-        template<typename TNative>
+        template<typename TElementType>
         struct cuda_residual_impl;
 
         template<>
@@ -76,14 +77,12 @@ namespace Mila::Dnn::Compute
      *
      * @tparam TPrecision Abstract tensor precision (TensorDataType enum).
      */
-    export template <TensorDataType TPrecision>
-    class CudaResidualOp : public BinaryOperation<DeviceType::Cuda, TPrecision>
+    export template <TensorDataType TInputA, TensorDataType TInputB = TInputA, TensorDataType TPrecision = TInputA>
+    class CudaResidualOp : public BinaryOperation<DeviceType::Cuda, TInputA, TInputB, TPrecision>
     {
     public:
         using MR = CudaDeviceMemoryResource;
-        using BinaryOpBase = BinaryOperation<DeviceType::Cuda, TPrecision>;
-        using Parameters = typename BinaryOpBase::Parameters;
-        using OutputState = typename BinaryOpBase::OutputState;
+        using BinaryOpBase = BinaryOperation<DeviceType::Cuda, TInputA, TInputB, TPrecision>;
         using NativeType = typename TensorHostTypeMap<TPrecision>::host_type;
         using CudaExecCtx = ExecutionContext<DeviceType::Cuda>;
 
@@ -109,27 +108,25 @@ namespace Mila::Dnn::Compute
          * device pointers compatible with the CUDA kernels.
          */
         void forward(
-            const ITensor& inputA,
-            const ITensor& inputB,
-            [[maybe_unused]] const Parameters& parameters,
-            ITensor& output,
-            [[maybe_unused]] OutputState& output_state ) const override
+            const ITensor& input_a,
+            const ITensor& input_b,
+            ITensor& output ) const override
         {
-            const NativeType* x1 = static_cast<const NativeType*>(inputA.rawData());
-            const NativeType* x2 = static_cast<const NativeType*>(inputB.rawData());
-            NativeType* y = static_cast<NativeType*>(output.rawData());
+            const NativeType* X1 = static_cast<const NativeType*>(input_a.rawData());
+            const NativeType* X2 = static_cast<const NativeType*>(input_b.rawData());
+            NativeType* Y = static_cast<NativeType*>(output.rawData());
 
-            if (!x1 || !x2 || !y)
+            if (!X1 || !X2 || !Y)
             {
                 throw std::runtime_error( "CudaResidualOp::forward - null tensor data pointer" );
             }
 
-            int N = static_cast<int>(inputA.size());
+            int N = static_cast<int>(input_a.size());
 
             cudaStream_t stream = context_->getStream();
 
             // Dispatch to specialized kernel implementation for the native type.
-            Detail::cuda_residual_impl<NativeType>::forward( y, x1, x2, N, stream );
+            Detail::cuda_residual_impl<NativeType>::forward( Y, X1, X2, N, stream );
         }
 
         /**
@@ -138,15 +135,12 @@ namespace Mila::Dnn::Compute
          * Throws std::runtime_error if invoked.
          */
         void backward(
-            const ITensor& /*inputA*/,
-            const ITensor& /*inputB*/,
-            const ITensor& /*output*/,
-            const ITensor& /*output_gradient*/,
-            [[maybe_unused]] const Parameters& /*parameters*/,
-            [[maybe_unused]] Parameters& /*parameter_gradients*/,
-            ITensor& /*inputA_gradient*/,
-            ITensor& /*inputB_gradient*/,
-            [[maybe_unused]] const OutputState& /*output_state*/ ) const override
+            const ITensor& input_a,
+            const ITensor& input_b,
+            const ITensor& output,
+            const ITensor& output_grad,
+            ITensor& input_a_grad,
+            ITensor& input_b_grad ) const override
         {
             throw std::runtime_error( "CudaResidualOp::backward - backward pass not implemented for CUDA residual op." );
         }
@@ -162,6 +156,7 @@ namespace Mila::Dnn::Compute
         }
 
     private:
+        
         std::shared_ptr<CudaExecCtx> context_;
         ResidualConfig config_;
     };
@@ -169,27 +164,25 @@ namespace Mila::Dnn::Compute
     export class CudaResidualOpRegistrar
     {
     public:
-        template <TensorDataType TPrecision>
+        template <TensorDataType TInputA, TensorDataType TInputB = TInputA, TensorDataType TPrecision = TInputA>
         static void registerForType( const std::string& opName )
         {
-            OperationRegistry::instance().registerBinaryOperation<DeviceType::Cuda, TPrecision>(
+            OperationRegistry::instance().registerBinaryOperation<DeviceType::Cuda, TInputA, TInputB, TPrecision>(
                 opName,
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context, const ConfigurationBase& config )
-                    -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, TPrecision>>
+                    -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, TInputA, TInputB, TPrecision>>
                 {
                     const auto& residualConfig = static_cast<const ResidualConfig&>(config);
                     auto ctx = std::static_pointer_cast<ExecutionContext<DeviceType::Cuda>>(context);
-                    return std::make_shared<CudaResidualOp<TPrecision>>( ctx, residualConfig );
+                    return std::make_shared<CudaResidualOp<TInputA, TInputB, TPrecision>>( ctx, residualConfig );
                 }
             );
         }
 
         static void registerOperations()
         {
-            // Single canonical operation name used across devices.
             const std::string opName = "ResidualOp";
 
-            // Register supported precisions here (extendable).
             registerForType<TensorDataType::FP32>( opName );
             registerForType<TensorDataType::FP16>( opName );
         }

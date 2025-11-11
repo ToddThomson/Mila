@@ -1,6 +1,9 @@
 /**
  * @file CpuEncoderOp.ixx
- * @brief Implementation of the CPU-based encoder operation for neural networks.
+ * @brief CPU implementation of the Encoder operation for token and positional embeddings.
+ *
+ * Implements the forward and backward passes for combining token embeddings (wte)
+ * and positional embeddings (wpe) on CPU devices.
  */
 
 module;
@@ -8,8 +11,7 @@ module;
 #include <vector>
 #include <string>
 #include <stdexcept>
-#define _USE_MATH_DEFINES
-#include <math.h>
+#include <cstdint>
 #ifdef USE_OMP
 #include <omp.h>
 #endif
@@ -19,202 +21,391 @@ export module Compute.CpuEncoderOp;
 import Dnn.Modules.Encoder;
 import Dnn.Tensor;
 import Dnn.ITensor;
+import Dnn.TensorTypes;
+import Dnn.TensorDataType;
+import Dnn.TensorDataTypeTraits;
+import Dnn.TensorHostTypeMap;
 import Dnn.ConfigurationBase;
 import Compute.Precision;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
-import Compute.DeviceContext;
+import Compute.ExecutionContext;
 import Compute.OperationType;
 import Compute.OperationAttributes;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CpuDevice;
 
-using namespace Mila::Dnn;
-
 namespace Mila::Dnn::Compute
 {
+    using namespace Mila::Dnn;
+
     /**
-     * @brief CPU implementation of the encoder operation for neural networks.
+     * @brief CPU implementation of the Encoder operation.
      *
-     * This class provides a CPU-based implementation of the encoder operation,
-     * which combines token embeddings and positional embeddings.
+     * Combines token embeddings and positional embeddings:
+     * - Forward: output[b,t,c] = wte[input[b,t], c] + wpe[t, c]
+     * - Backward: accumulates gradients into dwte and dwpe
      *
-     * @tparam TInput The data type of the input tensor elements (typically int for token indices).
-     * @tparam TDataType The data type used for computation and output (typically float).
+     * The operation is stateless - all state is managed by the Encoder module.
+     *
+     * @tparam TPrecision Tensor data type for embeddings (typically FP32)
      */
-    export class CpuEncoderOp : public UnaryOperation<DeviceType::Cpu, int, float> {
+    export class CpuEncoderOp : public UnaryOperation<DeviceType::Cpu, TensorDataType::INT32, TensorDataType::FP32>
+    {
     public:
-        using MR = typename CpuDevice::MR;
-        using OperationBase = UnaryOperation<DeviceType::Cpu, int, float>;
+        using MR = CpuMemoryResource;
+        using OperationBase = UnaryOperation<DeviceType::Cpu, TensorDataType::INT32, TensorDataType::FP32>;
+        using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
+        using TensorType = Tensor<TensorDataType::FP32, MR>;
 
         /**
-         * @brief Constructs a new CPU Encoder operation with the default device context.
+         * @brief Construct with execution context and configuration.
          *
-         * CPU operations always use full precision regardless of policy settings.
+         * @param exec_context Shared execution context for CPU resources.
+         * @param config Encoder configuration.
          */
-        CpuEncoderOp( const EncoderConfig& config )
-            : OperationBase( OperationType::EncoderOp ), config_( config ) {}
+        explicit CpuEncoderOp(
+            std::shared_ptr<CpuExecutionContext> context, const EncoderConfig& config )
+            : context_( context ), config_( config )
+        {
+            if (!context)
+            {
+                throw std::invalid_argument( "ExecutionContext cannot be null." );
+            }
+
+            config_.validate();
+        }
+
+        ~CpuEncoderOp() override = default;
+
+        // ====================================================================
+        // Lifecycle
+        // ====================================================================
+
+        void build( const shape_t& input_shape ) override
+        {
+            if (is_built_)
+                return;
+
+            validateInputShape( input_shape );
+
+            cached_batch_size_ = input_shape[0];
+            cached_seq_length_ = input_shape[1];
+            cached_embedding_dim_ = config_.getChannels();
+
+            is_built_ = true;
+        }
+
+        // ====================================================================
+        // Parameter binding
+        // ====================================================================
+
+        void setParameters( ITensor* wte, ITensor* wpe ) override
+        {
+            if (!wte)
+            {
+                throw std::invalid_argument( "CpuEncoderOp::setParameters - wte parameter is required" );
+            }
+
+            if (!wpe)
+            {
+                throw std::invalid_argument( "CpuEncoderOp::setParameters - wpe parameter is required" );
+            }
+
+            if (wte->getDeviceType() != DeviceType::Cpu || wpe->getDeviceType() != DeviceType::Cpu)
+            {
+                throw std::invalid_argument( "CpuEncoderOp::setParameters - parameters must be CPU tensors" );
+            }
+
+            // Validate shapes immediately and cache both ITensor* and typed data pointer
+            const auto& wte_shape = wte->shape();
+            if (wte_shape.size() != 2 ||
+                wte_shape[0] != config_.getVocabularyLength() ||
+                wte_shape[1] != config_.getChannels())
+            {
+                throw std::invalid_argument( "CpuEncoderOp::setParameters - wte shape mismatch" );
+            }
+
+            const auto& wpe_shape = wpe->shape();
+            if (wpe_shape.size() != 2 ||
+                wpe_shape[0] != config_.getMaxSequenceLength() ||
+                wpe_shape[1] != config_.getChannels())
+            {
+                throw std::invalid_argument( "CpuEncoderOp::setParameters - wpe shape mismatch" );
+            }
+
+            wte_ = static_cast<const float*>(wte->rawData());
+            wpe_ = static_cast<const float*>(wpe->rawData());
+        }
+
+        void setParameterGradients( ITensor* wte_grad, ITensor* wpe_grad ) override
+        {
+            // Both gradients are required for encoder training
+            if (!wte_grad || !wpe_grad)
+            {
+                throw std::invalid_argument( "CpuEncoderOp::setParameterGradients - both wte and wpe gradients are required" );
+            }
+
+            if (wte_grad->getDeviceType() != DeviceType::Cpu || wpe_grad->getDeviceType() != DeviceType::Cpu)
+            {
+                throw std::invalid_argument( "CpuEncoderOp::setParameterGradients - gradients must be CPU tensors" );
+            }
+
+            const auto& wte_g_shape = wte_grad->shape();
+            if (wte_g_shape.size() != 2 ||
+                wte_g_shape[0] != config_.getVocabularyLength() ||
+                wte_g_shape[1] != config_.getChannels())
+            {
+                throw std::invalid_argument( "CpuEncoderOp::setParameterGradients - wte_grad shape mismatch" );
+            }
+
+            const auto& wpe_g_shape = wpe_grad->shape();
+            if (wpe_g_shape.size() != 2 ||
+                wpe_g_shape[0] != config_.getMaxSequenceLength() ||
+                wpe_g_shape[1] != config_.getChannels())
+            {
+                throw std::invalid_argument( "CpuEncoderOp::setParameterGradients - wpe_grad shape mismatch" );
+            }
+
+            wte_grad_ = static_cast<float*>(wte_grad->rawData());
+            wpe_grad_ = static_cast<float*>(wpe_grad->rawData());
+        }
+
+        // ====================================================================
+        // Forward pass
+        // ====================================================================
 
         /**
-         * @brief Constructs a new CPU Encoder operation with a specific device context.
+         * @brief Forward pass: combines token and positional embeddings.
          *
-         * CPU operations always use full precision regardless of policy settings.
+         * For each position (b, t) in the batch:
+         *   output[b, t, :] = wte[input[b, t], :] + wpe[t, :]
          *
-         * @param context The device context to use for this operation.
-         * @throws std::runtime_error If the context is not for a CPU device.
+         * @param input Token indices tensor [B, T] (typically INT32)
+         * @param output Embedding tensor [B, T, C]
          */
-        CpuEncoderOp( std::shared_ptr<DeviceContext> context, const EncoderConfig& config )
-            : OperationBase( OperationType::EncoderOp, context ), config_( config ) {}
+        void forward( const ITensor& input, ITensor& output ) const override
+        {
+            if (!is_built_)
+            {
+                throw std::runtime_error( "CpuEncoderOp: forward called before build()" );
+            }
 
-        /**
-         * @brief Performs the forward pass of the encoder operation.
-         *
-         * Combines token embeddings and positional embeddings for input token indices.
-         *
-         * @param input Input tensor containing token indices.
-         * @param parameters Parameters tensor containing embeddings and other parameters.
-         * @param attributes Additional attributes for the operation.
-         * @param output Output tensor to store the resulting embeddings.
-         * @param output_state Cache for storing intermediate results (used in backward pass).
-         */
-        void forward(
-            const Tensor<int, MR>& input,
-            const std::vector<std::shared_ptr<ITensor>>& parameters,
-            Tensor<float, MR>& output,
-            std::vector<std::shared_ptr<Tensor<float, MR>>>& output_state ) const override {
+            if (!wte_ || !wpe_)
+            {
+                throw std::runtime_error( "CpuEncoderOp: parameters not set via setParameters()" );
+            }
 
-            auto X = input.data();
-            auto Y = output.data();
+            validateInputShape( input );
 
-            auto wte = std::static_pointer_cast<Tensor<float, MR>>(parameters[ 0 ]);
-            auto wpe = std::static_pointer_cast<Tensor<float, MR>>(parameters[ 1 ]);
+            // Get data pointers (input is INT32)
+            const int32_t* X = static_cast<const int32_t*>(input.rawData());
+            float* Y = static_cast<float*>(output.rawData());
 
-            int B = input.shape()[ 0 ];
-            int T = input.shape()[ 1 ];
-            int C = wte->shape()[ 1 ];
+            const int64_t B = cached_batch_size_;
+            const int64_t T = cached_seq_length_;
+            const int64_t C = cached_embedding_dim_;
 
-        #pragma omp parallel for collapse(2)
-            for ( int b = 0; b < B; b++ ) {
-                for ( int t = 0; t < T; t++ ) {
+            // Parallel over batch and sequence dimensions
+#pragma omp parallel for collapse(2)
+            for (int64_t b = 0; b < B; b++)
+            {
+                for (int64_t t = 0; t < T; t++)
+                {
+                    // Get token index for this position
+                    const int32_t token_idx = X[b * T + t];
+
+                    // Bounds check for token index
+                    if (token_idx < 0 || token_idx >= config_.getVocabularyLength())
+                    {
+                        // Invalid token index - could fill with zeros or throw
+                        // For now, skip (output will have undefined values)
+                        continue;
+                    }
+
+                    // Output pointer for this position
                     float* out_bt = Y + b * T * C + t * C;
-                    int ix = X[ b * T + t ];
-                    float* wte_ix = wte->data() + ix * C;
-                    float* wpe_t = wpe->data() + t * C;
 
-                    for ( int i = 0; i < C; i++ ) {
-                        out_bt[ i ] = wte_ix[ i ] + wpe_t[ i ];
+                    // Token embedding pointer
+                    const float* wte_ix = wte_ + token_idx * C;
+
+                    // Position embedding pointer
+                    const float* wpe_t = wpe_ + t * C;
+
+                    // Add token and position embeddings
+                    for (int64_t c = 0; c < C; c++)
+                    {
+                        out_bt[c] = wte_ix[c] + wpe_t[c];
                     }
                 }
             }
         }
 
+        // ====================================================================
+        // Backward pass
+        // ====================================================================
+
         /**
-         * @brief Performs the backward pass of the encoder operation.
+         * @brief Backward pass: accumulates gradients into embedding tables.
          *
-         * Computes gradients with respect to inputs and parameters.
+         * For each position (b, t):
+         *   dwte[input[b, t], :] += output_grad[b, t, :]
+         *   dwpe[t, :] += output_grad[b, t, :]
          *
-         * @param input Input tensor from the forward pass.
-         * @param output Output tensor from the forward pass.
-         * @param output_gradient Gradient of the loss with respect to the output.
-         * @param parameters Parameters tensor from forward pass.
-         * @param parameter_gradients Gradients for parameters.
-         * @param input_gradient Gradient of the loss with respect to the input.
-         * @param attributes Additional attributes for the operation.
-         * @param output_state Cache tensors from forward pass.
+         * Note: Token indices are discrete, so no input gradient is computed.
+         * The input_grad parameter exists to satisfy the interface but is unused.
+         *
+		 * @param input Token indices from forward pass [B, T] typically INT32
+         * @param output_grad Gradient w.r.t. output [B, T, C]
+         * @param input_grad Unused (token indices are non-differentiable)
          */
         void backward(
-            const Tensor<int, MR>& input,
-            const Tensor<float, MR>& output,
-            const Tensor<float, MR>& output_gradient,
-            const std::vector<std::shared_ptr<ITensor>>& parameters,
-            std::vector<std::shared_ptr<Tensor<float, MR>>>& parameter_gradients,
-            Tensor<int, MR>& input_gradient,
-            const std::vector<std::shared_ptr<Tensor<float, MR>>>& output_state ) const {
-
-            // Verify we're operating on CPU memory
-            if ( this->getDeviceContext()->getDevice()->getDeviceType() != DeviceType::Cpu ) {
-                throw std::runtime_error( "CpuEncoderOp::backward can only be executed on CPU memory" );
+            const ITensor& input,
+            const ITensor& output_grad,
+            ITensor& input_grad ) const override
+        {
+            if (!is_built_)
+            {
+                throw std::runtime_error( "CpuEncoderOp: backward called before build()" );
             }
 
-            // TODO backward pass implementation
+            if (!wte_grad_ || !wpe_grad_)
+            {
+                throw std::runtime_error( "CpuEncoderOp: parameter gradients not set via setParameterGradients()" );
+            }
 
-        //    int B = input.shape()[ 0 ];
-        //    int TDataType = input.shape()[ 1 ];
-        //    int C = wte->shape()[ 1 ];
+            const float* X = static_cast<const float*>(input.rawData());
+            const float* dY = static_cast<const float*>(output_grad.rawData());
+            float* dX = static_cast<float*>(input_grad.rawData());
 
-        //#pragma omp parallel for collapse(2)
-        //    for ( int b = 0; b < B; b++ ) {
-        //        for ( int t = 0; t < TDataType; t++ ) {
-        //            float* dout_bt = dout + b * TDataType * C + t * C;
-        //            TInput ix = input[ b * TDataType + t ];
-        //            float* dwte_ix = dwte + ix * C;
-        //            float* dwpe_t = dwpe + t * C;
+            const int64_t B = cached_batch_size_;
+            const int64_t T = cached_seq_length_;
+            const int64_t C = cached_embedding_dim_;
 
-        //            for ( int i = 0; i < C; i++ ) {
-        //                float d = dout_bt[ i ];
-        //            #pragma omp atomic
-        //                dwte_ix[ i ] += d;
-        //            #pragma omp atomic
-        //                dwpe_t[ i ] += d;
-        //            }
-        //        }
-        //    }
+            // Accumulate gradients
+            // Note: atomic operations needed because multiple positions can reference same token
+#pragma omp parallel for collapse(2)
+            for (int64_t b = 0; b < B; b++)
+            {
+                for (int64_t t = 0; t < T; t++)
+                {
+                    const int32_t token_idx = X[b * T + t];
+
+                    // Bounds check
+                    if (token_idx < 0 || token_idx >= config_.getVocabularyLength())
+                    {
+                        continue;
+                    }
+
+                    const float* dout_bt = dY + b * T * C + t * C;
+                    float* dwte_ix = wte_grad_ + token_idx * C;
+                    float* dwpe_t = wpe_grad_ + t * C;
+
+                    // Accumulate gradients (atomic for thread safety on dwte)
+                    for (int64_t c = 0; c < C; c++)
+                    {
+                        const float grad = dout_bt[c];
+
+                        // Token embedding gradient (needs atomic - multiple tokens can be same)
+#pragma omp atomic
+                        dwte_ix[c] += grad;
+
+                        // Position embedding gradient (needs atomic - multiple batches same position)
+#pragma omp atomic
+                        dwpe_t[c] += grad;
+                    }
+                }
+            }
+
+            // input_grad is unused (token indices are discrete)
         }
 
-        /**
-         * @brief Gets the name of this operation.
-         *
-         * @return std::string The name of the operation ("Cpu::EncoderOp").
-         */
-        std::string getName() const override {
-            return "Cpu::EncoderOp";
+        // ====================================================================
+        // Operation metadata
+        // ====================================================================
+        
+        OperationType getOperationType() const override
+        {
+            return OperationType::EncoderOp;
         }
 
-        private:
-			EncoderConfig config_; ///< Configuration for the encoder operation.
+        std::string getName() const override
+        {
+            return "CpuEncoderOp";
+        }
+
+    private:
+        
+        std::shared_ptr<CpuExecutionContext> context_;
+        EncoderConfig config_;
+
+        bool is_built_{ false };
+
+        // Parameter pointers (bound by module via setParameters)
+        const float* wte_{ nullptr };      // Token embeddings (V, C)
+        const float* wpe_{ nullptr };      // Position embeddings (maxT, C)
+
+        // Gradient pointers (bound by module via setParameterGradients)
+        float* wte_grad_{ nullptr };
+        float* wpe_grad_{ nullptr };
+
+        int64_t cached_batch_size_{ 0 };
+        int64_t cached_seq_length_{ 0 };
+        int64_t cached_embedding_dim_{ 0 };
+
+        void validateInputShape( const ITensor& input ) const
+        {
+            const auto& input_shape = input.shape();
+            validateInputShape( input_shape );
+        }
+
+        void validateInputShape( const shape_t& input_shape ) const
+        {
+            if (input_shape.size() != 2)
+            {
+                throw std::invalid_argument(
+                    "CpuEncoderOp: input must have rank 2 (batch_size, sequence_length)" );
+            }
+
+            if (input_shape[1] > config_.getMaxSequenceLength())
+            {
+                throw std::invalid_argument(
+                    "CpuEncoderOp: sequence length exceeds configured maximum" );
+            }
+        }
+
+        
     };
 
     /**
-     * @brief Class responsible for registering the CpuEncoderOp operation.
+     * @brief Registrar for CpuEncoderOp operation.
      *
-     * The CpuEncoderOpRegistrar class registers the CpuEncoderOp operation with the OperationRegistry.
-     * It associates the operation name "Cpu::EncoderOp" with a factory function that creates
-     * instances of CpuEncoderOp.
+     * Registers the operation with the OperationRegistry during static initialization.
      */
-    export class CpuEncoderOpRegistrar {
+    export class CpuEncoderOpRegistrar
+    {
     public:
-        /**
-         * @brief Registers the CpuEncoderOp operation with the OperationRegistry.
-         *
-         * This function registers the CpuEncoderOp operation for the CPU device type
-         * with the OperationRegistry. It associates the operation name "Cpu::EncoderOp"
-         * with a factory function that creates instances of CpuEncoderOp.
-         */
-        static void registerOperations() {
-            const std::string opName = "Cpu::EncoderOp";
+        static void registerOperations()
+        {
+            const std::string opName = "EncoderOp";
 
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, int, float>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::INT32, TensorDataType::FP32>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, int, float>> {
-                    const auto& encoderConfig = dynamic_cast<const EncoderConfig&>( config );
-                    return context ? std::make_shared<CpuEncoderOp>( context, encoderConfig )
-                        : std::make_shared<CpuEncoderOp>( encoderConfig );
-                }
-            );
+                []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
+                    const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::INT32, TensorDataType::FP32>>
+                {
+                    const auto& encoder_config = dynamic_cast<const EncoderConfig&>(config);
+                    return std::make_shared<CpuEncoderOp>( context, encoder_config );
+                });
         }
 
-        /**
-         * @brief Self-registration mechanism that registers the operation during startup.
-         *
-         * This static member ensures the operation is registered when the program starts
-         * without requiring explicit registration calls.
-         */
-        static inline bool isRegistered = []() {
-            registerOperations();
-            return true;
+        static inline bool isRegistered = []()
+            {
+                registerOperations();
+                return true;
             }();
     };
 }

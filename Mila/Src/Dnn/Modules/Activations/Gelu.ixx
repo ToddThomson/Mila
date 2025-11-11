@@ -153,7 +153,7 @@ namespace Mila::Dnn
          * @param input Const reference to the input tensor (non-owning).
          * @param output Reference to the tensor that will receive results (caller-allocated).
          */
-        void forward( const ITensor& input, ITensor& output ) override
+        void forward( const ITensor& input, ITensor& output )
         {
             operation_->forward( input, output );
         }
@@ -180,7 +180,7 @@ namespace Mila::Dnn
          * @note The implementation accumulates into input_grad (does not overwrite)
          * @note Requires setTraining(true) for gradient computation in some backends
          */
-        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad ) override
+        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
         {
             if (!is_built_)
             {

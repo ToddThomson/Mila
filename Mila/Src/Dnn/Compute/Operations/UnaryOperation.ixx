@@ -2,25 +2,13 @@
  * @file UnaryOperation.ixx
  * @brief Device-agnostic unary operation interface using abstract tensor data types
  *
- * This module provides a framework for implementing unary operations (single input,
- * single output) across heterogeneous compute environments using abstract TensorDataType
- * enumeration. The system enables seamless operation across different devices (CPU, CUDA)
- * without exposing device-specific concrete types to host compilation.
- *
- * Key architectural features:
- * - Abstract data type system prevents device-specific compilation dependencies
- * - Device-agnostic operation interface with compile-time device validation
- * - Type-safe parameter handling with automatic compatibility checking
- * - Support for scalar tensor operations (activations, reductions, etc.)
- * - Extensible design for various neural network operations
+ * Provides a typed, device-aware interface for unary ops. Supports a distinct
+ * input element type (`TInput`) which may differ from the operation precision
+ * (useful for index/mask inputs).
  */
 
 module;
-#include <memory>
-#include <vector>
-#include <stdexcept>
 #include <type_traits>
-#include <string>
 
 export module Compute.UnaryOperation;
 
@@ -44,29 +32,54 @@ import Compute.OperationAttributes;
 
 namespace Mila::Dnn::Compute
 {
-    export template <DeviceType TDeviceType, TensorDataType TPrecision>
-    class UnaryOperation : public OperationBase<TDeviceType, TPrecision>
+    /**
+     * @tparam TDeviceType Device target for the operation (DeviceType::Cpu, DeviceType::Cuda, ...)
+     * @tparam TPrecision Canonical element precision produced/consumed by the op (e.g. FP32)
+     * @tparam TInput Optional element type for the runtime input tensor (defaults to TPrecision,
+     *                e.g. INT32 for token indices while TPrecision == FP32)
+     *
+     * @note Constrains are applied to ensure the operation precision is supported on the device.
+     */
+    export template <DeviceType TDeviceType, TensorDataType TInput, TensorDataType TPrecision = TInput>
+        requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
+    class UnaryOperation : public Operation<TDeviceType, TPrecision>
     {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
-        using TensorType = Tensor<TPrecision, MR>;
-        using Parameters = std::vector<std::shared_ptr<TensorType>>;
-        using OutputState = std::vector<std::shared_ptr<TensorType>>;
+
+        // Concrete tensor aliases for implementers to use (typed, device-aware)
+        using TensorOutputType = Tensor<TPrecision, MR>;
+        using TensorInputType  = Tensor<TInput, MR>;
 
         virtual ~UnaryOperation() = default;
 
         /**
-         * @brief Forward pass computation.
+         * @brief Forward pass: compute output = f(input)
          *
-         * Concrete implementations extract execution resources from either:
-         * - A bound execution context (if provided at construction), or
-         * - The input tensor's device (for unbound operations)
+         * Implementations should accept polymorphic ITensor references and may
+         * use the typed aliases / helpers to obtain typed tensor references.
          */
         virtual void forward( const ITensor& input, ITensor& output ) const = 0;
 
         /**
-         * @brief Backward pass computation.
+         * @brief Backward pass: compute gradient wrt input given output gradient.
+         *
+         * Signature ordered as (input, output_grad, input_grad) to match module
+         * and operation implementations across the codebase.
          */
-        virtual void backward( const ITensor& grad_output, const ITensor& input, ITensor& grad_input ) const = 0;
+        virtual void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad ) const = 0;
+
+    protected:
+        // Helpers for typed dynamic casts to concrete Tensor<T,...> types.
+        // Use these to avoid unsafe void* casts and to prefer the typed `.data()` accessor.
+        static const TensorInputType& asInputTensor( const ITensor& t )
+        {
+            return dynamic_cast<const TensorInputType&>(t);
+        }
+
+        static TensorOutputType& asOutputTensor( ITensor& t )
+        {
+            return dynamic_cast<TensorOutputType&>(t);
+        }
     };
 }

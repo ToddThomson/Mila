@@ -262,6 +262,7 @@ float softmaxCrossEntropyLoss(
         for (size_t j = 0; j < num_classes; ++j)
         {
             float target = static_cast<float>( targets.data()[i * num_classes + j] );
+            
             if (target > 0.0f)
             {
                 // SOFTMAX: prob = exp(logit - max) / denom

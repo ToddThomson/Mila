@@ -12,14 +12,27 @@
  * `ITensor` so callers can remain device-agnostic at the API level.
  *
  * Key responsibilities of a Module implementation:
- * - perform forward and backward passes over `ITensor` objects,
- * - expose and persist trainable parameters via `save` / `load`,
- * - report parameter counts and human-readable descriptions,
- * - support execution synchronization when device streams are used.
+ * - Expose and persist trainable parameters via `save` / `load`,
+ * - Report parameter counts and human-readable descriptions,
+ * - Support execution synchronization when device streams are used.
+ * - Define forward and backward computation interfaces appropriate to the module type.
+ *
+ * Note on Computation Interfaces:
+ * - The Module base class does NOT define virtual forward() or backward() methods.
+ * - Each concrete module defines its own forward/backward signature based on its
+ *   computational requirements (unary, binary, loss functions, etc.).
+ * - This design allows modules to have natural, type-safe interfaces without
+ *   forcing artificial workarounds for multi-input operations.
+ *
+ * Examples:
+ * - Unary modules (ReLU, Tanh): forward(input, output)
+ * - Binary modules (Residual, Add): forward(input1, input2, output)
+ * - Loss modules (SoftmaxCrossEntropy): forward(predictions, labels, loss)
+ * - Block modules (MLP, Transformer): forward(input, output) at the block level
  *
  * Note:
- * - The base class imposes no ownership model for tensors passed to the
- *   interface; implementations should document any lifetime requirements.
+ * - The base class imposes no ownership model for tensors passed to module
+ *   interfaces; implementations should document any lifetime requirements.
  * - The base class does not mandate specific thread-safety guarantees; module
  *   implementations should document their concurrency properties.
  */
@@ -55,17 +68,27 @@ namespace Mila::Dnn
      *
      * @tparam TDeviceType Compile-time device identifier for this module.
      *
+     * This base class provides the common management interface shared by all
+     * neural network modules: parameter access, serialization, training mode,
+     * synchronization, and introspection.
+     *
+     * The base class intentionally does NOT define virtual forward() or backward()
+     * methods. Instead, each concrete module implementation defines its own
+     * computation interface with the signature appropriate to its operation type.
+     * This design avoids forcing artificial constraints on modules that naturally
+     * require multiple inputs (residual connections, loss functions, etc.).
+     *
      * Implementations must override the pure virtual interface to provide
      * concrete behaviour. The interface is intentionally minimal to allow both
      * simple layers (e.g. Linear) and composite modules (containers of modules)
      * to share a common API.
      */
     export template<DeviceType TDeviceType>
-    class Module
+        class Module
     {
     public:
         virtual ~Module() = default;
-        
+
         // ====================================================================
         // Lifecycle
         // ====================================================================
@@ -120,63 +143,56 @@ namespace Mila::Dnn
         virtual void build( const shape_t& input_shape ) = 0;
 
         // ====================================================================
-		// Compute Operation dispatch
+        // Computation Interface (Defined by Concrete Modules)
         // ====================================================================
 
         /**
-         * @brief Run the forward computation for this module.
+         * NOTE: The Module base class does NOT define virtual forward() or backward()
+         * methods. Each concrete module defines its own computation interface with
+         * the signature appropriate to its operation type.
          *
-         * @param input Const reference to the input tensor. Implementations
-         *        should not assume ownership. The input may be a view or a
-         *        scalar tensor depending on the operation.
-         * @param output Reference to the tensor that will receive the result.
-         *        The caller is responsible for allocating an appropriately
-         *        sized tensor unless the implementation documents otherwise.
+         * Common patterns:
          *
-         * Implementations should document whether they support in-place
-         * operations (i.e. where `output` aliases `input`) and any shape
-         * broadcasting rules they follow.
+         * Unary modules (ReLU, Tanh, Sigmoid, Linear, etc.):
+         *   void forward(const ITensor& input, ITensor& output);
+         *   void backward(const ITensor& input, const ITensor& output_grad, ITensor& input_grad);
+         *
+         * Binary modules (Residual, Add, Multiply, etc.):
+         *   void forward(const ITensor& input1, const ITensor& input2, ITensor& output);
+         *   void backward(const ITensor& input1, const ITensor& input2,
+         *                 const ITensor& output_grad,
+         *                 ITensor& input1_grad, ITensor& input2_grad);
+         *
+         * Loss modules (SoftmaxCrossEntropy, MSELoss, etc.):
+         *   void forward(const ITensor& predictions, const ITensor& labels, ITensor& loss);
+         *   void backward(const ITensor& predictions, const ITensor& labels, ITensor& pred_grad);
+         *
+         * Block/Composite modules (MLP, Transformer, ResNetBlock, etc.):
+         *   void forward(const ITensor& input, ITensor& output);
+         *   void backward(const ITensor& input, const ITensor& output_grad, ITensor& input_grad);
+         *
+         * This design allows each module to express its true computational requirements
+         * without forcing workarounds or artificial state management.
          */
-        virtual void forward( const ITensor& input, ITensor& output ) = 0;
-        
-        /**
-         * @brief Compute gradients for this module's input given the gradient
-         *        of the module output.
-         *
-         * @param input Const reference to the original forward input. Used by
-         *        some layers to compute input gradients.
-         * @param output_grad Const reference to the gradient with respect to
-         *        the module output.
-         * @param input_grad Reference to the tensor that will be populated
-         *        with the gradient with respect to the module input. The
-         *        caller is responsible for allocation unless noted.
-         *
-         * Implementations should document whether they accumulate into
-         * `input_grad` or overwrite it.
-         */
-        virtual void backward( 
-            const ITensor& input,
-            const ITensor& output_grad,
-            ITensor& input_grad ) = 0;
 
-		// ====================================================================
-		// Synchronization
-		// ====================================================================
+         // ====================================================================
+         // Synchronization
+         // ====================================================================
 
-        /**
-         * @brief Synchronize this module's execution stream.
-         *
-         * Blocks until all asynchronous operations submitted by this module
-         * have completed. On CPU-only modules this may be a no-op. Use this
-         * when timing, debugging, or when results must be visible on the host.
-         */
+         /**
+          * @brief Synchronize this module's execution stream.
+          *
+          * Blocks until all asynchronous operations submitted by this module
+          * have completed. On CPU-only modules this may be a no-op. Use this
+          * when timing, debugging, or when results must be visible on the host.
+          */
         virtual void synchronize() = 0;
 
-		// ====================================================================
+        // ====================================================================
         // Parameters and Gradients
-		// ====================================================================
+        // ====================================================================
 
-		// REVIEW: Default implementations for stateless modules?
+        // REVIEW: Default implementations for stateless modules?
 
         /**
          * @brief Return the number of trainable parameters in this module.
@@ -217,9 +233,9 @@ namespace Mila::Dnn
          */
         virtual std::vector<ITensor*> getParameterGradients() const = 0;
 
-		// ====================================================================
-		// Serialization
-		// ====================================================================
+        // ====================================================================
+        // Serialization
+        // ====================================================================
 
         /**
          * @brief Persist module parameters into the provided archive.
@@ -275,7 +291,7 @@ namespace Mila::Dnn
          * @returns The module name string.
          */
         virtual std::string getName() const = 0;
-        
+
         // ====================================================================
         // Device information and access
         // ====================================================================
@@ -285,7 +301,8 @@ namespace Mila::Dnn
          *
          * @returns The DeviceType specified by the template parameter.
          */
-        static constexpr DeviceType getDeviceType() {
+        static constexpr DeviceType getDeviceType()
+        {
             return TDeviceType;
         }
 
@@ -333,14 +350,15 @@ namespace Mila::Dnn
          * @brief Stream output uses `toString()` to provide a human-readable
          * description of the module.
          */
-        friend std::ostream& operator<<( std::ostream& os, const Module& module ) {
+        friend std::ostream& operator<<( std::ostream& os, const Module& module )
+        {
             os << module.toString();
             return os;
         }
 
-		// ====================================================================
-		// Debugging and Description
-		// ====================================================================
+        // ====================================================================
+        // Debugging and Description
+        // ====================================================================
 
         /**
          * @brief Produce a short, human-readable description of the module.

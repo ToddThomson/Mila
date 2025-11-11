@@ -1,6 +1,9 @@
 /**
  * @file CudaEncoderOp.ixx
- * @brief Implementation of the CUDA-based Encoder operation for transformer models.
+ * @brief CUDA implementation of Encoder operation for token and positional embeddings (TensorDataType-based).
+ *
+ * Implements forward and backward passes for combining token embeddings (wte)
+ * and positional embeddings (wpe) on CUDA devices.
  */
 
 module;
@@ -9,6 +12,7 @@ module;
 #include <memory>
 #include <string>
 #include <stdexcept>
+#include <cstdint>
 #include "Kernels/CudaOps.h"
 
 export module Compute.CudaEncoderOp;
@@ -16,41 +20,64 @@ export module Compute.CudaEncoderOp;
 import Dnn.Modules.Encoder;
 import Dnn.Tensor;
 import Dnn.ITensor;
-import Dnn.TensorTraits;
+import Dnn.TensorTypes;
+import Dnn.TensorDataType;
+import Dnn.TensorDataTypeTraits;
+import Dnn.TensorHostTypeMap;
 import Dnn.ConfigurationBase;
 import Compute.Precision;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
-import Compute.DeviceContext;
+import Compute.IExecutionContext;
+import Compute.ExecutionContext;
+import Compute.CudaExecutionContext;
+import Compute.CudaDeviceResources;
 import Compute.OperationType;
 import Compute.OperationAttributes;
 import Compute.MemoryResource;
 import Compute.CudaDeviceMemoryResource;
+import Compute.CudaTensorDataType;
 import Compute.CudaDevice;
 
 namespace Mila::Dnn::Compute
 {
-    using namespace Mila::Dnn;
-
     namespace Detail
     {
         /**
-         * @brief Primary template for precision-specific CUDA encoder implementations.
+         * @brief CUDA kernel dispatcher for Encoder operations.
          *
-         * @tparam TOutput The floating-point precision type (float or half)
+         * Specialized for float (FP32) and half (FP16) native CUDA types.
          */
-        template <typename TOutput>
+        template <typename TNative>
+            requires std::is_same_v<TNative, float> || std::is_same_v<TNative, half>
         struct cuda_encoder_impl;
 
         /**
          * @brief Single-precision (float) specialization for CUDA encoder operations.
          */
         template <>
-        struct cuda_encoder_impl<float> {
-            static inline void forward( float* Y, const int* X, const float* wte, const float* wpe, int B, int T, int C, cudaStream_t stream ) {
+        struct cuda_encoder_impl<float>
+        {
+            cuda_encoder_impl() = default;
+
+            static inline void forward(
+                float* Y, const int32_t* X,
+                const float* wte, const float* wpe,
+                int B, int T, int C,
+                cudaStream_t stream )
+            {
                 cuda_encoder_forward_fp32( Y, X, wte, wpe, B, T, C, stream );
+            }
+
+            static inline void backward(
+                float* dwte, float* dwpe,
+                const int32_t* X, const float* dY,
+                int B, int T, int C,
+                cudaStream_t stream )
+            {
+                // FIXME: cuda_encoder_backward_fp32( dwte, dwpe, X, dY, B, T, C, stream );
             }
         };
 
@@ -58,189 +85,346 @@ namespace Mila::Dnn::Compute
          * @brief Half-precision (half) specialization for CUDA encoder operations.
          */
         template <>
-        struct cuda_encoder_impl<half> {
-            static inline void forward( half* Y, const int* X, const half* wte, const half* wpe, int B, int T, int C, cudaStream_t stream ) {
+        struct cuda_encoder_impl<half>
+        {
+            cuda_encoder_impl() = default;
+
+            static inline void forward(
+                half* Y, const int32_t* X,
+                const half* wte, const half* wpe,
+                int B, int T, int C,
+                cudaStream_t stream )
+            {
                 cuda_encoder_forward_fp16( Y, X, wte, wpe, B, T, C, stream );
+            }
+
+            static inline void backward(
+                half* dwte, half* dwpe,
+                const int32_t* X, const half* dY,
+                int B, int T, int C,
+                cudaStream_t stream )
+            {
+                // FIXME: cuda_encoder_backward_fp16( dwte, dwpe, X, dY, B, T, C, stream );
             }
         };
     }
 
+    using namespace Mila::Dnn;
+
     /**
-     * @brief CUDA implementation of the Encoder operation for transformer models.
+     * @brief CUDA implementation of Encoder operation using abstract TensorDataType API.
      *
-     * This class provides a CUDA-based implementation of the Encoder operation, which performs
-     * token embedding lookups and positional embedding additions. It transforms discrete
-     * token IDs into continuous vector representations by combining:
-     * 1. Token embeddings from a learned vocabulary table (wte)
-     * 2. Positional embeddings that encode sequence position information (wpe)
+     * Template parameter TPrecision selects the abstract tensor precision (e.g. FP32, FP16).
+     * NativeType is the corresponding CUDA device representation for that precision.
      *
-     * The implementation is optimized for NVIDIA GPUs using CUDA for high-performance computation,
-     * supporting both integer and half-precision floating-point operations.
-     *
-     * @tparam int The data type of the input tensor elements (typically uint16_t or int for token IDs).
-     * @tparam TDataType The data type used for computation and output (typically half or float).
+     * Design philosophy:
+     * - Two-phase initialization: build() does all setup, forward()/backward() are pure dispatch
+     * - Module owns wte/wpe parameters and binds them via setParameters()
+     * - All dimension computation and validation happens once in build()
+     * - Forward/backward are hot-path methods with minimal overhead
+     * - Token indices (INT32) are non-differentiable, no input gradient computed
      */
-    export template<typename TInput, typename TOutput = TInput>
-		requires ValidIntTensorType<TInput> && ValidFloatTensorType<TOutput>
-    class CudaEncoderOp : public UnaryOperation<DeviceType::Cuda, TInput, TOutput> {
-        public:
-            using MR = typename CudaDevice::MR;
-			using OperationBase = UnaryOperation<DeviceType::Cuda, TInput, TOutput>;
+    export template<TensorDataType TInput, TensorDataType TPrecision = TInput>
+        requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cuda>
+    class CudaEncoderOp : public UnaryOperation<DeviceType::Cuda, TInput, TPrecision>
+    {
+    public:
+        using MR = CudaDeviceMemoryResource;
+        using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TInput, TPrecision>;
+        using TensorType = Tensor<TPrecision, MR>;
+        //using Parameters = std::vector<std::shared_ptr<TensorType>>;
+        //using OutputState = std::vector<std::shared_ptr<TensorType>>;
+        using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::native_type;
+        using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 
-            /**
-             * @brief Constructs a new CUDA Encoder operation with the default device context.
-             *
-             * Initializes the operation with a CUDA device context (defaults to CUDA:0).
-             */
-            CudaEncoderOp( const EncoderConfig& config )
-                : OperationBase( OperationType::EncoderOp ), config_( config ) {}
-
-            /**
-             * @brief Constructs a new CUDA Encoder operation with a specific device context.
-             *
-             * @param context The device context to use for this operation.
-             * @throws std::runtime_error If the context is not for a CUDA device.
-             */
-            CudaEncoderOp( std::shared_ptr<DeviceContext> context, const EncoderConfig& config )
-                : OperationBase( OperationType::EncoderOp, context ), config_( config ) {
+        CudaEncoderOp( std::shared_ptr<CudaExecutionContext> context, const EncoderConfig& config )
+            : config_( config ), context_( context ), impl_()
+        {
+            if (!context_)
+            {
+                throw std::runtime_error( "CudaEncoderOp requires a CUDA execution context" );
             }
 
-            /**
-             * @brief Performs the forward pass of the Encoder operation on CUDA.
-             *
-             * Transforms input token IDs into continuous embeddings by:
-             * 1. Looking up token embeddings from the embedding table (wte)
-             * 2. Adding positional embeddings (wpe) based on token position
-             *
-             * The computation is performed on the GPU using CUDA kernels for optimal performance.
-             *
-             * @param input Input tensor of shape [B, TDataType] containing token IDs, where B is batch size and TDataType is sequence length.
-             * @param parameters Vector of parameter tensors [wte, wpe] where wte is of shape [V, C] (vocabulary size � embedding dimension)
-             *                   and wpe is of shape [maxT, C] (maximum sequence length � embedding dimension).
-             * @param properties Additional attributes for the operation.
-             * @param output Output tensor of shape [B, TDataType, C] containing the resulting embeddings.
-             * @param output_state Cache for intermediate results (not used in this operation).
-             */
-            void forward(
-                const Tensor<TInput, MR>& input,
-                const std::vector<std::shared_ptr<ITensor>>& parameters,
-                Tensor<TOutput, MR>& output,
-                std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const override {
+            config_.validate();
+        }
 
-				// TODO: Argument validation. 
+        // ====================================================================
+        // Parameters and Gradients
+        // ====================================================================
 
-                auto X = input.data();
-                auto Y = output.data();
-
-                auto wte = parameters[ 0 ];
-                auto wpe = parameters[ 1 ];
-
-                int B = input.shape()[ 0 ];
-                int T = input.shape()[ 1 ];
-                int C = wte->shape()[ 1 ];
-
-                cudaStream_t stream = this->getDeviceContext()->getStream();
-
-                // FIXME: Detail::cuda_encoder_impl<TOutput>::forward( Y, X, wte->data(), wpe->data(), B, T, C, stream );
+        /**
+         * @brief Set parameter tensor references (module remains owner).
+         *
+         * The operation caches native device pointers for hot-path access.
+         * Both wte (token embeddings) and wpe (positional embeddings) are required.
+         *
+         * Note: build() requires parameters to be bound before it is called.
+         */
+        void setParameters( ITensor* wte, ITensor* wpe ) override
+        {
+            if (!wte || !wpe)
+            {
+                throw std::invalid_argument( "CudaEncoderOp::setParameters - both wte and wpe parameters are required" );
             }
 
-            /**
-             * @brief Performs the backward pass of the Encoder operation.
-             *
-             * Computes gradients with respect to the embedding tables (token and position).
-             *
-             * @param input Input tensor from the forward pass.
-             * @param output Output tensor from the forward pass.
-             * @param output_gradient Gradient of the loss with respect to the output.
-             * @param parameters Parameters tensor from forward pass.
-             * @param parameter_gradients Gradients for parameters (embedding tables).
-             * @param input_gradient Gradient of the loss with respect to the input (typically not used for discrete inputs).
-             * @param properties Additional attributes for the operation.
-             * @param output_state Cache tensors from forward pass.
-             */
-            void backward(
-                const Tensor<int, MR>& input,
-                const Tensor<TOutput, MR>& output,
-                const Tensor<TOutput, MR>& output_gradient,
-                const std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& parameters,
-                std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& parameter_gradients,
-                Tensor<int, MR>& input_gradient,
-                const std::vector<std::shared_ptr<Tensor<TOutput, MR>>>& output_state ) const {
-
-                if ( !this->getDeviceContext()->isDeviceType( DeviceType::Cuda ) ) {
-                    throw std::runtime_error( "CudaEncoderOp::backward can only be executed on CUDA device" );
-                }
-
-                // Implementation for backward pass for Encoder operation
-                // Typically this would update gradients for the embedding tables (wte and wpe)
-
-                // Get CUDA stream from device context
-                cudaStream_t stream = this->getDeviceContext()->getStream();
-
-                // FIXME: Implement backward pass using appropriate CUDA kernels
-                // cuda_encoder_backward(...);
+            if (wte->getDeviceType() != DeviceType::Cuda || wpe->getDeviceType() != DeviceType::Cuda)
+            {
+                throw std::invalid_argument( "CudaEncoderOp::setParameters - parameters must be CUDA tensors" );
             }
 
-            /**
-             * @brief Gets the name of this operation.
-             *
-             * @return std::string The name of the operation ("Cuda::EncoderOp").
-             */
-            std::string getName() const override {
-                return "Cuda::EncoderOp";
+            wte_ = static_cast<NativeType*>(wte->rawData());
+            wpe_ = static_cast<NativeType*>(wpe->rawData());
+
+            // Store shapes for validation
+            const auto& wte_shape = wte->shape();
+            const auto& wpe_shape = wpe->shape();
+
+            if (wte_shape.size() != 2 || wpe_shape.size() != 2)
+            {
+                throw std::invalid_argument( "CudaEncoderOp::setParameters - wte and wpe must be 2D tensors" );
             }
-            
-        private:
-            EncoderConfig config_; ///< Configuration for the encoder operation.
+
+            wte_vocab_size_ = static_cast<int>(wte_shape[0]);
+            wte_embedding_dim_ = static_cast<int>(wte_shape[1]);
+
+            wpe_max_seq_len_ = static_cast<int>(wpe_shape[0]);
+            wpe_embedding_dim_ = static_cast<int>(wpe_shape[1]);
+
+            if (wte_embedding_dim_ != wpe_embedding_dim_)
+            {
+                throw std::invalid_argument( "CudaEncoderOp::setParameters - wte and wpe must have same embedding dimension" );
+            }
+        }
+
+        /**
+         * @brief Set parameter gradient tensor references for training.
+         *
+         * The operation caches native device gradient pointers for hot-path write access
+         * during backward(). Both wte_grad and wpe_grad are required.
+         */
+        void setParameterGradients( ITensor* wte_grad, ITensor* wpe_grad ) override
+        {
+            if (!wte_grad || !wpe_grad)
+            {
+                throw std::invalid_argument( "CudaEncoderOp::setParameterGradients - both gradients are required" );
+            }
+
+            if (wte_grad->getDeviceType() != DeviceType::Cuda || wpe_grad->getDeviceType() != DeviceType::Cuda)
+            {
+                throw std::invalid_argument( "CudaEncoderOp::setParameterGradients - gradients must be CUDA tensors" );
+            }
+
+            wte_grad_ = static_cast<NativeType*>(wte_grad->rawData());
+            wpe_grad_ = static_cast<NativeType*>(wpe_grad->rawData());
+        }
+
+        // ====================================================================
+        // Lifecycle
+        // ====================================================================
+
+        /**
+         * @brief Build the operation for a concrete input shape.
+         *
+         * This is the COLD PATH where all setup, validation, and computation happens ONCE.
+         * After build() completes, forward() and backward() become pure dispatch methods.
+         *
+         * Responsibilities:
+         *  1. Validate parameters are bound via setParameters()
+         *  2. Validate input shape (must be [B, T] for token indices)
+         *  3. Compute and cache kernel dispatch dimensions [B, T, C]
+         *  4. Validate sequence length against configured maximum
+         *
+         * After build(), the operation is ready for zero-overhead forward/backward dispatch.
+         */
+        void build( const shape_t& input_shape ) override
+        {
+            if (wte_ == nullptr || wpe_ == nullptr)
+            {
+                throw std::runtime_error( "CudaEncoderOp::build requires parameters bound via setParameters() before build()." );
+            }
+
+            validateInputShape( input_shape );
+
+            cached_batch_size_ = static_cast<int>(input_shape[0]);
+            cached_seq_length_ = static_cast<int>(input_shape[1]);
+            cached_embedding_dim_ = wte_embedding_dim_;
+
+            // Validate sequence length against configured maximum
+            if (cached_seq_length_ > wpe_max_seq_len_)
+            {
+                throw std::invalid_argument(
+                    "CudaEncoderOp::build - sequence length exceeds positional embedding capacity" );
+            }
+
+            // Validate embedding dimensions match configuration
+            if (cached_embedding_dim_ != config_.getChannels())
+            {
+                throw std::invalid_argument(
+                    "CudaEncoderOp::build - parameter embedding dimension doesn't match configuration" );
+            }
+
+            UnaryOperationBase::build( input_shape );
+        }
+
+        // ====================================================================
+        // Forward pass
+        // ====================================================================
+
+        /**
+         * @brief Forward pass - HOT PATH, pure dispatch to CUDA kernel.
+         *
+         * All setup, validation, and dimension computation was done in build().
+         * This method extracts raw pointers and dispatches directly to the kernel
+         * using pre-computed cached dimensions.
+         *
+         * For each position (b, t) in the batch:
+         *   output[b, t, :] = wte[input[b, t], :] + wpe[t, :]
+         *
+         * Zero redundant work - maximum performance.
+         */
+        void forward( const ITensor& input, ITensor& output ) const override
+        {
+            // Input is INT32 token indices, output is NativeType embeddings
+            const int32_t* X = static_cast<const int32_t*>(input.rawData());
+            NativeType* Y = static_cast<NativeType*>(output.rawData());
+
+            cudaStream_t stream = context_->getStream();
+
+            Detail::cuda_encoder_impl<NativeType>::forward(
+                Y, X,
+                wte_, wpe_,
+                cached_batch_size_,
+                cached_seq_length_,
+                cached_embedding_dim_,
+                stream
+            );
+        }
+
+        // ====================================================================
+        // Backward pass
+        // ====================================================================
+
+        /**
+         * @brief Backward pass - HOT PATH, pure dispatch to CUDA kernel.
+         *
+         * Similar to forward(), this method does minimal work and dispatches
+         * directly to the backward kernel using cached dimensions from build().
+         *
+         * Accumulates gradients into wte and wpe embedding tables.
+         * Token indices are discrete (non-differentiable), so no input gradient.
+         */
+        void backward(
+            const ITensor& input,
+            const ITensor& output_grad,
+            ITensor& input_grad ) const override
+        {
+            const int32_t* X = static_cast<const int32_t*>(input.rawData());
+            const NativeType* dY = static_cast<const NativeType*>(output_grad.rawData());
+
+            NativeType* dwte = wte_grad_;
+            NativeType* dwpe = wpe_grad_;
+
+            cudaStream_t stream = context_->getStream();
+
+            Detail::cuda_encoder_impl<NativeType>::backward(
+                dwte, dwpe,
+                X, dY,
+                cached_batch_size_,
+                cached_seq_length_,
+                cached_embedding_dim_,
+                stream
+            );
+
+            // input_grad is unused (token indices are non-differentiable)
+        }
+
+        OperationType getOperationType() const override
+        {
+            return OperationType::EncoderOp;
+        }
+
+        std::string getName() const override
+        {
+            return "Cuda::EncoderOp";
+        }
+
+        const EncoderConfig& getConfig() const
+        {
+            return config_;
+        }
+
+    private:
+        EncoderConfig config_;
+        std::shared_ptr<CudaExecutionContext> context_;
+        Detail::cuda_encoder_impl<NativeType> impl_;
+
+        // Cached native device parameter pointers (module owns underlying tensors)
+        NativeType* wte_{ nullptr };  // Token embeddings (V, C)
+        NativeType* wpe_{ nullptr };  // Position embeddings (maxT, C)
+
+        // Cached native device parameter gradient pointers (module owns underlying tensors)
+        NativeType* wte_grad_{ nullptr };
+        NativeType* wpe_grad_{ nullptr };
+
+        // Parameter dimensions for validation
+        int wte_vocab_size_{ 0 };
+        int wte_embedding_dim_{ 0 };
+        int wpe_max_seq_len_{ 0 };
+        int wpe_embedding_dim_{ 0 };
+
+        // Cached dimension values computed once in build() for hot-path dispatch
+        int cached_batch_size_{ 0 };
+        int cached_seq_length_{ 0 };
+        int cached_embedding_dim_{ 0 };
+
+        void validateInputShape( const shape_t& input_shape ) const
+        {
+            if (input_shape.size() != 2)
+            {
+                throw std::invalid_argument(
+                    "CudaEncoderOp: input must have rank 2 (batch_size, sequence_length)" );
+            }
+
+            if (input_shape[1] > config_.getMaxSequenceLength())
+            {
+                throw std::invalid_argument(
+                    "CudaEncoderOp: sequence length exceeds configured maximum" );
+            }
+        }
     };
 
-    /**
-     * @brief Class responsible for registering the CudaEncoderOp operation.
-     *
-     * The CudaEncoderOpRegistrar class registers the CudaEncoderOp operation with the OperationRegistry.
-     * It associates the operation name "Cuda::EncoderOp" with a factory function that creates
-     * instances of CudaEncoderOp with appropriate template parameters.
-     */
-    export class CudaEncoderOpRegistrar {
+    export class CudaEncoderOpRegistrar
+    {
     public:
-        /**
-         * @brief Registers the CudaEncoderOp operation with the OperationRegistry.
-         *
-         * This function registers the CudaEncoderOp operation for the CUDA device type
-         * with the OperationRegistry. It associates the operation name "Cuda::EncoderOp"
-         * with a factory function that creates instances of CudaEncoderOp.
-         */
-        static void registerOperations() {
-            const std::string opName = "Cuda::EncoderOp";
+        static void registerOperations()
+        {
+            const std::string opName = "EncoderOp";
 
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, int, float>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::INT32, TensorDataType::FP32>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, int, float>> {
-                    const auto& encoderConfig = static_cast<const EncoderConfig&>( config );
-                    return context ? std::make_shared<CudaEncoderOp<int, float>>( context, encoderConfig )
-                        : std::make_shared<CudaEncoderOp<int,float>>( encoderConfig );
+                []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
+                    const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::INT32, TensorDataType::FP32>>
+                {
+                    const auto& encoder_config = dynamic_cast<const EncoderConfig&>(config);
+                    return std::make_shared<CudaEncoderOp<TensorDataType::INT32, TensorDataType::FP32>>( context, encoder_config );
                 }
             );
 
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, int, half>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::INT32, TensorDataType::FP16>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, int, half>> {
-                    const auto& encoderConfig = static_cast<const EncoderConfig&>( config );
-                    return context ? std::make_shared<CudaEncoderOp<int, half>>( context, encoderConfig )
-                        : std::make_shared<CudaEncoderOp<int, half>>( encoderConfig );
+                []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
+                    const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::INT32, TensorDataType::FP16>>
+                {
+                    const auto& encoder_config = dynamic_cast<const EncoderConfig&>(config);
+                    return std::make_shared<CudaEncoderOp<TensorDataType::INT32, TensorDataType::FP16>>( context, encoder_config );
                 }
             );
         }
 
-        /**
-         * @brief Self-registration mechanism that registers the operation during startup.
-         *
-         * This static member ensures the operation is registered when the program starts
-         * without requiring explicit registration calls.
-         */
-        static inline bool isRegistered = []() {
-            registerOperations();
-            return true;
+        static inline bool isRegistered = []()
+            {
+                registerOperations();
+                return true;
             }();
     };
 }

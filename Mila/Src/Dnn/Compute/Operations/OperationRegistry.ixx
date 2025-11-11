@@ -1,24 +1,6 @@
 /**
  * @file OperationRegistry.ixx
  * @brief Central registry for creating and discovering compute operations.
- *
- * This module implements a singleton registry that maps (DeviceType, TensorDataType)
- * pairs and operation names to factory functions that construct concrete
- * UnaryOperation and BinaryOperation implementations.
- *
- * Responsibilities:
- * - Allow registration of typed operation creators: creators receive a
- *   std::shared_ptr<ExecutionContext<TDeviceType>> and ConfigurationBase.
- * - Provide creation helpers that return strongly-typed operation instances
- *   (e.g., std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>>).
- * - Maintain metadata for fused operations and provide discovery utilities.
- *
- * Notes:
- * - Factories are stored type-erased as GenericCreator accepting
- *   std::shared_ptr<IExecutionContext> so registry can store creators for
- *   varied ExecutionContext<TDeviceType> types in a single container.
- * - The registry remains keyed by TensorDataType to preserve compile-time
- *   type-safety for operation implementations.
  */
 
 module;
@@ -54,172 +36,166 @@ import Compute.CudaDeviceMemoryResource;
 namespace Mila::Dnn::Compute
 {
     /**
-     * @brief Metadata for fused operations in the neural network.
-     */
-    struct FusedOpMeta {
-        std::vector<std::string> module_types;   ///< List of module types that make up this fused operation
-        std::string fused_op_name;               ///< Name of the fused operation
-        TensorDataType data_type;                ///< Abstract data type used by the fused operation
-        std::string variant;                     ///< Variant of the operation implementation
-        DeviceType device_type;                  ///< Target device type for the fused operation
-    };
-
-    /**
      * @brief A registry for operations using abstract tensor data types.
      *
      * Stores factory functions for concrete, typed operations. Factories are
-     * registered per (DeviceType, TensorDataType) and operation name.
+     * registered per (DeviceType, precision, inputA type, inputB type) and operation name.
      */
-    export class OperationRegistry {
+     /**
+  * @brief A registry for operations using abstract tensor data types.
+  *
+  * Stores factory functions for concrete, typed operations. Factories are
+  * registered per (DeviceType, input types, compute precision) and operation name.
+  */
+    export class OperationRegistry
+    {
     public:
-        
-        /*using UnaryOpFactory = std::function<std::shared_ptr<UnaryOperation<TDeviceType, TDataType>>(
-            std::shared_ptr<ExecutionContext<TDeviceType>>,
-            const ConfigurationBase& )>;*/
-        
 
         /**
          * @brief Composite key for registry lookup.
+         *
+         * For unary operations the second data type equals the first.
          */
-        struct TypeID {
-            TensorDataType data_type;           ///< Abstract tensor data type
-            DeviceType device_type;             ///< Target device type for the operation
+        struct TypeID
+        {
+            DeviceType device_type;                 ///< Target device type for the operation
+            TensorDataType data_type_a;             ///< Abstract tensor data type for input A
+            TensorDataType data_type_b;             ///< Abstract tensor data type for input B (or same as A for unary)
+            TensorDataType compute_precision;       ///< Internal computation/accumulation precision (optimization parameter)
+            ///< Currently often matches input types, but allows future
+            ///< mixed-precision scenarios (e.g., FP16 input, FP32 accumulation)
 
-            bool operator==( const TypeID& other ) const {
-                return data_type == other.data_type &&
-                    device_type == other.device_type;
+            bool operator==( const TypeID& other ) const
+            {
+                return device_type == other.device_type &&
+                    data_type_a == other.data_type_a &&
+                    data_type_b == other.data_type_b &&
+                    compute_precision == other.compute_precision;
             }
         };
 
-        struct TypeIDHash {
-            std::size_t operator()( const TypeID& id ) const {
-                std::size_t h1 = std::hash<TensorDataType>{}(id.data_type);
-                std::size_t h2 = std::hash<DeviceType>{}(id.device_type);
-                return h1 ^ (h2 << 1);
+        struct TypeIDHash
+        {
+            std::size_t operator()( const TypeID& id ) const
+            {
+                std::size_t h1 = std::hash<DeviceType>{}(id.device_type);
+                std::size_t h2 = std::hash<TensorDataType>{}(id.data_type_a);
+                std::size_t h3 = std::hash<TensorDataType>{}(id.data_type_b);
+                std::size_t h4 = std::hash<TensorDataType>{}(id.compute_precision);
+
+                // Combine hashes (simple, deterministic mix)
+                std::size_t seed = h1;
+                seed ^= (h2 + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2));
+                seed ^= (h3 + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2));
+                seed ^= (h4 + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2));
+                return seed;
             }
         };
 
         /**
          * @brief Get the singleton instance of the OperationRegistry.
          */
-        static OperationRegistry& instance() {
+        static OperationRegistry& instance()
+        {
             static OperationRegistry registry;
             return registry;
         }
 
         /**
-         * @brief Register a unary operation creator for a specific device type and data type.
+         * @brief Register a unary operation creator for a specific device type, input type, and compute precision.
          *
          * Creator must accept a std::shared_ptr<ExecutionContext<TDeviceType>> and ConfigurationBase
-         * and return a std::shared_ptr<UnaryOperation<TDeviceType, TDataType>>.
+         * and return a std::shared_ptr<UnaryOperation<TDeviceType, TInputType, TComputePrecision>>.
          */
-        template<DeviceType TDeviceType, TensorDataType TDataType>
+        template<DeviceType TDeviceType, TensorDataType TInputType, TensorDataType TComputePrecision = TInputType>
         void registerUnaryOperation(
             const std::string& operation_name,
-            std::function<std::shared_ptr<UnaryOperation<TDeviceType, TDataType>>(
+            std::function<std::shared_ptr<UnaryOperation<TDeviceType, TInputType, TComputePrecision>>(
                 std::shared_ptr<ExecutionContext<TDeviceType>>,
-                const ConfigurationBase& )> creator ) {
+                const ConfigurationBase& )> creator )
+        {
 
-            TypeID type_id{ TDataType, TDeviceType };
+            TypeID type_id{ TDeviceType, TInputType, TInputType, TComputePrecision };
 
-            // Wrap typed creator into a generic creator that accepts IExecutionContext
             auto genericCreator = [creator](
                 std::shared_ptr<IExecutionContext> ictx,
                 const ConfigurationBase& config ) -> std::shared_ptr<void> {
 
-                // Safe cast: ExecutionContext<TDeviceType> inherits from IExecutionContext
-                auto ctx = std::static_pointer_cast<ExecutionContext<TDeviceType>>(ictx);
-                if (!ctx) {
-                    throw std::runtime_error( "ExecutionContext cast failed in registry creator." );
-                }
+                    if (!ictx)
+                    {
+                        throw std::invalid_argument( "ExecutionContext cannot be null when creating an operation" );
+                    }
 
-                return creator( ctx, config );
-            };
+                    auto ctx = std::static_pointer_cast<ExecutionContext<TDeviceType>>(ictx);
+                    if (!ctx)
+                    {
+                        throw std::runtime_error( "ExecutionContext cast failed in registry creator." );
+                    }
+
+                    return creator( ctx, config );
+                };
 
             registry_[type_id][operation_name] = std::move( genericCreator );
         }
 
         /**
-         * @brief Register a binary operation creator for a specific device type and data type.
+         * @brief Register a binary operation creator for a specific device type, input types, and compute precision.
          *
          * Creator must accept a std::shared_ptr<ExecutionContext<TDeviceType>> and ConfigurationBase
-         * and return a std::shared_ptr<BinaryOperation<TDeviceType, TDataType>>.
+         * and return a std::shared_ptr<BinaryOperation<TDeviceType, TInputA, TInputB, TComputePrecision>>.
          */
-        template<DeviceType TDeviceType, TensorDataType TDataType>
+        template<DeviceType TDeviceType, TensorDataType TInputA, TensorDataType TInputB = TInputA,
+            TensorDataType TComputePrecision = TInputA>
         void registerBinaryOperation(
             const std::string& operation_name,
-            std::function<std::shared_ptr<BinaryOperation<TDeviceType, TDataType>>(
+            std::function<std::shared_ptr<BinaryOperation<TDeviceType, TInputA, TInputB, TComputePrecision>>(
                 std::shared_ptr<ExecutionContext<TDeviceType>>,
-                const ConfigurationBase& )> creator ) {
+                const ConfigurationBase& )> creator )
+        {
 
-            TypeID type_id{ TDataType, TDeviceType };
+            TypeID type_id{ TDeviceType, TInputA, TInputB, TComputePrecision };
 
             auto genericCreator = [creator](
                 std::shared_ptr<IExecutionContext> ictx,
                 const ConfigurationBase& config ) -> std::shared_ptr<void> {
 
-                if (!ictx) {
-                    throw std::invalid_argument( "ExecutionContext cannot be null when creating an operation" );
-                }
+                    if (!ictx)
+                    {
+                        throw std::invalid_argument( "ExecutionContext cannot be null when creating an operation" );
+                    }
 
-                auto ctx = std::static_pointer_cast<ExecutionContext<TDeviceType>>(ictx);
-                if (!ctx) {
-                    throw std::runtime_error( "ExecutionContext cast failed in registry creator." );
-                }
+                    auto ctx = std::static_pointer_cast<ExecutionContext<TDeviceType>>(ictx);
+                    if (!ctx)
+                    {
+                        throw std::runtime_error( "ExecutionContext cast failed in registry creator." );
+                    }
 
-                return creator( ctx, config );
-            };
+                    return creator( ctx, config );
+                };
 
             registry_[type_id][operation_name] = std::move( genericCreator );
-        }
-
-        /**
-         * @brief Register a fused operation (metadata only).
-         */
-        void registerFusedOperation(
-            const std::vector<OperationType>& operation_types,
-            const std::string& fused_op_name,
-            TensorDataType data_type,
-            DeviceType device_type,
-            const std::string& variant = "Default" ) {
-
-            std::vector<std::string> module_types;
-            for (const auto& op_type : operation_types) {
-                std::string module_name = operationTypeToString( op_type );
-                if (module_name.size() > 2 && module_name.substr(module_name.size() - 2) == "Op") {
-                    module_name = module_name.substr(0, module_name.size() - 2) + "Module";
-                }
-                module_types.push_back( module_name );
-            }
-
-            FusedOpMeta meta{ module_types, fused_op_name, data_type, variant, device_type };
-            fused_ops_.push_back( meta );
         }
 
         /**
          * @brief Create a unary operation instance (typed).
-         *
-         * The caller provides a std::shared_ptr<ExecutionContext<TDeviceType>>; the registry
-         * will invoke the stored generic creator with an IExecutionContext wrapper and
-         * return a strongly-typed operation pointer.
          */
-        template<DeviceType TDeviceType, TensorDataType TDataType>
-        std::shared_ptr<UnaryOperation<TDeviceType, TDataType>> createUnaryOperation(
+        template<DeviceType TDeviceType, TensorDataType TInputType, TensorDataType TComputePrecision = TInputType>
+        std::shared_ptr<UnaryOperation<TDeviceType, TInputType, TComputePrecision>> createUnaryOperation(
             const std::string& operation_name,
             std::shared_ptr<ExecutionContext<TDeviceType>> context,
             const ConfigurationBase& config ) const
         {
-
-            TypeID type_id{ TDataType, TDeviceType };
+            TypeID type_id{ TDeviceType, TInputType, TInputType, TComputePrecision };
 
             auto type_it = registry_.find( type_id );
 
             if (type_it == registry_.end())
             {
                 throw std::runtime_error( std::format(
-                    "createUnaryOperation: No operations registered for Device: {}, DataType: {}",
+                    "createUnaryOperation: No operations registered for Device: {}, InputType: {}, ComputePrecision: {}",
                     TDeviceType == DeviceType::Cpu ? "CPU" : "CUDA",
-                    TensorDataTypeTraits<TDataType>::type_name
+                    TensorDataTypeTraits<TInputType>::type_name,
+                    TensorDataTypeTraits<TComputePrecision>::type_name
                 ) );
             }
 
@@ -228,10 +204,11 @@ namespace Mila::Dnn::Compute
             if (op_it == type_it->second.end())
             {
                 throw std::runtime_error( std::format(
-                    "createUnaryOperation: Operation '{}' not found for Device: {}, DataType: {}",
+                    "createUnaryOperation: Operation '{}' not found for Device: {}, InputType: {}, ComputePrecision: {}",
                     operation_name,
                     TDeviceType == DeviceType::Cpu ? "CPU" : "CUDA",
-                    TensorDataTypeTraits<TDataType>::type_name
+                    TensorDataTypeTraits<TInputType>::type_name,
+                    TensorDataTypeTraits<TComputePrecision>::type_name
                 ) );
             }
 
@@ -240,8 +217,7 @@ namespace Mila::Dnn::Compute
                 throw std::invalid_argument( "ExecutionContext cannot be null when creating an operation" );
             }
 
-            // Invoke generic creator with type-erased IExecutionContext and cast result
-            auto op = std::static_pointer_cast<UnaryOperation<TDeviceType, TDataType>>(
+            auto op = std::static_pointer_cast<UnaryOperation<TDeviceType, TInputType, TComputePrecision>>(
                 op_it->second( std::static_pointer_cast<IExecutionContext>(context), config ));
 
             return op;
@@ -249,76 +225,63 @@ namespace Mila::Dnn::Compute
 
         /**
          * @brief Create a binary operation instance (typed).
+         *
+         * Template parameters allow specifying distinct data types for the two inputs and compute precision.
          */
-        template<DeviceType TDeviceType, TensorDataType TDataType>
-        std::shared_ptr<BinaryOperation<TDeviceType, TDataType>> createBinaryOperation(
+        template<DeviceType TDeviceType, TensorDataType TInputA, TensorDataType TInputB = TInputA,
+            TensorDataType TComputePrecision = TInputA>
+        std::shared_ptr<BinaryOperation<TDeviceType, TInputA, TInputB, TComputePrecision>> createBinaryOperation(
             const std::string& operation_name,
             std::shared_ptr<ExecutionContext<TDeviceType>> context,
-            const ConfigurationBase& config ) const {
+            const ConfigurationBase& config ) const
+        {
 
-            TypeID type_id{ TDataType, TDeviceType };
+            TypeID type_id{ TDeviceType, TInputA, TInputB, TComputePrecision };
 
             auto type_it = registry_.find( type_id );
-            if (type_it == registry_.end()) {
+            if (type_it == registry_.end())
+            {
                 throw std::runtime_error( std::format(
-                    "createBinaryOperation: No operations registered for DataType: {}, Device: {}",
-                    TensorDataTypeTraits<TDataType>::type_name,
-                    TDeviceType == DeviceType::Cpu ? "CPU" : "CUDA"
+                    "createBinaryOperation: No operations registered for Device: {}, InputTypes: ({}, {}), ComputePrecision: {}",
+                    TDeviceType == DeviceType::Cpu ? "CPU" : "CUDA",
+                    TensorDataTypeTraits<TInputA>::type_name,
+                    TensorDataTypeTraits<TInputB>::type_name,
+                    TensorDataTypeTraits<TComputePrecision>::type_name
                 ) );
             }
 
             auto op_it = type_it->second.find( operation_name );
-            if (op_it == type_it->second.end()) {
+            if (op_it == type_it->second.end())
+            {
                 throw std::runtime_error( std::format(
-                    "createBinaryOperation: Operation '{}' not found for DataType: {}, Device: {}",
+                    "createBinaryOperation: Operation '{}' not found for Device: {}, InputTypes: ({}, {}), ComputePrecision: {}",
                     operation_name,
-                    TensorDataTypeTraits<TDataType>::type_name,
-                    TDeviceType == DeviceType::Cpu ? "CPU" : "CUDA"
+                    TDeviceType == DeviceType::Cpu ? "CPU" : "CUDA",
+                    TensorDataTypeTraits<TInputA>::type_name,
+                    TensorDataTypeTraits<TInputB>::type_name,
+                    TensorDataTypeTraits<TComputePrecision>::type_name
                 ) );
             }
 
-            if (!context) {
+            if (!context)
+            {
                 throw std::invalid_argument( "ExecutionContext cannot be null when creating an operation" );
             }
 
-            auto op = std::static_pointer_cast<BinaryOperation<TDeviceType, TDataType>>(
-                op_it->second( std::static_pointer_cast<IExecutionContext>(context), config ) );
+            auto op = std::static_pointer_cast<BinaryOperation<TDeviceType, TInputA, TInputB, TComputePrecision>>(
+                op_it->second( std::static_pointer_cast<IExecutionContext>(context), config ));
 
             return op;
         }
 
         /**
-         * @brief Find a fused operation match for a sequence of module types.
-         */
-        std::optional<FusedOpMeta> findFusedMatch(
-            const std::vector<std::string>& child_types,
-            DeviceType device_type,
-            TensorDataType data_type,
-            const std::string& variant = "Default" ) const {
-
-            for (const auto& entry : fused_ops_) {
-                if (entry.data_type != data_type) continue;
-                if (entry.device_type != device_type) continue;
-                if (entry.variant != variant && entry.variant != "Default") continue;
-                if (entry.module_types.size() > child_types.size()) continue;
-
-                for (size_t i = 0; i <= child_types.size() - entry.module_types.size(); ++i) {
-                    if (std::equal(
-                        entry.module_types.begin(), entry.module_types.end(),
-                        child_types.begin() + i )) {
-                        return entry;
-                    }
-                }
-            }
-            return std::nullopt;
-        }
-
-        /**
          * @brief Get list of registered operation names for a given type configuration.
          */
-        template<DeviceType TDeviceType, TensorDataType TDataType>
-        std::vector<std::string> getRegisteredOperations() const {
-            TypeID type_id{ TDataType, TDeviceType };
+        template<DeviceType TDeviceType, TensorDataType TInputA, TensorDataType TInputB = TInputA,
+            TensorDataType TComputePrecision = TInputA>
+        std::vector<std::string> getRegisteredOperations() const
+        {
+            TypeID type_id{ TDeviceType, TInputA, TInputB, TComputePrecision };
             auto type_it = registry_.find( type_id );
             if (type_it == registry_.end()) return {};
             std::vector<std::string> operations;
@@ -330,9 +293,11 @@ namespace Mila::Dnn::Compute
         /**
          * @brief Check if an operation is registered for given type configuration.
          */
-        template<DeviceType TDeviceType, TensorDataType TDataType>
-        bool isOperationRegistered( const std::string& operation_name ) const {
-            TypeID type_id{ TDataType, TDeviceType };
+        template<DeviceType TDeviceType, TensorDataType TInputA, TensorDataType TInputB = TInputA,
+            TensorDataType TComputePrecision = TInputA>
+        bool isOperationRegistered( const std::string& operation_name ) const
+        {
+            TypeID type_id{ TDeviceType, TInputA, TInputB, TComputePrecision };
             auto type_it = registry_.find( type_id );
             if (type_it == registry_.end()) return false;
             return type_it->second.find( operation_name ) != type_it->second.end();
@@ -343,7 +308,6 @@ namespace Mila::Dnn::Compute
             std::shared_ptr<IExecutionContext>,
             const ConfigurationBase& )>;
 
-        std::vector<FusedOpMeta> fused_ops_;
         std::unordered_map<TypeID, std::unordered_map<std::string, GenericCreator>, TypeIDHash> registry_;
 
         OperationRegistry() = default;

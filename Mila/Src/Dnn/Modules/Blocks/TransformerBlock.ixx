@@ -294,7 +294,7 @@ namespace Mila::Dnn
         /**
          * @brief Multi-head self-attention block including projections.
          */
-        std::shared_ptr<MultiHeadAttention<TDeviceType, TDataType>> attn_block_{ nullptr };
+        std::shared_ptr<Attention<TDeviceType, TDataType>> attn_block_{ nullptr };
 
         /**
          * @brief Feed-forward network (MLP).
@@ -373,13 +373,11 @@ namespace Mila::Dnn
                 this->getDeviceContext(), ln_2_config );
 
             // Create attention module
-            auto attn_config = MultiHeadAttentionConfig( C, num_heads )
+            auto attn_config = AttentionConfig( C, num_heads )
                 .withName( this->getDeviceName() + ".attn" )
-                .withInputShape( input_shape )
-                .withDropout( dropout_rate )
                 .withTraining( this->isTraining() );
 
-            attn_block_ = std::make_shared<MultiHeadAttention<TDeviceType, TDataType>>(
+            attn_block_ = std::make_shared<Attention<TDeviceType, TDataType>>(
                 this->getDeviceContext(), attn_config );
 
             // Create MLP module

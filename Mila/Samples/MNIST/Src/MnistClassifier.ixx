@@ -38,6 +38,7 @@ namespace Mila::Mnist
      * - Composite module pattern: manages child modules (3x Linear + 2x Gelu)
      * - Shape-agnostic configuration: batch size and MNIST dimensions define structure
      * - Runtime shapes determined at build() time from actual input tensor
+     * - Child modules stored as concrete types for type safety and direct access
      *
      * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda)
      * @tparam TPrecision Abstract tensor precision (TensorDataType)
@@ -51,6 +52,8 @@ namespace Mila::Mnist
         using CompositeModuleBase = CompositeModule<TDeviceType>;
         using ExecutionContextType = ExecutionContext<TDeviceType>;
         using TensorType = Tensor<TPrecision, MR>;
+        using LinearType = Linear<TDeviceType, TPrecision>;
+        using GeluType = Gelu<TDeviceType, TPrecision>;
 
         /**
          * @brief Construct classifier with execution context.
@@ -106,7 +109,6 @@ namespace Mila::Mnist
 
             cached_input_shape_ = input_shape;
 
-            // Compute intermediate shapes
             cached_hidden1_shape_ = input_shape;
             cached_hidden1_shape_.back() = HIDDEN1_SIZE;
 
@@ -116,14 +118,12 @@ namespace Mila::Mnist
             cached_output_shape_ = input_shape;
             cached_output_shape_.back() = MNIST_NUM_CLASSES;
 
-            // Build child modules with correct shapes
             fc1_->build( input_shape );
             gelu1_->build( cached_hidden1_shape_ );
             fc2_->build( cached_hidden1_shape_ );
             gelu2_->build( cached_hidden2_shape_ );
             output_fc_->build( cached_hidden2_shape_ );
 
-            // Allocate intermediate buffers
             auto device = exec_context_->getDevice();
 
             hidden1_pre_act_ = std::make_shared<TensorType>( device, cached_hidden1_shape_ );
@@ -154,26 +154,17 @@ namespace Mila::Mnist
          * @param input Input tensor containing flattened MNIST images (batch_size, 784)
          * @param output Output tensor for class logits (batch_size, 10)
          */
-        void forward( const ITensor& input, ITensor& output ) override
+        void forward( const ITensor& input, ITensor& output )
         {
             if (!isBuilt())
             {
                 throw std::runtime_error( "MnistClassifier must be built before calling forward." );
             }
 
-            // Layer 1: Input (784) -> Linear -> Hidden1_pre (128)
             fc1_->forward( input, *hidden1_pre_act_ );
-
-            // Activation 1: Hidden1_pre (128) -> GELU -> Hidden1 (128)
             gelu1_->forward( *hidden1_pre_act_, *hidden1_ );
-
-            // Layer 2: Hidden1 (128) -> Linear -> Hidden2_pre (64)
             fc2_->forward( *hidden1_, *hidden2_pre_act_ );
-
-            // Activation 2: Hidden2_pre (64) -> GELU -> Hidden2 (64)
             gelu2_->forward( *hidden2_pre_act_, *hidden2_ );
-
-            // Output layer: Hidden2 (64) -> Linear -> Output (10 logits)
             output_fc_->forward( *hidden2_, output );
         }
 
@@ -182,7 +173,7 @@ namespace Mila::Mnist
          *
          * Chains backward calls through the classifier structure in reverse order.
          */
-        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad ) override
+        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
         {
             if (!isBuilt())
             {
@@ -191,27 +182,22 @@ namespace Mila::Mnist
 
             auto device = exec_context_->getDevice();
 
-            // Backprop through output layer: dL/dHidden2
             TensorType hidden2_grad( device, cached_hidden2_shape_ );
             zeros( hidden2_grad );
             output_fc_->backward( *hidden2_, output_grad, hidden2_grad );
 
-            // Backprop through GELU2: dL/dHidden2_pre
             TensorType hidden2_pre_grad( device, cached_hidden2_shape_ );
             zeros( hidden2_pre_grad );
             gelu2_->backward( *hidden2_pre_act_, hidden2_grad, hidden2_pre_grad );
 
-            // Backprop through fc2: dL/dHidden1
             TensorType hidden1_grad( device, cached_hidden1_shape_ );
             zeros( hidden1_grad );
             fc2_->backward( *hidden1_, hidden2_pre_grad, hidden1_grad );
 
-            // Backprop through GELU1: dL/dHidden1_pre
             TensorType hidden1_pre_grad( device, cached_hidden1_shape_ );
             zeros( hidden1_pre_grad );
             gelu1_->backward( *hidden1_pre_act_, hidden1_grad, hidden1_pre_grad );
 
-            // Backprop through fc1: dL/dInput
             fc1_->backward( input, hidden1_pre_grad, input_grad );
         }
 
@@ -221,18 +207,20 @@ namespace Mila::Mnist
 
         void save( ModelArchive& archive ) const override
         {
-            for (const auto& module : this->getModules())
-            {
-                module->save( archive );
-            }
+            fc1_->save( archive );
+            gelu1_->save( archive );
+            fc2_->save( archive );
+            gelu2_->save( archive );
+            output_fc_->save( archive );
         }
 
         void load( ModelArchive& archive ) override
         {
-            for (const auto& module : this->getModules())
-            {
-                module->load( archive );
-            }
+            fc1_->load( archive );
+            gelu1_->load( archive );
+            fc2_->load( archive );
+            gelu2_->load( archive );
+            output_fc_->load( archive );
         }
 
         // ====================================================================
@@ -256,20 +244,22 @@ namespace Mila::Mnist
                 exec_context_->synchronize();
             }
 
-            for (const auto& module : this->getModules())
-            {
-                module->synchronize();
-            }
+            fc1_->synchronize();
+            gelu1_->synchronize();
+            fc2_->synchronize();
+            gelu2_->synchronize();
+            output_fc_->synchronize();
         }
 
         void setTraining( bool is_training ) override
         {
             CompositeModuleBase::setTraining( is_training );
 
-            for (auto& module : this->getModules())
-            {
-                module->setTraining( is_training );
-            }
+            fc1_->setTraining( is_training );
+            gelu1_->setTraining( is_training );
+            fc2_->setTraining( is_training );
+            gelu2_->setTraining( is_training );
+            output_fc_->setTraining( is_training );
         }
 
         bool isTraining() const override
@@ -280,11 +270,58 @@ namespace Mila::Mnist
         size_t parameterCount() const override
         {
             size_t total = 0;
-            for (const auto& module : this->getModules())
-            {
-                total += module->parameterCount();
-            }
+
+            total += fc1_->parameterCount();
+            total += gelu1_->parameterCount();
+            total += fc2_->parameterCount();
+            total += gelu2_->parameterCount();
+            total += output_fc_->parameterCount();
+
             return total;
+        }
+
+        std::vector<ITensor*> getParameters() const override
+        {
+            std::vector<ITensor*> params;
+
+            auto fc1_params = fc1_->getParameters();
+            params.insert( params.end(), fc1_params.begin(), fc1_params.end() );
+
+            auto gelu1_params = gelu1_->getParameters();
+            params.insert( params.end(), gelu1_params.begin(), gelu1_params.end() );
+
+            auto fc2_params = fc2_->getParameters();
+            params.insert( params.end(), fc2_params.begin(), fc2_params.end() );
+
+            auto gelu2_params = gelu2_->getParameters();
+            params.insert( params.end(), gelu2_params.begin(), gelu2_params.end() );
+
+            auto output_params = output_fc_->getParameters();
+            params.insert( params.end(), output_params.begin(), output_params.end() );
+
+            return params;
+        }
+
+        std::vector<ITensor*> getParameterGradients() const override
+        {
+            std::vector<ITensor*> grads;
+
+            auto fc1_grads = fc1_->getParameterGradients();
+            grads.insert( grads.end(), fc1_grads.begin(), fc1_grads.end() );
+
+            auto gelu1_grads = gelu1_->getParameterGradients();
+            grads.insert( grads.end(), gelu1_grads.begin(), gelu1_grads.end() );
+
+            auto fc2_grads = fc2_->getParameterGradients();
+            grads.insert( grads.end(), fc2_grads.begin(), fc2_grads.end() );
+
+            auto gelu2_grads = gelu2_->getParameterGradients();
+            grads.insert( grads.end(), gelu2_grads.begin(), gelu2_grads.end() );
+
+            auto output_grads = output_fc_->getParameterGradients();
+            grads.insert( grads.end(), output_grads.begin(), output_grads.end() );
+
+            return grads;
         }
 
         std::string toString() const override
@@ -328,14 +365,44 @@ namespace Mila::Mnist
             }
 
             oss << "Sub-Modules:" << std::endl;
-            for (const auto& [name, module] : this->getNamedModules())
-            {
-                oss << "  - " << name << std::endl;
-            }
+            oss << "  - fc1: " << fc1_->getName() << std::endl;
+            oss << "  - gelu1: " << gelu1_->getName() << std::endl;
+            oss << "  - fc2: " << fc2_->getName() << std::endl;
+            oss << "  - gelu2: " << gelu2_->getName() << std::endl;
+            oss << "  - output: " << output_fc_->getName() << std::endl;
 
             oss << std::endl;
 
             return oss.str();
+        }
+
+        // ====================================================================
+        // Child module accessors
+        // ====================================================================
+
+        std::shared_ptr<LinearType> getFC1() const noexcept
+        {
+            return fc1_;
+        }
+
+        std::shared_ptr<GeluType> getGelu1() const noexcept
+        {
+            return gelu1_;
+        }
+
+        std::shared_ptr<LinearType> getFC2() const noexcept
+        {
+            return fc2_;
+        }
+
+        std::shared_ptr<GeluType> getGelu2() const noexcept
+        {
+            return gelu2_;
+        }
+
+        std::shared_ptr<LinearType> getOutputFC() const noexcept
+        {
+            return output_fc_;
         }
 
     protected:
@@ -349,44 +416,33 @@ namespace Mila::Mnist
         void buildImpl( const shape_t& input_shape ) override
         {
             // Build is already handled by public build() method
-            // This override satisfies CompositeModule interface
         }
 
     private:
-        // Architecture constants
         static constexpr int64_t HIDDEN1_SIZE = 128;
         static constexpr int64_t HIDDEN2_SIZE = 64;
 
-        // Configuration
         std::string name_;
         int64_t batch_size_;
         bool built_{ false };
         std::shared_ptr<ExecutionContextType> exec_context_;
 
-        // Cached shapes determined at build time
         shape_t cached_input_shape_;
         shape_t cached_hidden1_shape_;
         shape_t cached_hidden2_shape_;
         shape_t cached_output_shape_;
 
-        // Child modules (3x Linear + 2x Gelu)
-        std::shared_ptr<Module<TDeviceType>> fc1_{ nullptr };
-        std::shared_ptr<Module<TDeviceType>> gelu1_{ nullptr };
-        std::shared_ptr<Module<TDeviceType>> fc2_{ nullptr };
-        std::shared_ptr<Module<TDeviceType>> gelu2_{ nullptr };
-        std::shared_ptr<Module<TDeviceType>> output_fc_{ nullptr };
+        std::shared_ptr<LinearType> fc1_{ nullptr };
+        std::shared_ptr<GeluType> gelu1_{ nullptr };
+        std::shared_ptr<LinearType> fc2_{ nullptr };
+        std::shared_ptr<GeluType> gelu2_{ nullptr };
+        std::shared_ptr<LinearType> output_fc_{ nullptr };
 
-        // Intermediate buffer tensors (allocated at build time)
         std::shared_ptr<TensorType> hidden1_pre_act_{ nullptr };
         std::shared_ptr<TensorType> hidden1_{ nullptr };
         std::shared_ptr<TensorType> hidden2_pre_act_{ nullptr };
         std::shared_ptr<TensorType> hidden2_{ nullptr };
 
-        /**
-         * @brief Validate input shape for MNIST classifier.
-         *
-         * Ensures the last dimension matches MNIST_IMAGE_SIZE (784).
-         */
         void validateInputShape( const shape_t& input_shape ) const
         {
             if (input_shape.empty())
@@ -405,55 +461,38 @@ namespace Mila::Mnist
             }
         }
 
-        /**
-         * @brief Create and register child modules.
-         *
-         * Called from constructor to instantiate all child modules and register
-         * them with the composite module base for uniform management.
-         */
         void createModules()
         {
-            // Layer 1: 784 -> 128
-            auto fc1_config = LinearConfig( MNIST_IMAGE_SIZE, HIDDEN1_SIZE );
-            fc1_config.withName( name_ + ".fc1" )
+            auto fc1_config = LinearConfig( MNIST_IMAGE_SIZE, HIDDEN1_SIZE )
+                .withName( name_ + ".fc1" )
                 .withBias( false );
 
-            fc1_ = std::make_shared<Linear<TDeviceType, TPrecision>>( exec_context_, fc1_config );
-            this->addModule( "fc1", fc1_ );
+            fc1_ = std::make_shared<LinearType>( exec_context_, fc1_config );
 
-            // Activation 1: GELU
             auto gelu1_config = GeluConfig();
             gelu1_config.withName( name_ + ".gelu1" );
 
-            gelu1_ = std::make_shared<Gelu<TDeviceType, TPrecision>>( exec_context_, gelu1_config );
-            this->addModule( "gelu1", gelu1_ );
+            gelu1_ = std::make_shared<GeluType>( exec_context_, gelu1_config );
 
-            // Layer 2: 128 -> 64
             auto fc2_config = LinearConfig( HIDDEN1_SIZE, HIDDEN2_SIZE );
             fc2_config.withName( name_ + ".fc2" )
                 .withBias( false );
 
-            fc2_ = std::make_shared<Linear<TDeviceType, TPrecision>>( exec_context_, fc2_config );
-            this->addModule( "fc2", fc2_ );
+            fc2_ = std::make_shared<LinearType>( exec_context_, fc2_config );
 
-            // Activation 2: GELU
             auto gelu2_config = GeluConfig();
             gelu2_config.withName( name_ + ".gelu2" );
 
-            gelu2_ = std::make_shared<Gelu<TDeviceType, TPrecision>>( exec_context_, gelu2_config );
-            this->addModule( "gelu2", gelu2_ );
+            gelu2_ = std::make_shared<GeluType>( exec_context_, gelu2_config );
 
-            // Output layer: 64 -> 10
             auto output_config = LinearConfig( HIDDEN2_SIZE, MNIST_NUM_CLASSES );
             output_config.withName( name_ + ".output" )
                 .withBias( false );
 
-            output_fc_ = std::make_shared<Linear<TDeviceType, TPrecision>>( exec_context_, output_config );
-            this->addModule( "output", output_fc_ );
+            output_fc_ = std::make_shared<LinearType>( exec_context_, output_config );
         }
     };
 
-    // Convenience aliases for common usages
     export template<TensorDataType TPrecision>
         using CpuMnistClassifier = MnistClassifier<DeviceType::Cpu, TPrecision>;
 

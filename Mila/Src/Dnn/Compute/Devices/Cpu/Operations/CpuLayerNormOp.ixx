@@ -50,23 +50,19 @@ namespace Mila::Dnn::Compute
      * @brief CPU implementation of Layer Normalization using abstract TensorDataType API.
      *
      * Template parameter TPrecision selects the abstract tensor precision (e.g. FP32).
-     * HostType is the corresponding CPU host representation for that precision.
+     * float is the corresponding CPU host representation for that precision.
      */
-    export template<TensorDataType TPrecision>
-        requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cpu>
-    class CpuLayerNormOp : public UnaryOperation<DeviceType::Cpu, TPrecision>
+    class CpuLayerNormOp : public UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>
     {
     public:
         using MR = CpuMemoryResource;
-        using UnaryOperationBase = UnaryOperation<DeviceType::Cpu, TPrecision>;
-        using TensorType = Tensor<TPrecision, MR>;
-        using Parameters = std::vector<std::shared_ptr<TensorType>>;
-        using OutputState = std::vector<std::shared_ptr<TensorType>>;
-        using HostType = typename TensorHostTypeMap<TPrecision>::host_type;
+        using UnaryOperationBase = UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>;
+        using TensorType = Tensor<TensorDataType::FP32, MR>;
+        //using float = typename TensorfloatMap<TPrecision>::host_type;
         using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
 
         CpuLayerNormOp( std::shared_ptr<CpuExecutionContext> context, const LayerNormConfig& config )
-            : config_( config ), context_( context )
+            : context_( context ), config_( config )
         {
             if (!context_)
             {
@@ -96,7 +92,7 @@ namespace Mila::Dnn::Compute
                 throw std::invalid_argument( "CpuLayerNormOp::setParameters - weight parameter is required" );
             }
 
-            weight_ = static_cast<HostType*>(weight->rawData());
+            weight_ = static_cast<float*>(weight->rawData());
 
             if (config_.hasBias())
             {
@@ -105,7 +101,7 @@ namespace Mila::Dnn::Compute
                     throw std::invalid_argument( "CpuLayerNormOp::setParameters - bias parameter expected but null was provided" );
                 }
 
-                bias_ = static_cast<HostType*>(bias->rawData());
+                bias_ = static_cast<float*>(bias->rawData());
             }
             else
             {
@@ -133,7 +129,7 @@ namespace Mila::Dnn::Compute
                 throw std::invalid_argument( "CpuLayerNormOp::setParameterGradients - weight gradient is required" );
             }
 
-            weight_grad_ = static_cast<HostType*>(weight_grad->rawData());
+            weight_grad_ = static_cast<float*>(weight_grad->rawData());
 
             if (config_.hasBias())
             {
@@ -142,7 +138,7 @@ namespace Mila::Dnn::Compute
                     throw std::invalid_argument( "CpuLayerNormOp::setParameterGradients - bias gradient expected but null was provided" );
                 }
 
-                bias_grad_ = static_cast<HostType*>(bias_grad->rawData());
+                bias_grad_ = static_cast<float*>(bias_grad->rawData());
             }
             else
             {
@@ -235,8 +231,8 @@ namespace Mila::Dnn::Compute
             const int64_t expected_slices = outer_size * inner_size;
 
             // Allocate backend-owned mean/rstd storage sized per outer grouping.
-            mean_storage_.assign( static_cast<size_t>( expected_slices ), HostType( 0 ) );
-            rstd_storage_.assign( static_cast<size_t>( expected_slices ), HostType( 0 ) );
+            mean_storage_.assign( static_cast<size_t>( expected_slices ), float( 0 ) );
+            rstd_storage_.assign( static_cast<size_t>( expected_slices ), float( 0 ) );
 
             mean_ = mean_storage_.data();
             rstd_ = rstd_storage_.data();
@@ -259,19 +255,19 @@ namespace Mila::Dnn::Compute
          */
         void forward( const ITensor& input, ITensor& output ) const override
         {
-            const HostType* X = static_cast<const HostType*>(input.rawData());
-            HostType* Y = static_cast<HostType*>(output.rawData());
+            const float* X = static_cast<const float*>(input.rawData());
+            float* Y = static_cast<float*>(output.rawData());
 
             if (!X || !Y)
             {
                 throw std::runtime_error( "CpuLayerNormOp::forward - null tensor data pointer" );
             }
 
-            const HostType* weight = weight_;
-            const HostType* bias = bias_;
+            const float* weight = weight_;
+            const float* bias = bias_;
 
-            HostType* mean = mean_;
-            HostType* rstd = rstd_;
+            float* mean = mean_;
+            float* rstd = rstd_;
 
             const auto& shape = input.shape();
             const int64_t ndim = shape.size();
@@ -309,8 +305,8 @@ namespace Mila::Dnn::Compute
             {
                 for (int64_t inner = 0; inner < inner_size; ++inner)
                 {
-                    const HostType* slice_in = X + (outer * dim_size * inner_size) + inner;
-                    HostType* slice_out = Y + (outer * dim_size * inner_size) + inner;
+                    const float* slice_in = X + (outer * dim_size * inner_size) + inner;
+                    float* slice_out = Y + (outer * dim_size * inner_size) + inner;
 
                     long double m = 0.0L;
                     for (int64_t i = 0; i < dim_size; ++i)
@@ -340,12 +336,12 @@ namespace Mila::Dnn::Compute
                         {
                             n += static_cast<long double>( bias[i] );
                         }
-                        slice_out[i * inner_size] = static_cast<HostType>(n);
+                        slice_out[i * inner_size] = static_cast<float>(n);
                     }
 
                     const int64_t slice_index = outer * inner_size + inner;
-                    if (mean) mean[slice_index] = static_cast<HostType>(m);
-                    if (rstd) rstd[slice_index] = static_cast<HostType>(s);
+                    if (mean) mean[slice_index] = static_cast<float>(m);
+                    if (rstd) rstd[slice_index] = static_cast<float>(s);
                 }
             }
         }
@@ -364,21 +360,21 @@ namespace Mila::Dnn::Compute
             const ITensor& output_grad,
             ITensor& input_grad ) const override
         {
-            const HostType* inp = static_cast<const HostType*>(input.rawData());
-            const HostType* dout = static_cast<const HostType*>(output_grad.rawData());
-            HostType* dinp = static_cast<HostType*>(input_grad.rawData());
+            const float* inp = static_cast<const float*>(input.rawData());
+            const float* dout = static_cast<const float*>(output_grad.rawData());
+            float* dinp = static_cast<float*>(input_grad.rawData());
 
             if (!inp || !dout || !dinp)
             {
                 throw std::runtime_error( "CpuLayerNormOp::backward - null tensor data pointer" );
             }
 
-            const HostType* weight = weight_;
-            HostType* dweight = weight_grad_;
-            HostType* dbias = bias_grad_;
+            const float* weight = weight_;
+            float* dweight = weight_grad_;
+            float* dbias = bias_grad_;
 
-            const HostType* mean = mean_;
-            const HostType* rstd = rstd_;
+            const float* mean = mean_;
+            const float* rstd = rstd_;
 
             const auto& shape = input.shape();
             const int64_t ndim = static_cast<int64_t>(shape.size());
@@ -421,9 +417,9 @@ namespace Mila::Dnn::Compute
             {
                 for (int64_t inner = 0; inner < inner_size; ++inner)
                 {
-                    const HostType* inp_slice = inp + (outer * dim_size * inner_size) + inner;
-                    const HostType* dout_slice = dout + (outer * dim_size * inner_size) + inner;
-                    HostType* dinp_slice = dinp + (outer * dim_size * inner_size) + inner;
+                    const float* inp_slice = inp + (outer * dim_size * inner_size) + inner;
+                    const float* dout_slice = dout + (outer * dim_size * inner_size) + inner;
+                    float* dinp_slice = dinp + (outer * dim_size * inner_size) + inner;
 
                     const int64_t slice_index = outer * inner_size + inner;
                     long double mean_slice = mean ? static_cast<long double>( mean[slice_index] ) : 0.0L;
@@ -450,13 +446,13 @@ namespace Mila::Dnn::Compute
                         if (dbias)
                         {
 #pragma omp atomic
-                            dbias[i] += static_cast<HostType>( dout_slice[i * inner_size] );
+                            dbias[i] += static_cast<float>( dout_slice[i * inner_size] );
                         }
 
                         if (dweight)
                         {
 #pragma omp atomic
-                            dweight[i] += static_cast<HostType>(norm_bti * static_cast<long double>(dout_slice[i * inner_size]));
+                            dweight[i] += static_cast<float>(norm_bti * static_cast<long double>(dout_slice[i * inner_size]));
                         }
 
                         long double dval = dnorm_i;
@@ -465,7 +461,7 @@ namespace Mila::Dnn::Compute
                         dval *= rstd_slice;
 
 #pragma omp atomic
-                        dinp_slice[i * inner_size] += static_cast<HostType>(dval);
+                        dinp_slice[i * inner_size] += static_cast<float>(dval);
                     }
                 }
             }
@@ -486,18 +482,18 @@ namespace Mila::Dnn::Compute
         std::shared_ptr<CpuExecutionContext> context_;
 
         // Cached native parameter pointers (module owns underlying tensors)
-        HostType* weight_{ nullptr };
-        HostType* bias_{ nullptr };
+        float* weight_{ nullptr };
+        float* bias_{ nullptr };
 
         // Cached native parameter gradient pointers (module owns underlying tensors)
-        HostType* weight_grad_{ nullptr };
-        HostType* bias_grad_{ nullptr };
+        float* weight_grad_{ nullptr };
+        float* bias_grad_{ nullptr };
 
         // Backend-owned runtime statistics storage
-        std::vector<HostType> mean_storage_;
-        std::vector<HostType> rstd_storage_;
-        HostType* mean_{ nullptr };
-        HostType* rstd_{ nullptr };
+        std::vector<float> mean_storage_;
+        std::vector<float> rstd_storage_;
+        float* mean_{ nullptr };
+        float* rstd_{ nullptr };
     };
 
     // Register CPU LayerNorm (FP32)
@@ -506,13 +502,13 @@ namespace Mila::Dnn::Compute
     public:
         static void registerOperations()
         {
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>(
                 "LayerNormOp",
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
                     const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
                 {
                     const auto& lnConfig = static_cast<const LayerNormConfig&>(config);
-                    return std::make_shared<CpuLayerNormOp<TensorDataType::FP32>>( context, lnConfig );
+                    return std::make_shared<CpuLayerNormOp>( context, lnConfig );
                 }
             );
         }

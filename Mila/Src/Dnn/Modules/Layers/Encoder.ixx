@@ -1,6 +1,9 @@
 /**
  * @file Encoder.ixx
- * @brief Implementation of the Encoder module for token and positional embeddings in transformer models.
+ * @brief Device-templated Encoder module for token and positional embeddings.
+ *
+ * Delegates compute to a UnaryOperation backend. Module owns token (wte) and
+ * positional (wpe) embedding parameters and exposes them to callers.
  */
 
 module;
@@ -10,7 +13,8 @@ module;
 #include <iostream>
 #include <sstream>
 #include <type_traits>
-#include <cuda_fp16.h>
+#include <stdexcept>
+#include <cstdint>
 
 export module Dnn.Modules.Encoder;
 export import :Config;
@@ -18,14 +22,13 @@ export import :Config;
 import Dnn.Module;
 import Dnn.Tensor;
 import Dnn.ITensor;
-import Dnn.TensorTraits;
-import Dnn.TensorHelpers;
+import Dnn.TensorTypes;
+import Dnn.TensorDataType;
+import Dnn.TensorDataTypeTraits;
+import Compute.Precision;
+import Compute.ComputeDevice;
 import Compute.DeviceType;
-import Compute.CpuDevice;
-import Compute.CudaDevice;
-import Compute.DeviceContext;
-import Compute.OperationBase;
-import Compute.OperationAttributes;
+import Compute.ExecutionContext;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
@@ -36,292 +39,503 @@ import Serialization.ModelArchive;
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
-	using namespace Mila::Dnn::Serialization;
+    using namespace Mila::Dnn::Serialization;
 
     /**
-     * @class Encoder
-     * @brief An encoder module that provides token and positional embeddings.
+     * @brief Encoder module for token and positional embeddings (device-templated).
      *
-     * The Encoder transforms input token IDs into continuous vector representations by:
-     * 1. Looking up token embeddings from a vocabulary table (wte)
-     * 2. Adding positional embeddings (wpe) based on sequence position
+     * Delegates computation to a device-specific UnaryOperation implementation
+     * registered in the OperationRegistry.
      *
-     * This implementation supports both CPU and CUDA execution depending on the device context.
-     * The encoder is a fundamental component in transformer architectures, providing the initial
-     * representation of tokens that subsequent layers will process.
+     * The Encoder transforms input token IDs into continuous vector representations:
+     * 1. Looks up token embeddings from vocabulary table (wte)
+     * 2. Adds positional embeddings (wpe) based on sequence position
      *
-     * @tparam TDeviceType The device type (CPU or CUDA) on which to perform computations.
-     * @tparam TInput The data type of the input token IDs (typically int).
-     * @tparam TOutput The data type of the output embeddings (typically float).
+     * Module owns trainable parameters (wte, wpe) and exposes them via accessors.
+     * The operation implements embedding lookup and position encoding addition.
+     *
+     * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda)
+     * @tparam TPrecision Abstract tensor precision (TensorDataType) for embeddings
+     * @tparam TTargets Data type for token indices (typically INT32)
      */
-    export
-        template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = int, typename TOutput = float>
-        requires ValidTensorType<TInput>&& ValidFloatTensorType<TOutput>
-    class Encoder : public Module<TDeviceType, TInput, TOutput> {
+    export template<DeviceType TDeviceType, TensorDataType TPrecision, TensorDataType TIndex = dtype_t::INT32>
+        requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
+    class Encoder : public Module<TDeviceType>
+    {
     public:
-        /**
-         * @brief Memory resource type determined based on device type.
-         */
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
+        using ExecutionContextType = ExecutionContext<TDeviceType>;
+        using TensorType = Tensor<TPrecision, MR>;
+        using TokenIndexType = Tensor<TIndex, MR>;
 
         /**
-         * @brief Alias for base module type.
-         */
-        using ModuleBase = Module<TDeviceType, TInput, TOutput>;
-
-        /**
-         * @brief Constructs a new Encoder module with a device name.
+         * @brief Construct with an existing execution context.
          *
-         * @param device_name The name of the device to use (e.g., "CPU", "CUDA:0").
-         * @param config Configuration parameters for the Encoder module.
-         * @throws std::invalid_argument If the device name is invalid or the configuration is invalid
-         * @throws std::runtime_error If device type doesn't match template parameter TDeviceType
+         * @param exec_context Shared execution context for device resources.
+         * @param config Encoder configuration.
          */
-        explicit Encoder( const std::string& device_name, const EncoderConfig& config )
-            : ModuleBase( std::make_shared<DeviceContext>( device_name ), config ), config_( config ) {
+        explicit Encoder( std::shared_ptr<ExecutionContextType> exec_context, const EncoderConfig& config )
+            : exec_context_( exec_context ), config_( config )
+        {
+            if (!exec_context_)
+            {
+                throw std::invalid_argument( "ExecutionContext cannot be null." );
+            }
 
-            config.validate();
+            config_.validate();
 
-            initializeTensors();
+            initializeParameters();
             createOperation();
         }
 
-        /**
-         * @brief Constructs a new Encoder module with a provided device context.
-         *
-         * @param device_context The device context to use for this module.
-         * @param config Configuration parameters for the Encoder module.
-         * @throws std::invalid_argument If device_context is null or configuration is invalid
-         * @throws std::runtime_error If device context type doesn't match template parameter TDeviceType
-         */
-        explicit Encoder( std::shared_ptr<DeviceContext> device_context, const EncoderConfig& config )
-            : ModuleBase( device_context, config ), config_( config ) {
+        ~Encoder() override = default;
 
-            config.validate();
+        // ====================================================================
+        // Lifecycle
+        // ====================================================================
 
-            initializeTensors();
-            createOperation();
+        bool isBuilt() const override
+        {
+            return (operation_ != nullptr) &&
+                (wte_ != nullptr) &&
+                (wpe_ != nullptr) &&
+                is_built_;
         }
 
         /**
-         * @brief Performs the forward pass of the encoder.
+         * @brief Build the module using an input shape.
          *
-         * Transforms input token IDs into continuous embeddings by:
-         * 1. Looking up token embeddings from the embedding table (wte)
-         * 2. Adding positional embeddings (wpe) based on token position
+         * Encoder parameters are eagerly created in the constructor based on
+         * configuration (vocab_size, max_seq_len, embedding_dim). This method
+         * binds parameters to the backend operation and triggers backend-specific setup.
          *
-         * @param input The input tensor containing token IDs with shape (B,T).
-         * @param output The output tensor that will contain embeddings with shape (B,T,C).
+         * If in training mode, also initializes gradient tensors and binds them
+         * to the operation.
+         *
+         * @param input_shape Expected shape: (batch_size, sequence_length)
          */
-        void forward( const Tensor<TInput, MR>& input, Tensor<TOutput, MR>& output ) {
-            operation_->forward( input, parameters_, output, output_state_ );
+        void build( const shape_t& input_shape ) override
+        {
+            if (is_built_)
+                return;
+
+            validateInputShape( input_shape );
+
+            operation_->setTraining( is_training_ );
+
+            // Bind forward parameters to operation
+            operation_->setParameters( wte_.get(), wpe_.get() );
+
+            // If training mode, initialize gradients and bind to operation
+            if (is_training_)
+            {
+                initializeParameterGradients();
+                operation_->setParameterGradients( wte_grad_.get(), wpe_grad_.get() );
+            }
+
+            operation_->build( input_shape );
+
+            is_built_ = true;
+        }
+
+        // ====================================================================
+        // Compute operation dispatch
+        // ====================================================================
+
+        /**
+         * @brief Forward pass - delegates to backend operation.
+         *
+         * Transforms input token IDs into embeddings:
+         * 1. Looks up token embeddings from wte table
+         * 2. Adds positional embeddings from wpe table
+         *
+         * @param input Input tensor containing token IDs [B, T]
+         * @param output Output tensor for embeddings [B, T, C]
+         */
+        void forward( const ITensor& input, ITensor& output )
+        {
+            if (!isBuilt())
+            {
+                throw std::runtime_error( "Encoder module must be built before calling forward." );
+            }
+
+            validateInputShape( input );
+
+            operation_->forward( input, output );
         }
 
         /**
-         * @brief Gets the number of channels (embedding dimension).
+         * @brief Backward pass - delegates to backend operation.
          *
-         * @return size_t The number of channels (C).
+         * Computes gradients with respect to embedding parameters.
+         * Token indices are discrete (non-differentiable), so no input gradients.
          */
-        size_t getChannels() const {
-            return config_.getChannels();
+        void backward( const ITensor& input, const ITensor& output_grad )
+        {
+            if (!isBuilt())
+            {
+                throw std::runtime_error( "Encoder module must be built before calling backward." );
+            }
+
+            if (!is_training_)
+            {
+                throw std::runtime_error( "Encoder module must be in training mode to call backward. Call setTraining(true) first." );
+            }
+
+            // Ensure gradients are initialized (defensive check)
+            if (!wte_grad_ || !wpe_grad_)
+            {
+                throw std::runtime_error( "Encoder module gradients not initialized. This is a bug." );
+            }
+
+            // Create dummy input gradient (token IDs are non-differentiable)
+            auto device = exec_context_->getDevice();
+            auto input_shape = input.shape();
+            TokenIndexType input_grad_dummy( device, input_shape );
+
+            operation_->backward( input, output_grad, input_grad_dummy );
+        }
+
+        // ====================================================================
+        // Serialization
+        // ====================================================================
+
+        void save( ModelArchive& archive ) const override
+        {
+            // Persist parameters if present
+            if (wte_)
+            {
+                // archive.saveTensor( this->getName() + ".wte", *wte_ );
+            }
+
+            if (wpe_)
+            {
+                // archive.saveTensor( this->getName() + ".wpe", *wpe_ );
+            }
+        }
+
+        void load( ModelArchive& archive ) override
+        {
+            // Load parameters from archive
+        }
+
+        // ====================================================================
+        // Parameters and Gradients
+        // ====================================================================
+
+        std::vector<ITensor*> getParameters() const override
+        {
+            std::vector<ITensor*> params;
+
+            if (wte_)
+                params.push_back( wte_.get() );
+
+            if (wpe_)
+                params.push_back( wpe_.get() );
+
+            return params;
+        }
+
+        std::vector<ITensor*> getParameterGradients() const override
+        {
+            if (!is_training_)
+            {
+                throw std::runtime_error( "Encoder: getParameterGradients called when not in training mode" );
+            }
+
+            std::vector<ITensor*> grads;
+
+            if (wte_grad_)
+                grads.push_back( wte_grad_.get() );
+
+            if (wpe_grad_)
+                grads.push_back( wpe_grad_.get() );
+
+            return grads;
+        }
+
+        /**
+         * @brief Get token embedding gradient tensor.
+         *
+         * @return Shared pointer to wte gradient, or nullptr if not in training mode
+         */
+        std::shared_ptr<TensorType> getWteGrad() const noexcept
+        {
+            return wte_grad_;
+        }
+
+        /**
+         * @brief Get positional embedding gradient tensor.
+         *
+         * @return Shared pointer to wpe gradient, or nullptr if not in training mode
+         */
+        std::shared_ptr<TensorType> getWpeGrad() const noexcept
+        {
+            return wpe_grad_;
+        }
+
+        // ====================================================================
+        // Module interface
+        // ====================================================================
+
+        std::string getName() const override
+        {
+            return config_.getName();
+        }
+
+        std::shared_ptr<ComputeDevice> getDevice() const override
+        {
+            return exec_context_->getDevice();
+        }
+
+        void synchronize() override
+        {
+            exec_context_->synchronize();
+        }
+
+        void setTraining( bool is_training ) override
+        {
+            if (is_training_ == is_training)
+                return;
+
+            is_training_ = is_training;
+
+            // Propagate training mode to operation (if created)
+            if (operation_)
+            {
+                operation_->setTraining( is_training );
+            }
+
+            // If switching TO training mode after build, initialize gradients and bind them
+            if (is_training && is_built_ && operation_)
+            {
+                // Allocate gradient tensors if not already done
+                initializeParameterGradients();
+
+                // Bind gradients to operation
+                operation_->setParameterGradients( wte_grad_.get(), wpe_grad_.get() );
+            }
+        }
+
+        bool isTraining() const override
+        {
+            return is_training_;
+        }
+
+        size_t parameterCount() const override
+        {
+            size_t count = 0;
+
+            if (wte_)
+                count += wte_->size();
+
+            if (wpe_)
+                count += wpe_->size();
+
+            return count;
+        }
+
+        std::string toString() const override
+        {
+            std::ostringstream oss;
+            oss << "--------------------" << std::endl;
+            oss << "Encoder: " << getName() << std::endl;
+            oss << "Vocabulary: " << config_.getVocabularyLength() << " tokens" << std::endl;
+            oss << "Max sequence length: " << config_.getMaxSequenceLength() << std::endl;
+            oss << "Embedding dimension: " << config_.getChannels() << std::endl;
+            oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
+            oss << "Parameter count: " << parameterCount() << std::endl;
+
+            return oss.str();
+        }
+
+        // ====================================================================
+        // Parameter accessors
+        // ====================================================================
+
+        /**
+         * @brief Return shared ownership of the token embedding tensor (wte).
+         *
+         * @returns Shared pointer to the wte tensor.
+         */
+        std::shared_ptr<TensorType> getTokenEmbedding() const noexcept
+        {
+            return wte_;
+        }
+
+        /**
+         * @brief Return shared ownership of the positional embedding tensor (wpe).
+         *
+         * @returns Shared pointer to the wpe tensor.
+         */
+        std::shared_ptr<TensorType> getPositionalEmbedding() const noexcept
+        {
+            return wpe_;
+        }
+
+        /**
+         * @brief Get the configuration.
+         *
+         * @returns Reference to the EncoderConfig.
+         */
+        const EncoderConfig& getConfig() const noexcept
+        {
+            return config_;
         }
 
         /**
          * @brief Gets the vocabulary length.
          *
-         * @return size_t The vocabulary length (V).
+         * @return int64_t The vocabulary length (V).
          */
-        size_t getVocabularyLength() const {
+        int64_t getVocabularyLength() const noexcept
+        {
             return config_.getVocabularyLength();
         }
 
         /**
          * @brief Gets the maximum sequence length.
          *
-         * @return size_t The maximum sequence length (maxT).
+         * @return int64_t The maximum sequence length (maxT).
          */
-        size_t getMaxSequenceLength() const {
+        int64_t getMaxSequenceLength() const noexcept
+        {
             return config_.getMaxSequenceLength();
         }
 
         /**
-         * @brief Gets the number of parameters in the module.
+         * @brief Gets the embedding dimension (channels).
          *
-         * Counts all learnable parameters in the encoder, which includes
-         * all elements in the token embedding table (wte) and position
-         * embedding table (wpe).
-         *
-         * @return size_t The total number of parameters.
+         * @return int64_t The number of channels (C).
          */
-        size_t parameterCount() const override {
-            return wte_->size() + wpe_->size();
-        }
-
-        /**
-         * @brief Saves the encoder parameters to a zip archive.
-         *
-         * Serializes all parameter tensors (wte and wpe) to the specified zip archive.
-         * This enables model persistence for later reuse or distribution.
-         *
-         * @param zip The zip archive to save the parameters to.
-         */
-        void save( ModelArchive& archive ) const override {
-            // Save the state of the parameters
-            for ( const auto& [name, tensor] : this->getParameterTensors() ) {
-                // Save tensor data to zip archive
-            }
-        }
-
-        /**
-         * @brief Loads the encoder parameters from a zip archive.
-         *
-         * Deserializes all parameter tensors (wte and wpe) from the specified zip archive.
-         * This enables loading pretrained models for inference or continued training.
-         *
-         * @param zip The zip archive to load the parameters from.
-         */
-        void load( ModelArchive& archive ) override {
-            for ( const auto& [name, tensor] : this->getParameterTensors() ) {
-                // Load tensor data from zip archive
-            }
-        }
-
-        /**
-         * @brief Gets the module information as a string.
-         *
-         * Provides a human-readable description of the encoder configuration,
-         * including dimensions, parameter counts, and tensor information.
-         *
-         * @return std::string The module information.
-         */
-        std::string toString() const override {
-            std::ostringstream oss;
-            oss << "--------------------" << std::endl;
-            oss << "Encoder: " << this->getDeviceName() << std::endl;
-            oss << "Channels: " << config_.getChannels() << ", Max Sequence Length: " << config_.getMaxSequenceLength();
-            oss << ", Vocabulary Length: " << config_.getVocabularyLength() << std::endl;
-            oss << "Device: " << deviceTypeToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
-            oss << this->getComputePrecision().toString() << std::endl;
-            oss << "Parameter count: " << parameterCount() << std::endl;
-
-            return oss.str();
+        int64_t getChannels() const noexcept
+        {
+            return config_.getChannels();
         }
 
     private:
-        /**
-         * @brief Configuration for the Encoder module.
-         */
         EncoderConfig config_;
+        bool is_training_{ false };
+        bool is_built_{ false };
+
+        std::shared_ptr<TensorType> wte_{ nullptr };  // Token embeddings (V, C)
+        std::shared_ptr<TensorType> wpe_{ nullptr };  // Position embeddings (maxT, C)
+
+        std::shared_ptr<TensorType> wte_grad_{ nullptr };
+        std::shared_ptr<TensorType> wpe_grad_{ nullptr };
+
+        std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<ExecutionContextType> exec_context_;
 
         /**
-         * Token embedding table with shape (V,C), maps token IDs to vector representations.
-         * V is the vocabulary size and C is the embedding dimension.
-         */
-        std::shared_ptr<Tensor<TOutput, MR>> wte_{ nullptr };
-
-        /**
-         * Position embedding table with shape (maxT,C), encodes token position information.
-         * maxT is the maximum sequence length and C is the embedding dimension.
-         */
-        std::shared_ptr<Tensor<TOutput, MR>> wpe_{ nullptr };
-
-        /**
-         * Vector of parameter tensors that will be used during forward/backward passes.
-         * Contains both the token embeddings (wte) and position embeddings (wpe).
-         */
-        std::vector<std::shared_ptr<ITensor>> parameters_;
-
-        /**
-         * Output state tensors used for intermediate values. Not used in this module.
-         */
-        std::vector<std::shared_ptr<Tensor<TOutput, MR>>> output_state_;
-
-        /**
-         * Operation-specific attributes and configuration.
-         */
-        // TODO: OperationAttributes attributes_;
-
-        /**
-         * The computational operation that implements the encoder logic.
-         */
-        std::shared_ptr<UnaryOperation<TDeviceType, TInput, TOutput>> operation_{ nullptr };
-
-        /**
-         * @brief Initializes the token and positional embedding tensors.
+         * @brief Validate input shape for encoder operation.
          *
-         * Creates and initializes:
-         * - wte (word token embeddings) tensor of shape (vocab_len_, channels_)
-         * - wpe (word position embeddings) tensor of shape (max_seq_len_, channels_)
-         *
-         * Both tensors are initialized using Xavier initialization to ensure proper
-         * gradient flow during training. The tensors are registered as parameters
-         * in the module's parameter map for training and serialization.
+         * Ensures input is rank-2 (batch_size, sequence_length) and sequence
+         * length doesn't exceed configured maximum.
          */
-        void initializeTensors() {
-            parameters_.clear();
-            this->parameter_map_.clear();
-
-            size_t channels = config_.getChannels();
-            size_t max_seq_len = config_.getMaxSequenceLength();
-            size_t vocab_len = config_.getVocabularyLength();
-
-            wte_ = std::make_shared<Tensor<TOutput, MR>>( shape_t{vocab_len, channels} );
-            wte_->setName( this->getDeviceName() + ".wte" );
-            xavier<TOutput, MR>( *wte_, vocab_len, channels );
-
-            wpe_ = std::make_shared<Tensor<TOutput, MR>>( shape_t{max_seq_len, channels} );
-            wpe_->setName( this->getDeviceName() + ".wpe" );
-            xavier<TOutput, MR>( *wpe_, max_seq_len, channels );
-
-            // Add tensors to parameters list and map
-            parameters_.emplace_back( wte_ );
-            parameters_.emplace_back( wpe_ );
-
-            this->parameter_map_[ "wte" ] = wte_;
-            this->parameter_map_[ "wpe" ] = wpe_;
+        void validateInputShape( const ITensor& input ) const
+        {
+            const auto& input_shape = input.shape();
+            validateInputShape( input_shape );
         }
 
         /**
-         * @brief Creates the computational operation based on current device context.
-         *
-         * Instantiates either a CPU or CUDA encoder operation based on the current device context.
-         * The operation implements the actual embedding lookup and addition logic during forward pass.
+         * @brief Validate input shape for encoder operation.
          */
-        void createOperation() {
-            if constexpr ( TDeviceType == DeviceType::Cpu ) {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cpu, TInput, TOutput>(
-                    "Cpu::EncoderOp",
-                    this->getDeviceContext(),
-                    config_ );
-
-                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cpu, TInput, TOutput>>(base_op);
+        void validateInputShape( const shape_t& input_shape ) const
+        {
+            if (input_shape.size() != 2)
+            {
+                throw std::invalid_argument( "Encoder: input must have rank 2 (batch_size, sequence_length)" );
             }
-            else {
-                auto base_op = OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TInput, TOutput>(
-                    "Cuda::EncoderOp",
-                    this->getDeviceContext(),
+
+            int64_t seq_length = input_shape[1];
+
+            if (seq_length > config_.getMaxSequenceLength())
+            {
+                std::ostringstream oss;
+                oss << "Encoder: sequence length " << seq_length
+                    << " exceeds maximum " << config_.getMaxSequenceLength();
+                throw std::invalid_argument( oss.str() );
+            }
+        }
+
+        /**
+         * @brief Ensure gradient tensors are allocated with correct shapes.
+         */
+        void initializeParameterGradients()
+        {
+            auto device = exec_context_->getDevice();
+
+            if (!wte_grad_)
+            {
+                wte_grad_ = std::make_shared<TensorType>(
+                    device,
+                    wte_->shape() );
+                wte_grad_->setName( this->getName() + ".wte.grad" );
+                zeros( *wte_grad_ );
+            }
+
+            if (!wpe_grad_)
+            {
+                wpe_grad_ = std::make_shared<TensorType>(
+                    device,
+                    wpe_->shape() );
+                wpe_grad_->setName( this->getName() + ".wpe.grad" );
+                zeros( *wpe_grad_ );
+            }
+        }
+
+        /**
+         * @brief Allocate and initialize token and positional embedding tensors.
+         *
+         * Tensors are created on the execution context device and initialized
+         * using Xavier initialization for both wte and wpe.
+         */
+        void initializeParameters()
+        {
+            int64_t vocab_size = config_.getVocabularyLength();
+            int64_t max_seq_len = config_.getMaxSequenceLength();
+            int64_t embedding_dim = config_.getChannels();
+
+            auto device = exec_context_->getDevice();
+
+            // Token embeddings: (vocab_size, embedding_dim)
+            wte_ = std::make_shared<TensorType>( device, shape_t{ vocab_size, embedding_dim } );
+            wte_->setName( this->getName() + ".wte" );
+            xavier<TPrecision, MR>( *wte_, vocab_size, embedding_dim );
+
+            // Positional embeddings: (max_seq_len, embedding_dim)
+            wpe_ = std::make_shared<TensorType>( device, shape_t{ max_seq_len, embedding_dim } );
+            wpe_->setName( this->getName() + ".wpe" );
+            xavier<TPrecision, MR>( *wpe_, max_seq_len, embedding_dim );
+        }
+
+        /**
+         * @brief Create the backend compute operation.
+         *
+         * Looks up the appropriate device-specific operation from the registry
+         * and creates an instance bound to this module's execution context.
+         */
+        void createOperation()
+        {
+            operation_ = OperationRegistry::instance()
+                .createUnaryOperation<TDeviceType, TPrecision>(
+                    "EncoderOp",
+                    exec_context_,
                     config_ );
 
-                operation_ = std::static_pointer_cast<UnaryOperation<DeviceType::Cuda, TInput, TOutput>>(base_op);
+            if (!operation_)
+            {
+                throw std::runtime_error( "Failed to create Encoder compute backend operation." );
             }
         }
     };
 
-    /**
-     * @brief Type alias for CPU-based encoder module with customizable tensor types.
-     *
-     * @tparam TInput Data type of the input token IDs (typically int).
-     * @tparam TOutput Data type of the output embeddings (typically float).
-     */
-    export template<typename TInput = int, typename TOutput = float>
-        using CpuEncoder = Encoder<DeviceType::Cpu, TInput, TOutput>;
+    // Convenience aliases for common usages
+    export template<TensorDataType TPrecision, TensorDataType TTargets = dtype_t::INT32>
+        using CpuEncoder = Encoder<DeviceType::Cpu, TPrecision, TTargets>;
 
-    /**
-     * @brief Type alias for CUDA-based encoder module with customizable tensor types.
-     *
-     * @tparam TInput Data type of the input token IDs (typically int).
-     * @tparam TOutput Data type of the output embeddings (typically float).
-     */
-    export template<typename TInput = int, typename TOutput = float>
-        using CudaEncoder = Encoder<DeviceType::Cuda, TInput, TOutput>;
+    export template<TensorDataType TPrecision, TensorDataType TTargets = dtype_t::INT32>
+        using CudaEncoder = Encoder<DeviceType::Cuda, TPrecision, TTargets>;
 }

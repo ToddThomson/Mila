@@ -1,5 +1,5 @@
 /**
- * @file CudaMultiHeadAttentionOpTests.cpp
+ * @file CudaAttentionOpTests.cpp
  * @brief Complete test suite for the CUDA Multi-Head Attention operation.
  */
 
@@ -19,9 +19,9 @@ namespace Operations::Tests
     using namespace Mila::Dnn::Compute;
 
     /**
-     * @brief Test fixture for CudaMultiHeadAttentionOp tests
+     * @brief Test fixture for CudaAttentionOp tests
      */
-    class CudaMultiHeadAttentionOpTests : public ::testing::Test {
+    class CudaAttentionOpTests : public ::testing::Test {
     protected:
         void SetUp() override {
             // Create device contexts for both CPU and CUDA
@@ -34,11 +34,11 @@ namespace Operations::Tests
             large_shape_ = { 16, 64, 256 };  // Large shape for stress tests
 
             // Create CUDA MHA operation with specific context
-            cuda_mha_op_ = std::make_shared<CudaMultiHeadAttentionOp<float>>( cuda_context_ );
+            cuda_mha_op_ = std::make_shared<CudaAttentionOp<float>>( cuda_context_ );
 
             // Get CPU MHA op for comparison (assume it's registered)
             auto cpu_op = OperationRegistry::instance().createUnaryOperation<float, float, DeviceType::Cpu>(
-                "Cpu::MultiHeadAttentionOp", cpu_context_ );
+                "Cpu::AttentionOp", cpu_context_ );
             cpu_mha_op_ = std::static_pointer_cast<UnaryOperation<float, float, DeviceType::Cpu>>(cpu_op);
         }
 
@@ -85,7 +85,7 @@ namespace Operations::Tests
         }
 
         // Helper method to reference implementation of multi-head attention
-        void referenceMultiHeadAttention(
+        void referenceAttention(
             const Tensor<float, HostMemoryResource>& input,
             const Tensor<float, HostMemoryResource>& weights,
             const Tensor<float, HostMemoryResource>& bias,
@@ -189,7 +189,7 @@ namespace Operations::Tests
 
         std::shared_ptr<DeviceContext> cuda_context_;
         std::shared_ptr<DeviceContext> cpu_context_;
-        std::shared_ptr<CudaMultiHeadAttentionOp<float>> cuda_mha_op_;
+        std::shared_ptr<CudaAttentionOp<float>> cuda_mha_op_;
         std::shared_ptr<UnaryOperation<float, float, DeviceType::Cpu>> cpu_mha_op_;
 
         // Test shapes
@@ -199,31 +199,31 @@ namespace Operations::Tests
     };
 
     /**
-     * @brief Test name property of CudaMultiHeadAttentionOp
+     * @brief Test name property of CudaAttentionOp
      */
-    TEST_F( CudaMultiHeadAttentionOpTests, Name ) {
-        EXPECT_EQ( cuda_mha_op_->getDeviceName(), "Cuda::MultiHeadAttentionOp" );
+    TEST_F( CudaAttentionOpTests, Name ) {
+        EXPECT_EQ( cuda_mha_op_->getDeviceName(), "Cuda::AttentionOp" );
     }
 
     /**
      * @brief Test constructor without explicit device context
      */
-    TEST_F( CudaMultiHeadAttentionOpTests, DefaultConstructor ) {
-        auto op = std::make_shared<CudaMultiHeadAttentionOp<float>>();
-        EXPECT_EQ( op->getDeviceName(), "Cuda::MultiHeadAttentionOp" );
+    TEST_F( CudaAttentionOpTests, DefaultConstructor ) {
+        auto op = std::make_shared<CudaAttentionOp<float>>();
+        EXPECT_EQ( op->getDeviceName(), "Cuda::AttentionOp" );
     }
 
     /**
      * @brief Test constructor with non-CUDA device context throws exception
      */
-    TEST_F( CudaMultiHeadAttentionOpTests, ConstructorWithNonCudaContext ) {
-        EXPECT_THROW( (std::make_shared<CudaMultiHeadAttentionOp<float>>( cpu_context_ )), std::runtime_error );
+    TEST_F( CudaAttentionOpTests, ConstructorWithNonCudaContext ) {
+        EXPECT_THROW( (std::make_shared<CudaAttentionOp<float>>( cpu_context_ )), std::runtime_error );
     }
 
     /**
      * @brief Test basic functionality with small tensors
      */
-    TEST_F( CudaMultiHeadAttentionOpTests, BasicFunctionality ) {
+    TEST_F( CudaAttentionOpTests, BasicFunctionality ) {
         // Create input, weight, bias, and output tensors
         Tensor<float, CudaDeviceMemoryResource> device_input( small_shape_ );
 
@@ -286,7 +286,7 @@ namespace Operations::Tests
         host_attn_weights.copyFrom( *device_attn_weights );
 
         // Compute expected output with reference implementation
-        referenceMultiHeadAttention(
+        referenceAttention(
             host_input, host_weight, host_bias,
             expected_output, expected_attn_scores, expected_attn_weights,
             num_heads );
@@ -300,10 +300,10 @@ namespace Operations::Tests
     /**
      * @brief Test that CUDA and CPU implementations produce equivalent results
      */
-    TEST_F( CudaMultiHeadAttentionOpTests, CudaCpuEquivalence ) {
+    TEST_F( CudaAttentionOpTests, CudaCpuEquivalence ) {
         // Skip if CPU implementation isn't available
         if ( !cpu_mha_op_ ) {
-            GTEST_SKIP() << "CPU implementation of MultiHeadAttention not available";
+            GTEST_SKIP() << "CPU implementation of Attention not available";
         }
 
         // Use small shape for faster comparison
@@ -383,7 +383,7 @@ namespace Operations::Tests
     /**
      * @brief Test with different numbers of attention heads
      */
-    TEST_F( CudaMultiHeadAttentionOpTests, DifferentHeadCounts ) {
+    TEST_F( CudaAttentionOpTests, DifferentHeadCounts ) {
         std::vector<int> head_counts = { 1, 2, 4, 8 };
 
         for ( int num_heads : head_counts ) {
@@ -448,7 +448,7 @@ namespace Operations::Tests
     /**
      * @brief Test with different sequence lengths
      */
-    TEST_F( CudaMultiHeadAttentionOpTests, DifferentSequenceLengths ) {
+    TEST_F( CudaAttentionOpTests, DifferentSequenceLengths ) {
         shape_t seq_lengths = { 1, 8, 32, 64 };
         int num_heads = 4;
 
@@ -517,7 +517,7 @@ namespace Operations::Tests
     /**
      * @brief Test with different batch sizes
      */
-    TEST_F( CudaMultiHeadAttentionOpTests, DifferentBatchSizes ) {
+    TEST_F( CudaAttentionOpTests, DifferentBatchSizes ) {
         shape_t batch_sizes = { 1, 4, 16 };
         int num_heads = 4;
 
@@ -586,7 +586,7 @@ namespace Operations::Tests
     /**
      * @brief Test backward pass functionality works correctly
      */
-    TEST_F( CudaMultiHeadAttentionOpTests, BackwardPass ) {
+    TEST_F( CudaAttentionOpTests, BackwardPass ) {
         // Create tensors for forward pass
         Tensor<float, CudaDeviceMemoryResource> device_input( small_shape_ );
 
@@ -687,7 +687,7 @@ namespace Operations::Tests
     /**
      * @brief Test numerical stability with edge cases
      */
-    TEST_F( CudaMultiHeadAttentionOpTests, NumericalStability ) {
+    TEST_F( CudaAttentionOpTests, NumericalStability ) {
         // Test cases with potential numerical stability issues
         std::vector<std::pair<float, float>> test_cases = {
             {-0.001f, 0.001f},  // Very small values
@@ -758,7 +758,7 @@ namespace Operations::Tests
     /**
      * @brief Test with stress test on large tensors
      */
-    TEST_F( CudaMultiHeadAttentionOpTests, LargeInputStressTest ) {
+    TEST_F( CudaAttentionOpTests, LargeInputStressTest ) {
         // Use large shape for stress test
         int num_heads = 8;
 

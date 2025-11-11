@@ -18,7 +18,7 @@ add_library( Mila STATIC
 
     #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaMHA.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaGelu.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaResidual.cu"
+    #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaResidual.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaSoftmax.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaSoftmaxCrossEntropy.cu"
     
@@ -204,12 +204,12 @@ PUBLIC
         
         "Src/Dnn/Compute/Devices/Cpu/Operations/CpuOperations.ixx"
         
-        #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuEncoderOp.ixx"
+        "Src/Dnn/Compute/Devices/Cpu/Operations/CpuEncoderOp.ixx"
         "Src/Dnn/Compute/Devices/Cpu/Operations/CpuGeluOp.ixx"
         "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLayerNormOp.ixx"
         "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLinearOp.ixx"
-        #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuMultiHeadAttentionOp.ixx"
-        #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuResidualOp.ixx"
+        "Src/Dnn/Compute/Devices/Cpu/Operations/CpuAttentionOp.ixx"
+        "Src/Dnn/Compute/Devices/Cpu/Operations/CpuResidualOp.ixx"
         "Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxCrossEntropyOp.ixx"
         "Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxOp.ixx"
 
@@ -247,8 +247,8 @@ PUBLIC
 
         # CUDA / Operations
         "Src/Dnn/Compute/Devices/Cuda/Operations/CudaOperations.ixx"
-        #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaAttentionOp.ixx"
-        #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaEncoderOp.ixx"
+        "Src/Dnn/Compute/Devices/Cuda/Operations/CudaAttentionOp.ixx"
+        "Src/Dnn/Compute/Devices/Cuda/Operations/CudaEncoderOp.ixx"
         #"Src/Dnn/Compute/Operations/Cuda/CudaDataTypeTraits.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Operations/CublasLtMatMulBias.ixx"
         #"Src/Dnn/Compute/Operations/Cuda/MatMulBiasActivation.ixx"
@@ -296,16 +296,18 @@ PUBLIC
         # Modules - Activations
         "Src/Dnn/Modules/Activations/Gelu.ixx"
         "Src/Dnn/Modules/Activations/GeluConfig.ixx"
+        
+        # Modules - Connections
+        "Src/Dnn/Modules/Connections/Residual.ixx"
+        "Src/Dnn/Modules/Connections/ResidualConfig.ixx"
 
         # Modules - Layers
+        "Src/Dnn/Modules/Layers/Attention.ixx"
+        "Src/Dnn/Modules/Layers/AttentionConfig.ixx"
         "Src/Dnn/Modules/Layers/Linear.ixx"
         "Src/Dnn/Modules/Layers/LinearConfig.ixx"
-        #"Src/Dnn/Modules/Layers/Encoder.ixx"
-        #"Src/Dnn/Modules/Layers/EncoderConfig.ixx"
-        #"Src/Dnn/Modules/Layers/MultiHeadAttention.ixx"
-        #"Src/Dnn/Modules/Layers/MultiHeadAttentionConfig.ixx"
-        #"Src/Dnn/Modules/Layers/Residual.ixx"
-        #"Src/Dnn/Modules/Layers/ResidualConfig.ixx"
+        "Src/Dnn/Modules/Layers/Encoder.ixx"
+        "Src/Dnn/Modules/Layers/EncoderConfig.ixx"
         "Src/Dnn/Modules/Layers/Softmax.ixx"
         "Src/Dnn/Modules/Layers/SoftmaxConfig.ixx"
 
@@ -335,6 +337,7 @@ PUBLIC
         #"Src/Dnn/Models/Model.ixx"
         #"Src/Dnn/Models/Graph.ixx"
         #"Src/Dnn/Models/ModelCallback.ixx"
+        
         #"Src/Dnn/Models/Gpt2/Gpt2DatasetReader.ixx"
 
         #---------------------------------------------------------------
@@ -346,7 +349,7 @@ PUBLIC
 
         #---------------------------------------------------------------
 
-        # WIP / Attributes
+        # WIP / Attributes ( Deprecated, to be removed )
         #"Src/Dnn/Modules/Layers/LinearAttributes.ixx"
         #"Src/Dnn/Common/Attributes.ixx"
         
@@ -363,6 +366,7 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Cpu/Optimizers/CpuAdamWOptimizer.ixx" 
         "Src/Dnn/Optimizers/AdamW.ixx"
         "Src/Dnn/Optimizers/AdamWConfig.ixx"
+        "Src/Dnn/Modules/Connections/ConnectionType.ixx"
 )
 
 target_link_libraries(Mila PRIVATE 

@@ -121,7 +121,7 @@ namespace Mila::Dnn
          *
          * Computes softmax activation across the configured axis.
          */
-        void forward( const ITensor& input, ITensor& output ) override
+        void forward( const ITensor& input, ITensor& output )
         {
             if (!isBuilt())
             {
@@ -139,7 +139,7 @@ namespace Mila::Dnn
          * Computes gradient: dX = Y * (dY - dot(Y, dY))
          * where Y is the softmax output.
          */
-        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad ) override
+        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
         {
             if (!isBuilt())
             {

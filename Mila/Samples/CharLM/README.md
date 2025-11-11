@@ -12,7 +12,7 @@ Please see the Mnist sample for a stable reference implementation.
 CharLM implements a GPT-style decoder-only transformer for character-level next-token prediction:
 
 ```
-Token Embedding ? Positional Encoding ? N × Transformer Blocks ? LayerNorm ? LM Head
+Token Embedding -> Positional Encoding -> N × Transformer Blocks -> LayerNorm -> LM Head
 ```
 
 ## Features
@@ -111,22 +111,6 @@ Options:
 - **CharVocabulary**: Character ? index mappings
 - **CharDataLoader**: Efficient sliding-window sequence loading
 
-## Code Structure
-
-```
-Samples/CharLM/
-??? CMakeLists.txt
-??? README.md
-??? Src/
-?   ??? CharLM.cpp               # Main training application
-?   ??? CharTransformer.ixx      # Transformer model
-?   ??? CharDataLoader.ixx       # Data loader
-?   ??? CharVocabulary.ixx       # Vocabulary management
-?   ??? CharPreprocessor.ixx     # Preprocessing pipeline
-??? Tools/
-    ??? PreprocessText.cpp       # Standalone preprocessing utility
-```
-
 ## Expected Results
 
 With Tiny Shakespeare (~1MB, 40K lines):
@@ -173,7 +157,6 @@ Error: Vocabulary file not found
 ## References
 
 - [Attention Is All You Need](https://arxiv.org/abs/1706.03762)
-- [Language Models are Unsupervised Multitask Learners (GPT-2)](https://d4mucfpksywv.cloudfront.net/better-language-models/language_models_are_unsupervised_multitask_learners.pdf)
 - [Mila Framework Documentation](../../docs/README.md)
 
 ## License

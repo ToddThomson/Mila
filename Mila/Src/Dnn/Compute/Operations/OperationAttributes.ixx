@@ -49,7 +49,7 @@ namespace Mila::Dnn::Compute
   //      int64_t axis = -1;
 
 		///**
-		// * @brief Number of attention heads for operations like MultiHeadAttention.
+		// * @brief Number of attention heads for operations like Attention.
 		// *
 		// * This is a common attribute for attention-based operations.
 		// */

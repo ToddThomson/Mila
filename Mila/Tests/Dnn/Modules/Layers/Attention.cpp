@@ -26,7 +26,7 @@ namespace Modules::Tests
         size_t channels;
         size_t num_heads;
         shape_t input_shape;
-        std::shared_ptr<MultiHeadAttention<TDevice, TInput, TOutput>> attention_module;
+        std::shared_ptr<Attention<TDevice, TInput, TOutput>> attention_module;
 
         // Make the test data structure self-initializing
         static AttentionTestData Create(
@@ -46,7 +46,7 @@ namespace Modules::Tests
             data.input_shape = { batch_size, sequence_length, 3 * channels };
 
             std::string device_str = TDevice == DeviceType::Cuda ? "CUDA:0" : "CPU";
-            data.attention_module = std::make_shared<MultiHeadAttention<TDevice, TInput, TOutput>>(
+            data.attention_module = std::make_shared<Attention<TDevice, TInput, TOutput>>(
                 name, device_str, data.input_shape, num_heads, is_training, precision );
 
             return data;
@@ -70,7 +70,7 @@ namespace Modules::Tests
             data.num_heads = num_heads;
             data.input_shape = { batch_size, sequence_length, 3 * channels };
 
-            data.attention_module = std::make_shared<MultiHeadAttention<TDevice, TInput, TOutput>>(
+            data.attention_module = std::make_shared<Attention<TDevice, TInput, TOutput>>(
                 name, context, data.input_shape, num_heads, is_training, precision );
 
             return data;
@@ -366,10 +366,10 @@ namespace Modules::Tests
         size_t num_heads = 4;
 
         // Create test modules with smaller dimensions
-        auto cpu_test_module = std::make_shared<MultiHeadAttention<DeviceType::Cpu, TInput, TOutput>>(
+        auto cpu_test_module = std::make_shared<Attention<DeviceType::Cpu, TInput, TOutput>>(
             "cpu_test", "CPU", test_shape, num_heads );
 
-        auto cuda_test_module = std::make_shared<MultiHeadAttention<DeviceType::Cuda, TInput, TOutput>>(
+        auto cuda_test_module = std::make_shared<Attention<DeviceType::Cuda, TInput, TOutput>>(
             "cuda_test", "CUDA:0", test_shape, num_heads );
 
         // Create random input data
@@ -434,10 +434,10 @@ namespace Modules::Tests
         size_t num_heads = 4;
 
         // Create test modules with smaller dimensions
-        auto float_module = std::make_shared<MultiHeadAttention<DeviceType::Cuda, TInput, float>>(
+        auto float_module = std::make_shared<Attention<DeviceType::Cuda, TInput, float>>(
             "float_test", "CUDA:0", test_shape, num_heads );
 
-        auto half_module = std::make_shared<MultiHeadAttention<DeviceType::Cuda, TInput, half>>(
+        auto half_module = std::make_shared<Attention<DeviceType::Cuda, TInput, half>>(
             "half_test", "CUDA:0", test_shape, num_heads );
 
         // Create input data
@@ -504,7 +504,7 @@ namespace Modules::Tests
         shape_t small_shape = { 2, 16, 3 * 64 };
 
         for ( auto num_heads : head_counts ) {
-            auto test_module = std::make_shared<MultiHeadAttention<TDevice, TInput, TOutput>>(
+            auto test_module = std::make_shared<Attention<TDevice, TInput, TOutput>>(
                 "test_heads_" + std::to_string( num_heads ),
                 TDevice == DeviceType::Cuda ? "CUDA:0" : "CPU",
                 small_shape, num_heads );
@@ -537,7 +537,7 @@ namespace Modules::Tests
         using MR = MemoryResourceType<TDevice>;
         // Test with minimal batch size and sequence length
         shape_t minimal_shape = { 1, 1, 3 * 64 };
-        auto minimal_module = std::make_shared<MultiHeadAttention<TDevice, TInput, TOutput>>(
+        auto minimal_module = std::make_shared<Attention<TDevice, TInput, TOutput>>(
             "minimal", TDevice == DeviceType::Cuda ? "CUDA:0" : "CPU", minimal_shape, 1 );
 
         Tensor<TInput, MR> minimal_input( minimal_shape );
@@ -547,7 +547,7 @@ namespace Modules::Tests
 
         // Test with large sequence length
         shape_t long_seq_shape = { 2, 128, 3 * 64 }; // Reduced for test performance
-        auto long_seq_module = std::make_shared<MultiHeadAttention<TDevice, TInput, TOutput>>(
+        auto long_seq_module = std::make_shared<Attention<TDevice, TInput, TOutput>>(
             "long_seq", TDevice == DeviceType::Cuda ? "CUDA:0" : "CPU", long_seq_shape, 4 );
 
         Tensor<TInput, MR> long_input( long_seq_shape );
@@ -561,10 +561,10 @@ namespace Modules::Tests
     void TestTrainingModeBehavior( const AttentionTestData<TDevice, TInput, TOutput>& data ) {
         using MR = MemoryResourceType<TDevice>;
         std::vector<int64_t> shape = { 2, 16, 3 * 64 };
-        auto train_module = std::make_shared<MultiHeadAttention<TDevice, TInput, TOutput>>(
+        auto train_module = std::make_shared<Attention<TDevice, TInput, TOutput>>(
             "train_mode", TDevice == DeviceType::Cuda ? "CUDA:0" : "CPU", shape, 4, true ); // training mode enabled
 
-        auto infer_module = std::make_shared<MultiHeadAttention<TDevice, TInput, TOutput>>(
+        auto infer_module = std::make_shared<Attention<TDevice, TInput, TOutput>>(
             "infer_mode", TDevice == DeviceType::Cuda ? "CUDA:0" : "CPU", shape, 4, false ); // training mode disabled
 
         Tensor<TInput, MR> input( shape );
@@ -604,7 +604,7 @@ namespace Modules::Tests
     void TestNumericalStability( const AttentionTestData<TDevice, TInput, TOutput>& data ) {
         using MR = MemoryResourceType<TDevice>;
         std::vector<int64_t> shape = { 2, 16, 3 * 64 };
-        auto stability_module = std::make_shared<MultiHeadAttention<TDevice, TInput, TOutput>>(
+        auto stability_module = std::make_shared<Attention<TDevice, TInput, TOutput>>(
             "stability", TDevice == DeviceType::Cuda ? "CUDA:0" : "CPU", shape, 4 );
 
         Tensor<TInput, MR> input( shape );
@@ -697,7 +697,7 @@ namespace Modules::Tests
         const AttentionTestData<DeviceType::Cuda, TInput, TOutput>& data ) {
 
         std::vector<int64_t> shape = { 2, 16, 3 * 64 };
-        auto deterministic_module = std::make_shared<MultiHeadAttention<DeviceType::Cuda, TInput, TOutput>>(
+        auto deterministic_module = std::make_shared<Attention<DeviceType::Cuda, TInput, TOutput>>(
             "deterministic", "CUDA:0", shape, 4 );
 
         Tensor<TInput, CudaDeviceMemoryResource> input( shape );
@@ -749,7 +749,7 @@ namespace Modules::Tests
     }
 
     TEST_F( AttentionTests, Cpu_Float_TestPrint ) {
-        TestPrint<DeviceType::Cpu, float>( CpuFloatData(), "MultiHeadAttention: cpu_attn_float" );
+        TestPrint<DeviceType::Cpu, float>( CpuFloatData(), "Attention: cpu_attn_float" );
     }
 
     TEST_F( AttentionTests, Cpu_Float_DeviceType ) {
@@ -804,7 +804,7 @@ namespace Modules::Tests
     }
 
     TEST_F( AttentionTests, Cuda_Float_TestPrint ) {
-        TestPrint<DeviceType::Cuda, float>( CudaFloatData(), "MultiHeadAttention: cuda_attn_float" );
+        TestPrint<DeviceType::Cuda, float>( CudaFloatData(), "Attention: cuda_attn_float" );
     }
 
     TEST_F( AttentionTests, Cuda_Float_DeviceType ) {
@@ -883,7 +883,7 @@ namespace Modules::Tests
     }
 
     TEST_F( AttentionTests, Cuda_Half_TestPrint ) {
-        TestPrint<DeviceType::Cuda, float, half>( CudaHalfData(), "MultiHeadAttention: cuda_attn_half" );
+        TestPrint<DeviceType::Cuda, float, half>( CudaHalfData(), "Attention: cuda_attn_half" );
     }
 
     TEST_F( AttentionTests, Cuda_Half_TrainingMode ) {

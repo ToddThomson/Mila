@@ -1,13 +1,13 @@
 /**
  * @file CompositeModule.ixx
- * @brief Composite container module for Mila DNN components.
+ * @brief Composite container module for Mila DNN modules.
  *
  * Provides a container that owns and manages child modules. CompositeModule
  * is intentionally an abstract container (it does not implement forward/backward)
  * and focuses on module composition, lifecycle and state propagation.
  */
 
-    module;
+module;
 #include <vector>
 #include <string>
 #include <memory>

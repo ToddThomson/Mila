@@ -56,6 +56,7 @@ namespace Mila::Dnn
      * - Composite module pattern: manages child modules (Linear, activation, LayerNorm)
      * - Shape-agnostic configuration: input_features and hidden_size define architecture
      * - Runtime shape determined at build() time from actual input tensor
+     * - Child modules stored as concrete types for type safety and direct access
      *
      * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda)
      * @tparam TPrecision Abstract tensor precision (TensorDataType)
@@ -69,6 +70,9 @@ namespace Mila::Dnn
         using CompositeModuleBase = CompositeModule<TDeviceType>;
         using ExecutionContextType = ExecutionContext<TDeviceType>;
         using TensorType = Tensor<TPrecision, MR>;
+        using LinearType = Linear<TDeviceType, TPrecision>;
+        using GeluType = Gelu<TDeviceType, TPrecision>;
+        using LayerNormType = LayerNorm<TDeviceType, TPrecision>;
 
         /**
          * @brief Construct with an existing execution context.
@@ -120,11 +124,9 @@ namespace Mila::Dnn
 
             cached_input_shape_ = input_shape;
 
-            // Compute hidden shape: same leading dims, last dim = hidden_size
             cached_hidden_shape_ = input_shape;
             cached_hidden_shape_.back() = config_.getHiddenSize();
 
-            // Build child modules
             fc1_->build( input_shape );
 
             if (config_.useLayerNorm())
@@ -135,7 +137,6 @@ namespace Mila::Dnn
             activation_->build( cached_hidden_shape_ );
             fc2_->build( cached_hidden_shape_ );
 
-            // Allocate intermediate buffers
             auto device = exec_context_->getDevice();
 
             fc1_output_ = std::make_shared<TensorType>( device, cached_hidden_shape_ );
@@ -163,7 +164,7 @@ namespace Mila::Dnn
          * All setup and validation was done in build(). This method chains
          * forward calls through the MLP structure using pre-allocated buffers.
          */
-        void forward( const ITensor& input, ITensor& output ) override
+        void forward( const ITensor& input, ITensor& output )
         {
             if (!isBuilt())
             {
@@ -191,7 +192,7 @@ namespace Mila::Dnn
          * Chains backward calls through the MLP structure in reverse order,
          * using pre-allocated gradient buffers.
          */
-        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad ) override
+        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
         {
             if (!isBuilt())
             {
@@ -228,18 +229,28 @@ namespace Mila::Dnn
 
         void save( ModelArchive& archive ) const override
         {
-            for (const auto& module : this->getModules())
+            fc1_->save( archive );
+            
+            if (norm_)
             {
-                module->save( archive );
+                norm_->save( archive );
             }
+            
+            activation_->save( archive );
+            fc2_->save( archive );
         }
 
         void load( ModelArchive& archive ) override
         {
-            for (const auto& module : this->getModules())
+            fc1_->load( archive );
+            
+            if (norm_)
             {
-                module->load( archive );
+                norm_->load( archive );
             }
+            
+            activation_->load( archive );
+            fc2_->load( archive );
         }
 
         // ====================================================================
@@ -263,20 +274,30 @@ namespace Mila::Dnn
                 exec_context_->synchronize();
             }
 
-            for (const auto& module : this->getModules())
+            fc1_->synchronize();
+            
+            if (norm_)
             {
-                module->synchronize();
+                norm_->synchronize();
             }
+            
+            activation_->synchronize();
+            fc2_->synchronize();
         }
 
         void setTraining( bool is_training ) override
         {
             CompositeModuleBase::setTraining( is_training );
 
-            for (auto& module : this->getModules())
+            fc1_->setTraining( is_training );
+            
+            if (norm_)
             {
-                module->setTraining( is_training );
+                norm_->setTraining( is_training );
             }
+            
+            activation_->setTraining( is_training );
+            fc2_->setTraining( is_training );
         }
 
         bool isTraining() const override
@@ -287,11 +308,62 @@ namespace Mila::Dnn
         size_t parameterCount() const override
         {
             size_t total = 0;
-            for (const auto& module : this->getModules())
+            
+            total += fc1_->parameterCount();
+            
+            if (norm_)
             {
-                total += module->parameterCount();
+                total += norm_->parameterCount();
             }
+            
+            total += activation_->parameterCount();
+            total += fc2_->parameterCount();
+            
             return total;
+        }
+
+        std::vector<ITensor*> getParameters() const override
+        {
+            std::vector<ITensor*> params;
+            
+            auto fc1_params = fc1_->getParameters();
+            params.insert( params.end(), fc1_params.begin(), fc1_params.end() );
+            
+            if (norm_)
+            {
+                auto norm_params = norm_->getParameters();
+                params.insert( params.end(), norm_params.begin(), norm_params.end() );
+            }
+            
+            auto act_params = activation_->getParameters();
+            params.insert( params.end(), act_params.begin(), act_params.end() );
+            
+            auto fc2_params = fc2_->getParameters();
+            params.insert( params.end(), fc2_params.begin(), fc2_params.end() );
+            
+            return params;
+        }
+
+        std::vector<ITensor*> getParameterGradients() const override
+        {
+            std::vector<ITensor*> grads;
+            
+            auto fc1_grads = fc1_->getParameterGradients();
+            grads.insert( grads.end(), fc1_grads.begin(), fc1_grads.end() );
+            
+            if (norm_)
+            {
+                auto norm_grads = norm_->getParameterGradients();
+                grads.insert( grads.end(), norm_grads.begin(), norm_grads.end() );
+            }
+            
+            auto act_grads = activation_->getParameterGradients();
+            grads.insert( grads.end(), act_grads.begin(), act_grads.end() );
+            
+            auto fc2_grads = fc2_->getParameterGradients();
+            grads.insert( grads.end(), fc2_grads.begin(), fc2_grads.end() );
+            
+            return grads;
         }
 
         std::string toString() const override
@@ -334,10 +406,15 @@ namespace Mila::Dnn
             }
 
             oss << "Sub-Modules:" << std::endl;
-            for (const auto& [name, module] : this->getNamedModules())
+            oss << "  - fc1: " << fc1_->getName() << std::endl;
+            
+            if (norm_)
             {
-                oss << "  - " << name << std::endl;
+                oss << "  - norm: " << norm_->getName() << std::endl;
             }
+            
+            oss << "  - activation: " << activation_->getName() << std::endl;
+            oss << "  - fc2: " << fc2_->getName() << std::endl;
 
             return oss.str();
         }
@@ -351,6 +428,30 @@ namespace Mila::Dnn
             return config_;
         }
 
+        // ====================================================================
+        // Child module accessors
+        // ====================================================================
+
+        std::shared_ptr<LinearType> getFC1() const noexcept
+        {
+            return fc1_;
+        }
+
+        std::shared_ptr<LinearType> getFC2() const noexcept
+        {
+            return fc2_;
+        }
+
+        std::shared_ptr<GeluType> getActivation() const noexcept
+        {
+            return activation_;
+        }
+
+        std::shared_ptr<LayerNormType> getNorm() const noexcept
+        {
+            return norm_;
+        }
+
     protected:
         /**
          * @brief Override buildImpl for sequential shape propagation.
@@ -361,7 +462,6 @@ namespace Mila::Dnn
         void buildImpl( const shape_t& input_shape ) override
         {
             // Build is already handled by public build() method
-            // This override satisfies CompositeModule interface
         }
 
     private:
@@ -369,25 +469,20 @@ namespace Mila::Dnn
         bool built_{ false };
         std::shared_ptr<ExecutionContextType> exec_context_;
 
-        // Cached shapes determined at build time
         shape_t cached_input_shape_;
         shape_t cached_hidden_shape_;
 
-        // Child modules (stored as Module<TDeviceType> for uniform handling)
-        std::shared_ptr<Module<TDeviceType>> fc1_{ nullptr };
-        std::shared_ptr<Module<TDeviceType>> activation_{ nullptr };
-        std::shared_ptr<Module<TDeviceType>> fc2_{ nullptr };
-        std::shared_ptr<Module<TDeviceType>> norm_{ nullptr };
+        std::shared_ptr<LinearType> fc1_{ nullptr };
+        std::shared_ptr<GeluType> activation_{ nullptr };
+        std::shared_ptr<LinearType> fc2_{ nullptr };
+        std::shared_ptr<LayerNormType> norm_{ nullptr };
 
-        // Intermediate buffer tensors (allocated at build time)
         std::shared_ptr<TensorType> fc1_output_{ nullptr };
         std::shared_ptr<TensorType> norm_output_{ nullptr };
         std::shared_ptr<TensorType> act_output_{ nullptr };
 
         /**
          * @brief Validate input shape for MLP operation.
-         *
-         * Ensures the last dimension matches the configured input_features.
          */
         void validateInputShape( const shape_t& input_shape ) const
         {
@@ -408,30 +503,23 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Create and register child modules.
-         *
-         * Called from constructor to instantiate all child modules and register
-         * them with the composite module base for uniform management.
+         * @brief Create and configure child modules.
          */
         void createModules()
         {
-            // fc1: input_features ? hidden_size
             auto fc1_config = LinearConfig( config_.getInputFeatures(), config_.getHiddenSize() );
             fc1_config.withName( config_.getName() + ".fc1" )
                 .withBias( config_.hasBias() );
 
-            fc1_ = std::make_shared<Linear<TDeviceType, TPrecision>>( exec_context_, fc1_config );
-            this->addModule( "fc1", fc1_ );
+            fc1_ = std::make_shared<LinearType>( exec_context_, fc1_config );
 
-            // Optional layer norm
             if (config_.useLayerNorm())
             {
                 auto norm_config = LayerNormConfig();
                 norm_config.withAxis( -1 )
                     .withName( config_.getName() + ".norm" );
 
-                norm_ = std::make_shared<LayerNorm<TDeviceType, TPrecision>>( exec_context_, norm_config );
-                this->addModule( "norm", norm_ );
+                norm_ = std::make_shared<LayerNormType>( exec_context_, norm_config );
             }
 
             switch (config_.getActivationType())
@@ -441,26 +529,21 @@ namespace Mila::Dnn
                     auto gelu_config = GeluConfig();
                     gelu_config.withName( config_.getName() + ".gelu" );
 
-                    activation_ = std::make_shared<Gelu<TDeviceType, TPrecision>>( exec_context_, gelu_config );
+                    activation_ = std::make_shared<GeluType>( exec_context_, gelu_config );
                     break;
                 }
                 default:
                     throw std::invalid_argument( "MLP: unsupported activation type" );
             }
 
-            this->addModule( "activation", activation_ );
-
-            // fc2: hidden_size ? input_features
             auto fc2_config = LinearConfig( config_.getHiddenSize(), config_.getInputFeatures() );
             fc2_config.withName( config_.getName() + ".fc2" )
                 .withBias( config_.hasBias() );
 
-            fc2_ = std::make_shared<Linear<TDeviceType, TPrecision>>( exec_context_, fc2_config );
-            this->addModule( "fc2", fc2_ );
+            fc2_ = std::make_shared<LinearType>( exec_context_, fc2_config );
         }
     };
 
-    // Convenience aliases for common usages
     export template<TensorDataType TPrecision>
         using CpuMLP = MLP<DeviceType::Cpu, TPrecision>;
 

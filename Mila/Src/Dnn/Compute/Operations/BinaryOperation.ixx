@@ -2,16 +2,12 @@
  * @file BinaryOperation.ixx
  * @brief Abstract device-agnostic binary operation interface.
  *
- * Provides the typed abstract interface used by device-specific binary operation
- * implementations. See member documentation for API contracts and semantics.
+ * Typed, device-aware interface for binary operations (two inputs -> one output).
  */
 
 module;
-#include <memory>
-#include <vector>
-#include <stdexcept>
 #include <type_traits>
-#include <string>
+#include <utility>
 
 export module Compute.BinaryOperation;
 
@@ -35,39 +31,40 @@ import Compute.OperationAttributes;
 namespace Mila::Dnn::Compute
 {
     /**
-     * @brief Abstract interface for binary operations (two inputs ? one output).
+     * @tparam TDeviceType Device type for this operation (Cpu, Cuda, ...)
+     * @tparam TPrecision Canonical element precision produced/consumed by the op (e.g. FP32)
+     * @tparam TInputA Element type for left input (defaults to TPrecision)
+     * @tparam TInputB Element type for right input (defaults to TPrecision)
      *
-     * Inherits parameter management from OperationBase:
-     * - setParameters() binds weight/bias pointers before execution
-     * - setParameterGradients() binds gradient pointers before execution
-     * - build() performs shape-dependent setup and caches dimension info
-     *
-     * State management:
-     * - Operations maintain internal state (cached probabilities, masks, etc.)
-     * - State NEVER appears in forward/backward signatures
-     * - Implementations cache state as private members between forward/backward
-     *
-     * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda)
-     * @tparam TPrecision Abstract tensor precision (TensorDataType)
+     * @note Operation precision (TPrecision) is constrained to be supported on the target device.
      */
-    export template <DeviceType TDeviceType, TensorDataType TPrecision>
-        class BinaryOperation : public OperationBase<TDeviceType, TPrecision>
+    export template <
+        DeviceType TDeviceType,
+        TensorDataType TPrecision,
+        TensorDataType TInputA = TPrecision,
+        TensorDataType TInputB = TPrecision>
+        requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
+    class BinaryOperation : public Operation<TDeviceType, TPrecision>
     {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
-        using TensorType = Tensor<TPrecision, MR>;
+
+        // Concrete tensor aliases for implementers
+        using TensorOutputType   = Tensor<TPrecision, MR>;
+        using TensorLeftType     = Tensor<TInputA, MR>;
+        using TensorRightType    = Tensor<TInputB, MR>;
+
+        // Parameter / gradient aliases (parameters normally use op precision)
+        using ParameterTensor    = Tensor<TPrecision, MR>;
+        using ParameterGradTensor= Tensor<TPrecision, MR>;
 
         virtual ~BinaryOperation() = default;
 
         /**
-         * @brief Forward pass: output = f(inputA, inputB).
+         * @brief Forward pass: output = f(input_a, input_b)
          *
-         * Parameters are accessed via pointers bound by setParameters().
-         * Intermediate state is cached internally by the operation.
-         *
-         * @param inputA First input tensor
-         * @param inputB Second input tensor
-         * @param output Output tensor (allocated/resized by implementation)
+         * Implementations should accept polymorphic `ITensor` references and
+         * may use the typed helpers below to obtain concrete `Tensor<T,...>` references.
          */
         virtual void forward( const ITensor& input_a, const ITensor& input_b, ITensor& output ) const = 0;
 
@@ -75,25 +72,35 @@ namespace Mila::Dnn::Compute
          * @brief Backward pass: compute gradients w.r.t. inputs.
          *
          * Parameter gradients are written via pointers bound by setParameterGradients().
-         * Intermediate state is accessed from operation's internal cache.
          *
-         * @param inputA First input from forward pass
-         * @param inputB Second input from forward pass
-         * @param output_gradient Gradient w.r.t. output (dL/dOutput)
-         * @param inputA_gradient Gradient w.r.t. first input (dL/dInputA)
-         * @param inputB_gradient Gradient w.r.t. second input (dL/dInputB)
-         *
-         * Notes:
-         * - Some operations may not compute gradients for all inputs
-         *   (e.g., CrossEntropy doesn't differentiate w.r.t. integer targets)
-         * - Implementations should document accumulation semantics
-         * - Parameter gradients are accumulated via cached pointers
+         * @param input_a First input from forward pass
+         * @param input_b Second input from forward pass
+         * @param output_grad Gradient w.r.t. output (dL/dOutput)
+         * @param input_a_grad Gradient w.r.t. first input (dL/dInputA)
+         * @param input_b_grad Gradient w.r.t. second input (dL/dInputB)
          */
         virtual void backward(
-            const ITensor& inputA,
-            const ITensor& inputB,
-            const ITensor& output_gradient,
-            ITensor& inputA_gradient,
-            ITensor& inputB_gradient ) const = 0;
+            const ITensor& input_a,
+            const ITensor& input_b,
+            const ITensor& output_grad,
+            ITensor& input_a_grad,
+            [[maybe_unused]] ITensor& input_b_grad ) const = 0;
+
+    protected:
+        // Typed dynamic-cast helpers to avoid manual rawData() casts.
+        static const TensorLeftType&  asLeftTensor( const ITensor& t )
+        {
+            return dynamic_cast<const TensorLeftType&>(t);
+        }
+
+        static const TensorRightType& asRightTensor( const ITensor& t )
+        {
+            return dynamic_cast<const TensorRightType&>(t);
+        }
+
+        static TensorOutputType& asOutputTensor( ITensor& t )
+        {
+            return dynamic_cast<TensorOutputType&>(t);
+        }
     };
 }

@@ -34,7 +34,7 @@ import Compute.Precision;
 import Compute.ComputeDevice;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
-import Compute.UnaryOperation;
+import Compute.BinaryOperation;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
@@ -66,11 +66,12 @@ namespace Mila::Dnn
      * @tparam TPrecision Abstract tensor precision (TensorDataType) for logits
      * @tparam TTargets Data type for target indices (typically int32)
      */
-    export template<DeviceType TDeviceType, TensorDataType TPrecision, TensorDataType TTargets = dtype_t::INT32>
+    export template<DeviceType TDeviceType, TensorDataType TLogits, TensorDataType TTargets = dtype_t::INT32, TensorDataType TPrecision = TLogits>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
     class SoftmaxCrossEntropy : public Module<TDeviceType>
     {
     public:
+		// TJT: TODO: DeviceType should not be restricted to Cpu/Cuda only. Beta release requirement.
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
         using ExecutionContextType = ExecutionContext<TDeviceType>;
         using TensorType = Tensor<TPrecision, MR>;
@@ -91,6 +92,9 @@ namespace Mila::Dnn
             }
 
             config_.validate();
+
+			// Create dummy tensor for unused target gradients in backward pass
+			dummy_target_grad_ = std::make_shared<TargetTensorType>( exec_context_->getDevice(), shape_t{ 0 } );
 
             createOperation();
         }
@@ -138,21 +142,16 @@ namespace Mila::Dnn
          * @param targets Target tensor containing class indices [B, S]
          * @param output Output tensor for loss values [B, S]
          */
-        void forward( const ITensor& input, const ITensor& targets, ITensor& output )
+        void forward( const ITensor& logits, const ITensor& targets, ITensor& output )
         {
             if (!isBuilt())
             {
                 throw std::runtime_error( "SoftmaxCrossEntropy module must be built before calling forward." );
             }
 
-            validateInputShape( input );
+            validateInputShape( logits );
 
-            // Cast to concrete tensor types for operation
-            const auto& input_typed = dynamic_cast<const TensorType&>(input);
-            const auto& targets_typed = dynamic_cast<const TargetTensorType&>(targets);
-            auto& output_typed = dynamic_cast<TensorType&>(output);
-
-            operation_->forward( input_typed, targets_typed, output_typed );
+            operation_->forward( logits, targets, output );
         }
 
         /**
@@ -160,12 +159,23 @@ namespace Mila::Dnn
          *
          * Computes fused gradient: dL/dlogits = softmax(logits) - one_hot(targets)
          *
-         * @param input Input tensor from forward pass (logits) [B, S, V]
-         * @param targets Target tensor containing class indices [B, S]
+         * Note: This operation only computes gradients with respect to the logits.
+         * The targets are discrete class indices (non-differentiable), so no target
+         * gradients are computed. This is the standard behavior for classification
+         * loss functions.
+         *
+         * @param logits Input tensor from forward pass (logits) [B, S, V]
+         * @param targets Target tensor containing class indices [B, S] - non-differentiable
          * @param output_grad Gradient of loss with respect to output [B, S]
-         * @param input_grad Tensor to store gradients with respect to input [B, S, V]
+         * @param logits_grad Output: gradients with respect to logits [B, S, V]
+         *
+         * @throws std::runtime_error if module not built or not in training mode
          */
-        void backward( const ITensor& input, const ITensor& targets, const ITensor& output_grad, ITensor& input_grad )
+        void backward(
+            const ITensor& logits,
+            const ITensor& targets,
+            const ITensor& output_grad,
+            ITensor& logits_grad )
         {
             if (!isBuilt())
             {
@@ -177,24 +187,13 @@ namespace Mila::Dnn
                 throw std::runtime_error( "SoftmaxCrossEntropy module must be in training mode to call backward. Call setTraining(true) first." );
             }
 
-            // Cast to concrete tensor types
-            const auto& input_typed = dynamic_cast<const TensorType&>(input);
-            const auto& targets_typed = dynamic_cast<const TargetTensorType&>(targets);
-            const auto& output_grad_typed = dynamic_cast<const TensorType&>(output_grad);
-            auto& input_grad_typed = dynamic_cast<TensorType&>(input_grad);
-
-            // No parameters or parameter gradients for fused operation
-            std::vector<std::shared_ptr<ITensor>> empty_params;
-            std::vector<std::shared_ptr<ITensor>> empty_param_grads;
-
+            // Targets are discrete class indices (non-differentiable) - pass nullptr for unused gradient
             operation_->backward(
-                input_typed,
-                targets_typed,
-                empty_params,
-                empty_param_grads,
-                output_grad_typed,
-                input_grad_typed,
-                output_state_ );
+                logits,
+                targets,
+                output_grad,
+                logits_grad,
+                *dummy_target_grad_ );
         }
 
         // ====================================================================
@@ -309,9 +308,10 @@ namespace Mila::Dnn
         bool is_training_{ false };
         bool is_built_{ false };
 
-        std::vector<std::shared_ptr<TensorType>> output_state_;  ///< Cached probabilities for backward pass
-        std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<BinaryOperation<TDeviceType, TLogits, TTargets, TPrecision>> operation_{ nullptr };
         std::shared_ptr<ExecutionContextType> exec_context_;
+
+        std::shared_ptr<TargetTensorType> dummy_target_grad_{ nullptr };
 
         /**
          * @brief Validate input shape for fused softmax+cross-entropy operation.
@@ -361,7 +361,7 @@ namespace Mila::Dnn
         void createOperation()
         {
             operation_ = OperationRegistry::instance()
-                .createUnaryOperation<TDeviceType, TPrecision, TTargets>(
+                .createBinaryOperation<TDeviceType, TLogits, TTargets, TPrecision>(
                     "SoftmaxCrossEntropyOp",
                     exec_context_,
                     config_ );

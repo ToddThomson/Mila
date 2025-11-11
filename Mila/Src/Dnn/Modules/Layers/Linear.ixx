@@ -63,8 +63,6 @@ namespace Mila::Dnn
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
         using ExecutionContextType = ExecutionContext<TDeviceType>;
         using TensorType = Tensor<TPrecision, MR>;
-        using Parameters = std::vector<std::shared_ptr<TensorType>>;
-        using OutputState = std::vector<std::shared_ptr<TensorType>>;
 
         /**
          * @brief Construct with an existing execution context.
@@ -143,7 +141,7 @@ namespace Mila::Dnn
          *
          * Computes y = x * W^T + b (if bias is enabled).
          */
-        void forward( const ITensor& input, ITensor& output ) override
+        void forward( const ITensor& input, ITensor& output )
         {
             if (!isBuilt())
             {
@@ -160,7 +158,7 @@ namespace Mila::Dnn
          *
          * Computes gradients with respect to input and parameters.
          */
-        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad ) override
+        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
         {
             if (!isBuilt())
             {
@@ -373,13 +371,13 @@ namespace Mila::Dnn
          *
          * Useful for optimizers and parameter iteration helpers.
          */
-        Parameters getParametersTyped() const
+        /*Parameters getParametersTyped() const
         {
             Parameters p;
             if (weight_) p.emplace_back( weight_ );
             if (bias_)   p.emplace_back( bias_ );
             return p;
-        }
+        }*/
 
         /**
          * @brief Check whether the module has a bias term.

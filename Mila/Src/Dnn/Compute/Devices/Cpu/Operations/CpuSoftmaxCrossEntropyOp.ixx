@@ -29,6 +29,7 @@ export module Compute.CpuSoftmaxCrossEntropyOp;
 import Dnn.Modules.SoftmaxCrossEntropy;
 import Dnn.Tensor;
 import Dnn.ITensor;
+import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorHostTypeMap;
@@ -67,19 +68,22 @@ namespace Mila::Dnn::Compute
      * - Backward uses cached probabilities (or recomputes if not cached)
      * - All dimension computation happens once in build()
      *
-     * @tparam TLogitsPrecision Precision for logits/gradients (FP32, FP16, etc.)
+     * @tparam TLogitsPrecision Precision for logits/gradients (FP32)
      * @tparam TTargets Target indices data type (typically INT32)
      */
-    export template<TensorDataType TLogitsPrecision, TensorDataType TTargets = TensorDataType::INT32>
-        requires PrecisionSupportedOnDevice<TLogitsPrecision, DeviceType::Cpu>
-    class CpuSoftmaxCrossEntropyOp : public BinaryOperation<DeviceType::Cpu, TLogitsPrecision>
+    export template<
+        TensorDataType TPrecision = TensorDataType::FP32,
+        TensorDataType TLogits = TPrecision,
+        TensorDataType TTargets = TensorDataType::INT32>
+        requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cpu> && PrecisionSupportedOnDevice<TLogits, DeviceType::Cpu>
+    class CpuSoftmaxCrossEntropyOp : public BinaryOperation<DeviceType::Cpu, TPrecision, TLogits, TTargets>
     {
     public:
         using MR = CpuMemoryResource;
-        using BinaryOperationBase = BinaryOperation<DeviceType::Cpu, TLogitsPrecision>;
-        using LogitsTensorType = Tensor<TLogitsPrecision, MR>;
+        using BinaryOperationBase = BinaryOperation<DeviceType::Cpu, TPrecision, TLogits, TTargets>;
+        using LogitsTensorType = Tensor<TLogits, MR>;
         using TargetsTensorType = Tensor<TTargets, MR>;
-        using LogitsHostType = typename TensorHostTypeMap<TLogitsPrecision>::host_type;
+        using LogitsHostType = typename TensorHostTypeMap<TLogits>::host_type;
         using TargetsHostType = typename TensorHostTypeMap<TTargets>::host_type;
         using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
 
@@ -89,9 +93,7 @@ namespace Mila::Dnn::Compute
          * @param context CPU execution context
          * @param config CrossEntropy configuration (vocab_size required)
          */
-        CpuSoftmaxCrossEntropyOp(
-            std::shared_ptr<CpuExecutionContext> context,
-            const CrossEntropyConfig& config )
+        CpuSoftmaxCrossEntropyOp( std::shared_ptr<CpuExecutionContext> context, const CrossEntropyConfig& config )
             : context_( context ), config_( config )
         {
             if (!context_)
@@ -415,18 +417,21 @@ namespace Mila::Dnn::Compute
     public:
         static void registerOperations()
         {
-            // Register FP32 variant with INT32 targets
+            // Register op keyed by input types (logits, targets). Return shared_ptr typed to the precision/logits/targets variant.
             OperationRegistry::instance().registerBinaryOperation<
                 DeviceType::Cpu,
-                TensorDataType::FP32>(
+                TensorDataType::FP32,
+				TensorDataType::FP32,
+                TensorDataType::INT32>(
                     "SoftmaxCrossEntropyOp",
                     []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
-                        const ConfigurationBase& config )
-                    -> std::shared_ptr<BinaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
+                        const ConfigurationBase& config ) -> std::shared_ptr<BinaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32, TensorDataType::INT32>>
                     {
-                        const auto& ceConfig = static_cast<const CrossEntropyConfig&>(config);
-                        return std::make_shared<CpuSoftmaxCrossEntropyOp<TensorDataType::FP32, TensorDataType::INT32>>(
-                            context, ceConfig );
+                        const auto& crossEntropyConfig = static_cast<const CrossEntropyConfig&>(config);
+                        return std::make_shared<
+                            CpuSoftmaxCrossEntropyOp<TensorDataType::FP32, TensorDataType::FP32, TensorDataType::INT32>>(
+                                context,
+                                crossEntropyConfig);
                     }
                 );
         }

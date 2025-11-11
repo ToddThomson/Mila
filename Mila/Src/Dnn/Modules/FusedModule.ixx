@@ -13,21 +13,23 @@ import Compute.CudaDeviceMemoryResource;
 
 namespace Mila::Dnn
 {
-    export template<typename TPrecision, typename TInput = TPrecision, Compute::DeviceType TDeviceType = Compute::DeviceType::Cuda>
-        requires ValidTensorTypes<TPrecision, TInput>
-    class FusedModule : public Module<TPrecision, TInput, TDeviceType> {
-    public:
-        explicit FusedModule( std::shared_ptr<FusedOp> op ) : op_( std::move( op ) ) {}
+	// REVIEW: Not required? To be removed. Commented out for now.
+    // 
+    //export template<typename TPrecision, typename TInput = TPrecision, Compute::DeviceType TDeviceType = Compute::DeviceType::Cuda>
+    //    requires ValidTensorTypes<TPrecision, TInput>
+    //class FusedModule : public Module<TPrecision, TInput, TDeviceType> {
+    //public:
+    //    explicit FusedModule( std::shared_ptr<FusedOp> op ) : op_( std::move( op ) ) {}
 
-        void forward( const Tensor& input, Tensor& output ) override {
-            op_->forward( input, output );
-        }
+    //    void forward( const Tensor& input, Tensor& output ) override {
+    //        op_->forward( input, output );
+    //    }
 
-        void build( Device, DType ) override {
-            // Fused modules don't require further building
-        }
+    //    void build( Device, DType ) override {
+    //        // Fused modules don't require further building
+    //    }
 
-    private:
-        std::shared_ptr<FusedOp> op_;
-    };
+    //private:
+    //    std::shared_ptr<FusedOp> op_;
+    //};
 }

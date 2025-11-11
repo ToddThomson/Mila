@@ -25,7 +25,7 @@ namespace Mila::Dnn::Compute
 		LinearOp,			   ///< Linear (fully connected/dense) layer operation
 		GeluOp,                ///< Gaussian Error Linear Unit activation function
 		LayerNormOp,           ///< Layer normalization operation
-		MultiHeadAttentionOp,  ///< Multi-head attention operation for transformers
+		AttentionOp,			///< Multi-head attention operation for transformers
 		ResidualOp,            ///< Residual connection operation
 		SoftmaxOp              ///< Softmax activation function
 	};
@@ -48,7 +48,7 @@ namespace Mila::Dnn::Compute
 			case OperationType::LinearOp: return "LinearOp";
 			case OperationType::GeluOp: return "GeluOp";
 			case OperationType::LayerNormOp: return "LayerNormOp";
-			case OperationType::MultiHeadAttentionOp: return "MultiHeadAttentionOp";
+			case OperationType::AttentionOp: return "AttentionOp";
 			case OperationType::ResidualOp: return "ResidualOp";
 			case OperationType::SoftmaxOp: return "SoftmaxOp";
 

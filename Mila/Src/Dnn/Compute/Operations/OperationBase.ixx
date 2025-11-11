@@ -5,8 +5,6 @@
 
 module;
 #include <string>
-#include <memory>
-#include <stdexcept>
 
 export module Compute.OperationBase;
 
@@ -20,14 +18,14 @@ import Compute.OperationType;
 namespace Mila::Dnn::Compute
 {
     export template <DeviceType TDeviceType, TensorDataType TPrecision>
-    class OperationBase
+    class Operation
     {
     public:
         static constexpr DeviceType device_type = TDeviceType;
         static constexpr TensorDataType data_type = TPrecision;
         using DataTypeTraits = TensorDataTypeTraits<TPrecision>;
 
-        virtual ~OperationBase() = default;
+        virtual ~Operation() = default;
 
         /**
          * @brief Check if operation has been built for a specific input shape.
@@ -69,7 +67,7 @@ namespace Mila::Dnn::Compute
          * @throws std::invalid_argument if shapes are incompatible with operation
          * @throws std::runtime_error if compilation or allocation fails
          */
-        virtual void build( const shape_t& input_shape )
+        virtual void build( [[maybe_unused]] const shape_t& input_shape )
         {
             // Default: no build required
             is_built_ = true;

@@ -71,8 +71,8 @@ namespace Mila::Dnn
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
         using ExecutionContextType = ExecutionContext<TDeviceType>;
         using TensorType = Tensor<TPrecision, MR>;
-        using Parameters = std::vector<std::shared_ptr<TensorType>>;
-        using OutputState = std::vector<std::shared_ptr<TensorType>>;
+        //using Parameters = std::vector<std::shared_ptr<TensorType>>;
+        //using OutputState = std::vector<std::shared_ptr<TensorType>>;
 
         /**
          * @brief Construct with an existing execution context.
@@ -91,7 +91,7 @@ namespace Mila::Dnn
             }
 
             config_.validate();
-            initializeParameters();
+
             createOperation();
         }
 
@@ -104,12 +104,7 @@ namespace Mila::Dnn
          */
         size_t parameterCount() const override
         {
-            size_t count = 0;
-            for (const auto& p : parameters_)
-            {
-                if (p) count += p->size();
-            }
-            return count;
+            return 0;
         }
 
         /**
@@ -118,10 +113,9 @@ namespace Mila::Dnn
          * Delegates to the backend binary operation. Inputs and outputs are
          * provided as abstract `ITensor` references to remain device-agnostic.
          */
-        void forward( const ITensor& input, ITensor& output ) override
+        void forward( const ITensor& input_a, const ITensor& input_b, ITensor& output )
         {
-            // TJT: 2nd input needs to be fixed
-            operation_->forward( input, input, parameters_, output, output_state_ );
+            operation_->forward( input_a, input_b, output );
         }
 
         /**
@@ -130,16 +124,13 @@ namespace Mila::Dnn
          * Currently a placeholder; backend gradient support should be invoked
          * here when available.
          */
-        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad ) override
+        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
         {
-            /* FIXME: operation_->backward(
+             operation_->backward(
                 input,
                 output_grad,
-                parameters_,
-                output_state_,
-                input_grad,
-                parameter_grads_
-            );*/
+                input_grad
+            );
         }
 
 		// ====================================================================
@@ -157,8 +148,6 @@ namespace Mila::Dnn
             // Placeholder; concrete implementations may infer shapes and
             // allocate parameters as needed based on input_shape.
 		}
-
-
 
         /**
          * @brief Block until all device operations submitted by this module complete.
@@ -234,39 +223,35 @@ namespace Mila::Dnn
         ResidualConfig config_;
         bool training_mode_{ false };
 
-        // Parameters and gradients
-        Parameters parameters_;
-        std::vector<std::shared_ptr<TensorType>> parameter_grads_;
-        OutputState output_state_;
-
         std::shared_ptr<BinaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
         std::shared_ptr<ExecutionContextType> exec_context_;
 
-        void initializeParameters()
-        {
-            parameters_.clear();
+		// FUTURE: Release placeholder for parameter initialization logic.
+        //void initializeParameters()
+        //{
+        //    parameters_.clear();
 
-            // If gated or projection enabled, allocate parameter tensors here.
-            // For now, defer allocation to configuration-driven code when needed.
-            if (config_.useProjection())
-            {
-                auto device = exec_context_->getDevice();
-                int64_t in_features = config_.getInputFeatures();
-                int64_t out_features = config_.getOutputFeatures();
+        //    // If gated or projection enabled, allocate parameter tensors here.
+        //    // For now, defer allocation to configuration-driven code when needed.
+        //    if (config_.useProjection())
+        //    {
+        //        auto device = exec_context_->getDevice();
+        //        int64_t in_features = config_.getInputFeatures();
+        //        int64_t out_features = config_.getOutputFeatures();
 
-                auto proj = std::make_shared<TensorType>( device, shape_t{ out_features, in_features } );
-                proj->setName( std::string( "residual.proj" ) );
-                parameters_.emplace_back( proj );
-            }
+        //        auto proj = std::make_shared<TensorType>( device, shape_t{ out_features, in_features } );
+        //        proj->setName( std::string( "residual.proj" ) );
+        //        parameters_.emplace_back( proj );
+        //    }
 
-            if (config_.isGated())
-            {
-                auto device = exec_context_->getDevice();
-                auto gate = std::make_shared<TensorType>( device, shape_t{ config_.getGateSize() } );
-                gate->setName( std::string( "residual.gate" ) );
-                parameters_.emplace_back( gate );
-            }
-        }
+        //    if (config_.isGated())
+        //    {
+        //        auto device = exec_context_->getDevice();
+        //        auto gate = std::make_shared<TensorType>( device, shape_t{ config_.getGateSize() } );
+        //        gate->setName( std::string( "residual.gate" ) );
+        //        parameters_.emplace_back( gate );
+        //    }
+        //}
 
         void createOperation()
         {

@@ -5,7 +5,7 @@ Mila Deep Neural Network Library
 ## Prerelease Notice
 Mila, version 0.9.9XX-alpha is a preview release.
 
-With the milestone of training a complete neural network model achieved, the library is now
+With the milestone of training the Mnist neural network model achieved, the library is now
 entering a phase of rapid development. While core functionalities such as linear layers,
 optimizers, and training loops are operational, many advanced features and optimizations
 are still under development. Users are encouraged to explore the library and provide feedback,
@@ -18,6 +18,11 @@ state-of-the-art architectures including transformers, convolutional networks, a
 Mila utilizes the NVIDIA CUDA runtime for high-performance GPU acceleration, enabling efficient
 training and inference on large-scale datasets. The library also supports distributed training
 across multiple GPUs and compute nodes, with automatic optimization for various hardware configurations.
+
+## Mnist Sample
+A complete Mnist training example is included in the `samples/mnist` directory.
+This example demonstrates how to set up a simple feedforward neural network using Mila,
+load the MNIST dataset, and train the model to achieve high accuracy on handwritten digit recognition.
 
 ## Documentation
 Comprehensive Online documentation is available:
@@ -39,7 +44,7 @@ The documentation includes class references, usage examples, and architecture gu
 
 ### Recent Updates (v0.9.9XX-alpha)
 
-**Training Infrastructure Complete** ??
+**Training Infrastructure Complete**
 - Successfully trained MNIST classifier achieving **97.5% test accuracy** with 3-layer MLP
 - Implemented complete forward and backward pass for Linear layers using cuBLASLt
 - AdamW optimizer fully operational with momentum, weight decay, and bias correction

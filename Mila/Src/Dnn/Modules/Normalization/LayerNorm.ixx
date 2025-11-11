@@ -138,7 +138,7 @@ namespace Mila::Dnn
         // Compute operation dispatch
         // ====================================================================
 
-        void forward( const ITensor& input, ITensor& output ) override
+        void forward( const ITensor& input, ITensor& output )
         {
             if (!isBuilt())
             {
@@ -151,7 +151,7 @@ namespace Mila::Dnn
             operation_->forward( input, output );
         }
 
-        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad ) override
+        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
         {
             // Backward not implemented yet.
         }

@@ -17,7 +17,6 @@ import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
-import Dnn.TensorHostTypeMap;
 import Dnn.ConfigurationBase;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
@@ -72,10 +71,6 @@ namespace Mila::Dnn::Compute
         using MR = CpuMemoryResource;
         using UnaryOperationBase = UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>;
         using TensorType = Tensor<TensorDataType::FP32, MR>;
-        using Parameters = std::vector<std::shared_ptr<TensorType>>;
-        using OutputState = std::vector<std::shared_ptr<TensorType>>;
-        using NativeType = typename CpuTensorDataTypeTraits::template native_type<TensorDataType::FP32>;
-        using HostType = typename TensorHostTypeMap<TensorDataType::FP32>::host_type;
         using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
 
         /**
@@ -141,9 +136,9 @@ namespace Mila::Dnn::Compute
                 throw std::runtime_error( "GeluOp not built - call build() first" );
             }
 
-            // Obtain host element buffers (HostType) once before the loop.
-            const HostType* input_data = static_cast<const HostType*>(input.rawData());
-            HostType* output_data = static_cast<HostType*>(output.rawData());
+            // Obtain host element buffers (float) once before the loop.
+            const float* input_data = static_cast<const float*>(input.rawData());
+            float* output_data = static_cast<float*>(output.rawData());
 
             if (!input_data || !output_data)
             {
@@ -155,9 +150,9 @@ namespace Mila::Dnn::Compute
 #pragma omp parallel for if(N > 1000)
             for (int i = 0; i < static_cast<int>( N ); i++)
             {
-                HostType x = input_data[i];
-                HostType cube = static_cast<HostType>( 0.044715f * x * x * x );
-                output_data[i] = static_cast<HostType>( 0.5f * x * (1.0f + tanhf( GELU_SCALING_FACTOR * (x + cube) )) );
+                float x = input_data[i];
+                float cube = static_cast<float>( 0.044715f * x * x * x );
+                output_data[i] = static_cast<float>( 0.5f * x * (1.0f + tanhf( GELU_SCALING_FACTOR * (x + cube) )) );
             }
         }
 
@@ -185,9 +180,9 @@ namespace Mila::Dnn::Compute
             }
 
             // General tensor case
-            auto inp = static_cast<const HostType*>(input.rawData());
-            auto dout = static_cast<const HostType*>(output_grad.rawData());
-            auto dinp = static_cast<HostType*>(input_grad.rawData());
+            auto inp = static_cast<const float*>(input.rawData());
+            auto dout = static_cast<const float*>(output_grad.rawData());
+            auto dinp = static_cast<float*>(input_grad.rawData());
 
             if (!inp || !dout || !dinp)
             {
@@ -200,13 +195,13 @@ namespace Mila::Dnn::Compute
 #pragma omp parallel for if(N > 1000)
             for (int i = 0; i < static_cast<int>( N ); i++)
             {
-                HostType x = inp[i];
-                HostType cube = static_cast<HostType>( 0.044715f * x * x * x );
+                float x = inp[i];
+                float cube = static_cast<float>( 0.044715f * x * x * x );
                 float tanh_arg = GELU_SCALING_FACTOR * (x + cube);
                 float tanh_out = tanhf( tanh_arg );
                 float coshf_out = coshf( tanh_arg );
                 float sech_out = 1.0f / (coshf_out * coshf_out);
-                HostType local_grad = static_cast<HostType>(
+                float local_grad = static_cast<float>(
                     0.5f * (1.0f + tanh_out) +
                     x * 0.5f * sech_out * GELU_SCALING_FACTOR * (1.0f + 3.0f * 0.044715f * x * x)
                     );
@@ -253,10 +248,10 @@ namespace Mila::Dnn::Compute
          */
         static void registerOperations()
         {
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>(
                 "GeluOp",
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
-                    const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
+                    const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>>
                 {
                     const auto& geluConfig = static_cast<const GeluConfig&>(config);
                     

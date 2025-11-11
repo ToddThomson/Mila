@@ -12,8 +12,6 @@
  *    be validated to ensure it's for a CPU device.
  *  - Forward/backward are implemented in terms of raw host buffers obtained
  *    from the ITensor abstraction. OpenMP is used when available.
- *
- * @since Alpha
  */
 
 module;
@@ -34,7 +32,7 @@ import Dnn.Modules.Residual;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
-import Dnn.TensorHostTypeMap;
+//import Dnn.TensorHostTypeMap;
 import Dnn.ConfigurationBase;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
@@ -66,9 +64,9 @@ namespace Mila::Dnn::Compute
         using MR = CpuMemoryResource;
         using BinaryOperationBase = BinaryOperation<DeviceType::Cpu, TensorDataType::FP32>;
         using TensorType = Tensor<TensorDataType::FP32, MR>;
-        using Parameters = std::vector<std::shared_ptr<TensorType>>;
-        using OutputState = std::vector<std::shared_ptr<TensorType>>;
-        using HostType = typename TensorHostTypeMap<TensorDataType::FP32>::host_type;
+        //using Parameters = std::vector<std::shared_ptr<TensorType>>;
+        //using OutputState = std::vector<std::shared_ptr<TensorType>>;
+        //using float = typename TensorfloatMap<TensorDataType::FP32>::host_type;
         using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
 
         /**
@@ -84,6 +82,8 @@ namespace Mila::Dnn::Compute
             {
                 throw std::invalid_argument( "CpuResidualOp requires a valid CpuExecutionContext" );
 			}
+
+			config.validate();
         }
 
         /**
@@ -91,26 +91,23 @@ namespace Mila::Dnn::Compute
          *
          * Parameters and output_state are currently unused.
          */
-        void forward(
-            const ITensor& inputA,
-            const ITensor& inputB,
-            ITensor& output ) const override
+        void forward( const ITensor& input_a, const ITensor& input_b, ITensor& output ) const
         {
-            const HostType* a = static_cast<const HostType*>(inputA.rawData());
-            const HostType* b = static_cast<const HostType*>(inputB.rawData());
-            HostType* y = static_cast<HostType*>(output.rawData());
+            const float* A = static_cast<const float*>(input_a.rawData());
+            const float* B = static_cast<const float*>(input_b.rawData());
+            float* Y = static_cast<float*>(output.rawData());
 
-            if (!a || !b || !y)
+            if (!A || !B || !Y)
             {
                 throw std::runtime_error( "CpuResidualOp::forward - null tensor data pointer" );
             }
 
-            const size_t N = inputA.size();
+            const size_t N = input_a.size();
 
 #pragma omp parallel for if(N > 1000)
             for (int i = 0; i < static_cast<int>( N ); ++i)
             {
-                y[i] = a[i] + b[i];
+                Y[i] = A[i] + B[i];
             }
         }
 
@@ -120,32 +117,28 @@ namespace Mila::Dnn::Compute
          * Adds output_gradient into both input gradients (in-place accumulation).
          */
         void backward(
-            const ITensor& inputA,
-            const ITensor& inputB,
-            const ITensor& output,
-            const ITensor& output_gradient,
-            [[maybe_unused]] const Parameters& parameters,
-            [[maybe_unused]] Parameters& parameter_gradients,
-            ITensor& inputA_gradient,
-            ITensor& inputB_gradient,
-            [[maybe_unused]] const OutputState& output_state ) const override
+            const ITensor& input_a,
+            const ITensor& input_b,
+            const ITensor& output_grad,
+            ITensor& input_a_grad,
+            ITensor& input_b_grad ) const override
         {
-            const HostType* dout = static_cast<const HostType*>(output_gradient.rawData());
-            HostType* dinp1 = static_cast<HostType*>(inputA_gradient.rawData());
-            HostType* dinp2 = static_cast<HostType*>(inputB_gradient.rawData());
+            const float* dY = static_cast<const float*>(output_grad.rawData());
+            float* dX1 = static_cast<float*>(input_a_grad.rawData());
+            float* dX2 = static_cast<float*>(input_b_grad.rawData());
 
-            if (!dout || !dinp1 || !dinp2)
+            if (!dY || !dX1 || !dX2)
             {
                 throw std::runtime_error( "CpuResidualOp::backward - null tensor data pointer" );
             }
 
-            const size_t N = inputA.size();
+            const size_t N = input_a.size();
 
 #pragma omp parallel for if(N > 1000)
             for (int i = 0; i < static_cast<int>( N ); ++i)
             {
-                dinp1[i] += dout[i];
-                dinp2[i] += dout[i];
+                dX1[i] += dY[i];
+                dX2[i] += dY[i];
             }
         }
 
@@ -176,7 +169,7 @@ namespace Mila::Dnn::Compute
     public:
         static void registerOperations()
         {
-            OperationRegistry::instance().registerBinaryOperation<DeviceType::Cpu, TensorDataType::FP32>(
+            OperationRegistry::instance().registerBinaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32, TensorDataType::FP32>(
                 "ResidualOp",
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context, const ConfigurationBase& config )
                 -> std::shared_ptr<BinaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
