@@ -1,11 +1,13 @@
 #include <cuda_fp16.h>
 #include "device_launch_parameters.h"
-#include "CudaUtils.h"
+#include "../../Helpers/CudaUtils.h"
 
 namespace Mila::Dnn::Compute
 {
-    __global__ void permute_fp32_kernel( float* q, float* k, float* v,
-        const float* inp, int B, int N, int NH, int d ) {
+    __global__ void permute_fp32_kernel( 
+        float* q, float* k, float* v,
+        const float* inp, int B, int N, int NH, int d ) 
+    {
         // okay so now, this kernel wants Q,K,V to all be of shape (B, NH, N, d)
         // but instead, we have a single tensor QKV (inp) of shape (B, N, 3, NH, d)
         int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -56,16 +58,19 @@ namespace Mila::Dnn::Compute
         const float alpha = 1.0f;
         const float beta = 0.0f;
         float* preatt = inp;
+        
         cublasCheck( cublasSgemmStridedBatched( cublas_handle, CUBLAS_OP_T, CUBLAS_OP_N, T, T, HS, &alpha, k, HS, T * HS, q, HS, T * HS, &beta, preatt, T, T * T, B * NH ) );
 
         // multiply all elements of preatt elementwise by scale
         float scale = 1.0 / sqrtf( HS );
         int grid_size = CEIL_DIV( B * NH * T * 32, softmax_block_size );
+        
         softmax_forward_kernel5 << <grid_size, softmax_block_size >> > (att, scale, preatt, B * NH, T);
         cudaCheck( cudaGetLastError() );
 
         // new approach: first cuBLAS another batched matmul
         float* vaccum = inp;
+        
         // y = att @ v # (B, nh, T, T) @ (B, nh, T, hs) -> (B, nh, T, hs)
         cublasCheck( cublasSgemmStridedBatched( cublas_handle, CUBLAS_OP_N, CUBLAS_OP_N, HS, T, T, &alpha, v, HS, T * HS, att, T, T * T, &beta, vaccum, HS, T * HS, B * NH ) );
 

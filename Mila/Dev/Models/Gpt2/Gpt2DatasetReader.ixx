@@ -57,8 +57,6 @@ namespace Mila::Dnn::Gpt2
      */
     export class DatasetReader {
     public:
-        
-
         /**
         * @brief Constructs a new DatasetReader object.
         *

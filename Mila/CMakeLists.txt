@@ -16,7 +16,7 @@ add_library( Mila STATIC
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/CudaMatMulFp16.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/CudaLinearGelu.cu"
 
-    #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaMHA.cu"
+    # TJT: Deprecated "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaMHA.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaGelu.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaResidual.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaSoftmax.cu"
@@ -104,8 +104,6 @@ PUBLIC
         #---------------------------------------------------------------
         # Top-level Utilities
         #---------------------------------------------------------------
-        "Src/Misc/Glob.ixx"
-        "Src/Helpers/Memory.ixx"
         "Src/Utils/Logger.ixx"
         "Src/Utils/DefaultLogger.ixx"
         "Src/Utils/TrainingLogger.ixx"
@@ -168,9 +166,10 @@ PUBLIC
         #---------------------------------------------------------------
         "Src/Dnn/Compute/Operations/OperationBase.ixx"
         "Src/Dnn/Compute/Operations/OperationType.ixx"
-        "Src/Dnn/Compute/Operations/OperationAttributes.ixx"
+        
         "Src/Dnn/Compute/Operations/UnaryOperation.ixx"
         "Src/Dnn/Compute/Operations/BinaryOperation.ixx"
+        "Src/Dnn/Compute/Operations/TernaryOperation.ixx"
         "Src/Dnn/Compute/Operations/OperationRegistry.ixx"
         "Src/Dnn/Compute/Operations/OperationsRegistrar.ixx"
 
@@ -288,8 +287,8 @@ PUBLIC
         #---------------------------------------------------------------
         # Module Framework and Implementations
         #---------------------------------------------------------------
-        "Src/Dnn/Modules/Module.ixx"
-        "Src/Dnn/Modules/CompositeModule.ixx"
+        "Src/Dnn/Core/Module.ixx"
+        "Src/Dnn/Core/CompositeModule.ixx"
         
         "Src/Dnn/Common/ConfigurationBase.ixx"
 
@@ -367,7 +366,9 @@ PUBLIC
         "Src/Dnn/Optimizers/AdamW.ixx"
         "Src/Dnn/Optimizers/AdamWConfig.ixx"
         "Src/Dnn/Modules/Connections/ConnectionType.ixx"
-)
+        #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CublasLtAttention.ixx"
+
+        )
 
 target_link_libraries(Mila PRIVATE 
     miniz

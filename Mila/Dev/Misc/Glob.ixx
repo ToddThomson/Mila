@@ -1,5 +1,6 @@
-module;
+// TJT: This code will be deprecated. It is currently used by the Gpt2 Sample which will be refactored soon.
 
+module;
 #include <string>
 #include <sstream>
 #include <filesystem>

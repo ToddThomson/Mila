@@ -1,13 +1,12 @@
 /**
  * @file CpuAttentionOp.ixx
- * @brief CPU implementation of the Multi-Head Attention operation.
+ * @brief CPU implementation of the Multi-Head Attention operation (head-major inputs).
  *
- * Implements the forward and backward passes for scaled dot-product attention
- * with multiple heads on CPU devices. This is a stateful operation that caches
- * attention weights for the backward pass.
+ * Expects Q, K, V tensors laid out as [B, NH, T, hs]. Produces gradients and
+ * outputs in the same head-major layout to avoid per-call memory reorganization.
  */
 
-module;
+    module;
 #include <string>
 #include <memory>
 #include <vector>
@@ -15,6 +14,7 @@ module;
 #include <cmath>
 #include <cstdint>
 #include <algorithm>
+#include <cstring>
 #ifdef USE_OMP
 #include <omp.h>
 #endif
@@ -30,12 +30,13 @@ import Dnn.TensorDataTypeTraits;
 import Dnn.ConfigurationBase;
 import Compute.Precision;
 import Compute.OperationBase;
-import Compute.UnaryOperation;
+import Compute.TernaryOperation;
 import Compute.OperationRegistry;
 import Compute.OperationAttributes;
 import Compute.OperationType;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
+import Compute.CpuExecutionContext;
 import Compute.CpuDevice;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
@@ -47,29 +48,16 @@ namespace Mila::Dnn::Compute
     /**
      * @brief CPU implementation of Multi-Head Attention operation.
      *
-     * Performs scaled dot-product attention with multiple heads:
-     * - Forward: Attention(Q, K, V) = softmax(QK^T / sqrt(d_k)) * V
-     * - Backward: Computes gradients for Q, K, V
-     *
-     * The operation is stateful - it caches pre-attention scores and attention
-     * weights during forward pass for use in backward pass.
-     *
-     * @tparam TPrecision Tensor data type (typically FP32 or FP64)
+     * This variant expects inputs in head-major layout: Q, K, V each are
+     * [B, NH, T, hs]. Output and gradients are produced in the same layout.
      */
-    export class CpuAttentionOp : public UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>
+    export class CpuAttentionOp : public TernaryOperation<DeviceType::Cpu, TensorDataType::FP32>
     {
     public:
         using MR = CpuMemoryResource;
-        using OperationBase = UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>;
         using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
         using TensorType = Tensor<TensorDataType::FP32, MR>;
 
-        /**
-         * @brief Construct with execution context and configuration.
-         *
-         * @param exec_context Shared execution context for CPU resources.
-         * @param config Multi-head attention configuration.
-         */
         explicit CpuAttentionOp( std::shared_ptr<CpuExecutionContext> context, const AttentionConfig& config )
             : context_( context ), config_( config )
         {
@@ -83,288 +71,296 @@ namespace Mila::Dnn::Compute
 
         ~CpuAttentionOp() override = default;
 
-        // ====================================================================
-        // Lifecycle
-        // ====================================================================
-
+        // Build expects the head-major Q shape: [B, NH, T, hs]
         void build( const shape_t& input_shape ) override
         {
             if (is_built_)
+            {
                 return;
+            }
 
-            validateInputShape( input_shape );
+            validateHeadMajorShape( input_shape );
 
             cached_batch_size_ = input_shape[0];
-            cached_seq_length_ = input_shape[1];
-            cached_qkv_dim_ = input_shape[2];  // 3 * embedding_dim
+            cached_num_heads_ = input_shape[1];
+            cached_seq_length_ = input_shape[2];
+            cached_head_size_ = input_shape[3];
 
-            cached_embedding_dim_ = config_.getEmbeddingDim();
-            cached_num_heads_ = config_.getNumHeads();
-            cached_head_size_ = cached_embedding_dim_ / cached_num_heads_;
+            cached_embedding_dim_ = cached_num_heads_ * cached_head_size_;
+            cached_qkv_dim_ = 3 * cached_embedding_dim_;
 
-            // Allocate state tensors for forward pass caching
+            // Allocate state tensors (attention scores / weights)
             allocateStateTensors();
 
             is_built_ = true;
         }
 
-        // ====================================================================
-        // Parameter binding (no parameters for attention - it's purely a transformation)
-        // ====================================================================
-
         void setParameters( ITensor* /*unused1*/, ITensor* /*unused2*/ ) override
         {
-            // Attention has no learnable parameters
+            // No learnable parameters
         }
 
         void setParameterGradients( ITensor* /*unused1*/, ITensor* /*unused2*/ ) override
         {
-            // Attention has no learnable parameters
+            // No learnable parameters
         }
 
-        // ====================================================================
-        // Forward pass
-        // ====================================================================
-
         /**
-         * @brief Forward pass: scaled dot-product attention with multiple heads.
+         * Forward pass expects:
+         *  - input_q, input_k, input_v: [B, NH, T, hs] (head-major)
+         *  - output: [B, NH, T, hs] (head-major)
          *
-         * Input shape: [B, T, 3*C] containing concatenated Q, K, V
-         * Output shape: [B, T, C]
-         *
-         * For each head h and position t:
-         * 1. Compute attention scores: scores[t, t2] = Q[t] · K[t2] / sqrt(d_k)
-         * 2. Apply causal mask (t2 <= t)
-         * 3. Apply softmax: att[t, t2] = exp(scores[t, t2]) / sum(exp(scores[t, :]))
-         * 4. Compute output: out[t] = sum(att[t, t2] * V[t2])
-         *
-         * @param input Input tensor [B, T, 3*C] (Q, K, V concatenated)
-         * @param output Output tensor [B, T, C]
+         * Produces attention result in head-major layout to avoid reorganization.
          */
-        void forward( const ITensor& input, ITensor& output ) const override
+        void forward(
+            const ITensor& input_q,
+            const ITensor& input_k,
+            const ITensor& input_v,
+            ITensor& output ) const override
         {
             if (!is_built_)
             {
                 throw std::runtime_error( "CpuAttentionOp: forward called before build()" );
             }
 
-            validateInputShape( input );
+            validateHeadMajorShapes( input_q, input_k, input_v, output );
 
-            const auto& input_tensor = dynamic_cast<const TensorType&>(input);
-            auto& output_tensor = dynamic_cast<TensorType&>(output);
-
-            const float* X = input_tensor.data();
-            float* Y = output_tensor.data();
+            const float* q_data = static_cast<const float*>(input_q.rawData());
+            const float* k_data = static_cast<const float*>(input_k.rawData());
+            const float* v_data = static_cast<const float*>(input_v.rawData());
+            float* out_data = static_cast<float*>(output.rawData());
 
             const int64_t B = cached_batch_size_;
-            const int64_t T = cached_seq_length_;
-            const int64_t C = cached_embedding_dim_;
-            const int64_t C3 = cached_qkv_dim_;
             const int64_t NH = cached_num_heads_;
+            const int64_t T = cached_seq_length_;
             const int64_t hs = cached_head_size_;
 
-            const float scale = static_cast<float>(1.0) / std::sqrt( static_cast<float>(hs) );
+            const float scale = 1.0f / std::sqrt( static_cast<float>(hs) );
 
             float* preatt_data = preatt_cache_->data();
             float* att_data = att_cache_->data();
 
-            // Parallel over batch, sequence, and heads
+            // Step 1: Compute QK^T for all heads: Scores [B, NH, T, T]
+#pragma omp parallel for collapse(2)
+            for (int64_t b = 0; b < B; b++)
+            {
+                for (int64_t h = 0; h < NH; h++)
+                {
+                    const int64_t head_offset = b * NH * T * hs + h * T * hs;
+                    const int64_t score_offset = b * NH * T * T + h * T * T;
+
+                    const float* Q_bh = q_data + head_offset;   // [T, hs]
+                    const float* K_bh = k_data + head_offset;   // [T, hs]
+                    float* scores_bh = preatt_data + score_offset;  // [T, T]
+
+                    for (int64_t i = 0; i < T; i++)
+                    {
+                        for (int64_t j = 0; j < T; j++)
+                        {
+                            float sum = 0.0f;
+                            for (int64_t k = 0; k < hs; k++)
+                            {
+                                sum += Q_bh[i * hs + k] * K_bh[j * hs + k];
+                            }
+                            scores_bh[i * T + j] = sum * scale;
+                        }
+                    }
+                }
+            }
+
+            // Step 2: Apply causal mask and softmax -> att_data
 #pragma omp parallel for collapse(3)
             for (int64_t b = 0; b < B; b++)
             {
-                for (int64_t t = 0; t < T; t++)
+                for (int64_t h = 0; h < NH; h++)
                 {
-                    for (int64_t h = 0; h < NH; h++)
+                    for (int64_t t = 0; t < T; t++)
                     {
-                        // Query vector for this position and head
-                        const float* query_t = X + b * T * C3 + t * C3 + h * hs;
+                        const int64_t score_offset = b * NH * T * T + h * T * T;
+                        float* scores_row = preatt_data + score_offset + t * T;
+                        float* att_row = att_data + score_offset + t * T;
 
-                        // Pointers to pre-attention scores and attention weights
-                        float* preatt_bth = preatt_data + b * NH * T * T + h * T * T + t * T;
-                        float* att_bth = att_data + b * NH * T * T + h * T * T + t * T;
-
-                        // Compute Q·K^T scores with causal masking
-                        float maxval = static_cast<float>( -10000.0 );
-
-                        for (int64_t t2 = 0; t2 <= t; t2++)  // Causal mask
-                        {
-                            const float* key_t2 = X + b * T * C3 + t2 * C3 + h * hs + C;
-
-                            float val = static_cast<float>(0.0);
-                            for (int64_t i = 0; i < hs; i++)
-                            {
-                                val += query_t[i] * key_t2[i];
-                            }
-
-                            val *= scale;
-
-                            if (val > maxval)
-                            {
-                                maxval = val;
-                            }
-
-                            preatt_bth[t2] = val;
-                        }
-
-                        // Softmax: exp(scores - max) / sum(exp)
-                        float expsum = static_cast<float>(0.0);
-
+                        float maxval = -INFINITY;
                         for (int64_t t2 = 0; t2 <= t; t2++)
                         {
-                            float expv = std::exp( preatt_bth[t2] - maxval );
+                            if (scores_row[t2] > maxval) maxval = scores_row[t2];
+                        }
+
+                        float expsum = 0.0f;
+                        for (int64_t t2 = 0; t2 <= t; t2++)
+                        {
+                            float expv = std::exp( scores_row[t2] - maxval );
+                            att_row[t2] = expv;
                             expsum += expv;
-                            att_bth[t2] = expv;
                         }
 
-                        const float expsum_inv = (expsum == static_cast<float>(0.0))
-                            ? static_cast<float>(0.0)
-                            : static_cast<float>(1.0) / expsum;
-
-                        // Normalize attention weights and zero out future positions
-                        for (int64_t t2 = 0; t2 < T; t2++)
-                        {
-                            if (t2 <= t)
-                            {
-                                att_bth[t2] *= expsum_inv;
-                            }
-                            else
-                            {
-                                att_bth[t2] = static_cast<float>( 0.0 );
-                            }
-                        }
-
-                        // Compute weighted sum of values
-                        float* out_bth = Y + b * T * C + t * C + h * hs;
-
-                        for (int64_t i = 0; i < hs; i++)
-                        {
-                            out_bth[i] = static_cast<float>( 0.0 );
-                        }
-
+                        const float expsum_inv = (expsum > 0.0f) ? (1.0f / expsum) : 0.0f;
                         for (int64_t t2 = 0; t2 <= t; t2++)
                         {
-                            const float* value_t2 = X + b * T * C3 + t2 * C3 + h * hs + C * 2;
-                            const float att_weight = att_bth[t2];
+                            att_row[t2] *= expsum_inv;
+                        }
 
-                            for (int64_t i = 0; i < hs; i++)
+                        for (int64_t t2 = t + 1; t2 < T; t2++)
+                        {
+                            att_row[t2] = 0.0f;
+                        }
+                    }
+                }
+            }
+
+            // Step 3: Out = Att × V  => out_data is [B, NH, T, hs]
+#pragma omp parallel for collapse(2)
+            for (int64_t b = 0; b < B; b++)
+            {
+                for (int64_t h = 0; h < NH; h++)
+                {
+                    const int64_t head_offset = b * NH * T * hs + h * T * hs;
+                    const int64_t score_offset = b * NH * T * T + h * T * T;
+
+                    const float* att_bh = att_data + score_offset;  // [T, T]
+                    const float* V_bh = v_data + head_offset;       // [T, hs]
+                    float* out_bh = out_data + head_offset;         // [T, hs]
+
+                    for (int64_t i = 0; i < T; i++)
+                    {
+                        for (int64_t k = 0; k < hs; k++)
+                        {
+                            float sum = 0.0f;
+                            for (int64_t j = 0; j < T; j++)
                             {
-                                out_bth[i] += att_weight * value_t2[i];
+                                sum += att_bh[i * T + j] * V_bh[j * hs + k];
                             }
+                            out_bh[i * hs + k] = sum;
                         }
                     }
                 }
             }
         }
 
-        // ====================================================================
-        // Backward pass
-        // ====================================================================
-
         /**
-         * @brief Backward pass: computes gradients for Q, K, V.
-         *
-         * Uses cached pre-attention scores and attention weights from forward pass.
-         *
-         * @param input Input from forward pass [B, T, 3*C]
-         * @param output_grad Gradient w.r.t. output [B, T, C]
-         * @param input_grad Gradient w.r.t. input [B, T, 3*C]
+         * Backward: inputs and grads are all head-major:
+         *  - input_q, input_k, input_v: [B, NH, T, hs]
+         *  - output_grad: [B, NH, T, hs]
+         *  - q_grad, k_grad, v_grad: [B, NH, T, hs] (written by this routine)
          */
         void backward(
-            const ITensor& input,
+            const ITensor& input_q,
+            const ITensor& input_k,
+            const ITensor& input_v,
             const ITensor& output_grad,
-            ITensor& input_grad ) const override
+            ITensor& q_grad,
+            ITensor& k_grad,
+            ITensor& v_grad ) const override
         {
             if (!is_built_)
             {
                 throw std::runtime_error( "CpuAttentionOp: backward called before build()" );
             }
 
-            const float* X = static_cast<const float*>(input.rawData());
+            validateHeadMajorShapesForBackward( input_q, input_k, input_v, output_grad, q_grad, k_grad, v_grad );
+
+            const float* q_data = static_cast<const float*>(input_q.rawData());
+            const float* k_data = static_cast<const float*>(input_k.rawData());
+            const float* v_data = static_cast<const float*>(input_v.rawData());
             const float* dY = static_cast<const float*>(output_grad.rawData());
-            float* dX = static_cast<float*>(input_grad.rawData());
 
-            const float* preatt = preatt_cache_->data();
-            const float* att = att_cache_->data();
-
-            // Create temporary gradient tensors for attention state
-            auto device = context_->getDevice();
-            TensorType dpreatt( device, preatt_cache_->shape() );
-            TensorType datt( device, att_cache_->shape() );
-
-            // FIXME: zeros( dpreatt );
-            // FIXME: zeros( datt );
-
-            float* dpreatt_data = dpreatt.data();
-            float* datt_data = datt.data();
+            float* dq_data = static_cast<float*>(q_grad.rawData());
+            float* dk_data = static_cast<float*>(k_grad.rawData());
+            float* dv_data = static_cast<float*>(v_grad.rawData());
 
             const int64_t B = cached_batch_size_;
-            const int64_t T = cached_seq_length_;
-            const int64_t C = cached_embedding_dim_;
-            const int64_t C3 = cached_qkv_dim_;
             const int64_t NH = cached_num_heads_;
+            const int64_t T = cached_seq_length_;
             const int64_t hs = cached_head_size_;
 
-            const float scale = static_cast<float>(1.0) / std::sqrt( static_cast<float>(hs) );
+            const float scale = 1.0f / std::sqrt( static_cast<float>(hs) );
 
-            // Backward through attention
+            // Zero gradients
+            std::memset( dq_data, 0, static_cast<size_t>(B) * NH * T * hs * sizeof( float ) );
+            std::memset( dk_data, 0, static_cast<size_t>(B) * NH * T * hs * sizeof( float ) );
+            std::memset( dv_data, 0, static_cast<size_t>(B) * NH * T * hs * sizeof( float ) );
+
+            // Reuse preatt_cache_ and att_cache_ from forward
+            float* preatt_data = preatt_cache_->data();
+            float* att_data = att_cache_->data();
+
+            // Temporary buffers for intermediate grads dAtt, dPreatt
+            auto device = context_->getDevice();
+            shape_t score_shape = { B, NH, T, T };
+
+            TensorType dAtt( device, score_shape );
+            TensorType dPreatt( device, score_shape );
+
+            float* datt_data = dAtt.data();
+            float* dpreatt_data = dPreatt.data();
+
+            std::memset( datt_data, 0, static_cast<size_t>(B) * NH * T * T * sizeof( float ) );
+            std::memset( dpreatt_data, 0, static_cast<size_t>(B) * NH * T * T * sizeof( float ) );
+
+            // Backprop through Att × V, softmax, and QK^T
+#pragma omp parallel for collapse(2)
             for (int64_t b = 0; b < B; b++)
             {
-                for (int64_t t = 0; t < T; t++)
+                for (int64_t h = 0; h < NH; h++)
                 {
-                    for (int64_t h = 0; h < NH; h++)
+                    const int64_t head_offset = b * NH * T * hs + h * T * hs;
+                    const int64_t score_offset = b * NH * T * T + h * T * T;
+
+                    const float* att_bh = att_data + score_offset;
+                    const float* V_bh = v_data + head_offset;
+                    const float* Q_bh = q_data + head_offset;
+                    const float* K_bh = k_data + head_offset;
+
+                    float* datt_bh = datt_data + score_offset;
+                    float* dpreatt_bh = dpreatt_data + score_offset;
+                    const float* dout_bh = dY + head_offset;
+                    float* dV_bh = dv_data + head_offset;
+                    float* dQ_bh = dq_data + head_offset;
+                    float* dK_bh = dk_data + head_offset;
+
+                    // dAtt = dOut × V^T ; dV = Att^T × dOut
+                    for (int64_t t = 0; t < T; t++)
                     {
-                        const float* att_bth = att + b * NH * T * T + h * T * T + t * T;
-                        float* datt_bth = datt_data + b * NH * T * T + h * T * T + t * T;
-                        float* dpreatt_bth = dpreatt_data + b * NH * T * T + h * T * T + t * T;
-
-                        float* dquery_t = dX + b * T * C3 + t * C3 + h * hs;
-                        const float* query_t = X + b * T * C3 + t * C3 + h * hs;
-                        const float* dout_bth = dY + b * T * C + t * C + h * hs;
-
-                        // Backprop through weighted value sum
-                        for (int64_t t2 = 0; t2 <= t; t2++)
+                        for (int64_t t2 = 0; t2 < T; t2++)
                         {
-                            const float* value_t2 = X + b * T * C3 + t2 * C3 + h * hs + C * 2;
-                            float* dvalue_t2 = dX + b * T * C3 + t2 * C3 + h * hs + C * 2;
-
-                            for (int64_t i = 0; i < hs; i++)
+                            for (int64_t k = 0; k < hs; k++)
                             {
-                                // Gradient w.r.t. attention weights
-                                datt_bth[t2] += value_t2[i] * dout_bth[i];
-
-                                // Gradient w.r.t. values
-                                dvalue_t2[i] += att_bth[t2] * dout_bth[i];
+                                float dout_val = dout_bh[t * hs + k];
+                                datt_bh[t * T + t2] += dout_val * V_bh[t2 * hs + k];
+                                dV_bh[t2 * hs + k] += att_bh[t * T + t2] * dout_val;
                             }
                         }
+                    }
 
-                        // Backprop through softmax
+                    // softmax backward (causal)
+                    for (int64_t t = 0; t < T; t++)
+                    {
+                        const float* att_row = att_bh + t * T;
+                        const float* datt_row = datt_bh + t * T;
+                        float* dpreatt_row = dpreatt_bh + t * T;
+
                         for (int64_t t2 = 0; t2 <= t; t2++)
                         {
                             for (int64_t t3 = 0; t3 <= t; t3++)
                             {
-                                const float indicator = (t2 == t3)
-                                    ? static_cast<float>(1.0)
-                                    : static_cast<float>(0.0);
-
-                                const float local_derivative = att_bth[t2] * (indicator - att_bth[t3]);
-
-                                dpreatt_bth[t3] += local_derivative * datt_bth[t2];
+                                const float indicator = (t2 == t3) ? 1.0f : 0.0f;
+                                const float local_derivative = att_row[t2] * (indicator - att_row[t3]);
+                                dpreatt_row[t3] += local_derivative * datt_row[t2];
                             }
                         }
+                    }
 
-                        // Backprop through Q·K^T
-                        for (int64_t t2 = 0; t2 <= t; t2++)
+                    // dQ = dPreatt × K × scale
+                    // dK = dPreatt^T × Q × scale
+                    for (int64_t t = 0; t < T; t++)
+                    {
+                        for (int64_t t2 = 0; t2 < T; t2++)
                         {
-                            const float* key_t2 = X + b * T * C3 + t2 * C3 + h * hs + C;
-                            float* dkey_t2 = dX + b * T * C3 + t2 * C3 + h * hs + C;
-
-                            for (int64_t i = 0; i < hs; i++)
+                            const float dpreatt_val = dpreatt_bh[t * T + t2] * scale;
+                            for (int64_t k = 0; k < hs; k++)
                             {
-                                // Gradient w.r.t. queries
-                                dquery_t[i] += key_t2[i] * dpreatt_bth[t2] * scale;
-
-                                // Gradient w.r.t. keys
-                                dkey_t2[i] += query_t[i] * dpreatt_bth[t2] * scale;
+                                dQ_bh[t * hs + k] += dpreatt_val * K_bh[t2 * hs + k];
+                                dK_bh[t2 * hs + k] += dpreatt_val * Q_bh[t * hs + k];
                             }
                         }
                     }
@@ -372,14 +368,10 @@ namespace Mila::Dnn::Compute
             }
         }
 
-        // ====================================================================
-        // Operation metadata
-        // ====================================================================
-
         OperationType getOperationType() const override
         {
             return OperationType::AttentionOp;
-		}
+        }
 
         std::string getName() const override
         {
@@ -391,38 +383,82 @@ namespace Mila::Dnn::Compute
         AttentionConfig config_;
         bool is_built_{ false };
 
-        // Cached dimensions
+        // Cached dimensions for head-major layout
         int64_t cached_batch_size_{ 0 };
         int64_t cached_seq_length_{ 0 };
-        int64_t cached_qkv_dim_{ 0 };         // 3 * embedding_dim
+        int64_t cached_qkv_dim_{ 0 };
         int64_t cached_embedding_dim_{ 0 };
         int64_t cached_num_heads_{ 0 };
-        int64_t cached_head_size_{ 0 };       // embedding_dim / num_heads
+        int64_t cached_head_size_{ 0 };
 
-        // State tensors cached during forward for backward pass
-        mutable std::shared_ptr<TensorType> preatt_cache_{ nullptr };  // Pre-softmax scores [B, NH, T, T]
-        mutable std::shared_ptr<TensorType> att_cache_{ nullptr };     // Attention weights [B, NH, T, T]
+        // State tensors: attention scores/weights [B, NH, T, T]
+        mutable std::shared_ptr<TensorType> preatt_cache_{ nullptr };
+        mutable std::shared_ptr<TensorType> att_cache_{ nullptr };
 
-        void validateInputShape( const ITensor& input ) const
+        void validateHeadMajorShape( const shape_t& s ) const
         {
-            const auto& input_shape = input.shape();
-            validateInputShape( input_shape );
-        }
-
-        void validateInputShape( const shape_t& input_shape ) const
-        {
-            if (input_shape.size() != 3)
+            if (s.size() != 4)
             {
-                throw std::invalid_argument(
-                    "CpuAttentionOp: input must have rank 3 (batch_size, seq_length, 3*embedding_dim)" );
+                throw std::invalid_argument( "CpuAttentionOp: expected head-major shape [B, NH, T, hs]" );
             }
 
-            const int64_t expected_qkv_dim = 3 * config_.getEmbeddingDim();
-
-            if (input_shape[2] != expected_qkv_dim)
+            if (s[1] != config_.getNumHeads())
             {
-                throw std::invalid_argument(
-                    "CpuAttentionOp: input last dimension must be 3*embedding_dim (Q, K, V concatenated)" );
+                throw std::invalid_argument( "CpuAttentionOp: NH (shape[1]) must match config.num_heads" );
+            }
+
+            if (s[3] <= 0)
+            {
+                throw std::invalid_argument( "CpuAttentionOp: head size (hs) must be > 0" );
+            }
+
+            if ((s[1] * s[3]) != config_.getEmbeddingDim())
+            {
+                throw std::invalid_argument( "CpuAttentionOp: NH * hs must equal embedding_dim from config" );
+            }
+        }
+
+        void validateHeadMajorShapes(
+            const ITensor& q, const ITensor& k, const ITensor& v, const ITensor& out ) const
+        {
+            const auto& qshape = q.shape();
+            const auto& kshape = k.shape();
+            const auto& vshape = v.shape();
+            const auto& oshape = out.shape();
+
+            validateHeadMajorShape( qshape );
+
+            if (kshape != qshape || vshape != qshape)
+            {
+                throw std::invalid_argument( "CpuAttentionOp: Q, K, V must have identical shapes [B, NH, T, hs]" );
+            }
+
+            if (oshape != qshape)
+            {
+                throw std::invalid_argument( "CpuAttentionOp: output must have same head-major shape as inputs" );
+            }
+        }
+
+        void validateHeadMajorShapesForBackward(
+            const ITensor& q, const ITensor& k, const ITensor& v,
+            const ITensor& out_grad,
+            const ITensor& q_grad, const ITensor& k_grad, const ITensor& v_grad ) const
+        {
+            validateHeadMajorShape( q.shape() );
+
+            if (k.shape() != q.shape() || v.shape() != q.shape())
+            {
+                throw std::invalid_argument( "CpuAttentionOp: Q, K, V must have identical shapes [B, NH, T, hs]" );
+            }
+
+            if (out_grad.shape() != q.shape())
+            {
+                throw std::invalid_argument( "CpuAttentionOp: output_grad must have same head-major shape as inputs" );
+            }
+
+            if (q_grad.shape() != q.shape() || k_grad.shape() != q.shape() || v_grad.shape() != q.shape())
+            {
+                throw std::invalid_argument( "CpuAttentionOp: q_grad/k_grad/v_grad must have same head-major shape as inputs" );
             }
         }
 
@@ -430,28 +466,21 @@ namespace Mila::Dnn::Compute
         {
             auto device = context_->getDevice();
 
-            // Pre-attention scores: [B, NH, T, T]
-            shape_t preatt_shape = {
-                cached_batch_size_,
-                cached_num_heads_,
-                cached_seq_length_,
-                cached_seq_length_
-            };
+            const int64_t B = cached_batch_size_;
+            const int64_t NH = cached_num_heads_;
+            const int64_t T = cached_seq_length_;
 
-            preatt_cache_ = std::make_shared<TensorType>( device, preatt_shape );
+            shape_t score_shape = { B, NH, T, T };
+
+            preatt_cache_ = std::make_shared<TensorType>( device, score_shape );
             preatt_cache_->setName( "preatt_cache" );
 
-            // Attention weights: [B, NH, T, T]
-            att_cache_ = std::make_shared<TensorType>( device, preatt_shape );
+            att_cache_ = std::make_shared<TensorType>( device, score_shape );
             att_cache_->setName( "att_cache" );
         }
     };
 
-    /**
-     * @brief Registrar for CpuAttentionOp operation.
-     *
-     * Registers the operation with the OperationRegistry during static initialization.
-     */
+    // Registrar: register as ternary operation
     export class CpuAttentionOpRegistrar
     {
     public:
@@ -459,15 +488,16 @@ namespace Mila::Dnn::Compute
         {
             const std::string opName = "AttentionOp";
 
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>(
-                opName,
-                []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
-                    const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
-                {
-                    const auto& attention_config = dynamic_cast<const AttentionConfig&>(config);
-                    return std::make_shared<CpuAttentionOp>( context, attention_config );
-                }
-            );
+            OperationRegistry::instance().registerTernaryOperation<
+                DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32, TensorDataType::FP32, TensorDataType::FP32>(
+                    opName,
+                    []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
+                        const ConfigurationBase& config ) -> std::shared_ptr<TernaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
+                    {
+                        const auto& attention_config = dynamic_cast<const AttentionConfig&>(config);
+                        return std::make_shared<CpuAttentionOp>( context, attention_config );
+                    }
+                );
         }
 
         static inline bool isRegistered = []()

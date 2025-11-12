@@ -102,7 +102,8 @@ add_executable( MilaTests
     "Dnn/Modules/Module.cpp"
     "Dnn/Modules/ModuleConfig.cpp"
 
-    #"Dnn/Modules/Layers/Attention.cpp"
+    "Dnn/Modules/Layers/Attention.Cpu.cpp"
+    
     "Dnn/Modules/Layers/Encoder.Cpu.cpp"
     "Dnn/Modules/Layers/Encoder.Cuda.cpp"
     "Dnn/Modules/Layers/EncoderConfig.cpp"
@@ -122,6 +123,10 @@ add_executable( MilaTests
     "Dnn/Modules/Layers/Linear.Cpu.cpp"
     "Dnn/Modules/Layers/Linear.Cuda.cpp"
     "Dnn/Modules/Layers/LinearConfig.cpp"
+
+    "Dnn/Modules/Connections/Residual.Config.cpp"
+    "Dnn/Modules/Connections/Residual.Cuda.cpp"
+    "Dnn/Modules/Connections/Residual.Cpu.cpp"
 
     "Dnn/Modules/Layers/Softmax.Cpu.cpp"
     "Dnn/Modules/Layers/Softmax.Cuda.cpp"    
@@ -161,7 +166,7 @@ add_executable( MilaTests
     "Dnn/Modules/Losses/CrossEntropy.Cpu.cpp"
     "Dnn/Modules/Losses/SoftmaxCrossEntropy.Cuda.cpp"
     "Dnn/Modules/Losses/CrossEntropy.Config.cpp"
- "Dnn/Modules/Connections/Residual.Config.cpp" "Dnn/Modules/Connections/Residual.Cuda.cpp" "Dnn/Modules/Connections/Residual.Cpu.cpp")
+ "Dnn/Modules/Layers/Attention.Cuda.cpp" "Dnn/Modules/Layers/Attention.Config.cpp")
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
 
@@ -183,7 +188,7 @@ if(MILA_ENABLE_PERFTESTS)
 
   add_executable( MilaPerfTests
     "main.cpp"
-    "Dnn/Modules/Activations/Gelu.Perf.cpp"
+    
   )
 
   target_compile_features( MilaPerfTests PUBLIC cxx_std_23 )

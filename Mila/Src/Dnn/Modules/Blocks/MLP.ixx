@@ -49,7 +49,7 @@ namespace Mila::Dnn
      * @brief Multi-Layer Perceptron (MLP) block for neural networks.
      *
      * Device-templated composite module that implements a standard MLP structure:
-     *   Input ? Linear(in_features, hidden_size) ? [LayerNorm] ? Activation ? Linear(hidden_size, in_features) ? Output
+     *   Input -> Linear(in_features, hidden_size) -> [LayerNorm] -> Activation -> Linear(hidden_size, in_features) -> Output
      *
      * Design philosophy:
      * - Two-phase initialization: build() does all setup, forward()/backward() are pure dispatch

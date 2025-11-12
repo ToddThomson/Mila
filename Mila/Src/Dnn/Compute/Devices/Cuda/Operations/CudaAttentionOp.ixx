@@ -16,7 +16,7 @@ module;
 #include <cuda_fp16.h>
 #include "Kernels/CudaOps.h"
 
-export module Compute.CudaMHAOp;
+export module Compute.CudaAttentionOp;
 
 import Dnn.Modules.Attention;
 import Dnn.Tensor;
@@ -66,7 +66,7 @@ namespace Mila::Dnn::Compute
                 int B, int T, int C, int NH,
                 cudaStream_t stream )
             {
-                cuda_mha_forward_fp32( out, qkvr, att, inp, B, T, C, NH, stream );
+                //cuda_mha_forward_fp32( out, qkvr, att, inp, B, T, C, NH, stream );
             }
 
             static inline void backward(
@@ -127,8 +127,6 @@ namespace Mila::Dnn::Compute
         using MR = CudaDeviceMemoryResource;
         using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
-        using Parameters = std::vector<std::shared_ptr<TensorType>>;
-        using OutputState = std::vector<std::shared_ptr<TensorType>>;
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::native_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 
