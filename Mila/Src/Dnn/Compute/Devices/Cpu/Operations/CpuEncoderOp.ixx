@@ -1,9 +1,10 @@
 /**
  * @file CpuEncoderOp.ixx
- * @brief CPU implementation of the Encoder operation for token and positional embeddings.
+ * @brief CPU backend for the Encoder operation.
  *
- * Implements the forward and backward passes for combining token embeddings (wte)
- * and positional embeddings (wpe) on CPU devices.
+ * Provides CPUs kernels that combine token and positional embeddings and
+ * accumulate gradients into embedding tables. Registers the operation
+ * with the OperationRegistry.
  */
 
 module;
@@ -45,13 +46,36 @@ namespace Mila::Dnn::Compute
     /**
      * @brief CPU implementation of the Encoder operation.
      *
-     * Combines token embeddings and positional embeddings:
-     * - Forward: output[b,t,c] = wte[input[b,t], c] + wpe[t, c]
-     * - Backward: accumulates gradients into dwte and dwpe
+     * Contract and behavior:
+     * - Forward: for each batch b and sequence position t, computes
+     *     output[b, t, c] = wte[input[b, t], c] + wpe[t, c]
+     *   where `input` is a token-id tensor of shape [B, T] (INT32) and
+     *   `output` is an embedding tensor of shape [B, T, C] (FP32).
      *
-     * The operation is stateless - all state is managed by the Encoder module.
+     * - Backward: accumulates gradients into two parameter tensors:
+     *     dwte[input[b, t], :] += output_grad[b, t, :]
+     *     dwpe[t, :] += output_grad[b, t, :]
+     *   Gradients are accumulated (in-place) into `wte_grad` and `wpe_grad`.
      *
-     * @tparam TPrecision Tensor data type for embeddings (typically FP32)
+     * Threading and safety:
+     * - Forward and backward use OpenMP parallelization across batch and
+     *   sequence dimensions when available.
+     * - Backward requires atomic updates when multiple threads may update
+     *   the same embedding row or positional row concurrently. The implementation
+     *   uses OpenMP atomics for per-element accumulation.
+     *
+     * Parameter binding and ownership:
+     * - `setParameters(ITensor* wte, ITensor* wpe)` binds raw parameter tensors.
+     *   The operation does NOT take ownership; the caller (module) retains ownership
+     *   and must ensure the lifetime exceeds operation usage.
+     * - Bound parameter shapes must match the EncoderConfig (vocabulary length,
+     *   max sequence length and channels). If shapes mismatch, the method throws.
+     *
+     * Edge-cases:
+     * - Out-of-range token indices are ignored (the implementation currently
+     *   skips writing that output location).
+     * - Token indices are discrete: no input gradient is produced. The `input_grad`
+     *   parameter exists to satisfy the UnaryOperation interface but is unused.
      */
     export class CpuEncoderOp : public UnaryOperation<DeviceType::Cpu, TensorDataType::INT32, TensorDataType::FP32>
     {
@@ -64,8 +88,12 @@ namespace Mila::Dnn::Compute
         /**
          * @brief Construct with execution context and configuration.
          *
-         * @param exec_context Shared execution context for CPU resources.
-         * @param config Encoder configuration.
+         * Preconditions:
+         * - `context` must be non-null and refer to a CPU execution context.
+         * - `config` must be valid (EncoderConfig::validate()).
+         *
+         * Ownership:
+         * - The operation stores the provided execution context shared_ptr.
          */
         explicit CpuEncoderOp(
             std::shared_ptr<CpuExecutionContext> context, const EncoderConfig& config )
@@ -85,6 +113,12 @@ namespace Mila::Dnn::Compute
         // Lifecycle
         // ====================================================================
 
+        /**
+         * @brief Prepare internal caches for a concrete input shape.
+         *
+         * Validates the input shape and caches B, T and C for hot-path loops.
+         * Must be called (via Module::build) before forward/backward.
+         */
         void build( const shape_t& input_shape ) override
         {
             if (is_built_)
@@ -103,6 +137,21 @@ namespace Mila::Dnn::Compute
         // Parameter binding
         // ====================================================================
 
+        /**
+         * @brief Bind parameter tensors for forward execution.
+         *
+         * Preconditions:
+         * - `wte` and `wpe` must be CPU tensors with shapes:
+         *     wte: [vocabulary_length, channels]
+         *     wpe: [max_sequence_length, channels]
+         *
+         * Ownership:
+         * - The operation stores raw data pointers to the tensor storage but
+         *   does not take ownership of the ITensor objects.
+         *
+         * Throws:
+         * - std::invalid_argument for null pointers, device mismatches or shape mismatches.
+         */
         void setParameters( ITensor* wte, ITensor* wpe ) override
         {
             if (!wte)
@@ -141,6 +190,20 @@ namespace Mila::Dnn::Compute
             wpe_ = static_cast<const float*>(wpe->rawData());
         }
 
+        /**
+         * @brief Bind gradient tensors for training.
+         *
+         * Preconditions:
+         * - `wte_grad` and `wpe_grad` must be CPU tensors with shapes matching
+         *   the corresponding parameter tensors.
+         *
+         * Semantics:
+         * - Gradients are accumulated into these buffers (in-place).
+         * - Caller is responsible for zeroing gradients when appropriate.
+         *
+         * Throws:
+         * - std::invalid_argument for null pointers, device mismatches or shape mismatches.
+         */
         void setParameterGradients( ITensor* wte_grad, ITensor* wpe_grad ) override
         {
             // Both gradients are required for encoder training
@@ -181,11 +244,15 @@ namespace Mila::Dnn::Compute
         /**
          * @brief Forward pass: combines token and positional embeddings.
          *
-         * For each position (b, t) in the batch:
-         *   output[b, t, :] = wte[input[b, t], :] + wpe[t, :]
+         * Parameters:
+         * - input: INT32 token indices tensor with shape [B, T]
+         * - output: FP32 tensor with shape [B, T, C] to receive embeddings
          *
-         * @param input Token indices tensor [B, T] (typically INT32)
-         * @param output Embedding tensor [B, T, C]
+         * Preconditions:
+         * - build() and setParameters() must have been called.
+         *
+         * Behavior:
+         * - Writes output in-place. Out-of-range token indices are skipped.
          */
         void forward( const ITensor& input, ITensor& output ) const override
         {
@@ -251,16 +318,15 @@ namespace Mila::Dnn::Compute
         /**
          * @brief Backward pass: accumulates gradients into embedding tables.
          *
-         * For each position (b, t):
-         *   dwte[input[b, t], :] += output_grad[b, t, :]
-         *   dwpe[t, :] += output_grad[b, t, :]
+         * Parameters:
+         * - input: INT32 token indices tensor with shape [B, T]
+         * - output_grad: FP32 gradients tensor with shape [B, T, C]
+         * - input_grad: unused (token indices are non-differentiable)
          *
-         * Note: Token indices are discrete, so no input gradient is computed.
-         * The input_grad parameter exists to satisfy the interface but is unused.
-         *
-		 * @param input Token indices from forward pass [B, T] typically INT32
-         * @param output_grad Gradient w.r.t. output [B, T, C]
-         * @param input_grad Unused (token indices are non-differentiable)
+         * Semantics:
+         * - Accumulates gradients into `wte_grad` and `wpe_grad` in-place.
+         * - Uses atomic updates to ensure thread-safety when multiple threads
+         *   update the same row.
          */
         void backward(
             const ITensor& input,
@@ -326,7 +392,7 @@ namespace Mila::Dnn::Compute
         // ====================================================================
         // Operation metadata
         // ====================================================================
-        
+
         OperationType getOperationType() const override
         {
             return OperationType::EncoderOp;
@@ -338,7 +404,7 @@ namespace Mila::Dnn::Compute
         }
 
     private:
-        
+
         std::shared_ptr<CpuExecutionContext> context_;
         EncoderConfig config_;
 
@@ -377,7 +443,7 @@ namespace Mila::Dnn::Compute
             }
         }
 
-        
+
     };
 
     /**
@@ -399,13 +465,13 @@ namespace Mila::Dnn::Compute
                 {
                     const auto& encoder_config = dynamic_cast<const EncoderConfig&>(config);
                     return std::make_shared<CpuEncoderOp>( context, encoder_config );
-                });
+                } );
         }
 
-        static inline bool isRegistered = []()
+        /*static inline bool isRegistered = []()
             {
                 registerOperations();
                 return true;
-            }();
+            }();*/
     };
 }

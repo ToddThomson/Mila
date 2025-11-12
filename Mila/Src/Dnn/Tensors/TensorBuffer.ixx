@@ -22,6 +22,7 @@ module;
 #include <stdexcept>
 #include <type_traits>
 #include <cstring>
+#include <cstddef>
 
 export module Dnn.TensorBuffer;
 

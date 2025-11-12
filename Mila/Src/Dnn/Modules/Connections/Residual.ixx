@@ -178,6 +178,16 @@ namespace Mila::Dnn
             // No-op placeholder; deserialize parameter tensors if needed
         }
 
+        std::vector<ITensor*> getParameters() const override
+        {
+            return {};
+        }
+
+        std::vector<ITensor*> getParameterGradients() const override
+        {
+            return {};
+        }
+
         /**
          * @brief Set training/evaluation mode for this module.
          */
@@ -204,6 +214,11 @@ namespace Mila::Dnn
             return config_.getName();
         }
 
+        std::shared_ptr<ComputeDevice> getDevice() const override
+        {
+            return exec_context_->getDevice();
+        }
+
         /**
          * @brief Return a human-readable description of the module.
          */
@@ -226,32 +241,6 @@ namespace Mila::Dnn
         std::shared_ptr<BinaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
         std::shared_ptr<ExecutionContextType> exec_context_;
 
-		// FUTURE: Release placeholder for parameter initialization logic.
-        //void initializeParameters()
-        //{
-        //    parameters_.clear();
-
-        //    // If gated or projection enabled, allocate parameter tensors here.
-        //    // For now, defer allocation to configuration-driven code when needed.
-        //    if (config_.useProjection())
-        //    {
-        //        auto device = exec_context_->getDevice();
-        //        int64_t in_features = config_.getInputFeatures();
-        //        int64_t out_features = config_.getOutputFeatures();
-
-        //        auto proj = std::make_shared<TensorType>( device, shape_t{ out_features, in_features } );
-        //        proj->setName( std::string( "residual.proj" ) );
-        //        parameters_.emplace_back( proj );
-        //    }
-
-        //    if (config_.isGated())
-        //    {
-        //        auto device = exec_context_->getDevice();
-        //        auto gate = std::make_shared<TensorType>( device, shape_t{ config_.getGateSize() } );
-        //        gate->setName( std::string( "residual.gate" ) );
-        //        parameters_.emplace_back( gate );
-        //    }
-        //}
 
         void createOperation()
         {

@@ -16,11 +16,10 @@
  */
 
 module;
-#include <vector>
+#include "Kernels/CudaOps.h"
 #include <memory>
 #include <cuda_fp16.h>
 #include <stdexcept>
-#include "Kernels/CudaOps.h"
 #include <string>
 
 export module Compute.CudaResidualOp;
@@ -28,7 +27,6 @@ export module Compute.CudaResidualOp;
 import Dnn.Modules.Residual;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
-import Dnn.TensorHostTypeMap;
 import Dnn.ConfigurationBase;
 import Compute.OperationBase;
 import Compute.BinaryOperation;
@@ -38,6 +36,7 @@ import Compute.ExecutionContext;
 import Compute.CudaExecutionContext;
 import Compute.OperationType;
 import Compute.CudaDeviceMemoryResource;
+import Compute.CudaTensorDataType;
 
 namespace Mila::Dnn::Compute
 {
@@ -60,6 +59,11 @@ namespace Mila::Dnn::Compute
             {
                 cuda_residual_forward_fp32( Y, X1, X2, N, stream );
             }
+
+            static inline void backward( float* dX1, float* dX2, const float* dY, size_t N, cudaStream_t stream )
+            {
+                cuda_residual_backward_fp32( dX1, dX2, dY, N, stream );
+            }
         };
 
         template<>
@@ -69,22 +73,28 @@ namespace Mila::Dnn::Compute
             {
                 cuda_residual_forward_fp16( Y, X1, X2, N, stream );
             }
+            
+            static inline void backward( half* dX1, half* dX2, const half* dY, size_t N, cudaStream_t stream )
+            {
+                cuda_residual_backward_fp16( dX1, dX2, dY, N, stream );
+			}
         };
-    }
+    };
 
     /**
-     * @brief CUDA Residual operation implementing the new BinaryOperation interface.
+     * @brief CUDA Residual operation implementing the BinaryOperation interface.
      *
-     * @tparam TPrecision Abstract tensor precision (TensorDataType enum).
+     * @tparam TInputA Precision of first input tensor
+     * @tparam TInputB Precision of second input tensor
+     * @tparam TPrecision Computation precision
      */
     export template <TensorDataType TInputA, TensorDataType TInputB = TInputA, TensorDataType TPrecision = TInputA>
     class CudaResidualOp : public BinaryOperation<DeviceType::Cuda, TInputA, TInputB, TPrecision>
     {
     public:
         using MR = CudaDeviceMemoryResource;
-        using BinaryOpBase = BinaryOperation<DeviceType::Cuda, TInputA, TInputB, TPrecision>;
-        using NativeType = typename TensorHostTypeMap<TPrecision>::host_type;
-        using CudaExecCtx = ExecutionContext<DeviceType::Cuda>;
+        using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::native_type;
+        using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 
         /**
          * @brief Construct with a non-null CUDA execution context.
@@ -92,8 +102,8 @@ namespace Mila::Dnn::Compute
          * The context parameter is required and validated at runtime. Callers must
          * pass a std::shared_ptr<ExecutionContext<DeviceType::Cuda>>.
          */
-        CudaResidualOp( std::shared_ptr<CudaExecCtx> context, const ResidualConfig& config )
-            : context_( context ), config_( config )
+        CudaResidualOp( std::shared_ptr<CudaExecutionContext> context, const ResidualConfig& config )
+            : context_( context )//, config_( config )
         {
             if (!context_)
             {
@@ -121,11 +131,10 @@ namespace Mila::Dnn::Compute
                 throw std::runtime_error( "CudaResidualOp::forward - null tensor data pointer" );
             }
 
-            int N = static_cast<int>(input_a.size());
+            const size_t N = input_a.size();
 
             cudaStream_t stream = context_->getStream();
 
-            // Dispatch to specialized kernel implementation for the native type.
             Detail::cuda_residual_impl<NativeType>::forward( Y, X1, X2, N, stream );
         }
 
@@ -137,12 +146,23 @@ namespace Mila::Dnn::Compute
         void backward(
             const ITensor& input_a,
             const ITensor& input_b,
-            const ITensor& output,
             const ITensor& output_grad,
             ITensor& input_a_grad,
             ITensor& input_b_grad ) const override
         {
-            throw std::runtime_error( "CudaResidualOp::backward - backward pass not implemented for CUDA residual op." );
+            const NativeType* dY = static_cast<const NativeType*>(output_grad.rawData());
+            NativeType* dX1 = static_cast<NativeType*>(input_a_grad.rawData());
+            NativeType* dX2 = static_cast<NativeType*>(input_b_grad.rawData());
+
+            if (!dY || !dX1 || !dX2)
+            {
+                throw std::runtime_error( "CudaResidualOp::backward - null gradient tensor data pointer" );
+            }
+
+            const size_t N = input_a.size();
+            cudaStream_t stream = context_->getStream();
+
+            Detail::cuda_residual_impl<NativeType>::backward( dX1, dX2, dY, N, stream );
         }
 
         OperationType getOperationType() const override
@@ -157,8 +177,8 @@ namespace Mila::Dnn::Compute
 
     private:
         
-        std::shared_ptr<CudaExecCtx> context_;
-        ResidualConfig config_;
+        std::shared_ptr<CudaExecutionContext> context_;
+        //ResidualConfig config_;
     };
 
     export class CudaResidualOpRegistrar
@@ -174,6 +194,7 @@ namespace Mila::Dnn::Compute
                 {
                     const auto& residualConfig = static_cast<const ResidualConfig&>(config);
                     auto ctx = std::static_pointer_cast<ExecutionContext<DeviceType::Cuda>>(context);
+                    
                     return std::make_shared<CudaResidualOp<TInputA, TInputB, TPrecision>>( ctx, residualConfig );
                 }
             );
@@ -187,9 +208,9 @@ namespace Mila::Dnn::Compute
             registerForType<TensorDataType::FP16>( opName );
         }
 
-        static inline bool isRegistered = []() {
+        /*static inline bool isRegistered = []() {
             registerOperations();
             return true;
-            }();
+            }();*/
     };
 }

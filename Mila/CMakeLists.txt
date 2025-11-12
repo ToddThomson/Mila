@@ -18,7 +18,7 @@ add_library( Mila STATIC
 
     #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaMHA.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaGelu.cu"
-    #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaResidual.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaResidual.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaSoftmax.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaSoftmaxCrossEntropy.cu"
     
@@ -252,10 +252,10 @@ PUBLIC
         #"Src/Dnn/Compute/Operations/Cuda/CudaDataTypeTraits.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Operations/CublasLtMatMulBias.ixx"
         #"Src/Dnn/Compute/Operations/Cuda/MatMulBiasActivation.ixx"
-        #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaResidualOp.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Operations/CudaGeluOp.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Operations/CudaLayerNormOp.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Operations/CudaLinearOp.ixx"
+        "Src/Dnn/Compute/Devices/Cuda/Operations/CudaResidualOp.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Operations/CudaSoftmaxOp.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Operations/CudaSoftmaxCrossEntropyOp.ixx"
 

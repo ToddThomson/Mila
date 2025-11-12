@@ -13,6 +13,7 @@
 #include <iostream>
 #include <string>
 #include <stdexcept>
+#include <exception>
 
 import CharLM.Preprocessor;
 
@@ -33,12 +34,6 @@ int main( int argc, char** argv )
 {
     try
     {
-        if (argc < 2)
-        {
-            printUsage();
-            return 1;
-        }
-
         std::string input_file;
         bool force_rebuild = false;
         bool add_special = false;
@@ -72,11 +67,11 @@ int main( int argc, char** argv )
             }
         }
 
+        // If no input file was provided, default to the TinyShakespear dataset path.
         if (input_file.empty())
         {
-            std::cerr << "Error: No input file specified" << std::endl;
-            printUsage();
-            return 1;
+            input_file = "../Data/DataSets/TinyShakespeare/input.txt";
+            std::cout << "No input file specified. Using default: " << input_file << std::endl;
         }
 
         std::cout << "Preprocessing: " << input_file << std::endl;

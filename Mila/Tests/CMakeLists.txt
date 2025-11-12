@@ -103,10 +103,13 @@ add_executable( MilaTests
     "Dnn/Modules/ModuleConfig.cpp"
 
     #"Dnn/Modules/Layers/Attention.cpp"
-    #"Dnn/Modules/Layers/Encoder.cpp"
-    #"Dnn/Modules/Layers/EncoderConfig.cpp"
+    "Dnn/Modules/Layers/Encoder.Cpu.cpp"
+    "Dnn/Modules/Layers/Encoder.Cuda.cpp"
+    "Dnn/Modules/Layers/EncoderConfig.cpp"
     
-    #"Dnn/Modules/Layers/Residual.cpp"
+    "Dnn/Modules/Connections/Residual.Cpu.cpp"
+    "Dnn/Modules/Connections/Residual.Cuda.cpp"
+    "Dnn/Modules/Connections/Residual.Config.cpp"
 
     "Dnn/Modules/Activations/Gelu.Cpu.cpp"
     "Dnn/Modules/Activations/Gelu.Cuda.cpp"
@@ -153,7 +156,12 @@ add_executable( MilaTests
     "Dnn/Compute/Operations/UnaryOperation.cpp"
     #"Dnn/Compute/Operations/BinaryOperation.cpp"
 
- "Dnn/Optimizers/AdamW.Cuda.cpp" "Dnn/Optimizers/AdamW.Cpu.cpp" "Dnn/Modules/Losses/CrossEntropy.Cpu.cpp" "Dnn/Modules/Losses/SoftmaxCrossEntropy.Cuda.cpp" "Dnn/Modules/Losses/CrossEntropy.Config.cpp")
+    "Dnn/Optimizers/AdamW.Cuda.cpp"
+    "Dnn/Optimizers/AdamW.Cpu.cpp"
+    "Dnn/Modules/Losses/CrossEntropy.Cpu.cpp"
+    "Dnn/Modules/Losses/SoftmaxCrossEntropy.Cuda.cpp"
+    "Dnn/Modules/Losses/CrossEntropy.Config.cpp"
+ "Dnn/Modules/Connections/Residual.Config.cpp" "Dnn/Modules/Connections/Residual.Cuda.cpp" "Dnn/Modules/Connections/Residual.Cpu.cpp")
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
 

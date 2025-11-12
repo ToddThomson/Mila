@@ -558,17 +558,14 @@ int main( int argc, char** argv )
             try
             {
                 std::cout << "Using CUDA device" << std::endl;
-                
-				// TODO: Configurable dtype_t. Add FP16 and BF16 first
+
+                // TODO: Configurable dtype_t. Add FP16 and BF16 first
                 trainMnist<DeviceType::Cuda, TensorDataType::FP32, CudaPinnedMemoryResource>( config );
             }
             catch (const std::exception& e)
             {
-                // REVIEW: This really doesn't make any sense
-                std::cerr << "CUDA error: " << e.what()
-                    << ", falling back to CPU" << std::endl;
-                
-                config.compute_device = DeviceType::Cpu;
+                std::cerr << "CUDA error: " << e.what() << std::endl;
+                throw;
             }
         }
 

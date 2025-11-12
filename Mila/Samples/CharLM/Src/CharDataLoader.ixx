@@ -1,4 +1,17 @@
 module;
+
+#include <iostream>
+#include <vector>
+#include <random>
+#include <algorithm>
+#include <string>
+#include <filesystem>
+#include <fstream>
+#include <type_traits>
+#include <cstdint>
+#include <stdexcept>
+#include <memory>
+
 #include <iostream>
 #include <vector>
 #include <random>

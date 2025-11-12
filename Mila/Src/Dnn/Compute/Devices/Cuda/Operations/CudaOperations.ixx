@@ -28,6 +28,6 @@ export import Compute.CudaGeluOp;
 export import Compute.CudaLayerNormOp;
 export import Compute.CudaLinearOp;
 //export import Compute.CudaMatMulBiasGeluOp;
-//export import Compute.CudaResidualOp;
+export import Compute.CudaResidualOp;
 export import Compute.CudaSoftmaxOp;
 export import Compute.CudaSoftmaxCrossEntropyOp;

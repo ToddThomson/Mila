@@ -128,9 +128,7 @@ namespace Mila::Dnn::Compute
         using MR = CudaDeviceMemoryResource;
         using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
-        using Parameters = std::vector<std::shared_ptr<TensorType>>;
-        using OutputState = std::vector<std::shared_ptr<TensorType>>;
-        using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::native_type;
+        using NativeType = typename Cuda::TensorDataTypeMap<TPrecision>::native_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 
         CudaSoftmaxOp( std::shared_ptr<CudaExecutionContext> context, const SoftmaxConfig& config )

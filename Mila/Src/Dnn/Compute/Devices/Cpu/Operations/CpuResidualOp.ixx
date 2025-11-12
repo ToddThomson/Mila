@@ -32,7 +32,6 @@ import Dnn.Modules.Residual;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
-//import Dnn.TensorHostTypeMap;
 import Dnn.ConfigurationBase;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
@@ -62,11 +61,8 @@ namespace Mila::Dnn::Compute
     {
     public:
         using MR = CpuMemoryResource;
-        using BinaryOperationBase = BinaryOperation<DeviceType::Cpu, TensorDataType::FP32>;
-        using TensorType = Tensor<TensorDataType::FP32, MR>;
-        //using Parameters = std::vector<std::shared_ptr<TensorType>>;
-        //using OutputState = std::vector<std::shared_ptr<TensorType>>;
-        //using float = typename TensorfloatMap<TensorDataType::FP32>::host_type;
+        //using BinaryOperationBase = BinaryOperation<DeviceType::Cpu, TensorDataType::FP32>;
+        //using TensorType = Tensor<TensorDataType::FP32, MR>;
         using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
 
         /**
@@ -91,7 +87,7 @@ namespace Mila::Dnn::Compute
          *
          * Parameters and output_state are currently unused.
          */
-        void forward( const ITensor& input_a, const ITensor& input_b, ITensor& output ) const
+        void forward( const ITensor& input_a, const ITensor& input_b, ITensor& output ) const override
         {
             const float* A = static_cast<const float*>(input_a.rawData());
             const float* B = static_cast<const float*>(input_b.rawData());

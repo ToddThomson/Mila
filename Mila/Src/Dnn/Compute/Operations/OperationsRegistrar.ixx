@@ -64,7 +64,7 @@ namespace Mila::Dnn::Compute
 			CudaLayerNormOpRegistrar::registerOperations();
 			CudaLinearOpRegistrar::registerOperations();
 			//CudaAttentionOpRegistrar::registerOperations();
-			//CudaResidualOpRegistrar::registerOperations();
+			CudaResidualOpRegistrar::registerOperations();
 			CudaSoftmaxOpRegistrar::registerOperations();
 			//CudaMatMulBiasGeluOpRegistrar::registerOperations();
 		}

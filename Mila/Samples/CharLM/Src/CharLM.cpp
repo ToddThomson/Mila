@@ -1,3 +1,14 @@
+#include <iostream>
+#include <vector>
+#include <random>
+#include <algorithm>
+#include <string>
+#include <filesystem>
+#include <fstream>
+#include <type_traits>
+#include <cstdint>
+#include <stdexcept>
+#include <memory>
 #include <string>
 #include <iostream>
 #include <iomanip>
@@ -17,8 +28,6 @@ import Mila;
 
 import CharLM.Transformer;
 import CharLM.CharDataLoader;
-
-import Mnist.DataLoader;
 
 namespace fs = std::filesystem;
 
@@ -333,9 +342,6 @@ void train( const CharLMConfig& config )
 
     auto device = exec_context->getDevice();
 
-    Mila::Mnist::MnistDataLoader<TensorDataType::FP32, THostMR> train_loader_gerb( config.data_file, config.batch_size, true, device );
-    //MnistDataLoader<TensorDataType::FP32, THostMR> test_loader( config.data_directory, config.batch_size, false, device );
-
     // ============================================================
     // Data loader setup
     // ============================================================
@@ -555,10 +561,8 @@ int main( int argc, char** argv )
             }
             catch (const std::exception& e)
             {
-                std::cerr << "CUDA error: " << e.what()
-                    << ", falling back to CPU" << std::endl;
-                
-                config.compute_device = DeviceType::Cpu;
+                std::cerr << "CUDA error: " << e.what();
+                throw;
             }
         }
 

@@ -443,6 +443,7 @@ namespace Mila::Dnn
                 std::ostringstream oss;
                 oss << "Linear: input feature dimension mismatch. Expected "
                     << config_.getInputFeatures() << ", got " << input_features;
+                
                 throw std::invalid_argument( oss.str() );
             }
         }

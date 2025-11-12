@@ -15,7 +15,7 @@ PUBLIC
        TYPE CXX_MODULES FILES
 		"Src/CharTransformer.ixx"
 		"Src/CharDataLoader.ixx"
-		"Src/MnistDataLoader.ixx"
+		
 )
 
 if( MILA_ENABLE_COPY_MODEL_DATA )

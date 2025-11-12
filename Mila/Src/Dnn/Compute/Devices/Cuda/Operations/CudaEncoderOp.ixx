@@ -14,6 +14,7 @@ module;
 #include <stdexcept>
 #include <cstdint>
 #include "Kernels/CudaOps.h"
+#include <type_traits>
 
 export module Compute.CudaEncoderOp;
 
@@ -130,7 +131,7 @@ namespace Mila::Dnn::Compute
     {
     public:
         using MR = CudaDeviceMemoryResource;
-        using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TInput, TPrecision>;
+        //using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TInput, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
         //using Parameters = std::vector<std::shared_ptr<TensorType>>;
         //using OutputState = std::vector<std::shared_ptr<TensorType>>;
@@ -263,7 +264,7 @@ namespace Mila::Dnn::Compute
                     "CudaEncoderOp::build - parameter embedding dimension doesn't match configuration" );
             }
 
-            UnaryOperationBase::build( input_shape );
+            //UnaryOperationBase::build( input_shape );
         }
 
         // ====================================================================

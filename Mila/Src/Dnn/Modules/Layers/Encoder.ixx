@@ -58,14 +58,14 @@ namespace Mila::Dnn
      * @tparam TPrecision Abstract tensor precision (TensorDataType) for embeddings
      * @tparam TTargets Data type for token indices (typically INT32)
      */
-    export template<DeviceType TDeviceType, TensorDataType TPrecision, TensorDataType TIndex = dtype_t::INT32>
+    export template<DeviceType TDeviceType, TensorDataType TIndex = dtype_t::INT32, TensorDataType TPrecision = dtype_t::FP32>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
     class Encoder : public Module<TDeviceType>
     {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
         using ExecutionContextType = ExecutionContext<TDeviceType>;
-        using TensorType = Tensor<TPrecision, MR>;
+        using EmbeddingsTensorType = Tensor<TPrecision, MR>;
         using TokenIndexType = Tensor<TIndex, MR>;
 
         /**
@@ -259,7 +259,7 @@ namespace Mila::Dnn
          *
          * @return Shared pointer to wte gradient, or nullptr if not in training mode
          */
-        std::shared_ptr<TensorType> getWteGrad() const noexcept
+        std::shared_ptr<EmbeddingsTensorType> getWteGrad() const noexcept
         {
             return wte_grad_;
         }
@@ -269,7 +269,7 @@ namespace Mila::Dnn
          *
          * @return Shared pointer to wpe gradient, or nullptr if not in training mode
          */
-        std::shared_ptr<TensorType> getWpeGrad() const noexcept
+        std::shared_ptr<EmbeddingsTensorType> getWpeGrad() const noexcept
         {
             return wpe_grad_;
         }
@@ -358,7 +358,7 @@ namespace Mila::Dnn
          *
          * @returns Shared pointer to the wte tensor.
          */
-        std::shared_ptr<TensorType> getTokenEmbedding() const noexcept
+        std::shared_ptr<EmbeddingsTensorType> getTokenEmbedding() const noexcept
         {
             return wte_;
         }
@@ -368,7 +368,7 @@ namespace Mila::Dnn
          *
          * @returns Shared pointer to the wpe tensor.
          */
-        std::shared_ptr<TensorType> getPositionalEmbedding() const noexcept
+        std::shared_ptr<EmbeddingsTensorType> getPositionalEmbedding() const noexcept
         {
             return wpe_;
         }
@@ -418,13 +418,13 @@ namespace Mila::Dnn
         bool is_training_{ false };
         bool is_built_{ false };
 
-        std::shared_ptr<TensorType> wte_{ nullptr };  // Token embeddings (V, C)
-        std::shared_ptr<TensorType> wpe_{ nullptr };  // Position embeddings (maxT, C)
+        std::shared_ptr<EmbeddingsTensorType> wte_{ nullptr };  // Token embeddings (V, C)
+        std::shared_ptr<EmbeddingsTensorType> wpe_{ nullptr };  // Position embeddings (maxT, C)
 
-        std::shared_ptr<TensorType> wte_grad_{ nullptr };
-        std::shared_ptr<TensorType> wpe_grad_{ nullptr };
+        std::shared_ptr<EmbeddingsTensorType> wte_grad_{ nullptr };
+        std::shared_ptr<EmbeddingsTensorType> wpe_grad_{ nullptr };
 
-        std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TDeviceType, TIndex, TPrecision>> operation_{ nullptr };
         std::shared_ptr<ExecutionContextType> exec_context_;
 
         /**
@@ -469,7 +469,7 @@ namespace Mila::Dnn
 
             if (!wte_grad_)
             {
-                wte_grad_ = std::make_shared<TensorType>(
+                wte_grad_ = std::make_shared<EmbeddingsTensorType>(
                     device,
                     wte_->shape() );
                 wte_grad_->setName( this->getName() + ".wte.grad" );
@@ -478,7 +478,7 @@ namespace Mila::Dnn
 
             if (!wpe_grad_)
             {
-                wpe_grad_ = std::make_shared<TensorType>(
+                wpe_grad_ = std::make_shared<EmbeddingsTensorType>(
                     device,
                     wpe_->shape() );
                 wpe_grad_->setName( this->getName() + ".wpe.grad" );
@@ -501,12 +501,12 @@ namespace Mila::Dnn
             auto device = exec_context_->getDevice();
 
             // Token embeddings: (vocab_size, embedding_dim)
-            wte_ = std::make_shared<TensorType>( device, shape_t{ vocab_size, embedding_dim } );
+            wte_ = std::make_shared<EmbeddingsTensorType>( device, shape_t{ vocab_size, embedding_dim } );
             wte_->setName( this->getName() + ".wte" );
             xavier<TPrecision, MR>( *wte_, vocab_size, embedding_dim );
 
             // Positional embeddings: (max_seq_len, embedding_dim)
-            wpe_ = std::make_shared<TensorType>( device, shape_t{ max_seq_len, embedding_dim } );
+            wpe_ = std::make_shared<EmbeddingsTensorType>( device, shape_t{ max_seq_len, embedding_dim } );
             wpe_->setName( this->getName() + ".wpe" );
             xavier<TPrecision, MR>( *wpe_, max_seq_len, embedding_dim );
         }
@@ -520,7 +520,7 @@ namespace Mila::Dnn
         void createOperation()
         {
             operation_ = OperationRegistry::instance()
-                .createUnaryOperation<TDeviceType, TPrecision>(
+                .createUnaryOperation<TDeviceType, TIndex, TPrecision>(
                     "EncoderOp",
                     exec_context_,
                     config_ );

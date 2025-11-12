@@ -29,22 +29,22 @@ namespace Mila::Dnn::Compute
 {
     // Reduction kernels
     void cuda_reduce_sum_batch_fp32(
-        float* bias_grad,
-        const float* output_grad,
+        float* dBias,
+        const float* dY,
         int outer_size,
         int out_features,
         cudaStream_t stream );
 
     /* TODO: void cuda_reduce_sum_batch_fp16(
-        half* bias_grad,
-        const half* output_grad,
+        half* dBias,
+        const half* dY,
         int batch_size,
         int out_features,
         cudaStream_t stream );
 
     void cuda_reduce_sum_batch_bfp16(
-        __nv_bfloat16* bias_grad,
-        const __nv_bfloat16* output_grad,
+        __nv_bfloat16* dBias,
+        const __nv_bfloat16* dY,
         int batch_size,
         int out_features,
         cudaStream_t stream );*/
@@ -156,9 +156,9 @@ namespace Mila::Dnn::Compute
     // SoftmaxCrossEntropy functions
     template <typename TPrecision>
     void cuda_softmax_crossentropy_forward(
-        TPrecision* losses,
-        TPrecision* probs,
-        const TPrecision* logits,
+        TPrecision* Y_loss,
+        TPrecision* Y,
+        const TPrecision* X,
         const int* targets,
         int batch_size,
         int seq_len,
@@ -167,9 +167,9 @@ namespace Mila::Dnn::Compute
 
     template <typename TPrecision>
     void cuda_softmax_crossentropy_backward(
-        TPrecision* dlogits,
-        const TPrecision* dlosses,
-        const TPrecision* probs,
+        TPrecision* dX,
+        const TPrecision* dY_loss,
+        const TPrecision* Y,
         const int* targets,
         int batch_size,
         int seq_len,
@@ -183,9 +183,51 @@ namespace Mila::Dnn::Compute
         int N,
         cudaStream_t stream );
 
+    /**
+     * @brief Host function to launch residual backward kernel with full precision (FP32)
+     *
+     * Propagates gradients through the residual connection. Both inputs receive
+     * the same gradient since the forward pass is simple addition.
+     *
+     * Formula: dX1 += dY, dX2 += dY
+     *
+     * @param dX1 Gradient tensor for first input (accumulated)
+     * @param dX2 Gradient tensor for second input (accumulated)
+     * @param dY Gradient from downstream layers
+     * @param N Total number of elements in the tensors
+     * @param stream CUDA stream for asynchronous execution
+     */
+    void cuda_residual_backward_fp32(
+        float* dX1,
+        float* dX2,
+        const float* dY,
+        int N,
+        cudaStream_t stream );
+
     void cuda_residual_forward_fp16(
         half* Y,
         const half* X1, const half* X2,
+        int N,
+        cudaStream_t stream );
+
+    /**
+     * @brief Host function to launch residual backward kernel with half precision (FP16)
+     *
+     * Propagates gradients through the residual connection using half-precision arithmetic.
+     * Both inputs receive the same gradient.
+     *
+     * Formula: dX1 += dY, dX2 += dY
+     *
+     * @param dX1 Gradient tensor for first input in half precision (accumulated)
+     * @param dX2 Gradient tensor for second input in half precision (accumulated)
+     * @param dY Gradient from downstream layers in half precision
+     * @param N Total number of elements in the tensors
+     * @param stream CUDA stream for asynchronous execution
+     */
+    void cuda_residual_backward_fp16(
+        half* dX1,
+        half* dX2,
+        const half* dY,
         int N,
         cudaStream_t stream );
 }
