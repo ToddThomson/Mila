@@ -3,6 +3,8 @@
 #include <memory>
 #include <iostream>
 #include <cstdint>
+#include <exception>
+#include <string>
 
 import Mila;
 
@@ -38,19 +40,6 @@ namespace GBench::GeluBenchmarks
 		const size_t output_bytes = static_cast<size_t>(batch) * static_cast<size_t>(seq) * static_cast<size_t>(output_features) * sizeof( float );
 		const size_t total_bytes = input_bytes + weight_bytes + output_bytes;
 
-		// Check GPU memory availability
-		//size_t free_mem, total_mem;
-		//cudaMemGetInfo( &free_mem, &total_mem );
-
-		//if (total_bytes > free_mem * 0.9)
-		//{  // Leave 10% headroom
-		//	std::ostringstream ss;
-		//	ss << "Insufficient GPU memory: need " << (total_bytes / (1024 * 1024))
-		//		<< " MB, have " << (free_mem / (1024 * 1024)) << " MB free";
-		//	state.SkipWithError( ss.str() );
-		//	return;
-		//}
-
 		// Build shapes (use int64_t shapes to match tensor APIs)
 		std::vector<int64_t> input_shape = { batch, seq, input_features };
 		std::vector<int64_t> output_shape = { batch, seq, output_features };
@@ -63,7 +52,7 @@ namespace GBench::GeluBenchmarks
 			// Create Linear config from parsed args
 			LinearConfig config( input_features, output_features );
 
-			// Use operation registry to create op
+			// Use operation registry to create op (now requires parameter binding and build)
 			auto op = Mila::Dnn::Compute::OperationRegistry::instance().createUnaryOperation<DeviceType::Cuda, TensorDataType::FP32>(
 				"LinearOp", ctx, config );
 
@@ -92,8 +81,7 @@ namespace GBench::GeluBenchmarks
 			Tensor<TensorDataType::FP32, CpuMemoryResource> host_weight( cpu_dev, weight_shape );
 			xavier<TensorDataType::FP32, CpuMemoryResource>( host_weight, input_features, output_features );
 
-			std::shared_ptr<Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>> device_weight =
-				std::make_shared<Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>>( ctx->getDevice(), weight_shape );
+			auto device_weight = std::make_shared<Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>>( ctx->getDevice(), weight_shape );
 			device_weight->setName( "bench.linear.weight" );
 			copy( host_weight, *device_weight );
 
@@ -108,12 +96,11 @@ namespace GBench::GeluBenchmarks
 				copy( host_bias, *device_bias );
 			}
 
-			// Prepare parameters vector
-			std::vector<std::shared_ptr<Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>>> params;
-			params.emplace_back( device_weight );
-			if (device_bias) params.emplace_back( device_bias );
+			// Bind parameters to operation and build it (match new two-phase build mechanism)
+			op->setParameters( device_weight.get(), device_bias ? device_bias.get() : nullptr );
 
-			std::vector<std::shared_ptr<Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>>> out_state;
+			// Build operation with input shape so the op can validate shapes and create plans
+			op->build( input_shape );
 
 			// Warm up (single synchronization after all warmup iterations)
 			for (int i = 0; i < 5; ++i)
