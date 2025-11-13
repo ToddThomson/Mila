@@ -63,12 +63,12 @@ The documentation includes class references, usage examples, and architecture gu
 - Zero-copy operations where possible using pinned memory for host-device transfers
 
 **Validated Components**
-- ? Linear layer forward pass (784?128?64?10 architecture tested)
-- ? Linear layer backward pass (input gradients, weight gradients, bias gradients)
-- ? AdamW optimizer step with all hyperparameters
-- ? Gradient zeroing and accumulation
-- ? Multi-layer network training convergence
-- ? Test set evaluation with proper inference mode
+-  Linear layer forward pass (784?128?64?10 architecture tested)
+-  Linear layer backward pass (input gradients, weight gradients, bias gradients)
+-  AdamW optimizer step with all hyperparameters
+-  Gradient zeroing and accumulation
+-  Multi-layer network training convergence
+-  Test set evaluation with proper inference mode
 
 ### Next Steps
 * Additional activation functions (GELU, SiLU) and their backward passes

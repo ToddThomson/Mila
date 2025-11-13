@@ -34,7 +34,6 @@ import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.OperationType;
-import Compute.OperationAttributes;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CpuDevice;

@@ -26,7 +26,6 @@ import Compute.CpuMemoryResource;
 import Compute.CudaDevice;
 import Compute.OperationBase;
 import Compute.OperationType;
-import Compute.OperationAttributes;
 
 namespace Mila::Dnn::Compute
 {

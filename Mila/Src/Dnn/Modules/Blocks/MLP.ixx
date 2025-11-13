@@ -543,10 +543,4 @@ namespace Mila::Dnn
             fc2_ = std::make_shared<LinearType>( exec_context_, fc2_config );
         }
     };
-
-    export template<TensorDataType TPrecision>
-        using CpuMLP = MLP<DeviceType::Cpu, TPrecision>;
-
-    export template<TensorDataType TPrecision>
-        using CudaMLP = MLP<DeviceType::Cuda, TPrecision>;
 }

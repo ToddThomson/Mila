@@ -132,7 +132,7 @@ namespace Gpt2App
 
 			for ( size_t l = 0; l < config_.num_layers; l++ ) {
 				std::string layer_name = std::format( "gpt2.tf_{}", l );
-				tf_layers_.emplace_back( std::make_unique<TransformerBlock<TPrecision, TPrecision>>( layer_name, tf_io_shape, NH ) );
+				tf_layers_.emplace_back( std::make_unique<Transformer<TPrecision, TPrecision>>( layer_name, tf_io_shape, NH ) );
 			}
 
 			ln_f_ = std::make_unique<LayerNorm<TPrecision, TPrecision>>( "gpt2.ln_f", tf_io_shape );
@@ -803,7 +803,7 @@ namespace Gpt2App
 		}
 		
 		std::unique_ptr<Encoder<int, float>> encoder_{ nullptr };
-		std::vector<std::unique_ptr<TransformerBlock<float, float>>> tf_layers_;
+		std::vector<std::unique_ptr<Transformer<float, float>>> tf_layers_;
 		std::unique_ptr<LayerNorm<float, float>> ln_f_{ nullptr };
 		std::unique_ptr<FullyConnected<float, float>> fc_f_{ nullptr };
 		std::unique_ptr<Softmax<float, float>> smax_{ nullptr };

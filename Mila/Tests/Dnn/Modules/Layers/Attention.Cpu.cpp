@@ -52,41 +52,36 @@ namespace Modules::Layers::Tests
         const int64_t T = 4;
         const int64_t C = 64; // embedding dim
         const int64_t heads = 8;
-        const int64_t hs = C / heads;
 
         AttentionConfig cfg( C, heads );
         cfg.withName( "attn_forward" );
 
         auto module = std::make_shared<Attention<DeviceType::Cpu, TensorDataType::FP32>>( exec_ctx_, cfg );
 
-        // Head-major shapes: [B, NH, T, hs]
-        shape_t input_shape = { B, heads, T, hs };
-        shape_t output_shape = { B, heads, T, hs };
+        // Model-layout shapes: input is concatenated Q||K||V -> [B, T, 3 * C], output -> [B, T, C]
+        shape_t input_shape = { B, T, static_cast<int64_t>(3 * C) };
+        shape_t output_shape = { B, T, static_cast<int64_t>(C) };
 
-        // Build
+        // Build using model-layout shapes
         EXPECT_NO_THROW( module->build( input_shape ) );
         EXPECT_TRUE( module->isBuilt() );
 
-        // Prepare Q/K/V and output tensors in head-major layout
-        CpuTensor<TensorDataType::FP32> Q( exec_ctx_->getDevice(), input_shape );
-        CpuTensor<TensorDataType::FP32> K( exec_ctx_->getDevice(), input_shape );
-        CpuTensor<TensorDataType::FP32> V( exec_ctx_->getDevice(), input_shape );
+        // Prepare concatenated QKV input and output tensors in model-layout
+        CpuTensor<TensorDataType::FP32> input( exec_ctx_->getDevice(), input_shape );
         CpuTensor<TensorDataType::FP32> output( exec_ctx_->getDevice(), output_shape );
 
         // Fill deterministic values on CPU
-        for (size_t i = 0; i < Q.size(); ++i)
+        for (size_t i = 0; i < input.size(); ++i)
         {
-            Q.data()[i] = static_cast<float>( (i % 100) ) * 0.01f;
-            K.data()[i] = static_cast<float>( (i % 97) ) * 0.02f;
-            V.data()[i] = static_cast<float>( (i % 89) ) * 0.03f;
+            input.data()[i] = static_cast<float>( (i % 100) ) * 0.01f;
         }
 
-        // Forward should succeed with head-major inputs
-        EXPECT_NO_THROW( module->forward( Q, K, V, output ) );
+        // Forward should accept single concatenated input and produce model-layout output
+        EXPECT_NO_THROW( module->forward( input, output ) );
 
         // Output shape / size checks
         EXPECT_EQ( output.shape(), output_shape );
-        EXPECT_EQ( output.size(), static_cast<size_t>(B * heads * T * hs) );
+        EXPECT_EQ( output.size(), static_cast<size_t>( B * T * C ) );
     }
 
     TEST_F( AttentionCpuTests, ToStringContainsInfo )
@@ -96,8 +91,8 @@ namespace Modules::Layers::Tests
 
         auto module = std::make_shared<Attention<DeviceType::Cpu, TensorDataType::FP32>>( exec_ctx_, cfg );
 
-        // Build with head-major shape: embedding 32 with 4 heads -> hs = 8
-        module->build( shape_t{ 1, 4, 1, 8 } );
+        // Build with model-layout shape: input last-dim = 3 * embedding_dim (3*32 = 96)
+        module->build( shape_t{ 1, 1, 96 } );
 
         auto s = module->toString();
         EXPECT_NE( s.find( "Attention" ), std::string::npos );

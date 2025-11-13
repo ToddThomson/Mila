@@ -1,8 +1,9 @@
 /**
  * @file Attention.ixx
- * @brief Device-templated Multi-Head Attention module.
+ * @brief Multi-Head Attention module (concatenated QKV input).
  *
- * Delegates compute to a device-specific TernaryOperation implementation registered in the OperationRegistry.
+ * Module delegates compute to a device-specific UnaryOperation implementation
+ * that expects a concatenated QKV input tensor.
  */
 
 module;
@@ -29,7 +30,7 @@ import Compute.Precision;
 import Compute.ComputeDevice;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
-import Compute.TernaryOperation;
+import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
@@ -42,13 +43,15 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Serialization;
 
     /**
-     * @brief Multi-Head Attention module for transformer architectures (device-templated).
+     * @brief Multi-Head Attention module that accepts concatenated QKV input.
      *
-     * Contract:
-     *  - Inputs Q, K, V are expected in head-major layout: [B, NH, T, hs]
-     *  - Output and gradients are produced in the same head-major layout.
+     * The module requires a single input tensor in model-layout containing
+     * concatenated Q, K and V along the feature axis:
+     *   input shape == [B, T, 3 * embedding_dim]
      *
-     * This avoids per-call memory reorganization inside the compute backend.
+     * The backend compute implementation (registered as "AttentionOp") must
+     * accept the concatenated QKV input and produce an output of shape
+     *   output shape == [B, T, embedding_dim]
      *
      * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda)
      * @tparam TPrecision Abstract tensor precision (TensorDataType)
@@ -63,9 +66,9 @@ namespace Mila::Dnn
         using TensorType = Tensor<TPrecision, MR>;
 
         /**
-         * @brief Construct with an existing execution context.
+         * @brief Construct with an existing execution context and config.
          *
-         * @param exec_context Shared execution context for device resources.
+         * @param context Shared execution context for device resources.
          * @param config Multi-head attention configuration.
          */
         explicit Attention( std::shared_ptr<ExecutionContextType> context, const AttentionConfig& config )
@@ -95,11 +98,8 @@ namespace Mila::Dnn
         /**
          * @brief Build the module using an input shape.
          *
-         * The input_shape is interpreted as the head-major query shape:
-         *   [B, NH, T, hs]
-         *
-         * Validates the shape against the configuration and forwards it to the
-         * backend operation for any device-specific initialization.
+         * The input_shape must describe the concatenated QKV model-layout:
+         *   [B, T, 3 * embedding_dim]
          */
         void build( const shape_t& input_shape ) override
         {
@@ -108,13 +108,14 @@ namespace Mila::Dnn
                 return;
             }
 
-            validateHeadMajorShape( input_shape );
+            validateConcatenatedQKVShape( input_shape );
 
             operation_->setTraining( is_training_ );
 
             // No learnable parameters in base attention
             operation_->setParameters( nullptr, nullptr );
 
+            // Backend expects concatenated QKV model-layout input shape for build()
             operation_->build( input_shape );
 
             is_built_ = true;
@@ -127,46 +128,40 @@ namespace Mila::Dnn
         /**
          * @brief Forward pass - delegates to backend operation.
          *
-         * Inputs/outputs are head-major: [B, NH, T, hs].
+         * Input must be concatenated QKV in model layout: [B, T, 3 * embedding_dim].
+         * Output must be the attention result in model layout: [B, T, embedding_dim].
          *
-         * @param Q Query tensor [B, NH, T, hs]
-         * @param K Key tensor   [B, NH, T, hs]
-         * @param V Value tensor [B, NH, T, hs]
-         * @param output Output tensor [B, NH, T, hs]
+         * @param input Input tensor (concatenated QKV) [B, T, 3 * embedding_dim]
+         * @param output Output tensor [B, T, embedding_dim]
          */
-        void forward( const ITensor& Q, const ITensor& K, const ITensor& V, ITensor& output )
+        void forward( const ITensor& input, ITensor& output )
         {
             if (!isBuilt())
             {
                 throw std::runtime_error( "Attention module must be built before calling forward." );
             }
 
-            validateHeadMajorShapes( Q, K, V, output );
+            validateForwardShapes( input, output );
 
-            operation_->forward( Q, K, V, output );
+            operation_->forward( input, output );
         }
 
         /**
          * @brief Backward pass - delegates to backend operation.
          *
-         * Computes gradients for Q, K, V. All tensors are head-major.
+         * Expects:
+         *  - input:     [B, T, 3 * embedding_dim]  (concatenated QKV)
+         *  - output_grad: [B, T, embedding_dim]
+         *  - input_grad:  [B, T, 3 * embedding_dim]
          *
-         * @param Q Query tensor [B, NH, T, hs]
-         * @param K Key tensor [B, NH, T, hs]
-         * @param V Value tensor [B, NH, T, hs]
-         * @param output_grad Gradient w.r.t. output [B, NH, T, hs]
-         * @param q_grad Gradient w.r.t. Q [B, NH, T, hs] (written)
-         * @param k_grad Gradient w.r.t. K [B, NH, T, hs] (written)
-         * @param v_grad Gradient w.r.t. V [B, NH, T, hs] (written)
+         * @param input Input tensor (concatenated QKV)
+         * @param output_grad Gradient w.r.t. output
+         * @param input_grad Gradient w.r.t. input (written)
          */
         void backward(
-            const ITensor& Q,
-            const ITensor& K,
-            const ITensor& V,
+            const ITensor& input,
             const ITensor& output_grad,
-            ITensor& q_grad,
-            ITensor& k_grad,
-            ITensor& v_grad )
+            ITensor& input_grad )
         {
             if (!isBuilt())
             {
@@ -178,9 +173,10 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Attention module must be in training mode to call backward. Call setTraining(true) first." );
             }
 
-            validateHeadMajorShapesForBackward( Q, K, V, output_grad, q_grad, k_grad, v_grad );
+            validateBackwardShapes( input, output_grad, input_grad );
 
-            operation_->backward( Q, K, V, output_grad, q_grad, k_grad, v_grad );
+            // UnaryOperation::backward convention: (output_grad, input, input_grad)
+            operation_->backward( output_grad, input, input_grad );
         }
 
         // ====================================================================
@@ -263,9 +259,15 @@ namespace Mila::Dnn
             oss << "Embedding dimension: " << config_.getEmbeddingDim() << std::endl;
             oss << "Number of heads: " << config_.getNumHeads() << std::endl;
             oss << "Head size: " << (config_.getEmbeddingDim() / config_.getNumHeads()) << std::endl;
-            oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
+
+            if (context_ && context_->getDevice())
+            {
+                oss << "Device: " << deviceTypeToString( context_->getDevice()->getDeviceType() ) << std::endl;
+            }
+
             oss << "Parameter count: " << parameterCount() << std::endl;
 
+            // blank line before return per style
             return oss.str();
         }
 
@@ -294,87 +296,92 @@ namespace Mila::Dnn
         bool is_training_{ false };
         bool is_built_{ false };
 
-        std::shared_ptr<TernaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
         std::shared_ptr<ExecutionContextType> context_;
 
-        // Validate a head-major shape [B, NH, T, hs] matches config.
-        void validateHeadMajorShape( const shape_t& shape ) const
+        // Validate concatenated QKV model-layout shape [B, T, 3 * embedding_dim]
+        void validateConcatenatedQKVShape( const shape_t& shape ) const
         {
-            if (shape.size() != 4)
+            if (shape.size() != 3)
             {
-                throw std::invalid_argument( "Attention: expected head-major shape [B, NH, T, hs]" );
+                throw std::invalid_argument( "Attention: expected 3D model-layout shape" );
             }
 
-            const int64_t NH = shape[1];
-            const int64_t hs = shape[3];
+            const int64_t trailing = shape.back();
+            const int64_t expected = config_.getEmbeddingDim() * 3;
 
-            if (NH != config_.getNumHeads())
+            if (trailing != expected)
             {
                 std::ostringstream oss;
-                oss << "Attention: number of heads (shape[1]) must equal config.num_heads. Expected "
-                    << config_.getNumHeads() << ", got " << NH;
-                throw std::invalid_argument( oss.str() );
-            }
-
-            if ((NH * hs) != config_.getEmbeddingDim())
-            {
-                std::ostringstream oss;
-                oss << "Attention: NH * hs must equal embedding_dim. Got NH=" << NH
-                    << ", hs=" << hs << ", NH*hs=" << (NH * hs)
-                    << ", embedding_dim=" << config_.getEmbeddingDim();
+                oss << "Attention: expected concatenated QKV trailing dimension " << expected
+                    << " (3 * embedding_dim), got " << trailing;
                 throw std::invalid_argument( oss.str() );
             }
         }
 
-        void validateHeadMajorShapes( const ITensor& Q, const ITensor& K, const ITensor& V, const ITensor& output ) const
+        void validateForwardShapes( const ITensor& input, const ITensor& output ) const
         {
-            const auto& qshape = Q.shape();
-            const auto& kshape = K.shape();
-            const auto& vshape = V.shape();
-            const auto& oshape = output.shape();
+            const auto& in_shape = input.shape();
+            const auto& out_shape = output.shape();
 
-            validateHeadMajorShape( qshape );
+            validateConcatenatedQKVShape( in_shape );
 
-            if (kshape != qshape || vshape != qshape)
+            if (out_shape.size() != 3)
             {
-                throw std::invalid_argument( "Attention: Q, K, V must have identical head-major shapes [B, NH, T, hs]" );
+                throw std::invalid_argument( "Attention: output must be 3D model-layout [B, T, embedding_dim]" );
             }
 
-            if (oshape != qshape)
+            const int64_t out_trailing = out_shape.back();
+            const int64_t expected_out = config_.getEmbeddingDim();
+
+            if (out_trailing != expected_out)
             {
-                throw std::invalid_argument( "Attention: output must have same head-major shape as inputs" );
+                std::ostringstream oss;
+                oss << "Attention: expected output trailing dimension " << expected_out
+                    << " (embedding_dim), got " << out_trailing;
+                throw std::invalid_argument( oss.str() );
+            }
+
+            // Ensure batch and sequence dims match between input and output
+            if (in_shape[0] != out_shape[0] || in_shape[1] != out_shape[1])
+            {
+                throw std::invalid_argument( "Attention: input and output batch/sequence dimensions must match" );
             }
         }
 
-        void validateHeadMajorShapesForBackward(
-            const ITensor& Q, const ITensor& K, const ITensor& V,
+        void validateBackwardShapes(
+            const ITensor& input,
             const ITensor& output_grad,
-            const ITensor& q_grad, const ITensor& k_grad, const ITensor& v_grad ) const
+            const ITensor& input_grad ) const
         {
-            const auto& qshape = Q.shape();
+            // input: [B, T, 3*D], output_grad: [B, T, D], input_grad: [B, T, 3*D]
+            const auto& in_shape = input.shape();
+            validateConcatenatedQKVShape( in_shape );
 
-            validateHeadMajorShape( qshape );
-
-            if (K.shape() != qshape || V.shape() != qshape)
+            const auto& outg_shape = output_grad.shape();
+            if (outg_shape.size() != 3 || outg_shape.back() != config_.getEmbeddingDim())
             {
-                throw std::invalid_argument( "Attention: Q, K, V must have identical head-major shapes [B, NH, T, hs]" );
+                throw std::invalid_argument( "Attention: output_grad must have model-layout trailing dim == embedding_dim" );
             }
 
-            if (output_grad.shape() != qshape)
+            const auto& ing_shape = input_grad.shape();
+            if (ing_shape.size() != 3 || ing_shape.back() != config_.getEmbeddingDim() * 3)
             {
-                throw std::invalid_argument( "Attention: output_grad must have same head-major shape as inputs" );
+                throw std::invalid_argument( "Attention: input_grad must have model-layout trailing dim == 3 * embedding_dim" );
             }
 
-            if (q_grad.shape() != qshape || k_grad.shape() != qshape || v_grad.shape() != qshape)
+            // Ensure batch and sequence dims match across tensors
+            if (in_shape[0] != outg_shape[0] || in_shape[1] != outg_shape[1] ||
+                in_shape[0] != ing_shape[0] || in_shape[1] != ing_shape[1])
             {
-                throw std::invalid_argument( "Attention: q_grad/k_grad/v_grad must have same head-major shape as inputs" );
+                throw std::invalid_argument( "Attention: batch/sequence dimensions must match across input, output_grad and input_grad" );
             }
         }
 
         void createOperation()
         {
             operation_ = OperationRegistry::instance()
-                .createTernaryOperation<TDeviceType, TPrecision>(
+                .createUnaryOperation<TDeviceType, TPrecision>(
                     "AttentionOp",
                     context_,
                     config_ );

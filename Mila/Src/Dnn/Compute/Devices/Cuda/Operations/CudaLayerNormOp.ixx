@@ -34,7 +34,6 @@ import Compute.ExecutionContext;
 import Compute.CudaExecutionContext;
 import Compute.CudaDeviceResources;
 import Compute.OperationType;
-import Compute.OperationAttributes;
 import Compute.MemoryResource;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;

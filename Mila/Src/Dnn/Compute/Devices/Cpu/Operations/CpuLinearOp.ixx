@@ -33,7 +33,6 @@ import Compute.ExecutionContext;
 import Compute.IExecutionContext;
 import Compute.CpuExecutionContext;
 import Compute.OperationType;
-import Compute.OperationAttributes;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;

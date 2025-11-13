@@ -132,7 +132,7 @@ With Tiny Shakespeare (~1MB, 40K lines):
 - Loss computation (sequence cross-entropy)
 
 ?? **TODO**:
-- TransformerBlock implementation (attention + MLP)
+- Transformer implementation (attention + MLP)
 - Positional encoding
 - Text generation utilities
 - Model checkpointing

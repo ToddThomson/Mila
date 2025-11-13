@@ -64,41 +64,34 @@ namespace Modules::Layers::Tests
         const int64_t T = 8;
         const int64_t C = 64;
         const int64_t heads = 8;
-        const int64_t hs = C / heads;
 
         AttentionConfig cfg( C, heads );
         cfg.withName( "attn_cuda_fp32" );
 
         auto module = std::make_shared<Attention<DeviceType::Cuda, TensorDataType::FP32>>( exec_ctx_, cfg );
 
-        // Head-major shapes: [B, NH, T, hs]
-        shape_t input_shape = { B, heads, T, hs };
-        shape_t output_shape = { B, heads, T, hs };
+        // Model-layout shapes: input is concatenated Q||K||V -> [B, T, 3 * C], output -> [B, T, C]
+        shape_t input_shape = { B, T, static_cast<int64_t>(3 * C) };
+        shape_t output_shape = { B, T, static_cast<int64_t>(C) };
 
         EXPECT_NO_THROW( module->build( input_shape ) );
 
-        // Prepare host inputs Q/K/V and device tensors
-        HostTensor host_Q( "CPU", input_shape );
-        HostTensor host_K( "CPU", input_shape );
-        HostTensor host_V( "CPU", input_shape );
+        // Prepare host concatenated input and device tensors
+        HostTensor host_input( "CPU", input_shape );
 
-        for (size_t i = 0; i < host_Q.size(); ++i)
+        for (size_t i = 0; i < host_input.size(); ++i)
         {
-            host_Q.data()[i] = static_cast<float>( (i % 100) ) * 0.01f;
-            host_K.data()[i] = static_cast<float>( (i % 97) ) * 0.02f;
-            host_V.data()[i] = static_cast<float>( (i % 89) ) * 0.03f;
+            host_input.data()[i] = static_cast<float>( (i % 100) ) * 0.01f;
         }
 
-        CudaTensor<TensorDataType::FP32> device_Q( exec_ctx_->getDevice(), input_shape );
-        CudaTensor<TensorDataType::FP32> device_K( exec_ctx_->getDevice(), input_shape );
-        CudaTensor<TensorDataType::FP32> device_V( exec_ctx_->getDevice(), input_shape );
+        CudaTensor<TensorDataType::FP32> device_input( exec_ctx_->getDevice(), input_shape );
         CudaTensor<TensorDataType::FP32> device_output( exec_ctx_->getDevice(), output_shape );
 
-        copy( host_Q, device_Q );
-        copy( host_K, device_K );
-        copy( host_V, device_V );
+        // Transfer host -> device (may be conversion when types differ)
+        copy( host_input, device_input );
 
-        EXPECT_NO_THROW( module->forward( device_Q, device_K, device_V, device_output ) );
+        // Forward using single concatenated input tensor
+        EXPECT_NO_THROW( module->forward( device_input, device_output ) );
 
         // Copy back to host to verify shape
         HostTensor host_output = toHost<TensorDataType::FP32>( device_output );
@@ -114,42 +107,34 @@ namespace Modules::Layers::Tests
         const int64_t T = 8;
         const int64_t C = 64;
         const int64_t heads = 8;
-        const int64_t hs = C / heads;
 
         AttentionConfig cfg( C, heads );
         cfg.withName( "attn_cuda_fp16" );
 
         auto module = std::make_shared<Attention<DeviceType::Cuda, TensorDataType::FP16>>( exec_ctx_, cfg );
 
-        // Head-major shapes: [B, NH, T, hs]
-        shape_t input_shape = { B, heads, T, hs };
-        shape_t output_shape = { B, heads, T, hs };
+        // Model-layout shapes: input is concatenated Q||K||V -> [B, T, 3 * C], output -> [B, T, C]
+        shape_t input_shape = { B, T, static_cast<int64_t>(3 * C) };
+        shape_t output_shape = { B, T, static_cast<int64_t>(C) };
 
         EXPECT_NO_THROW( module->build( input_shape ) );
 
-        // Prepare host inputs (FP32) and device FP16 tensors
-        HostTensor host_Q( "CPU", input_shape );
-        HostTensor host_K( "CPU", input_shape );
-        HostTensor host_V( "CPU", input_shape );
+        // Prepare host concatenated input (FP32) and device FP16 tensors
+        HostTensor host_input( "CPU", input_shape );
 
-        for (size_t i = 0; i < host_Q.size(); ++i)
+        for (size_t i = 0; i < host_input.size(); ++i)
         {
-            host_Q.data()[i] = static_cast<float>( (i % 100) ) * 0.01f;
-            host_K.data()[i] = static_cast<float>( (i % 97) ) * 0.02f;
-            host_V.data()[i] = static_cast<float>( (i % 89) ) * 0.03f;
+            host_input.data()[i] = static_cast<float>( (i % 100) ) * 0.01f;
         }
 
-        CudaTensor<TensorDataType::FP16> device_Q( exec_ctx_->getDevice(), input_shape );
-        CudaTensor<TensorDataType::FP16> device_K( exec_ctx_->getDevice(), input_shape );
-        CudaTensor<TensorDataType::FP16> device_V( exec_ctx_->getDevice(), input_shape );
+        CudaTensor<TensorDataType::FP16> device_input( exec_ctx_->getDevice(), input_shape );
         CudaTensor<TensorDataType::FP16> device_output( exec_ctx_->getDevice(), output_shape );
 
-        // Copy from FP32 host tensors to FP16 device tensors (runtime conversion expected)
-        copy( host_Q, device_Q );
-        copy( host_K, device_K );
-        copy( host_V, device_V );
+        // Copy from FP32 host tensor to FP16 device tensor (runtime conversion expected)
+        copy( host_input, device_input );
 
-        EXPECT_NO_THROW( module->forward( device_Q, device_K, device_V, device_output ) );
+        // Forward using single concatenated input tensor (FP16)
+        EXPECT_NO_THROW( module->forward( device_input, device_output ) );
 
         // Copy device FP16 output back to a FP32 host tensor for verification (conversion expected)
         HostTensor host_output = toHost<TensorDataType::FP32>( device_output );

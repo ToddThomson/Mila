@@ -169,7 +169,7 @@ PUBLIC
         
         "Src/Dnn/Compute/Operations/UnaryOperation.ixx"
         "Src/Dnn/Compute/Operations/BinaryOperation.ixx"
-        "Src/Dnn/Compute/Operations/TernaryOperation.ixx"
+        
         "Src/Dnn/Compute/Operations/OperationRegistry.ixx"
         "Src/Dnn/Compute/Operations/OperationsRegistrar.ixx"
 
@@ -320,24 +320,17 @@ PUBLIC
         #"Src/Dnn/Modules/Regularization/Dropout.ixx"
         #"Src/Dnn/Modules/Regularization/DropoutConfig.ixx"
         
+        # --- Blocks ---
         "Src/Dnn/Modules/Blocks/MLP.ixx"
         "Src/Dnn/Modules/Blocks/MLPConfig.ixx"
-        #"Src/Dnn/Modules/Blocks/TransformerBlock.ixx"
-        #"Src/Dnn/Modules/Blocks/TransformerBlockConfig.ixx"
+        
+        "Src/Dnn/Modules/Blocks/Transformer.ixx"
+        "Src/Dnn/Modules/Blocks/Transformer.Config.ixx"
         
         #----------------------------------------------------------------------
         # Dnn / Data
         #----------------------------------------------------------------------
         "Src/Dnn/Data/DataLoader.ixx"
-
-        #---------------------------------------------------------------
-        # Dnn / Models
-        #---------------------------------------------------------------
-        #"Src/Dnn/Models/Model.ixx"
-        #"Src/Dnn/Models/Graph.ixx"
-        #"Src/Dnn/Models/ModelCallback.ixx"
-        
-        #"Src/Dnn/Models/Gpt2/Gpt2DatasetReader.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Serialization
@@ -347,10 +340,6 @@ PUBLIC
         "Src/Dnn/Serialization/ZipSerializer.ixx"
 
         #---------------------------------------------------------------
-
-        # WIP / Attributes ( Deprecated, to be removed )
-        #"Src/Dnn/Modules/Layers/LinearAttributes.ixx"
-        #"Src/Dnn/Common/Attributes.ixx"
         
         "Src/Dnn/Tensors/Operations/TensorOps.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps-Base.ixx"
@@ -367,7 +356,6 @@ PUBLIC
         "Src/Dnn/Optimizers/AdamWConfig.ixx"
         "Src/Dnn/Modules/Connections/ConnectionType.ixx"
         #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CublasLtAttention.ixx"
-
         )
 
 target_link_libraries(Mila PRIVATE 

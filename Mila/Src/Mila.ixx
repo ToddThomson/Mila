@@ -132,12 +132,11 @@ export import Compute.CpuTensorDataTypeTraits;
 // FUTURE: export import Compute.VulkanTensorTraits;
 
 // ====================================================================
-// Dnn - Base
+// Dnn - Core
 // ====================================================================
 export import Dnn.Module;
 export import Dnn.ConfigurationBase;
 export import Dnn.CompositeModule;
-//export import Dnn.Model;
 
 // ====================================================================
 // Dnn - Tensors
@@ -179,17 +178,12 @@ export import Dnn.Modules.SoftmaxCrossEntropy;
 // Dnn - Blocks
 // ====================================================================
 export import Dnn.Blocks.MLP;
-//export import Dnn.Blocks.TransformerBlock;
+export import Dnn.Blocks.Transformer;
 
 // ============================================================================
 // Dnn - Optimizers
 // ============================================================================
 export import Dnn.Optimizers.AdamW;
-
-// ====================================================================
-// Dnn - Models
-// ====================================================================
-//export import Dnn.Gpt2.DatasetReader;
 
 // ====================================================================
 // Dnn - Data

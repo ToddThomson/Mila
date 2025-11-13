@@ -10,6 +10,7 @@ module;
 #include <type_traits>
 #include <concepts>
 #include <span>
+#include <cstdint>
 
 export module Dnn.TensorInitializers;
 
@@ -42,7 +43,8 @@ namespace Mila::Dnn
          * @brief Generates host-native random values using appropriate distribution
          */
         template<TensorDataType TDataType>
-        auto generate_host_values( size_t count, host_value_t<TDataType> min_val, host_value_t<TDataType> max_val ) {
+        auto generate_host_values( size_t count, host_value_t<TDataType> min_val, host_value_t<TDataType> max_val )
+        {
             auto gen = Core::RandomGenerator::getInstance().getGenerator();
 
             if constexpr (TensorDataTypeTraits<TDataType>::is_integer_type)
@@ -54,7 +56,7 @@ namespace Mila::Dnn
                 {
                     values[i] = dis( gen );
                 }
-                
+
                 return values;
             }
             else
@@ -78,7 +80,8 @@ namespace Mila::Dnn
          */
         template<TensorDataType TDataType, typename TMemoryResource>
         void fill_uniform_distribution( Tensor<TDataType, TMemoryResource>& tensor,
-            host_value_t<TDataType> min_val, host_value_t<TDataType> max_val ) {
+            host_value_t<TDataType> min_val, host_value_t<TDataType> max_val )
+        {
 
             auto host_values = generate_host_values<TDataType>( tensor.size(), min_val, max_val );
 
@@ -95,7 +98,8 @@ namespace Mila::Dnn
          * Broadcasts a host scalar into the tensor using device-dispatched fill.
          */
         template<TensorDataType TDataType, typename TMemoryResource>
-        void fill_constant_from_host( Tensor<TDataType, TMemoryResource>& tensor, host_value_t<TDataType> host_value ) {
+        void fill_constant_from_host( Tensor<TDataType, TMemoryResource>& tensor, host_value_t<TDataType> host_value )
+        {
             fill( tensor, host_value );
         }
 
@@ -104,7 +108,8 @@ namespace Mila::Dnn
          */
         template<TensorDataType TDataType, typename TMemoryResource>
         void initialize_xavier( Tensor<TDataType, TMemoryResource>& tensor,
-            size_t input_size, size_t output_size ) {
+            size_t input_size, size_t output_size )
+        {
             // Handle edge cases
             if (input_size == 0 && output_size == 0)
             {
@@ -146,18 +151,22 @@ namespace Mila::Dnn
     // ====================================================================
 
     /**
-     * @brief Fills tensor with random values using host-native distributions
+     * @brief Fill a tensor with pseudorandom values.
      *
-     * Generates random values on host using standard distributions, then dispatches
-     * to appropriate backend for device transfer and quantization to target type.
+     * Generates pseudorandom values using the framework RNG and writes them into
+     * the provided tensor. Works with both host-backed and device-backed tensors.
+     * Initialization is reproducible when the framework RNG seed is controlled.
      *
-     * @param tensor Target tensor to initialize
+     * @tparam TDataType Abstract tensor data type
+     * @tparam TMemoryResource Memory resource (host or device)
+     * @param tensor Target tensor to initialize (pre-allocated)
      * @param min_val Minimum value (int32_t for integer tensors, float for floating tensors)
      * @param max_val Maximum value (int32_t for integer tensors, float for floating tensors)
      */
     export template<TensorDataType TDataType, typename TMemoryResource>
         requires isValidTensor<TDataType, TMemoryResource>
-    void random( Tensor<TDataType, TMemoryResource>& tensor, host_value_t<TDataType> min_val, host_value_t<TDataType> max_val ) {
+    void random( Tensor<TDataType, TMemoryResource>& tensor, host_value_t<TDataType> min_val, host_value_t<TDataType> max_val )
+    {
         if (min_val > max_val)
         {
             throw std::invalid_argument( "min_val must be <= max_val" );
@@ -167,30 +176,38 @@ namespace Mila::Dnn
     }
 
     /**
-     * @brief Xavier/Glorot uniform initialization with host-native calculations
+     * @brief Xavier / Glorot uniform initialization.
      *
-     * Computes initialization range on host, generates distribution values,
-     * then dispatches to backend for device transfer and quantization.
+     * Computes an appropriate uniform range from `input_size` and `output_size`,
+     * generates pseudorandom values and writes them into `tensor`. Works for both
+     * host- and device-backed tensors.
      *
-     * @param tensor Target tensor to initialize
+     * @tparam TDataType Abstract tensor data type
+     * @tparam TMemoryResource Memory resource (host or device)
+     * @param tensor Target tensor to initialize (pre-allocated)
      * @param input_size Number of input connections
      * @param output_size Number of output connections
      */
     export template<TensorDataType TDataType, typename TMemoryResource>
         requires isValidTensor<TDataType, TMemoryResource>
-    void xavier( Tensor<TDataType, TMemoryResource>& tensor, size_t input_size, size_t output_size ) {
+    void xavier( Tensor<TDataType, TMemoryResource>& tensor, size_t input_size, size_t output_size )
+    {
         Detail::initialize_xavier( tensor, input_size, output_size );
     }
 
     /**
-     * @brief Fills tensor with zeros using backend-optimized implementations
+     * @brief Fill tensor with zeros.
      *
-     * Dispatches to backend for efficient zero-fill operations, potentially
-     * using device-native memset operations for optimal performance.
+     * Writes zeros into `tensor`. Works for host- and device-backed tensors.
+     *
+     * @tparam TDataType Abstract tensor data type
+     * @tparam TMemoryResource Memory resource (host or device)
+     * @param tensor Target tensor to zero
      */
     export template<TensorDataType TDataType, typename TMemoryResource>
         requires isValidTensor<TDataType, TMemoryResource>
-    void zeros( Tensor<TDataType, TMemoryResource>& tensor ) {
+    void zeros( Tensor<TDataType, TMemoryResource>& tensor )
+    {
         if constexpr (TensorDataTypeTraits<TDataType>::is_integer_type)
         {
             Detail::fill_constant_from_host( tensor, static_cast<host_value_t<TDataType>>(0) );
@@ -202,14 +219,18 @@ namespace Mila::Dnn
     }
 
     /**
-     * @brief Fills tensor with ones using backend-optimized implementations
+     * @brief Fill tensor with ones.
      *
-     * Dispatches to backend for efficient constant-fill operations with
-     * appropriate quantization to target tensor data type.
+     * Writes ones into `tensor`. Works for host- and device-backed tensors.
+     *
+     * @tparam TDataType Abstract tensor data type
+     * @tparam TMemoryResource Memory resource (host or device)
+     * @param tensor Target tensor to fill with ones
      */
     export template<TensorDataType TDataType, typename TMemoryResource>
         requires isValidTensor<TDataType, TMemoryResource>
-    void ones( Tensor<TDataType, TMemoryResource>& tensor ) {
+    void ones( Tensor<TDataType, TMemoryResource>& tensor )
+    {
         if constexpr (TensorDataTypeTraits<TDataType>::is_integer_type)
         {
             Detail::fill_constant_from_host( tensor, static_cast<host_value_t<TDataType>>(1) );
@@ -228,9 +249,9 @@ namespace Mila::Dnn
      * @brief Random initialization with symmetric range for integer tensors
      */
     export template<TensorDataType TDataType, typename TMemoryResource>
-        requires isValidTensor<TDataType, TMemoryResource>&&
-    TensorDataTypeTraits<TDataType>::is_integer_type
-        void random( Tensor<TDataType, TMemoryResource>& tensor, int32_t magnitude ) {
+        requires isValidTensor<TDataType, TMemoryResource> && TensorDataTypeTraits<TDataType>::is_integer_type
+    void random( Tensor<TDataType, TMemoryResource>& tensor, int32_t magnitude )
+    {
         random( tensor, -magnitude, magnitude );
     }
 
@@ -239,7 +260,8 @@ namespace Mila::Dnn
      */
     export template<TensorDataType TDataType, typename TMemoryResource>
         requires isValidTensor<TDataType, TMemoryResource>&& TensorDataTypeTraits<TDataType>::is_float_type
-    void random( Tensor<TDataType, TMemoryResource>& tensor, float magnitude ) {
+    void random( Tensor<TDataType, TMemoryResource>& tensor, float magnitude )
+    {
         random( tensor, -magnitude, magnitude );
     }
 }

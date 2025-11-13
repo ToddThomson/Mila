@@ -39,13 +39,13 @@ namespace Mila::CharLM
      */
     export struct CharTransformerConfig
     {
-        int64_t vocab_size = 256;           // Number of unique characters (default: ASCII extended)
+        int64_t vocab_size = 256;          // Number of unique characters (default: ASCII extended)
         int64_t max_seq_length = 256;      // Maximum sequence length for positional encoding
         int64_t embedding_dim = 256;       // Dimension of token embeddings (d_model)
         int64_t num_heads = 4;             // Number of attention heads
         int64_t num_layers = 4;            // Number of transformer blocks
         int64_t mlp_hidden_dim = 1024;     // Hidden dimension in MLP (typically 4 * embedding_dim)
-        float dropout_prob = 0.1f;         // Dropout probability (if implemented)
+
         std::string name = "CharTransformer";
 
         void validate() const
@@ -501,7 +501,7 @@ namespace Mila::CharLM
         // TODO: Add positional encoding module
         // std::shared_ptr<PositionalEncodingType> positional_encoding_{ nullptr };
         // TODO: Add transformer blocks
-        // std::vector<std::shared_ptr<TransformerBlockType>> transformer_blocks_;
+        // std::vector<std::shared_ptr<TransformerType>> transformer_blocks_;
         std::shared_ptr<LayerNormType> final_layernorm_{ nullptr };
         std::shared_ptr<LinearType> lm_head_{ nullptr };
 

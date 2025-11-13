@@ -139,11 +139,13 @@ add_executable( MilaTests
     "Dnn/Modules/Blocks/MLP.Cuda.cpp"
     "Dnn/Modules/Blocks/MLPConfig.cpp"
 
-    #"Dnn/Modules/Blocks/TransformerBlock.cpp"
-
+    "Dnn/Modules/Blocks/Transformer.Cpu.cpp"
+    
+    # --------------------------------------------------------------
+    # Data Tests
+    # --------------------------------------------------------------
     "Dnn/Data/DataLoader.cpp"
-    #"Dnn/Models/Gpt2/DatasetReader.cpp"
-
+    
     # Cuda Operations...
     #"Dnn/Compute/Operations/Cuda/CudaMatMulBiasOpTests.cpp"
     #"Dnn/Compute/Operations/Cuda/CudaEncoderOpTests.cpp"
@@ -166,7 +168,7 @@ add_executable( MilaTests
     "Dnn/Modules/Losses/CrossEntropy.Cpu.cpp"
     "Dnn/Modules/Losses/SoftmaxCrossEntropy.Cuda.cpp"
     "Dnn/Modules/Losses/CrossEntropy.Config.cpp"
- "Dnn/Modules/Layers/Attention.Cuda.cpp" "Dnn/Modules/Layers/Attention.Config.cpp")
+ "Dnn/Modules/Layers/Attention.Cuda.cpp" "Dnn/Modules/Layers/Attention.Config.cpp" "Dnn/Modules/Blocks/Transformer.Cuda.cpp" "Dnn/Modules/Blocks/Transformer.Config.cpp")
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
 

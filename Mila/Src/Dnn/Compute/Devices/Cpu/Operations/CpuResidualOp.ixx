@@ -38,7 +38,6 @@ import Compute.ExecutionContext;
 import Compute.IExecutionContext;
 import Compute.CpuExecutionContext;
 import Compute.OperationType;
-import Compute.OperationAttributes;
 import Compute.OperationBase;
 import Compute.BinaryOperation;
 import Compute.OperationRegistry;
