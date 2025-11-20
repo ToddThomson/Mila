@@ -3,11 +3,7 @@
 Mila Deep Neural Network Library
 
 ## Prerelease Notice
-Mila, version 0.9.9XX-alpha is a preview release.
-
-Version 0.9.907-alpha contains API breaking changes but I need to safely commit now to move to a new git master and dev branch structure.
-Moving forward, new features and fixes will be committed to the `dev` branch. This branch will be guarenteed to build but may not be stable.
-The `master` branch will be reserved for stable releases only.
+Mila, version 0.9.908-alpha
 
 With the milestone of training the Mnist neural network model achieved, the library is now
 entering a phase of rapid development. While core functionalities such as linear layers,
