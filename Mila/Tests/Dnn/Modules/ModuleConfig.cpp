@@ -10,12 +10,27 @@ namespace Dnn::Modules::Tests
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
 
-    class TestConfigurationBase : public ConfigurationBase {
+    class TestModuleConfig : public ModuleConfig {
     public:
         // Test-only derived class; no additional behavior required.
+
+        void validate() const override {
+            // Basic validation: name must not be empty
+            if (getName().empty()) {
+                throw std::invalid_argument("ModuleConfig: name must not be empty");
+            }
+		}
+
+        std::string toString() const {
+            std::ostringstream oss;
+            oss << "ModuleConfig(name=" << getName()
+                << ", precision_policy=" << static_cast<int>(getPrecisionPolicy())
+                << ")";
+            return oss.str();
+		}
     };
 
-    class ConfigurationBaseTests : public ::testing::Test {
+    class ModuleConfigTests : public ::testing::Test {
     protected:
         void SetUp() override {
             cpu_device_name_ = "CPU";
@@ -30,24 +45,24 @@ namespace Dnn::Modules::Tests
         std::string test_module_name_;
     };
 
-    TEST_F( ConfigurationBaseTests, DefaultConstructor_ShouldSetDefaultValues ) {
-        TestConfigurationBase config;
+    TEST_F( ModuleConfigTests, DefaultConstructor_ShouldSetDefaultValues ) {
+        TestModuleConfig config;
 
-        // ConfigurationBase default values (see ConfigurationBase.ixx)
+        // ModuleConfig default values (see ModuleConfig.ixx)
         EXPECT_EQ( config.getName(), "unnamed" );
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Auto );
     }
 
-    TEST_F( ConfigurationBaseTests, WithName_ShouldSetName ) {
-        TestConfigurationBase config;
+    TEST_F( ModuleConfigTests, WithName_ShouldSetName ) {
+        TestModuleConfig config;
 
         config.withName( test_module_name_ );
 
         EXPECT_EQ( config.getName(), test_module_name_ );
     }
 
-    TEST_F( ConfigurationBaseTests, WithPrecision_ShouldSetComputePrecision ) {
-        TestConfigurationBase config;
+    TEST_F( ModuleConfigTests, WithPrecision_ShouldSetComputePrecision ) {
+        TestModuleConfig config;
 
         config.withPrecisionPolicy( ComputePrecision::Policy::Native );
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Native );
@@ -62,8 +77,8 @@ namespace Dnn::Modules::Tests
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Accuracy );
     }
 
-    TEST_F( ConfigurationBaseTests, MethodChaining_ShouldReturnCorrectValues ) {
-        TestConfigurationBase config;
+    TEST_F( ModuleConfigTests, MethodChaining_ShouldReturnCorrectValues ) {
+        TestModuleConfig config;
 
         config.withName( test_module_name_ )
             .withPrecisionPolicy( ComputePrecision::Policy::Performance );
@@ -72,15 +87,15 @@ namespace Dnn::Modules::Tests
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Performance );
     }
 
-    TEST_F( ConfigurationBaseTests, Validate_WithValidConfig_ShouldNotThrow ) {
-        TestConfigurationBase config;
+    TEST_F( ModuleConfigTests, Validate_WithValidConfig_ShouldNotThrow ) {
+        TestModuleConfig config;
         config.withName( test_module_name_ );
 
         EXPECT_NO_THROW( config.validate() );
     }
 
-    TEST_F( ConfigurationBaseTests, Validate_WithEmptyName_ShouldThrow ) {
-        TestConfigurationBase config;
+    TEST_F( ModuleConfigTests, Validate_WithEmptyName_ShouldThrow ) {
+        TestModuleConfig config;
         // Default name is "unnamed"; explicitly set empty to test validation failure
         config.withName( "" );
 
@@ -88,14 +103,15 @@ namespace Dnn::Modules::Tests
     }
 
     // Derived test configuration to exercise extension and custom validation
-    class DerivedConfigurationBase : public ConfigurationBase {
+    class DerivedModuleConfig : public ModuleConfig {
     public:
-        DerivedConfigurationBase& withCustomOption( int value ) {
+
+        DerivedModuleConfig& withCustomOption( int value ) {
             custom_option_ = value;
             return *this;
         }
 
-        DerivedConfigurationBase& withDeviceName( const std::string& device_name ) {
+        DerivedModuleConfig& withDeviceName( const std::string& device_name ) {
             device_name_ = device_name;
             return *this;
         }
@@ -105,7 +121,7 @@ namespace Dnn::Modules::Tests
 
         void validate() const override {
             // Enforce base validation first
-            ConfigurationBase::validate();
+            //ModuleConfig::validate();
 
             if (custom_option_ < 0)
             {
@@ -115,13 +131,23 @@ namespace Dnn::Modules::Tests
             // Additional validation for device_name_ could go here if desired
         }
 
+        std::string toString() const override {
+            std::ostringstream oss;
+            oss << "DerivedModuleConfig(name=" << getName()
+                << ", precision_policy=" << static_cast<int>(getPrecisionPolicy())
+                << ", device_name=" << device_name_
+                << ", custom_option=" << custom_option_
+                << ")";
+            return oss.str();
+		}
+
     private:
         int custom_option_ = 0;
         std::string device_name_;
     };
 
-    TEST_F( ConfigurationBaseTests, DeducedThis_ShouldAllowMethodChaining ) {
-        TestConfigurationBase config;
+    TEST_F( ModuleConfigTests, DeducedThis_ShouldAllowMethodChaining ) {
+        TestModuleConfig config;
 
         auto& ref1 = config.withName( test_module_name_ );
         auto& ref2 = ref1.withPrecisionPolicy( ComputePrecision::Policy::Accuracy );
@@ -133,8 +159,8 @@ namespace Dnn::Modules::Tests
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Accuracy );
     }
 
-    TEST_F( ConfigurationBaseTests, DerivedConfig_ShouldInheritAndExtendBaseConfig ) {
-        DerivedConfigurationBase config;
+    TEST_F( ModuleConfigTests, DerivedConfig_ShouldInheritAndExtendBaseConfig ) {
+        DerivedModuleConfig config;
 
         config.withName( test_module_name_ )
             .withDeviceName( cuda_device_name_ )
@@ -147,8 +173,8 @@ namespace Dnn::Modules::Tests
         EXPECT_EQ( config.getCustomOption(), 42 );
     }
 
-    TEST_F( ConfigurationBaseTests, DerivedConfig_Validate_ShouldEnforceCustomRules ) {
-        DerivedConfigurationBase config;
+    TEST_F( ModuleConfigTests, DerivedConfig_Validate_ShouldEnforceCustomRules ) {
+        DerivedModuleConfig config;
         config.withName( test_module_name_ )
             .withDeviceName( cuda_device_name_ )
             .withCustomOption( -1 );
@@ -159,8 +185,8 @@ namespace Dnn::Modules::Tests
         EXPECT_NO_THROW( config.validate() );
     }
 
-    TEST_F( ConfigurationBaseTests, DerivedConfig_Validate_ShouldEnforceBaseRules ) {
-        DerivedConfigurationBase config;
+    TEST_F( ModuleConfigTests, DerivedConfig_Validate_ShouldEnforceBaseRules ) {
+        DerivedModuleConfig config;
         config.withCustomOption( 42 )
             .withName( "" ); // Set name empty to trigger base validation
 

@@ -9,14 +9,17 @@ module;
 #include <string>
 #include <stdexcept>
 #include <sstream>
+#include <utility>
 
-export module Dnn.Optimizers.AdamW:Config;
+export module Dnn.Optimizers.AdamWConfig;
 
-import Dnn.ConfigurationBase;
+import Dnn.ModuleConfig;
+import nlohmann.json;
 
 namespace Mila::Dnn::Optimizers
 {
     using namespace Mila::Dnn;
+    using json = nlohmann::json;
 
     /**
      * @brief Configuration for AdamW optimizer.
@@ -43,147 +46,58 @@ namespace Mila::Dnn::Optimizers
      *     exec_context, config);
      * @endcode
      */
-    export class AdamWConfig : public ConfigurationBase
+    export class AdamWConfig : public ModuleConfig
     {
     public:
         /**
-         * @brief Default constructor with standard AdamW hyperparameters.
-         *
-         * Initializes with commonly used default values from the literature:
-         * - lr=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8, weight_decay=0.01
+         * @brief Default constructor.
          */
-        AdamWConfig()
-            : learning_rate_( 0.001f )
-            , beta1_( 0.9f )
-            , beta2_( 0.999f )
-            , epsilon_( 1e-8f )
-            , weight_decay_( 0.01f )
-        {
-        }
-
-        /**
-         * @brief Construct with explicit learning rate.
-         *
-         * @param learning_rate Initial learning rate (must be positive)
-         */
-        explicit AdamWConfig( float learning_rate )
-            : learning_rate_( learning_rate )
-            , beta1_( 0.9f )
-            , beta2_( 0.999f )
-            , epsilon_( 1e-8f )
-            , weight_decay_( 0.01f )
-        {
-        }
-
-        /**
-         * @brief Construct with full hyperparameter specification.
-         *
-         * @param learning_rate Initial learning rate
-         * @param beta1 First moment decay rate
-         * @param beta2 Second moment decay rate
-         * @param epsilon Numerical stability constant
-         * @param weight_decay Weight decay coefficient
-         */
-        AdamWConfig(
-            float learning_rate,
-            float beta1,
-            float beta2,
-            float epsilon,
-            float weight_decay )
-            : learning_rate_( learning_rate )
-            , beta1_( beta1 )
-            , beta2_( beta2 )
-            , epsilon_( epsilon )
-            , weight_decay_( weight_decay )
-        {
-        }
+        AdamWConfig() = default;
 
         // ====================================================================
-        // Fluent Setters (Builder Pattern)
+        // Fluent Setters
         // ====================================================================
 
-        /**
-         * @brief Set learning rate.
-         *
-         * @param learning_rate Learning rate (must be positive)
-         * @return Reference to this config for method chaining
-         */
-        AdamWConfig& withLearningRate( float learning_rate ) noexcept
+        template <typename Self>
+        decltype(auto) withLearningRate( this Self&& self, float learning_rate ) noexcept
         {
-            learning_rate_ = learning_rate;
-            return *this;
+            self.learning_rate_ = learning_rate;
+            return std::forward<Self>( self );
         }
 
-        /**
-         * @brief Set beta1 (first moment decay rate).
-         *
-         * Controls exponential decay of first moment estimates (momentum).
-         * Typical values: 0.9 (default), range (0, 1)
-         *
-         * @param beta1 First moment decay rate
-         * @return Reference to this config for method chaining
-         */
-        AdamWConfig& withBeta1( float beta1 ) noexcept
+        template <typename Self>
+        decltype(auto) withBeta1( this Self&& self, float beta1 ) noexcept
         {
-            beta1_ = beta1;
-            return *this;
+            self.beta1_ = beta1;
+            return std::forward<Self>( self );
         }
 
-        /**
-         * @brief Set beta2 (second moment decay rate).
-         *
-         * Controls exponential decay of second moment estimates (variance).
-         * Typical values: 0.999 (default), 0.99 for some tasks, range (0, 1)
-         *
-         * @param beta2 Second moment decay rate
-         * @return Reference to this config for method chaining
-         */
-        AdamWConfig& withBeta2( float beta2 ) noexcept
+        template <typename Self>
+        decltype(auto) withBeta2( this Self&& self, float beta2 ) noexcept
         {
-            beta2_ = beta2;
-            return *this;
+            self.beta2_ = beta2;
+            return std::forward<Self>( self );
         }
 
-        /**
-         * @brief Set epsilon (numerical stability constant).
-         *
-         * Small constant added to denominator for numerical stability.
-         * Typical values: 1e-8 (default), 1e-7 for some precisions
-         *
-         * @param epsilon Numerical stability constant
-         * @return Reference to this config for method chaining
-         */
-        AdamWConfig& withEpsilon( float epsilon ) noexcept
+        template <typename Self>
+        decltype(auto) withEpsilon( this Self&& self, float epsilon ) noexcept
         {
-            epsilon_ = epsilon;
-            return *this;
+            self.epsilon_ = epsilon;
+            return std::forward<Self>( self );
         }
 
-        /**
-         * @brief Set weight decay coefficient.
-         *
-         * Controls strength of L2 regularization in AdamW's decoupled weight decay.
-         * Typical values: 0.01 (default), 0.0 to disable, 0.001-0.1 for tuning
-         *
-         * @param weight_decay Weight decay coefficient (non-negative)
-         * @return Reference to this config for method chaining
-         */
-        AdamWConfig& withWeightDecay( float weight_decay ) noexcept
+        template <typename Self>
+        decltype(auto) withWeightDecay( this Self&& self, float weight_decay ) noexcept
         {
-            weight_decay_ = weight_decay;
-            return *this;
+            self.weight_decay_ = weight_decay;
+            return std::forward<Self>( self );
         }
 
-        /**
-         * @brief Set optimizer name for identification.
-         *
-         * @param name Optimizer name
-         * @return Reference to this config for method chaining
-         */
-        AdamWConfig& withName( const std::string& name ) noexcept
+        template <typename Self>
+        decltype(auto) withName( this Self&& self, std::string name ) noexcept
         {
-            name_ = name;
-            return *this;
+            self.name_ = std::move( name );
+            return std::forward<Self>( self );
         }
 
         // ====================================================================
@@ -256,6 +170,8 @@ namespace Mila::Dnn::Optimizers
          */
         void validate() const override
         {
+            //ModuleConfig::validate();
+
             if (learning_rate_ <= 0.0f)
             {
                 throw std::invalid_argument( "AdamWConfig: learning rate must be positive" );
@@ -286,12 +202,104 @@ namespace Mila::Dnn::Optimizers
             }
         }
 
+        // ====================================================================
+        // JSON Serialization (ModuleConfig interface)
+        // ====================================================================
+
+        /**
+         * @brief Serialize configuration to JSON.
+         *
+         * Keys:
+         * - "name" : string
+         * - "precision" : integer (underlying value of ComputePrecision::Policy)
+         * - "learning_rate" : float
+         * - "beta1" : float
+         * - "beta2" : float
+         * - "epsilon" : float
+         * - "weight_decay" : float
+         */
+        json toJson() const
+        {
+            json j;
+            j["name"] = name_;
+            j["precision"] = static_cast<int>( precision_ );
+            j["learning_rate"] = learning_rate_;
+            j["beta1"] = beta1_;
+            j["beta2"] = beta2_;
+            j["epsilon"] = epsilon_;
+            j["weight_decay"] = weight_decay_;
+
+            return j;
+        }
+
+        /**
+         * @brief Deserialize configuration from JSON.
+         *
+         * Missing keys leave fields at their current values. Type errors are
+         * propagated from nlohmann::json getters.
+         */
+        void fromJson( const json& j )
+        {
+            if ( j.contains( "name" ) )
+            {
+                name_ = j.at( "name" ).get<std::string>();
+            }
+
+            if ( j.contains( "precision" ) )
+            {
+                precision_ = static_cast<decltype(precision_)>( j.at( "precision" ).get<int>() );
+            }
+
+            if ( j.contains( "learning_rate" ) )
+            {
+                learning_rate_ = j.at( "learning_rate" ).get<float>();
+            }
+
+            if ( j.contains( "beta1" ) )
+            {
+                beta1_ = j.at( "beta1" ).get<float>();
+            }
+
+            if ( j.contains( "beta2" ) )
+            {
+                beta2_ = j.at( "beta2" ).get<float>();
+            }
+
+            if ( j.contains( "epsilon" ) )
+            {
+                epsilon_ = j.at( "epsilon" ).get<float>();
+            }
+
+            if ( j.contains( "weight_decay" ) )
+            {
+                weight_decay_ = j.at( "weight_decay" ).get<float>();
+            }
+        }
+
+        /**
+         * @brief Produce a short, human-readable summary of this configuration.
+         *
+         * Overrides ModuleConfig::toString() to include AdamW-specific fields.
+		 */
+        std::string toString() const override
+        {
+            std::ostringstream oss;
+            oss << "AdamWConfig(learning_rate=" << learning_rate_
+                << ", beta1=" << beta1_
+                << ", beta2=" << beta2_
+                << ", epsilon=" << epsilon_
+                << ", weight_decay=" << weight_decay_
+                << ", name=\"" << name_ << "\")";
+            return oss.str();
+		}
+
     private:
-        float learning_rate_;
-        float beta1_;
-        float beta2_;
-        float epsilon_;
-        float weight_decay_;
+
+        float learning_rate_{ 0.001f };
+        float beta1_{ 0.9f };
+        float beta2_{ 0.999f };
+        float epsilon_{ 1e-8f };
+        float weight_decay_{ 0.01f };
         std::string name_{ "AdamW" };
     };
 }

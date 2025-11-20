@@ -18,7 +18,7 @@ export module Compute.CpuCrossEntropyOp;
 
 import Dnn.Modules.CrossEntropy;
 import Dnn.Tensor;
-import Dnn.ConfigurationBase;
+import Dnn.ModuleConfig;
 import Compute.Precision;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
@@ -231,7 +231,7 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, int, float>(
                 opName,
-                []( std::shared_ptr<DeviceContext> context, const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, int, float>> {
+                []( std::shared_ptr<DeviceContext> context, const ModuleConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, int, float>> {
                     const auto& crossEntropyConfig = dynamic_cast<const CrossEntropyConfig&>( config );
                     return context ? std::make_shared<CpuCrossEntropyOp>( context, crossEntropyConfig )
                         : std::make_shared<CpuCrossEntropyOp>( crossEntropyConfig );

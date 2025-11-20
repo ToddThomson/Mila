@@ -10,15 +10,20 @@
 module;
 #include <stdexcept>
 #include <cstdint>
+#include <string>
+#include <utility>
 
 export module Dnn.Blocks.MLP:Config;
 
 import Dnn.TensorTypes;
-import Dnn.ConfigurationBase;
+import Dnn.ModuleConfig;
 import Dnn.ActivationType;
+import nlohmann.json;
 
 namespace Mila::Dnn
 {
+    using json = nlohmann::json;
+
     /**
      * @brief Configuration class for the Multi-Layer Perceptron (MLP) block.
      *
@@ -43,9 +48,9 @@ namespace Mila::Dnn
      * Note: Input shape is determined at build time from the actual input tensor,
      *       not specified in the configuration.
      *
-     * @see ConfigurationBase
+     * @see ModuleConfig
      */
-    export class MLPConfig : public ConfigurationBase
+    export class MLPConfig : public ModuleConfig
     {
     public:
         /**
@@ -76,27 +81,23 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Set the activation function type.
-         *
-         * @param activation Activation function to use between the two linear layers.
-         * @return Reference to this config for chaining.
+         * @brief Set the activation function type (C++23 fluent style).
          */
-        MLPConfig& withActivation( ActivationType activation )
+        template <typename Self>
+        decltype(auto) withActivation( this Self&& self, ActivationType activation )
         {
-            activation_type_ = activation;
-            return *this;
+            self.activation_type_ = activation;
+            return std::forward<Self>( self );
         }
 
         /**
-         * @brief Configure whether to use layer normalization after the first linear.
-         *
-         * @param use_layer_norm True to enable layer normalization, false to disable.
-         * @return Reference to this config for chaining.
+         * @brief Configure whether to use layer normalization after the first linear (C++23 fluent style).
          */
-        MLPConfig& withLayerNorm( bool use_layer_norm )
+        template <typename Self>
+        decltype(auto) withLayerNorm( this Self&& self, bool use_layer_norm )
         {
-            use_layer_norm_ = use_layer_norm;
-            return *this;
+            self.use_layer_norm_ = use_layer_norm;
+            return std::forward<Self>( self );
         }
 
         /**
@@ -156,7 +157,7 @@ namespace Mila::Dnn
          */
         void validate() const override
         {
-            ConfigurationBase::validate();
+            //ModuleConfig::validate();
 
             if (input_features_ <= 0)
             {
@@ -168,6 +169,88 @@ namespace Mila::Dnn
                 throw std::invalid_argument( "MLPConfig: Hidden size must be greater than zero" );
             }
         }
+
+        /**
+         * @brief Serialize this configuration to JSON (ModuleConfig interface).
+         *
+         * Keys:
+         * - "name" : string
+         * - "precision" : integer (underlying value of ComputePrecision::Policy)
+         * - "input_features" : integer
+         * - "hidden_size" : integer
+         * - "has_bias" : boolean
+         * - "activation" : integer (ActivationType)
+         * - "use_layer_norm" : boolean
+         */
+        /*json toJson() const override
+        {
+            json j;
+            j["name"] = name_;
+            j["precision"] = static_cast<int>( precision_ );
+            j["input_features"] = static_cast<int64_t>( input_features_ );
+            j["hidden_size"] = static_cast<int64_t>( hidden_size_ );
+            j["has_bias"] = has_bias_;
+            j["activation"] = static_cast<int>( activation_type_ );
+            j["use_layer_norm"] = use_layer_norm_;
+
+            return j;
+        }*/
+
+        /**
+         * @brief Deserialize configuration from JSON (ModuleConfig interface).
+         *
+         * Missing keys leave fields at their current values. Type errors are
+         * propagated from nlohmann::json getters.
+         */
+        /*void fromJson( const json& j ) override
+        {
+            if ( j.contains( "name" ) )
+            {
+                name_ = j.at( "name" ).get<std::string>();
+            }
+
+            if ( j.contains( "precision" ) )
+            {
+                precision_ = static_cast<decltype( precision_)>( j.at( "precision" ).get<int>() );
+            }
+
+            if ( j.contains( "input_features" ) )
+            {
+                input_features_ = static_cast<dim_t>( j.at( "input_features" ).get<int64_t>() );
+            }
+
+            if ( j.contains( "hidden_size" ) )
+            {
+                hidden_size_ = static_cast<dim_t>( j.at( "hidden_size" ).get<int64_t>() );
+            }
+
+            if ( j.contains( "has_bias" ) )
+            {
+                has_bias_ = j.at( "has_bias" ).get<bool>();
+            }
+
+            if ( j.contains( "activation" ) )
+            {
+                activation_type_ = static_cast<ActivationType>( j.at( "activation" ).get<int>() );
+            }
+
+            if ( j.contains( "use_layer_norm" ) )
+            {
+                use_layer_norm_ = j.at( "use_layer_norm" ).get<bool>();
+            }
+        }*/
+
+        std::string toString() const override
+        {
+            std::string repr = "MLPConfig(";
+            repr += "input_features=" + std::to_string( input_features_ ) + ", ";
+            repr += "hidden_size=" + std::to_string( hidden_size_ ) + ", ";
+            repr += "has_bias=" + std::string( has_bias_ ? "true" : "false" ) + ", ";
+            repr += "activation=" + std::to_string( static_cast<int>( activation_type_ ) ) + ", ";
+            repr += "use_layer_norm=" + std::string( use_layer_norm_ ? "true" : "false" );
+            repr += ")";
+            return repr;
+		}
 
     private:
         dim_t input_features_{ 0 };

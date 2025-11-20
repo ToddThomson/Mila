@@ -3,7 +3,7 @@
  * @brief Multi-Head Attention module (concatenated QKV input).
  *
  * Module delegates compute to a device-specific UnaryOperation implementation
- * that expects a concatenated QKV input tensor.
+ * that expects a concatenated QKV input.
  */
 
 module;
@@ -110,7 +110,7 @@ namespace Mila::Dnn
 
             validateConcatenatedQKVShape( input_shape );
 
-            operation_->setTraining( is_training_ );
+            operation_->setTraining( this->isTraining() );
 
             // No learnable parameters in base attention
             operation_->setParameters( nullptr, nullptr );
@@ -168,7 +168,7 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Attention module must be built before calling backward." );
             }
 
-            if (!is_training_)
+            if ( !this->isTraining() )
             {
                 throw std::runtime_error( "Attention module must be in training mode to call backward. Call setTraining(true) first." );
             }
@@ -183,15 +183,11 @@ namespace Mila::Dnn
         // Serialization
         // ====================================================================
 
-        void save( ModelArchive& archive ) const override
+        void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
             // No trainable parameters in base multi-head attention implementation
         }
 
-        void load( ModelArchive& archive ) override
-        {
-            // No trainable parameters in base multi-head attention implementation
-        }
 
         // ====================================================================
         // Parameters and Gradients
@@ -202,7 +198,7 @@ namespace Mila::Dnn
             return {};
         }
 
-        std::vector<ITensor*> getParameterGradients() const override
+        std::vector<ITensor*> getGradients() const override
         {
             return {};
         }
@@ -226,26 +222,6 @@ namespace Mila::Dnn
             context_->synchronize();
         }
 
-        void setTraining( bool is_training ) override
-        {
-            if (is_training_ == is_training)
-            {
-                return;
-            }
-
-            is_training_ = is_training;
-
-            if (operation_)
-            {
-                operation_->setTraining( is_training );
-            }
-        }
-
-        bool isTraining() const override
-        {
-            return is_training_;
-        }
-
         size_t parameterCount() const override
         {
             return 0;
@@ -267,7 +243,6 @@ namespace Mila::Dnn
 
             oss << "Parameter count: " << parameterCount() << std::endl;
 
-            // blank line before return per style
             return oss.str();
         }
 
@@ -290,11 +265,33 @@ namespace Mila::Dnn
             return config_;
         }
 
-    private:
+    protected:
 
+        /**
+         * @brief Hook invoked when training mode is about to change.
+         *
+         * Inform backend operation of the new training mode. When leaving
+         * training, explicitly unbind any parameter-gradient pointers on the
+         * backend to avoid accidental use or pinned memory.
+         *
+         * Called with Module's training mutex held; do not call setTraining() here.
+         */
+        void onTrainingChanging( bool is_training ) override
+        {
+            operation_->setTraining( is_training );
+
+            //if (!newMode && oldMode)
+            //{
+            //    // Attention has no parameter gradients currently, but ensure backend
+            //    // is unbound to avoid stale pointers if a backend retained them.
+            //    operation_->clearGradients();
+            //}
+        }
+
+    private:
         AttentionConfig config_;
-        bool is_training_{ false };
         bool is_built_{ false };
+        shape_t input_shape_;
 
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
         std::shared_ptr<ExecutionContextType> context_;
@@ -388,9 +385,7 @@ namespace Mila::Dnn
 
             if (!operation_)
             {
-                throw std::runtime_error(
-                    "Failed to create Attention compute backend operation. "
-                    "Ensure CPU/CUDA operation is registered in OperationRegistry." );
+                throw std::runtime_error( "Failed to create Attention Module for (TDeviceType) compute backend operation." );
             }
         }
     };

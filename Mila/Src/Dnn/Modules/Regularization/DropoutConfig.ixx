@@ -3,7 +3,7 @@
  * @brief Configuration interface for the Dropout regularization module in the Mila DNN framework.
  *
  * Defines the DropoutConfig class, providing a type-safe fluent interface for configuring
- * Dropout regularization modules. Inherits from ConfigurationBase CRTP base and adds Dropout-specific
+ * Dropout regularization modules. Inherits from ModuleConfig CRTP base and adds Dropout-specific
  * options: dropout probability and training mode behavior.
  *
  * Exposed as part of the Dropout module via module partitions.
@@ -15,7 +15,7 @@ module;
 export module Dnn.Modules.Dropout:Config;
 
 import Dnn.Module;
-import Dnn.ConfigurationBase;
+import Dnn.ModuleConfig;
 
 namespace Mila::Dnn
 {
@@ -24,7 +24,7 @@ namespace Mila::Dnn
      *
      * Provides a type-safe fluent interface for configuring Dropout modules.
      */
-    export class DropoutConfig : public ConfigurationBase {
+    export class DropoutConfig : public ModuleConfig {
     public:
         /**
          * @brief Default constructor.
@@ -102,7 +102,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If validation fails
          */
         void validate() const {
-            ConfigurationBase::validate();
+            //ModuleConfig::validate();
 
             if ( probability_ < 0.0f || probability_ >= 1.0f ) {
                 throw std::invalid_argument( "Dropout probability must be in range [0, 1)" );

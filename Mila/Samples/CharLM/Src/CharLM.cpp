@@ -62,7 +62,7 @@ void printUsage()
 {
     std::cout << "Usage: charlm [options]\n";
     std::cout << "Options:\n";
-    std::cout << "  --data-file <path>      Path to text data file (default: ./Data/DataSets/TinyShakespeare/input.txt)\n";
+    std::cout << "  --data-file <path>      Path to token, vocab files (default: ./Data/DataSets/TinyShakespeare/input.txt )\n";
     std::cout << "  --batch-size <int>      Batch size (default: 32)\n";
     std::cout << "  --seq-length <int>      Sequence length (default: 128)\n";
     std::cout << "  --epochs <int>          Number of epochs (default: 10)\n";
@@ -182,7 +182,7 @@ bool parseCommandLine( int argc, char** argv, CharLMConfig& config )
     }
 
     std::cout << "Configuration:" << std::endl;
-    std::cout << "  Data file: " << config.data_file << std::endl;
+    std::cout << "  Data File: " << config.data_file<< std::endl;
     std::cout << "  Batch size: " << config.batch_size << std::endl;
     std::cout << "  Sequence length: " << config.seq_length << std::endl;
     std::cout << "  Epochs: " << config.epochs << std::endl;
@@ -213,7 +213,7 @@ bool parseCommandLine( int argc, char** argv, CharLMConfig& config )
 
     if (!fs::exists( config.data_file ))
     {
-        std::cerr << "Data file not found: " << config.data_file << std::endl;
+        std::cerr << "Data file not found: " << config.data_file<< std::endl;
         std::cerr << "Please provide a text file for character-level language modeling." << std::endl;
         return false;
     }
@@ -364,7 +364,7 @@ void train( const CharLMConfig& config )
     // ============================================================
 
     CharTransformerConfig model_config;
-    model_config.vocab_size = actual_vocab_size;  // Use actual vocab from data
+    model_config.vocab_size = actual_vocab_size;
     model_config.max_seq_length = config.seq_length;
     model_config.embedding_dim = config.embedding_dim;
     model_config.num_heads = config.num_heads;
@@ -400,16 +400,20 @@ void train( const CharLMConfig& config )
     adamw_config.validate();
 
     auto optimizer = std::make_shared<AdamWOptimizer<TDeviceType, TDataType>>(
-        exec_context,
-        config.learning_rate,
-        config.beta1,
-        config.beta2,
-        config.epsilon,
-        config.weight_decay );
+        exec_context, adamw_config );
+        //config.learning_rate,
+        //config.beta1,
+        //config.beta2,
+        //config.epsilon,
+        //config.weight_decay );
 
     // Register all model parameters with the optimizer
     auto params = model->getParameters();
-    auto param_grads = model->getParameterGradients();
+    auto param_grads = model->getGradients();
+
+    // Debug
+	auto param_count = params.size();
+	auto grad_count = param_grads.size();
 
     if (params.size() != param_grads.size())
     {
@@ -465,11 +469,9 @@ void train( const CharLMConfig& config )
         {
             train_loader.nextBatch();
 
-            // Copy batch data from loader to device
             copy( train_loader.inputs(), input_batch );
             copy( train_loader.targets(), target_batch );
 
-            // Forward pass
             model->forward( input_batch, output );
             exec_context->synchronize();
 

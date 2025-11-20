@@ -102,11 +102,20 @@ namespace Mila::Dnn
         void build( const shape_t& input_shape ) override
         {
             if (built_)
+            {
                 return;
+            }
 
             validateInputShape( input_shape );
 
+            // Ensure backend is aware of current training mode before build.
+            if (operation_)
+            {
+                operation_->setTraining( this->isTraining() );
+            }
+
             operation_->setParameters( nullptr, nullptr );
+
             operation_->build( input_shape );
 
             built_ = true;
@@ -146,6 +155,11 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Softmax module must be built before calling backward." );
             }
 
+            if (!this->isTraining())
+            {
+                throw std::runtime_error( "Softmax module must be in training mode to call backward. Call setTraining(true) first." );
+            }
+
             operation_->backward( input, output_grad, input_grad );
         }
 
@@ -153,15 +167,17 @@ namespace Mila::Dnn
         // Serialization
         // ====================================================================
 
-        void save( ModelArchive& archive ) const override
+        void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
             // No-op: stateless activation
+            (void)archive;
         }
 
-        void load( ModelArchive& archive ) override
-        {
-            // No-op: stateless activation
-        }
+        //void load( ModelArchive& archive, SerializationMode mode ) override
+        //{
+        //    // No-op: stateless activation
+        //    (void)archive;
+        //}
 
         // ====================================================================
         // Module interface
@@ -182,16 +198,6 @@ namespace Mila::Dnn
             exec_context_->synchronize();
         }
 
-        void setTraining( bool is_training ) override
-        {
-            training_mode_ = is_training;
-        }
-
-        bool isTraining() const override
-        {
-            return training_mode_;
-        }
-
         size_t parameterCount() const override
         {
             return 0;
@@ -200,12 +206,12 @@ namespace Mila::Dnn
         std::vector<ITensor*> getParameters() const override
         {
             return {};
-		}
-        
-        std::vector<ITensor*> getParameterGradients() const override
+        }
+
+        std::vector<ITensor*> getGradients() const override
         {
             return {};
-		}
+        }
 
         std::string toString() const override
         {
@@ -243,9 +249,21 @@ namespace Mila::Dnn
             return config_;
         }
 
+    protected:
+        /**
+         * @brief Hook invoked when training mode is about to change.
+         *
+         * Stateless Softmax simply informs the backend operation of the new
+         * training mode. Called with Module's training mutex held; do not call
+         * setTraining() here.
+         */
+        void onTrainingChanging( bool is_training ) override
+        {
+            operation_->setTraining( is_training );
+        }
+
     private:
         SoftmaxConfig config_;
-        bool training_mode_{ false };
         bool built_{ false };
 
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
@@ -278,7 +296,9 @@ namespace Mila::Dnn
             const int64_t ndim = static_cast<int64_t>(input_shape.size());
 
             if (axis < 0)
+            {
                 axis = ndim + axis;
+            }
 
             if (axis < 0 || axis >= ndim)
             {
@@ -308,9 +328,9 @@ namespace Mila::Dnn
     };
 
     // Convenience aliases for common usages
-    export template<TensorDataType TPrecision>
+    /*export template<TensorDataType TPrecision>
         using CpuSoftmax = Softmax<DeviceType::Cpu, TPrecision>;
 
     export template<TensorDataType TPrecision>
-        using CudaSoftmax = Softmax<DeviceType::Cuda, TPrecision>;
+        using CudaSoftmax = Softmax<DeviceType::Cuda, TPrecision>; */
 }

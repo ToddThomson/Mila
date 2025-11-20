@@ -101,8 +101,7 @@ namespace Mila::Dnn::Compute
             if (error != cudaSuccess)
             {
                 throw std::runtime_error(
-                    "CUDA stream synchronization failed: " +
-                    std::string( cudaGetErrorString( error ) )
+                    "CUDA stream synchronization failed: " + std::string( cudaGetErrorString( error ) )
                 );
             }
         }

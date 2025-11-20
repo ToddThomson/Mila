@@ -25,7 +25,7 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorHostTypeMap;
-import Dnn.ConfigurationBase;
+import Dnn.ModuleConfig;
 import Compute.Precision;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
@@ -202,7 +202,7 @@ namespace Mila::Dnn::Compute
          * The operation caches native device gradient pointers for hot-path write access
          * during backward(). Both wte_grad and wpe_grad are required.
          */
-        void setParameterGradients( ITensor* wte_grad, ITensor* wpe_grad ) override
+        void setGradients( ITensor* wte_grad, ITensor* wpe_grad ) override
         {
             if (!wte_grad || !wpe_grad)
             {
@@ -403,7 +403,7 @@ namespace Mila::Dnn::Compute
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::INT32, TensorDataType::FP32>(
                 opName,
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                    const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::INT32, TensorDataType::FP32>>
+                    const ModuleConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::INT32, TensorDataType::FP32>>
                 {
                     const auto& encoder_config = dynamic_cast<const EncoderConfig&>(config);
                     return std::make_shared<CudaEncoderOp<TensorDataType::INT32, TensorDataType::FP32>>( context, encoder_config );
@@ -413,7 +413,7 @@ namespace Mila::Dnn::Compute
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::INT32, TensorDataType::FP16>(
                 opName,
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                    const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::INT32, TensorDataType::FP16>>
+                    const ModuleConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::INT32, TensorDataType::FP16>>
                 {
                     const auto& encoder_config = dynamic_cast<const EncoderConfig&>(config);
                     return std::make_shared<CudaEncoderOp<TensorDataType::INT32, TensorDataType::FP16>>( context, encoder_config );

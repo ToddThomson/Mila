@@ -2,8 +2,7 @@
  * @file LayerNorm.ixx
  * @brief Device-templated Layer Normalization module.
  *
- * Delegates compute to a UnaryOperation backend. Module owns weight/bias
- * parameters and exposes them to callers (optimizers, serializers).
+ * Delegates compute to a UnaryOperation backend and owns weight/bias parameters.
  */
 
 module;
@@ -27,7 +26,6 @@ import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
-import Dnn.TensorHostTypeMap;
 import Dnn.TensorPartitioning;
 import Compute.Precision;
 import Compute.ComputeDevice;
@@ -45,19 +43,6 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Serialization;
 
-    /**
-     * @brief Layer Normalization module (device-templated).
-     *
-     * Delegates computation to a device-specific UnaryOperation implementation
-     * registered in the OperationRegistry.
-     *
-     * Module owns trainable parameters (weight, optional bias) and exposes them
-     * via accessors. Runtime scratch/state (mean/rstd) is allocated by the
-     * backend operation during build/forward.
-     *
-     * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda)
-     * @tparam TPrecision Abstract tensor precision (TensorDataType)
-     */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
     class LayerNorm : public Module<TDeviceType>
@@ -66,16 +51,7 @@ namespace Mila::Dnn
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
         using ExecutionContextType = ExecutionContext<TDeviceType>;
         using TensorType = Tensor<TPrecision, MR>;
-        using Parameters = std::vector<std::shared_ptr<TensorType>>;
-        using OutputState = std::vector<std::shared_ptr<TensorType>>;
-        using HostType = typename TensorHostTypeMap<TPrecision>::host_type;
 
-        /**
-         * Construct with an existing execution context.
-         *
-         * @param exec_context Shared execution context for device resources.
-         * @param config LayerNorm configuration.
-         */
         explicit LayerNorm( std::shared_ptr<ExecutionContextType> exec_context, const LayerNormConfig& config )
             : exec_context_( exec_context ), config_( config )
         {
@@ -86,7 +62,6 @@ namespace Mila::Dnn
 
             config_.validate();
 
-            // REVIEW: init in build or eagerly create parameter tensors if normalized_shape is configured
             if (config_.hasNormalizedShape())
             {
                 initializeParameters();
@@ -97,29 +72,19 @@ namespace Mila::Dnn
 
         ~LayerNorm() override = default;
 
-        // ====================================================================
-        // Lifecycle
-        // ====================================================================
-
         bool isBuilt() const override
         {
             return (operation_ != nullptr) && (weight_ != nullptr) &&  (!config_.hasBias() || (bias_ != nullptr)) &&
                 built_;
         }
 
-        /**
-         * @brief Build the module using an input shape.
-         *
-         * Ensures parameters are allocated when they require the input shape
-         * (for example when an axis is specified). Binds parameters to the
-         * backend operation via setParameters and calls the operation build.
-         */
         void build( const shape_t& input_shape ) override
         {
             if (built_)
-                return;
+            {
+                throw std::runtime_error( "LayerNorm::build: module already built" );
+            }
 
-            // Validate shape compatibility with configured normalized_shape
             validateInputShape( input_shape );
 
             if ( !config_.hasNormalizedShape() )
@@ -127,16 +92,20 @@ namespace Mila::Dnn
                 allocateParametersForShape( input_shape );
             }
 
-            // Allow backend to build device-specific buffers and cache parameter views
+            // Bind forward parameters to operation
             operation_->setParameters( weight_.get(), bias_.get() );
+
+            // If module is already in training mode, allocate and bind gradients now.
+            if (this->isTraining())
+            {
+                initializeParameterGradients();
+                operation_->setGradients( weight_grad_.get(), bias_grad_.get() );
+            }
+
             operation_->build( input_shape );
 
             built_ = true;
         }
-
-        // ====================================================================
-        // Compute operation dispatch
-        // ====================================================================
 
         void forward( const ITensor& input, ITensor& output )
         {
@@ -145,7 +114,6 @@ namespace Mila::Dnn
                 throw std::runtime_error( "LayerNorm module must be built before calling forward." );
             }
 
-            // Validate incoming shape against configured normalized_shape (if present)
             validateInputShape( input );
 
             operation_->forward( input, output );
@@ -153,31 +121,28 @@ namespace Mila::Dnn
 
         void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
         {
-            // Backward not implemented yet.
-        }
-
-        // ====================================================================
-        // Serialization
-        // ====================================================================
-
-        void save( ModelArchive& archive ) const override
-        {
-            // Persist parameters if present
-            if (weight_)
+            if (!isBuilt())
             {
-                //archive.saveTensor( this->getName() + ".weight", *weight_ );
+                throw std::runtime_error( "LayerNorm module must be built before calling backward." );
             }
 
-            if (config_.hasBias() && bias_)
+            if (!this->isTraining())
             {
-                //archive.saveTensor( this->getName() + ".bias", *bias_ );
+                throw std::runtime_error( "LayerNorm must be in training mode to call backward." );
             }
+
+            operation_->backward( input, output_grad, input_grad );
         }
 
-        void load( ModelArchive& archive ) override
+        void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
-            
+            (void)archive;
         }
+
+        /*void load( ModelArchive& archive, SerializationMode mode ) override
+        {
+            (void)archive;
+        }*/
 
         std::string getName() const override
         {
@@ -194,63 +159,36 @@ namespace Mila::Dnn
             exec_context_->synchronize();
         }
 
-        void setTraining( bool is_training ) override
-        {
-            training_mode_ = is_training;
-        }
-
-        bool isTraining() const override
-        {
-            return training_mode_;
-        }
-
-        // ====================================================================
-        // Parameter accessors
-        // ====================================================================
-
-        /**
-         * @brief Return shared ownership of the weight tensor.
-         *
-         * Returns nullptr if weight is not yet initialized.
-         */
-        std::shared_ptr<TensorType> getWeight() const noexcept
-        {
-            return weight_;
-        }
-
-        /**
-         * @brief Return shared ownership of the bias tensor.
-         *
-         * Returns nullptr when the module is configured without bias or bias not initialized.
-         */
-        std::shared_ptr<TensorType> getBias() const noexcept
-        {
-            return bias_;
-        }
-
-        /**
-         * @brief Return parameters in canonical order (weight, then bias if present).
-         *
-         * Useful for optimizers and parameter iteration helpers.
-         */
         std::vector<ITensor*> getParameters() const override
         {
             std::vector<ITensor*> params;
-            
+
             if (weight_)
                 params.push_back( weight_.get() );
-            
+
             if (bias_)
                 params.push_back( bias_.get() );
-            
-            return params;
-		}
 
-        std::vector<ITensor*> getParameterGradients() const override
+            return params;
+        }
+
+        std::vector<ITensor*> getGradients() const override
         {
-            // TODO: Backward not implemented yet.
-            return {};
-		}
+            if (!this->isTraining())
+            {
+                throw std::runtime_error( "LayerNorm: getGradients called when not in training mode" );
+            }
+
+            std::vector<ITensor*> grads;
+
+            if (weight_grad_)
+                grads.push_back( weight_grad_.get() );
+
+            if (bias_grad_)
+                grads.push_back( bias_grad_.get() );
+
+            return grads;
+        }
 
         size_t parameterCount() const override
         {
@@ -278,10 +216,50 @@ namespace Mila::Dnn
             return oss.str();
         }
 
+    protected:
+
+        /**
+         * @brief Called when module training mode is about to change.
+         *
+         * Default LayerNorm behavior:
+         *  - inform backend operation of the new training mode
+         *  - when entering training (newMode && !oldMode) and already built:
+         *      allocate parameter gradient buffers and bind them to the backend
+         *  - when leaving training (!newMode && oldMode):
+         *      unbind backend gradient pointers and free buffers
+         *
+         * This hook runs with Module's training mutex held; it MUST NOT call setTraining().
+         */
+        void onTrainingChanging( bool is_training ) override
+        {
+            if (!operation_)
+            {
+                return;
+            }
+
+            operation_->setTraining( is_training );
+
+            if (is_training)
+            {
+                // Entering training: if already built, ensure gradients allocated and bound
+                if (built_)
+                {
+                    initializeParameterGradients();
+                    operation_->setGradients( weight_grad_.get(), config_.hasBias() ? bias_grad_.get() : nullptr );
+                }
+            }
+            else
+            {
+                // Leaving training: unbind and free gradients
+                operation_->clearGradients();
+
+                weight_grad_.reset();
+                bias_grad_.reset();
+            }
+        }
+
     private:
         LayerNormConfig config_;
-        bool training_mode_{ false };
-
         bool built_{ false };
 
         std::vector<int64_t> outer_shape_;
@@ -289,10 +267,13 @@ namespace Mila::Dnn
         std::shared_ptr<TensorType> weight_{ nullptr };
         std::shared_ptr<TensorType> bias_{ nullptr };
 
+        // Gradients for parameters (allocated when in training mode)
+        std::shared_ptr<TensorType> weight_grad_{ nullptr };
+        std::shared_ptr<TensorType> bias_grad_{ nullptr };
+
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
         std::shared_ptr<ExecutionContextType> exec_context_;
 
-        // Validate input shape against configured normalized_shape using an ITensor.
         void validateInputShape( const ITensor& input ) const
         {
             const auto& norm_shape = config_.getNormalizedShape();
@@ -303,7 +284,6 @@ namespace Mila::Dnn
                 throw std::invalid_argument( "Input rank must be >= normalized_shape rank" );
             }
 
-            // Check trailing dimensions match normalized_shape
             size_t offset = input_shape.size() - norm_shape.size();
 
             for (size_t i = 0; i < norm_shape.size(); ++i)
@@ -315,7 +295,6 @@ namespace Mila::Dnn
             }
         }
 
-        // Validate input shape against configured normalized_shape using a shape_t.
         void validateInputShape( const shape_t& input_shape ) const
         {
             const auto& norm_shape = config_.getNormalizedShape();
@@ -325,7 +304,6 @@ namespace Mila::Dnn
                 throw std::invalid_argument( "Input rank must be >= normalized_shape rank" );
             }
 
-            // Check trailing dimensions match normalized_shape
             size_t offset = input_shape.size() - norm_shape.size();
 
             for (size_t i = 0; i < norm_shape.size(); ++i)
@@ -337,7 +315,6 @@ namespace Mila::Dnn
             }
         }
 
-        // Allocate weight/bias given an input shape (used in build when channels unknown at ctor).
         void allocateParametersForShape( const shape_t& input_shape )
         {
             int64_t channels = 1;
@@ -386,10 +363,8 @@ namespace Mila::Dnn
             }
         }
 
-        // Eager initialization when normalized_shape is available at construction time.
         void initializeParameters()
         {
-            // If axis specified, we cannot eagerly determine channels here.
             if (config_.getAxis().has_value())
             {
                 return;
@@ -413,6 +388,25 @@ namespace Mila::Dnn
             {
                 bias_ = std::make_shared<TensorType>( device, shape_t{ channels } );
                 bias_->setName( this->getName() + ".bias" );
+            }
+        }
+
+        void initializeParameterGradients()
+        {
+            auto device = exec_context_->getDevice();
+
+            if (!weight_grad_ && weight_)
+            {
+                weight_grad_ = std::make_shared<TensorType>( device, weight_->shape() );
+                weight_grad_->setName( this->getName() + ".weight.grad" );
+                zeros( *weight_grad_ );
+            }
+
+            if (config_.hasBias() && !bias_grad_ && bias_)
+            {
+                bias_grad_ = std::make_shared<TensorType>( device, bias_->shape() );
+                bias_grad_->setName( this->getName() + ".bias.grad" );
+                zeros( *bias_grad_ );
             }
         }
 

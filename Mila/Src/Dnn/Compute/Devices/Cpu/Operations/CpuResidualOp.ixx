@@ -32,7 +32,7 @@ import Dnn.Modules.Residual;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
-import Dnn.ConfigurationBase;
+import Dnn.ModuleConfig;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
@@ -166,7 +166,7 @@ namespace Mila::Dnn::Compute
         {
             OperationRegistry::instance().registerBinaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32, TensorDataType::FP32>(
                 "ResidualOp",
-                []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context, const ConfigurationBase& config )
+                []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context, const ModuleConfig& config )
                 -> std::shared_ptr<BinaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
                 {
                     const auto& residualConfig = static_cast<const ResidualConfig&>(config);

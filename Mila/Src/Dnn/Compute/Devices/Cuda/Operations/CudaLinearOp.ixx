@@ -26,7 +26,7 @@ import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
-import Dnn.ConfigurationBase;
+import Dnn.ModuleConfig;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.Precision;
@@ -751,7 +751,7 @@ namespace Mila::Dnn::Compute
             }
         }
 
-        void setParameterGradients( ITensor* weight_grad, ITensor* bias_grad ) override
+        void setGradients( ITensor* weight_grad, ITensor* bias_grad ) override
         {
             if (!weight_grad)
             {
@@ -897,6 +897,11 @@ namespace Mila::Dnn::Compute
             // Bias gradient is optional (only required if bias exists)
             assert( (!config_.hasBias() || bias_grad_ != nullptr) &&
                 "Bias gradient pointer must be set when bias is enabled" );
+
+            if ( !this->isTraining() )
+            {
+                throw std::runtime_error( "CudaLinearOp::backward called in inference mode" );
+			}
 
             const NativeType* input_ptr = static_cast<const NativeType*>(input.rawData());
             const NativeType* output_grad_ptr = static_cast<const NativeType*>(output_grad.rawData());
@@ -1142,7 +1147,7 @@ namespace Mila::Dnn::Compute
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32>(
                 opName,
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                    const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
+                    const ModuleConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
                 {
                     const auto& linearConfig = static_cast<const LinearConfig&>(config);
                     return std::make_shared<CudaLinearOp<TensorDataType::FP32>>( context, linearConfig );
@@ -1152,7 +1157,7 @@ namespace Mila::Dnn::Compute
             /*OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP16>(
                 opName,
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                    const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
+                    const ModuleConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
                 {
                     const auto& linearConfig = static_cast<const LinearConfig&>(config);
                     return std::make_shared<CudaLinearOp<TensorDataType::FP16>>( context, linearConfig );
@@ -1162,7 +1167,7 @@ namespace Mila::Dnn::Compute
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::BF16>(
                 opName,
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                    const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::BF16>>
+                    const ModuleConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::BF16>>
                 {
                     const auto& linearConfig = static_cast<const LinearConfig&>(config);
                     return std::make_shared<CudaLinearOp<TensorDataType::BF16>>( context, linearConfig );

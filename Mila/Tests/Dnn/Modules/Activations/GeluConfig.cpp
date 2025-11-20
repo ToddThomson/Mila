@@ -23,7 +23,7 @@ namespace Modules::Activations::Tests
 
     TEST_F( GeluConfigTests, SetApproximationMethod_Tanh ) {
         GeluConfig config;
-        auto& result = config.withApproximationMethod( GeluConfig::ApproximationMethod::Tanh );
+        auto&& result = config.withApproximationMethod( GeluConfig::ApproximationMethod::Tanh );
 
         EXPECT_EQ( config.getApproximationMethod(), GeluConfig::ApproximationMethod::Tanh );
         EXPECT_EQ( &result, &config );
@@ -43,7 +43,7 @@ namespace Modules::Activations::Tests
 
     TEST_F( GeluConfigTests, FluentInterfaceChaining ) {
         GeluConfig config;
-        auto& result = config.withApproximationMethod( GeluConfig::ApproximationMethod::Exact );
+        auto&& result = config.withApproximationMethod( GeluConfig::ApproximationMethod::Exact );
 
         EXPECT_EQ( &result, &config );
         EXPECT_EQ( config.getApproximationMethod(), GeluConfig::ApproximationMethod::Exact );
@@ -108,7 +108,7 @@ namespace Modules::Activations::Tests
 
     TEST_F( GeluConfigTests, MethodChaining ) {
         GeluConfig config;
-        auto& result = config.withApproximationMethod( GeluConfig::ApproximationMethod::Tanh );
+        auto&& result = config.withApproximationMethod( GeluConfig::ApproximationMethod::Tanh );
 
         EXPECT_EQ( &result, &config );
         EXPECT_EQ( config.getApproximationMethod(), GeluConfig::ApproximationMethod::Tanh );
@@ -139,5 +139,29 @@ namespace Modules::Activations::Tests
 
         config.withApproximationMethod( GeluConfig::ApproximationMethod::Tanh );
         EXPECT_NO_THROW( config.validate() );
+    }
+
+    TEST_F( GeluConfigTests, RvalueFluentChainingAndName ) {
+        // Ensure fluent API works on temporaries and preserves chaining
+        auto cfg = GeluConfig()
+            .withApproximationMethod( GeluConfig::ApproximationMethod::Exact )
+            .withName( "gelu_temp" );
+
+        EXPECT_EQ( cfg.getApproximationMethod(), GeluConfig::ApproximationMethod::Exact );
+        EXPECT_EQ( cfg.getName(), "gelu_temp" );
+    }
+
+    TEST_F( GeluConfigTests, JsonSerializationRoundTrip ) {
+        GeluConfig config;
+        config.withApproximationMethod( GeluConfig::ApproximationMethod::Sigmoid )
+              .withName( "gelu_json" );
+
+        auto j = config.toJson();
+
+        GeluConfig loaded;
+        loaded.fromJson( j );
+
+        EXPECT_EQ( loaded.getApproximationMethod(), GeluConfig::ApproximationMethod::Sigmoid );
+        EXPECT_EQ( loaded.getName(), "gelu_json" );
     }
 }

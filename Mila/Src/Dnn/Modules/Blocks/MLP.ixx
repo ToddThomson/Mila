@@ -80,8 +80,8 @@ namespace Mila::Dnn
          * @param exec_context Shared execution context for device resources.
          * @param config MLP configuration.
          */
-        explicit MLP( std::shared_ptr<ExecutionContextType> exec_context, const MLPConfig& config )
-            : exec_context_( exec_context ), config_( config )
+        explicit MLP( std::shared_ptr<ExecutionContextType> context, const MLPConfig& config )
+            : exec_context_( context ), config_( config )
         {
             if (!exec_context_)
             {
@@ -227,31 +227,31 @@ namespace Mila::Dnn
         // Serialization
         // ====================================================================
 
-        void save( ModelArchive& archive ) const override
+        void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
-            fc1_->save( archive );
+            fc1_->save_( archive, mode );
             
             if (norm_)
             {
-                norm_->save( archive );
+                norm_->save_( archive, mode );
             }
             
-            activation_->save( archive );
-            fc2_->save( archive );
+            activation_->save_( archive, mode );
+            fc2_->save_( archive, mode );
         }
 
-        void load( ModelArchive& archive ) override
+        /*void load( ModelArchive& archive, SerializationMode mode ) override
         {
-            fc1_->load( archive );
+            fc1_->load( archive, mode );
             
             if (norm_)
             {
-                norm_->load( archive );
+                norm_->load( archive, mode );
             }
             
-            activation_->load( archive );
-            fc2_->load( archive );
-        }
+            activation_->load( archive, mode );
+            fc2_->load( archive, mode );
+        }*/
 
         // ====================================================================
         // Module interface
@@ -265,7 +265,7 @@ namespace Mila::Dnn
         std::shared_ptr<ComputeDevice> getDevice() const override
         {
             return exec_context_->getDevice();
-		}
+        }
 
         void synchronize() override
         {
@@ -285,26 +285,7 @@ namespace Mila::Dnn
             fc2_->synchronize();
         }
 
-        void setTraining( bool is_training ) override
-        {
-            CompositeModuleBase::setTraining( is_training );
-
-            fc1_->setTraining( is_training );
-            
-            if (norm_)
-            {
-                norm_->setTraining( is_training );
-            }
-            
-            activation_->setTraining( is_training );
-            fc2_->setTraining( is_training );
-        }
-
-        bool isTraining() const override
-        {
-            return CompositeModuleBase::isTraining();
-        }
-
+        // Delegate training-mode handling to Module::onTrainingChanging via CompositeModule
         size_t parameterCount() const override
         {
             size_t total = 0;
@@ -344,23 +325,23 @@ namespace Mila::Dnn
             return params;
         }
 
-        std::vector<ITensor*> getParameterGradients() const override
+        std::vector<ITensor*> getGradients() const override
         {
             std::vector<ITensor*> grads;
             
-            auto fc1_grads = fc1_->getParameterGradients();
+            auto fc1_grads = fc1_->getGradients();
             grads.insert( grads.end(), fc1_grads.begin(), fc1_grads.end() );
             
             if (norm_)
             {
-                auto norm_grads = norm_->getParameterGradients();
+                auto norm_grads = norm_->getGradients();
                 grads.insert( grads.end(), norm_grads.begin(), norm_grads.end() );
             }
             
-            auto act_grads = activation_->getParameterGradients();
+            auto act_grads = activation_->getGradients();
             grads.insert( grads.end(), act_grads.begin(), act_grads.end() );
             
-            auto fc2_grads = fc2_->getParameterGradients();
+            auto fc2_grads = fc2_->getGradients();
             grads.insert( grads.end(), fc2_grads.begin(), fc2_grads.end() );
             
             return grads;
@@ -464,6 +445,23 @@ namespace Mila::Dnn
             // Build is already handled by public build() method
         }
 
+        /**
+         * @brief Hook invoked when training mode is about to change.
+         *
+         * Propagate new training mode to child modules. Called with the
+         * CompositeModule's training mutex held; do not call setTraining() here.
+         */
+        void onTrainingChanging( bool is_training ) override
+        {
+            if (fc1_) fc1_->setTraining( is_training );
+            
+            if (norm_) norm_->setTraining( is_training );
+            
+            if (activation_) activation_->setTraining( is_training );
+            
+            if (fc2_) fc2_->setTraining( is_training );
+        }
+
     private:
         MLPConfig config_;
         bool built_{ false };
@@ -504,6 +502,8 @@ namespace Mila::Dnn
 
         /**
          * @brief Create and configure child modules.
+         *
+         * Ensure children are synchronized with this CompositeModule's training mode.
          */
         void createModules()
         {
@@ -512,6 +512,7 @@ namespace Mila::Dnn
                 .withBias( config_.hasBias() );
 
             fc1_ = std::make_shared<LinearType>( exec_context_, fc1_config );
+            fc1_->setTraining( this->isTraining() );
 
             if (config_.useLayerNorm())
             {
@@ -520,6 +521,7 @@ namespace Mila::Dnn
                     .withName( config_.getName() + ".norm" );
 
                 norm_ = std::make_shared<LayerNormType>( exec_context_, norm_config );
+                norm_->setTraining( this->isTraining() );
             }
 
             switch (config_.getActivationType())
@@ -530,6 +532,7 @@ namespace Mila::Dnn
                     gelu_config.withName( config_.getName() + ".gelu" );
 
                     activation_ = std::make_shared<GeluType>( exec_context_, gelu_config );
+                    activation_->setTraining( this->isTraining() );
                     break;
                 }
                 default:
@@ -541,6 +544,7 @@ namespace Mila::Dnn
                 .withBias( config_.hasBias() );
 
             fc2_ = std::make_shared<LinearType>( exec_context_, fc2_config );
+            fc2_->setTraining( this->isTraining() );
         }
     };
 }

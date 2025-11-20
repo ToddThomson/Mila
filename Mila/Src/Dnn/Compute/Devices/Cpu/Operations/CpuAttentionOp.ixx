@@ -29,7 +29,7 @@ import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
-import Dnn.ConfigurationBase;
+import Dnn.ModuleConfig;
 import Compute.Precision;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
@@ -117,7 +117,7 @@ namespace Mila::Dnn::Compute
             // No learnable parameters
         }
 
-        void setParameterGradients( ITensor* /*unused1*/, ITensor* /*unused2*/ ) override
+        void setGradients( ITensor* /*unused1*/, ITensor* /*unused2*/ ) override
         {
             // No learnable parameters
         }
@@ -513,7 +513,7 @@ namespace Mila::Dnn::Compute
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>(
                 opName,
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
-                    const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
+                    const ModuleConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
                 {
                     const auto& attention_config = dynamic_cast<const AttentionConfig&>(config);
                     return std::make_shared<CpuAttentionOp>( context, attention_config );

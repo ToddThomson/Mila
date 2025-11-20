@@ -24,7 +24,7 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorHostTypeMap;
 import Dnn.TensorPartitioning;
-import Dnn.ConfigurationBase;
+import Dnn.ModuleConfig;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
@@ -205,7 +205,7 @@ namespace Mila::Dnn::Compute
          * @throws std::invalid_argument If bias_grad is null when config requires bias
          * @throws std::invalid_argument If bias_grad is not a CUDA tensor when required
          */
-        void setParameterGradients( ITensor* weight_grad, ITensor* bias_grad ) override
+        void setGradients( ITensor* weight_grad, ITensor* bias_grad ) override
         {
             if (!weight_grad)
             {
@@ -449,7 +449,7 @@ namespace Mila::Dnn::Compute
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32>(
                 opName,
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                    const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
+                    const ModuleConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
                 {
                     const auto& lnConfig = static_cast<const LayerNormConfig&>(config);
                     return std::make_shared<CudaLayerNormOp<TensorDataType::FP32>>( context, lnConfig );
@@ -459,7 +459,7 @@ namespace Mila::Dnn::Compute
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP16, TensorDataType::FP16>(
                 opName,
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                    const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
+                    const ModuleConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
                 {
                     const auto& lnConfig = static_cast<const LayerNormConfig&>(config);
                     return std::make_shared<CudaLayerNormOp<TensorDataType::FP16>>( context, lnConfig );

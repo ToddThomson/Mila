@@ -8,22 +8,27 @@
 module;
 #include <stdexcept>
 #include <vector>
+#include <utility>
+#include <string>
 
 export module Dnn.Blocks.Transformer:Config;
 
 import Dnn.TensorTypes;
-import Dnn.ConfigurationBase;
+import Dnn.ModuleConfig;
 import Dnn.ActivationType;
+import nlohmann.json;
 
 namespace Mila::Dnn
 {
+    using json = nlohmann::json;
+
     /**
      * @brief Configuration class for Transformer modules.
      *
      * Holds the embedding dimension, attention head count and MLP/attention options.
      * Instances are intended to be validated and then passed to Transformer constructors.
      */
-    export class TransformerConfig : public ConfigurationBase
+    export class TransformerConfig : public ModuleConfig
     {
     public:
         /**
@@ -36,61 +41,52 @@ namespace Mila::Dnn
          * and throws std::invalid_argument if they are violated.
          */
         TransformerConfig( dim_t embedding_dim, dim_t num_heads )
-			: embedding_dim_( embedding_dim ), num_heads_( num_heads )
+            : embedding_dim_( embedding_dim ), num_heads_( num_heads )
         {
-            if (embedding_dim <= 0)
+            if ( embedding_dim <= 0 )
             {
                 throw std::invalid_argument( "TransformerConfig: embedding_dim must be > 0" );
             }
 
-            if (num_heads <= 0)
+            if ( num_heads <= 0 )
             {
                 throw std::invalid_argument( "TransformerConfig: num_heads must be > 0" );
             }
 
-            if (embedding_dim % num_heads != 0)
+            if ( embedding_dim % num_heads != 0 )
             {
                 throw std::invalid_argument( "TransformerConfig: embedding_dim must be divisible by num_heads" );
             }
         }
 
         /**
-         * @brief Configure the hidden dimension for the feed-forward network.
-         *
-         * If not set 0 the implementation may choose a sensible default
-         * commonly 4 * embedding_dim.
-         *
-         * @param hidden_dim Hidden layer size for the MLP.
-         * @return Reference to this config for method chaining.
+         * @brief C++23-style fluent setter for hidden dimension.
          */
-        TransformerConfig& withHiddenDimension( dim_t hidden_dim )
+        template <typename Self>
+        decltype(auto) withHiddenDimension( this Self&& self, dim_t hidden_dim )
         {
-            hidden_dim_ = hidden_dim;
-            return *this;
+            self.hidden_dim_ = hidden_dim;
+            return std::forward<Self>( self );
         }
 
         /**
-         * @brief Enable or disable bias terms in attention and feed-forward layers.
-         *
-         * @param use_bias true to enable bias, false to disable.
-         * @return Reference to this config for method chaining.
+         * @brief C++23-style fluent setter to enable/disable bias.
          */
-        TransformerConfig& withBias( bool use_bias )
+        template <typename Self>
+        decltype(auto) withBias( this Self&& self, bool use_bias )
         {
-            use_bias_ = use_bias;
-            return *this;
+            self.use_bias_ = use_bias;
+            return std::forward<Self>( self );
         }
 
         /**
-         * @brief Select activation function for the MLP.
-         *
-         * @param activation_type Activation type such as Gelu or Relu.
-         * @return Reference to this config for method chaining.
+         * @brief C++23-style fluent setter for activation type.
          */
-        TransformerConfig& withActivation( ActivationType activation_type )
+        template <typename Self>
+        decltype(auto) withActivation( this Self&& self, ActivationType activation_type )
         {
-            activation_type_ = activation_type;
-            return *this;
+            self.activation_type_ = activation_type;
+            return std::forward<Self>( self );
         }
 
         /**
@@ -98,7 +94,7 @@ namespace Mila::Dnn
          *
          * @return Embedding dimension.
          */
-        dim_t getEmbeddingDim() const
+        dim_t getEmbeddingDim() const noexcept
         {
             return embedding_dim_;
         }
@@ -108,7 +104,7 @@ namespace Mila::Dnn
          *
          * @return Number of heads.
          */
-        dim_t getNumHeads() const
+        dim_t getNumHeads() const noexcept
         {
             return num_heads_;
         }
@@ -118,7 +114,7 @@ namespace Mila::Dnn
          *
          * @return Hidden dimension (0 if not set).
          */
-        size_t getHiddenDimension() const
+        dim_t getHiddenDimension() const noexcept
         {
             return hidden_dim_;
         }
@@ -128,7 +124,7 @@ namespace Mila::Dnn
          *
          * @return True if bias is enabled for Linear/Attention layers.
          */
-        bool useBias() const
+        bool useBias() const noexcept
         {
             return use_bias_;
         }
@@ -138,7 +134,7 @@ namespace Mila::Dnn
          *
          * @return ActivationType configured for the MLP.
          */
-        ActivationType getActivationType() const
+        ActivationType getActivationType() const noexcept
         {
             return activation_type_;
         }
@@ -153,25 +149,91 @@ namespace Mila::Dnn
          *
          * Throws std::invalid_argument on invalid configuration.
          */
-        void validate() const
+        void validate() const override
         {
-            ConfigurationBase::validate();
+            //ModuleConfig::validate();
 
-            if (embedding_dim_ <= 0)
+            if ( embedding_dim_ <= 0 )
             {
                 throw std::invalid_argument( "Embedding dimension must be greater than zero" );
             }
 
-            if (num_heads_ == 0)
+            if ( num_heads_ == 0 )
             {
                 throw std::invalid_argument( "Number of attention heads must be greater than zero" );
             }
 
-            if (embedding_dim_ % num_heads_ != 0)
+            if ( embedding_dim_ % num_heads_ != 0 )
             {
                 throw std::invalid_argument( "Embedding dimension must be divisible by number of heads" );
             }
         }
+
+        /**
+         * @brief Serialize this configuration to JSON (ModuleConfig interface).
+         */
+        /*json toJson() const override
+        {
+            json j;
+            j["name"] = name_;
+            j["precision"] = static_cast<int>( precision_ );
+            j["embedding_dim"] = static_cast<int64_t>( embedding_dim_ );
+            j["num_heads"] = static_cast<int64_t>( num_heads_ );
+            j["hidden_dim"] = static_cast<int64_t>( hidden_dim_ );
+            j["use_bias"] = use_bias_;
+            j["activation"] = static_cast<int>( activation_type_ );
+
+            return j;
+        }*/
+
+        /**
+         * @brief Deserialize this configuration from JSON (ModuleConfig interface).
+         *
+         * Missing keys leave fields at their current values.
+         */
+        /*void fromJson( const json& j ) override
+        {
+            if ( j.contains( "name" ) )
+            {
+                name_ = j.at( "name" ).get<std::string>();
+            }
+
+            if ( j.contains( "precision" ) )
+            {
+                precision_ = static_cast<decltype( precision_)>( j.at( "precision" ).get<int>() );
+            }
+
+            if ( j.contains( "embedding_dim" ) )
+            {
+                embedding_dim_ = static_cast<dim_t>( j.at( "embedding_dim" ).get<int64_t>() );
+            }
+
+            if ( j.contains( "num_heads" ) )
+            {
+                num_heads_ = static_cast<dim_t>( j.at( "num_heads" ).get<int64_t>() );
+            }
+
+            if ( j.contains( "hidden_dim" ) )
+            {
+                hidden_dim_ = static_cast<dim_t>( j.at( "hidden_dim" ).get<int64_t>() );
+            }
+
+            if ( j.contains( "use_bias" ) )
+            {
+                use_bias_ = j.at( "use_bias" ).get<bool>();
+            }
+
+            if ( j.contains( "activation" ) )
+            {
+                activation_type_ = static_cast<ActivationType>( j.at( "activation" ).get<int>() );
+            }
+        }*/
+
+        std::string toString() const override
+        {
+            std::string repr = "MLPConfig(";
+            return repr;
+		}
 
     private:
         dim_t embedding_dim_;

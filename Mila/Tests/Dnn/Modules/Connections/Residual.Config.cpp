@@ -26,7 +26,7 @@ namespace Modules::Connections::Tests
         EXPECT_FLOAT_EQ( cfg.getScalingFactor(), 1.0f );
         EXPECT_EQ( cfg.getConnectionType(), ConnectionType::Addition );
 
-        // Default name inherited from ConfigurationBase
+        // Default name inherited from ModuleConfig
         EXPECT_EQ( cfg.getName(), "unnamed" );
     }
 

@@ -12,30 +12,25 @@ module;
 #include <ostream>
 #include <sstream>
 #include <cstdint>
+#include <utility>
 
 export module Dnn.Modules.Residual:Config;
 
-import Dnn.ConfigurationBase;
+import Dnn.ModuleConfig;
 import Dnn.ConnectionType;
+import nlohmann.json;
 
 namespace Mila::Dnn
 {
+    using json = nlohmann::json;
+
     /**
      * @brief Configuration class for Residual connection module.
      *
      * ResidualConfig is a lightweight, fluent configuration object consumed by
-     * Residual modules and by compute-backend factories. It validates required
-     * constraints in `validate()` and exposes accessors used by the module
-     * implementation.
-     *
-     * Note: Some configuration options are currently disabled and marked for future implementation.
-     * The base implementation provides core residual connection functionality with:
-     * - Simple addition: y = x + F(x)
-     * - Optional scaling factor for the residual branch
-     * - No projection (input and output features must match)
-     * - No gating (to be added in future versions)
+     * Residual modules and by compute-backend factories.
      */
-    export class ResidualConfig : public ConfigurationBase
+    export class ResidualConfig : public ModuleConfig
     {
     public:
 
@@ -49,7 +44,7 @@ namespace Mila::Dnn
         ResidualConfig() = default;
 
         // ====================================================================
-        // Active Configuration Options
+        // Fluent setters
         // ====================================================================
 
         /**
@@ -57,38 +52,40 @@ namespace Mila::Dnn
          *
          * Currently only Addition is supported.
          *
-         * @param ct ConnectionType value
-         * @return ResidualConfig& Reference to this for method chaining
+         * @return Self&& for method chaining
          */
-        ResidualConfig& withConnectionType( ConnectionType ct )
+        template <typename Self>
+        decltype(auto) withConnectionType( this Self&& self, ConnectionType ct )
         {
-            connection_type_ = ct;
-            return *this;
+            self.connection_type_ = ct;
+            return std::forward<Self>( self );
         }
+
+        /**
+         * @brief Set the scaling factor applied to the residual branch.
+         *
+         * @param factor Scaling factor (positive)
+         * @return Self&& for method chaining
+         */
+        template <typename Self>
+        decltype(auto) withScalingFactor( this Self&& self, float factor )
+        {
+            self.scaling_factor_ = factor;
+            return std::forward<Self>( self );
+        }
+
+        // ====================================================================
+        // Accessors
+        // ====================================================================
 
         /**
          * @brief Get the configured connection type.
          *
          * @return ConnectionType The connection type
          */
-        ConnectionType getConnectionType() const
+        ConnectionType getConnectionType() const noexcept
         {
             return connection_type_;
-        }
-
-        /**
-         * @brief Set the scaling factor applied to the residual branch.
-         *
-         * Some residual variants apply a learned or fixed scaling to the
-         * residual branch; default is 1.0 (no scaling).
-         *
-         * @param factor Scaling factor (positive)
-         * @return ResidualConfig& Reference to this for method chaining
-         */
-        ResidualConfig& withScalingFactor( float factor )
-        {
-            scaling_factor_ = factor;
-            return *this;
         }
 
         /**
@@ -96,16 +93,18 @@ namespace Mila::Dnn
          *
          * @return float Scaling factor
          */
-        float getScalingFactor() const
+        float getScalingFactor() const noexcept
         {
             return scaling_factor_;
         }
 
-        
+        // ====================================================================
+        // Validation
+        // ====================================================================
+
         void validate() const override
         {
             // Validate base properties (name, etc.)
-            ConfigurationBase::validate();
 
             if (scaling_factor_ <= 0.0f)
             {
@@ -113,19 +112,72 @@ namespace Mila::Dnn
             }
         }
 
+        // ====================================================================
+        // Serialization (ModuleConfig interface)
+        // ====================================================================
+
+        json toJson()
+        {
+            json j;
+            j["name"] = name_;
+            j["precision"] = static_cast<int>( precision_ );
+            j["scaling_factor"] = scaling_factor_;
+            j["connection_type"] = static_cast<int>( connection_type_ );
+
+            return j;
+        }
+
+        void fromJson( const json& j )
+        {
+            if ( j.contains( "name" ) )
+            {
+                name_ = j.at( "name" ).get<std::string>();
+            }
+
+            if ( j.contains( "precision" ) )
+            {
+                precision_ = static_cast<decltype( precision_)>( j.at( "precision" ).get<int>() );
+            }
+
+            if ( j.contains( "scaling_factor" ) )
+            {
+                scaling_factor_ = j.at( "scaling_factor" ).get<float>();
+            }
+
+            if ( j.contains( "connection_type" ) )
+            {
+                connection_type_ = static_cast<ConnectionType>( j.at( "connection_type" ).get<int>() );
+            }
+        }
+
+        // ====================================================================
+        // Utilities
+        // ====================================================================
+
         /**
-         * @brief Convenience that formats the configuration into a std::string.
-         *
-         * Uses `appendTo` under the hood to avoid duplicating formatting logic.
+         * @brief Produce a brief human-readable summary of the configuration.
          */
-        std::string toString() const
+        std::string toString() const override
         {
             std::ostringstream oss;
+            //oss << ModuleConfig::toString();
+            oss << "; connection=" << connectionTypeToString( connection_type_ );
+            oss << "; scaling=" << scaling_factor_;
 
+            // blank line before return per style
             return oss.str();
         }
 
     private:
+
+        static const char* connectionTypeToString( ConnectionType ct ) noexcept
+        {
+            switch ( ct )
+            {
+                case ConnectionType::Addition: return "Addition";
+                default:                      return "Unknown";
+            }
+        }
 
         float scaling_factor_ = 1.0f;
         ConnectionType connection_type_ = ConnectionType::Addition;

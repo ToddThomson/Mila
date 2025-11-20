@@ -19,6 +19,7 @@ module;
 
 export module Compute.CudaAdamWOptimizer;
 
+import Dnn.Optimizers.AdamWConfig;
 import Dnn.ITensor;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
@@ -32,6 +33,8 @@ import Compute.CudaTensorDataType;
 
 namespace Mila::Dnn::Compute
 {
+	using OptimizerConfig = Mila::Dnn::Optimizers::AdamWConfig;
+
     /**
      * @brief CUDA-specific AdamW optimizer implementation.
      *
@@ -69,34 +72,12 @@ namespace Mila::Dnn::Compute
          * @brief Construct CUDA AdamW optimizer.
          *
          * @param exec_context CUDA execution context for stream and device management
-         * @param learning_rate Initial learning rate (typical: 1e-3 to 1e-4)
-         * @param beta1 Exponential decay rate for first moment (typical: 0.9)
-         * @param beta2 Exponential decay rate for second moment (typical: 0.999)
-         * @param epsilon Small constant for numerical stability (typical: 1e-8)
-         * @param weight_decay Weight decay coefficient (typical: 0.01)
-         * @param grad_scale Gradient scaling factor for mixed precision (default: 1.0)
+         * @param config AdamW optimizer configuration
          *
          * @throws std::invalid_argument if exec_context is null
-         * @throws std::invalid_argument if learning_rate <= 0
-         * @throws std::invalid_argument if beta1, beta2 not in (0, 1)
-         * @throws std::invalid_argument if epsilon <= 0
          */
-        explicit CudaAdamWOptimizer(
-            std::shared_ptr<ExecutionContextType> exec_context,
-            float learning_rate,
-            float beta1 = 0.9f,
-            float beta2 = 0.999f,
-            float epsilon = 1e-8f,
-            float weight_decay = 0.01f,
-            float grad_scale = 1.0f )
-            : exec_context_( exec_context )
-            , learning_rate_( learning_rate )
-            , beta1_( beta1 )
-            , beta2_( beta2 )
-            , epsilon_( epsilon )
-            , weight_decay_( weight_decay )
-            , grad_scale_( grad_scale )
-            , step_count_( 0 )
+        explicit CudaAdamWOptimizer( std::shared_ptr<ExecutionContextType> context, const OptimizerConfig& config )
+            : exec_context_( context ), config_( config ), grad_scale_{ 1.0f }, step_count_{ 0 }
         {
             if (!exec_context_)
             {
@@ -232,6 +213,13 @@ namespace Mila::Dnn::Compute
             // Generate seed for stochastic rounding (based on step count)
             unsigned int seed = static_cast<unsigned int>(step_count_);
 
+            // Pull hyperparameters from config for this step
+            const float lr = config_.getLearningRate();
+            const float b1 = config_.getBeta1();
+            const float b2 = config_.getBeta2();
+            const float eps = config_.getEpsilon();
+            const float wd = config_.getWeightDecay();
+
             // Update each parameter group using cached raw pointers
             for (size_t i = 0; i < params_.size(); ++i)
             {
@@ -239,10 +227,12 @@ namespace Mila::Dnn::Compute
 
                 NativeType* param_ptr = param_data_[i];
                 NativeType* grad_ptr = grad_data_[i];
+                
                 float* m_ptr = m_data_[i];
                 float* v_ptr = v_data_[i];
 
                 float* master_param_ptr = nullptr;
+                
                 if constexpr (TPrecision == TensorDataType::FP16 || TPrecision == TensorDataType::BF16)
                 {
                     if (i < master_param_data_.size())
@@ -252,9 +242,6 @@ namespace Mila::Dnn::Compute
                 }
 
                 // Call AdamW CUDA kernel
-                // Parameters: (params, master_params, grads, m, v, num_params,
-                //              w_stride, g_stride, s_stride, num_slices,
-                //              lr, beta1, beta2, t, eps, weight_decay, grad_scale, seed, stream)
                 adamw_update(
                     param_ptr,
                     master_param_ptr,
@@ -266,12 +253,12 @@ namespace Mila::Dnn::Compute
                     0,  // g_stride
                     0,  // s_stride
                     1,  // num_slices (single tensor per call)
-                    learning_rate_,
-                    beta1_,
-                    beta2_,
+                    lr,
+                    b1,
+                    b2,
                     static_cast<int>(step_count_),
-                    epsilon_,
-                    weight_decay_,
+                    eps,
+                    wd,
                     grad_scale_,
                     seed + static_cast<unsigned int>(i),  // Unique seed per parameter
                     stream
@@ -292,12 +279,12 @@ namespace Mila::Dnn::Compute
         {
             if (grads_.empty())
             {
-                throw std::runtime_error( "CudaAdamWOptimizer: no gradients to zero" );
+                throw std::runtime_error( "CudaAdamWOptimizer: no gradients to zero." );
             }
 
             for (auto* grad : grads_)
             {
-                // Zero gradient using ITensor interface
+                // The grad must be valid!
 				auto total_size = grad->size() * grad->elementSize();
                 cudaMemsetAsync( grad->rawData(), 0, total_size, exec_context_->getStream() );
             }
@@ -308,7 +295,7 @@ namespace Mila::Dnn::Compute
          */
         float getLearningRate() const override
         {
-            return learning_rate_;
+            return config_.getLearningRate();
         }
 
         /**
@@ -324,7 +311,7 @@ namespace Mila::Dnn::Compute
                 throw std::invalid_argument( "CudaAdamWOptimizer: learning rate must be positive" );
             }
 
-            learning_rate_ = learning_rate;
+            config_.withLearningRate( learning_rate );
         }
 
         // ====================================================================
@@ -344,7 +331,7 @@ namespace Mila::Dnn::Compute
          */
         float getBeta1() const noexcept
         {
-            return beta1_;
+            return config_.getBeta1();
         }
 
         /**
@@ -352,7 +339,7 @@ namespace Mila::Dnn::Compute
          */
         float getBeta2() const noexcept
         {
-            return beta2_;
+            return config_.getBeta2();
         }
 
         /**
@@ -360,7 +347,7 @@ namespace Mila::Dnn::Compute
          */
         float getEpsilon() const noexcept
         {
-            return epsilon_;
+            return config_.getEpsilon();
         }
 
         /**
@@ -368,7 +355,7 @@ namespace Mila::Dnn::Compute
          */
         float getWeightDecay() const noexcept
         {
-            return weight_decay_;
+            return config_.getWeightDecay();
         }
 
         /**
@@ -384,7 +371,7 @@ namespace Mila::Dnn::Compute
                 throw std::invalid_argument( "CudaAdamWOptimizer: weight decay must be non-negative" );
             }
 
-            weight_decay_ = weight_decay;
+            config_.withWeightDecay( weight_decay );
         }
 
         /**
@@ -397,14 +384,10 @@ namespace Mila::Dnn::Compute
 
     private:
         std::shared_ptr<ExecutionContextType> exec_context_;
+		OptimizerConfig config_;
 
-        // Hyperparameters
-        float learning_rate_;
-        float beta1_;
-        float beta2_;
-        float epsilon_;
-        float weight_decay_;
-        float grad_scale_;
+        float grad_scale_{ 1.0f };
+        
         size_t step_count_;
 
         // Non-owning pointers to parameters and gradients (module owns these)
@@ -430,27 +413,33 @@ namespace Mila::Dnn::Compute
          */
         void validateHyperparameters() const
         {
-            if (learning_rate_ <= 0.0f)
+            const float lr = config_.getLearningRate();
+            const float b1 = config_.getBeta1();
+            const float b2 = config_.getBeta2();
+            const float eps = config_.getEpsilon();
+            const float wd = config_.getWeightDecay();
+
+            if (lr <= 0.0f)
             {
                 throw std::invalid_argument( "CudaAdamWOptimizer: learning rate must be positive" );
             }
 
-            if (beta1_ <= 0.0f || beta1_ >= 1.0f)
+            if (b1 <= 0.0f || b1 >= 1.0f)
             {
                 throw std::invalid_argument( "CudaAdamWOptimizer: beta1 must be in (0, 1)" );
             }
 
-            if (beta2_ <= 0.0f || beta2_ >= 1.0f)
+            if (b2 <= 0.0f || b2 >= 1.0f)
             {
                 throw std::invalid_argument( "CudaAdamWOptimizer: beta2 must be in (0, 1)" );
             }
 
-            if (epsilon_ <= 0.0f)
+            if (eps <= 0.0f)
             {
                 throw std::invalid_argument( "CudaAdamWOptimizer: epsilon must be positive" );
             }
 
-            if (weight_decay_ < 0.0f)
+            if (wd < 0.0f)
             {
                 throw std::invalid_argument( "CudaAdamWOptimizer: weight decay must be non-negative" );
             }

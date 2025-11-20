@@ -84,7 +84,8 @@ CPMAddPackage(
     GITHUB_REPOSITORY nlohmann/json
     OPTIONS
         "JSON_BuildTests OFF"
-        "JSON_MultipleHeaders ON"
+        "JSON_Install OFF"
+        "JSON_MultipleHeaders OFF"
 )
 
 find_package(CUDAToolkit REQUIRED)  

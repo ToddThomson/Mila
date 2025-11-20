@@ -107,6 +107,7 @@ namespace Dnn::Optimizers::Tests
                     return true;
                 }
             }
+
             return false;
         }
 
@@ -125,6 +126,7 @@ namespace Dnn::Optimizers::Tests
                     return false;
                 }
             }
+
             return true;
         }
 
@@ -154,14 +156,15 @@ namespace Dnn::Optimizers::Tests
             .withWeightDecay( 0.01f );
 
         auto optimizer = std::make_shared<AdamWOptimizer<DeviceType::Cpu, TensorDataType::FP32>>(
-            exec_ctx_, config.getLearningRate(), config.getBeta1(), config.getBeta2(),
-            config.getEpsilon(), config.getWeightDecay() );
+            exec_ctx_, config );
     }
 
     TEST_F( AdamWCpuTests, Construction_DefaultHyperparameters )
     {
+        // Construct device-agnostic optimizer using AdamWConfig defaults
+        AdamWConfig config; // default values as in AdamWConfig.ixx
         auto optimizer = std::make_shared<AdamWOptimizer<DeviceType::Cpu, TensorDataType::FP32>>(
-            exec_ctx_, default_lr_ );
+            exec_ctx_, config );
 
         EXPECT_FLOAT_EQ( optimizer->getLearningRate(), default_lr_ );
         EXPECT_FLOAT_EQ( optimizer->getBeta1(), default_beta1_ );
@@ -179,8 +182,15 @@ namespace Dnn::Optimizers::Tests
         float eps = 1e-7f;
         float wd = 0.02f;
 
+        AdamWConfig cfg;
+        cfg.withLearningRate( lr )
+            .withBeta1( beta1 )
+            .withBeta2( beta2 )
+            .withEpsilon( eps )
+            .withWeightDecay( wd );
+
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-            exec_ctx_, lr, beta1, beta2, eps, wd );
+            exec_ctx_, cfg );
 
         EXPECT_FLOAT_EQ( optimizer->getLearningRate(), lr );
         EXPECT_FLOAT_EQ( optimizer->getBeta1(), beta1 );
@@ -193,78 +203,112 @@ namespace Dnn::Optimizers::Tests
     {
         std::shared_ptr<ExecutionContext<DeviceType::Cpu>> null_ctx;
 
+        AdamWConfig cfg;
+        cfg.withLearningRate( default_lr_ );
+
         EXPECT_THROW(
             (std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-                null_ctx, default_lr_ )),
+                null_ctx, cfg )),
             std::invalid_argument
         );
     }
 
     TEST_F( AdamWCpuTests, Error_InvalidLearningRate )
     {
-        EXPECT_THROW(
-            (std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-                exec_ctx_, 0.0f )),  // lr = 0
-            std::invalid_argument
-        );
+        AdamWConfig cfg_zero;
+        cfg_zero.withLearningRate( 0.0f );
 
         EXPECT_THROW(
             (std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-                exec_ctx_, -0.001f )),  // lr < 0
+                exec_ctx_, cfg_zero )),  // lr = 0
+            std::invalid_argument
+        );
+
+        AdamWConfig cfg_negative;
+        cfg_negative.withLearningRate( -0.001f );
+
+        EXPECT_THROW(
+            (std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
+                exec_ctx_, cfg_negative )),  // lr < 0
             std::invalid_argument
         );
     }
 
     TEST_F( AdamWCpuTests, Error_InvalidBeta1 )
     {
-        EXPECT_THROW(
-            (std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-                exec_ctx_, default_lr_, 0.0f )),  // beta1 = 0
-            std::invalid_argument
-        );
+        AdamWConfig cfg1;
+        cfg1.withLearningRate( default_lr_ ).withBeta1( 0.0f );
 
         EXPECT_THROW(
             (std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-                exec_ctx_, default_lr_, 1.0f )),  // beta1 = 1
+                exec_ctx_, cfg1 )),  // beta1 = 0
+            std::invalid_argument
+        );
+
+        AdamWConfig cfg2;
+        cfg2.withLearningRate( default_lr_ ).withBeta1( 1.0f );
+
+        EXPECT_THROW(
+            (std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
+                exec_ctx_, cfg2 )),  // beta1 = 1
             std::invalid_argument
         );
     }
 
     TEST_F( AdamWCpuTests, Error_InvalidBeta2 )
     {
-        EXPECT_THROW(
-            (std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-                exec_ctx_, default_lr_, default_beta1_, 0.0f )),  // beta2 = 0
-            std::invalid_argument
-        );
+        AdamWConfig cfg1;
+        cfg1.withLearningRate( default_lr_ ).withBeta1( default_beta1_ ).withBeta2( 0.0f );
 
         EXPECT_THROW(
             (std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-                exec_ctx_, default_lr_, default_beta1_, 1.0f )),  // beta2 = 1
+                exec_ctx_, cfg1 )),  // beta2 = 0
+            std::invalid_argument
+        );
+
+        AdamWConfig cfg2;
+        cfg2.withLearningRate( default_lr_ ).withBeta1( default_beta1_ ).withBeta2( 1.0f );
+
+        EXPECT_THROW(
+            (std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
+                exec_ctx_, cfg2 )),  // beta2 = 1
             std::invalid_argument
         );
     }
 
     TEST_F( AdamWCpuTests, Error_InvalidEpsilon )
     {
-        EXPECT_THROW(
-            (std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-                exec_ctx_, default_lr_, default_beta1_, default_beta2_, 0.0f )),
-            std::invalid_argument
-        );
+        AdamWConfig cfg1;
+        cfg1.withLearningRate( default_lr_ ).withBeta1( default_beta1_ ).withBeta2( default_beta2_ ).withEpsilon( 0.0f );
 
         EXPECT_THROW(
             (std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-                exec_ctx_, default_lr_, default_beta1_, default_beta2_, -1e-8f )),
+                exec_ctx_, cfg1 )),
+            std::invalid_argument
+        );
+
+        AdamWConfig cfg2;
+        cfg2.withLearningRate( default_lr_ ).withBeta1( default_beta1_ ).withBeta2( default_beta2_ ).withEpsilon( -1e-8f );
+
+        EXPECT_THROW(
+            (std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
+                exec_ctx_, cfg2 )),
             std::invalid_argument
         );
     }
 
     TEST_F( AdamWCpuTests, Error_InvalidWeightDecay )
     {
+        AdamWConfig cfg;
+        cfg.withLearningRate( default_lr_ )
+            .withBeta1( default_beta1_ )
+            .withBeta2( default_beta2_ )
+            .withEpsilon( default_epsilon_ )
+            .withWeightDecay( -0.01f );
+
         EXPECT_THROW(
             (std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-                exec_ctx_, default_lr_, default_beta1_, default_beta2_, default_epsilon_, -0.01f )),
+                exec_ctx_, cfg )),
             std::invalid_argument
         );
     }
@@ -275,28 +319,32 @@ namespace Dnn::Optimizers::Tests
 
     TEST_F( AdamWCpuTests, AddParameter_SingleParameter )
     {
+        AdamWConfig cfg;
+        cfg.withLearningRate( default_lr_ );
+
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-            exec_ctx_, default_lr_ );
+            exec_ctx_, cfg );
 
         auto param = createParameter( small_shape_ );
         auto grad = createGradient( small_shape_ );
 
-        // ? Changed: Pass raw pointers using .get()
         EXPECT_NO_THROW( optimizer->addParameter( param.get(), grad.get() ) );
         EXPECT_EQ( optimizer->getParameterCount(), 1u );
     }
 
     TEST_F( AdamWCpuTests, AddParameter_MultipleParameters )
     {
+        AdamWConfig cfg;
+        cfg.withLearningRate( default_lr_ );
+
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-            exec_ctx_, default_lr_ );
+            exec_ctx_, cfg );
 
         for (int i = 0; i < 5; ++i)
         {
             auto param = createParameter( small_shape_ );
             auto grad = createGradient( small_shape_ );
 
-            // ? Changed: Pass raw pointers using .get()
             optimizer->addParameter( param.get(), grad.get() );
         }
 
@@ -305,8 +353,11 @@ namespace Dnn::Optimizers::Tests
 
     TEST_F( AdamWCpuTests, AddParameter_DifferentShapes )
     {
+        AdamWConfig cfg;
+        cfg.withLearningRate( default_lr_ );
+
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-            exec_ctx_, default_lr_ );
+            exec_ctx_, cfg );
 
         auto param1 = createParameter( small_shape_ );
         auto grad1 = createGradient( small_shape_ );
@@ -321,12 +372,14 @@ namespace Dnn::Optimizers::Tests
 
     TEST_F( AdamWCpuTests, Error_AddParameter_NullParameter )
     {
+        AdamWConfig cfg;
+        cfg.withLearningRate( default_lr_ );
+
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-            exec_ctx_, default_lr_ );
+            exec_ctx_, cfg );
 
         auto grad = createGradient( small_shape_ );
 
-        // ? Changed: Pass nullptr directly (already a raw pointer)
         EXPECT_THROW(
             optimizer->addParameter( nullptr, grad.get() ),
             std::invalid_argument
@@ -335,12 +388,14 @@ namespace Dnn::Optimizers::Tests
 
     TEST_F( AdamWCpuTests, Error_AddParameter_NullGradient )
     {
+        AdamWConfig cfg;
+        cfg.withLearningRate( default_lr_ );
+
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-            exec_ctx_, default_lr_ );
+            exec_ctx_, cfg );
 
         auto param = createParameter( small_shape_ );
 
-        // ? Changed: Pass nullptr directly (already a raw pointer)
         EXPECT_THROW(
             optimizer->addParameter( param.get(), nullptr ),
             std::invalid_argument
@@ -349,8 +404,11 @@ namespace Dnn::Optimizers::Tests
 
     TEST_F( AdamWCpuTests, Error_AddParameter_ShapeMismatch )
     {
+        AdamWConfig cfg;
+        cfg.withLearningRate( default_lr_ );
+
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-            exec_ctx_, default_lr_ );
+            exec_ctx_, cfg );
 
         auto param = createParameter( small_shape_ );
         auto grad = createGradient( medium_shape_ );  // Different shape
@@ -367,8 +425,11 @@ namespace Dnn::Optimizers::Tests
 
     TEST_F( AdamWCpuTests, Step_SingleParameter_SingleIteration )
     {
+        AdamWConfig cfg;
+        cfg.withLearningRate( default_lr_ );
+
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-            exec_ctx_, default_lr_ );
+            exec_ctx_, cfg );
 
         auto param = createParameter( small_shape_, 1.0f );
         auto grad = createGradient( small_shape_, 0.1f );
@@ -393,6 +454,7 @@ namespace Dnn::Optimizers::Tests
                 break;
             }
         }
+
         EXPECT_TRUE( params_changed ) << "Parameters should be updated after step()";
 
         // Parameters should have decreased (gradient descent with positive gradients)
@@ -408,8 +470,11 @@ namespace Dnn::Optimizers::Tests
 
     TEST_F( AdamWCpuTests, Step_MultipleIterations )
     {
+        AdamWConfig cfg;
+        cfg.withLearningRate( default_lr_ );
+
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-            exec_ctx_, default_lr_ );
+            exec_ctx_, cfg );
 
         auto param = createParameter( small_shape_, 1.0f );
         auto grad = createGradient( small_shape_, 0.1f );
@@ -434,8 +499,11 @@ namespace Dnn::Optimizers::Tests
 
     TEST_F( AdamWCpuTests, Step_MultipleParameters )
     {
+        AdamWConfig cfg;
+        cfg.withLearningRate( default_lr_ );
+
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-            exec_ctx_, default_lr_ );
+            exec_ctx_, cfg );
 
         std::vector<std::shared_ptr<Tensor<TensorDataType::FP32, CpuMemoryResource>>> params;
         std::vector<std::shared_ptr<Tensor<TensorDataType::FP32, CpuMemoryResource>>> grads;
@@ -472,8 +540,11 @@ namespace Dnn::Optimizers::Tests
 
     TEST_F( AdamWCpuTests, Step_LargeParameters )
     {
+        AdamWConfig cfg;
+        cfg.withLearningRate( default_lr_ );
+
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-            exec_ctx_, default_lr_ );
+            exec_ctx_, cfg );
 
         auto param = createParameter( large_shape_, 1.0f );
         auto grad = createGradient( large_shape_, 0.01f );
@@ -488,8 +559,15 @@ namespace Dnn::Optimizers::Tests
     TEST_F( AdamWCpuTests, Step_WithWeightDecay )
     {
         // High weight decay to see its effect
+        AdamWConfig cfg;
+        cfg.withLearningRate( 0.1f )
+            .withBeta1( default_beta1_ )
+            .withBeta2( default_beta2_ )
+            .withEpsilon( default_epsilon_ )
+            .withWeightDecay( 0.1f );
+
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-            exec_ctx_, 0.1f, default_beta1_, default_beta2_, default_epsilon_, 0.1f );
+            exec_ctx_, cfg );
 
         auto param = createParameter( small_shape_, 1.0f );
         auto grad = createGradient( small_shape_, 0.0f );  // Zero gradient
@@ -508,8 +586,11 @@ namespace Dnn::Optimizers::Tests
 
     TEST_F( AdamWCpuTests, Error_StepWithoutParameters )
     {
+        AdamWConfig cfg;
+        cfg.withLearningRate( default_lr_ );
+
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-            exec_ctx_, default_lr_ );
+            exec_ctx_, cfg );
 
         EXPECT_THROW( optimizer->step(), std::runtime_error );
     }
@@ -520,8 +601,11 @@ namespace Dnn::Optimizers::Tests
 
     TEST_F( AdamWCpuTests, ZeroGrad_SingleParameter )
     {
+        AdamWConfig cfg;
+        cfg.withLearningRate( default_lr_ );
+
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-            exec_ctx_, default_lr_ );
+            exec_ctx_, cfg );
 
         auto param = createParameter( small_shape_ );
         auto grad = createGradient( small_shape_, 0.5f );
@@ -535,8 +619,11 @@ namespace Dnn::Optimizers::Tests
 
     TEST_F( AdamWCpuTests, ZeroGrad_MultipleParameters )
     {
+        AdamWConfig cfg;
+        cfg.withLearningRate( default_lr_ );
+
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-            exec_ctx_, default_lr_ );
+            exec_ctx_, cfg );
 
         std::vector<std::shared_ptr<Tensor<TensorDataType::FP32, CpuMemoryResource>>> grads;
 
@@ -558,8 +645,11 @@ namespace Dnn::Optimizers::Tests
 
     TEST_F( AdamWCpuTests, Error_ZeroGradWithoutParameters )
     {
+        AdamWConfig cfg;
+        cfg.withLearningRate( default_lr_ );
+
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-            exec_ctx_, default_lr_ );
+            exec_ctx_, cfg );
 
         EXPECT_THROW( optimizer->zeroGrad(), std::runtime_error );
     }
@@ -570,8 +660,11 @@ namespace Dnn::Optimizers::Tests
 
     TEST_F( AdamWCpuTests, SetLearningRate )
     {
+        AdamWConfig cfg;
+        cfg.withLearningRate( default_lr_ );
+
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-            exec_ctx_, default_lr_ );
+            exec_ctx_, cfg );
 
         float new_lr = 0.002f;
         EXPECT_NO_THROW( optimizer->setLearningRate( new_lr ) );
@@ -580,8 +673,11 @@ namespace Dnn::Optimizers::Tests
 
     TEST_F( AdamWCpuTests, Error_SetLearningRate_Invalid )
     {
+        AdamWConfig cfg;
+        cfg.withLearningRate( default_lr_ );
+
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-            exec_ctx_, default_lr_ );
+            exec_ctx_, cfg );
 
         EXPECT_THROW( optimizer->setLearningRate( 0.0f ), std::invalid_argument );
         EXPECT_THROW( optimizer->setLearningRate( -0.001f ), std::invalid_argument );
@@ -589,8 +685,11 @@ namespace Dnn::Optimizers::Tests
 
     TEST_F( AdamWCpuTests, SetWeightDecay )
     {
+        AdamWConfig cfg;
+        cfg.withLearningRate( default_lr_ );
+
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-            exec_ctx_, default_lr_ );
+            exec_ctx_, cfg );
 
         float new_wd = 0.02f;
         EXPECT_NO_THROW( optimizer->setWeightDecay( new_wd ) );
@@ -599,16 +698,22 @@ namespace Dnn::Optimizers::Tests
 
     TEST_F( AdamWCpuTests, Error_SetWeightDecay_Invalid )
     {
+        AdamWConfig cfg;
+        cfg.withLearningRate( default_lr_ );
+
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-            exec_ctx_, default_lr_ );
+            exec_ctx_, cfg );
 
         EXPECT_THROW( optimizer->setWeightDecay( -0.01f ), std::invalid_argument );
     }
 
     TEST_F( AdamWCpuTests, LearningRateSchedule )
     {
+        AdamWConfig cfg;
+        cfg.withLearningRate( 0.1f );
+
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-            exec_ctx_, 0.1f );
+            exec_ctx_, cfg );
 
         auto param = createParameter( small_shape_, 1.0f );
         auto grad = createGradient( small_shape_, 0.1f );
@@ -632,8 +737,15 @@ namespace Dnn::Optimizers::Tests
 
     TEST_F( AdamWCpuTests, EdgeCase_ZeroGradients )
     {
+        AdamWConfig cfg;
+        cfg.withLearningRate( default_lr_ )
+            .withBeta1( default_beta1_ )
+            .withBeta2( default_beta2_ )
+            .withEpsilon( default_epsilon_ )
+            .withWeightDecay( 0.0f );
+
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-            exec_ctx_, default_lr_, default_beta1_, default_beta2_, default_epsilon_, 0.0f );
+            exec_ctx_, cfg );
 
         auto param = createParameter( small_shape_, 1.0f );
         auto grad = createGradient( small_shape_, 0.0f );
@@ -649,8 +761,11 @@ namespace Dnn::Optimizers::Tests
 
     TEST_F( AdamWCpuTests, EdgeCase_LargeGradients )
     {
+        AdamWConfig cfg;
+        cfg.withLearningRate( default_lr_ );
+
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-            exec_ctx_, default_lr_ );
+            exec_ctx_, cfg );
 
         auto param = createParameter( small_shape_, 1.0f );
         auto grad = createGradient( small_shape_, 100.0f );  // Very large gradient
@@ -663,8 +778,11 @@ namespace Dnn::Optimizers::Tests
 
     TEST_F( AdamWCpuTests, EdgeCase_VerySmallGradients )
     {
+        AdamWConfig cfg;
+        cfg.withLearningRate( default_lr_ );
+
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-            exec_ctx_, default_lr_ );
+            exec_ctx_, cfg );
 
         auto param = createParameter( small_shape_, 1.0f );
         auto grad = createGradient( small_shape_, 1e-10f );  // Very small gradient
@@ -677,8 +795,11 @@ namespace Dnn::Optimizers::Tests
 
     TEST_F( AdamWCpuTests, EdgeCase_MixedSignGradients )
     {
+        AdamWConfig cfg;
+        cfg.withLearningRate( default_lr_ );
+
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-            exec_ctx_, default_lr_ );
+            exec_ctx_, cfg );
 
         auto param = createParameter( small_shape_, 0.0f );
         auto grad = createGradient( small_shape_, 0.0f );
@@ -698,8 +819,11 @@ namespace Dnn::Optimizers::Tests
 
     TEST_F( AdamWCpuTests, NumericalStability_ManyIterations )
     {
+        AdamWConfig cfg;
+        cfg.withLearningRate( 0.01f );
+
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-            exec_ctx_, 0.01f );
+            exec_ctx_, cfg );
 
         auto param = createParameter( small_shape_, 1.0f );
         auto grad = createGradient( small_shape_, 0.01f );
@@ -728,8 +852,13 @@ namespace Dnn::Optimizers::Tests
 
     TEST_F( AdamWCpuTests, BiasCorrection_FirstSteps )
     {
+        AdamWConfig cfg;
+        cfg.withLearningRate( 0.01f )
+            .withBeta1( 0.9f )
+            .withBeta2( 0.999f );
+
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-            exec_ctx_, 0.01f, 0.9f, 0.999f );
+            exec_ctx_, cfg );
 
         auto param = createParameter( small_shape_, 1.0f );
         auto grad = createGradient( small_shape_, 0.1f );
@@ -759,8 +888,11 @@ namespace Dnn::Optimizers::Tests
 
     TEST_F( AdamWCpuTests, Integration_TrainingLoop )
     {
+        AdamWConfig cfg;
+        cfg.withLearningRate( 0.01f );
+
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
-            exec_ctx_, 0.01f );
+            exec_ctx_, cfg );
 
         auto param1 = createParameter( small_shape_, 1.0f );
         auto grad1 = createGradient( small_shape_, 0.1f );

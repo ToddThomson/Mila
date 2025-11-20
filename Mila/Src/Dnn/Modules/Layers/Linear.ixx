@@ -10,12 +10,12 @@ module;
 #include <memory>
 #include <vector>
 #include <string>
-#include <optional>
 #include <iostream>
 #include <sstream>
 #include <type_traits>
 #include <stdexcept>
 #include <cstdint>
+#include <cstring>
 
 export module Dnn.Modules.Linear;
 export import :Config;
@@ -36,11 +36,14 @@ import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
 import Serialization.ModelArchive;
+import Serialization.Tensor;
+import nlohmann.json;
 
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Serialization;
+    using json = nlohmann::json;
 
     /**
      * @brief Linear (fully connected) module (device-templated).
@@ -81,6 +84,7 @@ namespace Mila::Dnn
             config_.validate();
 
             initializeParameters();
+            
             createOperation();
         }
 
@@ -115,16 +119,17 @@ namespace Mila::Dnn
 
             validateInputShape( input_shape );
 
-			operation_->setTraining( is_training_ );
-
             // Bind forward parameters to operation
             operation_->setParameters( weight_.get(), bias_.get() );
 
+            // Ensure backend knows current training mode before build
+            operation_->setTraining( this->isTraining() );
+
             // If training mode, initialize gradients and bind to operation
-            if (is_training_)
+            if (this->isTraining())
             {
-                initializeParameterGradients();
-                operation_->setParameterGradients( weight_grad_.get(), bias_grad_.get() );
+                initializeGradients();
+                operation_->setGradients( weight_grad_.get(), bias_grad_.get() );
             }
 
             operation_->build( input_shape );
@@ -165,7 +170,7 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Linear module must be built before calling backward." );
             }
 
-            if (!is_training_)
+            if (!this->isTraining())
             {
                 throw std::runtime_error( "Linear module must be in training mode to call backward. Call setTraining(true) first." );
             }
@@ -187,29 +192,212 @@ namespace Mila::Dnn
         // ====================================================================
         // Serialization
         // ====================================================================
-
-        void save( ModelArchive& archive ) const override
+        
+        /**
+         * @internal
+         * @brief Save module state to a ModelArchive.
+         *
+         * Serializes module configuration and parameters (weight, optional bias).
+         *
+         * @param archive ModelArchive to write to.
+         * @param mode SerializationMode (currently unused).
+		 */
+        void save_( ModelArchive& archive, SerializationMode mode ) const
         {
-            // Persist parameters if present
+            (void)mode;
+
+            // Module prefix inside archive
+            const std::string prefix = "modules/" + this->getName();
+
+            // Emit module meta.json
+            json meta = json::object();
+            meta["type"] = "Linear";
+            meta["version"] = 1;
+            meta["name"] = this->getName();
+
+            archive.writeJson( prefix + "/meta.json", meta );
+
+            // Emit config using LinearConfig helper
+            json cfg = config_.toJson();
+            archive.writeJson( prefix + "/config.json", cfg );
+
+            // Serialize weight
             if (weight_)
             {
-                // archive.saveTensor( this->getName() + ".weight", *weight_ );
+                TensorMetadata tmeta;
+
+                tmeta.dtype = weight_->getDataTypeName();
+                tmeta.shape = weight_->shape();
+                tmeta.byte_size = static_cast<size_t>( weight_->size() ) * weight_->elementSize();
+                tmeta.layout = "row_major";
+                tmeta.byte_order = "little";
+
+                // Prepare host-accessible bytes
+                if constexpr ( std::is_same_v<MR, CpuMemoryResource> )
+                {
+                    // Host tensor; write directly from underlying data
+                    const void* data_ptr = weight_->rawData();
+                    writeTensorBlob( archive, prefix + "/tensors/weight", tmeta, data_ptr, tmeta.byte_size );
+                }
+                else
+                {
+                    // Device tensor: copy to host staging tensor then write
+                    using HostTensorType = Tensor<dtype_t::FP32, CpuMemoryResource>;
+                    HostTensorType host_weight( "CPU", weight_->shape() );
+
+                    // Device -> host copy
+                    copy( *weight_, host_weight );
+
+                    const void* host_ptr = host_weight.rawData();
+                    writeTensorBlob( archive, prefix + "/tensors/weight", tmeta, host_ptr, tmeta.byte_size );
+                }
             }
 
+            // Serialize bias if present
             if (config_.hasBias() && bias_)
             {
-                // archive.saveTensor( this->getName() + ".bias", *bias_ );
+                TensorMetadata bmeta;
+                bmeta.dtype = bias_->getDataTypeName();
+                bmeta.shape = bias_->shape();
+                bmeta.byte_size = static_cast<size_t>( bias_->size() ) * bias_->elementSize();
+                bmeta.layout = "row_major";
+                bmeta.byte_order = "little";
+
+                if constexpr ( std::is_same_v<MR, CpuMemoryResource> )
+                {
+                    const void* data_ptr = bias_->rawData();
+                    writeTensorBlob( archive, prefix + "/tensors/bias", bmeta, data_ptr, bmeta.byte_size );
+                }
+                else
+                {
+                    using HostTensorType = Tensor<dtype_t::FP32, CpuMemoryResource>;
+                    HostTensorType host_bias( std::string( "CPU" ), bias_->shape() );
+
+                    copy( *bias_, host_bias );
+
+                    const void* host_ptr = host_bias.rawData();
+                    writeTensorBlob( archive, prefix + "/tensors/bias", bmeta, host_ptr, bmeta.byte_size );
+                }
             }
         }
 
-        void load( ModelArchive& archive ) override
-        {
-            // Load parameters from archive
-        }
+        //void load( ModelArchive& archive, SerializationMode mode ) override
+        //{
+        //    (void)mode;
+
+        //    const std::string prefix = "modules/" + this->getName();
+
+        //    // Read config and use LinearConfig::fromJson to parse it
+        //    json cfg = archive.readJson( prefix + "/config.json" );
+
+        //    LinearConfig file_cfg = config_;
+        //    file_cfg.fromJson( cfg );
+
+        //    // Validate config against current config_ (strict)
+        //    if (static_cast<int64_t>(config_.getInputFeatures()) != static_cast<int64_t>(file_cfg.getInputFeatures()) ||
+        //        static_cast<int64_t>(config_.getOutputFeatures()) != static_cast<int64_t>(file_cfg.getOutputFeatures()) ||
+        //        config_.hasBias() != file_cfg.hasBias())
+        //    {
+        //        std::ostringstream oss;
+        //        oss << "Linear::load config mismatch for module '" << this->getName() << "'";
+        //        throw std::runtime_error( oss.str() );
+        //    }
+
+        //    // Load weight tensor blob via Tensor.Serialization helper
+        //    auto weight_pair = readTensorBlob( archive, prefix + "/tensors/weight" );
+        //    const TensorMetadata& wmeta = weight_pair.first;
+        //    const std::vector<uint8_t>& wdata = weight_pair.second;
+
+        //    // Validate byte size using host tensor type for TPrecision
+        //    using HostTensorType = Tensor<dtype_t::FP32, CpuMemoryResource>;
+        //    HostTensorType tmp_host_count( std::string( "CPU" ), wmeta.shape );
+
+        //    size_t elem_bytes = tmp_host_count.elementSize();
+        //    size_t elem_count = tmp_host_count.size();
+        //    size_t computed_wbytes = elem_bytes * elem_count;
+
+        //    if (wdata.size() != computed_wbytes)
+        //    {
+        //        throw std::runtime_error( "Linear::load: weight byte-size mismatch for module: " + this->getName() );
+        //    }
+
+        //    // Ensure internal weight_ shape matches archive
+        //    if (!weight_ || weight_->shape() != wmeta.shape)
+        //    {
+        //        // Recreate weight_ with archive shape on module device
+        //        weight_ = std::make_shared<TensorType>( exec_context_->getDevice(), wmeta.shape );
+        //        weight_->setName( this->getName() + ".weight" );
+        //    }
+
+        //    // Copy loaded bytes into module parameter tensor
+        //    if constexpr ( std::is_same_v<MR, CpuMemoryResource> )
+        //    {
+        //        // Host tensor: memcpy directly
+        //        std::memcpy( weight_->rawData(), wdata.data(), wdata.size() );
+        //    }
+        //    else
+        //    {
+        //        // Create host staging tensor and copy into device tensor
+        //        HostTensorType host_weight( std::string( "CPU" ), wmeta.shape );
+        //        std::memcpy( host_weight.rawData(), wdata.data(), wdata.size() );
+
+        //        // Host -> Device copy
+        //        copy( host_weight, *weight_ );
+        //    }
+
+        //    // Bias (optional)
+        //    if (config_.hasBias())
+        //    {
+        //        auto bias_pair = readTensorBlob( archive, prefix + "/tensors/bias" );
+        //        const TensorMetadata& bmeta = bias_pair.first;
+        //        const std::vector<uint8_t>& bdata = bias_pair.second;
+
+        //        HostTensorType tmp_host_bias( std::string( "CPU" ), bmeta.shape );
+        //        size_t b_elem_bytes = tmp_host_bias.elementSize();
+        //        size_t b_elem_count = tmp_host_bias.size();
+        //        size_t computed_bbytes = b_elem_bytes * b_elem_count;
+
+        //        if (bdata.size() != computed_bbytes)
+        //        {
+        //            throw std::runtime_error( "Linear::load: bias byte-size mismatch for module: " + this->getName() );
+        //        }
+
+        //        if (!bias_ || bias_->shape() != bmeta.shape)
+        //        {
+        //            bias_ = std::make_shared<TensorType>( exec_context_->getDevice(), bmeta.shape );
+        //            bias_->setName( this->getName() + ".bias" );
+        //        }
+
+        //        if constexpr ( std::is_same_v<MR, CpuMemoryResource> )
+        //        {
+        //            std::memcpy( bias_->rawData(), bdata.data(), bdata.size() );
+        //        }
+        //        else
+        //        {
+        //            HostTensorType host_bias( std::string( "CPU" ), bmeta.shape );
+        //            std::memcpy( host_bias.rawData(), bdata.data(), bdata.size() );
+
+        //            copy( host_bias, *bias_ );
+        //        }
+        //    }
+        //}
 
         // ====================================================================
         // Parameters and Gradients
         // ====================================================================
+
+        size_t parameterCount() const override
+        {
+            size_t count = 0;
+
+            if (weight_)
+                count += weight_->size();
+
+            if (config_.hasBias() && bias_)
+                count += bias_->size();
+
+            return count;
+        }
 
         std::vector<ITensor*> getParameters() const override
         {
@@ -224,11 +412,11 @@ namespace Mila::Dnn
             return params;
         }
 
-        std::vector<ITensor*> getParameterGradients() const override
+        std::vector<ITensor*> getGradients() const override
         {
-            if (!is_training_)
+            if (!this->isTraining())
             {
-                throw std::runtime_error( "Linear: getParameterGradients called when not in training mode" );
+                throw std::runtime_error( "Linear: getGradients called when not in training mode" );
             }
 
             std::vector<ITensor*> grads;
@@ -281,53 +469,6 @@ namespace Mila::Dnn
             exec_context_->synchronize();
         }
 
-        void setTraining( bool is_training ) override
-        {
-            if (is_training_ == is_training)
-                return;
-
-            is_training_ = is_training;
-
-            // Propagate training mode to operation (if created)
-            if (operation_)
-            {
-                operation_->setTraining( is_training );
-            }
-
-            // If switching TO training mode after build, initialize gradients and bind them
-            if (is_training && is_built_ && operation_)
-            {
-                // Allocate gradient tensors if not already done
-                initializeParameterGradients();
-
-                // Bind gradients to operation
-                operation_->setParameterGradients( weight_grad_.get(), bias_grad_.get() );
-            }
-
-            // Optional: If switching FROM training to inference, could deallocate gradients
-            // to save memory, but we'll keep them for simplicity (allows toggling back)
-        }
-
-        bool isTraining() const override
-        {
-            return is_training_;
-        }
-
-        size_t parameterCount() const override
-        {
-            size_t count = 0;
-
-            if (weight_)
-                count += weight_->size();
-
-            if (config_.hasBias() && bias_)
-                count += bias_->size();
-
-            return count;
-        }
-
-        
-
         std::string toString() const override
         {
             std::ostringstream oss;
@@ -367,19 +508,6 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Return parameters in canonical order (weight, then bias if present).
-         *
-         * Useful for optimizers and parameter iteration helpers.
-         */
-        /*Parameters getParametersTyped() const
-        {
-            Parameters p;
-            if (weight_) p.emplace_back( weight_ );
-            if (bias_)   p.emplace_back( bias_ );
-            return p;
-        }*/
-
-        /**
          * @brief Check whether the module has a bias term.
          *
          * @returns True if bias is enabled in the configuration.
@@ -399,9 +527,40 @@ namespace Mila::Dnn
             return config_;
         }
 
+    protected:
+
+        /**
+         * @brief Hook invoked when training mode is about to change.
+         *
+         * Propagate training mode to the backend operation and allocate / free
+         * parameter gradient buffers as appropriate. Called with Module's
+         * training mutex held; do not call setTraining() here.
+         */
+        void onTrainingChanging( bool is_training ) override
+        {
+            operation_->setTraining( is_training );
+
+            if (is_training)
+            {
+				// Ensure Gradients are allocated and bound
+                initializeGradients();
+                operation_->setGradients( weight_grad_.get(), bias_grad_.get() );
+            }
+            else
+            {
+                // Leaving training: unbind gradients
+                operation_->clearGradients();
+
+                // Note: optimizer references may rely on gradient object lifetime.
+                // We reset gradients here to free device memory; callers should
+                // retain shared_ptr if they need persistent access.
+                weight_grad_.reset();
+                bias_grad_.reset();
+            }
+        }
+
     private:
         LinearConfig config_;
-        bool is_training_{ false };
         bool is_built_{ false };
 
         std::shared_ptr<TensorType> weight_{ nullptr };
@@ -451,25 +610,23 @@ namespace Mila::Dnn
         /**
         * @brief Ensure gradient tensors are allocated with correct shapes.
         */
-        void initializeParameterGradients()
+        void initializeGradients()
         {
             auto device = exec_context_->getDevice();
 
             if (!weight_grad_)
             {
-                weight_grad_ = std::make_shared<TensorType>(
-                    device,
-                    weight_->shape() );
+                weight_grad_ = std::make_shared<TensorType>( device, weight_->shape() );
                 weight_grad_->setName( this->getName() + ".weight.grad" );
+                
                 zeros( *weight_grad_ );
             }
 
             if (config_.hasBias() && !bias_grad_)
             {
-                bias_grad_ = std::make_shared<TensorType>(
-                    device,
-                    bias_->shape() );
+                bias_grad_ = std::make_shared<TensorType>( device, bias_->shape() );
                 bias_grad_->setName( this->getName() + ".bias.grad" );
+                
                 zeros( *bias_grad_ );
             }
         }
@@ -496,6 +653,7 @@ namespace Mila::Dnn
             {
                 bias_ = std::make_shared<TensorType>( device, shape_t{ output_features } );
                 bias_->setName( this->getName() + ".bias" );
+                
                 zeros( *bias_ );
             }
         }
@@ -522,9 +680,9 @@ namespace Mila::Dnn
     };
 
     // Convenience aliases for common usages
-    export template<TensorDataType TPrecision>
+    /* export template<TensorDataType TPrecision>
         using CpuLinear = Linear<DeviceType::Cpu, TPrecision>;
 
     export template<TensorDataType TPrecision>
-        using CudaLinear = Linear<DeviceType::Cuda, TPrecision>;
+        using CudaLinear = Linear<DeviceType::Cuda, TPrecision>;*/
 }

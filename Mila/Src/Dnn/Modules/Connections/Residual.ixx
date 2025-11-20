@@ -70,14 +70,12 @@ namespace Mila::Dnn
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
         using ExecutionContextType = ExecutionContext<TDeviceType>;
         using TensorType = Tensor<TPrecision, MR>;
-        //using Parameters = std::vector<std::shared_ptr<TensorType>>;
-        //using OutputState = std::vector<std::shared_ptr<TensorType>>;
 
         /**
          * @brief Construct with an existing execution context.
          *
          * @param exec_context Shared execution context for device resources.
-         * @param config       Residual configuration (connection type, scaling, projection rules).
+         * @param config       Residual configuration.
          *
          * Throws std::invalid_argument if exec_context is null.
          */
@@ -125,28 +123,34 @@ namespace Mila::Dnn
          */
         void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
         {
-             operation_->backward(
+            operation_->backward(
                 input,
                 output_grad,
                 input_grad
             );
         }
 
-		// ====================================================================
-		// Module lifecycle
-		// ====================================================================
-        
+        // ====================================================================
+        // Module lifecycle
+        // ====================================================================
+
         bool isBuilt() const override
         {
-            // Placeholder; concrete implementations may track build state
-            return true;
-		}
-        
+            return is_built_;
+        }
+
         void build( const shape_t& input_shape ) override
         {
-            // Placeholder; concrete implementations may infer shapes and
-            // allocate parameters as needed based on input_shape.
-		}
+            if (is_built_)
+            {
+                throw std::runtime_error( "Residual::build: module already built" );
+            }
+
+            operation_->build( input_shape );
+
+            input_shape_ = input_shape;
+            is_built_ = true;
+        }
 
         /**
          * @brief Block until all device operations submitted by this module complete.
@@ -162,19 +166,9 @@ namespace Mila::Dnn
          * Placeholder; concrete implementations should write named parameter
          * tensors into the archive.
          */
-        void save( ModelArchive& archive ) const override
+        void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
             // No-op placeholder; serialize parameter tensors if needed
-        }
-
-        /**
-         * @brief Load module parameters from the provided archive.
-         *
-         * Placeholder; concrete implementations should restore parameter tensor contents.
-         */
-        void load( ModelArchive& archive ) override
-        {
-            // No-op placeholder; deserialize parameter tensors if needed
         }
 
         std::vector<ITensor*> getParameters() const override
@@ -182,25 +176,9 @@ namespace Mila::Dnn
             return {};
         }
 
-        std::vector<ITensor*> getParameterGradients() const override
+        std::vector<ITensor*> getGradients() const override
         {
             return {};
-        }
-
-        /**
-         * @brief Set training/evaluation mode for this module.
-         */
-        void setTraining( bool is_training ) override
-        {
-            training_mode_ = is_training;
-        }
-
-        /**
-         * @brief Query training mode.
-         */
-        bool isTraining() const override
-        {
-            return training_mode_;
         }
 
         /**
@@ -220,26 +198,44 @@ namespace Mila::Dnn
 
         /**
          * @brief Return a human-readable description of the module.
+         *
+         * Includes configured name, training/built state, backend presence,
+         * device information and parameter count to aid debugging and logging.
          */
         std::string toString() const override
         {
             std::ostringstream oss;
-            oss << "--------------------" << std::endl;
-            oss << "Residual" << std::endl;
-			//oss << "Name: " << this->getName() << std::endl;
-			//oss << config_ << std::endl;
-            oss << "Parameter count: " << parameterCount() << std::endl;
-            
+            oss << "Residual: " << getName() << std::endl;
+            oss << "Training mode: " << (this->isTraining() ? "true" : "false") << std::endl;
+            oss << "Built: " << (isBuilt() ? "true" : "false") << std::endl;
+            oss << "Device: " << deviceTypeToString( exec_context_->getDevice()->getDeviceType() ) << std::endl;
+
             return oss.str();
         }
 
+    protected:
+        /**
+         * @brief Hook invoked when training mode is about to change.
+         *
+         * Inform backend operation of the new training mode. When leaving
+         * training, explicitly unbind any parameter-gradient pointers on the
+         * backend to avoid accidental use or pinned memory.
+         *
+         * Called with Module's training mutex held; do not call setTraining() here.
+         */
+        void onTrainingChanging( bool is_training ) override
+        {
+            operation_->setTraining( is_training );
+        }
+
     private:
+
         ResidualConfig config_;
-        bool training_mode_{ false };
+        bool is_built_{ false };
+        shape_t input_shape_;
 
         std::shared_ptr<BinaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
         std::shared_ptr<ExecutionContextType> exec_context_;
-
 
         void createOperation()
         {

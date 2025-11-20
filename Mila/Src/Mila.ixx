@@ -18,6 +18,7 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  */
+
 module;
 #include <string>
 #include <iostream>
@@ -73,6 +74,11 @@ export import Compute.DeviceTypeTraits.Cuda;
 export import Compute.CpuDevice;
 export import Compute.CpuDevicePlugin;
 export import Compute.CudaDevice;
+
+// ============================================================================
+// Compute - Optimizers
+// ============================================================================
+export import Compute.OptimizerBase;
 
 // ====================================================================
 // Compute - Device Registry
@@ -135,7 +141,7 @@ export import Compute.CpuTensorDataTypeTraits;
 // Dnn - Core
 // ====================================================================
 export import Dnn.Module;
-export import Dnn.ConfigurationBase;
+export import Dnn.ModuleConfig;
 export import Dnn.CompositeModule;
 
 // ====================================================================
@@ -174,9 +180,9 @@ export import Dnn.Modules.Residual;
 export import Dnn.Modules.Softmax;
 export import Dnn.Modules.SoftmaxCrossEntropy;
 
-// ====================================================================
+// ============================================================================
 // Dnn - Blocks
-// ====================================================================
+// ============================================================================
 export import Dnn.Blocks.MLP;
 export import Dnn.Blocks.Transformer;
 
@@ -184,16 +190,26 @@ export import Dnn.Blocks.Transformer;
 // Dnn - Optimizers
 // ============================================================================
 export import Dnn.Optimizers.AdamW;
+export import Dnn.Optimizers.AdamWConfig;
 
-// ====================================================================
+// ============================================================================
 // Dnn - Data
-// ====================================================================
+// ============================================================================
 export import Data.DataLoader;
 
-// ====================================================================
+// ============================================================================
 // Serialization
-// ====================================================================
+// ============================================================================
+export import Serialization.Mode;
 export import Serialization.ModelArchive;
+export import Serialization.ModelSerializer;
+export import Serialization.ZipSerializer;
+
+// ============================================================================
+// Modeling
+// ============================================================================
+//export import Modeling.ModelConfig;
+//export import Modeling.ModelBuilder;
 
 // ====================================================================
 // Internal Imports (not exported)

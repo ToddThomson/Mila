@@ -26,7 +26,7 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorHostTypeMap;
-import Dnn.ConfigurationBase;
+import Dnn.ModuleConfig;
 import Compute.Precision;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
@@ -203,7 +203,7 @@ namespace Mila::Dnn::Compute
          * Throws:
          * - std::invalid_argument for null pointers, device mismatches or shape mismatches.
          */
-        void setParameterGradients( ITensor* wte_grad, ITensor* wpe_grad ) override
+        void setGradients( ITensor* wte_grad, ITensor* wpe_grad ) override
         {
             // Both gradients are required for encoder training
             if (!wte_grad || !wpe_grad)
@@ -460,7 +460,7 @@ namespace Mila::Dnn::Compute
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::INT32, TensorDataType::FP32>(
                 opName,
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
-                    const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::INT32, TensorDataType::FP32>>
+                    const ModuleConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::INT32, TensorDataType::FP32>>
                 {
                     const auto& encoder_config = dynamic_cast<const EncoderConfig&>(config);
                     return std::make_shared<CpuEncoderOp>( context, encoder_config );

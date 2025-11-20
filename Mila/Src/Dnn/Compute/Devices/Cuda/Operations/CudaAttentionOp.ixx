@@ -25,7 +25,7 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorHostTypeMap;
-import Dnn.ConfigurationBase;
+import Dnn.ModuleConfig;
 import Compute.Precision;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
@@ -149,7 +149,7 @@ namespace Mila::Dnn::Compute
             // Multi-head attention has no learnable parameters
         }
 
-        void setParameterGradients( ITensor* /*unused1*/, ITensor* /*unused2*/ ) override
+        void setGradients( ITensor* /*unused1*/, ITensor* /*unused2*/ ) override
         {
             // Multi-head attention has no learnable parameters
         }
@@ -369,7 +369,7 @@ namespace Mila::Dnn::Compute
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32>(
                 opName,
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                    const ConfigurationBase& config )
+                    const ModuleConfig& config )
                 -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32>>
                 {
                     const auto& mha_config = dynamic_cast<const AttentionConfig&>(config);
@@ -381,7 +381,7 @@ namespace Mila::Dnn::Compute
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP16, TensorDataType::FP16>(
                 opName,
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                    const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
+                    const ModuleConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
                 {
                     const auto& mha_config = dynamic_cast<const AttentionConfig&>(config);
                     return std::make_shared<CudaAttentionOp<TensorDataType::FP16>>( context, mha_config );

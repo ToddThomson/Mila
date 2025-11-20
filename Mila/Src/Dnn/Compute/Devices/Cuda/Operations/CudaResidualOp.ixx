@@ -27,7 +27,7 @@ export module Compute.CudaResidualOp;
 import Dnn.Modules.Residual;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
-import Dnn.ConfigurationBase;
+import Dnn.ModuleConfig;
 import Compute.OperationBase;
 import Compute.BinaryOperation;
 import Compute.OperationRegistry;
@@ -189,7 +189,7 @@ namespace Mila::Dnn::Compute
         {
             OperationRegistry::instance().registerBinaryOperation<DeviceType::Cuda, TInputA, TInputB, TPrecision>(
                 opName,
-                []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context, const ConfigurationBase& config )
+                []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context, const ModuleConfig& config )
                     -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, TInputA, TInputB, TPrecision>>
                 {
                     const auto& residualConfig = static_cast<const ResidualConfig&>(config);

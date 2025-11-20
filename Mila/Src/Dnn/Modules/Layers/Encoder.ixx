@@ -121,16 +121,16 @@ namespace Mila::Dnn
 
             validateInputShape( input_shape );
 
-            operation_->setTraining( is_training_ );
+            operation_->setTraining( this->isTraining() );
 
             // Bind forward parameters to operation
             operation_->setParameters( wte_.get(), wpe_.get() );
 
             // If training mode, initialize gradients and bind to operation
-            if (is_training_)
+            if (this->isTraining())
             {
                 initializeParameterGradients();
-                operation_->setParameterGradients( wte_grad_.get(), wpe_grad_.get() );
+                operation_->setGradients( wte_grad_.get(), wpe_grad_.get() );
             }
 
             operation_->build( input_shape );
@@ -177,7 +177,7 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Encoder module must be built before calling backward." );
             }
 
-            if (!is_training_)
+            if (!this->isTraining())
             {
                 throw std::runtime_error( "Encoder module must be in training mode to call backward. Call setTraining(true) first." );
             }
@@ -200,7 +200,7 @@ namespace Mila::Dnn
         // Serialization
         // ====================================================================
 
-        void save( ModelArchive& archive ) const override
+        void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
             // Persist parameters if present
             if (wte_)
@@ -214,14 +214,22 @@ namespace Mila::Dnn
             }
         }
 
-        void load( ModelArchive& archive ) override
-        {
-            // Load parameters from archive
-        }
-
         // ====================================================================
         // Parameters and Gradients
         // ====================================================================
+        
+        size_t parameterCount() const override
+        {
+            size_t count = 0;
+
+            if (wte_)
+                count += wte_->size();
+
+            if (wpe_)
+                count += wpe_->size();
+
+            return count;
+        }
 
         std::vector<ITensor*> getParameters() const override
         {
@@ -236,11 +244,11 @@ namespace Mila::Dnn
             return params;
         }
 
-        std::vector<ITensor*> getParameterGradients() const override
+        std::vector<ITensor*> getGradients() const override
         {
-            if (!is_training_)
+            if (!this->isTraining())
             {
-                throw std::runtime_error( "Encoder: getParameterGradients called when not in training mode" );
+                throw std::runtime_error( "Encoder: getGradients called when not in training mode" );
             }
 
             std::vector<ITensor*> grads;
@@ -291,48 +299,6 @@ namespace Mila::Dnn
         void synchronize() override
         {
             exec_context_->synchronize();
-        }
-
-        void setTraining( bool is_training ) override
-        {
-            if (is_training_ == is_training)
-                return;
-
-            is_training_ = is_training;
-
-            // Propagate training mode to operation (if created)
-            if (operation_)
-            {
-                operation_->setTraining( is_training );
-            }
-
-            // If switching TO training mode after build, initialize gradients and bind them
-            if (is_training && is_built_ && operation_)
-            {
-                // Allocate gradient tensors if not already done
-                initializeParameterGradients();
-
-                // Bind gradients to operation
-                operation_->setParameterGradients( wte_grad_.get(), wpe_grad_.get() );
-            }
-        }
-
-        bool isTraining() const override
-        {
-            return is_training_;
-        }
-
-        size_t parameterCount() const override
-        {
-            size_t count = 0;
-
-            if (wte_)
-                count += wte_->size();
-
-            if (wpe_)
-                count += wpe_->size();
-
-            return count;
         }
 
         std::string toString() const override
@@ -413,9 +379,43 @@ namespace Mila::Dnn
             return config_.getChannels();
         }
 
+    protected:
+
+        /**
+         * @brief Hook invoked when training mode is about to change.
+         *
+         * Propagate training mode to the backend operation. When enabling
+         * training after the module is built, allocate and bind gradient
+         * tensors. When disabling training, unbind gradients and free buffers
+         * to release memory.
+         *
+         * Called with Module's training mutex held; do not call setTraining() here.
+         */
+        void onTrainingChanging( bool is_training ) override
+        {
+            operation_->setTraining( is_training );
+
+            if ( is_training )
+            {
+                // Entering training: if already built ensure gradients allocated and bound
+                if (is_built_)
+                {
+                    initializeParameterGradients();
+                    operation_->setGradients( wte_grad_.get(), wpe_grad_.get() );
+                }
+            }
+            else
+            {
+                // Leaving training: unbind and free gradients
+                operation_->clearGradients();
+
+                wte_grad_.reset();
+                wpe_grad_.reset();
+            }
+        }
+
     private:
         EncoderConfig config_;
-        bool is_training_{ false };
         bool is_built_{ false };
 
         std::shared_ptr<EmbeddingsTensorType> wte_{ nullptr };  // Token embeddings (V, C)
@@ -533,9 +533,9 @@ namespace Mila::Dnn
     };
 
     // Convenience aliases for common usages
-    export template<TensorDataType TPrecision, TensorDataType TTargets = dtype_t::INT32>
+    /*export template<TensorDataType TPrecision, TensorDataType TTargets = dtype_t::INT32>
         using CpuEncoder = Encoder<DeviceType::Cpu, TPrecision, TTargets>;
 
     export template<TensorDataType TPrecision, TensorDataType TTargets = dtype_t::INT32>
-        using CudaEncoder = Encoder<DeviceType::Cuda, TPrecision, TTargets>;
+        using CudaEncoder = Encoder<DeviceType::Cuda, TPrecision, TTargets>;*/
 }

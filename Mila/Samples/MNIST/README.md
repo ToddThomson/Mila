@@ -7,7 +7,7 @@ This sample demonstrates training a feed-forward neural network on the MNIST dat
 The MNIST classifier implements a simple three-layer fully connected neural network architecture:
 
 ```
-Input (784) ? Linear (128) ? GELU ? Linear (64) ? GELU ? Linear (10) ? Output
+Input (784) -> Linear (128) -> GELU -> Linear (64) -> GELU -> Linear (10) -> Output
 ```
 
 The model classifies 28×28 grayscale images of handwritten digits (0-9) into their corresponding classes.
@@ -25,9 +25,9 @@ The model classifies 28×28 grayscale images of handwritten digits (0-9) into the
 
 ### MnistClassifier
 - **Input**: 784 features (28×28 flattened images)
-- **Hidden Layer 1**: 784 ? 128 neurons + GELU activation
-- **Hidden Layer 2**: 128 ? 64 neurons + GELU activation
-- **Output Layer**: 64 ? 10 classes (one-hot encoded)
+- **Hidden Layer 1**: 784 -> 128 neurons + GELU activation
+- **Hidden Layer 2**: 128 -> 64 neurons + GELU activation
+- **Output Layer**: 64 -> 10 classes (one-hot encoded)
 - **Total Parameters**: ~101K trainable parameters
 
 ### Data Pipeline

@@ -3,24 +3,31 @@
  * @brief Configuration interface for the Linear module in the Mila DNN framework.
  *
  * Defines the LinearConfig class, providing a type-safe fluent interface for configuring
- * Linear (fully connected) layer modules. Inherits from ConfigurationBase CRTP base and adds
+ * Linear (fully connected) layer modules. Inherits from ModuleConfig CRTP base and adds
  * Linear-specific options: input/output feature dimensions and bias configuration.
  *
  * Exposed as part of the Linear module via module partitions.
  */
 
 module;
+#include <memory> // for nlohmann::json to compile in VS2026
 #include <stdexcept>
 #include <cstdint>
+#include <string>
+#include <utility>
+#include <sstream>
 
 export module Dnn.Modules.Linear:Config;
 
 import Dnn.Module;
-import Dnn.ConfigurationBase;
+import Dnn.ModuleConfig;
 import Dnn.TensorTypes;
+import nlohmann.json;
 
 namespace Mila::Dnn
 {
+    using json = nlohmann::json;
+
     /**
      * @class LinearConfig
      * @brief Configuration object for a Linear (fully connected) layer.
@@ -39,7 +46,7 @@ namespace Mila::Dnn
      *       factories or constructors. Validation should be invoked prior to creating
      *       runtime objects to surface configuration errors early.
      */
-    export class LinearConfig : public ConfigurationBase
+    export class LinearConfig : public ModuleConfig
     {
     public:
         /**
@@ -56,18 +63,45 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Set whether the Linear layer includes a bias term.
+         * @brief C++23-style fluent setter for bias enable flag.
          *
-         * This method implements a fluent setter: it modifies this configuration and
-         * returns a reference to allow chaining of additional setters.
+         * Uses the explicit object parameter style so chaining preserves the
+         * exact value category (lvalue/rvalue) of the caller.
          *
          * @param has_bias True to include a bias parameter, false to omit it.
-         * @return LinearConfig& Reference to this configuration (for chaining).
+         * @return Self&& Reference to this configuration (for chaining).
          */
-        LinearConfig& withBias( bool has_bias )
+        template <typename Self>
+        decltype(auto) withBias( this Self&& self, bool has_bias )
         {
-            has_bias_ = has_bias;
-            return *this;
+            self.has_bias_ = has_bias;
+            return std::forward<Self>( self );
+        }
+
+        /**
+         * @brief C++23-style fluent setter for input features.
+         *
+         * Provided to support fluent construction patterns when the caller
+         * prefers setters over the constructor.
+         */
+        template <typename Self>
+        decltype(auto) withInputFeatures( this Self&& self, dim_t input_features )
+        {
+            self.input_features_ = input_features;
+            return std::forward<Self>( self );
+        }
+
+        /**
+         * @brief C++23-style fluent setter for output features.
+         *
+         * Provided to support fluent construction patterns when the caller
+         * prefers setters over the constructor.
+         */
+        template <typename Self>
+        decltype(auto) withOutputFeatures( this Self&& self, dim_t output_features )
+        {
+            self.output_features_ = output_features;
+            return std::forward<Self>( self );
         }
 
         /**
@@ -108,13 +142,76 @@ namespace Mila::Dnn
          */
         void validate() const override
         {
-            ConfigurationBase::validate();
-
             if (input_features_ <= 0 || output_features_ <= 0)
             {
                 throw std::invalid_argument( "LinearConfig: Input and output features must be greater than zero" );
             }
         }
+
+        /**
+         * @brief Serialize this configuration to JSON (ModuleConfig interface).
+         *
+         * Produces keys:
+         * - "name" : string
+         * - "precision" : integer (underlying value of ComputePrecision::Policy)
+         * - "input_features" : integer
+         * - "output_features" : integer
+         * - "has_bias" : boolean
+         */
+        json toJson() const
+        {
+            json j;
+            j["name"] = name_;
+            j["precision"] = static_cast<int>( precision_ );
+            j["input_features"] = static_cast<int64_t>( input_features_ );
+            j["output_features"] = static_cast<int64_t>( output_features_ );
+            j["has_bias"] = has_bias_;
+
+            return j;
+        }
+
+        /**
+         * @brief Deserialize configuration from JSON (ModuleConfig interface).
+         *
+         * Missing keys leave fields at their current values. Type errors are
+         * propagated from nlohmann::json getters.
+         */
+        void fromJson( const json& j )
+        {
+            if ( j.contains( "name" ) )
+            {
+                name_ = j.at( "name" ).get<std::string>();
+            }
+
+            if ( j.contains( "precision" ) )
+            {
+                precision_ = static_cast<decltype( precision_)>( j.at( "precision" ).get<int>() );
+            }
+
+            if ( j.contains( "input_features" ) )
+            {
+                input_features_ = static_cast<dim_t>( j.at( "input_features" ).get<int64_t>() );
+            }
+
+            if ( j.contains( "output_features" ) )
+            {
+                output_features_ = static_cast<dim_t>( j.at( "output_features" ).get<int64_t>() );
+            }
+
+            if ( j.contains( "has_bias" ) )
+            {
+                has_bias_ = j.at( "has_bias" ).get<bool>();
+            }
+        }
+
+        std::string toString() const override
+        {
+            std::ostringstream oss;
+            oss << "LinearConfig(input_features=" << input_features_
+                << ", output_features=" << output_features_
+                << ", has_bias=" << std::boolalpha << has_bias_ << ")";
+            return oss.str();
+		}
 
     private:
         /**

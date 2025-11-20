@@ -49,7 +49,7 @@ namespace Mila
         {
         }
 
-        std::string ToString() const
+        std::string toString() const
         {
             std::stringstream ss;
 

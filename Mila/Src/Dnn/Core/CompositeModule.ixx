@@ -43,12 +43,10 @@ namespace Mila::Dnn
         using ModulePtr = std::shared_ptr<Module<TDeviceType>>;
 
         /**
-         * @brief Construct a composite module with an optional name.
-         *
-         * @param name Stable identifier returned by `getName()`.
+         * @brief Construct a composite module.
          */
         explicit CompositeModule()
-            : is_training_( false ), is_built_(false)
+            : is_built_( false )
         {
         }
 
@@ -70,7 +68,7 @@ namespace Mila::Dnn
 
             if (name.empty())
             {
-                throw std::invalid_argument( "Sub-module name cannot be empty." );
+                throw std::invalid_argument( "Module name cannot be empty." );
             }
 
             if (!module)
@@ -80,13 +78,14 @@ namespace Mila::Dnn
 
             if (child_module_map_.find( name ) != child_module_map_.end())
             {
-                throw std::invalid_argument( "Sub-module name '" + name + "' already exists." );
+                throw std::invalid_argument( "Module name '" + name + "' already exists." );
             }
 
             child_module_map_[name] = module;
             child_modules_.push_back( module );
 
-            module->setTraining( is_training_ );
+			// REVIEW: Should we set training mode here? Why?
+            module->setTraining( this->isTraining() );
 
             return *this;
         }
@@ -102,7 +101,7 @@ namespace Mila::Dnn
             }
 
             std::string auto_name = "module_" + std::to_string( child_modules_.size() );
-            
+
             return addModule( auto_name, module );
         }
 
@@ -116,7 +115,7 @@ namespace Mila::Dnn
             {
                 throw std::out_of_range( "No module named '" + name + "' found." );
             }
-            
+
             return it->second;
         }
 
@@ -211,14 +210,14 @@ namespace Mila::Dnn
                 *vector_it = module;
             }
 
-            module->setTraining( is_training_ );
+            module->setTraining( this->isTraining() );
 
             return true;
         }
 
         // ====================================================================
         // Build Lifecycle
-		// ====================================================================
+        // ====================================================================
 
         /**
          * @brief Check if this module and all children are built.
@@ -259,27 +258,6 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Set training mode and propagate to children.
-         */
-        void setTraining( bool is_training ) override
-        {
-            is_training_ = is_training;
-
-            for (auto& module : child_modules_)
-            {
-                module->setTraining( is_training );
-            }
-        }
-
-        /**
-         * @brief Query training mode.
-         */
-        bool isTraining() const override
-        {
-            return is_training_;
-        }
-
-        /**
          * @brief Count parameters across all children.
          */
         size_t parameterCount() const override
@@ -314,18 +292,18 @@ namespace Mila::Dnn
                 auto child_params = module->getParameters();
                 params.insert( params.end(), child_params.begin(), child_params.end() );
             }
-            
+
             return params;
         }
 
-        std::vector<ITensor*> getParameterGradients() const override
+        std::vector<ITensor*> getGradients() const override
         {
             if (!isBuilt())
             {
                 throw std::runtime_error( "Cannot get parameter gradients before build()" );
             }
 
-            if (!is_training_)
+            if (!this->isTraining())
             {
                 throw std::runtime_error( "Cannot get parameter gradients when not in training mode" );
             }
@@ -333,85 +311,28 @@ namespace Mila::Dnn
             std::vector<ITensor*> grads;
             for (auto& module : child_modules_)
             {
-                auto child_grads = module->getParameterGradients();
+                auto child_grads = module->getGradients();
                 grads.insert( grads.end(), child_grads.begin(), child_grads.end() );
             }
-            
+
             return grads;
         }
 
-		// ====================================================================
-		// Serialization
-		// ====================================================================
+        // ====================================================================
+        // Serialization
+        // ====================================================================
 
         /**
          * @brief Save all child modules.
-         *
-         * @throws std::runtime_error if not built
          */
-        void save( ModelArchive& archive ) const override
+        void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
-            //if (!isBuilt())
-            //{
-            //    throw std::runtime_error(
-            //        "Cannot save before build() is called"
-            //    );
-            //}
-
-            //// Save build state
-            //archive.write( "is_built", is_built_ );
-            //archive.write( "num_children", child_modules_.size() );
-
-            //// Save each child with its name
-            //for (const auto& [name, module] : child_module_map_)
-            //{
-            //    archive.beginGroup( name );
-            //    module->save( archive );
-            //    archive.endGroup();
-            //}
+            (void)archive;
         }
 
-        /**
-         * @brief Load all child modules and mark as built.
-         */
-        void load( ModelArchive& archive ) override
-        {
-            //bool was_built;
-            //archive.read( "is_built", was_built );
-
-            //if (!was_built)
-            //{
-            //    throw std::runtime_error(
-            //        "Cannot load model that was not built before saving"
-            //    );
-            //}
-
-            //size_t num_children;
-            //archive.read( "num_children", num_children );
-
-            //if (num_children != child_modules_.size())
-            //{
-            //    throw std::runtime_error(
-            //        "Model structure mismatch: expected " +
-            //        std::to_string( num_children ) + " children, found " +
-            //        std::to_string( child_modules_.size() )
-            //    );
-            //}
-
-            //// Load each child
-            //for (const auto& [name, module] : child_module_map_)
-            //{
-            //    archive.beginGroup( name );
-            //    module->load( archive );
-            //    archive.endGroup();
-            //}
-
-            //is_built_ = true;  // Now built after loading
-        }
-
-		// ====================================================================
-		// Description
-		// ====================================================================
+        // ====================================================================
+        // Description
+        // ====================================================================
 
         /**
          * @brief Human-readable description.
@@ -419,8 +340,6 @@ namespace Mila::Dnn
         std::string toString() const override
         {
             std::ostringstream oss;
-            //oss << name_ << " (Composite)";
-
             oss << " { children: [";
 
             bool first = true;
@@ -458,9 +377,25 @@ namespace Mila::Dnn
             }
         }
 
+        /**
+         * @brief Hook invoked when training mode is about to change.
+         *
+         * Propagate the new mode to all child modules. The hook runs with the
+         * Module's training mutex held; it MUST NOT call `setTraining()` itself.
+         *
+         * @param newMode New training mode requested (true == training).
+         * @param oldMode Previous training mode.
+         */
+        void onTrainingChanging( bool is_training ) override
+        {
+            for (auto& module : child_modules_)
+            {
+                module->setTraining( is_training );
+            }
+        }
+
         std::vector<ModulePtr> child_modules_;
         std::unordered_map<std::string, ModulePtr> child_module_map_;
-        bool is_training_;
-		bool is_built_;
+        bool is_built_;
     };
 }

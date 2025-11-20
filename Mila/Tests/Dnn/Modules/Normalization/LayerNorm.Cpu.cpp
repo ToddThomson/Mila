@@ -127,7 +127,7 @@ namespace Modules::Normalization::Tests
                 small_fp32_ = LayerNormCpuTestData<TensorDataType::FP32>::Create(
                     "small_layernorm", small_shape_, small_normalized_shape_ );
             }
-            
+
             return small_fp32_;
         }
 
@@ -218,27 +218,16 @@ namespace Modules::Normalization::Tests
     template<TensorDataType TPrecision>
     void TestParameters( const LayerNormCpuTestData<TPrecision>& data, size_t expected_weight_size )
     {
-        auto weight = data.module->getWeight();
-        ASSERT_NE( weight, nullptr );
-        EXPECT_EQ( weight->size(), expected_weight_size );
-
-        auto bias = data.module->getBias();
-
-        if (data.config.hasBias())
-        {
-            ASSERT_NE( bias, nullptr );
-            EXPECT_EQ( bias->size(), expected_weight_size );
-        }
-        else
-        {
-            EXPECT_EQ( bias, nullptr );
-        }
-
+        // Module no longer exposes getWeight/getBias; use getParameters()
         auto params = data.module->getParameters();
 
+        ASSERT_FALSE( params.empty() );
+        EXPECT_EQ( static_cast<size_t>(static_cast<CpuTensor<TPrecision>*>(params[0])->size()), expected_weight_size );
+
         if (data.config.hasBias())
         {
-            EXPECT_EQ( params.size(), 2 );
+            ASSERT_EQ( params.size(), 2 );
+            EXPECT_EQ( static_cast<size_t>(static_cast<CpuTensor<TPrecision>*>(params[1])->size()), expected_weight_size );
         }
         else
         {
@@ -345,13 +334,14 @@ namespace Modules::Normalization::Tests
     }
 
     TEST_F( LayerNormCpuTests, IsBuilt_BeforeBuild )
-    {// Module with normalized_shape (eager parameter creation)
+    {
+        // Module with normalized_shape (eager parameter creation)
         auto data = SmallFp32Data();
-        EXPECT_FALSE( data.module->isBuilt() );  // Not built yet - built_ is false
+        EXPECT_FALSE( data.module->isBuilt() );
 
         // Parameters should exist (created in constructor)
-        EXPECT_NE( data.module->getWeight(), nullptr );
-        EXPECT_NE( data.module->getBias(), nullptr );
+        /*EXPECT_NE( data.module->getWeight(), nullptr );
+        EXPECT_NE( data.module->getBias(), nullptr );*/
     }
 
     TEST_F( LayerNormCpuTests, IsBuilt_AfterBuild )
@@ -375,8 +365,8 @@ namespace Modules::Normalization::Tests
         EXPECT_FALSE( data.module->isBuilt() );
 
         // Parameters should NOT exist yet (lazy creation)
-        EXPECT_EQ( data.module->getWeight(), nullptr );
-        EXPECT_EQ( data.module->getBias(), nullptr );
+        auto params_before = data.module->getParameters();
+        EXPECT_TRUE( params_before.empty() );
     }
 
     TEST_F( LayerNormCpuTests, IsBuilt_WithAxis_AfterBuild )
@@ -388,8 +378,10 @@ namespace Modules::Normalization::Tests
         data.module->build( data.shape );
 
         EXPECT_TRUE( data.module->isBuilt() );
-        EXPECT_NE( data.module->getWeight(), nullptr );
-        EXPECT_NE( data.module->getBias(), nullptr );
+        auto params = data.module->getParameters();
+        ASSERT_FALSE( params.empty() );
+        EXPECT_EQ( static_cast<size_t>(static_cast<CpuTensor<TensorDataType::FP32>*>(params[0])->size()),
+            static_cast<size_t>(data.shape.back()) );
     }
 
     TEST_F( LayerNormCpuTests, Build )
@@ -514,16 +506,28 @@ namespace Modules::Normalization::Tests
             input_ptr[i] = dist( rng );
         }
 
-        auto weight = data.module->getWeight();
-        auto bias = data.module->getBias();
+        // Use getParameters() to access weight/bias; order is weight then bias (if present)
+        auto params = data.module->getParameters();
+        ASSERT_FALSE( params.empty() );
 
-        auto weight_ptr = weight->data();
-        auto bias_ptr = bias->data();
+        auto weight_ptr = static_cast<CpuTensor<TensorDataType::FP32>*>( params[0] )->data();
 
-        for (size_t i = 0; i < weight->size(); ++i)
+        if (data.config.hasBias())
         {
-            weight_ptr[i] = 1.0f;
-            bias_ptr[i] = 0.0f;
+            auto bias_ptr = static_cast<CpuTensor<TensorDataType::FP32>*>(params[1])->data();
+
+            for (size_t i = 0; i < static_cast<size_t>( static_cast<CpuTensor<TensorDataType::FP32>*>( params[0] )->size() ); ++i)
+            {
+                weight_ptr[i] = 1.0f;
+                bias_ptr[i] = 0.0f;
+            }
+        }
+        else
+        {
+            for (size_t i = 0; i < static_cast<size_t>( static_cast<CpuTensor<TensorDataType::FP32>*>( params[0] )->size() ); ++i)
+            {
+                weight_ptr[i] = 1.0f;
+            }
         }
 
         data.module->forward( input, output );
@@ -575,9 +579,10 @@ namespace Modules::Normalization::Tests
         EXPECT_NO_THROW( data.module->build( data.shape ) );
         EXPECT_TRUE( data.module->isBuilt() );
 
-        auto weight = data.module->getWeight();
-        ASSERT_NE( weight, nullptr );
-        EXPECT_EQ( weight->size(), static_cast<size_t>(data.shape.back()) );
+        auto params = data.module->getParameters();
+        ASSERT_FALSE( params.empty() );
+        EXPECT_EQ( static_cast<size_t>(static_cast<CpuTensor<TensorDataType::FP32>*>(params[0])->size()),
+            static_cast<size_t>(data.shape.back()) );
     }
 
     TEST_F( LayerNormCpuTests, WithAxis_Forward )

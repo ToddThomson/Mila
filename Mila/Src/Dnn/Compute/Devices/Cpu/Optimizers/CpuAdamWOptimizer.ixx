@@ -19,6 +19,7 @@ module;
 
 export module Compute.CpuAdamWOptimizer;
 
+import Dnn.Optimizers.AdamWConfig;
 import Dnn.ITensor;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
@@ -32,6 +33,8 @@ import Compute.CpuExecutionContext;
 
 namespace Mila::Dnn::Compute
 {
+	using AdamWConfig = Mila::Dnn::Optimizers::AdamWConfig;
+
     /**
      * @brief CPU-specific AdamW optimizer implementation.
      *
@@ -79,22 +82,10 @@ namespace Mila::Dnn::Compute
          * @throws std::invalid_argument if beta1, beta2 not in (0, 1)
          * @throws std::invalid_argument if epsilon <= 0
          */
-        explicit CpuAdamWOptimizer(
-            std::shared_ptr<ExecutionContextType> exec_context,
-            float learning_rate,
-            float beta1 = 0.9f,
-            float beta2 = 0.999f,
-            float epsilon = 1e-8f,
-            float weight_decay = 0.01f )
-            : exec_context_( exec_context )
-            , learning_rate_( learning_rate )
-            , beta1_( beta1 )
-            , beta2_( beta2 )
-            , epsilon_( epsilon )
-            , weight_decay_( weight_decay )
-            , step_count_( 0 )
+        explicit CpuAdamWOptimizer( std::shared_ptr<ExecutionContextType> context, const AdamWConfig& config )
+            : context_( context ), config_( config )
         {
-            if (!exec_context_)
+            if (!context_)
             {
                 throw std::invalid_argument( "CpuAdamWOptimizer: ExecutionContext cannot be null" );
             }
@@ -167,7 +158,7 @@ namespace Mila::Dnn::Compute
             grad_data_.push_back( reinterpret_cast<const HostType*>(grad->rawData()) );
 
             // Create optimizer-owned state tensors (always FP32 for numerical stability)
-            auto device = exec_context_->getDevice();
+            auto device = context_->getDevice();
             auto shape = param->shape();
 
             auto m_state = std::make_shared<Tensor<TensorDataType::FP32, MR>>( device, shape );
@@ -339,15 +330,16 @@ namespace Mila::Dnn::Compute
         }
 
     private:
-        std::shared_ptr<ExecutionContextType> exec_context_;
+        
+        std::shared_ptr<ExecutionContextType> context_;
+        AdamWConfig config_;
 
-        // Hyperparameters
         float learning_rate_;
         float beta1_;
         float beta2_;
         float epsilon_;
         float weight_decay_;
-        size_t step_count_;
+        size_t step_count_{ 0 };
 
         // Non-owning pointers to parameters and gradients (module owns these)
         std::vector<ITensor*> params_;

@@ -1,6 +1,6 @@
 /**
  * @file OperationBase.ixx
- * @brief Core abstraction for neural network operations in the Mila framework
+ * @brief Core abstraction for neural network operations in the Mila framework.
  */
 
 module;
@@ -28,15 +28,7 @@ namespace Mila::Dnn::Compute
         virtual ~Operation() = default;
 
         /**
-         * @brief Check if operation has been built for a specific input shape.
-         *
-         * Operations may defer expensive setup (kernel compilation, workspace
-         * allocation, algorithm selection) until input shapes are known.
-         *
-         * @return true if build() has completed successfully
-         * @return false if operation requires build() before execution
-         *
-         * @see build()
+         * @brief Whether build() completed successfully for a concrete input shape.
          */
         virtual bool isBuilt() const
         {
@@ -44,42 +36,23 @@ namespace Mila::Dnn::Compute
         }
 
         /**
-         * @brief Prepare operation for execution with known input shape(s).
+         * @brief Prepare the operation for a concrete input shape.
          *
-         * This method enables shape-dependent optimizations:
-         * - Kernel compilation with template specialization for dimensions
-         * - Workspace/scratch memory allocation
-         * - Algorithm selection based on problem size
-         * - Validation of shape compatibility
-         * - Caching of dimension-dependent constants
-         *
-         * Default implementation is a no-op. Operations requiring build-time
+         * Default implementation is a no-op. Operations requiring shape-dependent
          * setup should override this method.
-         *
-         * @param input_shapes Shape(s) of input tensor(s). Unary operations
-         *                     receive single shape, binary operations receive
-         *                     pair of shapes.
-         *
-         * @note Idempotent - safe to call multiple times
-         * @note Must be called before forward() or backward() if isBuilt() is false
-         * @note After build(), input shapes in forward/backward must match
-         *
-         * @throws std::invalid_argument if shapes are incompatible with operation
-         * @throws std::runtime_error if compilation or allocation fails
          */
         virtual void build( [[maybe_unused]] const shape_t& input_shape )
         {
-            // Default: no build required
+			// Default: no build required by stateless operations
             is_built_ = true;
         }
 
         /**
          * @brief Bind module-owned parameter tensors to the operation.
          *
-         * - The Module remains the canonical owner of parameter tensors.
-         * - The operation MUST NOT take ownership or free the provided pointers.
-         * - Implementations may cache `rawData()` pointers derived from the provided
-         *   `ITensor` during `build()` for hot-path use.
+         * The module retains ownership of the provided ITensor objects. Implementations
+         * may cache rawData() pointers for hot-path access but MUST NOT free the
+         * provided pointers.
          *
          * Default: no-op for stateless operations.
          */
@@ -90,48 +63,60 @@ namespace Mila::Dnn::Compute
         }
 
         /**
-         * @brief Bind module-owned parameter gradient tensors to the operation.
+         * @brief Bind module-owned gradient tensors to the operation.
          *
-         * - The Module remains the canonical owner of parameter gradient tensors.
-         * - The operation MUST NOT take ownership or free the provided pointers.
-         * - Implementations may cache `rawData()` pointers derived from the provided
-         *   `ITensor` during `build()` for hot-path use.
+         * New canonical API for binding gradient buffers. Mirrors semantics of
+         * `setParameters()` but for gradients used during backward().
+         *
+         * The operation MUST NOT take ownership of the provided pointers. Implementations
+         * may cache rawData() pointers for hot-path writes.
          *
          * Default: no-op for stateless operations.
          */
-        virtual void setParameterGradients( ITensor* weight_grad, ITensor* bias_grad )
+        virtual void setGradients( ITensor* weight_grad, ITensor* bias_grad )
         {
             (void)weight_grad;
             (void)bias_grad;
         }
 
         /**
-         * @brief Set whether the operation is in training mode.
+         * @brief Clear any cached gradient pointers held by the operation.
          *
-         * @param is_training True to enable training-mode behavior.
+         * Explicit unbind called by modules before freeing/resetting module-owned
+         * gradient buffers. Implementations MUST null-out any cached raw pointers
+         * and MUST NOT throw. Marked noexcept so it is safe to call from destructors
+         * or during state transitions.
+         */
+        virtual void clearGradients() noexcept
+        {
+			// Default: no-op for stateless operations
+        }
+
+        /**
+         * @brief Configure operation training-mode behavior.
+         *
+         * Implementations may use this to enable/disable training-specific work.
          */
         virtual void setTraining( bool is_training )
         {
-			is_training_ = is_training;
+            is_training_ = is_training;
         }
 
         /**
-         * @brief Query whether the operation is in training mode.
-         *
-         * @returns True if the operation is configured for training behavior.
+         * @brief Query whether operation is configured for training.
          */
-        virtual bool isTraining() const 
+        virtual bool isTraining() const
         {
-			return is_training_;
+            return is_training_;
         }
 
         /**
-         * @brief Gets the operation type identifier.
+         * @brief Operation type identifier.
          */
         virtual OperationType getOperationType() const = 0;
 
         /**
-         * @brief Gets the device type for this operation.
+         * @brief Device type for this operation.
          */
         virtual DeviceType getDeviceType() const
         {
@@ -139,7 +124,7 @@ namespace Mila::Dnn::Compute
         }
 
         /**
-         * @brief Gets the tensor data type for this operation.
+         * @brief Tensor data type for this operation.
          */
         virtual TensorDataType getDataType() const
         {
@@ -147,11 +132,7 @@ namespace Mila::Dnn::Compute
         }
 
         /**
-         * @brief Get the name of the operation.
-         *
-         * Used for logging, debugging, and naming associated tensors.
-         *
-         * @return std::string Name of the operation
+         * @brief Human-readable operation name.
          */
         virtual std::string getName() const = 0;
 
@@ -159,5 +140,5 @@ namespace Mila::Dnn::Compute
 
         bool is_built_{ false };
         bool is_training_{ false };
-	};
+    };
 }

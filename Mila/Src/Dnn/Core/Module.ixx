@@ -2,52 +2,17 @@
  * @file Module.ixx
  * @brief Base module interface for Mila DNN components.
  *
- * This file declares the templated abstract `Module` class which defines the
- * minimal interface required by all neural network layers and composite
- * modules in the Mila framework.
- *
- * The `Module` type is device-parameterized by the compile-time template
- * parameter `TDeviceType`. Concrete implementations provide device-specific
- * behavior (CPU, CUDA, etc.) while relying on the abstract tensor interface
- * `ITensor` so callers can remain device-agnostic at the API level.
- *
- * Key responsibilities of a Module implementation:
- * - Expose and persist trainable parameters via `save` / `load`,
- * - Report parameter counts and human-readable descriptions,
- * - Support execution synchronization when device streams are used.
- * - Define forward and backward computation interfaces appropriate to the module type.
- *
- * Note on Computation Interfaces:
- * - The Module base class does NOT define virtual forward() or backward() methods.
- * - Each concrete module defines its own forward/backward signature based on its
- *   computational requirements (unary, binary, loss functions, etc.).
- * - This design allows modules to have natural, type-safe interfaces without
- *   forcing artificial workarounds for multi-input operations.
- *
- * Examples:
- * - Unary modules (ReLU, Tanh): forward(input, output)
- * - Binary modules (Residual, Add): forward(input1, input2, output)
- * - Loss modules (SoftmaxCrossEntropy): forward(predictions, labels, loss)
- * - Block modules (MLP, Transformer): forward(input, output) at the block level
- *
- * Note:
- * - The base class imposes no ownership model for tensors passed to module
- *   interfaces; implementations should document any lifetime requirements.
- * - The base class does not mandate specific thread-safety guarantees; module
- *   implementations should document their concurrency properties.
+ * Provides the abstract `Module` template defining the shared lifecycle,
+ * parameter, training-mode and introspection APIs used by all Mila modules.
  */
 
 module;
 #include <string>
 #include <memory>
-#include <unordered_map>
-#include <stdexcept>
-#include <type_traits>
-#include <sstream>
-#include <format>
 #include <ostream>
-#include <cstddef>
 #include <vector>
+#include <mutex>
+#include <atomic>
 
 export module Dnn.Module;
 
@@ -57,6 +22,7 @@ import Dnn.TensorTypes;
 import Compute.ComputeDevice;
 import Compute.DeviceType;
 import Serialization.ModelArchive;
+import Serialization.Mode;
 
 namespace Mila::Dnn
 {
@@ -68,23 +34,15 @@ namespace Mila::Dnn
      *
      * @tparam TDeviceType Compile-time device identifier for this module.
      *
-     * This base class provides the common management interface shared by all
-     * neural network modules: parameter access, serialization, training mode,
-     * synchronization, and introspection.
-     *
-     * The base class intentionally does NOT define virtual forward() or backward()
-     * methods. Instead, each concrete module implementation defines its own
-     * computation interface with the signature appropriate to its operation type.
-     * This design avoids forcing artificial constraints on modules that naturally
-     * require multiple inputs (residual connections, loss functions, etc.).
-     *
-     * Implementations must override the pure virtual interface to provide
-     * concrete behaviour. The interface is intentionally minimal to allow both
-     * simple layers (e.g. Linear) and composite modules (containers of modules)
-     * to share a common API.
+     * Module provides a minimal, device-parametrized interface for:
+     * - build / lifecycle management,
+     * - parameter and gradient access,
+     * - synchronization and serialization,
+     * - training/evaluation mode transitions with a serialized hook,
+     * - short human-readable diagnostics via `toString()`.
      */
     export template<DeviceType TDeviceType>
-        class Module
+    class Module
     {
     public:
         virtual ~Module() = default;
@@ -94,201 +52,176 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
-         * @brief Check if this module has been built and is ready for use.
+         * @brief Query whether the module has been built (shape-dependent init done).
          *
-         * A module is considered built when all its parameters have been allocated
-         * and initialized based on the input shape. This method should return true
-         * only after build() has been successfully called with a valid input shape.
-         *
-         * For composite modules, this should recursively check that all child modules
-         * are also built.
-         *
-         * @return true if the module is fully built and ready for forward/backward passes
-         * @return false if build() has not been called or shape inference is incomplete
-         *
-         * @note Operations like parameterCount(), parameters(), save(), and forward()
-         *       should only be called when isBuilt() returns true
-         * @note Calling build() multiple times is idempotent - subsequent calls after
-         *       the first successful build should have no effect
-         *
-         * @see build()
+         * Implementations must return true only after a successful call to
+         * `build(const shape_t&)` and any required child modules are built.
          */
         virtual bool isBuilt() const = 0;
 
         /**
-         * @brief Initialize module parameters based on input tensor shape.
+         * @brief Perform shape-dependent initialization and allocate parameters.
          *
-         * This method performs shape inference and parameter allocation for modules
-         * that cannot fully initialize during construction. Parameters are allocated
-         * using the ExecutionContext provided at construction time.
+         * Preconditions:
+         * - The provided `input_shape` must be compatible with this module's
+         *   configuration. Implementations should validate and throw
+         *   std::invalid_argument on mismatch.
          *
-         * The build process typically involves:
-         * - Inferring any unknown dimensions from the input shape
-         * - Allocating and initializing learnable parameters using exec_context_
-         * - Validating shape compatibility with module configuration
-         * - Recursively building child modules for composite modules
+         * Postconditions:
+         * - Module is ready for `forward()` / `backward()` and `isBuilt()` will
+         *   return true if build succeeds.
          *
-         * @param input_shape Expected shape of input tensors for this module
+         * Rebuild policy:
+         * - Modules may choose to throw if `build()` is called when already
+         *   built; concrete modules document their policy.
          *
-         * @throws std::invalid_argument if input_shape is incompatible with module config
-         * @throws std::runtime_error if parameter allocation fails
-         *
-         * @note All allocations use the ExecutionContext provided at construction
-         * @note Must be called before forward(), parameterCount(), or save()
-         * @note Idempotent - subsequent calls after first successful build have no effect
-         *
-         * @see isBuilt()
-         * @see ExecutionContext
+         * @param input_shape Expected input tensor shape for forward calls.
          */
         virtual void build( const shape_t& input_shape ) = 0;
 
         // ====================================================================
-        // Computation Interface (Defined by Concrete Modules)
+        // Synchronization
         // ====================================================================
 
         /**
-         * NOTE: The Module base class does NOT define virtual forward() or backward()
-         * methods. Each concrete module defines its own computation interface with
-         * the signature appropriate to its operation type.
+         * @brief Wait for outstanding device work submitted by this module.
          *
-         * Common patterns:
-         *
-         * Unary modules (ReLU, Tanh, Sigmoid, Linear, etc.):
-         *   void forward(const ITensor& input, ITensor& output);
-         *   void backward(const ITensor& input, const ITensor& output_grad, ITensor& input_grad);
-         *
-         * Binary modules (Residual, Add, Multiply, etc.):
-         *   void forward(const ITensor& input1, const ITensor& input2, ITensor& output);
-         *   void backward(const ITensor& input1, const ITensor& input2,
-         *                 const ITensor& output_grad,
-         *                 ITensor& input1_grad, ITensor& input2_grad);
-         *
-         * Loss modules (SoftmaxCrossEntropy, MSELoss, etc.):
-         *   void forward(const ITensor& predictions, const ITensor& labels, ITensor& loss);
-         *   void backward(const ITensor& predictions, const ITensor& labels, ITensor& pred_grad);
-         *
-         * Block/Composite modules (MLP, Transformer, ResNetBlock, etc.):
-         *   void forward(const ITensor& input, ITensor& output);
-         *   void backward(const ITensor& input, const ITensor& output_grad, ITensor& input_grad);
-         *
-         * This design allows each module to express its true computational requirements
-         * without forcing workarounds or artificial state management.
+         * On CPU this may be a no-op. Use to ensure results are visible to the
+         * host or to measure synchronous timings.
          */
-
-         // ====================================================================
-         // Synchronization
-         // ====================================================================
-
-         /**
-          * @brief Synchronize this module's execution stream.
-          *
-          * Blocks until all asynchronous operations submitted by this module
-          * have completed. On CPU-only modules this may be a no-op. Use this
-          * when timing, debugging, or when results must be visible on the host.
-          */
         virtual void synchronize() = 0;
 
         // ====================================================================
         // Parameters and Gradients
         // ====================================================================
 
-        // REVIEW: Default implementations for stateless modules?
-
         /**
-         * @brief Return the number of trainable parameters in this module.
-         *
-         * The count should include all scalar and tensor parameters that are
-         * stored by the module and would be persisted by `save`.
+         * @brief Return number of scalar trainable parameters owned by this module.
          */
         virtual size_t parameterCount() const = 0;
 
         /**
-         * @brief Return pointers to trainable parameters in this module.
+         * @brief Return non-owning pointers to parameter tensors.
          *
-         * The module retains ownership of the parameter tensors. Returned pointers
-         * remain valid for the lifetime of the module.
-         *
-         * @return Vector of non-owning ITensor pointers to parameters
-         *
-         * @throws std::runtime_error if called before build()
-         *
-         * @note Implementations should return parameters in a canonical order
-         *       (e.g., weights before biases) for consistent optimizer behavior
+         * The returned tensor pointers remain valid for the lifetime of the
+         * module. Order should be canonical (weights before biases).
          */
         virtual std::vector<ITensor*> getParameters() const = 0;
 
         /**
-         * @brief Return pointers to parameter gradient tensors in this module.
+         * @brief Return non-owning pointers to parameter gradient tensors.
          *
-         * Only valid when the module is in training mode. The module retains
-         * ownership of the gradient tensors. Returned pointers remain valid for
-         * the lifetime of the module.
+         * Only valid when the module is in training mode.
          *
-         * @return Vector of non-owning ITensor pointers to parameter gradients
-         *
-         * @throws std::runtime_error if called before build()
-         * @throws std::runtime_error if not in training mode
-         *
-         * @note Gradient tensor order must match getParameters() order
+         * @throws std::runtime_error if called when not in training mode or
+         *         before the module has been built.
          */
-        virtual std::vector<ITensor*> getParameterGradients() const = 0;
+        virtual std::vector<ITensor*> getGradients() const = 0;
 
         // ====================================================================
         // Serialization
         // ====================================================================
 
-        /**
-         * @brief Persist module parameters into the provided archive.
+         /**
+         * @internal
+         * @brief Persist this module into the provided archive.
          *
-         * @param archive Archive object used to write named parameter blobs.
+         * Contract:
+         * - Write stable module metadata needed by an inference loader:
+         *     - `type` (string): canonical module type name (e.g. "Linear").
+         *     - `version` (int/string): module serialization format version.
+         *     - optional `name` or path used by composite containers.
+         * - Write `config` data containing all shape-affecting hyper-parameters
+         *   (for example input/output sizes, bias flags). The inference loader
+         *   must be able to construct an instance from these config values.
+         * - Write all trainable and persistent tensors as named entries in a
+         *   stable canonical order (e.g. "weights", "bias", "running_mean").
+         *   Each tensor entry MUST include dtype and shape metadata plus raw
+         *   bytes; avoid device-specific handles so archives are device-agnostic.
+         * - Do not write optimizer state or transient training-only buffers here;
+         *   those belong in trainer checkpoints, not the inference artifact.
          *
-         * Implementations should serialize all state required to reconstruct
-         * the module parameters (weights, biases, hyper-parameters that affect
-         * shape, etc.). May throw on IO or serialization errors.
+         * Implementations should use the ModelArchive helpers to emit structured
+         * module entries so composite modules can save nested child modules
+         * deterministically.
+         *
+         * Postcondition:
+         * - Archive contains sufficient metadata and tensor blobs to allow an
+         *   inference runtime to recreate the same module type and load its
+         *   parameters on a possibly different device.
          */
-        virtual void save( ModelArchive& archive ) const = 0;
-
-        /**
-         * @brief Load module parameters from the provided archive.
-         *
-         * @param archive Archive object used to read named parameter blobs.
-         *
-         * Implementations must handle missing or incompatible data gracefully
-         * (throwing exceptions where appropriate) and restore internal state
-         * so that subsequent forward/backward calls are valid.
-         */
-        virtual void load( ModelArchive& archive ) = 0;
+        virtual void save_( ModelArchive& archive, SerializationMode model ) const = 0;
 
         // ====================================================================
         // State and Configuration
         // ====================================================================
 
         /**
-         * @brief Set whether the module is in training mode.
+         * @brief Centralized logic for toggling training mode.
          *
-         * Some modules alter behavior between training and evaluation modes
-         * (for example, dropout or batch-norm). Calling this sets the
-         * module-local flag; composite modules should propagate the flag to
-         * child modules.
+         * This method provides a serialized transition between evaluation and
+         * training modes. It is idempotent: calling with the current mode is a no-op.
+         *
+         * Behavior:
+         * - Thread-safety: the transition is serialized by an internal mutex.
+         * - Atomic update: the underlying `is_training_` atomic is updated to the
+         *   new value before invoking the hook.
+         * - Hook: invokes `onTrainingChanging( is_training )` while the mutex is held.
+         * - Exception safety: if the hook throws, `setTraining()` restores the
+         *   previous training state and rethrows the exception.
+         *
+         * Usage:
+         * - Call `setTraining(true)` to enable training behavior (allocate gradients,
+         *   enable backward, etc.).
+         * - Call `setTraining(false)` to enter evaluation mode (disable gradient use).
          *
          * @param is_training True to enable training-mode behavior.
+         *
+         * @throws Any exception propagated from the `onTrainingChanging()` hook;
+         *         if thrown, the prior training state is restored.
          */
-        virtual void setTraining( bool is_training ) = 0;
+        void setTraining( bool is_training )
+        {
+            std::lock_guard<std::mutex> lk( training_mutex_ );
+
+            if ( is_training_.load() == is_training )
+            {
+                return;
+            }
+
+            bool prev = is_training_.load();
+            is_training_.store( is_training );
+
+            try
+            {
+                onTrainingChanging( is_training );
+            }
+            catch (...)
+            {
+                // Revert to previous state on exception to preserve invariants.
+                is_training_.store( prev );
+                throw;
+            }
+        }
 
         /**
-         * @brief Query whether the module is in training mode.
+         * @brief Query whether the module is configured for training behavior.
          *
-         * @returns True if the module is configured for training behavior.
+         * This performs a relaxed atomic read and is safe for concurrent access.
+         * Subclasses may override to implement derived behavior.
+         *
+         * @return true if module is in training mode.
          */
-        virtual bool isTraining() const = 0;
+        bool isTraining() const
+        {
+            return is_training_.load();
+        }
 
         /**
-         * @brief Get the module's name.
+         * @brief Module name used for logging and diagnostics.
          *
-         * Names are used for logging, diagnostics, and when saving parameters.
-         * Implementations should return a stable identifier.
-         *
-         * @returns The module name string.
+         * Implementations should return a stable identifier used in `toString()`
+         * and when saving parameters.
          */
         virtual std::string getName() const = 0;
 
@@ -298,8 +231,6 @@ namespace Mila::Dnn
 
         /**
          * @brief Compile-time device type for this module instance.
-         *
-         * @returns The DeviceType specified by the template parameter.
          */
         static constexpr DeviceType getDeviceType()
         {
@@ -309,36 +240,7 @@ namespace Mila::Dnn
         /**
          * @brief Get the compute device associated with this module.
          *
-         * Returns the device on which this module's parameters are allocated and
-         * operations are executed. The device is determined by the ExecutionContext
-         * provided at module construction time.
-         *
-         * This method is typically used to:
-         * - Allocate intermediate tensors on the same device as the module
-         * - Ensure input tensors are on the correct device before forward pass
-         * - Create compatible output tensors with proper device placement
-         *
-         * For composite modules, all child modules should share the same device.
-         *
-         * @return Shared pointer to the ComputeDevice associated with this module
-         *
-         * @throws std::runtime_error if called before module construction or if
-         *         the ExecutionContext has been destroyed
-         *
-         * @note The returned device pointer remains valid for the lifetime of the module
-         * @note This is a runtime (virtual) method, not compile-time like getDeviceType()
-         *
-         * @see getDeviceType() for compile-time device type information
-         * @see ExecutionContext::getDevice()
-         *
-         * Example usage:
-         * @code
-         * auto model = std::make_shared<MLP<DeviceType::Cuda, TensorDataType::FP32>>( exec_ctx, config );
-         * auto device = model->getDevice();
-         *
-         * // Create intermediate tensor on same device as model
-         * Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> buffer( device, shape );
-         * @endcode
+         * Must return the device on which parameters and operations execute.
          */
         virtual std::shared_ptr<ComputeDevice> getDevice() const = 0;
 
@@ -353,22 +255,47 @@ namespace Mila::Dnn
         friend std::ostream& operator<<( std::ostream& os, const Module& module )
         {
             os << module.toString();
+
             return os;
         }
-
-        // ====================================================================
-        // Debugging and Description
-        // ====================================================================
 
         /**
          * @brief Produce a short, human-readable description of the module.
          *
-         * The returned string should be a single-line description suitable for
-         * logging. It typically contains the module type, name (if any), and
-         * key configuration values (shapes, sizes).
-         *
-         * @returns A human-readable single-line description.
+         * Implementations should keep output concise and avoid throwing.
          */
         virtual std::string toString() const = 0;
+
+    protected:
+
+        /**
+         * @brief Hook invoked when training mode is about to change.
+         *
+         * The hook is called while `training_mutex_` is held and after the
+         * `is_training_` atomic has been updated to the new value. Implementations
+         * should perform any bind/unbind or allocation/free actions required for
+         * the new mode (for example, allocate/free gradient buffers or bind/unbind
+         * backend gradient pointers).
+         *
+         * Preconditions and expectations:
+         * - MUST NOT call `setTraining()` (no reentrancy).
+         * - Should avoid throwing; if an exception is thrown it will be
+         *   propagated to the caller of `setTraining()` and the previous state
+         *   will be restored by `setTraining()`.
+         *
+         * Threading:
+         * - Hook runs with `training_mutex_` held; callers may use `isTraining()`
+         *   to observe the updated mode inside the hook.
+         *
+         * @param is_training true if training mode is enabled (gradients allowed).
+         */
+        virtual void onTrainingChanging( bool is_training )
+        {
+        }
+
+    private:
+
+        std::atomic<bool> is_training_{ false };
+        std::mutex training_mutex_;
     };
 }

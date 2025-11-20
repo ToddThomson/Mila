@@ -155,8 +155,17 @@ add_executable( MilaTests
     #"Dnn/Compute/Operations/Cuda/CudaResidualOpTests.cpp"
     #"Dnn/Compute/Operations/Cuda/CudaSoftmaxOpTests.cpp"
     
-    
-    #"Dnn/Seriaalization/ZipSerializer.cpp"
+    # --------------------------------------------------------------
+    # Serialization Tests
+    # --------------------------------------------------------------
+    "Dnn/Serialization/ZipSerializer.cpp"
+
+    # --------------------------------------------------------------
+    # Modeling Tests
+    # --------------------------------------------------------------
+    #"Dnn/Modeling/ModelBuilder.Cpu.cpp"
+
+    # --------------------------------------------------------------
     #"Dnn/Tensors/TensorBuffer.Tracking.cpp"
     
     "Dnn/Compute/Operations/OperationBase.cpp"
@@ -168,7 +177,13 @@ add_executable( MilaTests
     "Dnn/Modules/Losses/CrossEntropy.Cpu.cpp"
     "Dnn/Modules/Losses/SoftmaxCrossEntropy.Cuda.cpp"
     "Dnn/Modules/Losses/CrossEntropy.Config.cpp"
- "Dnn/Modules/Layers/Attention.Cuda.cpp" "Dnn/Modules/Layers/Attention.Config.cpp" "Dnn/Modules/Blocks/Transformer.Cuda.cpp" "Dnn/Modules/Blocks/Transformer.Config.cpp")
+    "Dnn/Modules/Layers/Attention.Cuda.cpp"
+    "Dnn/Modules/Layers/Attention.Config.cpp"
+    "Dnn/Modules/Blocks/Transformer.Cuda.cpp"
+    "Dnn/Modules/Blocks/Transformer.Config.cpp"
+
+    
+)
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
 

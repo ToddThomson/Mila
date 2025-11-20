@@ -6,6 +6,8 @@ module;
 #include <iostream>
 #include <sstream>
 #include <cassert>
+#include <ios>
+#include <cstdarg>
 
 export module Compute.CudaDeviceMemoryResource;
 
@@ -88,7 +90,7 @@ namespace Mila::Dnn::Compute
 
             void* ptr = nullptr;
 
-			// TJT: cudaMalloc() on windows 11 with WDDM driver will use shared memory
+			// TJT: WARNING cudaMalloc() on windows 11 with WDDM driver will use shared memory
 			// and so it is possible allocate more memory than is physically present on the GPU.
             cudaError_t result = cudaMalloc( &ptr, bytes );
 

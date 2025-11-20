@@ -47,7 +47,7 @@ namespace Mila::Dnn::Compute
      *
      * // Register parameters
      * auto params = model->getParameters();
-     * auto grads = model->getParameterGradients();
+     * auto grads = model->getGradients();
      * for (size_t i = 0; i < params.size(); ++i) {
      *     optimizer->addParameter(params[i], grads[i]);
      * }
@@ -104,7 +104,7 @@ namespace Mila::Dnn::Compute
          * Example:
          * @code
          * auto params = model->getParameters();
-         * auto grads = model->getParameterGradients();
+         * auto grads = model->getGradients();
          *
          * for (size_t i = 0; i < params.size(); ++i) {
          *     optimizer->addParameter(params[i], grads[i]);

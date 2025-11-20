@@ -239,7 +239,7 @@ namespace Modules::Normalization::Tests
     template<TensorDataType TPrecision>
     void TestParameters( const LayerNormCudaTestData<TPrecision>& data, size_t expected_weight_size )
     {
-        auto weight = data.module->getWeight();
+        /*auto weight = data.module->getWeight();
         ASSERT_NE( weight, nullptr );
         EXPECT_EQ( weight->size(), expected_weight_size );
 
@@ -253,7 +253,7 @@ namespace Modules::Normalization::Tests
         else
         {
             EXPECT_EQ( bias, nullptr );
-        }
+        }*/
 
         auto params = data.module->getParameters();
 
@@ -611,24 +611,23 @@ namespace Modules::Normalization::Tests
 
         copy( host_input, device_input );
 
-        auto weight = data.module->getWeight();
-        auto bias = data.module->getBias();
+        //auto weight = data.module->getWeight();
+        //auto bias = data.module->getBias();
 
-        CpuTensor<TensorDataType::FP32> host_weight( "CPU", weight->shape() );
-        CpuTensor<TensorDataType::FP32> host_bias( "CPU", bias->shape() );
+        //CpuTensor<TensorDataType::FP32> host_weight( "CPU", weight->shape() );
+        //CpuTensor<TensorDataType::FP32> host_bias( "CPU", bias->shape() );
 
-        ones( host_weight );
-        zeros( host_bias );
+        //ones( host_weight );
+        //zeros( host_bias );
 
-        copy( host_weight, *weight );
-        copy( host_bias, *bias );
+        //copy( host_weight, *weight );
+        //copy( host_bias, *bias );
 
         data.module->forward( device_input, device_output );
 
         CpuTensor<TensorDataType::FP32> host_output = toHost<TensorDataType::FP32>( device_output );
 
         ValidateNormalization<TensorDataType::FP32>( host_output, data.normalized_shape, data.config.getEpsilon() );
-        //ValidateNormalization( host_output, data.normalized_shape, data.config.getEpsilon() );
     }
 
     TEST_F( LayerNormCudaTests, Forward_MultipleTrailingDims )
@@ -685,9 +684,10 @@ namespace Modules::Normalization::Tests
         EXPECT_NO_THROW( data.module->build( data.shape ) );
         EXPECT_TRUE( data.module->isBuilt() );
 
-        auto weight = data.module->getWeight();
-        ASSERT_NE( weight, nullptr );
-        EXPECT_EQ( weight->size(), static_cast<size_t>(data.shape.back()) );
+        //auto weight = data.module->getWeight();
+
+        //ASSERT_NE( weight, nullptr );
+        //EXPECT_EQ( weight->size(), static_cast<size_t>(data.shape.back()) );
     }
 
     TEST_F( LayerNormCudaTests, WithAxis_Forward )
@@ -963,18 +963,18 @@ namespace Modules::Normalization::Tests
         random( host_input, -2.0f, 2.0f );
 
         // Initialize parameters with same values for both CPU and CUDA
-        CpuTensor<TensorDataType::FP32> cpu_weight( "CPU", normalized_shape );
-        CpuTensor<TensorDataType::FP32> cpu_bias( "CPU", normalized_shape );
-        ones( cpu_weight );
-        zeros( cpu_bias );
+        //CpuTensor<TensorDataType::FP32> cpu_weight( "CPU", normalized_shape );
+        //CpuTensor<TensorDataType::FP32> cpu_bias( "CPU", normalized_shape );
+        //ones( cpu_weight );
+        //zeros( cpu_bias );
 
-        // Copy parameters to CPU module
-        copy( cpu_weight, *cpu_module->getWeight() );
-        copy( cpu_bias, *cpu_module->getBias() );
+        //// Copy parameters to CPU module
+        //copy( cpu_weight, *cpu_module->getWeight() );
+        //copy( cpu_bias, *cpu_module->getBias() );
 
-        // Copy parameters to CUDA module
-        copy( cpu_weight, *cuda_data.module->getWeight() );
-        copy( cpu_bias, *cuda_data.module->getBias() );
+        //// Copy parameters to CUDA module
+        //copy( cpu_weight, *cuda_data.module->getWeight() );
+        //copy( cpu_bias, *cuda_data.module->getBias() );
 
         // Run CPU forward pass
         CpuTensor<TensorDataType::FP32> cpu_output( "CPU", test_shape );

@@ -3,15 +3,7 @@
  * @brief Character-level transformer for language modeling.
  *
  * Device-templated composite module implementing a transformer architecture
- * for character-level next-token prediction. Architecture follows GPT-style
- * decoder-only design with causal masking.
- *
- * Architecture:
- *   Token Embedding -> Positional Encoding -> N x Transformer Blocks -> LayerNorm -> LM Head
- *
- * Each Transformer Block contains:
- *   - LayerNorm -> Multi-Head Self-Attention -> Residual
- *   - LayerNorm -> MLP (Linear -> GELU -> Linear) -> Residual
+ * for character-level next-token prediction.
  */
 
 module;
@@ -23,6 +15,8 @@ module;
 #include <stdexcept>
 #include <cstdint>
 #include <ostream>
+#include <iostream>
+
 
 export module CharLM.Transformer;
 
@@ -72,16 +66,6 @@ namespace Mila::CharLM
      *
      * Transformer decoder architecture for next-character prediction:
      *   Input tokens (B, T) -> Embeddings (B, T, D) -> Transformer Blocks -> Logits (B, T, V)
-     *
-     * Design philosophy:
-     * - Two-phase initialization: build() performs shape validation and buffer allocation
-     * - Composite module pattern: manages embeddings, transformer blocks, and LM head
-     * - Causal attention masking for autoregressive generation
-     * - Positional encoding for sequence position awareness
-     * - Child modules stored as concrete types for type safety and direct access
-     *
-     * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda)
-     * @tparam TPrecision Abstract tensor precision (TensorDataType)
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
@@ -94,13 +78,9 @@ namespace Mila::CharLM
         using TensorType = Tensor<TPrecision, MR>;
         using LinearType = Linear<TDeviceType, TPrecision>;
         using LayerNormType = LayerNorm<TDeviceType, TPrecision>;
+        using TransformerBlockType = Transformer<TDeviceType, TPrecision>;
+        using EncoderType = Encoder<TDeviceType, dtype_t::INT32, TPrecision>;
 
-        /**
-         * @brief Construct transformer with execution context and configuration.
-         *
-         * @param exec_context Shared execution context for device resources.
-         * @param config Transformer configuration (vocab size, dimensions, etc.)
-         */
         explicit CharTransformer(
             std::shared_ptr<ExecutionContextType> exec_context,
             const CharTransformerConfig& config )
@@ -124,19 +104,19 @@ namespace Mila::CharLM
 
         bool isBuilt() const override
         {
-            return built_ && token_embedding_ && final_layernorm_ && lm_head_;
+            bool blocks_ok = true;
+
+            if (!transformer_blocks_.empty())
+            {
+                for (const auto &b : transformer_blocks_)
+                {
+                    if (!b) { blocks_ok = false; break; }
+                }
+            }
+
+            return built_ && encoder_ && final_layernorm_ && lm_head_ && blocks_ok;
         }
 
-        /**
-         * @brief Build the transformer for a concrete input shape.
-         *
-         * COLD PATH - performs one-time setup:
-         * - Validates input shape (batch_size, seq_length)
-         * - Builds all child modules with appropriate shapes
-         * - Allocates intermediate buffer tensors for forward/backward passes
-         *
-         * @param input_shape Expected shape: (batch_size, seq_length)
-         */
         void build( const shape_t& input_shape ) override
         {
             if (built_)
@@ -151,13 +131,14 @@ namespace Mila::CharLM
             cached_embedding_shape_ = { batch_size_, seq_length_, config_.embedding_dim };
             cached_output_shape_ = { batch_size_, seq_length_, config_.vocab_size };
 
-            token_embedding_->build( input_shape );
+            // Build encoder (token + positional embeddings)
+            encoder_->build( input_shape );
 
-            // TODO: Build transformer blocks when implemented
-            // for (auto& block : transformer_blocks_)
-            // {
-            //     block->build( cached_embedding_shape_ );
-            // }
+            // Build transformer blocks
+            for (auto& block : transformer_blocks_)
+            {
+                block->build( cached_embedding_shape_ );
+            }
 
             final_layernorm_->build( cached_embedding_shape_ );
             lm_head_->build( cached_embedding_shape_ );
@@ -167,6 +148,7 @@ namespace Mila::CharLM
             embedded_ = std::make_shared<TensorType>( device, cached_embedding_shape_ );
             embedded_->setName( config_.name + ".embedded" );
 
+            // allocate a second buffer to ping-pong between transformer layers
             transformer_output_ = std::make_shared<TensorType>( device, cached_embedding_shape_ );
             transformer_output_->setName( config_.name + ".transformer_output" );
 
@@ -180,14 +162,6 @@ namespace Mila::CharLM
         // Compute operation dispatch
         // ====================================================================
 
-        /**
-         * @brief Forward pass - HOT PATH, pure dispatch to child modules.
-         *
-         * Processes character tokens through the transformer to produce next-token logits.
-         *
-         * @param input Input tensor containing token indices (batch_size, seq_length)
-         * @param output Output tensor for logits (batch_size, seq_length, vocab_size)
-         */
         void forward( const ITensor& input, ITensor& output )
         {
             if (!isBuilt())
@@ -195,30 +169,35 @@ namespace Mila::CharLM
                 throw std::runtime_error( "CharTransformer must be built before calling forward." );
             }
 
-            token_embedding_->forward( input, *embedded_ );
+            encoder_->forward( input, *embedded_ );
 
-            // TODO: Add positional encoding
-            // positional_encoding_->forward( *embedded_, *embedded_ );
+            if (transformer_blocks_.empty())
+            {
+                copy( *embedded_, *transformer_output_ );
+            }
+            else
+            {
+                ITensor* read = embedded_.get();
+                ITensor* write = transformer_output_.get();
 
-            // TODO: Transformer blocks with causal masking
-            // ITensor* block_input = embedded_.get();
-            // for (auto& block : transformer_blocks_)
-            // {
-            //     block->forward( *block_input, *transformer_output_ );
-            //     block_input = transformer_output_.get();
-            // }
+                std::cout << "# of blocks to forward through: " << transformer_blocks_.size();
 
-            copy( *embedded_, *transformer_output_ );
+                for (size_t i = 0; i < transformer_blocks_.size(); ++i)
+                {
+                    transformer_blocks_[i]->forward( *read, *write );
+
+                    transformer_blocks_[i]->synchronize();
+
+                    std::swap( read, write );
+                }
+
+                // final buffer already in place; avoid unnecessary copies
+            }
 
             final_layernorm_->forward( *transformer_output_, *normalized_ );
             lm_head_->forward( *normalized_, output );
         }
 
-        /**
-         * @brief Backward pass - HOT PATH, pure dispatch to child modules.
-         *
-         * Chains backward calls through the transformer in reverse order.
-         */
         void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
         {
             if (!isBuilt())
@@ -236,49 +215,42 @@ namespace Mila::CharLM
             zeros( transformer_output_grad );
             final_layernorm_->backward( *transformer_output_, normalized_grad, transformer_output_grad );
 
-            // TODO: Backprop through transformer blocks in reverse
-            // for (auto it = transformer_blocks_.rbegin(); it != transformer_blocks_.rend(); ++it)
-            // {
-            //     TensorType block_input_grad( device, cached_embedding_shape_ );
-            //     zeros( block_input_grad );
-            //     (*it)->backward( block_input, transformer_output_grad, block_input_grad );
-            //     transformer_output_grad = std::move( block_input_grad );
-            // }
-
+            // TODO: Backprop through transformer blocks in reverse order.
             TensorType& embedding_grad = transformer_output_grad;
 
-            // TODO: Backprop through positional encoding if implemented
+            encoder_->backward( input, embedding_grad );
 
-            token_embedding_->backward( input, embedding_grad, input_grad );
+            if (auto* in_t = dynamic_cast<TensorType*>(&input_grad))
+            {
+                zeros( *in_t );
+            }
         }
 
         // ====================================================================
         // Serialization
         // ====================================================================
 
-        void save( ModelArchive& archive ) const override
+        void save( ModelArchive& archive ) const
         {
-            token_embedding_->save( archive );
+            encoder_->save( archive );
 
-            // TODO: Save transformer blocks
-            // for (const auto& block : transformer_blocks_)
-            // {
-            //     block->save( archive );
-            // }
+            for (const auto& block : transformer_blocks_)
+            {
+                block->save( archive );
+            }
 
             final_layernorm_->save( archive );
             lm_head_->save( archive );
         }
 
-        void load( ModelArchive& archive ) override
+        void load( ModelArchive& archive )
         {
-            token_embedding_->load( archive );
+            encoder_->load( archive );
 
-            // TODO: Load transformer blocks
-            // for (auto& block : transformer_blocks_)
-            // {
-            //     block->load( archive );
-            // }
+            for (auto& block : transformer_blocks_)
+            {
+                block->load( archive );
+            }
 
             final_layernorm_->load( archive );
             lm_head_->load( archive );
@@ -305,50 +277,27 @@ namespace Mila::CharLM
                 exec_context_->synchronize();
             }
 
-            token_embedding_->synchronize();
+            encoder_->synchronize();
 
-            // TODO: Sync transformer blocks
-            // for (auto& block : transformer_blocks_)
-            // {
-            //     block->synchronize();
-            // }
+            for (auto& block : transformer_blocks_)
+            {
+                block->synchronize();
+            }
 
             final_layernorm_->synchronize();
             lm_head_->synchronize();
-        }
-
-        void setTraining( bool is_training ) override
-        {
-            CompositeModuleBase::setTraining( is_training );
-
-            token_embedding_->setTraining( is_training );
-
-            // TODO: Set training mode for transformer blocks
-            // for (auto& block : transformer_blocks_)
-            // {
-            //     block->setTraining( is_training );
-            // }
-
-            final_layernorm_->setTraining( is_training );
-            lm_head_->setTraining( is_training );
-        }
-
-        bool isTraining() const override
-        {
-            return CompositeModuleBase::isTraining();
         }
 
         size_t parameterCount() const override
         {
             size_t total = 0;
 
-            total += token_embedding_->parameterCount();
+            total += encoder_->parameterCount();
 
-            // TODO: Count transformer block parameters
-            // for (const auto& block : transformer_blocks_)
-            // {
-            //     total += block->parameterCount();
-            // }
+            for (const auto& block : transformer_blocks_)
+            {
+                total += block->parameterCount();
+            }
 
             total += final_layernorm_->parameterCount();
             total += lm_head_->parameterCount();
@@ -360,15 +309,14 @@ namespace Mila::CharLM
         {
             std::vector<ITensor*> params;
 
-            auto emb_params = token_embedding_->getParameters();
-            params.insert( params.end(), emb_params.begin(), emb_params.end() );
+            auto enc_params = encoder_->getParameters();
+            params.insert( params.end(), enc_params.begin(), enc_params.end() );
 
-            // TODO: Collect transformer block parameters
-            // for (const auto& block : transformer_blocks_)
-            // {
-            //     auto block_params = block->getParameters();
-            //     params.insert( params.end(), block_params.begin(), block_params.end() );
-            // }
+            for (const auto& block : transformer_blocks_)
+            {
+                auto block_params = block->getParameters();
+                params.insert( params.end(), block_params.begin(), block_params.end() );
+            }
 
             auto ln_params = final_layernorm_->getParameters();
             params.insert( params.end(), ln_params.begin(), ln_params.end() );
@@ -379,24 +327,26 @@ namespace Mila::CharLM
             return params;
         }
 
-        std::vector<ITensor*> getParameterGradients() const override
+        std::vector<ITensor*> getGradients() const override
         {
             std::vector<ITensor*> grads;
 
-            auto emb_grads = token_embedding_->getParameterGradients();
-            grads.insert( grads.end(), emb_grads.begin(), emb_grads.end() );
+            if (this->isTraining())
+            {
+                auto enc_grads = encoder_->getGradients();
+                grads.insert( grads.end(), enc_grads.begin(), enc_grads.end() );
+            }
 
-            // TODO: Collect transformer block gradients
-            // for (const auto& block : transformer_blocks_)
-            // {
-            //     auto block_grads = block->getParameterGradients();
-            //     grads.insert( grads.end(), block_grads.begin(), block_grads.end() );
-            // }
+            for (const auto& block : transformer_blocks_)
+            {
+                auto block_grads = block->getGradients();
+                grads.insert( grads.end(), block_grads.begin(), block_grads.end() );
+            }
 
-            auto ln_grads = final_layernorm_->getParameterGradients();
+            auto ln_grads = final_layernorm_->getGradients();
             grads.insert( grads.end(), ln_grads.begin(), ln_grads.end() );
 
-            auto lm_grads = lm_head_->getParameterGradients();
+            auto lm_grads = lm_head_->getGradients();
             grads.insert( grads.end(), lm_grads.begin(), lm_grads.end() );
 
             return grads;
@@ -427,12 +377,14 @@ namespace Mila::CharLM
                 oss << "    Batch size: " << batch_size_ << std::endl;
                 oss << "    Sequence length: " << seq_length_ << std::endl;
                 oss << "    Input shape: (";
+
                 for (size_t i = 0; i < cached_input_shape_.size(); ++i)
                 {
                     oss << cached_input_shape_[i];
                     if (i != cached_input_shape_.size() - 1)
                         oss << ", ";
                 }
+
                 oss << ")" << std::endl;
 
                 oss << "    Output shape: (";
@@ -442,11 +394,13 @@ namespace Mila::CharLM
                     if (i != cached_output_shape_.size() - 1)
                         oss << ", ";
                 }
+
                 oss << ")" << std::endl;
             }
 
             oss << "  Sub-Modules:" << std::endl;
-            oss << "    - token_embedding: " << token_embedding_->getName() << std::endl;
+            oss << "    - encoder: " << encoder_->getName() << std::endl;
+            oss << "    - transformer_blocks: " << transformer_blocks_.size() << " layers" << std::endl;
             oss << "    - final_layernorm: " << final_layernorm_->getName() << std::endl;
             oss << "    - lm_head: " << lm_head_->getName() << std::endl;
 
@@ -464,9 +418,9 @@ namespace Mila::CharLM
         // Child module accessors
         // ====================================================================
 
-        std::shared_ptr<LinearType> getTokenEmbedding() const noexcept
+        std::shared_ptr<EncoderType> getEncoder() const noexcept
         {
-            return token_embedding_;
+            return encoder_;
         }
 
         std::shared_ptr<LayerNormType> getFinalLayerNorm() const noexcept
@@ -479,11 +433,38 @@ namespace Mila::CharLM
             return lm_head_;
         }
 
+        std::vector<std::shared_ptr<TransformerBlockType>> getTransformerBlocks() const noexcept
+        {
+            return transformer_blocks_;
+        }
+
     protected:
 
         void buildImpl( const shape_t& input_shape ) override
         {
-            // Build is already handled by public build() method
+            (void)input_shape;
+        }
+
+        /**
+         * @brief Hook invoked when training mode is about to change.
+         *
+         * Propagate the new mode to child modules and invalidate any cached
+         * forward-executed state. Called with the CompositeModule's mutex held;
+         * do not call setTraining() within this hook.
+         */
+        void onTrainingChanging( bool newMode ) override
+        {
+            if (encoder_) encoder_->setTraining( newMode );
+
+            for (auto& block : transformer_blocks_)
+            {
+                if (block) block->setTraining( newMode );
+            }
+
+            if (final_layernorm_) final_layernorm_->setTraining( newMode );
+            if (lm_head_) lm_head_->setTraining( newMode );
+
+            // TODO: forward_executed_ = false;
         }
 
     private:
@@ -497,11 +478,8 @@ namespace Mila::CharLM
         int64_t batch_size_{ 0 };
         int64_t seq_length_{ 0 };
 
-        std::shared_ptr<LinearType> token_embedding_{ nullptr };
-        // TODO: Add positional encoding module
-        // std::shared_ptr<PositionalEncodingType> positional_encoding_{ nullptr };
-        // TODO: Add transformer blocks
-        // std::vector<std::shared_ptr<TransformerType>> transformer_blocks_;
+        std::shared_ptr<EncoderType> encoder_{ nullptr };
+        std::vector<std::shared_ptr<TransformerBlockType>> transformer_blocks_;
         std::shared_ptr<LayerNormType> final_layernorm_{ nullptr };
         std::shared_ptr<LinearType> lm_head_{ nullptr };
 
@@ -528,29 +506,46 @@ namespace Mila::CharLM
 
         void createModules()
         {
-            auto embedding_config = LinearConfig( config_.vocab_size, config_.embedding_dim );
-            embedding_config.withName( config_.name + ".token_embedding" )
-                .withBias( false );
+            EncoderConfig enc_cfg;
+            enc_cfg.withVocabularyLength( static_cast<size_t>( config_.vocab_size ) )
+                   .withMaxSequenceLength( static_cast<size_t>( config_.max_seq_length ) )
+                   .withChannels( static_cast<size_t>( config_.embedding_dim ) );
+            enc_cfg.validate();
 
-            token_embedding_ = std::make_shared<LinearType>(
-                exec_context_, embedding_config );
+            encoder_ = std::make_shared<EncoderType>( exec_context_, enc_cfg );
+            encoder_->setTraining( this->isTraining() );
 
-            // TODO: Add positional encoding
-            // TODO: Add transformer blocks
+            transformer_blocks_.clear();
+
+            for (int64_t i = 0; i < config_.num_layers; ++i)
+            {
+                TransformerConfig tcfg( static_cast<dim_t>(config_.embedding_dim),
+                                        static_cast<dim_t>(config_.num_heads) );
+
+                tcfg.withHiddenDimension( static_cast<dim_t>(config_.mlp_hidden_dim) );
+                tcfg.withBias( false );
+                tcfg.withActivation( ActivationType::Gelu );
+                tcfg.withName( config_.name + ".layer" + std::to_string(i) );
+
+                auto block = std::make_shared<TransformerBlockType>( exec_context_, tcfg );
+                block->setTraining( this->isTraining() );
+
+                transformer_blocks_.push_back( std::move(block) );
+            }
 
             auto ln_config = LayerNormConfig()
                 .withName( config_.name + ".final_layernorm" )
                 .withNormalizedShape( { config_.embedding_dim } );
 
-            final_layernorm_ = std::make_shared<LayerNormType>(
-                exec_context_, ln_config );
+            final_layernorm_ = std::make_shared<LayerNormType>( exec_context_, ln_config );
+            final_layernorm_->setTraining( this->isTraining() );
 
             auto lm_head_config = LinearConfig( config_.embedding_dim, config_.vocab_size )
                 .withName( config_.name + ".lm_head" )
                 .withBias( false );
 
-            lm_head_ = std::make_shared<LinearType>(
-                exec_context_, lm_head_config );
+            lm_head_ = std::make_shared<LinearType>( exec_context_, lm_head_config );
+            lm_head_->setTraining( this->isTraining() );
         }
     };
 

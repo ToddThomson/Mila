@@ -341,6 +341,7 @@ void trainMnist( const MnistConfig& config )
         exec_context = std::make_shared<ExecutionContext<TDeviceType>>();
     }
 
+	// TJT: The MnistClassifier is a Network. The variable name should not be model.
     auto model = std::make_shared<MnistClassifier<TDeviceType, TDataType>>(
         exec_context,
         "MnistMLP",
@@ -386,16 +387,20 @@ void trainMnist( const MnistConfig& config )
         adamw_config );*/
 
     auto optimizer = std::make_shared<AdamWOptimizer<TDeviceType, TDataType>>(
-        exec_context,
-        config.learning_rate,
-        config.beta1,
-        config.beta2,
-        config.epsilon,
-        config.weight_decay );
+        exec_context, adamw_config );
+        //config.learning_rate,
+        //config.beta1,
+        //config.beta2,
+        //config.epsilon,
+        //config.weight_decay );
 
-    // Register all model parameters with the optimizer
+    // Register all model parameters and gradients with the optimizer
+	
+    // TJT: BUG: If the model parameters or gradients change after this point,
+	// the optimizer will have invalid references.
+
     auto params = model->getParameters();
-    auto param_grads = model->getParameterGradients();
+    auto param_grads = model->getGradients();
 
     if (params.size() != param_grads.size())
     {
@@ -459,6 +464,7 @@ void trainMnist( const MnistConfig& config )
             // ============================================================
 
             // 1. Compute loss gradient on CPU
+            // TJT: TODO: To be done on TDevice
             zeros( output_grad_cpu );
             softmaxCrossEntropyGradient( logits, target_batch, output_grad_cpu );
 
@@ -469,7 +475,7 @@ void trainMnist( const MnistConfig& config )
             optimizer->zeroGrad();
             zeros( input_grad );
 
-            // 4. Backward pass through model (computes parameter gradients)
+            // 4. Backward pass through model to compute gradients
             model->backward( input_batch, output_grad, input_grad );
 
             // 5. Update parameters using computed gradients
@@ -498,12 +504,12 @@ void trainMnist( const MnistConfig& config )
         double epoch_time_sec = epoch_duration.count() / 1000.0;
 
         // Evaluation on test set
+        model->setTraining( false );
+
         test_loader.reset();
         float test_loss = 0.0f;
         float test_acc = 0.0f;
         size_t test_batches = 0;
-
-        model->setTraining( false );
 
         while (test_loader.hasNext())
         {
@@ -525,8 +531,6 @@ void trainMnist( const MnistConfig& config )
         test_loss /= test_batches;
         test_acc /= test_batches;
 
-        model->setTraining( true );
-
         std::cout << "Epoch " << (epoch + 1) << "/" << config.epochs
             << " - Time: " << std::fixed << std::setprecision( 2 ) << epoch_time_sec << "s"
             << " - Loss: " << std::fixed << std::setprecision( 4 ) << epoch_loss
@@ -535,6 +539,9 @@ void trainMnist( const MnistConfig& config )
             << " - Test Accuracy: " << std::setprecision( 2 ) << (test_acc * 100.0f) << "%"
             << " - LR: " << std::scientific << std::setprecision( 3 ) << optimizer->getLearningRate()
             << std::endl;
+
+        // Back to training mode
+        model->setTraining( true );
     }
 }
 

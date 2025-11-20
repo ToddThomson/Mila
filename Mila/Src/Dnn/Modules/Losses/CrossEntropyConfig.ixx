@@ -10,20 +10,35 @@
 module;
 #include <stdexcept>
 #include <cstdint>
+#include <utility>
+#include <string>
+#include <ostream>
+#include <sstream>
 
 export module Dnn.Modules.SoftmaxCrossEntropy:Config;
 
 import Dnn.Module;
-import Dnn.ConfigurationBase;
+import Dnn.ModuleConfig;
+import nlohmann.json;
 
 namespace Mila::Dnn
 {
+    using json = nlohmann::json;
+
     /**
      * @brief Configuration for fused SoftmaxCrossEntropy loss.
      */
-    export class CrossEntropyConfig : public ConfigurationBase
+    export class CrossEntropyConfig : public ModuleConfig
     {
     public:
+        /**
+         * @brief Default constructor.
+         *
+         * Leaves `vocab_size_` at 0; callers should set it before using the
+         * configuration. `validate()` will reject a zero vocab size.
+         */
+        CrossEntropyConfig() = default;
+
         /**
          * @brief Constructor with required vocabulary size parameter.
          *
@@ -36,6 +51,19 @@ namespace Mila::Dnn
         explicit CrossEntropyConfig( int64_t vocab_size )
             : vocab_size_( vocab_size )
         {
+        }
+
+        /**
+         * @brief C++23-style fluent setter for vocabulary size.
+         *
+         * @param vocab_size Vocabulary size (number of classes)
+         * @return Self&& for method chaining
+         */
+        template <typename Self>
+        decltype(auto) withVocabSize( this Self&& self, int64_t vocab_size )
+        {
+            self.vocab_size_ = vocab_size;
+            return std::forward<Self>( self );
         }
 
         /**
@@ -60,7 +88,7 @@ namespace Mila::Dnn
          */
         void validate() const override
         {
-            ConfigurationBase::validate();
+            //ModuleConfig::validate();
 
             if (vocab_size_ <= 0)
             {
@@ -69,7 +97,63 @@ namespace Mila::Dnn
             }
         }
 
+        /**
+         * @brief Serialize configuration to JSON (ModuleConfig interface).
+         *
+         * Produces keys:
+         * - "name" : string
+         * - "precision" : integer (underlying value of ComputePrecision::Policy)
+         * - "vocab_size" : integer
+         */
+        json toJson() const
+        {
+            json j;
+            //j["name"] = name_;
+            //j["precision"] = static_cast<int>( precision_ );
+            //j["vocab_size"] = vocab_size_;
+
+            return j;
+        }
+
+        /**
+         * @brief Deserialize configuration from JSON (ModuleConfig interface).
+         *
+         * Missing keys leave fields at their current values.
+         */
+        void fromJson( const json& j )
+        {
+            if ( j.contains( "name" ) )
+            {
+                name_ = j.at( "name" ).get<std::string>();
+            }
+            /*
+            if ( j.contains( "precision" ) )
+            {
+                precision_ = static_cast<decltype(precision_)>( j.at( "precision" ).get<int>() );
+            }
+
+            if ( j.contains( "vocab_size" ) )
+            {
+                vocab_size_ = j.at( "vocab_size" ).get<int64_t>();
+            }*/
+        }
+
+        /**
+         * @brief String representation of the configuration (ModuleConfig interface).
+         *
+         * @return std::string Human-readable description of the configuration.
+		 */
+        std::string toString() const override
+        {
+            std::ostringstream oss;
+			oss << "CrossEntropyConfig(vocab_size=" << vocab_size_ << ")";
+
+            
+            return oss.str();
+
+		}
+
     private:
-        int64_t vocab_size_;  ///< Number of classes in the vocabulary
+        int64_t vocab_size_ = 0;  ///< Number of classes in the vocabulary
     };
 }

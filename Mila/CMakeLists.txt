@@ -38,6 +38,7 @@ add_library( Mila STATIC
     #--------------------------------------------------------------------------
     "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaOptimizers.h"
     "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaAdamW.cu"
+    "Src/Dnn/Visualization/Modules/Block.Visualizer.ixx"
 )
 
  # FIXME: add_dependencies(Mila MilaUpdateVersion)
@@ -96,10 +97,21 @@ PUBLIC
     FILE_SET module_files
        TYPE CXX_MODULES FILES
         #---------------------------------------------------------------
-        # Core and Version
+        # Version and Mila 
         #---------------------------------------------------------------
         "Src/Version.ixx"
         "Src/Mila.ixx"
+
+        #----------------------------------------------------------------------
+        # Core
+        #----------------------------------------------------------------------
+        "Src/Dnn/Core/Module.ixx"
+        "Src/Dnn/Core/CompositeModule.ixx"
+        "Src/Dnn/Core/ModuleConfig.ixx"
+
+        #"Src/Dnn/Core/ModuleFactory.ixx"
+        #"Src/Dnn/Core/ModuleRegistry.ixx"
+        #"Src/Dnn/Core/ModuleRegistrar.ixx"
 
         #---------------------------------------------------------------
         # Top-level Utilities
@@ -108,6 +120,7 @@ PUBLIC
         "Src/Utils/DefaultLogger.ixx"
         "Src/Utils/TrainingLogger.ixx"
         "Src/Utils/RandomGenerator.ixx"
+        "Src/Utils/json.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Tensors (top-level)
@@ -117,22 +130,23 @@ PUBLIC
         "Src/Dnn/Tensors/ITensor.ixx"
         "Src/Dnn/Tensors/TensorDataType.ixx"
         "Src/Dnn/Tensors/Tensor.Initializers.ixx"
-        
+        "Src/Dnn/Tensors/Tensor.Serialization.ixx"
+
         "Src/Dnn/Tensors/TensorDataTypeMap.ixx"
         "Src/Dnn/Tensors/TensorDataTypeTraits.ixx"
         "Src/Dnn/Tensors/TensorHostTypeMap.ixx"
 
         # Dnn / Tensors / Operations
-        
+        "Src/Dnn/Tensors/Operations/TensorOps.ixx"
+        "Src/Dnn/Tensors/Operations/TensorOps-Base.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps.Math.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps.Fill.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps.Transfer.ixx"
-
+                
         #---------------------------------------------------------------
         # Dnn / Common Components
         #---------------------------------------------------------------
         "Src/Dnn/Modules/Activations/ActivationType.ixx"
-        #"Src/Dnn/Common/PrecisionConfig.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Compute (root)
@@ -284,14 +298,6 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Vulkan/VulkanMemoryResource.ixx"
         "Src/Dnn/Compute/Devices/Vulkan/Tensors/VulkanTensorTraits.ixx"
 
-        #---------------------------------------------------------------
-        # Module Framework and Implementations
-        #---------------------------------------------------------------
-        "Src/Dnn/Core/Module.ixx"
-        "Src/Dnn/Core/CompositeModule.ixx"
-        
-        "Src/Dnn/Common/ConfigurationBase.ixx"
-
         # Modules - Activations
         "Src/Dnn/Modules/Activations/Gelu.ixx"
         "Src/Dnn/Modules/Activations/GeluConfig.ixx"
@@ -307,8 +313,8 @@ PUBLIC
         "Src/Dnn/Modules/Layers/LinearConfig.ixx"
         "Src/Dnn/Modules/Layers/Encoder.ixx"
         "Src/Dnn/Modules/Layers/EncoderConfig.ixx"
-        "Src/Dnn/Modules/Layers/Softmax.ixx"
-        "Src/Dnn/Modules/Layers/SoftmaxConfig.ixx"
+        "Src/Dnn/Modules/Losses/Softmax.ixx"
+        "Src/Dnn/Modules/Losses/SoftmaxConfig.ixx"
 
         # Normalization / Losses / Regularization / Blocks / Models / Data / Serialization
         "Src/Dnn/Modules/Normalization/LayerNorm.ixx"
@@ -335,14 +341,22 @@ PUBLIC
         #---------------------------------------------------------------
         # Dnn / Serialization
         #---------------------------------------------------------------
+        "Src/Dnn/Serialization/SerializationMode.ixx"
         "Src/Dnn/Serialization/ModelArchive.ixx"
         "Src/Dnn/Serialization/ModelSerializer.ixx"
         "Src/Dnn/Serialization/ZipSerializer.ixx"
 
         #---------------------------------------------------------------
-        
-        "Src/Dnn/Tensors/Operations/TensorOps.ixx"
-        "Src/Dnn/Tensors/Operations/TensorOps-Base.ixx"
+        # Dnn / Visualization
+        #---------------------------------------------------------------
+        "Src/Dnn/Visualization/Core/ModuleVisualizer.ixx"
+        "Src/Dnn/Visualization/Modules/LayerNorm.Visualizer.ixx"
+        "Src/Dnn/Visualization/Core/VisualizerContext.ixx"
+        "Src/Dnn/Visualization/Rendering/FrameBuffer.ixx"
+        "Src/Dnn/Visualization/Rendering/ColorLUT.ixx"
+        "Src/Dnn/Visualization/Modules/Block.Visualizer.ixx"
+        "Src/Dnn/Visualization/Modules/MLP.Visualizer.ixx"
+        "Src/Dnn/Visualization/Rendering/HeatMapRenderer.ixx"
         
         "Src/Dnn/Compute/Operations/OperationRegistryHelpers.ixx"
         "Src/Dnn/Compute/Devices/Vulkan/VulkanDevice.ixx"
@@ -356,7 +370,29 @@ PUBLIC
         "Src/Dnn/Optimizers/AdamWConfig.ixx"
         "Src/Dnn/Modules/Connections/ConnectionType.ixx"
         #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CublasLtAttention.ixx"
-        )
+
+        #----------------------------------------------------------------------
+        # Network
+        #---------------------------------------------------------------
+        "Src/Dnn/Network/Network.ixx"
+        "Src/Dnn/Network/NetworkFactory.ixx"
+
+        #----------------------------------------------------------------------
+        # Dnn / Modeling
+        #----------------------------------------------------------------------
+        #"Src/Dnn/Modeling/ModelBuilder.ixx"
+        "Src/Dnn/Modeling/Checkpoints/CheckpointManager.ixx"
+        "Src/Dnn/Modeling/Checkpoints/CheckpointMetaData.ixx"
+        "Src/Dnn/Modeling/ModelConfig.ixx"
+        "Src/Dnn/Modeling/TrainingHistory.ixx"
+        "Src/Dnn/Modeling/ModelMetadata.ixx"
+        #"Src/Dnn/Modeling/ModelExporter.ixx"
+
+        #----------------------------------------------------------------------
+        # Dnn Runtime Engine
+        #----------------------------------------------------------------------
+        #"Src/Dnn/Engine/InferenceEngine.ixx"
+)
 
 target_link_libraries(Mila PRIVATE 
     miniz

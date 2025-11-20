@@ -19,7 +19,7 @@ namespace Modules::Blocks::Tests
         EXPECT_TRUE( cfg.useBias() );
         EXPECT_EQ( cfg.getActivationType(), ActivationType::Gelu );
 
-        // Default name comes from ConfigurationBase ("unnamed") so validate should succeed
+        // Default name comes from ModuleConfig ("unnamed") so validate should succeed
         EXPECT_NO_THROW( cfg.validate() );
     }
 

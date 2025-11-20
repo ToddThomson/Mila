@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdint>
 #include <algorithm>
+#include <stdexcept>
 
 import Mila;
 

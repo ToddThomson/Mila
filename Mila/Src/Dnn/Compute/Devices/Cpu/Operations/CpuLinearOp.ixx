@@ -27,7 +27,7 @@ import Dnn.ITensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorHostTypeMap;
-import Dnn.ConfigurationBase;
+import Dnn.ModuleConfig;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
@@ -135,7 +135,7 @@ namespace Mila::Dnn::Compute
             }
         }
 
-        void setParameterGradients( ITensor* weight_grad, ITensor* bias_grad ) override
+        void setGradients( ITensor* weight_grad, ITensor* bias_grad ) override
         {
             if (!weight_grad)
             {
@@ -464,7 +464,7 @@ namespace Mila::Dnn::Compute
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>(
                 "LinearOp",
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
-                    const ConfigurationBase& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
+                    const ModuleConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
                 {
                     const auto& linearConfig = static_cast<const LinearConfig&>(config);
                     return std::make_shared<CpuLinearOp>( context, linearConfig );

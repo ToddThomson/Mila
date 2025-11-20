@@ -6,13 +6,11 @@
 module;
 #include <miniz.h>
 #include <string>
-#include <memory>
-#include <stdexcept>
-#include <vector>
+#include <string.h>
 
-export module Dnn.Serialization.ZipModelSerializer;
+export module Serialization.ZipSerializer;
 
-import Dnn.Serialization.ModelSerializer;
+import Serialization.ModelSerializer;
 
 namespace Mila::Dnn::Serialization
 {
@@ -106,13 +104,79 @@ namespace Mila::Dnn::Serialization
             return stat.m_uncomp_size;
         }
 
-        bool hasFile( const std::string& path ) const override {
-            if ( is_writing_ || filename_.empty() ) {
+        size_t getFileSize( const std::string& path ) const override
+        {
+            if (is_writing_ || filename_.empty())
+            {
+                return 0;
+            }
+
+            int fileIndex = mz_zip_reader_locate_file( const_cast<mz_zip_archive*>(&zip_), path.c_str(), nullptr, 0 );
+            if (fileIndex < 0)
+            {
+                return 0;
+            }
+
+            mz_zip_archive_file_stat stat;
+            if (!mz_zip_reader_file_stat( const_cast<mz_zip_archive*>( &zip_ ), fileIndex, &stat ))
+            {
+                return 0;
+            }
+
+            return stat.m_uncomp_size;
+        }
+
+        std::vector<std::string> listFiles() const override
+        {
+            std::vector<std::string> files;
+
+            if (is_writing_ || filename_.empty())
+            {
+                return files;
+            }
+
+            int num_files = mz_zip_reader_get_num_files( const_cast<mz_zip_archive*>(&zip_) );
+            files.reserve( num_files );
+
+            for (int i = 0; i < num_files; ++i)
+            {
+                mz_zip_archive_file_stat stat;
+                if (mz_zip_reader_file_stat( const_cast<mz_zip_archive*>( &zip_ ), i, &stat ))
+                {
+                    files.emplace_back( stat.m_filename );
+                }
+            }
+
+            return files;
+        }
+
+        bool addMetadata( const std::string& key, const std::string& value ) override
+        {
+            return addData( "metadata/" + key, value.data(), value.size() );
+        }
+
+        std::string getMetadata( const std::string& key ) const override
+        {
+            size_t size = getFileSize( "metadata/" + key );
+            if (size == 0) return "";
+
+            std::string value( size, '\0' );
+            const_cast<ZipSerializer*>(this)->extractData( "metadata/" + key, value.data(), size );
+            
+            return value;
+        }
+
+        bool hasFile( const std::string& path ) const override
+        {
+            if (is_writing_ || filename_.empty())
+            {
                 return false;
             }
 
-            return false; // FIXME: mz_zip_reader_locate_file( &zip_, path.c_str(), nullptr, 0 ) >= 0;
+            return mz_zip_reader_locate_file( const_cast<mz_zip_archive*>(&zip_),
+                path.c_str(), nullptr, 0 ) >= 0;
         }
+
 
     private:
         mz_zip_archive zip_;

@@ -31,7 +31,7 @@ import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
-import Dnn.ConfigurationBase;
+import Dnn.ModuleConfig;
 import Compute.OperationBase;
 import Compute.BinaryOperation;
 import Compute.OperationRegistry;
@@ -437,7 +437,7 @@ namespace Mila::Dnn::Compute
 				TensorDataType::INT32>(
                     opName,
                     []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                        const ConfigurationBase& config )
+                        const ModuleConfig& config )
                     -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32, TensorDataType::INT32>>
                     {
                         const auto& crossEntropyConfig = static_cast<const CrossEntropyConfig&>(config);
@@ -454,7 +454,7 @@ namespace Mila::Dnn::Compute
 				TensorDataType::INT32>(
                     opName,
                     []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                        const ConfigurationBase& config )
+                        const ModuleConfig& config )
                     -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, TensorDataType::FP16, TensorDataType::FP16, TensorDataType::INT32>>
                     {
                         const auto& ceConfig = static_cast<const CrossEntropyConfig&>(config);
