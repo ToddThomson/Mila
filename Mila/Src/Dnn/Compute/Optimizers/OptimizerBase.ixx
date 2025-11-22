@@ -24,6 +24,7 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Compute.DeviceType;
 
+// TJT: TODO: Optimizer should be in Mila::Dnn . It is a core DNN concept, not just Compute.
 namespace Mila::Dnn::Compute
 {
     /**

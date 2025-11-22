@@ -4,6 +4,8 @@
 #include <stdexcept>
 #include <vector>
 #include <string>
+#include <system_error>
+#include <utility>
 
 import Mila;
 
@@ -12,9 +14,10 @@ namespace Mila::Dnn::Modeling::Tests
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Modeling;
+	using namespace Mila::Dnn::Serialization;
 
     // Minimal mock network implementing required Module interface points.
-    class MockNetworkCpu : public CompositeModule<DeviceType::Cpu>
+    class MockNetworkCpu : public Network<DeviceType::Cpu>
     {
     public:
         MockNetworkCpu() = default;
@@ -38,12 +41,13 @@ namespace Mila::Dnn::Modeling::Tests
         }
 
         // Serialization hooks - no-op for mock
-        void save( Mila::Dnn::Serialization::ModelArchive& ) const override
-        {
-        }
-        void load( Mila::Dnn::Serialization::ModelArchive& ) override
-        {
-        }
+        //void save( ModelArchive&, SerializationMode mode ) const override
+        //{
+        //}
+        
+        //void load( ModelArchive& ) override
+        //{
+        //}
     };
 
     // Minimal mock optimizer implementing the abstract Optimizer interface.
@@ -103,7 +107,7 @@ namespace Mila::Dnn::Modeling::Tests
         auto network = std::make_unique<MockNetworkCpu>();
         auto optimizer = std::make_unique<MockOptimizerCpu>();
 
-        ModelBuilder<DeviceType::Cpu, TensorDataType::FP32> builder(
+        Model<DeviceType::Cpu, TensorDataType::FP32> test_model(
             std::move( network ),
             std::move( optimizer ) );
 
@@ -121,14 +125,11 @@ namespace Mila::Dnn::Modeling::Tests
             .verbose( false );
 
         // configure() should return reference to builder for chaining
-        auto& ref = builder.configure( cfg );
-        EXPECT_EQ( &ref, &builder );
-
-        // checkpoint manager should be created by configure
-        EXPECT_NE( builder.checkpointManager(), nullptr );
+        auto& ref = test_model.configure( cfg );
+        EXPECT_EQ( &ref, &test_model );
 
         // Run training; trainEpoch/validateEpoch are stubs that return 0.0 so losses are zeros
-        auto history = builder.train();
+        auto history = test_model.train();
 
         EXPECT_EQ( history.train_losses.size(), cfg.getEpochs() );
         for (const auto& l : history.train_losses)
@@ -145,7 +146,7 @@ namespace Mila::Dnn::Modeling::Tests
         auto network = std::make_unique<MockNetworkCpu>();
         auto optimizer = std::make_unique<MockOptimizerCpu>();
 
-        ModelBuilder<DeviceType::Cpu, TensorDataType::FP32> builder(
+        Model<DeviceType::Cpu, TensorDataType::FP32> builder(
             std::move( network ),
             std::move( optimizer ) );
 

@@ -251,8 +251,8 @@ namespace Mila::Dnn
                 return;  // Idempotent
             }
 
-            // Let derived class handle shape propagation to children
-            buildImpl( input_shape );
+            //// Let derived class handle shape propagation to children
+            //buildImpl( input_shape );
 
             is_built_ = true;
         }
@@ -360,22 +360,22 @@ namespace Mila::Dnn
 
     protected:
 
-        /**
-         * @brief Override in derived classes to implement shape propagation logic.
-         *
-         * Default implementation calls build() on all children with the same input shape.
-         * Sequential modules would propagate shapes through the chain.
-         *
-         * @param input_shape Shape of input to this composite module
-         */
-        virtual void buildImpl( const shape_t& input_shape )
-        {
-            // Default: build all children with same input shape
-            for (auto& module : child_modules_)
-            {
-                module->build( input_shape );
-            }
-        }
+        ///**
+        // * @brief Override in derived classes to implement shape propagation logic.
+        // *
+        // * Default implementation calls build() on all children with the same input shape.
+        // * Sequential modules would propagate shapes through the chain.
+        // *
+        // * @param input_shape Shape of input to this composite module
+        // */
+        //virtual void buildImpl( const shape_t& input_shape )
+        //{
+        //    // Default: build all children with same input shape
+        //    for (auto& module : child_modules_)
+        //    {
+        //        module->build( input_shape );
+        //    }
+        //}
 
         /**
          * @brief Hook invoked when training mode is about to change.

@@ -10,8 +10,7 @@
 
 module;
 #include <string>
-#include <cstdint>
-#include <type_traits>
+#include <stdexcept>
 
 export module Dnn.TensorDataType;
 
@@ -80,6 +79,43 @@ namespace Mila::Dnn
             default: return "Unknown";
         }
     };
+
+    export TensorDataType parseTensorDataType( const std::string& type_str )
+    {
+        if (type_str == "FP32")
+            return TensorDataType::FP32;
+        if (type_str == "FP16")
+            return TensorDataType::FP16;
+        if (type_str == "BF16")
+            return TensorDataType::BF16;
+        if (type_str == "FP8_E4M3")
+            return TensorDataType::FP8_E4M3;
+        if (type_str == "FP8_E5M2")
+            return TensorDataType::FP8_E5M2;
+        // FUTURE: packed types commented out
+        // if (type_str == "FP4_E2M1")
+        // return TensorDataType::FP4_E2M1;
+        // if (type_str == "FP4_E3M0")
+        // return TensorDataType::FP4_E3M0;
+        // if (type_str == "INT4")
+        // return TensorDataType::INT4;
+        // if (type_str == "UINT4")
+        // return TensorDataType::UINT4;
+        if (type_str == "INT8")
+            return TensorDataType::INT8;
+        if (type_str == "INT16")
+            return TensorDataType::INT16;
+        if (type_str == "INT32")
+            return TensorDataType::INT32;
+        if (type_str == "UINT8")
+            return TensorDataType::UINT8;
+        if (type_str == "UINT16")
+            return TensorDataType::UINT16;
+        if (type_str == "UINT32")
+            return TensorDataType::UINT32;
+        
+        throw std::invalid_argument( "Unknown TensorDataType string: " + type_str );
+    }
 
     /**
      * @brief Alias for TensorDataType enumeration

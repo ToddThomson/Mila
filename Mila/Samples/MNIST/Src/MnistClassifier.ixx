@@ -364,16 +364,16 @@ namespace Mila::Mnist
 
     protected:
 
-        /**
-         * @brief Override buildImpl for sequential shape propagation.
-         *
-         * This is called by the base CompositeModule::build() after validation.
-         * Delegates to the public build() method which handles all setup.
-         */
-        void buildImpl( const shape_t& input_shape ) override
-        {
-            (void)input_shape;
-        }
+        ///**
+        // * @brief Override buildImpl for sequential shape propagation.
+        // *
+        // * This is called by the base CompositeModule::build() after validation.
+        // * Delegates to the public build() method which handles all setup.
+        // */
+        //void buildImpl( const shape_t& input_shape ) override
+        //{
+        //    (void)input_shape;
+        //}
 
         /**
          * @brief Hook invoked when training mode is about to change.

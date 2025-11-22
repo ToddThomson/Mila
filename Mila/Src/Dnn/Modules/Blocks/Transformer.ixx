@@ -506,10 +506,10 @@ namespace Mila::Dnn
         }
 
     protected:
-        void buildImpl( const shape_t& ) override
-        {
-            // build() handles shape-dependent initialization for this composite.
-        }
+        //void buildImpl( const shape_t& ) override
+        //{
+        //    // build() handles shape-dependent initialization for this composite.
+        //}
 
         /**
          * @brief Hook invoked when training mode is about to change.

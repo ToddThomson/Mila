@@ -65,10 +65,10 @@ namespace Mila::CharLM
         requires PrecisionSupportedOnDevice<TInput, DeviceType::Cpu> &&
     (std::is_same_v<TMemoryResource, CudaPinnedMemoryResource> ||
         std::is_same_v<TMemoryResource, CpuMemoryResource>)
-        class CharDataLoader : public DataLoader<TInput, TInput, TMemoryResource>
+        class CharDataLoader : public DatasetLoader<TInput, TInput, TMemoryResource>
     {
     public:
-        using BaseLoader = DataLoader<TInput, TInput, TMemoryResource>;
+        using BaseLoader = DatasetLoader<TInput, TInput, TMemoryResource>;
         using HostType = typename TensorHostTypeMap<TInput>::host_type;
         using TensorType = Tensor<TInput, TMemoryResource>;
 

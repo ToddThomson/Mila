@@ -195,7 +195,7 @@ export import Dnn.Optimizers.AdamWConfig;
 // ============================================================================
 // Dnn - Data
 // ============================================================================
-export import Data.DataLoader;
+export import Data.DatasetLoader;
 
 // ============================================================================
 // Serialization
@@ -206,10 +206,16 @@ export import Serialization.ModelSerializer;
 export import Serialization.ZipSerializer;
 
 // ============================================================================
+// Network
+// ============================================================================
+export import Dnn.Network;
+export import Dnn.NetworkFactory;
+
+// ============================================================================
 // Modeling
 // ============================================================================
-//export import Modeling.ModelConfig;
-//export import Modeling.ModelBuilder;
+export import Dnn.Model;
+export import Dnn.ModelConfig;
 
 // ====================================================================
 // Internal Imports (not exported)

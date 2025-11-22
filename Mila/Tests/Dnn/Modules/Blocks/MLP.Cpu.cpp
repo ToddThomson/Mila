@@ -287,7 +287,7 @@ namespace Modules::Blocks::Tests
     void TestSaveLoad( const MLPCpuTestData<TPrecision>& data )
     {
         ASSERT_NE( data.mlp_module, nullptr );
-        ModelArchive archive;
+        //ModelArchive archive;
 		//SerializationMode mode = SerializationMode
 
   //      EXPECT_NO_THROW( data.mlp_module->save( archive ) );

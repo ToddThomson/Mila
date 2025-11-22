@@ -109,9 +109,9 @@ PUBLIC
         "Src/Dnn/Core/CompositeModule.ixx"
         "Src/Dnn/Core/ModuleConfig.ixx"
 
-        #"Src/Dnn/Core/ModuleFactory.ixx"
-        #"Src/Dnn/Core/ModuleRegistry.ixx"
-        #"Src/Dnn/Core/ModuleRegistrar.ixx"
+        "Src/Dnn/Core/ModuleFactory.ixx"
+        
+        
 
         #---------------------------------------------------------------
         # Top-level Utilities
@@ -316,7 +316,7 @@ PUBLIC
         "Src/Dnn/Modules/Losses/Softmax.ixx"
         "Src/Dnn/Modules/Losses/SoftmaxConfig.ixx"
 
-        # Normalization / Losses / Regularization / Blocks / Models / Data / Serialization
+        # Normalization / Losses / Regularization / Blocks
         "Src/Dnn/Modules/Normalization/LayerNorm.ixx"
         "Src/Dnn/Modules/Normalization/LayerNormConfig.ixx"
         
@@ -336,7 +336,7 @@ PUBLIC
         #----------------------------------------------------------------------
         # Dnn / Data
         #----------------------------------------------------------------------
-        "Src/Dnn/Data/DataLoader.ixx"
+        "Src/Dnn/Data/DatasetLoader.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Serialization
@@ -380,19 +380,21 @@ PUBLIC
         #----------------------------------------------------------------------
         # Dnn / Modeling
         #----------------------------------------------------------------------
-        #"Src/Dnn/Modeling/ModelBuilder.ixx"
+        "Src/Dnn/Modeling/Model.ixx"
+        "Src/Dnn/Modeling/ModelConfig.ixx"
+        "Src/Dnn/Modeling/ModelMetadata.ixx"
+
         "Src/Dnn/Modeling/Checkpoints/CheckpointManager.ixx"
         "Src/Dnn/Modeling/Checkpoints/CheckpointMetaData.ixx"
-        "Src/Dnn/Modeling/ModelConfig.ixx"
+        
         "Src/Dnn/Modeling/TrainingHistory.ixx"
-        "Src/Dnn/Modeling/ModelMetadata.ixx"
         #"Src/Dnn/Modeling/ModelExporter.ixx"
 
         #----------------------------------------------------------------------
         # Dnn Runtime Engine
         #----------------------------------------------------------------------
         #"Src/Dnn/Engine/InferenceEngine.ixx"
-)
+ "Src/Dnn/Serialization/OpenMode.ixx"  "Src/Dnn/Extensibility/PluginManager.ixx"  "Src/Dnn/Extensibility/IModulePlugin.ixx" "Src/Dnn/Extensibility/PluginInfo.ixx" "Src/Dnn/Modules/MilaModules.ixx")
 
 target_link_libraries(Mila PRIVATE 
     miniz

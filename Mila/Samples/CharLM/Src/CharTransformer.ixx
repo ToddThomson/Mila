@@ -440,10 +440,10 @@ namespace Mila::CharLM
 
     protected:
 
-        void buildImpl( const shape_t& input_shape ) override
+        /*void buildImpl( const shape_t& input_shape ) override
         {
             (void)input_shape;
-        }
+        }*/
 
         /**
          * @brief Hook invoked when training mode is about to change.

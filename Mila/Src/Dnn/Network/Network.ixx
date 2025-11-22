@@ -11,11 +11,12 @@ module;
 #include <string>
 #include <sstream>
 #include <stdexcept>
+#include <utility>
 
 export module Dnn.Network;
 
 import Dnn.CompositeModule;
-//import Dnn.ModuleFactory;
+import Dnn.ModuleFactory;
 import Compute.ExecutionContext;
 import Compute.DeviceType;
 import Compute.ComputeDevice;
@@ -37,27 +38,16 @@ namespace Mila::Dnn
         using ModulePtr = typename CompositeBase::ModulePtr;
         using ExecutionContextType = ExecutionContext<TDeviceType>;
 
-        /**
-         * @brief Construct a Network with an execution context and name.
-         *
-         * Network does not own the execution context; it stores a weak reference.
-         *
-         * @param context Shared execution context (must not be null/expired).
-         * @param name Human readable name for diagnostics (must not be empty).
-         */
-        explicit Network( std::shared_ptr<ExecutionContextType> context, const std::string& name )
+    protected:
+
+        explicit Network(
+            std::shared_ptr<ExecutionContext<TDeviceType>> context, const std::string& name )
             : context_( std::move( context ) ), name_( name )
         {
-            if ( name_.empty() )
-            {
-                throw std::invalid_argument( "Network name cannot be empty." );
-            }
-
-            if ( context_.expired() )
-            {
-                throw std::invalid_argument( "ExecutionContext cannot be null." );
-            }
+            //validateInputs();
         }
+
+    public:
 
         ~Network() override = default;
 
@@ -65,16 +55,16 @@ namespace Mila::Dnn
         // Lifecycle
         // ====================================================================
 
-        /**
-         * @brief Allow derived/clients to customize child build ordering.
-         *
-         * Default behavior delegates to CompositeModule which builds all
-         * children with the provided input shape.
-         */
-        void buildImpl( const shape_t& input_shape ) override
-        {
-            CompositeBase::buildImpl( input_shape );
-        }
+        ///**
+        // * @brief Allow derived/clients to customize child build ordering.
+        // *
+        // * Default behavior delegates to CompositeModule which builds all
+        // * children with the provided input shape.
+        // */
+        //void buildImpl( const shape_t& input_shape ) override
+        //{
+        //    CompositeBase::buildImpl( input_shape );
+        //}
 
         // ====================================================================
         // Serialization
@@ -90,18 +80,20 @@ namespace Mila::Dnn
             json net_meta;
             net_meta["name"] = name_;
             net_meta["num_modules"] = modules.size();
+			net_meta["mode"]  = static_cast<int>(mode);
+            
             archive.writeJson( "network/meta.json", net_meta );
 
             // Save architecture (module names and types)
             json arch = json::array();
-            for (const auto& module : modules)
+            for (const auto& [name, module] : modules)
             {
-                arch.push_back( module->getName() );
+                arch.push_back( name );
             }
-
             archive.writeJson( "network/architecture.json", arch );
 
-            for (const auto& module : modules)
+            // Save each module
+            for (const auto& [name, module] : modules)
             {
                 module->save_( archive, mode );
             }
@@ -117,25 +109,19 @@ namespace Mila::Dnn
             ModelArchive& archive,
             std::shared_ptr<ExecutionContextType> exec_context )
         {
-            // Load network metadata
             json net_meta = archive.readJson( "network/meta.json" );
+            std::string name = net_meta.at( "name" );
 
-            // Read name
-            std::string name;
-            net_meta.at( "name" ).get_to( name );
-
-            // Load architecture
             json arch = archive.readJson( "network/architecture.json" );
+            auto network = std::make_unique<Network>( exec_context, name );
 
-            auto network = std::make_unique<Network>( std::move( exec_context ), name );
-
-            // Reconstruct each module via factory and add to network
             for (const auto& module_name_json : arch)
             {
                 std::string module_name = module_name_json.get<std::string>();
-
+                
                 // FIXME:
-                //auto module = ModuleFactory::create( archive, module_name, network->context_.lock() );
+                //auto module = ModuleFactory::create( archive, module_name, exec_context );
+                
                 //network->addModule( module_name, std::move( module ) );
             }
 
@@ -153,21 +139,21 @@ namespace Mila::Dnn
 
         std::shared_ptr<ComputeDevice> getDevice() const override
         {
-            auto ctx = context_.lock();
-            if (!ctx)
-            {
-                throw std::runtime_error( "Network::getDevice: execution context expired" );
-            }
+            //auto ctx = context_.lock();
+            //if (!ctx)
+            //{
+            //    throw std::runtime_error( "Network::getDevice: execution context expired" );
+            //}
 
-            return ctx->getDevice();
+            return context_->getDevice();
         }
 
         void synchronize() override
         {
-            if (auto ctx = context_.lock())
-            {
-                ctx->synchronize();
-            }
+            //if (auto ctx = context_.lock())
+            //{
+                context_->synchronize();
+            //}
         }
 
         std::string toString() const override
@@ -182,18 +168,23 @@ namespace Mila::Dnn
 
         std::shared_ptr<ExecutionContextType> getExecutionContext() const
         {
-            auto ctx = context_.lock();
-            if (!ctx)
-            {
-                throw std::runtime_error( "Network::getExecutionContext: execution context expired" );
-            }
-            
-            return ctx;
+			return context_;
 		}
 
     private:
-        // Non-owning reference to execution context to avoid taking shared ownership.
-        std::weak_ptr<ExecutionContextType> context_;
+        std::shared_ptr<ExecutionContext<TDeviceType>> context_;
         std::string name_;
+
+        static std::shared_ptr<ExecutionContext<TDeviceType>> makeExecutionContext( int device_id )
+        {
+            if constexpr (TDeviceType == DeviceType::Cuda)
+            {
+                return std::make_shared<ExecutionContext<TDeviceType>>( device_id );
+            }
+            else
+            {
+                return std::make_shared<ExecutionContext<TDeviceType>>();
+            }
+        }
     };
 }

@@ -22,7 +22,7 @@ namespace Mila::Dnn::Modeling
          * @param filepath Path to save the exported model
          * @param metadata Model metadata
          */
-        static void export_model( const Network& network,
+        static void exportModel( const Network& network,
             const std::filesystem::path& filepath,
             const ModelMetadata& metadata )
         {

@@ -504,18 +504,5 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Failed to create GELU compute backend operation." );
             }
         }
-
-        /**
-         * @brief Register GELU creators for supported DeviceType/Precision combinations.
-         *
-         * This function is called by the ModuleRegistrarManager registration pass
-         * (it was declared `extern` in ModuleRegistrar). Each creator delegates to
-         * the module's existing `fromArchive_` helper and returns a shared_ptr to
-         * the module base for the given device.
-         */
-        void registerGeluCreators()
-        {
-            
-        }
     };
 }

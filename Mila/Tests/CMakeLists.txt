@@ -163,7 +163,7 @@ add_executable( MilaTests
     # --------------------------------------------------------------
     # Modeling Tests
     # --------------------------------------------------------------
-    #"Dnn/Modeling/ModelBuilder.Cpu.cpp"
+    #"Dnn/Modeling/Model.Cpu.cpp"
 
     # --------------------------------------------------------------
     #"Dnn/Tensors/TensorBuffer.Tracking.cpp"
@@ -182,7 +182,8 @@ add_executable( MilaTests
     "Dnn/Modules/Blocks/Transformer.Cuda.cpp"
     "Dnn/Modules/Blocks/Transformer.Config.cpp"
 
-    
+    "Dnn/Serialization/ModelArchive.cpp" 
+    "Dnn/Modeling/Network.Cpu.cpp"
 )
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
@@ -198,29 +199,3 @@ endif()
 target_link_libraries( MilaTests PUBLIC Mila gtest CUDA::cudart )
 
 gtest_discover_tests(MilaTests)
-
-# If performance tests are enabled, create a separate executable target. MILA_ENABLE_PERFTESTS
-if(MILA_ENABLE_PERFTESTS)
-  message(STATUS "MILA_ENABLE_PERFTESTS=ON: Adding MilaPerfTests executable with perf tests.")
-
-  add_executable( MilaPerfTests
-    "main.cpp"
-    
-  )
-
-  target_compile_features( MilaPerfTests PUBLIC cxx_std_23 )
-
-  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    target_compile_options(MilaPerfTests PRIVATE 
-      -fno-implicit-modules
-      -fno-implicit-module-maps
-      -fmodules
-    )
-  endif()
-
-  target_link_libraries( MilaPerfTests PUBLIC Mila gtest CUDA::cudart )
-
-  gtest_discover_tests(MilaPerfTests)
-else()
-  message(STATUS "MILA_ENABLE_PERFTESTS=OFF: Performance tests are not added to the build.")
-endif()

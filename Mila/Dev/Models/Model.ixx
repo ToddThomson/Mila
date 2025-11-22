@@ -23,7 +23,7 @@ import Compute.CpuDevice;
 import Compute.CudaDevice;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
-import Data.DataLoader;
+import Data.DatasetReader;
 import Dnn.ModelCallback;
 
 namespace Mila::Dnn

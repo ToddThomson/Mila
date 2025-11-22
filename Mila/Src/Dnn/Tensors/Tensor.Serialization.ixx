@@ -47,7 +47,7 @@ namespace Mila::Dnn::Serialization
      * Caller is responsible for providing contiguous raw bytes in the
      * device-neutral layout expected by the runtime (row-major).
      */
-    export inline void writeTensorBlob( const ModelArchive& archive, const std::string& prefix,
+    export inline void writeTensorBlob( ModelArchive& archive, const std::string& prefix,
         const TensorMetadata& meta, const void* data, size_t size )
     {
         json j;
