@@ -10,6 +10,7 @@ The development focus is currently on completing the training infrastructure for
 
 - CompositeModule class for stacking layers
 - Network class for top level network architecture building
+    - Serilization features  
 - Model class for training and evaluation
 
 ## Description

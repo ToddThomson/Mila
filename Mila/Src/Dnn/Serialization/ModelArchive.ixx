@@ -353,6 +353,38 @@ namespace Mila::Dnn::Serialization
             return read;
         }
 
+        /**
+     * @brief Add metadata key-value pair.
+     */
+        void addMetadata( const std::string& key, const std::string& value )
+        {
+            serializer_->addMetadata( key, value );
+        }
+
+        /**
+         * @brief Retrieve metadata value.
+         */
+        std::string getMetadata( const std::string& key ) const
+        {
+            return serializer_->getMetadata( key );
+        }
+
+        ///**
+        // * @brief Access underlying serializer for direct operations.
+        // */
+        //ModelSerializer& getSerializer()
+        //{
+        //    return serializer_.get();
+        //}
+
+        //const ModelSerializer& getSerializer() const
+        //{
+        //    return serializer_.get();
+        //}
+
+
+
+
     private:
         std::unique_ptr<ModelSerializer> serializer_;
         std::string filepath_;

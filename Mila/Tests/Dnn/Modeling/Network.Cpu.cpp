@@ -4,6 +4,10 @@
 #include <vector>
 #include <stdexcept>
 #include <utility>
+#include <filesystem>
+#include <chrono>
+#include <format>
+#include <system_error>
 
 import Mila;
 
@@ -71,6 +75,7 @@ namespace Dnn::NetworkTests
 
         void save_( ModelArchive& /*archive*/, SerializationMode /*mode*/ ) const override
         {
+            // Intentionally empty for tests - network-level metadata is the main concern here.
         }
 
         std::string toString() const override
@@ -123,6 +128,15 @@ namespace Dnn::NetworkTests
 
         std::shared_ptr<ExecutionContext<DeviceType::Cpu>> exec_ctx_;
     };
+
+    // Reuse helper used elsewhere in tests to create unique temporary archive paths.
+    static std::filesystem::path makeTempZipPath()
+    {
+        auto tmp = std::filesystem::temp_directory_path();
+        auto ts = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+
+        return tmp / std::format( "mila_test_network_{}.mila", ts );
+    }
 
     TEST_F( NetworkCpuTests, ConstructAndBasicAccessors )
     {
@@ -249,5 +263,79 @@ namespace Dnn::NetworkTests
         // enable training and getGradients should succeed (returns empty vector here)
         net.setTraining( true );
         EXPECT_NO_THROW( net.getGradients() );
+    }
+
+    // New tests: serialization API for Network.save / ModelArchive integration
+    TEST_F( NetworkCpuTests, SaveNetworkWritesMetaAndArchitecture )
+    {
+        auto path = makeTempZipPath();
+
+        // Ensure no prior file
+        std::error_code ec;
+        std::filesystem::remove( path, ec );
+
+        NetworkUnderTest<DeviceType::Cpu> net( exec_ctx_, "serial_net" );
+
+        auto m1 = std::make_shared<SimpleTestModule>( exec_ctx_, "mod1", 1 );
+        auto m2 = std::make_shared<SimpleTestModule>( exec_ctx_, "mod2", 2 );
+
+        net.addModule( "mod1", m1 );
+        net.addModule( "mod2", m2 );
+
+        // Create writer archive using ZipSerializer
+        {
+            auto writer = std::make_unique<ZipSerializer>();
+            ModelArchive archive( path.string(), std::move( writer ), OpenMode::Write );
+
+            // Save network (Architecture mode)
+            EXPECT_NO_THROW( net.save( archive, SerializationMode::Architecture ) );
+
+            archive.close();
+        }
+
+        // Re-open for read and validate presence/content of metadata files
+        {
+            auto reader = std::make_unique<ZipSerializer>();
+            ModelArchive rar( path.string(), std::move( reader ), OpenMode::Read );
+
+            // network meta.json must exist
+            EXPECT_TRUE( rar.hasFile( "network/meta.json" ) );
+            auto meta = rar.readJson( "network/meta.json" );
+
+            EXPECT_EQ( meta.at( "name" ).get<std::string>(), "serial_net" );
+            EXPECT_EQ( meta.at( "num_modules" ).get<size_t>(), 2u );
+
+            // new meta fields
+            EXPECT_TRUE( meta.contains( "format_version" ) );
+            EXPECT_EQ( meta.at( "format_version" ).get<int>(), 1 );
+            EXPECT_TRUE( meta.contains( "export_time" ) );
+
+            // mode is now a string
+            EXPECT_TRUE( meta.at( "mode" ).is_string() );
+            EXPECT_EQ( meta.at( "mode" ).get<std::string>(), serializationModeToString( SerializationMode::Architecture ) );
+
+            // architecture.json should exist and list module descriptors
+            EXPECT_TRUE( rar.hasFile( "network/architecture.json" ) );
+            auto arch = rar.readJson( "network/architecture.json" );
+            ASSERT_TRUE( arch.is_array() );
+            EXPECT_EQ( arch.size(), 2u );
+
+            // entries are objects with name/path/index (deterministic sorted order)
+            EXPECT_TRUE( arch[0].is_object() );
+            EXPECT_EQ( arch[0].at( "name" ).get<std::string>(), "mod1" );
+            EXPECT_EQ( arch[0].at( "path" ).get<std::string>(), "modules/mod1" );
+            EXPECT_EQ( arch[0].at( "index" ).get<int>(), 0 );
+
+            EXPECT_TRUE( arch[1].is_object() );
+            EXPECT_EQ( arch[1].at( "name" ).get<std::string>(), "mod2" );
+            EXPECT_EQ( arch[1].at( "path" ).get<std::string>(), "modules/mod2" );
+            EXPECT_EQ( arch[1].at( "index" ).get<int>(), 1 );
+
+            rar.close();
+        }
+
+        // Clean up
+        std::filesystem::remove( path, ec );
+        EXPECT_FALSE( std::filesystem::exists( path ) );
     }
 }
