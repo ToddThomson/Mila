@@ -49,7 +49,7 @@ namespace Mila::Dnn
      */
     export template<DeviceType TDeviceType, TensorDataType TLogits, TensorDataType TTargets = dtype_t::INT32, TensorDataType TPrecision = TLogits>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    class SoftmaxCrossEntropy : public Module<TDeviceType>
+    class SoftmaxCrossEntropy : public Module<TDeviceType, TPrecision>
     {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;

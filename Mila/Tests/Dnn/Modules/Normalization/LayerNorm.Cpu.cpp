@@ -48,6 +48,13 @@ namespace Modules::Normalization::Tests
             data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
             data.module = std::make_shared<LayerNorm<DeviceType::Cpu, TPrecision>>( data.exec_context, data.config );
 
+            // Training is no longer a construction-time configuration.
+            // If the test requested training mode, set it explicitly.
+            if (data.is_training)
+            {
+                data.module->setTraining( true );
+            }
+
             return data;
         }
 
@@ -71,6 +78,12 @@ namespace Modules::Normalization::Tests
 
             data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
             data.module = std::make_shared<LayerNorm<DeviceType::Cpu, TPrecision>>( data.exec_context, data.config );
+
+            // Training must be set explicitly via setTraining()
+            if (data.is_training)
+            {
+                data.module->setTraining( true );
+            }
 
             return data;
         }
@@ -97,6 +110,12 @@ namespace Modules::Normalization::Tests
 
             data.exec_context = context;
             data.module = std::make_shared<LayerNorm<DeviceType::Cpu, TPrecision>>( data.exec_context, data.config );
+
+            // Respect requested training flag by calling setTraining()
+            if (data.is_training)
+            {
+                data.module->setTraining( true );
+            }
 
             return data;
         }
@@ -211,14 +230,12 @@ namespace Modules::Normalization::Tests
         EXPECT_NO_THROW( data.module->build( data.shape ) );
         EXPECT_TRUE( data.module->isBuilt() );
 
-        data.module->build( data.shape );
-        EXPECT_TRUE( data.module->isBuilt() );
+        EXPECT_THROW( data.module->build( data.shape ), std::runtime_error );
     }
 
     template<TensorDataType TPrecision>
     void TestParameters( const LayerNormCpuTestData<TPrecision>& data, size_t expected_weight_size )
     {
-        // Module no longer exposes getWeight/getBias; use getParameters()
         auto params = data.module->getParameters();
 
         ASSERT_FALSE( params.empty() );

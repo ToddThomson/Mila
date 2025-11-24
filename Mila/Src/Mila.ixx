@@ -245,7 +245,6 @@ namespace Mila
                 MILA_VERSION_MINOR,
                 MILA_VERSION_PATCH,
                 MILA_VERSION_PRERELEASE_TAG,
-                MILA_VERSION_PRERELEASE
         };
     }
 

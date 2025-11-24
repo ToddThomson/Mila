@@ -4,17 +4,22 @@
  */
 
 module;
+#include <memory>
 #include <string>
+//#include <regex>
+#include <stdexcept>
 
 export module Dnn.ModuleConfig;
 
 
 import Compute.Precision;
-import nlohmann.json;
+//import nlohmann.json;
 
 namespace Mila::Dnn
 {
-	using json = nlohmann::json;
+    
+
+	//using json = nlohmann::json;
     using namespace Mila::Dnn::Compute;
 
     /**
@@ -103,7 +108,15 @@ namespace Mila::Dnn
          *
          * @throws std::invalid_argument If the configuration is invalid
          */
-        virtual void validate() const = 0;
+        virtual void validate() const
+        {
+            if (!isIdentifier( name_ ))
+            {
+                throw std::invalid_argument(
+                    "ModuleConfig::validate: name must start with a letter and contain only "
+                    "letters, digits, '.', '_', '-' (1..128 chars)" );
+            }
+        }
 
     protected:
         
@@ -112,5 +125,53 @@ namespace Mila::Dnn
 
         /** @brief Precision policy for computation */
         ComputePrecision::Policy precision_ = ComputePrecision::Policy::Auto;
+        
+	private:
+
+        static bool isIdentifier( const std::string& s ) noexcept
+        {
+            // Simple, deterministic ASCII-only check to avoid regex / compiler issues.
+            // Rule: start with A-Za-z, then allow A-Za-z0-9 . _ - ; length 1..128.
+            constexpr std::size_t kMinLen = 1;
+            constexpr std::size_t kMaxLen = 128;
+
+            if (s.size() < kMinLen || s.size() > kMaxLen)
+            {
+                return false;
+            }
+
+            auto isAsciiAlpha = []( unsigned char c ) noexcept {
+                return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+                };
+
+            auto isAsciiAlphaNum = []( unsigned char c ) noexcept {
+                return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+                };
+
+            const unsigned char first = static_cast<unsigned char>(s[0]);
+            if (!isAsciiAlpha( first ))
+            {
+                return false;
+            }
+
+            for (unsigned char uc : s)
+            {
+                if (isAsciiAlphaNum( uc ))
+                {
+                    continue;
+                }
+
+                if (uc == '.' || uc == '_' || uc == '-')
+                {
+                    continue;
+                }
+
+                return false;
+            }
+
+            return true;
+        }
     };
+
+    
 }

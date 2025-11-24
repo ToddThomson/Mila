@@ -18,6 +18,7 @@ export module Dnn.Module;
 
 import Dnn.Tensor;
 import Dnn.ITensor;
+import Dnn.TensorDataType;
 import Dnn.TensorTypes;
 import Compute.ComputeDevice;
 import Compute.DeviceType;
@@ -41,10 +42,12 @@ namespace Mila::Dnn
      * - training/evaluation mode transitions with a serialized hook,
      * - short human-readable diagnostics via `toString()`.
      */
-    export template<DeviceType TDeviceType>
+    export template<DeviceType TDeviceType, TensorDataType TPrecision>
+        requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
     class Module
     {
     public:
+        
         virtual ~Module() = default;
 
         // ====================================================================
@@ -78,6 +81,7 @@ namespace Mila::Dnn
          * @param input_shape Expected input tensor shape for forward calls.
          */
         virtual void build( const shape_t& input_shape ) = 0;
+		// REVIEW: Can we enforce that build() can only be called once at the Module level?
 
         // ====================================================================
         // Synchronization
@@ -236,6 +240,12 @@ namespace Mila::Dnn
         {
             return TDeviceType;
         }
+
+        static constexpr TensorDataType getPrecision() noexcept
+        {
+            return TPrecision;
+        }
+
 
         /**
          * @brief Get the compute device associated with this module.

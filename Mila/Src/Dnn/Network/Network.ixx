@@ -21,6 +21,7 @@ export module Dnn.Network;
 
 import Dnn.CompositeModule;
 import Dnn.ModuleFactory;
+import Dnn.TensorDataType;
 import Compute.ExecutionContext;
 import Compute.DeviceType;
 import Compute.ComputeDevice;
@@ -34,11 +35,11 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Serialization;
 
-    export template<DeviceType TDeviceType>
-        class Network : public CompositeModule<TDeviceType>
+    export template<DeviceType TDeviceType, TensorDataType TPrecision>
+        class Network : public CompositeModule<TDeviceType, TPrecision>
     {
     public:
-        using CompositeBase = CompositeModule<TDeviceType>;
+        using CompositeBase = CompositeModule<TDeviceType, TPrecision>;
         using ModulePtr = typename CompositeBase::ModulePtr;
         using ExecutionContextType = ExecutionContext<TDeviceType>;
 

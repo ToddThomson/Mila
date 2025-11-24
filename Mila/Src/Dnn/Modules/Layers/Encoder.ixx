@@ -60,7 +60,7 @@ namespace Mila::Dnn
      */
     export template<DeviceType TDeviceType, TensorDataType TIndex = dtype_t::INT32, TensorDataType TPrecision = dtype_t::FP32>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    class Encoder : public Module<TDeviceType>
+    class Encoder : public Module<TDeviceType, TPrecision>
     {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;

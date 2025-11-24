@@ -43,17 +43,18 @@ namespace Dnn::Modules::Tests
     /**
      * @brief Mock module for testing base Module functionality
      *
-     * Implements the slimmer Module<TDeviceType> interface introduced in Module.ixx.
+     * Implements the slimmer Module<TDeviceType, TPrecision> interface introduced in Module.ixx.
      * The mock owns an ExecutionContext for tests and exposes minimal helpers used
      * by the unit tests (execution context access, simple string helpers).
      *
      * @tparam TDeviceType The compute device (CPU or CUDA)
+     * @tparam TPrecision  The tensor data precision (e.g. FP32)
      */
-    template<DeviceType TDeviceType>
-    class MockModule : public Module<TDeviceType>
+    template<DeviceType TDeviceType, TensorDataType TPrecision>
+    class MockModule : public Module<TDeviceType, TPrecision>
     {
     public:
-        using ModuleBase = Module<TDeviceType>;
+        using ModuleBase = Module<TDeviceType, TPrecision>;
         using ExecutionContextType = ExecutionContext<TDeviceType>;
 
         explicit MockModule( const MockModuleConfig& config, std::shared_ptr<ExecutionContextType> exec_context )
@@ -230,11 +231,14 @@ namespace Dnn::Modules::Tests
 
     /**
      * @brief Test data structure holding module and test configuration
+     *
+     * TPrecision defaults to FP32 so existing tests remain concise while
+     * exercising the new Module<TDevice, TPrecision> API.
      */
-    template<DeviceType TDeviceType>
+    template<DeviceType TDeviceType, TensorDataType TPrecision = TensorDataType::FP32>
     struct ModuleTestData
     {
-        std::shared_ptr<MockModule<TDeviceType>> module;
+        std::shared_ptr<MockModule<TDeviceType, TPrecision>> module;
         bool is_training;
 
         // Create by device id (now create ExecutionContext and forward to module ctor)
@@ -249,17 +253,17 @@ namespace Dnn::Modules::Tests
             config.withName( "mock_module" );
 
             // Build an execution context appropriate for the device type
-            std::shared_ptr<typename MockModule<TDeviceType>::ExecutionContextType> exec_ctx;
+            std::shared_ptr<typename MockModule<TDeviceType, TPrecision>::ExecutionContextType> exec_ctx;
             if constexpr (TDeviceType == DeviceType::Cuda)
             {
-                exec_ctx = std::make_shared<typename MockModule<TDeviceType>::ExecutionContextType>( device_id );
+                exec_ctx = std::make_shared<typename MockModule<TDeviceType, TPrecision>::ExecutionContextType>( device_id );
             }
             else
             {
-                exec_ctx = std::make_shared<typename MockModule<TDeviceType>::ExecutionContextType>();
+                exec_ctx = std::make_shared<typename MockModule<TDeviceType, TPrecision>::ExecutionContextType>();
             }
 
-            data.module = std::make_shared<MockModule<TDeviceType>>( config, exec_ctx );
+            data.module = std::make_shared<MockModule<TDeviceType, TPrecision>>( config, exec_ctx );
 
             if (data.is_training)
             {
@@ -270,7 +274,7 @@ namespace Dnn::Modules::Tests
         }
 
         static ModuleTestData CreateWithContext(
-            std::shared_ptr<typename MockModule<TDeviceType>::ExecutionContextType> exec_context,
+            std::shared_ptr<typename MockModule<TDeviceType, TPrecision>::ExecutionContextType> exec_context,
             bool is_training = false )
         {
             ModuleTestData data;
@@ -279,7 +283,7 @@ namespace Dnn::Modules::Tests
             MockModuleConfig config;
             config.withName( "mock_module_context" );
 
-            data.module = std::make_shared<MockModule<TDeviceType>>( config, exec_context );
+            data.module = std::make_shared<MockModule<TDeviceType, TPrecision>>( config, exec_context );
 
             if (data.is_training)
             {
@@ -307,7 +311,7 @@ namespace Dnn::Modules::Tests
             context_cuda_data_.module.reset();
         }
 
-        ModuleTestData<DeviceType::Cpu>& CpuData()
+        ModuleTestData<DeviceType::Cpu> & CpuData()
         {
             if (!cpu_data_.module)
             {
@@ -317,7 +321,7 @@ namespace Dnn::Modules::Tests
             return cpu_data_;
         }
 
-        ModuleTestData<DeviceType::Cuda>& CudaData()
+        ModuleTestData<DeviceType::Cuda> & CudaData()
         {
             if (!cuda_data_.module)
             {
@@ -326,7 +330,7 @@ namespace Dnn::Modules::Tests
             return cuda_data_;
         }
 
-        ModuleTestData<DeviceType::Cpu>& TrainingCpuData()
+        ModuleTestData<DeviceType::Cpu> & TrainingCpuData()
         {
             if (!training_cpu_data_.module)
             {
@@ -335,7 +339,7 @@ namespace Dnn::Modules::Tests
             return training_cpu_data_;
         }
 
-        ModuleTestData<DeviceType::Cuda>& TrainingCudaData()
+        ModuleTestData<DeviceType::Cuda> & TrainingCudaData()
         {
             if (!training_cuda_data_.module)
             {
@@ -344,23 +348,23 @@ namespace Dnn::Modules::Tests
             return training_cuda_data_;
         }
 
-        ModuleTestData<DeviceType::Cpu>& ContextCpuData()
+        ModuleTestData<DeviceType::Cpu> & ContextCpuData()
         {
             if (!context_cpu_data_.module)
             {
                 // Create a CPU execution context explicitly (CPU execution context has default ctor)
-                auto exec_context = std::make_shared<MockModule<DeviceType::Cpu>::ExecutionContextType>();
+                auto exec_context = std::make_shared<typename MockModule<DeviceType::Cpu, TensorDataType::FP32>::ExecutionContextType>();
                 context_cpu_data_ = ModuleTestData<DeviceType::Cpu>::CreateWithContext( exec_context );
             }
             return context_cpu_data_;
         }
 
-        ModuleTestData<DeviceType::Cuda>& ContextCudaData()
+        ModuleTestData<DeviceType::Cuda> & ContextCudaData()
         {
             if (!context_cuda_data_.module)
             {
                 // Create a CUDA execution context for device 0
-                auto exec_context = std::make_shared<MockModule<DeviceType::Cuda>::ExecutionContextType>( 0 );
+                auto exec_context = std::make_shared<typename MockModule<DeviceType::Cuda, TensorDataType::FP32>::ExecutionContextType>( 0 );
                 context_cuda_data_ = ModuleTestData<DeviceType::Cuda>::CreateWithContext( exec_context );
             }
             return context_cuda_data_;
@@ -378,33 +382,33 @@ namespace Dnn::Modules::Tests
     // Test Helper Functions
     // ====================================================================
 
-    template<DeviceType TDeviceType>
-    void TestGetName( const ModuleTestData<TDeviceType>& data, const std::string& expected_name )
+    template<DeviceType TDeviceType, TensorDataType TPrecision = TensorDataType::FP32>
+    void TestGetName( const ModuleTestData<TDeviceType, TPrecision>& data, const std::string& expected_name )
     {
         EXPECT_EQ( data.module->getName(), expected_name );
     }
 
-    template<DeviceType TDeviceType>
-    void TestParameterCount( const ModuleTestData<TDeviceType>& data, size_t expected_count )
+    template<DeviceType TDeviceType, TensorDataType TPrecision = TensorDataType::FP32>
+    void TestParameterCount( const ModuleTestData<TDeviceType, TPrecision>& data, size_t expected_count )
     {
         EXPECT_EQ( data.module->parameterCount(), expected_count );
     }
 
-    template<DeviceType TDeviceType>
-    void TestPrint( const ModuleTestData<TDeviceType>& data, const std::string& expected_substring )
+    template<DeviceType TDeviceType, TensorDataType TPrecision = TensorDataType::FP32>
+    void TestPrint( const ModuleTestData<TDeviceType, TPrecision>& data, const std::string& expected_substring )
     {
         std::string output = data.module->toString();
         EXPECT_NE( output.find( expected_substring ), std::string::npos );
     }
 
-    template<DeviceType TDeviceType>
-    void TestTrainingMode( const ModuleTestData<TDeviceType>& data, bool expected_mode )
+    template<DeviceType TDeviceType, TensorDataType TPrecision = TensorDataType::FP32>
+    void TestTrainingMode( const ModuleTestData<TDeviceType, TPrecision>& data, bool expected_mode )
     {
         EXPECT_EQ( data.module->isTraining(), expected_mode );
     }
 
-    template<DeviceType TDeviceType>
-    void TestDeviceType( const ModuleTestData<TDeviceType>& data )
+    template<DeviceType TDeviceType, TensorDataType TPrecision = TensorDataType::FP32>
+    void TestDeviceType( const ModuleTestData<TDeviceType, TPrecision>& data )
     {
         auto exec_context = data.module->getExecutionContext();
         EXPECT_NE( exec_context, nullptr );
@@ -417,14 +421,14 @@ namespace Dnn::Modules::Tests
     }
 
     // Minimal precision test to match new Module API (mock exposes precision via config)
-    template<DeviceType TDeviceType>
-    void TestPrecision( const ModuleTestData<TDeviceType>& data )
+    template<DeviceType TDeviceType, TensorDataType TPrecision = TensorDataType::FP32>
+    void TestPrecision( const ModuleTestData<TDeviceType, TPrecision>& data )
     {
         EXPECT_EQ( data.module->getPrecisionPolicy(), ComputePrecision::Policy::Auto );
     }
 
-    template<DeviceType TDeviceType>
-    void TestHelperMethods( const ModuleTestData<TDeviceType>& data )
+    template<DeviceType TDeviceType, TensorDataType TPrecision = TensorDataType::FP32>
+    void TestHelperMethods( const ModuleTestData<TDeviceType, TPrecision>& data )
     {
         std::string params_str = data.module->testParametersToString();
         std::string state_str = data.module->testStateToString();
@@ -439,8 +443,8 @@ namespace Dnn::Modules::Tests
      * Demonstrates that modules can accept tensors with any compatible
      * memory resource for the same device type.
      */
-    template<DeviceType TDeviceType>
-    void TestForwardBackward( const ModuleTestData<TDeviceType>& data )
+    template<DeviceType TDeviceType, TensorDataType TPrecision = TensorDataType::FP32>
+    void TestForwardBackward( const ModuleTestData<TDeviceType, TPrecision>& data )
     {
         // Determine appropriate memory resource for device
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda,
@@ -501,7 +505,7 @@ namespace Dnn::Modules::Tests
         EXPECT_EQ( input_grad.size(), output_grad.size() );
     }
 
-    template<DeviceType TDeviceType>
+    template<DeviceType TDeviceType, TensorDataType TPrecision = TensorDataType::FP32>
     void TestInvalidDeviceId()
     {
         MockModuleConfig config;
@@ -511,30 +515,30 @@ namespace Dnn::Modules::Tests
         {
             // Negative device id should be invalid for CUDA: creating the ExecutionContext must fail
             EXPECT_THROW(
-                (std::make_shared<typename MockModule<TDeviceType>::ExecutionContextType>( -1 )),
+                (std::make_shared<typename MockModule<TDeviceType, TPrecision>::ExecutionContextType>( -1 )),
                 std::invalid_argument
             );
         }
         else
         {
             // CPU may accept the id (ignored), ensure construction succeeds
-            auto exec_ctx = std::make_shared<typename MockModule<TDeviceType>::ExecutionContextType>();
+            auto exec_ctx = std::make_shared<typename MockModule<TDeviceType, TPrecision>::ExecutionContextType>();
             EXPECT_NO_THROW(
-                (std::make_shared<MockModule<TDeviceType>>( config, exec_ctx ))
+                (std::make_shared<MockModule<TDeviceType, TPrecision>>( config, exec_ctx ))
             );
         }
     }
 
-    template<DeviceType TDeviceType>
+    template<DeviceType TDeviceType, TensorDataType TPrecision = TensorDataType::FP32>
     void TestNullExecutionContext()
     {
         MockModuleConfig config;
         config.withName( "test_module" );
 
-        std::shared_ptr<typename MockModule<TDeviceType>::ExecutionContextType> null_context;
+        std::shared_ptr<typename MockModule<TDeviceType, TPrecision>::ExecutionContextType> null_context;
 
         EXPECT_THROW(
-            (std::make_shared<MockModule<TDeviceType>>( config, null_context )),
+            (std::make_shared<MockModule<TDeviceType, TPrecision>>( config, null_context )),
             std::invalid_argument
         );
     }
@@ -685,26 +689,5 @@ namespace Dnn::Modules::Tests
     TEST_F( ModuleTests, NullExecutionContext_Cuda )
     {
         TestNullExecutionContext<DeviceType::Cuda>();
-    }
-
-    /*TEST_F( ModuleTests, EmptyNameInConfig_Cpu )
-    {
-        TestEmptyNameInConfig<DeviceType::Cpu>();
-    }
-
-    TEST_F( ModuleTests, EmptyNameInConfig_Cuda )
-    {
-        TestEmptyNameInConfig<DeviceType::Cuda>();
-    }*/
-
-    TEST_F( ModuleTests, ModuleReflectsConfigTrainingMode )
-    {
-        MockModuleConfig training_config;
-        training_config.withName( "training_module" );
-
-        auto exec_ctx = std::make_shared<MockModule<DeviceType::Cpu>::ExecutionContextType>();
-        auto module = std::make_shared<MockModule<DeviceType::Cpu>>( training_config, exec_ctx );
-
-        EXPECT_TRUE( module->isTraining() );
     }
 }

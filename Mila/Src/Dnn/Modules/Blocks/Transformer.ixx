@@ -57,11 +57,11 @@ namespace Mila::Dnn
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    class Transformer : public CompositeModule<TDeviceType>
+    class Transformer : public CompositeModule<TDeviceType, TPrecision>
     {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
-        using CompositeModuleBase = CompositeModule<TDeviceType>;
+        using CompositeModuleBase = CompositeModule<TDeviceType, TPrecision>;
         using ExecutionContextType = ExecutionContext<TDeviceType>;
         using TensorType = Tensor<TPrecision, MR>;
         using LayerNormType = LayerNorm<TDeviceType, TPrecision>;

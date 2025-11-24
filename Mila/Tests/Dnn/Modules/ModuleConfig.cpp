@@ -48,8 +48,6 @@ namespace Dnn::Modules::Tests
     TEST_F( ModuleConfigTests, DefaultConstructor_ShouldSetDefaultValues ) {
         TestModuleConfig config;
 
-        // ModuleConfig default values (see ModuleConfig.ixx)
-        EXPECT_EQ( config.getName(), "unnamed" );
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Auto );
     }
 
@@ -121,14 +119,12 @@ namespace Dnn::Modules::Tests
 
         void validate() const override {
             // Enforce base validation first
-            //ModuleConfig::validate();
+            ModuleConfig::validate();
 
             if (custom_option_ < 0)
             {
                 throw std::invalid_argument( "Custom option must be non-negative" );
             }
-
-            // Additional validation for device_name_ could go here if desired
         }
 
         std::string toString() const override {

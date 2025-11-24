@@ -19,6 +19,7 @@ module;
 export module Dnn.CompositeModule;
 
 import Dnn.Module;
+import Dnn.TensorDataType;
 import Compute.DeviceType;
 import Serialization.ModelArchive;
 import Serialization.Mode;
@@ -43,12 +44,12 @@ namespace Mila::Dnn
      * - Recursive serialization of child hierarchy
      * - Build state validation
      */
-    export template<DeviceType TDeviceType>
-        class CompositeModule : public Module<TDeviceType>
+    export template<DeviceType TDeviceType, TensorDataType TPrecision>
+        class CompositeModule : public Module<TDeviceType, TPrecision>
     {
     public:
-        using ModuleBase = Module<TDeviceType>;
-        using ModulePtr = std::shared_ptr<Module<TDeviceType>>;
+        using ModuleBase = Module<TDeviceType, TPrecision>;
+        using ModulePtr = std::shared_ptr<Module<TDeviceType, TPrecision>>;
 
         /**
          * @brief Construct an empty composite module.
@@ -633,7 +634,7 @@ namespace Mila::Dnn
          * @param module Pointer to the child module
          * @return Name of the module, or "unknown" if not found
          */
-        std::string getModuleName( const Module<TDeviceType>* module ) const
+        std::string getModuleName( const Module<TDeviceType, TPrecision>* module ) const
         {
             for (const auto& [name, mod] : child_module_map_)
             {

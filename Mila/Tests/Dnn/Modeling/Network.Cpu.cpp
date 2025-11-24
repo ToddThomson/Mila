@@ -18,11 +18,11 @@ namespace Dnn::NetworkTests
     using namespace Mila::Dnn::Serialization;
 
     // A small concrete Network subclass exposing the protected constructor for tests.
-    template<DeviceType TDeviceType>
-    class NetworkUnderTest : public Network<TDeviceType>
+    template<DeviceType TDeviceType, TensorDataType TPrecision = TensorDataType::FP32>
+    class NetworkUnderTest : public Network<TDeviceType, TPrecision>
     {
     public:
-        using Base = Network<TDeviceType>;
+        using Base = Network<TDeviceType, TPrecision>;
         explicit NetworkUnderTest( std::shared_ptr<ExecutionContext<TDeviceType>> ctx, const std::string& name )
             : Base( ctx, name )
         {
@@ -32,8 +32,8 @@ namespace Dnn::NetworkTests
         //using Base::buildImpl;
     };
 
-    // Minimal test module implementing required Module<T> interface used by CompositeModule.
-    class SimpleTestModule : public Module<DeviceType::Cpu>
+    // Minimal test module implementing required Module<TDeviceType, TPrecision> interface used by CompositeModule.
+    class SimpleTestModule : public Module<DeviceType::Cpu, TensorDataType::FP32>
     {
     public:
         SimpleTestModule( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> ctx,
