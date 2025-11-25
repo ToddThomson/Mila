@@ -48,10 +48,10 @@ namespace Mila::Mnist
     export template<TensorDataType TInput, typename TMemoryResource>
         requires PrecisionSupportedOnDevice<TInput, DeviceType::Cpu> &&
             (std::is_same_v<TMemoryResource, CudaPinnedMemoryResource> || std::is_same_v<TMemoryResource, CpuMemoryResource>)
-    class MnistDataLoader : public DataLoader<TInput, TInput, TMemoryResource>
+    class MnistDataLoader : public DatasetReader<TInput, TInput, TMemoryResource>
     {
     public:
-        using BaseLoader = DataLoader<TInput, TInput, TMemoryResource>;
+        using BaseLoader = DatasetReader<TInput, TInput, TMemoryResource>;
         using HostType = typename TensorHostTypeMap<TInput>::host_type;
         using TensorType = Tensor<TInput, TMemoryResource>;
 

@@ -16,9 +16,9 @@ module;
 
 export module Compute.CpuCrossEntropyOp;
 
-import Dnn.Modules.CrossEntropy;
+import Dnn.Components.CrossEntropy;
 import Dnn.Tensor;
-import Dnn.ModuleConfig;
+import Dnn.ComponentConfig;
 import Compute.Precision;
 import Compute.OperationBase;
 import Compute.UnaryOperation;

@@ -70,37 +70,43 @@ namespace Mila::Utils
         template<typename... Args>
         static void trace_fmt( std::format_string<Args...> fmt, Args&&... args ) {
             const std::source_location location = std::source_location::current();
-            defaultLogger().trace_fmt( fmt, std::forward<Args>( args )... );
+            auto formatted = std::format( fmt, std::forward<Args>( args )... );
+            defaultLogger().log_trace( formatted, location );
         }
 
         template<typename... Args>
         static void debug_fmt( std::format_string<Args...> fmt, Args&&... args ) {
             const std::source_location location = std::source_location::current();
-            defaultLogger().debug_fmt( fmt, std::forward<Args>( args )... );
+            auto formatted = std::format( fmt, std::forward<Args>( args )... );
+            defaultLogger().log_debug( formatted, location );
         }
 
         template<typename... Args>
         static void info_fmt( std::format_string<Args...> fmt, Args&&... args ) {
             const std::source_location location = std::source_location::current();
-            defaultLogger().info_fmt( fmt, std::forward<Args>( args )... );
+            auto formatted = std::format( fmt, std::forward<Args>( args )... );
+            defaultLogger().log_info( formatted, location );
         }
 
         template<typename... Args>
         static void warning_fmt( std::format_string<Args...> fmt, Args&&... args ) {
             const std::source_location location = std::source_location::current();
-            defaultLogger().warning_fmt( fmt, std::forward<Args>( args )... );
+            auto formatted = std::format( fmt, std::forward<Args>( args )... );
+            defaultLogger().log_warning( formatted, location );
         }
 
         template<typename... Args>
         static void error_fmt( std::format_string<Args...> fmt, Args&&... args ) {
             const std::source_location location = std::source_location::current();
-            defaultLogger().error_fmt( fmt, std::forward<Args>( args )... );
+            auto formatted = std::format( fmt, std::forward<Args>( args )... );
+            defaultLogger().log_error( formatted, location );
         }
 
         template<typename... Args>
         static void critical_fmt( std::format_string<Args...> fmt, Args&&... args ) {
             const std::source_location location = std::source_location::current();
-            defaultLogger().critical_fmt( fmt, std::forward<Args>( args )... );
+            auto formatted = std::format( fmt, std::forward<Args>( args )... );
+            defaultLogger().log_critical( formatted, location );
         }
 
         // Virtual logging methods with log_ prefix to avoid name conflicts with static methods

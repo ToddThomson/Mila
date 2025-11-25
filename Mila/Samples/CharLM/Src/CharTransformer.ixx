@@ -69,11 +69,11 @@ namespace Mila::CharLM
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    class CharTransformer : public CompositeModule<TDeviceType>
+    class CharTransformer : public CompositeComponent<TDeviceType, TPrecision>
     {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
-        using CompositeModuleBase = CompositeModule<TDeviceType>;
+        using CompositeComponentBase = CompositeComponent<TDeviceType, TPrecision>;
         using ExecutionContextType = ExecutionContext<TDeviceType>;
         using TensorType = Tensor<TPrecision, MR>;
         using LinearType = Linear<TDeviceType, TPrecision>;
@@ -93,7 +93,7 @@ namespace Mila::CharLM
 
             config_.validate();
 
-            createModules();
+            createComponents();
         }
 
         ~CharTransformer() override = default;
@@ -114,14 +114,12 @@ namespace Mila::CharLM
                 }
             }
 
-            return built_ && encoder_ && final_layernorm_ && lm_head_ && blocks_ok;
+            return CompositeComponentBase::isBuilt() && encoder_ && final_layernorm_ && lm_head_ && blocks_ok;
         }
 
-        void build( const shape_t& input_shape ) override
+        // Architecture-specific build hook called by CompositeComponent::build()
+        void onBuilding( const shape_t& input_shape ) override
         {
-            if (built_)
-                return;
-
             validateInputShape( input_shape );
 
             cached_input_shape_ = input_shape;
@@ -132,16 +130,16 @@ namespace Mila::CharLM
             cached_output_shape_ = { batch_size_, seq_length_, config_.vocab_size };
 
             // Build encoder (token + positional embeddings)
-            encoder_->build( input_shape );
+            this->buildChild( encoder_, input_shape );
 
-            // Build transformer blocks
+            // Build transformer blocks (use embedding-shaped inputs)
             for (auto& block : transformer_blocks_)
             {
-                block->build( cached_embedding_shape_ );
+                this->buildChild( block, cached_embedding_shape_ );
             }
 
-            final_layernorm_->build( cached_embedding_shape_ );
-            lm_head_->build( cached_embedding_shape_ );
+            this->buildChild( final_layernorm_, cached_embedding_shape_ );
+            this->buildChild( lm_head_, cached_embedding_shape_ );
 
             auto device = exec_context_->getDevice();
 
@@ -154,8 +152,6 @@ namespace Mila::CharLM
 
             normalized_ = std::make_shared<TensorType>( device, cached_embedding_shape_ );
             normalized_->setName( config_.name + ".normalized" );
-
-            built_ = true;
         }
 
         // ====================================================================
@@ -175,10 +171,12 @@ namespace Mila::CharLM
             {
                 copy( *embedded_, *transformer_output_ );
             }
+
             else
             {
                 ITensor* read = embedded_.get();
                 ITensor* write = transformer_output_.get();
+
 
                 std::cout << "# of blocks to forward through: " << transformer_blocks_.size();
 
@@ -257,7 +255,7 @@ namespace Mila::CharLM
         }
 
         // ====================================================================
-        // Module interface
+        // Component interface
         // ====================================================================
 
         std::string getName() const override
@@ -440,16 +438,11 @@ namespace Mila::CharLM
 
     protected:
 
-        void buildImpl( const shape_t& input_shape ) override
-        {
-            (void)input_shape;
-        }
-
         /**
          * @brief Hook invoked when training mode is about to change.
          *
          * Propagate the new mode to child modules and invalidate any cached
-         * forward-executed state. Called with the CompositeModule's mutex held;
+         * forward-executed state. Called with the CompositeComponent's mutex held;
          * do not call setTraining() within this hook.
          */
         void onTrainingChanging( bool newMode ) override
@@ -469,7 +462,6 @@ namespace Mila::CharLM
 
     private:
         CharTransformerConfig config_;
-        bool built_{ false };
         std::shared_ptr<ExecutionContextType> exec_context_;
 
         shape_t cached_input_shape_;
@@ -504,7 +496,7 @@ namespace Mila::CharLM
             }
         }
 
-        void createModules()
+        void createComponents()
         {
             EncoderConfig enc_cfg;
             enc_cfg.withVocabularyLength( static_cast<size_t>( config_.vocab_size ) )
@@ -513,7 +505,7 @@ namespace Mila::CharLM
             enc_cfg.validate();
 
             encoder_ = std::make_shared<EncoderType>( exec_context_, enc_cfg );
-            encoder_->setTraining( this->isTraining() );
+            this->addComponent( encoder_ );
 
             transformer_blocks_.clear();
 
@@ -528,9 +520,10 @@ namespace Mila::CharLM
                 tcfg.withName( config_.name + ".layer" + std::to_string(i) );
 
                 auto block = std::make_shared<TransformerBlockType>( exec_context_, tcfg );
-                block->setTraining( this->isTraining() );
-
                 transformer_blocks_.push_back( std::move(block) );
+
+                // Register block with composite so name-based lookup/serialization works.
+                this->addComponent( transformer_blocks_.back() );
             }
 
             auto ln_config = LayerNormConfig()
@@ -538,14 +531,14 @@ namespace Mila::CharLM
                 .withNormalizedShape( { config_.embedding_dim } );
 
             final_layernorm_ = std::make_shared<LayerNormType>( exec_context_, ln_config );
-            final_layernorm_->setTraining( this->isTraining() );
+            this->addComponent( final_layernorm_ );
 
             auto lm_head_config = LinearConfig( config_.embedding_dim, config_.vocab_size )
                 .withName( config_.name + ".lm_head" )
                 .withBias( false );
 
             lm_head_ = std::make_shared<LinearType>( exec_context_, lm_head_config );
-            lm_head_->setTraining( this->isTraining() );
+            this->addComponent( lm_head_ );
         }
     };
 

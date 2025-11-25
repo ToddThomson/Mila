@@ -23,13 +23,13 @@ module;
 
 export module Compute.CpuAttention;
 
-import Dnn.Modules.Attention;
+import Dnn.Components.Attention;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
-import Dnn.ModuleConfig;
+import Dnn.ComponentConfig;
 import Compute.Precision;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
@@ -513,7 +513,7 @@ namespace Mila::Dnn::Compute
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>(
                 opName,
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
-                    const ModuleConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
+                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
                 {
                     const auto& attention_config = dynamic_cast<const AttentionConfig&>(config);
                     return std::make_shared<CpuAttentionOp>( context, attention_config );

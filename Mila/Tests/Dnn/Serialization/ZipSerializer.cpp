@@ -6,6 +6,7 @@
 #include <thread>
 #include <format>
 #include <system_error>
+#include <algorithm>
 
 import Mila;
 
@@ -37,7 +38,7 @@ namespace Dnn::Serialization::Tests
         std::string version = "1.2.3";
 
         // Open for write
-        ASSERT_TRUE( writer.openForWrite( path.string() ) );
+        ASSERT_TRUE( writer.open( path.string(), OpenMode::Write ) );
 
         // Add regular file and metadata
         EXPECT_TRUE( writer.addData( "files/data.bin", file_data.data(), file_data.size() ) );
@@ -49,10 +50,11 @@ namespace Dnn::Serialization::Tests
 
         // Re-open for read
         ZipSerializer reader;
-        ASSERT_TRUE( reader.openForRead( path.string() ) );
+        ASSERT_TRUE( reader.open( path.string(), OpenMode::Read ) );
 
         // Listing files should include our paths
         auto files = reader.listFiles();
+
         EXPECT_NE( std::find( files.begin(), files.end(), "files/data.bin" ), files.end() );
         EXPECT_NE( std::find( files.begin(), files.end(), "files/other.bin" ), files.end() );
         EXPECT_NE( std::find( files.begin(), files.end(), "metadata/version" ), files.end() );
@@ -102,12 +104,12 @@ namespace Dnn::Serialization::Tests
         std::filesystem::remove( path, ec );
 
         ZipSerializer writer;
-        ASSERT_TRUE( writer.openForWrite( path.string() ) );
+        ASSERT_TRUE( writer.open( path.string(), OpenMode::Write ) );
         EXPECT_TRUE( writer.addData( "only/one", "data", 4 ) );
         EXPECT_TRUE( writer.close() );
 
         ZipSerializer reader;
-        ASSERT_TRUE( reader.openForRead( path.string() ) );
+        ASSERT_TRUE( reader.open( path.string(), OpenMode::Read ) );
 
         // Non-existent file
         std::vector<char> buf( 16 );

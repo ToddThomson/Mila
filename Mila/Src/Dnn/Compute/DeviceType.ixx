@@ -6,6 +6,7 @@ module;
 #include <stdexcept>
 #include <algorithm>
 #include <string>
+#include <cctype>
 
 export module Compute.DeviceType;
 

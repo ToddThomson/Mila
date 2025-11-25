@@ -20,7 +20,7 @@ module;
 
 export module Compute.CpuSoftmaxOp;
 
-import Dnn.Modules.Softmax;
+import Dnn.Components.Softmax;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -28,7 +28,7 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorHostTypeMap;
 import Dnn.TensorPartitioning;
-import Dnn.ModuleConfig;
+import Dnn.ComponentConfig;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
@@ -289,7 +289,7 @@ namespace Mila::Dnn::Compute
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>(
                 "SoftmaxOp",
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
-                    const ModuleConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>>
+                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>>
                 {
                     const auto& softmaxConfig = dynamic_cast<const SoftmaxConfig&>(config);
                     return std::make_shared<CpuSoftmaxOp>( context, softmaxConfig );

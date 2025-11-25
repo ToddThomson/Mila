@@ -25,13 +25,13 @@ module;
 
 export module Compute.CudaSoftmaxCrossEntropyOp;
 
-import Dnn.Modules.SoftmaxCrossEntropy;
+import Dnn.Components.SoftmaxCrossEntropy;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
-import Dnn.ModuleConfig;
+import Dnn.ComponentConfig;
 import Compute.OperationBase;
 import Compute.BinaryOperation;
 import Compute.OperationRegistry;
@@ -437,7 +437,7 @@ namespace Mila::Dnn::Compute
 				TensorDataType::INT32>(
                     opName,
                     []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                        const ModuleConfig& config )
+                        const ComponentConfig& config )
                     -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32, TensorDataType::INT32>>
                     {
                         const auto& crossEntropyConfig = static_cast<const CrossEntropyConfig&>(config);
@@ -454,7 +454,7 @@ namespace Mila::Dnn::Compute
 				TensorDataType::INT32>(
                     opName,
                     []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                        const ModuleConfig& config )
+                        const ComponentConfig& config )
                     -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, TensorDataType::FP16, TensorDataType::FP16, TensorDataType::INT32>>
                     {
                         const auto& ceConfig = static_cast<const CrossEntropyConfig&>(config);

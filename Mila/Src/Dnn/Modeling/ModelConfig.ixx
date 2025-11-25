@@ -13,9 +13,9 @@ module;
 #include <limits>
 #include <utility>
 
-export module Modeling.ModelConfig;
+export module Dnn.ModelConfig;
 
-namespace Mila::Dnn::Modeling
+namespace Mila::Dnn
 {
     /**
      * @brief Runtime configuration used to control model training and persistence.

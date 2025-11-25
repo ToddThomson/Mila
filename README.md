@@ -3,17 +3,11 @@
 Mila Deep Neural Network Library
 
 ## Prerelease Notice
-Mila, version 0.9.9XX-alpha is a preview release.
+Mila, version 0.9.914-alpha
 
-Version 0.9.907-alpha contains API breaking changes but I need to safely commit now to move to a new git master and dev branch structure.
-Moving forward, new features and fixes will be committed to the `dev` branch. This branch will be guarenteed to build but may not be stable.
-The `master` branch will be reserved for stable releases only.
-
-With the milestone of training the Mnist neural network model achieved, the library is now
-entering a phase of rapid development. While core functionalities such as linear layers,
-optimizers, and training loops are operational, many advanced features and optimizations
-are still under development. Users are encouraged to explore the library and provide feedback,
-but should be aware that APIs and functionalities may change in future releases.
+## Roadmap
+Mila is targeting a **v0.1.0-beta release in 10-12 weeks** featuring a stable high-level Model API, GPU-accelerated loss functions, comprehensive checkpointing, and production-quality MNIST examples with 98%+ accuracy. 
+See the complete [ROADMAP.md](ROADMAP.md) for detailed weekly milestones, success criteria, and the path to beta.
 
 ## Description
 Achilles Mila Deep Neural Network library provides a comprehensive API to model, train and evaluate 
@@ -22,6 +16,8 @@ state-of-the-art architectures including transformers, convolutional networks, a
 Mila utilizes the NVIDIA CUDA runtime for high-performance GPU acceleration, enabling efficient
 training and inference on large-scale datasets. The library also supports distributed training
 across multiple GPUs and compute nodes, with automatic optimization for various hardware configurations.
+
+## Usage
 
 ## Mnist Sample
 A complete Mnist training example is included in the `samples/mnist` directory.

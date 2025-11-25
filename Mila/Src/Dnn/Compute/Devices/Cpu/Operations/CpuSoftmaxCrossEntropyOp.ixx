@@ -26,14 +26,14 @@ module;
 
 export module Compute.CpuSoftmaxCrossEntropyOp;
 
-import Dnn.Modules.SoftmaxCrossEntropy;
+import Dnn.Components.SoftmaxCrossEntropy;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorHostTypeMap;
-import Dnn.ModuleConfig;
+import Dnn.ComponentConfig;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
@@ -425,7 +425,7 @@ namespace Mila::Dnn::Compute
                 TensorDataType::INT32>(
                     "SoftmaxCrossEntropyOp",
                     []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
-                        const ModuleConfig& config ) -> std::shared_ptr<BinaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32, TensorDataType::INT32>>
+                        const ComponentConfig& config ) -> std::shared_ptr<BinaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32, TensorDataType::INT32>>
                     {
                         const auto& crossEntropyConfig = static_cast<const CrossEntropyConfig&>(config);
                         return std::make_shared<

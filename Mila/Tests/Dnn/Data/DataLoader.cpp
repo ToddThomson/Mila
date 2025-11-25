@@ -12,11 +12,11 @@ namespace Mila::Dnn::Data::Tests
     using namespace Mila::Dnn::Compute;
 
     template<TensorDataType TInput, TensorDataType TTarget = TInput, typename TMemoryResource = CpuMemoryResource>
-    class MockDataLoader : public DataLoader<TInput, TTarget, TMemoryResource>
+    class MockDataLoader : public DatasetReader<TInput, TTarget, TMemoryResource>
     {
     public:
         MockDataLoader( int64_t batch_size, int64_t num_batches, const std::string& device_name = "CPU" )
-            : DataLoader<TInput, TTarget, TMemoryResource>( batch_size ),
+            : DatasetReader<TInput, TTarget, TMemoryResource>( batch_size ),
             num_batches_( num_batches ),
             device_name_( device_name ),
             input_tensor_( device_name, { static_cast<int64_t>(batch_size), 10 } ),
@@ -43,22 +43,22 @@ namespace Mila::Dnn::Data::Tests
             }
         }
 
-        typename DataLoader<TInput, TTarget, TMemoryResource>::InputTensor& inputs() override
+        typename DatasetReader<TInput, TTarget, TMemoryResource>::InputTensor& inputs() override
         {
             return input_tensor_;
         }
 
-        const typename DataLoader<TInput, TTarget, TMemoryResource>::InputTensor& inputs() const override
+        const typename DatasetReader<TInput, TTarget, TMemoryResource>::InputTensor& inputs() const override
         {
             return input_tensor_;
         }
 
-        typename DataLoader<TInput, TTarget, TMemoryResource>::TargetTensor& targets() override
+        typename DatasetReader<TInput, TTarget, TMemoryResource>::TargetTensor& targets() override
         {
             return target_tensor_;
         }
 
-        const typename DataLoader<TInput, TTarget, TMemoryResource>::TargetTensor& targets() const override
+        const typename DatasetReader<TInput, TTarget, TMemoryResource>::TargetTensor& targets() const override
         {
             return target_tensor_;
         }
@@ -114,8 +114,8 @@ namespace Mila::Dnn::Data::Tests
 
         int64_t num_batches_;
         std::string device_name_;
-        typename DataLoader<TInput, TTarget, TMemoryResource>::InputTensor input_tensor_;
-        typename DataLoader<TInput, TTarget, TMemoryResource>::TargetTensor target_tensor_;
+        typename DatasetReader<TInput, TTarget, TMemoryResource>::InputTensor input_tensor_;
+        typename DatasetReader<TInput, TTarget, TMemoryResource>::TargetTensor target_tensor_;
     };
 
     class DataLoaderTest : public ::testing::Test

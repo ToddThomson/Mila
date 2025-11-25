@@ -18,7 +18,7 @@ export module Compute.OperationRegistry;
 
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
-import Dnn.ModuleConfig;
+import Dnn.ComponentConfig;
 import Compute.Precision;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
@@ -104,14 +104,14 @@ namespace Mila::Dnn::Compute
             const std::string& operation_name,
             std::function<std::shared_ptr<UnaryOperation<TDeviceType, TInputType, TComputePrecision>>(
                 std::shared_ptr<ExecutionContext<TDeviceType>>,
-                const ModuleConfig& )> creator )
+                const ComponentConfig& )> creator )
         {
 
             TypeID type_id{ TDeviceType, TInputType, TInputType, TComputePrecision };
 
             auto genericCreator = [creator](
                 std::shared_ptr<IExecutionContext> ictx,
-                const ModuleConfig& config ) -> std::shared_ptr<void> {
+                const ComponentConfig& config ) -> std::shared_ptr<void> {
 
                     if (!ictx)
                     {
@@ -142,14 +142,14 @@ namespace Mila::Dnn::Compute
             const std::string& operation_name,
             std::function<std::shared_ptr<BinaryOperation<TDeviceType, TInputA, TInputB, TComputePrecision>>(
                 std::shared_ptr<ExecutionContext<TDeviceType>>,
-                const ModuleConfig& )> creator )
+                const ComponentConfig& )> creator )
         {
 
             TypeID type_id{ TDeviceType, TInputA, TInputB, TComputePrecision };
 
             auto genericCreator = [creator](
                 std::shared_ptr<IExecutionContext> ictx,
-                const ModuleConfig& config ) -> std::shared_ptr<void> {
+                const ComponentConfig& config ) -> std::shared_ptr<void> {
 
                     if (!ictx)
                     {
@@ -175,7 +175,7 @@ namespace Mila::Dnn::Compute
         std::shared_ptr<UnaryOperation<TDeviceType, TInputType, TComputePrecision>> createUnaryOperation(
             const std::string& operation_name,
             std::shared_ptr<ExecutionContext<TDeviceType>> context,
-            const ModuleConfig& config ) const
+            const ComponentConfig& config ) const
         {
             TypeID type_id{ TDeviceType, TInputType, TInputType, TComputePrecision };
 
@@ -225,7 +225,7 @@ namespace Mila::Dnn::Compute
         std::shared_ptr<BinaryOperation<TDeviceType, TInputA, TInputB, TComputePrecision>> createBinaryOperation(
             const std::string& operation_name,
             std::shared_ptr<ExecutionContext<TDeviceType>> context,
-            const ModuleConfig& config ) const
+            const ComponentConfig& config ) const
         {
 
             TypeID type_id{ TDeviceType, TInputA, TInputB, TComputePrecision };
@@ -299,7 +299,7 @@ namespace Mila::Dnn::Compute
     private:
         using GenericCreator = std::function<std::shared_ptr<void>(
             std::shared_ptr<IExecutionContext>,
-            const ModuleConfig& )>;
+            const ComponentConfig& )>;
 
         std::unordered_map<TypeID, std::unordered_map<std::string, GenericCreator>, TypeIDHash> registry_;
 

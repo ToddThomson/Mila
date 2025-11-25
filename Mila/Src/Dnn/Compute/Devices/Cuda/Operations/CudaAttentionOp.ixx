@@ -18,14 +18,14 @@ module;
 
 export module Compute.CudaAttentionOp;
 
-import Dnn.Modules.Attention;
+import Dnn.Components.Attention;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorHostTypeMap;
-import Dnn.ModuleConfig;
+import Dnn.ComponentConfig;
 import Compute.Precision;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
@@ -369,7 +369,7 @@ namespace Mila::Dnn::Compute
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32>(
                 opName,
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                    const ModuleConfig& config )
+                    const ComponentConfig& config )
                 -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32>>
                 {
                     const auto& mha_config = dynamic_cast<const AttentionConfig&>(config);
@@ -381,7 +381,7 @@ namespace Mila::Dnn::Compute
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP16, TensorDataType::FP16>(
                 opName,
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                    const ModuleConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
+                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
                 {
                     const auto& mha_config = dynamic_cast<const AttentionConfig&>(config);
                     return std::make_shared<CudaAttentionOp<TensorDataType::FP16>>( context, mha_config );

@@ -18,14 +18,14 @@ module;
 
 export module Compute.CudaEncoderOp;
 
-import Dnn.Modules.Encoder;
+import Dnn.Components.Encoder;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorHostTypeMap;
-import Dnn.ModuleConfig;
+import Dnn.ComponentConfig;
 import Compute.Precision;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
@@ -403,7 +403,7 @@ namespace Mila::Dnn::Compute
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::INT32, TensorDataType::FP32>(
                 opName,
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                    const ModuleConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::INT32, TensorDataType::FP32>>
+                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::INT32, TensorDataType::FP32>>
                 {
                     const auto& encoder_config = dynamic_cast<const EncoderConfig&>(config);
                     return std::make_shared<CudaEncoderOp<TensorDataType::INT32, TensorDataType::FP32>>( context, encoder_config );
@@ -413,7 +413,7 @@ namespace Mila::Dnn::Compute
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::INT32, TensorDataType::FP16>(
                 opName,
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                    const ModuleConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::INT32, TensorDataType::FP16>>
+                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::INT32, TensorDataType::FP16>>
                 {
                     const auto& encoder_config = dynamic_cast<const EncoderConfig&>(config);
                     return std::make_shared<CudaEncoderOp<TensorDataType::INT32, TensorDataType::FP16>>( context, encoder_config );

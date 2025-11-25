@@ -10,6 +10,7 @@ module;
 export module Dnn.NetworkFactory;
 
 import Dnn.Network;
+import Dnn.TensorDataType;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Serialization.ModelArchive;
@@ -25,22 +26,22 @@ namespace Mila::Dnn
     {
     public:
 
-        template<DeviceType TDeviceType>
-        using NetworkFactoryFunc = std::function<std::unique_ptr<Network<TDeviceType>>(
+        template<DeviceType TDeviceType, TensorDataType TPrecision>
+        using NetworkFactoryFunc = std::function<std::unique_ptr<Network<TDeviceType, TPrecision>>(
             ModelArchive&,
             std::shared_ptr<ExecutionContext<TDeviceType>>
         )>;
 
-        template<DeviceType TDeviceType>
+        template<DeviceType TDeviceType, TensorDataType TPrecision>
         static void registerNetwork(
             const std::string& network_type,
-            NetworkFactoryFunc<TDeviceType> factory )
+            NetworkFactoryFunc<TDeviceType, TPrecision> factory )
         {
             getRegistry<TDeviceType>()[network_type] = std::move( factory );
         }
 
-        template<Compute::DeviceType TDeviceType>
-        static std::unique_ptr<Network<TDeviceType>> create(
+        template<Compute::DeviceType TDeviceType, TensorDataType TPrecision>
+        static std::unique_ptr<Network<TDeviceType, TPrecision>> create(
             ModelArchive& archive,
             std::shared_ptr<ExecutionContext<TDeviceType>> exec_context )
         {
@@ -64,11 +65,11 @@ namespace Mila::Dnn
         }
 
     private:
-        template<DeviceType TDeviceType>
-        static std::unordered_map<std::string, NetworkFactoryFunc<TDeviceType>>&
+        template<DeviceType TDeviceType, TensorDataType TPrecision>
+        static std::unordered_map<std::string, NetworkFactoryFunc<TDeviceType, TPrecision>>&
             getRegistry()
         {
-            static std::unordered_map<std::string, NetworkFactoryFunc<TDeviceType>> registry;
+            static std::unordered_map<std::string, NetworkFactoryFunc<TDeviceType, TPrecision>> registry;
             return registry;
         }
     };

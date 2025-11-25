@@ -1,7 +1,7 @@
 # Mila — Copilot Instructions
 
-## Purpose
-- Primary focus is the Module and Operation component redesign. All guidance and code should prioritize a correct, type-safe, device-aware module foundation.
+## Focus
+- Primary focus is now on training and persistence orchestration for device-templated Models
 
 ## Code generation policy
 - Generate code only when explicitly requested (e.g., "implement", "update", "write code", "generate", "create code"). Otherwise provide analysis, design guidance, and minimal examples.

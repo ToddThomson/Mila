@@ -20,13 +20,13 @@ module;
 
 export module Compute.CudaLinearOp;
 
-import Dnn.Modules.Linear;
+import Dnn.Components.Linear;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
-import Dnn.ModuleConfig;
+import Dnn.ComponentConfig;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.Precision;
@@ -1147,7 +1147,7 @@ namespace Mila::Dnn::Compute
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32>(
                 opName,
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                    const ModuleConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
+                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
                 {
                     const auto& linearConfig = static_cast<const LinearConfig&>(config);
                     return std::make_shared<CudaLinearOp<TensorDataType::FP32>>( context, linearConfig );

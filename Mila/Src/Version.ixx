@@ -43,9 +43,8 @@ namespace Mila
         /// <param name="minor">Minor version for functional changes</param>
         /// <param name="patch">Patch for bug fixes</param>
         /// <param name="prerelease_tag">Optional pre-release text</param>
-        /// <param name="prerelease">Optional pre-release text</param>
-        Version( int major, int minor, int patch, const std::string& prerelease_tag = "", int prerelease = 0 )
-            : major_( major ), minor_( minor ), patch_( patch ), pre_release_tag_( prerelease_tag ), pre_release_( prerelease )
+        Version( int major, int minor, int patch, const std::string& prerelease_tag = "")
+            : major_( major ), minor_( minor ), patch_( patch ), pre_release_tag_( prerelease_tag )
         {
         }
 
@@ -59,7 +58,7 @@ namespace Mila
 
             if (!pre_release_tag_.empty())
             {
-                ss << "-" << pre_release_tag_ << "." << std::to_string( pre_release_ );
+                ss << "-" << pre_release_tag_;
             }
 
             return ss.str();
@@ -84,10 +83,13 @@ namespace Mila
         int getPatch() { return patch_; };
 
         /// <summary>
-        /// Gets the pre-release version.
+        /// Gets the pre-release tag.
         /// </summary>
-        /// <returns>Optional pre-release version</returns>
-        std::string getPreRelease() { return pre_release_tag_ + "." + std::to_string(pre_release_); };
+        /// <returns>Optional pre-release tag</returns>
+        std::string getPreRelease()
+        {
+            return pre_release_tag_;
+        };
 
     private:
 
@@ -95,6 +97,5 @@ namespace Mila
         int minor_;
         int patch_;
         std::string pre_release_tag_;
-		int pre_release_;
     };
 }

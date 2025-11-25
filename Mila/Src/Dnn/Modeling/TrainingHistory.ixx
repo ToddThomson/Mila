@@ -4,7 +4,7 @@ module;
 
 export module Modeling.TrainingHistory;
 
-namespace Mila::Dnn::Modeling
+namespace Mila::Dnn
 {
     /**
      * @brief Struct to hold training history data.

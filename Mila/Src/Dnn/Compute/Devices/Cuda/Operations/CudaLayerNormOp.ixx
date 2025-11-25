@@ -17,14 +17,14 @@ module;
 
 export module Compute.CudaLayerNormOp;
 
-import Dnn.Modules.LayerNorm;
+import Dnn.Components.LayerNorm;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorHostTypeMap;
 import Dnn.TensorPartitioning;
-import Dnn.ModuleConfig;
+import Dnn.ComponentConfig;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
@@ -449,7 +449,7 @@ namespace Mila::Dnn::Compute
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32>(
                 opName,
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                    const ModuleConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
+                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
                 {
                     const auto& lnConfig = static_cast<const LayerNormConfig&>(config);
                     return std::make_shared<CudaLayerNormOp<TensorDataType::FP32>>( context, lnConfig );
@@ -459,7 +459,7 @@ namespace Mila::Dnn::Compute
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP16, TensorDataType::FP16>(
                 opName,
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                    const ModuleConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
+                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
                 {
                     const auto& lnConfig = static_cast<const LayerNormConfig&>(config);
                     return std::make_shared<CudaLayerNormOp<TensorDataType::FP16>>( context, lnConfig );

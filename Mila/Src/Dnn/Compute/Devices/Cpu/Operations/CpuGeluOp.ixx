@@ -12,12 +12,12 @@ module;
 
 export module Compute.CpuGeluOp;
 
-import Dnn.Modules.Gelu;
+import Dnn.Components.Gelu;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
-import Dnn.ModuleConfig;
+import Dnn.ComponentConfig;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
@@ -250,7 +250,7 @@ namespace Mila::Dnn::Compute
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>(
                 "GeluOp",
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
-                    const ModuleConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>>
+                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>>
                 {
                     const auto& geluConfig = static_cast<const GeluConfig&>(config);
                     
