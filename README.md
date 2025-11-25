@@ -3,15 +3,11 @@
 Mila Deep Neural Network Library
 
 ## Prerelease Notice
-Mila, version 0.9.912-alpha
-This is a dev branch only build. It is unstable and is intended only for development use.
+Mila, version 0.9.914-alpha
 
-The development focus is currently on completing the training infrastructure for feedforward neural networks.
-
-- CompositeComponent class for stacking layers
-- Network class for top level network architecture building
-    - Serilization features  
-- Model class for training and evaluation
+## Roadmap
+Mila is targeting a **v0.1.0-beta release in 10-12 weeks** featuring a stable high-level Model API, GPU-accelerated loss functions, comprehensive checkpointing, and production-quality MNIST examples with 98%+ accuracy. 
+See the complete [ROADMAP.md](ROADMAP.md) for detailed weekly milestones, success criteria, and the path to beta.
 
 ## Description
 Achilles Mila Deep Neural Network library provides a comprehensive API to model, train and evaluate 
