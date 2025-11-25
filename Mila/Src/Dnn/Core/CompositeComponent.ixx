@@ -16,6 +16,7 @@ module;
 #include <sstream>
 #include <algorithm>
 #include <vector>
+#include <iterator>
 
 export module Dnn.CompositeComponent;
 
@@ -44,6 +45,12 @@ namespace Mila::Dnn
      * - Propagate training mode to all children
      * - Recursive serialization of child hierarchy
      * - Build state validation
+     *
+     * Design note:
+     * - The build lifecycle is centralized in this base class (template method).
+     *   Derived classes supply architecture-specific shape propagation by
+     *   implementing `onBuilding(const shape_t&)` and using the provided protected
+     *   helpers to build children with the correct shapes.
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
     class CompositeComponent : public Component<TDeviceType, TPrecision>
@@ -75,18 +82,20 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
-         * @brief Add a named child module.
+         * @brief Add a child module that must already carry a valid name.
          *
-         * The child inherits the parent's current training mode.
+         * Caller-provided module MUST expose a non-empty, valid name via
+         * `getName()`. This enforces a project-wide invariant: all components
+         * must have identifiers. The composite will use the child's name as the
+         * registration key and will reject unnamed children.
          *
-         * @param name Unique identifier for this child (cannot be empty)
-         * @param module Child module to add (cannot be null)
+         * @param module Child module to add (cannot be null, must have non-empty name)
          * @return Reference to this composite for method chaining
          *
          * @throws std::runtime_error if called after build()
-         * @throws std::invalid_argument if name is empty, module is null, or name already exists
+         * @throws std::invalid_argument if module is null, has empty name, or name already exists
          */
-        CompositeComponent& addComponent( const std::string& name, ComponentPtr component )
+        CompositeComponent& addComponent( ComponentPtr component )
         {
             if (is_built_)
             {
@@ -95,53 +104,28 @@ namespace Mila::Dnn
                 );
             }
 
-            if (name.empty())
-            {
-                throw std::invalid_argument( "Component name cannot be empty" );
-            }
-
             if (!component)
             {
-                throw std::invalid_argument( "Cannot add null module" );
+                throw std::invalid_argument( "Cannot add null Component" );
             }
 
-            if (child_component_map_.find( name ) != child_component_map_.end())
+            // Require the child to already provide a valid name.
+            const std::string child_name = component->getName();
+            if (child_name.empty())
             {
-                throw std::invalid_argument( "Module name '" + name + "' already exists" );
+                throw std::invalid_argument(
+                    "Child Component must provide a non-empty name via getName()" );
             }
 
-            child_component_map_[name] = component;
+            if (child_component_map_.find( child_name ) != child_component_map_.end())
+            {
+                throw std::invalid_argument( "Component name '" + child_name + "' already exists" );
+            }
+
+            child_component_map_[child_name] = component;
             child_components_.push_back( component );
 
-            // Ensure newly-added child inherits parent's current training mode.
-            // This prevents inconsistent state where parent is in training mode
-            // but newly-added child defaults to eval mode.
-            component->setTraining( this->isTraining() );
-
             return *this;
-        }
-
-        /**
-         * @brief Add an unnamed child module with auto-generated name.
-         *
-         * Name format: "module_N" where N is the current child count.
-         *
-         * @param module Child module to add (cannot be null)
-         * @return Reference to this composite for method chaining
-         *
-         * @throws std::runtime_error if called after build()
-         * @throws std::invalid_argument if module is null
-         */
-        CompositeComponent& addComponent( ComponentPtr module )
-        {
-            if (!module)
-            {
-                throw std::invalid_argument( "Cannot add null module" );
-            }
-
-            std::string auto_name = "module_" + std::to_string( child_components_.size() );
-
-            return addComponent( auto_name, module );
         }
 
         /**
@@ -280,7 +264,7 @@ namespace Mila::Dnn
          *
          * @throws std::runtime_error if called after build()
          */
-        void clearModules()
+        void clearComponents()
         {
             if (is_built_)
             {
@@ -318,11 +302,11 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
-         * @brief Check if this module and all children are built.
+         * @brief Check if this Component and all children are built.
          *
-         * @return true if this module and all children are successfully built
+         * @return true if this Component and all children are successfully built
          */
-        bool isBuilt() const override
+        virtual bool isBuilt() const override
         {
             if (!is_built_)
             {
@@ -331,34 +315,34 @@ namespace Mila::Dnn
 
             // All children must also be built
             return std::all_of( child_components_.begin(), child_components_.end(),
-                []( const auto& module ) {
-                    return module->isBuilt();
+                []( const auto& component ) {
+                    return component->isBuilt();
                 } );
         }
 
         /**
-         * @brief Build this module with the given input shape.
+         * @brief Final build entry point (template method).
          *
-         * Derived classes must override to implement their specific shape
-         * propagation and child building logic. After building children,
-         * call validateChildrenBuilt() to ensure all children were successfully
-         * built, then set is_built_ = true.
+         * Lifecycle responsibilities implemented here:
+         * - guard against repeated builds
+         * - invoke derived-class architecture-specific build hook `onBuilding`
+         * - validate that children report built state
+         * - mark composite as built
+         *
+         * Derived classes MUST implement `onBuilding(const shape_t&)` and use the
+         * protected helpers to build their children with correct shapes.
          *
          * @param input_shape Expected input tensor shape
          */
-        void build( const shape_t& input_shape ) override
+        virtual void build( const shape_t& input_shape ) final override
         {
             if (is_built_)
             {
                 return;
             }
 
-            // Ensure children observe parent's training mode and build them.
-            for (auto& component : child_components_)
-            {
-                component->setTraining( this->isTraining() );
-                component->build( input_shape );
-            }
+            // Delegate architecture-specific shape propagation to derived class.
+            onBuilding( input_shape );
 
             // Verify children succeeded and mark composite built.
             validateChildrenBuilt();
@@ -382,7 +366,7 @@ namespace Mila::Dnn
             if (!isBuilt())
             {
                 throw std::runtime_error(
-                    "Cannot query parameter count before build() is called"
+                    "Cannot query parameter count before build() has been called"
                 );
             }
 
@@ -608,6 +592,73 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
+         * @brief Derived-class hook for architecture-specific build logic.
+         *
+         * Called from the final `build()` implementation. Derived classes MUST
+         * implement this method to compute per-child shapes and invoke the
+         * protected build helpers to construct child modules.
+         *
+         * Preconditions:
+         * - Called only when the composite is not yet built.
+         *
+         * Postconditions:
+         * - Children required by the composite should have been built when this
+         *   method returns.
+         */
+        virtual void onBuilding( const shape_t& input_shape ) = 0;
+
+        /**
+         * @brief Build a specific child module with the provided shape.
+         *
+         * Sets the child's training mode to match the parent, then calls
+         * `child->build(shape)`. Throws if `child` is null.
+         *
+         * This helper centralizes common preconditions and ensures children are
+         * built consistently.
+         */
+        void buildChild( ComponentPtr child, const shape_t& shape )
+        {
+            if (!child)
+            {
+                throw std::invalid_argument( "buildChild: null child" );
+            }
+
+            child->setTraining( this->isTraining() );
+            child->build( shape );
+        }
+
+        /**
+         * @brief Build a named child (lookup by name) with the provided shape.
+         *
+         * Throws if the name is not found.
+         */
+        void buildChild( const std::string& name, const shape_t& shape )
+        {
+            auto it = child_component_map_.find( name );
+            if (it == child_component_map_.end())
+            {
+                throw std::out_of_range( "buildChild: no child named '" + name + "'" );
+            }
+
+            buildChild( it->second, shape );
+        }
+
+        /**
+         * @brief Convenience: build all direct children with the same input shape.
+         *
+         * Useful for top-level containers (Network) where children accept the same
+         * input shape. This calls `buildChild(child, shape)` for each direct child
+         * in insertion order.
+         */
+        void buildChildrenWithSameShape( const shape_t& shape )
+        {
+            for (auto& c : child_components_)
+            {
+                buildChild( c, shape );
+            }
+        }
+
+        /**
          * @brief Validate that all children were successfully built.
          *
          * Call this at the end of your build() override to ensure all
@@ -678,8 +729,45 @@ namespace Mila::Dnn
             }
         }
 
+        /**
+         * @brief Child modules in insertion order.
+         *
+         * This vector holds shared ownership of the composite's direct children and
+         * preserves the order in which children were added. The insertion order is
+         * used for build sequencing, ordered iteration, and determining serialization
+         * ordering. Do not mutate this container directly outside of the Composite
+         * API (use addComponent / replaceComponent / removeComponent) — mutations
+         * must occur prior to calling build().
+         *
+         * Threading: access is not internally synchronized. Mutations and lifecycle
+         * operations must be externally serialized.
+         */
         std::vector<ComponentPtr> child_components_;
+
+        /**
+         * @brief Lookup map from child name to module pointer.
+         *
+         * Provides O(1) name-based lookup for children. Keys are expected to match
+         * the child's stable identifier returned by `getName()` and must be unique.
+         * This map is used for diagnostics, getComponent()/hasComponent(), and to
+         * pair with `child_components_` when deterministic ordering is required.
+         *
+         * Note: insertion order is preserved by `child_components_`; the unordered_map
+         * does not guarantee ordering.
+         */
         std::unordered_map<std::string, ComponentPtr> child_component_map_;
+
+        /**
+         * @brief Indicates whether this composite and its children have been built.
+         *
+         * Set to true after a successful call to `build()` (or by `markBuilt_()` when
+         * reconstructing from an archive). Public APIs rely on this flag to guard
+         * operations that require the built state (for example parameter queries).
+         *
+         * Lifecycle: modifications follow the build/deserialization contract; this
+         * flag is not internally synchronized and callers must ensure serialized
+         * access to build-related operations.
+         */
         bool is_built_;
 
         // Friend declarations for factory access

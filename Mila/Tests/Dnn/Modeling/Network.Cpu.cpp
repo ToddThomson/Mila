@@ -18,6 +18,8 @@ namespace Dnn::NetworkTests
     using namespace Mila::Dnn::Serialization;
 
     // A small concrete Network subclass exposing the protected constructor for tests.
+    // Implements the CompositeComponent onBuilding hook by building all direct children
+    // with the same input shape (suitable for these simple tests).
     template<DeviceType TDeviceType, TensorDataType TPrecision = TensorDataType::FP32>
     class NetworkUnderTest : public Network<TDeviceType, TPrecision>
     {
@@ -28,8 +30,13 @@ namespace Dnn::NetworkTests
         {
         }
 
-        // Expose buildImpl publicly so we can call Composite behavior if needed (delegates to base).
-        //using Base::buildImpl;
+    protected:
+        // Architecture-specific build hook required by the centralized CompositeComponent lifecycle.
+        void onBuilding( const shape_t& input_shape ) override
+        {
+            // For the test network, every direct child accepts the same input shape.
+            this->buildChildrenWithSameShape( input_shape );
+        }
     };
 
     // Minimal test component implementing required Component<TDeviceType, TPrecision> interface used by CompositeComponent.
@@ -162,29 +169,28 @@ namespace Dnn::NetworkTests
         auto m1 = std::make_shared<SimpleTestComponent>( exec_ctx_, "child1", 5 );
         auto m2 = std::make_shared<SimpleTestComponent>( exec_ctx_, "child2", 7 );
 
-        // add with explicit name
-        net.addComponent( "first", m1 );
-        EXPECT_TRUE( net.hasComponent( "first" ) );
-        EXPECT_EQ( net.getNamedComponents().size(), 1u );
-
-        // add unnamed (auto-generated) module
+        // add children (child names are taken from components)
+        net.addComponent( m1 );
         net.addComponent( m2 );
-        EXPECT_GE( net.getComponents().size(), 2u );
 
-        // getModule returns correct pointer
-        auto g = net.getComponent( "first" );
+        EXPECT_TRUE( net.hasComponent( "child1" ) );
+        EXPECT_TRUE( net.hasComponent( "child2" ) );
+        EXPECT_EQ( net.getNamedComponents().size(), 2u );
+
+        // getComponent returns correct pointer
+        auto g = net.getComponent( "child1" );
         EXPECT_EQ( g, m1 );
 
-        // replaceModule returns false for missing, true when present
+        // replaceComponent returns false for missing, true when present
         auto m3 = std::make_shared<SimpleTestComponent>( exec_ctx_, "replacement", 3 );
         EXPECT_FALSE( net.replaceComponent( "missing", m3 ) );
-        EXPECT_TRUE( net.replaceComponent( "first", m3 ) );
-        EXPECT_EQ( net.getComponent( "first" ), m3 );
+        EXPECT_TRUE( net.replaceComponent( "child1", m3 ) );
+        EXPECT_EQ( net.getComponent( "child1" ), m3 );
 
-        // removeModule on non-existing false, on existing true
+        // removeComponent on non-existing false, on existing true
         EXPECT_FALSE( net.removeComponent( "does_not_exist" ) );
-        EXPECT_TRUE( net.removeComponent( "first" ) );
-        EXPECT_FALSE( net.hasComponent( "first" ) );
+        EXPECT_TRUE( net.removeComponent( "child1" ) );
+        EXPECT_FALSE( net.hasComponent( "child1" ) );
     }
 
     TEST_F( NetworkCpuTests, AddInvalidModuleCases )
@@ -192,15 +198,17 @@ namespace Dnn::NetworkTests
         NetworkUnderTest<DeviceType::Cpu> net( exec_ctx_, "invalids" );
 
         // empty name invalid
-        auto m = std::make_shared<SimpleTestComponent>( exec_ctx_, "x" );
-        EXPECT_THROW( net.addComponent( "", m ), std::invalid_argument );
+        auto emptyNameComp = std::make_shared<SimpleTestComponent>( exec_ctx_, std::string(), 0 );
+        EXPECT_THROW( net.addComponent( emptyNameComp ), std::invalid_argument );
 
-        // null module invalid
-        EXPECT_THROW( net.addComponent( "n", nullptr ), std::invalid_argument );
+        // null component is invalid
+        EXPECT_THROW( net.addComponent( nullptr ), std::invalid_argument );
 
         // duplicate name invalid
-        net.addComponent( "dup", m );
-        EXPECT_THROW( net.addComponent( "dup", m ), std::invalid_argument );
+        auto m = std::make_shared<SimpleTestComponent>( exec_ctx_, "dup", 1 );
+        net.addComponent( m );
+        auto m_dup = std::make_shared<SimpleTestComponent>( exec_ctx_, "dup", 2 );
+        EXPECT_THROW( net.addComponent( m_dup ), std::invalid_argument );
     }
 
     TEST_F( NetworkCpuTests, BuildAndIsBuiltAndParameterCount )
@@ -210,13 +218,13 @@ namespace Dnn::NetworkTests
         auto a = std::make_shared<SimpleTestComponent>( exec_ctx_, "a", 10, false );
         auto b = std::make_shared<SimpleTestComponent>( exec_ctx_, "b", 20, false );
 
-        net.addComponent( "a", a );
-        net.addComponent( "b", b );
+        net.addComponent( a );
+        net.addComponent( b );
 
         // before build, isBuilt returns false
         EXPECT_FALSE( net.isBuilt() );
 
-        // build should propagate to children
+        // build should delegate to onBuilding which builds direct children
         shape_t shape = { 2, 3 };
         net.build( shape );
 
@@ -232,7 +240,7 @@ namespace Dnn::NetworkTests
     {
         NetworkUnderTest<DeviceType::Cpu> net( exec_ctx_, "preconds" );
         auto a = std::make_shared<SimpleTestComponent>( exec_ctx_, "a", 1, false );
-        net.addComponent( "a", a );
+        net.addComponent( a );
 
         // parameterCount throws if not built
         EXPECT_THROW( net.parameterCount(), std::runtime_error );
@@ -249,7 +257,7 @@ namespace Dnn::NetworkTests
     {
         NetworkUnderTest<DeviceType::Cpu> net( exec_ctx_, "grads" );
         auto a = std::make_shared<SimpleTestComponent>( exec_ctx_, "a", 0, false );
-        net.addComponent( "a", a );
+        net.addComponent( a );
 
         // not built -> getGradients throws
         EXPECT_THROW( net.getGradients(), std::runtime_error );
@@ -279,8 +287,8 @@ namespace Dnn::NetworkTests
         auto m1 = std::make_shared<SimpleTestComponent>( exec_ctx_, "mod1", 1 );
         auto m2 = std::make_shared<SimpleTestComponent>( exec_ctx_, "mod2", 2 );
 
-        net.addComponent( "mod1", m1 );
-        net.addComponent( "mod2", m2 );
+        net.addComponent( m1 );
+        net.addComponent( m2 );
 
         // Create writer archive using ZipSerializer
         {

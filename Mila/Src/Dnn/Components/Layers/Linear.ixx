@@ -46,21 +46,21 @@ namespace Mila::Dnn
     using json = nlohmann::json;
 
     /**
-     * @brief Linear (fully connected) module (device-templated).
+     * @brief Linear (fully connected) component.
      *
      * Delegates computation to a device-specific UnaryOperation implementation
      * registered in the OperationRegistry.
      *
-     * Module owns trainable parameters (weight, optional bias) and exposes them
+     * Component owns trainable parameters (weight, optional bias) and exposes them
      * via accessors. The operation implements y = x * W^T + b where W is the
      * weight matrix and b is an optional bias vector.
      *
-     * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda)
+     * @tparam TDeviceType Device type (DeviceType::Cpu, DeviceType::Cuda)
      * @tparam TPrecision Abstract tensor precision (TensorDataType)
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    class Linear : public Component<TDeviceType, TPrecision>
+    class Linear final : public Component<TDeviceType, TPrecision>
     {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
@@ -548,18 +548,18 @@ namespace Mila::Dnn
             }
             else
             {
-                // Leaving training: unbind gradients
+                // Leaving training: unbind gradients from backend.
                 operation_->clearGradients();
 
-                // Note: optimizer references may rely on gradient object lifetime.
-                // We reset gradients here to free device memory; callers should
-                // retain shared_ptr if they need persistent access.
-                weight_grad_.reset();
-                bias_grad_.reset();
+                // Optionally clear the gradient contents to avoid stale data while
+                // preserving object lifetime for external references.
+                if ( weight_grad_ ) zeros( *weight_grad_ );
+                if ( bias_grad_ ) zeros( *bias_grad_ );
             }
         }
 
     private:
+
         LinearConfig config_;
         bool is_built_{ false };
 

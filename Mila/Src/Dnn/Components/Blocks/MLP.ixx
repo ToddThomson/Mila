@@ -52,10 +52,10 @@ namespace Mila::Dnn
      *   Input -> Linear(in_features, hidden_size) -> [LayerNorm] -> Activation -> Linear(hidden_size, in_features) -> Output
      *
      * Design philosophy:
-     * - Two-phase initialization: build() does all setup, forward()/backward() are pure dispatch
+     * - Two-phase initialization: onBuilding() does architecture-specific setup; base class manages lifecycle
      * - Composite module pattern: manages child modules (Linear, activation, LayerNorm)
      * - Shape-agnostic configuration: input_features and hidden_size define architecture
-     * - Runtime shape determined at build() time from actual input tensor
+     * - Runtime shape determined at onBuilding() time from actual input tensor
      * - Child modules stored as concrete types for type safety and direct access
      *
      * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda)
@@ -101,25 +101,13 @@ namespace Mila::Dnn
 
         bool isBuilt() const override
         {
-            return built_ && fc1_ && activation_ && fc2_ &&
+            return CompositeComponentBase::isBuilt() && fc1_ && activation_ && fc2_ &&
                 (!config_.useLayerNorm() || norm_);
         }
 
-        /**
-         * @brief Build the MLP block for a concrete input shape.
-         *
-         * This is the COLD PATH where all setup happens ONCE:
-         * - Validates input shape compatibility with configured input_features
-         * - Builds all child modules with appropriate shapes
-         * - Allocates intermediate buffer tensors for forward/backward passes
-         *
-         * After build(), forward() and backward() become pure dispatch methods.
-         */
-        void build( const shape_t& input_shape ) override
+        // onBuilding implements architecture-specific shape propagation and child builds.
+        void onBuilding( const shape_t& input_shape ) override
         {
-            if (built_)
-                return;
-
             validateInputShape( input_shape );
 
             cached_input_shape_ = input_shape;
@@ -127,15 +115,16 @@ namespace Mila::Dnn
             cached_hidden_shape_ = input_shape;
             cached_hidden_shape_.back() = config_.getHiddenSize();
 
-            fc1_->build( input_shape );
+            // Use base helpers to build children with correct shapes and training mode.
+            this->buildChild( fc1_, input_shape );
 
             if (config_.useLayerNorm())
             {
-                norm_->build( cached_hidden_shape_ );
+                this->buildChild( norm_, cached_hidden_shape_ );
             }
 
-            activation_->build( cached_hidden_shape_ );
-            fc2_->build( cached_hidden_shape_ );
+            this->buildChild( activation_, cached_hidden_shape_ );
+            this->buildChild( fc2_, cached_hidden_shape_ );
 
             auto device = exec_context_->getDevice();
 
@@ -150,8 +139,6 @@ namespace Mila::Dnn
 
             act_output_ = std::make_shared<TensorType>( device, cached_hidden_shape_ );
             act_output_->setName( this->getName() + ".act_output" );
-
-            built_ = true;
         }
 
         // ====================================================================
@@ -161,7 +148,7 @@ namespace Mila::Dnn
         /**
          * @brief Forward pass - HOT PATH, pure dispatch to child modules.
          *
-         * All setup and validation was done in build(). This method chains
+         * All setup and validation was done in onBuilding(). This method chains
          * forward calls through the MLP structure using pre-allocated buffers.
          */
         void forward( const ITensor& input, ITensor& output )
@@ -434,16 +421,6 @@ namespace Mila::Dnn
         }
 
     protected:
-        ///**
-        // * @brief Override buildImpl for sequential shape propagation.
-        // *
-        // * This is called by the base CompositeComponent::build() after validation.
-        // * Delegates to the public build() method which handles all setup.
-        // */
-        //void buildImpl( const shape_t& input_shape ) override
-        //{
-        //    // Build is already handled by public build() method
-        //}
 
         /**
          * @brief Hook invoked when training mode is about to change.
@@ -464,7 +441,6 @@ namespace Mila::Dnn
 
     private:
         MLPConfig config_;
-        bool built_{ false };
         std::shared_ptr<ExecutionContextType> exec_context_;
 
         shape_t cached_input_shape_;
@@ -512,7 +488,7 @@ namespace Mila::Dnn
                 .withBias( config_.hasBias() );
 
             fc1_ = std::make_shared<LinearType>( exec_context_, fc1_config );
-            fc1_->setTraining( this->isTraining() );
+            this->addComponent( fc1_ ) ;
 
             if (config_.useLayerNorm())
             {
@@ -521,7 +497,7 @@ namespace Mila::Dnn
                     .withName( config_.getName() + ".norm" );
 
                 norm_ = std::make_shared<LayerNormType>( exec_context_, norm_config );
-                norm_->setTraining( this->isTraining() );
+                this->addComponent( norm_ );
             }
 
             switch (config_.getActivationType())
@@ -532,7 +508,7 @@ namespace Mila::Dnn
                     gelu_config.withName( config_.getName() + ".gelu" );
 
                     activation_ = std::make_shared<GeluType>( exec_context_, gelu_config );
-                    activation_->setTraining( this->isTraining() );
+                    this->addComponent( activation_ );
                     break;
                 }
                 default:
@@ -544,7 +520,7 @@ namespace Mila::Dnn
                 .withBias( config_.hasBias() );
 
             fc2_ = std::make_shared<LinearType>( exec_context_, fc2_config );
-            fc2_->setTraining( this->isTraining() );
+            this->addComponent( fc2_ );
         }
     };
 }

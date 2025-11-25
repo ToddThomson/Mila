@@ -6,7 +6,7 @@
  * and exposes a minimal introspection and device access API.
  */
 
-    module;
+module;
 #include <memory>
 #include <string>
 #include <sstream>
@@ -72,10 +72,11 @@ namespace Mila::Dnn
          * buffers. When overriding, call `validateChildrenBuilt()` and set the
          * built flag (inherited `is_built_`) once children are successfully built.
          */
-        virtual void build( const shape_t& input_shape ) override
+        /*virtual void build( const shape_t& input_shape ) override
         {
+            // REVIEW: Not required. No Op
             CompositeBase::build( input_shape );
-        }
+        }*/
 
         // ====================================================================
         // Serialization

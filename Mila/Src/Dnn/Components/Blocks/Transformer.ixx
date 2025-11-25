@@ -53,7 +53,7 @@ namespace Mila::Dnn
      *   LayerNorm -> MLP -> Residual
      *
      * Two-phase initialization: createModules() constructs child modules,
-     * build() finalizes shapes and allocates intermediate tensors.
+     * onBuilding() finalizes shapes and allocates intermediate tensors.
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
@@ -74,7 +74,7 @@ namespace Mila::Dnn
          * @brief Construct with an execution context and config.
          *
          * Execution context must be non-null. Modules are created here;
-         * concrete shape-dependent setup happens in build().
+         * concrete shape-dependent setup happens in onBuilding().
          */
         explicit Transformer( std::shared_ptr<ExecutionContextType> exec_context,
             const TransformerConfig& config )
@@ -98,72 +98,11 @@ namespace Mila::Dnn
 
         bool isBuilt() const override
         {
-            return built_ && attn_ && ln1_ && ln2_ && ffn_ && res1_ && res2_ && qkv_proj_;
-        }
-
-        void build( const shape_t& input_shape ) override
-        {
-            if (built_)
-            {
-                return;
-            }
-
-            // Validate runtime input shape and consistency with config
-            validateInputShape( input_shape );
-
-            cached_input_shape_ = input_shape;
-
-            // Build LayerNorm for [B,T,embedding_dim]
-            ln1_->build( input_shape );
-
-            // QKV projection is a linear from embedding_dim -> 3 * embedding_dim
-            qkv_proj_->build( input_shape );
-
-            // Attention expects concatenated QKV: trailing dimension = 3 * embedding_dim
-            shape_t qkv_shape = input_shape;
-            qkv_shape.back() = static_cast<int64_t>( config_.getEmbeddingDim() * 3 );
-
-            attn_->build( qkv_shape );
-
-            // LayerNorm2 keeps same trailing dim as res1_output (embedding_dim)
-            ln2_->build( input_shape );
-
-            // Residual modules may allocate projection parameters if needed
-            res1_->build( input_shape );
-            res2_->build( input_shape );
-
-            // MLP may change hidden dim internally; let MLP handle it
-            ffn_->build( input_shape );
-
-            auto device = exec_context_->getDevice();
-
-            ln1_output_ = std::make_shared<TensorType>( device, input_shape );
-            ln1_output_->setName( this->getName() + ".ln1_output" );
-
-            // qkv_output has trailing dim 3 * embedding_dim
-            qkv_output_ = std::make_shared<TensorType>( device, qkv_shape );
-            qkv_output_->setName( this->getName() + ".qkv_output" );
-
-            attn_output_ = std::make_shared<TensorType>( device, input_shape );
-            attn_output_->setName( this->getName() + ".attn_output" );
-
-            res1_output_ = std::make_shared<TensorType>( device, input_shape );
-            res1_output_->setName( this->getName() + ".res1_output" );
-
-            ln2_output_ = std::make_shared<TensorType>( device, input_shape );
-            ln2_output_->setName( this->getName() + ".ln2_output" );
-
-            ffn_output_ = std::make_shared<TensorType>( device, input_shape );
-            ffn_output_->setName( this->getName() + ".ffn_output" );
-
-            res2_output_ = std::make_shared<TensorType>( device, input_shape );
-            res2_output_->setName( this->getName() + ".res2_output" );
-
-            built_ = true;
+            return CompositeComponentBase::isBuilt() && attn_ && ln1_ && ln2_ && ffn_ && res1_ && res2_ && qkv_proj_;
         }
 
         // ====================================================================
-		// Forward and backward dispatch
+        // Forward and backward dispatch
         // ====================================================================
 
         void forward( const ITensor& input, ITensor& output )
@@ -358,11 +297,6 @@ namespace Mila::Dnn
             ffn_->synchronize();
         }
 
-        /*bool isTraining() const override
-        {
-            return CompositeComponentBase::isTraining();
-        }*/
-
         size_t parameterCount() const override
         {
             size_t total = 0;
@@ -468,6 +402,7 @@ namespace Mila::Dnn
             oss << "Parameter count: " << parameterCount() << std::endl;
 
             // blank line before return per style
+
             return oss.str();
         }
 
@@ -506,10 +441,69 @@ namespace Mila::Dnn
         }
 
     protected:
-        //void buildImpl( const shape_t& ) override
-        //{
-        //    // build() handles shape-dependent initialization for this composite.
-        //}
+
+        /**
+         * @brief Architecture-specific build hook.
+         *
+         * Called from CompositeComponent::build() once per-instance. Implement
+         * shape propagation here and use the protected build helpers (buildChild,
+         * buildChildrenWithSameShape) to build direct children with validated
+         * shapes. After this method returns the base class will validate child
+         * build state and mark the composite built.
+         */
+        void onBuilding( const shape_t& input_shape ) override
+        {
+            // Validate runtime input shape and consistency with config
+            validateInputShape( input_shape );
+
+            cached_input_shape_ = input_shape;
+
+            // Build LayerNorm for [B,T,embedding_dim]
+            this->buildChild( ln1_, input_shape );
+
+            // QKV projection is a linear from embedding_dim -> 3 * embedding_dim
+            this->buildChild( qkv_proj_, input_shape );
+
+            // Attention expects concatenated QKV: trailing dimension = 3 * embedding_dim
+            shape_t qkv_shape = input_shape;
+            qkv_shape.back() = static_cast<int64_t>( config_.getEmbeddingDim() * 3 );
+
+            this->buildChild( attn_, qkv_shape );
+
+            // LayerNorm2 keeps same trailing dim as res1_output (embedding_dim)
+            this->buildChild( ln2_, input_shape );
+
+            // Residual modules may allocate projection parameters if needed
+            this->buildChild( res1_, input_shape );
+            this->buildChild( res2_, input_shape );
+
+            // MLP may change hidden dim internally; let MLP handle it
+            this->buildChild( ffn_, input_shape );
+
+            auto device = exec_context_->getDevice();
+
+            ln1_output_ = std::make_shared<TensorType>( device, input_shape );
+            ln1_output_->setName( this->getName() + ".ln1_output" );
+
+            // qkv_output has trailing dim 3 * embedding_dim
+            qkv_output_ = std::make_shared<TensorType>( device, qkv_shape );
+            qkv_output_->setName( this->getName() + ".qkv_output" );
+
+            attn_output_ = std::make_shared<TensorType>( device, input_shape );
+            attn_output_->setName( this->getName() + ".attn_output" );
+
+            res1_output_ = std::make_shared<TensorType>( device, input_shape );
+            res1_output_->setName( this->getName() + ".res1_output" );
+
+            ln2_output_ = std::make_shared<TensorType>( device, input_shape );
+            ln2_output_->setName( this->getName() + ".ln2_output" );
+
+            ffn_output_ = std::make_shared<TensorType>( device, input_shape );
+            ffn_output_->setName( this->getName() + ".ffn_output" );
+
+            res2_output_ = std::make_shared<TensorType>( device, input_shape );
+            res2_output_->setName( this->getName() + ".res2_output" );
+        }
 
         /**
          * @brief Hook invoked when training mode is about to change.
@@ -534,7 +528,6 @@ namespace Mila::Dnn
 
     private:
         TransformerConfig config_;
-        bool built_{ false };
         std::shared_ptr<ExecutionContextType> exec_context_;
 
         shape_t cached_input_shape_;
@@ -575,7 +568,7 @@ namespace Mila::Dnn
             attn_cfg.withName( config_.getName() + ".attn" );
 
             attn_ = std::make_shared<AttentionType>( exec_context_, attn_cfg );
-            attn_->setTraining( this->isTraining() );
+            this->addComponent( attn_ );
 
             // LayerNorms configured to normalize over the trailing embedding_dim
             auto ln1_cfg = LayerNormConfig();
@@ -583,14 +576,14 @@ namespace Mila::Dnn
                 .withName( config_.getName() + ".ln1" );
 
             ln1_ = std::make_shared<LayerNormType>( exec_context_, ln1_cfg );
-            ln1_->setTraining( this->isTraining() );
+            this->addComponent( ln1_ );
 
             auto ln2_cfg = LayerNormConfig();
             ln2_cfg.withNormalizedShape( shape_t{ static_cast<int64_t>( embedding_dim ) } )
                 .withName( config_.getName() + ".ln2" );
 
             ln2_ = std::make_shared<LayerNormType>( exec_context_, ln2_cfg );
-            ln2_->setTraining( this->isTraining() );
+            this->addComponent( ln2_ );
 
             // QKV projection: Linear(in=embedding_dim, out=3*embedding_dim)
             auto qkv_cfg = LinearConfig( static_cast<dim_t>( embedding_dim ), static_cast<dim_t>( embedding_dim * 3 ) );
@@ -598,7 +591,7 @@ namespace Mila::Dnn
                 .withBias( config_.useBias() );
 
             qkv_proj_ = std::make_shared<LinearType>( exec_context_, qkv_cfg );
-            qkv_proj_->setTraining( this->isTraining() );
+            this->addComponent( qkv_proj_ );
 
             // Residual configurations (simple addition, default scaling)
             ResidualConfig res_cfg1;
@@ -610,10 +603,10 @@ namespace Mila::Dnn
                 .withScalingFactor( 1.0f );
 
             res1_ = std::make_shared<ResidualType>( exec_context_, res_cfg1 );
-            res1_->setTraining( this->isTraining() );
+            this->addComponent( res1_ );
 
             res2_ = std::make_shared<ResidualType>( exec_context_, res_cfg2 );
-            res2_->setTraining( this->isTraining() );
+            this->addComponent( res2_ );
 
             auto mlp_cfg = MLPConfig( static_cast<dim_t>(embedding_dim), static_cast<dim_t>(hidden_dim) );
             mlp_cfg.withName( config_.getName() + ".mlp" )
@@ -621,7 +614,7 @@ namespace Mila::Dnn
                 .withActivation( config_.getActivationType() );
 
             ffn_ = std::make_shared<MLPType>( exec_context_, mlp_cfg );
-            ffn_->setTraining( this->isTraining() );
+            this->addComponent( ffn_ );
         }
 
         void validateInputShape( const shape_t& input_shape ) const

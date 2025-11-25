@@ -23,7 +23,7 @@ namespace Modules::Blocks::Tests
     struct MLPCpuTestData
     {
         MLPConfig config;
-        std::shared_ptr<MLP<DeviceType::Cpu, TPrecision>> mlp_module;
+        std::shared_ptr<MLP<DeviceType::Cpu, TPrecision>> mlp;
         shape_t input_shape;
         int64_t input_features;
         int64_t hidden_size;
@@ -56,7 +56,7 @@ namespace Modules::Blocks::Tests
                 .withPrecisionPolicy( precision );
 
             data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-            data.mlp_module = std::make_shared<MLP<DeviceType::Cpu, TPrecision>>( data.exec_context, data.config );
+            data.mlp = std::make_shared<MLP<DeviceType::Cpu, TPrecision>>( data.exec_context, data.config );
 
             return data;
         }
@@ -85,7 +85,7 @@ namespace Modules::Blocks::Tests
                 .withPrecisionPolicy( precision );
 
             data.exec_context = context;
-            data.mlp_module = std::make_shared<MLP<DeviceType::Cpu, TPrecision>>( context, data.config );
+            data.mlp = std::make_shared<MLP<DeviceType::Cpu, TPrecision>>( context, data.config );
 
             return data;
         }
@@ -104,7 +104,7 @@ namespace Modules::Blocks::Tests
 
         MLPCpuTestData<TensorDataType::FP32>& SmallFp32Data()
         {
-            if (!small_fp32_.mlp_module)
+            if (!small_fp32_.mlp)
             {
                 small_fp32_ = MLPCpuTestData<TensorDataType::FP32>::Create(
                     "small_mlp_cpu",
@@ -117,7 +117,7 @@ namespace Modules::Blocks::Tests
 
         MLPCpuTestData<TensorDataType::FP32>& TrainingFp32Data()
         {
-            if (!training_fp32_.mlp_module)
+            if (!training_fp32_.mlp)
             {
                 training_fp32_ = MLPCpuTestData<TensorDataType::FP32>::Create(
                     "training_mlp_cpu",
@@ -125,7 +125,7 @@ namespace Modules::Blocks::Tests
                     input_features_,
                     hidden_size_ );
 
-                training_fp32_.mlp_module->setTraining( true );
+                training_fp32_.mlp->setTraining( true );
             }
 
             return training_fp32_;
@@ -133,7 +133,7 @@ namespace Modules::Blocks::Tests
 
         MLPCpuTestData<TensorDataType::FP32>& NoBiasFp32Data()
         {
-            if (!no_bias_fp32_.mlp_module)
+            if (!no_bias_fp32_.mlp)
             {
                 no_bias_fp32_ = MLPCpuTestData<TensorDataType::FP32>::Create(
                     "no_bias_mlp_cpu",
@@ -147,7 +147,7 @@ namespace Modules::Blocks::Tests
 
         MLPCpuTestData<TensorDataType::FP32>& LayerNormFp32Data()
         {
-            if (!layer_norm_fp32_.mlp_module)
+            if (!layer_norm_fp32_.mlp)
             {
                 layer_norm_fp32_ = MLPCpuTestData<TensorDataType::FP32>::Create(
                     "layer_norm_mlp_cpu",
@@ -175,8 +175,8 @@ namespace Modules::Blocks::Tests
     template<TensorDataType TPrecision>
     void TestGetName( const MLPCpuTestData<TPrecision>& data, const std::string& expected_name )
     {
-        ASSERT_NE( data.mlp_module, nullptr );
-        EXPECT_EQ( data.mlp_module->getName(), expected_name );
+        ASSERT_NE( data.mlp, nullptr );
+        EXPECT_EQ( data.mlp->getName(), expected_name );
     }
 
     template<TensorDataType TPrecision>
@@ -191,26 +191,26 @@ namespace Modules::Blocks::Tests
     template<TensorDataType TPrecision>
     void TestIsBuilt( const MLPCpuTestData<TPrecision>& data, bool expected_built )
     {
-        ASSERT_NE( data.mlp_module, nullptr );
-        EXPECT_EQ( data.mlp_module->isBuilt(), expected_built );
+        ASSERT_NE( data.mlp, nullptr );
+        EXPECT_EQ( data.mlp->isBuilt(), expected_built );
     }
 
     template<TensorDataType TPrecision>
     void TestBuild( MLPCpuTestData<TPrecision>& data )
     {
-        ASSERT_NE( data.mlp_module, nullptr );
+        ASSERT_NE( data.mlp, nullptr );
 
-        EXPECT_NO_THROW( data.mlp_module->build( data.input_shape ) );
-        EXPECT_TRUE( data.mlp_module->isBuilt() );
+        EXPECT_NO_THROW( data.mlp->build( data.input_shape ) );
+        EXPECT_TRUE( data.mlp->isBuilt() );
 
-        data.mlp_module->build( data.input_shape );
-        EXPECT_TRUE( data.mlp_module->isBuilt() );
+        data.mlp->build( data.input_shape );
+        EXPECT_TRUE( data.mlp->isBuilt() );
     }
 
     template<TensorDataType TPrecision>
     void TestParameterCount( const MLPCpuTestData<TPrecision>& data )
     {
-        ASSERT_NE( data.mlp_module, nullptr );
+        ASSERT_NE( data.mlp, nullptr );
 
         int64_t input_features = data.config.getInputFeatures();
         int64_t hidden_size = data.config.getHiddenSize();
@@ -227,25 +227,25 @@ namespace Modules::Blocks::Tests
 
         size_t expected_total_params = expected_fc1_params + expected_fc2_params;
 
-        EXPECT_EQ( data.mlp_module->parameterCount(), expected_total_params );
+        EXPECT_EQ( data.mlp->parameterCount(), expected_total_params );
     }
 
     template<TensorDataType TPrecision>
     void TestForward( MLPCpuTestData<TPrecision>& data )
     {
-        ASSERT_NE( data.mlp_module, nullptr );
+        ASSERT_NE( data.mlp, nullptr );
         ASSERT_NE( data.exec_context, nullptr );
 
         using TensorType = CpuTensor<TPrecision>;
 
-        data.mlp_module->build( data.input_shape );
+        data.mlp->build( data.input_shape );
 
         TensorType input( data.exec_context->getDevice(), data.input_shape );
         TensorType output( data.exec_context->getDevice(), data.input_shape );
 
         random( input, -1.0f, 1.0f );
 
-        EXPECT_NO_THROW( data.mlp_module->forward( input, output ) );
+        EXPECT_NO_THROW( data.mlp->forward( input, output ) );
 
         EXPECT_EQ( output.size(), input.size() );
         EXPECT_EQ( output.shape(), input.shape() );
@@ -254,44 +254,44 @@ namespace Modules::Blocks::Tests
     template<TensorDataType TPrecision>
     void TestToString( const MLPCpuTestData<TPrecision>& data, const std::string& expected_substring )
     {
-        ASSERT_NE( data.mlp_module, nullptr );
-        std::string output = data.mlp_module->toString();
+        ASSERT_NE( data.mlp, nullptr );
+        std::string output = data.mlp->toString();
         EXPECT_NE( output.find( expected_substring ), std::string::npos );
     }
 
     template<TensorDataType TPrecision>
     void TestTrainingMode( const MLPCpuTestData<TPrecision>& data, bool expected_mode )
     {
-        ASSERT_NE( data.mlp_module, nullptr );
-        EXPECT_EQ( data.mlp_module->isTraining(), expected_mode );
+        ASSERT_NE( data.mlp, nullptr );
+        EXPECT_EQ( data.mlp->isTraining(), expected_mode );
     }
 
     template<TensorDataType TPrecision>
     void TestSubModules( const MLPCpuTestData<TPrecision>& data )
     {
-        ASSERT_NE( data.mlp_module, nullptr );
-        auto modules = data.mlp_module->getNamedComponents();
+        ASSERT_NE( data.mlp, nullptr );
+        auto components = data.mlp->getNamedComponents();
 
-        EXPECT_GE( modules.size(), 3 );
-        EXPECT_NE( modules.find( "fc1" ), modules.end() );
-        EXPECT_NE( modules.find( "activation" ), modules.end() );
-        EXPECT_NE( modules.find( "fc2" ), modules.end() );
+        EXPECT_GE( components.size(), 3 );
+        EXPECT_NE( components.find( "fc1" ), components.end() );
+        EXPECT_NE( components.find( "activation" ), components.end() );
+        EXPECT_NE( components.find( "fc2" ), components.end() );
 
         if (data.config.useLayerNorm())
         {
-            EXPECT_NE( modules.find( "norm" ), modules.end() );
+            EXPECT_NE( components.find( "norm" ), components.end() );
         }
     }
 
     template<TensorDataType TPrecision>
     void TestSaveLoad( const MLPCpuTestData<TPrecision>& data )
     {
-        ASSERT_NE( data.mlp_module, nullptr );
+        ASSERT_NE( data.mlp, nullptr );
         //ModelArchive archive;
 		//SerializationMode mode = SerializationMode
 
-  //      EXPECT_NO_THROW( data.mlp_module->save( archive ) );
-  //      EXPECT_NO_THROW( data.mlp_module->load( archive ) );
+  //      EXPECT_NO_THROW( data.mlp->save( archive ) );
+  //      EXPECT_NO_THROW( data.mlp->load( archive ) );
     }
 
     TEST_F( MLPCpuTests, GetName )
@@ -313,11 +313,11 @@ namespace Modules::Blocks::Tests
     {
         auto data = SmallFp32Data();
 
-        EXPECT_FALSE( data.mlp_module->isBuilt() );
+        EXPECT_FALSE( data.mlp->isBuilt() );
 
-        data.mlp_module->build( data.input_shape );
+        data.mlp->build( data.input_shape );
 
-        EXPECT_TRUE( data.mlp_module->isBuilt() );
+        EXPECT_TRUE( data.mlp->isBuilt() );
     }
 
     TEST_F( MLPCpuTests, Build )
@@ -401,7 +401,7 @@ namespace Modules::Blocks::Tests
             hidden_size_,
             ctx );
 
-        EXPECT_EQ( data.mlp_module->getName(), "context_mlp_cpu" );
+        EXPECT_EQ( data.mlp->getName(), "context_mlp_cpu" );
         EXPECT_EQ( data.exec_context, ctx );
     }
 
@@ -487,26 +487,26 @@ namespace Modules::Blocks::Tests
     {
         auto data = SmallFp32Data();
 
-        EXPECT_NO_THROW( data.mlp_module->synchronize() );
+        EXPECT_NO_THROW( data.mlp->synchronize() );
     }
 
     TEST_F( MLPCpuTests, SetTrainingMode )
     {
         auto data = SmallFp32Data();
 
-        EXPECT_FALSE( data.mlp_module->isTraining() );
+        EXPECT_FALSE( data.mlp->isTraining() );
 
-        data.mlp_module->setTraining( true );
-        EXPECT_TRUE( data.mlp_module->isTraining() );
+        data.mlp->setTraining( true );
+        EXPECT_TRUE( data.mlp->isTraining() );
 
-        data.mlp_module->setTraining( false );
-        EXPECT_FALSE( data.mlp_module->isTraining() );
+        data.mlp->setTraining( false );
+        EXPECT_FALSE( data.mlp->isTraining() );
     }
 
     TEST_F( MLPCpuTests, MultipleForwardCalls )
     {
         auto data = SmallFp32Data();
-        data.mlp_module->build( data.input_shape );
+        data.mlp->build( data.input_shape );
 
         CpuTensor<TensorDataType::FP32> input( data.exec_context->getDevice(), data.input_shape );
         CpuTensor<TensorDataType::FP32> output( data.exec_context->getDevice(), data.input_shape );
@@ -515,7 +515,7 @@ namespace Modules::Blocks::Tests
         {
             random( input, -1.0f, 1.0f );
 
-            EXPECT_NO_THROW( data.mlp_module->forward( input, output ) );
+            EXPECT_NO_THROW( data.mlp->forward( input, output ) );
         }
     }
 }
