@@ -19,14 +19,14 @@ module;
 
 export module Compute.CpuEncoderOp;
 
-import Dnn.Modules.Encoder;
+import Dnn.Components.Encoder;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorHostTypeMap;
-import Dnn.ModuleConfig;
+import Dnn.ComponentConfig;
 import Compute.Precision;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
@@ -460,7 +460,7 @@ namespace Mila::Dnn::Compute
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::INT32, TensorDataType::FP32>(
                 opName,
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
-                    const ModuleConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::INT32, TensorDataType::FP32>>
+                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::INT32, TensorDataType::FP32>>
                 {
                     const auto& encoder_config = dynamic_cast<const EncoderConfig&>(config);
                     return std::make_shared<CpuEncoderOp>( context, encoder_config );

@@ -90,7 +90,10 @@ namespace Mila::Dnn::Compute
                 throw std::invalid_argument( "CpuAdamWOptimizer: ExecutionContext cannot be null" );
             }
 
-            validateHyperparameters();
+			config_.validate();
+
+			// The learning rate can be set and accessed
+			learning_rate_ = config_.getLearningRate();
         }
 
         ~CpuAdamWOptimizer() override = default;
@@ -198,8 +201,8 @@ namespace Mila::Dnn::Compute
             step_count_++;
 
             // Compute bias correction factors (same for all parameters)
-            const float beta1_correction = 1.0f - std::pow( beta1_, static_cast<float>(step_count_) );
-            const float beta2_correction = 1.0f - std::pow( beta2_, static_cast<float>(step_count_) );
+            const float beta1_correction = 1.0f - std::pow( config_.getBeta1(), static_cast<float>(step_count_));
+            const float beta2_correction = 1.0f - std::pow( config_.getBeta2(), static_cast<float>(step_count_) );
 
             // Update each parameter group using cached raw pointers
             for (size_t i = 0; i < params_.size(); ++i)
@@ -278,7 +281,7 @@ namespace Mila::Dnn::Compute
          */
         float getBeta1() const noexcept
         {
-            return beta1_;
+            return config_.getBeta1();
         }
 
         /**
@@ -286,7 +289,7 @@ namespace Mila::Dnn::Compute
          */
         float getBeta2() const noexcept
         {
-            return beta2_;
+            return config_.getBeta2();
         }
 
         /**
@@ -294,7 +297,7 @@ namespace Mila::Dnn::Compute
          */
         float getEpsilon() const noexcept
         {
-            return epsilon_;
+            return config_.getEpsilon();
         }
 
         /**
@@ -302,23 +305,7 @@ namespace Mila::Dnn::Compute
          */
         float getWeightDecay() const noexcept
         {
-            return weight_decay_;
-        }
-
-        /**
-         * @brief Set weight decay coefficient.
-         *
-         * @param weight_decay New weight decay (must be non-negative)
-         * @throws std::invalid_argument if weight_decay < 0
-         */
-        void setWeightDecay( float weight_decay )
-        {
-            if (weight_decay < 0.0f)
-            {
-                throw std::invalid_argument( "CpuAdamWOptimizer: weight decay must be non-negative" );
-            }
-
-            weight_decay_ = weight_decay;
+            return config_.getWeightDecay();
         }
 
         /**
@@ -335,10 +322,12 @@ namespace Mila::Dnn::Compute
         AdamWConfig config_;
 
         float learning_rate_;
-        float beta1_;
-        float beta2_;
-        float epsilon_;
-        float weight_decay_;
+        
+        //float beta1_;
+        //float beta2_;
+        //float epsilon_;
+        //float weight_decay_;
+
         size_t step_count_{ 0 };
 
         // Non-owning pointers to parameters and gradients (module owns these)
@@ -355,36 +344,7 @@ namespace Mila::Dnn::Compute
         std::vector<float*> m_data_;  // Cached raw pointers
         std::vector<float*> v_data_;  // Cached raw pointers
 
-        /**
-         * @brief Validate optimizer hyperparameters.
-         */
-        void validateHyperparameters() const
-        {
-            if (learning_rate_ <= 0.0f)
-            {
-                throw std::invalid_argument( "CpuAdamWOptimizer: learning rate must be positive" );
-            }
-
-            if (beta1_ <= 0.0f || beta1_ >= 1.0f)
-            {
-                throw std::invalid_argument( "CpuAdamWOptimizer: beta1 must be in (0, 1)" );
-            }
-
-            if (beta2_ <= 0.0f || beta2_ >= 1.0f)
-            {
-                throw std::invalid_argument( "CpuAdamWOptimizer: beta2 must be in (0, 1)" );
-            }
-
-            if (epsilon_ <= 0.0f)
-            {
-                throw std::invalid_argument( "CpuAdamWOptimizer: epsilon must be positive" );
-            }
-
-            if (weight_decay_ < 0.0f)
-            {
-                throw std::invalid_argument( "CpuAdamWOptimizer: weight decay must be non-negative" );
-            }
-        }
+        
 
         /**
          * @brief Update a single parameter using AdamW algorithm.
@@ -414,8 +374,8 @@ namespace Mila::Dnn::Compute
             float beta2_correction )
         {
             // Precompute constants outside loop
-            const float one_minus_beta1 = 1.0f - beta1_;
-            const float one_minus_beta2 = 1.0f - beta2_;
+            const float one_minus_beta1 = 1.0f - getBeta1();
+            const float one_minus_beta2 = 1.0f - getBeta2();
 
             for (size_t idx = 0; idx < num_params; ++idx)
             {
@@ -423,11 +383,11 @@ namespace Mila::Dnn::Compute
                 const float grad = static_cast<float>( grad_data[idx] );
 
                 // Update first moment (momentum): m_t = beta1 * m_{t-1} + (1 - beta1) * g_t
-                float m = beta1_ * m_data[idx] + one_minus_beta1 * grad;
+                float m = getBeta1() * m_data[idx] + one_minus_beta1 * grad;
                 m_data[idx] = m;
 
                 // Update second moment (RMSprop): v_t = beta2 * v_{t-1} + (1 - beta2) * g_t^2
-                float v = beta2_ * v_data[idx] + one_minus_beta2 * (grad * grad);
+                float v = getBeta2() * v_data[idx] + one_minus_beta2 * (grad * grad);
                 v_data[idx] = v;
 
                 // Apply bias correction
@@ -439,8 +399,8 @@ namespace Mila::Dnn::Compute
 
                 // Compute parameter update
                 // AdamW: theta_t = theta_{t-1} - lr * (m_hat / (sqrt(v_hat) + eps) + wd * theta_{t-1})
-                const float adaptive_lr = m_hat / (std::sqrt( v_hat ) + epsilon_);
-                const float weight_decay_term = weight_decay_ * old_param;
+                const float adaptive_lr = m_hat / (std::sqrt( v_hat ) + getEpsilon() );
+                const float weight_decay_term = getWeightDecay() * old_param;
                 const float new_param = old_param - learning_rate_ * (adaptive_lr + weight_decay_term);
 
                 // Write updated parameter (convert back to HostType)
@@ -467,6 +427,6 @@ namespace Mila::Dnn::Compute
     };
 
     // Convenience aliases
-    export template<TensorDataType TPrecision>
-        using CpuAdamW = CpuAdamWOptimizer<TPrecision>;
+    //export template<TensorDataType TPrecision>/*
+    //    using CpuAdamW = CpuAdamWOptimizer<TPrecision>;*/
 }

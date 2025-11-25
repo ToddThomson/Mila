@@ -103,7 +103,7 @@ namespace MilaViewer
             HTREEITEM hRoot = TreeView_InsertItem( hwnd_, &tvis );
 
             // Add child modules
-            const auto& modules = network->getModules();
+            const auto& modules = network->getComponents();
             for (const auto& module : modules)
             {
                 addModuleNode( hRoot, module.get() );

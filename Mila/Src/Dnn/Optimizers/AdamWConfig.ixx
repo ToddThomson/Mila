@@ -13,7 +13,7 @@ module;
 
 export module Dnn.Optimizers.AdamWConfig;
 
-import Dnn.ModuleConfig;
+import Dnn.ComponentConfig;
 import nlohmann.json;
 
 namespace Mila::Dnn::Optimizers
@@ -46,13 +46,16 @@ namespace Mila::Dnn::Optimizers
      *     exec_context, config);
      * @endcode
      */
-    export class AdamWConfig : public ModuleConfig
+    export class AdamWConfig : public ComponentConfig
     {
     public:
         /**
          * @brief Default constructor.
          */
-        AdamWConfig() = default;
+        AdamWConfig()
+        {
+			this->name_ = "AdamW";
+        }
 
         // ====================================================================
         // Fluent Setters
@@ -90,13 +93,6 @@ namespace Mila::Dnn::Optimizers
         decltype(auto) withWeightDecay( this Self&& self, float weight_decay ) noexcept
         {
             self.weight_decay_ = weight_decay;
-            return std::forward<Self>( self );
-        }
-
-        template <typename Self>
-        decltype(auto) withName( this Self&& self, std::string name ) noexcept
-        {
-            self.name_ = std::move( name );
             return std::forward<Self>( self );
         }
 
@@ -144,14 +140,6 @@ namespace Mila::Dnn::Optimizers
             return weight_decay_;
         }
 
-        /**
-         * @brief Get optimizer name.
-         */
-        const std::string& getName() const noexcept
-        {
-            return name_;
-        }
-
         // ====================================================================
         // Validation
         // ====================================================================
@@ -170,7 +158,7 @@ namespace Mila::Dnn::Optimizers
          */
         void validate() const override
         {
-            //ModuleConfig::validate();
+            ComponentConfig::validate();
 
             if (learning_rate_ <= 0.0f)
             {
@@ -279,7 +267,7 @@ namespace Mila::Dnn::Optimizers
         /**
          * @brief Produce a short, human-readable summary of this configuration.
          *
-         * Overrides ModuleConfig::toString() to include AdamW-specific fields.
+         * Overrides ComponentConfig::toString() to include AdamW-specific fields.
 		 */
         std::string toString() const override
         {
@@ -300,6 +288,5 @@ namespace Mila::Dnn::Optimizers
         float beta2_{ 0.999f };
         float epsilon_{ 1e-8f };
         float weight_decay_{ 0.01f };
-        std::string name_{ "AdamW" };
     };
 }

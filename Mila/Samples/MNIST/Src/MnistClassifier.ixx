@@ -55,7 +55,7 @@ namespace Mila::Mnist
         using TensorType = Tensor<TPrecision, MR>;
         using LinearType = Linear<TDeviceType, TPrecision>;
         using GeluType = Gelu<TDeviceType, TPrecision>;
-        using ModulePtr = typename NetworkBase::ModulePtr;
+        using ComponentPtr = typename NetworkBase::ComponentPtr;
 
         /**
          * @brief Construct classifier with execution context.
@@ -209,7 +209,7 @@ namespace Mila::Mnist
         /* TJT: Moved to Network::Save
         void save( ModelArchive& archive, SerializationMode mode ) const override
         {
-            for (const auto& m : this->getModules())
+            for (const auto& m : this->getComponents())
             {
                 m->save_( archive, mode );
             }
@@ -217,7 +217,7 @@ namespace Mila::Mnist
 
         void load( ModelArchive& archive, SerializationMode mode ) override
         {
-            for (const auto& m : this->getModules())
+            for (const auto& m : this->getComponents())
             {
                 m->load( archive, mode );
             }
@@ -367,7 +367,7 @@ namespace Mila::Mnist
         ///**
         // * @brief Override buildImpl for sequential shape propagation.
         // *
-        // * This is called by the base CompositeModule::build() after validation.
+        // * This is called by the base CompositeComponent::build() after validation.
         // * Delegates to the public build() method which handles all setup.
         // */
         //void buildImpl( const shape_t& input_shape ) override
@@ -379,7 +379,7 @@ namespace Mila::Mnist
          * @brief Hook invoked when training mode is about to change.
          *
          * Propagate new training mode to child modules. Called with the
-         * CompositeModule's training mutex held; do not call setTraining() here.
+         * CompositeComponent's training mutex held; do not call setTraining() here.
          */
         void onTrainingChanging( bool newMode ) override
         {
@@ -442,14 +442,14 @@ namespace Mila::Mnist
 
             fc1_ = std::make_shared<LinearType>( exec_context, fc1_config );
             fc1_->setTraining( this->isTraining() );
-            this->addModule( fc1_config.getName(), fc1_ );
+            this->addComponent( fc1_config.getName(), fc1_ );
 
             auto gelu1_config = GeluConfig();
             gelu1_config.withName( this->getName() + ".gelu1" );
 
             gelu1_ = std::make_shared<GeluType>( exec_context, gelu1_config );
             gelu1_->setTraining( this->isTraining() );
-            this->addModule( gelu1_config.getName(), gelu1_ );
+            this->addComponent( gelu1_config.getName(), gelu1_ );
 
             auto fc2_config = LinearConfig( HIDDEN1_SIZE, HIDDEN2_SIZE );
             fc2_config.withName( this->getName() + ".fc2" )
@@ -457,14 +457,14 @@ namespace Mila::Mnist
 
             fc2_ = std::make_shared<LinearType>( exec_context, fc2_config );
             fc2_->setTraining( this->isTraining() );
-            this->addModule( fc2_config.getName(), fc2_ );
+            this->addComponent( fc2_config.getName(), fc2_ );
 
             auto gelu2_config = GeluConfig();
             gelu2_config.withName( this->getName() + ".gelu2" );
 
             gelu2_ = std::make_shared<GeluType>( exec_context, gelu2_config );
             gelu2_->setTraining( this->isTraining() );
-            this->addModule( gelu2_config.getName(), gelu2_ );
+            this->addComponent( gelu2_config.getName(), gelu2_ );
 
             auto output_config = LinearConfig( HIDDEN2_SIZE, MNIST_NUM_CLASSES );
             output_config.withName( this->getName() + ".output" )
@@ -472,7 +472,7 @@ namespace Mila::Mnist
 
             output_fc_ = std::make_shared<LinearType>( exec_context, output_config );
             output_fc_->setTraining( this->isTraining() );
-            this->addModule( output_config.getName(), output_fc_ );
+            this->addComponent( output_config.getName(), output_fc_ );
         }
     };
 }

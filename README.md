@@ -3,12 +3,12 @@
 Mila Deep Neural Network Library
 
 ## Prerelease Notice
-Mila, version 0.9.909-alpha
+Mila, version 0.9.912-alpha
 This is a dev branch only build. It is unstable and is intended only for development use.
 
 The development focus is currently on completing the training infrastructure for feedforward neural networks.
 
-- CompositeModule class for stacking layers
+- CompositeComponent class for stacking layers
 - Network class for top level network architecture building
     - Serilization features  
 - Model class for training and evaluation
@@ -20,6 +20,8 @@ state-of-the-art architectures including transformers, convolutional networks, a
 Mila utilizes the NVIDIA CUDA runtime for high-performance GPU acceleration, enabling efficient
 training and inference on large-scale datasets. The library also supports distributed training
 across multiple GPUs and compute nodes, with automatic optimization for various hardware configurations.
+
+## Usage
 
 ## Mnist Sample
 A complete Mnist training example is included in the `samples/mnist` directory.

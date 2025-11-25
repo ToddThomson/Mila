@@ -69,11 +69,11 @@ namespace Mila::CharLM
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    class CharTransformer : public CompositeModule<TDeviceType, TPrecision>
+    class CharTransformer : public CompositeComponent<TDeviceType, TPrecision>
     {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
-        using CompositeModuleBase = CompositeModule<TDeviceType, TPrecision>;
+        using CompositeComponentBase = CompositeComponent<TDeviceType, TPrecision>;
         using ExecutionContextType = ExecutionContext<TDeviceType>;
         using TensorType = Tensor<TPrecision, MR>;
         using LinearType = Linear<TDeviceType, TPrecision>;
@@ -93,7 +93,7 @@ namespace Mila::CharLM
 
             config_.validate();
 
-            createModules();
+            createComponents();
         }
 
         ~CharTransformer() override = default;
@@ -257,7 +257,7 @@ namespace Mila::CharLM
         }
 
         // ====================================================================
-        // Module interface
+        // Component interface
         // ====================================================================
 
         std::string getName() const override
@@ -449,7 +449,7 @@ namespace Mila::CharLM
          * @brief Hook invoked when training mode is about to change.
          *
          * Propagate the new mode to child modules and invalidate any cached
-         * forward-executed state. Called with the CompositeModule's mutex held;
+         * forward-executed state. Called with the CompositeComponent's mutex held;
          * do not call setTraining() within this hook.
          */
         void onTrainingChanging( bool newMode ) override
@@ -504,7 +504,7 @@ namespace Mila::CharLM
             }
         }
 
-        void createModules()
+        void createComponents()
         {
             EncoderConfig enc_cfg;
             enc_cfg.withVocabularyLength( static_cast<size_t>( config_.vocab_size ) )

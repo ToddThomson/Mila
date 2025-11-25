@@ -14,7 +14,7 @@ module;
 
 export module Extensibility.PluginInterface;
 
-import Dnn.Module;
+import Dnn.Component;
 import Compute.OperationRegistry;
 import Serialization.ModelArchive;
 import Extensibility.PluginInfo;

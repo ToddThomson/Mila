@@ -133,7 +133,7 @@ We expect all contributors to be respectful and constructive. By participating i
 
 ### Unit Tests
 * All new features must have corresponding unit tests
-* Follow existing test patterns in the codebase (see `Tests/Dnn/Modules` directory)
+* Follow existing test patterns in the codebase (see `Tests/Dnn/Components` directory)
 * Include tests for both CPU and CUDA implementations where applicable
 * Include tests for edge cases and error conditions
 * Test numerical stability for floating-point operations

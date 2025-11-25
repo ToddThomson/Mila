@@ -23,14 +23,16 @@ import Dnn.TensorDataTypeTraits;
 import Compute.DeviceType;
 import Compute.OptimizerBase;
 import Compute.ExecutionContext;
-import Data.DatasetLoader;
+import Data.DatasetReader;
 import Dnn.Network;
 import Dnn.NetworkFactory;
+
+import Dnn.Loss;
 
 import Dnn.Optimizers.AdamW;
 import Dnn.Optimizers.AdamWConfig;
 
-import Modeling.ModelConfig;
+import Dnn.ModelConfig;
 import Modeling.CheckpointManager;
 import Modeling.CheckpointMetaData;
 import Modeling.TrainingHistory;
@@ -86,6 +88,7 @@ namespace Mila::Dnn
         Model(
             std::unique_ptr<Network<TDeviceType, TPrecision>> network,
             std::unique_ptr<Compute::Optimizer<TDeviceType, TPrecision>> optimizer,
+			//std::unique_ptr<Loss<TDeviceType, TPrecision>> loss_fn,
             const ModelConfig& config )
 			: network_( std::move( network ) ), optimizer_( std::move( optimizer ) ), config_( config )
         {
@@ -116,13 +119,11 @@ namespace Mila::Dnn
          *
          * @return TrainingHistory that accumulates per-epoch statistics.
          */
-        TrainingHistory train()
+		template<TensorDataType TInputType, TensorDataType TTargetType, typename TMemoryResource>
+        TrainingHistory train(
+            Data::DatasetReader<TInputType, TTargetType, TMemoryResource> train_reader,
+			std::optional<Data::DatasetReader<TInputType, TTargetType, TMemoryResource>> val_reader = std::nullopt )
         {
-            if (!checkpoint_manager_)
-            {
-                checkpoint_manager_ = std::make_unique<Modeling::CheckpointManager>( config_ );
-            }
-
             TrainingHistory history;
 
             if (config_.getVerbose())
@@ -577,7 +578,7 @@ namespace Mila::Dnn
                     start_epoch, config_.getEpochs() );
             }
 
-            for (std::size_t epoch = start_epoch; epoch < config_.getEpochs(); ++epoch)
+            for ( std::size_t epoch = start_epoch; epoch < config_.getEpochs(); ++epoch )
             {
                 history.current_epoch = epoch;
 
@@ -585,12 +586,12 @@ namespace Mila::Dnn
                 history.train_losses.push_back( train_loss );
 
                 double val_loss = 0.0;
-                if (config_.getValidationSplit() > 0.0)
+                if ( config_.getValidationSplit() > 0.0 )
                 {
                     val_loss = validateEpoch();
                     history.val_losses.push_back( val_loss );
 
-                    if (val_loss < history.best_val_loss)
+                    if ( val_loss < history.best_val_loss )
                     {
                         history.best_val_loss = val_loss;
                         history.epochs_without_improvement = 0;
@@ -601,9 +602,9 @@ namespace Mila::Dnn
                     }
                 }
 
-                if (config_.getVerbose())
+                if ( config_.getVerbose() )
                 {
-                    if (config_.getValidationSplit() > 0.0)
+                    if ( config_.getValidationSplit() > 0.0 )
                     {
                         Utils::Logger::info_fmt( "Epoch {}/{}: loss = {:.6f}, val_loss = {:.6f}",
                             epoch + 1, config_.getEpochs(), train_loss, val_loss );
@@ -615,7 +616,7 @@ namespace Mila::Dnn
                     }
                 }
 
-                if ((epoch + 1) % config_.getCheckpointFrequency() == 0)
+                if ( (epoch + 1) % config_.getCheckpointFrequency() == 0 )
                 {
                     Modeling::CheckpointMetadata metadata{
                         .epoch = epoch,
@@ -628,10 +629,10 @@ namespace Mila::Dnn
                     saveTrainingCheckpoint( metadata );
                 }
 
-                if (config_.getEarlyStoppingEnabled() &&
-                    history.epochs_without_improvement >= config_.getEarlyStoppingPatience())
+                if ( config_.getEarlyStoppingEnabled() &&
+                    history.epochs_without_improvement >= config_.getEarlyStoppingPatience() )
                 {
-                    if (config_.getVerbose())
+                    if ( config_.getVerbose() )
                     {
                         Utils::Logger::info_fmt( "Early stopping triggered after {} epochs without improvement",
                             history.epochs_without_improvement );

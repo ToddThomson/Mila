@@ -21,13 +21,13 @@ module;
 
 export module Compute.CpuLinearOp;
 
-import Dnn.Modules.Linear;
+import Dnn.Components.Linear;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorHostTypeMap;
-import Dnn.ModuleConfig;
+import Dnn.ComponentConfig;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
@@ -464,7 +464,7 @@ namespace Mila::Dnn::Compute
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>(
                 "LinearOp",
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
-                    const ModuleConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
+                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
                 {
                     const auto& linearConfig = static_cast<const LinearConfig&>(config);
                     return std::make_shared<CpuLinearOp>( context, linearConfig );

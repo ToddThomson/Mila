@@ -13,7 +13,7 @@ module;
 
 export module Dnn.Model;
 
-import Dnn.Module;
+import Dnn.Component;
 import Dnn.Tensor;
 import Dnn.TensorTraits;
 import Compute.DeviceType;
@@ -58,16 +58,16 @@ namespace Mila::Dnn
     */
     export template<DeviceType TDeviceType = DeviceType::Cuda, typename TInput = float, typename TOutput = TInput>
         requires ValidTensorTypes<TInput, TOutput>
-    class Model : public Module<TDeviceType, TInput, TOutput> {
+    class Model : public Component<TDeviceType, TInput, TOutput> {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>; ///< Memory resource type
-        using ModuleBase = Module<TDeviceType, TInput, TOutput>; ///< Base class type for the module
+        using ComponentBase = Component<TDeviceType, TInput, TOutput>; ///< Base class type for the module
 
         /**
         * @brief Constructs a new Model object with the default device context.
         */
         Model()
-            : ModuleBase() {
+            : ComponentBase() {
             initializeDevice();
         }
 
@@ -77,7 +77,7 @@ namespace Mila::Dnn
         * @param context The device context to use for this model.
         */
         Model( std::shared_ptr<DeviceContext> context )
-            : ModuleBase( context ) {
+            : ComponentBase( context ) {
             initializeDevice();
         }
 
@@ -87,7 +87,7 @@ namespace Mila::Dnn
         * @param device_name The name of the device to use (e.g., "CUDA:0", "CPU").
         */
         Model( const std::string& device_name )
-            : ModuleBase( device_name ) {
+            : ComponentBase( device_name ) {
             initializeDevice();
         }
 
@@ -186,7 +186,7 @@ namespace Mila::Dnn
             memset( &zip, 0, sizeof( zip ) );
             mz_zip_writer_init_file( &zip, filename.c_str(), 0 );
 
-            for ( const auto& [name, module] : this->getModules() ) {
+            for ( const auto& [name, module] : this->getComponents() ) {
                 module->save( zip );
             }
 
@@ -204,7 +204,7 @@ namespace Mila::Dnn
             memset( &zip, 0, sizeof( zip ) );
             mz_zip_reader_init_file( &zip, filename.c_str(), 0 );
 
-            for ( const auto& [name, module] : this->getModules() ) {
+            for ( const auto& [name, module] : this->getComponents() ) {
                 module->load( zip );
             }
 
@@ -294,7 +294,7 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Model has already been built." );
             }
 
-            for ( auto& [_, module] : this->getModules() ) {
+            for ( auto& [_, module] : this->getComponents() ) {
                 module->setTraining( is_training_ );
             }
 
@@ -310,7 +310,7 @@ namespace Mila::Dnn
             is_training_ = training;
 
             if ( is_built_ ) {
-                for ( auto& [_, module] : this->getModules() ) {
+                for ( auto& [_, module] : this->getComponents() ) {
                     module->setTraining( is_training_ );
                 }
             }
@@ -555,7 +555,7 @@ namespace Mila::Dnn
         */
         size_t parameters() const {
             size_t total_parameters = 0;
-            for ( const auto& [_, module] : this->getModules() ) {
+            for ( const auto& [_, module] : this->getComponents() ) {
                 total_parameters += module->parameterCount();
             }
             return total_parameters;
@@ -570,7 +570,7 @@ namespace Mila::Dnn
             std::cout << "Device: " << deviceTypeToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
 
             std::cout << "Modules: " << std::endl;
-            for ( const auto& [name, module] : this->getModules() ) {
+            for ( const auto& [name, module] : this->getComponents() ) {
                 std::cout << "  " << name << ": ";
                 std::cout << module->toString() << std::endl;
             }

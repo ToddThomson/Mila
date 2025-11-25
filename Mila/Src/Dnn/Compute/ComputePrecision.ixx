@@ -37,7 +37,8 @@ namespace Mila::Dnn::Compute
         /**
          * @brief Construct a ComputePrecision with the specified policy.
          */
-        ComputePrecision( Policy policy = Policy::Auto ) : policy_( policy ) {}
+        ComputePrecision( Policy policy = Policy::Auto )
+            : policy_( policy ) {}
 
         /**
          * @brief Get the current policy.

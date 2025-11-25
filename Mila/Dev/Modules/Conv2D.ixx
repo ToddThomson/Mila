@@ -15,10 +15,10 @@ module;
 #include <sstream>
 #include <stdexcept>
 
-export module Dnn.Modules.Layers.Convolution;
+export module Dnn.Components.Convolution;
 export import :Config;
 
-import Dnn.Module;
+import Dnn.Component;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -56,7 +56,7 @@ namespace Mila::Dnn
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    class Convolution : public Module<TDeviceType>
+    class Convolution : public Component<TDeviceType>
     {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;

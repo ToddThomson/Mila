@@ -16,7 +16,7 @@ module;
 
 export module Modeling.CheckpointManager;
 
-import Modeling.ModelConfig;
+import Dnn.ModelConfig;
 import Modeling.CheckpointMetaData;
 import Serialization.OpenMode;
 import Serialization.ZipSerializer;

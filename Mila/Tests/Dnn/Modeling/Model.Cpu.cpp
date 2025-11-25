@@ -23,7 +23,7 @@ namespace Mila::Dnn::Modeling::Tests
         MockNetworkCpu() = default;
         ~MockNetworkCpu() override = default;
 
-        // Module interface requirements not implemented by CompositeModule
+        // Module interface requirements not implemented by CompositeComponent
         std::string getName() const override
         {
             return "mock_network_cpu";

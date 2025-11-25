@@ -32,11 +32,11 @@ namespace Dnn::NetworkTests
         //using Base::buildImpl;
     };
 
-    // Minimal test module implementing required Module<TDeviceType, TPrecision> interface used by CompositeModule.
-    class SimpleTestModule : public Module<DeviceType::Cpu, TensorDataType::FP32>
+    // Minimal test component implementing required Component<TDeviceType, TPrecision> interface used by CompositeComponent.
+    class SimpleTestComponent : public Component<DeviceType::Cpu, TensorDataType::FP32>
     {
     public:
-        SimpleTestModule( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> ctx,
+        SimpleTestComponent( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> ctx,
             std::string name,
             size_t param_count = 0,
             bool built = false )
@@ -80,7 +80,7 @@ namespace Dnn::NetworkTests
 
         std::string toString() const override
         {
-            return std::string( "SimpleTestModule: " ) + name_;
+            return std::string( "SimpleTestComponent: " ) + name_;
         }
 
         // Build lifecycle
@@ -159,32 +159,32 @@ namespace Dnn::NetworkTests
     {
         NetworkUnderTest<DeviceType::Cpu> net( exec_ctx_, "container" );
 
-        auto m1 = std::make_shared<SimpleTestModule>( exec_ctx_, "child1", 5 );
-        auto m2 = std::make_shared<SimpleTestModule>( exec_ctx_, "child2", 7 );
+        auto m1 = std::make_shared<SimpleTestComponent>( exec_ctx_, "child1", 5 );
+        auto m2 = std::make_shared<SimpleTestComponent>( exec_ctx_, "child2", 7 );
 
         // add with explicit name
-        net.addModule( "first", m1 );
-        EXPECT_TRUE( net.hasModule( "first" ) );
-        EXPECT_EQ( net.getNamedModules().size(), 1u );
+        net.addComponent( "first", m1 );
+        EXPECT_TRUE( net.hasComponent( "first" ) );
+        EXPECT_EQ( net.getNamedComponents().size(), 1u );
 
         // add unnamed (auto-generated) module
-        net.addModule( m2 );
-        EXPECT_GE( net.getModules().size(), 2u );
+        net.addComponent( m2 );
+        EXPECT_GE( net.getComponents().size(), 2u );
 
         // getModule returns correct pointer
-        auto g = net.getModule( "first" );
+        auto g = net.getComponent( "first" );
         EXPECT_EQ( g, m1 );
 
         // replaceModule returns false for missing, true when present
-        auto m3 = std::make_shared<SimpleTestModule>( exec_ctx_, "replacement", 3 );
-        EXPECT_FALSE( net.replaceModule( "missing", m3 ) );
-        EXPECT_TRUE( net.replaceModule( "first", m3 ) );
-        EXPECT_EQ( net.getModule( "first" ), m3 );
+        auto m3 = std::make_shared<SimpleTestComponent>( exec_ctx_, "replacement", 3 );
+        EXPECT_FALSE( net.replaceComponent( "missing", m3 ) );
+        EXPECT_TRUE( net.replaceComponent( "first", m3 ) );
+        EXPECT_EQ( net.getComponent( "first" ), m3 );
 
         // removeModule on non-existing false, on existing true
-        EXPECT_FALSE( net.removeModule( "does_not_exist" ) );
-        EXPECT_TRUE( net.removeModule( "first" ) );
-        EXPECT_FALSE( net.hasModule( "first" ) );
+        EXPECT_FALSE( net.removeComponent( "does_not_exist" ) );
+        EXPECT_TRUE( net.removeComponent( "first" ) );
+        EXPECT_FALSE( net.hasComponent( "first" ) );
     }
 
     TEST_F( NetworkCpuTests, AddInvalidModuleCases )
@@ -192,26 +192,26 @@ namespace Dnn::NetworkTests
         NetworkUnderTest<DeviceType::Cpu> net( exec_ctx_, "invalids" );
 
         // empty name invalid
-        auto m = std::make_shared<SimpleTestModule>( exec_ctx_, "x" );
-        EXPECT_THROW( net.addModule( "", m ), std::invalid_argument );
+        auto m = std::make_shared<SimpleTestComponent>( exec_ctx_, "x" );
+        EXPECT_THROW( net.addComponent( "", m ), std::invalid_argument );
 
         // null module invalid
-        EXPECT_THROW( net.addModule( "n", nullptr ), std::invalid_argument );
+        EXPECT_THROW( net.addComponent( "n", nullptr ), std::invalid_argument );
 
         // duplicate name invalid
-        net.addModule( "dup", m );
-        EXPECT_THROW( net.addModule( "dup", m ), std::invalid_argument );
+        net.addComponent( "dup", m );
+        EXPECT_THROW( net.addComponent( "dup", m ), std::invalid_argument );
     }
 
     TEST_F( NetworkCpuTests, BuildAndIsBuiltAndParameterCount )
     {
         NetworkUnderTest<DeviceType::Cpu> net( exec_ctx_, "builder" );
 
-        auto a = std::make_shared<SimpleTestModule>( exec_ctx_, "a", 10, false );
-        auto b = std::make_shared<SimpleTestModule>( exec_ctx_, "b", 20, false );
+        auto a = std::make_shared<SimpleTestComponent>( exec_ctx_, "a", 10, false );
+        auto b = std::make_shared<SimpleTestComponent>( exec_ctx_, "b", 20, false );
 
-        net.addModule( "a", a );
-        net.addModule( "b", b );
+        net.addComponent( "a", a );
+        net.addComponent( "b", b );
 
         // before build, isBuilt returns false
         EXPECT_FALSE( net.isBuilt() );
@@ -231,8 +231,8 @@ namespace Dnn::NetworkTests
     TEST_F( NetworkCpuTests, ParameterAccessPreconditions )
     {
         NetworkUnderTest<DeviceType::Cpu> net( exec_ctx_, "preconds" );
-        auto a = std::make_shared<SimpleTestModule>( exec_ctx_, "a", 1, false );
-        net.addModule( "a", a );
+        auto a = std::make_shared<SimpleTestComponent>( exec_ctx_, "a", 1, false );
+        net.addComponent( "a", a );
 
         // parameterCount throws if not built
         EXPECT_THROW( net.parameterCount(), std::runtime_error );
@@ -240,7 +240,7 @@ namespace Dnn::NetworkTests
         // getParameters throws if not built
         EXPECT_THROW( net.getParameters(), std::runtime_error );
 
-        // build then getParameters works (returns empty vector because SimpleTestModule returns none)
+        // build then getParameters works (returns empty vector because SimpleTestComponent returns none)
         net.build( { 1 } );
         EXPECT_NO_THROW( net.getParameters() );
     }
@@ -248,8 +248,8 @@ namespace Dnn::NetworkTests
     TEST_F( NetworkCpuTests, GetGradientsRequiresTrainingAndBuilt )
     {
         NetworkUnderTest<DeviceType::Cpu> net( exec_ctx_, "grads" );
-        auto a = std::make_shared<SimpleTestModule>( exec_ctx_, "a", 0, false );
-        net.addModule( "a", a );
+        auto a = std::make_shared<SimpleTestComponent>( exec_ctx_, "a", 0, false );
+        net.addComponent( "a", a );
 
         // not built -> getGradients throws
         EXPECT_THROW( net.getGradients(), std::runtime_error );
@@ -276,11 +276,11 @@ namespace Dnn::NetworkTests
 
         NetworkUnderTest<DeviceType::Cpu> net( exec_ctx_, "serial_net" );
 
-        auto m1 = std::make_shared<SimpleTestModule>( exec_ctx_, "mod1", 1 );
-        auto m2 = std::make_shared<SimpleTestModule>( exec_ctx_, "mod2", 2 );
+        auto m1 = std::make_shared<SimpleTestComponent>( exec_ctx_, "mod1", 1 );
+        auto m2 = std::make_shared<SimpleTestComponent>( exec_ctx_, "mod2", 2 );
 
-        net.addModule( "mod1", m1 );
-        net.addModule( "mod2", m2 );
+        net.addComponent( "mod1", m1 );
+        net.addComponent( "mod2", m2 );
 
         // Create writer archive using ZipSerializer
         {

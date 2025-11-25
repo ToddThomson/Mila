@@ -140,9 +140,9 @@ export import Compute.CpuTensorDataTypeTraits;
 // ====================================================================
 // Dnn - Core
 // ====================================================================
-export import Dnn.Module;
-export import Dnn.ModuleConfig;
-export import Dnn.CompositeModule;
+export import Dnn.Component;
+export import Dnn.ComponentConfig;
+export import Dnn.CompositeComponent;
 
 // ====================================================================
 // Dnn - Tensors
@@ -167,18 +167,18 @@ export import Dnn.TensorOps;
 export import Dnn.TensorInitializers;
 
 // ====================================================================
-// Dnn - Modules
+// Dnn - Components
 // ====================================================================
 export import Dnn.ActivationType;
 
-export import Dnn.Modules.Attention;
-export import Dnn.Modules.Encoder;
-export import Dnn.Modules.Gelu;
-export import Dnn.Modules.LayerNorm;
-export import Dnn.Modules.Linear;
-export import Dnn.Modules.Residual;
-export import Dnn.Modules.Softmax;
-export import Dnn.Modules.SoftmaxCrossEntropy;
+export import Dnn.Components.Attention;
+export import Dnn.Components.Encoder;
+export import Dnn.Components.Gelu;
+export import Dnn.Components.LayerNorm;
+export import Dnn.Components.Linear;
+export import Dnn.Components.Residual;
+export import Dnn.Components.Softmax;
+export import Dnn.Components.SoftmaxCrossEntropy;
 
 // ============================================================================
 // Dnn - Blocks
@@ -193,9 +193,14 @@ export import Dnn.Optimizers.AdamW;
 export import Dnn.Optimizers.AdamWConfig;
 
 // ============================================================================
+// Dnn - LossFunctions
+// ============================================================================
+export import Dnn.Loss;
+
+// ============================================================================
 // Dnn - Data
 // ============================================================================
-export import Data.DatasetLoader;
+export import Data.DatasetReader;
 
 // ============================================================================
 // Serialization

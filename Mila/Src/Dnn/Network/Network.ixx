@@ -2,7 +2,7 @@
  * @file Network.ixx
  * @brief Lightweight composite network container.
  *
- * Provides a simple CompositeModule-derived container that owns child modules
+ * Provides a simple CompositeComponent-derived container that owns child modules
  * and exposes a minimal introspection and device access API.
  */
 
@@ -19,8 +19,8 @@
 
 export module Dnn.Network;
 
-import Dnn.CompositeModule;
-import Dnn.ModuleFactory;
+import Dnn.CompositeComponent;
+import Dnn.ComponentFactory;
 import Dnn.TensorDataType;
 import Compute.ExecutionContext;
 import Compute.DeviceType;
@@ -36,11 +36,11 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Serialization;
 
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
-        class Network : public CompositeModule<TDeviceType, TPrecision>
+        class Network : public CompositeComponent<TDeviceType, TPrecision>
     {
     public:
-        using CompositeBase = CompositeModule<TDeviceType, TPrecision>;
-        using ModulePtr = typename CompositeBase::ModulePtr;
+        using CompositeBase = CompositeComponent<TDeviceType, TPrecision>;
+        using ComponentPtr = typename CompositeBase::ComponentPtr;
         using ExecutionContextType = ExecutionContext<TDeviceType>;
 
     protected:
@@ -63,7 +63,7 @@ namespace Mila::Dnn
         /**
          * @brief Build the network.
          *
-         * Default behavior delegates to `CompositeModule::build` which builds all
+         * Default behavior delegates to `CompositeComponent::build` which builds all
          * child modules with the provided `input_shape`, validates children were
          * built and marks the composite built.
          *
@@ -96,7 +96,7 @@ namespace Mila::Dnn
         void save( ModelArchive& archive, SerializationMode mode ) const
         {
             // Gather named modules deterministically (sort names)
-            const auto& named_map = this->getNamedModules();
+            const auto& named_map = this->getNamedComponents();
             std::vector<std::string> names;
             names.reserve( named_map.size() );
             for (const auto& p : named_map)
@@ -219,7 +219,7 @@ namespace Mila::Dnn
                 // FIXME: reconstruct child modules using ModuleFactory when available.
                 (void)module_name;
                 //auto module = ModuleFactory::create( archive, module_name, exec_context );
-                //network->addModule( module_name, std::move( module ) );
+                //network->addComponent( module_name, std::move( module ) );
             }
 
             return network;

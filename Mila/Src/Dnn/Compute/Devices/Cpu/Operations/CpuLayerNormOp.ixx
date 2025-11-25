@@ -19,14 +19,14 @@ module;
 
 export module Compute.CpuLayerNormOp;
 
-import Dnn.Modules.LayerNorm;
+import Dnn.Components.LayerNorm;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorHostTypeMap;
 import Dnn.TensorPartitioning;
-import Dnn.ModuleConfig;
+import Dnn.ComponentConfig;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
@@ -504,7 +504,7 @@ namespace Mila::Dnn::Compute
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>(
                 "LayerNormOp",
                 []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
-                    const ModuleConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
+                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
                 {
                     const auto& lnConfig = static_cast<const LayerNormConfig&>(config);
                     return std::make_shared<CpuLayerNormOp>( context, lnConfig );

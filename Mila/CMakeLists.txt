@@ -38,7 +38,7 @@ add_library( Mila STATIC
     #--------------------------------------------------------------------------
     "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaOptimizers.h"
     "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaAdamW.cu"
-    "Src/Dnn/Visualization/Modules/Block.Visualizer.ixx"
+    "Src/Dnn/Visualization/Components/Block.Visualizer.ixx"
 )
 
  # FIXME: add_dependencies(Mila MilaUpdateVersion)
@@ -66,11 +66,11 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
   )
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   target_compile_options(Mila PRIVATE 
-    $<$<COMPILE_LANGUAGE:CXX>:-fmodules-ts -std=c++23>
+    $<$<COMPILE_LANGUAGE:CXX>:-fModules-ts -std=c++23>
   )
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   target_compile_options(Mila PRIVATE 
-    $<$<COMPILE_LANGUAGE:CXX>:-std=c++23 -fno-implicit-modules -fno-implicit-module-maps>
+    $<$<COMPILE_LANGUAGE:CXX>:-std=c++23 -fno-implicit-Modules -fno-implicit-module-maps>
   )
   set(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS "/usr/bin/clang-scan-deps-19")
   set(CMAKE_CUDA_HOST_COMPILER "${CMAKE_CXX_COMPILER}")
@@ -105,13 +105,10 @@ PUBLIC
         #----------------------------------------------------------------------
         # Core
         #----------------------------------------------------------------------
-        "Src/Dnn/Core/Module.ixx"
-        "Src/Dnn/Core/CompositeModule.ixx"
-        "Src/Dnn/Core/ModuleConfig.ixx"
-
-        "Src/Dnn/Core/ModuleFactory.ixx"
-        
-        
+        "Src/Dnn/Core/Component.ixx"
+        "Src/Dnn/Core/CompositeComponent.ixx"
+        "Src/Dnn/Core/ComponentConfig.ixx"
+        "Src/Dnn/Core/ComponentFactory.ixx"
 
         #---------------------------------------------------------------
         # Top-level Utilities
@@ -146,7 +143,7 @@ PUBLIC
         #---------------------------------------------------------------
         # Dnn / Common Components
         #---------------------------------------------------------------
-        "Src/Dnn/Modules/Activations/ActivationType.ixx"
+        "Src/Dnn/Components/Activations/ActivationType.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Compute (root)
@@ -298,40 +295,40 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Vulkan/VulkanMemoryResource.ixx"
         "Src/Dnn/Compute/Devices/Vulkan/Tensors/VulkanTensorTraits.ixx"
 
-        # Modules - Activations
-        "Src/Dnn/Modules/Activations/Gelu.ixx"
-        "Src/Dnn/Modules/Activations/GeluConfig.ixx"
+        # Components - Activations
+        "Src/Dnn/Components/Activations/Gelu.ixx"
+        "Src/Dnn/Components/Activations/GeluConfig.ixx"
         
-        # Modules - Connections
-        "Src/Dnn/Modules/Connections/Residual.ixx"
-        "Src/Dnn/Modules/Connections/ResidualConfig.ixx"
+        # Components - Connections
+        "Src/Dnn/Components/Connections/Residual.ixx"
+        "Src/Dnn/Components/Connections/ResidualConfig.ixx"
 
-        # Modules - Layers
-        "Src/Dnn/Modules/Layers/Attention.ixx"
-        "Src/Dnn/Modules/Layers/AttentionConfig.ixx"
-        "Src/Dnn/Modules/Layers/Linear.ixx"
-        "Src/Dnn/Modules/Layers/LinearConfig.ixx"
-        "Src/Dnn/Modules/Layers/Encoder.ixx"
-        "Src/Dnn/Modules/Layers/EncoderConfig.ixx"
-        "Src/Dnn/Modules/Losses/Softmax.ixx"
-        "Src/Dnn/Modules/Losses/SoftmaxConfig.ixx"
+        # Components - Layers
+        "Src/Dnn/Components/Layers/Attention.ixx"
+        "Src/Dnn/Components/Layers/AttentionConfig.ixx"
+        "Src/Dnn/Components/Layers/Linear.ixx"
+        "Src/Dnn/Components/Layers/LinearConfig.ixx"
+        "Src/Dnn/Components/Layers/Encoder.ixx"
+        "Src/Dnn/Components/Layers/EncoderConfig.ixx"
+        "Src/Dnn/Components/Losses/Softmax.ixx"
+        "Src/Dnn/Components/Losses/SoftmaxConfig.ixx"
 
         # Normalization / Losses / Regularization / Blocks
-        "Src/Dnn/Modules/Normalization/LayerNorm.ixx"
-        "Src/Dnn/Modules/Normalization/LayerNormConfig.ixx"
+        "Src/Dnn/Components/Normalization/LayerNorm.ixx"
+        "Src/Dnn/Components/Normalization/LayerNormConfig.ixx"
         
-        "Src/Dnn/Modules/Losses/SoftmaxCrossEntropy.ixx"
-        "Src/Dnn/Modules/Losses/CrossEntropyConfig.ixx"
+        "Src/Dnn/Components/Losses/SoftmaxCrossEntropy.ixx"
+        "Src/Dnn/Components/Losses/CrossEntropyConfig.ixx"
         
-        #"Src/Dnn/Modules/Regularization/Dropout.ixx"
-        #"Src/Dnn/Modules/Regularization/DropoutConfig.ixx"
+        #"Src/Dnn/Components/Regularization/Dropout.ixx"
+        #"Src/Dnn/Components/Regularization/DropoutConfig.ixx"
         
         # --- Blocks ---
-        "Src/Dnn/Modules/Blocks/MLP.ixx"
-        "Src/Dnn/Modules/Blocks/MLPConfig.ixx"
+        "Src/Dnn/Components/Blocks/MLP.ixx"
+        "Src/Dnn/Components/Blocks/MLPConfig.ixx"
         
-        "Src/Dnn/Modules/Blocks/Transformer.ixx"
-        "Src/Dnn/Modules/Blocks/Transformer.Config.ixx"
+        "Src/Dnn/Components/Blocks/Transformer.ixx"
+        "Src/Dnn/Components/Blocks/Transformer.Config.ixx"
         
         #----------------------------------------------------------------------
         # Dnn / Data
@@ -349,14 +346,15 @@ PUBLIC
         #---------------------------------------------------------------
         # Dnn / Visualization
         #---------------------------------------------------------------
-        "Src/Dnn/Visualization/Core/ModuleVisualizer.ixx"
-        "Src/Dnn/Visualization/Modules/LayerNorm.Visualizer.ixx"
+        "Src/Dnn/Visualization/Core/ComponentVisualizer.ixx"
+        "Src/Dnn/Visualization/Components/LayerNorm.Visualizer.ixx"
         "Src/Dnn/Visualization/Core/VisualizerContext.ixx"
         "Src/Dnn/Visualization/Rendering/FrameBuffer.ixx"
         "Src/Dnn/Visualization/Rendering/ColorLUT.ixx"
-        "Src/Dnn/Visualization/Modules/Block.Visualizer.ixx"
-        "Src/Dnn/Visualization/Modules/MLP.Visualizer.ixx"
         "Src/Dnn/Visualization/Rendering/HeatMapRenderer.ixx"
+        "Src/Dnn/Visualization/Components/Block.Visualizer.ixx"
+        "Src/Dnn/Visualization/Components/MLP.Visualizer.ixx"
+        
         
         "Src/Dnn/Compute/Operations/OperationRegistryHelpers.ixx"
         "Src/Dnn/Compute/Devices/Vulkan/VulkanDevice.ixx"
@@ -368,7 +366,7 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Cpu/Optimizers/CpuAdamWOptimizer.ixx" 
         "Src/Dnn/Optimizers/AdamW.ixx"
         "Src/Dnn/Optimizers/AdamWConfig.ixx"
-        "Src/Dnn/Modules/Connections/ConnectionType.ixx"
+        "Src/Dnn/Components/Connections/ConnectionType.ixx"
         #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CublasLtAttention.ixx"
 
         #----------------------------------------------------------------------
@@ -394,7 +392,13 @@ PUBLIC
         # Dnn Runtime Engine
         #----------------------------------------------------------------------
         #"Src/Dnn/Engine/InferenceEngine.ixx"
- "Src/Dnn/Serialization/OpenMode.ixx"  "Src/Dnn/Extensibility/PluginManager.ixx"  "Src/Dnn/Extensibility/IModulePlugin.ixx" "Src/Dnn/Extensibility/PluginInfo.ixx" "Src/Dnn/Modules/MilaModules.ixx")
+        "Src/Dnn/Serialization/OpenMode.ixx"
+        "Src/Dnn/Extensibility/PluginManager.ixx"
+        "Src/Dnn/Extensibility/IModulePlugin.ixx"
+        "Src/Dnn/Extensibility/PluginInfo.ixx"
+        "Src/Dnn/Components/MilaComponents.ixx"
+        "Src/Dnn/Core/Loss.ixx"
+)
 
 target_link_libraries(Mila PRIVATE 
     miniz
@@ -409,14 +413,13 @@ target_link_libraries(Mila PRIVATE
 file(READ "${CMAKE_SOURCE_DIR}/Version.txt" VERSION_CONTENT)
 
 # Parse the version components using regular expressions
-string(REGEX MATCH "([0-9]+)\\.([0-9]+)\\.([0-9]+)-([a-zA-Z]+)\\.([0-9]+)" VERSION_MATCH ${VERSION_CONTENT})
+string(REGEX MATCH "([0-9]+)\\.([0-9]+)\\.([0-9]+)-([a-zA-Z]+)" VERSION_MATCH ${VERSION_CONTENT})
 
 if(VERSION_MATCH)
   set(MILA_VERSION_MAJOR ${CMAKE_MATCH_1})
   set(MILA_VERSION_MINOR ${CMAKE_MATCH_2})
   set(MILA_VERSION_PATCH ${CMAKE_MATCH_3})
   set(MILA_VERSION_PRERELEASE_TAG ${CMAKE_MATCH_4})
-  set(MILA_VERSION_PRERELEASE ${CMAKE_MATCH_5})
 else()
   message(FATAL_ERROR "Failed to parse version from Version.txt")
 endif()

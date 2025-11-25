@@ -97,49 +97,49 @@ add_executable( MilaTests
     #"Dnn/Model.cpp"
 
     # --------------------------------------------------------------
-    # Dnn::Modules Tests
+    # Dnn::Components Tests
     # --------------------------------------------------------------
-    "Dnn/Modules/Module.cpp"
-    "Dnn/Modules/ModuleConfig.cpp"
+    "Dnn/Components/Component.cpp"
+    "Dnn/Components/ComponentConfig.cpp"
 
-    "Dnn/Modules/Layers/Attention.Cpu.cpp"
+    "Dnn/Components/Layers/Attention.Cpu.cpp"
     
-    "Dnn/Modules/Layers/Encoder.Cpu.cpp"
-    "Dnn/Modules/Layers/Encoder.Cuda.cpp"
-    "Dnn/Modules/Layers/EncoderConfig.cpp"
+    "Dnn/Components/Layers/Encoder.Cpu.cpp"
+    "Dnn/Components/Layers/Encoder.Cuda.cpp"
+    "Dnn/Components/Layers/EncoderConfig.cpp"
     
-    "Dnn/Modules/Connections/Residual.Cpu.cpp"
-    "Dnn/Modules/Connections/Residual.Cuda.cpp"
-    "Dnn/Modules/Connections/Residual.Config.cpp"
+    "Dnn/Components/Connections/Residual.Cpu.cpp"
+    "Dnn/Components/Connections/Residual.Cuda.cpp"
+    "Dnn/Components/Connections/Residual.Config.cpp"
 
-    "Dnn/Modules/Activations/Gelu.Cpu.cpp"
-    "Dnn/Modules/Activations/Gelu.Cuda.cpp"
-    "Dnn/Modules/Activations/GeluConfig.cpp"
+    "Dnn/Components/Activations/Gelu.Cpu.cpp"
+    "Dnn/Components/Activations/Gelu.Cuda.cpp"
+    "Dnn/Components/Activations/GeluConfig.cpp"
 
-    "Dnn/Modules/Normalization/LayerNorm.Cpu.cpp"
-    "Dnn/Modules/Normalization/LayerNorm.Cuda.cpp"
-    "Dnn/Modules/Normalization/LayerNormConfig.cpp"
+    "Dnn/Components/Normalization/LayerNorm.Cpu.cpp"
+    "Dnn/Components/Normalization/LayerNorm.Cuda.cpp"
+    "Dnn/Components/Normalization/LayerNormConfig.cpp"
 
-    "Dnn/Modules/Layers/Linear.Cpu.cpp"
-    "Dnn/Modules/Layers/Linear.Cuda.cpp"
-    "Dnn/Modules/Layers/LinearConfig.cpp"
+    "Dnn/Components/Layers/Linear.Cpu.cpp"
+    "Dnn/Components/Layers/Linear.Cuda.cpp"
+    "Dnn/Components/Layers/LinearConfig.cpp"
 
-    "Dnn/Modules/Connections/Residual.Config.cpp"
-    "Dnn/Modules/Connections/Residual.Cuda.cpp"
-    "Dnn/Modules/Connections/Residual.Cpu.cpp"
+    "Dnn/Components/Connections/Residual.Config.cpp"
+    "Dnn/Components/Connections/Residual.Cuda.cpp"
+    "Dnn/Components/Connections/Residual.Cpu.cpp"
 
-    "Dnn/Modules/Layers/Softmax.Cpu.cpp"
-    "Dnn/Modules/Layers/Softmax.Cuda.cpp"    
-    "Dnn/Modules/Layers/SoftmaxConfig.cpp"
+    "Dnn/Components/Layers/Softmax.Cpu.cpp"
+    "Dnn/Components/Layers/Softmax.Cuda.cpp"    
+    "Dnn/Components/Layers/SoftmaxConfig.cpp"
 
     # --------------------------------------------------------------
     # Modules::Blocks Tests
     # --------------------------------------------------------------
-    "Dnn/Modules/Blocks/MLP.Cpu.cpp"
-    "Dnn/Modules/Blocks/MLP.Cuda.cpp"
-    "Dnn/Modules/Blocks/MLPConfig.cpp"
+    "Dnn/Components/Blocks/MLP.Cpu.cpp"
+    "Dnn/Components/Blocks/MLP.Cuda.cpp"
+    "Dnn/Components/Blocks/MLPConfig.cpp"
 
-    "Dnn/Modules/Blocks/Transformer.Cpu.cpp"
+    "Dnn/Components/Blocks/Transformer.Cpu.cpp"
     
     # --------------------------------------------------------------
     # Data Tests
@@ -174,13 +174,13 @@ add_executable( MilaTests
 
     "Dnn/Optimizers/AdamW.Cuda.cpp"
     "Dnn/Optimizers/AdamW.Cpu.cpp"
-    "Dnn/Modules/Losses/CrossEntropy.Cpu.cpp"
-    "Dnn/Modules/Losses/SoftmaxCrossEntropy.Cuda.cpp"
-    "Dnn/Modules/Losses/CrossEntropy.Config.cpp"
-    "Dnn/Modules/Layers/Attention.Cuda.cpp"
-    "Dnn/Modules/Layers/Attention.Config.cpp"
-    "Dnn/Modules/Blocks/Transformer.Cuda.cpp"
-    "Dnn/Modules/Blocks/Transformer.Config.cpp"
+    "Dnn/Components/Losses/CrossEntropy.Cpu.cpp"
+    "Dnn/Components/Losses/SoftmaxCrossEntropy.Cuda.cpp"
+    "Dnn/Components/Losses/CrossEntropy.Config.cpp"
+    "Dnn/Components/Layers/Attention.Cuda.cpp"
+    "Dnn/Components/Layers/Attention.Config.cpp"
+    "Dnn/Components/Blocks/Transformer.Cuda.cpp"
+    "Dnn/Components/Blocks/Transformer.Config.cpp"
 
     "Dnn/Serialization/ModelArchive.cpp" 
     "Dnn/Modeling/Network.Cpu.cpp"
