@@ -53,8 +53,8 @@ namespace Mila::Dnn::Optimizers
          * @brief Default constructor.
          */
         AdamWConfig()
+			: ComponentConfig( "AdamW" )
         {
-			this->name_ = "AdamW";
         }
 
         // ====================================================================

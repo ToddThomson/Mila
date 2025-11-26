@@ -15,6 +15,10 @@ namespace Dnn::Modules::Tests
     public:
         // Test-only derived class; no additional behavior required.
 
+        TestModuleConfig() 
+            : ComponentConfig( "test_component" ) {
+		}
+
         void validate() const override {
             // Basic validation: name must not be empty
             if (getName().empty()) {
@@ -104,6 +108,11 @@ namespace Dnn::Modules::Tests
     // Derived test configuration to exercise extension and custom validation
     class DerivedModuleConfig : public ComponentConfig {
     public:
+
+        DerivedModuleConfig()
+            : ComponentConfig( "derived_component" )
+        {
+        }
 
         DerivedModuleConfig& withCustomOption( int value ) {
             custom_option_ = value;

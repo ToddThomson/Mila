@@ -34,10 +34,17 @@ namespace Mila::Dnn
      */
     export class LayerNormConfig : public ComponentConfig {
     public:
+        
         /**
-         * @brief Default constructor.
-         */
-        LayerNormConfig() = default;
+         * @brief Default constructor with name "layer_norm".
+         *
+         * @note When adding multiple LayerNorm components to a container,
+         *       use .withName() to provide unique names.
+		 */
+        LayerNormConfig()
+            : ComponentConfig( "layer_norm" )
+        {
+		}
 
         /**
          * @brief Set the normalized shape (size of features to normalize).

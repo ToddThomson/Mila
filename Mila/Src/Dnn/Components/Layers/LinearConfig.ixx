@@ -16,6 +16,7 @@ module;
 #include <string>
 #include <utility>
 #include <sstream>
+#include <ios>
 
 export module Dnn.Components.Linear:Config;
 
@@ -58,7 +59,7 @@ namespace Mila::Dnn
          * @param output_features Number of output features (channels). Must be > 0.
          */
         LinearConfig( dim_t input_features, dim_t output_features )
-            : input_features_( input_features ), output_features_( output_features )
+			: input_features_( input_features ), output_features_( output_features ), ComponentConfig( "linear" )
         {
         }
 

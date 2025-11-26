@@ -103,11 +103,8 @@ namespace Mila::Dnn
                 "Cannot copy between different device types (e.g., CUDA to Metal). "
                 "Use host-accessible memory as intermediate step.");
 
-            throw std::runtime_error( "Device to Device Copy() is not implemented." );
-            
-            // TODO:
-            //constexpr DeviceType device = TSrcMemoryResource::device_type;
-            //TensorOps<device>::copy( src, dst, exec_context );
+            constexpr DeviceType device = TSrcMemoryResource::device_type;
+            TensorOps<device>::copy( src, dst, exec_context );
         }
 
         // Determine which DeviceType to use based on memory accessibility

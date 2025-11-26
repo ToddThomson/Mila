@@ -41,7 +41,7 @@ namespace Mila::Dnn
          * and throws std::invalid_argument if they are violated.
          */
         TransformerConfig( dim_t embedding_dim, dim_t num_heads )
-            : embedding_dim_( embedding_dim ), num_heads_( num_heads )
+			: embedding_dim_( embedding_dim ), num_heads_( num_heads ), ComponentConfig( "transformer" )
         {
             if ( embedding_dim <= 0 )
             {

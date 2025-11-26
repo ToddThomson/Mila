@@ -60,9 +60,15 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Default constructor.
-         */
-        GeluConfig() = default;
+         * @brief Default constructor with name "gelu".
+         *
+         * @note When adding multiple GELU components to a container,
+         *       use .withName() to provide unique names.
+		 */
+        GeluConfig()
+            : ComponentConfig( "gelu" )
+        {
+        }
 
         /**
          * @brief Configure the approximation method for GELU computation.
@@ -99,7 +105,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If validation fails or an unsupported approximation method is selected
          */
         void validate() const {
-            //ComponentConfig::validate();
+            ComponentConfig::validate();
 
             // Validate that only Tanh approximation method is used
             if ( approximation_method_ != ApproximationMethod::Tanh ) {
@@ -184,6 +190,7 @@ namespace Mila::Dnn
             oss << "precision=" << static_cast<int>( precision_ ) << ", ";
             oss << "approximation_method=" << static_cast<std::string_view>(GeluConfig::toString( approximation_method_ ));
             oss << " }";
+            
             return oss.str();
 		}
 

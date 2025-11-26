@@ -28,12 +28,12 @@ namespace Modules::Activations::Tests
     using namespace Mila::Dnn::Compute;
 
     using MR = CpuMemoryResource;
-    using GeluCpuModule = Gelu<DeviceType::Cpu, dtype_t::FP32>;
+    using GeluCpu = Gelu<DeviceType::Cpu, dtype_t::FP32>;
 
     struct GeluCpuTestData
     {
         std::vector<int64_t> shape;
-        std::shared_ptr<GeluCpuModule> gelu_module;
+        std::shared_ptr<GeluCpu> gelu_;
 
         static GeluCpuTestData CreateWithExecutionContext(
             std::shared_ptr<ExecutionContext<DeviceType::Cpu>> ctx,
@@ -42,7 +42,9 @@ namespace Modules::Activations::Tests
             GeluCpuTestData d;
             d.shape = { batch, seq, chan };
             GeluConfig config;
-            d.gelu_module = std::make_shared<GeluCpuModule>( ctx, config );
+            
+            d.gelu_ = std::make_shared<GeluCpu>( ctx, config );
+            
             return d;
         }
     };
@@ -59,7 +61,7 @@ namespace Modules::Activations::Tests
 
         void TearDown() override
         {
-            data_by_ctx_.gelu_module.reset();
+            data_by_ctx_.gelu_.reset();
         }
 
         // Helper: Compute GELU(x) = x * ?(x) where ? is the cumulative distribution function of the standard Gaussian
@@ -106,18 +108,18 @@ namespace Modules::Activations::Tests
 
         if (!isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ))
         {
-            EXPECT_THROW( GeluCpuModule( ctx, GeluConfig() ), std::runtime_error );
+            EXPECT_THROW( GeluCpu( ctx, GeluConfig() ), std::runtime_error );
         }
         else
         {
-            EXPECT_NO_THROW( GeluCpuModule( ctx, GeluConfig() ) );
+            EXPECT_NO_THROW( GeluCpu( ctx, GeluConfig() ) );
         }
     }
 
     TEST_F( GeluCpuTests, Constructor_NullExecutionContext_ThrowsInvalidArgument )
     {
         std::shared_ptr<ExecutionContext<DeviceType::Cpu>> null_ctx = nullptr;
-        EXPECT_THROW( GeluCpuModule( null_ctx, GeluConfig() ), std::invalid_argument );
+        EXPECT_THROW( GeluCpu( null_ctx, GeluConfig() ), std::invalid_argument );
     }
 
     TEST_F( GeluCpuTests, Constructor_InvalidConfig_ThrowsInvalidArgument )
@@ -125,7 +127,7 @@ namespace Modules::Activations::Tests
         auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
         GeluConfig bad_cfg = GeluConfig().withApproximationMethod( GeluConfig::ApproximationMethod::Exact );
 
-        EXPECT_THROW( GeluCpuModule( ctx, bad_cfg ), std::invalid_argument );
+        EXPECT_THROW( GeluCpu( ctx, bad_cfg ), std::invalid_argument );
     }
 
     // ========================================================================
@@ -137,7 +139,7 @@ namespace Modules::Activations::Tests
         if (!isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ))
         {
             auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-            EXPECT_THROW( GeluCpuModule( ctx, GeluConfig() ), std::runtime_error );
+            EXPECT_THROW( GeluCpu( ctx, GeluConfig() ), std::runtime_error );
             return;
         }
 
@@ -154,9 +156,9 @@ namespace Modules::Activations::Tests
             input.data()[i] = static_cast<float>( i ) / input.size() * 4.0f - 2.0f;
         }
 
-        d.gelu_module->build( d.shape );
+        d.gelu_->build( d.shape );
 
-        EXPECT_NO_THROW( d.gelu_module->forward( input, output ) );
+        EXPECT_NO_THROW( d.gelu_->forward( input, output ) );
         EXPECT_EQ( output.size(), input.size() );
     }
 
@@ -168,7 +170,7 @@ namespace Modules::Activations::Tests
         }
 
         auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        auto gelu = std::make_shared<GeluCpuModule>( ctx, GeluConfig() );
+        auto gelu = std::make_shared<GeluCpu>( ctx, GeluConfig() );
 
         std::vector<int64_t> shape = { 2, 3, 4 };
         auto device = ctx->getDevice();
@@ -211,7 +213,7 @@ namespace Modules::Activations::Tests
         }
 
         auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        auto gelu = std::make_shared<GeluCpuModule>( ctx, GeluConfig() );
+        auto gelu = std::make_shared<GeluCpu>( ctx, GeluConfig() );
 
         std::vector<int64_t> shape = { 2, 4, 8 };
         auto device = ctx->getDevice();
@@ -243,7 +245,7 @@ namespace Modules::Activations::Tests
         }
 
         auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        auto gelu = std::make_shared<GeluCpuModule>( ctx, GeluConfig() );
+        auto gelu = std::make_shared<GeluCpu>( ctx, GeluConfig() );
 
         std::vector<int64_t> shape = { 3, 5, 7 };
         auto device = ctx->getDevice();
@@ -270,7 +272,7 @@ namespace Modules::Activations::Tests
         }
 
         auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        auto gelu = std::make_shared<GeluCpuModule>( ctx, GeluConfig() );
+        auto gelu = std::make_shared<GeluCpu>( ctx, GeluConfig() );
 
         std::vector<int64_t> shape = { 2, 3, 4 };
         auto device = ctx->getDevice();
@@ -318,7 +320,7 @@ namespace Modules::Activations::Tests
         }
 
         auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        auto gelu = std::make_shared<GeluCpuModule>( ctx, GeluConfig() );
+        auto gelu = std::make_shared<GeluCpu>( ctx, GeluConfig() );
 
         std::vector<int64_t> shape = { 2, 3, 4 };
         auto device = ctx->getDevice();
@@ -363,7 +365,7 @@ namespace Modules::Activations::Tests
         }
 
         auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        auto gelu = std::make_shared<GeluCpuModule>( ctx, GeluConfig() );
+        auto gelu = std::make_shared<GeluCpu>( ctx, GeluConfig() );
 
         std::vector<int64_t> shape = { 2, 3, 4 };
         auto device = ctx->getDevice();
@@ -401,7 +403,7 @@ namespace Modules::Activations::Tests
         }
 
         auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        auto gelu = std::make_shared<GeluCpuModule>( ctx, GeluConfig() );
+        auto gelu = std::make_shared<GeluCpu>( ctx, GeluConfig() );
 
         std::vector<int64_t> shape = { 1, 8 };
         auto device = ctx->getDevice();
@@ -445,7 +447,7 @@ namespace Modules::Activations::Tests
         }
 
         auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        auto gelu = std::make_shared<GeluCpuModule>( ctx, GeluConfig() );
+        auto gelu = std::make_shared<GeluCpu>( ctx, GeluConfig() );
 
         std::vector<int64_t> shape = { 2, 3 };
         auto device = ctx->getDevice();
@@ -469,7 +471,7 @@ namespace Modules::Activations::Tests
         }
 
         auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        auto gelu = std::make_shared<GeluCpuModule>( ctx, GeluConfig() );
+        auto gelu = std::make_shared<GeluCpu>( ctx, GeluConfig() );
 
         std::vector<int64_t> shape = { 2, 3 };
         auto device = ctx->getDevice();
@@ -524,14 +526,14 @@ namespace Modules::Activations::Tests
         if (!isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ))
         {
             auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-            EXPECT_THROW( GeluCpuModule( ctx, GeluConfig() ), std::runtime_error );
+            EXPECT_THROW( GeluCpu( ctx, GeluConfig() ), std::runtime_error );
             return;
         }
 
         auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
         auto d = GeluCpuTestData::CreateWithExecutionContext( ctx, batch_, seq_, chan_ );
 
-        auto s = d.gelu_module->toString();
+        auto s = d.gelu_->toString();
 
         EXPECT_FALSE( s.empty() );
         EXPECT_NE( s.find( "Gelu" ), std::string::npos );
@@ -542,13 +544,13 @@ namespace Modules::Activations::Tests
         if (!isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ))
         {
             auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-            EXPECT_THROW( GeluCpuModule( ctx, GeluConfig() ), std::runtime_error );
+            EXPECT_THROW( GeluCpu( ctx, GeluConfig() ), std::runtime_error );
             return;
         }
 
         auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
         auto d = GeluCpuTestData::CreateWithExecutionContext( ctx, batch_, seq_, chan_ );
-        EXPECT_EQ( d.gelu_module->getApproximationMethod(), GeluConfig::ApproximationMethod::Tanh );
+        EXPECT_EQ( d.gelu_->getApproximationMethod(), GeluConfig::ApproximationMethod::Tanh );
     }
 
     TEST_F( GeluCpuTests, ExecutionContext_DeviceTypeMatchesOrConstructorThrows )
@@ -556,7 +558,7 @@ namespace Modules::Activations::Tests
         if (!isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ))
         {
             auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-            EXPECT_THROW( GeluCpuModule( ctx, GeluConfig() ), std::runtime_error );
+            EXPECT_THROW( GeluCpu( ctx, GeluConfig() ), std::runtime_error );
             return;
         }
 
@@ -575,7 +577,7 @@ namespace Modules::Activations::Tests
 
         if (!isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ))
         {
-            EXPECT_THROW( GeluCpuModule( ctx, GeluConfig() ), std::runtime_error );
+            EXPECT_THROW( GeluCpu( ctx, GeluConfig() ), std::runtime_error );
             return;
         }
 
@@ -593,14 +595,14 @@ namespace Modules::Activations::Tests
         auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
         auto d = GeluCpuTestData::CreateWithExecutionContext( ctx, batch_, seq_, chan_ );
 
-        EXPECT_NO_THROW( d.gelu_module->synchronize() );
+        EXPECT_NO_THROW( d.gelu_->synchronize() );
 
-        EXPECT_EQ( d.gelu_module->parameterCount(), 0u );
+        EXPECT_EQ( d.gelu_->parameterCount(), 0u );
 
-        d.gelu_module->setTraining( true );
-        EXPECT_TRUE( d.gelu_module->isTraining() );
+        d.gelu_->setTraining( true );
+        EXPECT_TRUE( d.gelu_->isTraining() );
 
-        d.gelu_module->setTraining( false );
-        EXPECT_FALSE( d.gelu_module->isTraining() );
+        d.gelu_->setTraining( false );
+        EXPECT_FALSE( d.gelu_->isTraining() );
     }
 }

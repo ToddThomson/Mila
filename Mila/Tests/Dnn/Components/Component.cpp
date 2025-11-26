@@ -17,8 +17,8 @@ namespace Dnn::Modules::Tests
     {
     public:
         MockComponentConfig()
+			: ComponentConfig( "mock")
         {
-            this->withName( "mock_component" );
         }
 
         void validate() const override

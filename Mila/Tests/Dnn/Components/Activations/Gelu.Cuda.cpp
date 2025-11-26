@@ -30,7 +30,7 @@ namespace Modules::Activations::Tests
 
     // Gelu module aliases with explicit precision to match Gelu.ixx
     using GeluCudaModule = Gelu<DeviceType::Cuda, TensorDataType::FP32>;
-    using GeluCpuModule = Gelu<DeviceType::Cpu, TensorDataType::FP32>;
+    using GeluCpu = Gelu<DeviceType::Cpu, TensorDataType::FP32>;
 
     struct GeluCudaTestData
     {
@@ -528,7 +528,7 @@ namespace Modules::Activations::Tests
         auto cpu_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
         auto cuda_ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
 
-        auto cpu_gelu = std::make_shared<GeluCpuModule>( cpu_ctx, config );
+        auto cpu_gelu = std::make_shared<GeluCpu>( cpu_ctx, config );
         auto cuda_gelu = std::make_shared<GeluCudaModule>( cuda_ctx, config );
 
         // Prepare CPU tensors
@@ -606,7 +606,7 @@ namespace Modules::Activations::Tests
             if (!cpu_registered)
             {
                 auto cpu_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-                EXPECT_THROW( (GeluCpuModule( cpu_ctx, GeluConfig() )), std::runtime_error );
+                EXPECT_THROW( (GeluCpu( cpu_ctx, GeluConfig() )), std::runtime_error );
             }
             if (!cuda_registered)
             {
@@ -623,7 +623,7 @@ namespace Modules::Activations::Tests
         auto cpu_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
         auto cuda_ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
 
-        auto cpu_gelu = std::make_shared<GeluCpuModule>( cpu_ctx, config );
+        auto cpu_gelu = std::make_shared<GeluCpu>( cpu_ctx, config );
         auto cuda_gelu = std::make_shared<GeluCudaModule>( cuda_ctx, config );
 
         auto cpu_device = cpu_ctx->getDevice();

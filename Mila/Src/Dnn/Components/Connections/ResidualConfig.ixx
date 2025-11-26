@@ -41,7 +41,10 @@ namespace Mila::Dnn
          *  - scaling factor = 1.0
          *  - connection type = Addition
          */
-        ResidualConfig() = default;
+        ResidualConfig()
+            : ComponentConfig( "residual" )
+        {
+		}
 
         // ====================================================================
         // Fluent setters

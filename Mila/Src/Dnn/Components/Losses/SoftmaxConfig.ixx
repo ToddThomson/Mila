@@ -25,12 +25,19 @@ namespace Mila::Dnn
      *
      * Provides a type-safe fluent interface for configuring Softmax modules.
      */
-    export class SoftmaxConfig : public ComponentConfig {
+    export class SoftmaxConfig : public ComponentConfig 
+    {
     public:
+        
         /**
-         * @brief Default constructor.
+         * @brief Default constructor with name "softmax".
+         *
+         * @note When adding multiple Softmax components to a container,
+         *       use .withName() to provide unique names.
          */
-        SoftmaxConfig() = default;
+        SoftmaxConfig() : ComponentConfig( "softmax" )
+        {
+        }
 
         /**
          * @brief C++23-style fluent setter for the axis along which to apply softmax.

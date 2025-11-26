@@ -311,7 +311,7 @@ namespace Dnn::NetworkTests
             auto meta = rar.readJson( "network/meta.json" );
 
             EXPECT_EQ( meta.at( "name" ).get<std::string>(), "serial_net" );
-            EXPECT_EQ( meta.at( "num_modules" ).get<size_t>(), 2u );
+            EXPECT_EQ( meta.at( "num_components" ).get<size_t>(), 2u );
 
             // new meta fields
             EXPECT_TRUE( meta.contains( "format_version" ) );
@@ -331,12 +331,12 @@ namespace Dnn::NetworkTests
             // entries are objects with name/path/index (deterministic sorted order)
             EXPECT_TRUE( arch[0].is_object() );
             EXPECT_EQ( arch[0].at( "name" ).get<std::string>(), "mod1" );
-            EXPECT_EQ( arch[0].at( "path" ).get<std::string>(), "modules/mod1" );
+            EXPECT_EQ( arch[0].at( "path" ).get<std::string>(), "components/mod1" );
             EXPECT_EQ( arch[0].at( "index" ).get<int>(), 0 );
 
             EXPECT_TRUE( arch[1].is_object() );
             EXPECT_EQ( arch[1].at( "name" ).get<std::string>(), "mod2" );
-            EXPECT_EQ( arch[1].at( "path" ).get<std::string>(), "modules/mod2" );
+            EXPECT_EQ( arch[1].at( "path" ).get<std::string>(), "components/mod2" );
             EXPECT_EQ( arch[1].at( "index" ).get<int>(), 1 );
 
             rar.close();

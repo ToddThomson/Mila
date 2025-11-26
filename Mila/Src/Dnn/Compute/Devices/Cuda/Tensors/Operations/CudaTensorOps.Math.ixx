@@ -588,6 +588,9 @@ namespace Mila::Dnn::Compute::Cuda
             cudaStream_t stream,
             int device_id )
         {
+			// TODO: Implement sum reduction kernel.
+            throw std::runtime_error( "CUDA sum reduction kernels are not implemented yet" );
+
             if (!tensor_data || count == 0)
             {
                 return 0.0f;
@@ -613,12 +616,10 @@ namespace Mila::Dnn::Compute::Cuda
             float result = 0.0f;
             try
             {
-                // Launch reduction kernel
-                // FIXME:
-                /*Kernels::launch_sum_reduction_kernel<NativeType>(
-                    typed_src, d_partial_sums, count, grid, block,
-                    block * sizeof( float ), stream
-                );*/
+                //Kernels::launch_sum_reduction_kernel<NativeType>(
+                //    typed_src, d_partial_sums, count, grid, block,
+                //    block * sizeof( float ), stream
+                //);
 
                 // Copy partial sums to host
                 std::vector<float> h_partial_sums( grid );

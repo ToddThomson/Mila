@@ -733,6 +733,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
         // Verify operations completed
         float sum_result = sum( result2, exec_ctx_.get() );
+        
         EXPECT_FLOAT_EQ( sum_result, 2000.0f );  // (1+1)*1 = 2 for each of 1000 elements
     }
 

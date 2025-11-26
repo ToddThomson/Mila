@@ -63,7 +63,7 @@ namespace Mila::Dnn
          * applies activation, then projects back down to input_features in the second layer.
          */
         MLPConfig( dim_t input_features, dim_t hidden_size )
-            : input_features_( input_features ), hidden_size_( hidden_size )
+			: input_features_( input_features ), hidden_size_( hidden_size ), ComponentConfig( "mlp" )
         {
         }
 

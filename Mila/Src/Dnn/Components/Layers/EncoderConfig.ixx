@@ -33,10 +33,17 @@ namespace Mila::Dnn
      */
     export class EncoderConfig : public ComponentConfig {
     public:
+        
         /**
-         * @brief Default constructor.
-         */
-        EncoderConfig() = default;
+         * @brief Default constructor with name "encoder".
+         *
+         * @note When adding multiple Encoder components to a container,
+         *       use .withName() to provide unique names.
+		 */
+        EncoderConfig()
+            : ComponentConfig( "encoder" )
+        {
+		}
 
         /**
          * @brief C++23-style fluent setter for embedding dimension.

@@ -150,7 +150,7 @@ namespace Mila::Dnn::Compute::Cuda
                     }
                 }
 
-                if (device_id < 0 && !TDstMemoryResource::is_host_accessible)
+                if (device_id < 0 && TDstMemoryResource::is_device_accessible )
                 {
                     auto dst_device = std::dynamic_pointer_cast<CudaDevice>( dst.getDevice() );
                     if (dst_device)

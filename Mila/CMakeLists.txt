@@ -39,7 +39,7 @@ add_library( Mila STATIC
     "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaOptimizers.h"
     "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaAdamW.cu"
     "Src/Dnn/Visualization/Components/Block.Visualizer.ixx"
-)
+ "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Reduction.h")
 
  # FIXME: add_dependencies(Mila MilaUpdateVersion)
 

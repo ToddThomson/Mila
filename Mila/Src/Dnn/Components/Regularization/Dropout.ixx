@@ -62,9 +62,9 @@ namespace Mila::Dnn
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
 
         /**
-         * @brief Alias for base module type.
+         * @brief Alias for base Component type.
          */
-        using ModuleBase = Component<TDeviceType, TInput, TOutput>;
+        using ComponentBase = Component<TDeviceType, TInput, TOutput>;
 
         /**
          * @brief Constructs a new Dropout module with a device name.

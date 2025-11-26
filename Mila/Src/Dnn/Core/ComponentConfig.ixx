@@ -7,6 +7,7 @@ module;
 #include <memory>
 #include <string>
 #include <stdexcept>
+#include <utility>
 
 export module Dnn.ComponentConfig;
 
@@ -116,6 +117,16 @@ namespace Mila::Dnn
         }
 
     protected:
+
+        /**
+         * @brief Protected constructor for derived classes.
+         *
+         * @param default_name A sensible default name for this component type
+         */
+        explicit ComponentConfig( std::string default_name )
+            : name_( std::move( default_name ) )
+        {
+        }
         
         /** @brief Module name for identification */
         std::string name_;
@@ -168,7 +179,5 @@ namespace Mila::Dnn
 
             return true;
         }
-    };
-
-    
+    };  
 }
