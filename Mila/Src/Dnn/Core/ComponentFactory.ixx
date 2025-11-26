@@ -1,6 +1,11 @@
 /**
- * @file ModuleFactory.ixx
- * @brief High-level factory for creating built-in modules from archives.
+ * @file ComponentFactory.ixx
+ * @brief Factory helpers for reconstructing built-in components from archives.
+ *
+ * Provides small helpers that read component-scoped metadata using the
+ * ModelArchive scoping API. Full dispatch/instantiation is TODO and should
+ * use the scoped metadata to call the appropriate component fromArchive_()
+ * factory methods.
  */
 
 module;
@@ -11,214 +16,104 @@ module;
 
 export module Dnn.ComponentFactory;
 
-//import Dnn.Component;
-//import Dnn.TensorDataType;
-//import Compute.DeviceType;
-//import Compute.ExecutionContext;
-//import Serialization.ModelArchive;
-//import nlohmann.json;
-
-// Built-in Mila Modules
-// Modules.MilaModules;
+import Compute.DeviceType;
+import Compute.ExecutionContext;
+import Serialization.ModelArchive;
+import nlohmann.json;
+import Dnn.ComponentType;
 
 namespace Mila::Dnn
 {
-    //using json = nlohmann::json;
-    //using namespace Mila::Dnn::Compute;
-    //using namespace Mila::Dnn::Serialization;
+    using json = nlohmann::json;
+    using namespace Mila::Dnn::Compute;
+    using namespace Mila::Dnn::Serialization;
 
-    /**
-     * @brief Factory for deserializing built-in modules from ModelArchive.
-     *
-     * Responsibilities:
-     *  - Read module metadata from archive
-     *  - Determine module type and precision
-     *  - Dispatch to appropriate built-in module's fromArchive_() method
-     *
-     * Note: Custom user modules are not yet supported. Future versions will
-     * support custom modules via a plugin system.
-     *
-     * Usage:
-     * ```cpp
-     * auto module = ModuleFactory::create<DeviceType::Cpu>(
-     *     archive, "gelu_layer", exec_context );
-     * ```
-     */
     export class ComponentFactory
     {
     public:
+
         /**
-         * @brief Create a built-in module from archive
+         * @brief Read a component's meta.json from the archive using scoped access.
          *
-         * @tparam TDeviceType Device type (Cpu, Cuda)
-         * @param archive Archive to read from
-         * @param module_name Name of the module in the archive
-         * @param exec_context Execution context for the module
-         * @return Shared pointer to reconstructed module
-         * @throws std::runtime_error if module type unknown or unsupported
+         * This helper will push a scope "components/<component_name>" on the
+         * provided ModelArchive, read the component-local "meta.json", and
+         * return the parsed JSON object. Caller does not need to manage scope;
+         * it's handled via RAII.
+         *
+         * @throws std::runtime_error if meta.json is missing or parse fails
          */
-        /*template<DeviceType TDeviceType>
-        static std::shared_ptr<Module<TDeviceType>> create(
-            Serialization::ModelArchive& archive,
-            const std::string& module_name,
+        static json readComponentMeta( ModelArchive& archive, const std::string& component_name )
+        {
+            ModelArchive::ScopedScope scope( archive, std::string( "components/" ) + component_name );
+            return archive.readJson( "meta.json" );
+        }
+
+        /**
+         * @brief Parse the built-in component kind from metadata.
+         *
+         * Convenience helper that looks up the "type" field in the component
+         * meta and maps it to the typed ComponentType enum.
+         *
+         * @throws std::runtime_error if the metadata does not contain a "type" field
+         */
+        static ComponentType parseComponentType( const json& meta )
+        {
+            if (!meta.contains( "type" ))
+            {
+                throw std::runtime_error( "ComponentFactory::parseComponentType: missing 'type' in component meta" );
+            }
+
+            const std::string type_str = meta.at( "type" ).get<std::string>();
+            return fromString( type_str );
+        }
+
+        /**
+         * @brief Placeholder: create a component instance from archive.
+         *
+         * Full instantiation requires dispatching on both component kind and
+         * on-archive precision and is currently unimplemented. This method
+         * demonstrates the scoped read pattern and returns nullptr.
+         *
+         * Implementers should:
+         *  - push scope "components/<name>"
+         *  - read meta/config/tensors using relative paths
+         *  - dispatch to the concrete Component<...>::fromArchive_ factory
+         *
+         * Returning std::shared_ptr<void> is an intentional placeholder type —
+         * replace with the project's chosen type-erased component handle once
+         * the dispatch plumbing is implemented.
+         */
+        template<DeviceType TDeviceType>
+        static std::shared_ptr<void> createFromArchive(
+            ModelArchive& archive,
+            const std::string& component_name,
             std::shared_ptr<ExecutionContext<TDeviceType>> exec_context )
         {
-            const std::string prefix = "modules/" + module_name;
-            json meta = archive.readJson( prefix + "/meta.json" );
+            // Read scoped metadata (throws if missing)
+            json meta = readComponentMeta( archive, component_name );
 
-            std::string module_type = meta.at( "type" ).get<std::string>();
-            std::string precision_str = meta.at( "precision" ).get<std::string>();
+            // Determine built-in kind
+            ComponentType kind = parseComponentType( meta );
 
-            TensorDataType precision = parseTensorDataType( precision_str );
+            // Determine precision if present (optional)
+            std::string precision = "";
+            if (meta.contains( "precision" ) && meta.at( "precision" ).is_string())
+            {
+                precision = meta.at( "precision" ).get<std::string>();
+            }
 
-            return dispatchBuiltInModule<TDeviceType>(
-                module_type,
-                precision,
-                archive,
-                module_name,
-                exec_context );
-        }*/
+            // TODO: Implement full dispatch to concrete component factory methods.
+            // Example pattern (pseudo):
+            //  if (kind == ComponentType::Linear) {
+            //      return dispatchPrecision<TDeviceType, Linear>( precision, archive, component_name, exec_context );
+            //  }
+            // For now, return nullptr and fail loudly so callers know dispatch isn't ready.
+            throw std::runtime_error(
+                std::format( "ComponentFactory::createFromArchive: dispatch unimplemented for component '{}' (type='{}', precision='{}')",
+                    component_name, toString( kind ), precision ) );
+        }
 
     private:
-        
-        /**
-         * @brief Dispatch to built-in module type based on module_type string
-         */
-        //template<DeviceType TDeviceType>
-        //static std::shared_ptr<Module<TDeviceType>> dispatchBuiltInModule(
-        //    const std::string& module_type,
-        //    TensorDataType precision,
-        //    Serialization::ModelArchive& archive,
-        //    const std::string& module_name,
-        //    std::shared_ptr<ExecutionContext<TDeviceType>> exec_context )
-        //{
-        //    // Dispatch to specific module type
-        //    if (module_type == "Gelu")
-        //    {
-        //        //return dispatchPrecision<TDeviceType, Gelu>(
-        //        //    precision, archive, module_name, exec_context );
-        //    }
-        //    else if (module_type == "Linear")
-        //    {
-        //        //return dispatchPrecision<TDeviceType, Linear>(
-        //        //    precision, archive, module_name, exec_context );
-        //    }
-        //    
-        //    // Add more built-in module types here as you implement them:
-        //    // else if (module_type == "Conv2d")
-        //    // {
-        //    //     return dispatchPrecision<TDeviceType, Conv2d>(
-        //    //         precision, archive, module_name, exec_context );
-        //    // }
-        //    // else if (module_type == "Encoder")
-        //    // {
-        //    //     // Encoder has multiple template params, handle separately
-        //    //     return dispatchEncoderPrecision<TDeviceType>(
-        //    //         precision, archive, module_name, exec_context, meta );
-        //    // }
-
-        //    // TODO: Check plugin system when implemented
-        //    // auto* plugin = PluginManager::instance().findPlugin(module_type);
-        //    // if (plugin) { return plugin->createFromArchive(...); }
-
-        //    throw std::runtime_error(
-        //        std::format( "ModuleFactory: unknown built-in module type '{}'", module_type ) );
-        //}
-
-        /**
-         * @brief Dispatch on precision for a given module template
-         *
-         * This helper handles the precision dispatch for modules with the
-         * standard template signature: Component<TDeviceType, TPrecision>
-         */
-        /*template<DeviceType TDeviceType, template<DeviceType, TensorDataType> class ModuleTemplate>
-        static std::shared_ptr<Module<TDeviceType>> dispatchPrecision(
-            TensorDataType precision,
-            Serialization::ModelArchive& archive,
-            const std::string& module_name,
-            std::shared_ptr<ExecutionContext<TDeviceType>> exec_context )
-        {
-            switch (precision)
-            {
-                case TensorDataType::FP32:
-                    return ModuleTemplate<TDeviceType, TensorDataType::FP32>::fromArchive_(
-                        archive, module_name, exec_context );
-
-                case TensorDataType::FP16:
-                    return ModuleTemplate<TDeviceType, TensorDataType::FP16>::fromArchive_(
-                        archive, module_name, exec_context );
-
-                case TensorDataType::BF16:
-                    return ModuleTemplate<TDeviceType, TensorDataType::BF16>::fromArchive_(
-                        archive, module_name, exec_context );
-
-                case TensorDataType::FP8_E4M3:
-                    return ModuleTemplate<TDeviceType, TensorDataType::FP8_E4M3>::fromArchive_(
-                        archive, module_name, exec_context );
-
-                case TensorDataType::FP8_E5M2:
-                    return ModuleTemplate<TDeviceType, TensorDataType::FP8_E5M2>::fromArchive_(
-                        archive, module_name, exec_context );
-
-                case TensorDataType::INT8:
-                    return ModuleTemplate<TDeviceType, TensorDataType::INT8>::fromArchive_(
-                        archive, module_name, exec_context );
-
-                case TensorDataType::INT16:
-                    return ModuleTemplate<TDeviceType, TensorDataType::INT16>::fromArchive_(
-                        archive, module_name, exec_context );
-
-                case TensorDataType::INT32:
-                    return ModuleTemplate<TDeviceType, TensorDataType::INT32>::fromArchive_(
-                        archive, module_name, exec_context );
-
-                case TensorDataType::UINT8:
-                    return ModuleTemplate<TDeviceType, TensorDataType::UINT8>::fromArchive_(
-                        archive, module_name, exec_context );
-
-                case TensorDataType::UINT16:
-                    return ModuleTemplate<TDeviceType, TensorDataType::UINT16>::fromArchive_(
-                        archive, module_name, exec_context );
-
-                case TensorDataType::UINT32:
-                    return ModuleTemplate<TDeviceType, TensorDataType::UINT32>::fromArchive_(
-                        archive, module_name, exec_context );
-
-                default:
-                    throw std::runtime_error(
-                        std::format( "ModuleFactory: unsupported precision for module '{}'",
-                            module_name ) );
-            }
-        }*/
-
-        /**
-         * @brief Example: Special dispatch for modules with non-standard template params
-         *
-         * Some modules like Encoder have additional template parameters beyond
-         * DeviceType and Precision. Handle those with custom dispatch functions.
-         */
-         // template<DeviceType TDeviceType>
-         // static std::shared_ptr<Module<TDeviceType>> dispatchEncoderPrecision(
-         //     TensorDataType precision,
-         //     ModelArchive& archive,
-         //     const std::string& module_name,
-         //     std::shared_ptr<ExecutionContext<TDeviceType>> exec_context,
-         //     const json& meta )
-         // {
-         //     // Encoder has template params: <TDeviceType, TIndex, TPrecision>
-         //     // Need to dispatch on both index type and precision
-         //     std::string index_type_str = meta.at( "index_type" ).get<std::string>();
-         //     TensorDataType index_type = parsePrecision( index_type_str );
-         //     
-         //     // Nested dispatch
-         //     if (index_type == TensorDataType::Int32 && precision == TensorDataType::Float32)
-         //     {
-         //         return Encoder<TDeviceType, TensorDataType::Int32, TensorDataType::Float32>
-         //             ::fromArchive_( archive, module_name, exec_context );
-         //     }
-         //     // ... other combinations
-         //     
-         //     throw std::runtime_error("Unsupported Encoder template parameter combination");
-         // }
+        // Future: move common dispatch helpers here (dispatchPrecision, dispatchEncoderPrecision, etc.)
     };
 }

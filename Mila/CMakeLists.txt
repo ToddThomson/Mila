@@ -398,7 +398,7 @@ PUBLIC
         "Src/Dnn/Extensibility/PluginInfo.ixx"
         "Src/Dnn/Components/MilaComponents.ixx"
         "Src/Dnn/Core/Loss.ixx"
-)
+ "Src/Dnn/Core/ComponentType.ixx")
 
 target_link_libraries(Mila PRIVATE 
     miniz

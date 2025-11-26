@@ -2,7 +2,7 @@
  * @file Network.ixx
  * @brief Lightweight composite network container.
  *
- * Provides a simple CompositeComponent-derived container that owns child modules
+ * Provides a simple CompositeComponent-derived container that owns child components
  * and exposes a minimal introspection and device access API.
  */
 
@@ -57,14 +57,14 @@ namespace Mila::Dnn
         ~Network() override = default;
 
         // ====================================================================
-        // Lifecycle
+        // Lifecycle - 
         // ====================================================================
 
         /**
          * @brief Build the network.
          *
          * Default behavior delegates to `CompositeComponent::build` which builds all
-         * child modules with the provided `input_shape`, validates children were
+         * child components with the provided `input_shape`, validates children were
          * built and marks the composite built.
          *
          * Derived `Network` implementations may override this method to provide
@@ -86,17 +86,18 @@ namespace Mila::Dnn
          * @brief Save network to archive
          *
          * Produces:
-         *  - network/meta.json         : small metadata (name, format_version, export_time, mode, num_modules)
-         *  - network/architecture.json : manifest (array of module descriptors: name, path, index)
-         *  - modules/<name>/...        : each module's own save_() output
+         *  - network/meta.json         : small metadata (name, format_version, export_time, mode, num_components)
+         *  - network/architecture.json : manifest (array of component descriptors: name, path, index)
+         *  - components/<name>/...     : each component's own save_() output (scoped)
          *
          * Behavior:
-         *  - Writes modules in a deterministic (sorted by name) order.
-         *  - Wraps child saves with contextual diagnostics on error.
+         *  - Writes components in a deterministic (sorted by name) order.
+         *  - Calls each child's `save_()` with a scoped archive prefix so leaf
+         *    implementations write relative paths only.
          */
         void save( ModelArchive& archive, SerializationMode mode ) const
         {
-            // Gather named modules deterministically (sort names)
+            // Gather named components deterministically (sort names)
             const auto& named_map = this->getNamedComponents();
             std::vector<std::string> names;
             names.reserve( named_map.size() );
@@ -110,50 +111,53 @@ namespace Mila::Dnn
             json net_meta;
             net_meta["format_version"] = 1;
             net_meta["name"] = name_;
-            net_meta["num_modules"] = names.size();
+            net_meta["num_components"] = names.size();
             net_meta["mode"] = serializationModeToString( mode );
 
             // export_time as epoch seconds
             auto now = std::chrono::system_clock::now();
-            net_meta["export_time"] = static_cast<int64_t>(std::chrono::system_clock::to_time_t( now ));
+            net_meta["export_time"] = static_cast<int64_t>(std::chrono::system_clock::to_time_t( now )) ;
 
             archive.writeJson( "network/meta.json", net_meta );
 
-            // Architecture manifest: array of objects with metadata per module
+            // Architecture manifest: array of objects with metadata per component
             json arch = json::array();
             for (size_t i = 0; i < names.size(); ++i)
             {
                 const auto& nm = names[i];
                 json entry = json::object();
                 entry["name"] = nm;
-                entry["path"] = "modules/" + nm;
+                entry["path"] = "components/" + nm;
                 entry["index"] = static_cast<int>( i );
                 arch.push_back( entry );
             }
 
             archive.writeJson( "network/architecture.json", arch );
 
-            // Save each module using deterministic order; wrap exceptions with context
+            // Save each component using deterministic order; call child's save_() under a scoped prefix.
             for (const auto& nm : names)
             {
                 auto it = named_map.find( nm );
                 if (it == named_map.end())
                 {
                     // This should not happen since we built names from named_map, but guard defensively.
-                    throw std::runtime_error( "Network::save: inconsistent named modules map for '" + nm + "'" );
+                    throw std::runtime_error( "Network::save: inconsistent named components map for '" + nm + "'" );
                 }
 
-                const auto& module = it->second;
+                const auto& component = it->second;
                 try
                 {
-                    module->save_( archive, mode );
+                    // Scope the archive to components/<name>/ so leaf save_() implementations
+                    // write relative files like "meta.json", "config.json", "tensors/weight", etc.
+                    ModelArchive::ScopedScope scope( archive, std::string( "components/" ) + nm );
+                    component->save_( archive, mode );
                 }
                 catch (const std::exception& e)
                 {
                     std::ostringstream oss;
-                    oss << "Network::save: failed saving module '" << nm << "' into archive '"
+                    oss << "Network::save: failed saving component '" << nm << "' into archive '"
                         << archive.getFilepath() << "': " << e.what();
-                    
+
                     throw std::runtime_error( oss.str() );
                 }
             }
@@ -165,7 +169,7 @@ namespace Mila::Dnn
          * Reconstructs a Network using the provided execution context. The
          * context is stored as non-owning (weak_ptr) in the returned Network.
          *
-         * Note: ModuleFactory integration is TODO; this method validates meta/architecture schema.
+         * Note: ComponentFactory integration is TODO; this method validates meta/architecture schema.
          */
         static std::unique_ptr<Network> load(
             ModelArchive& archive,
@@ -176,10 +180,10 @@ namespace Mila::Dnn
 
             json arch = archive.readJson( "network/architecture.json" );
 
-            // Validate optional num_modules hint vs manifest size
-            if (net_meta.contains( "num_modules" ))
+            // Validate optional num_components hint vs manifest size
+            if (net_meta.contains( "num_components" ))
             {
-                size_t hint = net_meta.at( "num_modules" ).get<size_t>();
+                size_t hint = net_meta.at( "num_components" ).get<size_t>();
                 size_t actual = 0;
                 if (arch.is_array())
                 {
@@ -189,7 +193,7 @@ namespace Mila::Dnn
                 if (hint != actual)
                 {
                     std::ostringstream oss;
-                    oss << "Network::load: metadata num_modules (" << hint
+                    oss << "Network::load: metadata num_components (" << hint
                         << ") does not match architecture.json size (" << actual << ")";
                     throw std::runtime_error( oss.str() );
                 }
@@ -202,25 +206,25 @@ namespace Mila::Dnn
             //  - new: [{ "name": "...", "path": "...", "index": ... }, ...]
             for (const auto& item : arch)
             {
-                std::string module_name;
+                std::string component_name;
 
                 if (item.is_object() && item.contains( "name" ))
                 {
-                    module_name = item.at( "name" ).get<std::string>();
+                    component_name = item.at( "name" ).get<std::string>();
                 }
                 else if (item.is_string())
                 {
-                    module_name = item.get<std::string>();
+                    component_name = item.get<std::string>();
                 }
                 else
                 {
                     throw std::runtime_error( "Network::load: unexpected architecture.json entry format" );
                 }
 
-                // FIXME: reconstruct child modules using ModuleFactory when available.
-                (void)module_name;
-                //auto module = ModuleFactory::create( archive, module_name, exec_context );
-                //network->addComponent( module_name, std::move( module ) );
+                // FIXME: reconstruct child components using ComponentFactory when available.
+                (void)component_name;
+                //auto component = ComponentFactory::create( archive, component_name, exec_context );
+                //network->addComponent( std::move( component ) );
             }
 
             return network;
@@ -237,21 +241,12 @@ namespace Mila::Dnn
 
         std::shared_ptr<ComputeDevice> getDevice() const override
         {
-            //auto ctx = context_.lock();
-            //if (!ctx)
-            //{
-            //    throw std::runtime_error( "Network::getDevice: execution context expired" );
-            //}
-
             return context_->getDevice();
         }
 
         void synchronize() override
         {
-            //if (auto ctx = context_.lock())
-            //{
             context_->synchronize();
-            //}
         }
 
         std::string toString() const override

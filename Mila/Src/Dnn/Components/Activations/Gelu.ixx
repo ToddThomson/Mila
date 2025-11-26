@@ -247,7 +247,7 @@ namespace Mila::Dnn
         {
             (void)mode;
 
-            const std::string prefix = "modules/" + this->getName();
+            const std::string prefix = "components/" + this->getName();
 
             json meta = json::object();
             meta["type"] = "Gelu";
@@ -279,7 +279,7 @@ namespace Mila::Dnn
             const std::string& module_name,
             std::shared_ptr<ExecutionContextType> exec_context )
         {
-            const std::string prefix = "modules/" + module_name;
+            const std::string prefix = "components/" + module_name;
 
             try
             {
@@ -318,7 +318,7 @@ namespace Mila::Dnn
         //{
         //    (void)mode;
 
-        //    const std::string prefix = "modules/" + this->getName();
+        //    const std::string prefix = "components/" + this->getName();
 
         //    // Read and validate meta
         //    json meta = archive.readJson( prefix + "/meta.json" );

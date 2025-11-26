@@ -1,8 +1,8 @@
 /**
  * @file Linear.ixx
- * @brief Device-templated Linear (fully connected) module.
+ * @brief Device-templated Linear (fully connected) component.
  *
- * Delegates compute to a UnaryOperation backend. Module owns weight/bias
+ * Delegates compute to a UnaryOperation backend. Component owns weight/bias
  * parameters and exposes them to callers (optimizers, serializers).
  */
 
@@ -50,13 +50,6 @@ namespace Mila::Dnn
      *
      * Delegates computation to a device-specific UnaryOperation implementation
      * registered in the OperationRegistry.
-     *
-     * Component owns trainable parameters (weight, optional bias) and exposes them
-     * via accessors. The operation implements y = x * W^T + b where W is the
-     * weight matrix and b is an optional bias vector.
-     *
-     * @tparam TDeviceType Device type (DeviceType::Cpu, DeviceType::Cuda)
-     * @tparam TPrecision Abstract tensor precision (TensorDataType)
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
@@ -103,7 +96,7 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Build the module using an input shape.
+         * @brief Build the Component using an input shape.
          *
          * Linear layer parameters are eagerly created in the constructor based
          * on the configuration. This method binds parameters to the backend
@@ -150,7 +143,7 @@ namespace Mila::Dnn
         {
             if (!isBuilt())
             {
-                throw std::runtime_error( "Linear module must be built before calling forward." );
+                throw std::runtime_error( "Linear Component must be built before calling forward." );
             }
 
             validateInputShape( input );
@@ -167,23 +160,23 @@ namespace Mila::Dnn
         {
             if (!isBuilt())
             {
-                throw std::runtime_error( "Linear module must be built before calling backward." );
+                throw std::runtime_error( "Linear Component must be built before calling backward." );
             }
 
             if (!this->isTraining())
             {
-                throw std::runtime_error( "Linear module must be in training mode to call backward. Call setTraining(true) first." );
+                throw std::runtime_error( "Linear Component must be in training mode to call backward. Call setTraining(true) first." );
             }
 
             // Ensure gradients are initialized (defensive check)
             if (!weight_grad_)
             {
-                throw std::runtime_error( "Linear module weight gradients not initialized. This is a bug." );
+                throw std::runtime_error( "Linear Component weight gradients not initialized. This is a bug." );
             }
 
             if (config_.hasBias() && !bias_grad_)
             {
-                throw std::runtime_error( "Linear module bias gradients not initialized. This is a bug." );
+                throw std::runtime_error( "Linear Component bias gradients not initialized. This is a bug." );
             }
 
             operation_->backward( input, output_grad, input_grad );
@@ -192,34 +185,34 @@ namespace Mila::Dnn
         // ====================================================================
         // Serialization
         // ====================================================================
-        
+
         /**
          * @internal
-         * @brief Save module state to a ModelArchive.
+         * @brief Save component state to a ModelArchive.
          *
-         * Serializes module configuration and parameters (weight, optional bias).
+         * This method writes relative entries into the archive. Callers are
+         * expected to scope the archive (for example "components/<name>/")
+         * before invoking `save_()` so leaf implementations only emit
+         * component-local paths such as "meta.json" and "tensors/weight".
          *
-         * @param archive ModelArchive to write to.
-         * @param mode SerializationMode (currently unused).
-		 */
-        void save_( ModelArchive& archive, SerializationMode mode ) const
+         * @param archive ModelArchive to write to (scoped by caller)
+         * @param mode SerializationMode (currently unused)
+         */
+        void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
             (void)mode;
 
-            // Module prefix inside archive
-            const std::string prefix = "modules/" + this->getName();
-
-            // Emit module meta.json
+            // Emit component-local meta.json
             json meta = json::object();
             meta["type"] = "Linear";
             meta["version"] = 1;
             meta["name"] = this->getName();
 
-            archive.writeJson( prefix + "/meta.json", meta );
+            archive.writeJson( "meta.json", meta );
 
             // Emit config using LinearConfig helper
             json cfg = config_.toJson();
-            archive.writeJson( prefix + "/config.json", cfg );
+            archive.writeJson( "config.json", cfg );
 
             // Serialize weight
             if (weight_)
@@ -237,7 +230,7 @@ namespace Mila::Dnn
                 {
                     // Host tensor; write directly from underlying data
                     const void* data_ptr = weight_->rawData();
-                    writeTensorBlob( archive, prefix + "/tensors/weight", tmeta, data_ptr, tmeta.byte_size );
+                    writeTensorBlob( archive, "tensors/weight", tmeta, data_ptr, tmeta.byte_size );
                 }
                 else
                 {
@@ -249,7 +242,7 @@ namespace Mila::Dnn
                     copy( *weight_, host_weight );
 
                     const void* host_ptr = host_weight.rawData();
-                    writeTensorBlob( archive, prefix + "/tensors/weight", tmeta, host_ptr, tmeta.byte_size );
+                    writeTensorBlob( archive, "tensors/weight", tmeta, host_ptr, tmeta.byte_size );
                 }
             }
 
@@ -266,7 +259,7 @@ namespace Mila::Dnn
                 if constexpr ( std::is_same_v<MR, CpuMemoryResource> )
                 {
                     const void* data_ptr = bias_->rawData();
-                    writeTensorBlob( archive, prefix + "/tensors/bias", bmeta, data_ptr, bmeta.byte_size );
+                    writeTensorBlob( archive, "tensors/bias", bmeta, data_ptr, bmeta.byte_size );
                 }
                 else
                 {
@@ -276,111 +269,13 @@ namespace Mila::Dnn
                     copy( *bias_, host_bias );
 
                     const void* host_ptr = host_bias.rawData();
-                    writeTensorBlob( archive, prefix + "/tensors/bias", bmeta, host_ptr, bmeta.byte_size );
+                    writeTensorBlob( archive, "tensors/bias", bmeta, host_ptr, bmeta.byte_size );
                 }
             }
+
+            // blank line before return per style
+            return;
         }
-
-        //void load( ModelArchive& archive, SerializationMode mode ) override
-        //{
-        //    (void)mode;
-
-        //    const std::string prefix = "modules/" + this->getName();
-
-        //    // Read config and use LinearConfig::fromJson to parse it
-        //    json cfg = archive.readJson( prefix + "/config.json" );
-
-        //    LinearConfig file_cfg = config_;
-        //    file_cfg.fromJson( cfg );
-
-        //    // Validate config against current config_ (strict)
-        //    if (static_cast<int64_t>(config_.getInputFeatures()) != static_cast<int64_t>(file_cfg.getInputFeatures()) ||
-        //        static_cast<int64_t>(config_.getOutputFeatures()) != static_cast<int64_t>(file_cfg.getOutputFeatures()) ||
-        //        config_.hasBias() != file_cfg.hasBias())
-        //    {
-        //        std::ostringstream oss;
-        //        oss << "Linear::load config mismatch for module '" << this->getName() << "'";
-        //        throw std::runtime_error( oss.str() );
-        //    }
-
-        //    // Load weight tensor blob via Tensor.Serialization helper
-        //    auto weight_pair = readTensorBlob( archive, prefix + "/tensors/weight" );
-        //    const TensorMetadata& wmeta = weight_pair.first;
-        //    const std::vector<uint8_t>& wdata = weight_pair.second;
-
-        //    // Validate byte size using host tensor type for TPrecision
-        //    using HostTensorType = Tensor<dtype_t::FP32, CpuMemoryResource>;
-        //    HostTensorType tmp_host_count( std::string( "CPU" ), wmeta.shape );
-
-        //    size_t elem_bytes = tmp_host_count.elementSize();
-        //    size_t elem_count = tmp_host_count.size();
-        //    size_t computed_wbytes = elem_bytes * elem_count;
-
-        //    if (wdata.size() != computed_wbytes)
-        //    {
-        //        throw std::runtime_error( "Linear::load: weight byte-size mismatch for module: " + this->getName() );
-        //    }
-
-        //    // Ensure internal weight_ shape matches archive
-        //    if (!weight_ || weight_->shape() != wmeta.shape)
-        //    {
-        //        // Recreate weight_ with archive shape on module device
-        //        weight_ = std::make_shared<TensorType>( exec_context_->getDevice(), wmeta.shape );
-        //        weight_->setName( this->getName() + ".weight" );
-        //    }
-
-        //    // Copy loaded bytes into module parameter tensor
-        //    if constexpr ( std::is_same_v<MR, CpuMemoryResource> )
-        //    {
-        //        // Host tensor: memcpy directly
-        //        std::memcpy( weight_->rawData(), wdata.data(), wdata.size() );
-        //    }
-        //    else
-        //    {
-        //        // Create host staging tensor and copy into device tensor
-        //        HostTensorType host_weight( std::string( "CPU" ), wmeta.shape );
-        //        std::memcpy( host_weight.rawData(), wdata.data(), wdata.size() );
-
-        //        // Host -> Device copy
-        //        copy( host_weight, *weight_ );
-        //    }
-
-        //    // Bias (optional)
-        //    if (config_.hasBias())
-        //    {
-        //        auto bias_pair = readTensorBlob( archive, prefix + "/tensors/bias" );
-        //        const TensorMetadata& bmeta = bias_pair.first;
-        //        const std::vector<uint8_t>& bdata = bias_pair.second;
-
-        //        HostTensorType tmp_host_bias( std::string( "CPU" ), bmeta.shape );
-        //        size_t b_elem_bytes = tmp_host_bias.elementSize();
-        //        size_t b_elem_count = tmp_host_bias.size();
-        //        size_t computed_bbytes = b_elem_bytes * b_elem_count;
-
-        //        if (bdata.size() != computed_bbytes)
-        //        {
-        //            throw std::runtime_error( "Linear::load: bias byte-size mismatch for module: " + this->getName() );
-        //        }
-
-        //        if (!bias_ || bias_->shape() != bmeta.shape)
-        //        {
-        //            bias_ = std::make_shared<TensorType>( exec_context_->getDevice(), bmeta.shape );
-        //            bias_->setName( this->getName() + ".bias" );
-        //        }
-
-        //        if constexpr ( std::is_same_v<MR, CpuMemoryResource> )
-        //        {
-        //            std::memcpy( bias_->rawData(), bdata.data(), bdata.size() );
-        //        }
-        //        else
-        //        {
-        //            HostTensorType host_bias( std::string( "CPU" ), bmeta.shape );
-        //            std::memcpy( host_bias.rawData(), bdata.data(), bdata.size() );
-
-        //            copy( host_bias, *bias_ );
-        //        }
-        //    }
-        //}
 
         // ====================================================================
         // Parameters and Gradients
@@ -508,7 +403,7 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Check whether the module has a bias term.
+         * @brief Check whether the component has a bias term.
          *
          * @returns True if bias is enabled in the configuration.
          */
@@ -542,7 +437,7 @@ namespace Mila::Dnn
 
             if (is_training)
             {
-				// Ensure Gradients are allocated and bound
+                // Ensure Gradients are allocated and bound
                 initializeGradients();
                 operation_->setGradients( weight_grad_.get(), bias_grad_.get() );
             }
