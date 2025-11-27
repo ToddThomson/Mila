@@ -3,7 +3,7 @@
  * @brief Transformer encoder block implementation.
  *
  * Provides a device-templated composite Transformer encoder block that
- * composes attention, layer-norm, residual connections and MLP sub-modules.
+ * composes attention, layer-norm, residual connections and MLP sub-components.
  */
 
 module;
@@ -46,13 +46,13 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Serialization;
 
     /**
-     * @brief Transformer encoder block as a composite module.
+     * @brief Transformer encoder block as a composite component.
      *
-     * Device-templated composite module that composes:
+     * Device-templated composite component that composes:
      *   LayerNorm -> QKV projection -> MultiHeadSelfAttention -> Residual ->
      *   LayerNorm -> MLP -> Residual
      *
-     * Two-phase initialization: createModules() constructs child modules,
+     * Two-phase initialization: createModules() constructs child components,
      * onBuilding() finalizes shapes and allocates intermediate tensors.
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
@@ -73,7 +73,7 @@ namespace Mila::Dnn
         /**
          * @brief Construct with an execution context and config.
          *
-         * Execution context must be non-null. Modules are created here;
+         * Execution context must be non-null. Components are created here;
          * concrete shape-dependent setup happens in onBuilding().
          */
         explicit Transformer( std::shared_ptr<ExecutionContextType> exec_context,
@@ -96,10 +96,10 @@ namespace Mila::Dnn
         // Build lifecycle
         // ====================================================================
 
-        bool isBuilt() const override
+        /*bool isBuilt() const override
         {
             return CompositeComponentBase::isBuilt() && attn_ && ln1_ && ln2_ && ffn_ && res1_ && res2_ && qkv_proj_;
-        }
+        }*/
 
         // ====================================================================
         // Forward and backward dispatch
@@ -107,7 +107,7 @@ namespace Mila::Dnn
 
         void forward( const ITensor& input, ITensor& output )
         {
-            if (!isBuilt())
+            if (!this->isBuilt())
             {
                 throw std::runtime_error( "Transformer must be built before forward()." );
             }
@@ -125,13 +125,13 @@ namespace Mila::Dnn
             // Attention consumes concatenated QKV and produces [B,T,embedding_dim]
             attn_->forward( *qkv_output_, *attn_output_ );
 
-            // res1 = in + attn_output (use Residual module)
+            // res1 = in + attn_output (use Residual component)
             res1_->forward( in_t, *attn_output_, *res1_output_ );
 
             ln2_->forward( *res1_output_, *ln2_output_ );
             ffn_->forward( *ln2_output_, *ffn_output_ );
 
-            // out = res1 + ffn_output (use Residual module)
+            // out = res1 + ffn_output (use Residual component)
             res2_->forward( *res1_output_, *ffn_output_, out_t );
 
             // Mark whether the forward was executed in training mode.
@@ -141,7 +141,7 @@ namespace Mila::Dnn
 
         void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
         {
-            if (!isBuilt())
+            if (!this->isBuilt())
             {
                 throw std::runtime_error( "Transformer must be built before backward()." );
             }
@@ -268,7 +268,7 @@ namespace Mila::Dnn
         }
 
         // ====================================================================
-        // Module interface
+        // Component interface
         // ====================================================================
 
         std::string getName() const override
@@ -381,7 +381,7 @@ namespace Mila::Dnn
 
             if (!cached_input_shape_.empty())
             {
-                oss << "Input shape: (";
+                oss << "Input shape: ("; 
                 for (size_t i = 0; i < cached_input_shape_.size(); ++i)
                 {
                     oss << cached_input_shape_[i];
@@ -415,7 +415,7 @@ namespace Mila::Dnn
             return config_;
         }
 
-        std::shared_ptr<AttentionType> getAttention() const noexcept
+        /*std::shared_ptr<AttentionType> getAttention() const noexcept
         {
             return attn_;
         }
@@ -437,8 +437,8 @@ namespace Mila::Dnn
         }
         std::shared_ptr<MLPType> getFFN() const noexcept
         {
-            return ffn_;
-        }
+           return ffn_;
+        } */
 
     protected:
 
@@ -446,10 +446,9 @@ namespace Mila::Dnn
          * @brief Architecture-specific build hook.
          *
          * Called from CompositeComponent::build() once per-instance. Implement
-         * shape propagation here and use the protected build helpers (buildChild,
-         * buildChildrenWithSameShape) to build direct children with validated
-         * shapes. After this method returns the base class will validate child
-         * build state and mark the composite built.
+         * shape propagation here and call build() directly on child components.
+         * After this method returns the base class will validate child build
+         * state and mark the composite built.
          */
         void onBuilding( const shape_t& input_shape ) override
         {
@@ -459,26 +458,69 @@ namespace Mila::Dnn
             cached_input_shape_ = input_shape;
 
             // Build LayerNorm for [B,T,embedding_dim]
-            this->buildChild( ln1_, input_shape );
+            if (!ln1_)
+            {
+                throw std::runtime_error( "Transformer: ln1 component not initialized before build()" );
+            }
+
+            ln1_->setTraining( this->isTraining() );
+            ln1_->build( input_shape );
 
             // QKV projection is a linear from embedding_dim -> 3 * embedding_dim
-            this->buildChild( qkv_proj_, input_shape );
+            if (!qkv_proj_)
+            {
+                throw std::runtime_error( "Transformer: qkv_proj component not initialized before build()" );
+            }
+
+            qkv_proj_->setTraining( this->isTraining() );
+            qkv_proj_->build( input_shape );
 
             // Attention expects concatenated QKV: trailing dimension = 3 * embedding_dim
             shape_t qkv_shape = input_shape;
             qkv_shape.back() = static_cast<int64_t>( config_.getEmbeddingDim() * 3 );
 
-            this->buildChild( attn_, qkv_shape );
+            if (!attn_)
+            {
+                throw std::runtime_error( "Transformer: attn component not initialized before build()" );
+            }
+
+            attn_->setTraining( this->isTraining() );
+            attn_->build( qkv_shape );
 
             // LayerNorm2 keeps same trailing dim as res1_output (embedding_dim)
-            this->buildChild( ln2_, input_shape );
+            if (!ln2_)
+            {
+                throw std::runtime_error( "Transformer: ln2 component not initialized before build()" );
+            }
+
+            ln2_->setTraining( this->isTraining() );
+            ln2_->build( input_shape );
 
             // Residual modules may allocate projection parameters if needed
-            this->buildChild( res1_, input_shape );
-            this->buildChild( res2_, input_shape );
+            if (!res1_)
+            {
+                throw std::runtime_error( "Transformer: res1 component not initialized before build()" );
+            }
+
+            res1_->setTraining( this->isTraining() );
+            res1_->build( input_shape );
+
+            if (!res2_)
+            {
+                throw std::runtime_error( "Transformer: res2 component not initialized before build()" );
+            }
+
+            res2_->setTraining( this->isTraining() );
+            res2_->build( input_shape );
 
             // MLP may change hidden dim internally; let MLP handle it
-            this->buildChild( ffn_, input_shape );
+            if (!ffn_)
+            {
+                throw std::runtime_error( "Transformer: ffn component not initialized before build()" );
+            }
+
+            ffn_->setTraining( this->isTraining() );
+            ffn_->build( input_shape );
 
             auto device = exec_context_->getDevice();
 
@@ -508,7 +550,7 @@ namespace Mila::Dnn
         /**
          * @brief Hook invoked when training mode is about to change.
          *
-         * Propagate the new mode to all child modules and invalidate the
+         * Propagate the new mode to all child components and invalidate the
          * cached forward-executed flag so a fresh training forward is required.
          *
          * Called with CompositeComponent's training mutex held; do not call setTraining() here.

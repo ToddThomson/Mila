@@ -12,6 +12,7 @@ module;
 #include <cstdint>
 #include <string>
 #include <utility>
+#include <sstream>
 
 export module Dnn.Blocks.MLP:Config;
 
@@ -33,7 +34,7 @@ namespace Mila::Dnn
      * - Optional bias and layer normalization
      *
      * The MLP block structure is:
-     *   Input ? Linear(in_features, hidden_size) ? [LayerNorm] ? Activation ? Linear(hidden_size, in_features) ? Output
+     *   Input -> Linear(in_features, hidden_size) -> [LayerNorm] -> Activation -> Linear(hidden_size, in_features) -> Output
      *
      * Usage example:
      * @code
@@ -45,10 +46,7 @@ namespace Mila::Dnn
      * cfg.validate();
      * @endcode
      *
-     * Note: Input shape is determined at build time from the actual input tensor,
-     *       not specified in the configuration.
-     *
-     * @see ModuleConfig
+     * @see ComponentConfig
      */
     export class MLPConfig : public ComponentConfig
     {
@@ -157,7 +155,7 @@ namespace Mila::Dnn
          */
         void validate() const override
         {
-            //ComponentConfig::validate();
+            ComponentConfig::validate();
 
             if (input_features_ <= 0)
             {
@@ -242,15 +240,18 @@ namespace Mila::Dnn
 
         std::string toString() const override
         {
-            std::string repr = "MLPConfig(";
-            repr += "input_features=" + std::to_string( input_features_ ) + ", ";
-            repr += "hidden_size=" + std::to_string( hidden_size_ ) + ", ";
-            repr += "has_bias=" + std::string( has_bias_ ? "true" : "false" ) + ", ";
-            repr += "activation=" + std::to_string( static_cast<int>( activation_type_ ) ) + ", ";
-            repr += "use_layer_norm=" + std::string( use_layer_norm_ ? "true" : "false" );
-            repr += ")";
-            return repr;
-		}
+            std::ostringstream oss;
+
+            oss << "MLPConfig(";
+            oss << "input_features=" << input_features_ << ", ";
+            oss << "hidden_size=" << hidden_size_ << ", ";
+            oss << "has_bias=" << (has_bias_ ? "true" : "false") << ", ";
+            oss << "activation=" << static_cast<int>(activation_type_) << ", ";
+            oss << "use_layer_norm=" << (use_layer_norm_ ? "true" : "false");
+            oss << ")";
+
+            return oss.str();
+        }
 
     private:
         dim_t input_features_{ 0 };

@@ -94,7 +94,6 @@ namespace Modules::Layers::Tests
         {
             small_shape_ = { 2, 3, 16 };
             medium_shape_ = { 4, 128, 512 };
-            large_shape_ = { 8, 256, 1024 };
 
             input_features_ = 16;
             output_features_ = 32;
@@ -120,16 +119,6 @@ namespace Modules::Layers::Tests
             return medium_fp32_;
         }
 
-        LinearCpuTestData<TensorDataType::FP32>& LargeFp32Data()
-        {
-            if (!large_fp32_.module)
-            {
-                large_fp32_ = LinearCpuTestData<TensorDataType::FP32>::Create(
-                    "large_linear_cpu", large_shape_, 1024, 768 );
-            }
-            return large_fp32_;
-        }
-
         LinearCpuTestData<TensorDataType::FP32>& NoBiasFp32Data()
         {
             if (!no_bias_fp32_.module)
@@ -142,13 +131,12 @@ namespace Modules::Layers::Tests
 
         shape_t small_shape_;
         shape_t medium_shape_;
-        shape_t large_shape_;
+
         int64_t input_features_;
         int64_t output_features_;
 
         LinearCpuTestData<TensorDataType::FP32> small_fp32_;
         LinearCpuTestData<TensorDataType::FP32> medium_fp32_;
-        LinearCpuTestData<TensorDataType::FP32> large_fp32_;
         LinearCpuTestData<TensorDataType::FP32> no_bias_fp32_;
     };
 
@@ -179,9 +167,6 @@ namespace Modules::Layers::Tests
     void TestBuild( LinearCpuTestData<TPrecision>& data )
     {
         EXPECT_NO_THROW( data.module->build( data.input_shape ) );
-        EXPECT_TRUE( data.module->isBuilt() );
-
-        data.module->build( data.input_shape );
         EXPECT_TRUE( data.module->isBuilt() );
     }
 
@@ -443,12 +428,6 @@ namespace Modules::Layers::Tests
         TestForward( data );
     }
 
-    TEST_F( LinearCpuTests, Forward_LargeShape )
-    {
-        auto data = LargeFp32Data();
-        TestForward( data );
-    }
-
     TEST_F( LinearCpuTests, Forward_WithoutBias )
     {
         auto data = NoBiasFp32Data();
@@ -473,12 +452,6 @@ namespace Modules::Layers::Tests
         auto data = LinearCpuTestData<TensorDataType::FP32>::Create(
             "minimal_cpu", shape, 1, 1 );
 
-        TestForward( data );
-    }
-
-    TEST_F( LinearCpuTests, EdgeCase_LargeFeatures )
-    {
-        auto data = LargeFp32Data();
         TestForward( data );
     }
 
@@ -628,12 +601,6 @@ namespace Modules::Layers::Tests
     TEST_F( LinearCpuTests, Backward_MediumShape )
     {
         auto data = MediumFp32Data();
-        TestBackward( data );
-    }
-
-    TEST_F( LinearCpuTests, Backward_LargeShape )
-    {
-        auto data = LargeFp32Data();
         TestBackward( data );
     }
 

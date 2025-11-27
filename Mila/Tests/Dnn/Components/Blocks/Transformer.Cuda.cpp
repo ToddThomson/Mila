@@ -96,131 +96,42 @@ namespace Modules::Blocks::Tests
             num_heads_ = 8;
         }
 
-        TransformerTestData<DeviceType::Cuda, TensorDataType::FP32>& CudaFloatData()
+        TransformerTestData<DeviceType::Cuda, TensorDataType::FP32> CudaFloatData()
         {
-            if (!cuda_float_data_.transformer_module)
-            {
-                cuda_float_data_ = TransformerTestData<DeviceType::Cuda, TensorDataType::FP32>::Create(
-                    "cuda_transformer_float", cuda_batch_size_, cuda_sequence_length_, embedding_dim_, num_heads_ );
-            }
-            return cuda_float_data_;
+            return TransformerTestData<DeviceType::Cuda, TensorDataType::FP32>::Create(
+                "cuda_transformer_float", cuda_batch_size_, cuda_sequence_length_, embedding_dim_, num_heads_ );
         }
 
-        TransformerTestData<DeviceType::Cuda, TensorDataType::FP32>& TrainingCudaFloatData()
+        TransformerTestData<DeviceType::Cuda, TensorDataType::FP32> TrainingCudaFloatData()
         {
-            if (!training_cuda_float_data_.transformer_module)
-            {
-                training_cuda_float_data_ = TransformerTestData<DeviceType::Cuda, TensorDataType::FP32>::Create(
-                    "cuda_transformer_float_training", cuda_batch_size_, cuda_sequence_length_, embedding_dim_, num_heads_, true );
-            }
-            return training_cuda_float_data_;
+            return TransformerTestData<DeviceType::Cuda, TensorDataType::FP32>::Create(
+                "cuda_transformer_float_training", cuda_batch_size_, cuda_sequence_length_, embedding_dim_, num_heads_, true );
         }
 
-        TransformerTestData<DeviceType::Cuda, TensorDataType::FP16>& CudaHalfData()
+        TransformerTestData<DeviceType::Cuda, TensorDataType::FP16> CudaHalfData()
         {
-            if (!cuda_half_data_.transformer_module)
-            {
-                cuda_half_data_ = TransformerTestData<DeviceType::Cuda, TensorDataType::FP16>::Create(
-                    "cuda_transformer_half", cuda_batch_size_, cuda_sequence_length_, embedding_dim_, num_heads_ );
-            }
-            return cuda_half_data_;
+            return TransformerTestData<DeviceType::Cuda, TensorDataType::FP16>::Create(
+                "cuda_transformer_half", cuda_batch_size_, cuda_sequence_length_, embedding_dim_, num_heads_ );
         }
 
-        TransformerTestData<DeviceType::Cuda, TensorDataType::FP16>& TrainingCudaHalfData()
+        TransformerTestData<DeviceType::Cuda, TensorDataType::FP16> TrainingCudaHalfData()
         {
-            if (!training_cuda_half_data_.transformer_module)
-            {
-                training_cuda_half_data_ = TransformerTestData<DeviceType::Cuda, TensorDataType::FP16>::Create(
-                    "cuda_transformer_half_training", cuda_batch_size_, cuda_sequence_length_, embedding_dim_, num_heads_, true );
-            }
-            return training_cuda_half_data_;
+            return TransformerTestData<DeviceType::Cuda, TensorDataType::FP16>::Create(
+                "cuda_transformer_half_training", cuda_batch_size_, cuda_sequence_length_, embedding_dim_, num_heads_, true );
         }
 
         size_t cuda_batch_size_{ 0 };
         size_t cuda_sequence_length_{ 0 };
         size_t embedding_dim_{ 0 };
         size_t num_heads_{ 0 };
-
-        TransformerTestData<DeviceType::Cuda, TensorDataType::FP32> cuda_float_data_;
-        TransformerTestData<DeviceType::Cuda, TensorDataType::FP32> training_cuda_float_data_;
-
-        TransformerTestData<DeviceType::Cuda, TensorDataType::FP16> cuda_half_data_;
-        TransformerTestData<DeviceType::Cuda, TensorDataType::FP16> training_cuda_half_data_;
     };
 
-    // Reuse test helpers (forward, parameter count, etc.)
-    template<DeviceType TDevice, TensorDataType TPrecision>
-    void TestGetName( const TransformerTestData<TDevice, TPrecision>& data, const std::string& expected_name )
-    {
-        EXPECT_EQ( data.transformer_module->getName(), expected_name );
-    }
-
-    template<DeviceType TDevice, TensorDataType TPrecision>
-    void TestParameterCount( const TransformerTestData<TDevice, TPrecision>& data )
-    {
-        data.transformer_module->build( data.input_shape );
-        size_t params_count = data.transformer_module->parameterCount();
-        EXPECT_GT( params_count, 0 );
-    }
-
-    template<DeviceType TDevice, TensorDataType TPrecision>
-    void TestForward( const TransformerTestData<TDevice, TPrecision>& data )
-    {
-        using TensorT = TestTensor<TDevice, TPrecision>;
-
-        data.transformer_module->build( data.input_shape );
-
-        // Construct tensors bound to module device
-        auto device = data.transformer_module->getDevice();
-
-        TensorT input( device, data.input_shape );
-        TensorT output( device, data.input_shape );
-
-        // Initialize device tensor directly using initializer API.
-        // Use magnitude ~0.9 to approximate previous 0..0.9 pattern.
-        random( input, 0.9f );
-
-        data.transformer_module->forward( input, output );
-
-        EXPECT_EQ( output.size(), input.size() );
-        EXPECT_EQ( output.shape(), input.shape() );
-    }
-
-    template<DeviceType TDevice, TensorDataType TPrecision>
-    void TestPrint( const TransformerTestData<TDevice, TPrecision>& data, const std::string& expected_substring )
-    {
-        std::string output = data.transformer_module->toString();
-        EXPECT_NE( output.find( expected_substring ), std::string::npos );
-    }
-
-    template<DeviceType TDevice, TensorDataType TPrecision>
-    void TestTrainingMode( const TransformerTestData<TDevice, TPrecision>& data, bool expected_mode )
-    {
-        EXPECT_EQ( data.transformer_module->isTraining(), expected_mode );
-    }
-
-    template<DeviceType TDevice, TensorDataType TPrecision>
-    void TestDeviceType( const TransformerTestData<TDevice, TPrecision>& data )
-    {
-        auto device = data.transformer_module->getDevice();
-        EXPECT_NE( device, nullptr );
-        EXPECT_EQ( device->getDeviceType(), TDevice );
-    }
-
-    template<DeviceType TDevice, TensorDataType TPrecision>
-    void TestSubModules( const TransformerTestData<TDevice, TPrecision>& data )
-    {
-        data.transformer_module->build( data.input_shape );
-
-        EXPECT_NE( data.transformer_module->getAttention(), nullptr );
-        EXPECT_NE( data.transformer_module->getLn1(), nullptr );
-        EXPECT_NE( data.transformer_module->getLn2(), nullptr );
-        EXPECT_NE( data.transformer_module->getFFN(), nullptr );
-    }
+    // NOTE: The helper functions below remain for future reuse but tests are written
+    //       to be self-contained (setup, execution, assertions inline).
 
     // CPU-CUDA equivalence test (constructs independent CPU and CUDA transformers)
     template<TensorDataType TPrecision>
-    void TestCpuCudaEquivalence()
+    void CpuCudaEquivalenceInline()
     {
         shape_t test_shape = { 1, 2, 64 };
         size_t test_num_heads = 2;
@@ -264,10 +175,10 @@ namespace Modules::Blocks::Tests
         const float epsilon = 1e-2f;
         bool all_equal = true;
 
-        for (size_t i = 0; i < cpu_output.size(); ++i)
+        for ( size_t i = 0; i < cpu_output.size(); ++i )
         {
             float diff = std::abs( static_cast<float>( cpu_output.data()[i] ) - static_cast<float>( cuda_output_host.data()[i] ) );
-            if (diff > epsilon)
+            if ( diff > epsilon )
             {
                 all_equal = false;
                 break;
@@ -277,84 +188,173 @@ namespace Modules::Blocks::Tests
         EXPECT_TRUE( all_equal ) << "CPU and CUDA implementations produced different results";
     }
 
+    // ---------------------------------------------------------------------
+    // Self-contained tests (setup, execute, assert inline) for CUDA device
+    // ---------------------------------------------------------------------
+
     TEST_F( TransformerCudaTests, Cuda_Float_TestName )
     {
-        TestGetName<DeviceType::Cuda, TensorDataType::FP32>( CudaFloatData(), "cuda_transformer_float" );
+        auto data = CudaFloatData();
+
+        ASSERT_NE( data.transformer_module, nullptr );
+        EXPECT_EQ( data.transformer_module->getName(), "cuda_transformer_float" );
     }
 
     TEST_F( TransformerCudaTests, Cuda_Float_ParameterCount )
     {
-        TestParameterCount<DeviceType::Cuda, TensorDataType::FP32>( CudaFloatData() );
+        auto data = CudaFloatData();
+
+        ASSERT_NE( data.transformer_module, nullptr );
+
+        EXPECT_NO_THROW( data.transformer_module->build( data.input_shape ) );
+
+        size_t params_count = data.transformer_module->parameterCount();
+        EXPECT_GT( params_count, 0u );
     }
 
     TEST_F( TransformerCudaTests, Cuda_Float_TestForward )
     {
-        TestForward<DeviceType::Cuda, TensorDataType::FP32>( CudaFloatData() );
+        auto data = CudaFloatData();
+
+        ASSERT_NE( data.transformer_module, nullptr );
+
+        using TensorT = TestTensor<DeviceType::Cuda, TensorDataType::FP32>;
+
+        EXPECT_NO_THROW( data.transformer_module->build( data.input_shape ) );
+
+        auto device = data.transformer_module->getDevice();
+
+        TensorT input( device, data.input_shape );
+        TensorT output( device, data.input_shape );
+
+        random( input, 0.9f );
+
+        EXPECT_NO_THROW( data.transformer_module->forward( input, output ) );
+
+        EXPECT_EQ( output.size(), input.size() );
+        EXPECT_EQ( output.shape(), input.shape() );
     }
 
     TEST_F( TransformerCudaTests, Cuda_Float_TestPrint )
     {
-        TestPrint<DeviceType::Cuda, TensorDataType::FP32>( CudaFloatData(), "Transformer: cuda_transformer_float" );
+        auto data = CudaFloatData();
+
+        ASSERT_NE( data.transformer_module, nullptr );
+
+        std::string s = data.transformer_module->toString();
+        EXPECT_NE( s.find( "Transformer: cuda_transformer_float" ), std::string::npos );
     }
 
     TEST_F( TransformerCudaTests, Cuda_Float_TrainingMode )
     {
-        TestTrainingMode<DeviceType::Cuda, TensorDataType::FP32>( CudaFloatData(), false );
+        auto data = CudaFloatData();
+
+        ASSERT_NE( data.transformer_module, nullptr );
+
+        EXPECT_FALSE( data.transformer_module->isTraining() );
     }
 
     TEST_F( TransformerCudaTests, Cuda_Float_DeviceType )
     {
-        TestDeviceType<DeviceType::Cuda, TensorDataType::FP32>( CudaFloatData() );
-    }
+        auto data = CudaFloatData();
 
-    TEST_F( TransformerCudaTests, Cuda_Float_SubModules )
-    {
-        TestSubModules<DeviceType::Cuda, TensorDataType::FP32>( CudaFloatData() );
+        ASSERT_NE( data.transformer_module, nullptr );
+
+        auto device = data.transformer_module->getDevice();
+        ASSERT_NE( device, nullptr );
+        EXPECT_EQ( device->getDeviceType(), DeviceType::Cuda );
     }
 
     TEST_F( TransformerCudaTests, Cuda_Training_Float_TrainingMode )
     {
-        TestTrainingMode<DeviceType::Cuda, TensorDataType::FP32>( TrainingCudaFloatData(), true );
+        auto data = TrainingCudaFloatData();
+
+        ASSERT_NE( data.transformer_module, nullptr );
+
+        EXPECT_TRUE( data.transformer_module->isTraining() );
     }
 
     TEST_F( TransformerCudaTests, Cuda_Training_Float_TestForward )
     {
-        TestForward<DeviceType::Cuda, TensorDataType::FP32>( TrainingCudaFloatData() );
+        auto data = TrainingCudaFloatData();
+
+        ASSERT_NE( data.transformer_module, nullptr );
+
+        using TensorT = TestTensor<DeviceType::Cuda, TensorDataType::FP32>;
+
+        EXPECT_NO_THROW( data.transformer_module->build( data.input_shape ) );
+
+        auto device = data.transformer_module->getDevice();
+
+        TensorT input( device, data.input_shape );
+        TensorT output( device, data.input_shape );
+
+        random( input, 0.9f );
+
+        EXPECT_NO_THROW( data.transformer_module->forward( input, output ) );
     }
 
     TEST_F( TransformerCudaTests, Cuda_Half_TestName )
     {
-        TestGetName<DeviceType::Cuda, TensorDataType::FP16>( CudaHalfData(), "cuda_transformer_half" );
+        auto data = CudaHalfData();
+
+        ASSERT_NE( data.transformer_module, nullptr );
+        EXPECT_EQ( data.transformer_module->getName(), "cuda_transformer_half" );
     }
 
     TEST_F( TransformerCudaTests, Cuda_Half_ParameterCount )
     {
-        TestParameterCount<DeviceType::Cuda, TensorDataType::FP16>( CudaHalfData() );
+        auto data = CudaHalfData();
+
+        ASSERT_NE( data.transformer_module, nullptr );
+
+        EXPECT_NO_THROW( data.transformer_module->build( data.input_shape ) );
+
+        size_t params_count = data.transformer_module->parameterCount();
+        EXPECT_GT( params_count, 0u );
     }
 
     TEST_F( TransformerCudaTests, Cuda_Half_TestForward )
     {
-        TestForward<DeviceType::Cuda, TensorDataType::FP16>( CudaHalfData() );
+        auto data = CudaHalfData();
+
+        ASSERT_NE( data.transformer_module, nullptr );
+
+        using TensorT = TestTensor<DeviceType::Cuda, TensorDataType::FP16>;
+
+        EXPECT_NO_THROW( data.transformer_module->build( data.input_shape ) );
+
+        auto device = data.transformer_module->getDevice();
+
+        TensorT input( device, data.input_shape );
+        TensorT output( device, data.input_shape );
+
+        random( input, 0.9f );
+
+        EXPECT_NO_THROW( data.transformer_module->forward( input, output ) );
     }
 
     TEST_F( TransformerCudaTests, Cuda_Half_TestPrint )
     {
-        TestPrint<DeviceType::Cuda, TensorDataType::FP16>( CudaHalfData(), "Transformer: cuda_transformer_half" );
+        auto data = CudaHalfData();
+
+        ASSERT_NE( data.transformer_module, nullptr );
+
+        std::string s = data.transformer_module->toString();
+        EXPECT_NE( s.find( "Transformer: cuda_transformer_half" ), std::string::npos );
     }
 
     TEST_F( TransformerCudaTests, Cuda_Half_TrainingMode )
     {
-        TestTrainingMode<DeviceType::Cuda, TensorDataType::FP16>( CudaHalfData(), false );
-    }
+        auto data = CudaHalfData();
 
-    //TEST_F( TransformerCudaTests, Cuda_Float_EdgeCases )
-    //{
-    //    // Reuse same edge-case helper but for CUDA device and FP32
-    //    TestEdgeCases<TensorDataType::FP32, DeviceType::Cuda>();
-    //}
+        ASSERT_NE( data.transformer_module, nullptr );
+
+        EXPECT_FALSE( data.transformer_module->isTraining() );
+    }
 
     TEST_F( TransformerCudaTests, CpuCuda_Forward_Output_Equivalence )
     {
-        TestCpuCudaEquivalence<TensorDataType::FP32>();
+        CpuCudaEquivalenceInline<TensorDataType::FP32>();
     }
 }

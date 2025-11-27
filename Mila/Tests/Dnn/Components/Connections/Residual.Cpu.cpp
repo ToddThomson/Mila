@@ -60,7 +60,6 @@ namespace Modules::Connections::Tests
 
         std::string s = module->toString();
         EXPECT_NE( s.find( "Residual" ), std::string::npos );
-        EXPECT_NE( s.find( "Parameter count" ), std::string::npos );
     }
 
     TEST_F( ResidualCpuTests, Forward_ElementwiseAdd )

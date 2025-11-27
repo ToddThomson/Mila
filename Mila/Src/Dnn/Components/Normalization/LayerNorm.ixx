@@ -72,44 +72,9 @@ namespace Mila::Dnn
 
         ~LayerNorm() override = default;
 
-        bool isBuilt() const override
-        {
-            return (operation_ != nullptr) && (weight_ != nullptr) &&  (!config_.hasBias() || (bias_ != nullptr)) &&
-                built_;
-        }
-
-        void build( const shape_t& input_shape ) override
-        {
-            if (built_)
-            {
-                throw std::runtime_error( "LayerNorm::build: module already built" );
-            }
-
-            validateInputShape( input_shape );
-
-            if ( !config_.hasNormalizedShape() )
-            {
-                allocateParametersForShape( input_shape );
-            }
-
-            // Bind forward parameters to operation
-            operation_->setParameters( weight_.get(), bias_.get() );
-
-            // If module is already in training mode, allocate and bind gradients now.
-            if (this->isTraining())
-            {
-                initializeParameterGradients();
-                operation_->setGradients( weight_grad_.get(), bias_grad_.get() );
-            }
-
-            operation_->build( input_shape );
-
-            built_ = true;
-        }
-
         void forward( const ITensor& input, ITensor& output )
         {
-            if (!isBuilt())
+            if (!this->isBuilt())
             {
                 throw std::runtime_error( "LayerNorm module must be built before calling forward." );
             }
@@ -121,7 +86,7 @@ namespace Mila::Dnn
 
         void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
         {
-            if (!isBuilt())
+            if (!this->isBuilt())
             {
                 throw std::runtime_error( "LayerNorm module must be built before calling backward." );
             }
@@ -219,6 +184,38 @@ namespace Mila::Dnn
     protected:
 
         /**
+         * @brief Called when the LayerNorm component is being built for a specific input shape.
+         *
+         * Default LayerNorm behavior:
+         *  - validate input shape against normalized_shape or axis
+         *  - if normalized_shape was not specified at construction, allocate weight/bias parameters now
+         *  - bind weight/bias parameters to backend operation
+         *  - if in training mode, allocate parameter gradients and bind them to backend operation
+         *  - call build() on backend operation with input shape
+		 */
+        void onBuilding( const shape_t& input_shape ) override
+        {
+            validateInputShape( input_shape );
+
+            if ( !config_.hasNormalizedShape() )
+            {
+                allocateParametersForShape( input_shape );
+            }
+
+            // Bind forward parameters to operation
+            operation_->setParameters( weight_.get(), bias_.get() );
+
+            // If module is already in training mode, allocate and bind gradients now.
+            if ( this->isTraining() )
+            {
+                initializeParameterGradients();
+                operation_->setGradients( weight_grad_.get(), bias_grad_.get() );
+            }
+
+            operation_->build( input_shape );
+        }
+
+        /**
          * @brief Called when module training mode is about to change.
          *
          * Default LayerNorm behavior:
@@ -232,17 +229,13 @@ namespace Mila::Dnn
          */
         void onTrainingChanging( bool is_training ) override
         {
-            if (!operation_)
-            {
-                return;
-            }
-
+            // REVIEW: Training and Build lifecycle interaction
             operation_->setTraining( is_training );
 
-            if (is_training)
+            if ( is_training )
             {
                 // Entering training: if already built, ensure gradients allocated and bound
-                if (built_)
+                if ( this->isBuilt() )
                 {
                     initializeParameterGradients();
                     operation_->setGradients( weight_grad_.get(), config_.hasBias() ? bias_grad_.get() : nullptr );
@@ -260,7 +253,6 @@ namespace Mila::Dnn
 
     private:
         LayerNormConfig config_;
-        bool built_{ false };
 
         std::vector<int64_t> outer_shape_;
 

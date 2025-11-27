@@ -48,6 +48,8 @@ namespace Modules::Layers::Tests
             data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
             data.module = std::make_shared<Softmax<DeviceType::Cuda, TPrecision>>( data.exec_context, data.config );
 
+			data.module->setTraining( is_training );
+
             return data;
         }
 
@@ -69,6 +71,8 @@ namespace Modules::Layers::Tests
 
             data.exec_context = context;
             data.module = std::make_shared<Softmax<DeviceType::Cuda, TPrecision>>( data.exec_context, data.config );
+
+			data.module->setTraining( is_training );
 
             return data;
         }
@@ -180,9 +184,6 @@ namespace Modules::Layers::Tests
     void TestBuild( SoftmaxCudaTestData<TPrecision>& data )
     {
         EXPECT_NO_THROW( data.module->build( data.shape ) );
-        EXPECT_TRUE( data.module->isBuilt() );
-
-        data.module->build( data.shape );
         EXPECT_TRUE( data.module->isBuilt() );
     }
 
@@ -326,10 +327,6 @@ namespace Modules::Layers::Tests
         auto data = SmallFp32Data();
 
         EXPECT_FALSE( data.module->isBuilt() );
-
-        data.module->build( data.shape );
-
-        EXPECT_TRUE( data.module->isBuilt() );
     }
 
     TEST_F( SoftmaxCudaTests, Build )

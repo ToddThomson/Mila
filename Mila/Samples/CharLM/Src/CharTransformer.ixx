@@ -102,7 +102,7 @@ namespace Mila::CharLM
         // Lifecycle
         // ====================================================================
 
-        bool isBuilt() const override
+        /*bool isBuilt() const override
         {
             bool blocks_ok = true;
 
@@ -115,7 +115,7 @@ namespace Mila::CharLM
             }
 
             return CompositeComponentBase::isBuilt() && encoder_ && final_layernorm_ && lm_head_ && blocks_ok;
-        }
+        }*/
 
         // Architecture-specific build hook called by CompositeComponent::build()
         void onBuilding( const shape_t& input_shape ) override
@@ -130,16 +130,16 @@ namespace Mila::CharLM
             cached_output_shape_ = { batch_size_, seq_length_, config_.vocab_size };
 
             // Build encoder (token + positional embeddings)
-            this->buildChild( encoder_, input_shape );
+            encoder_->build( input_shape );
 
             // Build transformer blocks (use embedding-shaped inputs)
             for (auto& block : transformer_blocks_)
             {
-                this->buildChild( block, cached_embedding_shape_ );
+                block->build( cached_embedding_shape_ );
             }
 
-            this->buildChild( final_layernorm_, cached_embedding_shape_ );
-            this->buildChild( lm_head_, cached_embedding_shape_ );
+            final_layernorm_->build( cached_embedding_shape_ );
+            lm_head_->build( cached_embedding_shape_ );
 
             auto device = exec_context_->getDevice();
 
@@ -160,7 +160,7 @@ namespace Mila::CharLM
 
         void forward( const ITensor& input, ITensor& output )
         {
-            if (!isBuilt())
+            if (!this->isBuilt())
             {
                 throw std::runtime_error( "CharTransformer must be built before calling forward." );
             }
@@ -198,7 +198,7 @@ namespace Mila::CharLM
 
         void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
         {
-            if (!isBuilt())
+            if (!this->isBuilt())
             {
                 throw std::runtime_error( "CharTransformer must be built before calling backward." );
             }
@@ -369,7 +369,7 @@ namespace Mila::CharLM
                 oss << "  Device: " << deviceTypeToString( exec_context_->getDevice()->getDeviceType() ) << std::endl;
             }
 
-            if (isBuilt())
+            if (this->isBuilt())
             {
                 oss << "  Built with:" << std::endl;
                 oss << "    Batch size: " << batch_size_ << std::endl;

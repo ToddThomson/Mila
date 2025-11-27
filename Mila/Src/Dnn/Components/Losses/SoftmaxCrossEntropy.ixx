@@ -85,24 +85,14 @@ namespace Mila::Dnn
         // Lifecycle
         // ====================================================================
 
-        bool isBuilt() const override
-        {
-            return (operation_ != nullptr) && is_built_;
-        }
-
         /**
          * @brief Build the module using an input shape.
          *
          * Validates input shape and triggers backend-specific setup.
          * The fused operation has no trainable parameters.
          */
-        void build( const shape_t& input_shape ) override
+        void onBuilding( const shape_t& input_shape ) override
         {
-            if (is_built_)
-            {
-                return;
-            }
-
             validateInputShape( input_shape );
 
             // Ensure backend is aware of the current training mode
@@ -112,8 +102,6 @@ namespace Mila::Dnn
             }
 
             operation_->build( input_shape );
-
-            is_built_ = true;
         }
 
         // ====================================================================
@@ -127,7 +115,7 @@ namespace Mila::Dnn
          */
         void forward( const ITensor& logits, const ITensor& targets, ITensor& output )
         {
-            if (!isBuilt())
+            if (!this->isBuilt())
             {
                 throw std::runtime_error( "SoftmaxCrossEntropy module must be built before calling forward." );
             }
@@ -148,7 +136,7 @@ namespace Mila::Dnn
             const ITensor& output_grad,
             ITensor& logits_grad )
         {
-            if (!isBuilt())
+            if (!this->isBuilt())
             {
                 throw std::runtime_error( "SoftmaxCrossEntropy module must be built before calling backward." );
             }
@@ -263,7 +251,6 @@ namespace Mila::Dnn
 
     private:
         CrossEntropyConfig config_;
-        bool is_built_{ false };
 
         std::shared_ptr<BinaryOperation<TDeviceType, TLogits, TTargets, TPrecision>> operation_{ nullptr };
         std::shared_ptr<ExecutionContextType> exec_context_;

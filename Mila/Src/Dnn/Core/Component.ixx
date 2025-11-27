@@ -2,7 +2,7 @@
  * @file Component.ixx
  * @brief Base component interface for Mila DNN components.
  *
- * Provides the abstract `Module` template defining the shared lifecycle,
+ * Provides the abstract `Component` template defining the shared lifecycle,
  * parameter, training-mode and introspection APIs used by all Mila modules.
  */
 
@@ -13,6 +13,7 @@ module;
 #include <vector>
 #include <mutex>
 #include <atomic>
+#include <stdexcept>
 
 export module Dnn.Component;
 
@@ -55,110 +56,48 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
-         * @brief Query whether the module has been built (shape-dependent init done).
+         * @brief Build the component with the given input shape.
          *
-         * Implementations must return true only after a successful call to
-         * `build(const shape_t&)` and any required child modules are built.
+         * This method performs a one-time initialization of the component based
+         * on the input shape. It is idempotent in the sense that calling build()
+         * multiple times is an error rather than a no-op.
+         *
+         * Build sequence:
+         * 1. Verify component is not already built (throws if already built)
+         * 2. Invoke onBuilding(input_shape) hook for pre-build setup
+         * 3. Mark component as built
+         *
+         * Exception safety:
+         * - If onBuilding() throws, the component remains unbuilt
+         * - Component is in a valid state and build() may be retried
+         *
+         * @param input_shape The shape of the input tensor.
+         *
+         * @throws std::logic_error if component is already built.
+         * @throws std::invalid_argument if input_shape is invalid for this component.
+         * @throws Any exception from onBuilding() or buildImpl().
          */
-        virtual bool isBuilt() const = 0;
+        virtual void build( const shape_t& input_shape ) final
+        {
+            if ( isBuilt() )
+            {
+                throw std::logic_error( "Component already built. Cannot rebuild." );
+            }
+
+            onBuilding( input_shape );
+
+            built_ = true;
+        }
 
         /**
-         * @brief Perform shape-dependent initialization and allocate parameters.
+         * @brief Check if the component has been built.
          *
-         * Preconditions:
-         * - The provided `input_shape` must be compatible with this module's
-         *   configuration. Implementations should validate and throw
-         *   std::invalid_argument on mismatch.
-         *
-         * Postconditions:
-         * - Module is ready for `forward()` / `backward()` and `isBuilt()` will
-         *   return true if build succeeds.
-         *
-         * Rebuild policy:
-         * - Modules may choose to throw if `build()` is called when already
-         *   built; concrete modules document their policy.
-         *
-         * @param input_shape Expected input tensor shape for forward calls.
+         * @return true if build() has completed successfully.
          */
-        virtual void build( const shape_t& input_shape ) = 0;
-		// REVIEW: Can we enforce that build() can only be called once at the Module level?
-
-        // ====================================================================
-        // Synchronization
-        // ====================================================================
-
-        /**
-         * @brief Wait for outstanding device work submitted by this module.
-         *
-         * On CPU this may be a no-op. Use to ensure results are visible to the
-         * host or to measure synchronous timings.
-         */
-        virtual void synchronize() = 0;
-
-        // ====================================================================
-        // Parameters and Gradients
-        // ====================================================================
-
-        /**
-         * @brief Return number of scalar trainable parameters owned by this module.
-         */
-        virtual size_t parameterCount() const = 0;
-
-        /**
-         * @brief Return non-owning pointers to parameter tensors.
-         *
-         * The returned tensor pointers remain valid for the lifetime of the
-         * module. Order should be canonical (weights before biases).
-         */
-        virtual std::vector<ITensor*> getParameters() const = 0;
-
-        /**
-         * @brief Return non-owning pointers to parameter gradient tensors.
-         *
-         * Only valid when the module is in training mode.
-         *
-         * @throws std::runtime_error if called when not in training mode or
-         *         before the module has been built.
-         */
-        virtual std::vector<ITensor*> getGradients() const = 0;
-
-        // ====================================================================
-        // Serialization
-        // ====================================================================
-
-         /**
-         * @internal
-         * @brief Persist this module into the provided archive.
-         *
-         * Contract:
-         * - Write stable module metadata needed by an inference loader:
-         *     - `type` (string): canonical module type name (e.g. "Linear").
-         *     - `version` (int/string): module serialization format version.
-         *     - optional `name` or path used by composite containers.
-         * - Write `config` data containing all shape-affecting hyper-parameters
-         *   (for example input/output sizes, bias flags). The inference loader
-         *   must be able to construct an instance from these config values.
-         * - Write all trainable and persistent tensors as named entries in a
-         *   stable canonical order (e.g. "weights", "bias", "running_mean").
-         *   Each tensor entry MUST include dtype and shape metadata plus raw
-         *   bytes; avoid device-specific handles so archives are device-agnostic.
-         * - Do not write optimizer state or transient training-only buffers here;
-         *   those belong in trainer checkpoints, not the inference artifact.
-         *
-         * Implementations should use the ModelArchive helpers to emit structured
-         * module entries so composite modules can save nested child modules
-         * deterministically.
-         *
-         * Postcondition:
-         * - Archive contains sufficient metadata and tensor blobs to allow an
-         *   inference runtime to recreate the same module type and load its
-         *   parameters on a possibly different device.
-         */
-        virtual void save_( ModelArchive& archive, SerializationMode model ) const = 0;
-
-        // ====================================================================
-        // State and Configuration
-        // ====================================================================
+        virtual bool isBuilt() const final
+        {
+            return built_;
+        }
 
         /**
          * @brief Centralized logic for toggling training mode.
@@ -200,7 +139,7 @@ namespace Mila::Dnn
             {
                 onTrainingChanging( is_training );
             }
-            catch (...)
+            catch ( ... )
             {
                 // Revert to previous state on exception to preserve invariants.
                 is_training_.store( prev );
@@ -220,6 +159,88 @@ namespace Mila::Dnn
         {
             return is_training_.load();
         }
+
+        // ====================================================================
+        // Synchronization
+        // ====================================================================
+
+        /**
+         * @brief Wait for outstanding device work submitted by this module.
+         *
+         * On CPU this may be a no-op. Use to ensure results are visible to the
+         * host or to measure synchronous timings.
+         */
+        virtual void synchronize() = 0;
+
+        // ====================================================================
+        // Parameters and Gradients
+        // ====================================================================
+
+        /**
+         * @brief Return number of scalar trainable parameters owned by this module.
+         */
+        virtual size_t parameterCount() const = 0;
+
+        /**
+         * @brief Return non-owning pointers to parameter tensors.
+         *
+         * The returned tensor pointers remain valid for the lifetime of the
+         * module. Order should be canonical (weights before biases).
+         */
+        virtual std::vector<ITensor*> getParameters() const = 0;
+
+        /**
+         * @brief Return non-owning pointers to parameter gradient tensors.
+         *
+         * Only valid when the module is in training mode.
+         *
+         * @throws std::runtime_error if called when not in training mode or
+         *         before the module has been built.
+         */
+        virtual std::vector<ITensor*> getGradients() const = 0;
+
+        // REVIEW: Revisit during Model training loop implementation
+        // Consider combining into pairs or visitor pattern based on optimizer needs
+        
+        // ====================================================================
+        // Serialization
+        // ====================================================================
+
+         /**
+         * @internal
+         * @brief Persist this module into the provided archive.
+         *
+         * Contract:
+         * - Write stable module metadata needed by an inference loader:
+         *     - `type` (string): canonical module type name (e.g. "Linear").
+         *     - `version` (int/string): module serialization format version.
+         *     - optional `name` or path used by composite containers.
+         * - Write `config` data containing all shape-affecting hyper-parameters
+         *   (for example input/output sizes, bias flags). The inference loader
+         *   must be able to construct an instance from these config values.
+         * - Write all trainable and persistent tensors as named entries in a
+         *   stable canonical order (e.g. "weights", "bias", "running_mean").
+         *   Each tensor entry MUST include dtype and shape metadata plus raw
+         *   bytes; avoid device-specific handles so archives are device-agnostic.
+         * - Do not write optimizer state or transient training-only buffers here;
+         *   those belong in trainer checkpoints, not the inference artifact.
+         *
+         * Implementations should use the ModelArchive helpers to emit structured
+         * module entries so composite modules can save nested child modules
+         * deterministically.
+         *
+         * Postcondition:
+         * - Archive contains sufficient metadata and tensor blobs to allow an
+         *   inference runtime to recreate the same module type and load its
+         *   parameters on a possibly different device.
+         */
+        virtual void save_( ModelArchive& archive, SerializationMode model ) const = 0;
+
+        // ====================================================================
+        // State and Configuration
+        // ====================================================================
+
+        
 
         /**
          * @brief Module name used for logging and diagnostics.
@@ -303,9 +324,41 @@ namespace Mila::Dnn
         {
         }
 
+        /**
+         * @brief Hook invoked before the component is built.
+         *
+         * The hook is called after `isBuilt()` has been verified as false but
+         * before `buildImpl()` executes. Implementations should perform any
+         * validation, child component preparation, or pre-build setup required.
+         *
+         * Preconditions and expectations:
+         * - MUST NOT call `build()` (no reentrancy).
+         * - Should avoid throwing; if an exception is thrown it will be
+         *   propagated to the caller of `build()` and the component will
+         *   remain in an unbuilt state.
+         * - Called while the component is guaranteed to be in an unbuilt state.
+         *
+         * Threading:
+         * - Hook runs before any state modification; implementations requiring
+         *   thread safety should use appropriate synchronization.
+         *
+         * Common use cases:
+         * - CompositeComponent: propagate build to children
+         * - Network: validate graph connectivity
+         * - Custom components: allocate auxiliary resources
+         *
+         * @param input_shape The shape that will be used for building.
+         */
+        virtual void onBuilding( const shape_t& input_shape )
+        {
+        }
+
     private:
 
         std::atomic<bool> is_training_{ false };
         std::mutex training_mutex_;
+
+		// REVIEW: mutex for build()? Currently single-threaded use is assumed.
+        bool built_{ false };
     };
 }

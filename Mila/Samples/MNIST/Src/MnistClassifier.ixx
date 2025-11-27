@@ -86,10 +86,6 @@ namespace Mila::Mnist
         // Lifecycle
         // ====================================================================
 
-        bool isBuilt() const override
-        {
-            return NetworkBase::isBuilt() && fc1_ && gelu1_ && fc2_ && gelu2_ && output_fc_;
-        }
 
         // Architecture-specific build hook called by CompositeComponent::build()
         void onBuilding( const shape_t& input_shape ) override
@@ -109,11 +105,11 @@ namespace Mila::Mnist
             output_shape_.back() = MNIST_NUM_CLASSES;
 
             // Use base helpers so child training-mode is synchronized and preconditions are checked.
-            this->buildChild( fc1_, input_shape );
-            this->buildChild( gelu1_, hidden1_shape_ );
-            this->buildChild( fc2_, hidden1_shape_ );
-            this->buildChild( gelu2_, hidden2_shape_ );
-            this->buildChild( output_fc_, hidden2_shape_ );
+            fc1_->build( input_shape );
+            gelu1_->build( hidden1_shape_ );
+            fc2_->build(  hidden1_shape_ );
+            gelu2_->build( hidden2_shape_ );
+            output_fc_->build(  hidden2_shape_ );
 
             auto device = this->getDevice();
 
@@ -145,7 +141,7 @@ namespace Mila::Mnist
          */
         void forward( const ITensor& input, ITensor& output )
         {
-            if (!isBuilt())
+            if (!this->isBuilt())
             {
                 throw std::runtime_error( "MnistClassifier must be built before calling forward." );
             }
@@ -164,7 +160,7 @@ namespace Mila::Mnist
          */
         void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
         {
-            if (!isBuilt())
+            if (!this->isBuilt())
             {
                 throw std::runtime_error( "MnistClassifier must be built before calling backward." );
             }
@@ -307,7 +303,7 @@ namespace Mila::Mnist
 
             oss << "Batch size: " << batch_size_ << std::endl;
 
-            if (isBuilt())
+            if (this->isBuilt())
             {
                 oss << "Input shape: (";
                 for (size_t i = 0; i < input_shape_.size(); ++i)

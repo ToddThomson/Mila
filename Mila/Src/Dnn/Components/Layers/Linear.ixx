@@ -87,14 +87,6 @@ namespace Mila::Dnn
         // Lifecycle
         // ====================================================================
 
-        bool isBuilt() const override
-        {
-            return (operation_ != nullptr) &&
-                (weight_ != nullptr) &&
-                (!config_.hasBias() || (bias_ != nullptr)) &&
-                is_built_;
-        }
-
         /**
          * @brief Build the Component using an input shape.
          *
@@ -105,11 +97,8 @@ namespace Mila::Dnn
          * If in training mode, also initializes gradient tensors and binds them
          * to the operation.
          */
-        void build( const shape_t& input_shape ) override
+        void onBuilding( const shape_t& input_shape ) override
         {
-            if (is_built_)
-                return;
-
             validateInputShape( input_shape );
 
             // Bind forward parameters to operation
@@ -126,8 +115,6 @@ namespace Mila::Dnn
             }
 
             operation_->build( input_shape );
-
-            is_built_ = true;
         }
 
         // ====================================================================
@@ -141,7 +128,7 @@ namespace Mila::Dnn
          */
         void forward( const ITensor& input, ITensor& output )
         {
-            if (!isBuilt())
+            if (!this->isBuilt())
             {
                 throw std::runtime_error( "Linear Component must be built before calling forward." );
             }
@@ -158,7 +145,7 @@ namespace Mila::Dnn
          */
         void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
         {
-            if (!isBuilt())
+            if (!this->isBuilt())
             {
                 throw std::runtime_error( "Linear Component must be built before calling backward." );
             }

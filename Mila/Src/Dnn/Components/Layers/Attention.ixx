@@ -86,40 +86,7 @@ namespace Mila::Dnn
 
         ~Attention() override = default;
 
-        // ====================================================================
-        // Lifecycle
-        // ====================================================================
-
-        bool isBuilt() const override
-        {
-            return (operation_ != nullptr) && is_built_;
-        }
-
-        /**
-         * @brief Build the module using an input shape.
-         *
-         * The input_shape must describe the concatenated QKV model-layout:
-         *   [B, T, 3 * embedding_dim]
-         */
-        void build( const shape_t& input_shape ) override
-        {
-            if (is_built_)
-            {
-                return;
-            }
-
-            validateConcatenatedQKVShape( input_shape );
-
-            operation_->setTraining( this->isTraining() );
-
-            // No learnable parameters in base attention
-            operation_->setParameters( nullptr, nullptr );
-
-            // Backend expects concatenated QKV model-layout input shape for build()
-            operation_->build( input_shape );
-
-            is_built_ = true;
-        }
+        
 
         // ====================================================================
         // Compute operation dispatch
@@ -136,7 +103,7 @@ namespace Mila::Dnn
          */
         void forward( const ITensor& input, ITensor& output )
         {
-            if (!isBuilt())
+            if ( !this->isBuilt() )
             {
                 throw std::runtime_error( "Attention module must be built before calling forward." );
             }
@@ -163,7 +130,7 @@ namespace Mila::Dnn
             const ITensor& output_grad,
             ITensor& input_grad )
         {
-            if (!isBuilt())
+            if ( !this->isBuilt() )
             {
                 throw std::runtime_error( "Attention module must be built before calling backward." );
             }
@@ -175,7 +142,6 @@ namespace Mila::Dnn
 
             validateBackwardShapes( input, output_grad, input_grad );
 
-            // UnaryOperation::backward convention: (output_grad, input, input_grad)
             operation_->backward( output_grad, input, input_grad );
         }
 
@@ -267,6 +233,34 @@ namespace Mila::Dnn
 
     protected:
 
+        // ====================================================================
+        // Lifecycle
+        // ====================================================================
+
+        /*bool isBuilt() const override
+        {
+            return (operation_ != nullptr) && is_built_;
+        }*/
+
+        /**
+         * @brief Build the module using an input shape.
+         *
+         * The input_shape must describe the concatenated QKV model-layout:
+         *   [B, T, 3 * embedding_dim]
+         */
+        void onBuilding( const shape_t& input_shape ) override
+        {
+            validateConcatenatedQKVShape( input_shape );
+
+            operation_->setTraining( this->isTraining() );
+
+            // No learnable parameters in base attention
+            operation_->setParameters( nullptr, nullptr );
+
+            // Backend expects concatenated QKV model-layout input shape for build()
+            operation_->build( input_shape );
+        }
+
         /**
          * @brief Hook invoked when training mode is about to change.
          *
@@ -279,18 +273,10 @@ namespace Mila::Dnn
         void onTrainingChanging( bool is_training ) override
         {
             operation_->setTraining( is_training );
-
-            //if (!newMode && oldMode)
-            //{
-            //    // Attention has no parameter gradients currently, but ensure backend
-            //    // is unbound to avoid stale pointers if a backend retained them.
-            //    operation_->clearGradients();
-            //}
         }
 
     private:
         AttentionConfig config_;
-        bool is_built_{ false };
         shape_t input_shape_;
 
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };

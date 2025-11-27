@@ -10,6 +10,7 @@ module;
 #include <vector>
 #include <utility>
 #include <string>
+#include <sstream>
 
 export module Dnn.Blocks.Transformer:Config;
 
@@ -231,8 +232,16 @@ namespace Mila::Dnn
 
         std::string toString() const override
         {
-            std::string repr = "MLPConfig(";
-            return repr;
+            std::ostringstream oss;
+
+            oss << "Transformer: " << getName() << std::endl;
+            oss << "Embedding Dim: " << embedding_dim_ << std::endl;
+            oss << "Num Heads: " << num_heads_ << std::endl;
+            oss << "Hidden Dim: " << hidden_dim_ << std::endl;
+            oss << "Use Bias: " << (use_bias_ ? "Yes" : "No") << std::endl;
+            oss << "Activation: " << static_cast<int>( activation_type_ ) << std::endl;
+			
+            return oss.str();
 		}
 
     private:

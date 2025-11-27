@@ -247,7 +247,6 @@ namespace Mila::Dnn
 
     private:
         ConvolutionConfig config_;
-        bool built_{ false };
 
         std::shared_ptr<TensorType> weight_{ nullptr };
         std::shared_ptr<TensorType> bias_{ nullptr };

@@ -6,16 +6,16 @@
 
 import Mila;
 
-namespace Dnn::Modules::Tests
+namespace Dnn::Components::Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
 
-    class TestModuleConfig : public ComponentConfig {
+    class TestComponentConfig : public ComponentConfig {
     public:
         // Test-only derived class; no additional behavior required.
 
-        TestModuleConfig() 
+        TestComponentConfig() 
             : ComponentConfig( "test_component" ) {
 		}
 
@@ -28,19 +28,19 @@ namespace Dnn::Modules::Tests
 
         std::string toString() const {
             std::ostringstream oss;
-            oss << "ModuleConfig(name=" << getName()
+            oss << "TestComponentConfig(name=" << getName()
                 << ", precision_policy=" << static_cast<int>(getPrecisionPolicy())
                 << ")";
             return oss.str();
 		}
     };
 
-    class ModuleConfigTests : public ::testing::Test {
+    class ComponentConfigTests : public ::testing::Test {
     protected:
         void SetUp() override {
             cpu_device_name_ = "CPU";
             cuda_device_name_ = "CUDA:0";
-            test_module_name_ = "test_module";
+            test_module_name_ = "test_component";
         }
 
         void TearDown() override {}
@@ -50,22 +50,22 @@ namespace Dnn::Modules::Tests
         std::string test_module_name_;
     };
 
-    TEST_F( ModuleConfigTests, DefaultConstructor_ShouldSetDefaultValues ) {
-        TestModuleConfig config;
+    TEST_F( ComponentConfigTests, DefaultConstructor_ShouldSetDefaultValues ) {
+        TestComponentConfig config;
 
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Auto );
     }
 
-    TEST_F( ModuleConfigTests, WithName_ShouldSetName ) {
-        TestModuleConfig config;
+    TEST_F( ComponentConfigTests, WithName_ShouldSetName ) {
+        TestComponentConfig config;
 
         config.withName( test_module_name_ );
 
         EXPECT_EQ( config.getName(), test_module_name_ );
     }
 
-    TEST_F( ModuleConfigTests, WithPrecision_ShouldSetComputePrecision ) {
-        TestModuleConfig config;
+    TEST_F( ComponentConfigTests, WithPrecision_ShouldSetComputePrecision ) {
+        TestComponentConfig config;
 
         config.withPrecisionPolicy( ComputePrecision::Policy::Native );
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Native );
@@ -80,8 +80,8 @@ namespace Dnn::Modules::Tests
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Accuracy );
     }
 
-    TEST_F( ModuleConfigTests, MethodChaining_ShouldReturnCorrectValues ) {
-        TestModuleConfig config;
+    TEST_F( ComponentConfigTests, MethodChaining_ShouldReturnCorrectValues ) {
+        TestComponentConfig config;
 
         config.withName( test_module_name_ )
             .withPrecisionPolicy( ComputePrecision::Policy::Performance );
@@ -90,15 +90,15 @@ namespace Dnn::Modules::Tests
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Performance );
     }
 
-    TEST_F( ModuleConfigTests, Validate_WithValidConfig_ShouldNotThrow ) {
-        TestModuleConfig config;
+    TEST_F( ComponentConfigTests, Validate_WithValidConfig_ShouldNotThrow ) {
+        TestComponentConfig config;
         config.withName( test_module_name_ );
 
         EXPECT_NO_THROW( config.validate() );
     }
 
-    TEST_F( ModuleConfigTests, Validate_WithEmptyName_ShouldThrow ) {
-        TestModuleConfig config;
+    TEST_F( ComponentConfigTests, Validate_WithEmptyName_ShouldThrow ) {
+        TestComponentConfig config;
         // Default name is "unnamed"; explicitly set empty to test validation failure
         config.withName( "" );
 
@@ -152,8 +152,8 @@ namespace Dnn::Modules::Tests
         std::string device_name_;
     };
 
-    TEST_F( ModuleConfigTests, DeducedThis_ShouldAllowMethodChaining ) {
-        TestModuleConfig config;
+    TEST_F( ComponentConfigTests, DeducedThis_ShouldAllowMethodChaining ) {
+        TestComponentConfig config;
 
         auto& ref1 = config.withName( test_module_name_ );
         auto& ref2 = ref1.withPrecisionPolicy( ComputePrecision::Policy::Accuracy );
@@ -165,7 +165,7 @@ namespace Dnn::Modules::Tests
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Accuracy );
     }
 
-    TEST_F( ModuleConfigTests, DerivedConfig_ShouldInheritAndExtendBaseConfig ) {
+    TEST_F( ComponentConfigTests, DerivedConfig_ShouldInheritAndExtendBaseConfig ) {
         DerivedModuleConfig config;
 
         config.withName( test_module_name_ )
@@ -179,7 +179,7 @@ namespace Dnn::Modules::Tests
         EXPECT_EQ( config.getCustomOption(), 42 );
     }
 
-    TEST_F( ModuleConfigTests, DerivedConfig_Validate_ShouldEnforceCustomRules ) {
+    TEST_F( ComponentConfigTests, DerivedConfig_Validate_ShouldEnforceCustomRules ) {
         DerivedModuleConfig config;
         config.withName( test_module_name_ )
             .withDeviceName( cuda_device_name_ )
@@ -191,7 +191,7 @@ namespace Dnn::Modules::Tests
         EXPECT_NO_THROW( config.validate() );
     }
 
-    TEST_F( ModuleConfigTests, DerivedConfig_Validate_ShouldEnforceBaseRules ) {
+    TEST_F( ComponentConfigTests, DerivedConfig_Validate_ShouldEnforceBaseRules ) {
         DerivedModuleConfig config;
         config.withCustomOption( 42 )
             .withName( "" ); // Set name empty to trigger base validation

@@ -90,53 +90,6 @@ namespace Mila::Dnn
 
         ~Encoder() override = default;
 
-        // ====================================================================
-        // Lifecycle
-        // ====================================================================
-
-        bool isBuilt() const override
-        {
-            return (operation_ != nullptr) &&
-                (wte_ != nullptr) &&
-                (wpe_ != nullptr) &&
-                is_built_;
-        }
-
-        /**
-         * @brief Build the module using an input shape.
-         *
-         * Encoder parameters are eagerly created in the constructor based on
-         * configuration (vocab_size, max_seq_len, embedding_dim). This method
-         * binds parameters to the backend operation and triggers backend-specific setup.
-         *
-         * If in training mode, also initializes gradient tensors and binds them
-         * to the operation.
-         *
-         * @param input_shape Expected shape: (batch_size, sequence_length)
-         */
-        void build( const shape_t& input_shape ) override
-        {
-            if (is_built_)
-                return;
-
-            validateInputShape( input_shape );
-
-            operation_->setTraining( this->isTraining() );
-
-            // Bind forward parameters to operation
-            operation_->setParameters( wte_.get(), wpe_.get() );
-
-            // If training mode, initialize gradients and bind to operation
-            if (this->isTraining())
-            {
-                initializeParameterGradients();
-                operation_->setGradients( wte_grad_.get(), wpe_grad_.get() );
-            }
-
-            operation_->build( input_shape );
-
-            is_built_ = true;
-        }
 
         // ====================================================================
         // Compute operation dispatch
@@ -154,7 +107,7 @@ namespace Mila::Dnn
          */
         void forward( const ITensor& input, ITensor& output )
         {
-            if (!isBuilt())
+            if (!this->isBuilt())
             {
                 throw std::runtime_error( "Encoder module must be built before calling forward." );
             }
@@ -172,18 +125,18 @@ namespace Mila::Dnn
          */
         void backward( const ITensor& input, const ITensor& output_grad )
         {
-            if (!isBuilt())
+            if ( !this->isBuilt() )
             {
                 throw std::runtime_error( "Encoder module must be built before calling backward." );
             }
 
-            if (!this->isTraining())
+            if ( !this->isTraining() )
             {
                 throw std::runtime_error( "Encoder module must be in training mode to call backward. Call setTraining(true) first." );
             }
 
             // Ensure gradients are initialized (defensive check)
-            if (!wte_grad_ || !wpe_grad_)
+            if ( !wte_grad_ || !wpe_grad_ )
             {
                 throw std::runtime_error( "Encoder module gradients not initialized. This is a bug." );
             }
@@ -381,6 +334,42 @@ namespace Mila::Dnn
 
     protected:
 
+        // ====================================================================
+// Lifecycle
+// ====================================================================
+
+
+        /**
+         * @brief Build the module using an input shape.
+         *
+         * Encoder parameters are eagerly created in the constructor based on
+         * configuration (vocab_size, max_seq_len, embedding_dim). This method
+         * binds parameters to the backend operation and triggers backend-specific setup.
+         *
+         * If in training mode, also initializes gradient tensors and binds them
+         * to the operation.
+         *
+         * @param input_shape Expected shape: (batch_size, sequence_length)
+         */
+        void onBuilding( const shape_t& input_shape ) override
+        {
+            validateInputShape( input_shape );
+
+            operation_->setTraining( this->isTraining() );
+
+            // Bind forward parameters to operation
+            operation_->setParameters( wte_.get(), wpe_.get() );
+
+            // If training mode, initialize gradients and bind to operation
+            if ( this->isTraining() )
+            {
+                initializeParameterGradients();
+                operation_->setGradients( wte_grad_.get(), wpe_grad_.get() );
+            }
+
+            operation_->build( input_shape );
+        }
+
         /**
          * @brief Hook invoked when training mode is about to change.
          *
@@ -398,7 +387,7 @@ namespace Mila::Dnn
             if ( is_training )
             {
                 // Entering training: if already built ensure gradients allocated and bound
-                if (is_built_)
+                if (this->isBuilt())
                 {
                     initializeParameterGradients();
                     operation_->setGradients( wte_grad_.get(), wpe_grad_.get() );
@@ -416,7 +405,6 @@ namespace Mila::Dnn
 
     private:
         EncoderConfig config_;
-        bool is_built_{ false };
 
         std::shared_ptr<EmbeddingsTensorType> wte_{ nullptr };  // Token embeddings (V, C)
         std::shared_ptr<EmbeddingsTensorType> wpe_{ nullptr };  // Position embeddings (maxT, C)

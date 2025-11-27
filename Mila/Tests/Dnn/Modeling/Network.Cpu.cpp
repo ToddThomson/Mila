@@ -31,11 +31,14 @@ namespace Dnn::NetworkTests
         }
 
     protected:
-        // Architecture-specific build hook required by the centralized CompositeComponent lifecycle.
+
         void onBuilding( const shape_t& input_shape ) override
         {
-            // For the test network, every direct child accepts the same input shape.
-            this->buildChildrenWithSameShape( input_shape );
+            // Build all direct children with the same input shape
+            for (const auto& [component_name, component_ptr] : this->getNamedComponents())
+            {
+                component_ptr->build( input_shape );
+			}
         }
     };
 
@@ -47,12 +50,12 @@ namespace Dnn::NetworkTests
             std::string name,
             size_t param_count = 0,
             bool built = false )
-            : ctx_( std::move( ctx ) ), name_( std::move( name ) ), param_count_( param_count ), is_built_( built )
+            : ctx_( std::move( ctx ) ), name_( std::move( name ) ), param_count_( param_count )
         {
             if (!ctx_) throw std::invalid_argument( "context required" );
         }
 
-        // Computational interface (not exercised in many of these tests)
+        // Computational interface (not exercised in these tests)
         void forward( const ITensor& /*input*/, ITensor& /*output*/ )
         {
         }
@@ -91,14 +94,8 @@ namespace Dnn::NetworkTests
         }
 
         // Build lifecycle
-        void build( const shape_t& /*input_shape*/ ) override
+        void onBuilding( const shape_t& /*input_shape*/ ) override
         {
-            is_built_ = true;
-        }
-
-        bool isBuilt() const override
-        {
-            return is_built_;
         }
 
         // Introspection
@@ -112,17 +109,10 @@ namespace Dnn::NetworkTests
             return ctx_->getDevice();
         }
 
-        // Allow tests to mutate built flag
-        void setBuilt( bool v )
-        {
-            is_built_ = v;
-        }
-
     private:
         std::shared_ptr<ExecutionContext<DeviceType::Cpu>> ctx_;
         std::string name_;
         size_t param_count_;
-        bool is_built_;
     };
 
     class NetworkCpuTests : public ::testing::Test
@@ -180,12 +170,6 @@ namespace Dnn::NetworkTests
         // getComponent returns correct pointer
         auto g = net.getComponent( "child1" );
         EXPECT_EQ( g, m1 );
-
-        // replaceComponent returns false for missing, true when present
-        auto m3 = std::make_shared<SimpleTestComponent>( exec_ctx_, "replacement", 3 );
-        EXPECT_FALSE( net.replaceComponent( "missing", m3 ) );
-        EXPECT_TRUE( net.replaceComponent( "child1", m3 ) );
-        EXPECT_EQ( net.getComponent( "child1" ), m3 );
 
         // removeComponent on non-existing false, on existing true
         EXPECT_FALSE( net.removeComponent( "does_not_exist" ) );

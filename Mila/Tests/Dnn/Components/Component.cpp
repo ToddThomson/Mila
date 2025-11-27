@@ -7,7 +7,7 @@
 
 import Mila;
 
-namespace Dnn::Modules::Tests
+namespace Dnn::Components::Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
@@ -153,20 +153,8 @@ namespace Dnn::Modules::Tests
         // Build / lifecycle
         // ====================================================================
 
-        void build( const shape_t& /*input_shape*/ ) override
+        void onBuilding( const shape_t& /*input_shape*/ ) override
         {
-            if ( is_built_ )
-            {
-                return;
-            }
-
-            // Mock has no parameters to allocate but implements the contract.
-            is_built_ = true;
-        }
-
-        bool isBuilt() const override
-        {
-            return is_built_;
         }
 
         // ====================================================================
@@ -226,7 +214,6 @@ namespace Dnn::Modules::Tests
 
         MockComponentConfig config_;
         std::shared_ptr<ExecutionContextType> exec_context_;
-        bool is_built_{ false };
     };
 
     /**
@@ -653,7 +640,7 @@ namespace Dnn::Modules::Tests
     TEST_F( ComponentTests, ComponentConfig_DefaultValues )
     {
         MockComponentConfig config;
-        EXPECT_EQ( config.getName(), "mock_component" );
+        EXPECT_EQ( config.getName(), "mock" );
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Auto );
     }
 

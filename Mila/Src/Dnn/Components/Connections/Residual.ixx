@@ -130,27 +130,6 @@ namespace Mila::Dnn
             );
         }
 
-        // ====================================================================
-        // Module lifecycle
-        // ====================================================================
-
-        bool isBuilt() const override
-        {
-            return is_built_;
-        }
-
-        void build( const shape_t& input_shape ) override
-        {
-            if (is_built_)
-            {
-                throw std::runtime_error( "Residual::build: module already built" );
-            }
-
-            operation_->build( input_shape );
-
-            input_shape_ = input_shape;
-            is_built_ = true;
-        }
 
         /**
          * @brief Block until all device operations submitted by this module complete.
@@ -207,13 +186,25 @@ namespace Mila::Dnn
             std::ostringstream oss;
             oss << "Residual: " << getName() << std::endl;
             oss << "Training mode: " << (this->isTraining() ? "true" : "false") << std::endl;
-            oss << "Built: " << (isBuilt() ? "true" : "false") << std::endl;
+            oss << "Built: " << (this->isBuilt() ? "true" : "false") << std::endl;
             oss << "Device: " << deviceTypeToString( exec_context_->getDevice()->getDeviceType() ) << std::endl;
 
             return oss.str();
         }
 
     protected:
+
+        // ====================================================================
+        // Lifecycle
+        // ====================================================================
+
+        void onBuilding( const shape_t& input_shape ) override
+        {
+            operation_->build( input_shape );
+
+            input_shape_ = input_shape;
+        }
+
         /**
          * @brief Hook invoked when training mode is about to change.
          *
@@ -231,7 +222,6 @@ namespace Mila::Dnn
     private:
 
         ResidualConfig config_;
-        bool is_built_{ false };
         shape_t input_shape_;
 
         std::shared_ptr<BinaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };

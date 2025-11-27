@@ -107,7 +107,7 @@ namespace Mila::Dnn
 
         void validate() const override
         {
-            // Validate base properties (name, etc.)
+			ComponentConfig::validate();
 
             if (scaling_factor_ <= 0.0f)
             {
@@ -163,11 +163,11 @@ namespace Mila::Dnn
         std::string toString() const override
         {
             std::ostringstream oss;
-            //oss << ComponentConfig::toString();
-            oss << "; connection=" << connectionTypeToString( connection_type_ );
-            oss << "; scaling=" << scaling_factor_;
 
-            // blank line before return per style
+            oss << "ResidualConfig: " << getName() << std::endl;
+            oss << "scaling factor: " << scaling_factor_ << std::endl;
+            oss << "connection type: " << connectionTypeToString( connection_type_ ) << std::endl;
+			
             return oss.str();
         }
 
@@ -177,8 +177,10 @@ namespace Mila::Dnn
         {
             switch ( ct )
             {
-                case ConnectionType::Addition: return "Addition";
-                default:                      return "Unknown";
+                case ConnectionType::Addition:
+                    return "Addition";
+                default:
+                    return "Unknown";
             }
         }
 

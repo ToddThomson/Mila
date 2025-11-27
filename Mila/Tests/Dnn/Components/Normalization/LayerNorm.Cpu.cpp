@@ -230,7 +230,7 @@ namespace Modules::Normalization::Tests
         EXPECT_NO_THROW( data.module->build( data.shape ) );
         EXPECT_TRUE( data.module->isBuilt() );
 
-        EXPECT_THROW( data.module->build( data.shape ), std::runtime_error );
+        EXPECT_THROW( data.module->build( data.shape ), std::logic_error );
     }
 
     template<TensorDataType TPrecision>

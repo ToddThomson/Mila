@@ -87,11 +87,6 @@ namespace Mila::Dnn
         // Lifecycle
         // ====================================================================
 
-        bool isBuilt() const override
-        {
-            return (operation_ != nullptr) && built_;
-        }
-
         /**
          * @brief Build the module using an input shape.
          *
@@ -99,13 +94,8 @@ namespace Mila::Dnn
          * validates the input shape and delegates to the backend operation's
          * build method to cache dimension computations.
          */
-        void build( const shape_t& input_shape ) override
+        void onBuilding( const shape_t& input_shape ) override
         {
-            if (built_)
-            {
-                return;
-            }
-
             validateInputShape( input_shape );
 
             // Ensure backend is aware of current training mode before build.
@@ -117,8 +107,6 @@ namespace Mila::Dnn
             operation_->setParameters( nullptr, nullptr );
 
             operation_->build( input_shape );
-
-            built_ = true;
         }
 
         // ====================================================================
@@ -132,7 +120,7 @@ namespace Mila::Dnn
          */
         void forward( const ITensor& input, ITensor& output )
         {
-            if (!isBuilt())
+            if (!this->isBuilt())
             {
                 throw std::runtime_error( "Softmax module must be built before calling forward." );
             }
@@ -150,7 +138,7 @@ namespace Mila::Dnn
          */
         void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
         {
-            if (!isBuilt())
+            if (!this->isBuilt())
             {
                 throw std::runtime_error( "Softmax module must be built before calling backward." );
             }
@@ -264,7 +252,6 @@ namespace Mila::Dnn
 
     private:
         SoftmaxConfig config_;
-        bool built_{ false };
 
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
         std::shared_ptr<ExecutionContextType> exec_context_;

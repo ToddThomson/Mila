@@ -231,7 +231,7 @@ namespace Mila::Dnn
         }
 
         // ====================================================================
-        // Module interface
+        // Component interface
         // ====================================================================
 
         std::string getName() const override

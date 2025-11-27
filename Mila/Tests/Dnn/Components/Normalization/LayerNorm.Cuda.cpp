@@ -27,7 +27,7 @@ namespace Modules::Normalization::Tests
         shape_t normalized_shape;
         LayerNormConfig config;
         std::shared_ptr<ExecutionContext<DeviceType::Cuda>> exec_context;
-        std::shared_ptr<LayerNorm<DeviceType::Cuda, TPrecision>> module;
+        std::shared_ptr<LayerNorm<DeviceType::Cuda, TPrecision>> layer_norm;
         bool is_training;
 
         static LayerNormCudaTestData Create(
@@ -50,7 +50,9 @@ namespace Modules::Normalization::Tests
                 .withEpsilon( epsilon );
 
             data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
-            data.module = std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>( data.exec_context, data.config );
+            data.layer_norm = std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>( data.exec_context, data.config );
+
+			data.layer_norm->setTraining( is_training );
 
             return data;
         }
@@ -74,7 +76,9 @@ namespace Modules::Normalization::Tests
                 .withEpsilon( epsilon );
 
             data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
-            data.module = std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>( data.exec_context, data.config );
+            data.layer_norm = std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>( data.exec_context, data.config );
+
+			data.layer_norm->setTraining( is_training );
 
             return data;
         }
@@ -100,7 +104,9 @@ namespace Modules::Normalization::Tests
                 .withEpsilon( epsilon );
 
             data.exec_context = context;
-            data.module = std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>( data.exec_context, data.config );
+            data.layer_norm = std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>( data.exec_context, data.config );
+
+			data.layer_norm->setTraining( is_training );
 
             return data;
         }
@@ -140,7 +146,7 @@ namespace Modules::Normalization::Tests
 
         LayerNormCudaTestData<TensorDataType::FP32>& SmallFp32Data()
         {
-            if (!small_fp32_.module)
+            if (!small_fp32_.layer_norm)
             {
                 small_fp32_ = LayerNormCudaTestData<TensorDataType::FP32>::Create(
                     "small_layernorm_cuda", small_shape_, small_normalized_shape_ );
@@ -150,7 +156,7 @@ namespace Modules::Normalization::Tests
 
         LayerNormCudaTestData<TensorDataType::FP32>& MediumFp32Data()
         {
-            if (!medium_fp32_.module)
+            if (!medium_fp32_.layer_norm)
             {
                 medium_fp32_ = LayerNormCudaTestData<TensorDataType::FP32>::Create(
                     "medium_layernorm_cuda", medium_shape_, medium_normalized_shape_ );
@@ -161,7 +167,7 @@ namespace Modules::Normalization::Tests
 
         LayerNormCudaTestData<TensorDataType::FP32>& LargeFp32Data()
         {
-            if (!large_fp32_.module)
+            if (!large_fp32_.layer_norm)
             {
                 large_fp32_ = LayerNormCudaTestData<TensorDataType::FP32>::Create(
                     "large_layernorm_cuda", large_shape_, large_normalized_shape_ );
@@ -172,7 +178,7 @@ namespace Modules::Normalization::Tests
 
         LayerNormCudaTestData<TensorDataType::FP32>& TrainingFp32Data()
         {
-            if (!training_fp32_.module)
+            if (!training_fp32_.layer_norm)
             {
                 training_fp32_ = LayerNormCudaTestData<TensorDataType::FP32>::Create(
                     "training_layernorm_cuda", medium_shape_, medium_normalized_shape_, true, 1e-5f, true );
@@ -200,13 +206,13 @@ namespace Modules::Normalization::Tests
     template<TensorDataType TPrecision>
     void TestGetName( const LayerNormCudaTestData<TPrecision>& data, const std::string& expected_name )
     {
-        EXPECT_EQ( data.module->getName(), expected_name );
+        EXPECT_EQ( data.layer_norm->getName(), expected_name );
     }
 
     template<TensorDataType TPrecision>
     void TestDeviceType( const LayerNormCudaTestData<TPrecision>& data )
     {
-        EXPECT_EQ( data.module->getDeviceType(), DeviceType::Cuda );
+        EXPECT_EQ( data.layer_norm->getDeviceType(), DeviceType::Cuda );
         ASSERT_NE( data.exec_context, nullptr );
 
         auto device = data.exec_context->getDevice();
@@ -217,33 +223,30 @@ namespace Modules::Normalization::Tests
     template<TensorDataType TPrecision>
     void TestTrainingMode( const LayerNormCudaTestData<TPrecision>& data, bool expected_mode )
     {
-        EXPECT_EQ( data.module->isTraining(), expected_mode );
+        EXPECT_EQ( data.layer_norm->isTraining(), expected_mode );
     }
 
     template<TensorDataType TPrecision>
     void TestIsBuilt( const LayerNormCudaTestData<TPrecision>& data, bool expected_built )
     {
-        EXPECT_EQ( data.module->isBuilt(), expected_built );
+        EXPECT_EQ( data.layer_norm->isBuilt(), expected_built );
     }
 
     template<TensorDataType TPrecision>
     void TestBuild( LayerNormCudaTestData<TPrecision>& data )
     {
-        EXPECT_NO_THROW( data.module->build( data.shape ) );
-        EXPECT_TRUE( data.module->isBuilt() );
-
-        data.module->build( data.shape );
-        EXPECT_TRUE( data.module->isBuilt() );
+        EXPECT_NO_THROW( data.layer_norm->build( data.shape ) );
+        EXPECT_TRUE( data.layer_norm->isBuilt() );
     }
 
     template<TensorDataType TPrecision>
     void TestParameters( const LayerNormCudaTestData<TPrecision>& data, size_t expected_weight_size )
     {
-        /*auto weight = data.module->getWeight();
+        /*auto weight = data.layer_norm->getWeight();
         ASSERT_NE( weight, nullptr );
         EXPECT_EQ( weight->size(), expected_weight_size );
 
-        auto bias = data.module->getBias();
+        auto bias = data.layer_norm->getBias();
 
         if (data.config.hasBias())
         {
@@ -255,7 +258,7 @@ namespace Modules::Normalization::Tests
             EXPECT_EQ( bias, nullptr );
         }*/
 
-        auto params = data.module->getParameters();
+        auto params = data.layer_norm->getParameters();
 
         if (data.config.hasBias())
         {
@@ -270,13 +273,13 @@ namespace Modules::Normalization::Tests
     template<TensorDataType TPrecision>
     void TestParameterCount( const LayerNormCudaTestData<TPrecision>& data, size_t expected_count )
     {
-        EXPECT_EQ( data.module->parameterCount(), expected_count );
+        EXPECT_EQ( data.layer_norm->parameterCount(), expected_count );
     }
 
     template<TensorDataType TPrecision>
     void TestToString( const LayerNormCudaTestData<TPrecision>& data )
     {
-        std::string output = data.module->toString();
+        std::string output = data.layer_norm->toString();
 
         EXPECT_NE( output.find( "LayerNorm" ), std::string::npos );
         EXPECT_NE( output.find( data.config.getName() ), std::string::npos );
@@ -291,7 +294,7 @@ namespace Modules::Normalization::Tests
         using DeviceTensorType = CudaTensor<TPrecision>;
         using HostTensorType = CpuTensor<TensorDataType::FP32>;
 
-        data.module->build( data.shape );
+        data.layer_norm->build( data.shape );
 
         HostTensorType host_input( "CPU", data.shape );
         random( host_input, -2.0f, 2.0f );
@@ -301,7 +304,7 @@ namespace Modules::Normalization::Tests
 
         copy( host_input, device_input );
 
-        EXPECT_NO_THROW( data.module->forward( device_input, device_output ) );
+        EXPECT_NO_THROW( data.layer_norm->forward( device_input, device_output ) );
         EXPECT_EQ( device_output.size(), device_input.size() );
         EXPECT_EQ( device_output.shape(), device_input.shape() );
 
@@ -414,11 +417,11 @@ namespace Modules::Normalization::Tests
 
         auto data = SmallFp32Data();
 
-        EXPECT_FALSE( data.module->isBuilt() );
+        EXPECT_FALSE( data.layer_norm->isBuilt() );
 
-        data.module->build( data.shape );
+        data.layer_norm->build( data.shape );
 
-        EXPECT_TRUE( data.module->isBuilt() );
+        EXPECT_TRUE( data.layer_norm->isBuilt() );
     }
 
     TEST_F( LayerNormCudaTests, Build )
@@ -440,7 +443,7 @@ namespace Modules::Normalization::Tests
         }
 
         auto data = SmallFp32Data();
-        data.module->build( data.shape );
+        data.layer_norm->build( data.shape );
 
         size_t norm_size = 1;
 
@@ -462,7 +465,7 @@ namespace Modules::Normalization::Tests
         auto data = LayerNormCudaTestData<TensorDataType::FP32>::Create(
             "no_bias_layernorm_cuda", small_shape_, small_normalized_shape_, false );
 
-        data.module->build( data.shape );
+        data.layer_norm->build( data.shape );
 
         size_t norm_size = 1;
 
@@ -482,7 +485,7 @@ namespace Modules::Normalization::Tests
         }
 
         auto data = SmallFp32Data();
-        data.module->build( data.shape );
+        data.layer_norm->build( data.shape );
 
         size_t norm_size = 1;
 
@@ -504,7 +507,7 @@ namespace Modules::Normalization::Tests
         auto data = LayerNormCudaTestData<TensorDataType::FP32>::Create(
             "no_bias_layernorm_cuda", small_shape_, small_normalized_shape_, false );
 
-        data.module->build( data.shape );
+        data.layer_norm->build( data.shape );
 
         size_t norm_size = 1;
 
@@ -601,7 +604,7 @@ namespace Modules::Normalization::Tests
         }
 
         auto data = MediumFp32Data();
-        data.module->build( data.shape );
+        data.layer_norm->build( data.shape );
 
         CpuTensor<TensorDataType::FP32> host_input( "CPU", data.shape );
         random( host_input, -5.0f, 5.0f );
@@ -611,8 +614,8 @@ namespace Modules::Normalization::Tests
 
         copy( host_input, device_input );
 
-        //auto weight = data.module->getWeight();
-        //auto bias = data.module->getBias();
+        //auto weight = data.layer_norm->getWeight();
+        //auto bias = data.layer_norm->getBias();
 
         //CpuTensor<TensorDataType::FP32> host_weight( "CPU", weight->shape() );
         //CpuTensor<TensorDataType::FP32> host_bias( "CPU", bias->shape() );
@@ -623,7 +626,7 @@ namespace Modules::Normalization::Tests
         //copy( host_weight, *weight );
         //copy( host_bias, *bias );
 
-        data.module->forward( device_input, device_output );
+        data.layer_norm->forward( device_input, device_output );
 
         CpuTensor<TensorDataType::FP32> host_output = toHost<TensorDataType::FP32>( device_output );
 
@@ -643,7 +646,7 @@ namespace Modules::Normalization::Tests
         auto data = LayerNormCudaTestData<TensorDataType::FP32>::Create(
             "multi_trailing_cuda", shape, normalized_shape );
 
-        data.module->build( data.shape );
+        data.layer_norm->build( data.shape );
 
         CpuTensor<TensorDataType::FP32> host_input( "CPU", shape );
         random( host_input, -3.0f, 3.0f );
@@ -653,7 +656,7 @@ namespace Modules::Normalization::Tests
 
         copy( host_input, device_input );
 
-        EXPECT_NO_THROW( data.module->forward( device_input, device_output ) );
+        EXPECT_NO_THROW( data.layer_norm->forward( device_input, device_output ) );
         EXPECT_EQ( device_output.size(), device_input.size() );
     }
 
@@ -667,8 +670,8 @@ namespace Modules::Normalization::Tests
         auto data = LayerNormCudaTestData<TensorDataType::FP32>::CreateWithAxis(
             "axis_layernorm_cuda", medium_shape_, -1 );
 
-        EXPECT_EQ( data.module->getName(), "axis_layernorm_cuda" );
-        EXPECT_FALSE( data.module->isBuilt() );
+        EXPECT_EQ( data.layer_norm->getName(), "axis_layernorm_cuda" );
+        EXPECT_FALSE( data.layer_norm->isBuilt() );
     }
 
     TEST_F( LayerNormCudaTests, WithAxis_Build )
@@ -681,10 +684,10 @@ namespace Modules::Normalization::Tests
         auto data = LayerNormCudaTestData<TensorDataType::FP32>::CreateWithAxis(
             "axis_layernorm_cuda", medium_shape_, -1 );
 
-        EXPECT_NO_THROW( data.module->build( data.shape ) );
-        EXPECT_TRUE( data.module->isBuilt() );
+        EXPECT_NO_THROW( data.layer_norm->build( data.shape ) );
+        EXPECT_TRUE( data.layer_norm->isBuilt() );
 
-        //auto weight = data.module->getWeight();
+        //auto weight = data.layer_norm->getWeight();
 
         //ASSERT_NE( weight, nullptr );
         //EXPECT_EQ( weight->size(), static_cast<size_t>(data.shape.back()) );
@@ -715,7 +718,7 @@ namespace Modules::Normalization::Tests
         auto data = LayerNormCudaTestData<TensorDataType::FP32>::CreateWithContext(
             "context_layernorm_cuda", medium_shape_, medium_normalized_shape_, ctx );
 
-        EXPECT_EQ( data.module->getName(), "context_layernorm_cuda" );
+        EXPECT_EQ( data.layer_norm->getName(), "context_layernorm_cuda" );
         EXPECT_EQ( data.exec_context, ctx );
     }
 
@@ -767,7 +770,7 @@ namespace Modules::Normalization::Tests
         }
 
         auto data = SmallFp32Data();
-        data.module->build( data.shape );
+        data.layer_norm->build( data.shape );
 
         CpuTensor<TensorDataType::FP32> host_input( "CPU", data.shape );
         zeros( host_input );
@@ -777,7 +780,7 @@ namespace Modules::Normalization::Tests
 
         copy( host_input, device_input );
 
-        EXPECT_NO_THROW( data.module->forward( device_input, device_output ) );
+        EXPECT_NO_THROW( data.layer_norm->forward( device_input, device_output ) );
     }
 
     TEST_F( LayerNormCudaTests, EdgeCase_ConstantValues )
@@ -788,7 +791,7 @@ namespace Modules::Normalization::Tests
         }
 
         auto data = SmallFp32Data();
-        data.module->build( data.shape );
+        data.layer_norm->build( data.shape );
 
         CpuTensor<TensorDataType::FP32> host_input( "CPU", data.shape );
         fill( host_input, 5.0f );
@@ -798,7 +801,7 @@ namespace Modules::Normalization::Tests
 
         copy( host_input, device_input );
 
-        EXPECT_NO_THROW( data.module->forward( device_input, device_output ) );
+        EXPECT_NO_THROW( data.layer_norm->forward( device_input, device_output ) );
     }
 
     TEST_F( LayerNormCudaTests, Error_NullExecutionContext )
@@ -851,7 +854,7 @@ namespace Modules::Normalization::Tests
         CudaTensor<TensorDataType::FP32> output( "CUDA:0", data.shape );
 
         EXPECT_THROW(
-            data.module->forward( input, output ),
+            data.layer_norm->forward( input, output ),
             std::runtime_error
         );
     }
@@ -864,7 +867,7 @@ namespace Modules::Normalization::Tests
         }
 
         auto data = SmallFp32Data();
-        data.module->build( data.shape );
+        data.layer_norm->build( data.shape );
 
         shape_t wrong_shape = { 2, 3, 8 };
 
@@ -872,7 +875,7 @@ namespace Modules::Normalization::Tests
         CudaTensor<TensorDataType::FP32> output( "CUDA:0", wrong_shape );
 
         EXPECT_THROW(
-            data.module->forward( input, output ),
+            data.layer_norm->forward( input, output ),
             std::invalid_argument
         );
     }
@@ -886,7 +889,7 @@ namespace Modules::Normalization::Tests
 
         auto data = SmallFp32Data();
 
-        EXPECT_NO_THROW( data.module->synchronize() );
+        EXPECT_NO_THROW( data.layer_norm->synchronize() );
     }
 
     TEST_F( LayerNormCudaTests, SetTrainingMode )
@@ -898,13 +901,13 @@ namespace Modules::Normalization::Tests
 
         auto data = SmallFp32Data();
 
-        EXPECT_FALSE( data.module->isTraining() );
+        EXPECT_FALSE( data.layer_norm->isTraining() );
 
-        data.module->setTraining( true );
-        EXPECT_TRUE( data.module->isTraining() );
+        data.layer_norm->setTraining( true );
+        EXPECT_TRUE( data.layer_norm->isTraining() );
 
-        data.module->setTraining( false );
-        EXPECT_FALSE( data.module->isTraining() );
+        data.layer_norm->setTraining( false );
+        EXPECT_FALSE( data.layer_norm->isTraining() );
     }
 
     TEST_F( LayerNormCudaTests, MultipleForwardCalls )
@@ -915,7 +918,7 @@ namespace Modules::Normalization::Tests
         }
 
         auto data = MediumFp32Data();
-        data.module->build( data.shape );
+        data.layer_norm->build( data.shape );
 
         CpuTensor<TensorDataType::FP32> host_input( "CPU", data.shape );
         CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", data.shape );
@@ -926,7 +929,7 @@ namespace Modules::Normalization::Tests
             random( host_input, -2.0f, 2.0f );
             copy( host_input, device_input );
 
-            EXPECT_NO_THROW( data.module->forward( device_input, device_output ) );
+            EXPECT_NO_THROW( data.layer_norm->forward( device_input, device_output ) );
         }
     }
 
@@ -956,7 +959,7 @@ namespace Modules::Normalization::Tests
 
         // Build both modules
         cpu_module->build( test_shape );
-        cuda_data.module->build( test_shape );
+        cuda_data.layer_norm->build( test_shape );
 
         // Create and initialize input
         CpuTensor<TensorDataType::FP32> host_input( "CPU", test_shape );
@@ -973,8 +976,8 @@ namespace Modules::Normalization::Tests
         //copy( cpu_bias, *cpu_module->getBias() );
 
         //// Copy parameters to CUDA module
-        //copy( cpu_weight, *cuda_data.module->getWeight() );
-        //copy( cpu_bias, *cuda_data.module->getBias() );
+        //copy( cpu_weight, *cuda_data.layer_norm->getWeight() );
+        //copy( cpu_bias, *cuda_data.layer_norm->getBias() );
 
         // Run CPU forward pass
         CpuTensor<TensorDataType::FP32> cpu_output( "CPU", test_shape );
@@ -984,7 +987,7 @@ namespace Modules::Normalization::Tests
         CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", test_shape );
         CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", test_shape );
         copy( host_input, device_input );
-        cuda_data.module->forward( device_input, device_output );
+        cuda_data.layer_norm->forward( device_input, device_output );
 
         // Copy CUDA output back to host for comparison
         CpuTensor<TensorDataType::FP32> cuda_output_host = toHost<TensorDataType::FP32>( device_output );

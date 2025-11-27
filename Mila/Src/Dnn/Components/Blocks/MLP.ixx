@@ -1,9 +1,6 @@
 /**
  * @file MLP.ixx
  * @brief Multi-Layer Perceptron (MLP) block for neural networks.
- *
- * Device-templated composite module that follows the two-phase initialization pattern.
- * Structure: Input ? Linear(in, hidden) ? [LayerNorm] ? Activation ? Linear(hidden, in) ? Output
  */
 
 module;
@@ -48,15 +45,15 @@ namespace Mila::Dnn
     /**
      * @brief Multi-Layer Perceptron (MLP) block for neural networks.
      *
-     * Device-templated composite module that implements a standard MLP structure:
+     * Device-templated composite component that implements a standard MLP structure:
      *   Input -> Linear(in_features, hidden_size) -> [LayerNorm] -> Activation -> Linear(hidden_size, in_features) -> Output
      *
      * Design philosophy:
      * - Two-phase initialization: onBuilding() does architecture-specific setup; base class manages lifecycle
-     * - Composite module pattern: manages child modules (Linear, activation, LayerNorm)
+     * - Composite component pattern: manages child components (Linear, activation, LayerNorm)
      * - Shape-agnostic configuration: input_features and hidden_size define architecture
      * - Runtime shape determined at onBuilding() time from actual input tensor
-     * - Child modules stored as concrete types for type safety and direct access
+     * - Child components stored as concrete types for type safety and direct access
      *
      * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda)
      * @tparam TPrecision Abstract tensor precision (TensorDataType)
@@ -90,72 +87,26 @@ namespace Mila::Dnn
 
             config_.validate();
 
-            createModules();
+            createBlock();
         }
 
         ~MLP() override = default;
-
-        // ====================================================================
-        // Lifecycle
-        // ====================================================================
-
-        bool isBuilt() const override
-        {
-            return CompositeComponentBase::isBuilt() && fc1_ && activation_ && fc2_ &&
-                (!config_.useLayerNorm() || norm_);
-        }
-
-        // onBuilding implements architecture-specific shape propagation and child builds.
-        void onBuilding( const shape_t& input_shape ) override
-        {
-            validateInputShape( input_shape );
-
-            cached_input_shape_ = input_shape;
-
-            cached_hidden_shape_ = input_shape;
-            cached_hidden_shape_.back() = config_.getHiddenSize();
-
-            // Use base helpers to build children with correct shapes and training mode.
-            this->buildChild( fc1_, input_shape );
-
-            if (config_.useLayerNorm())
-            {
-                this->buildChild( norm_, cached_hidden_shape_ );
-            }
-
-            this->buildChild( activation_, cached_hidden_shape_ );
-            this->buildChild( fc2_, cached_hidden_shape_ );
-
-            auto device = exec_context_->getDevice();
-
-            fc1_output_ = std::make_shared<TensorType>( device, cached_hidden_shape_ );
-            fc1_output_->setName( this->getName() + ".fc1_output" );
-
-            if (config_.useLayerNorm())
-            {
-                norm_output_ = std::make_shared<TensorType>( device, cached_hidden_shape_ );
-                norm_output_->setName( this->getName() + ".norm_output" );
-            }
-
-            act_output_ = std::make_shared<TensorType>( device, cached_hidden_shape_ );
-            act_output_->setName( this->getName() + ".act_output" );
-        }
 
         // ====================================================================
         // Compute operation forward and backward dispatch
         // ====================================================================
 
         /**
-         * @brief Forward pass - HOT PATH, pure dispatch to child modules.
+         * @brief Forward pass - HOT PATH, pure dispatch to child components.
          *
          * All setup and validation was done in onBuilding(). This method chains
          * forward calls through the MLP structure using pre-allocated buffers.
          */
         void forward( const ITensor& input, ITensor& output )
         {
-            if (!isBuilt())
+            if (!this->isBuilt())
             {
-                throw std::runtime_error( "MLP module must be built before calling forward." );
+                throw std::runtime_error( "MLP component must be built before calling forward." );
             }
 
             fc1_->forward( input, *fc1_output_ );
@@ -174,16 +125,16 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Backward pass - HOT PATH, pure dispatch to child modules.
+         * @brief Backward pass - HOT PATH, pure dispatch to child components.
          *
          * Chains backward calls through the MLP structure in reverse order,
          * using pre-allocated gradient buffers.
          */
         void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
         {
-            if (!isBuilt())
+            if (!this->isBuilt())
             {
-                throw std::runtime_error( "MLP module must be built before calling backward." );
+                throw std::runtime_error( "MLP component must be built before calling backward." );
             }
 
             auto device = exec_context_->getDevice();
@@ -241,7 +192,7 @@ namespace Mila::Dnn
         }*/
 
         // ====================================================================
-        // Module interface
+        // Component interface
         // ====================================================================
 
         std::string getName() const override
@@ -272,7 +223,7 @@ namespace Mila::Dnn
             fc2_->synchronize();
         }
 
-        // Delegate training-mode handling to Module::onTrainingChanging via CompositeComponent
+        // Delegate training-mode handling to Component::onTrainingChanging via CompositeComponent
         size_t parameterCount() const override
         {
             size_t total = 0;
@@ -352,7 +303,7 @@ namespace Mila::Dnn
 
             oss << "Parameter count: " << parameterCount() << std::endl;
 
-            if (isBuilt())
+            if (this->isBuilt())
             {
                 oss << "Input shape: (";
                 for (size_t i = 0; i < cached_input_shape_.size(); ++i)
@@ -373,7 +324,7 @@ namespace Mila::Dnn
                 oss << ")" << std::endl;
             }
 
-            oss << "Sub-Modules:" << std::endl;
+            oss << "Sub-Components:" << std::endl;
             oss << "  - fc1: " << fc1_->getName() << std::endl;
             
             if (norm_)
@@ -391,16 +342,18 @@ namespace Mila::Dnn
         // Configuration accessor
         // ====================================================================
 
-        const MLPConfig& getConfig() const noexcept
-        {
-            return config_;
-        }
+		// REVIEW: Exposing internal configuration may not be necessary.
+        //const MLPConfig& getConfig() const noexcept
+        //{
+        //    return config_;
+        //}
 
         // ====================================================================
-        // Child module accessors
+        // Child component accessors
         // ====================================================================
 
-        std::shared_ptr<LinearType> getFC1() const noexcept
+		// REVIEW: This is internal implementation detail; avoid exposing child components publicly.
+        /*std::shared_ptr<LinearType> getFC1() const noexcept
         {
             return fc1_;
         }
@@ -418,25 +371,93 @@ namespace Mila::Dnn
         std::shared_ptr<LayerNormType> getNorm() const noexcept
         {
             return norm_;
-        }
+        }*/
 
     protected:
+
+        // ====================================================================
+        // Lifecycle
+        // ====================================================================
+
+        void onBuilding( const shape_t& input_shape ) override
+        {
+            validateInputShape( input_shape );
+
+            cached_input_shape_ = input_shape;
+
+            cached_hidden_shape_ = input_shape;
+            cached_hidden_shape_.back() = config_.getHiddenSize();
+
+            // Build children directly: CompositeComponent::buildChild was removed.
+            if (!fc1_)
+            {
+                throw std::runtime_error( "MLP: fc1 component not initialized before build()" );
+            }
+
+            fc1_->setTraining( this->isTraining() );
+            fc1_->build( input_shape );
+
+            if ( config_.useLayerNorm() )
+            {
+                if (!norm_)
+                {
+                    throw std::runtime_error( "MLP: norm component not initialized before build()" );
+                }
+
+                norm_->setTraining( this->isTraining() );
+                norm_->build( cached_hidden_shape_ );
+            }
+
+            if (!activation_)
+            {
+                throw std::runtime_error( "MLP: activation component not initialized before build()" );
+            }
+
+            activation_->setTraining( this->isTraining() );
+            activation_->build( cached_hidden_shape_ );
+
+            if (!fc2_)
+            {
+                throw std::runtime_error( "MLP: fc2 component not initialized before build()" );
+            }
+
+            fc2_->setTraining( this->isTraining() );
+            fc2_->build( cached_hidden_shape_ );
+
+            auto device = exec_context_->getDevice();
+
+            fc1_output_ = std::make_shared<TensorType>( device, cached_hidden_shape_ );
+            fc1_output_->setName( this->getName() + ".fc1_output" );
+
+            if ( config_.useLayerNorm() )
+            {
+                norm_output_ = std::make_shared<TensorType>( device, cached_hidden_shape_ );
+                norm_output_->setName( this->getName() + ".norm_output" );
+            }
+
+            act_output_ = std::make_shared<TensorType>( device, cached_hidden_shape_ );
+            act_output_->setName( this->getName() + ".act_output" );
+        }
 
         /**
          * @brief Hook invoked when training mode is about to change.
          *
-         * Propagate new training mode to child modules. Called with the
+         * Propagate new training mode to child components. Called with the
          * CompositeComponent's training mutex held; do not call setTraining() here.
          */
         void onTrainingChanging( bool is_training ) override
         {
-            if (fc1_) fc1_->setTraining( is_training );
+            if (fc1_) 
+                fc1_->setTraining( is_training );
             
-            if (norm_) norm_->setTraining( is_training );
+            if (norm_)
+                norm_->setTraining( is_training );
             
-            if (activation_) activation_->setTraining( is_training );
+            if (activation_)
+                activation_->setTraining( is_training );
             
-            if (fc2_) fc2_->setTraining( is_training );
+            if (fc2_)
+                fc2_->setTraining( is_training );
         }
 
     private:
@@ -477,11 +498,10 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Create and configure child modules.
+         * @brief Create and configure child Components.
          *
-         * Ensure children are synchronized with this CompositeComponent's training mode.
          */
-        void createModules()
+        void createBlock()
         {
             auto fc1_config = LinearConfig( config_.getInputFeatures(), config_.getHiddenSize() );
             fc1_config.withName( config_.getName() + ".fc1" )
@@ -505,7 +525,8 @@ namespace Mila::Dnn
                 case ActivationType::Gelu:
                 {
                     auto gelu_config = GeluConfig();
-                    gelu_config.withName( config_.getName() + ".gelu" );
+					// REVIEW: name based on activation type? .act_relu, .act_gelu, etc.
+                    gelu_config.withName( config_.getName() + ".act" );
 
                     activation_ = std::make_shared<GeluType>( exec_context_, gelu_config );
                     this->addComponent( activation_ );

@@ -44,6 +44,8 @@ namespace Modules::Layers::Tests
             data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
             data.module = std::make_shared<Softmax<DeviceType::Cpu, TPrecision>>( data.exec_context, data.config );
 
+			data.module->setTraining( is_training );
+
             return data;
         }
 
@@ -66,6 +68,8 @@ namespace Modules::Layers::Tests
             data.exec_context = context;
             data.module = std::make_shared<Softmax<DeviceType::Cpu, TPrecision>>( data.exec_context, data.config );
 
+			data.module->setTraining( is_training );
+
             return data;
         }
     };
@@ -81,129 +85,11 @@ namespace Modules::Layers::Tests
             axis_ = -1;
         }
 
-        SoftmaxCpuTestData<TensorDataType::FP32>& SmallFp32Data()
-        {
-            if (!small_fp32_.module)
-            {
-                small_fp32_ = SoftmaxCpuTestData<TensorDataType::FP32>::Create(
-                    "small_softmax_cpu", small_shape_, axis_ );
-            }
-            return small_fp32_;
-        }
-
-        SoftmaxCpuTestData<TensorDataType::FP32>& MediumFp32Data()
-        {
-            if (!medium_fp32_.module)
-            {
-                medium_fp32_ = SoftmaxCpuTestData<TensorDataType::FP32>::Create(
-                    "medium_softmax_cpu", medium_shape_, axis_ );
-            }
-            return medium_fp32_;
-        }
-
-        SoftmaxCpuTestData<TensorDataType::FP32>& LargeFp32Data()
-        {
-            if (!large_fp32_.module)
-            {
-                large_fp32_ = SoftmaxCpuTestData<TensorDataType::FP32>::Create(
-                    "large_softmax_cpu", large_shape_, axis_ );
-            }
-            return large_fp32_;
-        }
-
-        SoftmaxCpuTestData<TensorDataType::FP32>& TrainingFp32Data()
-        {
-            if (!training_fp32_.module)
-            {
-                training_fp32_ = SoftmaxCpuTestData<TensorDataType::FP32>::Create(
-                    "training_softmax_cpu", medium_shape_, axis_, true );
-            }
-            return training_fp32_;
-        }
-
         shape_t small_shape_;
         shape_t medium_shape_;
         shape_t large_shape_;
         int64_t axis_;
-
-        SoftmaxCpuTestData<TensorDataType::FP32> small_fp32_;
-        SoftmaxCpuTestData<TensorDataType::FP32> medium_fp32_;
-        SoftmaxCpuTestData<TensorDataType::FP32> large_fp32_;
-        SoftmaxCpuTestData<TensorDataType::FP32> training_fp32_;
     };
-
-    template<TensorDataType TPrecision>
-    void TestGetName( const SoftmaxCpuTestData<TPrecision>& data, const std::string& expected_name )
-    {
-        EXPECT_EQ( data.module->getName(), expected_name );
-    }
-
-    template<TensorDataType TPrecision>
-    void TestDeviceType( const SoftmaxCpuTestData<TPrecision>& data )
-    {
-        EXPECT_EQ( data.module->getDeviceType(), DeviceType::Cpu );
-        ASSERT_NE( data.exec_context, nullptr );
-
-        auto device = data.exec_context->getDevice();
-        ASSERT_NE( device, nullptr );
-        EXPECT_EQ( device->getDeviceType(), DeviceType::Cpu );
-    }
-
-    template<TensorDataType TPrecision>
-    void TestTrainingMode( const SoftmaxCpuTestData<TPrecision>& data, bool expected_mode )
-    {
-        EXPECT_EQ( data.module->isTraining(), expected_mode );
-    }
-
-    template<TensorDataType TPrecision>
-    void TestIsBuilt( const SoftmaxCpuTestData<TPrecision>& data, bool expected_built )
-    {
-        EXPECT_EQ( data.module->isBuilt(), expected_built );
-    }
-
-    template<TensorDataType TPrecision>
-    void TestBuild( SoftmaxCpuTestData<TPrecision>& data )
-    {
-        EXPECT_NO_THROW( data.module->build( data.shape ) );
-        EXPECT_TRUE( data.module->isBuilt() );
-
-        data.module->build( data.shape );
-        EXPECT_TRUE( data.module->isBuilt() );
-    }
-
-    template<TensorDataType TPrecision>
-    void TestParameterCount( const SoftmaxCpuTestData<TPrecision>& data, size_t expected_count )
-    {
-        EXPECT_EQ( data.module->parameterCount(), expected_count );
-    }
-
-    template<TensorDataType TPrecision>
-    void TestToString( const SoftmaxCpuTestData<TPrecision>& data )
-    {
-        std::string output = data.module->toString();
-
-        EXPECT_NE( output.find( "Softmax" ), std::string::npos );
-        EXPECT_NE( output.find( data.config.getName() ), std::string::npos );
-        EXPECT_NE( output.find( "Device:" ), std::string::npos );
-        EXPECT_NE( output.find( "Axis:" ), std::string::npos );
-    }
-
-    template<TensorDataType TPrecision>
-    void TestForward( SoftmaxCpuTestData<TPrecision>& data )
-    {
-        using TensorType = CpuTensor<TPrecision>;
-
-        data.module->build( data.shape );
-
-        TensorType input( "CPU", data.shape );
-        TensorType output( "CPU", data.shape );
-
-        random( input, -5.0f, 5.0f );
-
-        EXPECT_NO_THROW( data.module->forward( input, output ) );
-        EXPECT_EQ( output.size(), input.size() );
-        EXPECT_EQ( output.shape(), input.shape() );
-    }
 
     template<TensorDataType TPrecision>
     void ValidateNormalization( const CpuTensor<TPrecision>& output, int64_t axis )
@@ -212,28 +98,28 @@ namespace Modules::Layers::Tests
         const int64_t ndim = static_cast<int64_t>(shape.size());
 
         int64_t normalized_axis = axis;
-        if (normalized_axis < 0)
+        if ( normalized_axis < 0 )
             normalized_axis = ndim + normalized_axis;
 
         int64_t outer_size = 1;
-        for (int64_t i = 0; i < normalized_axis; ++i)
+        for ( int64_t i = 0; i < normalized_axis; ++i )
             outer_size *= shape[i];
 
         int64_t dim_size = shape[normalized_axis];
 
         int64_t inner_size = 1;
-        for (int64_t i = normalized_axis + 1; i < ndim; ++i)
+        for ( int64_t i = normalized_axis + 1; i < ndim; ++i )
             inner_size *= shape[i];
 
         auto output_ptr = output.data();
 
-        for (int64_t outer = 0; outer < outer_size; ++outer)
+        for ( int64_t outer = 0; outer < outer_size; ++outer )
         {
-            for (int64_t inner = 0; inner < inner_size; ++inner)
+            for ( int64_t inner = 0; inner < inner_size; ++inner )
             {
                 float sum = 0.0f;
 
-                for (int64_t i = 0; i < dim_size; ++i)
+                for ( int64_t i = 0; i < dim_size; ++i )
                 {
                     size_t idx = (outer * dim_size * inner_size) + (i * inner_size) + inner;
                     sum += static_cast<float>( output_ptr[idx] );
@@ -246,78 +132,155 @@ namespace Modules::Layers::Tests
 
     TEST_F( SoftmaxCpuTests, GetName )
     {
-        TestGetName( SmallFp32Data(), "small_softmax_cpu" );
+        auto data = SoftmaxCpuTestData<TensorDataType::FP32>::Create( "small_softmax_cpu", small_shape_, axis_ );
+
+        ASSERT_NE( data.module, nullptr );
+        EXPECT_EQ( data.module->getName(), "small_softmax_cpu" );
     }
 
     TEST_F( SoftmaxCpuTests, DeviceType )
     {
-        TestDeviceType( SmallFp32Data() );
+        auto data = SoftmaxCpuTestData<TensorDataType::FP32>::Create( "small_softmax_cpu", small_shape_, axis_ );
+
+        ASSERT_NE( data.module, nullptr );
+        EXPECT_EQ( data.module->getDeviceType(), DeviceType::Cpu );
+
+        ASSERT_NE( data.exec_context, nullptr );
+        auto device = data.exec_context->getDevice();
+        ASSERT_NE( device, nullptr );
+        EXPECT_EQ( device->getDeviceType(), DeviceType::Cpu );
     }
 
     TEST_F( SoftmaxCpuTests, TrainingMode_Default )
     {
-        TestTrainingMode( SmallFp32Data(), false );
+        auto data = SoftmaxCpuTestData<TensorDataType::FP32>::Create( "small_softmax_cpu", small_shape_, axis_ );
+
+        ASSERT_NE( data.module, nullptr );
+        EXPECT_FALSE( data.module->isTraining() );
     }
 
     TEST_F( SoftmaxCpuTests, TrainingMode_Enabled )
     {
-        TestTrainingMode( TrainingFp32Data(), true );
+        auto data = SoftmaxCpuTestData<TensorDataType::FP32>::Create( "training_softmax_cpu", medium_shape_, axis_, true );
+
+        ASSERT_NE( data.module, nullptr );
+        EXPECT_TRUE( data.module->isTraining() );
     }
 
     TEST_F( SoftmaxCpuTests, IsBuilt_BeforeBuild )
     {
-        TestIsBuilt( SmallFp32Data(), false );
+        auto data = SoftmaxCpuTestData<TensorDataType::FP32>::Create( "small_softmax_cpu", small_shape_, axis_ );
+
+        ASSERT_NE( data.module, nullptr );
+        EXPECT_FALSE( data.module->isBuilt() );
     }
 
     TEST_F( SoftmaxCpuTests, IsBuilt_AfterBuild )
     {
-        auto data = SmallFp32Data();
+        auto data = SoftmaxCpuTestData<TensorDataType::FP32>::Create( "small_softmax_cpu", small_shape_, axis_ );
 
-        EXPECT_FALSE( data.module->isBuilt() );
-
-        data.module->build( data.shape );
-
+        ASSERT_NE( data.module, nullptr );
+        EXPECT_NO_THROW( data.module->build( data.shape ) );
         EXPECT_TRUE( data.module->isBuilt() );
     }
 
     TEST_F( SoftmaxCpuTests, Build )
     {
-        auto data = SmallFp32Data();
-        TestBuild( data );
+        auto data = SoftmaxCpuTestData<TensorDataType::FP32>::Create( "small_softmax_cpu", small_shape_, axis_ );
+
+        ASSERT_NE( data.module, nullptr );
+        EXPECT_NO_THROW( data.module->build( data.shape ) );
+        EXPECT_TRUE( data.module->isBuilt() );
     }
 
     TEST_F( SoftmaxCpuTests, ParameterCount )
     {
-        TestParameterCount( SmallFp32Data(), 0 );
+        auto data = SoftmaxCpuTestData<TensorDataType::FP32>::Create( "small_softmax_cpu", small_shape_, axis_ );
+
+        ASSERT_NE( data.module, nullptr );
+        EXPECT_EQ( data.module->parameterCount(), 0u );
     }
 
     TEST_F( SoftmaxCpuTests, ToString )
     {
-        auto data = SmallFp32Data();
-        TestToString( data );
+        auto data = SoftmaxCpuTestData<TensorDataType::FP32>::Create( "small_softmax_cpu", small_shape_, axis_ );
+
+        ASSERT_NE( data.module, nullptr );
+
+        std::string output = data.module->toString();
+
+        EXPECT_NE( output.find( "Softmax" ), std::string::npos );
+        EXPECT_NE( output.find( data.config.getName() ), std::string::npos );
+        EXPECT_NE( output.find( "Device:" ), std::string::npos );
+        EXPECT_NE( output.find( "Axis:" ), std::string::npos );
     }
 
     TEST_F( SoftmaxCpuTests, Forward_SmallShape )
     {
-        auto data = SmallFp32Data();
-        TestForward( data );
+        auto data = SoftmaxCpuTestData<TensorDataType::FP32>::Create( "small_softmax_cpu", small_shape_, axis_ );
+
+        ASSERT_NE( data.module, nullptr );
+
+        using TensorType = CpuTensor<TensorDataType::FP32>;
+
+        EXPECT_NO_THROW( data.module->build( data.shape ) );
+
+        TensorType input( "CPU", data.shape );
+        TensorType output( "CPU", data.shape );
+
+        random( input, -5.0f, 5.0f );
+
+        EXPECT_NO_THROW( data.module->forward( input, output ) );
+        EXPECT_EQ( output.size(), input.size() );
+        EXPECT_EQ( output.shape(), input.shape() );
     }
 
     TEST_F( SoftmaxCpuTests, Forward_MediumShape )
     {
-        auto data = MediumFp32Data();
-        TestForward( data );
+        auto data = SoftmaxCpuTestData<TensorDataType::FP32>::Create( "medium_softmax_cpu", medium_shape_, axis_ );
+
+        ASSERT_NE( data.module, nullptr );
+
+        using TensorType = CpuTensor<TensorDataType::FP32>;
+
+        EXPECT_NO_THROW( data.module->build( data.shape ) );
+
+        TensorType input( "CPU", data.shape );
+        TensorType output( "CPU", data.shape );
+
+        random( input, -5.0f, 5.0f );
+
+        EXPECT_NO_THROW( data.module->forward( input, output ) );
+        EXPECT_EQ( output.size(), input.size() );
+        EXPECT_EQ( output.shape(), input.shape() );
     }
 
     TEST_F( SoftmaxCpuTests, Forward_LargeShape )
     {
-        auto data = LargeFp32Data();
-        TestForward( data );
+        auto data = SoftmaxCpuTestData<TensorDataType::FP32>::Create( "large_softmax_cpu", large_shape_, axis_ );
+
+        ASSERT_NE( data.module, nullptr );
+
+        using TensorType = CpuTensor<TensorDataType::FP32>;
+
+        EXPECT_NO_THROW( data.module->build( data.shape ) );
+
+        TensorType input( "CPU", data.shape );
+        TensorType output( "CPU", data.shape );
+
+        random( input, -5.0f, 5.0f );
+
+        EXPECT_NO_THROW( data.module->forward( input, output ) );
+        EXPECT_EQ( output.size(), input.size() );
+        EXPECT_EQ( output.shape(), input.shape() );
     }
 
     TEST_F( SoftmaxCpuTests, Forward_Normalization )
     {
-        auto data = MediumFp32Data();
+        auto data = SoftmaxCpuTestData<TensorDataType::FP32>::Create( "medium_softmax_cpu", medium_shape_, axis_ );
+
+        ASSERT_NE( data.module, nullptr );
+
         data.module->build( data.shape );
 
         CpuTensor<TensorDataType::FP32> input( "CPU", data.shape );
@@ -337,6 +300,7 @@ namespace Modules::Layers::Tests
         auto data = SoftmaxCpuTestData<TensorDataType::FP32>::CreateWithContext(
             "context_softmax_cpu", medium_shape_, ctx );
 
+        ASSERT_NE( data.module, nullptr );
         EXPECT_EQ( data.module->getName(), "context_softmax_cpu" );
         EXPECT_EQ( data.exec_context, ctx );
     }
@@ -345,46 +309,98 @@ namespace Modules::Layers::Tests
     {
         shape_t shape = { 1, 1, 8 };
 
-        auto data = SoftmaxCpuTestData<TensorDataType::FP32>::Create(
-            "minimal_cpu", shape );
+        auto data = SoftmaxCpuTestData<TensorDataType::FP32>::Create( "minimal_cpu", shape );
 
-        TestForward( data );
+        ASSERT_NE( data.module, nullptr );
+
+        using TensorType = CpuTensor<TensorDataType::FP32>;
+
+        EXPECT_NO_THROW( data.module->build( data.shape ) );
+
+        TensorType input( "CPU", data.shape );
+        TensorType output( "CPU", data.shape );
+
+        random( input, -5.0f, 5.0f );
+
+        EXPECT_NO_THROW( data.module->forward( input, output ) );
     }
 
     TEST_F( SoftmaxCpuTests, EdgeCase_LargeVocab )
     {
-        auto data = LargeFp32Data();
-        TestForward( data );
+        auto data = SoftmaxCpuTestData<TensorDataType::FP32>::Create( "large_softmax_cpu", large_shape_, axis_ );
+
+        ASSERT_NE( data.module, nullptr );
+
+        using TensorType = CpuTensor<TensorDataType::FP32>;
+
+        EXPECT_NO_THROW( data.module->build( data.shape ) );
+
+        TensorType input( "CPU", data.shape );
+        TensorType output( "CPU", data.shape );
+
+        random( input, -5.0f, 5.0f );
+
+        EXPECT_NO_THROW( data.module->forward( input, output ) );
     }
 
     TEST_F( SoftmaxCpuTests, DifferentAxes_Axis0 )
     {
         shape_t test_shape = { 2, 3, 4 };
 
-        auto data = SoftmaxCpuTestData<TensorDataType::FP32>::Create(
-            "axis0_cpu", test_shape, 0 );
+        auto data = SoftmaxCpuTestData<TensorDataType::FP32>::Create( "axis0_cpu", test_shape, 0 );
 
-        TestForward( data );
+        ASSERT_NE( data.module, nullptr );
+
+        using TensorType = CpuTensor<TensorDataType::FP32>;
+
+        EXPECT_NO_THROW( data.module->build( data.shape ) );
+
+        TensorType input( "CPU", data.shape );
+        TensorType output( "CPU", data.shape );
+
+        random( input, -5.0f, 5.0f );
+
+        EXPECT_NO_THROW( data.module->forward( input, output ) );
     }
 
     TEST_F( SoftmaxCpuTests, DifferentAxes_Axis1 )
     {
         shape_t test_shape = { 2, 3, 4 };
 
-        auto data = SoftmaxCpuTestData<TensorDataType::FP32>::Create(
-            "axis1_cpu", test_shape, 1 );
+        auto data = SoftmaxCpuTestData<TensorDataType::FP32>::Create( "axis1_cpu", test_shape, 1 );
 
-        TestForward( data );
+        ASSERT_NE( data.module, nullptr );
+
+        using TensorType = CpuTensor<TensorDataType::FP32>;
+
+        EXPECT_NO_THROW( data.module->build( data.shape ) );
+
+        TensorType input( "CPU", data.shape );
+        TensorType output( "CPU", data.shape );
+
+        random( input, -5.0f, 5.0f );
+
+        EXPECT_NO_THROW( data.module->forward( input, output ) );
     }
 
     TEST_F( SoftmaxCpuTests, DifferentAxes_Axis2 )
     {
         shape_t test_shape = { 2, 3, 4 };
 
-        auto data = SoftmaxCpuTestData<TensorDataType::FP32>::Create(
-            "axis2_cpu", test_shape, 2 );
+        auto data = SoftmaxCpuTestData<TensorDataType::FP32>::Create( "axis2_cpu", test_shape, 2 );
 
-        TestForward( data );
+        ASSERT_NE( data.module, nullptr );
+
+        using TensorType = CpuTensor<TensorDataType::FP32>;
+
+        EXPECT_NO_THROW( data.module->build( data.shape ) );
+
+        TensorType input( "CPU", data.shape );
+        TensorType output( "CPU", data.shape );
+
+        random( input, -5.0f, 5.0f );
+
+        EXPECT_NO_THROW( data.module->forward( input, output ) );
     }
 
     TEST_F( SoftmaxCpuTests, Error_NullExecutionContext )
@@ -402,8 +418,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( SoftmaxCpuTests, Error_ForwardBeforeBuild )
     {
-        auto data = SoftmaxCpuTestData<TensorDataType::FP32>::Create(
-            "unbuild_cpu", medium_shape_ );
+        auto data = SoftmaxCpuTestData<TensorDataType::FP32>::Create( "unbuild_cpu", medium_shape_ );
 
         CpuTensor<TensorDataType::FP32> input( "CPU", data.shape );
         CpuTensor<TensorDataType::FP32> output( "CPU", data.shape );
@@ -416,14 +431,18 @@ namespace Modules::Layers::Tests
 
     TEST_F( SoftmaxCpuTests, Synchronize )
     {
-        auto data = SmallFp32Data();
+        auto data = SoftmaxCpuTestData<TensorDataType::FP32>::Create( "small_softmax_cpu", small_shape_, axis_ );
+
+        ASSERT_NE( data.module, nullptr );
 
         EXPECT_NO_THROW( data.module->synchronize() );
     }
 
     TEST_F( SoftmaxCpuTests, SetTrainingMode )
     {
-        auto data = SmallFp32Data();
+        auto data = SoftmaxCpuTestData<TensorDataType::FP32>::Create( "small_softmax_cpu", small_shape_, axis_ );
+
+        ASSERT_NE( data.module, nullptr );
 
         EXPECT_FALSE( data.module->isTraining() );
 
@@ -436,13 +455,16 @@ namespace Modules::Layers::Tests
 
     TEST_F( SoftmaxCpuTests, MultipleForwardCalls )
     {
-        auto data = MediumFp32Data();
-        data.module->build( data.shape );
+        auto data = SoftmaxCpuTestData<TensorDataType::FP32>::Create( "medium_softmax_cpu", medium_shape_, axis_ );
+
+        ASSERT_NE( data.module, nullptr );
+
+        EXPECT_NO_THROW( data.module->build( data.shape ) );
 
         CpuTensor<TensorDataType::FP32> input( "CPU", data.shape );
         CpuTensor<TensorDataType::FP32> output( "CPU", data.shape );
 
-        for (int iter = 0; iter < 10; ++iter)
+        for ( int iter = 0; iter < 10; ++iter )
         {
             random( input, -5.0f, 5.0f );
 

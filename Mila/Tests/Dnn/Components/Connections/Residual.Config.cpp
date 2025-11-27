@@ -26,8 +26,7 @@ namespace Modules::Connections::Tests
         EXPECT_FLOAT_EQ( cfg.getScalingFactor(), 1.0f );
         EXPECT_EQ( cfg.getConnectionType(), ConnectionType::Addition );
 
-        // Default name inherited from ModuleConfig
-        EXPECT_EQ( cfg.getName(), "unnamed" );
+        EXPECT_EQ( cfg.getName(), "residual" );
     }
 
     TEST_F( ResidualConfigTests, WithConnectionTypeAndScaling_Setters )
@@ -128,8 +127,9 @@ namespace Modules::Connections::Tests
             .withConnectionType( ConnectionType::Addition );
 
         std::string s = cfg.toString();
+
         EXPECT_NE( s.find( "print_residual" ), std::string::npos );
-        EXPECT_NE( s.find( "scaling_factor" ), std::string::npos );
+        EXPECT_NE( s.find( "scaling factor" ), std::string::npos );
         EXPECT_NE( s.find( "Addition" ), std::string::npos );
     }
 

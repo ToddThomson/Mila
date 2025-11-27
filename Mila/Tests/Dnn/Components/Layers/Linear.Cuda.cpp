@@ -216,9 +216,6 @@ namespace Modules::Layers::Tests
     {
         EXPECT_NO_THROW( data.module->build( data.input_shape ) );
         EXPECT_TRUE( data.module->isBuilt() );
-
-        data.module->build( data.input_shape );
-        EXPECT_TRUE( data.module->isBuilt() );
     }
 
     template<TensorDataType TPrecision>

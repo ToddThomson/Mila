@@ -116,17 +116,6 @@ namespace Mila::Dnn
         // ====================================================================
         
         /**
-         * @brief Check whether the module has completed its build process.
-         *
-         * Returns true when the backend operation has been prepared and the
-         * module is ready for forward/backward calls.
-         */
-        bool isBuilt() const override
-        {
-            return is_built_;
-        }
-        
-        /**
          * @brief Initialize backend operation and perform any shape-dependent allocation.
          *
          * Allocates or configures the underlying UnaryOperation using the provided
@@ -137,17 +126,11 @@ namespace Mila::Dnn
          * @throws std::invalid_argument If `input_shape` is incompatible with the module configuration.
          * @throws std::runtime_error If backend allocation or build fails.
          */
-        void build( const shape_t& input_shape ) override
+        void onBuilding( const shape_t& input_shape ) override
         {
-            if (is_built_)
-            {
-                throw std::runtime_error( "Gelu::build: module already built" );
-            }
-
             operation_->build( input_shape );
 
             input_shape_ = input_shape;
-            is_built_ = true;
         }
 
 		// ====================================================================
@@ -193,7 +176,7 @@ namespace Mila::Dnn
          */
         void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
         {
-            if (!is_built_)
+            if (!this->isBuilt() )
             {
                 throw std::runtime_error( "Gelu::backward: module must be built before backward pass" );
             }
@@ -435,10 +418,9 @@ namespace Mila::Dnn
         }
 
     private:
-		
-        bool is_built_{ false };
-		shape_t input_shape_;
+
         GeluConfig config_;
+		shape_t input_shape_;
         
         std::shared_ptr<ExecutionContextType> exec_context_;
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
