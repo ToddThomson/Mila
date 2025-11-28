@@ -442,19 +442,29 @@ install(TARGETS Mila
     FILE_SET module_files DESTINATION include
 )
 
-# Define target for copying model data when needed
-add_custom_target(MilaCopyData 
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/data"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different 
-        "${CMAKE_SOURCE_DIR}/data"
-        "${CMAKE_BINARY_DIR}/data"
-    COMMENT "Copying model data to build directory"
-    VERBATIM
-)
+# Guard the copy so CI / checkouts without a `data` directory do not fail the build.
+if(EXISTS "${CMAKE_SOURCE_DIR}/data")
+    add_custom_target(MilaCopyData 
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/data"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different 
+            "${CMAKE_SOURCE_DIR}/data"
+            "${CMAKE_BINARY_DIR}/data"
+        COMMENT "Copying model data to build directory"
+        VERBATIM
+    )
 
-if( MILA_ENABLE_COPY_MODEL_DATA AND NOT DEFINED ENV{CI} )
-    set_target_properties(MilaCopyData PROPERTIES EXCLUDE_FROM_ALL FALSE)
+    if( MILA_ENABLE_COPY_MODEL_DATA AND NOT DEFINED ENV{CI} )
+        set_target_properties(MilaCopyData PROPERTIES EXCLUDE_FROM_ALL FALSE)
+    else()
+        set_target_properties(MilaCopyData PROPERTIES EXCLUDE_FROM_ALL TRUE)
+    endif()
 else()
+    message(STATUS "No 'data' directory found in source tree; skipping MilaCopyData target")
+    # harmless placeholder so references to MilaCopyData won't break other targets
+    add_custom_target(MilaCopyData
+        COMMENT "No model data to copy"
+        VERBATIM
+    )
     set_target_properties(MilaCopyData PROPERTIES EXCLUDE_FROM_ALL TRUE)
 endif()
 
@@ -477,9 +487,9 @@ if(MILA_ENABLE_BENCHMARKS)
     add_subdirectory(Benchmarks)
 endif()
  
-#if(MILA_ENABLE_SAMPLES)
+if(MILA_ENABLE_SAMPLES)
      message(STATUS "MILA_ENABLE_SAMPLES is ON - adding Samples subdirectory")
      add_subdirectory(Samples)
- #else()
- #    message(STATUS "MILA_ENABLE_SAMPLES is OFF - skipping Samples")
- #endif()
+else()
+    message(STATUS "MILA_ENABLE_SAMPLES is OFF - skipping Samples")
+endif()
