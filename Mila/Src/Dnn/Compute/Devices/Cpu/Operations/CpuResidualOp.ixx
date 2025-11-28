@@ -170,7 +170,7 @@ namespace Mila::Dnn::Compute
                 -> std::shared_ptr<BinaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
                 {
                     const auto& residualConfig = static_cast<const ResidualConfig&>(config);
-                    auto ctx = std::static_pointer_cast<CpuExecutionContext>(context);
+                    auto ctx = std::static_pointer_cast<ExecutionContext<DeviceType::Cpu>>(context);
                     return std::make_shared<CpuResidualOp>( ctx, residualConfig );
                 }
             );

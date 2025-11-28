@@ -41,7 +41,8 @@ namespace Mila::Dnn::Compute
     {
     public:
         
-        using DeviceFactory = std::function<std::shared_ptr<ComputeDevice>()>;
+        // Factory signature accepts a device index for parameterized devices (e.g., "CUDA:0")
+        using DeviceFactory = std::function<std::shared_ptr<ComputeDevice>( int )>;
 
         static DeviceRegistry& instance() {
             static DeviceRegistry registry;
@@ -134,22 +135,16 @@ namespace Mila::Dnn::Compute
         DeviceRegistry( const DeviceRegistry& ) = delete;
         DeviceRegistry& operator=( const DeviceRegistry& ) = delete;
 
-    private:
-        friend class DeviceRegistrar;
-
-        DeviceRegistry() = default;
-
         /**
          * @brief Registers a device factory.
          *
-         * Factory now receives device_index parameter for parameterized devices.
+         * Factory receives a device_index parameter for parameterized devices.
          * For CPU (no index), the index parameter is ignored.
          *
          * @param device_type Base device type (e.g., "CPU", "CUDA")
          * @param factory Function that creates device instance given an index
          */
-        void registerDeviceType( const std::string& device_type, std::function<std::shared_ptr<ComputeDevice>( int )> factory
-        ) {
+        void registerDeviceType( const std::string& device_type, DeviceFactory factory ) {
             if (device_type.empty())
             {
                 throw std::invalid_argument( "Device type cannot be empty." );
@@ -162,6 +157,10 @@ namespace Mila::Dnn::Compute
             std::lock_guard<std::mutex> lock( mutex_ );
             device_factories_[device_type] = std::move( factory );
         }
+
+    private:
+
+        DeviceRegistry() = default;
 
         /**
          * @brief Parses device name into type and index.
@@ -188,7 +187,7 @@ namespace Mila::Dnn::Compute
         }
 
         // Factory registry: "CPU" ? factory, "CUDA" ? factory
-        std::unordered_map<std::string, std::function<std::shared_ptr<ComputeDevice>( int )>> device_factories_;
+        std::unordered_map<std::string, DeviceFactory> device_factories_;
 
         // Instance cache: "CPU" ? instance, "CUDA:0" ? instance, "CUDA:1" ? instance
         std::unordered_map<std::string, std::shared_ptr<ComputeDevice>> device_instances_;

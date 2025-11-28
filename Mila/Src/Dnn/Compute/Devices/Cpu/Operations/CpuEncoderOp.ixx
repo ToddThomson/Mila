@@ -33,6 +33,7 @@ import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
+import Compute.CpuExecutionContext;
 import Compute.OperationType;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;

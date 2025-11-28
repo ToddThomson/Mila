@@ -24,6 +24,7 @@ export module Compute.CpuLinearOp;
 import Dnn.Components.Linear;
 import Dnn.Tensor;
 import Dnn.ITensor;
+import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorHostTypeMap;

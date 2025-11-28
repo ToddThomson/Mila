@@ -17,6 +17,9 @@ export module Extensibility.PluginManager;
 
 import Extensibility.PluginInterface;
 import Extensibility.PluginInfo;
+
+import Compute.OperationRegistry;
+
 import Utils.Logger;
 
 namespace Mila::Dnn::Extensibility

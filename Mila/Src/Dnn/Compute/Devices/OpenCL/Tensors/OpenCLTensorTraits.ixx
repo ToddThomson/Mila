@@ -159,7 +159,6 @@ namespace Mila::Dnn
         static consteval bool supports() {
             return TDataType == TensorDataType::FP32 ||
                 TDataType == TensorDataType::FP16 ||
-                TDataType == TensorDataType::FP64 ||
                 TDataType == TensorDataType::INT8 ||
                 TDataType == TensorDataType::INT16 ||
                 TDataType == TensorDataType::INT32 ||
@@ -197,7 +196,6 @@ namespace Mila::Dnn
             // When OpenCL is not available, provide host-compatible fallback types
             if constexpr ( TDataType == TensorDataType::FP32 ) return float{};
             else if constexpr ( TDataType == TensorDataType::FP16 ) return float{};  // No native half support
-            else if constexpr ( TDataType == TensorDataType::FP64 ) return double{};
             else if constexpr ( TDataType == TensorDataType::INT8 ) return int8_t{};
             else if constexpr ( TDataType == TensorDataType::INT16 ) return int16_t{};
             else if constexpr ( TDataType == TensorDataType::INT32 ) return int32_t{};

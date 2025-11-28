@@ -15,6 +15,7 @@ export module Compute.CpuGeluOp;
 import Dnn.Components.Gelu;
 import Dnn.Tensor;
 import Dnn.ITensor;
+import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.ComponentConfig;

@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+      - dev
   pull_request:
     branches:
       - master
@@ -30,8 +31,10 @@ jobs:
 
       - name: Install Clang 19
         run: |
-          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
-          sudo add-apt-repository -y "deb http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-19 main"
+          # Add LLVM apt key securely (dearmor into keyrings) and add repo with signed-by
+          wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | gpg --dearmor > llvm-archive-keyring.gpg
+          sudo mv llvm-archive-keyring.gpg /usr/share/keyrings/llvm-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-19 main" | sudo tee /etc/apt/sources.list.d/llvm-toolchain-19.list
           sudo apt-get update
           sudo apt-get install -y clang-19 clang++-19 lld-19 lldb-19 clang-tools-19 clang-tidy-19 clang-format-19
           sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 100
@@ -96,7 +99,8 @@ jobs:
               -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_CUDA_COMPILER=$CUDA_PATH/bin/nvcc \
               -DCUDAToolkit_ROOT=$CUDA_PATH \
-              -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler" \
+              -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler -ccbin clang++-19" \
+              -DCMAKE_CUDA_HOST_COMPILER=clang++-19 \
               -DCMAKE_C_COMPILER=clang-19 \
               -DCMAKE_CXX_COMPILER=clang++-19 \
               -DCMAKE_CXX_STANDARD=23 \

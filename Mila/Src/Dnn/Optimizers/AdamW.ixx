@@ -14,6 +14,7 @@ import Dnn.Optimizers.AdamWConfig;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
+import Dnn.TensorDataTypeTraits;
 import Compute.OptimizerBase;
 import Compute.DeviceType;
 import Compute.ExecutionContext;

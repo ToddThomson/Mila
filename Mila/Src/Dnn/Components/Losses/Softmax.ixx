@@ -21,9 +21,11 @@ export import :Config;
 import Dnn.Component;
 import Dnn.Tensor;
 import Dnn.ITensor;
+import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Compute.Precision;
+import Compute.ComputeDevice;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.UnaryOperation;
@@ -32,6 +34,7 @@ import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
 import Serialization.ModelArchive;
+import Serialization.Mode;
 
 namespace Mila::Dnn
 {

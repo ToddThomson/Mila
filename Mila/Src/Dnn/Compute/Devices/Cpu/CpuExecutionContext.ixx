@@ -40,12 +40,12 @@ namespace Mila::Dnn::Compute
 				// No additional resources needed for CPU
             }
 
-            ~ExecutionContext() = default;
+            //~ExecutionContext() = default;
 
             ExecutionContext( const ExecutionContext& ) = delete;
             ExecutionContext& operator=( const ExecutionContext& ) = delete;
-            ExecutionContext( ExecutionContext&& ) noexcept = default;
-            ExecutionContext& operator=( ExecutionContext&& ) noexcept = default;
+            ExecutionContext( ExecutionContext&& ) = delete;
+            ExecutionContext& operator=( ExecutionContext&& ) = delete;
 
             /**
              * @brief Synchronizes CPU execution (no-op).
@@ -61,12 +61,12 @@ namespace Mila::Dnn::Compute
                 return device_;
             }
 
-            /**
-             * @brief Gets the device type (always CPU).
-             */
-            static constexpr DeviceType getDeviceType() {
-                return DeviceType::Cpu;
-            }
+            ///**
+            // * @brief Gets the device type (always CPU).
+            // */
+            //static constexpr DeviceType getDeviceType() {
+            //    return DeviceType::Cpu;
+            //}
 
             /**
              * @brief Gets the device name.
@@ -82,21 +82,27 @@ namespace Mila::Dnn::Compute
                 return -1;
             }
 
-            /**
-             * @brief Checks if this is a CUDA device (always false).
-             */
-            static constexpr bool isCudaDevice() {
-                return false;
-            }
+            ///**
+            // * @brief Checks if this is a CUDA device (always false).
+            // */
+            //static constexpr bool isCudaDevice() {
+            //    return false;
+            //}
 
-            /**
-             * @brief Checks if this is a CPU device (always true).
-             */
-            static constexpr bool isCpuDevice() {
-                return true;
-            }
+            ///**
+            // * @brief Checks if this is a CPU device (always true).
+            // */
+            //static constexpr bool isCpuDevice() {
+            //    return true;
+            //}
 
         private:
             std::shared_ptr<ComputeDevice> device_;
     };
+
+    // ====================================================================
+    // Type Alias
+    // ====================================================================
+
+    export using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
 }

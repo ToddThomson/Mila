@@ -56,7 +56,7 @@ namespace Mila::Dnn
         /**
 		 * @brief Check if the tensor is a scalar (rank 0)
          */
-		virtual bool isScalar() const = 0;
+		virtual bool isScalar() const noexcept = 0;
 
         /**
          * @brief Get tensor dimensional structure

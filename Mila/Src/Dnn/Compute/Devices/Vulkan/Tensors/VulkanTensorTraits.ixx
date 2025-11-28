@@ -59,15 +59,12 @@ namespace Mila::Dnn
         static consteval bool supports() {
             return TDataType == TensorDataType::FP32 ||
                 TDataType == TensorDataType::FP16 ||
-                TDataType == TensorDataType::FP64 ||  // Requires VK_KHR_shader_float64
                 TDataType == TensorDataType::INT8 ||
                 TDataType == TensorDataType::INT16 ||
                 TDataType == TensorDataType::INT32 ||
-                TDataType == TensorDataType::INT64 ||
                 TDataType == TensorDataType::UINT8 ||
                 TDataType == TensorDataType::UINT16 ||
-                TDataType == TensorDataType::UINT32 ||
-                TDataType == TensorDataType::UINT64;
+                TDataType == TensorDataType::UINT32;
         }
 
     private:
@@ -80,26 +77,24 @@ namespace Mila::Dnn
          * Vulkan configurations with appropriate fallback types.
          */
         template<TensorDataType TDataType>
-        static consteval auto get_native_type() {
+        static consteval auto get_native_type()
+        {
             // Vulkan uses standard C++ types that map to SPIR-V types
-            if constexpr ( TDataType == TensorDataType::FP32 ) return float{};
-            else if constexpr ( TDataType == TensorDataType::FP16 ) {
+            if constexpr ( TDataType == TensorDataType::FP32 )
+                return float{};
+            else if constexpr ( TDataType == TensorDataType::FP16 )
+            {
                 // Half precision requires VK_KHR_shader_float16_int8 extension
                 return uint16_t{}; // Stored as 16-bit but requires special handling
-            }
-            else if constexpr ( TDataType == TensorDataType::FP64 ) {
-                // Double precision requires VK_KHR_shader_float64 extension
-                return double{};
             }
             else if constexpr ( TDataType == TensorDataType::INT8 ) return int8_t{};
             else if constexpr ( TDataType == TensorDataType::INT16 ) return int16_t{};
             else if constexpr ( TDataType == TensorDataType::INT32 ) return int32_t{};
-            else if constexpr ( TDataType == TensorDataType::INT64 ) return int64_t{};
             else if constexpr ( TDataType == TensorDataType::UINT8 ) return uint8_t{};
             else if constexpr ( TDataType == TensorDataType::UINT16 ) return uint16_t{};
             else if constexpr ( TDataType == TensorDataType::UINT32 ) return uint32_t{};
-            else if constexpr ( TDataType == TensorDataType::UINT64 ) return uint64_t{};
-            else {
+            else
+            {
                 static_assert(TDataType == TensorDataType::FP32,
                     "Unsupported tensor data type for Vulkan. Check VulkanTensorTraits::supports() for supported types.");
                 return float{};
@@ -166,17 +161,12 @@ namespace Mila::Dnn
                 // This is a simplified implementation
                 return static_cast<float>(value);
             }
-            else if constexpr ( TDataType == TensorDataType::FP64 ) {
-                return static_cast<float>(value);
-            }
             else if constexpr ( TDataType == TensorDataType::INT8 ||
                 TDataType == TensorDataType::INT16 ||
                 TDataType == TensorDataType::INT32 ||
-                TDataType == TensorDataType::INT64 ||
                 TDataType == TensorDataType::UINT8 ||
                 TDataType == TensorDataType::UINT16 ||
-                TDataType == TensorDataType::UINT32 ||
-                TDataType == TensorDataType::UINT64 ) {
+                TDataType == TensorDataType::UINT32 ) {
                 return static_cast<float>(value);
             }
             else {
@@ -199,9 +189,7 @@ namespace Mila::Dnn
         template<TensorDataType TDataType>
         static consteval bool is_device_only() {
             // In Vulkan, FP16 typically requires device-only access and special extensions
-            // FP64 also requires specific device extension support
-            return TDataType == TensorDataType::FP16 ||
-                TDataType == TensorDataType::FP64;
+            return TDataType == TensorDataType::FP16;
         }
 
         /**
@@ -216,10 +204,7 @@ namespace Mila::Dnn
         template<TensorDataType TDataType>
         static consteval bool requires_extensions() {
             return TDataType == TensorDataType::FP16 ||  // VK_KHR_shader_float16_int8
-                TDataType == TensorDataType::FP64 ||  // VK_KHR_shader_float64
-                TDataType == TensorDataType::INT8 ||  // VK_KHR_shader_float16_int8
-                TDataType == TensorDataType::INT64 || // VK_KHR_shader_int64
-                TDataType == TensorDataType::UINT64;  // VK_KHR_shader_int64
+                TDataType == TensorDataType::INT8;
         }
 
         /**
@@ -235,12 +220,6 @@ namespace Mila::Dnn
         static consteval std::string_view required_extension() {
             if constexpr ( TDataType == TensorDataType::FP16 || TDataType == TensorDataType::INT8 ) {
                 return "VK_KHR_shader_float16_int8";
-            }
-            else if constexpr ( TDataType == TensorDataType::FP64 ) {
-                return "VK_KHR_shader_float64";
-            }
-            else if constexpr ( TDataType == TensorDataType::INT64 || TDataType == TensorDataType::UINT64 ) {
-                return "VK_KHR_shader_int64";
             }
             else {
                 return ""; // No extension required for core types
@@ -260,11 +239,9 @@ namespace Mila::Dnn
         static consteval uint32_t spirv_bit_width() {
             if constexpr ( TDataType == TensorDataType::FP32 ) return 32;
             else if constexpr ( TDataType == TensorDataType::FP16 ) return 16;
-            else if constexpr ( TDataType == TensorDataType::FP64 ) return 64;
             else if constexpr ( TDataType == TensorDataType::INT8 || TDataType == TensorDataType::UINT8 ) return 8;
             else if constexpr ( TDataType == TensorDataType::INT16 || TDataType == TensorDataType::UINT16 ) return 16;
             else if constexpr ( TDataType == TensorDataType::INT32 || TDataType == TensorDataType::UINT32 ) return 32;
-            else if constexpr ( TDataType == TensorDataType::INT64 || TDataType == TensorDataType::UINT64 ) return 64;
             else {
                 static_assert(TDataType == TensorDataType::FP32, "Unsupported data type for SPIR-V bit width");
                 return 32;

@@ -166,9 +166,9 @@ namespace Dnn::Compute::ExecutionContexts::Tests
         using CudaContext = ExecutionContext<DeviceType::Cuda>;
 
         // Verify compile-time constants
-        static_assert(CudaContext::getDeviceType() == DeviceType::Cuda);
+        /*static_assert(CudaContext::getDeviceType() == DeviceType::Cuda);
         static_assert(CudaContext::isCudaDevice());
-        static_assert(!CudaContext::isCpuDevice());
+        static_assert(!CudaContext::isCpuDevice());*/
     }
 
     TEST_F( CudaExecutionContextTest, DeviceTypeChecks ) {
@@ -178,8 +178,8 @@ namespace Dnn::Compute::ExecutionContexts::Tests
 
         ExecutionContext<DeviceType::Cuda> exec_ctx( 0 );
 
-        EXPECT_TRUE( exec_ctx.isCudaDevice() );
-        EXPECT_FALSE( exec_ctx.isCpuDevice() );
+        EXPECT_TRUE( exec_ctx.getDeviceType() == DeviceType::Cuda );
+
     }
 
     // ============================================================================
@@ -322,8 +322,6 @@ namespace Dnn::Compute::ExecutionContexts::Tests
         CudaExecutionContext cuda_ctx( 0 );
 
         EXPECT_EQ( cuda_ctx.getDeviceType(), DeviceType::Cuda );
-        EXPECT_TRUE( cuda_ctx.isCudaDevice() );
-        EXPECT_FALSE( cuda_ctx.isCpuDevice() );
     }
 
     // ============================================================================
@@ -375,7 +373,6 @@ namespace Dnn::Compute::ExecutionContexts::Tests
         // Module would pass this to TensorOps
         EXPECT_NO_THROW( exec_ctx->synchronize() );
         EXPECT_EQ( exec_ctx->getDeviceType(), DeviceType::Cuda );
-        EXPECT_TRUE( exec_ctx->isCudaDevice() );
         EXPECT_NE( exec_ctx->getStream(), nullptr );
     }
 

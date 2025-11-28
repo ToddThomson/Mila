@@ -3,6 +3,8 @@
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
 #include <cuda_fp8.h>
+#include <type_traits>
+#include <cstdint>
 
 namespace Mila::Dnn::Compute::Cuda
 {
@@ -12,7 +14,8 @@ namespace Mila::Dnn::Compute::Cuda
      * Default implementation using static_cast for compatible types.
      */
     template <typename SrcT, typename DstT>
-    __device__ DstT convert_value( SrcT val ) {
+    __device__ DstT convert_value( SrcT val )
+    {
         return static_cast<DstT>(val);
     }
 
@@ -22,7 +25,8 @@ namespace Mila::Dnn::Compute::Cuda
      * Converts __half to float first, then to target type for accuracy.
      */
     template <typename DstT>
-    __device__ DstT convert_value( __half val ) {
+    __device__ DstT convert_value( __half val )
+    {
         return static_cast<DstT>(__half2float( val ));
     }
 
@@ -32,7 +36,8 @@ namespace Mila::Dnn::Compute::Cuda
      * Converts __nv_bfloat16 to float first, then to target type.
      */
     template <typename DstT>
-    __device__ DstT convert_value( __nv_bfloat16 val ) {
+    __device__ DstT convert_value( __nv_bfloat16 val )
+    {
         return static_cast<DstT>(__bfloat162float( val ));
     }
 
@@ -42,7 +47,8 @@ namespace Mila::Dnn::Compute::Cuda
      * Converts source type to float first, then to __half for accuracy.
      */
     template <typename SrcT>
-    __device__ __half convert_value_to_half( SrcT val ) {
+    __device__ __half convert_value_to_half( SrcT val )
+    {
         return __float2half( static_cast<float>(val) );
     }
 
@@ -52,7 +58,8 @@ namespace Mila::Dnn::Compute::Cuda
      * Converts source type to float first, then to __nv_bfloat16.
      */
     template <typename SrcT>
-    __device__ __nv_bfloat16 convert_value_to_bfloat16( SrcT val ) {
+    __device__ __nv_bfloat16 convert_value_to_bfloat16( SrcT val )
+    {
         return __float2bfloat16( static_cast<float>(val) );
     }
 
@@ -92,15 +99,16 @@ namespace Mila::Dnn::Compute::Cuda
     template <typename SrcT, typename DstT>
     __global__ void convert_copy_kernel( const SrcT* __restrict__ src,
         DstT* __restrict__ dst,
-        size_t n ) {
+        size_t n )
+    {
         size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-        if (idx < n)
+        if ( idx < n )
         {
-            if constexpr (std::is_same_v<DstT, __half> && !std::is_same_v<SrcT, __half>)
+            if constexpr ( std::is_same_v<DstT, __half> && !std::is_same_v<SrcT, __half> )
             {
                 dst[idx] = convert_value_to_half( src[idx] );
             }
-            else if constexpr (std::is_same_v<DstT, __nv_bfloat16> && !std::is_same_v<SrcT, __nv_bfloat16>)
+            else if constexpr ( std::is_same_v<DstT, __nv_bfloat16> && !std::is_same_v<SrcT, __nv_bfloat16> )
             {
                 dst[idx] = convert_value_to_bfloat16( src[idx] );
             }
@@ -130,17 +138,18 @@ namespace Mila::Dnn::Compute::Cuda
         DstT* __restrict__ dst,
         size_t n,
         size_t src_stride,
-        size_t dst_stride ) {
+        size_t dst_stride )
+    {
         size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-        if (idx < n)
+        if ( idx < n )
         {
             size_t src_idx = idx * src_stride;
             size_t dst_idx = idx * dst_stride;
-            if constexpr (std::is_same_v<DstT, __half> && !std::is_same_v<SrcT, __half>)
+            if constexpr ( std::is_same_v<DstT, __half> && !std::is_same_v<SrcT, __half> )
             {
                 dst[dst_idx] = convert_value_to_half( src[src_idx] );
             }
-            else if constexpr (std::is_same_v<DstT, __nv_bfloat16> && !std::is_same_v<SrcT, __nv_bfloat16>)
+            else if constexpr ( std::is_same_v<DstT, __nv_bfloat16> && !std::is_same_v<SrcT, __nv_bfloat16> )
             {
                 dst[dst_idx] = convert_value_to_bfloat16( src[src_idx] );
             }
@@ -166,15 +175,16 @@ namespace Mila::Dnn::Compute::Cuda
     template <typename T>
     __global__ void fast_copy_kernel( const T* __restrict__ src,
         T* __restrict__ dst,
-        size_t n ) {
+        size_t n )
+    {
         size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
 
         // Use vectorized loads/stores for supported types
-        if constexpr (sizeof( T ) == 4)
+        if constexpr ( sizeof( T ) == 4 )
         {
             // 4-byte types (float, int32_t) - use float4 vectorization
             size_t vec_idx = idx * 4;
-            if (vec_idx + 3 < n)
+            if ( vec_idx + 3 < n )
             {
                 float4 data = reinterpret_cast<const float4*>(src)[idx];
                 reinterpret_cast<float4*>(dst)[idx] = data;
@@ -183,7 +193,7 @@ namespace Mila::Dnn::Compute::Cuda
         }
 
         // Fallback to scalar copy for boundary elements or unsupported types
-        if (idx < n)
+        if ( idx < n )
         {
             dst[idx] = src[idx];
         }
@@ -201,26 +211,29 @@ namespace Mila::Dnn::Compute::Cuda
      * @param n Number of elements to fill
      */
     template <typename T>
-    __global__ void fill_kernel( T* __restrict__ dst, T value, size_t n ) {
+    __global__ void fill_kernel( T* __restrict__ dst, T value, size_t n )
+    {
         size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-        if (idx < n)
+        if ( idx < n )
         {
             dst[idx] = value;
         }
     }
 
     template <typename SrcT, typename DstT>
-    void launch_convert_copy_kernel( const SrcT* d_src, DstT* d_or_h_dst, size_t n, cudaStream_t stream ) {
-        if (n == 0) return;
+    void launch_convert_copy_kernel( const SrcT* d_src, DstT* d_or_h_dst, size_t n, cudaStream_t stream )
+    {
+        if ( n == 0 ) return;
         constexpr int block = 256;
-        int grid = static_cast<int>( (n + block - 1) / block );
+        int grid = static_cast<int>((n + block - 1) / block);
 
         convert_copy_kernel<SrcT, DstT> << <grid, block, 0, stream >> > (d_src, d_or_h_dst, n);
     }
 
     template <typename T>
-    void launch_fast_copy_kernel( const T* d_src, T* d_dst, size_t n, cudaStream_t stream ) {
-        if (n == 0) return;
+    void launch_fast_copy_kernel( const T* d_src, T* d_dst, size_t n, cudaStream_t stream )
+    {
+        if ( n == 0 ) return;
         constexpr int block = 256;
         int grid = static_cast<int>((n + block - 1) / block);
 
@@ -254,5 +267,4 @@ namespace Mila::Dnn::Compute::Cuda
     template void launch_fast_copy_kernel<int32_t>( const int32_t*, int32_t*, size_t, cudaStream_t );
     template void launch_fast_copy_kernel<int8_t>( const int8_t*, int8_t*, size_t, cudaStream_t );
     template void launch_fast_copy_kernel<uint8_t>( const uint8_t*, uint8_t*, size_t, cudaStream_t );
-
-} // namespace Mila::Dnn::Compute::Cuda
+}

@@ -33,6 +33,7 @@ import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
 import Serialization.ModelArchive;
 import Serialization.Tensor;
+import Serialization.Mode;
 import nlohmann.json;
 
 namespace Mila::Dnn
@@ -454,7 +455,7 @@ namespace Mila::Dnn
             std::string file_precision = meta.value( "template_precision", "" );
 
             std::string expected_device = deviceTypeToString( TDeviceType );
-            std::string expected_precision = precisionToString( TPrecision );
+            std::string expected_precision = "FP32"; // FIXME: precisionToString( TPrecision );
 
             if (file_device != expected_device)
             {

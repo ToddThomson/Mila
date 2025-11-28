@@ -55,6 +55,7 @@ import Compute.CudaDeviceMemoryResource;
 import Compute.CudaManagedMemoryResource;
 import Compute.CudaPinnedMemoryResource;
 import Compute.ComputeDevice;
+import Compute.DeviceType;
 import Compute.CpuDevice;
 import Compute.CudaDevice;
 import Compute.DeviceRegistrar;
@@ -487,7 +488,7 @@ namespace Mila::Dnn
          * EXPECT_FALSE(vector1d.isScalar()); // rank 1, not a scalar
          * @endcode
          */
-        bool isScalar() const noexcept {
+        bool isScalar() const noexcept override {
             return rank() == 0;
         }
 
@@ -709,7 +710,7 @@ namespace Mila::Dnn
          * @note Enables device property queries without accessing context
          * @note Device is set during construction and remains constant
          */
-        std::shared_ptr<Compute::ComputeDevice> getDevice() const {
+        std::shared_ptr<Compute::ComputeDevice> getDevice() const override {
             return device_;
         }
 

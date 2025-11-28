@@ -91,7 +91,9 @@
       "cacheVariables": {
         "CMAKE_C_COMPILER": "gcc",
         "CMAKE_CXX_COMPILER": "g++",
-        "CMAKE_BUILD_TYPE": "Debug"
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CUDA_COMPILER": "/usr/local/cuda-13.0/bin/nvcc",
+        "CMAKE_CUDA_ARCHITECTURES": "86;80;75"
       }
     },
     {
@@ -203,6 +205,10 @@
     {
       "name": "x64-release",
       "configurePreset": "x64-release"
+    },
+    {
+      "name": "linux-gcc-debug",
+      "configurePreset": "linux-gcc-debug"
     },
     {
       "name": "linux-clang-debug",

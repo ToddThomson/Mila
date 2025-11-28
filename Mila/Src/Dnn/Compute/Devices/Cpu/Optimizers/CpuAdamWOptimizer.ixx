@@ -26,9 +26,11 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorHostTypeMap;
+import Dnn.TensorInitializers;
 import Compute.OptimizerBase;
 import Compute.DeviceType;
 import Compute.CpuMemoryResource;
+import Compute.ExecutionContext;
 import Compute.CpuExecutionContext;
 
 namespace Mila::Dnn::Compute

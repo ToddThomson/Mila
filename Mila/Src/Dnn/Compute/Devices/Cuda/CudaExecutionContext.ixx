@@ -73,6 +73,7 @@ namespace Mila::Dnn::Compute
          * @brief Destructor with proper CUDA resource cleanup.
          */
         ~ExecutionContext() {
+			releaseResources();
         }
 
         // Non-copyable, non-movable (owns CUDA resources)
@@ -113,12 +114,12 @@ namespace Mila::Dnn::Compute
             return device_;
         }
 
-        /**
-         * @brief Gets the device type (always Cuda).
-         */
-        static constexpr DeviceType getDeviceType() {
-            return DeviceType::Cuda;
-        }
+        ///**
+        // * @brief Gets the device type (always Cuda).
+        // */
+        //static consteval DeviceType getDeviceType() {
+        //    return DeviceType::Cuda;
+        //}
 
         /**
          * @brief Gets the device name (e.g., "CUDA:0").
@@ -134,19 +135,19 @@ namespace Mila::Dnn::Compute
             return device_->getDeviceId();
         }
 
-        /**
-         * @brief Checks if this is a CUDA device (always true).
-         */
-        static constexpr bool isCudaDevice() {
-            return true;
-        }
+        ///**
+        // * @brief Checks if this is a CUDA device (always true).
+        // */
+        //static constexpr bool isCudaDevice() {
+        //    return true;
+        //}
 
-        /**
-         * @brief Checks if this is a CPU device (always false).
-         */
-        static constexpr bool isCpuDevice() {
-            return false;
-        }
+        ///**
+        // * @brief Checks if this is a CPU device (always false).
+        // */
+        //static constexpr bool isCpuDevice() {
+        //    return false;
+        //}
 
         /**
          * @brief Gets the CUDA stream for asynchronous operations.
@@ -264,4 +265,10 @@ namespace Mila::Dnn::Compute
             }
         }
     };
+
+    // ====================================================================
+    // Type Alias
+    // ====================================================================
+
+    export using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 }

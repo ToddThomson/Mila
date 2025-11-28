@@ -241,14 +241,14 @@ namespace Mila::Dnn::Compute
                 long double sum_exp = 0.0L;
                 for (int64_t v = 0; v < vocab_size; ++v)
                 {
-                    sum_exp += std::expl( static_cast<long double>( logits_i[v] - max_logit ) );
+                    sum_exp += expl( static_cast<long double>( logits_i[v] - max_logit ) );
                 }
 
                 // ============================================================
                 // CROSS-ENTROPY: Compute -log(softmax(logits)[target])
                 // ============================================================
 
-                long double log_sum_exp = std::logl( sum_exp );
+                long double log_sum_exp = logl( sum_exp );
                 long double target_logit = static_cast<long double>( logits_i[target] );
                 long double sample_loss = -(target_logit - static_cast<long double>(max_logit) - log_sum_exp);
 
@@ -350,7 +350,7 @@ namespace Mila::Dnn::Compute
                 long double sum_exp = 0.0L;
                 for (int64_t v = 0; v < vocab_size; ++v)
                 {
-                    sum_exp += std::expl( static_cast<long double>( logits_i[v] - max_logit ) );
+                    sum_exp += expl( static_cast<long double>( logits_i[v] - max_logit ) );
                 }
 
                 long double inv_sum = 1.0L / sum_exp;
@@ -362,7 +362,7 @@ namespace Mila::Dnn::Compute
                 for (int64_t v = 0; v < vocab_size; ++v)
                 {
                     // Compute softmax probability
-                    long double prob = std::expl( static_cast<long double>( logits_i[v] - max_logit ) ) * inv_sum;
+                    long double prob = expl( static_cast<long double>( logits_i[v] - max_logit ) ) * inv_sum;
 
                     // Subtract one-hot target
                     long double indicator = (v == target) ? 1.0L : 0.0L;

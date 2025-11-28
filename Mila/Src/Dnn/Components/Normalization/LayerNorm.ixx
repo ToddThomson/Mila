@@ -37,6 +37,7 @@ import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
 import Serialization.ModelArchive;
+import Serialization.Mode;
 
 namespace Mila::Dnn
 {

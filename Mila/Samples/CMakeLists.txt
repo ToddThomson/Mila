@@ -3,4 +3,9 @@
 add_subdirectory(MNIST)
 add_subdirectory(CharLM)
 #add_subdirectory( Gpt2 )
-add_subdirectory( Viz )
+
+if(WIN32)
+  add_subdirectory(Viz)
+else()
+  message(STATUS "Skipping Samples/Viz: Windows-only sample (not WIN32)")
+endif()

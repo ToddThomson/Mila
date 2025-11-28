@@ -36,6 +36,7 @@ import Dnn.Components.Linear;
 import Dnn.Components.Gelu;
 import Dnn.Components.LayerNorm;
 import Serialization.ModelArchive;
+import Serialization.Mode;
 
 namespace Mila::Dnn
 {

@@ -1,4 +1,4 @@
-FROM nvidia/cuda:13.0.1-devel-ubuntu24.04
+FROM nvidia/cuda:13.0.2-cudnn-devel-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -29,7 +29,7 @@ RUN git clone https://github.com/ninja-build/ninja.git /tmp/ninja \
 RUN wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add - \
     && echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" > /etc/apt/sources.list.d/llvm.list \
     && apt-get update \
-    && apt-get install -y clang-19 clang++-19 lldb-19 lld-19 clang-tools-19 clang-tidy-19 clang-format-19 \
+    && apt-get install -y clang-19 clang++-19 lldb-19 lld-19 clang-tools-19 clang-tidy-19 clang-format-19
 
 # Set Clang 19 as the default compiler
 RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 100 \
@@ -60,7 +60,7 @@ RUN git clone https://github.com/google/googletest.git /tmp/googletest \
 WORKDIR /mila
 
 # Set environment variables
-ENV CUDA_HOME=/usr/local/cuda-12.9
+ENV CUDA_HOME=/usr/local/cuda-13.0
 ENV PATH=${CUDA_HOME}/bin:${PATH}
 ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
 ENV CC=clang-19

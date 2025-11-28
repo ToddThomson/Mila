@@ -37,12 +37,12 @@ namespace Dnn::Compute::ExecutionContexts::Tests
     TEST_F( ExecutionContextIntegrationTest, TypeSafetyCompileTime ) {
         // CPU context
         ExecutionContext<DeviceType::Cpu> cpu_ctx;
-        EXPECT_TRUE( cpu_ctx.isCpuDevice() );
+        EXPECT_TRUE( cpu_ctx.getDeviceType() == DeviceType::Cpu);
 
         // CUDA context (if available)
         if (cuda_available_) {
             ExecutionContext<DeviceType::Cuda> cuda_ctx( 0 );
-            EXPECT_TRUE( cuda_ctx.isCudaDevice() );
+            EXPECT_TRUE( cuda_ctx.getDeviceType() == DeviceType::Cuda );
 
             // Type mismatch would be caught at compile time:
             // ExecutionContext<DeviceType::Cpu> wrong = cuda_ctx; // Compile error!

@@ -36,6 +36,8 @@
 module;
 #include <concepts>
 #include <span>
+#include <type_traits>
+#include <cstdint>
 
 export module Dnn.TensorOps:Fill;
 
@@ -51,18 +53,6 @@ import Compute.DeviceType;
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
-
-    /**
-     * @brief Host value type for given abstract tensor data type.
-     *
-     * Maps floating tensor types to `float` and integer tensor types to `int32_t`.
-     * Use this alias when declaring host-side buffers, spans or scalar arguments
-     * intended for conversion/transfer into tensors of `TDataType`.
-     *
-     * @tparam TDataType Abstract tensor data type from `TensorDataType` enum.
-     */
-    template<TensorDataType TDataType>
-    using host_value_t = std::conditional_t<TensorDataTypeTraits<TDataType>::is_integer_type, int32_t, float>;
 
     /**
      * @brief Copy host values into a tensor with device dispatch and optional ExecutionContext.

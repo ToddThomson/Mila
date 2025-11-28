@@ -46,6 +46,18 @@ namespace Mila::Dnn
         struct TensorDataTypeTraits;
 
     /**
+     * @brief Host value type for given abstract tensor data type.
+     *
+     * Maps floating tensor types to `float` and integer tensor types to `int32_t`.
+     * Use this alias when declaring host-side buffers, spans or scalar arguments
+     * intended for conversion/transfer into tensors of `TDataType`.
+     *
+     * @tparam TDataType Abstract tensor data type from `TensorDataType` enum.
+     */
+    export template<TensorDataType TDataType>
+        using host_value_t = std::conditional_t<TensorDataTypeTraits<TDataType>::is_integer_type, int32_t, float>;
+
+    /**
      * @brief Traits specialization for 32-bit IEEE 754 floating point
      *
      * Standard single-precision floating point compatible with both host and device

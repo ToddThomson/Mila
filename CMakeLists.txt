@@ -102,7 +102,7 @@ add_custom_target(MilaUpdateVersion
 
 # Default to building for the GPU on the current system  
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)  
-   set(CMAKE_CUDA_ARCHITECTURES native)  
+   set(CMAKE_CUDA_ARCHITECTURES native 86 CACHE STRING "CUDA architectures" )  
 endif()
 
 enable_testing()

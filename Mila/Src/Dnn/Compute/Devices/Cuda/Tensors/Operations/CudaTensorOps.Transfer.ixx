@@ -283,7 +283,7 @@ namespace Mila::Dnn::Compute::Cuda
             else
             {
                 // Device-only memory - access via ITensor interface
-                return static_cast<const ITensor&>(tensor).data();
+                return static_cast<const ITensor&>(tensor).rawData();
             }
         }
 

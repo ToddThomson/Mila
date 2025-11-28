@@ -11,6 +11,7 @@ module;
 #include <vector>
 #include <string>
 #include <stdexcept>
+#include <math.h>
 #include <cmath>
 #ifdef USE_OMP
 #include <omp.h>
@@ -193,7 +194,7 @@ namespace Mila::Dnn::Compute
                     long double sum = 0.0L;
                     for (int64_t i = 0; i < dim_size; ++i)
                     {
-                        long double val = std::expl( static_cast<long double>( slice_in[i * inner_size] - max_val ) );
+                        long double val = expl( static_cast<long double>( slice_in[i * inner_size] - max_val ) );
                         slice_out[i * inner_size] = static_cast<float>( val );
                         sum += val;
                     }

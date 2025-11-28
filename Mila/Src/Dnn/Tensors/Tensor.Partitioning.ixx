@@ -1,8 +1,8 @@
 module;
-#include <vector>;
-#include <stdexcept>;
-#include <string>;
-#include <cstdint>;
+#include <vector>
+#include <stdexcept>
+#include <string>
+#include <cstdint>
 #include <utility>
 
 export module Dnn.TensorPartitioning;

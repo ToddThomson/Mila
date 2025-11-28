@@ -20,6 +20,7 @@ export module Dnn.Component;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
+import Dnn.TensorDataTypeTraits;
 import Dnn.TensorTypes;
 import Compute.ComputeDevice;
 import Compute.DeviceType;

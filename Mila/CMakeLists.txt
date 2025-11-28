@@ -39,7 +39,8 @@ add_library( Mila STATIC
     "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaOptimizers.h"
     "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaAdamW.cu"
     "Src/Dnn/Visualization/Components/Block.Visualizer.ixx"
- "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Reduction.h")
+    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Reduction.h"
+)
 
  # FIXME: add_dependencies(Mila MilaUpdateVersion)
 
@@ -66,11 +67,11 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
   )
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   target_compile_options(Mila PRIVATE 
-    $<$<COMPILE_LANGUAGE:CXX>:-fModules-ts -std=c++23>
+    $<$<COMPILE_LANGUAGE:CXX>:-fmodules-ts -std=c++23>
   )
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   target_compile_options(Mila PRIVATE 
-    $<$<COMPILE_LANGUAGE:CXX>:-std=c++23 -fno-implicit-Modules -fno-implicit-module-maps>
+    $<$<COMPILE_LANGUAGE:CXX>:-std=c++23 -fno-implicit-modules -fno-implicit-module-maps>
   )
   set(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS "/usr/bin/clang-scan-deps-19")
   set(CMAKE_CUDA_HOST_COMPILER "${CMAKE_CXX_COMPILER}")

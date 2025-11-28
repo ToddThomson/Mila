@@ -21,7 +21,9 @@ module;
 export module Dnn.CompositeComponent;
 
 import Dnn.Component;
+import Dnn.ITensor;
 import Dnn.TensorDataType;
+import Compute.ComputeDevice;
 import Compute.DeviceType;
 import Serialization.ModelArchive;
 import Serialization.Mode;

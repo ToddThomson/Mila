@@ -20,6 +20,7 @@ export module Compute.CudaLayerNormOp;
 import Dnn.Components.LayerNorm;
 import Dnn.Tensor;
 import Dnn.ITensor;
+import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorHostTypeMap;

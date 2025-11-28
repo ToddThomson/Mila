@@ -11,6 +11,7 @@ module;
 #include <concepts>
 #include <span>
 #include <cstdint>
+#include <stdexcept>
 
 export module Dnn.TensorInitializers;
 
@@ -28,15 +29,6 @@ import Compute.CudaPinnedMemoryResource;
 
 namespace Mila::Dnn
 {
-    /**
-     * @brief Host value type mapping for tensor data types
-     *
-     * Maps all integer tensor types to int32_t host generation,
-     * and all floating tensor types to float host generation.
-     */
-    template<TensorDataType TDataType>
-    using host_value_t = std::conditional_t<TensorDataTypeTraits<TDataType>::is_integer_type, int32_t, float>;
-
     namespace Detail
     {
         /**

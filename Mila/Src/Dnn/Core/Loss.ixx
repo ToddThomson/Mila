@@ -8,6 +8,7 @@ export module Dnn.Loss;
 import Dnn.Component;
 import Dnn.Tensor;
 import Dnn.TensorDataType;
+import Dnn.TensorDataTypeTraits;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.CpuMemoryResource;

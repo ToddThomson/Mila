@@ -280,7 +280,7 @@ namespace Mila::Dnn
             json model_meta;
             model_meta["model_version"] = 1;
             model_meta["device"] = deviceTypeToString( TDeviceType );
-            model_meta["precision"] = precisionToString( TPrecision );
+            model_meta["precision"] = "FP32"; // FIXME: precisionToString( TPrecision );
             model_meta["framework_version"] = 1; // MILA_VERSION;
             archive.writeJson( "model/meta.json", model_meta );
 
@@ -288,8 +288,9 @@ namespace Mila::Dnn
 
             optimizer_->save( archive, "optimizer/" );
 
-            json cfg = config_.toJson();
-            archive.writeJson( "model/config.json", cfg );
+			// FIXME:
+            //json cfg = config_.toJson();
+            //archive.writeJson( "model/config.json", cfg );
 
             archive.close();
         }
@@ -364,7 +365,7 @@ namespace Mila::Dnn
             json model_meta;
             model_meta["model_version"] = 1;
             model_meta["device"] = deviceTypeToString( TDeviceType );
-            model_meta["precision"] = precisionToString( TPrecision );
+            model_meta["precision"] = "FP32"; // FIXME: precisionToString( TPrecision );
             model_meta["export_mode"] = true;
             archive.writeJson( "model/meta.json", model_meta );
 
@@ -451,11 +452,11 @@ namespace Mila::Dnn
                         file_device, deviceTypeToString( D ) ) );
             }
 
-            if (file_precision != precisionToString( P ))
+            if (file_precision != "FP32" /* precisionToString(P) */ )
             {
                 throw std::runtime_error(
                     std::format( "Precision mismatch: file='{}', requested='{}'",
-                        file_precision, precisionToString( P ) ) );
+                        file_precision, "FP32"/*precisionToString(P) */));
             }
         }
 
@@ -478,7 +479,7 @@ namespace Mila::Dnn
             json model_meta;
             model_meta["model_version"] = 1;
             model_meta["device"] = deviceTypeToString( TDeviceType );
-            model_meta["precision"] = precisionToString( TPrecision );
+            model_meta["precision"] = "FP32"; // FIXME: precisionToString( TPrecision );
             model_meta["framework_version"] = 1;// MILA_VERSION;
             model_meta["epoch"] = metadata.epoch;
             model_meta["train_loss"] = metadata.train_loss;
@@ -490,8 +491,9 @@ namespace Mila::Dnn
 
             optimizer_->save( archive, "optimizer/" );
 
-            json cfg = config_.toJson();
-            archive.writeJson( "model/config.json", cfg );
+            // FIXME:
+            //json cfg = config_.toJson();
+            //archive.writeJson( "model/config.json", cfg );
 
             archive.close();
 
@@ -529,7 +531,7 @@ namespace Mila::Dnn
             optimizer_->load( archive, "optimizer/" );
 
             json cfg = archive.readJson( "model/config.json" );
-            config_.fromJson( cfg );
+            // FIXME: config_.fromJson( cfg );
         }
 
         /**

@@ -25,6 +25,7 @@ export module Compute.CpuTensorOps:Math;
 
 import Dnn.Tensor;
 import Dnn.TensorDataType;
+import Dnn.TensorDataTypeTraits;
 import Dnn.TensorDataTypeMap;
 import Dnn.TensorHostTypeMap;
 import Compute.DeviceType;

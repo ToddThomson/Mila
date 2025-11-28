@@ -15,6 +15,7 @@ module;
 #include <ostream>
 #include <sstream>
 #include <source_location>
+#include <cstdint>
 
 export module Cuda.Error;
 

@@ -20,6 +20,7 @@ module;
 export module Serialization.ZipSerializer;
 
 import Serialization.ModelSerializer;
+import Serialization.OpenMode;
 import Utils.Logger;
 
 namespace Mila::Dnn::Serialization

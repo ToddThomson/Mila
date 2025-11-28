@@ -25,9 +25,11 @@ import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
+import Dnn.TensorInitializers;
 import Compute.OptimizerBase;
 import Compute.DeviceType;
 import Compute.CudaDeviceMemoryResource;
+import Compute.ExecutionContext;
 import Compute.CudaExecutionContext;
 import Compute.CudaTensorDataType;
 
