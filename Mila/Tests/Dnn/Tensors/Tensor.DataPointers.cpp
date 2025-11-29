@@ -2,6 +2,7 @@
 #include <vector>
 #include <cstdint>
 #include <memory>
+#include <cstring>
 #include <type_traits>
 
 import Mila;

@@ -1,5 +1,5 @@
 module;
-#include <vector>;
+#include <vector>
 #include <cstdint>
 
 export module Dnn.TensorTypes;

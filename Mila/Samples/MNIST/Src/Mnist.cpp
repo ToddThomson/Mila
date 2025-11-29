@@ -11,6 +11,7 @@
 #include <exception>
 #include <cstdint>
 #include <stdexcept>
+#include <cmath>
 
 import Mila;
 

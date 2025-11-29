@@ -5,6 +5,7 @@
 #include <cuda_fp16.h>
 #include "device_launch_parameters.h"
 #include "../../Helpers/CudaUtils.h"
+#include <cmath>
 
 namespace Mila::Dnn::Compute
 {

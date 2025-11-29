@@ -172,8 +172,10 @@ add_executable( MilaTests
     "Dnn/Compute/Operations/UnaryOperation.cpp"
     #"Dnn/Compute/Operations/BinaryOperation.cpp"
 
-    "Dnn/Optimizers/AdamW.Cuda.cpp"
-    "Dnn/Optimizers/AdamW.Cpu.cpp"
+    # TJT: These are op tests. We should be testing Components instead.
+    #"Dnn/Optimizers/AdamW.Cuda.cpp"
+    #"Dnn/Optimizers/AdamW.Cpu.cpp"
+    
     "Dnn/Components/Losses/CrossEntropy.Cpu.cpp"
     "Dnn/Components/Losses/SoftmaxCrossEntropy.Cuda.cpp"
     "Dnn/Components/Losses/CrossEntropy.Config.cpp"

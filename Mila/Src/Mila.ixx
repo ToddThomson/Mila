@@ -207,6 +207,7 @@ export import Data.DatasetReader;
 // Serialization
 // ============================================================================
 export import Serialization.Mode;
+export import Serialization.OpenMode;
 export import Serialization.ModelArchive;
 export import Serialization.ModelSerializer;
 export import Serialization.ZipSerializer;
