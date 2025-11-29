@@ -25,6 +25,7 @@ import Dnn.Tensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeMap;
 import Dnn.TensorDataTypeTraits;
+import Compute.ExecutionContext;
 import Compute.DeviceType;
 import Compute.DeviceTraits;
 import Compute.CpuMemoryResource;

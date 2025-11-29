@@ -14,6 +14,24 @@ module;
 
 export module Compute.ExecutionContext;
 
+export import Compute.ExecutionContextBase;
+
+export import :Cpu;
+
+#ifdef MILA_HAS_CUDA
+export import :Cuda;
+#endif
+
+// Conditionally export Metal backend
+#ifdef MILA_HAS_METAL
+export import :Metal;
+#endif
+
+// Conditionally export ROCm backend
+#ifdef MILA_HAS_ROCM
+export import :Rocm;
+#endif
+
 import Compute.IExecutionContext;
 import Compute.ComputeDevice;
 import Compute.DeviceType;
@@ -21,134 +39,22 @@ import Compute.DeviceType;
 namespace Mila::Dnn::Compute
 {
     /**
-     * @brief Templated execution context for device-specific operations.
-     *
-     * ExecutionContext manages the resources needed for executing operations:
-     * streams for asynchronous execution, library handles (cuBLAS, cuDNN),
-     * and synchronization primitives. The template parameter provides compile-time
-     * device type checking and enables device-specific optimizations.
-     *
-     * Design rationale:
-     * - Template parameter eliminates runtime type checking overhead
-     * - Each device type has a specialized implementation
-     * - Modules are templated on device type, ensuring type safety throughout
-     * - No virtual function overhead for device-specific operations
-     *
-     * @tparam TDeviceType The device type (Cpu, Cuda, Metal, etc.)
-     */
-    export template<DeviceType TDeviceType>
-        class ExecutionContext;
-    //: public IExecutionContext
-    //{
-    //public:
-
-    //    ExecutionContext() : IExecutionContext( TDeviceType ) {}
-
-    //    /**
-    //     * @brief Destructor for proper cleanup of derived classes.
-    //     */
-    //    ~ExecutionContext() = default;
-
-    //    /**
-    //     * @brief Copy constructor (deleted).
-    //     */
-    //    ExecutionContext( const ExecutionContext& ) = delete;
-
-    //    /**
-    //     * @brief Copy assignment operator (deleted).
-    //     */
-    //    ExecutionContext& operator=( const ExecutionContext& ) = delete;
-
-    //    /**
-    //     * @brief Move constructor.
-    //     */
-    //    ExecutionContext( ExecutionContext&& other ) noexcept = default;
-
-    //    /**
-    //     * @brief Move assignment operator.
-    //     */
-    //    ExecutionContext& operator=( ExecutionContext&& other ) noexcept = default;
-
-    //    // ====================================================================
-    //    // Interface - Implemented by specializations
-    //    // ====================================================================
-
-    //    /**
-    //     * @brief Synchronizes execution, waiting for all queued operations to complete.
-    //     *
-    //     * Blocks the calling thread until all operations submitted to this execution
-    //     * context have completed. Implementation is device-specific.
-    //     */
-    //    void synchronize();
-
-    //    /**
-    //     * @brief Gets the underlying device.
-    //     * @return Shared pointer to the associated device
-    //     */
-    //    std::shared_ptr<ComputeDevice> getDevice() const;
-
-    //    /**
-    //     * @brief Gets the device type for this execution context.
-    //     * @return DeviceType enumeration value (known at compile time)
-    //     */
-    //    static consteval DeviceType getDeviceType() noexcept {
-    //        return TDeviceType;
-    //    }
-
-    //    /**
-    //     * @brief Gets the device name (e.g., "CPU", "CUDA:0").
-    //     * @return String identifier for the device
-    //     */
-    //    std::string getDeviceName() const {
-    //        return getDevice()->getDeviceName();
-    //    }
-
-    //    /**
-    //     * @brief Gets the device ID (-1 for devices without numbering).
-    //     * @return Device ID or -1 if not applicable
-    //     */
-    //    int getDeviceId() const {
-    //        return getDevice()->getDeviceId();
-    //    }
-
-    //    /**
-    //     * @brief Checks if this execution context is for a CUDA device.
-    //     */
-    //    static consteval bool isCudaDevice() {
-    //        return TDeviceType == DeviceType::Cuda;
-    //    }
-
-    //    /**
-    //     * @brief Checks if this execution context is for a CPU device.
-    //     */
-    //    static consteval bool isCpuDevice() {
-    //        return TDeviceType == DeviceType::Cpu;
-    //    }
-
-    ////protected:
-    ////    /**
-    ////     * @brief Protected default constructor for specialized implementations.
-    ////     */
-    ////    ExecutionContext() = default;
-    //};
-
-    /**
      * @brief Safe cast from IExecutionContext to concrete ExecutionContext<Device>.
      *
      * Performs a debug assertion to verify the device type matches, then
      * does a zero-cost static_cast in release builds.
      *
-     * @tparam Device The device trait type to cast to
+     * @tparam TDeviceType The device type to cast to
      * @param ctx The type-erased context pointer
      * @return Pointer to the concrete context, or nullptr if ctx is nullptr
      */
     export template<DeviceType TDeviceType>
-        [[nodiscard]] ExecutionContext<TDeviceType>* cast_context( IExecutionContext* ctx ) noexcept {
-        if (!ctx) 
+        [[nodiscard]] ExecutionContext<TDeviceType>* cast_context( IExecutionContext* ctx ) noexcept
+    {
+        if ( !ctx )
             return nullptr;
 
         assert( ctx->getDeviceType() == TDeviceType && "Device type mismatch in context cast" );
-
         return static_cast<ExecutionContext<TDeviceType>*>(ctx);
     }
 
@@ -156,13 +62,45 @@ namespace Mila::Dnn::Compute
      * @brief Safe cast from IExecutionContext to concrete ExecutionContext<Device> (const version).
      */
     export template<DeviceType TDeviceType>
-        [[nodiscard]] const ExecutionContext<TDeviceType>* cast_context( const IExecutionContext* ctx ) noexcept {
-        if (!ctx) 
+        [[nodiscard]] const ExecutionContext<TDeviceType>* cast_context( const IExecutionContext* ctx ) noexcept
+    {
+        if ( !ctx )
             return nullptr;
-        
+
         assert( ctx->getDeviceType() == TDeviceType && "Device type mismatch in context cast" );
-        
         return static_cast<const ExecutionContext<TDeviceType>*>(ctx);
+    }
+
+    /**
+     * @brief Query if a backend is available at runtime.
+     */
+    export constexpr bool hasBackend( DeviceType type ) noexcept
+    {
+        switch ( type )
+        {
+            case DeviceType::Cpu:
+                return true;  // Always available
+            case DeviceType::Cuda:
+#ifdef MILA_HAS_CUDA
+                return true;
+#else
+                return false;
+#endif
+            case DeviceType::Metal:
+#ifdef MILA_HAS_METAL
+                return true;
+#else
+                return false;
+#endif
+            case DeviceType::Rocm:
+#ifdef MILA_HAS_ROCM
+                return true;
+#else
+                return false;
+#endif
+            default:
+                return false;
+        }
     }
 
     // ====================================================================

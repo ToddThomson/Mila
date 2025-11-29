@@ -2,19 +2,37 @@ FROM nvidia/cuda:13.0.2-cudnn-devel-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    cmake \
-    ninja-build \
-    curl \
-    wget \
-    git \
-    gdb \
-    doxygen \
-    graphviz \
-    software-properties-common \
+# Install core packages, GPG tools and lsb-release (used for distro codename)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+        ninja-build \
+        curl \
+        wget \
+        git \
+        gdb \
+        doxygen \
+        graphviz \
+        software-properties-common \
+        lsb-release \
+        gnupg \
+        ca-certificates \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# Update package lists, install wget and gnupg2 (necessary dependencies for the script)
+RUN apt-get update && apt-get install -y wget gnupg2 software-properties-common
+
+# Download and run the official LLVM installation script for Clang 19
+# The script handles adding the repository and public key
+RUN wget https://apt.llvm.org/llvm.sh && chmod +x llvm.sh && ./llvm.sh 19
+
+# (Optional) Clean up to reduce image size
+RUN apt-get autoremove -y && apt-get clean && rm -rf /var/lib/apt/lists/* /llvm.sh
+
+# Set default command to verify the installation
+CMD ["clang-19", "--version"]
 
 # Install latest Ninja build system from source (required for c++20 modules support)
 RUN git clone https://github.com/ninja-build/ninja.git /tmp/ninja \
@@ -24,12 +42,6 @@ RUN git clone https://github.com/ninja-build/ninja.git /tmp/ninja \
     && cmake --build build --target install \
     && rm -rf /tmp/ninja \
     && ninja --version
-
-# Install Clang 19 and related tools (See issue #2 ).
-RUN wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add - \
-    && echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" > /etc/apt/sources.list.d/llvm.list \
-    && apt-get update \
-    && apt-get install -y clang-19 clang++-19 lldb-19 lld-19 clang-tools-19 clang-tidy-19 clang-format-19
 
 # Set Clang 19 as the default compiler
 RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 100 \
@@ -43,17 +55,17 @@ RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 100 \
 
 RUN clang --version && clang++ --version
 
-# Install CMake 3.31 or newer (since your project requires 3.31)
-RUN wget -qO- "https://cmake.org/files/v3.31/cmake-3.31.0-linux-x86_64.tar.gz" | tar --strip-components=1 -xz -C /usr/local
+# Install CMake 3.31 (project requires 3.31). Consider adding checksum validation if desired.
+RUN wget -qO- "https://cmake.org/files/v3.31/cmake-3.31.0-linux-x86_64.tar.gz" \
+    | tar --strip-components=1 -xz -C /usr/local
 
-# Clone and build Google Test for testing support
+# Clone and install GoogleTest for testing support
 RUN git clone https://github.com/google/googletest.git /tmp/googletest \
     && cd /tmp/googletest \
     && mkdir build \
     && cd build \
     && cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19 \
-    && make install \
-    && cd / \
+    && cmake --build . --target install \
     && rm -rf /tmp/googletest
 
 # Set work directory

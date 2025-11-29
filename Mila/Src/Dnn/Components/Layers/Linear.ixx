@@ -261,7 +261,6 @@ namespace Mila::Dnn
                 }
             }
 
-            // blank line before return per style
             return;
         }
 

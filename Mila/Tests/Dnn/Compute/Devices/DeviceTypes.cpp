@@ -33,8 +33,7 @@ namespace Dnn::Compute::Tests
             DeviceType cpu = DeviceType::Cpu;
             DeviceType cuda = DeviceType::Cuda;
             DeviceType metal = DeviceType::Metal;
-            DeviceType opencl = DeviceType::OpenCL;
-            DeviceType vulkan = DeviceType::Vulkan;
+            DeviceType rocm = DeviceType::Rocm;
             } );
     }
 
@@ -44,37 +43,37 @@ namespace Dnn::Compute::Tests
         EXPECT_EQ( DeviceType::Cpu, DeviceType::Cpu );
         EXPECT_NE( DeviceType::Cpu, DeviceType::Cuda );
         EXPECT_NE( DeviceType::Cuda, DeviceType::Metal );
-        EXPECT_NE( DeviceType::Metal, DeviceType::OpenCL );
-        EXPECT_NE( DeviceType::OpenCL, DeviceType::Vulkan );
     }
 
     // ====================================================================
     // deviceTypeToString() Function Tests
     // ====================================================================
 
-    TEST_F( DeviceTypeTest, deviceTypeToString_AllImplementedTypes ) {
+    TEST_F( DeviceTypeTest, deviceTypeToString_AllImplementedTypes )
+    {
         // Test all implemented device types
         EXPECT_EQ( deviceTypeToString( DeviceType::Cpu ), "CPU" );
         EXPECT_EQ( deviceTypeToString( DeviceType::Cuda ), "CUDA" );
         EXPECT_EQ( deviceTypeToString( DeviceType::Metal ), "Metal" );
-        EXPECT_EQ( deviceTypeToString( DeviceType::OpenCL ), "OpenCL" );
-        EXPECT_EQ( deviceTypeToString( DeviceType::Vulkan ), "Vulkan" );
+        EXPECT_EQ( deviceTypeToString( DeviceType::Rocm ), "ROCm" );
     }
 
-    TEST_F( DeviceTypeTest, deviceTypeToString_InvalidType ) {
+    TEST_F( DeviceTypeTest, deviceTypeToString_InvalidType )
+    {
         // Test with invalid enum value (cast from invalid integer)
         DeviceType invalid_type = static_cast<DeviceType>(999);
         EXPECT_THROW( deviceTypeToString( invalid_type ), std::runtime_error );
     }
 
-    TEST_F( DeviceTypeTest, deviceTypeToString_ErrorMessage ) {
+    TEST_F( DeviceTypeTest, deviceTypeToString_ErrorMessage )
+    {
         try
         {
             DeviceType invalid_type = static_cast<DeviceType>(999);
             deviceTypeToString( invalid_type );
             FAIL() << "Expected std::runtime_error";
         }
-        catch (const std::runtime_error& e)
+        catch ( const std::runtime_error& e )
         {
             std::string error_msg = e.what();
             // Verify error message indicates unknown device type
@@ -92,8 +91,7 @@ namespace Dnn::Compute::Tests
         EXPECT_EQ( toDeviceType( "CPU" ), DeviceType::Cpu );
         EXPECT_EQ( toDeviceType( "CUDA" ), DeviceType::Cuda );
         EXPECT_EQ( toDeviceType( "METAL" ), DeviceType::Metal );
-        EXPECT_EQ( toDeviceType( "OPENCL" ), DeviceType::OpenCL );
-        EXPECT_EQ( toDeviceType( "VULKAN" ), DeviceType::Vulkan );
+        EXPECT_EQ( toDeviceType( "ROCM" ), DeviceType::Rocm );
     }
 
     TEST_F( DeviceTypeTest, ToDeviceType_CaseInsensitive )
@@ -111,13 +109,9 @@ namespace Dnn::Compute::Tests
         EXPECT_EQ( toDeviceType( "Metal" ), DeviceType::Metal );
         EXPECT_EQ( toDeviceType( "METAL" ), DeviceType::Metal );
 
-        EXPECT_EQ( toDeviceType( "opencl" ), DeviceType::OpenCL );
-        EXPECT_EQ( toDeviceType( "OpenCL" ), DeviceType::OpenCL );
-        EXPECT_EQ( toDeviceType( "OPENCL" ), DeviceType::OpenCL );
-
-        EXPECT_EQ( toDeviceType( "vulkan" ), DeviceType::Vulkan );
-        EXPECT_EQ( toDeviceType( "Vulkan" ), DeviceType::Vulkan );
-        EXPECT_EQ( toDeviceType( "VULKAN" ), DeviceType::Vulkan );
+        EXPECT_EQ( toDeviceType( "rocm" ), DeviceType::Rocm );
+        EXPECT_EQ( toDeviceType( "Rocm" ), DeviceType::Rocm );
+        EXPECT_EQ( toDeviceType( "ROCM" ), DeviceType::Rocm );
     }
 
     TEST_F( DeviceTypeTest, ToDeviceType_InvalidStrings )
@@ -160,16 +154,14 @@ namespace Dnn::Compute::Tests
             toDeviceType( "INVALID" );
             FAIL() << "Expected std::runtime_error";
         }
-        catch (const std::runtime_error& e)
+        catch ( const std::runtime_error& e )
         {
             std::string error_msg = e.what();
-            // Verify error message contains the invalid string and all valid options
+            // Verify error message contains the invalid string (uppercased) and some valid options
             EXPECT_NE( error_msg.find( "INVALID" ), std::string::npos );
             EXPECT_NE( error_msg.find( "CPU" ), std::string::npos );
             EXPECT_NE( error_msg.find( "CUDA" ), std::string::npos );
             EXPECT_NE( error_msg.find( "Metal" ), std::string::npos );
-            EXPECT_NE( error_msg.find( "OpenCL" ), std::string::npos );
-            EXPECT_NE( error_msg.find( "Vulkan" ), std::string::npos );
         }
     }
 
@@ -184,11 +176,10 @@ namespace Dnn::Compute::Tests
             DeviceType::Cpu,
             DeviceType::Cuda,
             DeviceType::Metal,
-            DeviceType::OpenCL,
-            DeviceType::Vulkan
+            DeviceType::Rocm
         };
 
-        for (DeviceType device_type : all_types)
+        for ( DeviceType device_type : all_types )
         {
             std::string device_string = deviceTypeToString( device_type );
             DeviceType converted_back = toDeviceType( device_string );
@@ -204,11 +195,10 @@ namespace Dnn::Compute::Tests
             {"cpu", DeviceType::Cpu},
             {"cuda", DeviceType::Cuda},
             {"metal", DeviceType::Metal},
-            {"opencl", DeviceType::OpenCL},
-            {"vulkan", DeviceType::Vulkan}
+            {"rocm", DeviceType::Rocm}
         };
 
-        for (const auto& [input, expected_type] : test_cases)
+        for ( const auto& [input, expected_type] : test_cases )
         {
             DeviceType parsed_type = toDeviceType( input );
             EXPECT_EQ( parsed_type, expected_type );
@@ -226,8 +216,7 @@ namespace Dnn::Compute::Tests
         EXPECT_EQ( deviceTypeToString( toDeviceType( "cpu" ) ), "CPU" );
         EXPECT_EQ( deviceTypeToString( toDeviceType( "cuda" ) ), "CUDA" );
         EXPECT_EQ( deviceTypeToString( toDeviceType( "metal" ) ), "Metal" );
-        EXPECT_EQ( deviceTypeToString( toDeviceType( "opencl" ) ), "OpenCL" );
-        EXPECT_EQ( deviceTypeToString( toDeviceType( "vulkan" ) ), "Vulkan" );
+        EXPECT_EQ( deviceTypeToString( toDeviceType( "rocm" ) ), "ROCm" );
     }
 
     // ====================================================================
@@ -240,8 +229,7 @@ namespace Dnn::Compute::Tests
         EXPECT_EQ( static_cast<int>(DeviceType::Cpu), 0 );
         EXPECT_EQ( static_cast<int>(DeviceType::Cuda), 1 );
         EXPECT_EQ( static_cast<int>(DeviceType::Metal), 2 );
-        EXPECT_EQ( static_cast<int>(DeviceType::OpenCL), 3 );
-        EXPECT_EQ( static_cast<int>(DeviceType::Vulkan), 4 );
+        EXPECT_EQ( static_cast<int>(DeviceType::Rocm), 3 );
     }
 
     TEST_F( DeviceTypeTest, ComprehensiveEnumCoverage )
@@ -251,15 +239,14 @@ namespace Dnn::Compute::Tests
             DeviceType::Cpu,
             DeviceType::Cuda,
             DeviceType::Metal,
-            DeviceType::OpenCL,
-            DeviceType::Vulkan
+            DeviceType::Rocm
         };
 
-        // Ensure we have exactly 5 device types defined
-        EXPECT_EQ( all_types.size(), 5 );
+        // Ensure we have exactly 4 device types defined
+        EXPECT_EQ( all_types.size(), 4 );
 
         // Verify each type can be constructed and compared
-        for (DeviceType type : all_types)
+        for ( DeviceType type : all_types )
         {
             EXPECT_NO_THROW( {
                 DeviceType copy = type;
@@ -276,11 +263,10 @@ namespace Dnn::Compute::Tests
             DeviceType::Cpu,
             DeviceType::Cuda,
             DeviceType::Metal,
-            DeviceType::OpenCL,
-            DeviceType::Vulkan
+            DeviceType::Rocm
         };
 
-        for (DeviceType type : all_types)
+        for ( DeviceType type : all_types )
         {
             // Every enum value should convert to string without throwing
             EXPECT_NO_THROW( {
@@ -319,11 +305,11 @@ namespace Dnn::Compute::Tests
         null_string.push_back( '\0' );
         null_string.append( "EXTRA" );
 
-        // Should only process up to first null character, which should succeed
+        // Should only process up to first null character, which should succeed for "CPU"
         EXPECT_EQ( toDeviceType( "CPU" ), DeviceType::Cpu );
 
         // But string with null in middle should fail
-        std::string middle_null = "C\0PU";
+        std::string middle_null = std::string( "C\0PU", 4 );
         EXPECT_THROW( toDeviceType( middle_null ), std::runtime_error );
     }
 
@@ -334,19 +320,17 @@ namespace Dnn::Compute::Tests
     TEST_F( DeviceTypeTest, ConsistentBehavior_MultipleCallsSameInput )
     {
         // Ensure functions are deterministic across all device types
-        for (int i = 0; i < 100; ++i)
+        for ( int i = 0; i < 100; ++i )
         {
             EXPECT_EQ( toDeviceType( "CPU" ), DeviceType::Cpu );
             EXPECT_EQ( toDeviceType( "cuda" ), DeviceType::Cuda );
             EXPECT_EQ( toDeviceType( "Metal" ), DeviceType::Metal );
-            EXPECT_EQ( toDeviceType( "OPENCL" ), DeviceType::OpenCL );
-            EXPECT_EQ( toDeviceType( "vulkan" ), DeviceType::Vulkan );
+            EXPECT_EQ( toDeviceType( "ROCm" ), DeviceType::Rocm );
 
             EXPECT_EQ( deviceTypeToString( DeviceType::Cpu ), "CPU" );
             EXPECT_EQ( deviceTypeToString( DeviceType::Cuda ), "CUDA" );
             EXPECT_EQ( deviceTypeToString( DeviceType::Metal ), "Metal" );
-            EXPECT_EQ( deviceTypeToString( DeviceType::OpenCL ), "OpenCL" );
-            EXPECT_EQ( deviceTypeToString( DeviceType::Vulkan ), "Vulkan" );
+            EXPECT_EQ( deviceTypeToString( DeviceType::Rocm ), "ROCm" );
         }
     }
 
@@ -360,42 +344,44 @@ namespace Dnn::Compute::Tests
             {"CPU", DeviceType::Cpu},
             {"CUDA", DeviceType::Cuda},
             {"Metal", DeviceType::Metal},
-            {"OpenCL", DeviceType::OpenCL},
-            {"Vulkan", DeviceType::Vulkan}
+            {"ROCm", DeviceType::Rocm}
         };
 
-        for (int i = 0; i < 10; ++i)
+        const int thread_count = 10;
+        const int iterations = 100;
+
+        for ( int i = 0; i < thread_count; ++i )
         {
-            threads.emplace_back( [&success_count, &test_cases]() {
+            threads.emplace_back( [&success_count, &test_cases, iterations]() {
                 try
                 {
-                    for (int j = 0; j < 100; ++j)
+                    for ( int j = 0; j < iterations; ++j )
                     {
-                        for (const auto& [str, expected_type] : test_cases)
+                        for ( const auto& [str, expected_type] : test_cases )
                         {
                             DeviceType parsed = toDeviceType( str );
                             std::string converted = deviceTypeToString( parsed );
-                            if (parsed == expected_type && converted == str)
+                            if ( parsed == expected_type && converted == str )
                             {
                                 success_count++;
                             }
                         }
                     }
                 }
-                catch (...)
+                catch ( ... )
                 {
-                    // Thread failed
+                    // Thread failed silently for test
                 }
                 } );
         }
 
-        for (auto& thread : threads)
+        for ( auto& thread : threads )
         {
             thread.join();
         }
 
-        // 10 threads * 100 iterations * 5 device types = 5000 expected successes
-        EXPECT_EQ( success_count.load(), 5000 );
+        // thread_count * iterations * number of test cases expected successes
+        EXPECT_EQ( success_count.load(), thread_count * iterations * static_cast<int>(test_cases.size()) );
     }
 
     // ====================================================================
@@ -406,23 +392,20 @@ namespace Dnn::Compute::Tests
     {
         // Test logical groupings of device types for future use
 
-        // CPU is the only non-GPU device
+        // CPU is distinct from GPU-like backends
         EXPECT_TRUE( DeviceType::Cpu != DeviceType::Cuda );
         EXPECT_TRUE( DeviceType::Cpu != DeviceType::Metal );
-        EXPECT_TRUE( DeviceType::Cpu != DeviceType::OpenCL );
-        EXPECT_TRUE( DeviceType::Cpu != DeviceType::Vulkan );
 
-        // All GPU devices are distinct
+        // All defined GPU-like devices are distinct
         std::vector<DeviceType> gpu_devices = {
             DeviceType::Cuda,
             DeviceType::Metal,
-            DeviceType::OpenCL,
-            DeviceType::Vulkan
+            DeviceType::Rocm
         };
 
-        for (size_t i = 0; i < gpu_devices.size(); ++i)
+        for ( size_t i = 0; i < gpu_devices.size(); ++i )
         {
-            for (size_t j = i + 1; j < gpu_devices.size(); ++j)
+            for ( size_t j = i + 1; j < gpu_devices.size(); ++j )
             {
                 EXPECT_NE( gpu_devices[i], gpu_devices[j] );
             }
@@ -435,16 +418,14 @@ namespace Dnn::Compute::Tests
         EXPECT_EQ( deviceTypeToString( DeviceType::Cpu ), "CPU" );        // All caps
         EXPECT_EQ( deviceTypeToString( DeviceType::Cuda ), "CUDA" );      // All caps
         EXPECT_EQ( deviceTypeToString( DeviceType::Metal ), "Metal" );    // Title case
-        EXPECT_EQ( deviceTypeToString( DeviceType::OpenCL ), "OpenCL" );  // Mixed case
-        EXPECT_EQ( deviceTypeToString( DeviceType::Vulkan ), "Vulkan" );  // Title case
+        EXPECT_EQ( deviceTypeToString( DeviceType::Rocm ), "ROCm" );      // Mixed case
 
         // All strings should be non-empty and not contain spaces
         std::vector<DeviceType> all_types = {
-            DeviceType::Cpu, DeviceType::Cuda, DeviceType::Metal,
-            DeviceType::OpenCL, DeviceType::Vulkan
+            DeviceType::Cpu, DeviceType::Cuda, DeviceType::Metal, DeviceType::Rocm
         };
 
-        for (DeviceType type : all_types)
+        for ( DeviceType type : all_types )
         {
             std::string str = deviceTypeToString( type );
             EXPECT_FALSE( str.empty() );

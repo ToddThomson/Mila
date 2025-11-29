@@ -18,8 +18,8 @@ import Dnn.TensorDataTypeTraits;
 import Compute.OptimizerBase;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
-import Compute.CpuExecutionContext;
-import Compute.CudaExecutionContext;
+//import Compute.CpuExecutionContext;
+//import Compute.CudaExecutionContext;
 import Compute.CpuAdamWOptimizer;
 import Compute.CudaAdamWOptimizer;
 

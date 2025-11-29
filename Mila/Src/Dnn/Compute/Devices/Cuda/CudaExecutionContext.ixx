@@ -14,9 +14,9 @@ module;
 #include <cudnn.h>
 #endif
 
-export module Compute.CudaExecutionContext;
+export module Compute.ExecutionContext:Cuda;
 
-import Compute.ExecutionContext;
+import Compute.ExecutionContextBase;
 import Compute.IExecutionContext;
 import Compute.ComputeDevice;
 import Compute.CudaDevice;
@@ -34,7 +34,7 @@ namespace Mila::Dnn::Compute
      * Each context owns an independent CUDA stream for asynchronous execution and
      * reuses device-level resources exposed by CudaDeviceResources.
      */
-    export template<>
+	export template<>
     class ExecutionContext<DeviceType::Cuda> : public IExecutionContext
     {
     public:

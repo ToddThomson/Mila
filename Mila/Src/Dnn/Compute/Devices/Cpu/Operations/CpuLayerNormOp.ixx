@@ -31,7 +31,7 @@ import Dnn.ComponentConfig;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
-import Compute.CpuExecutionContext;
+//import Compute.CpuExecutionContext;
 import Compute.OperationType;
 import Compute.OperationBase;
 import Compute.UnaryOperation;

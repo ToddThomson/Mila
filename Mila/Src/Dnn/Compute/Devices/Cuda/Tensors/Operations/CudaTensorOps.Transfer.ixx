@@ -32,7 +32,7 @@ import Dnn.TensorDataTypeTraits;
 import Compute.CudaTensorDataType;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
-import Compute.CudaExecutionContext;
+//import Compute.CudaExecutionContext;
 import Compute.CudaDevice;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaPinnedMemoryResource;

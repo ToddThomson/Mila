@@ -14,7 +14,7 @@ export module Compute.CudaDeviceMemoryResource;
 import Compute.MemoryResource;
 import Compute.MemoryResourceProperties;
 import Compute.DeviceType;
-import Compute.CudaExecutionContext;
+//import Compute.CudaExecutionContext;
 import Compute.ExecutionContext;
 import Cuda.Helpers;
 import Cuda.BadAlloc;

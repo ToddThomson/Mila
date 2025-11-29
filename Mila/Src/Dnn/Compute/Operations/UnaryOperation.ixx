@@ -22,7 +22,7 @@ import Compute.Precision;
 import Compute.ComputeDevice;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
-import Compute.DeviceTypeTraits.Cpu;
+//import Compute.DeviceTypeTraits.Cpu;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaDevice;

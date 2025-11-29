@@ -30,7 +30,7 @@ import Compute.OptimizerBase;
 import Compute.DeviceType;
 import Compute.CudaDeviceMemoryResource;
 import Compute.ExecutionContext;
-import Compute.CudaExecutionContext;
+//import Compute.CudaExecutionContext;
 import Compute.CudaTensorDataType;
 
 namespace Mila::Dnn::Compute

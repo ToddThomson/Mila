@@ -33,7 +33,7 @@ import Compute.Precision;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
-import Compute.CudaExecutionContext;
+//import Compute.CudaExecutionContext;
 import Compute.OperationType;
 import Compute.MemoryResource;
 import Compute.CudaDeviceMemoryResource;

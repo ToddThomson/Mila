@@ -22,8 +22,7 @@ namespace Mila::Dnn::Compute
         Cpu,    ///< CPU device type
         Cuda,   ///< CUDA GPU device type
         Metal,  // FUTURE: Add Metal support
-        OpenCL, // FUTURE: OpenCL support
-        Vulkan  // FUTURE: Vulkan support
+		Rocm,   // FUTURE: Add ROCm support
     };
 
     /**
@@ -38,8 +37,7 @@ namespace Mila::Dnn::Compute
         case DeviceType::Cpu: return "CPU";
         case DeviceType::Cuda: return "CUDA";
         case DeviceType::Metal: return "Metal";
-        case DeviceType::OpenCL: return "OpenCL";
-        case DeviceType::Vulkan: return "Vulkan";
+        case DeviceType::Rocm: return "ROCm";
         default:
             throw std::runtime_error("Unknown DeviceType value");
         }
@@ -64,8 +62,7 @@ namespace Mila::Dnn::Compute
         if (device_type == "CPU") return DeviceType::Cpu;
         if (device_type == "CUDA") return DeviceType::Cuda;
         if (device_type == "METAL") return DeviceType::Metal;
-        if (device_type == "OPENCL") return DeviceType::OpenCL;
-        if (device_type == "VULKAN") return DeviceType::Vulkan;
+        if (device_type == "ROCM") return DeviceType::Rocm;
 
         throw std::runtime_error(
             "Invalid device type '" + device_type + "'. Valid options are: CPU, CUDA, Metal, OpenCL, Vulkan"

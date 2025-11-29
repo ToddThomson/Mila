@@ -40,5 +40,6 @@ namespace Mila::Dnn
      *
      * @tparam TDevice Compute device type to specialize for (DeviceType::Cpu, DeviceType::Cuda, ...)
      */
-    export template<Compute::DeviceType TDevice> struct TensorOps;
+    export template<Compute::DeviceType TDevice> 
+    struct TensorOps;
 }

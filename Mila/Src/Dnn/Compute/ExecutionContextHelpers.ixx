@@ -20,10 +20,10 @@ import Compute.DeviceType;
 
 namespace Mila::Dnn::Compute
 {
-    export template <DeviceType TDeviceType>
+    /*export template <DeviceType TDeviceType>
     std::shared_ptr<ExecutionContext<TDeviceType>> CreateExecutionContext( int device_id ) {
         return std::make_shared<ExecutionContext<TDeviceType>>( device_id );
-    }
+    }*/
 
     /**
      * @brief Validates that the provided context is compatible with the specified device type.

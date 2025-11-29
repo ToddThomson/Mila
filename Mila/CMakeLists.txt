@@ -1,4 +1,6 @@
-﻿set(CMAKE_CXX_SCAN_FOR_MODULES ON)
+﻿# CMake configuration for the Mila library
+
+set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 
 add_library( Mila STATIC
     "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaUtils.h"
@@ -42,8 +44,6 @@ add_library( Mila STATIC
     "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Reduction.h"
 )
 
- # FIXME: add_dependencies(Mila MilaUpdateVersion)
-
  set_target_properties( Mila PROPERTIES
 	CXX_STANDARD 23
 	CXX_STANDARD_REQUIRED ON
@@ -56,8 +56,8 @@ add_library( Mila STATIC
 
 target_compile_features( Mila PUBLIC cxx_std_23 )
 
-find_package(miniz REQUIRED)  
-find_package(nlohmann_json REQUIRED)
+#find_package(miniz REQUIRED)  
+#find_package(nlohmann_json REQUIRED)
 
 target_include_directories( Mila PRIVATE ${miniz_SOURCE_DIR})
 
@@ -92,6 +92,10 @@ if(MILA_ENABLE_OPENMP)
     target_link_libraries(Mila PRIVATE OpenMP::OpenMP_CXX)
   endif()
 endif()
+
+# =============================================================================
+# Mila Core Modules
+# =============================================================================
 
 target_sources( Mila
 PUBLIC
@@ -142,25 +146,56 @@ PUBLIC
         "Src/Dnn/Tensors/Operations/TensorOps.Transfer.ixx"
                 
         #---------------------------------------------------------------
-        # Dnn / Common Components
+        # Dnn / Components
         #---------------------------------------------------------------
         "Src/Dnn/Components/Activations/ActivationType.ixx"
+        # Components - Activations
+        "Src/Dnn/Components/Activations/Gelu.ixx"
+        "Src/Dnn/Components/Activations/GeluConfig.ixx"
+        
+        # Components - Connections
+        "Src/Dnn/Components/Connections/Residual.ixx"
+        "Src/Dnn/Components/Connections/ResidualConfig.ixx"
+
+        # Components - Layers
+        "Src/Dnn/Components/Layers/Attention.ixx"
+        "Src/Dnn/Components/Layers/AttentionConfig.ixx"
+        "Src/Dnn/Components/Layers/Linear.ixx"
+        "Src/Dnn/Components/Layers/LinearConfig.ixx"
+        "Src/Dnn/Components/Layers/Encoder.ixx"
+        "Src/Dnn/Components/Layers/EncoderConfig.ixx"
+        "Src/Dnn/Components/Losses/Softmax.ixx"
+        "Src/Dnn/Components/Losses/SoftmaxConfig.ixx"
+
+        # Components - Normalization / Losses / Regularization / Blocks
+        "Src/Dnn/Components/Normalization/LayerNorm.ixx"
+        "Src/Dnn/Components/Normalization/LayerNormConfig.ixx"
+        
+        "Src/Dnn/Components/Losses/SoftmaxCrossEntropy.ixx"
+        "Src/Dnn/Components/Losses/CrossEntropyConfig.ixx"
+        
+        #"Src/Dnn/Components/Regularization/Dropout.ixx"
+        #"Src/Dnn/Components/Regularization/DropoutConfig.ixx"
+        
+        # --- Blocks ---
+        "Src/Dnn/Components/Blocks/MLP.ixx"
+        "Src/Dnn/Components/Blocks/MLPConfig.ixx"
+        "Src/Dnn/Components/Blocks/Transformer.ixx"
+        "Src/Dnn/Components/Blocks/Transformer.Config.ixx"
 
         #---------------------------------------------------------------
-        # Dnn / Compute (root)
+        # Dnn / Compute (core)
         #---------------------------------------------------------------
         "Src/Dnn/Compute/ComputeDevice.ixx"
         "Src/Dnn/Compute/ComputeDeviceTraits.ixx"
         "Src/Dnn/Compute/DeviceType.ixx"
         "Src/Dnn/Compute/DeviceTypeTraits.ixx"
 
-        "Src/Dnn/Compute/Devices/Cuda/CudaDeviceTypeTraits.ixx"
-        "Src/Dnn/Compute/Devices/Cpu/CpuDeviceTypeTraits.ixx"
-        
         "Src/Dnn/Compute/ComputePrecision.ixx"
         
         "Src/Dnn/Compute/ExecutionContext.ixx"
         "Src/Dnn/Compute/IExecutionContext.ixx"
+        "Src/Dnn/Compute/ExecutionContextHelpers.ixx"
 
         # Dnn / Compute / Memory Resources
         "Src/Dnn/Compute/MemoryResource.ixx"
@@ -191,145 +226,7 @@ PUBLIC
         "Src/Dnn/Compute/Registry/DeviceRegistry.ixx"
         "Src/Dnn/Compute/Registry/DeviceRegistrar.ixx"
         "Src/Dnn/Compute/Registry/DeviceRegistryHelpers.ixx"
-        
-        "Src/Dnn/Compute/ExecutionContextHelpers.ixx"
-        
         "Src/Dnn/Compute/Registry/DevicePlugin.ixx"
-
-        #---------------------------------------------------------------
-        # Dnn / Compute / Devices / Cpu
-        #---------------------------------------------------------------
-        "Src/Dnn/Compute/Devices/Cpu/CpuDevice.ixx"
-        
-        "Src/Dnn/Compute/Devices/Cpu/CpuDevicePlugin.ixx"
-        "Src/Dnn/Compute/Devices/Cpu/CpuMemoryResource.ixx"
-        
-        "Src/Dnn/Compute/Devices/Cpu/CpuExecutionContext.ixx"
-        "Src/Dnn/Compute/Devices/Cpu/CpuDeviceTraits.ixx"
-
-        "Src/Dnn/Compute/Devices/Cpu/Tensors/CpuTensorDataTypeTraits.ixx"
-        "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.ixx"
-        "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Fill.ixx"
-        "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Math.ixx"
-        "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Transfer.ixx"
-        
-        "Src/Dnn/Compute/Devices/Cpu/Operations/CpuOperations.ixx"
-        
-        "Src/Dnn/Compute/Devices/Cpu/Operations/CpuEncoderOp.ixx"
-        "Src/Dnn/Compute/Devices/Cpu/Operations/CpuGeluOp.ixx"
-        "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLayerNormOp.ixx"
-        "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLinearOp.ixx"
-        "Src/Dnn/Compute/Devices/Cpu/Operations/CpuAttentionOp.ixx"
-        "Src/Dnn/Compute/Devices/Cpu/Operations/CpuResidualOp.ixx"
-        "Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxCrossEntropyOp.ixx"
-        "Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxOp.ixx"
-
-        #---------------------------------------------------------------
-        # Dnn / Compute / Devices / Cuda
-        #---------------------------------------------------------------
-        # CUDA Helpers
-        "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaError.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaHelpers.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaBadAlloc.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Helpers/CublasLtError.ixx"
-        
-
-        # CUDA Devices
-        "Src/Dnn/Compute/Devices/Cuda/CudaDevice.ixx"
-        
-        "Src/Dnn/Compute/Devices/Cuda/CudaDeviceProps.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/CudaDeviceMemoryResource.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/CudaManagedMemoryResource.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/CudaPinnedMemoryResource.ixx"
-        
-        "Src/Dnn/Compute/Devices/Cuda/CudaDevicePlugin.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/CudaDeviceTraits.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/CudaExecutionContext.ixx"
-
-        # CUDA / Tensors
-        "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType-Specializations.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType-Maps.ixx"
-        
-        "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Math.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Fill.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Transfer.ixx"
-
-        # CUDA / Operations
-        "Src/Dnn/Compute/Devices/Cuda/Operations/CudaOperations.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Operations/CudaAttentionOp.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Operations/CudaEncoderOp.ixx"
-        #"Src/Dnn/Compute/Operations/Cuda/CudaDataTypeTraits.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Operations/CublasLtMatMulBias.ixx"
-        #"Src/Dnn/Compute/Operations/Cuda/MatMulBiasActivation.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Operations/CudaGeluOp.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Operations/CudaLayerNormOp.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Operations/CudaLinearOp.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Operations/CudaResidualOp.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Operations/CudaSoftmaxOp.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Operations/CudaSoftmaxCrossEntropyOp.ixx"
-
-        # CUDA / Optimizers
-        "Src/Dnn/Compute/Devices/Cuda/Optimizers/CudaAdamWOptimizer.ixx"
-
-        #---------------------------------------------------------------
-        # Dnn / Compute / Devices / Metal
-        #---------------------------------------------------------------
-        "Src/Dnn/Compute/Devices/Metal/MetalDevice.ixx"
-        "Src/Dnn/Compute/Devices/Metal/MetalExecutionContext.ixx"
-        "Src/Dnn/Compute/Devices/Metal/MetalDevicePlugin.ixx"
-        "Src/Dnn/Compute/Devices/Metal/MetalMemoryResource.ixx"
-        "Src/Dnn/Compute/Devices/Metal/Tensors/MetalTensorTraits.ixx"
-
-        #---------------------------------------------------------------
-        # Dnn / Compute / Devices / OpenCL
-        #---------------------------------------------------------------
-        "Src/Dnn/Compute/Devices/OpenCL/OpenCLExecutionContext.ixx"
-        "Src/Dnn/Compute/Devices/OpenCL/OpenCLMemoryResource.ixx"
-        "Src/Dnn/Compute/Devices/OpenCL/Tensors/OpenCLTensorTraits.ixx"
-
-        #---------------------------------------------------------------
-        # Dnn / Compute / Devices / Vulkan
-        #---------------------------------------------------------------
-        "Src/Dnn/Compute/Devices/Vulkan/VulkanExecutionContext.ixx"
-        "Src/Dnn/Compute/Devices/Vulkan/VulkanMemoryResource.ixx"
-        "Src/Dnn/Compute/Devices/Vulkan/Tensors/VulkanTensorTraits.ixx"
-
-        # Components - Activations
-        "Src/Dnn/Components/Activations/Gelu.ixx"
-        "Src/Dnn/Components/Activations/GeluConfig.ixx"
-        
-        # Components - Connections
-        "Src/Dnn/Components/Connections/Residual.ixx"
-        "Src/Dnn/Components/Connections/ResidualConfig.ixx"
-
-        # Components - Layers
-        "Src/Dnn/Components/Layers/Attention.ixx"
-        "Src/Dnn/Components/Layers/AttentionConfig.ixx"
-        "Src/Dnn/Components/Layers/Linear.ixx"
-        "Src/Dnn/Components/Layers/LinearConfig.ixx"
-        "Src/Dnn/Components/Layers/Encoder.ixx"
-        "Src/Dnn/Components/Layers/EncoderConfig.ixx"
-        "Src/Dnn/Components/Losses/Softmax.ixx"
-        "Src/Dnn/Components/Losses/SoftmaxConfig.ixx"
-
-        # Normalization / Losses / Regularization / Blocks
-        "Src/Dnn/Components/Normalization/LayerNorm.ixx"
-        "Src/Dnn/Components/Normalization/LayerNormConfig.ixx"
-        
-        "Src/Dnn/Components/Losses/SoftmaxCrossEntropy.ixx"
-        "Src/Dnn/Components/Losses/CrossEntropyConfig.ixx"
-        
-        #"Src/Dnn/Components/Regularization/Dropout.ixx"
-        #"Src/Dnn/Components/Regularization/DropoutConfig.ixx"
-        
-        # --- Blocks ---
-        "Src/Dnn/Components/Blocks/MLP.ixx"
-        "Src/Dnn/Components/Blocks/MLPConfig.ixx"
-        
-        "Src/Dnn/Components/Blocks/Transformer.ixx"
-        "Src/Dnn/Components/Blocks/Transformer.Config.ixx"
         
         #----------------------------------------------------------------------
         # Dnn / Data
@@ -356,19 +253,16 @@ PUBLIC
         "Src/Dnn/Visualization/Components/Block.Visualizer.ixx"
         "Src/Dnn/Visualization/Components/MLP.Visualizer.ixx"
         
-        
+        #----------------------------------------------------------------------
+        # Dnn / Compute / Operation Registry Helpers
+        #----------------------------------------------------------------------
         "Src/Dnn/Compute/Operations/OperationRegistryHelpers.ixx"
-        "Src/Dnn/Compute/Devices/Vulkan/VulkanDevice.ixx"
-        "Src/Dnn/Compute/Devices/OpenCL/OpenCLDevice.ixx"
-        "Src/Dnn/Compute/DeviceDescriptor.ixx" 
-        "Src/Dnn/Compute/Devices/Cuda/CudaDeviceResources.ixx"
+        "Src/Dnn/Compute/DeviceDescriptor.ixx"
         "Src/Dnn/Tensors/Tensor.Partitioning.ixx"
         "Src/Dnn/Tensors/Tensor.Types.ixx"
-        "Src/Dnn/Compute/Devices/Cpu/Optimizers/CpuAdamWOptimizer.ixx" 
         "Src/Dnn/Optimizers/AdamW.ixx"
         "Src/Dnn/Optimizers/AdamWConfig.ixx"
         "Src/Dnn/Components/Connections/ConnectionType.ixx"
-        #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CublasLtAttention.ixx"
 
         #----------------------------------------------------------------------
         # Network
@@ -399,31 +293,212 @@ PUBLIC
         "Src/Dnn/Extensibility/PluginInfo.ixx"
         "Src/Dnn/Components/MilaComponents.ixx"
         "Src/Dnn/Core/Loss.ixx"
- "Src/Dnn/Core/ComponentType.ixx")
+        "Src/Dnn/Core/ComponentType.ixx"
+ "Src/Dnn/Compute/ExecutionContextBase.ixx")
+set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
-target_link_libraries(Mila PRIVATE 
-    miniz
-    nlohmann_json::nlohmann_json
-    # CUDA::nvml -> not used in the current code, but can be added if needed
-    CUDA::cublas 
-    CUDA::cublasLt 
-    CUDA::cudart
-)
+# ----------------------------------------------------------------------------
+# CPU backend modules
+# ----------------------------------------------------------------------------
+if(MILA_HAS_CPU)
+    target_sources( Mila
+        PUBLIC
+            FILE_SET cpu_modules
+               TYPE CXX_MODULES FILES
+                "Src/Dnn/Compute/Devices/Cpu/CpuDevice.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/CpuDevicePlugin.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/CpuMemoryResource.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/CpuExecutionContext.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/CpuDeviceTraits.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Tensors/CpuTensorDataTypeTraits.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Fill.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Math.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Transfer.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuOperations.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuEncoderOp.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuGeluOp.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLayerNormOp.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLinearOp.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuAttentionOp.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuResidualOp.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxCrossEntropyOp.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxOp.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Optimizers/CpuAdamWOptimizer.ixx"
+    )
+    target_compile_definitions( Mila PUBLIC MILA_HAS_CPU)
+    list(APPEND MILA_INSTALL_FILE_SET_ARGS FILE_SET cpu_modules DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
+
+    message(STATUS "Added CPU backend modules")
+endif()
+
+# ----------------------------------------------------------------------------
+# CUDA backend modules (separate file set)
+# ----------------------------------------------------------------------------
+if(MILA_HAS_CUDA)
+    target_sources(Mila
+        PUBLIC
+            FILE_SET cuda_modules
+               TYPE CXX_MODULES FILES
+                "Src/Dnn/Compute/Devices/Cuda/CudaDeviceTypeTraits.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaError.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaHelpers.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaBadAlloc.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Helpers/CublasLtError.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/CudaDevice.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/CudaDeviceProps.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/CudaDeviceMemoryResource.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/CudaManagedMemoryResource.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/CudaPinnedMemoryResource.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/CudaDevicePlugin.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/CudaDeviceTraits.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/CudaExecutionContext.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType-Specializations.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType-Maps.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Math.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Fill.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Transfer.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaOperations.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaAttentionOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaEncoderOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/CublasLtMatMulBias.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaGeluOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaLayerNormOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaLinearOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaResidualOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaSoftmaxOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaSoftmaxCrossEntropyOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Optimizers/CudaAdamWOptimizer.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/CudaDeviceResources.ixx"
+    )
+
+    target_link_libraries( Mila PUBLIC 
+        CUDA::cudart
+        CUDA::cublas
+    )
+
+    target_compile_definitions(Mila PUBLIC MILA_HAS_CUDA)
+    list(APPEND MILA_INSTALL_FILE_SET_ARGS FILE_SET cuda_modules DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
+
+    message(STATUS "Added CUDA backend modules")
+endif()
+
+# ----------------------------------------------------------------------------
+# Metal backend modules (separate file set)
+# ----------------------------------------------------------------------------
+if(MILA_HAS_METAL)
+    target_sources(Mila
+        PUBLIC
+            FILE_SET metal_modules
+               TYPE CXX_MODULES FILES
+                "Src/Dnn/Compute/Devices/Metal/MetalDevice.ixx"
+                "Src/Dnn/Compute/Devices/Metal/MetalExecutionContext.ixx"
+                "Src/Dnn/Compute/Devices/Metal/MetalDevicePlugin.ixx"
+                "Src/Dnn/Compute/Devices/Metal/MetalMemoryResource.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Tensors/MetalTensorTraits.ixx"
+    )
+    
+    target_link_libraries(Mila PUBLIC 
+        ${METAL_FRAMEWORK}
+        ${METALPERFORMANCESHADERS_FRAMEWORK}
+        ${FOUNDATION_FRAMEWORK}
+    )
+
+    target_compile_definitions(Mila PUBLIC MILA_HAS_METAL )
+    list(APPEND MILA_INSTALL_FILE_SET_ARGS FILE_SET metal_modules DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
+
+    message(STATUS "Added Metal backend module partition (STUB)")
+endif()
+
+# ----------------------------------------------------------------------------
+# ROCm backend Modules (separate file set)
+# ----------------------------------------------------------------------------
+if(MILA_HAS_ROCM)
+    target_sources(Mila
+        PUBLIC
+            FILE_SET rocm_modules
+               TYPE CXX_MODULES FILES
+                "Src/Dnn/Compute/Devices/Rocm/RocmExecutionContext.ixx"
+                "Src/Dnn/Compute/Devices/Rocm/RocmMemoryResource.ixx"
+                "Src/Dnn/Compute/Devices/Rocm/Tensors/RocmTensorTraits.ixx"
+    )
+    
+    target_link_libraries( Mila PUBLIC 
+        hip::host
+        roc::rocblas
+    )
+    
+    target_compile_definitions( Mila PUBLIC MILA_HAS_ROCM )
+    list(APPEND MILA_INSTALL_FILE_SET_ARGS FILE_SET rocm_modules DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
+
+    message(STATUS "Added ROCm backend modules")
+endif()
+
+# ============================================================================
+# Interface Component Targets (for user convenience)
+# ============================================================================
+
+# Convenience "everything" target
+add_library(Mila::Mila ALIAS Mila)
+
+# CPU component
+if(MILA_HAS_CPU)
+    add_library(Mila_Cpu INTERFACE)
+    target_link_libraries(Mila_Cpu INTERFACE Mila)
+    add_library(Mila::Cpu ALIAS Mila_Cpu)
+endif()
+
+# CUDA component
+if(MILA_HAS_CUDA)
+    add_library(Mila_Cuda INTERFACE)
+    target_link_libraries(Mila_Cuda INTERFACE Mila)
+    add_library(Mila::Cuda ALIAS Mila_Cuda)
+endif()
+
+# Metal component
+if(MILA_HAS_METAL)
+    add_library(Mila_Metal INTERFACE)
+    target_link_libraries(Mila_Metal INTERFACE Mila)
+    add_library(Mila::Metal ALIAS Mila_Metal)
+endif()
+
+# ROCm component
+if(MILA_HAS_ROCM)
+    add_library(Mila_Rocm INTERFACE)
+    target_link_libraries(Mila_Rocm INTERFACE Mila)
+    add_library(Mila::Rocm ALIAS Mila_Rocm)
+endif()
+
+target_link_libraries( Mila PRIVATE miniz )
+#    PRIVATE
+#     miniz
+#     nlohmann_json::nlohmann_json
+#)
+
+# =============================================================================
+# Versioning
+# =============================================================================
 
 # Parse the version from Version.txt
 file(READ "${CMAKE_SOURCE_DIR}/Version.txt" VERSION_CONTENT)
+string(REGEX MATCH "([0-9]+)\\.([0-9]+)\\.([0-9]+)-([a-zA-Z]+)" _VERSION_MATCH ${VERSION_CONTENT})
 
-# Parse the version components using regular expressions
-string(REGEX MATCH "([0-9]+)\\.([0-9]+)\\.([0-9]+)-([a-zA-Z]+)" VERSION_MATCH ${VERSION_CONTENT})
-
-if(VERSION_MATCH)
-  set(MILA_VERSION_MAJOR ${CMAKE_MATCH_1})
-  set(MILA_VERSION_MINOR ${CMAKE_MATCH_2})
-  set(MILA_VERSION_PATCH ${CMAKE_MATCH_3})
-  set(MILA_VERSION_PRERELEASE_TAG ${CMAKE_MATCH_4})
+if(_VERSION_MATCH)
+    set(MILA_VERSION_MAJOR ${CMAKE_MATCH_1})
+    set(MILA_VERSION_MINOR ${CMAKE_MATCH_2})
+    set(MILA_VERSION_PATCH ${CMAKE_MATCH_3})
+    if(DEFINED CMAKE_MATCH_4)
+        set(MILA_VERSION_PRERELEASE_TAG ${CMAKE_MATCH_4})
+    else()
+        set(MILA_VERSION_PRERELEASE_TAG "")
+    endif()
 else()
-  message(FATAL_ERROR "Failed to parse version from Version.txt")
+    message(FATAL_ERROR "Failed to parse version from Version.txt; expected X.Y.Z or X.Y.Z-PRERELEASE")
 endif()
+
+set(MILA_SEMVER "${MILA_VERSION_MAJOR}.${MILA_VERSION_MINOR}.${MILA_VERSION_PATCH}")
 
 # Configure the Version.h file from Version.h.in template
 configure_file(
@@ -435,14 +510,73 @@ configure_file(
 include_directories(${CMAKE_BINARY_DIR}/Mila/Src)
 target_include_directories(Mila PRIVATE ${CMAKE_BINARY_DIR}/Mila/Src)
 
-install(TARGETS Mila
-    EXPORT MilaTargets
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
-    FILE_SET module_files DESTINATION include
+# =============================================================================
+# Installation
+# =============================================================================
+
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
+# Install component interface targets
+if(MILA_HAS_CPU)
+    install(TARGETS Mila_Cpu EXPORT MilaTargets)
+endif()
+
+if(MILA_HAS_CUDA)
+    install(TARGETS Mila_Cuda EXPORT MilaTargets)
+endif()
+
+if(MILA_HAS_METAL)
+    install(TARGETS Mila_Metal EXPORT MilaTargets)
+endif()
+
+if(MILA_HAS_ROCM)
+    install(TARGETS Mila_Rocm EXPORT MilaTargets)
+endif()
+
+
+#install(TARGETS Mila
+#    EXPORT MilaTargets
+#    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+#    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+#    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+#    ${MILA_INSTALL_FILE_SET_ARGS}
+#)
+
+# Export targets
+#install(EXPORT MilaTargets
+#    FILE MilaTargets.cmake
+#    NAMESPACE Mila::
+#    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Mila
+#)
+
+# Generate config file
+configure_package_config_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/MilaConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/MilaConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Mila
 )
 
+# Generate version file
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/MilaConfigVersion.cmake
+    VERSION ${MILA_SEMVER}
+    COMPATIBILITY SameMajorVersion
+)
+
+# Install config files
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/MilaConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/MilaConfigVersion.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Mila
+)
+
+# =============================================================================
+# Additional Targets and Subdirectories
+# =============================================================================
+
 # Guard the copy so CI / checkouts without a `data` directory do not fail the build.
+# REVIEW: These are sample datasets. Why is the target not in the samples subdirectory?
 if(EXISTS "${CMAKE_SOURCE_DIR}/data")
     add_custom_target(MilaCopyData 
         COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/data"
@@ -468,10 +602,11 @@ else()
     set_target_properties(MilaCopyData PROPERTIES EXCLUDE_FROM_ALL TRUE)
 endif()
 
+# Generate documentation with Doxygen
 add_subdirectory( Docs )
 
- # Configure code coverage for MSVC
- if( MILA_ENABLE_COVERAGE AND MSVC)
+# Configure code coverage for MSVC
+if( MILA_ENABLE_COVERAGE AND MSVC)
     add_compile_options(/Zi /Od)
     add_link_options(/DEBUG:FULL /PROFILE)
     

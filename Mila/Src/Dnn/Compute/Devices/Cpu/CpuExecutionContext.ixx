@@ -8,9 +8,9 @@ module;
 #include <string>
 #include <stdexcept>
 
-export module Compute.CpuExecutionContext;
+export module Compute.ExecutionContext:Cpu;
 
-import Compute.ExecutionContext;
+import Compute.ExecutionContextBase;
 import Compute.IExecutionContext;
 import Compute.ComputeDevice;
 import Compute.CpuDevice;
@@ -26,7 +26,7 @@ namespace Mila::Dnn::Compute
      * without additional overhead.
      */
     export template<>
-    class ExecutionContext<DeviceType::Cpu> :public IExecutionContext
+    class ExecutionContext<DeviceType::Cpu> : public IExecutionContext
     {
         public:
             /**

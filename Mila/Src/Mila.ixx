@@ -60,8 +60,8 @@ export import Compute.Precision;
 // Compute - Execution Context
 // ====================================================================
 export import Compute.ExecutionContext;
-export import Compute.CpuExecutionContext;
-export import Compute.CudaExecutionContext;
+//export import Compute.CpuExecutionContext;
+//export import Compute.CudaExecutionContext;
 
 // ====================================================================
 // Compute - Devices
@@ -69,7 +69,7 @@ export import Compute.CudaExecutionContext;
 export import Compute.ComputeDevice;
 export import Compute.DeviceType;
 export import Compute.DeviceTypeTraits;
-export import Compute.DeviceTypeTraits.Cpu;
+//export import Compute.DeviceTypeTraits.Cpu;
 export import Compute.DeviceTypeTraits.Cuda;
 export import Compute.CpuDevice;
 export import Compute.CpuDevicePlugin;
@@ -170,6 +170,7 @@ export import Dnn.TensorInitializers;
 // Dnn - Components
 // ====================================================================
 export import Dnn.ActivationType;
+export import Dnn.ConnectionType;
 
 export import Dnn.Components.Attention;
 export import Dnn.Components.Encoder;
