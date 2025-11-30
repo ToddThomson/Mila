@@ -9,116 +9,81 @@ on:
     branches:
       - master
 
+env:
+  CUDA_VERSION: '13.0.2'
+
 jobs:
   build-test-docs:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Install GCC 14
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y software-properties-common
-          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-          sudo apt-get update
-          sudo apt-get install -y gcc-14 g++-14
-          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 140
-          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 140
-          sudo update-alternatives --set gcc /usr/bin/gcc-14
-          sudo update-alternatives --set g++ /usr/bin/g++-14
-          gcc --version
-          g++ --version
 
-      - name: Install Clang 19
-        run: |
-          # Add LLVM apt key securely (dearmor into keyrings) and add repo with signed-by
-          wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | gpg --dearmor > llvm-archive-keyring.gpg
-          sudo mv llvm-archive-keyring.gpg /usr/share/keyrings/llvm-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-19 main" | sudo tee /etc/apt/sources.list.d/llvm-toolchain-19.list
-          sudo apt-get update
-          sudo apt-get install -y clang-19 clang++-19 lld-19 lldb-19 clang-tools-19 clang-tidy-19 clang-format-19
-          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 100
-          sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 100
-          sudo update-alternatives --install /usr/bin/cc cc /usr/bin/clang-19 100
-          sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/clang++-19 100
-          clang++ --version
+      - name: Cache build and ccache
+        uses: actions/cache@v4
+        with:
+          path: |
+            build
+            ~/.ccache
+            ~/.cache/cmake
+          key: ${{ runner.os }}-mila-${{ env.CUDA_VERSION }}-build-${{ hashFiles('**/CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-mila-${{ env.CUDA_VERSION }}-build-
+            ${{ runner.os }}-mila-build-
 
-      - name: Install libstdc++ development files
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build CI container image (from repository Dockerfile)
+        uses: docker/build-push-action@v4
+        with:
+          context: Docker
+          file: Docker/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: mila-ci:latest
+
+      - name: Run full build + tests inside CI container
+        env:
+          CUDA_PATH: /usr/local/cuda-13.0
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libstdc++-14-dev
-          
-      - name: Install CMake 3.31.7
-        run: |
-          wget https://github.com/Kitware/CMake/releases/download/v3.31.7/cmake-3.31.7-linux-x86_64.tar.gz
-          tar -xzf cmake-3.31.7-linux-x86_64.tar.gz
-          sudo cp -r cmake-3.31.7-linux-x86_64/bin/* /usr/local/bin/
-          sudo cp -r cmake-3.31.7-linux-x86_64/share/* /usr/local/share/
-          cmake --version
-          
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y doxygen graphviz build-essential ninja-build
-          sudo apt-get install -y libgtest-dev
-          
-      - name: Setup CUDA
-        run: |
-          wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb
-          sudo dpkg -i cuda-keyring_1.1-1_all.deb
-          sudo apt-get update
-          sudo apt-get -y install cuda-toolkit-12-9
-          export CUDA_PATH=/usr/local/cuda-12.9
-          echo "CUDA_PATH=${CUDA_PATH}" >> $GITHUB_ENV
-          echo "${CUDA_PATH}/bin" >> $GITHUB_PATH
-          echo "LD_LIBRARY_PATH=${CUDA_PATH}/lib64:${LD_LIBRARY_PATH}" >> $GITHUB_ENV
-          
-      - name: Verify CUDA installation
-        run: |
-          nvcc --version
-          echo "CUDA_PATH: $CUDA_PATH"
-          ls -la $CUDA_PATH/bin
-          ls -la $CUDA_PATH/lib64 || echo "lib64 not found"
-          ls -la $CUDA_PATH/lib || echo "lib not found"
-          
-      - name: Install miniz dependency
-        run: |
-          git clone https://github.com/richgel999/miniz.git
-          cd miniz
-          cmake -B build -G Ninja
-          cmake --build build --config Release
-          sudo cmake --install build
-      
-      # Build phase
-      - name: Configure CMake
-        run: |
-          export CMAKE_CXX_SCAN_FOR_MODULES=AUTO
-          export CC=clang-19
-          export CXX=clang++-19
-          cmake -B build -G Ninja \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_CUDA_COMPILER=$CUDA_PATH/bin/nvcc \
-              -DCUDAToolkit_ROOT=$CUDA_PATH \
-              -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler -ccbin clang++-19" \
-              -DCMAKE_CUDA_HOST_COMPILER=clang++-19 \
-              -DCMAKE_C_COMPILER=clang-19 \
-              -DCMAKE_CXX_COMPILER=clang++-19 \
-              -DCMAKE_CXX_STANDARD=23 \
-              -DCMAKE_CXX_STANDARD_REQUIRED=ON \
-              -DCMAKE_CXX_EXTENSIONS=OFF \
-              -DCMAKE_CXX_SCAN_FOR_MODULES=AUTO \
-              -DMILA_ENABLE_TESTING=OFF
-              
-      - name: Build Mila
-        run: cmake --build build --config Release
-       
-      # Documentation phase
-      - name: Generate Documentation
-        run: cmake --build build --target docs
-        
+          # Run the prepared image and execute the same steps your local devcontainer performs.
+          docker run --rm \
+            -e CUDA_VERSION=${{ env.CUDA_VERSION }} \
+            -e CC=clang-19 -e CXX=clang++-19 \
+            -v "${{ github.workspace }}":/workspace:cached \
+            -v "${{ github.workspace }}/build":/workspace/build:cached \
+            -v "${HOME}/.ccache":/root/.ccache \
+            -w /workspace \
+            mila-ci:latest \
+            bash -eux -c "\
+              export CUDA_PATH=/usr/local/cuda-13.0; \
+              mkdir -p build; \
+              cmake -B build -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_CXX_STANDARD=23 \
+                -DCMAKE_CXX_STANDARD_REQUIRED=ON \
+                -DCMAKE_CXX_EXTENSIONS=OFF \
+                -DCMAKE_C_COMPILER=clang-19 \
+                -DCMAKE_CXX_COMPILER=clang++-19 \
+                -DCMAKE_CUDA_COMPILER=${CUDA_PATH}/bin/nvcc \
+                -DCUDAToolkit_ROOT=${CUDA_PATH} \
+                -DMILA_ENABLE_TESTING=ON; \
+              cmake --build build --config Release -- -j \$(nproc); \
+              cd build; \
+              ctest --output-on-failure -j \$(nproc); \
+              cmake --build build --target docs || true \
+            "
+
+      - name: Upload docs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs
+          path: build/docs/html
+
       - name: Deploy to GitHub Pages
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: JamesIves/github-pages-deploy-action@v4
         with:
-          folder: ${{github.workspace}}/build/docs/html
+          folder: ${{ github.workspace }}/build/docs/html
           branch: gh-pages
