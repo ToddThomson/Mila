@@ -34,13 +34,30 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-mila-build-
 
-      - name: Install minimal host toolchain and tools
+      - name: Install host toolchain and tools
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
+            build-essential \
             git \
-            software-properties-common ca-certificates gnupg wget curl lsb-release \
-            gcc-14 g++-14 clang-19 clang++-19 ninja-build ccache build-essential
+            wget \
+            curl \
+            software-properties-common \
+            ca-certificates \
+            gnupg2 \
+            lsb-release \
+            doxygen \
+            graphviz \
+            gdb \
+            gcc-14 g++-14 \
+            ninja-build \
+            ccache
+          # Install LLVM/Clang 19 using official script (keeps parity with Dockerfile)
+          wget -q https://apt.llvm.org/llvm.sh -O /tmp/llvm.sh
+          chmod +x /tmp/llvm.sh
+          /tmp/llvm.sh 19
+          rm -f /tmp/llvm.sh
+          # Configure alternatives for gcc/clang to match Dockerfile and CI expectations
           update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 140 || true
           update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 140 || true
           update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 100 || true
@@ -64,7 +81,7 @@ jobs:
           ls -la $CUDA_PATH/bin || true
           nvcc --version || true
 
-      - name: Install small dependencies (miniz)
+      - name: Install dependencies (miniz)
         run: |
           git clone https://github.com/richgel999/miniz.git /tmp/miniz
           cmake -B /tmp/miniz/build -S /tmp/miniz -G Ninja

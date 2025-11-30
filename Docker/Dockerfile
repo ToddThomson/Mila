@@ -16,7 +16,7 @@ RUN apt-get update \
         graphviz \
         software-properties-common \
         lsb-release \
-        gnupg \
+        gnupg2 \
         ca-certificates \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
