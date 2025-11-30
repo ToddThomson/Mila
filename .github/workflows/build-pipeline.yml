@@ -14,7 +14,7 @@ env:
 
 jobs:
   build-test-docs:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     container: nvidia/cuda:13.0.2-cudnn-devel-ubuntu24.04
     env:
       CUDA_PATH: /usr/local/cuda-13.0
@@ -38,12 +38,14 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
+            git \
             software-properties-common ca-certificates gnupg wget curl lsb-release \
             gcc-14 g++-14 clang-19 clang++-19 ninja-build ccache build-essential
           update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 140 || true
           update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 140 || true
           update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 100 || true
           update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 100 || true
+          git --version
           gcc --version
           clang++ --version
           ccache --version
