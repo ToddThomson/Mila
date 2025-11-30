@@ -15,65 +15,97 @@ env:
 jobs:
   build-test-docs:
     runs-on: ubuntu-24.04
+    container: nvidia/cuda:13.0.2-cudnn-devel-ubuntu24.04
+    env:
+      CUDA_PATH: /usr/local/cuda-13.0
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Cache build and ccache
+      - name: Restore build cache and ccache
         uses: actions/cache@v4
         with:
           path: |
+            .ccache
             build
-            ~/.ccache
-            ~/.cache/cmake
+            .cache/cmake
           key: ${{ runner.os }}-mila-${{ env.CUDA_VERSION }}-build-${{ hashFiles('**/CMakeLists.txt') }}
           restore-keys: |
-            ${{ runner.os }}-mila-${{ env.CUDA_VERSION }}-build-
             ${{ runner.os }}-mila-build-
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build CI container image (from repository Dockerfile)
-        uses: docker/build-push-action@v4
-        with:
-          context: Docker
-          file: Docker/Dockerfile
-          platforms: linux/amd64
-          load: true
-          tags: mila-ci:latest
-
-      - name: Run full build + tests inside CI container
-        env:
-          CUDA_PATH: /usr/local/cuda-13.0
+      - name: Install minimal host toolchain and tools
         run: |
-          # Run the prepared image and execute the same steps your local devcontainer performs.
-          docker run --rm \
-            -e CUDA_VERSION=${{ env.CUDA_VERSION }} \
-            -e CC=clang-19 -e CXX=clang++-19 \
-            -v "${{ github.workspace }}":/workspace:cached \
-            -v "${{ github.workspace }}/build":/workspace/build:cached \
-            -v "${HOME}/.ccache":/root/.ccache \
-            -w /workspace \
-            mila-ci:latest \
-            bash -eux -c "\
-              export CUDA_PATH=/usr/local/cuda-13.0; \
-              mkdir -p build; \
-              cmake -B build -G Ninja \
-                -DCMAKE_BUILD_TYPE=Release \
-                -DCMAKE_CXX_STANDARD=23 \
-                -DCMAKE_CXX_STANDARD_REQUIRED=ON \
-                -DCMAKE_CXX_EXTENSIONS=OFF \
-                -DCMAKE_C_COMPILER=clang-19 \
-                -DCMAKE_CXX_COMPILER=clang++-19 \
-                -DCMAKE_CUDA_COMPILER=${CUDA_PATH}/bin/nvcc \
-                -DCUDAToolkit_ROOT=${CUDA_PATH} \
-                -DMILA_ENABLE_TESTING=ON; \
-              cmake --build build --config Release -- -j \$(nproc); \
-              cd build; \
-              ctest --output-on-failure -j \$(nproc); \
-              cmake --build build --target docs || true \
-            "
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            software-properties-common ca-certificates gnupg wget curl lsb-release \
+            gcc-14 g++-14 clang-19 clang++-19 ninja-build ccache build-essential
+          update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 140 || true
+          update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 140 || true
+          update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 100 || true
+          update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 100 || true
+          gcc --version
+          clang++ --version
+          ccache --version
+
+      - name: Install CMake 3.31.7
+        run: |
+          wget -q https://github.com/Kitware/CMake/releases/download/v3.31.7/cmake-3.31.7-linux-x86_64.tar.gz
+          tar -xzf cmake-3.31.7-linux-x86_64.tar.gz
+          sudo cp -r cmake-3.31.7-linux-x86_64/bin/* /usr/local/bin/
+          sudo cp -r cmake-3.31.7-linux-x86_64/share/* /usr/local/share/
+          cmake --version
+
+      - name: Verify CUDA toolchain
+        run: |
+          echo "CUDA_PATH=${CUDA_PATH}"
+          ls -la $CUDA_PATH/bin || true
+          nvcc --version || true
+
+      - name: Install small dependencies (miniz)
+        run: |
+          git clone https://github.com/richgel999/miniz.git /tmp/miniz
+          cmake -B /tmp/miniz/build -S /tmp/miniz -G Ninja
+          cmake --build /tmp/miniz/build --config Release
+          sudo cmake --install /tmp/miniz/build
+
+      - name: Ensure GoogleTest available
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends libgtest-dev cmake
+          if [ -d /usr/src/googletest ]; then
+            cmake -S /usr/src/googletest -B /tmp/gtest-build -DCMAKE_BUILD_TYPE=Release
+            cmake --build /tmp/gtest-build --target install
+          fi
+
+      - name: Configure CMake (Ninja)
+        env:
+          CC: clang-19
+          CXX: clang++-19
+        run: |
+          mkdir -p build
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-19 \
+            -DCMAKE_CXX_COMPILER=clang++-19 \
+            -DCMAKE_CUDA_COMPILER=${CUDA_PATH}/bin/nvcc \
+            -DCUDAToolkit_ROOT=${CUDA_PATH} \
+            -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler -ccbin=gcc-14" \
+            -DCMAKE_CXX_STANDARD=23 \
+            -DCMAKE_CXX_STANDARD_REQUIRED=ON \
+            -DCMAKE_CXX_EXTENSIONS=OFF \
+            -DMILA_ENABLE_TESTING=ON
+
+      - name: Build Mila
+        run: cmake --build build --config Release -- -j $(nproc)
+
+      - name: Run unit tests
+        run: |
+          cd build
+          ctest --output-on-failure -j $(nproc)
+
+      - name: Generate documentation
+        run: cmake --build build --target docs || true
 
       - name: Upload docs artifact
         uses: actions/upload-artifact@v4
