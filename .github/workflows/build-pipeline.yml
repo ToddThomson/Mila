@@ -48,12 +48,14 @@ jobs:
           clang++ --version
           ccache --version
 
-      - name: Install CMake 3.31.7
+      - name: Install latest CMake
         run: |
-          wget -q https://github.com/Kitware/CMake/releases/download/v3.31.7/cmake-3.31.7-linux-x86_64.tar.gz
-          tar -xzf cmake-3.31.7-linux-x86_64.tar.gz
-          sudo cp -r cmake-3.31.7-linux-x86_64/bin/* /usr/local/bin/
-          sudo cp -r cmake-3.31.7-linux-x86_64/share/* /usr/local/share/
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates gnupg wget lsb-release
+          wget -qO - https://apt.kitware.com/keys/kitware-archive-latest.asc | gpg --dearmor > /usr/share/keyrings/kitware-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu $(lsb_release -cs) main" > /etc/apt/sources.list.d/kitware.list
+          apt-get update
+          apt-get install -y --no-install-recommends cmake
           cmake --version
 
       - name: Verify CUDA toolchain
@@ -67,7 +69,7 @@ jobs:
           git clone https://github.com/richgel999/miniz.git /tmp/miniz
           cmake -B /tmp/miniz/build -S /tmp/miniz -G Ninja
           cmake --build /tmp/miniz/build --config Release
-          sudo cmake --install /tmp/miniz/build
+          cmake --install /tmp/miniz/build
 
       - name: Ensure GoogleTest available
         run: |
