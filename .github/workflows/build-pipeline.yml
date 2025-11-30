@@ -14,7 +14,7 @@ env:
 
 jobs:
   build-test-docs:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: nvidia/cuda:13.0.2-cudnn-devel-ubuntu24.04
     env:
       CUDA_PATH: /usr/local/cuda-13.0
@@ -54,8 +54,8 @@ jobs:
         run: |
           wget -q https://github.com/Kitware/CMake/releases/download/v3.31.7/cmake-3.31.7-linux-x86_64.tar.gz
           tar -xzf cmake-3.31.7-linux-x86_64.tar.gz
-          sudo cp -r cmake-3.31.7-linux-x86_64/bin/* /usr/local/bin/
-          sudo cp -r cmake-3.31.7-linux-x86_64/share/* /usr/local/share/
+          cp -r cmake-3.31.7-linux-x86_64/bin/* /usr/local/bin/
+          cp -r cmake-3.31.7-linux-x86_64/share/* /usr/local/share/
           cmake --version
 
       - name: Verify CUDA toolchain
