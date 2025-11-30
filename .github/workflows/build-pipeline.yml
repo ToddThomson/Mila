@@ -47,6 +47,8 @@ jobs:
             ca-certificates \
             gnupg2 \
             lsb-release \
+            doxygen \
+            graphviz \
             gdb \
             gcc-14 g++-14 \
             ninja-build \

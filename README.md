@@ -7,7 +7,7 @@
 Mila Deep Neural Network Library
 
 ## Prerelease Notice
-Mila, version 0.9.930-alpha
+Mila, version 0.9.931-alpha
 This is a an internal development only build of Mila.
 
 ## Roadmap
