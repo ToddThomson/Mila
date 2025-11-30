@@ -13,7 +13,8 @@ env:
   CUDA_VERSION: '13.0.2'
 
 jobs:
-  build-test-docs:
+  build:
+    name: Build Mila
     runs-on: ubuntu-24.04
     container: nvidia/cuda:13.0.2-cudnn-devel-ubuntu24.04
     env:
@@ -46,18 +47,16 @@ jobs:
             ca-certificates \
             gnupg2 \
             lsb-release \
-            doxygen \
-            graphviz \
             gdb \
             gcc-14 g++-14 \
             ninja-build \
             ccache
-          # Install LLVM/Clang 19 using official script (keeps parity with Dockerfile)
+          # Install LLVM/Clang 19 using official script
           wget -q https://apt.llvm.org/llvm.sh -O /tmp/llvm.sh
           chmod +x /tmp/llvm.sh
           /tmp/llvm.sh 19
           rm -f /tmp/llvm.sh
-          # Configure alternatives for gcc/clang to match Dockerfile and CI expectations
+          # Configure alternatives
           update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 140 || true
           update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 140 || true
           update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 100 || true
@@ -118,13 +117,82 @@ jobs:
       - name: Build Mila
         run: cmake --build build --config Release -- -j $(nproc)
 
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mila-build
+          path: |
+            build/
+            !build/.ccache
+          retention-days: 1
+
+  test:
+    name: Run Tests
+    needs: build
+    runs-on: ubuntu-24.04
+    container: nvidia/cuda:13.0.2-cudnn-devel-ubuntu24.04
+    env:
+      CUDA_PATH: /usr/local/cuda-13.0
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install runtime dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            libgtest-dev
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: mila-build
+          path: build
+
       - name: Run unit tests
         run: |
           cd build
-          ctest --output-on-failure -j $(nproc)
+          chmod +x $(find . -type f -executable)
+          ctest --output-on-failure --verbose -j $(nproc)
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: build/Testing/
+
+  docs:
+    name: Generate Documentation
+    needs: build
+    runs-on: ubuntu-24.04
+    if: success()
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install documentation tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            doxygen \
+            graphviz
+
+      - name: Install CMake 3.31.7
+        run: |
+          wget -q https://github.com/Kitware/CMake/releases/download/v3.31.7/cmake-3.31.7-linux-x86_64.tar.gz
+          tar -xzf cmake-3.31.7-linux-x86_64.tar.gz
+          cp -r cmake-3.31.7-linux-x86_64/bin/* /usr/local/bin/
+          cp -r cmake-3.31.7-linux-x86_64/share/* /usr/local/share/
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: mila-build
+          path: build
 
       - name: Generate documentation
-        run: cmake --build build --target docs || true
+        run: cmake --build build --target docs
 
       - name: Upload docs artifact
         uses: actions/upload-artifact@v4
