@@ -50,14 +50,12 @@ jobs:
           clang++ --version
           ccache --version
 
-      - name: Install latest CMake
+      - name: Install CMake 3.31.7
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends ca-certificates gnupg wget lsb-release
-          wget -qO - https://apt.kitware.com/keys/kitware-archive-latest.asc | gpg --dearmor > /usr/share/keyrings/kitware-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu $(lsb_release -cs) main" > /etc/apt/sources.list.d/kitware.list
-          apt-get update
-          apt-get install -y --no-install-recommends cmake
+          wget -q https://github.com/Kitware/CMake/releases/download/v3.31.7/cmake-3.31.7-linux-x86_64.tar.gz
+          tar -xzf cmake-3.31.7-linux-x86_64.tar.gz
+          sudo cp -r cmake-3.31.7-linux-x86_64/bin/* /usr/local/bin/
+          sudo cp -r cmake-3.31.7-linux-x86_64/share/* /usr/local/share/
           cmake --version
 
       - name: Verify CUDA toolchain
