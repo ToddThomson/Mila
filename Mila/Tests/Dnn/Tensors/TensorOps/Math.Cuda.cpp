@@ -12,6 +12,10 @@
 #include <vector>
 #include <algorithm>
 #include <cmath>
+#include <stdexcept>
+#include <cstdint>
+#include <string>
+#include <span>
 
 import Mila;
 
@@ -23,22 +27,32 @@ namespace Dnn::Tensors::TensorOps::Tests
     /**
      * @brief Test fixture for CUDA tensor math operations.
      */
-    class CudaTensorMathTest : public ::testing::Test {
+    class CudaTensorMathTest : public ::testing::Test
+    {
     protected:
-        void SetUp() override {
-            // Create CUDA ExecutionContext with device ID 0
-            exec_ctx_ = std::make_unique<ExecutionContext<DeviceType::Cuda>>( 0 );
+        void SetUp() override
+        {
+
+            if ( getDeviceCount( DeviceType::Cuda ) == 0 )
+            {
+                cuda_available_ = false;
+                return;
+            }
+
+            exec_ctx_ = std::make_unique<ExecutionContext<DeviceType::Cuda>>( Device::Cuda( 0 ) );
         }
 
-        void TearDown() override {
-            if (exec_ctx_)
+        void TearDown() override
+        {
+            if ( exec_ctx_ )
             {
                 exec_ctx_->synchronize();
                 exec_ctx_.reset();
             }
         }
 
-        std::unique_ptr<ExecutionContext<DeviceType::Cuda>> exec_ctx_;
+        bool cuda_available_{ false };
+        std::unique_ptr<ExecutionContext<DeviceType::Cuda>> exec_ctx_{ nullptr };
     };
 
     /**
@@ -80,7 +94,7 @@ namespace Dnn::Tensors::TensorOps::Tests
         const Tensor<TDataType, CudaDeviceMemoryResource>& cuda_tensor )
     {
         // Create CPU tensor with same shape
-        Tensor<TDataType, CpuMemoryResource> cpu_tensor( "CPU", cuda_tensor.shape() );
+        Tensor<TDataType, CpuMemoryResource> cpu_tensor( Device::Cpu(), cuda_tensor.shape() );
 
         // TODO: Implement transfer operations to copy from CUDA to CPU
         // For now, this is a placeholder implementation
@@ -95,7 +109,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, Add_SameShape_Int32 )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = Tensor<TensorDataType::INT32, CudaDeviceMemoryResource>( device_name, { 2, 2 } );
         auto b = Tensor<TensorDataType::INT32, CudaDeviceMemoryResource>( device_name, { 2, 2 } );
@@ -125,7 +139,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, Add_SameShape_Float )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 2, 2 } );
         auto b = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 2, 2 } );
@@ -147,7 +161,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, Add_WithoutExecutionContext )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 3 } );
         auto b = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 3 } );
@@ -169,7 +183,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, Add_LargeArray_Float )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
         const size_t size = 10000;
 
         std::vector<float> values_a( size );
@@ -197,7 +211,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, Add_DifferentShape_Throws )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = Tensor<TensorDataType::INT32, CudaDeviceMemoryResource>( device_name, { 2, 2 } );
         auto b = Tensor<TensorDataType::INT32, CudaDeviceMemoryResource>( device_name, { 2, 1 } );
@@ -208,7 +222,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, Add_ResultShapeMismatch_Throws )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 2, 2 } );
         auto b = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 2, 2 } );
@@ -219,7 +233,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, Add_Scalar_Tensors )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         // Create scalar tensors (rank 0)
         auto a = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, {} );
@@ -241,7 +255,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, Add_UsingOperator )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 3 } );
         auto b = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 3 } );
@@ -264,7 +278,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, Subtract_SameShape_Int32 )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = Tensor<TensorDataType::INT32, CudaDeviceMemoryResource>( device_name, { 2, 2 } );
         auto b = Tensor<TensorDataType::INT32, CudaDeviceMemoryResource>( device_name, { 2, 2 } );
@@ -286,7 +300,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, Subtract_SameShape_Float )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 3 } );
         auto b = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 3 } );
@@ -307,7 +321,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, Subtract_Negative_Results )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = Tensor<TensorDataType::INT32, CudaDeviceMemoryResource>( device_name, { 2 } );
         auto b = Tensor<TensorDataType::INT32, CudaDeviceMemoryResource>( device_name, { 2 } );
@@ -327,7 +341,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, Subtract_UsingOperator )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 2 } );
         auto b = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 2 } );
@@ -349,7 +363,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, Multiply_SameShape_Int32 )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = Tensor<TensorDataType::INT32, CudaDeviceMemoryResource>( device_name, { 2, 2 } );
         auto b = Tensor<TensorDataType::INT32, CudaDeviceMemoryResource>( device_name, { 2, 2 } );
@@ -370,7 +384,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, Multiply_SameShape_Float )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 3 } );
         auto b = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 3 } );
@@ -391,7 +405,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, Multiply_WithZeros )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = Tensor<TensorDataType::INT32, CudaDeviceMemoryResource>( device_name, { 3 } );
         auto b = Tensor<TensorDataType::INT32, CudaDeviceMemoryResource>( device_name, { 3 } );
@@ -411,7 +425,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, Multiply_UsingOperator )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 2 } );
         auto b = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 2 } );
@@ -434,7 +448,7 @@ namespace Dnn::Tensors::TensorOps::Tests
     /*
     TEST_F( CudaTensorMathTest, Divide_SameShape_Int32 )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = Tensor<TensorDataType::INT32, CudaDeviceMemoryResource>( device_name, { 3 } );
         auto b = Tensor<TensorDataType::INT32, CudaDeviceMemoryResource>( device_name, { 3 } );
@@ -455,7 +469,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, Divide_SameShape_Float )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 3 } );
         auto b = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 3 } );
@@ -476,7 +490,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, Divide_ByZero_Float_InfNaN )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 2 } );
         auto b = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 2 } );
@@ -498,7 +512,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, Divide_UsingOperator )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 2 } );
         auto b = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 2 } );
@@ -521,7 +535,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, Sum_SmallTensor )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto tensor = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 4 } );
         std::vector<float> values = { 1.0f, 2.0f, 3.0f, 4.0f };
@@ -535,7 +549,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, Sum_LargeTensor )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
         const size_t size = 10000;
 
         auto tensor = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { size } );
@@ -555,7 +569,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, Sum_WithoutExecutionContext )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto tensor = Tensor<TensorDataType::INT32, CudaDeviceMemoryResource>( device_name, { 3 } );
         std::vector<int32_t> values = { 10, 20, 30 };
@@ -569,7 +583,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, Sum_EmptyTensor )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto tensor = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 0 } );
 
@@ -580,7 +594,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, Sum_ScalarTensor )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto tensor = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, {} );
         fill( tensor, 42.0f, exec_ctx_.get() );
@@ -596,7 +610,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, Add_3D_Tensors )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         std::vector<float> values_a( 24 );
         std::vector<float> values_b( 24 );
@@ -629,7 +643,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, Operations_SingleElement )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = Tensor<TensorDataType::INT32, CudaDeviceMemoryResource>( device_name, { 1 } );
         auto b = Tensor<TensorDataType::INT32, CudaDeviceMemoryResource>( device_name, { 1 } );
@@ -657,7 +671,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, ChainedOperations_WithContext )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 3 } );
         auto b = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 3 } );
@@ -685,7 +699,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, ChainedOperations_UsingOperators )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 2 } );
         auto b = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 2 } );
@@ -711,7 +725,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, AsyncExecution_MultipleOperations )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 1000 } );
         auto b = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 1000 } );
@@ -743,7 +757,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CudaTensorMathTest, Operations_EmptyTensors )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 0 } );
         auto b = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( device_name, { 0 } );

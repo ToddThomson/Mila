@@ -13,7 +13,7 @@ export module Compute.VulkanExecutionContext;
 
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
-import Compute.ComputeDevice;
+import Compute.Device;
 import Compute.VulkanDevice;
 import Compute.DeviceType;
 
@@ -41,17 +41,17 @@ namespace Mila::Dnn::Compute
             initializeExecutionResources();
         }
 
-        /**
-         * @brief Construct Vulkan execution context from existing device.
-         *
-         * @param device Shared ComputeDevice instance; must be a Vulkan device
-         * @throws std::invalid_argument If device is null or not Vulkan
-         */
-        explicit ExecutionContext( std::shared_ptr<ComputeDevice> device )
-            : IExecutionContext( DeviceType::Vulkan ), device_( validateDevice( device ) ) {
+        ///**
+        // * @brief Construct Vulkan execution context from existing device.
+        // *
+        // * @param device Shared ComputeDevice instance; must be a Vulkan device
+        // * @throws std::invalid_argument If device is null or not Vulkan
+        // */
+        //explicit ExecutionContext( std::shared_ptr<Device> device )
+        //    : IExecutionContext( DeviceType::Vulkan ), device_( validateDevice( device ) ) {
 
-            initializeExecutionResources();
-        }
+        //    initializeExecutionResources();
+        //}
 
         /**
          * @brief Destructor with proper resource cleanup.
@@ -87,7 +87,7 @@ namespace Mila::Dnn::Compute
         /**
          * @brief Gets the associated device.
          */
-        std::shared_ptr<ComputeDevice> getDevice() const {
+        std::shared_ptr<Device> getDevice() const {
             return device_;
         }
 
@@ -145,7 +145,7 @@ namespace Mila::Dnn::Compute
         }
 
     private:
-        std::shared_ptr<ComputeDevice> device_;
+        std::shared_ptr<Device> device_;
         mutable void* queue_{ nullptr }; // opaque placeholder for platform queue (VkQueue)
         bool queue_created_{ false };
         mutable std::mutex handle_mutex_;
@@ -153,8 +153,8 @@ namespace Mila::Dnn::Compute
         /**
          * @brief Validates device for construction.
          */
-        static std::shared_ptr<ComputeDevice> validateDevice(
-            std::shared_ptr<ComputeDevice> device ) {
+        static std::shared_ptr<Device> validateDevice(
+            std::shared_ptr<Device> device ) {
 
             if (!device)
             {

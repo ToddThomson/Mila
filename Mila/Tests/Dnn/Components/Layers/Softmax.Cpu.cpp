@@ -5,6 +5,7 @@
 #include <random>
 #include <cmath>
 #include <cstdint>
+#include <stdexcept>
 
 import Mila;
 
@@ -146,9 +147,9 @@ namespace Modules::Layers::Tests
         EXPECT_EQ( data.module->getDeviceType(), DeviceType::Cpu );
 
         ASSERT_NE( data.exec_context, nullptr );
-        auto device = data.exec_context->getDevice();
-        ASSERT_NE( device, nullptr );
-        EXPECT_EQ( device->getDeviceType(), DeviceType::Cpu );
+        auto device = data.exec_context->getDeviceId();
+
+        EXPECT_EQ( device.type, DeviceType::Cpu );
     }
 
     TEST_F( SoftmaxCpuTests, TrainingMode_Default )
@@ -225,8 +226,8 @@ namespace Modules::Layers::Tests
 
         EXPECT_NO_THROW( data.module->build( data.shape ) );
 
-        TensorType input( "CPU", data.shape );
-        TensorType output( "CPU", data.shape );
+        TensorType input( Device::Cpu(), data.shape );
+        TensorType output( Device::Cpu(), data.shape );
 
         random( input, -5.0f, 5.0f );
 
@@ -245,8 +246,8 @@ namespace Modules::Layers::Tests
 
         EXPECT_NO_THROW( data.module->build( data.shape ) );
 
-        TensorType input( "CPU", data.shape );
-        TensorType output( "CPU", data.shape );
+        TensorType input( Device::Cpu(), data.shape );
+        TensorType output( Device::Cpu(), data.shape );
 
         random( input, -5.0f, 5.0f );
 
@@ -265,8 +266,8 @@ namespace Modules::Layers::Tests
 
         EXPECT_NO_THROW( data.module->build( data.shape ) );
 
-        TensorType input( "CPU", data.shape );
-        TensorType output( "CPU", data.shape );
+        TensorType input( Device::Cpu(), data.shape );
+        TensorType output( Device::Cpu(), data.shape );
 
         random( input, -5.0f, 5.0f );
 
@@ -283,8 +284,8 @@ namespace Modules::Layers::Tests
 
         data.module->build( data.shape );
 
-        CpuTensor<TensorDataType::FP32> input( "CPU", data.shape );
-        CpuTensor<TensorDataType::FP32> output( "CPU", data.shape );
+        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.shape );
+        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.shape );
 
         random( input, -5.0f, 5.0f );
 
@@ -317,8 +318,8 @@ namespace Modules::Layers::Tests
 
         EXPECT_NO_THROW( data.module->build( data.shape ) );
 
-        TensorType input( "CPU", data.shape );
-        TensorType output( "CPU", data.shape );
+        TensorType input( Device::Cpu(), data.shape );
+        TensorType output( Device::Cpu(), data.shape );
 
         random( input, -5.0f, 5.0f );
 
@@ -335,8 +336,8 @@ namespace Modules::Layers::Tests
 
         EXPECT_NO_THROW( data.module->build( data.shape ) );
 
-        TensorType input( "CPU", data.shape );
-        TensorType output( "CPU", data.shape );
+        TensorType input( Device::Cpu(), data.shape );
+        TensorType output( Device::Cpu(), data.shape );
 
         random( input, -5.0f, 5.0f );
 
@@ -355,8 +356,8 @@ namespace Modules::Layers::Tests
 
         EXPECT_NO_THROW( data.module->build( data.shape ) );
 
-        TensorType input( "CPU", data.shape );
-        TensorType output( "CPU", data.shape );
+        TensorType input( Device::Cpu(), data.shape );
+        TensorType output( Device::Cpu(), data.shape );
 
         random( input, -5.0f, 5.0f );
 
@@ -375,8 +376,8 @@ namespace Modules::Layers::Tests
 
         EXPECT_NO_THROW( data.module->build( data.shape ) );
 
-        TensorType input( "CPU", data.shape );
-        TensorType output( "CPU", data.shape );
+        TensorType input( Device::Cpu(), data.shape );
+        TensorType output( Device::Cpu(), data.shape );
 
         random( input, -5.0f, 5.0f );
 
@@ -395,8 +396,8 @@ namespace Modules::Layers::Tests
 
         EXPECT_NO_THROW( data.module->build( data.shape ) );
 
-        TensorType input( "CPU", data.shape );
-        TensorType output( "CPU", data.shape );
+        TensorType input( Device::Cpu(), data.shape );
+        TensorType output( Device::Cpu(), data.shape );
 
         random( input, -5.0f, 5.0f );
 
@@ -420,8 +421,8 @@ namespace Modules::Layers::Tests
     {
         auto data = SoftmaxCpuTestData<TensorDataType::FP32>::Create( "unbuild_cpu", medium_shape_ );
 
-        CpuTensor<TensorDataType::FP32> input( "CPU", data.shape );
-        CpuTensor<TensorDataType::FP32> output( "CPU", data.shape );
+        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.shape );
+        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.shape );
 
         EXPECT_THROW(
             data.module->forward( input, output ),
@@ -461,8 +462,8 @@ namespace Modules::Layers::Tests
 
         EXPECT_NO_THROW( data.module->build( data.shape ) );
 
-        CpuTensor<TensorDataType::FP32> input( "CPU", data.shape );
-        CpuTensor<TensorDataType::FP32> output( "CPU", data.shape );
+        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.shape );
+        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.shape );
 
         for ( int iter = 0; iter < 10; ++iter )
         {

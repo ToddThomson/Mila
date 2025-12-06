@@ -106,7 +106,7 @@ namespace Mila::Dnn::Compute::Tests
         ASSERT_NE( op_, nullptr );
         EXPECT_EQ( op_->getName(), "MockAddOp" );
         EXPECT_EQ( op_->getDeviceType(), DeviceType::Cpu );
-        EXPECT_EQ( op_->getExecutionContext()->getDevice()->getDeviceType(), DeviceType::Cpu );
+        EXPECT_EQ( op_->getExecutionContext()->getDeviceId()->getDeviceType(), DeviceType::Cpu );
         EXPECT_EQ( op_->getOperationType(), OperationType::LinearOp );
     }
 
@@ -114,7 +114,7 @@ namespace Mila::Dnn::Compute::Tests
         using T = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>;
 
         std::vector<int64_t> shape = { 2, 3 };
-        auto device = exec_ctx_->getDevice();
+        auto device = exec_ctx_->getDeviceId();
 
         T a( device, shape );
         T b( device, shape );
@@ -141,7 +141,7 @@ namespace Mila::Dnn::Compute::Tests
     TEST_F( BinaryOperationTests, Forward_ScalarAndTensorBroadcast ) {
         using T = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>;
 
-        auto device = exec_ctx_->getDevice();
+        auto device = exec_ctx_->getDeviceId();
 
         // Scalar + tensor
         T scalar( device, shape_t{} );
@@ -185,7 +185,7 @@ namespace Mila::Dnn::Compute::Tests
 
     TEST_F( BinaryOperationTests, Forward_MismatchedShapesThrows ) {
         using T = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>;
-        auto device = exec_ctx_->getDevice();
+        auto device = exec_ctx_->getDeviceId();
 
         T a( device, shape_t{ 2, 2 } );
         T b( device, shape_t{ 3 } );
@@ -199,7 +199,7 @@ namespace Mila::Dnn::Compute::Tests
 
     TEST_F( BinaryOperationTests, Backward_DefaultThrows ) {
         using T = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>;
-        auto device = exec_ctx_->getDevice();
+        auto device = exec_ctx_->getDeviceId();
 
         T a( device, shape_t{ 2 } );
         T b( device, shape_t{ 2 } );

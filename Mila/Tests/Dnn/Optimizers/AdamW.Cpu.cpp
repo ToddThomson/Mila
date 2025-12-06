@@ -62,7 +62,7 @@ namespace Dnn::Optimizers::Tests
             float init_value = 1.0f )
         {
             auto param = std::make_shared<Tensor<TensorDataType::FP32, CpuMemoryResource>>(
-                exec_ctx_->getDevice(), shape );
+                exec_ctx_->getDeviceId(), shape );
 
             auto data = param->data();
             for (size_t i = 0; i < param->size(); ++i)
@@ -82,7 +82,7 @@ namespace Dnn::Optimizers::Tests
             float grad_value = 0.1f )
         {
             auto grad = std::make_shared<Tensor<TensorDataType::FP32, CpuMemoryResource>>(
-                exec_ctx_->getDevice(), shape );
+                exec_ctx_->getDeviceId(), shape );
 
             auto data = grad->data();
             for (size_t i = 0; i < grad->size(); ++i)

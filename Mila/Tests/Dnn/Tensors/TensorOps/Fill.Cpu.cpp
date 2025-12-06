@@ -12,7 +12,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST( TensorOpsFillCpu, FillFloatTensor_NoThrowAndSizePreserved ) {
         // Create a CPU host tensor of FP32 with shape 2x3
-        Tensor<TensorDataType::FP32, CpuMemoryResource> t( "CPU", { 2, 3 } );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> t( Device::Cpu(), { 2, 3 } );
         ASSERT_EQ( t.size(), 6u );
 
         // Calls must compile and not throw; forwarding + conversion should work
@@ -41,7 +41,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST( TensorOpsFillCpu, FillIntTensor_NoThrow_WithDifferentValueTypes ) {
         // Create an INT32 CPU tensor
-        Tensor<TensorDataType::INT32, CpuMemoryResource> t( "CPU", { 4 } );
+        Tensor<TensorDataType::INT32, CpuMemoryResource> t( Device::Cpu(), { 4 } );
         ASSERT_EQ( t.size(), 4u );
 
         // Fill with matching and convertible types; should not throw
@@ -67,7 +67,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST( TensorOpsFillCpu, FillScalarTensor_NoThrow ) {
         // Scalar tensor: empty shape {} produces rank 0, size 1
-        Tensor<TensorDataType::FP32, CpuMemoryResource> scalar( "CPU", {} );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> scalar( Device::Cpu(), {} );
         
         // Verify scalar properties
         ASSERT_EQ( scalar.rank(), 0u );
@@ -88,7 +88,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST( TensorOpsFillCpu, FillEmptyTensor_NoThrow ) {
         // Empty 1D tensor: shape {0} produces rank 1, size 0
-        Tensor<TensorDataType::FP32, CpuMemoryResource> empty1d( "CPU", { 0 } );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> empty1d( Device::Cpu(), { 0 } );
         
         // Verify empty tensor properties
         ASSERT_EQ( empty1d.rank(), 1u );
@@ -106,7 +106,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST( TensorOpsFillCpu, FillEmpty2DTensor_NoThrow ) {
         // Empty 2D tensor: shape {0, 5} produces rank 2, size 0
-        Tensor<TensorDataType::INT32, CpuMemoryResource> empty2d( "CPU", { 0, 5 } );
+        Tensor<TensorDataType::INT32, CpuMemoryResource> empty2d( Device::Cpu(), { 0, 5 } );
         
         // Verify empty tensor properties
         ASSERT_EQ( empty2d.rank(), 2u );
@@ -120,7 +120,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST( TensorOpsFillCpu, FillWithSpan_ArrayValues ) {
         // Test fill with span of values
-        Tensor<TensorDataType::FP32, CpuMemoryResource> t( "CPU", { 5 } );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> t( Device::Cpu(), { 5 } );
         ASSERT_EQ( t.size(), 5u );
 
         std::vector<float> values = { 1.0f, 2.0f, 3.0f, 4.0f, 5.0f };
@@ -136,7 +136,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST( TensorOpsFillCpu, FillWithSpan_PartialFill ) {
         // Test partial fill when span is smaller than tensor
-        Tensor<TensorDataType::INT32, CpuMemoryResource> t( "CPU", { 10 } );
+        Tensor<TensorDataType::INT32, CpuMemoryResource> t( Device::Cpu(), { 10 } );
         ASSERT_EQ( t.size(), 10u );
 
         std::vector<int32_t> values = { 100, 200, 300 };
@@ -154,7 +154,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST( TensorOpsFillCpu, FillScalarWithItem_DirectAccess ) {
         // Test scalar-specific access patterns
-        Tensor<TensorDataType::INT32, CpuMemoryResource> scalar( "CPU", {} );
+        Tensor<TensorDataType::INT32, CpuMemoryResource> scalar( Device::Cpu(), {} );
         
         ASSERT_TRUE( scalar.isScalar() );
         ASSERT_EQ( scalar.size(), 1u );

@@ -141,7 +141,7 @@ namespace Mila::CharLM
             final_layernorm_->build( cached_embedding_shape_ );
             lm_head_->build( cached_embedding_shape_ );
 
-            auto device = exec_context_->getDevice();
+            auto device = exec_context_->getDeviceId();
 
             embedded_ = std::make_shared<TensorType>( device, cached_embedding_shape_ );
             embedded_->setName( config_.name + ".embedded" );
@@ -203,7 +203,7 @@ namespace Mila::CharLM
                 throw std::runtime_error( "CharTransformer must be built before calling backward." );
             }
 
-            auto device = exec_context_->getDevice();
+            auto device = exec_context_->getDeviceId();
 
             TensorType normalized_grad( device, cached_embedding_shape_ );
             zeros( normalized_grad );
@@ -263,9 +263,9 @@ namespace Mila::CharLM
             return config_.name;
         }
 
-        std::shared_ptr<ComputeDevice> getDevice() const override
+        DeviceId getDeviceId() const override
         {
-            return exec_context_->getDevice();
+            return exec_context_->getDeviceId();
         }
 
         void synchronize() override
@@ -364,10 +364,7 @@ namespace Mila::CharLM
             oss << "  MLP hidden dimension: " << config_.mlp_hidden_dim << std::endl;
             oss << "  Parameters: " << parameterCount() << std::endl;
 
-            if (exec_context_ && exec_context_->getDevice())
-            {
-                oss << "  Device: " << deviceTypeToString( exec_context_->getDevice()->getDeviceType() ) << std::endl;
-            }
+            oss << "  Device: " << exec_context_->getDeviceId().toString() << std::endl;
 
             if (this->isBuilt())
             {

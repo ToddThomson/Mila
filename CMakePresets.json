@@ -7,9 +7,14 @@
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/out/build/windows-${presetName}",
       "installDir": "${sourceDir}/out/install/windows-${presetName}",
+      "environment": {
+        "VCToolsInstallDir": "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.44.35207/"
+      },
+      "toolset": "v143",
       "cacheVariables": {
-        "CMAKE_C_COMPILER": "cl.exe",
-        "CMAKE_CXX_COMPILER": "cl.exe",
+        "CMAKE_C_COMPILER": "$env{VCToolsInstallDir}/bin/Hostx64/x64/cl.exe",
+        "CMAKE_CXX_COMPILER": "$env{VCToolsInstallDir}/bin/Hostx64/x64/cl.exe",
+        "CMAKE_CUDA_HOST_COMPILER": "$env{VCToolsInstallDir}/bin/Hostx64/x64/cl.exe",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       },
       "condition": {
@@ -57,6 +62,7 @@
         "value": "x64",
         "strategy": "external"
       },
+      "toolset": "v143",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
       }

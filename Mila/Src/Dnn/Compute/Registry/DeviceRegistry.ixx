@@ -1,196 +1,242 @@
 /**
  * @file DeviceRegistry.ixx
- * @brief Provides device registration and management for the Mila deep neural network framework.
+ * @brief Central registry for discovered compute devices.
  *
- * This file implements a singleton registry pattern for compute devices, allowing
- * different device types (CPU, CUDA GPUs) to be registered, created, and managed
- * throughout the application lifecycle. The registry functions as a central point
- * for device discovery and instantiation.
- *
- * The DeviceRegistry class enables:
- * - Device creation by name with consistent interfaces
- * - Thread-safe access to device factories
- * - Enumeration of available device types
- * - Runtime device availability queries
- *
- * Separation of concerns:
- * - DeviceRegistrar: Handles automatic registration through plugins (internal)
- * - DeviceRegistry: Provides runtime device queries and creation (public API)
- *
- * This registry is the primary public API for device management in the Mila framework.
+ * Stores registered DeviceId values and creates concrete Device instances
+ * on-demand with lazy initialization and caching. Registrars register lightweight
+ * DeviceId values; Device objects with cached properties are created when first
+ * requested via getDevice().
  */
 
 module;
 #include <vector>
 #include <unordered_map>
-#include <mutex>
-#include <functional>
-#include <string>
-#include <format>
-#include <type_traits>
-#include <stdexcept>
 #include <memory>
+#include <mutex>
+#include <format>
+#include <stdexcept>
+#include <algorithm>
+#include <functional>
+#include <utility>
 
 export module Compute.DeviceRegistry;
 
-import Compute.ComputeDevice;
+import Compute.DeviceId;
+import Compute.DeviceType;
+import Compute.Device;
 
 namespace Mila::Dnn::Compute
 {
-    export class DeviceRegistry 
+    /**
+     * @brief Construction key for device factories.
+     *
+     * Passkey pattern token that restricts Device subclass construction to
+     * authorized factory contexts. Only DeviceRegistry can create instances
+     * of this key, ensuring devices are only constructed through the registry.
+     */
+    export class DeviceConstructionKey
+    {
+    private:
+        friend class DeviceRegistry;
+
+        DeviceConstructionKey() = default;
+    };
+
+    /**
+     * @brief Registry of discovered compute devices with lazy instantiation.
+     *
+     * Thread-safe singleton that stores registered DeviceId values and creates
+     * concrete Device instances on-demand. Device registrars register lightweight
+     * DeviceId values during initialization; Device objects are created lazily
+     * when first requested and then cached for subsequent calls.
+     */
+    export class DeviceRegistry
     {
     public:
-        
-        // Factory signature accepts a device index for parameterized devices (e.g., "CUDA:0")
-        using DeviceFactory = std::function<std::shared_ptr<ComputeDevice>( int )>;
 
-        static DeviceRegistry& instance() {
+		using DeviceFactory = std::function<std::shared_ptr<Device>( DeviceConstructionKey )>;
+
+        static DeviceRegistry& instance()
+        {
             static DeviceRegistry registry;
+            
             return registry;
         }
 
         /**
-         * @brief Gets or creates a device instance by name.
+         * @brief Register a discovered DeviceId with factory callback.
          *
-         * Returns a shared device instance. Multiple calls with the same device_name
-         * return the same instance, ensuring shared resources (streams, handles).
-         *
-         * For parameterized devices like "CUDA:0", the device index is parsed and
-         * passed to the factory.
-         *
-         * @param device_name Device identifier (e.g., "CPU", "CUDA:0", "CUDA:1")
-         * @return std::shared_ptr<ComputeDevice> Shared device instance
-         * @throws std::runtime_error if device type not registered
+         * @param id Device identifier to register
+         * @param factory Factory function to create the device instance
+         * @throws std::runtime_error If DeviceId is already registered
          */
-        std::shared_ptr<ComputeDevice> getDevice( const std::string& device_name ) {
+        void registerDevice( DeviceId id, DeviceFactory factory )
+        {
             std::lock_guard<std::mutex> lock( mutex_ );
 
-            // Check instance cache first
-            auto instance_it = device_instances_.find( device_name );
-            if (instance_it != device_instances_.end())
-            {
-                return instance_it->second;
-            }
-
-            // Parse device type and index
-            auto [device_type, device_index] = parseDeviceName( device_name );
-
-            // Find factory for device type
-            auto factory_it = device_factories_.find( device_type );
-            if (factory_it == device_factories_.end())
+            if ( std::ranges::find( registered_ids_, id ) != registered_ids_.end() )
             {
                 throw std::runtime_error(
-                    std::format( "Device type '{}' not registered", device_type )
+                    std::format( "DeviceId '{}' already registered", id.toString() )
                 );
             }
 
-            // Create new instance and cache it
-            auto device = factory_it->second( device_index );
-            device_instances_[device_name] = device;
-            
+            registered_ids_.push_back( id );
+            factories_[id] = std::move( factory );
+        }
+        
+        /**
+         * @brief Retrieve or create a device by ID.
+         *
+         * Validates that the DeviceId is registered, then returns a cached
+         * Device instance. If this is the first request, invokes the factory
+         * callback to create the device and caches it.
+         *
+         * @param id Device identifier (e.g., Device::Cuda(0), Device::Cpu())
+         * @return std::shared_ptr<Device> Cached device instance with properties
+         * @throws std::runtime_error If DeviceId is not registered or creation fails
+         */
+        std::shared_ptr<Device> getDevice( DeviceId id ) const
+        {
+            std::lock_guard<std::mutex> lock( mutex_ );
+
+            if ( std::ranges::find( registered_ids_, id ) == registered_ids_.end() )
+            {
+                throw std::runtime_error(
+                    std::format( "Device '{}' not registered", id.toString() )
+                );
+            }
+
+            auto cache_it = device_cache_.find( id );
+
+            if ( cache_it != device_cache_.end() )
+            {
+                return cache_it->second;
+            }
+
+            auto factory_it = factories_.find( id );
+
+            if ( factory_it == factories_.end() )
+            {
+                throw std::runtime_error(
+                    std::format( "No factory registered for device '{}'", id.toString() )
+                );
+            }
+
+            std::shared_ptr<Device> device = factory_it->second( DeviceConstructionKey{} );
+            device_cache_[id] = device;
+
             return device;
         }
 
         /**
-         * @brief Lists all registered device types.
-         * @return Vector of base device types (e.g., "CPU", "CUDA")
+         * @brief Check whether a specific DeviceType has been registered.
+         *
+         * @param type Device type to check (Cpu, Cuda, Metal, Rocm)
+         * @return bool True if at least one device of this type is registered
          */
-        std::vector<std::string> listDeviceTypes() const {
+        bool hasDeviceType( DeviceType type ) const
+        {
             std::lock_guard<std::mutex> lock( mutex_ );
-            std::vector<std::string> types;
-            types.reserve( device_factories_.size() );
 
-            for (const auto& [type, _] : device_factories_)
-            {
-                types.push_back( type );
-            }
-            return types;
+            return std::ranges::any_of( registered_ids_,
+                [type]( const DeviceId& id ) { return id.type == type; } );
         }
 
         /**
-         * @brief Lists all instantiated devices.
-         * @return Vector of device instances (e.g., "CPU", "CUDA:0", "CUDA:1")
+         * @brief Non-throwing check whether a specific DeviceId has been registered.
+         *
+         * @param id Device identifier to check
+         * @return bool True if device is registered, false otherwise (or on error)
          */
-        std::vector<std::string> listDevices() const {
-            std::lock_guard<std::mutex> lock( mutex_ );
-            std::vector<std::string> instances;
-            instances.reserve( device_instances_.size() );
-
-            for (const auto& [name, _] : device_instances_)
+        bool hasDevice( DeviceId id ) const noexcept
+        {
+            try
             {
-                instances.push_back( name );
+                std::lock_guard<std::mutex> lock( mutex_ );
+                return std::ranges::find( registered_ids_, id ) != registered_ids_.end();
             }
-            
-            return instances;
+            catch ( ... )
+            {
+                return false;
+            }
         }
 
         /**
-         * @brief Checks if device type is registered.
+         * @brief List registered device types (unique).
+         *
+         * @return std::vector<DeviceType> Vector of unique device types
          */
-        bool hasDeviceType( const std::string& device_type ) const {
+        std::vector<DeviceType> listDeviceTypes() const
+        {
             std::lock_guard<std::mutex> lock( mutex_ );
-            return device_factories_.find( device_type ) != device_factories_.end();
+
+            std::vector<DeviceType> unique;
+            unique.reserve( registered_ids_.size() );
+
+            for ( const auto& id : registered_ids_ )
+            {
+                if ( std::ranges::find( unique, id.type ) == unique.end() )
+                {
+                    unique.push_back( id.type );
+                }
+            }
+
+            return unique;
+        }
+
+        /**
+         * @brief List registered DeviceId values.
+         *
+         * @return std::vector<DeviceId> Vector of registered device identifiers
+         */
+        std::vector<DeviceId> listDeviceIds() const
+        {
+            std::lock_guard<std::mutex> lock( mutex_ );
+
+            std::vector<DeviceId> ids;
+            ids.reserve( registered_ids_.size() );
+
+            for ( const auto& id : registered_ids_ )
+            {
+                ids.push_back( id );
+            }
+
+            return ids;
+        }
+
+        /**
+         * @brief Return number of registered devices for the given DeviceType.
+         *
+         * @param device_type Device type to count
+         * @return std::size_t Number of registered devices of this type (0 on error)
+         */
+        std::size_t getDeviceCount( DeviceType device_type ) const noexcept
+        {
+            try
+            {
+                std::lock_guard<std::mutex> lock( mutex_ );
+
+                return std::ranges::count_if( registered_ids_,
+                    [device_type]( const DeviceId& id ) { return id.type == device_type; } );
+            }
+            catch ( ... )
+            {
+                return 0;
+            }
         }
 
         DeviceRegistry( const DeviceRegistry& ) = delete;
         DeviceRegistry& operator=( const DeviceRegistry& ) = delete;
 
-        /**
-         * @brief Registers a device factory.
-         *
-         * Factory receives a device_index parameter for parameterized devices.
-         * For CPU (no index), the index parameter is ignored.
-         *
-         * @param device_type Base device type (e.g., "CPU", "CUDA")
-         * @param factory Function that creates device instance given an index
-         */
-        void registerDeviceType( const std::string& device_type, DeviceFactory factory ) {
-            if (device_type.empty())
-            {
-                throw std::invalid_argument( "Device type cannot be empty." );
-            }
-            if (!factory)
-            {
-                throw std::invalid_argument( "Device factory cannot be null." );
-            }
-
-            std::lock_guard<std::mutex> lock( mutex_ );
-            device_factories_[device_type] = std::move( factory );
-        }
-
     private:
-
         DeviceRegistry() = default;
 
-        /**
-         * @brief Parses device name into type and index.
-         *
-         * Examples:
-         *   "CPU" ? ("CPU", 0)
-         *   "CUDA:0" ? ("CUDA", 0)
-         *   "CUDA:1" ? ("CUDA", 1)
-         *   "Metal:0" ? ("Metal", 0)
-         */
-        std::pair<std::string, int> parseDeviceName( const std::string& device_name ) const {
-            auto colon_pos = device_name.find( ':' );
-
-            if (colon_pos == std::string::npos)
-            {
-                // No index specified (e.g., "CPU")
-                return { device_name, 0 };
-            }
-
-            std::string device_type = device_name.substr( 0, colon_pos );
-            int device_index = std::stoi( device_name.substr( colon_pos + 1 ) );
-
-            return { device_type, device_index };
-        }
-
-        // Factory registry: "CPU" ? factory, "CUDA" ? factory
-        std::unordered_map<std::string, DeviceFactory> device_factories_;
-
-        // Instance cache: "CPU" ? instance, "CUDA:0" ? instance, "CUDA:1" ? instance
-        std::unordered_map<std::string, std::shared_ptr<ComputeDevice>> device_instances_;
+        // Use a simple vector to avoid hash-based template instantiation that
+        // can trigger compiler internal errors on some toolchains.
+        std::vector<DeviceId> registered_ids_;
+        std::unordered_map<DeviceId, DeviceFactory> factories_;
+        mutable std::unordered_map<DeviceId, std::shared_ptr<Device>> device_cache_;
 
         mutable std::mutex mutex_;
     };

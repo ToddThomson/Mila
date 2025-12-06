@@ -48,7 +48,7 @@ import Compute.DeviceType;
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
-	
+
     /**
      * @brief Element-wise addition with optional ExecutionContext (device-dispatched).
      *
@@ -206,8 +206,9 @@ namespace Mila::Dnn
         const Tensor<TDataType, TMemoryResource>& a,
         const Tensor<TDataType, TMemoryResource>& b )
     {
-        Tensor<TDataType, TMemoryResource> result( a.getDevice(), a.shape() );
+        Tensor<TDataType, TMemoryResource> result( a.getDeviceId(), a.shape() );
         add( a, b, result, nullptr );  // Synchronous default execution
+        
         return result;
     }
 
@@ -223,7 +224,7 @@ namespace Mila::Dnn
         const Tensor<TDataType, TMemoryResource>& a,
         const Tensor<TDataType, TMemoryResource>& b )
     {
-        Tensor<TDataType, TMemoryResource> result( a.getDevice(), a.shape() );
+        Tensor<TDataType, TMemoryResource> result( a.getDeviceId(), a.shape() );
         subtract( a, b, result, nullptr );  // Synchronous default execution
         return result;
     }
@@ -240,7 +241,7 @@ namespace Mila::Dnn
         const Tensor<TDataType, TMemoryResource>& a,
         const Tensor<TDataType, TMemoryResource>& b )
     {
-        Tensor<TDataType, TMemoryResource> result( a.getDevice(), a.shape() );
+        Tensor<TDataType, TMemoryResource> result( a.getDeviceId(), a.shape() );
         multiply( a, b, result, nullptr );  // Synchronous default execution
         return result;
     }
@@ -257,7 +258,7 @@ namespace Mila::Dnn
         const Tensor<TDataType, TMemoryResource>& a,
         const Tensor<TDataType, TMemoryResource>& b )
     {
-        Tensor<TDataType, TMemoryResource> result( a.getDevice(), a.shape() );
+        Tensor<TDataType, TMemoryResource> result( a.getDeviceId(), a.shape() );
         divide( a, b, result, nullptr );  // Synchronous default execution
         return result;
     }

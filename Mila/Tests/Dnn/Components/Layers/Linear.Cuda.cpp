@@ -5,7 +5,6 @@
 #include <cmath>
 #include <stdexcept>
 #include <cstdint>
-#include <cuda_runtime.h>
 
 import Mila;
 
@@ -56,7 +55,7 @@ namespace Modules::Layers::Tests
             data.config.withName( name )
                 .withBias( has_bias );
 
-            data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+            data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
             data.module = std::make_shared<Linear<DeviceType::Cuda, TPrecision>>( data.exec_context, data.config );
 
             return data;
@@ -95,11 +94,10 @@ namespace Modules::Layers::Tests
     protected:
         void SetUp() override
         {
-            int device_count = 0;
-            cudaError_t error = cudaGetDeviceCount( &device_count );
-            cuda_available_ = (error == cudaSuccess && device_count > 0);
+            int device_count = getDeviceCount( DeviceType::Cuda );
+            cuda_available_ = (device_count > 0);
 
-            if (!cuda_available_)
+            if ( !cuda_available_ )
             {
                 return;
             }
@@ -200,9 +198,9 @@ namespace Modules::Layers::Tests
         EXPECT_EQ( data.module->getDeviceType(), DeviceType::Cuda );
         ASSERT_NE( data.exec_context, nullptr );
 
-        auto device = data.exec_context->getDevice();
-        ASSERT_NE( device, nullptr );
-        EXPECT_EQ( device->getDeviceType(), DeviceType::Cuda );
+        auto device = data.exec_context->getDeviceId();
+        
+        EXPECT_EQ( device.type, DeviceType::Cuda );
     }
 
     template<TensorDataType TPrecision>
@@ -280,11 +278,11 @@ namespace Modules::Layers::Tests
 
         data.module->build( data.input_shape );
 
-        HostTensorType host_input( "CPU", data.input_shape );
+        HostTensorType host_input( Device::Cpu(), data.input_shape );
         random( host_input, -1.0f, 1.0f );
 
-        DeviceTensorType device_input( "CUDA:0", data.input_shape );
-        DeviceTensorType device_output( "CUDA:0", data.output_shape );
+        DeviceTensorType device_input( Device::Cuda(0), data.input_shape );
+        DeviceTensorType device_output( Device::Cuda(0), data.output_shape );
 
         copy( host_input, device_input );
 
@@ -360,16 +358,16 @@ namespace Modules::Layers::Tests
         data.module->setTraining( true );
         data.module->build( data.input_shape );
 
-        HostTensorType host_input( "CPU", data.input_shape );
-        HostTensorType host_output_grad( "CPU", data.output_shape );
+        HostTensorType host_input( Device::Cpu(), data.input_shape );
+        HostTensorType host_output_grad( Device::Cpu(), data.output_shape );
 
         random( host_input, -1.0f, 1.0f );
         random( host_output_grad, -0.1f, 0.1f );
 
-        DeviceTensorType device_input( "CUDA:0", data.input_shape );
-        DeviceTensorType device_output( "CUDA:0", data.output_shape );
-        DeviceTensorType device_output_grad( "CUDA:0", data.output_shape );
-        DeviceTensorType device_input_grad( "CUDA:0", data.input_shape );
+        DeviceTensorType device_input( Device::Cuda(0), data.input_shape );
+        DeviceTensorType device_output( Device::Cuda(0), data.output_shape );
+        DeviceTensorType device_output_grad( Device::Cuda(0), data.output_shape );
+        DeviceTensorType device_input_grad( Device::Cuda(0), data.input_shape );
 
         copy( host_input, device_input );
         copy( host_output_grad, device_output_grad );
@@ -634,7 +632,7 @@ namespace Modules::Layers::Tests
             GTEST_SKIP() << "CUDA not available";
         }
 
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
 
         auto data = LinearCudaTestData<TensorDataType::FP32>::CreateWithContext(
             "context_linear_cuda", small_shape_, input_features_, output_features_, ctx );
@@ -712,8 +710,8 @@ namespace Modules::Layers::Tests
         auto data = LinearCudaTestData<TensorDataType::FP32>::Create(
             "unbuild_cuda", small_shape_, input_features_, output_features_ );
 
-        CudaTensor<TensorDataType::FP32> input( "CUDA:0", data.input_shape );
-        CudaTensor<TensorDataType::FP32> output( "CUDA:0", data.output_shape );
+        CudaTensor<TensorDataType::FP32> input( Device::Cuda(0), data.input_shape );
+        CudaTensor<TensorDataType::FP32> output( Device::Cuda(0), data.output_shape );
 
         EXPECT_THROW(
             data.module->forward( input, output ),
@@ -733,8 +731,8 @@ namespace Modules::Layers::Tests
 
         shape_t wrong_shape = { 2, 3, 64 };
 
-        CudaTensor<TensorDataType::FP32> input( "CUDA:0", wrong_shape );
-        CudaTensor<TensorDataType::FP32> output( "CUDA:0", { 2, 3, 32 } );
+        CudaTensor<TensorDataType::FP32> input( Device::Cuda(0), wrong_shape );
+        CudaTensor<TensorDataType::FP32> output( Device::Cuda(0), { 2, 3, 32 } );
 
         EXPECT_THROW(
             data.module->forward( input, output ),
@@ -782,9 +780,9 @@ namespace Modules::Layers::Tests
         auto data = MediumFp32Data();
         data.module->build( data.input_shape );
 
-        CpuTensor<TensorDataType::FP32> host_input( "CPU", data.input_shape );
-        CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", data.input_shape );
-        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", data.output_shape );
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), data.input_shape );
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda(0), data.input_shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), data.output_shape );
 
         for (int iter = 0; iter < 10; ++iter)
         {
@@ -816,13 +814,13 @@ namespace Modules::Layers::Tests
         cpu_module->build( test_shape );
         cuda_data.module->build( test_shape );
 
-        CpuTensor<TensorDataType::FP32> host_input( "CPU", test_shape );
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), test_shape );
         random( host_input, -1.0f, 1.0f );
 
         auto cpu_weight = cpu_module->getWeight();
         auto cuda_weight = cuda_data.module->getWeight();
 
-        CpuTensor<TensorDataType::FP32> init_weight( "CPU", cpu_weight->shape() );
+        CpuTensor<TensorDataType::FP32> init_weight( Device::Cpu(), cpu_weight->shape() );
         fill( init_weight, 0.1f );
 
         copy( init_weight, *cpu_weight );
@@ -833,7 +831,7 @@ namespace Modules::Layers::Tests
 
         if (cpu_bias && cuda_bias)
         {
-            CpuTensor<TensorDataType::FP32> init_bias( "CPU", cpu_bias->shape() );
+            CpuTensor<TensorDataType::FP32> init_bias( Device::Cpu(), cpu_bias->shape() );
             zeros( init_bias );
 
             copy( init_bias, *cpu_bias );
@@ -843,11 +841,11 @@ namespace Modules::Layers::Tests
         shape_t output_shape = test_shape;
         output_shape.back() = 16;
 
-        CpuTensor<TensorDataType::FP32> cpu_output( "CPU", output_shape );
+        CpuTensor<TensorDataType::FP32> cpu_output( Device::Cpu(), output_shape );
         cpu_module->forward( host_input, cpu_output );
 
-        CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", test_shape );
-        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", output_shape );
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda(0), test_shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), output_shape );
         copy( host_input, device_input );
         cuda_data.module->forward( device_input, device_output );
 
@@ -990,9 +988,9 @@ namespace Modules::Layers::Tests
         auto data = LinearCudaTestData<TensorDataType::FP32>::Create(
             "unbuild_backward_cuda", small_shape_, input_features_, output_features_ );
 
-        CudaTensor<TensorDataType::FP32> input( "CUDA:0", data.input_shape );
-        CudaTensor<TensorDataType::FP32> output_grad( "CUDA:0", data.output_shape );
-        CudaTensor<TensorDataType::FP32> input_grad( "CUDA:0", data.input_shape );
+        CudaTensor<TensorDataType::FP32> input( Device::Cuda(0), data.input_shape );
+        CudaTensor<TensorDataType::FP32> output_grad( Device::Cuda(0), data.output_shape );
+        CudaTensor<TensorDataType::FP32> input_grad( Device::Cuda(0), data.input_shape );
 
         EXPECT_THROW(
             data.module->backward( input, output_grad, input_grad ),
@@ -1043,13 +1041,13 @@ namespace Modules::Layers::Tests
         data.module->setTraining( true );
         data.module->build( data.input_shape );
 
-        CpuTensor<TensorDataType::FP32> host_input( "CPU", data.input_shape );
-        CpuTensor<TensorDataType::FP32> host_output_grad( "CPU", data.output_shape );
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), data.input_shape );
+        CpuTensor<TensorDataType::FP32> host_output_grad( Device::Cpu(), data.output_shape );
 
-        CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", data.input_shape );
-        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", data.output_shape );
-        CudaTensor<TensorDataType::FP32> device_output_grad( "CUDA:0", data.output_shape );
-        CudaTensor<TensorDataType::FP32> device_input_grad( "CUDA:0", data.input_shape );
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda(0), data.input_shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_output_grad( Device::Cuda(0), data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_input_grad( Device::Cuda(0), data.input_shape );
 
         for (int iter = 0; iter < 5; ++iter)
         {
@@ -1081,12 +1079,12 @@ namespace Modules::Layers::Tests
         EXPECT_FALSE( data.module->isTraining() );
         data.module->build( data.input_shape );
 
-        CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", data.input_shape );
-        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", data.output_shape );
-        CudaTensor<TensorDataType::FP32> device_output_grad( "CUDA:0", data.output_shape );
-        CudaTensor<TensorDataType::FP32> device_input_grad( "CUDA:0", data.input_shape );
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda(0), data.input_shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_output_grad( Device::Cuda(0), data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_input_grad( Device::Cuda(0), data.input_shape );
 
-        CpuTensor<TensorDataType::FP32> host_input( "CPU", data.input_shape );
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), data.input_shape );
         random( host_input, -1.0f, 1.0f );
         copy( host_input, device_input );
 
@@ -1110,7 +1108,7 @@ namespace Modules::Layers::Tests
         // Forward and backward should now work
         EXPECT_NO_THROW( data.module->forward( device_input, device_output ) );
 
-        CpuTensor<TensorDataType::FP32> host_output_grad( "CPU", data.output_shape );
+        CpuTensor<TensorDataType::FP32> host_output_grad( Device::Cpu(), data.output_shape );
         random( host_output_grad, -0.1f, 0.1f );
         copy( host_output_grad, device_output_grad );
         zeros( device_input_grad );
@@ -1159,13 +1157,13 @@ namespace Modules::Layers::Tests
         }
 
         // Run a training iteration
-        CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", data.input_shape );
-        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", data.output_shape );
-        CudaTensor<TensorDataType::FP32> device_output_grad( "CUDA:0", data.output_shape );
-        CudaTensor<TensorDataType::FP32> device_input_grad( "CUDA:0", data.input_shape );
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda(0), data.input_shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_output_grad( Device::Cuda(0), data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_input_grad( Device::Cuda(0), data.input_shape );
 
-        CpuTensor<TensorDataType::FP32> host_input( "CPU", data.input_shape );
-        CpuTensor<TensorDataType::FP32> host_output_grad( "CPU", data.output_shape );
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), data.input_shape );
+        CpuTensor<TensorDataType::FP32> host_output_grad( Device::Cpu(), data.output_shape );
         random( host_input, -1.0f, 1.0f );
         random( host_output_grad, -0.1f, 0.1f );
 
@@ -1190,12 +1188,12 @@ namespace Modules::Layers::Tests
         data.module->build( data.input_shape );
         EXPECT_FALSE( data.module->isTraining() );
 
-        CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", data.input_shape );
-        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", data.output_shape );
-        CudaTensor<TensorDataType::FP32> device_output_grad( "CUDA:0", data.output_shape );
-        CudaTensor<TensorDataType::FP32> device_input_grad( "CUDA:0", data.input_shape );
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda(0), data.input_shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_output_grad( Device::Cuda(0), data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_input_grad( Device::Cuda(0), data.input_shape );
 
-        CpuTensor<TensorDataType::FP32> host_input( "CPU", data.input_shape );
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), data.input_shape );
         random( host_input, -1.0f, 1.0f );
         copy( host_input, device_input );
 

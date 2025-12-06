@@ -16,7 +16,7 @@ module;
 
 export module Compute.VulkanDevice;
 
-import Compute.ComputeDevice;
+import Compute.Device;
 import Compute.DeviceType;
 
 namespace Mila::Dnn::Compute

@@ -24,7 +24,8 @@ import Dnn.ComponentFactory;
 import Dnn.TensorDataType;
 import Compute.ExecutionContext;
 import Compute.DeviceType;
-import Compute.ComputeDevice;
+import Compute.Device;
+import Compute.DeviceId;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 import nlohmann.json;
@@ -239,9 +240,9 @@ namespace Mila::Dnn
             return name_;
         }
 
-        std::shared_ptr<ComputeDevice> getDevice() const override
+        DeviceId getDeviceId() const override
         {
-            return context_->getDevice();
+            return context_->getDeviceId();
         }
 
         void synchronize() override

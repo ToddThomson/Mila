@@ -104,9 +104,9 @@ namespace Dnn::NetworkTests
             return name_;
         }
 
-        std::shared_ptr<ComputeDevice> getDevice() const override
+        DeviceId getDeviceId() const override
         {
-            return ctx_->getDevice();
+            return ctx_->getDeviceId();
         }
 
     private:
@@ -140,9 +140,9 @@ namespace Dnn::NetworkTests
         NetworkUnderTest<DeviceType::Cpu> net( exec_ctx_, "test_net" );
         EXPECT_EQ( net.getName(), "test_net" );
 
-        auto device = net.getDevice();
-        ASSERT_NE( device, nullptr );
-        EXPECT_EQ( device->getDeviceType(), DeviceType::Cpu );
+        auto device = net.getDeviceId();
+
+        EXPECT_EQ( device.type, DeviceType::Cpu );
 
         // toString contains name
         std::string info = net.toString();

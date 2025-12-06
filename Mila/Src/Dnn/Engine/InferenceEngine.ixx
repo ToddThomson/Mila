@@ -227,7 +227,7 @@ namespace Mila::Dnn::Engine
     private:
         ModelMetadata m_metadata;
         std::unique_ptr<Network> m_network;
-        std::string m_device = "CPU";
+        std::string m_device = Device::Cpu();
         std::filesystem::path m_model_path;
 
         /**

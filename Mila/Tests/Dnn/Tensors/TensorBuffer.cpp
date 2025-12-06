@@ -1,8 +1,6 @@
 #include <gtest/gtest.h>
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
-#include <cuda_bf16.h>
-#include <cuda_fp8.h>
 #include <vector>
 #include <chrono>
 #include <stdexcept>
@@ -26,10 +24,9 @@ namespace Dnn::Tensors::Tests
             cpu_device_id_ = 0;
 
             // Check if CUDA devices are available
-            int device_count;
-            cudaError_t error = cudaGetDeviceCount( &device_count );
+            int device_count = getDeviceCount( DeviceType::Cuda );
 
-            has_cuda_ = (error == cudaSuccess && device_count > 0);
+            has_cuda_ = (device_count > 0);
 
             if (has_cuda_) {
                 cuda_device_id_ = 0; // Use first CUDA device

@@ -12,14 +12,14 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST( TensorOpsFillCuda, FillFloatTensor_NoThrowAndSizePreserved ) {
         // Create a CUDA device tensor of FP32 with shape 2x3
-        Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> t( "CUDA:0", { 2, 3 } );
+        Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> t( Device::Cuda(0), { 2, 3 } );
         ASSERT_EQ( t.size(), 6u );
 
         // Calls must compile and not throw; forwarding + conversion should work
         ASSERT_NO_THROW( fill( t, 1.5f ) );
 
         // Create CPU tensor for verification
-        Tensor<TensorDataType::FP32, CpuMemoryResource> cpu_t( "CPU", { 2, 3 } );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> cpu_t( Device::Cpu(), { 2, 3 } );
         fill( cpu_t, 1.5f );
 
         // Shape and size must remain unchanged by fill
@@ -39,7 +39,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST( TensorOpsFillCuda, FillIntTensor_NoThrow_WithDifferentValueTypes ) {
         // Create an INT32 CUDA device tensor
-        Tensor<TensorDataType::INT32, CudaDeviceMemoryResource> t( "CUDA:0", { 4 } );
+        Tensor<TensorDataType::INT32, CudaDeviceMemoryResource> t( Device::Cuda(0), { 4 } );
         ASSERT_EQ( t.size(), 4u );
 
         // Fill with matching and convertible types; should not throw
@@ -54,7 +54,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST( TensorOpsFillCuda, FillScalarTensor_NoThrow ) {
         // Scalar tensor: empty shape {} produces rank 0, size 1
-        Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> scalar( "CUDA:0", {} );
+        Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> scalar( Device::Cuda(0), {} );
 
         // Verify scalar properties
         ASSERT_EQ( scalar.rank(), 0u );
@@ -81,7 +81,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST( TensorOpsFillCuda, FillEmptyTensor_NoThrow ) {
         // Empty 1D tensor: shape {0} produces rank 1, size 0
-        Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> empty1d( "CUDA:0", { 0 } );
+        Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> empty1d( Device::Cuda(0), { 0 } );
 
         // Verify empty tensor properties
         ASSERT_EQ( empty1d.rank(), 1u );
@@ -99,7 +99,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST( TensorOpsFillCuda, FillEmpty2DTensor_NoThrow ) {
         // Empty 2D tensor: shape {0, 5} produces rank 2, size 0
-        Tensor<TensorDataType::INT32, CudaDeviceMemoryResource> empty2d( "CUDA:0", { 0, 5 } );
+        Tensor<TensorDataType::INT32, CudaDeviceMemoryResource> empty2d( Device::Cuda(0), { 0, 5 } );
 
         // Verify empty tensor properties
         ASSERT_EQ( empty2d.rank(), 2u );
@@ -113,7 +113,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST( TensorOpsFillCuda, FillWithSpan_ArrayValues ) {
         // Test fill with span of values
-        Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> t( "CUDA:0", { 5 } );
+        Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> t( Device::Cuda(0), { 5 } );
         ASSERT_EQ( t.size(), 5u );
 
         std::vector<float> values = { 1.0f, 2.0f, 3.0f, 4.0f, 5.0f };
@@ -125,7 +125,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST( TensorOpsFillCuda, FillWithSpan_PartialFill ) {
         // Test partial fill when span is smaller than tensor
-        Tensor<TensorDataType::INT32, CudaDeviceMemoryResource> t( "CUDA:0", { 10 } );
+        Tensor<TensorDataType::INT32, CudaDeviceMemoryResource> t( Device::Cuda(0), { 10 } );
         ASSERT_EQ( t.size(), 10u );
 
         std::vector<int32_t> values = { 100, 200, 300 };
@@ -137,7 +137,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST( TensorOpsFillCuda, FillManagedMemoryTensor_FloatValues ) {
         // Test with CUDA managed memory for both device and host accessibility
-        Tensor<TensorDataType::FP32, CudaManagedMemoryResource> managed_t( "CUDA:0", { 3, 2 } );
+        Tensor<TensorDataType::FP32, CudaManagedMemoryResource> managed_t( Device::Cuda(0), { 3, 2 } );
         ASSERT_EQ( managed_t.size(), 6u );
 
         // Fill operation should work
@@ -152,7 +152,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST( TensorOpsFillCuda, FillPinnedMemoryTensor_IntValues ) {
         // Test with CUDA pinned memory for faster host-device transfers
-        Tensor<TensorDataType::INT32, CudaPinnedMemoryResource> pinned_t( "CUDA:0", { 8 } );
+        Tensor<TensorDataType::INT32, CudaPinnedMemoryResource> pinned_t( Device::Cuda(0), { 8 } );
         ASSERT_EQ( pinned_t.size(), 8u );
 
         // Fill with integer value
@@ -180,7 +180,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST( TensorOpsFillCuda, FillScalarPinnedMemory_DirectAccess ) {
         // Test scalar-specific access patterns with pinned memory
-        Tensor<TensorDataType::INT32, CudaPinnedMemoryResource> scalar( "CUDA:0", {} );
+        Tensor<TensorDataType::INT32, CudaPinnedMemoryResource> scalar( Device::Cuda(0), {} );
 
         ASSERT_TRUE( scalar.isScalar() );
         ASSERT_EQ( scalar.size(), 1u );
@@ -197,7 +197,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST( TensorOpsFillCuda, FillLargeTensor_PerformanceAndCorrectness ) {
         // Test with larger tensor to verify CUDA implementation scales
-        Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> large_t( "CUDA:0", { 1000, 1000 } );
+        Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> large_t( Device::Cuda(0), { 1000, 1000 } );
         ASSERT_EQ( large_t.size(), 1000000u );
 
         // Fill should complete without error
@@ -212,7 +212,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST( TensorOpsFillCuda, FillWithSpan_ManagedMemoryVerification ) {
         // Test span fill with managed memory for verification
-        Tensor<TensorDataType::FP32, CudaManagedMemoryResource> t( "CUDA:0", { 4 } );
+        Tensor<TensorDataType::FP32, CudaManagedMemoryResource> t( Device::Cuda(0), { 4 } );
         ASSERT_EQ( t.size(), 4u );
 
         std::vector<float> values = { 10.0f, 20.0f, 30.0f, 40.0f };
@@ -230,9 +230,9 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST( TensorOpsFillCuda, FillMultipleTensorTypes_MixedOperations ) {
         // Test multiple tensor types in sequence
-        Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> device_t( "CUDA:0", { 5 } );
-        Tensor<TensorDataType::FP32, CudaManagedMemoryResource> managed_t( "CUDA:0", { 5 } );
-        Tensor<TensorDataType::FP32, CudaPinnedMemoryResource> pinned_t( "CUDA:0", { 5 } );
+        Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> device_t( Device::Cuda(0), { 5 } );
+        Tensor<TensorDataType::FP32, CudaManagedMemoryResource> managed_t( Device::Cuda(0), { 5 } );
+        Tensor<TensorDataType::FP32, CudaPinnedMemoryResource> pinned_t( Device::Cuda(0), { 5 } );
 
         // All should fill without error
         ASSERT_NO_THROW( fill( device_t, 1.0f ) );

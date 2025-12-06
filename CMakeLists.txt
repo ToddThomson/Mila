@@ -1,9 +1,9 @@
 ﻿# CMakeList.txt : Root CMake project for the Mila Project
 
 cmake_minimum_required (VERSION 3.31)  
- 
-project(MilaProject LANGUAGES CXX CUDA)  
- 
+
+project(MilaProject LANGUAGES CXX CUDA)
+
 # Set global C++ and CUDA standard 
 set(CMAKE_CXX_STANDARD 23)   
 set(CMAKE_CXX_STANDARD_REQUIRED ON)  
@@ -12,15 +12,16 @@ set(CMAKE_CUDA_STANDARD 20)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
  
 option(MILA_ENABLE_TESTING "Enable Mila Library tests." ON)
-option(MILA_ENABLE_PERFTESTS "Enable performance tests." ON)
 option(MILA_ENABLE_COVERAGE "Enable Mila Library code coverage." ON)
-option(MILA_ENABLE_BENCHMARKS "Enable Mila Library benchmarks." ON)
+option(MILA_ENABLE_BENCHMARKS "Enable Mila Library benchmarks." OFF)
 option(MILA_ENABLE_GPT2_TESTING "Enable GPT2 tests." OFF)  
-option(MILA_ENABLE_SAMPLES "Enable Mila Library samples." ON)
+option(MILA_ENABLE_SAMPLES "Enable Mila Library samples." OFF)
 option(MILA_ENABLE_OPENMP "Enable OpenMP support." OFF)
 option(MILA_ENABLE_COPY_MODEL_DATA "Copy data directory for samples and tests." ON)
 
 option(MILA_ENABLE_CUDA "Enable CUDA compute backend" ON)
+
+# The Metal and ROCm backends are currently for internal testing only. Please leave them disabled.
 option(MILA_ENABLE_METAL "Enable Metal compute backend (macOS/iOS only)" OFF)
 option(MILA_ENABLE_ROCM "Enable ROCm compute backend" OFF)
 

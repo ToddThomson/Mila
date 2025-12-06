@@ -37,7 +37,7 @@ namespace GBench::GeluBenchmarks
 		std::vector<int64_t> shape = { batch, seq, channels };
 
 		// Create CUDA execution context (device0)
-		auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+		auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
 
 		// Create Gelu op via registry
 		GeluConfig config;
@@ -53,12 +53,12 @@ namespace GBench::GeluBenchmarks
 		}
 
 		// Create tensors
-		Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> input( ctx->getDevice(), shape );
-		Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> output( ctx->getDevice(), shape );
+		Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> input( ctx->getDeviceId(), shape );
+		Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> output( ctx->getDeviceId(), shape );
 
 		// Prepare host input
-		auto cpu_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>( -1 );
-		auto cpu_dev = cpu_ctx->getDevice();
+		auto cpu_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
+		auto cpu_dev = cpu_ctx->getDeviceId();
 		Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( cpu_dev, shape );
 		
 		for (size_t i = 0; i < host_input.size(); ++i)

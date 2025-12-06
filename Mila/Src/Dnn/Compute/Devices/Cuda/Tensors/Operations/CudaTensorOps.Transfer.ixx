@@ -32,7 +32,6 @@ import Dnn.TensorDataTypeTraits;
 import Compute.CudaTensorDataType;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
-//import Compute.CudaExecutionContext;
 import Compute.CudaDevice;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaPinnedMemoryResource;
@@ -137,26 +136,18 @@ namespace Mila::Dnn::Compute::Cuda
                 auto* cuda_exec_context = cast_context<DeviceType::Cuda>( exec_context );
                 
                 stream = cuda_exec_context->getStream();
-                device_id = cuda_exec_context->getDeviceId();
+                device_id = cuda_exec_context->getDeviceId().index;
             }
             else
             {
                 if constexpr (!TSrcMemoryResource::is_host_accessible)
                 {
-                    auto src_device = std::dynamic_pointer_cast<CudaDevice>(src.getDevice());
-                    if (src_device)
-                    {
-                        device_id = src_device->getDeviceId();
-                    }
+                    device_id = src.getDeviceId().index;
                 }
 
                 if (device_id < 0 && TDstMemoryResource::is_device_accessible )
                 {
-                    auto dst_device = std::dynamic_pointer_cast<CudaDevice>( dst.getDevice() );
-                    if (dst_device)
-                    {
-                        device_id = dst_device->getDeviceId();
-                    }
+                    device_id = dst.getDeviceId().index;
                 }
 
                 if (device_id < 0)

@@ -146,7 +146,7 @@ namespace Modules::Activations::Tests
         auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
         auto d = GeluCpuTestData::CreateWithExecutionContext( ctx, batch_, seq_, chan_ );
 
-        auto device = ctx->getDevice();
+        auto device = ctx->getDeviceId();
 
         Tensor<dtype_t::FP32, MR> input( device, d.shape );
         Tensor<dtype_t::FP32, MR> output( device, d.shape );
@@ -173,7 +173,7 @@ namespace Modules::Activations::Tests
         auto gelu = std::make_shared<GeluCpu>( ctx, GeluConfig() );
 
         std::vector<int64_t> shape = { 2, 3, 4 };
-        auto device = ctx->getDevice();
+        auto device = ctx->getDeviceId();
 
         Tensor<dtype_t::FP32, MR> input( device, shape );
         Tensor<dtype_t::FP32, MR> output( device, shape );
@@ -216,7 +216,7 @@ namespace Modules::Activations::Tests
         auto gelu = std::make_shared<GeluCpu>( ctx, GeluConfig() );
 
         std::vector<int64_t> shape = { 2, 4, 8 };
-        auto device = ctx->getDevice();
+        auto device = ctx->getDeviceId();
 
         Tensor<dtype_t::FP32, MR> input( device, shape );
         Tensor<dtype_t::FP32, MR> output( device, shape );
@@ -248,7 +248,7 @@ namespace Modules::Activations::Tests
         auto gelu = std::make_shared<GeluCpu>( ctx, GeluConfig() );
 
         std::vector<int64_t> shape = { 3, 5, 7 };
-        auto device = ctx->getDevice();
+        auto device = ctx->getDeviceId();
 
         Tensor<dtype_t::FP32, MR> input( device, shape );
         Tensor<dtype_t::FP32, MR> output( device, shape );
@@ -275,7 +275,7 @@ namespace Modules::Activations::Tests
         auto gelu = std::make_shared<GeluCpu>( ctx, GeluConfig() );
 
         std::vector<int64_t> shape = { 2, 3, 4 };
-        auto device = ctx->getDevice();
+        auto device = ctx->getDeviceId();
 
         Tensor<dtype_t::FP32, MR> input( device, shape );
         Tensor<dtype_t::FP32, MR> output( device, shape );
@@ -323,7 +323,7 @@ namespace Modules::Activations::Tests
         auto gelu = std::make_shared<GeluCpu>( ctx, GeluConfig() );
 
         std::vector<int64_t> shape = { 2, 3, 4 };
-        auto device = ctx->getDevice();
+        auto device = ctx->getDeviceId();
 
         Tensor<dtype_t::FP32, MR> input( device, shape );
         Tensor<dtype_t::FP32, MR> output( device, shape );
@@ -368,7 +368,7 @@ namespace Modules::Activations::Tests
         auto gelu = std::make_shared<GeluCpu>( ctx, GeluConfig() );
 
         std::vector<int64_t> shape = { 2, 3, 4 };
-        auto device = ctx->getDevice();
+        auto device = ctx->getDeviceId();
 
         Tensor<dtype_t::FP32, MR> input( device, shape );
         Tensor<dtype_t::FP32, MR> output( device, shape );
@@ -406,7 +406,7 @@ namespace Modules::Activations::Tests
         auto gelu = std::make_shared<GeluCpu>( ctx, GeluConfig() );
 
         std::vector<int64_t> shape = { 1, 8 };
-        auto device = ctx->getDevice();
+        auto device = ctx->getDeviceId();
 
         Tensor<dtype_t::FP32, MR> input( device, shape );
         Tensor<dtype_t::FP32, MR> output( device, shape );
@@ -450,7 +450,7 @@ namespace Modules::Activations::Tests
         auto gelu = std::make_shared<GeluCpu>( ctx, GeluConfig() );
 
         std::vector<int64_t> shape = { 2, 3 };
-        auto device = ctx->getDevice();
+        auto device = ctx->getDeviceId();
 
         Tensor<dtype_t::FP32, MR> input( device, shape );
         Tensor<dtype_t::FP32, MR> output_grad( device, shape );
@@ -474,7 +474,7 @@ namespace Modules::Activations::Tests
         auto gelu = std::make_shared<GeluCpu>( ctx, GeluConfig() );
 
         std::vector<int64_t> shape = { 2, 3 };
-        auto device = ctx->getDevice();
+        auto device = ctx->getDeviceId();
 
         Tensor<dtype_t::FP32, MR> input( device, shape );
         Tensor<dtype_t::FP32, MR> output( device, shape );
@@ -565,10 +565,9 @@ namespace Modules::Activations::Tests
         auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
         auto d = GeluCpuTestData::CreateWithExecutionContext( ctx, batch_, seq_, chan_ );
 
-        auto dev = ctx->getDevice();
+        auto dev = ctx->getDeviceId();
 
-        ASSERT_NE( dev, nullptr );
-        EXPECT_EQ( dev->getDeviceType(), DeviceType::Cpu );
+        EXPECT_EQ( dev.type, DeviceType::Cpu );
     }
 
     TEST_F( GeluCpuTests, Construct_WithExecutionContext_WorksOrThrows )
@@ -582,7 +581,7 @@ namespace Modules::Activations::Tests
         }
 
         auto d = GeluCpuTestData::CreateWithExecutionContext( ctx, batch_, seq_, chan_ );
-        EXPECT_EQ( ctx->getDevice()->getDeviceType(), DeviceType::Cpu );
+        EXPECT_EQ( ctx->getDeviceId().type, DeviceType::Cpu );
     }
 
     TEST_F( GeluCpuTests, Synchronize_ParameterCount_SetTraining )

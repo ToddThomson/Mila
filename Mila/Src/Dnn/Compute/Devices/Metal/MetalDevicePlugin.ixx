@@ -40,7 +40,6 @@ namespace Mila::Dnn::Compute
      * - Graceful degradation when Metal is not available
      */
     export class MetalDevicePlugin {
-        // FUTURE: public DevicePlugin {
     public:
         /**
          * @brief Registers all available Metal devices with the DeviceRegistry.

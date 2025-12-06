@@ -29,7 +29,7 @@ namespace Mila::Dnn::Modeling::Tests
             return "mock_network_cpu";
         }
 
-        std::shared_ptr<ComputeDevice> getDevice() const override
+        std::shared_ptr<Device> getDevice() const override
         {
             // Return a simple CPU device instance for tests
             return std::make_shared<CpuDevice>();

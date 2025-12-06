@@ -19,9 +19,9 @@ module;
 #include <cstdint>
 
 export module Dnn.ITensor;
-import Dnn.TensorOps.Base;
+//import Dnn.TensorOps.Base;
 import Dnn.TensorDataType;
-import Compute.ComputeDevice;
+import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.MemoryResource;
 
@@ -99,7 +99,7 @@ namespace Mila::Dnn
          */
         virtual std::string getDataTypeName() const = 0;
 
-		virtual std::shared_ptr<Compute::ComputeDevice> getDevice() const = 0;
+		virtual Compute::DeviceId getDeviceId() const = 0;
 
         /**
          * @brief Get the device type from the memory resource

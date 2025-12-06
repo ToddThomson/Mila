@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include <type_traits>
+#include <cstdint>
 
 import Mila;
 
@@ -39,7 +40,7 @@ namespace Modules::Blocks::Tests
             data.num_heads = num_heads;
             data.is_training = is_training;
 
-            auto exec_ctx = std::make_shared<ExecutionContext<TDevice>>( TDevice == DeviceType::Cuda ? 0 : -1 );
+            auto exec_ctx = std::make_shared<ExecutionContext<TDevice>>( Device::Cuda(0) );
 
             // TransformerConfig now constructed with embedding_dim and num_heads
             TransformerConfig cfg( static_cast<dim_t>(embedding_dim),
@@ -136,8 +137,8 @@ namespace Modules::Blocks::Tests
         shape_t test_shape = { 1, 2, 64 };
         size_t test_num_heads = 2;
 
-        auto cpu_exec = std::make_shared<ExecutionContext<DeviceType::Cpu>>( -1 );
-        auto cuda_exec = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto cpu_exec = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
+        auto cuda_exec = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
 
         TransformerConfig cpu_cfg( static_cast<dim_t>(test_shape[2]), static_cast<dim_t>(test_num_heads) );
         cpu_cfg.withName( "test_cpu_transformer" );
@@ -152,7 +153,7 @@ namespace Modules::Blocks::Tests
         cuda_transformer->build( test_shape );
 
         // Create host tensors with an explicit CPU device
-        auto cpu_device = cpu_exec->getDevice();
+        auto cpu_device = cpu_exec->getDeviceId();
 
         Tensor<TPrecision, HostMemoryResource> host_input( cpu_device, test_shape );
         random( host_input, 2.0f );
@@ -160,10 +161,10 @@ namespace Modules::Blocks::Tests
         Tensor<TPrecision, HostMemoryResource> cpu_output( cpu_device, test_shape );
         cpu_transformer->forward( host_input, cpu_output );
 
-        Tensor<TPrecision, CudaDeviceMemoryResource> device_input( cuda_transformer->getDevice(), test_shape );
+        Tensor<TPrecision, CudaDeviceMemoryResource> device_input( cuda_transformer->getDeviceId(), test_shape );
         copy( host_input, device_input );
 
-        Tensor<TPrecision, CudaDeviceMemoryResource> cuda_output( cuda_transformer->getDevice(), test_shape );
+        Tensor<TPrecision, CudaDeviceMemoryResource> cuda_output( cuda_transformer->getDeviceId(), test_shape );
         cuda_transformer->forward( device_input, cuda_output );
 
         cuda_transformer->synchronize();
@@ -222,7 +223,7 @@ namespace Modules::Blocks::Tests
 
         EXPECT_NO_THROW( data.transformer_module->build( data.input_shape ) );
 
-        auto device = data.transformer_module->getDevice();
+        auto device = data.transformer_module->getDeviceId();
 
         TensorT input( device, data.input_shape );
         TensorT output( device, data.input_shape );
@@ -260,9 +261,9 @@ namespace Modules::Blocks::Tests
 
         ASSERT_NE( data.transformer_module, nullptr );
 
-        auto device = data.transformer_module->getDevice();
-        ASSERT_NE( device, nullptr );
-        EXPECT_EQ( device->getDeviceType(), DeviceType::Cuda );
+        auto device = data.transformer_module->getDeviceId();
+
+        EXPECT_EQ( device.type, DeviceType::Cuda );
     }
 
     TEST_F( TransformerCudaTests, Cuda_Training_Float_TrainingMode )
@@ -284,7 +285,7 @@ namespace Modules::Blocks::Tests
 
         EXPECT_NO_THROW( data.transformer_module->build( data.input_shape ) );
 
-        auto device = data.transformer_module->getDevice();
+        auto device = data.transformer_module->getDeviceId();
 
         TensorT input( device, data.input_shape );
         TensorT output( device, data.input_shape );
@@ -324,7 +325,7 @@ namespace Modules::Blocks::Tests
 
         EXPECT_NO_THROW( data.transformer_module->build( data.input_shape ) );
 
-        auto device = data.transformer_module->getDevice();
+        auto device = data.transformer_module->getDeviceId();
 
         TensorT input( device, data.input_shape );
         TensorT output( device, data.input_shape );

@@ -124,8 +124,8 @@ namespace Modules::Layers::Tests
         EXPECT_TRUE( d.module->isBuilt() );
 
         // Prepare input (INT32 token ids) and output
-        CpuIndexTensor input( d.exec_context->getDevice(), d.input_shape );
-        CpuTensor<TPrecision> output( d.exec_context->getDevice(), d.output_shape );
+        CpuIndexTensor input( d.exec_context->getDeviceId(), d.input_shape );
+        CpuTensor<TPrecision> output( d.exec_context->getDeviceId(), d.output_shape );
 
         // Fill token ids
         auto idx_ptr = static_cast<int32_t*>(input.rawData());
@@ -203,8 +203,8 @@ namespace Modules::Layers::Tests
             "minimal_cpu", 1, 1, 16, 8, 50 );
 
         EXPECT_NO_THROW( d.module->build( d.input_shape ) );
-        CpuIndexTensor input( d.exec_context->getDevice(), d.input_shape );
-        CpuTensor<TensorDataType::FP32> output( d.exec_context->getDevice(), d.output_shape );
+        CpuIndexTensor input( d.exec_context->getDeviceId(), d.input_shape );
+        CpuTensor<TensorDataType::FP32> output( d.exec_context->getDeviceId(), d.output_shape );
         auto idx_ptr = static_cast<int32_t*>(input.rawData());
         idx_ptr[0] = 0;
         EXPECT_NO_THROW( d.module->forward( input, output ) );

@@ -9,9 +9,7 @@
 #include <string>
 #include <iostream>
 #include <chrono>
-#include <cuda_fp16.h>  // For half type
 #include <cmath>
-#include <cuda_runtime.h>
 
 import Mila;
 
@@ -26,8 +24,8 @@ namespace Operations::Tests
     class CudaEncoderOpTests : public ::testing::Test {
     protected:
         void SetUp() override {
-            cuda_context_ = std::make_shared<DeviceContext>( "CUDA:0" );
-            cpu_context_ = std::make_shared<DeviceContext>( "CPU" );
+            cuda_context_ = std::make_shared<DeviceContext>( Device::Cuda(0) );
+            cpu_context_ = std::make_shared<DeviceContext>( Device::Cpu() );
 
             // Test dimensions
             batch_size_ = 4;

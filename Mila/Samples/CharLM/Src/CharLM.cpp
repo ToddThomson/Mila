@@ -22,6 +22,7 @@
 #include <exception>
 #include <cstdint>
 #include <stdexcept>
+#include <cmath>
 
 
 import Mila;
@@ -124,7 +125,7 @@ bool parseCommandLine( int argc, char** argv, CharLMConfig& config )
         else if (arg == "--device" && i + 1 < argc)
         {
             std::string device = argv[++i];
-            if (device == "cpu")
+            if (device == "CPU" )
             {
                 config.compute_device = DeviceType::Cpu;
             }
@@ -190,7 +191,7 @@ bool parseCommandLine( int argc, char** argv, CharLMConfig& config )
     std::cout << "  Beta1: " << config.beta1 << std::endl;
     std::cout << "  Beta2: " << config.beta2 << std::endl;
     std::cout << "  Weight decay: " << config.weight_decay << std::endl;
-    std::cout << "  Device: " << (config.compute_device == DeviceType::Cuda ? "CUDA" : "CPU") << std::endl;
+    std::cout << "  Device: " << (config.compute_device == DeviceType::Cuda ? "CUDA" : "CPU" ) << std::endl;
     std::cout << "  Precision policy: ";
 
     switch (config.precisionPolicy)
@@ -333,14 +334,14 @@ void train( const CharLMConfig& config )
     std::shared_ptr<ExecutionContext<TDeviceType>> exec_context;
     if constexpr (TDeviceType == DeviceType::Cuda)
     {
-        exec_context = std::make_shared<ExecutionContext<TDeviceType>>( 0 );
+        exec_context = std::make_shared<ExecutionContext<TDeviceType>>( Device::Cuda(0) );
     }
     else
     {
         exec_context = std::make_shared<ExecutionContext<TDeviceType>>();
     }
 
-    auto device = exec_context->getDevice();
+    auto device = exec_context->getDeviceId();
 
     // ============================================================
     // Data loader setup
@@ -440,11 +441,11 @@ void train( const CharLMConfig& config )
     Tensor<TDataType, DeviceMR> output( device, logits_shape );
 
     // CPU tensors for loss computation
-    Tensor<TDataType, CpuMemoryResource> logits_cpu( "CPU", logits_shape );
-    Tensor<TDataType, CpuMemoryResource> targets_cpu( "CPU", sequence_shape );
+    Tensor<TDataType, CpuMemoryResource> logits_cpu( Device::Cpu(), logits_shape );
+    Tensor<TDataType, CpuMemoryResource> targets_cpu( Device::Cpu(), sequence_shape );
 
     // Allocate gradient tensors for backward pass
-    Tensor<TDataType, CpuMemoryResource> output_grad_cpu( "CPU", logits_shape );
+    Tensor<TDataType, CpuMemoryResource> output_grad_cpu( Device::Cpu(), logits_shape );
     Tensor<TDataType, DeviceMR> output_grad( device, logits_shape );
     Tensor<TDataType, DeviceMR> input_grad( device, sequence_shape );
 

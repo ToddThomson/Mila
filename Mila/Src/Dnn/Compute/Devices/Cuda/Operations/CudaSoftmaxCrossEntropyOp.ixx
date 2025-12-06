@@ -284,9 +284,7 @@ namespace Mila::Dnn::Compute
             cached_stream_ = context_->getStream();
 
             // Allocate internal probability cache for backward pass
-            cached_probs_ = std::make_shared<LogitsTensorType>(
-                context_->getDevice(),
-                input_shape );
+            cached_probs_ = std::make_shared<LogitsTensorType>( context_->getDeviceId(), input_shape );
 
             BinaryOperationBase::is_built_ = true;
         }

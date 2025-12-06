@@ -1,19 +1,8 @@
 /**
- * @file DeviceHelpers.ixx
+ * @file DeviceRegistryHelpers.ixx
  * @brief Utility functions for compute device discovery and management
- * @details
- * This module provides a set of helper functions for working with compute devices
- * in the Mila framework. It abstracts device management operations such as:
- * - Discovering available compute devices in the system
- * - Verifying device availability
- * - Getting device information
  *
- * These utilities help applications interact with heterogeneous compute environments
- * in a device-agnostic way, making it easier to write code that can run across
- * different device types (CPU, CUDA, etc.) without device-specific logic.
- *
- * The module depends on the DeviceRegistry to enumerate devices and DeviceContext
- * to validate device availability.
+ * Small helpers for listing and selecting devices via DeviceRegistry.
  */
 
 module;
@@ -23,43 +12,54 @@ module;
 export module Compute.DeviceRegistryHelpers;
 
 import Compute.DeviceRegistry;
+import Compute.DeviceId;
 import Compute.DeviceType;
 import Cuda.Helpers;
 
 namespace Mila::Dnn::Compute
 {
     /**
-     * @brief Lists all available compute devices.
+     * @brief Lists all available compute devices by name.
      *
-     * This function returns a list of all available compute devices
-     * that can be used with DeviceContext.
-     *
-     * @return std::vector<std::string> A list of device identifiers (e.g., "CPU", "CUDA:0", "CUDA:1").
+     * @return std::vector<std::string> A list of device identifiers (e.g., "CUDA:0", "CPU:0").
      */
-    export std::vector<std::string> listDevices() {
+    export std::vector<std::string> listDevicesByName()
+    {
         auto& registry = DeviceRegistry::instance();
-        return registry.listDevices();
+
+        auto deviceIds = registry.listDeviceIds();
+
+        std::vector<std::string> names;
+        names.reserve( deviceIds.size() );
+
+        for ( const auto& id : deviceIds )
+        {
+            names.push_back( id.toString() );
+        }
+
+        return names;
     }
 
     /**
      * @brief Lists compute devices of a specific type.
      *
-     * Filters the available devices by their type, returning only devices
-     * that match the specified type. This allows clients to efficiently
-     * discover devices with specific capabilities.
-     *
      * @param type The device type to filter by
      * @return std::vector<std::string> List of matching device identifiers
      */
-    export std::vector<std::string> listDevicesByType( DeviceType type ) {
+    export std::vector<std::string> listDevicesByType( DeviceType type )
+    {
         auto& registry = DeviceRegistry::instance();
-        auto allDevices = registry.listDevices();
-        std::vector<std::string> filteredDevices;
-        std::string typePrefix = deviceTypeToString( type );
 
-        for ( const auto& device : allDevices ) {
-            if ( device.find( typePrefix ) == 0 ) {
-                filteredDevices.push_back( device );
+        auto allDeviceIds = registry.listDeviceIds();
+
+        std::vector<std::string> filteredDevices;
+        filteredDevices.reserve( allDeviceIds.size() );
+
+        for ( const auto& id : allDeviceIds )
+        {
+            if ( id.type == type )
+            {
+                filteredDevices.push_back( id.toString() );
             }
         }
 
@@ -67,65 +67,96 @@ namespace Mila::Dnn::Compute
     }
 
     /**
-     * @brief Checks if a specific device is available.
+     * @brief Gets the best DeviceId of a specific type based on performance characteristics.
      *
-     * @param device_name The name of the device to check (e.g., "CPU", "CUDA:0").
-     * @return bool True if the device is available, false otherwise.
+     * For CUDA the function consults Cuda::getBestDeviceId(preferMemory) and returns
+     * the matching DeviceId when available. If no device of the requested type is found
+     * the function returns a DeviceId with the requested type and index == -1 to indicate
+     * "none".
+     *
+     * @param type The device type to filter by (e.g., DeviceType::Cuda)
+     * @param preferMemory When true, prioritizes memory bandwidth over compute capability
+     * @return DeviceId Best available device id for the requested type, or index == -1 if none
      */
-    /*export bool isDeviceAvailable( const std::string& device_name ) {
+    export DeviceId getBestDevice( DeviceType type, bool preferMemory = false )
+    {
         auto& registry = DeviceRegistry::instance();
-        return registry.hasDevice( device_name );
-    }*/
+
+        auto allDeviceIds = registry.listDeviceIds();
+
+        if ( type == DeviceType::Cuda )
+        {
+            std::vector<DeviceId> cudaIds;
+            cudaIds.reserve( allDeviceIds.size() );
+
+            for ( const auto& id : allDeviceIds )
+            {
+                if ( id.type == DeviceType::Cuda )
+                {
+                    cudaIds.push_back( id );
+                }
+            }
+
+            if ( cudaIds.empty() )
+            {
+                return DeviceId{ DeviceType::Cuda, -1 };
+            }
+
+            int bestId = Compute::Cuda::getBestDeviceId( preferMemory );
+
+            DeviceId bestDeviceId{ DeviceType::Cuda, bestId };
+
+            for ( const auto& id : cudaIds )
+            {
+                if ( id == bestDeviceId )
+                {
+                    return id;
+                }
+            }
+
+            return cudaIds.front();
+        }
+
+        for ( const auto& id : allDeviceIds )
+        {
+            if ( id.type == type )
+            {
+                return id;
+            }
+        }
+
+        return DeviceId{ type, -1 };
+    }
 
     /**
-     * @brief Gets the best device of a specific type based on performance characteristics.
+     * @brief Count instantiated devices of the given DeviceType.
      *
-     * @param type The device type to filter by (e.g., Cuda)
-     * @param preferMemory When true, prioritizes memory bandwidth over compute capability
-     * @return std::string Identifier of the best available device
+     * Lightweight, thread-safe convenience helper intended for tests and diagnostics.
+     * Non-throwing; returns 0 on error.
      */
-    std::string getBestDevice( DeviceType type, bool preferMemory = false ) {
-        if ( type == DeviceType::Cuda ) {
-            auto cudaDevices = listDevices();
-            std::vector<std::string> filteredDevices;
-            std::string typePrefix = deviceTypeToString( type );
+    export std::size_t getDeviceCount( DeviceType type ) noexcept
+    {
+        try
+        {
+            auto& registry = DeviceRegistry::instance();
 
-            // Filter devices by type
-            for ( const auto& device : cudaDevices ) {
-                if ( device.find( typePrefix ) == 0 ) {
-                    filteredDevices.push_back( device );
+            auto ids = registry.listDeviceIds();
+
+            std::size_t count = 0;
+
+            for ( const auto& id : ids )
+            {
+                if ( id.type == type )
+                {
+                    ++count;
                 }
             }
 
-            if ( filteredDevices.empty() ) {
-                return ""; // No devices of the requested type
-            }
-
-            // For CUDA devices, use the CudaHelpers to get the best device ID
-            int bestId = Compute::Cuda::getBestDeviceId( preferMemory );
-            std::string bestDevice = "CUDA:" + std::to_string( bestId );
-
-            // Verify this device is actually in our list
-            for ( const auto& device : filteredDevices ) {
-                if ( device == bestDevice ) {
-                    return device;
-                }
-            }
-
-            // If the best device isn't in our list, return the first one
-            return filteredDevices[ 0 ];
+            return count;
         }
-
-        // For non-CUDA devices, just return the first one of that type
-        auto devices = listDevices();
-        std::string typePrefix = deviceTypeToString( type );
-
-        for ( const auto& device : devices ) {
-            if ( device.find( typePrefix ) == 0 ) {
-                return device;
-            }
+        catch ( ... )
+        {
+            return 0;
         }
-
-        return ""; // No devices of the requested type
     }
 }

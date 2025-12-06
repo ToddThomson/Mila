@@ -4,7 +4,6 @@
 #include <string>
 #include <cmath>
 #include <stdexcept>
-#include <cuda_runtime.h>
 #include <cstdint>
 
 import Mila;
@@ -49,7 +48,7 @@ namespace Modules::Normalization::Tests
                 .withBias( has_bias )
                 .withEpsilon( epsilon );
 
-            data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+            data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
             data.layer_norm = std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>( data.exec_context, data.config );
 
 			data.layer_norm->setTraining( is_training );
@@ -75,7 +74,7 @@ namespace Modules::Normalization::Tests
                 .withBias( has_bias )
                 .withEpsilon( epsilon );
 
-            data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+            data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
             data.layer_norm = std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>( data.exec_context, data.config );
 
 			data.layer_norm->setTraining( is_training );
@@ -117,9 +116,8 @@ namespace Modules::Normalization::Tests
     protected:
         void SetUp() override
         {
-            int device_count = 0;
-            cudaError_t error = cudaGetDeviceCount( &device_count );
-            cuda_available_ = (error == cudaSuccess && device_count > 0);
+            int device_count = getDeviceCount( DeviceType::Cuda );
+            cuda_available_ = (device_count > 0);
 
             if (!cuda_available_)
             {
@@ -215,9 +213,9 @@ namespace Modules::Normalization::Tests
         EXPECT_EQ( data.layer_norm->getDeviceType(), DeviceType::Cuda );
         ASSERT_NE( data.exec_context, nullptr );
 
-        auto device = data.exec_context->getDevice();
-        ASSERT_NE( device, nullptr );
-        EXPECT_EQ( device->getDeviceType(), DeviceType::Cuda );
+        auto device = data.exec_context->getDeviceId();
+        
+        EXPECT_EQ( device.type, DeviceType::Cuda );
     }
 
     template<TensorDataType TPrecision>
@@ -296,11 +294,11 @@ namespace Modules::Normalization::Tests
 
         data.layer_norm->build( data.shape );
 
-        HostTensorType host_input( "CPU", data.shape );
+        HostTensorType host_input( Device::Cpu(), data.shape );
         random( host_input, -2.0f, 2.0f );
 
-        DeviceTensorType device_input( "CUDA:0", data.shape );
-        DeviceTensorType device_output( "CUDA:0", data.shape );
+        DeviceTensorType device_input( Device::Cuda(0), data.shape );
+        DeviceTensorType device_output( Device::Cuda(0), data.shape );
 
         copy( host_input, device_input );
 
@@ -606,19 +604,19 @@ namespace Modules::Normalization::Tests
         auto data = MediumFp32Data();
         data.layer_norm->build( data.shape );
 
-        CpuTensor<TensorDataType::FP32> host_input( "CPU", data.shape );
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), data.shape );
         random( host_input, -5.0f, 5.0f );
 
-        CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", data.shape );
-        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", data.shape );
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda(0), data.shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), data.shape );
 
         copy( host_input, device_input );
 
         //auto weight = data.layer_norm->getWeight();
         //auto bias = data.layer_norm->getBias();
 
-        //CpuTensor<TensorDataType::FP32> host_weight( "CPU", weight->shape() );
-        //CpuTensor<TensorDataType::FP32> host_bias( "CPU", bias->shape() );
+        //CpuTensor<TensorDataType::FP32> host_weight( Device::Cpu(), weight->shape() );
+        //CpuTensor<TensorDataType::FP32> host_bias( Device::Cpu(), bias->shape() );
 
         //ones( host_weight );
         //zeros( host_bias );
@@ -648,11 +646,11 @@ namespace Modules::Normalization::Tests
 
         data.layer_norm->build( data.shape );
 
-        CpuTensor<TensorDataType::FP32> host_input( "CPU", shape );
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), shape );
         random( host_input, -3.0f, 3.0f );
 
-        CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", shape );
-        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", shape );
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda(0), shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), shape );
 
         copy( host_input, device_input );
 
@@ -713,7 +711,7 @@ namespace Modules::Normalization::Tests
             GTEST_SKIP() << "CUDA not available";
         }
 
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
 
         auto data = LayerNormCudaTestData<TensorDataType::FP32>::CreateWithContext(
             "context_layernorm_cuda", medium_shape_, medium_normalized_shape_, ctx );
@@ -772,11 +770,11 @@ namespace Modules::Normalization::Tests
         auto data = SmallFp32Data();
         data.layer_norm->build( data.shape );
 
-        CpuTensor<TensorDataType::FP32> host_input( "CPU", data.shape );
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), data.shape );
         zeros( host_input );
 
-        CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", data.shape );
-        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", data.shape );
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda(0), data.shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), data.shape );
 
         copy( host_input, device_input );
 
@@ -793,11 +791,11 @@ namespace Modules::Normalization::Tests
         auto data = SmallFp32Data();
         data.layer_norm->build( data.shape );
 
-        CpuTensor<TensorDataType::FP32> host_input( "CPU", data.shape );
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), data.shape );
         fill( host_input, 5.0f );
 
-        CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", data.shape );
-        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", data.shape );
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda(0), data.shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), data.shape );
 
         copy( host_input, device_input );
 
@@ -832,7 +830,7 @@ namespace Modules::Normalization::Tests
         LayerNormConfig invalid_config;
         invalid_config.withName( "invalid_cuda" );
 
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
 
         EXPECT_THROW(
             (std::make_shared<LayerNorm<DeviceType::Cuda, TensorDataType::FP32>>( ctx, invalid_config )),
@@ -850,8 +848,8 @@ namespace Modules::Normalization::Tests
         auto data = LayerNormCudaTestData<TensorDataType::FP32>::CreateWithAxis(
             "unbuild_cuda", medium_shape_, -1 );
 
-        CudaTensor<TensorDataType::FP32> input( "CUDA:0", data.shape );
-        CudaTensor<TensorDataType::FP32> output( "CUDA:0", data.shape );
+        CudaTensor<TensorDataType::FP32> input( Device::Cuda(0), data.shape );
+        CudaTensor<TensorDataType::FP32> output( Device::Cuda(0), data.shape );
 
         EXPECT_THROW(
             data.layer_norm->forward( input, output ),
@@ -871,8 +869,8 @@ namespace Modules::Normalization::Tests
 
         shape_t wrong_shape = { 2, 3, 8 };
 
-        CudaTensor<TensorDataType::FP32> input( "CUDA:0", wrong_shape );
-        CudaTensor<TensorDataType::FP32> output( "CUDA:0", wrong_shape );
+        CudaTensor<TensorDataType::FP32> input( Device::Cuda(0), wrong_shape );
+        CudaTensor<TensorDataType::FP32> output( Device::Cuda(0), wrong_shape );
 
         EXPECT_THROW(
             data.layer_norm->forward( input, output ),
@@ -920,9 +918,9 @@ namespace Modules::Normalization::Tests
         auto data = MediumFp32Data();
         data.layer_norm->build( data.shape );
 
-        CpuTensor<TensorDataType::FP32> host_input( "CPU", data.shape );
-        CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", data.shape );
-        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", data.shape );
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), data.shape );
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda(0), data.shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), data.shape );
 
         for (int iter = 0; iter < 10; ++iter)
         {
@@ -962,12 +960,12 @@ namespace Modules::Normalization::Tests
         cuda_data.layer_norm->build( test_shape );
 
         // Create and initialize input
-        CpuTensor<TensorDataType::FP32> host_input( "CPU", test_shape );
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), test_shape );
         random( host_input, -2.0f, 2.0f );
 
         // Initialize parameters with same values for both CPU and CUDA
-        //CpuTensor<TensorDataType::FP32> cpu_weight( "CPU", normalized_shape );
-        //CpuTensor<TensorDataType::FP32> cpu_bias( "CPU", normalized_shape );
+        //CpuTensor<TensorDataType::FP32> cpu_weight( Device::Cpu(), normalized_shape );
+        //CpuTensor<TensorDataType::FP32> cpu_bias( Device::Cpu(), normalized_shape );
         //ones( cpu_weight );
         //zeros( cpu_bias );
 
@@ -980,12 +978,12 @@ namespace Modules::Normalization::Tests
         //copy( cpu_bias, *cuda_data.layer_norm->getBias() );
 
         // Run CPU forward pass
-        CpuTensor<TensorDataType::FP32> cpu_output( "CPU", test_shape );
+        CpuTensor<TensorDataType::FP32> cpu_output( Device::Cpu(), test_shape );
         cpu_module->forward( host_input, cpu_output );
 
         // Run CUDA forward pass
-        CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", test_shape );
-        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", test_shape );
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda(0), test_shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), test_shape );
         copy( host_input, device_input );
         cuda_data.layer_norm->forward( device_input, device_output );
 

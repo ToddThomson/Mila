@@ -22,16 +22,14 @@ namespace Modules::Layers::Tests
     protected:
         void SetUp() override
         {
-            // Use DeviceRegistry to determine whether CUDA support was registered.
-            // Tests must not call CUDA runtime APIs directly.
-            if (!DeviceRegistry::instance().hasDeviceType( "CUDA" ))
+            if (!DeviceRegistry::instance().hasDeviceType( DeviceType::Cuda ))
             {
                 cuda_available_ = false;
                 return;
             }
 
             cuda_available_ = true;
-            exec_ctx_ = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+            exec_ctx_ = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
         }
 
         bool cuda_available_{ false };
@@ -45,7 +43,8 @@ namespace Modules::Layers::Tests
 
     TEST_F( AttentionCudaTests, Constructor_NullContext_Throws )
     {
-        if (!DeviceRegistry::instance().hasDeviceType( "CUDA" )) GTEST_SKIP() << "CUDA not available";
+        if (!DeviceRegistry::instance().hasDeviceType( DeviceType::Cuda ))
+            GTEST_SKIP() << "CUDA not available";
 
         AttentionConfig cfg( 64, 8 );
         cfg.withName( "attn_null_cuda" );
@@ -58,7 +57,8 @@ namespace Modules::Layers::Tests
 
     TEST_F( AttentionCudaTests, BuildAndForward_Fp32 )
     {
-        if (!DeviceRegistry::instance().hasDeviceType( "CUDA" )) GTEST_SKIP() << "CUDA not available";
+        if (!DeviceRegistry::instance().hasDeviceType( DeviceType::Cuda ))
+            GTEST_SKIP() << "CUDA not available";
 
         const int64_t B = 2;
         const int64_t T = 8;
@@ -77,15 +77,15 @@ namespace Modules::Layers::Tests
         EXPECT_NO_THROW( module->build( input_shape ) );
 
         // Prepare host concatenated input and device tensors
-        HostTensor host_input( "CPU", input_shape );
+        HostTensor host_input( Device::Cpu(), input_shape );
 
         for (size_t i = 0; i < host_input.size(); ++i)
         {
             host_input.data()[i] = static_cast<float>( (i % 100) ) * 0.01f;
         }
 
-        CudaTensor<TensorDataType::FP32> device_input( exec_ctx_->getDevice(), input_shape );
-        CudaTensor<TensorDataType::FP32> device_output( exec_ctx_->getDevice(), output_shape );
+        CudaTensor<TensorDataType::FP32> device_input( exec_ctx_->getDeviceId(), input_shape );
+        CudaTensor<TensorDataType::FP32> device_output( exec_ctx_->getDeviceId(), output_shape );
 
         // Transfer host -> device (may be conversion when types differ)
         copy( host_input, device_input );
@@ -101,7 +101,8 @@ namespace Modules::Layers::Tests
 
     TEST_F( AttentionCudaTests, BuildAndForward_Fp16 )
     {
-        if (!DeviceRegistry::instance().hasDeviceType( "CUDA" )) GTEST_SKIP() << "CUDA not available";
+        if (!DeviceRegistry::instance().hasDeviceType( DeviceType::Cuda ))
+            GTEST_SKIP() << "CUDA not available";
 
         const int64_t B = 2;
         const int64_t T = 8;
@@ -120,15 +121,15 @@ namespace Modules::Layers::Tests
         EXPECT_NO_THROW( module->build( input_shape ) );
 
         // Prepare host concatenated input (FP32) and device FP16 tensors
-        HostTensor host_input( "CPU", input_shape );
+        HostTensor host_input( Device::Cpu(), input_shape );
 
         for (size_t i = 0; i < host_input.size(); ++i)
         {
             host_input.data()[i] = static_cast<float>( (i % 100) ) * 0.01f;
         }
 
-        CudaTensor<TensorDataType::FP16> device_input( exec_ctx_->getDevice(), input_shape );
-        CudaTensor<TensorDataType::FP16> device_output( exec_ctx_->getDevice(), output_shape );
+        CudaTensor<TensorDataType::FP16> device_input( exec_ctx_->getDeviceId(), input_shape );
+        CudaTensor<TensorDataType::FP16> device_output( exec_ctx_->getDeviceId(), output_shape );
 
         // Copy from FP32 host tensor to FP16 device tensor (runtime conversion expected)
         copy( host_input, device_input );

@@ -17,7 +17,7 @@ namespace Dnn::Tensors::Tests
     // ========================================================================
 
     TEST( TensorDataPointers, Data_ReturnsRawPointer_FP32 ) {
-        Tensor<TensorDataType::FP32, CpuMemoryResource> t( "CPU", { 3, 2 } );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> t( Device::Cpu(), {3, 2});
 
         auto* data_ptr = t.data();
 
@@ -36,7 +36,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorDataPointers, Data_ReturnsRawPointer_INT32 ) {
-        Tensor<TensorDataType::INT32, CpuMemoryResource> t( "CPU", { 5 } );
+        Tensor<TensorDataType::INT32, CpuMemoryResource> t( Device::Cpu(), { 5 } );
 
         auto* data_ptr = t.data();
 
@@ -53,7 +53,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorDataPointers, Data_ReturnsRawPointer_INT8 ) {
-        Tensor<TensorDataType::INT8, CpuMemoryResource> t( "CPU", { 4 } );
+        Tensor<TensorDataType::INT8, CpuMemoryResource> t( Device::Cpu(), { 4 } );
 
         auto* data_ptr = t.data();
 
@@ -72,7 +72,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorDataPointers, Data_ReturnsRawPointer_UINT8 ) {
-        Tensor<TensorDataType::UINT8, CpuMemoryResource> t( "CPU", { 3 } );
+        Tensor<TensorDataType::UINT8, CpuMemoryResource> t( Device::Cpu(), { 3 } );
 
         auto* data_ptr = t.data();
 
@@ -89,7 +89,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorDataPointers, Data_Const_ReturnsConstRawPointer ) {
-        Tensor<TensorDataType::FP32, CpuMemoryResource> t( "CPU", { 4 } );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> t( Device::Cpu(), { 4 } );
 
         // Fill with data first
         auto* data_ptr = t.data();
@@ -116,7 +116,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorDataPointers, Data_PointerArithmetic_Works ) {
-        Tensor<TensorDataType::INT32, CpuMemoryResource> t( "CPU", { 10 } );
+        Tensor<TensorDataType::INT32, CpuMemoryResource> t( Device::Cpu(), { 10 } );
 
         auto* data_ptr = t.data();
 
@@ -132,7 +132,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorDataPointers, Data_IteratorStyle_Access ) {
-        Tensor<TensorDataType::FP32, CpuMemoryResource> t( "CPU", { 5 } );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> t( Device::Cpu(), { 5 } );
 
         auto* data_ptr = t.data();
 
@@ -153,7 +153,7 @@ namespace Dnn::Tensors::Tests
 
     TEST( TensorDataPointers, Data_EmptyTensor_ReturnsValidPointer ) {
         // Scalar tensor (rank 0, size 1)
-        Tensor<TensorDataType::FP32, CpuMemoryResource> scalar( "CPU", {} );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> scalar( Device::Cpu(), {} );
         ASSERT_EQ( scalar.size(), 1u );
         ASSERT_TRUE( scalar.isScalar() );
 
@@ -167,7 +167,7 @@ namespace Dnn::Tensors::Tests
 
     TEST( TensorDataPointers, Data_ZeroSizeTensor_ReturnsNullptr ) {
         // Empty 1D tensor (rank 1, size 0)
-        Tensor<TensorDataType::FP32, CpuMemoryResource> empty( "CPU", { 0 } );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> empty( Device::Cpu(), { 0 } );
         ASSERT_EQ( empty.size(), 0u );
         ASSERT_TRUE( empty.empty() );
 
@@ -178,7 +178,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorDataPointers, Data_ConsistentPointer_MultipleCalls ) {
-        Tensor<TensorDataType::INT32, CpuMemoryResource> t( "CPU", { 10 } );
+        Tensor<TensorDataType::INT32, CpuMemoryResource> t( Device::Cpu(), { 10 } );
 
         auto* ptr1 = t.data();
         auto* ptr2 = t.data();
@@ -192,7 +192,7 @@ namespace Dnn::Tensors::Tests
 
     TEST( TensorDataPointers, Data_MultiDimensional_RowMajorLayout ) {
         // Create 2x3 matrix
-        Tensor<TensorDataType::INT32, CpuMemoryResource> t( "CPU", { 2, 3 } );
+        Tensor<TensorDataType::INT32, CpuMemoryResource> t( Device::Cpu(), { 2, 3 } );
         ASSERT_EQ( t.size(), 6u );
 
         auto* data_ptr = t.data();
@@ -214,7 +214,7 @@ namespace Dnn::Tensors::Tests
 
     TEST( TensorDataPointers, Data_3DimensionalTensor_RowMajorLayout ) {
         // Create 2x3x4 tensor
-        Tensor<TensorDataType::FP32, CpuMemoryResource> t( "CPU", { 2, 3, 4 } );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> t( Device::Cpu(), { 2, 3, 4 } );
         ASSERT_EQ( t.size(), 24u );
 
         auto* data_ptr = t.data();
@@ -237,8 +237,8 @@ namespace Dnn::Tensors::Tests
 
     TEST( TensorDataPointers, Data_TypeSafety_CompileTimeChecking ) {
         // data() provides compile-time type safety
-        Tensor<TensorDataType::FP32, CpuMemoryResource> fp32_tensor( "CPU", { 5 } );
-        Tensor<TensorDataType::INT32, CpuMemoryResource> int32_tensor( "CPU", { 5 } );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> fp32_tensor( Device::Cpu(), { 5 } );
+        Tensor<TensorDataType::INT32, CpuMemoryResource> int32_tensor( Device::Cpu(), { 5 } );
 
         auto* fp32_data = fp32_tensor.data();
         auto* int32_data = int32_tensor.data();
@@ -256,7 +256,7 @@ namespace Dnn::Tensors::Tests
     // ========================================================================
 
     TEST( TensorDataPointers, Data_WorksWithStandardAlgorithms ) {
-        Tensor<TensorDataType::FP32, CpuMemoryResource> t( "CPU", { 10 } );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> t( Device::Cpu(), { 10 } );
 
         auto* data_ptr = t.data();
 
@@ -270,8 +270,8 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorDataPointers, Data_WorksWithMemcpy ) {
-        Tensor<TensorDataType::INT32, CpuMemoryResource> src( "CPU", { 5 } );
-        Tensor<TensorDataType::INT32, CpuMemoryResource> dst( "CPU", { 5 } );
+        Tensor<TensorDataType::INT32, CpuMemoryResource> src( Device::Cpu(), { 5 } );
+        Tensor<TensorDataType::INT32, CpuMemoryResource> dst( Device::Cpu(), { 5 } );
 
         // Fill source
         auto* src_ptr = src.data();
@@ -290,7 +290,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorDataPointers, Data_CStyleAPIInterop ) {
-        Tensor<TensorDataType::INT32, CpuMemoryResource> t( "CPU", { 5 } );
+        Tensor<TensorDataType::INT32, CpuMemoryResource> t( Device::Cpu(), { 5 } );
 
         // Simulate C API that takes raw pointer
         auto c_api_fill = []( int32_t* buffer, size_t count, int32_t value ) {
@@ -313,7 +313,7 @@ namespace Dnn::Tensors::Tests
     // ========================================================================
 
     TEST( TensorDataPointers, Data_SingleElement_Tensor ) {
-        Tensor<TensorDataType::FP32, CpuMemoryResource> t( "CPU", { 1 } );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> t( Device::Cpu(), { 1 } );
 
         auto* data_ptr = t.data();
         data_ptr[0] = 3.14159f;
@@ -323,7 +323,7 @@ namespace Dnn::Tensors::Tests
 
     TEST( TensorDataPointers, Data_LargeTensor_Performance ) {
         // Verify data() works efficiently with large tensors
-        Tensor<TensorDataType::FP32, CpuMemoryResource> t( "CPU", { 1000, 1000 } );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> t( Device::Cpu(), { 1000, 1000 } );
         ASSERT_EQ( t.size(), 1000000u );
 
         auto* data_ptr = t.data();
@@ -340,7 +340,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorDataPointers, Data_WorksWithRangeBasedFor ) {
-        Tensor<TensorDataType::INT32, CpuMemoryResource> t( "CPU", { 5 } );
+        Tensor<TensorDataType::INT32, CpuMemoryResource> t( Device::Cpu(), { 5 } );
 
         auto* data_ptr = t.data();
 
@@ -361,7 +361,7 @@ namespace Dnn::Tensors::Tests
     // ========================================================================
 
     TEST( TensorDataPointers, Data_ConsistentWithOperatorBracket ) {
-        Tensor<TensorDataType::FP32, CpuMemoryResource> t( "CPU", { 2, 3 } );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> t( Device::Cpu(), { 2, 3 } );
 
         // Write via data()
         auto* data_ptr = t.data();
@@ -382,7 +382,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorDataPointers, Data_ConsistentWithItem_ScalarTensor ) {
-        Tensor<TensorDataType::FP32, CpuMemoryResource> scalar( "CPU", {} );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> scalar( Device::Cpu(), {} );
         ASSERT_TRUE( scalar.isScalar() );
 
         // Write via data()

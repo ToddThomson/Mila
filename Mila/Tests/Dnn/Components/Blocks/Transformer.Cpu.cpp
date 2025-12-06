@@ -3,6 +3,8 @@
 #include <vector>
 #include <string>
 #include <type_traits>
+#include <cstdint>
+#include <stdexcept>
 
 import Mila;
 
@@ -35,7 +37,7 @@ namespace Modules::Blocks::Tests
             data.num_heads = num_heads;
             data.is_training = is_training;
 
-            auto exec_ctx = std::make_shared<ExecutionContext<TDevice>>( TDevice == DeviceType::Cuda ? 0 : -1 );
+            auto exec_ctx = std::make_shared<ExecutionContext<TDevice>>();
 
             TransformerConfig cfg( static_cast<dim_t>(embedding_dim),
                 static_cast<dim_t>(num_heads) );
@@ -104,7 +106,7 @@ namespace Modules::Blocks::Tests
 
         TransformerTestData<DeviceType::Cpu, TensorDataType::FP32> ContextCpuFloatData()
         {
-            auto cpu_context = std::make_shared<ExecutionContext<DeviceType::Cpu>>( -1 );
+            auto cpu_context = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
             return TransformerTestData<DeviceType::Cpu, TensorDataType::FP32>::CreateWithContext(
                 "cpu_context_transformer_float", cpu_batch_size_, cpu_sequence_length_, embedding_dim_,
                 num_heads_, cpu_context );
@@ -127,7 +129,7 @@ namespace Modules::Blocks::Tests
         TransformerConfig cfg( embedding_dim, num_heads );
         cfg.withName( "invalid_transformer" );
 
-        auto exec_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>( -1 );
+        auto exec_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
 
         auto module = std::make_shared<Transformer<DeviceType::Cpu, TensorDataType::FP32>>( exec_ctx, cfg );
 
@@ -171,7 +173,7 @@ namespace Modules::Blocks::Tests
         // Build and allocate IO
         data.transformer_module->build( data.input_shape );
 
-        auto device = data.transformer_module->getDevice();
+        auto device = data.transformer_module->getDeviceId();
 
         TensorT input( device, data.input_shape );
         TensorT output( device, data.input_shape );
@@ -221,10 +223,9 @@ namespace Modules::Blocks::Tests
 
         ASSERT_NE( data.transformer_module, nullptr );
 
-        auto device = data.transformer_module->getDevice();
+        auto device = data.transformer_module->getDeviceId();
 
-        ASSERT_NE( device, nullptr );
-        EXPECT_EQ( device->getDeviceType(), DeviceType::Cpu );
+        EXPECT_EQ( device.type, DeviceType::Cpu );
     }
 
     TEST_F( TransformerCpuTests, Cpu_Training_Float_TrainingMode )
@@ -249,7 +250,7 @@ namespace Modules::Blocks::Tests
         // Build and forward
         data.transformer_module->build( data.input_shape );
 
-        auto device = data.transformer_module->getDevice();
+        auto device = data.transformer_module->getDeviceId();
 
         TensorT input( device, data.input_shape );
         TensorT output( device, data.input_shape );
@@ -269,10 +270,9 @@ namespace Modules::Blocks::Tests
 
         ASSERT_NE( data.transformer_module, nullptr );
 
-        auto device = data.transformer_module->getDevice();
+        auto device = data.transformer_module->getDeviceId();
 
-        ASSERT_NE( device, nullptr );
-        EXPECT_EQ( device->getDeviceType(), DeviceType::Cpu );
+        EXPECT_EQ( device.type, DeviceType::Cpu );
     }
 
     TEST_F( TransformerCpuTests, Forward_FP32 )
@@ -286,7 +286,7 @@ namespace Modules::Blocks::Tests
 
         data.transformer_module->build( data.input_shape );
 
-        auto device = data.transformer_module->getDevice();
+        auto device = data.transformer_module->getDeviceId();
 
         TensorT input( device, data.input_shape );
         TensorT output( device, data.input_shape );
@@ -306,7 +306,7 @@ namespace Modules::Blocks::Tests
             shape_t minimal_shape = { 1, 1, 64 };
             size_t minimal_num_heads = 2;
 
-            auto exec_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>( -1 );
+            auto exec_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
 
             TransformerConfig cfg_min( static_cast<dim_t>(minimal_shape[2]),
                 static_cast<dim_t>(minimal_num_heads) );
@@ -314,7 +314,7 @@ namespace Modules::Blocks::Tests
 
             auto minimal_module = std::make_shared<Transformer<DeviceType::Cpu, TensorDataType::FP32>>( exec_ctx, cfg_min );
 
-            auto device_min = minimal_module->getDevice();
+            auto device_min = minimal_module->getDeviceId();
 
             using TensorT = Tensor<TensorDataType::FP32, CpuMemoryResource>;
 
@@ -331,7 +331,7 @@ namespace Modules::Blocks::Tests
             shape_t medium_shape = { 1, 2, 128 };
             size_t medium_num_heads = 4;
 
-            auto exec_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>( -1 );
+            auto exec_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
 
             TransformerConfig cfg_med( static_cast<dim_t>(medium_shape[2]),
                 static_cast<dim_t>(medium_num_heads) );
@@ -339,7 +339,7 @@ namespace Modules::Blocks::Tests
 
             auto medium_module = std::make_shared<Transformer<DeviceType::Cpu, TensorDataType::FP32>>( exec_ctx, cfg_med );
 
-            auto device_med = medium_module->getDevice();
+            auto device_med = medium_module->getDeviceId();
 
             using TensorT = Tensor<TensorDataType::FP32, CpuMemoryResource>;
 

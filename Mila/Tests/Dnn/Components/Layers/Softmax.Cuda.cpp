@@ -5,7 +5,6 @@
 #include <cmath>
 #include <stdexcept>
 #include <cstdint>
-#include <cuda_runtime.h>
 
 import Mila;
 
@@ -45,7 +44,7 @@ namespace Modules::Layers::Tests
             data.config.withName( name )
                 .withAxis( axis );
 
-            data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+            data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
             data.module = std::make_shared<Softmax<DeviceType::Cuda, TPrecision>>( data.exec_context, data.config );
 
 			data.module->setTraining( is_training );
@@ -83,9 +82,8 @@ namespace Modules::Layers::Tests
     protected:
         void SetUp() override
         {
-            int device_count = 0;
-            cudaError_t error = cudaGetDeviceCount( &device_count );
-            cuda_available_ = (error == cudaSuccess && device_count > 0);
+            int device_count = getDeviceCount( DeviceType::Cuda );
+            cuda_available_ = ( device_count > 0);
 
             if (!cuda_available_)
             {
@@ -163,9 +161,9 @@ namespace Modules::Layers::Tests
         EXPECT_EQ( data.module->getDeviceType(), DeviceType::Cuda );
         ASSERT_NE( data.exec_context, nullptr );
 
-        auto device = data.exec_context->getDevice();
-        ASSERT_NE( device, nullptr );
-        EXPECT_EQ( device->getDeviceType(), DeviceType::Cuda );
+        auto device = data.exec_context->getDeviceId();
+
+        EXPECT_EQ( device.type, DeviceType::Cuda );
     }
 
     template<TensorDataType TPrecision>
@@ -212,11 +210,11 @@ namespace Modules::Layers::Tests
 
         data.module->build( data.shape );
 
-        HostTensorType host_input( "CPU", data.shape );
+        HostTensorType host_input( Device::Cpu(), data.shape );
         random( host_input, -5.0f, 5.0f );
 
-        DeviceTensorType device_input( "CUDA:0", data.shape );
-        DeviceTensorType device_output( "CUDA:0", data.shape );
+        DeviceTensorType device_input( Device::Cuda(0), data.shape );
+        DeviceTensorType device_output( Device::Cuda(0), data.shape );
 
         copy( host_input, device_input );
 
@@ -404,11 +402,11 @@ namespace Modules::Layers::Tests
         auto data = MediumFp32Data();
         data.module->build( data.shape );
 
-        CpuTensor<TensorDataType::FP32> host_input( "CPU", data.shape );
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), data.shape );
         random( host_input, -5.0f, 5.0f );
 
-        CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", data.shape );
-        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", data.shape );
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda(0), data.shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), data.shape );
 
         copy( host_input, device_input );
 
@@ -426,7 +424,7 @@ namespace Modules::Layers::Tests
             GTEST_SKIP() << "CUDA not available";
         }
 
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
 
         auto data = SoftmaxCudaTestData<TensorDataType::FP32>::CreateWithContext(
             "context_softmax_cuda", medium_shape_, ctx );
@@ -534,8 +532,8 @@ namespace Modules::Layers::Tests
         auto data = SoftmaxCudaTestData<TensorDataType::FP32>::Create(
             "unbuild_cuda", medium_shape_ );
 
-        CudaTensor<TensorDataType::FP32> input( "CUDA:0", data.shape );
-        CudaTensor<TensorDataType::FP32> output( "CUDA:0", data.shape );
+        CudaTensor<TensorDataType::FP32> input( Device::Cuda(0), data.shape );
+        CudaTensor<TensorDataType::FP32> output( Device::Cuda(0), data.shape );
 
         EXPECT_THROW(
             data.module->forward( input, output ),
@@ -583,9 +581,9 @@ namespace Modules::Layers::Tests
         auto data = MediumFp32Data();
         data.module->build( data.shape );
 
-        CpuTensor<TensorDataType::FP32> host_input( "CPU", data.shape );
-        CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", data.shape );
-        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", data.shape );
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), data.shape );
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda(0), data.shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), data.shape );
 
         for (int iter = 0; iter < 10; ++iter)
         {
@@ -617,14 +615,14 @@ namespace Modules::Layers::Tests
         cpu_module->build( test_shape );
         cuda_data.module->build( test_shape );
 
-        CpuTensor<TensorDataType::FP32> host_input( "CPU", test_shape );
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), test_shape );
         random( host_input, -2.0f, 2.0f );
 
-        CpuTensor<TensorDataType::FP32> cpu_output( "CPU", test_shape );
+        CpuTensor<TensorDataType::FP32> cpu_output( Device::Cpu(), test_shape );
         cpu_module->forward( host_input, cpu_output );
 
-        CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", test_shape );
-        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", test_shape );
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda(0), test_shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), test_shape );
         copy( host_input, device_input );
         cuda_data.module->forward( device_input, device_output );
 

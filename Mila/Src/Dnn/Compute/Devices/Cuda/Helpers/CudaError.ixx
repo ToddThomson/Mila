@@ -50,10 +50,10 @@ namespace Mila::Dnn::Compute
          *
          * @return cudaError_t The original CUDA error status.
          */
-        cudaError_t getError() const noexcept
+        /*cudaError_t getError() const noexcept
         {
             return cuda_error_;
-        }
+        }*/
 
         /**
          * @brief Gets the filename where the error occurred.
@@ -130,7 +130,7 @@ namespace Mila::Dnn::Compute
      * @param location Source location information (automatically populated by default).
      * @throws CudaError if the status is not cudaSuccess.
      */
-    export inline void cudaCheckStatus( cudaError_t status, const std::source_location& location = std::source_location::current() ) {
+    export void cudaCheckStatus( cudaError_t status, const std::source_location& location = std::source_location::current() ) {
         if ( status != cudaSuccess ) {
             throw CudaError( status, location );
         }
@@ -142,7 +142,7 @@ namespace Mila::Dnn::Compute
      * @param location Source location information (automatically populated by default).
      * @throws CudaError if the last error is not cudaSuccess.
      */
-    export inline void cudaCheckLastError( const std::source_location& location = std::source_location::current() ) {
+    export void cudaCheckLastError( const std::source_location& location = std::source_location::current() ) {
         cudaError_t error = cudaGetLastError();
         if ( error != cudaSuccess ) {
             throw CudaError( error, location );

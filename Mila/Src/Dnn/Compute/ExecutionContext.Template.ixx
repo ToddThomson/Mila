@@ -1,4 +1,4 @@
-export module Compute.ExecutionContextBase;
+export module Compute.ExecutionContextTemplate;
 
 import Compute.DeviceType;
 
@@ -15,11 +15,11 @@ namespace Mila::Dnn::Compute
      * Design rationale:
      * - Template parameter eliminates runtime type checking overhead
      * - Each device type has a specialized implementation
-     * - Modules are templated on device type, ensuring type safety throughout
+     * - Components are templated on device type, ensuring type safety throughout
      * - No virtual function overhead for device-specific operations
      *
-     * @tparam TDeviceType The device type (Cpu, Cuda, Metal, etc.)
+     * @tparam TDeviceType The device type (Cpu, Cuda, Metal, Rocm etc.)
      */
     export template<DeviceType TDeviceType>
-        class ExecutionContext;
+    class ExecutionContext;
 }

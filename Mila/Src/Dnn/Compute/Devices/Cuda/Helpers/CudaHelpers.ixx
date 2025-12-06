@@ -39,10 +39,13 @@ namespace Mila::Dnn::Compute::Cuda
      * @param device_id CUDA device ID to activate
      * @throws std::runtime_error If cudaSetDevice fails
      */
-    export inline void setCurrentDevice( int device_id ) {
+    export inline void setCurrentDevice( int device_id ) 
+    {
         static thread_local int current_device = -1;
+        
         if (current_device != device_id) {
             cudaError_t error = cudaSetDevice( device_id );
+            
             if (error != cudaSuccess) {
                 throw std::runtime_error(
                     "Failed to set CUDA device " +
@@ -50,6 +53,7 @@ namespace Mila::Dnn::Compute::Cuda
                     cudaGetErrorString( error )
                 );
             }
+            
             current_device = device_id;
         }
     }
@@ -84,6 +88,7 @@ namespace Mila::Dnn::Compute::Cuda
     export inline int getDeviceCount() {
         int devCount;
         cudaCheckStatus( cudaGetDeviceCount( &devCount ) );
+        
         return devCount;
     };
 

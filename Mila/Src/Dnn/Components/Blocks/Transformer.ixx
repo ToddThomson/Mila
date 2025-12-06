@@ -28,7 +28,8 @@ import Dnn.CompositeComponent;
 import Dnn.ActivationType;
 import Compute.Precision;
 import Compute.MemoryResource;
-import Compute.ComputeDevice;
+import Compute.Device;
+import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.CpuMemoryResource;
@@ -161,7 +162,7 @@ namespace Mila::Dnn
             const TensorType& out_grad_t = static_cast<const TensorType&>( output_grad );
             TensorType& in_grad_t = static_cast<TensorType&>( input_grad );
 
-            auto device = exec_context_->getDevice();
+            auto device = exec_context_->getDeviceId();
 
             // Shapes
             const shape_t& act_shape = cached_input_shape_;
@@ -276,9 +277,9 @@ namespace Mila::Dnn
             return config_.getName();
         }
 
-        std::shared_ptr<ComputeDevice> getDevice() const override
+        DeviceId getDeviceId() const override
         {
-            return exec_context_->getDevice();
+            return exec_context_->getDeviceId();
         }
 
         void synchronize() override
@@ -394,10 +395,7 @@ namespace Mila::Dnn
             oss << "MLP hidden dimension: " << config_.getHiddenDimension() << std::endl;
             oss << "Architecture: Pre-LN" << std::endl;
 
-            if (exec_context_ && exec_context_->getDevice())
-            {
-                oss << "Device: " << deviceTypeToString( exec_context_->getDevice()->getDeviceType() ) << std::endl;
-            }
+            oss << "Device: " << exec_context_->getDeviceId().toString() << std::endl;
 
             oss << "Parameter count: " << parameterCount() << std::endl;
 
@@ -522,7 +520,7 @@ namespace Mila::Dnn
             ffn_->setTraining( this->isTraining() );
             ffn_->build( input_shape );
 
-            auto device = exec_context_->getDevice();
+            auto device = exec_context_->getDeviceId();
 
             ln1_output_ = std::make_shared<TensorType>( device, input_shape );
             ln1_output_->setName( this->getName() + ".ln1_output" );

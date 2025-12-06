@@ -152,9 +152,9 @@ namespace Modules::Layers::Tests
         EXPECT_EQ( data.module->getDeviceType(), DeviceType::Cpu );
         ASSERT_NE( data.exec_context, nullptr );
 
-        auto device = data.exec_context->getDevice();
-        ASSERT_NE( device, nullptr );
-        EXPECT_EQ( device->getDeviceType(), DeviceType::Cpu );
+        auto device = data.exec_context->getDeviceId();
+        
+        EXPECT_EQ( device.type, DeviceType::Cpu );
     }
 
     template<TensorDataType TPrecision>
@@ -231,8 +231,8 @@ namespace Modules::Layers::Tests
 
         data.module->build( data.input_shape );
 
-        TensorType input( "CPU", data.input_shape );
-        TensorType output( "CPU", data.output_shape );
+        TensorType input( Device::Cpu(), data.input_shape );
+        TensorType output( Device::Cpu(), data.output_shape );
 
         random( input, -1.0f, 1.0f );
 
@@ -300,10 +300,10 @@ namespace Modules::Layers::Tests
         data.module->setTraining( true );
         data.module->build( data.input_shape );
 
-        TensorType input( "CPU", data.input_shape );
-        TensorType output( "CPU", data.output_shape );
-        TensorType output_grad( "CPU", data.output_shape );
-        TensorType input_grad( "CPU", data.input_shape );
+        TensorType input( Device::Cpu(), data.input_shape );
+        TensorType output( Device::Cpu(), data.output_shape );
+        TensorType output_grad( Device::Cpu(), data.output_shape );
+        TensorType input_grad( Device::Cpu(), data.input_shape );
 
         random( input, -1.0f, 1.0f );
         random( output_grad, -0.1f, 0.1f );
@@ -509,8 +509,8 @@ namespace Modules::Layers::Tests
         auto data = LinearCpuTestData<TensorDataType::FP32>::Create(
             "unbuild_cpu", small_shape_, input_features_, output_features_ );
 
-        CpuTensor<TensorDataType::FP32> input( "CPU", data.input_shape );
-        CpuTensor<TensorDataType::FP32> output( "CPU", data.output_shape );
+        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.input_shape );
+        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.output_shape );
 
         EXPECT_THROW(
             data.module->forward( input, output ),
@@ -525,8 +525,8 @@ namespace Modules::Layers::Tests
 
         shape_t wrong_shape = { 2, 3, 64 };
 
-        CpuTensor<TensorDataType::FP32> input( "CPU", wrong_shape );
-        CpuTensor<TensorDataType::FP32> output( "CPU", { 2, 3, 32 } );
+        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), wrong_shape );
+        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), { 2, 3, 32 } );
 
         EXPECT_THROW(
             data.module->forward( input, output ),
@@ -559,8 +559,8 @@ namespace Modules::Layers::Tests
         auto data = MediumFp32Data();
         data.module->build( data.input_shape );
 
-        CpuTensor<TensorDataType::FP32> input( "CPU", data.input_shape );
-        CpuTensor<TensorDataType::FP32> output( "CPU", data.output_shape );
+        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.input_shape );
+        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.output_shape );
 
         for (int iter = 0; iter < 10; ++iter)
         {
@@ -615,9 +615,9 @@ namespace Modules::Layers::Tests
         auto data = LinearCpuTestData<TensorDataType::FP32>::Create(
             "unbuild_backward_cpu", small_shape_, input_features_, output_features_ );
 
-        CpuTensor<TensorDataType::FP32> input( "CPU", data.input_shape );
-        CpuTensor<TensorDataType::FP32> output_grad( "CPU", data.output_shape );
-        CpuTensor<TensorDataType::FP32> input_grad( "CPU", data.input_shape );
+        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.input_shape );
+        CpuTensor<TensorDataType::FP32> output_grad( Device::Cpu(), data.output_shape );
+        CpuTensor<TensorDataType::FP32> input_grad( Device::Cpu(), data.input_shape );
 
         EXPECT_THROW(
             data.module->backward( input, output_grad, input_grad ),
@@ -632,10 +632,10 @@ namespace Modules::Layers::Tests
         data.module->setTraining( true );
         data.module->build( data.input_shape );
 
-        CpuTensor<TensorDataType::FP32> input( "CPU", data.input_shape );
-        CpuTensor<TensorDataType::FP32> output( "CPU", data.output_shape );
-        CpuTensor<TensorDataType::FP32> output_grad( "CPU", data.output_shape );
-        CpuTensor<TensorDataType::FP32> input_grad( "CPU", data.input_shape );
+        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.input_shape );
+        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.output_shape );
+        CpuTensor<TensorDataType::FP32> output_grad( Device::Cpu(), data.output_shape );
+        CpuTensor<TensorDataType::FP32> input_grad( Device::Cpu(), data.input_shape );
 
         for (int iter = 0; iter < 5; ++iter)
         {
@@ -678,10 +678,10 @@ namespace Modules::Layers::Tests
         EXPECT_FALSE( data.module->isTraining() );
         data.module->build( data.input_shape );
 
-        CpuTensor<TensorDataType::FP32> input( "CPU", data.input_shape );
-        CpuTensor<TensorDataType::FP32> output( "CPU", data.output_shape );
-        CpuTensor<TensorDataType::FP32> output_grad( "CPU", data.output_shape );
-        CpuTensor<TensorDataType::FP32> input_grad( "CPU", data.input_shape );
+        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.input_shape );
+        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.output_shape );
+        CpuTensor<TensorDataType::FP32> output_grad( Device::Cpu(), data.output_shape );
+        CpuTensor<TensorDataType::FP32> input_grad( Device::Cpu(), data.input_shape );
 
         random( input, -1.0f, 1.0f );
         random( output_grad, -0.1f, 0.1f );
@@ -735,10 +735,10 @@ namespace Modules::Layers::Tests
             ASSERT_NE( bias_grad, nullptr ) << "Bias gradients should be allocated when training enabled before build";
         }
 
-        CpuTensor<TensorDataType::FP32> input( "CPU", data.input_shape );
-        CpuTensor<TensorDataType::FP32> output( "CPU", data.output_shape );
-        CpuTensor<TensorDataType::FP32> output_grad( "CPU", data.output_shape );
-        CpuTensor<TensorDataType::FP32> input_grad( "CPU", data.input_shape );
+        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.input_shape );
+        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.output_shape );
+        CpuTensor<TensorDataType::FP32> output_grad( Device::Cpu(), data.output_shape );
+        CpuTensor<TensorDataType::FP32> input_grad( Device::Cpu(), data.input_shape );
 
         random( input, -1.0f, 1.0f );
         random( output_grad, -0.1f, 0.1f );
@@ -755,10 +755,10 @@ namespace Modules::Layers::Tests
         data.module->build( data.input_shape );
         EXPECT_FALSE( data.module->isTraining() );
 
-        CpuTensor<TensorDataType::FP32> input( "CPU", data.input_shape );
-        CpuTensor<TensorDataType::FP32> output( "CPU", data.output_shape );
-        CpuTensor<TensorDataType::FP32> output_grad( "CPU", data.output_shape );
-        CpuTensor<TensorDataType::FP32> input_grad( "CPU", data.input_shape );
+        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.input_shape );
+        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.output_shape );
+        CpuTensor<TensorDataType::FP32> output_grad( Device::Cpu(), data.output_shape );
+        CpuTensor<TensorDataType::FP32> input_grad( Device::Cpu(), data.input_shape );
 
         random( input, -1.0f, 1.0f );
 

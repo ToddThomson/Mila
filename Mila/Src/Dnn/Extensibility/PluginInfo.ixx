@@ -14,7 +14,7 @@ namespace Mila::Dnn::Extensibility
         std::string name;              // e.g., "MyCustomLayer"
         std::string version;           // e.g., "1.0.0"
         std::string mila_api_version;  // e.g., "0.1.0" - compatibility check
-        std::vector<std::string> supported_devices;    // {"Cpu", "Cuda"}
+        std::vector<std::string> supported_devices;    // {Device::Cpu(), "Cuda"}
         std::vector<std::string> supported_precisions; // {"float32", "float64"}
     };
 }

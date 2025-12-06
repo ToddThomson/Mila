@@ -2,7 +2,6 @@
 #include <memory>
 #include <vector>
 #include <string>
-#include <cuda_runtime.h>
 #include <cstdint>
 
 import Mila;
@@ -18,9 +17,8 @@ namespace Dnn::Tensors::Tests
 
         void SetUp() override {
             // Check if CUDA devices are available
-            int device_count;
-            cudaError_t error = cudaGetDeviceCount( &device_count );
-            has_cuda_ = (error == cudaSuccess && device_count > 0);
+            int device_count = getDeviceCount( DeviceType::Cuda );
+            has_cuda_ = (device_count > 0);
         }
 
         bool has_cuda_ = false;
@@ -33,7 +31,7 @@ namespace Dnn::Tensors::Tests
     TEST_F( TensorConstructionTest, ConstructorWithDeviceName ) {
         shape_t shape = { 2, 3 };
 
-        Tensor<TensorDataType::FP32, CpuMemoryResource> cpu_tensor( "CPU", shape );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> cpu_tensor( Device::Cpu(), shape );
 
         EXPECT_FALSE( cpu_tensor.empty() );
         EXPECT_EQ( cpu_tensor.size(), 6 );
@@ -41,7 +39,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( cpu_tensor.shape(), shape );
 
         if (has_cuda_) {
-            Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> cuda_tensor( "CUDA:0", shape );
+            Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> cuda_tensor( Device::Cuda(0), shape );
 
             EXPECT_FALSE( cuda_tensor.empty() );
             EXPECT_EQ( cuda_tensor.size(), 6 );
@@ -53,37 +51,21 @@ namespace Dnn::Tensors::Tests
         }
     }
 
-    TEST_F( TensorConstructionTest, ConstructorWithInvalidDeviceName ) {
-        shape_t shape = { 2, 3 };
-
-        EXPECT_THROW(
-            (Tensor<TensorDataType::FP32, CpuMemoryResource>( "INVALID_DEVICE", shape )),
-            std::invalid_argument
-        );
-    }
-
-    TEST_F( TensorConstructionTest, ConstructorWithEmptyDeviceName ) {
-        shape_t shape = { 2, 3 };
-
-        EXPECT_THROW(
-            (Tensor<TensorDataType::FP32, CpuMemoryResource>( "", shape )),
-            std::invalid_argument
-        );
-    }
+    
 
     TEST_F( TensorConstructionTest, ConstructorWithMismatchedDeviceAndMemoryResource ) {
         shape_t shape = { 2, 3 };
 
         // CPU device name with CUDA memory resource should fail
         EXPECT_THROW(
-            (Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( "CPU", shape )),
+            (Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( Device::Cpu(), shape )),
             std::runtime_error
         );
 
         if (has_cuda_) {
             // CUDA device name with CPU memory resource should fail
             EXPECT_THROW(
-                (Tensor<TensorDataType::FP32, CpuMemoryResource>( "CUDA:0", shape )),
+                (Tensor<TensorDataType::FP32, CpuMemoryResource>( Device::Cuda(0), shape )),
                 std::runtime_error
             );
         }
@@ -99,7 +81,7 @@ namespace Dnn::Tensors::Tests
         }
 
         shape_t shape = { 2, 3 };
-        Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> tensor( "CUDA:0", shape );
+        Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> tensor( Device::Cuda(0), shape );
 
         EXPECT_FALSE( tensor.empty() );
         EXPECT_EQ( tensor.size(), 6 );
@@ -109,7 +91,7 @@ namespace Dnn::Tensors::Tests
 
     TEST_F( TensorConstructionTest, ConstructorWithEmptyShape ) {
         shape_t shape = {};
-        Tensor<TensorDataType::FP32, CpuMemoryResource> tensor( "CPU", shape );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> tensor( Device::Cpu(), shape );
 
         EXPECT_FALSE( tensor.empty() );  // Scalars are NOT empty
         EXPECT_EQ( tensor.size(), 1 );   // Scalars have size 1
@@ -121,7 +103,7 @@ namespace Dnn::Tensors::Tests
 
     TEST_F( TensorConstructionTest, ConstructorWithZeroSizeShape ) {
         shape_t shape = { 0 };
-        Tensor<TensorDataType::FP32, CpuMemoryResource> tensor( "CPU", shape );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> tensor( Device::Cpu(), shape );
 
         EXPECT_TRUE( tensor.empty() );   // Zero-size tensors ARE empty
         EXPECT_EQ( tensor.size(), 0 );
@@ -135,7 +117,7 @@ namespace Dnn::Tensors::Tests
 
     TEST_F( TensorConstructionTest, MoveConstructor ) {
         shape_t shape = { 2, 3 };
-        Tensor<TensorDataType::FP32, CpuMemoryResource> original( "CPU", shape );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> original( Device::Cpu(), shape );
         std::string original_uid = original.getUId();
 
         Tensor<TensorDataType::FP32, CpuMemoryResource> moved( std::move( original ) );
@@ -151,7 +133,7 @@ namespace Dnn::Tensors::Tests
 
     TEST_F( TensorConstructionTest, MoveConstructor_PreservesData ) {
         shape_t shape = { 2, 2 };
-        Tensor<TensorDataType::FP32, CpuMemoryResource> original( "CPU", shape );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> original( Device::Cpu(), shape );
 
         Tensor<TensorDataType::FP32, CpuMemoryResource> moved( std::move( original ) );
 
@@ -167,10 +149,10 @@ namespace Dnn::Tensors::Tests
 
     TEST_F( TensorConstructionTest, MoveAssignment ) {
         shape_t shape = { 2, 3 };
-        Tensor<TensorDataType::FP32, CpuMemoryResource> original( "CPU", shape );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> original( Device::Cpu(), shape );
         std::string original_uid = original.getUId();
 
-        Tensor<TensorDataType::FP32, CpuMemoryResource> moved( "CPU", {} );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> moved( Device::Cpu(), {} );
         moved = std::move( original );
 
         EXPECT_EQ( moved.shape(), shape );
@@ -184,7 +166,7 @@ namespace Dnn::Tensors::Tests
 
     TEST_F( TensorConstructionTest, MoveAssignment_SelfMove ) {
         shape_t shape = { 2, 3 };
-        Tensor<TensorDataType::FP32, CpuMemoryResource> tensor( "CPU", shape );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> tensor( Device::Cpu(), shape );
         std::string original_uid = tensor.getUId();
 
         tensor = std::move( tensor );
@@ -203,9 +185,9 @@ namespace Dnn::Tensors::Tests
         // Copy operations are deleted at compile time
         // These lines would not compile if uncommented:
 
-        // Tensor<TensorDataType::FP32, CpuMemoryResource> tensor1("CPU", {2, 3});
+        // Tensor<TensorDataType::FP32, CpuMemoryResource> tensor1(Device::Cpu(), {2, 3});
         // Tensor<TensorDataType::FP32, CpuMemoryResource> tensor2(tensor1);  // Should not compile
-        // Tensor<TensorDataType::FP32, CpuMemoryResource> tensor3("CPU", {});
+        // Tensor<TensorDataType::FP32, CpuMemoryResource> tensor3(Device::Cpu(), {});
         // tensor3 = tensor1;  // Should not compile
 
         SUCCEED();
@@ -216,8 +198,8 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST_F( TensorConstructionTest, UniqueIdGeneration ) {
-        Tensor<TensorDataType::FP32, CpuMemoryResource> tensor1( "CPU", {} );
-        Tensor<TensorDataType::FP32, CpuMemoryResource> tensor2( "CPU", {} );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> tensor1( Device::Cpu(), {} );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> tensor2( Device::Cpu(), {} );
 
         // Each tensor should have a unique ID
         EXPECT_NE( tensor1.getUId(), tensor2.getUId() );
@@ -225,8 +207,8 @@ namespace Dnn::Tensors::Tests
 
     TEST_F( TensorConstructionTest, UniqueIdGenerationWithShape ) {
         shape_t shape = { 2, 3 };
-        Tensor<TensorDataType::FP32, CpuMemoryResource> tensor1( "CPU", shape );
-        Tensor<TensorDataType::FP32, CpuMemoryResource> tensor2( "CPU", shape );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> tensor1( Device::Cpu(), shape );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> tensor2( Device::Cpu(), shape );
 
         // Each tensor should have unique ID even with same shape
         EXPECT_NE( tensor1.getUId(), tensor2.getUId() );
@@ -234,7 +216,7 @@ namespace Dnn::Tensors::Tests
 
     TEST_F( TensorConstructionTest, UniqueIdGenerationAfterMove ) {
         shape_t shape = { 2, 3 };
-        Tensor<TensorDataType::FP32, CpuMemoryResource> original( "CPU", shape );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> original( Device::Cpu(), shape );
         std::string original_uid = original.getUId();
 
         Tensor<TensorDataType::FP32, CpuMemoryResource> moved( std::move( original ) );
@@ -243,7 +225,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( moved.getUId(), original_uid );
 
         // Creating new tensor should get different UID
-        Tensor<TensorDataType::FP32, CpuMemoryResource> new_tensor( "CPU", shape );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> new_tensor( Device::Cpu(), shape );
         EXPECT_NE( new_tensor.getUId(), original_uid );
     }
 
@@ -259,10 +241,10 @@ namespace Dnn::Tensors::Tests
         shape_t shape = { 2, 3 };
 
         // Test construction with various memory resource types
-        Tensor<TensorDataType::FP32, CpuMemoryResource> host_tensor( "CPU", shape );
-        Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> cuda_tensor( "CUDA:0", shape );
-        Tensor<TensorDataType::FP32, CudaPinnedMemoryResource> pinned_tensor( "CUDA:0", shape );
-        Tensor<TensorDataType::FP32, CudaManagedMemoryResource> managed_tensor( "CUDA:0", shape );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> host_tensor( Device::Cpu(), shape );
+        Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> cuda_tensor( Device::Cuda(0), shape );
+        Tensor<TensorDataType::FP32, CudaPinnedMemoryResource> pinned_tensor( Device::Cuda(0), shape );
+        Tensor<TensorDataType::FP32, CudaManagedMemoryResource> managed_tensor( Device::Cuda(0), shape );
 
         // Verify all tensors have correct properties
         EXPECT_EQ( host_tensor.shape(), shape );
@@ -304,19 +286,19 @@ namespace Dnn::Tensors::Tests
 
         // CPU device with CUDA memory resource should fail
         EXPECT_THROW(
-            (Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( "CPU", shape )),
+            (Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>( Device::Cpu(), shape )),
             std::runtime_error
         );
 
         // CPU device with CUDA pinned memory resource should fail
         EXPECT_THROW(
-            (Tensor<TensorDataType::FP32, CudaPinnedMemoryResource>( "CPU", shape )),
+            (Tensor<TensorDataType::FP32, CudaPinnedMemoryResource>( Device::Cpu(), shape )),
             std::runtime_error
         );
 
         // CPU device with CUDA managed memory resource should fail
         EXPECT_THROW(
-            (Tensor<TensorDataType::FP32, CudaManagedMemoryResource>( "CPU", shape )),
+            (Tensor<TensorDataType::FP32, CudaManagedMemoryResource>( Device::Cpu(), shape )),
             std::runtime_error
         );
     }
@@ -326,7 +308,7 @@ namespace Dnn::Tensors::Tests
 
         if (has_cuda_) {
             EXPECT_THROW(
-                (Tensor<TensorDataType::FP32, CpuMemoryResource>( "CUDA:0", shape )),
+                (Tensor<TensorDataType::FP32, CpuMemoryResource>( Device::Cuda(0), shape )),
                 std::runtime_error
             );
         }
@@ -338,7 +320,7 @@ namespace Dnn::Tensors::Tests
 
     TEST_F( TensorConstructionTest, ConstructorWithLargeShape ) {
         shape_t large_shape = { 100, 200, 50 };
-        Tensor<TensorDataType::FP32, CpuMemoryResource> tensor( "CPU", large_shape );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> tensor( Device::Cpu(), large_shape );
 
         EXPECT_EQ( tensor.shape(), large_shape );
         EXPECT_EQ( tensor.size(), 1000000 );  // 100 * 200 * 50
@@ -348,7 +330,7 @@ namespace Dnn::Tensors::Tests
 
     TEST_F( TensorConstructionTest, ConstructorWithSingleDimension ) {
         shape_t single_dim = { 42 };
-        Tensor<TensorDataType::INT32, CpuMemoryResource> tensor( "CPU", single_dim );
+        Tensor<TensorDataType::INT32, CpuMemoryResource> tensor( Device::Cpu(), single_dim );
 
         EXPECT_EQ( tensor.shape(), single_dim );
         EXPECT_EQ( tensor.size(), 42 );
@@ -360,8 +342,8 @@ namespace Dnn::Tensors::Tests
         shape_t shape = { 3, 4 };
 
         // Test tensor initialization (should allocate memory)
-        Tensor<TensorDataType::FP32, CpuMemoryResource> float_tensor( "CPU", shape );
-        Tensor<TensorDataType::INT32, CpuMemoryResource> int_tensor( "CPU", shape );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> float_tensor( Device::Cpu(), shape );
+        Tensor<TensorDataType::INT32, CpuMemoryResource> int_tensor( Device::Cpu(), shape );
 
         EXPECT_EQ( float_tensor.shape(), shape );
         EXPECT_EQ( int_tensor.shape(), shape );
@@ -379,13 +361,13 @@ namespace Dnn::Tensors::Tests
         shape_t shape = { 2, 3 };
 
         // Test all CPU-supported data types
-        Tensor<TensorDataType::FP32, CpuMemoryResource> fp32_tensor( "CPU", shape );
-        Tensor<TensorDataType::INT8, CpuMemoryResource> int8_tensor( "CPU", shape );
-        Tensor<TensorDataType::INT16, CpuMemoryResource> int16_tensor( "CPU", shape );
-        Tensor<TensorDataType::INT32, CpuMemoryResource> int32_tensor( "CPU", shape );
-        Tensor<TensorDataType::UINT8, CpuMemoryResource> uint8_tensor( "CPU", shape );
-        Tensor<TensorDataType::UINT16, CpuMemoryResource> uint16_tensor( "CPU", shape );
-        Tensor<TensorDataType::UINT32, CpuMemoryResource> uint32_tensor( "CPU", shape );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> fp32_tensor( Device::Cpu(), shape );
+        Tensor<TensorDataType::INT8, CpuMemoryResource> int8_tensor( Device::Cpu(), shape );
+        Tensor<TensorDataType::INT16, CpuMemoryResource> int16_tensor( Device::Cpu(), shape );
+        Tensor<TensorDataType::INT32, CpuMemoryResource> int32_tensor( Device::Cpu(), shape );
+        Tensor<TensorDataType::UINT8, CpuMemoryResource> uint8_tensor( Device::Cpu(), shape );
+        Tensor<TensorDataType::UINT16, CpuMemoryResource> uint16_tensor( Device::Cpu(), shape );
+        Tensor<TensorDataType::UINT32, CpuMemoryResource> uint32_tensor( Device::Cpu(), shape );
 
         // Verify all tensors have correct data types
         EXPECT_EQ( fp32_tensor.getDataType(), TensorDataType::FP32 );
@@ -433,17 +415,17 @@ namespace Dnn::Tensors::Tests
         shape_t shape = { 2, 3 };
 
         // Test all CUDA-supported data types
-        Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> fp32_tensor( "CUDA:0", shape );
-        Tensor<TensorDataType::FP16, CudaDeviceMemoryResource> fp16_tensor( "CUDA:0", shape );
-        Tensor<TensorDataType::BF16, CudaDeviceMemoryResource> bf16_tensor( "CUDA:0", shape );
-        Tensor<TensorDataType::FP8_E4M3, CudaDeviceMemoryResource> fp8_e4m3_tensor( "CUDA:0", shape );
-        Tensor<TensorDataType::FP8_E5M2, CudaDeviceMemoryResource> fp8_e5m2_tensor( "CUDA:0", shape );
-        Tensor<TensorDataType::INT8, CudaDeviceMemoryResource> int8_tensor( "CUDA:0", shape );
-        Tensor<TensorDataType::INT16, CudaDeviceMemoryResource> int16_tensor( "CUDA:0", shape );
-        Tensor<TensorDataType::INT32, CudaDeviceMemoryResource> int32_tensor( "CUDA:0", shape );
-        Tensor<TensorDataType::UINT8, CudaDeviceMemoryResource> uint8_tensor( "CUDA:0", shape );
-        Tensor<TensorDataType::UINT16, CudaDeviceMemoryResource> uint16_tensor( "CUDA:0", shape );
-        Tensor<TensorDataType::UINT32, CudaDeviceMemoryResource> uint32_tensor( "CUDA:0", shape );
+        Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> fp32_tensor( Device::Cuda(0), shape );
+        Tensor<TensorDataType::FP16, CudaDeviceMemoryResource> fp16_tensor( Device::Cuda(0), shape );
+        Tensor<TensorDataType::BF16, CudaDeviceMemoryResource> bf16_tensor( Device::Cuda(0), shape );
+        Tensor<TensorDataType::FP8_E4M3, CudaDeviceMemoryResource> fp8_e4m3_tensor( Device::Cuda(0), shape );
+        Tensor<TensorDataType::FP8_E5M2, CudaDeviceMemoryResource> fp8_e5m2_tensor( Device::Cuda(0), shape );
+        Tensor<TensorDataType::INT8, CudaDeviceMemoryResource> int8_tensor( Device::Cuda(0), shape );
+        Tensor<TensorDataType::INT16, CudaDeviceMemoryResource> int16_tensor( Device::Cuda(0), shape );
+        Tensor<TensorDataType::INT32, CudaDeviceMemoryResource> int32_tensor( Device::Cuda(0), shape );
+        Tensor<TensorDataType::UINT8, CudaDeviceMemoryResource> uint8_tensor( Device::Cuda(0), shape );
+        Tensor<TensorDataType::UINT16, CudaDeviceMemoryResource> uint16_tensor( Device::Cuda(0), shape );
+        Tensor<TensorDataType::UINT32, CudaDeviceMemoryResource> uint32_tensor( Device::Cuda(0), shape );
 
         // Verify all tensors have correct data types
         EXPECT_EQ( fp32_tensor.getDataType(), TensorDataType::FP32 );
@@ -504,12 +486,12 @@ namespace Dnn::Tensors::Tests
         shape_t shape = { 2, 3 };
 
         // Test selection of CUDA data types with managed memory
-        Tensor<TensorDataType::FP32, CudaManagedMemoryResource> fp32_tensor( "CUDA:0", shape );
-        Tensor<TensorDataType::FP16, CudaManagedMemoryResource> fp16_tensor( "CUDA:0", shape );
-        Tensor<TensorDataType::BF16, CudaManagedMemoryResource> bf16_tensor( "CUDA:0", shape );
-        Tensor<TensorDataType::INT8, CudaManagedMemoryResource> int8_tensor( "CUDA:0", shape );
-        Tensor<TensorDataType::INT32, CudaManagedMemoryResource> int32_tensor( "CUDA:0", shape );
-        Tensor<TensorDataType::UINT32, CudaManagedMemoryResource> uint32_tensor( "CUDA:0", shape );
+        Tensor<TensorDataType::FP32, CudaManagedMemoryResource> fp32_tensor( Device::Cuda(0), shape );
+        Tensor<TensorDataType::FP16, CudaManagedMemoryResource> fp16_tensor( Device::Cuda(0), shape );
+        Tensor<TensorDataType::BF16, CudaManagedMemoryResource> bf16_tensor( Device::Cuda(0), shape );
+        Tensor<TensorDataType::INT8, CudaManagedMemoryResource> int8_tensor( Device::Cuda(0), shape );
+        Tensor<TensorDataType::INT32, CudaManagedMemoryResource> int32_tensor( Device::Cuda(0), shape );
+        Tensor<TensorDataType::UINT32, CudaManagedMemoryResource> uint32_tensor( Device::Cuda(0), shape );
 
         // Verify managed memory accessibility
         EXPECT_TRUE( fp32_tensor.is_host_accessible() );
@@ -547,13 +529,13 @@ namespace Dnn::Tensors::Tests
         shape_t shape = { 2, 3 };
 
         // Test selection of CUDA data types with pinned memory
-        Tensor<TensorDataType::FP32, CudaPinnedMemoryResource> fp32_tensor( "CUDA:0", shape );
-        Tensor<TensorDataType::FP16, CudaPinnedMemoryResource> fp16_tensor( "CUDA:0", shape );
-        Tensor<TensorDataType::BF16, CudaPinnedMemoryResource> bf16_tensor( "CUDA:0", shape );
-        Tensor<TensorDataType::FP8_E4M3, CudaPinnedMemoryResource> fp8_e4m3_tensor( "CUDA:0", shape );
-        Tensor<TensorDataType::INT8, CudaPinnedMemoryResource> int8_tensor( "CUDA:0", shape );
-        Tensor<TensorDataType::INT32, CudaPinnedMemoryResource> int32_tensor( "CUDA:0", shape );
-        Tensor<TensorDataType::UINT16, CudaPinnedMemoryResource> uint16_tensor( "CUDA:0", shape );
+        Tensor<TensorDataType::FP32, CudaPinnedMemoryResource> fp32_tensor( Device::Cuda(0), shape );
+        Tensor<TensorDataType::FP16, CudaPinnedMemoryResource> fp16_tensor( Device::Cuda(0), shape );
+        Tensor<TensorDataType::BF16, CudaPinnedMemoryResource> bf16_tensor( Device::Cuda(0), shape );
+        Tensor<TensorDataType::FP8_E4M3, CudaPinnedMemoryResource> fp8_e4m3_tensor( Device::Cuda(0), shape );
+        Tensor<TensorDataType::INT8, CudaPinnedMemoryResource> int8_tensor( Device::Cuda(0), shape );
+        Tensor<TensorDataType::INT32, CudaPinnedMemoryResource> int32_tensor( Device::Cuda(0), shape );
+        Tensor<TensorDataType::UINT16, CudaPinnedMemoryResource> uint16_tensor( Device::Cuda(0), shape );
 
         // Verify pinned memory accessibility
         EXPECT_TRUE( fp32_tensor.is_host_accessible() );
@@ -595,7 +577,7 @@ namespace Dnn::Tensors::Tests
 
         // Host-compatible types with managed memory
         {
-            Tensor<TensorDataType::FP32, CudaManagedMemoryResource> tensor( "CUDA:0", shape_t{ 2, 3 } );
+            Tensor<TensorDataType::FP32, CudaManagedMemoryResource> tensor( Device::Cuda(0), shape_t{ 2, 3 } );
             EXPECT_TRUE( tensor.is_host_accessible() );
             EXPECT_TRUE( tensor.is_device_accessible() );
             EXPECT_EQ( tensor.getDataType(), TensorDataType::FP32 );
@@ -603,7 +585,7 @@ namespace Dnn::Tensors::Tests
 
         // Device-specific types with managed memory
         {
-            Tensor<TensorDataType::FP16, CudaManagedMemoryResource> tensor( "CUDA:0", shape_t{ 2, 3 } );
+            Tensor<TensorDataType::FP16, CudaManagedMemoryResource> tensor( Device::Cuda(0), shape_t{ 2, 3 } );
             EXPECT_TRUE( tensor.is_host_accessible() );
             EXPECT_TRUE( tensor.is_device_accessible() );
             EXPECT_EQ( tensor.getDataType(), TensorDataType::FP16 );
@@ -611,7 +593,7 @@ namespace Dnn::Tensors::Tests
 
         // Device-only types with managed memory
         {
-            Tensor<TensorDataType::FP8_E4M3, CudaManagedMemoryResource> tensor( "CUDA:0", shape_t{ 2, 3 } );
+            Tensor<TensorDataType::FP8_E4M3, CudaManagedMemoryResource> tensor( Device::Cuda(0), shape_t{ 2, 3 } );
             EXPECT_TRUE( tensor.is_host_accessible() );
             EXPECT_TRUE( tensor.is_device_accessible() );
             EXPECT_EQ( tensor.getDataType(), TensorDataType::FP8_E4M3 );
@@ -625,7 +607,7 @@ namespace Dnn::Tensors::Tests
 
         // Standard floating-point types
         {
-            Tensor<TensorDataType::FP32, CudaPinnedMemoryResource> tensor( "CUDA:0", shape_t{ 2, 3 } );
+            Tensor<TensorDataType::FP32, CudaPinnedMemoryResource> tensor( Device::Cuda(0), shape_t{ 2, 3 } );
             EXPECT_TRUE( tensor.is_host_accessible() );
             EXPECT_TRUE( tensor.is_device_accessible() );
             EXPECT_EQ( tensor.getDataType(), TensorDataType::FP32 );
@@ -633,7 +615,7 @@ namespace Dnn::Tensors::Tests
 
         // Half precision types
         {
-            Tensor<TensorDataType::FP16, CudaPinnedMemoryResource> tensor( "CUDA:0", shape_t{ 2, 3 } );
+            Tensor<TensorDataType::FP16, CudaPinnedMemoryResource> tensor( Device::Cuda(0), shape_t{ 2, 3 } );
             EXPECT_TRUE( tensor.is_host_accessible() );
             EXPECT_TRUE( tensor.is_device_accessible() );
             EXPECT_EQ( tensor.getDataType(), TensorDataType::FP16 );
@@ -641,7 +623,7 @@ namespace Dnn::Tensors::Tests
 
         // Integer types
         {
-            Tensor<TensorDataType::INT32, CudaPinnedMemoryResource> tensor( "CUDA:0", shape_t{ 2, 3 } );
+            Tensor<TensorDataType::INT32, CudaPinnedMemoryResource> tensor( Device::Cuda(0), shape_t{ 2, 3 } );
             EXPECT_TRUE( tensor.is_host_accessible() );
             EXPECT_TRUE( tensor.is_device_accessible() );
             EXPECT_EQ( tensor.getDataType(), TensorDataType::INT32 );
@@ -652,8 +634,8 @@ namespace Dnn::Tensors::Tests
     TEST_F( TensorConstructionTest, TypeConstraintValidation_DataTypeTraitsConsistency ) {
         // Verify data type names are consistent
         if (has_cuda_) {
-            Tensor<TensorDataType::FP16, CudaDeviceMemoryResource> cuda_tensor( "CUDA:0", shape_t{ 2, 3 } );
-            Tensor<TensorDataType::FP16, CudaManagedMemoryResource> managed_tensor( "CUDA:0", shape_t{ 2, 3 } );
+            Tensor<TensorDataType::FP16, CudaDeviceMemoryResource> cuda_tensor( Device::Cuda(0), shape_t{ 2, 3 } );
+            Tensor<TensorDataType::FP16, CudaManagedMemoryResource> managed_tensor( Device::Cuda(0), shape_t{ 2, 3 } );
 
             EXPECT_EQ( cuda_tensor.getDataTypeName(), managed_tensor.getDataTypeName() );
             EXPECT_EQ( cuda_tensor.getDataTypeName(), "FP16" );
@@ -661,7 +643,7 @@ namespace Dnn::Tensors::Tests
 
         // Verify device-only type characteristics
         if (has_cuda_) {
-            Tensor<TensorDataType::FP8_E4M3, CudaDeviceMemoryResource> tensor( "CUDA:0", shape_t{ 2, 3 } );
+            Tensor<TensorDataType::FP8_E4M3, CudaDeviceMemoryResource> tensor( Device::Cuda(0), shape_t{ 2, 3 } );
             EXPECT_EQ( tensor.getDataTypeName(), "FP8_E4M3" );
         }
     }

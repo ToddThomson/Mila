@@ -105,7 +105,7 @@ namespace Mila::Dnn
             // Determine weight shape from config and input (helper in config assumed)
             shape_t wshape = config_.computeWeightShape( input_shape );
 
-            auto device = exec_context_->getDevice();
+            auto device = exec_context_->getDeviceId();
             weight_ = std::make_shared<TensorType>( device, wshape );
             weight_->setName( this->getName() + ".weight" );
 
@@ -192,9 +192,9 @@ namespace Mila::Dnn
             return config_.getName();
         }
 
-        std::shared_ptr<ComputeDevice> getDevice() const override
+        std::shared_ptr<Device> getDevice() const override
         {
-            return exec_context_->getDevice();
+            return exec_context_->getDeviceId();
         }
 
         void synchronize() override
@@ -274,7 +274,7 @@ namespace Mila::Dnn
 
         void initializeParameterGradients()
         {
-            auto device = exec_context_->getDevice();
+            auto device = exec_context_->getDeviceId();
 
             if (!weight_grad_ && weight_)
             {

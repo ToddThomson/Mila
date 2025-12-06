@@ -67,8 +67,8 @@ namespace Modules::Layers::Tests
         EXPECT_TRUE( module->isBuilt() );
 
         // Prepare concatenated QKV input and output tensors in model-layout
-        CpuTensor<TensorDataType::FP32> input( exec_ctx_->getDevice(), input_shape );
-        CpuTensor<TensorDataType::FP32> output( exec_ctx_->getDevice(), output_shape );
+        CpuTensor<TensorDataType::FP32> input( exec_ctx_->getDeviceId(), input_shape );
+        CpuTensor<TensorDataType::FP32> output( exec_ctx_->getDeviceId(), output_shape );
 
         // Fill deterministic values on CPU
         for (size_t i = 0; i < input.size(); ++i)

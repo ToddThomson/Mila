@@ -15,12 +15,12 @@ namespace Mila::Dnn::Data::Tests
     class MockDataLoader : public DatasetReader<TInput, TTarget, TMemoryResource>
     {
     public:
-        MockDataLoader( int64_t batch_size, int64_t num_batches, const std::string& device_name = "CPU" )
+        MockDataLoader( int64_t batch_size, int64_t num_batches, DeviceId device_id = Device::Cpu() )
             : DatasetReader<TInput, TTarget, TMemoryResource>( batch_size ),
             num_batches_( num_batches ),
-            device_name_( device_name ),
-            input_tensor_( device_name, { static_cast<int64_t>(batch_size), 10 } ),
-            target_tensor_( device_name, { static_cast<int64_t>(batch_size), 5 } )
+            device_id_( device_id ),
+            input_tensor_( device_id, { static_cast<int64_t>(batch_size), 10 } ),
+            target_tensor_( device_id, { static_cast<int64_t>(batch_size), 5 } )
         {
             // Initialize tensors using Mila tensor initialization helpers
             initializeTensors();
@@ -113,7 +113,7 @@ namespace Mila::Dnn::Data::Tests
         }
 
         int64_t num_batches_;
-        std::string device_name_;
+        DeviceId device_id_;
         typename DatasetReader<TInput, TTarget, TMemoryResource>::InputTensor input_tensor_;
         typename DatasetReader<TInput, TTarget, TMemoryResource>::TargetTensor target_tensor_;
     };
@@ -369,7 +369,7 @@ namespace Mila::Dnn::Data::Tests
     TEST_F( DataLoaderTest, CudaPinnedMemoryResource )
     {
         MockDataLoader<TensorDataType::FP32, TensorDataType::FP32, CudaPinnedMemoryResource> loader(
-            batch_size_, num_batches_, "CUDA:0" );
+            batch_size_, num_batches_, Device::Cuda(0) );
 
         EXPECT_EQ( loader.batchSize(), batch_size_ );
         EXPECT_TRUE( loader.usesPinnedMemory() );
@@ -390,8 +390,8 @@ namespace Mila::Dnn::Data::Tests
             TestCpuLoader( size_t batch_size, size_t num_batches )
                 : CpuDataLoader<TensorDataType::FP32>( batch_size ),
                 num_batches_( num_batches ),
-                input_( "CPU", { static_cast<int64_t>(batch_size), 10 } ),
-                target_( "CPU", { static_cast<int64_t>(batch_size), 5 } )
+                input_( Device::Cpu(), { static_cast<int64_t>(batch_size), 10 } ),
+                target_( Device::Cpu(), { static_cast<int64_t>(batch_size), 5 } )
             {
                 zeros( input_ );
                 zeros( target_ );
@@ -443,8 +443,8 @@ namespace Mila::Dnn::Data::Tests
             TestPinnedLoader( size_t batch_size, size_t num_batches )
                 : PinnedDataLoader<TensorDataType::FP32>( batch_size ),
                 num_batches_( num_batches ),
-                input_( "CUDA:0", { static_cast<int64_t>(batch_size), 10 } ),
-                target_( "CUDA:0", { static_cast<int64_t>(batch_size), 5 } )
+                input_( Device::Cuda(0), { static_cast<int64_t>(batch_size), 10 } ),
+                target_( Device::Cuda(0), { static_cast<int64_t>(batch_size), 5 } )
             {
                 zeros( input_ );
                 zeros( target_ );

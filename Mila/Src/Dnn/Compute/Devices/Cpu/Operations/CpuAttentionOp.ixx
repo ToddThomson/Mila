@@ -302,11 +302,11 @@ namespace Mila::Dnn::Compute
             std::memset( dIn, 0, static_cast<size_t>(B) * T * (3 * D) * sizeof( float ) );
 
             // Temporary buffers for intermediate grads dAtt, dPreatt
-            auto device = context_->getDevice();
+            auto device_id = context_->getDeviceId();
             shape_t score_shape = { B, NH, T, T };
 
-            TensorType dAtt( device, score_shape );
-            TensorType dPreatt( device, score_shape );
+            TensorType dAtt( device_id, score_shape );
+            TensorType dPreatt( device_id, score_shape );
 
             float* datt_data = dAtt.data();
             float* dpreatt_data = dPreatt.data();
@@ -487,7 +487,7 @@ namespace Mila::Dnn::Compute
 
         void allocateStateTensors()
         {
-            auto device = context_->getDevice();
+            auto device_id = context_->getDeviceId();
 
             const int64_t B = cached_batch_size_;
             const int64_t NH = cached_num_heads_;
@@ -495,10 +495,10 @@ namespace Mila::Dnn::Compute
 
             shape_t score_shape = { B, NH, T, T };
 
-            preatt_cache_ = std::make_shared<TensorType>( device, score_shape );
+            preatt_cache_ = std::make_shared<TensorType>( device_id, score_shape );
             preatt_cache_->setName( "preatt_cache" );
 
-            att_cache_ = std::make_shared<TensorType>( device, score_shape );
+            att_cache_ = std::make_shared<TensorType>( device_id, score_shape );
             att_cache_->setName( "att_cache" );
         }
     };

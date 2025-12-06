@@ -18,7 +18,7 @@ import Dnn.Tensor;
 import Dnn.TensorTraits;
 import Compute.DeviceType;
 import Compute.DeviceContext;
-import Compute.ComputeDevice;
+import Compute.Device;
 import Compute.CpuDevice;
 import Compute.CudaDevice;
 import Compute.CpuMemoryResource;
@@ -84,7 +84,7 @@ namespace Mila::Dnn
         /**
         * @brief Constructs a new Model object with a specific device name.
         *
-        * @param device_name The name of the device to use (e.g., "CUDA:0", "CPU").
+        * @param device_name The name of the device to use (e.g., "CUDA:0", Device::Cpu()).
         */
         Model( const std::string& device_name )
             : ComponentBase( device_name ) {
@@ -99,7 +99,7 @@ namespace Mila::Dnn
         ~Model() {
             // Clean up resources
             if ( stream_created_ && stream_ != nullptr ) {
-                auto device_type = this->getDeviceContext()->getDevice()->getDeviceType();
+                auto device_type = this->getDeviceContext()->getDeviceId()->getDeviceType();
                 if ( device_type == Compute::DeviceType::Cuda ) {
                     cudaStreamDestroy( stream_ );
                 }
@@ -109,7 +109,7 @@ namespace Mila::Dnn
         /**
         * @brief Sets the device to use for this model by name.
         *
-        * @param device_name The name of the device to use (e.g., "CUDA:0", "CPU").
+        * @param device_name The name of the device to use (e.g., "CUDA:0", Device::Cpu()).
         */
         void setDevice( const std::string& device_name ) {
             auto context = std::make_shared<Compute::DeviceContext>( device_name );
@@ -133,7 +133,7 @@ namespace Mila::Dnn
         * Only applicable for CUDA devices.
         */
         void captureGraphBegin() {
-            if ( this->getDeviceContext()->getDevice()->getDeviceType() == Compute::DeviceType::Cuda ) {
+            if ( this->getDeviceContext()->getDeviceId()->getDeviceType() == Compute::DeviceType::Cuda ) {
                 cudaStreamBeginCapture( stream_, cudaStreamCaptureModeGlobal );
                 graph_capture_active_ = true;
             }
@@ -567,7 +567,7 @@ namespace Mila::Dnn
         void print() const {
             std::cout << "Model Summary:" << std::endl;
             std::cout << "=============" << std::endl;
-            std::cout << "Device: " << deviceTypeToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
+            std::cout << "Device: " << deviceTypeToString( this->getDeviceContext()->getDeviceId()->getDeviceType() ) << std::endl;
 
             std::cout << "Modules: " << std::endl;
             for ( const auto& [name, module] : this->getComponents() ) {
@@ -585,8 +585,8 @@ namespace Mila::Dnn
         *
         * @return Reference to the model's compute device.
         */
-        Compute::ComputeDevice& getDevice() const {
-            return *this->getDeviceContext()->getDevice();
+        Compute::Device& getDevice() const {
+            return *this->getDeviceContext()->getDeviceId();
         }
 
     protected:
@@ -616,7 +616,7 @@ namespace Mila::Dnn
             }
 
             // Get the current device type
-            auto device_type = this->getDeviceContext()->getDevice()->getDeviceType();
+            auto device_type = this->getDeviceContext()->getDeviceId()->getDeviceType();
             old_device_type_ = device_type;
 
             // Initialize resources for the new device

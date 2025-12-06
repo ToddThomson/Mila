@@ -77,7 +77,7 @@ namespace Mila::Mnist
 
             // Use the supplied execution context to construct child modules.
             // NetworkBase stores a non-owning reference; this class does not keep exec_context.
-            createComponents(); // std::static_pointer_cast<ExecutionContextType>(this->getDevice()->getExecutionContext()) );
+            createComponents(); // std::static_pointer_cast<ExecutionContextType>(this->getDeviceId()->getExecutionContext()) );
         }
 
         ~MnistClassifier() override = default;
@@ -111,7 +111,7 @@ namespace Mila::Mnist
             gelu2_->build( hidden2_shape_ );
             output_fc_->build(  hidden2_shape_ );
 
-            auto device = this->getDevice();
+            auto device = this->getDeviceId();
 
             hidden1_pre_act_ = std::make_shared<TensorType>( device, hidden1_shape_ );
             hidden1_pre_act_->setName( this->getName() + ".hidden1_pre_act" );
@@ -165,7 +165,7 @@ namespace Mila::Mnist
                 throw std::runtime_error( "MnistClassifier must be built before calling backward." );
             }
 
-            auto device = this->getDevice();
+            auto device = this->getDeviceId();
 
             TensorType hidden2_grad( device, hidden2_shape_ );
             zeros( hidden2_grad );
@@ -211,9 +211,9 @@ namespace Mila::Mnist
         // Module interface
         // ====================================================================
 
-        std::shared_ptr<ComputeDevice> getDevice() const override
+        DeviceId getDeviceId() const override
         {
-            return NetworkBase::getDevice();
+            return NetworkBase::getDeviceId();
         }
 
         void synchronize() override
@@ -289,18 +289,13 @@ namespace Mila::Mnist
             std::ostringstream oss;
             oss << std::endl;
             oss << "MNIST Classifier: " << this->getName() << std::endl;
+            oss << "Device: " << getDeviceId().toString() << std::endl;
             oss << "Architecture:" << std::endl;
             oss << "  Input:   784 features (28x28 flattened)" << std::endl;
             oss << "  Layer 1: 784 -> " << HIDDEN1_SIZE << " + GELU" << std::endl;
             oss << "  Layer 2: " << HIDDEN1_SIZE << " -> " << HIDDEN2_SIZE << " + GELU" << std::endl;
             oss << "  Output:  " << HIDDEN2_SIZE << " -> " << MNIST_NUM_CLASSES << " classes" << std::endl;
             oss << "Parameters: " << parameterCount() << std::endl;
-
-            if (auto dev = this->getDevice())
-            {
-                oss << "Device: " << deviceTypeToString( dev->getDeviceType() ) << std::endl;
-            }
-
             oss << "Batch size: " << batch_size_ << std::endl;
 
             if (this->isBuilt())

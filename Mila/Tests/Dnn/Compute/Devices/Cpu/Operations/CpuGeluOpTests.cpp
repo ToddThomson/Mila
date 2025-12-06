@@ -127,8 +127,8 @@ namespace Dnn::Compute::Device::Cpu::Operations::Tests
 		// Operation must be built for the input shape before execution.
 		ASSERT_NO_THROW( op_->build( small_shape_ ) );
 
-		Tensor<dtype_t::FP32, CpuMemoryResource> input( exec_ctx_->getDevice(), small_shape_ );
-		Tensor<dtype_t::FP32, CpuMemoryResource> output( exec_ctx_->getDevice(), small_shape_ );
+		Tensor<dtype_t::FP32, CpuMemoryResource> input( exec_ctx_->getDeviceId(), small_shape_ );
+		Tensor<dtype_t::FP32, CpuMemoryResource> output( exec_ctx_->getDeviceId(), small_shape_ );
 
 		float* in_data = static_cast<float*>(input.rawData());
 
@@ -162,8 +162,8 @@ namespace Dnn::Compute::Device::Cpu::Operations::Tests
 		// Operation must be built for the input shape before execution.
 		ASSERT_NO_THROW( op_->build( small_shape_ ) );
 
-		TensorT input( exec_ctx_->getDevice(), small_shape_ );
-		TensorT output( exec_ctx_->getDevice(), small_shape_ );
+		TensorT input( exec_ctx_->getDeviceId(), small_shape_ );
+		TensorT output( exec_ctx_->getDeviceId(), small_shape_ );
 
 		float* in_data = static_cast<float*>(input.rawData());
 
@@ -231,9 +231,9 @@ namespace Dnn::Compute::Device::Cpu::Operations::Tests
 		// Build for medium shape used in this test.
 		ASSERT_NO_THROW( op_->build( medium_shape_ ) );
 
-		TensorT input( exec_ctx_->getDevice(), medium_shape_ );
-		TensorT out1( exec_ctx_->getDevice(), medium_shape_ );
-		TensorT out2( exec_ctx_->getDevice(), medium_shape_ );
+		TensorT input( exec_ctx_->getDeviceId(), medium_shape_ );
+		TensorT out1( exec_ctx_->getDeviceId(), medium_shape_ );
+		TensorT out2( exec_ctx_->getDeviceId(), medium_shape_ );
 
 		float* in_data = static_cast<float*>(input.rawData());
 
@@ -319,7 +319,7 @@ namespace Dnn::Compute::Device::Cpu::Operations::Tests
 			ASSERT_NO_THROW( tanh_op->build( small_shape_ ) );
 
 			using TensorT = Tensor<TensorDataType::FP32, CpuMemoryResource>;
-			TensorT input( exec_ctx_->getDevice(), small_shape_ ), out( exec_ctx_->getDevice(), small_shape_ );
+			TensorT input( exec_ctx_->getDeviceId(), small_shape_ ), out( exec_ctx_->getDeviceId(), small_shape_ );
 			float* d = static_cast<float*>(input.rawData());
 
 			for (size_t i = 0; i < input.size(); ++i)
@@ -366,7 +366,7 @@ namespace Dnn::Compute::Device::Cpu::Operations::Tests
 		// Build for the large shape used in performance runs.
 		ASSERT_NO_THROW( op_->build( large_shape_ ) );
 
-		TensorT a( exec_ctx_->getDevice(), large_shape_ ), out( exec_ctx_->getDevice(), large_shape_ );
+		TensorT a( exec_ctx_->getDeviceId(), large_shape_ ), out( exec_ctx_->getDeviceId(), large_shape_ );
 		float* ad = static_cast<float*>(a.rawData());
 
 		for (size_t i = 0; i < a.size(); ++i)

@@ -22,7 +22,8 @@ import Dnn.ITensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorTypes;
-import Compute.ComputeDevice;
+import Compute.Device;
+import Compute.DeviceId;
 import Compute.DeviceType;
 import Serialization.ModelArchive;
 import Serialization.Mode;
@@ -256,6 +257,13 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
+         * @brief Get the compute device id associated with this module.
+         *
+         * Must return the device on which parameters and operations execute.
+         */
+        virtual DeviceId getDeviceId() const = 0;
+
+        /**
          * @brief Compile-time device type for this module instance.
          */
         static constexpr DeviceType getDeviceType()
@@ -269,12 +277,7 @@ namespace Mila::Dnn
         }
 
 
-        /**
-         * @brief Get the compute device associated with this module.
-         *
-         * Must return the device on which parameters and operations execute.
-         */
-        virtual std::shared_ptr<ComputeDevice> getDevice() const = 0;
+        
 
         // ====================================================================
         // Operators

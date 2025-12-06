@@ -14,7 +14,8 @@ module;
 
 export module Compute.MetalDevice;
 
-import Compute.ComputeDevice;
+import Compute.Device;
+import Compute.DeviceId;
 import Compute.DeviceType;
 // FUTURE: import Compute.MetalMemoryResource;
 // FUTURE: import Compute.MetalManagedMemoryResource;
@@ -57,8 +58,8 @@ namespace Mila::Dnn::Compute
 		 * @brief Gets the CUDA device ID.
 		 * @return int The device ID for this CUDA device (0-based)
 		 */
-		constexpr int getDeviceId() const override {
-			return device_index_;
+		DeviceId getDeviceId() const override {
+			return DeviceId( DeviceType::Metal, device_index_ );
 		}
 
 		/**

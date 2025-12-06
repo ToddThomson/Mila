@@ -207,9 +207,9 @@ namespace Modules::Normalization::Tests
         EXPECT_EQ( data.module->getDeviceType(), DeviceType::Cpu );
         ASSERT_NE( data.exec_context, nullptr );
 
-        auto device = data.exec_context->getDevice();
-        ASSERT_NE( device, nullptr );
-        EXPECT_EQ( device->getDeviceType(), DeviceType::Cpu );
+        auto device = data.exec_context->getDeviceId();
+
+        EXPECT_EQ( device.type, DeviceType::Cpu );
     }
 
     template<TensorDataType TPrecision>
@@ -277,8 +277,8 @@ namespace Modules::Normalization::Tests
 
         data.module->build( data.shape );
 
-        TensorType input( "CPU", data.shape );
-        TensorType output( "CPU", data.shape );
+        TensorType input( Device::Cpu(), data.shape );
+        TensorType output( Device::Cpu(), data.shape );
 
         random( input, -2.0f, 2.0f );
 
@@ -510,8 +510,8 @@ namespace Modules::Normalization::Tests
         auto data = MediumFp32Data();
         data.module->build( data.shape );
 
-        CpuTensor<TensorDataType::FP32> input( "CPU", data.shape );
-        CpuTensor<TensorDataType::FP32> output( "CPU", data.shape );
+        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.shape );
+        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.shape );
 
         std::mt19937 rng( 123 );
         std::uniform_real_distribution<float> dist( -5.0f, 5.0f );
@@ -562,8 +562,8 @@ namespace Modules::Normalization::Tests
 
         data.module->build( data.shape );
 
-        CpuTensor<TensorDataType::FP32> input( "CPU", shape );
-        CpuTensor<TensorDataType::FP32> output( "CPU", shape );
+        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), shape );
+        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), shape );
 
         std::mt19937 rng( 456 );
         std::uniform_real_distribution<float> dist( -3.0f, 3.0f );
@@ -651,8 +651,8 @@ namespace Modules::Normalization::Tests
         auto data = SmallFp32Data();
         data.module->build( data.shape );
 
-        CpuTensor<TensorDataType::FP32> input( "CPU", data.shape );
-        CpuTensor<TensorDataType::FP32> output( "CPU", data.shape );
+        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.shape );
+        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.shape );
 
         auto input_ptr = input.data();
 
@@ -669,8 +669,8 @@ namespace Modules::Normalization::Tests
         auto data = SmallFp32Data();
         data.module->build( data.shape );
 
-        CpuTensor<TensorDataType::FP32> input( "CPU", data.shape );
-        CpuTensor<TensorDataType::FP32> output( "CPU", data.shape );
+        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.shape );
+        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.shape );
 
         auto input_ptr = input.data();
 
@@ -713,8 +713,8 @@ namespace Modules::Normalization::Tests
         auto data = LayerNormCpuTestData<TensorDataType::FP32>::CreateWithAxis(
             "unbuild", medium_shape_, -1 );
 
-        CpuTensor<TensorDataType::FP32> input( "CPU", data.shape );
-        CpuTensor<TensorDataType::FP32> output( "CPU", data.shape );
+        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.shape );
+        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.shape );
 
         EXPECT_THROW(
             data.module->forward( input, output ),
@@ -729,8 +729,8 @@ namespace Modules::Normalization::Tests
 
         shape_t wrong_shape = { 2, 3, 8 };
 
-        CpuTensor<TensorDataType::FP32> input( "CPU", wrong_shape );
-        CpuTensor<TensorDataType::FP32> output( "CPU", wrong_shape );
+        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), wrong_shape );
+        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), wrong_shape );
 
         EXPECT_THROW(
             data.module->forward( input, output ),
@@ -763,8 +763,8 @@ namespace Modules::Normalization::Tests
         auto data = MediumFp32Data();
         data.module->build( data.shape );
 
-        CpuTensor<TensorDataType::FP32> input( "CPU", data.shape );
-        CpuTensor<TensorDataType::FP32> output( "CPU", data.shape );
+        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.shape );
+        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.shape );
 
         std::mt19937 rng( 789 );
         std::uniform_real_distribution<float> dist( -2.0f, 2.0f );

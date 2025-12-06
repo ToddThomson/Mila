@@ -25,7 +25,7 @@ namespace Modules::Connections::Tests
         {
             // Use DeviceRegistry to determine whether CUDA support was registered.
             // Tests must not call CUDA runtime APIs directly.
-            cuda_available_ = DeviceRegistry::instance().hasDeviceType( "CUDA" );
+            cuda_available_ = DeviceRegistry::instance().hasDeviceType( DeviceType::Cuda );
 
             small_shape_ = { 2, 3, 4 }; // small tensor for correctness checks
         }
@@ -54,7 +54,7 @@ namespace Modules::Connections::Tests
         ResidualConfig cfg;
         cfg.withName( "res_paramcount" );
 
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
         auto module = std::make_shared<Residual<DeviceType::Cuda, TensorDataType::FP32>>( ctx, cfg );
 
         EXPECT_EQ( module->parameterCount(), 0u );
@@ -67,7 +67,7 @@ namespace Modules::Connections::Tests
         ResidualConfig cfg;
         cfg.withName( "res_info" );
 
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
         auto module = std::make_shared<Residual<DeviceType::Cuda, TensorDataType::FP32>>( ctx, cfg );
 
         EXPECT_EQ( module->getName(), "res_info" );
@@ -83,12 +83,12 @@ namespace Modules::Connections::Tests
         ResidualConfig cfg;
         cfg.withName( "res_forward" ).withScalingFactor( 1.0f );
 
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
         auto module = std::make_shared<Residual<DeviceType::Cuda, TensorDataType::FP32>>( ctx, cfg );
 
         // Host inputs (CPU)
-        HostTensor host_A( "CPU", small_shape_ );
-        HostTensor host_B( "CPU", small_shape_ );
+        HostTensor host_A( Device::Cpu(), small_shape_ );
+        HostTensor host_B( Device::Cpu(), small_shape_ );
 
         // Fill deterministic values
         for (size_t i = 0; i < host_A.size(); ++i)
@@ -98,9 +98,9 @@ namespace Modules::Connections::Tests
         }
 
         // Device tensors
-        CudaTensor<TensorDataType::FP32> device_A( ctx->getDevice(), small_shape_ );
-        CudaTensor<TensorDataType::FP32> device_B( ctx->getDevice(), small_shape_ );
-        CudaTensor<TensorDataType::FP32> device_Y( ctx->getDevice(), small_shape_ );
+        CudaTensor<TensorDataType::FP32> device_A( ctx->getDeviceId(), small_shape_ );
+        CudaTensor<TensorDataType::FP32> device_B( ctx->getDeviceId(), small_shape_ );
+        CudaTensor<TensorDataType::FP32> device_Y( ctx->getDeviceId(), small_shape_ );
 
         // Copy host -> device
         copy( host_A, device_A );
@@ -128,18 +128,18 @@ namespace Modules::Connections::Tests
         ResidualConfig cfg;
         cfg.withName( "res_minimal" );
 
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
         auto module = std::make_shared<Residual<DeviceType::Cuda, TensorDataType::FP32>>( ctx, cfg );
 
         shape_t minimal = { 1 };
-        HostTensor host_A( "CPU", minimal );
-        HostTensor host_B( "CPU", minimal );
+        HostTensor host_A( Device::Cpu(), minimal );
+        HostTensor host_B( Device::Cpu(), minimal );
         host_A.data()[0] = 1.0f;
         host_B.data()[0] = 2.0f;
 
-        CudaTensor<TensorDataType::FP32> device_A( ctx->getDevice(), minimal );
-        CudaTensor<TensorDataType::FP32> device_B( ctx->getDevice(), minimal );
-        CudaTensor<TensorDataType::FP32> device_Y( ctx->getDevice(), minimal );
+        CudaTensor<TensorDataType::FP32> device_A( ctx->getDeviceId(), minimal );
+        CudaTensor<TensorDataType::FP32> device_B( ctx->getDeviceId(), minimal );
+        CudaTensor<TensorDataType::FP32> device_Y( ctx->getDeviceId(), minimal );
 
         copy( host_A, device_A );
         copy( host_B, device_B );

@@ -127,7 +127,7 @@ namespace Mila::Dnn::Compute::Cuda
             {
                 // Caller-provided context - borrow stream, let caller control sync
                 stream = exec_context->getStream();
-                device_id = exec_context->getDeviceId();
+                device_id = exec_context->getDeviceId().index;
             }
             else
             {
@@ -140,7 +140,7 @@ namespace Mila::Dnn::Compute::Cuda
                     );
                 }
 
-                device_id = device->getDeviceId();
+                device_id = device->getDeviceId().index;
                 Cuda::setCurrentDevice( device_id );
                 stream = nullptr;  // Default stream
                 needs_sync = true;  // Must sync default stream before returning
@@ -204,7 +204,7 @@ namespace Mila::Dnn::Compute::Cuda
             if (exec_context)
             {
                 stream = exec_context->getStream();
-                device_id = exec_context->getDeviceId();
+                device_id = exec_context->getDeviceId().index;
             }
             else
             {
@@ -216,7 +216,7 @@ namespace Mila::Dnn::Compute::Cuda
                     );
                 }
 
-                device_id = device->getDeviceId();
+                device_id = device->getDeviceId().index;
                 Cuda::setCurrentDevice( device_id );
                 stream = nullptr;
                 needs_sync = true;
@@ -279,7 +279,7 @@ namespace Mila::Dnn::Compute::Cuda
             if (exec_context)
             {
                 stream = exec_context->getStream();
-                device_id = exec_context->getDeviceId();
+                device_id = exec_context->getDeviceId().index;
             }
             else
             {
@@ -291,7 +291,7 @@ namespace Mila::Dnn::Compute::Cuda
                     );
                 }
 
-                device_id = device->getDeviceId();
+                device_id = device->getDeviceId().index;
                 Cuda::setCurrentDevice( device_id );
                 stream = nullptr;
                 needs_sync = true;
@@ -361,7 +361,7 @@ namespace Mila::Dnn::Compute::Cuda
             if (exec_context)
             {
                 stream = exec_context->getStream();
-                device_id = exec_context->getDeviceId();
+                device_id = exec_context->getDeviceId().index;
             }
             else
             {
@@ -433,7 +433,7 @@ namespace Mila::Dnn::Compute::Cuda
             if (exec_context)
             {
                 stream = exec_context->getStream();
-                device_id = exec_context->getDeviceId();
+                device_id = exec_context->getDeviceId().index;
             }
             else
             {
@@ -445,7 +445,7 @@ namespace Mila::Dnn::Compute::Cuda
                     );
                 }
 
-                device_id = device->getDeviceId();
+                device_id = device->getDeviceId().index;
                 Cuda::setCurrentDevice( device_id );
                 stream = nullptr;
             }

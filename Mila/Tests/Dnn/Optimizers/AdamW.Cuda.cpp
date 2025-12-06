@@ -13,7 +13,6 @@
 #include <cmath>
 #include <algorithm>
 #include <limits>
-#include <cuda_runtime.h>
 
 import Mila;
 
@@ -32,7 +31,7 @@ namespace Dnn::Optimizers::Tests
         void SetUp() override
         {
             // Use device 0
-            exec_ctx_ = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+            exec_ctx_ = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
 
             small_shape_ = { 2, 3 };
             medium_shape_ = { 10, 20 };
@@ -65,10 +64,10 @@ namespace Dnn::Optimizers::Tests
             float init_value = 1.0f )
         {
             auto param = std::make_shared<Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>>(
-                exec_ctx_->getDevice(), shape );
+                exec_ctx_->getDeviceId(), shape );
 
             // Initialize via host tensor
-            Tensor<TensorDataType::FP32, CpuMemoryResource> host_tensor( "CPU", shape );
+            Tensor<TensorDataType::FP32, CpuMemoryResource> host_tensor( Device::Cpu(), shape );
             auto host_data = host_tensor.data();
 
             for (size_t i = 0; i < host_tensor.size(); ++i)
@@ -91,10 +90,10 @@ namespace Dnn::Optimizers::Tests
             float grad_value = 0.1f )
         {
             auto grad = std::make_shared<Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>>(
-                exec_ctx_->getDevice(), shape );
+                exec_ctx_->getDeviceId(), shape );
 
             // Initialize via host tensor
-            Tensor<TensorDataType::FP32, CpuMemoryResource> host_tensor( "CPU", shape );
+            Tensor<TensorDataType::FP32, CpuMemoryResource> host_tensor( Device::Cpu(), shape );
             auto host_data = host_tensor.data();
 
             for (size_t i = 0; i < host_tensor.size(); ++i)
@@ -115,7 +114,7 @@ namespace Dnn::Optimizers::Tests
         Tensor<TensorDataType::FP32, CpuMemoryResource> copyToHost(
             const Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>& device_tensor )
         {
-            Tensor<TensorDataType::FP32, CpuMemoryResource> host_tensor( "CPU", device_tensor.shape() );
+            Tensor<TensorDataType::FP32, CpuMemoryResource> host_tensor( Device::Cpu(), device_tensor.shape() );
             copy( device_tensor, host_tensor );
             exec_ctx_->synchronize();
 

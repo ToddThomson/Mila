@@ -7,7 +7,6 @@
 #include <memory>
 #include <vector>
 #include <cmath>
-#include <cuda_runtime.h>
 #include <stdexcept>
 #include <random>
 
@@ -25,8 +24,8 @@ namespace Operations::Tests
     protected:
         void SetUp() override {
             // Create device contexts for both CPU and CUDA
-            cuda_context_ = std::make_shared<DeviceContext>( "CUDA:0" );
-            cpu_context_ = std::make_shared<DeviceContext>( "CPU" );
+            cuda_context_ = std::make_shared<DeviceContext>( Device::Cuda(0) );
+            cpu_context_ = std::make_shared<DeviceContext>( Device::Cpu() );
 
             // Define shapes for testing
             small_shape_ = { 2, 16, 64 };  // Small shape for quick tests [Batch, Seq_len, Hidden_dim]

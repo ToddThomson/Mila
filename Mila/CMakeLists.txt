@@ -3,45 +3,44 @@
 set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 
 add_library( Mila STATIC
-    "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaUtils.h"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaOps.h"
+    #"Src/Dnn/Compute/Devices/Cuda/Helpers/CudaUtils.h"
+    #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaOps.h"
 
     #--------------------------------------------------------------------------
     # Cuda Operations Kernels
     #--------------------------------------------------------------------------
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaEncoder.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaLayerNorm.cu"
+    #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaEncoder.cu"
+    #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaLayerNorm.cu"
 
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/CudaReduction.cu"
+    #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/CudaReduction.cu"
 
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/CudaMatMulFp32.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/CudaMatMulFp16.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/CudaLinearGelu.cu"
+    #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/CudaMatMulFp32.cu"
+    #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/CudaMatMulFp16.cu"
+    #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/CudaLinearGelu.cu"
 
     # TJT: Deprecated "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaMHA.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaGelu.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaResidual.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaSoftmax.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaSoftmaxCrossEntropy.cu"
+    #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaGelu.cu"
+    #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaResidual.cu"
+    #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaSoftmax.cu"
+    #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaSoftmaxCrossEntropy.cu"
     
     #--------------------------------------------------------------------------
     # Cuda TensorOps Kernels
     #--------------------------------------------------------------------------
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Transfer.Copy.h"
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorCopy.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorOps.Fill.h"
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorOps.Fill.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/CudaTensorOps.h"
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.h"
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.cu"
+    #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Transfer.Copy.h"
+    #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorCopy.cu"
+    #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorOps.Fill.h"
+    #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorOps.Fill.cu"
+    #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/CudaTensorOps.h"
+    #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.h"
+    #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.cu"
 
     #--------------------------------------------------------------------------
     # Cuda Optimizer Kernels
     #--------------------------------------------------------------------------
-    "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaOptimizers.h"
-    "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaAdamW.cu"
-    "Src/Dnn/Visualization/Components/Block.Visualizer.ixx"
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Reduction.h"
+    #"Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaOptimizers.h"
+    #"Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaAdamW.cu"
+    #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Reduction.h"
 )
 
  set_target_properties( Mila PROPERTIES
@@ -110,17 +109,17 @@ PUBLIC
         #----------------------------------------------------------------------
         # Core
         #----------------------------------------------------------------------
-        "Src/Dnn/Core/Component.ixx"
-        "Src/Dnn/Core/CompositeComponent.ixx"
-        "Src/Dnn/Core/ComponentConfig.ixx"
-        "Src/Dnn/Core/ComponentFactory.ixx"
+        #"Src/Dnn/Core/Component.ixx"
+        #"Src/Dnn/Core/CompositeComponent.ixx"
+        #"Src/Dnn/Core/ComponentConfig.ixx"
+        #"Src/Dnn/Core/ComponentFactory.ixx"
 
         #---------------------------------------------------------------
         # Top-level Utilities
         #---------------------------------------------------------------
         "Src/Utils/Logger.ixx"
         "Src/Utils/DefaultLogger.ixx"
-        "Src/Utils/TrainingLogger.ixx"
+        #"Src/Utils/TrainingLogger.ixx"
         "Src/Utils/RandomGenerator.ixx"
         "Src/Utils/json.ixx"
 
@@ -130,8 +129,11 @@ PUBLIC
         "Src/Dnn/Tensors/Tensor.ixx"
         "Src/Dnn/Tensors/TensorBuffer.ixx"
         "Src/Dnn/Tensors/ITensor.ixx"
+        "Src/Dnn/Tensors/Tensor.Partitioning.ixx"
+        "Src/Dnn/Tensors/Tensor.Types.ixx"
+
         "Src/Dnn/Tensors/TensorDataType.ixx"
-        "Src/Dnn/Tensors/Tensor.Initializers.ixx"
+        #"Src/Dnn/Tensors/Tensor.Initializers.ixx"
         "Src/Dnn/Tensors/Tensor.Serialization.ixx"
 
         "Src/Dnn/Tensors/TensorDataTypeMap.ixx"
@@ -139,63 +141,65 @@ PUBLIC
         "Src/Dnn/Tensors/TensorHostTypeMap.ixx"
 
         # Dnn / Tensors / Operations
-        "Src/Dnn/Tensors/Operations/TensorOps.ixx"
-        "Src/Dnn/Tensors/Operations/TensorOps-Base.ixx"
-        "Src/Dnn/Tensors/Operations/TensorOps.Math.ixx"
-        "Src/Dnn/Tensors/Operations/TensorOps.Fill.ixx"
-        "Src/Dnn/Tensors/Operations/TensorOps.Transfer.ixx"
+        #"Src/Dnn/Tensors/Operations/TensorOps.ixx"
+        #"Src/Dnn/Tensors/Operations/TensorOps-Base.ixx"
+        #"Src/Dnn/Tensors/Operations/TensorOps.Math.ixx"
+        #"Src/Dnn/Tensors/Operations/TensorOps.Fill.ixx"
+        #"Src/Dnn/Tensors/Operations/TensorOps.Transfer.ixx"
                 
         #---------------------------------------------------------------
         # Dnn / Components
         #---------------------------------------------------------------
-        "Src/Dnn/Components/Activations/ActivationType.ixx"
+        #"Src/Dnn/Components/Activations/ActivationType.ixx"
+        
         # Components - Activations
-        "Src/Dnn/Components/Activations/Gelu.ixx"
-        "Src/Dnn/Components/Activations/GeluConfig.ixx"
+        #"Src/Dnn/Components/Activations/Gelu.ixx"
+        #"Src/Dnn/Components/Activations/GeluConfig.ixx"
         
         # Components - Connections
-        "Src/Dnn/Components/Connections/Residual.ixx"
-        "Src/Dnn/Components/Connections/ResidualConfig.ixx"
+        #"Src/Dnn/Components/Connections/Residual.ixx"
+        #"Src/Dnn/Components/Connections/ResidualConfig.ixx"
 
         # Components - Layers
-        "Src/Dnn/Components/Layers/Attention.ixx"
-        "Src/Dnn/Components/Layers/AttentionConfig.ixx"
-        "Src/Dnn/Components/Layers/Linear.ixx"
-        "Src/Dnn/Components/Layers/LinearConfig.ixx"
-        "Src/Dnn/Components/Layers/Encoder.ixx"
-        "Src/Dnn/Components/Layers/EncoderConfig.ixx"
-        "Src/Dnn/Components/Losses/Softmax.ixx"
-        "Src/Dnn/Components/Losses/SoftmaxConfig.ixx"
+        #"Src/Dnn/Components/Layers/Attention.ixx"
+        #"Src/Dnn/Components/Layers/AttentionConfig.ixx"
+        #"Src/Dnn/Components/Layers/Linear.ixx"
+        #"Src/Dnn/Components/Layers/LinearConfig.ixx"
+        #"Src/Dnn/Components/Layers/Encoder.ixx"
+        #"Src/Dnn/Components/Layers/EncoderConfig.ixx"
+        #"Src/Dnn/Components/Losses/Softmax.ixx"
+        #"Src/Dnn/Components/Losses/SoftmaxConfig.ixx"
 
         # Components - Normalization / Losses / Regularization / Blocks
-        "Src/Dnn/Components/Normalization/LayerNorm.ixx"
-        "Src/Dnn/Components/Normalization/LayerNormConfig.ixx"
+        #"Src/Dnn/Components/Normalization/LayerNorm.ixx"
+        #"Src/Dnn/Components/Normalization/LayerNormConfig.ixx"
         
-        "Src/Dnn/Components/Losses/SoftmaxCrossEntropy.ixx"
-        "Src/Dnn/Components/Losses/CrossEntropyConfig.ixx"
+        #"Src/Dnn/Components/Losses/SoftmaxCrossEntropy.ixx"
+        #"Src/Dnn/Components/Losses/CrossEntropyConfig.ixx"
         
         #"Src/Dnn/Components/Regularization/Dropout.ixx"
         #"Src/Dnn/Components/Regularization/DropoutConfig.ixx"
         
         # --- Blocks ---
-        "Src/Dnn/Components/Blocks/MLP.ixx"
-        "Src/Dnn/Components/Blocks/MLPConfig.ixx"
-        "Src/Dnn/Components/Blocks/Transformer.ixx"
-        "Src/Dnn/Components/Blocks/Transformer.Config.ixx"
+        #"Src/Dnn/Components/Blocks/MLP.ixx"
+        #"Src/Dnn/Components/Blocks/MLPConfig.ixx"
+        #"Src/Dnn/Components/Blocks/Transformer.ixx"
+        #"Src/Dnn/Components/Blocks/Transformer.Config.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Compute (core)
         #---------------------------------------------------------------
-        "Src/Dnn/Compute/ComputeDevice.ixx"
-        "Src/Dnn/Compute/ComputeDeviceTraits.ixx"
+        "Src/Dnn/Compute/Device.ixx"
         "Src/Dnn/Compute/DeviceType.ixx"
-        "Src/Dnn/Compute/DeviceTypeTraits.ixx"
+        "Src/Dnn/Compute/DeviceId.ixx"
 
-        "Src/Dnn/Compute/ComputePrecision.ixx"
-        
+        "Src/Dnn/Compute/ExecutionContext.Template.ixx"
         "Src/Dnn/Compute/ExecutionContext.ixx"
         "Src/Dnn/Compute/IExecutionContext.ixx"
-        "Src/Dnn/Compute/ExecutionContextHelpers.ixx"
+
+        "Src/Dnn/Compute/ComputeDeviceTraits.ixx"
+        #"Src/Dnn/Compute/DeviceTypeTraits.ixx"
+        #"Src/Dnn/Compute/ComputePrecision.ixx"
 
         # Dnn / Compute / Memory Resources
         "Src/Dnn/Compute/MemoryResource.ixx"
@@ -206,37 +210,37 @@ PUBLIC
         #----------------------------------------------------------------------
         # Dnn / Compute / Optimizers
         #----------------------------------------------------------------------
-        "Src/Dnn/Compute/Optimizers/OptimizerBase.ixx"
+        #"Src/Dnn/Compute/Optimizers/OptimizerBase.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Compute / Operations
         #---------------------------------------------------------------
-        "Src/Dnn/Compute/Operations/OperationBase.ixx"
-        "Src/Dnn/Compute/Operations/OperationType.ixx"
+        #"Src/Dnn/Compute/Operations/OperationBase.ixx"
+        #"Src/Dnn/Compute/Operations/OperationType.ixx"
         
-        "Src/Dnn/Compute/Operations/UnaryOperation.ixx"
-        "Src/Dnn/Compute/Operations/BinaryOperation.ixx"
+        #"Src/Dnn/Compute/Operations/UnaryOperation.ixx"
+        #"Src/Dnn/Compute/Operations/BinaryOperation.ixx"
         
-        "Src/Dnn/Compute/Operations/OperationRegistry.ixx"
-        "Src/Dnn/Compute/Operations/OperationsRegistrar.ixx"
+        #"Src/Dnn/Compute/Operations/OperationRegistry.ixx"
+        #"Src/Dnn/Compute/Operations/OperationsRegistrar.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Compute / Devices (general)
         #---------------------------------------------------------------
-        "Src/Dnn/Compute/Registry/DeviceRegistry.ixx"
         "Src/Dnn/Compute/Registry/DeviceRegistrar.ixx"
+        "Src/Dnn/Compute/Registry/DeviceRegistry.ixx"
         "Src/Dnn/Compute/Registry/DeviceRegistryHelpers.ixx"
-        "Src/Dnn/Compute/Registry/DevicePlugin.ixx"
         
         #----------------------------------------------------------------------
         # Dnn / Data
         #----------------------------------------------------------------------
-        "Src/Dnn/Data/DatasetLoader.ixx"
+        #"Src/Dnn/Data/DatasetLoader.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Serialization
         #---------------------------------------------------------------
         "Src/Dnn/Serialization/SerializationMode.ixx"
+        "Src/Dnn/Serialization/OpenMode.ixx"
         "Src/Dnn/Serialization/ModelArchive.ixx"
         "Src/Dnn/Serialization/ModelSerializer.ixx"
         "Src/Dnn/Serialization/ZipSerializer.ixx"
@@ -244,57 +248,56 @@ PUBLIC
         #---------------------------------------------------------------
         # Dnn / Visualization
         #---------------------------------------------------------------
-        "Src/Dnn/Visualization/Core/ComponentVisualizer.ixx"
-        "Src/Dnn/Visualization/Components/LayerNorm.Visualizer.ixx"
-        "Src/Dnn/Visualization/Core/VisualizerContext.ixx"
-        "Src/Dnn/Visualization/Rendering/FrameBuffer.ixx"
-        "Src/Dnn/Visualization/Rendering/ColorLUT.ixx"
-        "Src/Dnn/Visualization/Rendering/HeatMapRenderer.ixx"
-        "Src/Dnn/Visualization/Components/Block.Visualizer.ixx"
-        "Src/Dnn/Visualization/Components/MLP.Visualizer.ixx"
+        #"Src/Dnn/Visualization/Components/Block.Visualizer.ixx"
+        #"Src/Dnn/Visualization/Core/ComponentVisualizer.ixx"
+        #"Src/Dnn/Visualization/Components/LayerNorm.Visualizer.ixx"
+        #"Src/Dnn/Visualization/Core/VisualizerContext.ixx"
+        #"Src/Dnn/Visualization/Rendering/FrameBuffer.ixx"
+        #"Src/Dnn/Visualization/Rendering/ColorLUT.ixx"
+        #"Src/Dnn/Visualization/Rendering/HeatMapRenderer.ixx"
+        #"Src/Dnn/Visualization/Components/Block.Visualizer.ixx"
+        #"Src/Dnn/Visualization/Components/MLP.Visualizer.ixx"
         
         #----------------------------------------------------------------------
         # Dnn / Compute / Operation Registry Helpers
         #----------------------------------------------------------------------
-        "Src/Dnn/Compute/Operations/OperationRegistryHelpers.ixx"
-        "Src/Dnn/Compute/DeviceDescriptor.ixx"
-        "Src/Dnn/Tensors/Tensor.Partitioning.ixx"
-        "Src/Dnn/Tensors/Tensor.Types.ixx"
-        "Src/Dnn/Optimizers/AdamW.ixx"
-        "Src/Dnn/Optimizers/AdamWConfig.ixx"
-        "Src/Dnn/Components/Connections/ConnectionType.ixx"
+        #"Src/Dnn/Compute/Operations/OperationRegistryHelpers.ixx"
+        #"Src/Dnn/Optimizers/AdamW.ixx"
+        #"Src/Dnn/Optimizers/AdamWConfig.ixx"
+        #"Src/Dnn/Components/Connections/ConnectionType.ixx"
 
         #----------------------------------------------------------------------
         # Network
         #---------------------------------------------------------------
-        "Src/Dnn/Network/Network.ixx"
-        "Src/Dnn/Network/NetworkFactory.ixx"
+        #"Src/Dnn/Network/Network.ixx"
+        #"Src/Dnn/Network/NetworkFactory.ixx"
 
         #----------------------------------------------------------------------
         # Dnn / Modeling
         #----------------------------------------------------------------------
-        "Src/Dnn/Modeling/Model.ixx"
-        "Src/Dnn/Modeling/ModelConfig.ixx"
-        "Src/Dnn/Modeling/ModelMetadata.ixx"
+        #"Src/Dnn/Modeling/Model.ixx"
+        #"Src/Dnn/Modeling/ModelConfig.ixx"
+        #"Src/Dnn/Modeling/ModelMetadata.ixx"
 
-        "Src/Dnn/Modeling/Checkpoints/CheckpointManager.ixx"
-        "Src/Dnn/Modeling/Checkpoints/CheckpointMetaData.ixx"
+        #"Src/Dnn/Modeling/Checkpoints/CheckpointManager.ixx"
+        #"Src/Dnn/Modeling/Checkpoints/CheckpointMetaData.ixx"
         
-        "Src/Dnn/Modeling/TrainingHistory.ixx"
+        #"Src/Dnn/Modeling/TrainingHistory.ixx"
         #"Src/Dnn/Modeling/ModelExporter.ixx"
 
         #----------------------------------------------------------------------
         # Dnn Runtime Engine
         #----------------------------------------------------------------------
         #"Src/Dnn/Engine/InferenceEngine.ixx"
-        "Src/Dnn/Serialization/OpenMode.ixx"
-        "Src/Dnn/Extensibility/PluginManager.ixx"
-        "Src/Dnn/Extensibility/IModulePlugin.ixx"
-        "Src/Dnn/Extensibility/PluginInfo.ixx"
-        "Src/Dnn/Components/MilaComponents.ixx"
-        "Src/Dnn/Core/Loss.ixx"
-        "Src/Dnn/Core/ComponentType.ixx"
- "Src/Dnn/Compute/ExecutionContextBase.ixx")
+        
+        #"Src/Dnn/Extensibility/PluginManager.ixx"
+        #"Src/Dnn/Extensibility/IModulePlugin.ixx"
+        #"Src/Dnn/Extensibility/PluginInfo.ixx"
+        #"Src/Dnn/Components/MilaComponents.ixx"
+        #"Src/Dnn/Core/Loss.ixx"
+        #"Src/Dnn/Core/ComponentType.ixx"
+ )
+
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
 # ----------------------------------------------------------------------------
@@ -306,25 +309,26 @@ if(MILA_HAS_CPU)
             FILE_SET cpu_modules
                TYPE CXX_MODULES FILES
                 "Src/Dnn/Compute/Devices/Cpu/CpuDevice.ixx"
-                "Src/Dnn/Compute/Devices/Cpu/CpuDevicePlugin.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/CpuMemoryResource.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/CpuExecutionContext.ixx"
-                "Src/Dnn/Compute/Devices/Cpu/CpuDeviceTraits.ixx"
+                #"Src/Dnn/Compute/Devices/Cpu/CpuDeviceTraits.ixx"
+                
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/CpuTensorDataTypeTraits.ixx"
-                "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.ixx"
-                "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Fill.ixx"
-                "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Math.ixx"
-                "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Transfer.ixx"
-                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuOperations.ixx"
-                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuEncoderOp.ixx"
-                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuGeluOp.ixx"
-                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLayerNormOp.ixx"
-                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLinearOp.ixx"
-                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuAttentionOp.ixx"
-                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuResidualOp.ixx"
-                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxCrossEntropyOp.ixx"
-                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxOp.ixx"
-                "Src/Dnn/Compute/Devices/Cpu/Optimizers/CpuAdamWOptimizer.ixx"
+                #"Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.ixx"
+                #"Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Fill.ixx"
+                #"Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Math.ixx"
+                #"Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Transfer.ixx"
+                
+                #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuOperations.ixx"
+                #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuEncoderOp.ixx"
+                #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuGeluOp.ixx"
+                #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuLayerNormOp.ixx"
+                #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuLinearOp.ixx"
+                #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuAttentionOp.ixx"
+                #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuResidualOp.ixx"
+                #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxCrossEntropyOp.ixx"
+                #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxOp.ixx"
+                #"Src/Dnn/Compute/Devices/Cpu/Optimizers/CpuAdamWOptimizer.ixx"
     )
     target_compile_definitions( Mila PUBLIC MILA_HAS_CPU)
     list(APPEND MILA_INSTALL_FILE_SET_ARGS FILE_SET cpu_modules DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
@@ -333,45 +337,50 @@ if(MILA_HAS_CPU)
 endif()
 
 # ----------------------------------------------------------------------------
-# CUDA backend modules (separate file set)
+# CUDA backend modules
 # ----------------------------------------------------------------------------
 if(MILA_HAS_CUDA)
     target_sources(Mila
         PUBLIC
             FILE_SET cuda_modules
                TYPE CXX_MODULES FILES
-                "Src/Dnn/Compute/Devices/Cuda/CudaDeviceTypeTraits.ixx"
+                #"Src/Dnn/Compute/Devices/Cuda/CudaDeviceTypeTraits.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaError.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaHelpers.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/CudaDeviceResources.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaBadAlloc.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CublasLtError.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/CudaDevice.ixx"
+                
                 "Src/Dnn/Compute/Devices/Cuda/CudaDeviceProps.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/CudaDevice.ixx"
+
+                "Src/Dnn/Compute/Devices/Cuda/CudaExecutionContext.ixx"
+
                 "Src/Dnn/Compute/Devices/Cuda/CudaDeviceMemoryResource.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/CudaManagedMemoryResource.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/CudaPinnedMemoryResource.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/CudaDevicePlugin.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/CudaDeviceTraits.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/CudaExecutionContext.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType-Specializations.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType-Maps.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Math.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Fill.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Transfer.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaOperations.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaAttentionOp.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaEncoderOp.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Operations/CublasLtMatMulBias.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaGeluOp.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaLayerNormOp.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaLinearOp.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaResidualOp.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaSoftmaxOp.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaSoftmaxCrossEntropyOp.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Optimizers/CudaAdamWOptimizer.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/CudaDeviceResources.ixx"
+                
+                #"Src/Dnn/Compute/Devices/Cuda/CudaDeviceTraits.ixx"
+
+                #"Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType.ixx"
+                #"Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType-Specializations.ixx"
+                #"Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType-Maps.ixx"
+                #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.ixx"
+                #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Math.ixx"
+                #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Fill.ixx"
+                #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Transfer.ixx"
+                
+                #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaOperations.ixx"
+                #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaAttentionOp.ixx"
+                #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaEncoderOp.ixx"
+                #"Src/Dnn/Compute/Devices/Cuda/Operations/CublasLtMatMulBias.ixx"
+                #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaGeluOp.ixx"
+                #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaLayerNormOp.ixx"
+                #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaLinearOp.ixx"
+                #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaResidualOp.ixx"
+                #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaSoftmaxOp.ixx"
+                #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaSoftmaxCrossEntropyOp.ixx"
+                #"Src/Dnn/Compute/Devices/Cuda/Optimizers/CudaAdamWOptimizer.ixx"
     )
 
     target_link_libraries( Mila PUBLIC 
@@ -386,7 +395,7 @@ if(MILA_HAS_CUDA)
 endif()
 
 # ----------------------------------------------------------------------------
-# Metal backend modules (separate file set)
+# Metal backend modules
 # ----------------------------------------------------------------------------
 if(MILA_HAS_METAL)
     target_sources(Mila
@@ -413,7 +422,7 @@ if(MILA_HAS_METAL)
 endif()
 
 # ----------------------------------------------------------------------------
-# ROCm backend Modules (separate file set)
+# ROCm backend Modules
 # ----------------------------------------------------------------------------
 if(MILA_HAS_ROCM)
     target_sources(Mila

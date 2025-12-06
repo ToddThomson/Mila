@@ -25,7 +25,8 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Compute.Precision;
-import Compute.ComputeDevice;
+import Compute.Device;
+import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.UnaryOperation;
@@ -179,9 +180,9 @@ namespace Mila::Dnn
             return config_.getName();
         }
 
-        std::shared_ptr<ComputeDevice> getDevice() const override
+        DeviceId getDeviceId() const override
         {
-            return exec_context_->getDevice();
+            return exec_context_->getDeviceId();
         }
 
         void synchronize() override

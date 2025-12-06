@@ -5,18 +5,23 @@
 
 module;
 #include <cuda_runtime.h>
-#include <memory>
 #include <string>
+#include <format>
 #include <stdexcept>
-#include <source_location>
+#include <utility>
+#include <memory>
+#include <exception>
 
 export module Compute.CudaDevice;
 
-import Compute.ComputeDevice;
+import Compute.Device;
+import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.CudaDeviceResources;
 import Compute.CudaDeviceProps;
+import Compute.DeviceRegistry;
 import Cuda.Error;
+import Utils.Logger;
 
 namespace Mila::Dnn::Compute
 {
@@ -25,8 +30,9 @@ namespace Mila::Dnn::Compute
      *
      * Provides an interface to interact with a specific NVIDIA CUDA-capable GPU.
      * Handles device properties and capabilities for a single device instance.
-     * Device discovery and registration is handled by CudaDevicePlugin.
-     * Device activation and context management is handled by ExecutionContext.
+     *
+     * Device instances are created exclusively by DeviceFactory (via DeviceRegistry).
+     * Users should obtain devices through DeviceRegistry::getDevice().
      *
      * Precision Support:
      * - FP32: All CUDA devices (SM 1.0+)
@@ -35,33 +41,42 @@ namespace Mila::Dnn::Compute
      * - FP8: Hopper and newer (SM 9.0+)
      * - INT8: Turing and newer (SM 7.5+)
      */
-    export class CudaDevice : public ComputeDevice
+    export class CudaDevice : public Device
     {
+
     public:
 
         /**
-         * @brief Controlled factory to create a shared CudaDevice instance.
+         * @brief Construct CUDA device with validation.
          *
-         * All construction should go through this method (or DeviceRegistry).
-         * This ensures shared ownership and prevents accidental direct construction.
+         * Validates that the device ID is registered with DeviceRegistry and
+         * queries/caches device properties from CUDA runtime.
+         *
+         * @param key Construction key ensuring only DeviceRegistry can create instances
+         * @param device_id Device identifier to initialize
+         * @throws std::invalid_argument If device_id validation fails
+         * @throws std::runtime_error If device is not registered or CUDA operations fail
          */
-        static std::shared_ptr<CudaDevice> create( int device_id )
+        explicit CudaDevice( DeviceConstructionKey key, DeviceId device_id )
+            : device_id_( validateDeviceId( device_id ) ), props_( device_id.index )
         {
-            return std::shared_ptr<CudaDevice>( new CudaDevice( device_id ) );
+            (void)key;
         }
 
         /**
-         * @brief Gets the CUDA device ID.
-         * @return int The device ID for this CUDA device (0-based)
+         * @brief Gets the device identifier.
+         *
+         * @return DeviceId The identifier for this CUDA device (type + index).
          */
-        constexpr int getDeviceId() const override
+        DeviceId getDeviceId() const override
         {
             return device_id_;
         }
 
         /**
-         * @brief Gets the type of this compute device.
-         * @return DeviceType The device type (Cuda)
+         * @brief Gets the device type.
+         *
+         * @return DeviceType The device type (Cuda).
          */
         constexpr DeviceType getDeviceType() const override
         {
@@ -69,17 +84,19 @@ namespace Mila::Dnn::Compute
         }
 
         /**
-         * @brief Gets the name of this CUDA device.
-         * @return std::string The device name in format "CUDA:N" where N is device_id
+         * @brief Gets the device name.
+         *
+         * @return std::string The device name (e.g., "CUDA:0", "CUDA:1").
          */
         std::string getDeviceName() const override
         {
-            return "CUDA:" + std::to_string( device_id_ );
+            return device_id_.toString();
         }
 
         /**
          * @brief Gets the properties of this CUDA device.
-         * @return const CudaDeviceProps& Reference to the device properties
+         *
+         * @return const CudaDeviceProps& Reference to the device properties.
          */
         const CudaDeviceProps& getProperties() const
         {
@@ -88,7 +105,8 @@ namespace Mila::Dnn::Compute
 
         /**
          * @brief Gets the compute capability version.
-         * @return std::pair<int, int> Major and minor version (e.g., {8, 6} for SM 8.6)
+         *
+         * @return std::pair<int, int> Major and minor version (e.g., {8, 6} for SM 8.6).
          */
         std::pair<int, int> getComputeCapability() const
         {
@@ -97,7 +115,8 @@ namespace Mila::Dnn::Compute
 
         /**
          * @brief Gets the compute capability as a single number.
-         * @return int Compute capability (e.g., 86 for SM 8.6)
+         *
+         * @return int Compute capability (e.g., 86 for SM 8.6).
          */
         int getComputeCapabilityVersion() const
         {
@@ -109,7 +128,7 @@ namespace Mila::Dnn::Compute
          *
          * FP16 is supported on Pascal and newer architectures (SM 6.0+).
          *
-         * @return bool True if FP16 is supported
+         * @return bool True if FP16 is supported.
          */
         bool isFp16Supported() const
         {
@@ -121,7 +140,7 @@ namespace Mila::Dnn::Compute
          *
          * BF16 is supported on Ampere and newer architectures (SM 8.0+).
          *
-         * @return bool True if BF16 is supported
+         * @return bool True if BF16 is supported.
          */
         bool isBf16Supported() const
         {
@@ -133,7 +152,7 @@ namespace Mila::Dnn::Compute
          *
          * FP8 is supported on Hopper and newer architectures (SM 9.0+).
          *
-         * @return bool True if FP8 is supported
+         * @return bool True if FP8 is supported.
          */
         bool isFp8Supported() const
         {
@@ -145,7 +164,7 @@ namespace Mila::Dnn::Compute
          *
          * INT8 tensor cores are supported on Turing and newer (SM 7.5+).
          *
-         * @return bool True if INT8 tensor cores are supported
+         * @return bool True if INT8 tensor cores are supported.
          */
         bool isInt8Supported() const
         {
@@ -157,7 +176,7 @@ namespace Mila::Dnn::Compute
          *
          * Tensor Cores are available on Volta and newer (SM 7.0+).
          *
-         * @return bool True if Tensor Cores are available
+         * @return bool True if Tensor Cores are available.
          */
         bool hasTensorCores() const
         {
@@ -166,6 +185,8 @@ namespace Mila::Dnn::Compute
 
         /**
          * @brief Gets the maximum number of threads per block.
+         *
+         * @return int Maximum threads per block.
          */
         int getMaxThreadsPerBlock() const
         {
@@ -174,6 +195,8 @@ namespace Mila::Dnn::Compute
 
         /**
          * @brief Gets the total global memory size in bytes.
+         *
+         * @return size_t Total global memory in bytes.
          */
         size_t getTotalGlobalMemory() const
         {
@@ -182,6 +205,8 @@ namespace Mila::Dnn::Compute
 
         /**
          * @brief Gets the shared memory per block in bytes.
+         *
+         * @return size_t Shared memory per block in bytes.
          */
         size_t getSharedMemoryPerBlock() const
         {
@@ -190,6 +215,8 @@ namespace Mila::Dnn::Compute
 
         /**
          * @brief Gets the number of multiprocessors.
+         *
+         * @return int Number of streaming multiprocessors.
          */
         int getMultiprocessorCount() const
         {
@@ -198,6 +225,8 @@ namespace Mila::Dnn::Compute
 
         /**
          * @brief Gets the warp size.
+         *
+         * @return int Warp size (typically 32).
          */
         int getWarpSize() const
         {
@@ -205,60 +234,171 @@ namespace Mila::Dnn::Compute
         }
 
     private:
-        // Private constructor - force use of create() or DeviceRegistry
-        explicit CudaDevice( int device_id )
-            : device_id_( validateDeviceId( device_id ) ), props_( device_id )
-        {
-        }
 
-        int device_id_;
+        DeviceId device_id_;
         CudaDeviceProps props_;
 
         /**
          * @brief Validates CUDA device ID.
          *
-         * Ensures device_id is non-negative and within the range of available devices.
+         * Ensures device_id has correct type (Cuda), non-negative index,
+         * and is within the range of available CUDA devices.
          *
-         * @param device_id Device ID to validate
-         * @return int The validated device ID
-         * @throws std::invalid_argument If device_id is negative
-         * @throws std::runtime_error If device_id exceeds device count or CUDA error occurs
+         * @param device_id Device identifier to validate.
+         * @return DeviceId The validated device identifier.
+         * @throws std::invalid_argument If device_id type is not Cuda or index is negative.
+         * @throws std::runtime_error If CUDA device count query fails or index is out of range.
          */
-        static int validateDeviceId( int device_id )
+        static DeviceId validateDeviceId( DeviceId device_id )
         {
-            if (device_id < 0)
+			// REVIEW: DeviceRegistry ensures only registered devices are constructed so this validation
+			// is redundant, but kept for defense in depth for now.
+            if ( device_id.type != DeviceType::Cuda )
             {
                 throw std::invalid_argument(
-                    "CUDA device ID must be non-negative, got: " + std::to_string( device_id )
+                    "CudaDevice requires Cuda device type, got: " +
+                    deviceTypeToString( device_id.type )
                 );
             }
 
-            int device_count = 0;
-            cudaError_t error = cudaGetDeviceCount( &device_count );
-
-            if (error != cudaSuccess)
+            if ( device_id.index < 0 )
             {
-                throw std::runtime_error(
-                    "Failed to get CUDA device count: " +
-                    std::string( cudaGetErrorString( error ) )
-                );
-            }
-
-            if (device_count == 0)
-            {
-                throw std::runtime_error( "No CUDA devices available" );
-            }
-
-            if (device_id >= device_count)
-            {
-                throw std::runtime_error(
-                    "CUDA device ID " + std::to_string( device_id ) +
-                    " exceeds available device count " + std::to_string( device_count ) +
-                    " (valid range: 0-" + std::to_string( device_count - 1 ) + ")"
+                throw std::invalid_argument(
+                    "CUDA device index must be non-negative, got: " +
+                    std::to_string( device_id.index )
                 );
             }
 
             return device_id;
+        }
+    };
+
+    /**
+     * @brief CUDA device plugin for device-agnostic registration.
+     *
+     * Encapsulates CUDA-specific logic for device discovery and registration,
+     * providing a clean static interface while handling CUDA runtime API
+     * interactions internally.
+     */
+    export class CudaDeviceRegistrar
+    {
+    public:
+
+        /**
+         * @brief Register CUDA support with the DeviceRegistry.
+         *
+         * Registers discovered CUDA devices with the global DeviceRegistry.
+         * If no devices are present, a warning is emitted and registration
+         * is skipped.
+         */
+        static void registerDevices()
+        {
+            auto& registry = DeviceRegistry::instance();
+
+            int count = getDeviceCount();
+
+            if ( count == 0 )
+            {
+                Utils::Logger::warning( "CudaDeviceRegistrar: CUDA not available or no usable devices" );
+                return;
+            }
+
+            for ( int i = 0; i < count; ++i )
+            {
+                if ( !isDeviceUsable( i ) )
+                {
+                    Utils::Logger::warning( std::format( "CudaDeviceRegistrar: CUDA device index '{}' is not useable", i ) );
+                    
+                    continue;
+                }
+                
+                try
+                {
+                    DeviceId device_id = Device::Cuda( i );
+
+                    registry.registerDevice( device_id, [device_id]( DeviceConstructionKey key ) -> std::shared_ptr<Device> {
+                        return std::make_shared<CudaDevice>( key, device_id );
+                        } );
+                }
+                catch ( const std::exception& ex )
+                {
+                    Utils::Logger::warning( std::format( "CudaDeviceRegistrar: failed to register CUDA device {}: {}", i, ex.what() ) );
+                }
+                catch ( ... )
+                {
+                    Utils::Logger::warning( std::format( "CudaDeviceRegistrar: failed to register CUDA device {}", i ) );
+                }
+            }
+        }
+
+        /**
+         * @brief Gets the number of available CUDA devices.
+         *
+         * @return Number of CUDA devices available, or 0 if CUDA is not available
+         */
+         static int getDeviceCount() {
+             try {
+                 int deviceCount = 0;
+                 cudaError_t error = cudaGetDeviceCount( &deviceCount );
+
+                 return (error == cudaSuccess) ? deviceCount : 0;
+             }
+             catch (...) {
+                 return 0;
+             }
+         }
+
+    private:
+        /**
+         * @brief Checks if a specific CUDA device is usable for computation.
+         *
+         * Ensures device meets minimal compute capability and memory requirements
+         * and that it can be selected via the CUDA runtime.
+         */
+        static bool isDeviceUsable( int deviceId )
+        {
+            try
+            {
+                cudaDeviceProp deviceProp;
+                cudaError_t error = cudaGetDeviceProperties( &deviceProp, deviceId );
+
+                if ( error != cudaSuccess )
+                {
+                    return false;
+                }
+
+                if ( deviceProp.major < 3 )
+                {
+                    return false;
+                }
+
+                if ( deviceProp.totalGlobalMem < (1ULL << 30) )
+                {
+                    return false;
+                }
+
+                int computeMode = -1;
+                error = cudaDeviceGetAttribute( &computeMode, cudaDevAttrComputeMode, deviceId );
+
+                if ( computeMode == cudaComputeModeProhibited )
+                {
+                    return false;
+                }
+
+                cudaError_t setError = cudaSetDevice( deviceId );
+                if ( setError != cudaSuccess )
+                {
+                    return false;
+                }
+
+                cudaDeviceReset();
+
+                return true;
+            }
+            catch ( ... )
+            {
+                return false;
+            }
         }
     };
 }

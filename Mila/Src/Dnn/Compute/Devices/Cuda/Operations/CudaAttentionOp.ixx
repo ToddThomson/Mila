@@ -323,7 +323,7 @@ namespace Mila::Dnn::Compute
 
         void allocateStateTensors()
         {
-            auto device = context_->getDevice();
+            auto device = context_->getDeviceId();
 
             // QKV projections cache: [B, T, 3*C]
             shape_t qkvr_shape = {

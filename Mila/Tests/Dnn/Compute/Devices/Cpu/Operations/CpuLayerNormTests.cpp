@@ -29,7 +29,7 @@ namespace Compute::Cpu::Operations::Tests
     class CpuLayerNormOpTests : public ::testing::Test {
     protected:
         void SetUp() override {
-            cpu_context_ = std::make_shared<DeviceContext>( "CPU" );
+            cpu_context_ = std::make_shared<DeviceContext>( Device::Cpu() );
 
             // Small shapes for quick tests
             small_batch_ = 2;
@@ -389,7 +389,7 @@ namespace Compute::Cpu::Operations::Tests
     TEST_F( CpuLayerNormOpTests, DeviceContextValidation ) {
         try {
             LayerNormConfig config( small_feature_dim_ );
-            EXPECT_THROW( CpuLayerNormOp( std::make_shared<DeviceContext>( "CUDA:0" ), config ), std::runtime_error );
+            EXPECT_THROW( CpuLayerNormOp( std::make_shared<DeviceContext>( Device::Cuda(0) ), config ), std::runtime_error );
         }
         catch ( const std::exception& e ) {
             std::cout << "Skipping device context validation test: " << e.what() << std::endl;

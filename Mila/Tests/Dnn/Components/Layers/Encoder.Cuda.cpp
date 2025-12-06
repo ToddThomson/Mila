@@ -4,7 +4,6 @@
 #include <string>
 #include <cmath>
 #include <stdexcept>
-#include <cuda_runtime.h>
 #include <cstdint>
 
 import Mila;
@@ -57,7 +56,7 @@ namespace Modules::Layers::Tests
                 .withVocabularyLength( static_cast<size_t>(vocab_len) )
                 .withName( name );
 
-            d.exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+            d.exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
             d.module = std::make_shared<Encoder<DeviceType::Cuda, TensorDataType::INT32, TPrecision>>( d.exec_context, d.config );
 
             if (is_training)
@@ -72,9 +71,8 @@ namespace Modules::Layers::Tests
     protected:
         void SetUp() override
         {
-            int device_count = 0;
-            cudaError_t err = cudaGetDeviceCount( &device_count );
-            cuda_available_ = (err == cudaSuccess && device_count > 0);
+            int device_count = getDeviceCount( DeviceType::Cuda );
+            cuda_available_ = (device_count > 0);
 
             batch_size_ = 8;
             sequence_length_ = 16;
@@ -130,11 +128,11 @@ namespace Modules::Layers::Tests
 
         d.module->build( d.input_shape );
 
-        CudaIndexTensor device_input( d.exec_context->getDevice(), d.input_shape );
-        CudaTensor<TPrecision> device_output( d.exec_context->getDevice(), d.output_shape );
+        CudaIndexTensor device_input( d.exec_context->getDeviceId(), d.input_shape );
+        CudaTensor<TPrecision> device_output( d.exec_context->getDeviceId(), d.output_shape );
 
         // Fill host input then copy to device
-        HostIndexTensor host_input( d.exec_context->getDevice(), d.input_shape );
+        HostIndexTensor host_input( d.exec_context->getDeviceId(), d.input_shape );
         auto hptr = static_cast<int32_t*>(host_input.rawData());
         for (size_t i = 0; i < host_input.size(); ++i)
             hptr[i] = static_cast<int32_t>( i % static_cast<size_t>( d.vocab_len ) );

@@ -163,7 +163,7 @@ namespace Mila::Dnn::Compute
             grad_data_.push_back( reinterpret_cast<const HostType*>(grad->rawData()) );
 
             // Create optimizer-owned state tensors (always FP32 for numerical stability)
-            auto device = context_->getDevice();
+            auto device = context_->getDeviceId();
             auto shape = param->shape();
 
             auto m_state = std::make_shared<Tensor<TensorDataType::FP32, MR>>( device, shape );

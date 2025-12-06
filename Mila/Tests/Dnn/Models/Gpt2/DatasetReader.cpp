@@ -1,5 +1,4 @@
 #include <gtest/gtest.h>
-#include <cuda_runtime.h>
 #include <memory>
 #include <string>
 #include <filesystem>

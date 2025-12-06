@@ -71,9 +71,9 @@ namespace Modules::Connections::Tests
         auto module = std::make_shared<Residual<DeviceType::Cpu, TensorDataType::FP32>>( ctx, cfg );
 
         // Create CPU tensors on the execution context's device
-        CpuTensor<TensorDataType::FP32> A( ctx->getDevice(), small_shape_ );
-        CpuTensor<TensorDataType::FP32> B( ctx->getDevice(), small_shape_ );
-        CpuTensor<TensorDataType::FP32> Y( ctx->getDevice(), small_shape_ );
+        CpuTensor<TensorDataType::FP32> A( ctx->getDeviceId(), small_shape_ );
+        CpuTensor<TensorDataType::FP32> B( ctx->getDeviceId(), small_shape_ );
+        CpuTensor<TensorDataType::FP32> Y( ctx->getDeviceId(), small_shape_ );
 
         // Populate inputs deterministically
         float* a_ptr = static_cast<float*>(A.rawData());
@@ -104,9 +104,9 @@ namespace Modules::Connections::Tests
         auto module = std::make_shared<Residual<DeviceType::Cpu, TensorDataType::FP32>>( ctx, cfg );
 
         shape_t minimal = { 1 };
-        CpuTensor<TensorDataType::FP32> A( ctx->getDevice(), minimal );
-        CpuTensor<TensorDataType::FP32> B( ctx->getDevice(), minimal );
-        CpuTensor<TensorDataType::FP32> Y( ctx->getDevice(), minimal );
+        CpuTensor<TensorDataType::FP32> A( ctx->getDeviceId(), minimal );
+        CpuTensor<TensorDataType::FP32> B( ctx->getDeviceId(), minimal );
+        CpuTensor<TensorDataType::FP32> Y( ctx->getDeviceId(), minimal );
 
         // simple values
         *static_cast<float*>(A.rawData()) = 1.0f;

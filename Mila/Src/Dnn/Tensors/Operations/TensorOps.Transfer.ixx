@@ -22,7 +22,8 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeMap;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorOps.Base;
-import Compute.ComputeDevice;
+import Compute.Device;
+import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTraits;
 import Compute.ExecutionContext;
@@ -158,7 +159,7 @@ namespace Mila::Dnn
         const Tensor<TSrcDataType, TSrcMemoryResource>& src,
         IExecutionContext* exec_context = nullptr )
     {
-        Tensor<TDstDataType, CpuMemoryResource> dst( std::string( "CPU" ), src.shape() );
+        Tensor<TDstDataType, CpuMemoryResource> dst( Device::Cpu(), src.shape() );
         copy( src, dst, exec_context );
         
         return dst;

@@ -71,10 +71,8 @@ namespace Mila::Mnist
             const std::string& data_directory,
             int64_t batch_size,
             bool is_training,
-            std::shared_ptr<Compute::ComputeDevice> device )
-            : BaseLoader( batch_size ),
-            is_training_( is_training ),
-            device_( validateDevice( device ) )
+            DeviceId device_id )
+            : BaseLoader( batch_size ), is_training_( is_training ), device_id_( validateDeviceId( device_id ) )
         {
             std::string images_file = is_training_ ?
                 data_directory + "/train-images.idx3-ubyte" :
@@ -99,17 +97,13 @@ namespace Mila::Mnist
 
             num_batches_ = num_samples_ / this->batchSize();
 
-            input_tensor_ = std::make_shared<TensorType>(
-                device_,
-                shape_t{ this->batchSize(), MNIST_IMAGE_SIZE } );
+            input_tensor_ = std::make_shared<TensorType>( device_id_, shape_t{ this->batchSize(), MNIST_IMAGE_SIZE } );
 
-            target_tensor_ = std::make_shared<TensorType>(
-                device_,
-                shape_t{ this->batchSize(), MNIST_NUM_CLASSES } );
+            target_tensor_ = std::make_shared<TensorType>( device_id_, shape_t{ this->batchSize(), MNIST_NUM_CLASSES } );
 
             std::cout << "MNIST DataLoader initialized with "
                 << num_samples_ << " samples and " << num_batches_ << " batches "
-                << "on device: " << device_->getDeviceName() << std::endl;
+                << "on device: " << device_id_.toString() << std::endl;
         }
 
         int64_t numBatches() const override
@@ -177,7 +171,7 @@ namespace Mila::Mnist
         }
 
     private:
-        std::shared_ptr<Compute::ComputeDevice> device_;
+        DeviceId device_id_;
         bool is_training_;
         size_t num_samples_;
         int64_t num_batches_;
@@ -197,35 +191,28 @@ namespace Mila::Mnist
          * @throws std::invalid_argument If device is null
          * @throws std::runtime_error If device type doesn't match memory resource
          */
-        static std::shared_ptr<Compute::ComputeDevice> validateDevice(
-            std::shared_ptr<Compute::ComputeDevice> device )
+        static DeviceId validateDeviceId( DeviceId device_id )
         {
-            if (!device)
-            {
-                throw std::invalid_argument( "Device cannot be null" );
-            }
-
             if constexpr (std::is_same_v<TMemoryResource, CpuMemoryResource>)
             {
-                if (device->getDeviceType() != DeviceType::Cpu)
+                if (device_id.type != DeviceType::Cpu)
                 {
                     throw std::runtime_error(
-                        "CpuMemoryResource requires CPU device, got " +
-                        std::string( deviceTypeToString( device->getDeviceType() ) ) );
+                        "CpuMemoryResource requires CPU device, got " + device_id.toString() );
                 }
             }
 
             if constexpr (std::is_same_v<TMemoryResource, CudaPinnedMemoryResource>)
             {
-                if (device->getDeviceType() != DeviceType::Cuda)
+                if (device_id.type != DeviceType::Cuda)
                 {
                     throw std::runtime_error(
                         "CudaPinnedMemoryResource requires CUDA device, got " +
-                        std::string( deviceTypeToString( device->getDeviceType() ) ) );
+                        std::string( deviceTypeToString( device_id.type ) ) );
                 }
             }
 
-            return device;
+            return device_id;
         }
 
         uint32_t readInt32( std::ifstream& stream )

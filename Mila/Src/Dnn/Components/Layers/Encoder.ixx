@@ -26,7 +26,8 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Compute.Precision;
-import Compute.ComputeDevice;
+import Compute.Device;
+import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.UnaryOperation;
@@ -143,7 +144,7 @@ namespace Mila::Dnn
             }
 
             // Create dummy input gradient (token IDs are non-differentiable)
-            auto device = exec_context_->getDevice();
+            auto device = exec_context_->getDeviceId();
             auto input_shape = input.shape();
             TokenIndexType input_grad_dummy( device, input_shape );
 
@@ -245,9 +246,9 @@ namespace Mila::Dnn
             return config_.getName();
         }
 
-        std::shared_ptr<ComputeDevice> getDevice() const override
+        DeviceId getDeviceId() const override
         {
-            return exec_context_->getDevice();
+            return exec_context_->getDeviceId();
         }
 
         void synchronize() override
@@ -454,7 +455,7 @@ namespace Mila::Dnn
          */
         void initializeParameterGradients()
         {
-            auto device = exec_context_->getDevice();
+            auto device = exec_context_->getDeviceId();
 
             if (!wte_grad_)
             {
@@ -487,7 +488,7 @@ namespace Mila::Dnn
             int64_t max_seq_len = config_.getMaxSequenceLength();
             int64_t embedding_dim = config_.getChannels();
 
-            auto device = exec_context_->getDevice();
+            auto device = exec_context_->getDeviceId();
 
             // Token embeddings: (vocab_size, embedding_dim)
             wte_ = std::make_shared<EmbeddingsTensorType>( device, shape_t{ vocab_size, embedding_dim } );

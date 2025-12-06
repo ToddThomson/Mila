@@ -513,7 +513,7 @@ namespace Mila::Dnn::Compute
             switch ( type ) {
                 case vk::PhysicalDeviceType::eDiscreteGpu: return "Discrete GPU";
                 case vk::PhysicalDeviceType::eIntegratedGpu: return "Integrated GPU";
-                case vk::PhysicalDeviceType::eCpu: return "CPU";
+                case vk::PhysicalDeviceType::eCpu: return Device::Cpu();
                 case vk::PhysicalDeviceType::eVirtualGpu: return "Virtual GPU";
                 case vk::PhysicalDeviceType::eOther: return "Other";
                 default: return "Unknown";

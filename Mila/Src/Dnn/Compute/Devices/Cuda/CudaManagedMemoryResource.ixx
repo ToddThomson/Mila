@@ -31,21 +31,22 @@ namespace Mila::Dnn::Compute
          * @param device_id CUDA device ID (0, 1, 2, etc.)
          * @throws std::invalid_argument If device_id is invalid
          */
-        explicit CudaManagedMemoryResource(int device_id)
-            : device_id_(device_id) {
-            
-            if (device_id_ < 0) {
-                throw std::invalid_argument("Device ID must be non-negative");
+        explicit CudaManagedMemoryResource( int device_id )
+            : device_id_( device_id ) {
+
+            if ( device_id_ < 0 ) {
+                throw std::invalid_argument( "Device ID must be non-negative" );
             }
 
             // Validate device exists
             int device_count = 0;
-            cudaError_t error = cudaGetDeviceCount(&device_count);
-            if (error != cudaSuccess || device_id_ >= device_count) {
+            cudaError_t error = cudaGetDeviceCount( &device_count );
+
+            if ( error != cudaSuccess || device_id_ >= device_count ) {
                 throw std::invalid_argument(
-                    "Invalid device ID " + std::to_string(device_id_) +
-                    ": " + (error != cudaSuccess ? cudaGetErrorString(error) :
-                        "exceeds device count " + std::to_string(device_count))
+                    "Invalid device ID " + std::to_string( device_id_ ) +
+                    ": " + (error != cudaSuccess ? cudaGetErrorString( error ) :
+                        "exceeds device count " + std::to_string( device_count ))
                 );
             }
         }

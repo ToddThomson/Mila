@@ -22,7 +22,8 @@ import Dnn.TensorTraits;
 import Compute.Precision;
 import Compute.DeviceType;
 import Compute.DeviceContext;
-import Compute.ComputeDevice;
+import Compute.Device;
+import Compute.DeviceId;
 import Compute.OperationBase;
 import Compute.OperationAttributes;
 import Compute.UnaryOperation;
@@ -73,7 +74,7 @@ namespace Mila::Dnn
          * This constructor is useful for creating standalone modules without
          * pre-existing device contexts.
          *
-         * @param device_name The name of the device to use (e.g., "CPU", "CUDA:0").
+         * @param device_name The name of the device to use (e.g., Device::Cpu(), "CUDA:0").
          * @param config Configuration parameters for the Dropout module.
          * @throws std::invalid_argument If the device name is invalid or the configuration is invalid
          * @throws std::runtime_error If device type doesn't match template parameter TDeviceType
@@ -262,7 +263,7 @@ namespace Mila::Dnn
             oss << "Scale during inference: " << (config_.scalesDuringInference() ? "Yes" : "No") << std::endl;
             oss << "Same mask per batch: " << (config_.usesSameMaskPerBatch() ? "Yes" : "No") << std::endl;
             oss << "Random seed: " << seed_ << std::endl;
-            oss << "Device: " << deviceTypeToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
+            oss << "Device: " << deviceTypeToString( this->getDeviceContext()->getDeviceId()->getDeviceType() ) << std::endl;
             oss << this->getComputePrecision().toString() << std::endl;
 
             return oss.str();

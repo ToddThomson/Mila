@@ -27,7 +27,8 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Compute.Precision;
-import Compute.ComputeDevice;
+import Compute.Device;
+import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.UnaryOperation;
@@ -179,9 +180,9 @@ namespace Mila::Dnn
             return config_.getName();
         }
 
-        std::shared_ptr<ComputeDevice> getDevice() const override
+        DeviceId getDeviceId() const override
         {
-            return context_->getDevice();
+            return context_->getDeviceId();
         }
 
         void synchronize() override
@@ -199,15 +200,10 @@ namespace Mila::Dnn
             std::ostringstream oss;
             oss << "--------------------" << std::endl;
             oss << "Attention: " << getName() << std::endl;
+            oss << "Device Id: " << context_->getDeviceId().toString() << std::endl;
             oss << "Embedding dimension: " << config_.getEmbeddingDim() << std::endl;
             oss << "Number of heads: " << config_.getNumHeads() << std::endl;
             oss << "Head size: " << (config_.getEmbeddingDim() / config_.getNumHeads()) << std::endl;
-
-            if (context_ && context_->getDevice())
-            {
-                oss << "Device: " << deviceTypeToString( context_->getDevice()->getDeviceType() ) << std::endl;
-            }
-
             oss << "Parameter count: " << parameterCount() << std::endl;
 
             return oss.str();

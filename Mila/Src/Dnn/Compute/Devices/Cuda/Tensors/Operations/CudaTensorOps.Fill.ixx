@@ -134,7 +134,7 @@ namespace Mila::Dnn::Compute::Cuda
                     );
                 }
 
-                Cuda::setCurrentDevice( device->getDeviceId() );
+                Cuda::setCurrentDevice( device->getDeviceId().index );
 
                 stream = nullptr;  // nullptr = default stream (stream 0)
                 needs_sync = true;  // Must sync default stream before returning
@@ -227,7 +227,7 @@ namespace Mila::Dnn::Compute::Cuda
                     );
                 }
                 
-                Cuda::setCurrentDevice(device->getDeviceId());
+                Cuda::setCurrentDevice(device->getDeviceId().index );
                 stream = nullptr;  // nullptr = default stream (stream 0)
                 needs_sync = true;  // Must sync default stream before returning
             }

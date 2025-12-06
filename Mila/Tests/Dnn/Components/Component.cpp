@@ -60,13 +60,11 @@ namespace Dnn::Components::Tests
         explicit MockComponent( const MockComponentConfig& config, std::shared_ptr<ExecutionContextType> exec_context )
             : config_( config ), exec_context_( exec_context )
         {
-            // Basic validation to keep behavior aligned with tests
             if ( !exec_context_ )
             {
                 throw std::invalid_argument( "ExecutionContext cannot be null" );
             }
 
-            // Validate config (throws if name is empty)
             config_.validate();
         }
 
@@ -166,9 +164,9 @@ namespace Dnn::Components::Tests
             return config_.getName();
         }
 
-        std::shared_ptr<ComputeDevice> getDevice() const override
+        DeviceId getDeviceId() const override
         {
-            return exec_context_->getDevice();
+            return exec_context_->getDeviceId();
         }
 
         // Expose precision policy for tests
@@ -243,7 +241,7 @@ namespace Dnn::Components::Tests
             std::shared_ptr<typename MockComponent<TDeviceType, TPrecision>::ExecutionContextType> exec_ctx;
             if constexpr ( TDeviceType == DeviceType::Cuda )
             {
-                exec_ctx = std::make_shared<typename MockComponent<TDeviceType, TPrecision>::ExecutionContextType>( device_id );
+                exec_ctx = std::make_shared<typename MockComponent<TDeviceType, TPrecision>::ExecutionContextType>( Device::Cuda(device_id) );
             }
             else
             {
@@ -351,7 +349,7 @@ namespace Dnn::Components::Tests
             if ( !context_cuda_data_.component )
             {
                 // Create a CUDA execution context for device 0
-                auto exec_context = std::make_shared<typename MockComponent<DeviceType::Cuda, TensorDataType::FP32>::ExecutionContextType>( 0 );
+                auto exec_context = std::make_shared<typename MockComponent<DeviceType::Cuda, TensorDataType::FP32>::ExecutionContextType>( Device::Cuda(0) );
                 context_cuda_data_ = ComponentTestData<DeviceType::Cuda>::CreateWithContext( exec_context );
             }
             return context_cuda_data_;
@@ -400,10 +398,9 @@ namespace Dnn::Components::Tests
         auto exec_context = data.component->getExecutionContext();
         EXPECT_NE( exec_context, nullptr );
 
-        auto device = exec_context->getDevice();
-        EXPECT_NE( device, nullptr );
+        auto device = exec_context->getDeviceId();
 
-        EXPECT_EQ( device->getDeviceType(), TDeviceType );
+        EXPECT_EQ( device.type, TDeviceType );
         EXPECT_EQ( data.component->getDeviceType(), TDeviceType );
     }
 
@@ -442,7 +439,7 @@ namespace Dnn::Components::Tests
 
         // Get execution context & device from component
         auto exec_ctx = data.component->getExecutionContext();
-        auto device = exec_ctx->getDevice();
+        auto device = exec_ctx->getDeviceId();
 
         // Create tensors using device pointer (Tensor ctor accepts device)
         Tensor<TensorDataType::FP32, MR> input( device, shape );
@@ -465,8 +462,8 @@ namespace Dnn::Components::Tests
         else
         {
             // For CUDA, initialize via host tensor and transfer
-            Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( "CPU", shape );
-            Tensor<TensorDataType::FP32, CpuMemoryResource> host_grad( "CPU", shape );
+            Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( Device::Cpu(), shape );
+            Tensor<TensorDataType::FP32, CpuMemoryResource> host_grad( Device::Cpu(), shape );
 
             auto* host_input_data = host_input.data();
             auto* host_grad_data = host_grad.data();
@@ -502,7 +499,7 @@ namespace Dnn::Components::Tests
         {
             // Negative device id should be invalid for CUDA: creating the ExecutionContext must fail
             EXPECT_THROW(
-                (std::make_shared<typename MockComponent<TDeviceType, TPrecision>::ExecutionContextType>( -1 )),
+                (std::make_shared<typename MockComponent<TDeviceType, TPrecision>::ExecutionContextType>( Device::Cuda(-1) )),
                 std::invalid_argument
             );
         }

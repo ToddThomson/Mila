@@ -26,7 +26,8 @@ import Dnn.CompositeComponent;
 import Dnn.ActivationType;
 import Compute.Precision;
 import Compute.MemoryResource;
-import Compute.ComputeDevice;
+import Compute.Device;
+import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.CpuMemoryResource;
@@ -138,7 +139,7 @@ namespace Mila::Dnn
                 throw std::runtime_error( "MLP component must be built before calling backward." );
             }
 
-            auto device = exec_context_->getDevice();
+            auto device = exec_context_->getDeviceId();
 
             TensorType fc2_grad( device, cached_hidden_shape_ );
             fc2_->backward( *act_output_, output_grad, fc2_grad );
@@ -201,9 +202,9 @@ namespace Mila::Dnn
             return config_.getName();
         }
 
-        std::shared_ptr<ComputeDevice> getDevice() const override
+        DeviceId getDeviceId() const override
         {
-            return exec_context_->getDevice();
+            return exec_context_->getDeviceId();
         }
 
         void synchronize() override
@@ -297,10 +298,7 @@ namespace Mila::Dnn
             oss << "Activation: " << activationTypeToString( config_.getActivationType() ) << std::endl;
             oss << "Layer Norm: " << (config_.useLayerNorm() ? "enabled" : "disabled") << std::endl;
 
-            if (exec_context_ && exec_context_->getDevice())
-            {
-                oss << "Device: " << deviceTypeToString( exec_context_->getDevice()->getDeviceType() ) << std::endl;
-            }
+            oss << "Device: " << exec_context_->getDeviceId().toString() << std::endl;
 
             oss << "Parameter count: " << parameterCount() << std::endl;
 
@@ -425,7 +423,7 @@ namespace Mila::Dnn
             fc2_->setTraining( this->isTraining() );
             fc2_->build( cached_hidden_shape_ );
 
-            auto device = exec_context_->getDevice();
+            auto device = exec_context_->getDeviceId();
 
             fc1_output_ = std::make_shared<TensorType>( device, cached_hidden_shape_ );
             fc1_output_->setName( this->getName() + ".fc1_output" );

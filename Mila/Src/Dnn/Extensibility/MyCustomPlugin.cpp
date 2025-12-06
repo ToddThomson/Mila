@@ -7,7 +7,7 @@ public:
             .name = "MyCustomLayer",
             .version = "1.0.0",
             .mila_api_version = "0.1.0",
-            .supported_devices = {"Cpu", "Cuda"},
+            .supported_devices = {Device::Cpu(), "Cuda"},
             .supported_precisions = {"float32", "float64"}
         };
     }

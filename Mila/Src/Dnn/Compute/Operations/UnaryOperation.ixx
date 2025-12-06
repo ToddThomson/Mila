@@ -19,7 +19,7 @@ import Dnn.TensorDataTypeTraits;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
 import Compute.Precision;
-import Compute.ComputeDevice;
+import Compute.Device;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
 //import Compute.DeviceTypeTraits.Cpu;
@@ -69,6 +69,7 @@ namespace Mila::Dnn::Compute
         virtual void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad ) const = 0;
 
     protected:
+        
         // Helpers for typed dynamic casts to concrete Tensor<T,...> types.
         // Use these to avoid unsafe void* casts and to prefer the typed `.data()` accessor.
         static const TensorInputType& asInputTensor( const ITensor& t )

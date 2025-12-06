@@ -136,9 +136,9 @@ namespace Modules::Blocks::Tests
 
         // Execution & Assertions
         ASSERT_NE( data.exec_context, nullptr );
-        auto device = data.exec_context->getDevice();
-        ASSERT_NE( device, nullptr );
-        EXPECT_EQ( device->getDeviceType(), DeviceType::Cpu );
+        auto device = data.exec_context->getDeviceId();
+
+        EXPECT_EQ( device.type, DeviceType::Cpu );
     }
 
     TEST_F( MLPCpuTests, IsBuilt_BeforeBuild )
@@ -234,8 +234,8 @@ namespace Modules::Blocks::Tests
         // Build and allocate
         data.mlp->build( data.input_shape );
 
-        TensorType input( data.exec_context->getDevice(), data.input_shape );
-        TensorType output( data.exec_context->getDevice(), data.input_shape );
+        TensorType input( data.exec_context->getDeviceId(), data.input_shape );
+        TensorType output( data.exec_context->getDeviceId(), data.input_shape );
 
         // Initialize input and run
         random( input, -1.0f, 1.0f );
@@ -384,8 +384,8 @@ namespace Modules::Blocks::Tests
 
         data.mlp->build( data.input_shape );
 
-        TensorType input( data.exec_context->getDevice(), data.input_shape );
-        TensorType output( data.exec_context->getDevice(), data.input_shape );
+        TensorType input( data.exec_context->getDeviceId(), data.input_shape );
+        TensorType output( data.exec_context->getDeviceId(), data.input_shape );
 
         random( input, -1.0f, 1.0f );
 
@@ -412,8 +412,8 @@ namespace Modules::Blocks::Tests
 
         data.mlp->build( data.input_shape );
 
-        TensorType input( data.exec_context->getDevice(), data.input_shape );
-        TensorType output( data.exec_context->getDevice(), data.input_shape );
+        TensorType input( data.exec_context->getDeviceId(), data.input_shape );
+        TensorType output( data.exec_context->getDeviceId(), data.input_shape );
 
         random( input, -1.0f, 1.0f );
 
@@ -463,8 +463,8 @@ namespace Modules::Blocks::Tests
 
         data.mlp->build( data.input_shape );
 
-        TensorType input( data.exec_context->getDevice(), data.input_shape );
-        TensorType output( data.exec_context->getDevice(), data.input_shape );
+        TensorType input( data.exec_context->getDeviceId(), data.input_shape );
+        TensorType output( data.exec_context->getDeviceId(), data.input_shape );
 
         random( input, -1.0f, 1.0f );
 
@@ -506,8 +506,8 @@ namespace Modules::Blocks::Tests
 
         data.mlp->build( data.input_shape );
 
-        TensorType input( data.exec_context->getDevice(), data.input_shape );
-        TensorType output( data.exec_context->getDevice(), data.input_shape );
+        TensorType input( data.exec_context->getDeviceId(), data.input_shape );
+        TensorType output( data.exec_context->getDeviceId(), data.input_shape );
 
         random( input, -1.0f, 1.0f );
 
@@ -530,8 +530,8 @@ namespace Modules::Blocks::Tests
 
         data.mlp->build( data.input_shape );
 
-        TensorType input( data.exec_context->getDevice(), data.input_shape );
-        TensorType output( data.exec_context->getDevice(), data.input_shape );
+        TensorType input( data.exec_context->getDeviceId(), data.input_shape );
+        TensorType output( data.exec_context->getDeviceId(), data.input_shape );
 
         random( input, -1.0f, 1.0f );
 
@@ -585,8 +585,8 @@ namespace Modules::Blocks::Tests
         auto cpu_exec = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
         auto mlp = std::make_shared<MLP<DeviceType::Cpu, TensorDataType::FP32>>( cpu_exec, config );
 
-        CpuTensor<TensorDataType::FP32> input( cpu_exec->getDevice(), test_shape );
-        CpuTensor<TensorDataType::FP32> output( cpu_exec->getDevice(), test_shape );
+        CpuTensor<TensorDataType::FP32> input( cpu_exec->getDeviceId(), test_shape );
+        CpuTensor<TensorDataType::FP32> output( cpu_exec->getDeviceId(), test_shape );
 
         EXPECT_THROW(
             mlp->forward( input, output ),
@@ -639,8 +639,8 @@ namespace Modules::Blocks::Tests
 
         data.mlp->build( data.input_shape );
 
-        CpuTensor<TensorDataType::FP32> input( data.exec_context->getDevice(), data.input_shape );
-        CpuTensor<TensorDataType::FP32> output( data.exec_context->getDevice(), data.input_shape );
+        CpuTensor<TensorDataType::FP32> input( data.exec_context->getDeviceId(), data.input_shape );
+        CpuTensor<TensorDataType::FP32> output( data.exec_context->getDeviceId(), data.input_shape );
 
         for ( int iter = 0; iter < 10; ++iter )
         {

@@ -23,7 +23,8 @@ export module Dnn.CompositeComponent;
 import Dnn.Component;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
-import Compute.ComputeDevice;
+import Compute.Device;
+import Compute.DeviceId;
 import Compute.DeviceType;
 import Serialization.ModelArchive;
 import Serialization.Mode;
@@ -396,14 +397,10 @@ namespace Mila::Dnn
          *
          * @return Shared pointer to compute device, or nullptr if no children
          */
-        std::shared_ptr<ComputeDevice> getDevice() const override
+        DeviceId getDeviceId() const override
         {
-            if (child_components_.empty())
-            {
-                return nullptr;
-            }
-
-            return child_components_[0]->getDevice();
+			// REVIEW: Correct behavior when no children exist?
+            return child_components_[0]->getDeviceId();
         }
 
         // ====================================================================

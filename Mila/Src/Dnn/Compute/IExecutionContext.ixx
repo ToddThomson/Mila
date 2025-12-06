@@ -1,57 +1,46 @@
 /**
- * @file ExecutionContext.ixx
- * @brief Templated execution context framework for compute operations and stream management.
- *
- * ExecutionContext provides the interface for managing execution streams, synchronization,
- * and compute library handles across different hardware platforms. The template parameter
- * provides compile-time device type safety and eliminates runtime dispatch overhead.
+ * @file IExecutionContext.ixx
+ * @brief Minimal type-erased execution context interface.
  */
-
-module;
-#include <memory>
-#include <string>
 
 export module Compute.IExecutionContext;
 
-import Compute.ComputeDevice;
-import Compute.DeviceType;
+import Compute.DeviceId;
 
 namespace Mila::Dnn::Compute
 {
     /**
      * @brief Type-erased execution context interface.
      *
-     * Provides a minimal virtual interface to query runtime properties of an
-     * execution context. Implementations (templated specializations) should
-     * inherit from this interface to enable type-erased usage.
+     * Provides a minimal virtual interface for execution contexts. Specializations
+     * (CPU, CUDA, Metal, ROCm) inherit from this to enable polymorphic usage when
+     * the device type is not known at compile time.
+     *
+     * For performance-critical code where the device type is known statically,
+     * use the templated ExecutionContext<TDeviceType> directly or cast_context<>() to avoid
+     * runtime overhead.
      */
     export class IExecutionContext
     {
     public:
-
         virtual ~IExecutionContext() = default;
 
         /**
-         * @brief Get the runtime device type for this execution context.
+         * @brief Get the device identifier.
          *
-         * This is a non-virtual, zero-overhead accessor that returns the
-         * device type set during construction.
+         * @return DeviceId Device identifier (type + index).
          */
-        [[nodiscard]] DeviceType getDeviceType() const noexcept {
-            return deviceType_;
-        }
+        [[nodiscard]] virtual DeviceId getDeviceId() const noexcept = 0;
+
+        /**
+         * @brief Synchronize all pending operations.
+         *
+         * Blocks until all operations submitted to this context complete.
+         * For CPU contexts, this is typically a no-op.
+         */
+        virtual void synchronize() = 0;
 
     protected:
-        /**
-         * @brief Constructor for derived classes to set the device type.
-         * @param type The device type for this context.
-         */
-        explicit IExecutionContext( DeviceType type ) noexcept
-            : deviceType_( type ) {
-        }
-
-    private:
-
-        DeviceType deviceType_;
+        IExecutionContext() = default;
     };
 }

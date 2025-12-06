@@ -85,9 +85,9 @@ TEST_F(CpuResidualOpTests, ForwardBasic) {
     // Operation-level path (if registered)
     if (op_) {
         using HostTensor = Tensor<TensorDataType::FP32, CpuMemoryResource>;
-        HostTensor A(exec_ctx_->getDevice(), small_shape_);
-        HostTensor B(exec_ctx_->getDevice(), small_shape_);
-        HostTensor Y(exec_ctx_->getDevice(), small_shape_);
+        HostTensor A(exec_ctx_->getDeviceId(), small_shape_);
+        HostTensor B(exec_ctx_->getDeviceId(), small_shape_);
+        HostTensor Y(exec_ctx_->getDeviceId(), small_shape_);
 
         float* a = static_cast<float*>(A.rawData());
         float* b = static_cast<float*>(B.rawData());
@@ -111,8 +111,8 @@ TEST_F(CpuResidualOpTests, ForwardBasic) {
     // Module-level forward (always exercised)
     {
         using ModTensor = Tensor<TensorDataType::FP32, CpuMemoryResource>;
-        ModTensor inp(exec_ctx_->getDevice(), small_shape_);
-        ModTensor out(exec_ctx_->getDevice(), small_shape_);
+        ModTensor inp(exec_ctx_->getDeviceId(), small_shape_);
+        ModTensor out(exec_ctx_->getDeviceId(), small_shape_);
 
         float* id = static_cast<float*>(inp.rawData());
         for (size_t i = 0; i < inp.size(); ++i)
@@ -128,12 +128,12 @@ TEST_F(CpuResidualOpTests, BackwardBehavior) {
     // Operation-level backward (if registered)
     if (op_) {
         using HostTensor = Tensor<TensorDataType::FP32, CpuMemoryResource>;
-        HostTensor A(exec_ctx_->getDevice(), small_shape_);
-        HostTensor B(exec_ctx_->getDevice(), small_shape_);
-        HostTensor Y(exec_ctx_->getDevice(), small_shape_);
-        HostTensor dY(exec_ctx_->getDevice(), small_shape_);
-        HostTensor dA(exec_ctx_->getDevice(), small_shape_);
-        HostTensor dB(exec_ctx_->getDevice(), small_shape_);
+        HostTensor A(exec_ctx_->getDeviceId(), small_shape_);
+        HostTensor B(exec_ctx_->getDeviceId(), small_shape_);
+        HostTensor Y(exec_ctx_->getDeviceId(), small_shape_);
+        HostTensor dY(exec_ctx_->getDeviceId(), small_shape_);
+        HostTensor dA(exec_ctx_->getDeviceId(), small_shape_);
+        HostTensor dB(exec_ctx_->getDeviceId(), small_shape_);
 
         float* a = static_cast<float*>(A.rawData());
         float* b = static_cast<float*>(B.rawData());
@@ -171,9 +171,9 @@ TEST_F(CpuResidualOpTests, BackwardBehavior) {
     // Module-level backward — may be unimplemented; try and skip on exception.
     {
         using ModTensor = Tensor<TensorDataType::FP32, CpuMemoryResource>;
-        ModTensor input(exec_ctx_->getDevice(), small_shape_);
-        ModTensor out_grad(exec_ctx_->getDevice(), small_shape_);
-        ModTensor in_grad(exec_ctx_->getDevice(), small_shape_);
+        ModTensor input(exec_ctx_->getDeviceId(), small_shape_);
+        ModTensor out_grad(exec_ctx_->getDeviceId(), small_shape_);
+        ModTensor in_grad(exec_ctx_->getDeviceId(), small_shape_);
 
         float* id = static_cast<float*>(input.rawData());
         float* dg = static_cast<float*>(out_grad.rawData());
@@ -195,8 +195,8 @@ TEST_F(CpuResidualOpTests, EdgeCasesAndDeterminism) {
     // Reuse small checks for op (if registered)
     if (op_) {
         using HostTensor = Tensor<TensorDataType::FP32, CpuMemoryResource>;
-        HostTensor a(exec_ctx_->getDevice(), small_shape_), b(exec_ctx_->getDevice(), small_shape_),
-            out(exec_ctx_->getDevice(), small_shape_);
+        HostTensor a(exec_ctx_->getDeviceId(), small_shape_), b(exec_ctx_->getDeviceId(), small_shape_),
+            out(exec_ctx_->getDeviceId(), small_shape_);
         typename BinaryOperation<DeviceType::Cpu, TensorDataType::FP32>::Parameters params;
         typename BinaryOperation<DeviceType::Cpu, TensorDataType::FP32>::OutputState out_state;
 
@@ -211,7 +211,7 @@ TEST_F(CpuResidualOpTests, EdgeCasesAndDeterminism) {
 
         // deterministic run
         op_->forward(a, b, params, out, out_state);
-        HostTensor out2(exec_ctx_->getDevice(), small_shape_);
+        HostTensor out2(exec_ctx_->getDeviceId(), small_shape_);
         op_->forward(a, b, params, out2, out_state);
         for (size_t i = 0; i < out.size(); ++i)
             EXPECT_EQ(static_cast<float*>(out.rawData())[i], static_cast<float*>(out2.rawData())[i]);
@@ -220,8 +220,8 @@ TEST_F(CpuResidualOpTests, EdgeCasesAndDeterminism) {
     // Module smoke checks
     {
         using ModTensor = Tensor<TensorDataType::FP32, CpuMemoryResource>;
-        ModTensor a(exec_ctx_->getDevice(), medium_shape_), o1(exec_ctx_->getDevice(), medium_shape_),
-            o2(exec_ctx_->getDevice(), medium_shape_);
+        ModTensor a(exec_ctx_->getDeviceId(), medium_shape_), o1(exec_ctx_->getDeviceId(), medium_shape_),
+            o2(exec_ctx_->getDeviceId(), medium_shape_);
         float* ad = static_cast<float*>(a.rawData());
         for (size_t i = 0; i < a.size(); ++i)
             ad[i] = (static_cast<float>(i % 17) - 8.5f) * 0.1f;
@@ -243,8 +243,8 @@ TEST_F(CpuResidualOpTests, ConstructorValidationAndPerformance) {
     // Operation perf (if available)
     if (op_) {
         using HostTensor = Tensor<TensorDataType::FP32, CpuMemoryResource>;
-        HostTensor a(exec_ctx_->getDevice(), large_shape_), b(exec_ctx_->getDevice(), large_shape_),
-            out(exec_ctx_->getDevice(), large_shape_);
+        HostTensor a(exec_ctx_->getDeviceId(), large_shape_), b(exec_ctx_->getDeviceId(), large_shape_),
+            out(exec_ctx_->getDeviceId(), large_shape_);
         for (size_t i = 0; i < a.size(); ++i) {
             static_cast<float*>(a.rawData())[i] = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 20.0f;
             static_cast<float*>(b.rawData())[i] = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 20.0f;
@@ -265,7 +265,7 @@ TEST_F(CpuResidualOpTests, ConstructorValidationAndPerformance) {
     // Module perf
     {
         using ModTensor = Tensor<TensorDataType::FP32, CpuMemoryResource>;
-        ModTensor a(exec_ctx_->getDevice(), large_shape_), out(exec_ctx_->getDevice(), large_shape_);
+        ModTensor a(exec_ctx_->getDeviceId(), large_shape_), out(exec_ctx_->getDeviceId(), large_shape_);
         for (size_t i = 0; i < a.size(); ++i)
             static_cast<float*>(a.rawData())[i] = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 20.0f;
         const int iterations = 10;
@@ -287,8 +287,8 @@ TEST_F(CpuResidualOpTests, OpenMPScaling) {
 
     if (op_) {
         using HostTensor = Tensor<TensorDataType::FP32, CpuMemoryResource>;
-        HostTensor a(exec_ctx_->getDevice(), large_shape_), b(exec_ctx_->getDevice(), large_shape_),
-            out(exec_ctx_->getDevice(), large_shape_);
+        HostTensor a(exec_ctx_->getDeviceId(), large_shape_), b(exec_ctx_->getDeviceId(), large_shape_),
+            out(exec_ctx_->getDeviceId(), large_shape_);
         for (size_t i = 0; i < a.size(); ++i) {
             static_cast<float*>(a.rawData())[i] = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 20.0f;
             static_cast<float*>(b.rawData())[i] = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 20.0f;
@@ -317,7 +317,7 @@ TEST_F(CpuResidualOpTests, OpenMPScaling) {
     // Module OpenMP scaling
     {
         using ModTensor = Tensor<TensorDataType::FP32, CpuMemoryResource>;
-        ModTensor a(exec_ctx_->getDevice(), large_shape_), out(exec_ctx_->getDevice(), large_shape_);
+        ModTensor a(exec_ctx_->getDeviceId(), large_shape_), out(exec_ctx_->getDeviceId(), large_shape_);
         for (size_t i = 0; i < a.size(); ++i)
             static_cast<float*>(a.rawData())[i] = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 20.0f;
         int max_threads = omp_get_max_threads();

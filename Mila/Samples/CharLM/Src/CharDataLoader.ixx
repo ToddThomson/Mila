@@ -95,12 +95,12 @@ namespace Mila::CharLM
             int64_t batch_size,
             int64_t seq_length,
             bool is_training,
-            std::shared_ptr<Compute::ComputeDevice> device,
+            DeviceId device,
             int64_t stride = -1 )
             : BaseLoader( batch_size ),
             seq_length_( seq_length ),
             is_training_( is_training ),
-            device_( validateDevice( device ) ),
+            device_( validateDeviceId( device ) ),
             stride_( stride > 0 ? stride : seq_length )
         {
             if (seq_length_ <= 0)
@@ -157,7 +157,7 @@ namespace Mila::CharLM
             std::cout << "  Stride: " << stride_ << std::endl;
             std::cout << "  Total sequences: " << num_sequences_ << std::endl;
             std::cout << "  Batches: " << num_batches_ << std::endl;
-            std::cout << "  Device: " << device_->getDeviceName() << std::endl;
+            std::cout << "  Device: " << device_.toString() << std::endl;
         }
 
         int64_t numBatches() const override
@@ -246,7 +246,7 @@ namespace Mila::CharLM
         }
 
     private:
-        std::shared_ptr<Compute::ComputeDevice> device_;
+        DeviceId device_;
         bool is_training_;
         int64_t seq_length_;
         int64_t stride_;
@@ -265,31 +265,26 @@ namespace Mila::CharLM
         /**
          * @brief Validates device and ensures it matches memory resource requirements.
          */
-        static std::shared_ptr<Compute::ComputeDevice> validateDevice(
-            std::shared_ptr<Compute::ComputeDevice> device )
+        static DeviceId validateDeviceId(
+            DeviceId device )
         {
-            if (!device)
-            {
-                throw std::invalid_argument( "Device cannot be null" );
-            }
-
             if constexpr (std::is_same_v<TMemoryResource, CpuMemoryResource>)
             {
-                if (device->getDeviceType() != DeviceType::Cpu)
+                if (device.type != DeviceType::Cpu)
                 {
                     throw std::runtime_error(
                         "CpuMemoryResource requires CPU device, got " +
-                        std::string( deviceTypeToString( device->getDeviceType() ) ) );
+                        device.toString() );
                 }
             }
 
             if constexpr (std::is_same_v<TMemoryResource, CudaPinnedMemoryResource>)
             {
-                if (device->getDeviceType() != DeviceType::Cuda)
+                if (device.type != DeviceType::Cuda)
                 {
                     throw std::runtime_error(
                         "CudaPinnedMemoryResource requires CUDA device, got " +
-                        std::string( deviceTypeToString( device->getDeviceType() ) ) );
+                        device.toString() );
                 }
             }
 

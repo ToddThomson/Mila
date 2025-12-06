@@ -9,16 +9,19 @@ import Mila;
 namespace Dnn::Tensors::Tests
 {
     using namespace Mila::Dnn;
+	using namespace Mila::Dnn::Compute;
 
     class TensorIoTest : public ::testing::Test {
     protected:
         void SetUp() override {
+            has_cuda_device_ = DeviceRegistry::instance().hasDeviceType( DeviceType::Cuda );
+
             // Test tensors with different shapes and properties using host-compatible types
-            scalar_tensor_ = std::make_unique<HostTensor<TensorDataType::FP32>>( "CPU", shape_t{} );
-            vector_tensor_ = std::make_unique<HostTensor<TensorDataType::FP32>>( "CPU", shape_t{5} );
-            matrix_tensor_ = std::make_unique<HostTensor<TensorDataType::INT32>>( "CPU", shape_t{3, 4} );
-            tensor_3d_ = std::make_unique<HostTensor<TensorDataType::INT8>>( "CPU", shape_t{2, 3, 4} );
-            tensor_4d_ = std::make_unique<HostTensor<TensorDataType::UINT8>>( "CPU", shape_t{2, 3, 4, 5} );
+            scalar_tensor_ = std::make_unique<HostTensor<TensorDataType::FP32>>( Device::Cpu(), shape_t{} );
+            vector_tensor_ = std::make_unique<HostTensor<TensorDataType::FP32>>( Device::Cpu(), shape_t{5} );
+            matrix_tensor_ = std::make_unique<HostTensor<TensorDataType::INT32>>( Device::Cpu(), shape_t{3, 4} );
+            tensor_3d_ = std::make_unique<HostTensor<TensorDataType::INT8>>( Device::Cpu(), shape_t{2, 3, 4} );
+            tensor_4d_ = std::make_unique<HostTensor<TensorDataType::UINT8>>( Device::Cpu(), shape_t{2, 3, 4, 5} );
 
             // Set descriptive names for testing
             vector_tensor_->setName( "test_vector" );
@@ -26,6 +29,8 @@ namespace Dnn::Tensors::Tests
             tensor_3d_->setName( "conv_weights" );
             tensor_4d_->setName( "batch_data" );
         }
+
+        bool has_cuda_device_;
 
         std::unique_ptr<HostTensor<TensorDataType::FP32>> scalar_tensor_;
         std::unique_ptr<HostTensor<TensorDataType::FP32>> vector_tensor_;
@@ -108,7 +113,11 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST_F( TensorIoTest, ToStringCudaDevice ) {
-        auto cuda_tensor = DeviceTensor<TensorDataType::FP32>( "CUDA:0", { 10, 10 } );
+        if ( !has_cuda_device_ ) {
+            GTEST_SKIP() << "CUDA device not available. Skipping test.";
+        }
+
+        auto cuda_tensor = DeviceTensor<TensorDataType::FP32>( Device::Cuda(0), { 10, 10 } );
         std::string result = cuda_tensor.toString();
 
         EXPECT_TRUE( result.find( "Device: CUDA:0" ) != std::string::npos );
@@ -116,9 +125,13 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST_F( TensorIoTest, ToStringCudaDeviceOnlyTypes ) {
+        if ( !has_cuda_device_ ) {
+            GTEST_SKIP() << "CUDA device not available. Skipping test.";
+        }
+
         // Test device-only types with CUDA memory resources
-        auto fp16_tensor = DeviceTensor<TensorDataType::FP16>( "CUDA:0", { 5, 5 } );
-        auto bf16_tensor = DeviceTensor<TensorDataType::BF16>( "CUDA:0", { 3, 3 } );
+        auto fp16_tensor = DeviceTensor<TensorDataType::FP16>( Device::Cuda(0), { 5, 5 } );
+        auto bf16_tensor = DeviceTensor<TensorDataType::BF16>( Device::Cuda(0), { 3, 3 } );
 
         std::string fp16_result = fp16_tensor.toString();
         std::string bf16_result = bf16_tensor.toString();
@@ -138,7 +151,11 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST_F( TensorIoTest, ToStringBufferNonHostAccessible ) {
-        auto device_tensor = DeviceTensor<TensorDataType::FP32>( "CUDA:0", { 5, 5 } );
+        if ( !has_cuda_device_ ) {
+            GTEST_SKIP() << "CUDA device not available. Skipping test.";
+        }
+
+        auto device_tensor = DeviceTensor<TensorDataType::FP32>( Device::Cuda(0), { 5, 5 } );
         std::string result = device_tensor.toString( true );
 
         // Should indicate tensor is not host-accessible
@@ -146,8 +163,8 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST_F( TensorIoTest, ToStringUniqueIdentifiers ) {
-        auto tensor1 = HostTensor<TensorDataType::FP32>( "CPU", { 2, 2 } );
-        auto tensor2 = HostTensor<TensorDataType::FP32>( "CPU", { 2, 2 } );
+        auto tensor1 = HostTensor<TensorDataType::FP32>( Device::Cpu(), { 2, 2 } );
+        auto tensor2 = HostTensor<TensorDataType::FP32>( Device::Cpu(), { 2, 2 } );
 
         std::string result1 = tensor1.toString();
         std::string result2 = tensor2.toString();
@@ -189,15 +206,19 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST_F( TensorIoTest, StreamOperatorDifferentMemoryResources ) {
+        if ( !has_cuda_device_ ) {
+            GTEST_SKIP() << "CUDA device not available. Skipping test.";
+        }
+
         std::ostringstream oss;
 
-        auto host_tensor = HostTensor<TensorDataType::FP32>( "CPU", { 3, 3 } );
+        auto host_tensor = HostTensor<TensorDataType::FP32>( Device::Cpu(), { 3, 3 } );
         host_tensor.setName( "host_test" );
 
-        auto pinned_tensor = PinnedTensor<TensorDataType::FP32>( "CUDA:0", { 3, 3 } );
+        auto pinned_tensor = PinnedTensor<TensorDataType::FP32>( Device::Cuda(0), { 3, 3 } );
         pinned_tensor.setName( "pinned_test" );
 
-        auto managed_tensor = UniversalTensor<TensorDataType::FP32>( "CUDA:0", { 3, 3 } );
+        auto managed_tensor = UniversalTensor<TensorDataType::FP32>( Device::Cuda(0), { 3, 3 } );
         managed_tensor.setName( "managed_test" );
 
         oss << host_tensor << "\n---\n" << pinned_tensor << "\n---\n" << managed_tensor;
@@ -213,10 +234,10 @@ namespace Dnn::Tensors::Tests
     TEST_F( TensorIoTest, StreamOperatorMultipleDataTypes ) {
         std::ostringstream oss;
 
-        auto fp32_tensor = HostTensor<TensorDataType::FP32>( "CPU", { 2 } );
-        auto int32_tensor = HostTensor<TensorDataType::INT32>( "CPU", { 2 } );
-        auto int8_tensor = HostTensor<TensorDataType::INT8>( "CPU", { 2 } );
-        auto uint8_tensor = HostTensor<TensorDataType::UINT8>( "CPU", { 2 } );
+        auto fp32_tensor = HostTensor<TensorDataType::FP32>( Device::Cpu(), { 2 } );
+        auto int32_tensor = HostTensor<TensorDataType::INT32>( Device::Cpu(), { 2 } );
+        auto int8_tensor = HostTensor<TensorDataType::INT8>( Device::Cpu(), { 2 } );
+        auto uint8_tensor = HostTensor<TensorDataType::UINT8>( Device::Cpu(), { 2 } );
 
         oss << fp32_tensor << "\n" << int32_tensor << "\n" << int8_tensor << "\n" << uint8_tensor;
 
@@ -229,10 +250,13 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST_F( TensorIoTest, StreamOperatorDeviceOnlyTypes ) {
+        if ( !has_cuda_device_ ) {
+            GTEST_SKIP() << "CUDA device not available. Skipping test.";
+        }
         std::ostringstream oss;
 
-        auto fp16_tensor = DeviceTensor<TensorDataType::FP16>( "CUDA:0", { 2 } );
-        auto bf16_tensor = DeviceTensor<TensorDataType::BF16>( "CUDA:0", { 2 } );
+        auto fp16_tensor = DeviceTensor<TensorDataType::FP16>( Device::Cuda(0), { 2 } );
+        auto bf16_tensor = DeviceTensor<TensorDataType::BF16>( Device::Cuda(0), { 2 } );
 
         oss << fp16_tensor << "\n" << bf16_tensor;
 
@@ -247,7 +271,7 @@ namespace Dnn::Tensors::Tests
     // =============================================================================
 
     TEST_F( TensorIoTest, EmptyTensorString ) {
-        auto empty_tensor = HostTensor<TensorDataType::FP32>( "CPU", { 0 } );
+        auto empty_tensor = HostTensor<TensorDataType::FP32>( Device::Cpu(), { 0 } );
         std::string result = empty_tensor.toString();
 
         EXPECT_TRUE( result.find( "size=0" ) != std::string::npos );
@@ -255,7 +279,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST_F( TensorIoTest, LargeTensorString ) {
-        auto large_tensor = HostTensor<TensorDataType::FP32>( "CPU", { 1000, 1000 } );
+        auto large_tensor = HostTensor<TensorDataType::FP32>( Device::Cpu(), { 1000, 1000 } );
         std::string result = large_tensor.toString();
 
         EXPECT_TRUE( result.find( "size=1000000" ) != std::string::npos );
@@ -287,7 +311,7 @@ namespace Dnn::Tensors::Tests
     // =============================================================================
 
     TEST_F( TensorIoTest, HostTensorAlias ) {
-        auto host_tensor = HostTensor<TensorDataType::FP32>( "CPU", { 5, 5 } );
+        auto host_tensor = HostTensor<TensorDataType::FP32>( Device::Cpu(), { 5, 5 } );
         std::string result = host_tensor.toString();
 
         EXPECT_TRUE( result.find( "Device: CPU" ) != std::string::npos );
@@ -295,7 +319,10 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST_F( TensorIoTest, DeviceTensorAlias ) {
-        auto device_tensor = DeviceTensor<TensorDataType::FP32>( "CUDA:0", { 5, 5 } );
+        if ( !has_cuda_device_ ) {
+            GTEST_SKIP() << "CUDA device not available. Skipping test.";
+        }
+        auto device_tensor = DeviceTensor<TensorDataType::FP32>( Device::Cuda(0), { 5, 5 } );
         std::string result = device_tensor.toString();
 
         EXPECT_TRUE( result.find( "Device: CUDA:0" ) != std::string::npos );
@@ -303,15 +330,21 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST_F( TensorIoTest, PinnedTensorAlias ) {
-        auto pinned_tensor = PinnedTensor<TensorDataType::FP32>( "CUDA:0", { 5, 5 } );  // Changed from "CPU" to "CUDA:0"
+        if ( !has_cuda_device_ ) {
+            GTEST_SKIP() << "CUDA device not available. Skipping test.";
+        }
+        auto pinned_tensor = PinnedTensor<TensorDataType::FP32>( Device::Cuda(0), { 5, 5 } );  // Changed from Device::Cpu() to Device::Cuda(0)
         std::string result = pinned_tensor.toString();
 
-        EXPECT_TRUE( result.find( "Device: CUDA:0" ) != std::string::npos );  // Changed from "CPU" to "CUDA:0"
+        EXPECT_TRUE( result.find( "Device: CUDA:0" ) != std::string::npos );  // Changed from Device::Cpu() to Device::Cuda(0)
         EXPECT_TRUE( result.find( "Type: FP32" ) != std::string::npos );
     }
 
     TEST_F( TensorIoTest, UniversalTensorAlias ) {
-        auto universal_tensor = UniversalTensor<TensorDataType::FP32>( "CUDA:0", { 5, 5 } );
+        if ( !has_cuda_device_ ) {
+            GTEST_SKIP() << "CUDA device not available. Skipping test.";
+        }
+        auto universal_tensor = UniversalTensor<TensorDataType::FP32>( Device::Cuda(0), { 5, 5 } );
         std::string result = universal_tensor.toString();
 
         EXPECT_TRUE( result.find( "Device: CUDA:0" ) != std::string::npos );

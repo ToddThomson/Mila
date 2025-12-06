@@ -7,7 +7,6 @@
 #include <stdexcept>
 #include <exception>
 #include <cstdint>
-#include <cuda_runtime.h>
 
 import Mila;
 
@@ -59,7 +58,7 @@ namespace Modules::Blocks::Tests
                 .withName( name )
                 .withPrecisionPolicy( precision );
 
-            data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+            data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
             data.mlp_module = std::make_shared<MLP<DeviceType::Cuda, TPrecision>>( data.exec_context, data.config );
 
             return data;
@@ -100,9 +99,8 @@ namespace Modules::Blocks::Tests
     protected:
         void SetUp() override
         {
-            int device_count = 0;
-            cudaError_t error = cudaGetDeviceCount( &device_count );
-            cuda_available_ = (error == cudaSuccess && device_count > 0);
+            int device_count = getDeviceCount( DeviceType::Cuda );
+            cuda_available_ = (device_count > 0);
 
             if ( !cuda_available_ )
             {
@@ -125,7 +123,8 @@ namespace Modules::Blocks::Tests
 
     TEST_F( MLPCudaTests, GetName )
     {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+        if ( !cuda_available_ )
+            GTEST_SKIP() << "CUDA not available";
 
         auto data = MLPCudaTestData<TensorDataType::FP32>::Create(
             "small_mlp_cuda",
@@ -148,9 +147,9 @@ namespace Modules::Blocks::Tests
             hidden_size_ );
 
         ASSERT_NE( data.exec_context, nullptr );
-        auto device = data.exec_context->getDevice();
-        ASSERT_NE( device, nullptr );
-        EXPECT_EQ( device->getDeviceType(), DeviceType::Cuda );
+        auto device = data.exec_context->getDeviceId();
+
+        EXPECT_EQ( device.type, DeviceType::Cuda );
     }
 
     TEST_F( MLPCudaTests, IsBuilt_BeforeBuild )
@@ -245,11 +244,11 @@ namespace Modules::Blocks::Tests
 
         EXPECT_NO_THROW( data.mlp_module->build( data.input_shape ) );
 
-        HostTensorType host_input( "CPU", data.input_shape );
+        HostTensorType host_input( Device::Cpu(), data.input_shape );
         random( host_input, -1.0f, 1.0f );
 
-        DeviceTensorType device_input( data.exec_context->getDevice(), data.input_shape );
-        DeviceTensorType device_output( data.exec_context->getDevice(), data.input_shape );
+        DeviceTensorType device_input( data.exec_context->getDeviceId(), data.input_shape );
+        DeviceTensorType device_output( data.exec_context->getDeviceId(), data.input_shape );
 
         copy( host_input, device_input );
 
@@ -399,11 +398,11 @@ namespace Modules::Blocks::Tests
 
         EXPECT_NO_THROW( data.mlp_module->build( data.input_shape ) );
 
-        HostTensorType host_input( "CPU", data.input_shape );
+        HostTensorType host_input( Device::Cpu(), data.input_shape );
         random( host_input, -1.0f, 1.0f );
 
-        DeviceTensorType device_input( data.exec_context->getDevice(), data.input_shape );
-        DeviceTensorType device_output( data.exec_context->getDevice(), data.input_shape );
+        DeviceTensorType device_input( data.exec_context->getDeviceId(), data.input_shape );
+        DeviceTensorType device_output( data.exec_context->getDeviceId(), data.input_shape );
 
         copy( host_input, device_input );
 
@@ -432,11 +431,11 @@ namespace Modules::Blocks::Tests
 
         EXPECT_NO_THROW( data.mlp_module->build( data.input_shape ) );
 
-        HostTensorType host_input( "CPU", data.input_shape );
+        HostTensorType host_input( Device::Cpu(), data.input_shape );
         random( host_input, -1.0f, 1.0f );
 
-        DeviceTensorType device_input( data.exec_context->getDevice(), data.input_shape );
-        DeviceTensorType device_output( data.exec_context->getDevice(), data.input_shape );
+        DeviceTensorType device_input( data.exec_context->getDeviceId(), data.input_shape );
+        DeviceTensorType device_output( data.exec_context->getDeviceId(), data.input_shape );
 
         copy( host_input, device_input );
 
@@ -488,11 +487,11 @@ namespace Modules::Blocks::Tests
 
         EXPECT_NO_THROW( data.mlp_module->build( data.input_shape ) );
 
-        HostTensorType host_input( "CPU", data.input_shape );
+        HostTensorType host_input( Device::Cpu(), data.input_shape );
         random( host_input, -1.0f, 1.0f );
 
-        DeviceTensorType device_input( data.exec_context->getDevice(), data.input_shape );
-        DeviceTensorType device_output( data.exec_context->getDevice(), data.input_shape );
+        DeviceTensorType device_input( data.exec_context->getDeviceId(), data.input_shape );
+        DeviceTensorType device_output( data.exec_context->getDeviceId(), data.input_shape );
 
         copy( host_input, device_input );
 
@@ -517,11 +516,11 @@ namespace Modules::Blocks::Tests
 
         EXPECT_NO_THROW( data.mlp_module->build( data.input_shape ) );
 
-        HostTensorType host_input( "CPU", data.input_shape );
+        HostTensorType host_input( Device::Cpu(), data.input_shape );
         random( host_input, -1.0f, 1.0f );
 
-        DeviceTensorType device_input( data.exec_context->getDevice(), data.input_shape );
-        DeviceTensorType device_output( data.exec_context->getDevice(), data.input_shape );
+        DeviceTensorType device_input( data.exec_context->getDeviceId(), data.input_shape );
+        DeviceTensorType device_output( data.exec_context->getDeviceId(), data.input_shape );
 
         copy( host_input, device_input );
 
@@ -572,10 +571,10 @@ namespace Modules::Blocks::Tests
             using DeviceTensorType = CudaTensor<TensorDataType::FP32>;
 
             EXPECT_NO_THROW( perf.mlp_module->build( perf.input_shape ) );
-            HostTensorType host_input( "CPU", perf.input_shape );
+            HostTensorType host_input( Device::Cpu(), perf.input_shape );
             random( host_input, -1.0f, 1.0f );
-            DeviceTensorType device_input( perf.exec_context->getDevice(), perf.input_shape );
-            DeviceTensorType device_output( perf.exec_context->getDevice(), perf.input_shape );
+            DeviceTensorType device_input( perf.exec_context->getDeviceId(), perf.input_shape );
+            DeviceTensorType device_output( perf.exec_context->getDeviceId(), perf.input_shape );
             copy( host_input, device_input );
             EXPECT_NO_THROW( perf.mlp_module->forward( device_input, device_output ) );
         }
@@ -585,10 +584,10 @@ namespace Modules::Blocks::Tests
             using DeviceTensorType = CudaTensor<TensorDataType::FP32>;
 
             EXPECT_NO_THROW( acc.mlp_module->build( acc.input_shape ) );
-            HostTensorType host_input( "CPU", acc.input_shape );
+            HostTensorType host_input( Device::Cpu(), acc.input_shape );
             random( host_input, -1.0f, 1.0f );
-            DeviceTensorType device_input( acc.exec_context->getDevice(), acc.input_shape );
-            DeviceTensorType device_output( acc.exec_context->getDevice(), acc.input_shape );
+            DeviceTensorType device_input( acc.exec_context->getDeviceId(), acc.input_shape );
+            DeviceTensorType device_output( acc.exec_context->getDeviceId(), acc.input_shape );
             copy( host_input, device_input );
             EXPECT_NO_THROW( acc.mlp_module->forward( device_input, device_output ) );
         }
@@ -598,10 +597,10 @@ namespace Modules::Blocks::Tests
             using DeviceTensorType = CudaTensor<TensorDataType::FP32>;
 
             EXPECT_NO_THROW( native.mlp_module->build( native.input_shape ) );
-            HostTensorType host_input( "CPU", native.input_shape );
+            HostTensorType host_input( Device::Cpu(), native.input_shape );
             random( host_input, -1.0f, 1.0f );
-            DeviceTensorType device_input( native.exec_context->getDevice(), native.input_shape );
-            DeviceTensorType device_output( native.exec_context->getDevice(), native.input_shape );
+            DeviceTensorType device_input( native.exec_context->getDeviceId(), native.input_shape );
+            DeviceTensorType device_output( native.exec_context->getDeviceId(), native.input_shape );
             copy( host_input, device_input );
             EXPECT_NO_THROW( native.mlp_module->forward( device_input, device_output ) );
         }
@@ -611,7 +610,7 @@ namespace Modules::Blocks::Tests
     {
         if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
 
         auto data = MLPCudaTestData<TensorDataType::FP32>::CreateWithContext(
             "context_mlp_cuda",
@@ -643,11 +642,11 @@ namespace Modules::Blocks::Tests
 
         EXPECT_NO_THROW( data.mlp_module->build( data.input_shape ) );
 
-        HostTensorType host_input( "CPU", data.input_shape );
+        HostTensorType host_input( Device::Cpu(), data.input_shape );
         random( host_input, -1.0f, 1.0f );
 
-        DeviceTensorType device_input( data.exec_context->getDevice(), data.input_shape );
-        DeviceTensorType device_output( data.exec_context->getDevice(), data.input_shape );
+        DeviceTensorType device_input( data.exec_context->getDeviceId(), data.input_shape );
+        DeviceTensorType device_output( data.exec_context->getDeviceId(), data.input_shape );
 
         copy( host_input, device_input );
 
@@ -672,11 +671,11 @@ namespace Modules::Blocks::Tests
 
         EXPECT_NO_THROW( data.mlp_module->build( data.input_shape ) );
 
-        HostTensorType host_input( "CPU", data.input_shape );
+        HostTensorType host_input( Device::Cpu(), data.input_shape );
         random( host_input, -1.0f, 1.0f );
 
-        DeviceTensorType device_input( data.exec_context->getDevice(), data.input_shape );
-        DeviceTensorType device_output( data.exec_context->getDevice(), data.input_shape );
+        DeviceTensorType device_input( data.exec_context->getDeviceId(), data.input_shape );
+        DeviceTensorType device_output( data.exec_context->getDeviceId(), data.input_shape );
 
         copy( host_input, device_input );
 
@@ -689,7 +688,7 @@ namespace Modules::Blocks::Tests
 
         MLPConfig invalid_config( 0, 1024 );
 
-        auto cuda_exec = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto cuda_exec = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
 
         EXPECT_THROW(
             (MLP<DeviceType::Cuda, TensorDataType::FP32>( cuda_exec, invalid_config )),
@@ -703,7 +702,7 @@ namespace Modules::Blocks::Tests
 
         MLPConfig invalid_config( 768, 0 );
 
-        auto cuda_exec = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto cuda_exec = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
 
         EXPECT_THROW(
             (MLP<DeviceType::Cuda, TensorDataType::FP32>( cuda_exec, invalid_config )),
@@ -735,11 +734,11 @@ namespace Modules::Blocks::Tests
         MLPConfig config( 768, 3072 );
         config.withName( "unbuild_test" );
 
-        auto cuda_exec = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto cuda_exec = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
         auto mlp = std::make_shared<MLP<DeviceType::Cuda, TensorDataType::FP32>>( cuda_exec, config );
 
-        CudaTensor<TensorDataType::FP32> input( cuda_exec->getDevice(), test_shape );
-        CudaTensor<TensorDataType::FP32> output( cuda_exec->getDevice(), test_shape );
+        CudaTensor<TensorDataType::FP32> input( cuda_exec->getDeviceId(), test_shape );
+        CudaTensor<TensorDataType::FP32> output( cuda_exec->getDeviceId(), test_shape );
 
         EXPECT_THROW(
             mlp->forward( input, output ),
@@ -798,9 +797,9 @@ namespace Modules::Blocks::Tests
 
         EXPECT_NO_THROW( data.mlp_module->build( data.input_shape ) );
 
-        CpuTensor<TensorDataType::FP32> host_input( "CPU", data.input_shape );
-        CudaTensor<TensorDataType::FP32> device_input( data.exec_context->getDevice(), data.input_shape );
-        CudaTensor<TensorDataType::FP32> device_output( data.exec_context->getDevice(), data.input_shape );
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), data.input_shape );
+        CudaTensor<TensorDataType::FP32> device_input( data.exec_context->getDeviceId(), data.input_shape );
+        CudaTensor<TensorDataType::FP32> device_output( data.exec_context->getDeviceId(), data.input_shape );
 
         for ( int iter = 0; iter < 10; ++iter )
         {
@@ -824,7 +823,7 @@ namespace Modules::Blocks::Tests
         cuda_config.withName( "test_cuda_mlp" );
 
         auto cpu_exec = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        auto cuda_exec = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto cuda_exec = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
 
         auto cpu_mlp = std::make_shared<MLP<DeviceType::Cpu, TensorDataType::FP32>>( cpu_exec, cpu_config );
         auto cuda_mlp = std::make_shared<MLP<DeviceType::Cuda, TensorDataType::FP32>>( cuda_exec, cuda_config );
@@ -832,20 +831,20 @@ namespace Modules::Blocks::Tests
         cpu_mlp->build( test_shape );
         cuda_mlp->build( test_shape );
 
-        CpuTensor<TensorDataType::FP32> host_input( cpu_exec->getDevice(), test_shape );
+        CpuTensor<TensorDataType::FP32> host_input( cpu_exec->getDeviceId(), test_shape );
 
         for ( size_t i = 0; i < host_input.size(); ++i )
         {
             host_input.data()[i] = static_cast<float>( -2.0 + 4.0 * (static_cast<float>( i ) / host_input.size()) );
         }
 
-        CpuTensor<TensorDataType::FP32> cpu_output( cpu_exec->getDevice(), test_shape );
+        CpuTensor<TensorDataType::FP32> cpu_output( cpu_exec->getDeviceId(), test_shape );
         cpu_mlp->forward( host_input, cpu_output );
 
-        CudaTensor<TensorDataType::FP32> device_input( cuda_exec->getDevice(), test_shape );
+        CudaTensor<TensorDataType::FP32> device_input( cuda_exec->getDeviceId(), test_shape );
         copy( host_input, device_input );
 
-        CudaTensor<TensorDataType::FP32> cuda_output( cuda_exec->getDevice(), test_shape );
+        CudaTensor<TensorDataType::FP32> cuda_output( cuda_exec->getDeviceId(), test_shape );
         cuda_mlp->forward( device_input, cuda_output );
 
         cuda_exec->synchronize();

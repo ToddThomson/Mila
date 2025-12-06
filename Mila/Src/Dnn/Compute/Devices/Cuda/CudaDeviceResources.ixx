@@ -1,51 +1,54 @@
 module;
-#include <mutex>
-#include <cuda_runtime.h>
-#include <cublasLt.h>
-#ifdef USE_CUDNN
-#include <cudnn.h>
-#endif
-#include <unordered_map> // for per-thread stream map
-#include <utility>
-#include <stdexcept>
+//#include <cuda_runtime.h>
+//#include <cublasLt.h>
+//#ifdef USE_CUDNN
+//#include <cudnn.h>
+//#endif
+//#include <mutex>
+//#include <unordered_map>
+//#include <utility>
+//#include <stdexcept>
+//#include <string>
+#include <compare>
 
 export module Compute.CudaDeviceResources;
 
-import Cuda.Helpers;
+import Compute.DeviceId;
+//import Cuda.Helpers;
 
 namespace Mila::Dnn::Compute
 {
     export class CudaDeviceResources 
     {
     public:
-        explicit CudaDeviceResources( int device_id )
+        explicit CudaDeviceResources( DeviceId device_id )
             : device_id_( device_id )
         {
-			initializeResources();
+			//initializeResources();
         }
 
         ~CudaDeviceResources() {
-			releaseResources();
+			//releaseResources();
         }
 
-        cublasLtHandle_t getCublasLtHandle() {
-            std::call_once( cublas_init_flag_, [this]() {
+        //cublasLtHandle_t getCublasLtHandle() {
+        //    std::call_once( cublas_init_flag_, [this]() {
 
-                Cuda::setCurrentDevice( device_id_ );
+        //        Cuda::setCurrentDevice( device_id_.index );
 
-                cublasStatus_t status = cublasLtCreate( &cublas_handle_ );
+        //        cublasStatus_t status = cublasLtCreate( &cublas_handle_ );
 
-                if (status != CUBLAS_STATUS_SUCCESS)
-                {
-                    throw std::runtime_error(
-                        "Failed to create cuBLASLt handle: " /* FIXME: + cublasStatusToString(status) */
-                    );
-                }
+        //        if (status != CUBLAS_STATUS_SUCCESS)
+        //        {
+        //            throw std::runtime_error(
+        //                "Failed to create cuBLASLt handle: " /* FIXME: + cublasStatusToString(status) */
+        //            );
+        //        }
 
-            } );
-            
-            return cublas_handle_;
-        }
+        //    } );
+        //    
+        //    return cublas_handle_;
+        //}
 
 #ifdef USE_CUDNN
         /**
@@ -59,7 +62,7 @@ namespace Mila::Dnn::Compute
 
         cudnnHandle_t getCudnnHandle() {
             std::call_once( cudnn_init_flag_, [this]() {
-                Cuda::setCurrentDevice( device_id_ );
+                Cuda::setCurrentDevice( device_id_.index );
                 cudnnCreate( &cudnn_handle_ );
                 } );
             
@@ -67,14 +70,17 @@ namespace Mila::Dnn::Compute
         }
 #endif
 
-        int getDeviceId() const { return device_id_; }
+        DeviceId getDeviceId() const 
+        {
+            return device_id_; 
+        }
 
         /**
          * @brief Get the device-global stream created during initialization.
          *
          * This is a single stream associated with the device resources instance.
          */
-        cudaStream_t getStream() const { return stream_; }
+        //cudaStream_t getStream() const { return stream_; }
 
         /**
          * @brief Get or create a per-thread non-blocking stream for this device.
@@ -85,68 +91,68 @@ namespace Mila::Dnn::Compute
          *
          * @throws std::runtime_error If stream creation fails
          */
-        cudaStream_t getPerThreadStream()
-        {
-            // Lightweight wrapper type that destroys stream on thread exit
-            struct ThreadStreamWrapper
-            {
-                cudaStream_t s{ nullptr };
-                ~ThreadStreamWrapper()
-                {
-                    if (s)
-                    {
-                        // best-effort destroy; do not throw in destructor
-                        cudaStreamDestroy( s );
-                        s = nullptr;
-                    }
-                }
-            };
+        //cudaStream_t getPerThreadStream()
+        //{
+        //    // Lightweight wrapper type that destroys stream on thread exit
+        //    struct ThreadStreamWrapper
+        //    {
+        //        cudaStream_t s{ nullptr };
+        //        ~ThreadStreamWrapper()
+        //        {
+        //            if (s)
+        //            {
+        //                // best-effort destroy; do not throw in destructor
+        //                cudaStreamDestroy( s );
+        //                s = nullptr;
+        //            }
+        //        }
+        //    };
 
-            // thread-local storage: map device_id -> ThreadStreamWrapper
-            static thread_local std::unordered_map<int, ThreadStreamWrapper> tls_streams;
+        //    // thread-local storage: map device_id -> ThreadStreamWrapper
+        //    static thread_local std::unordered_map<int, ThreadStreamWrapper> tls_streams;
 
-            auto it = tls_streams.find( device_id_ );
+        //    auto it = tls_streams.find( device_id_.index );
 
-            if (it != tls_streams.end() && it->second.s != nullptr)
-            {
-                return it->second.s;
-            }
+        //    if (it != tls_streams.end() && it->second.s != nullptr)
+        //    {
+        //        return it->second.s;
+        //    }
 
-            // Need to create a new per-thread stream for this device
-            Cuda::setCurrentDevice( device_id_ );
+        //    // Need to create a new per-thread stream for this device
+        //    Cuda::setCurrentDevice( device_id_.index );
 
-            cudaStream_t new_stream = nullptr;
-            cudaError_t err = cudaStreamCreateWithFlags( &new_stream, cudaStreamNonBlocking );
-            
-            if (err != cudaSuccess)
-            {
-                throw std::runtime_error(
-                    "Failed to create per-thread CUDA stream: " + std::string( cudaGetErrorString( err ) )
-                );
-            }
+        //    cudaStream_t new_stream = nullptr;
+        //    cudaError_t err = cudaStreamCreateWithFlags( &new_stream, cudaStreamNonBlocking );
+        //    
+        //    if (err != cudaSuccess)
+        //    {
+        //        throw std::runtime_error(
+        //            "Failed to create per-thread CUDA stream: " + std::string( cudaGetErrorString( err ) )
+        //        );
+        //    }
 
-            // Emplace wrapper into thread-local map; wrapper will destroy stream on thread exit.
-            ThreadStreamWrapper wrapper;
-            wrapper.s = new_stream;
-            tls_streams.emplace( device_id_, std::move( wrapper ) );
+        //    // Emplace wrapper into thread-local map; wrapper will destroy stream on thread exit.
+        //    ThreadStreamWrapper wrapper;
+        //    wrapper.s = new_stream;
+        //    tls_streams.emplace( device_id_.index, std::move( wrapper ) );
 
-            return new_stream;
-        }
+        //    return new_stream;
+        //}
 
     private:
-        int device_id_;
+        DeviceId device_id_;
         
-        cudaStream_t stream_{ nullptr };
+        //cudaStream_t stream_{ nullptr };
         bool stream_created_{ false };
 
-        mutable cublasLtHandle_t cublas_handle_{ nullptr };
+        //mutable cublasLtHandle_t cublas_handle_{ nullptr };
 
 #ifdef USE_CUDNN
         mutable cudnnHandle_t cudnn_handle_{ nullptr };
 #endif        
         
-        mutable std::once_flag cublas_init_flag_;
-        mutable std::once_flag cudnn_init_flag_;
+        //mutable std::once_flag cublas_init_flag_;
+        //mutable std::once_flag cudnn_init_flag_;
 
         /**
          * @brief Initializes CUDA execution resources (stream).
@@ -156,7 +162,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If stream creation fails
          */
         void initializeResources() {
-            Cuda::setCurrentDevice( device_id_ );
+            /*Cuda::setCurrentDevice( device_id_.index );
 
             cudaError_t error = cudaStreamCreateWithFlags(
                 &stream_,
@@ -171,7 +177,7 @@ namespace Mila::Dnn::Compute
                 );
             }
 
-            stream_created_ = true;
+            stream_created_ = true;*/
         }
 
         /**
@@ -190,19 +196,19 @@ namespace Mila::Dnn::Compute
             }
 #endif
 
-            if (cublas_handle_)
-            {
-                cublasLtDestroy( cublas_handle_ );
-                cublas_handle_ = nullptr;
-            }
+            //if (cublas_handle_)
+            //{
+            //    cublasLtDestroy( cublas_handle_ );
+            //    cublas_handle_ = nullptr;
+            //}
 
-            // Destroy stream last
-            if (stream_created_ && stream_)
-            {
-                cudaStreamDestroy( stream_ );
-                stream_ = nullptr;
-                stream_created_ = false;
-            }
+            //// Destroy stream last
+            //if (stream_created_ && stream_)
+            //{
+            //    cudaStreamDestroy( stream_ );
+            //    stream_ = nullptr;
+            //    stream_created_ = false;
+            //}
         }
     };
 }

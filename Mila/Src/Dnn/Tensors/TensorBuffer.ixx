@@ -202,6 +202,7 @@ namespace Mila::Dnn
 			}
 
 			// Initialize memory to zero for deterministic behavior
+            // REVIEW: The mr no longer implements memset. Fix or remove?
 			// mr_->memset( data_, 0, storage_bytes_ );
 		}
 

@@ -100,7 +100,7 @@ int main( int argc, char** argv )
 		auto& registry = DeviceRegistry::instance();
 
 		// Create CPU device via getDevice
-		auto dev = registry.getDevice( "CUDA:0" );
+		auto dev = registry.getDevice( DeviceId( DeviceType::Cpu, -1  ) );
 		auto cuda_device = std::dynamic_pointer_cast<CudaDevice>(dev);
 		auto props = cuda_device->getProperties();
 

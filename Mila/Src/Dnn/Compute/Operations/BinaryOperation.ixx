@@ -18,7 +18,7 @@ import Dnn.TensorDataTypeTraits;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
 import Compute.Precision;
-import Compute.ComputeDevice;
+import Compute.Device;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
 import Compute.CudaDeviceMemoryResource;

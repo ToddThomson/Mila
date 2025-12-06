@@ -10,7 +10,6 @@
 #include <string>
 #include <iostream>
 #include <cmath>
-#include <cuda_runtime.h>
 #include <stdexcept>
 
 import Mila;
@@ -26,8 +25,8 @@ namespace Operations::Tests
     class CudaFullyConnectedOpTests : public ::testing::Test {
     protected:
         void SetUp() override {
-            cuda_context_ = std::make_shared<DeviceContext>( "CUDA:0" );
-            cpu_context_ = std::make_shared<DeviceContext>( "CPU" );
+            cuda_context_ = std::make_shared<DeviceContext>( Device::Cuda(0) );
+            cpu_context_ = std::make_shared<DeviceContext>( Device::Cpu() );
 
             // Small shapes for quick tests
             small_batch_ = 2;

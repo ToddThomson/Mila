@@ -3,21 +3,28 @@
  * @brief Device-agnostic registrar for automatic device discovery and registration.
  */
 
-module;
-#include <string>
-#include <memory>
-#include <functional>
-#include <optional>
-
 export module Compute.DeviceRegistrar;
 
-import Compute.DeviceRegistry;
-import Compute.ComputeDevice;
-import Compute.CpuDevicePlugin;
-import Compute.CudaDevicePlugin;
-// FUTURE: import Compute.MetalDevicePlugin;
-// FUTURE: import Compute.OpenCLDevicePlugin;
-// FUTURE: import Compute.VulkanDevicePlugin;
+import Compute.CpuDevice;
+
+import Utils.Logger;
+
+#if defined(MILA_HAS_CUDA)
+// TJT: Workaround for MSVC internal compiler error due to perhaps the cuda runtime support
+//      in the MSVC 2026 insiders release.
+// The direct import of CudaDeviceRegistrar here seems to cause issues.
+// The CudaDevice module now provides the CudaDeviceRegistrar class as well.
+import Compute.CudaDevice;
+//import Compute.CudaDeviceRegistrar;
+#endif
+
+#if defined(MILA_HAS_METAL)
+import Compute.MetalDevice;
+#endif
+
+#if defined(MILA_HAS_ROCM)
+import Compute.RocmDevice;
+#endif
 
 namespace Mila::Dnn::Compute
 {
@@ -25,42 +32,46 @@ namespace Mila::Dnn::Compute
      * @brief Device-agnostic registrar for automatic device discovery and registration.
      *
      */
-    export class DeviceRegistrar {
+    export class DeviceRegistrar
+    {
     public:
-        static DeviceRegistrar& instance() {
+        static DeviceRegistrar& instance()
+        {
             static DeviceRegistrar instance;
             return instance;
         }
 
-        DeviceRegistrar(const DeviceRegistrar&) = delete;
-        DeviceRegistrar& operator=(const DeviceRegistrar&) = delete;
+        DeviceRegistrar( const DeviceRegistrar& ) = delete;
+        DeviceRegistrar& operator=( const DeviceRegistrar& ) = delete;
 
     private:
-        
-        DeviceRegistrar() {
+
+        DeviceRegistrar()
+        {
             registerAllDevices();
         }
-        
-        static void registerAllDevices() {
-            auto& registry = DeviceRegistry::instance();
 
-            // Register CPU factory (CPU always available)
-            registry.registerDeviceType( CpuDevicePlugin::getPluginName(),
-                                        CpuDevicePlugin::getDeviceFactory() );
+        static void registerAllDevices()
+        {
+            CpuDeviceRegistrar::registerDevices();
 
-            // Register CUDA factory if available
-            auto cudaFactoryOpt = CudaDevicePlugin::getDeviceFactory();
-            
-            if (cudaFactoryOpt.has_value()) {
-                registry.registerDeviceType( CudaDevicePlugin::getPluginName(),
-                                            cudaFactoryOpt.value() );
+#if defined(MILA_HAS_CUDA)
+            {
+                CudaDeviceRegistrar::registerDevices();
             }
+#endif
 
-            // FUTURE: Enable when device plugins are implemented
+#if defined(MILA_HAS_METAL)
+            {
+                MetalDeviceRegistrar::registerDevices();
+            }
+#endif
 
-            // MetalDevicePlugin::registerDeviceFactory();
-            // OpenCLDevicePlugin::registerDeviceFactory();
-            // VulkanDevicePlugin::registerDeviceFactory();
+#if defined(MILA_HAS_ROCM)
+            {
+                RocmDeviceRegistrar::registerDevices();
+            }
+#endif
         }
     };
 }

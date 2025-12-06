@@ -10,9 +10,10 @@ module;
 
 export module Compute.ExecutionContext:Cpu;
 
-import Compute.ExecutionContextBase;
+import Compute.ExecutionContextTemplate;
 import Compute.IExecutionContext;
-import Compute.ComputeDevice;
+import Compute.Device;
+import Compute.DeviceId;
 import Compute.CpuDevice;
 import Compute.DeviceType;
 
@@ -21,88 +22,51 @@ namespace Mila::Dnn::Compute
     /**
      * @brief CPU execution context specialization.
      *
-     * Minimal execution context for CPU operations. CPU execution does not require
-     * streams or library handles, so this implementation provides the interface
-     * without additional overhead.
+     * Minimal execution context for CPU operations. CPU execution does not
+     * require streams or library handles, so this implementation provides
+     * the interface without additional overhead.
      */
     export template<>
     class ExecutionContext<DeviceType::Cpu> : public IExecutionContext
     {
-        public:
-            /**
-             * @brief Constructs CPU execution context.
-             *
-             * @param device_id Ignored for CPU (CPU has no device ID)
-             */
-            explicit ExecutionContext( [[maybe_unused]] int device_id = -1)
-                : IExecutionContext( DeviceType::Cpu ), device_( std::make_shared<CpuDevice>() ) {
+    public:
+        /**
+         * @brief Constructs CPU execution context.
+         *
+         * @param device_id CPU device identifier (typically Device::Cpu()).
+         */
+        explicit ExecutionContext( DeviceId device_id = Device::Cpu() )
+            : device_id_( device_id )
+        {
+        }
 
-				// No additional resources needed for CPU
-            }
+        ExecutionContext( const ExecutionContext& ) = delete;
+        ExecutionContext& operator=( const ExecutionContext& ) = delete;
+        ExecutionContext( ExecutionContext&& ) = delete;
+        ExecutionContext& operator=( ExecutionContext&& ) = delete;
 
-            //~ExecutionContext() = default;
+        /**
+         * @brief Gets the device identifier.
+         *
+         * @return DeviceId The CPU device identifier.
+         */
+        [[nodiscard]] DeviceId getDeviceId() const noexcept override
+        {
+            return device_id_;
+        }
 
-            ExecutionContext( const ExecutionContext& ) = delete;
-            ExecutionContext& operator=( const ExecutionContext& ) = delete;
-            ExecutionContext( ExecutionContext&& ) = delete;
-            ExecutionContext& operator=( ExecutionContext&& ) = delete;
+        /**
+         * @brief Synchronizes CPU execution (no-op).
+         *
+         * CPU operations are synchronous, so this is a no-op.
+         */
+        void synchronize() override
+        {
+        }
 
-            /**
-             * @brief Synchronizes CPU execution (no-op).
-             */
-            void synchronize() {
-                // CPU operations are synchronous
-            }
-
-            /**
-             * @brief Gets the CPU device.
-             */
-            std::shared_ptr<ComputeDevice> getDevice() const {
-                return device_;
-            }
-
-            ///**
-            // * @brief Gets the device type (always CPU).
-            // */
-            //static constexpr DeviceType getDeviceType() {
-            //    return DeviceType::Cpu;
-            //}
-
-            /**
-             * @brief Gets the device name.
-             */
-            std::string getDeviceName() const {
-                return device_->getDeviceName();
-            }
-
-            /**
-             * @brief Gets the device ID (always -1 for CPU).
-             */
-            int getDeviceId() const {
-                return -1;
-            }
-
-            ///**
-            // * @brief Checks if this is a CUDA device (always false).
-            // */
-            //static constexpr bool isCudaDevice() {
-            //    return false;
-            //}
-
-            ///**
-            // * @brief Checks if this is a CPU device (always true).
-            // */
-            //static constexpr bool isCpuDevice() {
-            //    return true;
-            //}
-
-        private:
-            std::shared_ptr<ComputeDevice> device_;
+    private:
+        DeviceId device_id_;
     };
-
-    // ====================================================================
-    // Type Alias
-    // ====================================================================
 
     export using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
 }

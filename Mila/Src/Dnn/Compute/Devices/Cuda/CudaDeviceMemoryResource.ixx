@@ -8,13 +8,13 @@ module;
 #include <cassert>
 #include <ios>
 #include <cstdarg>
+#include <stdexcept>
 
 export module Compute.CudaDeviceMemoryResource;
 
 import Compute.MemoryResource;
 import Compute.MemoryResourceProperties;
 import Compute.DeviceType;
-//import Compute.CudaExecutionContext;
 import Compute.ExecutionContext;
 import Cuda.Helpers;
 import Cuda.BadAlloc;
@@ -53,16 +53,19 @@ namespace Mila::Dnn::Compute
          * @throws std::invalid_argument If device_id is invalid
          */
         explicit CudaDeviceMemoryResource( int device_id )
-            : device_id_( device_id ) {
-
-            if (device_id_ < 0) {
+            : device_id_( device_id )
+        {
+            if ( device_id_ < 0 )
+            {
                 throw std::invalid_argument( "Device ID must be non-negative" );
             }
 
             // Validate device exists
             int device_count = 0;
             cudaGetDeviceCount( &device_count );
-            if (device_id_ >= device_count) {
+            
+            if ( device_id_ >= device_count )
+            {
                 throw std::invalid_argument(
                     "Device ID " + std::to_string( device_id_ ) +
                     " exceeds available devices (" + std::to_string( device_count ) + ")"

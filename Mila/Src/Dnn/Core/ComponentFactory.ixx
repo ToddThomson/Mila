@@ -17,7 +17,7 @@ module;
 export module Dnn.ComponentFactory;
 
 import Compute.DeviceType;
-import Compute.ExecutionContextBase;
+import Compute.ExecutionContextTemplate;
 import Serialization.ModelArchive;
 import nlohmann.json;
 import Dnn.ComponentType;

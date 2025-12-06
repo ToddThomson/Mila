@@ -104,7 +104,7 @@ namespace Modules::Activations::Tests
 
     TEST_F( GeluCudaTests, Construct_WithDeviceId_BehaviorDependsOnRegistration )
     {
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
 
         if (isOperationRegistered<DeviceType::Cuda, TensorDataType::FP32>( "GeluOp" ))
         {
@@ -118,7 +118,7 @@ namespace Modules::Activations::Tests
 
     TEST_F( GeluCudaTests, Construct_WithExecutionContext_BehaviorDependsOnRegistration )
     {
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
 
         if (isOperationRegistered<DeviceType::Cuda, TensorDataType::FP32>( "GeluOp" ))
         {
@@ -138,22 +138,22 @@ namespace Modules::Activations::Tests
     {
         if (!isOperationRegistered<DeviceType::Cuda, TensorDataType::FP32>( "GeluOp" ))
         {
-            auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+            auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
             EXPECT_THROW( (GeluCudaModule( ctx, GeluConfig() )), std::runtime_error );
             return;
         }
 
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
         auto d = GeluCudaTestData::CreateWithExecutionContext( ctx, batch_, seq_, chan_ );
 
-        auto cuda_device = ctx->getDevice();
+        auto cuda_device = ctx->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( cuda_device, d.shape );
         Tensor<TensorDataType::FP32, MR> output( cuda_device, d.shape );
 
         // Initialize input
         auto cpu_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        auto cpu_device = cpu_ctx->getDevice();
+        auto cpu_device = cpu_ctx->getDeviceId();
         Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( cpu_device, d.shape );
 
         for (size_t i = 0; i < host_input.size(); ++i)
@@ -174,18 +174,18 @@ namespace Modules::Activations::Tests
             GTEST_SKIP() << "GeluOp not registered for CUDA FP32";
         }
 
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
         auto gelu = std::make_shared<GeluCudaModule>( ctx, GeluConfig() );
 
         std::vector<int64_t> shape = { 2, 3, 4 };
-        auto cuda_device = ctx->getDevice();
+        auto cuda_device = ctx->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( cuda_device, shape );
         Tensor<TensorDataType::FP32, MR> output( cuda_device, shape );
 
         // Initialize with known values
         auto cpu_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        auto cpu_device = cpu_ctx->getDevice();
+        auto cpu_device = cpu_ctx->getDeviceId();
         Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( cpu_device, shape );
 
         for (size_t i = 0; i < host_input.size(); ++i)
@@ -227,11 +227,11 @@ namespace Modules::Activations::Tests
             GTEST_SKIP() << "GeluOp not registered for CUDA FP32";
         }
 
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
         auto gelu = std::make_shared<GeluCudaModule>( ctx, GeluConfig() );
 
         std::vector<int64_t> shape = { 2, 4, 8 };
-        auto device = ctx->getDevice();
+        auto device = ctx->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( device, shape );
         Tensor<TensorDataType::FP32, MR> output( device, shape );
@@ -240,7 +240,7 @@ namespace Modules::Activations::Tests
 
         // Initialize tensors
         auto cpu_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        auto cpu_device = cpu_ctx->getDevice();
+        auto cpu_device = cpu_ctx->getDeviceId();
 
         Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( cpu_device, shape );
         Tensor<TensorDataType::FP32, CpuMemoryResource> host_output_grad( cpu_device, shape );
@@ -268,11 +268,11 @@ namespace Modules::Activations::Tests
             GTEST_SKIP() << "GeluOp not registered for CUDA FP32";
         }
 
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
         auto gelu = std::make_shared<GeluCudaModule>( ctx, GeluConfig() );
 
         std::vector<int64_t> shape = { 3, 5, 7 };
-        auto device = ctx->getDevice();
+        auto device = ctx->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( device, shape );
         Tensor<TensorDataType::FP32, MR> output( device, shape );
@@ -295,11 +295,11 @@ namespace Modules::Activations::Tests
             GTEST_SKIP() << "GeluOp not registered for CUDA FP32";
         }
 
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
         auto gelu = std::make_shared<GeluCudaModule>( ctx, GeluConfig() );
 
         std::vector<int64_t> shape = { 2, 3, 4 };
-        auto device = ctx->getDevice();
+        auto device = ctx->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( device, shape );
         Tensor<TensorDataType::FP32, MR> output( device, shape );
@@ -308,7 +308,7 @@ namespace Modules::Activations::Tests
 
         // Initialize on host
         auto cpu_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        auto cpu_device = cpu_ctx->getDevice();
+        auto cpu_device = cpu_ctx->getDeviceId();
 
         Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( cpu_device, shape );
         Tensor<TensorDataType::FP32, CpuMemoryResource> host_output_grad( cpu_device, shape );
@@ -358,11 +358,11 @@ namespace Modules::Activations::Tests
             GTEST_SKIP() << "GeluOp not registered for CUDA FP32";
         }
 
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
         auto gelu = std::make_shared<GeluCudaModule>( ctx, GeluConfig() );
 
         std::vector<int64_t> shape = { 2, 3, 4 };
-        auto device = ctx->getDevice();
+        auto device = ctx->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( device, shape );
         Tensor<TensorDataType::FP32, MR> output( device, shape );
@@ -370,7 +370,7 @@ namespace Modules::Activations::Tests
         Tensor<TensorDataType::FP32, MR> input_grad( device, shape );
 
         auto cpu_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        auto cpu_device = cpu_ctx->getDevice();
+        auto cpu_device = cpu_ctx->getDeviceId();
 
         Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( cpu_device, shape );
         Tensor<TensorDataType::FP32, CpuMemoryResource> host_output_grad( cpu_device, shape );
@@ -413,11 +413,11 @@ namespace Modules::Activations::Tests
             GTEST_SKIP() << "GeluOp not registered for CUDA FP32";
         }
 
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
         auto gelu = std::make_shared<GeluCudaModule>( ctx, GeluConfig() );
 
         std::vector<int64_t> shape = { 2, 3, 4 };
-        auto device = ctx->getDevice();
+        auto device = ctx->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( device, shape );
         Tensor<TensorDataType::FP32, MR> output( device, shape );
@@ -425,7 +425,7 @@ namespace Modules::Activations::Tests
         Tensor<TensorDataType::FP32, MR> input_grad( device, shape );
 
         auto cpu_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        auto cpu_device = cpu_ctx->getDevice();
+        auto cpu_device = cpu_ctx->getDeviceId();
 
         Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( cpu_device, shape );
         Tensor<TensorDataType::FP32, CpuMemoryResource> host_output_grad( cpu_device, shape );
@@ -461,11 +461,11 @@ namespace Modules::Activations::Tests
             GTEST_SKIP() << "GeluOp not registered for CUDA FP32";
         }
 
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
         auto gelu = std::make_shared<GeluCudaModule>( ctx, GeluConfig() );
 
         std::vector<int64_t> shape = { 1, 8 };
-        auto device = ctx->getDevice();
+        auto device = ctx->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( device, shape );
         Tensor<TensorDataType::FP32, MR> output( device, shape );
@@ -473,7 +473,7 @@ namespace Modules::Activations::Tests
         Tensor<TensorDataType::FP32, MR> input_grad( device, shape );
 
         auto cpu_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        auto cpu_device = cpu_ctx->getDevice();
+        auto cpu_device = cpu_ctx->getDeviceId();
 
         Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( cpu_device, shape );
         Tensor<TensorDataType::FP32, CpuMemoryResource> host_output_grad( cpu_device, shape );
@@ -526,13 +526,13 @@ namespace Modules::Activations::Tests
         GeluConfig config;
 
         auto cpu_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        auto cuda_ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto cuda_ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
 
         auto cpu_gelu = std::make_shared<GeluCpu>( cpu_ctx, config );
         auto cuda_gelu = std::make_shared<GeluCudaModule>( cuda_ctx, config );
 
         // Prepare CPU tensors
-        auto cpu_device = cpu_ctx->getDevice();
+        auto cpu_device = cpu_ctx->getDeviceId();
         Tensor<TensorDataType::FP32, CpuMemoryResource> cpu_input( cpu_device, shape );
         Tensor<TensorDataType::FP32, CpuMemoryResource> cpu_output( cpu_device, shape );
         Tensor<TensorDataType::FP32, CpuMemoryResource> cpu_output_grad( cpu_device, shape );
@@ -550,10 +550,10 @@ namespace Modules::Activations::Tests
         cpu_gelu->backward( cpu_input, cpu_output_grad, cpu_input_grad );
 
         // Run on CUDA
-        Tensor<TensorDataType::FP32, MR> cuda_input( cuda_ctx->getDevice(), shape );
-        Tensor<TensorDataType::FP32, MR> cuda_output( cuda_ctx->getDevice(), shape );
-        Tensor<TensorDataType::FP32, MR> cuda_output_grad( cuda_ctx->getDevice(), shape );
-        Tensor<TensorDataType::FP32, MR> cuda_input_grad( cuda_ctx->getDevice(), shape );
+        Tensor<TensorDataType::FP32, MR> cuda_input( cuda_ctx->getDeviceId(), shape );
+        Tensor<TensorDataType::FP32, MR> cuda_output( cuda_ctx->getDeviceId(), shape );
+        Tensor<TensorDataType::FP32, MR> cuda_output_grad( cuda_ctx->getDeviceId(), shape );
+        Tensor<TensorDataType::FP32, MR> cuda_input_grad( cuda_ctx->getDeviceId(), shape );
 
         copy( cpu_input, cuda_input );
         copy( cpu_output_grad, cuda_output_grad );
@@ -610,7 +610,7 @@ namespace Modules::Activations::Tests
             }
             if (!cuda_registered)
             {
-                auto cuda_ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+                auto cuda_ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
                 EXPECT_THROW( (GeluCudaModule( cuda_ctx, GeluConfig() )), std::runtime_error );
             }
 
@@ -621,12 +621,12 @@ namespace Modules::Activations::Tests
         std::vector<int64_t> shape = { 2, 2, 4 };
         GeluConfig config;
         auto cpu_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        auto cuda_ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto cuda_ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
 
         auto cpu_gelu = std::make_shared<GeluCpu>( cpu_ctx, config );
         auto cuda_gelu = std::make_shared<GeluCudaModule>( cuda_ctx, config );
 
-        auto cpu_device = cpu_ctx->getDevice();
+        auto cpu_device = cpu_ctx->getDeviceId();
         Tensor<TensorDataType::FP32, CpuMemoryResource> cpu_input( cpu_device, shape );
         Tensor<TensorDataType::FP32, CpuMemoryResource> cpu_output( cpu_device, shape );
 
@@ -636,10 +636,10 @@ namespace Modules::Activations::Tests
         cpu_gelu->build( cpu_input.shape() );
         cpu_gelu->forward( cpu_input, cpu_output );
 
-        Tensor<TensorDataType::FP32, MR> cuda_input( cuda_ctx->getDevice(), shape );
+        Tensor<TensorDataType::FP32, MR> cuda_input( cuda_ctx->getDeviceId(), shape );
         copy( cpu_input, cuda_input );
 
-        Tensor<TensorDataType::FP32, MR> cuda_output( cuda_ctx->getDevice(), shape );
+        Tensor<TensorDataType::FP32, MR> cuda_output( cuda_ctx->getDeviceId(), shape );
 
         cuda_gelu->build( cuda_input.shape() );
         cuda_gelu->forward( cuda_input, cuda_output );
@@ -667,12 +667,12 @@ namespace Modules::Activations::Tests
     {
         if (!isOperationRegistered<DeviceType::Cuda, TensorDataType::FP32>( "GeluOp" ))
         {
-            auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+            auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
             EXPECT_THROW( (GeluCudaModule( ctx, GeluConfig() )), std::runtime_error );
             return;
         }
 
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
         auto d = GeluCudaTestData::CreateWithExecutionContext( ctx, batch_, seq_, chan_ );
         auto s = d.gelu_module->toString();
 
@@ -682,7 +682,7 @@ namespace Modules::Activations::Tests
 
     TEST_F( GeluCudaTests, Construct_WithExecutionContext_WorksOrThrows )
     {
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
 
         if (!isOperationRegistered<DeviceType::Cuda, TensorDataType::FP32>( "GeluOp" ))
         {
@@ -691,6 +691,6 @@ namespace Modules::Activations::Tests
         }
 
         auto d = GeluCudaTestData::CreateWithExecutionContext( ctx, batch_, seq_, chan_ );
-        EXPECT_EQ( ctx->getDevice()->getDeviceType(), DeviceType::Cuda );
+        EXPECT_EQ( ctx->getDeviceId().type, DeviceType::Cuda );
     }
 }

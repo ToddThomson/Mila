@@ -331,7 +331,7 @@ namespace Mila::Dnn::Compute
             cached_T_ = static_cast<int>( inner_size );
             cached_C_ = static_cast<int>( dim_size );
 
-            auto device = context_->getDevice();
+            auto device = context_->getDeviceId();
 
             mean_storage_ = std::make_shared<TensorType>( device, shape_t{ expected_slices } );
             mean_storage_->setName( "CudaLayerNormOp.mean" );

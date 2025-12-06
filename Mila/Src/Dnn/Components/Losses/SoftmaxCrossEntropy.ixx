@@ -26,7 +26,8 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Compute.Precision;
-import Compute.ComputeDevice;
+import Compute.Device;
+import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.BinaryOperation;
@@ -75,7 +76,7 @@ namespace Mila::Dnn
             config_.validate();
 
             // Create dummy tensor for unused target gradients in backward pass
-            dummy_target_grad_ = std::make_shared<TargetTensorType>( exec_context_->getDevice(), shape_t{ 0 } );
+            dummy_target_grad_ = std::make_shared<TargetTensorType>( exec_context_->getDeviceId(), shape_t{ 0 } );
 
             createOperation();
         }
@@ -195,9 +196,9 @@ namespace Mila::Dnn
             return config_.getName();
         }
 
-        std::shared_ptr<ComputeDevice> getDevice() const override
+        DeviceId getDeviceId() const override
         {
-            return exec_context_->getDevice();
+            return exec_context_->getDeviceId();
         }
 
         void synchronize() override

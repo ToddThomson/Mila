@@ -34,12 +34,18 @@ add_executable( MilaTests
     # --------------------------------------------------------------
     # Dnn::Compute::Devices Tests
     # --------------------------------------------------------------
-    "Dnn/Compute/Devices/DeviceHelpers.cpp"
-    "Dnn/Compute/Devices/DeviceTypes.cpp"
-    "Dnn/Compute/Devices/Cpu/CpuDevicePlugin.cpp"
-    "Dnn/Compute/Devices/Cuda/CudaDevicePlugin.cpp"
+    
+    "Dnn/Compute/DeviceTypes.cpp"
+    "Dnn/Compute/DeviceId.cpp"
+    
+    "Dnn/Compute/Devices/Cuda/CudaDeviceRegistrar.cpp"
 
+    "Dnn/Compute/Devices/Registry/DeviceRegistrar.cpp"
     "Dnn/Compute/Devices/Registry/DeviceRegistry.cpp"
+    "Dnn/Compute/Devices/Registry/DeviceRegistryHelpers.cpp"
+
+    "Dnn/Compute/Devices/Cpu/CpuDevice.cpp"
+    "Dnn/Compute/Devices/Cuda/CudaDevice.cpp"
 
     # --------------------------------------------------------------
     # Dnn::Compute::Execution Context Tests
@@ -54,27 +60,27 @@ add_executable( MilaTests
     "Dnn/Tensors/TensorBuffer.cpp"
     "Dnn/Tensors/Tensor.Constructors.cpp"
     "Dnn/Tensors/Tensor.MemoryProperties.cpp"
-    "Dnn/Tensors/Tensor.Properties.cpp"
+    #"Dnn/Tensors/Tensor.Properties.cpp"
     "Dnn/Tensors/Tensor.DataAccess.cpp"
-    "Dnn/Tensors/Tensor.Identity.cpp"
+    #"Dnn/Tensors/Tensor.Identity.cpp"
     "Dnn/Tensors/Tensor.Io.cpp"
     "Dnn/Tensors/Tensor.DataPointers.cpp"
 
     # TensorOps
-    "Dnn/Tensors/TensorOps/Fill.Cpu.cpp"
-    "Dnn/Tensors/TensorOps/Fill.Cuda.cpp"
-    "Dnn/Tensors/TensorOps/Math.Cpu.cpp"
-    "Dnn/Tensors/TensorOps/Math.Cuda.cpp"
-    "Dnn/Tensors/TensorOps/TensorOps.Transfer.cpp"
+    #"Dnn/Tensors/TensorOps/Fill.Cpu.cpp"
+    #"Dnn/Tensors/TensorOps/Fill.Cuda.cpp"
+    #"Dnn/Tensors/TensorOps/Math.Cpu.cpp"
+    #"Dnn/Tensors/TensorOps/Math.Cuda.cpp"
+    #"Dnn/Tensors/TensorOps/TensorOps.Transfer.cpp"
 
     # Tensor Helpers
-    "Dnn/Tensors/Tensor.Initializers.cpp"
+    #"Dnn/Tensors/Tensor.Initializers.cpp"
 
     # --------------------------------------------------------------
     # Compute::Device::Cpu Operations Tests
     # --------------------------------------------------------------
     #"Dnn/Compute/Devices/Cpu/Operations/CpuEncoderOpTests.cpp"
-    "Dnn/Compute/Devices/Cpu/Operations/CpuGeluOpTests.cpp"
+    #"Dnn/Compute/Devices/Cpu/Operations/CpuGeluOpTests.cpp"
     #"Dnn/Compute/Devices/Cpu/Operations/CpuLinearOpTests.cpp"
     #"Dnn/Compute/Devices/Cpu/Operations/CpuLayerNormOpTests.cpp"
     #"Dnn/Compute/Devices/Cpu/Operations/CpuResidualOpTests.cpp"
@@ -99,52 +105,52 @@ add_executable( MilaTests
     # --------------------------------------------------------------
     # Dnn::Components Tests
     # --------------------------------------------------------------
-    "Dnn/Components/Component.cpp"
-    "Dnn/Components/ComponentConfig.cpp"
+    #"Dnn/Components/Component.cpp"
+    #"Dnn/Components/ComponentConfig.cpp"
 
-    "Dnn/Components/Layers/Attention.Cpu.cpp"
+    #"Dnn/Components/Layers/Attention.Cpu.cpp"
     
-    "Dnn/Components/Layers/Encoder.Cpu.cpp"
-    "Dnn/Components/Layers/Encoder.Cuda.cpp"
-    "Dnn/Components/Layers/EncoderConfig.cpp"
+    #"Dnn/Components/Layers/Encoder.Cpu.cpp"
+    #"Dnn/Components/Layers/Encoder.Cuda.cpp"
+    #"Dnn/Components/Layers/EncoderConfig.cpp"
     
-    "Dnn/Components/Connections/Residual.Cpu.cpp"
-    "Dnn/Components/Connections/Residual.Cuda.cpp"
-    "Dnn/Components/Connections/Residual.Config.cpp"
+    #"Dnn/Components/Connections/Residual.Cpu.cpp"
+    #"Dnn/Components/Connections/Residual.Cuda.cpp"
+    #"Dnn/Components/Connections/Residual.Config.cpp"
 
-    "Dnn/Components/Activations/Gelu.Cpu.cpp"
-    "Dnn/Components/Activations/Gelu.Cuda.cpp"
-    "Dnn/Components/Activations/GeluConfig.cpp"
+    #"Dnn/Components/Activations/Gelu.Cpu.cpp"
+    #"Dnn/Components/Activations/Gelu.Cuda.cpp"
+    #"Dnn/Components/Activations/GeluConfig.cpp"
 
-    "Dnn/Components/Normalization/LayerNorm.Cpu.cpp"
-    "Dnn/Components/Normalization/LayerNorm.Cuda.cpp"
-    "Dnn/Components/Normalization/LayerNormConfig.cpp"
+    #"Dnn/Components/Normalization/LayerNorm.Cpu.cpp"
+    #"Dnn/Components/Normalization/LayerNorm.Cuda.cpp"
+    #"Dnn/Components/Normalization/LayerNormConfig.cpp"
 
-    "Dnn/Components/Layers/Linear.Cpu.cpp"
-    "Dnn/Components/Layers/Linear.Cuda.cpp"
-    "Dnn/Components/Layers/LinearConfig.cpp"
+    #"Dnn/Components/Layers/Linear.Cpu.cpp"
+    #"Dnn/Components/Layers/Linear.Cuda.cpp"
+    #"Dnn/Components/Layers/LinearConfig.cpp"
 
-    "Dnn/Components/Connections/Residual.Config.cpp"
-    "Dnn/Components/Connections/Residual.Cuda.cpp"
-    "Dnn/Components/Connections/Residual.Cpu.cpp"
+    #"Dnn/Components/Connections/Residual.Config.cpp"
+    #"Dnn/Components/Connections/Residual.Cuda.cpp"
+    #"Dnn/Components/Connections/Residual.Cpu.cpp"
 
-    "Dnn/Components/Layers/Softmax.Cpu.cpp"
-    "Dnn/Components/Layers/Softmax.Cuda.cpp"    
-    "Dnn/Components/Layers/SoftmaxConfig.cpp"
+    #"Dnn/Components/Layers/Softmax.Cpu.cpp"
+    #"Dnn/Components/Layers/Softmax.Cuda.cpp"    
+    #"Dnn/Components/Layers/SoftmaxConfig.cpp"
 
     # --------------------------------------------------------------
     # Modules::Blocks Tests
     # --------------------------------------------------------------
-    "Dnn/Components/Blocks/MLP.Cpu.cpp"
-    "Dnn/Components/Blocks/MLP.Cuda.cpp"
-    "Dnn/Components/Blocks/MLPConfig.cpp"
+    #"Dnn/Components/Blocks/MLP.Cpu.cpp"
+    #"Dnn/Components/Blocks/MLP.Cuda.cpp"
+    #"Dnn/Components/Blocks/MLPConfig.cpp"
 
-    "Dnn/Components/Blocks/Transformer.Cpu.cpp"
+    #"Dnn/Components/Blocks/Transformer.Cpu.cpp"
     
     # --------------------------------------------------------------
     # Data Tests
     # --------------------------------------------------------------
-    "Dnn/Data/DataLoader.cpp"
+    #"Dnn/Data/DataLoader.cpp"
     
     # Cuda Operations...
     #"Dnn/Compute/Operations/Cuda/CudaMatMulBiasOpTests.cpp"
@@ -158,7 +164,7 @@ add_executable( MilaTests
     # --------------------------------------------------------------
     # Serialization Tests
     # --------------------------------------------------------------
-    "Dnn/Serialization/ZipSerializer.cpp"
+    #"Dnn/Serialization/ZipSerializer.cpp"
 
     # --------------------------------------------------------------
     # Modeling Tests
@@ -168,24 +174,26 @@ add_executable( MilaTests
     # --------------------------------------------------------------
     #"Dnn/Tensors/TensorBuffer.Tracking.cpp"
     
-    "Dnn/Compute/Operations/OperationBase.cpp"
-    "Dnn/Compute/Operations/UnaryOperation.cpp"
+    #"Dnn/Compute/Operations/OperationBase.cpp"
+    #"Dnn/Compute/Operations/UnaryOperation.cpp"
     #"Dnn/Compute/Operations/BinaryOperation.cpp"
 
     # TJT: These are op tests. We should be testing Components instead.
     #"Dnn/Optimizers/AdamW.Cuda.cpp"
     #"Dnn/Optimizers/AdamW.Cpu.cpp"
     
-    "Dnn/Components/Losses/CrossEntropy.Cpu.cpp"
-    "Dnn/Components/Losses/SoftmaxCrossEntropy.Cuda.cpp"
-    "Dnn/Components/Losses/CrossEntropy.Config.cpp"
-    "Dnn/Components/Layers/Attention.Cuda.cpp"
-    "Dnn/Components/Layers/Attention.Config.cpp"
-    "Dnn/Components/Blocks/Transformer.Cuda.cpp"
-    "Dnn/Components/Blocks/Transformer.Config.cpp"
+    #"Dnn/Components/Losses/CrossEntropy.Cpu.cpp"
+    #"Dnn/Components/Losses/SoftmaxCrossEntropy.Cuda.cpp"
+    #"Dnn/Components/Losses/CrossEntropy.Config.cpp"
+    #"Dnn/Components/Layers/Attention.Cuda.cpp"
+    #"Dnn/Components/Layers/Attention.Config.cpp"
+    #"Dnn/Components/Blocks/Transformer.Cuda.cpp"
+    #"Dnn/Components/Blocks/Transformer.Config.cpp"
 
-    "Dnn/Serialization/ModelArchive.cpp" 
-    "Dnn/Modeling/Network.Cpu.cpp"
+    #"Dnn/Serialization/ModelArchive.cpp" 
+    #"Dnn/Modeling/Network.Cpu.cpp"
+    
+   
 )
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )

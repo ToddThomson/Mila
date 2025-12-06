@@ -27,7 +27,7 @@ namespace Compute::Cpu::Operations::Tests
     class CpuLinearOpTests : public ::testing::Test {
     protected:
         void SetUp() override {
-            cpu_context_ = std::make_shared<DeviceContext>( "CPU" );
+            cpu_context_ = std::make_shared<DeviceContext>( Device::Cpu() );
 
             // Small shapes for quick tests
             small_batch_ = 2;
@@ -481,7 +481,7 @@ namespace Compute::Cpu::Operations::Tests
     TEST_F( CpuLinearOpTests, DeviceContextValidation ) {
         try {
             LinearConfig cuda_config( small_in_features_, small_out_features_ );
-            EXPECT_THROW( CpuLinearOp( std::make_shared<DeviceContext>( "CUDA:0" ), cuda_config ), std::runtime_error );
+            EXPECT_THROW( CpuLinearOp( std::make_shared<DeviceContext>( Device::Cuda(0) ), cuda_config ), std::runtime_error );
         }
         catch ( const std::exception& e ) {
             GTEST_SKIP() << "CUDA device not available, skipping device mismatch test: " << e.what();

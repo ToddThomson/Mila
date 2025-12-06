@@ -34,7 +34,8 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Compute.Precision;
-import Compute.ComputeDevice;
+import Compute.Device;
+import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.OperationBase;
@@ -171,9 +172,9 @@ namespace Mila::Dnn
             return config_.getName();
         }
 
-        std::shared_ptr<ComputeDevice> getDevice() const override
+        DeviceId getDeviceId() const override
         {
-            return exec_context_->getDevice();
+            return exec_context_->getDeviceId();
         }
 
         /**
@@ -188,7 +189,7 @@ namespace Mila::Dnn
             oss << "Residual: " << getName() << std::endl;
             oss << "Training mode: " << (this->isTraining() ? "true" : "false") << std::endl;
             oss << "Built: " << (this->isBuilt() ? "true" : "false") << std::endl;
-            oss << "Device: " << deviceTypeToString( exec_context_->getDevice()->getDeviceType() ) << std::endl;
+            oss << "Device: " << deviceTypeToString( exec_context_->getDeviceId().type ) << std::endl;
 
             return oss.str();
         }

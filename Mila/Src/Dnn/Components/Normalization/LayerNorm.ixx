@@ -28,7 +28,8 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorPartitioning;
 import Compute.Precision;
-import Compute.ComputeDevice;
+import Compute.Device;
+import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.UnaryOperation;
@@ -115,9 +116,9 @@ namespace Mila::Dnn
             return config_.getName();
         }
 
-        std::shared_ptr<ComputeDevice> getDevice() const override
+        DeviceId getDeviceId() const override
         {
-            return exec_context_->getDevice();
+            return exec_context_->getDeviceId();
         }
 
         void synchronize() override
@@ -344,7 +345,7 @@ namespace Mila::Dnn
                 outer_shape_ = std::move( mp.outer_shape );
             }
 
-            auto device = exec_context_->getDevice();
+            auto device = exec_context_->getDeviceId();
 
             weight_ = std::make_shared<TensorType>( device, shape_t{ channels } );
             weight_->setName( this->getName() + ".weight" );
@@ -372,7 +373,7 @@ namespace Mila::Dnn
                 channels *= dim;
             }
 
-            auto device = exec_context_->getDevice();
+            auto device = exec_context_->getDeviceId();
 
             weight_ = std::make_shared<TensorType>( device, shape_t{ channels } );
             weight_->setName( this->getName() + ".weight" );
@@ -386,7 +387,7 @@ namespace Mila::Dnn
 
         void initializeParameterGradients()
         {
-            auto device = exec_context_->getDevice();
+            auto device = exec_context_->getDeviceId();
 
             if (!weight_grad_ && weight_)
             {

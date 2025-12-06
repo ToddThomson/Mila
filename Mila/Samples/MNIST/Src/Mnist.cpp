@@ -99,7 +99,7 @@ bool parseCommandLine( int argc, char** argv, MnistConfig& config )
         else if (arg == "--device" && i + 1 < argc)
         {
             std::string device = argv[++i];
-            if (device == "cpu")
+            if (device == "CPU" )
             {
                 config.compute_device = DeviceType::Cpu;
             }
@@ -328,7 +328,7 @@ void trainMnist( const MnistConfig& config )
     std::shared_ptr<ExecutionContext<TDeviceType>> exec_context;
     if constexpr ( TDeviceType == DeviceType::Cuda )
     {
-        exec_context = std::make_shared<ExecutionContext<TDeviceType>>( 0 );
+        exec_context = std::make_shared<ExecutionContext<TDeviceType>>( Device::Cuda(0) );
     }
     else
     {
@@ -343,7 +343,7 @@ void trainMnist( const MnistConfig& config )
     mnist_net->setTraining( true );
 
     // Get device from model's execution context
-    auto device = mnist_net->getDevice();
+    auto device = mnist_net->getDeviceId();
 
     MnistDataLoader<TensorDataType::FP32, THostMR> train_loader( config.data_directory, config.batch_size, true, device );
     MnistDataLoader<TensorDataType::FP32, THostMR> test_loader( config.data_directory, config.batch_size, false, device );
@@ -401,13 +401,13 @@ void trainMnist( const MnistConfig& config )
 
     // Allocate tensors for training
     Tensor<TDataType, DeviceMR> input_batch( device, input_shape );
-    Tensor<TDataType, CpuMemoryResource> target_batch( "CPU", { train_loader.batchSize(), MNIST_NUM_CLASSES } );
+    Tensor<TDataType, CpuMemoryResource> target_batch( Device::Cpu(), { train_loader.batchSize(), MNIST_NUM_CLASSES } );
 
-    Tensor<TDataType, CpuMemoryResource> logits( "CPU", { train_loader.batchSize(), MNIST_NUM_CLASSES } );
+    Tensor<TDataType, CpuMemoryResource> logits( Device::Cpu(), { train_loader.batchSize(), MNIST_NUM_CLASSES } );
     Tensor<TDataType, DeviceMR> output( device, { train_loader.batchSize(), MNIST_NUM_CLASSES } );
 
     // Allocate gradient tensors for backward pass
-    Tensor<TDataType, CpuMemoryResource> output_grad_cpu( "CPU", { train_loader.batchSize(), MNIST_NUM_CLASSES } );
+    Tensor<TDataType, CpuMemoryResource> output_grad_cpu( Device::Cpu(), { train_loader.batchSize(), MNIST_NUM_CLASSES } );
     Tensor<TDataType, DeviceMR> output_grad( device, { train_loader.batchSize(), MNIST_NUM_CLASSES } );
     Tensor<TDataType, DeviceMR> input_grad( device, input_shape );
 
@@ -562,7 +562,7 @@ void trainUsingModel( const MnistConfig& config )
     //mnist_net->setTraining( true );
 
     // Get device from model's execution context
-    auto device = net->getDevice();
+    auto device = net->getDeviceId();
 
     MnistDataLoader<TensorDataType::FP32, THostMR> train_loader( config.data_directory, config.batch_size, true, device );
     MnistDataLoader<TensorDataType::FP32, THostMR> test_loader( config.data_directory, config.batch_size, false, device );
@@ -647,13 +647,13 @@ void trainUsingModel( const MnistConfig& config )
 
     // Allocate tensors for training
     Tensor<TPrecision, DeviceMR> input_batch( device, input_shape );
-    Tensor<TPrecision, CpuMemoryResource> target_batch( "CPU", { train_loader.batchSize(), MNIST_NUM_CLASSES } );
+    Tensor<TPrecision, CpuMemoryResource> target_batch( Device::Cpu(), { train_loader.batchSize(), MNIST_NUM_CLASSES } );
 
-    Tensor<TPrecision, CpuMemoryResource> logits( "CPU", { train_loader.batchSize(), MNIST_NUM_CLASSES } );
+    Tensor<TPrecision, CpuMemoryResource> logits( Device::Cpu(), { train_loader.batchSize(), MNIST_NUM_CLASSES } );
     Tensor<TPrecision, DeviceMR> output( device, { train_loader.batchSize(), MNIST_NUM_CLASSES } );
 
     // Allocate gradient tensors for backward pass
-    Tensor<TPrecision, CpuMemoryResource> output_grad_cpu( "CPU", { train_loader.batchSize(), MNIST_NUM_CLASSES } );
+    Tensor<TPrecision, CpuMemoryResource> output_grad_cpu( Device::Cpu(), { train_loader.batchSize(), MNIST_NUM_CLASSES } );
     Tensor<TPrecision, DeviceMR> output_grad( device, { train_loader.batchSize(), MNIST_NUM_CLASSES } );
     Tensor<TPrecision, DeviceMR> input_grad( device, input_shape );
 

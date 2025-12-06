@@ -47,7 +47,7 @@ namespace GBench::GeluBenchmarks
 		try
 		{
 			// Create CUDA execution context (device0)
-			auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+			auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
 
 			// Create Linear config from parsed args
 			LinearConfig config( input_features, output_features );
@@ -63,12 +63,12 @@ namespace GBench::GeluBenchmarks
 			}
 
 			// Create tensors (device)
-			Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> input( ctx->getDevice(), input_shape );
-			Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> output( ctx->getDevice(), output_shape );
+			Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> input( ctx->getDeviceId(), input_shape );
+			Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> output( ctx->getDeviceId(), output_shape );
 
 			// Prepare host input
 			auto cpu_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-			auto cpu_dev = cpu_ctx->getDevice();
+			auto cpu_dev = cpu_ctx->getDeviceId();
 			Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( cpu_dev, input_shape );
 
 			fill<TensorDataType::FP32, CpuMemoryResource>( host_input, 3.1415926f );
@@ -81,7 +81,7 @@ namespace GBench::GeluBenchmarks
 			Tensor<TensorDataType::FP32, CpuMemoryResource> host_weight( cpu_dev, weight_shape );
 			xavier<TensorDataType::FP32, CpuMemoryResource>( host_weight, input_features, output_features );
 
-			auto device_weight = std::make_shared<Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>>( ctx->getDevice(), weight_shape );
+			auto device_weight = std::make_shared<Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>>( ctx->getDeviceId(), weight_shape );
 			device_weight->setName( "bench.linear.weight" );
 			copy( host_weight, *device_weight );
 
@@ -91,7 +91,7 @@ namespace GBench::GeluBenchmarks
 				Tensor<TensorDataType::FP32, CpuMemoryResource> host_bias( cpu_dev, bias_shape );
 				zeros<TensorDataType::FP32, CpuMemoryResource>( host_bias );
 
-				device_bias = std::make_shared<Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>>( ctx->getDevice(), bias_shape );
+				device_bias = std::make_shared<Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>>( ctx->getDeviceId(), bias_shape );
 				device_bias->setName( "bench.linear.bias" );
 				copy( host_bias, *device_bias );
 			}

@@ -80,6 +80,7 @@ namespace Mila::Dnn::Compute
                 seed ^= (h2 + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2));
                 seed ^= (h3 + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2));
                 seed ^= (h4 + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2));
+                
                 return seed;
             }
         };
