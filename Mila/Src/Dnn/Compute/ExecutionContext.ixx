@@ -25,20 +25,20 @@ import Compute.ExecutionContextTemplate;
 export import Compute.IExecutionContext;
 
 // REVIEW: Only import the specializations
-import :Cpu;
+export import :Cpu;
 
 #ifdef MILA_HAS_CUDA
-import :Cuda;
+export import :Cuda;
 #endif
 
 // Conditionally export Metal backend
 #ifdef MILA_HAS_METAL
-//import :Metal;
+//export import :Metal;
 #endif
 
 // Conditionally export ROCm backend
 #ifdef MILA_HAS_ROCM
-//import :Rocm;
+//export import :Rocm;
 #endif
 
 import Compute.DeviceType;
@@ -46,6 +46,7 @@ import Compute.DeviceId;
 
 namespace Mila::Dnn::Compute
 {
+
     /**
      * @brief Create execution context for specified device.
      *
@@ -54,16 +55,16 @@ namespace Mila::Dnn::Compute
      */
 
      // REVIEW: Should be templated on TDeviceType to avoid runtime switch?
-    export std::shared_ptr<IExecutionContext> createExecutionContext( DeviceId device_id )
+    export std::unique_ptr<IExecutionContext> createExecutionContext( DeviceId device_id )
     {
         switch ( device_id.type )
         {
             case DeviceType::Cpu:
-                return std::make_shared<ExecutionContext<DeviceType::Cpu>>( device_id );
+                return std::make_unique<ExecutionContext<DeviceType::Cpu>>( device_id );
 
             #ifdef MILA_HAS_CUDA
             case DeviceType::Cuda:
-                return std::make_shared<ExecutionContext<DeviceType::Cuda>>( device_id );
+                return std::make_unique<ExecutionContext<DeviceType::Cuda>>( device_id );
             #endif
 
             default:
@@ -74,40 +75,7 @@ namespace Mila::Dnn::Compute
         }
     }
 
-    // REVIEW: These casts are internal only. The user needs only deal with IExecutionContext pointers.
-
-    /**
-     * @brief Safe cast from IExecutionContext to concrete ExecutionContext<Device>.
-     *
-     * Performs a debug assertion to verify the device type matches, then
-     * does a zero-cost static_cast in release builds.
-     *
-     * @tparam TDeviceType The device type to cast to
-     * @param ctx The type-erased context pointer
-     * @return Pointer to the concrete context, or nullptr if ctx is nullptr
-     */
-    /*export template<DeviceType TDeviceType>
-        [[nodiscard]] ExecutionContext<TDeviceType>* cast_context( IExecutionContext* ctx ) noexcept
-    {
-        if ( !ctx )
-            return nullptr;
-
-        assert( ctx->getDeviceId().type == TDeviceType && "Device type mismatch in context cast" );
-        return static_cast<ExecutionContext<TDeviceType>*>(ctx);
-    }*/
-
-    /**
-     * @brief Safe cast from IExecutionContext to concrete ExecutionContext<Device> (const version).
-     */
-    /*export template<DeviceType TDeviceType>
-        [[nodiscard]] const ExecutionContext<TDeviceType>* cast_context( const IExecutionContext* ctx ) noexcept
-    {
-        if ( !ctx )
-            return nullptr;
-
-        assert( ctx->getDeviceId().type == TDeviceType && "Device type mismatch in context cast" );
-        return static_cast<const ExecutionContext<TDeviceType>*>(ctx);
-    }*/
+    
 
     /**
      * @brief Query if a backend is available at runtime.
@@ -139,5 +107,45 @@ namespace Mila::Dnn::Compute
             default:
                 return false;
         }
+    }
+
+    // NOTE: These casts are internal only. We use Doxygen internal to hide them from public docs.
+    //       They are intended for use within the Mila DNN library only.
+
+    /**
+     * @internal
+     * @brief Safe cast from IExecutionContext to concrete ExecutionContext<Device>.
+     *
+     * Performs a debug assertion to verify the device type matches, then
+     * does a zero-cost static_cast in release builds.
+     *
+     * @tparam TDeviceType The device type to cast to
+     * @param ctx The type-erased context pointer
+     * @return Pointer to the concrete context, or nullptr if ctx is nullptr
+     */
+    export template<DeviceType TDeviceType>
+    [[nodiscard]] ExecutionContext<TDeviceType>* cast_context_( IExecutionContext* ctx ) noexcept
+    {
+        if ( !ctx )
+            return nullptr;
+
+        assert( ctx->getDeviceId().type == TDeviceType && "Device type mismatch in context cast" );
+        
+        return static_cast<ExecutionContext<TDeviceType>*>(ctx);
+    }
+
+    /**
+     * @internal
+     * @brief Safe cast from IExecutionContext to concrete ExecutionContext<Device> (const version).
+     */
+    export template<DeviceType TDeviceType>
+    [[nodiscard]] const ExecutionContext<TDeviceType>* cast_context_( const IExecutionContext* ctx ) noexcept
+    {
+        if ( !ctx )
+            return nullptr;
+
+        assert( ctx->getDeviceId().type == TDeviceType && "Device type mismatch in context cast" );
+        
+        return static_cast<const ExecutionContext<TDeviceType>*>(ctx);
     }
 }

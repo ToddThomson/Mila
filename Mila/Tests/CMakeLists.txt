@@ -67,14 +67,14 @@ add_executable( MilaTests
     "Dnn/Tensors/Tensor.DataPointers.cpp"
 
     # TensorOps
-    #"Dnn/Tensors/TensorOps/Fill.Cpu.cpp"
-    #"Dnn/Tensors/TensorOps/Fill.Cuda.cpp"
-    #"Dnn/Tensors/TensorOps/Math.Cpu.cpp"
-    #"Dnn/Tensors/TensorOps/Math.Cuda.cpp"
-    #"Dnn/Tensors/TensorOps/TensorOps.Transfer.cpp"
+    "Dnn/Tensors/TensorOps/Fill.Cpu.cpp"
+    "Dnn/Tensors/TensorOps/Fill.Cuda.cpp"
+    "Dnn/Tensors/TensorOps/Math.Cpu.cpp"
+    "Dnn/Tensors/TensorOps/Math.Cuda.cpp"
+    "Dnn/Tensors/TensorOps/TensorOps.Transfer.cpp"
 
     # Tensor Helpers
-    #"Dnn/Tensors/Tensor.Initializers.cpp"
+    "Dnn/Tensors/Tensor.Initializers.cpp"
 
     # --------------------------------------------------------------
     # Compute::Device::Cpu Operations Tests

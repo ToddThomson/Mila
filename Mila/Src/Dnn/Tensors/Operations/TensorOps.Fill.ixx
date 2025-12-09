@@ -35,6 +35,7 @@
 
 module;
 #include <concepts>
+#include <memory>
 #include <span>
 #include <type_traits>
 #include <cstdint>
@@ -94,7 +95,7 @@ namespace Mila::Dnn
     void fill(
         Tensor<TDataType, TMemoryResource>& tensor,
         std::span<const host_value_t<TDataType>> host_values,
-        ExecutionContext<TMemoryResource::device_type>* exec_context = nullptr )
+        IExecutionContext* exec_context = nullptr )
     {
         constexpr DeviceType device = TMemoryResource::device_type;
         TensorOps<device>::fill( tensor, host_values, exec_context );
@@ -137,7 +138,7 @@ namespace Mila::Dnn
     void fill(
         Tensor<TDataType, TMemoryResource>& tensor,
         host_value_t<TDataType> host_value,
-        ExecutionContext<TMemoryResource::device_type>* exec_context = nullptr )
+        IExecutionContext* exec_context = nullptr )
     {
         constexpr DeviceType device = TMemoryResource::device_type;
         TensorOps<device>::fill( tensor, host_value, exec_context );

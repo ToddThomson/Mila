@@ -76,7 +76,7 @@ namespace Mila::Dnn::Compute::Cpu
             const Tensor<TDataType, TMemoryResource>& a,
             const Tensor<TDataType, TMemoryResource>& b,
             Tensor<TDataType, TMemoryResource>& result,
-            [[maybe_unused]] ExecutionContext<DeviceType::Cpu>* exec_context = nullptr )
+            [[maybe_unused]] IExecutionContext* exec_context = nullptr )
         {
             validateShapeCompatibility( a, b, result, "add" );
 
@@ -108,7 +108,7 @@ namespace Mila::Dnn::Compute::Cpu
             const Tensor<TDataType, TMemoryResource>& a,
             const Tensor<TDataType, TMemoryResource>& b,
             Tensor<TDataType, TMemoryResource>& result,
-            [[maybe_unused]] ExecutionContext<DeviceType::Cpu>* exec_context = nullptr )
+            [[maybe_unused]] IExecutionContext* exec_context = nullptr )
         {
             validateShapeCompatibility( a, b, result, "subtract" );
 
@@ -140,7 +140,7 @@ namespace Mila::Dnn::Compute::Cpu
             const Tensor<TDataType, TMemoryResource>& a,
             const Tensor<TDataType, TMemoryResource>& b,
             Tensor<TDataType, TMemoryResource>& result,
-            [[maybe_unused]] ExecutionContext<DeviceType::Cpu>* exec_context = nullptr )
+            [[maybe_unused]] IExecutionContext* exec_context = nullptr )
         {
             validateShapeCompatibility( a, b, result, "multiply" );
 
@@ -178,7 +178,7 @@ namespace Mila::Dnn::Compute::Cpu
             const Tensor<TDataType, TMemoryResource>& a,
             const Tensor<TDataType, TMemoryResource>& b,
             Tensor<TDataType, TMemoryResource>& result,
-            [[maybe_unused]] ExecutionContext<DeviceType::Cpu>* exec_context = nullptr )
+            [[maybe_unused]] IExecutionContext* exec_context = nullptr )
         {
             validateShapeCompatibility( a, b, result, "divide" );
 
@@ -224,7 +224,7 @@ namespace Mila::Dnn::Compute::Cpu
             requires isValidTensor<TDataType, TMemoryResource>
         static float sum(
             const Tensor<TDataType, TMemoryResource>& tensor,
-            [[maybe_unused]] ExecutionContext<DeviceType::Cpu>* exec_context = nullptr )
+            [[maybe_unused]] IExecutionContext* exec_context = nullptr )
         {
             if (tensor.size() == 0)
             {

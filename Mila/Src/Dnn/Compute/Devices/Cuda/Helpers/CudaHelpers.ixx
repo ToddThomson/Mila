@@ -11,7 +11,9 @@ module;
 #include <cuda_runtime.h>
 #include <cstdint>
 #include <string>
+#include <format>
 #include <stdexcept>
+#include <cassert>
 
 export module Cuda.Helpers;
 
@@ -41,16 +43,16 @@ namespace Mila::Dnn::Compute::Cuda
      */
     export inline void setCurrentDevice( int device_id ) 
     {
+        assert( device_id >= 0 && "Invalid CUDA device id" );
+
         static thread_local int current_device = -1;
         
         if (current_device != device_id) {
             cudaError_t error = cudaSetDevice( device_id );
             
-            if (error != cudaSuccess) {
+            if ( error != cudaSuccess ) {
                 throw std::runtime_error(
-                    "Failed to set CUDA device " +
-                    std::to_string( device_id ) + ": " +
-                    cudaGetErrorString( error )
+                    std::format( "Failed to set CUDA device {}: {}", device_id, cudaGetErrorString( error ) )
                 );
             }
             

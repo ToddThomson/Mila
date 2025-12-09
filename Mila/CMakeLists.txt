@@ -27,13 +27,13 @@ add_library( Mila STATIC
     #--------------------------------------------------------------------------
     # Cuda TensorOps Kernels
     #--------------------------------------------------------------------------
-    #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Transfer.Copy.h"
-    #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorCopy.cu"
-    #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorOps.Fill.h"
-    #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorOps.Fill.cu"
-    #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/CudaTensorOps.h"
-    #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.h"
-    #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Transfer.Copy.h"
+    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorCopy.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorOps.Fill.h"
+    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorOps.Fill.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/CudaTensorOps.h"
+    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.h"
+    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.cu"
 
     #--------------------------------------------------------------------------
     # Cuda Optimizer Kernels
@@ -133,7 +133,7 @@ PUBLIC
         "Src/Dnn/Tensors/Tensor.Types.ixx"
 
         "Src/Dnn/Tensors/TensorDataType.ixx"
-        #"Src/Dnn/Tensors/Tensor.Initializers.ixx"
+        "Src/Dnn/Tensors/Tensor.Initializers.ixx"
         "Src/Dnn/Tensors/Tensor.Serialization.ixx"
 
         "Src/Dnn/Tensors/TensorDataTypeMap.ixx"
@@ -141,11 +141,11 @@ PUBLIC
         "Src/Dnn/Tensors/TensorHostTypeMap.ixx"
 
         # Dnn / Tensors / Operations
-        #"Src/Dnn/Tensors/Operations/TensorOps.ixx"
-        #"Src/Dnn/Tensors/Operations/TensorOps-Base.ixx"
-        #"Src/Dnn/Tensors/Operations/TensorOps.Math.ixx"
-        #"Src/Dnn/Tensors/Operations/TensorOps.Fill.ixx"
-        #"Src/Dnn/Tensors/Operations/TensorOps.Transfer.ixx"
+        "Src/Dnn/Tensors/Operations/TensorOps.ixx"
+        "Src/Dnn/Tensors/Operations/TensorOps-Base.ixx"
+        "Src/Dnn/Tensors/Operations/TensorOps.Math.ixx"
+        "Src/Dnn/Tensors/Operations/TensorOps.Fill.ixx"
+        "Src/Dnn/Tensors/Operations/TensorOps.Transfer.ixx"
                 
         #---------------------------------------------------------------
         # Dnn / Components
@@ -314,10 +314,10 @@ if(MILA_HAS_CPU)
                 #"Src/Dnn/Compute/Devices/Cpu/CpuDeviceTraits.ixx"
                 
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/CpuTensorDataTypeTraits.ixx"
-                #"Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.ixx"
-                #"Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Fill.ixx"
-                #"Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Math.ixx"
-                #"Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Transfer.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Fill.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Math.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Transfer.ixx"
                 
                 #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuOperations.ixx"
                 #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuEncoderOp.ixx"
@@ -362,13 +362,13 @@ if(MILA_HAS_CUDA)
                 
                 #"Src/Dnn/Compute/Devices/Cuda/CudaDeviceTraits.ixx"
 
-                #"Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType.ixx"
-                #"Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType-Specializations.ixx"
-                #"Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType-Maps.ixx"
-                #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.ixx"
-                #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Math.ixx"
-                #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Fill.ixx"
-                #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Transfer.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType-Specializations.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType-Maps.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Math.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Fill.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Transfer.ixx"
                 
                 #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaOperations.ixx"
                 #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaAttentionOp.ixx"

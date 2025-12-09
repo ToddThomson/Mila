@@ -82,7 +82,7 @@ namespace Mila::Dnn::Compute::Cpu
         static void fill(
             Tensor<TDataType, TMemoryResource>& tensor,
             std::span<const host_value_t<TDataType>> host_values,
-            [[maybe_unused]] ExecutionContext<DeviceType::Cpu>* exec_context = nullptr )
+            [[maybe_unused]] IExecutionContext* exec_context = nullptr )
         {
             if (tensor.size() == 0 || host_values.empty())
                 return;
@@ -135,7 +135,7 @@ namespace Mila::Dnn::Compute::Cpu
         static void fill(
             Tensor<TDataType, TMemoryResource>& tensor,
             host_value_t<TDataType> host_value,
-            [[maybe_unused]] ExecutionContext<DeviceType::Cpu>* exec_context = nullptr )
+            [[maybe_unused]] IExecutionContext* exec_context = nullptr )
         {
             if (tensor.size() == 0)
                 return;

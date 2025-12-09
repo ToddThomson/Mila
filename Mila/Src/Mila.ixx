@@ -158,12 +158,12 @@ export import Dnn.TensorHostTypeMap;
 // ====================================================================
 // Dnn - Tensor Operations
 // ====================================================================
-//export import Dnn.TensorOps;
+export import Dnn.TensorOps;
 
 // ====================================================================
 // Dnn - Tensor Initializers
 // ====================================================================
-//export import Dnn.TensorInitializers;
+export import Dnn.TensorInitializers;
 
 // ====================================================================
 // Dnn - Components

@@ -115,10 +115,10 @@ namespace Mila::Dnn::Compute
          *
          * @return cudaStream_t The CUDA stream owned by this context.
          */
-        /*[[nodiscard]] cudaStream_t getStream() const noexcept
+        [[nodiscard]] cudaStream_t getStream() const noexcept
         {
             return stream_;
-        }*/
+        }
 
         /**
          * @brief Returns the shared device-level resources backing this context.
@@ -232,13 +232,35 @@ namespace Mila::Dnn::Compute
         /**
          * @brief Releases all CUDA resources.
          *
-         * Destroys the CUDA stream. Called by destructor - does not throw.
+         * Synchronizes the stream (blocking until all queued operations complete),
+         * then destroys it. This ensures all GPU operations using this context
+         * have finished before the context and its resources are released.
+         *
+         * Called by destructor - does not throw.
          */
         void releaseResources() noexcept
         {
             if ( stream_created_ && stream_ )
             {
-                cudaStreamDestroy( stream_ );
+                // Block until all operations on this stream complete
+                cudaError_t err = cudaStreamSynchronize( stream_ );
+                if ( err != cudaSuccess )
+                {
+                    // Log but can't throw from noexcept destructor
+                    std::fprintf( stderr,
+                        "ExecutionContext: Failed to synchronize CUDA stream: %s\n",
+                        cudaGetErrorString( err ) );
+                }
+
+                // Now safe to destroy the stream
+                err = cudaStreamDestroy( stream_ );
+                if ( err != cudaSuccess )
+                {
+                    std::fprintf( stderr,
+                        "ExecutionContext: Failed to destroy CUDA stream: %s\n",
+                        cudaGetErrorString( err ) );
+                }
+
                 stream_ = nullptr;
                 stream_created_ = false;
             }

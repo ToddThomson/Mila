@@ -32,14 +32,13 @@ namespace Dnn::Tensors::TensorOps::Tests
     protected:
         void SetUp() override
         {
-
             if ( getDeviceCount( DeviceType::Cuda ) == 0 )
             {
                 cuda_available_ = false;
                 return;
             }
 
-            exec_ctx_ = std::make_unique<ExecutionContext<DeviceType::Cuda>>( Device::Cuda( 0 ) );
+            exec_ctx_ = createExecutionContext( Device::Cuda( 0 ) );
         }
 
         void TearDown() override
@@ -52,7 +51,7 @@ namespace Dnn::Tensors::TensorOps::Tests
         }
 
         bool cuda_available_{ false };
-        std::unique_ptr<ExecutionContext<DeviceType::Cuda>> exec_ctx_{ nullptr };
+        std::shared_ptr<IExecutionContext> exec_ctx_{ nullptr };
     };
 
     /**

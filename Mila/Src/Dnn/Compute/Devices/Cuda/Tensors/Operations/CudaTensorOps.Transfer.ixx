@@ -17,6 +17,7 @@
 module;
 #include <cuda_runtime.h>
 #include <memory>
+#include <format>
 #include <stdexcept>
 #include <source_location>
 #include <cstring>
@@ -126,17 +127,30 @@ namespace Mila::Dnn::Compute::Cuda
                 return;
             }
 
+            // REVIEW: The ExecutionContext and source/destination tensors must be on compatible devices.
+            //         The abstract API should enforce this at a higher level to prevent mismatches.
+
             // Determine stream and synchronization requirements
             cudaStream_t stream;
             bool needs_sync = false;
             int device_id = -1;
 
-            if (exec_context)
+            // REVIEW: 1) Use a validation helper to check context-device compatibility
+            //         2) It is not clear to me that the device ID logic here is correct.
+
+            if ( exec_context )
             {
-                auto* cuda_exec_context = cast_context<DeviceType::Cuda>( exec_context );
+                if ( exec_context->getDeviceId().type != DeviceType::Cuda ) {
+                    throw std::invalid_argument(
+                        std::format( "CUDA operations require a CUDA execution context, got {}",
+                            deviceTypeToString( exec_context->getDeviceId().type ) )
+                    );
+                }
+            
+                auto* cuda_context = cast_context_<DeviceType::Cuda>( exec_context );
                 
-                stream = cuda_exec_context->getStream();
-                device_id = cuda_exec_context->getDeviceId().index;
+                stream = cuda_context->getStream();
+                device_id = cuda_context->getDeviceId().index;
             }
             else
             {

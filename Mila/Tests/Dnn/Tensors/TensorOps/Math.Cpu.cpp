@@ -26,15 +26,14 @@ namespace Dnn::Tensors::TensorOps::Tests
     class CpuTensorMathTest : public ::testing::Test {
     protected:
         void SetUp() override {
-            // CPU ExecutionContext doesn't require parameters
-            exec_ctx_ = std::make_unique<ExecutionContext<DeviceType::Cpu>>();
+            exec_ctx_ = createExecutionContext( Device::Cpu() );
         }
 
         void TearDown() override {
             exec_ctx_.reset();
         }
 
-        std::unique_ptr<ExecutionContext<DeviceType::Cpu>> exec_ctx_;
+        std::unique_ptr<IExecutionContext> exec_ctx_;
     };
 
     /**

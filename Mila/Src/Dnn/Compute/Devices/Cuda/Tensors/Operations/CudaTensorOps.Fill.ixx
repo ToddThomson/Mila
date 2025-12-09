@@ -111,7 +111,7 @@ namespace Mila::Dnn::Compute::Cuda
         static void fill(
             Tensor<TDataType, TMemoryResource>& tensor,
             std::span<const host_value_t<TDataType>> host_values,
-            ExecutionContext<DeviceType::Cuda>* exec_context = nullptr )
+            IExecutionContext* exec_context = nullptr )
         {
             if (tensor.size() == 0 || host_values.empty())
                 return;
@@ -120,21 +120,21 @@ namespace Mila::Dnn::Compute::Cuda
             bool needs_sync = false;
 
             if (exec_context) {
-                // Caller-provided context - borrow stream, let caller control sync
-                stream = exec_context->getStream();
+                auto* cuda_context = cast_context_<DeviceType::Cuda>( exec_context );
+                stream = cuda_context->getStream();
             }
             else
             {
                 // No context - use default stream with explicit device setting
-                auto device = std::dynamic_pointer_cast<CudaDevice>(tensor.getDevice());
-                if (!device)
+                auto device_id = tensor.getDeviceId();
+                if (device_id.type != DeviceType::Cuda )
                 {
                     throw std::runtime_error(
                         "Tensor does not have valid CUDA device for fill operation"
                     );
                 }
 
-                Cuda::setCurrentDevice( device->getDeviceId().index );
+                Cuda::setCurrentDevice( device_id.index );
 
                 stream = nullptr;  // nullptr = default stream (stream 0)
                 needs_sync = true;  // Must sync default stream before returning
@@ -206,49 +206,48 @@ namespace Mila::Dnn::Compute::Cuda
         static void fill(
             Tensor<TDataType, TMemoryResource>& tensor,
             host_value_t<TDataType> host_value,
-            ExecutionContext<DeviceType::Cuda>* exec_context = nullptr )
+            IExecutionContext* exec_context = nullptr )
         {
-            if (tensor.size() == 0)
+            if ( tensor.size() == 0 )
                 return;
 
             cudaStream_t stream;
             bool needs_sync = false;
 
-            if (exec_context) {
-                // Caller-provided context - borrow stream, let caller control sync
-                stream = exec_context->getStream();
+            if ( exec_context ) {
+                auto* cuda_context = cast_context_<DeviceType::Cuda>( exec_context );
+                stream = cuda_context->getStream();
             }
             else {
-                // No context - use default stream with explicit device setting
-                auto device = std::dynamic_pointer_cast<CudaDevice>(tensor.getDevice());
-                if (!device) {
+                auto device_id = tensor.getDeviceId();
+                if ( device_id.type != DeviceType::Cuda ) {
                     throw std::runtime_error(
                         "Tensor does not have valid CUDA device for fill operation"
                     );
                 }
-                
-                Cuda::setCurrentDevice(device->getDeviceId().index );
+
+                Cuda::setCurrentDevice( device_id.index );
                 stream = nullptr;  // nullptr = default stream (stream 0)
                 needs_sync = true;  // Must sync default stream before returning
             }
 
             // Access raw data through TensorOps helper (which has friend access)
-			void* raw_dst = static_cast<ITensor&>(tensor).rawData();
+            void* raw_dst = static_cast<ITensor&>(tensor).rawData();
 
             using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::native_type;
 
-            if constexpr (TensorDataTypeTraits<TDataType>::is_integer_type) {
+            if constexpr ( TensorDataTypeTraits<TDataType>::is_integer_type ) {
                 Cuda::launch_constant_fill_typed<NativeType, int32_t>(
-                    raw_dst, tensor.size(), host_value, stream);
+                    raw_dst, tensor.size(), host_value, stream );
             }
             else {
                 Cuda::launch_constant_fill_typed<NativeType, float>(
-                    raw_dst, tensor.size(), host_value, stream);
+                    raw_dst, tensor.size(), host_value, stream );
             }
 
-            if (needs_sync) {
+            if ( needs_sync ) {
                 // Synchronize default stream to ensure completion
-                cudaStreamSynchronize(stream);
+                cudaStreamSynchronize( stream );
             }
         }
     };

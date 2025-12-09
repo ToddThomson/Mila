@@ -33,6 +33,7 @@
 
 module;
 #include <concepts>
+#include <memory>
 
 export module Dnn.TensorOps:Math;
 
@@ -84,7 +85,7 @@ namespace Mila::Dnn
         const Tensor<TDataType, TMemoryResource>& a,
         const Tensor<TDataType, TMemoryResource>& b,
         Tensor<TDataType, TMemoryResource>& result,
-        ExecutionContext<TMemoryResource::device_type>* exec_context = nullptr )
+        IExecutionContext* exec_context = nullptr )
     {
         constexpr DeviceType device = TMemoryResource::device_type;
         TensorOps<device>::add( a, b, result, exec_context );
@@ -108,7 +109,7 @@ namespace Mila::Dnn
         const Tensor<TDataType, TMemoryResource>& a,
         const Tensor<TDataType, TMemoryResource>& b,
         Tensor<TDataType, TMemoryResource>& result,
-        ExecutionContext<TMemoryResource::device_type>* exec_context = nullptr )
+        IExecutionContext* exec_context = nullptr )
     {
         constexpr DeviceType device = TMemoryResource::device_type;
         TensorOps<device>::subtract( a, b, result, exec_context );
@@ -132,7 +133,7 @@ namespace Mila::Dnn
         const Tensor<TDataType, TMemoryResource>& a,
         const Tensor<TDataType, TMemoryResource>& b,
         Tensor<TDataType, TMemoryResource>& result,
-        ExecutionContext<TMemoryResource::device_type>* exec_context = nullptr )
+        IExecutionContext* exec_context = nullptr )
     {
         constexpr DeviceType device = TMemoryResource::device_type;
         TensorOps<device>::multiply( a, b, result, exec_context );
@@ -156,7 +157,7 @@ namespace Mila::Dnn
         const Tensor<TDataType, TMemoryResource>& a,
         const Tensor<TDataType, TMemoryResource>& b,
         Tensor<TDataType, TMemoryResource>& result,
-        ExecutionContext<TMemoryResource::device_type>* exec_context = nullptr )
+        IExecutionContext* exec_context = nullptr )
     {
         constexpr DeviceType device = TMemoryResource::device_type;
         TensorOps<device>::divide( a, b, result, exec_context );
@@ -180,7 +181,7 @@ namespace Mila::Dnn
         requires isValidTensor<TDataType, TMemoryResource>
     float sum(
         const Tensor<TDataType, TMemoryResource>& tensor,
-        ExecutionContext<TMemoryResource::device_type>* exec_context = nullptr )
+        IExecutionContext* exec_context = nullptr )
     {
         constexpr DeviceType device = TMemoryResource::device_type;
         return TensorOps<device>::sum( tensor, exec_context );
