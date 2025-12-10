@@ -325,7 +325,10 @@ void trainMnist( const MnistConfig& config )
     // Mnist setup
     // ============================================================
 
-    std::shared_ptr<ExecutionContext<TDeviceType>> exec_context;
+    // Deprecated: ExecutionContext creation is now handled by Network/MnistClassifier
+
+    /*std::shared_ptr<ExecutionContext<TDeviceType>> exec_context;
+
     if constexpr ( TDeviceType == DeviceType::Cuda )
     {
         exec_context = std::make_shared<ExecutionContext<TDeviceType>>( Device::Cuda(0) );
@@ -333,10 +336,21 @@ void trainMnist( const MnistConfig& config )
     else
     {
         exec_context = std::make_shared<ExecutionContext<TDeviceType>>();
+    }*/
+
+    DeviceId device_id;
+
+    if ( config.compute_device == DeviceType::Cuda )
+    {
+        device_id = Device::Cuda( 0 );
+    }
+    else
+    {
+        device_id = Device::Cpu();
     }
 
-    auto mnist_net = std::make_shared<MnistClassifier<TDeviceType, TDataType>>(
-        exec_context,
+    auto mnist_net = std::make_unique<MnistClassifier<TDeviceType, TDataType>>(
+        device_id,
         "Mnist",
         config.batch_size );
 

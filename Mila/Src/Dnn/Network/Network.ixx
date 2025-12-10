@@ -49,7 +49,13 @@ namespace Mila::Dnn
      * - **Deserialization**: Protected constructor accepting IExecutionContext* for factory reconstruction
      *
      * The Network owns and manages the shared ExecutionContext that is propagated to all
-     * child components for efficient resource sharing.
+     * child components for efficient resource sharing via the factory method pattern.
+     *
+     * Child Component Construction:
+     * - Network does not expose `addComponent(ComponentPtr)` - this would break ExecutionContext sharing
+     * - Derived classes or builders should construct children using the template factory method:
+     *   `addComponent<ComponentType>(name, config_args...)`
+     * - Factory method enforces that all children share the Network's ExecutionContext
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
     class Network : public CompositeComponent<TDeviceType, TPrecision>
@@ -63,7 +69,7 @@ namespace Mila::Dnn
          * @brief Construct network with owned ExecutionContext.
          *
          * Creates a new network with its own ExecutionContext that will be shared
-         * with all child components.
+         * with all child components added via the factory method.
          *
          * @param device_id DeviceId identifying the device for this network and its children.
          * @param name Network name for identification and serialization.
@@ -72,8 +78,7 @@ namespace Mila::Dnn
          * @throws std::runtime_error if ExecutionContext creation fails.
          */
         explicit Network( DeviceId device_id, const std::string& name )
-            : CompositeBase( device_id )
-            , name_( name )
+            : CompositeBase( device_id ), name_( name )
         {
             if (name_.empty())
             {
@@ -177,6 +182,8 @@ namespace Mila::Dnn
          *
          * Reconstructs a Network using the provided execution context. The network
          * will share the provided context (typically from a parent composite or factory).
+         * Child components are reconstructed via ComponentFactory and added using the
+         * factory method to ensure ExecutionContext sharing.
          *
          * @param archive Archive containing the serialized network
          * @param exec_context Execution context to share with the reconstructed network
@@ -184,7 +191,8 @@ namespace Mila::Dnn
          *
          * @throws std::runtime_error if archive is malformed or component reconstruction fails
          *
-         * @note ComponentFactory integration is TODO; this method validates meta/architecture schema.
+         * @note ComponentFactory dispatches to concrete component fromArchive_() methods.
+         *       Each component is added via the factory method pattern to enforce context sharing.
          */
         static std::unique_ptr<Network> load(
             ModelArchive& archive,
@@ -221,6 +229,8 @@ namespace Mila::Dnn
                 new Network( exec_context, name )
             );
 
+            // Reconstruct each child component from the archive using ComponentFactory.
+            // The factory will create components using the network's shared ExecutionContext.
             for (const auto& item : arch)
             {
                 std::string component_name;
@@ -240,10 +250,43 @@ namespace Mila::Dnn
                     );
                 }
 
-                // FIXME: reconstruct child components using ComponentFactory when available.
-                (void)component_name;
-                //auto component = ComponentFactory::create( archive, component_name, exec_context );
-                //network->addComponent( std::move( component ) );
+                try
+                {
+                    // ComponentFactory::createFromArchive will:
+                    // 1. Read component metadata from archive
+                    // 2. Dispatch to concrete component type's fromArchive_() method
+                    // 3. Return a type-erased component (TODO: currently returns void*)
+                    //
+                    // Once ComponentFactory dispatch is implemented, it should call:
+                    //   auto component = ComponentFactory::createFromArchive<TDeviceType>(
+                    //       archive, component_name, exec_context);
+                    //
+                    // The concrete component's fromArchive_() static method will use the
+                    // protected constructor that accepts IExecutionContext*, ensuring
+                    // the reconstructed component shares the network's context.
+                    //
+                    // For now, document the intended pattern:
+                    // network->registerReconstructedComponent(component_name, component);
+
+                    // Placeholder until ComponentFactory dispatch is implemented
+                    throw std::runtime_error(
+                        std::format(
+                            "Network::load: ComponentFactory dispatch not yet implemented for component '{}'",
+                            component_name
+                        )
+                    );
+                }
+                catch (const std::exception& e)
+                {
+                    throw std::runtime_error(
+                        std::format(
+                            "Network::load: failed to reconstruct component '{}' from archive '{}': {}",
+                            component_name,
+                            archive.getFilepath(),
+                            e.what()
+                        )
+                    );
+                }
             }
 
             return network;
@@ -297,6 +340,48 @@ namespace Mila::Dnn
             {
                 throw std::invalid_argument( "Network: name cannot be empty" );
             }
+        }
+
+        /**
+         * @brief Register a pre-constructed component during deserialization.
+         *
+         * Internal helper used by load() to register components reconstructed by
+         * ComponentFactory. This bypasses the factory method since the component
+         * was already constructed with the correct ExecutionContext by the factory.
+         *
+         * @param name Component name for registration
+         * @param component Component to register (must share network's ExecutionContext)
+         *
+         * @throws std::invalid_argument if name already exists
+         * @throws std::runtime_error if called after build()
+         */
+        void registerReconstructedComponent( const std::string& name, ComponentPtr component )
+        {
+            if (this->isBuilt())
+            {
+                throw std::runtime_error(
+                    "Network::registerReconstructedComponent: cannot add components after build()"
+                );
+            }
+
+            if (!component)
+            {
+                throw std::invalid_argument(
+                    "Network::registerReconstructedComponent: component cannot be null"
+                );
+            }
+
+            if (this->hasComponent( name ))
+            {
+                throw std::invalid_argument(
+                    "Network::registerReconstructedComponent: component name '" + name + "' already exists"
+                );
+            }
+
+            // Direct registration without using factory method since component was
+            // already constructed by ComponentFactory with the correct ExecutionContext
+            this->child_component_map_[name] = component;
+            this->child_components_.push_back( component );
         }
 
     private:

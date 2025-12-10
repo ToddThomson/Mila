@@ -194,7 +194,7 @@ add_executable( MilaTests
     #"Dnn/Modeling/Network.Cpu.cpp"
     
    
-)
+ "Dnn/Core/CompositeComponent.cpp" "Dnn/Network/Network.cpp")
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
 

@@ -110,9 +110,10 @@ PUBLIC
         # Core
         #----------------------------------------------------------------------
         "Src/Dnn/Core/Component.ixx"
+        "Src/Dnn/Core/ComponentType.ixx"
         "Src/Dnn/Core/CompositeComponent.ixx"
         "Src/Dnn/Core/ComponentConfig.ixx"
-        #"Src/Dnn/Core/ComponentFactory.ixx"
+        "Src/Dnn/Core/ComponentFactory.ixx"
 
         #---------------------------------------------------------------
         # Top-level Utilities
@@ -271,7 +272,7 @@ PUBLIC
         #----------------------------------------------------------------------
         # Network
         #---------------------------------------------------------------
-        #"Src/Dnn/Network/Network.ixx"
+        "Src/Dnn/Network/Network.ixx"
         #"Src/Dnn/Network/NetworkFactory.ixx"
 
         #----------------------------------------------------------------------
@@ -297,7 +298,7 @@ PUBLIC
         #"Src/Dnn/Extensibility/PluginInfo.ixx"
         #"Src/Dnn/Components/MilaComponents.ixx"
         #"Src/Dnn/Core/Loss.ixx"
-        #"Src/Dnn/Core/ComponentType.ixx"
+        
  )
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)

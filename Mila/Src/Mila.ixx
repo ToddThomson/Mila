@@ -216,7 +216,7 @@ export import Serialization.ZipSerializer;
 // ============================================================================
 // Network
 // ============================================================================
-//export import Dnn.Network;
+export import Dnn.Network;
 //export import Dnn.NetworkFactory;
 
 // ============================================================================

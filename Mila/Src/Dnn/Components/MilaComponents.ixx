@@ -1,6 +1,6 @@
 /**
- * @file MilaModules.ixx
- * @brief Aggregate module that re-exports Mila built-in DNN modules.
+ * @file MilaComponents.ixx
+ * @brief Aggregate module that re-exports Mila built-in DNN components.
  */
 
 module;

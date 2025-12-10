@@ -65,10 +65,10 @@ namespace Mila::Mnist
          * @param batch_size Batch size for training/inference.
          */
         explicit MnistClassifier(
-            IExecutionContext* exec_context,
+            DeviceId device_id,
             const std::string& name,
             int64_t batch_size )
-            : NetworkBase( std::move( exec_context ), name ), batch_size_( batch_size )
+            : NetworkBase( device_id, name ), batch_size_( batch_size )
         {
             if (batch_size_ <= 0)
             {
