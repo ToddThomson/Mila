@@ -72,7 +72,7 @@ namespace Mila::Dnn
          * types. The module will query OperationRegistry to create a backend
          * "Conv2DOp" operation using the same config object.
          */
-        explicit Convolution( std::shared_ptr<ExecutionContextType> exec_context, const ConvolutionConfig& config )
+        explicit Convolution( IExecutionContext* exec_context, const ConvolutionConfig& config )
             : exec_context_( exec_context ), config_( config )
         {
             if (!exec_context_)
@@ -255,8 +255,8 @@ namespace Mila::Dnn
         std::shared_ptr<TensorType> weight_grad_{ nullptr };
         std::shared_ptr<TensorType> bias_grad_{ nullptr };
 
-        std::shared_ptr<ConvOpType> operation_{ nullptr };
-        std::shared_ptr<ExecutionContextType> exec_context_;
+        std::unique_ptr<ConvOpType> operation_{ nullptr };
+        IExecutionContext* exec_context_;
 
         void createOperation()
         {

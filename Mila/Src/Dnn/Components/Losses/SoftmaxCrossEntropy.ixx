@@ -65,7 +65,7 @@ namespace Mila::Dnn
          * @param exec_context Shared execution context for device resources.
          * @param config CrossEntropy configuration (vocab_size required).
          */
-        explicit SoftmaxCrossEntropy( std::shared_ptr<ExecutionContextType> exec_context, const CrossEntropyConfig& config )
+        explicit SoftmaxCrossEntropy( IExecutionContext* exec_context, const CrossEntropyConfig& config )
             : exec_context_( exec_context ), config_( config )
         {
             if (!exec_context_)
@@ -254,8 +254,8 @@ namespace Mila::Dnn
     private:
         CrossEntropyConfig config_;
 
-        std::shared_ptr<BinaryOperation<TDeviceType, TLogits, TTargets, TPrecision>> operation_{ nullptr };
-        std::shared_ptr<ExecutionContextType> exec_context_;
+        std::unique_ptr<BinaryOperation<TDeviceType, TLogits, TTargets, TPrecision>> operation_{ nullptr };
+        IExecutionContext* exec_context_{ nullptr };
 
         std::shared_ptr<TargetTensorType> dummy_target_grad_{ nullptr };
 

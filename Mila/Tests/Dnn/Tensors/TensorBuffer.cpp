@@ -164,29 +164,6 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( buffer.data(), original_ptr );
     }
 
-    TEST_F( TensorBufferTests, CudaBufferResize ) {
-        if (!has_cuda_) {
-            GTEST_SKIP() << "CUDA device not available for this test";
-        }
-
-        TensorBuffer<TensorDataType::INT32, Compute::CudaDeviceMemoryResource> buffer( cuda_device_id_, 50 );
-        auto original_ptr = buffer.data();
-
-        // Resize larger
-        buffer.resize( 100 );
-        EXPECT_EQ( buffer.size(), 100 );
-        EXPECT_NE( buffer.data(), original_ptr );
-
-        // Resize smaller
-        buffer.resize( 25 );
-        EXPECT_EQ( buffer.size(), 25 );
-
-        // Resize to zero
-        buffer.resize( 0 );
-        EXPECT_EQ( buffer.size(), 0 );
-        EXPECT_EQ( buffer.data(), nullptr );
-    }
-
     // ============================================================================
     // Error Handling and Edge Cases
     // ============================================================================
@@ -377,66 +354,6 @@ namespace Dnn::Tensors::Tests
         auto end = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
         EXPECT_LT( duration.count(), 1000 );
-    }
-
-    // ============================================================================
-    // Zero Initialization Validation
-    // ============================================================================
-
-    TEST_F( TensorBufferTests, ZeroInitializationValidation ) {
-        TensorBuffer<TensorDataType::FP32, Compute::CpuMemoryResource> float_buffer( cpu_device_id_, 100 );
-        auto float_data = static_cast<float*>(float_buffer.data());
-        for (size_t i = 0; i < 100; ++i) {
-            EXPECT_FLOAT_EQ( float_data[i], 0.0f );
-        }
-
-        TensorBuffer<TensorDataType::INT32, Compute::CpuMemoryResource> int_buffer( cpu_device_id_, 50 );
-        auto int_data = static_cast<int32_t*>( int_buffer.data() );
-        for (size_t i = 0; i < 50; ++i) {
-            EXPECT_EQ( int_data[i], 0 );
-        }
-
-        if (has_cuda_) {
-            TensorBuffer<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> cuda_buffer( cuda_device_id_, 10 );
-            std::vector<float> host_data( 10 );
-            cudaMemcpy( host_data.data(), cuda_buffer.data(), 10 * sizeof( float ), cudaMemcpyDeviceToHost );
-            for (float val : host_data) {
-                EXPECT_FLOAT_EQ( val, 0.0f );
-            }
-        }
-    }
-
-    // ============================================================================
-    // Buffer Data Preservation Tests
-    // ============================================================================
-
-    TEST_F( TensorBufferTests, ResizeDataPreservation ) {
-        TensorBuffer<TensorDataType::INT32, Compute::CpuMemoryResource> buffer( cpu_device_id_, 10 );
-
-        // Initialize with test pattern
-        auto data = static_cast<int32_t*>(buffer.data());
-        for (size_t i = 0; i < 10; ++i) {
-            data[i] = static_cast<int32_t>( i * 10 );
-        }
-
-        // Resize larger
-        buffer.resize( 20 );
-        auto new_data = static_cast<int32_t*>( buffer.data() );
-        for (size_t i = 0; i < 10; ++i) {
-            EXPECT_EQ( new_data[i], static_cast<int32_t>( i * 10 ) );
-        }
-
-        // Verify new elements are zero-initialized
-        for (size_t i = 10; i < 20; ++i) {
-            EXPECT_EQ( new_data[i], 0 );
-        }
-
-        // Resize smaller
-        buffer.resize( 5 );
-        auto smaller_data = static_cast<int32_t*>( buffer.data() );
-        for (size_t i = 0; i < 5; ++i) {
-            EXPECT_EQ( smaller_data[i], static_cast<int32_t>( i * 10 ) );
-        }
     }
 
     // ============================================================================

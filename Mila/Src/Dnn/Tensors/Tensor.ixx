@@ -375,28 +375,6 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Gets the compute device associated with this tensor.
-         *
-         * Performs an on-demand lookup from the DeviceRegistry and returns a
-         * shared_ptr to the device. Returns nullptr if the device cannot be created.
-         */
-        //std::shared_ptr<Compute::Device> getDevice() const override {
-        //    if (!device_id_.has_value()) {
-        //        return nullptr;
-        //    }
-
-        //    // Ensure device registrar ran so factories are registered
-        //    Compute::DeviceRegistrar::instance();
-
-        //    try {
-        //        return Compute::DeviceRegistry::instance().getDevice( device_id_.value() );
-        //    }
-        //    catch ( ... ) {
-        //        return nullptr;
-        //    }
-        //}
-
-        /**
          * @brief Returns the tensor's dimensional shape vector
          */
         const shape_t& shape() const override {

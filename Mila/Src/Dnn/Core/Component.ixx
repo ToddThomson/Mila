@@ -34,9 +34,9 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Serialization;
 
     /**
-     * @brief Abstract base class for neural network modules.
+     * @brief Abstract base class for neural network components.
      *
-     * @tparam TDeviceType Compile-time device identifier for this module.
+     * @tparam TDeviceType Compile-time device identifier for this component.
      *
      * Module provides a minimal, device-parametrized interface for:
      * - build / lifecycle management,
@@ -242,8 +242,6 @@ namespace Mila::Dnn
         // State and Configuration
         // ====================================================================
 
-        
-
         /**
          * @brief Module name used for logging and diagnostics.
          *
@@ -275,9 +273,6 @@ namespace Mila::Dnn
         {
             return TPrecision;
         }
-
-
-        
 
         // ====================================================================
         // Operators

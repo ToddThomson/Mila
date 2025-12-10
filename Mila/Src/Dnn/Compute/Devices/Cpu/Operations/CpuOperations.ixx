@@ -8,12 +8,12 @@
  */
 export module Compute.CpuOperations;
 
-export import Compute.CpuAttention;
+//export import Compute.CpuAttention;
 //export import Compute.CpuCrossEntropyOp;
-export import Compute.CpuEncoderOp;
+//export import Compute.CpuEncoderOp;
 export import Compute.CpuGeluOp;
-export import Compute.CpuLayerNormOp;
-export import Compute.CpuLinearOp;
-export import Compute.CpuResidualOp;
-export import Compute.CpuSoftmaxOp;
-export import Compute.CpuSoftmaxCrossEntropyOp;
+//export import Compute.CpuLayerNormOp;
+//export import Compute.CpuLinearOp;
+//export import Compute.CpuResidualOp;
+//export import Compute.CpuSoftmaxOp;
+//export import Compute.CpuSoftmaxCrossEntropyOp;

@@ -96,7 +96,7 @@ namespace Mila::Dnn::Compute
          * - The operation stores the provided execution context shared_ptr.
          */
         explicit CpuEncoderOp(
-            std::shared_ptr<CpuExecutionContext> context, const EncoderConfig& config )
+            IExecutionContext* context, const EncoderConfig& config )
             : context_( context ), config_( config )
         {
             if (!context)
@@ -405,8 +405,8 @@ namespace Mila::Dnn::Compute
 
     private:
 
-        std::shared_ptr<CpuExecutionContext> context_;
         EncoderConfig config_;
+        IExecutionContext* context_{ nullptr };
 
         bool is_built_{ false };
 

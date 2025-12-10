@@ -61,7 +61,7 @@ namespace Mila::Dnn::Compute
         //using float = typename TensorfloatMap<TPrecision>::host_type;
         using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
 
-        CpuLayerNormOp( std::shared_ptr<CpuExecutionContext> context, const LayerNormConfig& config )
+        CpuLayerNormOp( IExecutionContext* context, const LayerNormConfig& config )
             : context_( context ), config_( config )
         {
             if (!context_)
@@ -479,7 +479,7 @@ namespace Mila::Dnn::Compute
 
     private:
         LayerNormConfig config_;
-        std::shared_ptr<CpuExecutionContext> context_;
+        IExecutionContext* context_{ nullptr };
 
         // Cached native parameter pointers (module owns underlying tensors)
         float* weight_{ nullptr };

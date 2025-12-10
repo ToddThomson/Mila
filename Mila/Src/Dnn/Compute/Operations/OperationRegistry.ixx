@@ -75,7 +75,6 @@ namespace Mila::Dnn::Compute
                 std::size_t h3 = std::hash<TensorDataType>{}(id.data_type_b);
                 std::size_t h4 = std::hash<TensorDataType>{}(id.compute_precision);
 
-                // Combine hashes (simple, deterministic mix)
                 std::size_t seed = h1;
                 seed ^= (h2 + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2));
                 seed ^= (h3 + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2));
@@ -97,32 +96,25 @@ namespace Mila::Dnn::Compute
         /**
          * @brief Register a unary operation creator for a specific device type, input type, and compute precision.
          *
-         * Creator must accept a std::shared_ptr<ExecutionContext<TDeviceType>> and ModuleConfig
+         * Creator must accept an IExecutionContext* and ComponentConfig
          * and return a std::shared_ptr<UnaryOperation<TDeviceType, TInputType, TComputePrecision>>.
          */
         template<DeviceType TDeviceType, TensorDataType TInputType, TensorDataType TComputePrecision = TInputType>
         void registerUnaryOperation(
             const std::string& operation_name,
             std::function<std::shared_ptr<UnaryOperation<TDeviceType, TInputType, TComputePrecision>>(
-                std::shared_ptr<ExecutionContext<TDeviceType>>,
+                IExecutionContext*,
                 const ComponentConfig& )> creator )
         {
-
             TypeID type_id{ TDeviceType, TInputType, TInputType, TComputePrecision };
 
             auto genericCreator = [creator](
-                std::shared_ptr<IExecutionContext> ictx,
+                IExecutionContext* ctx,
                 const ComponentConfig& config ) -> std::shared_ptr<void> {
 
-                    if (!ictx)
-                    {
-                        throw std::invalid_argument( "ExecutionContext cannot be null when creating an operation" );
-                    }
-
-                    auto ctx = std::static_pointer_cast<ExecutionContext<TDeviceType>>(ictx);
                     if (!ctx)
                     {
-                        throw std::runtime_error( "ExecutionContext cast failed in registry creator." );
+                        throw std::invalid_argument( "ExecutionContext cannot be null when creating an operation" );
                     }
 
                     return creator( ctx, config );
@@ -134,7 +126,7 @@ namespace Mila::Dnn::Compute
         /**
          * @brief Register a binary operation creator for a specific device type, input types, and compute precision.
          *
-         * Creator must accept a std::shared_ptr<ExecutionContext<TDeviceType>> and ModuleConfig
+         * Creator must accept an IExecutionContext* and ComponentConfig
          * and return a std::shared_ptr<BinaryOperation<TDeviceType, TInputA, TInputB, TComputePrecision>>.
          */
         template<DeviceType TDeviceType, TensorDataType TInputA, TensorDataType TInputB = TInputA,
@@ -142,25 +134,18 @@ namespace Mila::Dnn::Compute
         void registerBinaryOperation(
             const std::string& operation_name,
             std::function<std::shared_ptr<BinaryOperation<TDeviceType, TInputA, TInputB, TComputePrecision>>(
-                std::shared_ptr<ExecutionContext<TDeviceType>>,
+                IExecutionContext*,
                 const ComponentConfig& )> creator )
         {
-
             TypeID type_id{ TDeviceType, TInputA, TInputB, TComputePrecision };
 
             auto genericCreator = [creator](
-                std::shared_ptr<IExecutionContext> ictx,
+                IExecutionContext* ctx,
                 const ComponentConfig& config ) -> std::shared_ptr<void> {
 
-                    if (!ictx)
-                    {
-                        throw std::invalid_argument( "ExecutionContext cannot be null when creating an operation" );
-                    }
-
-                    auto ctx = std::static_pointer_cast<ExecutionContext<TDeviceType>>(ictx);
                     if (!ctx)
                     {
-                        throw std::runtime_error( "ExecutionContext cast failed in registry creator." );
+                        throw std::invalid_argument( "ExecutionContext cannot be null when creating an operation" );
                     }
 
                     return creator( ctx, config );
@@ -175,7 +160,7 @@ namespace Mila::Dnn::Compute
         template<DeviceType TDeviceType, TensorDataType TInputType, TensorDataType TComputePrecision = TInputType>
         std::shared_ptr<UnaryOperation<TDeviceType, TInputType, TComputePrecision>> createUnaryOperation(
             const std::string& operation_name,
-            std::shared_ptr<ExecutionContext<TDeviceType>> context,
+            IExecutionContext* context,
             const ComponentConfig& config ) const
         {
             TypeID type_id{ TDeviceType, TInputType, TInputType, TComputePrecision };
@@ -210,10 +195,8 @@ namespace Mila::Dnn::Compute
                 throw std::invalid_argument( "ExecutionContext cannot be null when creating an operation" );
             }
 
-            auto op = std::static_pointer_cast<UnaryOperation<TDeviceType, TInputType, TComputePrecision>>(
-                op_it->second( std::static_pointer_cast<IExecutionContext>(context), config ));
-
-            return op;
+            return std::static_pointer_cast<UnaryOperation<TDeviceType, TInputType, TComputePrecision>>(
+                op_it->second( context, config ));
         }
 
         /**
@@ -225,13 +208,13 @@ namespace Mila::Dnn::Compute
             TensorDataType TComputePrecision = TInputA>
         std::shared_ptr<BinaryOperation<TDeviceType, TInputA, TInputB, TComputePrecision>> createBinaryOperation(
             const std::string& operation_name,
-            std::shared_ptr<ExecutionContext<TDeviceType>> context,
+            IExecutionContext* context,
             const ComponentConfig& config ) const
         {
-
             TypeID type_id{ TDeviceType, TInputA, TInputB, TComputePrecision };
 
             auto type_it = registry_.find( type_id );
+
             if (type_it == registry_.end())
             {
                 throw std::runtime_error( std::format(
@@ -244,6 +227,7 @@ namespace Mila::Dnn::Compute
             }
 
             auto op_it = type_it->second.find( operation_name );
+
             if (op_it == type_it->second.end())
             {
                 throw std::runtime_error( std::format(
@@ -261,10 +245,8 @@ namespace Mila::Dnn::Compute
                 throw std::invalid_argument( "ExecutionContext cannot be null when creating an operation" );
             }
 
-            auto op = std::static_pointer_cast<BinaryOperation<TDeviceType, TInputA, TInputB, TComputePrecision>>(
-                op_it->second( std::static_pointer_cast<IExecutionContext>(context), config ));
-
-            return op;
+            return std::static_pointer_cast<BinaryOperation<TDeviceType, TInputA, TInputB, TComputePrecision>>(
+                op_it->second( context, config ));
         }
 
         /**
@@ -276,10 +258,15 @@ namespace Mila::Dnn::Compute
         {
             TypeID type_id{ TDeviceType, TInputA, TInputB, TComputePrecision };
             auto type_it = registry_.find( type_id );
-            if (type_it == registry_.end()) return {};
+            
+            if (type_it == registry_.end())
+                return {};
+            
             std::vector<std::string> operations;
             operations.reserve( type_it->second.size() );
-            for (const auto& [name, _] : type_it->second) operations.push_back( name );
+            
+            for (const auto& [name, _] : type_it->second)
+                operations.push_back( name );
 
             return operations;
         }
@@ -293,13 +280,17 @@ namespace Mila::Dnn::Compute
         {
             TypeID type_id{ TDeviceType, TInputA, TInputB, TComputePrecision };
             auto type_it = registry_.find( type_id );
-            if (type_it == registry_.end()) return false;
+            
+            if (type_it == registry_.end())
+                return false;
+            
             return type_it->second.find( operation_name ) != type_it->second.end();
         }
 
     private:
+        
         using GenericCreator = std::function<std::shared_ptr<void>(
-            std::shared_ptr<IExecutionContext>,
+            IExecutionContext*,
             const ComponentConfig& )>;
 
         std::unordered_map<TypeID, std::unordered_map<std::string, GenericCreator>, TypeIDHash> registry_;

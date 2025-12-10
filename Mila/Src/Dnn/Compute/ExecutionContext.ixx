@@ -46,15 +46,12 @@ import Compute.DeviceId;
 
 namespace Mila::Dnn::Compute
 {
-
     /**
      * @brief Create execution context for specified device.
      *
      * Factory function returning type-erased IExecutionContext.
      * Hides device-specific implementation details from users.
      */
-
-     // REVIEW: Should be templated on TDeviceType to avoid runtime switch?
     export std::unique_ptr<IExecutionContext> createExecutionContext( DeviceId device_id )
     {
         switch ( device_id.type )
@@ -147,5 +144,46 @@ namespace Mila::Dnn::Compute
         assert( ctx->getDeviceId().type == TDeviceType && "Device type mismatch in context cast" );
         
         return static_cast<const ExecutionContext<TDeviceType>*>(ctx);
+    }
+
+    /**
+     * @brief Validate and cast IExecutionContext to device-specific execution context.
+     *
+     * Generic helper for operation constructors. Validates that the provided context
+     * matches the expected device type and casts it to the concrete type.
+     *
+     * @tparam TDeviceType The expected device type
+     * @param context The execution context to validate
+     * @param op_name Operation name for error messages
+     * @return Validated and cast execution context
+     * @throws std::invalid_argument if context is null or device type doesn't match
+     *
+     * @example
+     * CudaGeluOp(IExecutionContext* context, const GeluConfig& config)
+     *     : cuda_context_(validateExecutionContext<DeviceType::Cuda>(context, "CudaGeluOp"))
+     *     , config_(config)
+     * {}
+     */
+    export template<DeviceType TDeviceType>
+    ExecutionContext<TDeviceType>* validateExecutionContext_(
+        IExecutionContext* context,
+        const std::string& op_name )
+    {
+        if ( !context ) {
+            throw std::invalid_argument(
+                std::format( "{} requires a non-null execution context", op_name )
+            );
+        }
+
+        if ( context->getDeviceId().type != TDeviceType ) {
+            throw std::invalid_argument(
+                std::format( "{} requires {} execution context, got {}",
+                    op_name,
+                    deviceTypeToString( TDeviceType ),
+                    deviceTypeToString( context->getDeviceId().type ) )
+            );
+        }
+
+        return static_cast<ExecutionContext<TDeviceType>*>(context);
     }
 }

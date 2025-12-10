@@ -16,6 +16,7 @@ module;
 #include <algorithm>
 #include <vector>
 #include <exception>
+#include <format>
 
 export module Dnn.Network;
 
@@ -36,48 +37,51 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Serialization;
 
+    /**
+     * @brief Lightweight composite network container.
+     *
+     * Network is a specialized CompositeComponent that represents a complete neural
+     * network model. It manages child components and provides high-level serialization
+     * and model management operations.
+     *
+     * Construction patterns:
+     * - **Standalone**: Public constructor accepting DeviceId and name creates owned ExecutionContext
+     * - **Deserialization**: Protected constructor accepting IExecutionContext* for factory reconstruction
+     *
+     * The Network owns and manages the shared ExecutionContext that is propagated to all
+     * child components for efficient resource sharing.
+     */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
-        class Network : public CompositeComponent<TDeviceType, TPrecision>
+    class Network : public CompositeComponent<TDeviceType, TPrecision>
     {
     public:
         using CompositeBase = CompositeComponent<TDeviceType, TPrecision>;
         using ComponentPtr = typename CompositeBase::ComponentPtr;
         using ExecutionContextType = ExecutionContext<TDeviceType>;
 
-    protected:
-
-        explicit Network(
-            std::shared_ptr<ExecutionContext<TDeviceType>> context, const std::string& name )
-            : context_( std::move( context ) ), name_( name )
+        /**
+         * @brief Construct network with owned ExecutionContext.
+         *
+         * Creates a new network with its own ExecutionContext that will be shared
+         * with all child components.
+         *
+         * @param device_id DeviceId identifying the device for this network and its children.
+         * @param name Network name for identification and serialization.
+         *
+         * @throws std::invalid_argument if device_id.type does not match TDeviceType.
+         * @throws std::runtime_error if ExecutionContext creation fails.
+         */
+        explicit Network( DeviceId device_id, const std::string& name )
+            : CompositeBase( device_id )
+            , name_( name )
         {
-            //validateInputs();
+            if (name_.empty())
+            {
+                throw std::invalid_argument( "Network: name cannot be empty" );
+            }
         }
 
-    public:
-
         ~Network() override = default;
-
-        // ====================================================================
-        // Lifecycle - 
-        // ====================================================================
-
-        /**
-         * @brief Build the network.
-         *
-         * Default behavior delegates to `CompositeComponent::build` which builds all
-         * child components with the provided `input_shape`, validates children were
-         * built and marks the composite built.
-         *
-         * Derived `Network` implementations may override this method to provide
-         * custom shape propagation, build ordering, or to allocate network-level
-         * buffers. When overriding, call `validateChildrenBuilt()` and set the
-         * built flag (inherited `is_built_`) once children are successfully built.
-         */
-        /*virtual void build( const shape_t& input_shape ) override
-        {
-            // REVIEW: Not required. No Op
-            CompositeBase::build( input_shape );
-        }*/
 
         // ====================================================================
         // Serialization
@@ -98,31 +102,32 @@ namespace Mila::Dnn
          */
         void save( ModelArchive& archive, SerializationMode mode ) const
         {
-            // Gather named components deterministically (sort names)
             const auto& named_map = this->getNamedComponents();
             std::vector<std::string> names;
             names.reserve( named_map.size() );
+
             for (const auto& p : named_map)
             {
                 names.push_back( p.first );
             }
+
             std::sort( names.begin(), names.end() );
 
-            // Network metadata
             json net_meta;
             net_meta["format_version"] = 1;
             net_meta["name"] = name_;
             net_meta["num_components"] = names.size();
             net_meta["mode"] = serializationModeToString( mode );
 
-            // export_time as epoch seconds
             auto now = std::chrono::system_clock::now();
-            net_meta["export_time"] = static_cast<int64_t>(std::chrono::system_clock::to_time_t( now )) ;
+            net_meta["export_time"] = static_cast<int64_t>(
+                std::chrono::system_clock::to_time_t( now )
+            );
 
             archive.writeJson( "network/meta.json", net_meta );
 
-            // Architecture manifest: array of objects with metadata per component
             json arch = json::array();
+
             for (size_t i = 0; i < names.size(); ++i)
             {
                 const auto& nm = names[i];
@@ -135,31 +140,34 @@ namespace Mila::Dnn
 
             archive.writeJson( "network/architecture.json", arch );
 
-            // Save each component using deterministic order; call child's save_() under a scoped prefix.
             for (const auto& nm : names)
             {
                 auto it = named_map.find( nm );
+
                 if (it == named_map.end())
                 {
-                    // This should not happen since we built names from named_map, but guard defensively.
-                    throw std::runtime_error( "Network::save: inconsistent named components map for '" + nm + "'" );
+                    throw std::runtime_error(
+                        "Network::save: inconsistent named components map for '" + nm + "'"
+                    );
                 }
 
                 const auto& component = it->second;
+
                 try
                 {
-                    // Scope the archive to components/<name>/ so leaf save_() implementations
-                    // write relative files like "meta.json", "config.json", "tensors/weight", etc.
                     ModelArchive::ScopedScope scope( archive, std::string( "components/" ) + nm );
                     component->save_( archive, mode );
                 }
                 catch (const std::exception& e)
                 {
-                    std::ostringstream oss;
-                    oss << "Network::save: failed saving component '" << nm << "' into archive '"
-                        << archive.getFilepath() << "': " << e.what();
-
-                    throw std::runtime_error( oss.str() );
+                    throw std::runtime_error(
+                        std::format(
+                            "Network::save: failed saving component '{}' into archive '{}': {}",
+                            nm,
+                            archive.getFilepath(),
+                            e.what()
+                        )
+                    );
                 }
             }
         }
@@ -167,25 +175,31 @@ namespace Mila::Dnn
         /**
          * @brief Load network from archive
          *
-         * Reconstructs a Network using the provided execution context. The
-         * context is stored as non-owning (weak_ptr) in the returned Network.
+         * Reconstructs a Network using the provided execution context. The network
+         * will share the provided context (typically from a parent composite or factory).
          *
-         * Note: ComponentFactory integration is TODO; this method validates meta/architecture schema.
+         * @param archive Archive containing the serialized network
+         * @param exec_context Execution context to share with the reconstructed network
+         * @return Unique pointer to reconstructed Network
+         *
+         * @throws std::runtime_error if archive is malformed or component reconstruction fails
+         *
+         * @note ComponentFactory integration is TODO; this method validates meta/architecture schema.
          */
         static std::unique_ptr<Network> load(
             ModelArchive& archive,
-            std::shared_ptr<ExecutionContextType> exec_context )
+            IExecutionContext* exec_context )
         {
             json net_meta = archive.readJson( "network/meta.json" );
             std::string name = net_meta.at( "name" );
 
             json arch = archive.readJson( "network/architecture.json" );
 
-            // Validate optional num_components hint vs manifest size
             if (net_meta.contains( "num_components" ))
             {
                 size_t hint = net_meta.at( "num_components" ).get<size_t>();
                 size_t actual = 0;
+
                 if (arch.is_array())
                 {
                     actual = arch.size();
@@ -193,18 +207,20 @@ namespace Mila::Dnn
 
                 if (hint != actual)
                 {
-                    std::ostringstream oss;
-                    oss << "Network::load: metadata num_components (" << hint
-                        << ") does not match architecture.json size (" << actual << ")";
-                    throw std::runtime_error( oss.str() );
+                    throw std::runtime_error(
+                        std::format(
+                            "Network::load: metadata num_components ({}) does not match architecture.json size ({})",
+                            hint,
+                            actual
+                        )
+                    );
                 }
             }
 
-            auto network = std::make_unique<Network>( exec_context, name );
+            auto network = std::unique_ptr<Network>(
+                new Network( exec_context, name )
+            );
 
-            // Support two manifest shapes:
-            //  - legacy: ["mod1","mod2",...]
-            //  - new: [{ "name": "...", "path": "...", "index": ... }, ...]
             for (const auto& item : arch)
             {
                 std::string component_name;
@@ -219,7 +235,9 @@ namespace Mila::Dnn
                 }
                 else
                 {
-                    throw std::runtime_error( "Network::load: unexpected architecture.json entry format" );
+                    throw std::runtime_error(
+                        "Network::load: unexpected architecture.json entry format"
+                    );
                 }
 
                 // FIXME: reconstruct child components using ComponentFactory when available.
@@ -235,50 +253,56 @@ namespace Mila::Dnn
         // Component interface
         // ====================================================================
 
+        /**
+         * @brief Get the network name.
+         *
+         * @return Network name used for identification and serialization
+         */
         std::string getName() const override
         {
             return name_;
         }
 
-        DeviceId getDeviceId() const override
-        {
-            return context_->getDeviceId();
-        }
-
-        void synchronize() override
-        {
-            context_->synchronize();
-        }
-
+        /**
+         * @brief Generate a human-readable description.
+         *
+         * @return String representation showing network name and children
+         */
         std::string toString() const override
         {
             std::ostringstream oss;
-            oss << "Network: " << name_ << CompositeBase::toString();
+            oss << "Network: " << name_ << " " << CompositeBase::toString();
 
             return oss.str();
         }
 
     protected:
 
-        std::shared_ptr<ExecutionContextType> getExecutionContext() const
+        /**
+         * @brief Construct network as child component sharing parent's ExecutionContext.
+         *
+         * Used by factory or deserialization to create a network that shares
+         * an existing execution context. Typically called via the static load() method.
+         *
+         * @param exec_context Non-owning pointer to shared execution context (must be non-null).
+         * @param name Network name for identification.
+         *
+         * @throws std::invalid_argument if exec_context is null or name is empty.
+         */
+        explicit Network( IExecutionContext* exec_context, const std::string& name )
+            : CompositeBase( exec_context )
+            , name_( name )
         {
-            return context_;
+            if (name_.empty())
+            {
+                throw std::invalid_argument( "Network: name cannot be empty" );
+            }
         }
 
     private:
-        std::shared_ptr<ExecutionContext<TDeviceType>> context_;
+
         std::string name_;
 
-        static std::shared_ptr<ExecutionContext<TDeviceType>> makeExecutionContext( int device_id )
-        {
-            if constexpr (TDeviceType == DeviceType::Cuda)
-            {
-                return std::make_shared<ExecutionContext<TDeviceType>>( device_id );
-            }
-            else
-            {
-                return std::make_shared<ExecutionContext<TDeviceType>>();
-            }
-        }
+        friend class ComponentFactory;
     };
 }

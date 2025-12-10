@@ -73,7 +73,7 @@ namespace Mila::Dnn
          * @param context Shared execution context for device resources.
          * @param config Multi-head attention configuration.
          */
-        explicit Attention( std::shared_ptr<ExecutionContextType> context, const AttentionConfig& config )
+        explicit Attention( IExecutionContext* context, const AttentionConfig& config )
             : context_( context ), config_( config )
         {
             if (!context_)
@@ -277,7 +277,7 @@ namespace Mila::Dnn
         shape_t input_shape_;
 
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
-        std::shared_ptr<ExecutionContextType> context_;
+        IExecutionContext* context_;
 
         // Validate concatenated QKV model-layout shape [B, T, 3 * embedding_dim]
         void validateConcatenatedQKVShape( const shape_t& shape ) const

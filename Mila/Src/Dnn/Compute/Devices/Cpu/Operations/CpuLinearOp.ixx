@@ -76,7 +76,7 @@ namespace Mila::Dnn::Compute
         //using float = typename TensorfloatMap<TPrecision>::host_type;
         using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
 
-        CpuLinearOp( std::shared_ptr<CpuExecutionContext> context, const LinearConfig& config )
+        CpuLinearOp( IExecutionContext* context, const LinearConfig& config )
             : context_( context ), config_( config )
         {
             if (!context_)

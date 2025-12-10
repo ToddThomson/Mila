@@ -105,8 +105,8 @@ add_executable( MilaTests
     # --------------------------------------------------------------
     # Dnn::Components Tests
     # --------------------------------------------------------------
-    #"Dnn/Components/Component.cpp"
-    #"Dnn/Components/ComponentConfig.cpp"
+    "Dnn/Components/Component.cpp"
+    "Dnn/Components/ComponentConfig.cpp"
 
     #"Dnn/Components/Layers/Attention.Cpu.cpp"
     
@@ -118,9 +118,9 @@ add_executable( MilaTests
     #"Dnn/Components/Connections/Residual.Cuda.cpp"
     #"Dnn/Components/Connections/Residual.Config.cpp"
 
-    #"Dnn/Components/Activations/Gelu.Cpu.cpp"
-    #"Dnn/Components/Activations/Gelu.Cuda.cpp"
-    #"Dnn/Components/Activations/GeluConfig.cpp"
+    "Dnn/Components/Activations/Gelu.Cpu.cpp"
+    "Dnn/Components/Activations/Gelu.Cuda.cpp"
+    "Dnn/Components/Activations/GeluConfig.cpp"
 
     #"Dnn/Components/Normalization/LayerNorm.Cpu.cpp"
     #"Dnn/Components/Normalization/LayerNorm.Cuda.cpp"
@@ -174,7 +174,7 @@ add_executable( MilaTests
     # --------------------------------------------------------------
     #"Dnn/Tensors/TensorBuffer.Tracking.cpp"
     
-    #"Dnn/Compute/Operations/OperationBase.cpp"
+    "Dnn/Compute/Operations/OperationBase.cpp"
     #"Dnn/Compute/Operations/UnaryOperation.cpp"
     #"Dnn/Compute/Operations/BinaryOperation.cpp"
 

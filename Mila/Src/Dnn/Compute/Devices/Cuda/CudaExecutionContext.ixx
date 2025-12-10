@@ -23,7 +23,7 @@ import Compute.DeviceId;
 import Compute.DeviceType;
 //import Compute.CudaDevice;
 import Compute.CudaDeviceResources;
-//import Compute.DeviceRegistry;
+import Compute.DeviceRegistry;
 import Cuda.Helpers;
 
 namespace Mila::Dnn::Compute
@@ -196,6 +196,14 @@ namespace Mila::Dnn::Compute
                 throw std::invalid_argument(
                     std::format( "CudaExecutionContext requires Cuda device type, got '{}'",
                                 device_id.toString() )
+                );
+            }
+
+            if ( !DeviceRegistry::instance().hasDevice( device_id ) )
+            {
+                throw std::invalid_argument(
+                    std::format( "CudaExecutionContext device '{}' is not registered",
+                        device_id.toString() )
                 );
             }
 

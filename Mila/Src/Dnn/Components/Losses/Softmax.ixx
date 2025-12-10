@@ -72,7 +72,7 @@ namespace Mila::Dnn
          * @param exec_context Shared execution context for device resources.
          * @param config Softmax configuration.
          */
-        explicit Softmax( std::shared_ptr<ExecutionContextType> exec_context, const SoftmaxConfig& config )
+        explicit Softmax( IExecutionContext* exec_context, const SoftmaxConfig& config )
             : exec_context_( exec_context ), config_( config )
         {
             if (!exec_context_)
@@ -257,8 +257,8 @@ namespace Mila::Dnn
     private:
         SoftmaxConfig config_;
 
-        std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
-        std::shared_ptr<ExecutionContextType> exec_context_;
+        std::unique_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
+        IExecutionContext* exec_context_;
 
         /**
          * @brief Validate input shape for softmax operation.

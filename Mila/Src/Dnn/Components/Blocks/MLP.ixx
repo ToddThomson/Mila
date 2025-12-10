@@ -79,7 +79,7 @@ namespace Mila::Dnn
          * @param exec_context Shared execution context for device resources.
          * @param config MLP configuration.
          */
-        explicit MLP( std::shared_ptr<ExecutionContextType> context, const MLPConfig& config )
+        explicit MLP( IExecutionContext* context, const MLPConfig& config )
             : exec_context_( context ), config_( config )
         {
             if (!exec_context_)
@@ -461,7 +461,8 @@ namespace Mila::Dnn
 
     private:
         MLPConfig config_;
-        std::shared_ptr<ExecutionContextType> exec_context_;
+        
+        IExecutionContext* exec_context_;
 
         shape_t cached_input_shape_;
         shape_t cached_hidden_shape_;

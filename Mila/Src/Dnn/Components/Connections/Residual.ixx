@@ -81,7 +81,7 @@ namespace Mila::Dnn
          *
          * Throws std::invalid_argument if exec_context is null.
          */
-        explicit Residual( std::shared_ptr<ExecutionContextType> exec_context, const ResidualConfig& config )
+        explicit Residual( IExecutionContext* exec_context, const ResidualConfig& config )
             : exec_context_( exec_context ), config_( config )
         {
             if (!exec_context_)
@@ -226,8 +226,8 @@ namespace Mila::Dnn
         ResidualConfig config_;
         shape_t input_shape_;
 
-        std::shared_ptr<BinaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
-        std::shared_ptr<ExecutionContextType> exec_context_;
+        std::unique_ptr<BinaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
+        IExecutionContext* exec_context_;
 
         void createOperation()
         {

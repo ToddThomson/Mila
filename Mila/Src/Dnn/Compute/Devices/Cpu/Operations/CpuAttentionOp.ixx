@@ -63,7 +63,7 @@ namespace Mila::Dnn::Compute
         using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
         using TensorType = Tensor<TensorDataType::FP32, MR>;
 
-        explicit CpuAttentionOp( std::shared_ptr<CpuExecutionContext> context, const AttentionConfig& config )
+        explicit CpuAttentionOp( IExecutionContext* context, const AttentionConfig& config )
             : context_( context ), config_( config )
         {
             if (!context_)
@@ -407,7 +407,7 @@ namespace Mila::Dnn::Compute
         }
 
     private:
-        std::shared_ptr<CpuExecutionContext> context_;
+        IExecutionContext* context_;
         AttentionConfig config_;
         bool is_built_{ false };
 
@@ -512,10 +512,10 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>(
                 opName,
-                []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
+                []( IExecutionContext* context, const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
                 {
                     const auto& attention_config = dynamic_cast<const AttentionConfig&>(config);
+                    
                     return std::make_shared<CpuAttentionOp>( context, attention_config );
                 }
             );

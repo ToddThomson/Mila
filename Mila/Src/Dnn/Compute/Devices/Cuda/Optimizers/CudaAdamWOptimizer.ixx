@@ -78,7 +78,7 @@ namespace Mila::Dnn::Compute
          *
          * @throws std::invalid_argument if exec_context is null
          */
-        explicit CudaAdamWOptimizer( std::shared_ptr<ExecutionContextType> context, const OptimizerConfig& config )
+        explicit CudaAdamWOptimizer( IExecutionContext* context, const OptimizerConfig& config )
             : exec_context_( context ), config_( config ), grad_scale_{ 1.0f }, step_count_{ 0 }
         {
             if (!exec_context_)
@@ -385,8 +385,9 @@ namespace Mila::Dnn::Compute
         }
 
     private:
-        std::shared_ptr<ExecutionContextType> exec_context_;
-		OptimizerConfig config_;
+
+        OptimizerConfig config_;
+        IExecutionContext* exec_context_;
 
         float grad_scale_{ 1.0f };
         

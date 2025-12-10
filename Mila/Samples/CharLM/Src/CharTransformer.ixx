@@ -82,7 +82,7 @@ namespace Mila::CharLM
         using EncoderType = Encoder<TDeviceType, dtype_t::INT32, TPrecision>;
 
         explicit CharTransformer(
-            std::shared_ptr<ExecutionContextType> exec_context,
+            IExecutionContext* exec_context,
             const CharTransformerConfig& config )
             : exec_context_( exec_context ), config_( config )
         {
@@ -459,7 +459,8 @@ namespace Mila::CharLM
 
     private:
         CharTransformerConfig config_;
-        std::shared_ptr<ExecutionContextType> exec_context_;
+        IExecutionContext* exec_context_;
+        std::unique_ptr<EncoderType> encoder_{ nullptr };
 
         shape_t cached_input_shape_;
         shape_t cached_embedding_shape_;
@@ -467,7 +468,6 @@ namespace Mila::CharLM
         int64_t batch_size_{ 0 };
         int64_t seq_length_{ 0 };
 
-        std::shared_ptr<EncoderType> encoder_{ nullptr };
         std::vector<std::shared_ptr<TransformerBlockType>> transformer_blocks_;
         std::shared_ptr<LayerNormType> final_layernorm_{ nullptr };
         std::shared_ptr<LinearType> lm_head_{ nullptr };

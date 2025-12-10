@@ -57,8 +57,8 @@ namespace Dnn::Components::Tests
         using ComponentBase = Component<TDeviceType, TPrecision>;
         using ExecutionContextType = ExecutionContext<TDeviceType>;
 
-        explicit MockComponent( const MockComponentConfig& config, std::shared_ptr<ExecutionContextType> exec_context )
-            : config_( config ), exec_context_( exec_context )
+        explicit MockComponent( IExecutionContext* exec_context, const MockComponentConfig& config )
+            : exec_context_( exec_context ), config_( config )
         {
             if ( !exec_context_ )
             {
@@ -69,7 +69,7 @@ namespace Dnn::Components::Tests
         }
 
         // Expose execution context for tests
-        std::shared_ptr<ExecutionContextType> getExecutionContext() const
+        IExecutionContext* getExecutionContext() const
         {
             return exec_context_;
         }
@@ -211,7 +211,7 @@ namespace Dnn::Components::Tests
         }
 
         MockComponentConfig config_;
-        std::shared_ptr<ExecutionContextType> exec_context_;
+        IExecutionContext* exec_context_;
     };
 
     /**
@@ -226,7 +226,10 @@ namespace Dnn::Components::Tests
         std::shared_ptr<MockComponent<TDeviceType, TPrecision>> component;
         bool is_training;
 
-        // Create by device id (now create ExecutionContext and forward to component ctor)
+        // Keep ownership of the created execution context so it outlives the component.
+        std::unique_ptr<IExecutionContext> exec_context;
+
+        // Create by device id (now create ExecutionContext via factory and forward raw ptr to component ctor)
         static ComponentTestData Create(
             int device_id,
             bool is_training = false )
@@ -237,18 +240,21 @@ namespace Dnn::Components::Tests
             MockComponentConfig config;
             config.withName( "mock_component" );
 
-            // Build an execution context appropriate for the device type
-            std::shared_ptr<typename MockComponent<TDeviceType, TPrecision>::ExecutionContextType> exec_ctx;
+            // Build an execution context appropriate for the device type via factory
+            std::unique_ptr<IExecutionContext> ctx;
+
             if constexpr ( TDeviceType == DeviceType::Cuda )
             {
-                exec_ctx = std::make_shared<typename MockComponent<TDeviceType, TPrecision>::ExecutionContextType>( Device::Cuda(device_id) );
+                ctx = createExecutionContext( Device::Cuda( device_id ) );
             }
             else
             {
-                exec_ctx = std::make_shared<typename MockComponent<TDeviceType, TPrecision>::ExecutionContextType>();
+                ctx = createExecutionContext( Device::Cpu() );
             }
 
-            data.component = std::make_shared<MockComponent<TDeviceType, TPrecision>>( config, exec_ctx );
+            data.exec_context = std::move( ctx );
+
+            data.component = std::make_shared<MockComponent<TDeviceType, TPrecision>>( data.exec_context.get(), config );
 
             if ( data.is_training )
             {
@@ -259,7 +265,7 @@ namespace Dnn::Components::Tests
         }
 
         static ComponentTestData CreateWithContext(
-            std::shared_ptr<typename MockComponent<TDeviceType, TPrecision>::ExecutionContextType> exec_context,
+            std::unique_ptr<IExecutionContext> exec_context,
             bool is_training = false )
         {
             ComponentTestData data;
@@ -268,7 +274,9 @@ namespace Dnn::Components::Tests
             MockComponentConfig config;
             config.withName( "mock_component_context" );
 
-            data.component = std::make_shared<MockComponent<TDeviceType, TPrecision>>( config, exec_context );
+            data.exec_context = std::move( exec_context );
+
+            data.component = std::make_shared<MockComponent<TDeviceType, TPrecision>>( data.exec_context.get(), config );
 
             if ( data.is_training )
             {
@@ -337,9 +345,9 @@ namespace Dnn::Components::Tests
         {
             if ( !context_cpu_data_.component )
             {
-                // Create a CPU execution context explicitly (CPU execution context has default ctor)
-                auto exec_context = std::make_shared<typename MockComponent<DeviceType::Cpu, TensorDataType::FP32>::ExecutionContextType>();
-                context_cpu_data_ = ComponentTestData<DeviceType::Cpu>::CreateWithContext( exec_context );
+                // Create a CPU execution context explicitly via factory
+                auto exec_context = createExecutionContext( Device::Cpu() );
+                context_cpu_data_ = ComponentTestData<DeviceType::Cpu>::CreateWithContext( std::move( exec_context ) );
             }
             return context_cpu_data_;
         }
@@ -348,9 +356,9 @@ namespace Dnn::Components::Tests
         {
             if ( !context_cuda_data_.component )
             {
-                // Create a CUDA execution context for device 0
-                auto exec_context = std::make_shared<typename MockComponent<DeviceType::Cuda, TensorDataType::FP32>::ExecutionContextType>( Device::Cuda(0) );
-                context_cuda_data_ = ComponentTestData<DeviceType::Cuda>::CreateWithContext( exec_context );
+                // Create a CUDA execution context for device 0 via factory
+                auto exec_context = createExecutionContext( Device::Cuda(0) );
+                context_cuda_data_ = ComponentTestData<DeviceType::Cuda>::CreateWithContext( std::move( exec_context ) );
             }
             return context_cuda_data_;
         }
@@ -497,18 +505,18 @@ namespace Dnn::Components::Tests
 
         if constexpr ( TDeviceType == DeviceType::Cuda )
         {
-            // Negative device id should be invalid for CUDA: creating the ExecutionContext must fail
+            // Negative device id should be invalid for CUDA: factory must throw
             EXPECT_THROW(
-                (std::make_shared<typename MockComponent<TDeviceType, TPrecision>::ExecutionContextType>( Device::Cuda(-1) )),
-                std::invalid_argument
+                ( createExecutionContext( Device::Cuda(-1) ) ), std::invalid_argument
             );
         }
         else
         {
             // CPU may accept the id (ignored), ensure construction succeeds
-            auto exec_ctx = std::make_shared<typename MockComponent<TDeviceType, TPrecision>::ExecutionContextType>();
+            auto exec_ctx = createExecutionContext( Device::Cpu() );
+            
             EXPECT_NO_THROW(
-                (std::make_shared<MockComponent<TDeviceType, TPrecision>>( config, exec_ctx ))
+                (std::make_shared<MockComponent<TDeviceType, TPrecision>>(  exec_ctx.get(), config ))
             );
         }
     }
@@ -519,10 +527,10 @@ namespace Dnn::Components::Tests
         MockComponentConfig config;
         config.withName( "test_component" );
 
-        std::shared_ptr<typename MockComponent<TDeviceType, TPrecision>::ExecutionContextType> null_context;
+        std::unique_ptr<IExecutionContext> null_context;
 
         EXPECT_THROW(
-            (std::make_shared<MockComponent<TDeviceType, TPrecision>>( config, null_context )),
+            (std::make_shared<MockComponent<TDeviceType, TPrecision>>( null_context.get(), config )),
             std::invalid_argument
         );
     }

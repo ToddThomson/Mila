@@ -80,7 +80,7 @@ namespace Mila::Dnn::Compute
          * @param config Configuration for GELU operation.
          * @throws std::runtime_error If the context is not for a CPU device.
          */
-        CpuGeluOp(  std::shared_ptr<CpuExecutionContext> context, const GeluConfig& config )
+        CpuGeluOp(  IExecutionContext* context, const GeluConfig& config )
             : context_( context ), config_( config )
         {
             if (!context_)
@@ -225,7 +225,7 @@ namespace Mila::Dnn::Compute
     private:
         
         GeluConfig config_; ///< Configuration for the GELU operation (approximation method, etc.)
-        std::shared_ptr<CpuExecutionContext> context_;
+        IExecutionContext* context_{ nullptr };
     };
 
     /**
@@ -250,12 +250,12 @@ namespace Mila::Dnn::Compute
         {
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>(
                 "GeluOp",
-                []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>>
+                []( IExecutionContext* context,
+                    const ComponentConfig& config ) -> std::unique_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>>
                 {
                     const auto& geluConfig = static_cast<const GeluConfig&>(config);
                     
-                    return std::make_shared<CpuGeluOp>( context, geluConfig );
+                    return std::make_unique<CpuGeluOp>( context, geluConfig );
                 }
             );
         }

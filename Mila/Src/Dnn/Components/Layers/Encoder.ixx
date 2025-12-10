@@ -76,7 +76,7 @@ namespace Mila::Dnn
          * @param exec_context Shared execution context for device resources.
          * @param config Encoder configuration.
          */
-        explicit Encoder( std::shared_ptr<ExecutionContextType> exec_context, const EncoderConfig& config )
+        explicit Encoder( IExecutionContext* exec_context, const EncoderConfig& config )
             : exec_context_( exec_context ), config_( config )
         {
             if (!exec_context_)
@@ -337,8 +337,8 @@ namespace Mila::Dnn
     protected:
 
         // ====================================================================
-// Lifecycle
-// ====================================================================
+        // Lifecycle
+        // ====================================================================
 
 
         /**
@@ -414,8 +414,8 @@ namespace Mila::Dnn
         std::shared_ptr<EmbeddingsTensorType> wte_grad_{ nullptr };
         std::shared_ptr<EmbeddingsTensorType> wpe_grad_{ nullptr };
 
-        std::shared_ptr<UnaryOperation<TDeviceType, TIndex, TPrecision>> operation_{ nullptr };
-        std::shared_ptr<ExecutionContextType> exec_context_;
+        std::unique_ptr<UnaryOperation<TDeviceType, TIndex, TPrecision>> operation_{ nullptr };
+        IExecutionContext* exec_context_;
 
         /**
          * @brief Validate input shape for encoder operation.

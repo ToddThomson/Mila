@@ -65,7 +65,7 @@ namespace Mila::Mnist
          * @param batch_size Batch size for training/inference.
          */
         explicit MnistClassifier(
-            std::shared_ptr<ExecutionContextType> exec_context,
+            IExecutionContext* exec_context,
             const std::string& name,
             int64_t batch_size )
             : NetworkBase( std::move( exec_context ), name ), batch_size_( batch_size )

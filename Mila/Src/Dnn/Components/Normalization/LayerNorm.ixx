@@ -54,7 +54,7 @@ namespace Mila::Dnn
         using ExecutionContextType = ExecutionContext<TDeviceType>;
         using TensorType = Tensor<TPrecision, MR>;
 
-        explicit LayerNorm( std::shared_ptr<ExecutionContextType> exec_context, const LayerNormConfig& config )
+        explicit LayerNorm( IExecutionContext* exec_context, const LayerNormConfig& config )
             : exec_context_( exec_context ), config_( config )
         {
             if (!exec_context_)
@@ -255,18 +255,16 @@ namespace Mila::Dnn
 
     private:
         LayerNormConfig config_;
-
+        IExecutionContext* exec_context_{ nullptr };
+        std::unique_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
+        
         std::vector<int64_t> outer_shape_;
 
         std::shared_ptr<TensorType> weight_{ nullptr };
         std::shared_ptr<TensorType> bias_{ nullptr };
 
-        // Gradients for parameters (allocated when in training mode)
         std::shared_ptr<TensorType> weight_grad_{ nullptr };
         std::shared_ptr<TensorType> bias_grad_{ nullptr };
-
-        std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
-        std::shared_ptr<ExecutionContextType> exec_context_;
 
         void validateInputShape( const ITensor& input ) const
         {

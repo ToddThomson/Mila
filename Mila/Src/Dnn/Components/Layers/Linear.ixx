@@ -465,8 +465,8 @@ namespace Mila::Dnn
         std::shared_ptr<TensorType> weight_grad_{nullptr};
         std::shared_ptr<TensorType> bias_grad_{nullptr};
 
-        std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{nullptr};
-        std::shared_ptr<IExecutionContext> exec_context_;
+        std::unique_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{nullptr};
+        IExecutionContext* exec_context_;
 
         /**
          * @brief Validate that execution context device type matches template parameter.

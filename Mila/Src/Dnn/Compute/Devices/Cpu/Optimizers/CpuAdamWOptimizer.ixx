@@ -84,7 +84,7 @@ namespace Mila::Dnn::Compute
          * @throws std::invalid_argument if beta1, beta2 not in (0, 1)
          * @throws std::invalid_argument if epsilon <= 0
          */
-        explicit CpuAdamWOptimizer( std::shared_ptr<ExecutionContextType> context, const AdamWConfig& config )
+        explicit CpuAdamWOptimizer( IExecutionContext* context, const AdamWConfig& config )
             : context_( context ), config_( config )
         {
             if (!context_)
@@ -94,7 +94,7 @@ namespace Mila::Dnn::Compute
 
 			config_.validate();
 
-			// The learning rate can be set and accessed
+            // The learning rate can be modified during training (e.g., via schedulers)
 			learning_rate_ = config_.getLearningRate();
         }
 
@@ -320,8 +320,8 @@ namespace Mila::Dnn::Compute
 
     private:
         
-        std::shared_ptr<ExecutionContextType> context_;
         AdamWConfig config_;
+        IExecutionContext* context_;
 
         float learning_rate_;
         

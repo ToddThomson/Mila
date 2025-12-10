@@ -77,7 +77,7 @@ namespace Mila::Dnn
          * Execution context must be non-null. Components are created here;
          * concrete shape-dependent setup happens in onBuilding().
          */
-        explicit Transformer( std::shared_ptr<ExecutionContextType> exec_context,
+        explicit Transformer( IExecutionContext* exec_context,
             const TransformerConfig& config )
             : exec_context_( exec_context ), config_( config )
         {
@@ -568,7 +568,7 @@ namespace Mila::Dnn
 
     private:
         TransformerConfig config_;
-        std::shared_ptr<ExecutionContextType> exec_context_;
+        IExecutionContext* exec_context_{ nullptr };
 
         shape_t cached_input_shape_;
 

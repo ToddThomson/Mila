@@ -51,21 +51,21 @@ namespace Mila::Dnn::Compute
 			// TJT: This is rather an ugly way of registering operations but it is all I can think of for now.
 			// It's good enough for now. I will revisit
 
-			CpuEncoderOpRegistrar::registerOperations();
+			//CpuEncoderOpRegistrar::registerOperations();
 			CpuGeluOpRegistrar::registerOperations();
-			CpuLayerNormOpRegistrar::registerOperations();
-			CpuLinearOpRegistrar::registerOperations();
-			CpuAttentionOpRegistrar::registerOperations();
-			CpuResidualOpRegistrar::registerOperations();
-			CpuSoftmaxOpRegistrar::registerOperations();
+			//CpuLayerNormOpRegistrar::registerOperations();
+			//CpuLinearOpRegistrar::registerOperations();
+			//CpuAttentionOpRegistrar::registerOperations();
+			//CpuResidualOpRegistrar::registerOperations();
+			//CpuSoftmaxOpRegistrar::registerOperations();
 
-			CudaEncoderOpRegistrar::registerOperations();
+			//CudaEncoderOpRegistrar::registerOperations();
 			CudaGeluOpRegistrar::registerOperations();
-			CudaLayerNormOpRegistrar::registerOperations();
-			CudaLinearOpRegistrar::registerOperations();
-			CudaAttentionOpRegistrar::registerOperations();
-			CudaResidualOpRegistrar::registerOperations();
-			CudaSoftmaxOpRegistrar::registerOperations();
+			//CudaLayerNormOpRegistrar::registerOperations();
+			//CudaLinearOpRegistrar::registerOperations();
+			//CudaAttentionOpRegistrar::registerOperations();
+			//CudaResidualOpRegistrar::registerOperations();
+			//CudaSoftmaxOpRegistrar::registerOperations();
 			//CudaMatMulBiasGeluOpRegistrar::registerOperations();
 		}
 

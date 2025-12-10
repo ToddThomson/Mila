@@ -27,7 +27,6 @@ import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
-//import Compute.CudaExecutionContext;
 import Compute.CudaDeviceResources;
 import Compute.OperationType;
 import Compute.MemoryResource;
@@ -134,14 +133,9 @@ namespace Mila::Dnn::Compute
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::native_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 
-        CudaGeluOp( std::shared_ptr<CudaExecutionContext> context, const GeluConfig& config )
-            : context_( context ), config_( config ), impl_( config ) 
+        CudaGeluOp( IExecutionContext* context, const GeluConfig& config )
+            : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaGeluOp")), config_(config), impl_(config)
         {
-            if (!context_)
-            {
-                throw std::invalid_argument( "CudaExecutionContext cannot be null." );
-            }
-
             config_.validate();
         }
 
@@ -225,9 +219,11 @@ namespace Mila::Dnn::Compute
             
             int N = static_cast<int>(input.size());
 
-            cudaStream_t stream = context_->getStream();
+            // REVIEW: Cast and store during construction?
+            auto* cuda_context = static_cast<CudaExecutionContext*>(context_);
+            cudaStream_t stream = cuda_context->getStream();
 
-            // Call CUDA kernel with stream (not implemented yet for all native types)
+            // NOTE: not implemented yet for all native types)
             impl_.backward( dX, X, dY, N, stream );
         }
 
@@ -249,8 +245,9 @@ namespace Mila::Dnn::Compute
         }
 
     private:
+
         GeluConfig config_; ///< Configuration for the GELU operation.
-		std::shared_ptr<CudaExecutionContext> context_; ///< Optional execution context for CUDA resources.
+		CudaExecutionContext* context_; ///< Optional execution context for CUDA resources.
         Detail::cuda_gelu_impl<NativeType> impl_; ///< Implementation details for the GELU operation.
     };
 
@@ -276,24 +273,24 @@ namespace Mila::Dnn::Compute
             // Register FP32 version
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32>(
                 opName,
-                []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
+                []( IExecutionContext* context, const ComponentConfig& config ) 
+                    -> std::unique_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
                 {
                     const auto& geluConfig = static_cast<const GeluConfig&>(config);
 
-                    return std::make_shared<CudaGeluOp<TensorDataType::FP32>>( context, geluConfig );
+                    return std::make_unique<CudaGeluOp<TensorDataType::FP32>>( context, geluConfig );
                 }
             );
 
             // Register FP16 version
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP16, TensorDataType::FP16>(
                 opName,
-                []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
+                []( IExecutionContext* context, const ComponentConfig& config )
+                    -> std::unique_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
                 {
                     const auto& geluConfig = static_cast<const GeluConfig&>(config);
 
-                    return std::make_shared<CudaGeluOp<TensorDataType::FP16>>( context, geluConfig );
+                    return std::make_unique<CudaGeluOp<TensorDataType::FP16>>( context, geluConfig );
                 }
             );
         }

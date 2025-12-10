@@ -15,8 +15,7 @@ module;
 #include <stdexcept>
 #include <sstream>
 #include <algorithm>
-#include <vector>
-#include <iterator>
+#include <format>
 
 export module Dnn.CompositeComponent;
 
@@ -26,6 +25,7 @@ import Dnn.TensorDataType;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
+import Compute.ExecutionContext;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 
@@ -48,6 +48,13 @@ namespace Mila::Dnn
      * - Propagate training mode to all children
      * - Recursive serialization of child hierarchy
      * - Build state validation
+     * - Shared ExecutionContext management across child hierarchy
+     *
+     * ExecutionContext ownership:
+     * - CompositeComponent owns a shared ExecutionContext that is propagated to all children
+     * - Children constructed via the composite share this context (efficient resource pooling)
+     * - Public constructor accepts DeviceId and creates owned context
+     * - Protected constructor accepts IExecutionContext* for factory/deserialization patterns
      *
      * Design note:
      * - The build lifecycle is centralized in this base class (template method).
@@ -61,21 +68,30 @@ namespace Mila::Dnn
     public:
         using ComponentBase = Component<TDeviceType, TPrecision>;
         using ComponentPtr = std::shared_ptr<Component<TDeviceType, TPrecision>>;
+        using ExecutionContextType = ExecutionContext<TDeviceType>;
 
         /**
-         * @brief Construct an empty composite module.
+         * @brief Construct composite module with owned ExecutionContext.
+         *
+         * Creates and owns an ExecutionContext for the specified device.
+         * This context will be shared with all child components added to the composite.
+         *
+         * @param device_id DeviceId identifying the device for this composite and its children.
+         *
+         * @throws std::invalid_argument if device_id.type does not match TDeviceType.
+         * @throws std::runtime_error if ExecutionContext creation fails.
          */
-        explicit CompositeComponent() noexcept
+        explicit CompositeComponent( DeviceId device_id )
+            : owned_context_( createOwnedContext( device_id ) )
+            , exec_context_( owned_context_.get() )
         {
         }
 
         virtual ~CompositeComponent() = default;
 
-        // Delete copy operations (manages shared_ptr children)
         CompositeComponent( const CompositeComponent& ) = delete;
         CompositeComponent& operator=( const CompositeComponent& ) = delete;
 
-        // Enable move operations
         CompositeComponent( CompositeComponent&& ) noexcept = default;
         CompositeComponent& operator=( CompositeComponent&& ) noexcept = default;
 
@@ -91,7 +107,7 @@ namespace Mila::Dnn
          * must have identifiers. The composite will use the child's name as the
          * registration key and will reject unnamed children.
          *
-         * @param module Child module to add (cannot be null, must have non-empty name)
+         * @param component Child module to add (cannot be null, must have non-empty name)
          * @return Reference to this composite for method chaining
          *
          * @throws std::runtime_error if called after build()
@@ -99,7 +115,7 @@ namespace Mila::Dnn
          */
         CompositeComponent& addComponent( ComponentPtr component )
         {
-            if ( this->isBuilt() )
+            if (this->isBuilt())
             {
                 throw std::runtime_error(
                     "Cannot add Components after build() has been called"
@@ -111,17 +127,20 @@ namespace Mila::Dnn
                 throw std::invalid_argument( "Cannot add null Component" );
             }
 
-            // Require the child to already provide a valid name.
             const std::string child_name = component->getName();
+
             if (child_name.empty())
             {
                 throw std::invalid_argument(
-                    "Child Component must provide a non-empty name via getName()" );
+                    "Child Component must provide a non-empty name via getName()"
+                );
             }
 
             if (child_component_map_.find( child_name ) != child_component_map_.end())
             {
-                throw std::invalid_argument( "Component name '" + child_name + "' already exists" );
+                throw std::invalid_argument(
+                    "Component name '" + child_name + "' already exists"
+                );
             }
 
             child_component_map_[child_name] = component;
@@ -141,6 +160,7 @@ namespace Mila::Dnn
         ComponentPtr getComponent( const std::string& name ) const
         {
             auto it = child_component_map_.find( name );
+
             if (it == child_component_map_.end())
             {
                 throw std::out_of_range( "No module named '" + name + "' found" );
@@ -190,7 +210,7 @@ namespace Mila::Dnn
          */
         bool removeComponent( const std::string& name )
         {
-            if ( this->isBuilt() )
+            if (this->isBuilt())
             {
                 throw std::runtime_error(
                     "Cannot remove modules after build() has been called"
@@ -198,6 +218,7 @@ namespace Mila::Dnn
             }
 
             auto it = child_component_map_.find( name );
+
             if (it == child_component_map_.end())
             {
                 return false;
@@ -206,7 +227,12 @@ namespace Mila::Dnn
             auto module_ptr = it->second;
             child_component_map_.erase( it );
 
-            auto vector_it = std::find( child_components_.begin(), child_components_.end(), module_ptr );
+            auto vector_it = std::find(
+                child_components_.begin(),
+                child_components_.end(),
+                module_ptr
+            );
+
             if (vector_it != child_components_.end())
             {
                 child_components_.erase( vector_it );
@@ -254,17 +280,6 @@ namespace Mila::Dnn
         }
 
         // ====================================================================
-        // Build Lifecycle
-        // ====================================================================
-
-        //    // All children must also be built
-        //    return std::all_of( child_components_.begin(), child_components_.end(),
-        //        []( const auto& component ) {
-        //            return component->isBuilt();
-        //        } );
-        //}
-
-        // ====================================================================
         // Parameters and Gradients
         // ====================================================================
 
@@ -285,6 +300,7 @@ namespace Mila::Dnn
             }
 
             size_t count = 0;
+
             for (const auto& module : child_components_)
             {
                 count += module->parameterCount();
@@ -307,8 +323,8 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Cannot get parameters before build()" );
             }
 
-            // Pre-calculate total size to avoid reallocations
             size_t total_count = 0;
+
             for (const auto& module : child_components_)
             {
                 total_count += module->parameterCount();
@@ -320,9 +336,11 @@ namespace Mila::Dnn
             for (const auto& component : child_components_)
             {
                 auto child_params = component->getParameters();
-                params.insert( params.end(),
+                params.insert(
+                    params.end(),
                     std::make_move_iterator( child_params.begin() ),
-                    std::make_move_iterator( child_params.end() ) );
+                    std::make_move_iterator( child_params.end() )
+                );
             }
 
             return params;
@@ -347,8 +365,8 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Cannot get parameter gradients when not in training mode" );
             }
 
-            // Pre-calculate total size to avoid reallocations
             size_t total_count = 0;
+
             for (const auto& module : child_components_)
             {
                 total_count += module->parameterCount();
@@ -360,9 +378,11 @@ namespace Mila::Dnn
             for (const auto& module : child_components_)
             {
                 auto child_grads = module->getGradients();
-                grads.insert( grads.end(),
+                grads.insert(
+                    grads.end(),
                     std::make_move_iterator( child_grads.begin() ),
-                    std::make_move_iterator( child_grads.end() ) );
+                    std::make_move_iterator( child_grads.end() )
+                );
             }
 
             return grads;
@@ -392,15 +412,13 @@ namespace Mila::Dnn
         /**
          * @brief Get the compute device for this composite.
          *
-         * Returns the device of the first child. Assumes all children share
-         * the same device (should be validated during build).
+         * Returns the device from the owned or shared execution context.
          *
-         * @return Shared pointer to compute device, or nullptr if no children
+         * @return DeviceId for this composite and its children
          */
         DeviceId getDeviceId() const override
         {
-			// REVIEW: Correct behavior when no children exist?
-            return child_components_[0]->getDeviceId();
+            return exec_context_->getDeviceId();
         }
 
         // ====================================================================
@@ -430,12 +448,14 @@ namespace Mila::Dnn
             oss << getName() << " { children: [";
 
             bool first = true;
+
             for (const auto& [name, module] : child_component_map_)
             {
                 if (!first)
                 {
                     oss << ", ";
                 }
+
                 first = false;
                 oss << name << ": " << module->toString();
             }
@@ -448,28 +468,75 @@ namespace Mila::Dnn
     protected:
 
         /**
-         * @brief Final build entry point (template method).
+         * @brief Construct composite as child component sharing parent's ExecutionContext.
          *
-         * Lifecycle responsibilities implemented here:
-         * - guard against repeated builds
-         * - invoke derived-class architecture-specific build hook `onBuilding`
-         * - validate that children report built state
-         * - mark composite as built
+         * Used by Network or other composite containers to create child composites
+         * that share a common execution context. The context is not owned; lifecycle
+         * is managed by the parent.
          *
-         * Derived classes MUST implement `onBuilding(const shape_t&)` and use the
-         * protected helpers to build their children with correct shapes.
+         * @param exec_context Non-owning pointer to shared execution context (must be non-null).
          *
-         * @param input_shape Expected input tensor shape
+         * @throws std::invalid_argument if exec_context is null or device type mismatches.
          */
-        //virtual void onBuilding( const shape_t& input_shape ) final override
-        //{
-        //    // Delegate architecture-specific shape propagation to derived class.
-        //    //onBuilding( input_shape );
+        explicit CompositeComponent( IExecutionContext* exec_context )
+            : exec_context_( exec_context )
+        {
+            if (!exec_context_)
+            {
+                throw std::invalid_argument(
+                    "CompositeComponent: ExecutionContext cannot be null."
+                );
+            }
 
-        //    // Verify children succeeded and mark composite built.
-        //    validateChildrenBuilt();
+            validateExecutionContext_<TDeviceType>( exec_context_, "CompositeComponent" );
+        }
 
-        //}
+        /**
+         * @brief Get the shared execution context for child component construction.
+         *
+         * Provides access to the execution context so derived classes can construct
+         * child components using the protected constructor pattern.
+         *
+         * @return Non-owning pointer to execution context
+         */
+        IExecutionContext* getExecutionContext() const noexcept
+        {
+            return exec_context_;
+        }
+
+        /**
+         * @brief Validate that an execution context matches the expected device type.
+         *
+         * @tparam TExpectedDevice Expected compile-time device type
+         * @param exec_context Context to validate
+         * @param component_name Component name for error messages
+         *
+         * @throws std::invalid_argument if device types don't match
+         */
+        template<DeviceType TExpectedDevice>
+        static void validateExecutionContext_(
+            IExecutionContext* exec_context,
+            const std::string& component_name )
+        {
+            if (!exec_context)
+            {
+                throw std::invalid_argument(
+                    component_name + ": ExecutionContext cannot be null."
+                );
+            }
+
+            if (exec_context->getDeviceId().type != TExpectedDevice)
+            {
+                throw std::invalid_argument(
+                    std::format(
+                        "{}: ExecutionContext device type mismatch: expected {}, got {}",
+                        component_name,
+                        deviceTypeToString( TExpectedDevice ),
+                        deviceTypeToString( exec_context->getDeviceId().type )
+                    )
+                );
+            }
+        }
 
         // ====================================================================
         // Serialization (Internal Protocol)
@@ -494,34 +561,31 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Cannot save unbuilt CompositeComponent" );
             }
 
-            // Metadata per Module contract
             archive.addMetadata( "type", getName() );
             archive.addMetadata( "version", "1" );
-
-            // Configuration needed for reconstruction
             archive.addMetadata( "child_count", std::to_string( child_components_.size() ) );
 
-            // Save child names in insertion order for reconstruction
             std::ostringstream names_stream;
             bool first = true;
+
             for (const auto& [name, _] : child_component_map_)
             {
-                if (!first) names_stream << ",";
+                if (!first)
+                {
+                    names_stream << ",";
+                }
+
                 names_stream << name;
                 first = false;
             }
+
             archive.addMetadata( "child_names", names_stream.str() );
 
-            // Recursively save each child with scoped namespace
             for (const auto& [name, module] : child_component_map_)
             {
-                //archive.pushScope( name );
                 module->save_( archive, mode );
-                //archive.popScope();
             }
         }
-
-        
 
         /**
          * @brief Hook invoked when training mode is about to change.
@@ -540,6 +604,41 @@ namespace Mila::Dnn
         }
 
     private:
+
+        /**
+         * @brief Create and validate owned execution context.
+         *
+         * @param device_id Device identifier for context creation
+         * @return Unique pointer to created execution context
+         *
+         * @throws std::invalid_argument if device type mismatches
+         * @throws std::runtime_error if context creation fails
+         */
+        static std::unique_ptr<IExecutionContext> createOwnedContext( DeviceId device_id )
+        {
+            if (device_id.type != TDeviceType)
+            {
+                throw std::invalid_argument(
+                    std::format(
+                        "CompositeComponent: constructor device type mismatch: expected {}, got {}",
+                        deviceTypeToString( TDeviceType ),
+                        deviceTypeToString( device_id.type )
+                    )
+                );
+            }
+
+            auto context = createExecutionContext( device_id );
+
+            if (!context)
+            {
+                throw std::runtime_error(
+                    "CompositeComponent: failed to create execution context for device"
+                );
+            }
+
+            return context;
+        }
+
         /**
          * @brief Child components in insertion order.
          *
@@ -569,18 +668,15 @@ namespace Mila::Dnn
         std::unordered_map<std::string, ComponentPtr> child_component_map_;
 
         /**
-         * @brief Indicates whether this composite and its children have been built.
+         * @brief Execution context ownership and access.
          *
-         * Set to true after a successful call to `build()` (or by `markBuilt_()` when
-         * reconstructing from an archive). Public APIs rely on this flag to guard
-         * operations that require the built state (for example parameter queries).
-         *
-         * Lifecycle: modifications follow the build/deserialization contract; this
-         * flag is not internally synchronized and callers must ensure serialized
-         * access to build-related operations.
+         * Ownership model:
+         * - Standalone: owned_context_ is populated, exec_context_ points to it
+         * - Child: owned_context_ is empty, exec_context_ points to parent's context
          */
+        std::unique_ptr<IExecutionContext> owned_context_{ nullptr };
+        IExecutionContext* exec_context_{ nullptr };
 
-        // Friend declarations for factory access
         friend class ComponentFactory;
     };
 }

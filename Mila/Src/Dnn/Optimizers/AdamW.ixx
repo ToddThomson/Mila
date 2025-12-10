@@ -54,7 +54,7 @@ namespace Mila::Dnn::Optimizers
          * @throws std::invalid_argument if exec_context is null
          * @throws std::invalid_argument if config.validate() fails
          */
-        explicit AdamWOptimizer( std::shared_ptr<ExecutionContextType> exec_context, const AdamWConfig& config )
+        explicit AdamWOptimizer( IExecutionContext* exec_context, const AdamWConfig& config )
 			: context_( exec_context ), config_( config )
         {
             if (!exec_context)
@@ -146,7 +146,7 @@ namespace Mila::Dnn::Optimizers
 
     private:
 		AdamWConfig config_;
-		std::shared_ptr<ExecutionContextType> context_;
+		IExecutionContext* context_;
         std::shared_ptr<OptimizerType> impl_;
     };
 

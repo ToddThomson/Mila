@@ -52,10 +52,11 @@ import Utils.DefaultLogger;
 // ====================================================================
 // Compute - Base
 // ====================================================================
-//export import Compute.OperationBase;
-//export import Compute.OperationType;
-//export import Compute.UnaryOperation;
-//export import Compute.BinaryOperation;
+// REVIEW: Should we make Operations internal only?
+export import Compute.OperationBase;
+export import Compute.OperationType;
+export import Compute.UnaryOperation;
+export import Compute.BinaryOperation;
 //export import Compute.Precision;
 
 // ====================================================================
@@ -100,8 +101,9 @@ export import Compute.CudaPinnedMemoryResource;
 // ====================================================================
 // Compute - Operations Registry
 // ====================================================================
-//export import Compute.OperationRegistry;
-//export import Compute.OperationRegistryHelpers;
+import Compute.OperationsRegistrar;
+export import Compute.OperationRegistry;
+export import Compute.OperationRegistryHelpers;
 
 // Deprecated to be removed later
 // export import Compute.OperationAttributes;
@@ -139,9 +141,9 @@ export import Compute.CudaPinnedMemoryResource;
 // ====================================================================
 // Dnn - Core
 // ====================================================================
-//export import Dnn.Component;
-//export import Dnn.ComponentConfig;
-//export import Dnn.CompositeComponent;
+export import Dnn.Component;
+export import Dnn.ComponentConfig;
+export import Dnn.CompositeComponent;
 
 // ====================================================================
 // Dnn - Tensors
@@ -168,12 +170,12 @@ export import Dnn.TensorInitializers;
 // ====================================================================
 // Dnn - Components
 // ====================================================================
-//export import Dnn.ActivationType;
-//export import Dnn.ConnectionType;
+export import Dnn.ActivationType;
+export import Dnn.ConnectionType;
 
 //export import Dnn.Components.Attention;
 //export import Dnn.Components.Encoder;
-//export import Dnn.Components.Gelu;
+export import Dnn.Components.Gelu;
 //export import Dnn.Components.LayerNorm;
 //export import Dnn.Components.Linear;
 //export import Dnn.Components.Residual;
@@ -223,12 +225,6 @@ export import Serialization.ZipSerializer;
 //export import Dnn.Model;
 //export import Dnn.ModelConfig;
 
-// ====================================================================
-// Internal Imports (not exported)
-// ====================================================================
-//import Compute.OperationsRegistrar;
-//import Compute.DeviceRegistrar;
-
 namespace Mila
 {
     namespace detail
@@ -273,8 +269,8 @@ namespace Mila
                 Utils::Logger::info( "Initialized random generator with non-deterministic seed." );
             }
 
-            // FIXME: Dnn::Compute::OperationsRegistrar::instance();
             Dnn::Compute::DeviceRegistrar::instance();
+            Dnn::Compute::OperationsRegistrar::instance();
 
             Utils::Logger::info( "Mila framework initialized successfully." );
 

@@ -19,7 +19,7 @@ add_library( Mila STATIC
     #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/CudaLinearGelu.cu"
 
     # TJT: Deprecated "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaMHA.cu"
-    #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaGelu.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaGelu.cu"
     #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaResidual.cu"
     #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaSoftmax.cu"
     #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaSoftmaxCrossEntropy.cu"
@@ -109,9 +109,9 @@ PUBLIC
         #----------------------------------------------------------------------
         # Core
         #----------------------------------------------------------------------
-        #"Src/Dnn/Core/Component.ixx"
-        #"Src/Dnn/Core/CompositeComponent.ixx"
-        #"Src/Dnn/Core/ComponentConfig.ixx"
+        "Src/Dnn/Core/Component.ixx"
+        "Src/Dnn/Core/CompositeComponent.ixx"
+        "Src/Dnn/Core/ComponentConfig.ixx"
         #"Src/Dnn/Core/ComponentFactory.ixx"
 
         #---------------------------------------------------------------
@@ -150,13 +150,15 @@ PUBLIC
         #---------------------------------------------------------------
         # Dnn / Components
         #---------------------------------------------------------------
-        #"Src/Dnn/Components/Activations/ActivationType.ixx"
         
         # Components - Activations
-        #"Src/Dnn/Components/Activations/Gelu.ixx"
-        #"Src/Dnn/Components/Activations/GeluConfig.ixx"
+
+        "Src/Dnn/Components/Activations/ActivationType.ixx"
+        "Src/Dnn/Components/Activations/Gelu.ixx"
+        "Src/Dnn/Components/Activations/GeluConfig.ixx"
         
         # Components - Connections
+        "Src/Dnn/Components/Connections/ConnectionType.ixx"
         #"Src/Dnn/Components/Connections/Residual.ixx"
         #"Src/Dnn/Components/Connections/ResidualConfig.ixx"
 
@@ -198,8 +200,8 @@ PUBLIC
         "Src/Dnn/Compute/IExecutionContext.ixx"
 
         "Src/Dnn/Compute/ComputeDeviceTraits.ixx"
-        #"Src/Dnn/Compute/DeviceTypeTraits.ixx"
-        #"Src/Dnn/Compute/ComputePrecision.ixx"
+        "Src/Dnn/Compute/DeviceTypeTraits.ixx"
+        "Src/Dnn/Compute/ComputePrecision.ixx"
 
         # Dnn / Compute / Memory Resources
         "Src/Dnn/Compute/MemoryResource.ixx"
@@ -215,14 +217,15 @@ PUBLIC
         #---------------------------------------------------------------
         # Dnn / Compute / Operations
         #---------------------------------------------------------------
-        #"Src/Dnn/Compute/Operations/OperationBase.ixx"
-        #"Src/Dnn/Compute/Operations/OperationType.ixx"
+        "Src/Dnn/Compute/Operations/OperationBase.ixx"
+        "Src/Dnn/Compute/Operations/OperationType.ixx"
         
-        #"Src/Dnn/Compute/Operations/UnaryOperation.ixx"
-        #"Src/Dnn/Compute/Operations/BinaryOperation.ixx"
+        "Src/Dnn/Compute/Operations/UnaryOperation.ixx"
+        "Src/Dnn/Compute/Operations/BinaryOperation.ixx"
         
-        #"Src/Dnn/Compute/Operations/OperationRegistry.ixx"
-        #"Src/Dnn/Compute/Operations/OperationsRegistrar.ixx"
+        "Src/Dnn/Compute/Operations/OperationRegistry.ixx"
+        "Src/Dnn/Compute/Operations/OperationRegistryHelpers.ixx"
+        "Src/Dnn/Compute/Operations/OperationsRegistrar.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Compute / Devices (general)
@@ -261,10 +264,9 @@ PUBLIC
         #----------------------------------------------------------------------
         # Dnn / Compute / Operation Registry Helpers
         #----------------------------------------------------------------------
-        #"Src/Dnn/Compute/Operations/OperationRegistryHelpers.ixx"
+        
         #"Src/Dnn/Optimizers/AdamW.ixx"
         #"Src/Dnn/Optimizers/AdamWConfig.ixx"
-        #"Src/Dnn/Components/Connections/ConnectionType.ixx"
 
         #----------------------------------------------------------------------
         # Network
@@ -311,7 +313,7 @@ if(MILA_HAS_CPU)
                 "Src/Dnn/Compute/Devices/Cpu/CpuDevice.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/CpuMemoryResource.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/CpuExecutionContext.ixx"
-                #"Src/Dnn/Compute/Devices/Cpu/CpuDeviceTraits.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/CpuDeviceTypeTraits.ixx"
                 
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/CpuTensorDataTypeTraits.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.ixx"
@@ -319,9 +321,9 @@ if(MILA_HAS_CPU)
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Math.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Transfer.ixx"
                 
-                #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuOperations.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuOperations.ixx"
                 #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuEncoderOp.ixx"
-                #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuGeluOp.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuGeluOp.ixx"
                 #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuLayerNormOp.ixx"
                 #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuLinearOp.ixx"
                 #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuAttentionOp.ixx"
@@ -344,7 +346,7 @@ if(MILA_HAS_CUDA)
         PUBLIC
             FILE_SET cuda_modules
                TYPE CXX_MODULES FILES
-                #"Src/Dnn/Compute/Devices/Cuda/CudaDeviceTypeTraits.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/CudaDeviceTypeTraits.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaError.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaHelpers.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/CudaDeviceResources.ixx"
@@ -360,7 +362,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/CudaManagedMemoryResource.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/CudaPinnedMemoryResource.ixx"
                 
-                #"Src/Dnn/Compute/Devices/Cuda/CudaDeviceTraits.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/CudaDeviceTraits.ixx"
 
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType-Specializations.ixx"
@@ -370,11 +372,11 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Fill.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Transfer.ixx"
                 
-                #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaOperations.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaOperations.ixx"
                 #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaAttentionOp.ixx"
                 #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaEncoderOp.ixx"
                 #"Src/Dnn/Compute/Devices/Cuda/Operations/CublasLtMatMulBias.ixx"
-                #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaGeluOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaGeluOp.ixx"
                 #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaLayerNormOp.ixx"
                 #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaLinearOp.ixx"
                 #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaResidualOp.ixx"
