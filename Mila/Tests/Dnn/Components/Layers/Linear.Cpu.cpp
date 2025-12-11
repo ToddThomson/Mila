@@ -30,8 +30,7 @@ namespace Modules::Layers::Tests
         bool has_bias;
 
         LinearCpuTestData() : config( 1, 1 ), input_features( 0 ), output_features( 0 ), has_bias( true )
-        {
-        }
+        {}
 
         static LinearCpuTestData Create(
             const std::string& name,
@@ -53,8 +52,9 @@ namespace Modules::Layers::Tests
             data.config.withName( name )
                 .withBias( has_bias );
 
-            data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-            data.module = std::make_shared<Linear<DeviceType::Cpu, TPrecision>>( data.exec_context, data.config );
+            // New ownership pattern: construct Linear with DeviceId (component owns its context).
+            data.exec_context = nullptr;
+            data.module = std::make_shared<Linear<DeviceType::Cpu, TPrecision>>( Device::Cpu(), data.config );
 
             return data;
         }
@@ -80,8 +80,10 @@ namespace Modules::Layers::Tests
             data.config.withName( name )
                 .withBias( has_bias );
 
+            // Tests can still hold the external context for device-id comparisons,
+            // but module is created using DeviceId (component owns its context).
             data.exec_context = context;
-            data.module = std::make_shared<Linear<DeviceType::Cpu, TPrecision>>( data.exec_context, data.config );
+            data.module = std::make_shared<Linear<DeviceType::Cpu, TPrecision>>( Device::Cpu(), data.config );
 
             return data;
         }
@@ -101,7 +103,7 @@ namespace Modules::Layers::Tests
 
         LinearCpuTestData<TensorDataType::FP32>& SmallFp32Data()
         {
-            if (!small_fp32_.module)
+            if ( !small_fp32_.module )
             {
                 small_fp32_ = LinearCpuTestData<TensorDataType::FP32>::Create(
                     "small_linear_cpu", small_shape_, input_features_, output_features_ );
@@ -111,7 +113,7 @@ namespace Modules::Layers::Tests
 
         LinearCpuTestData<TensorDataType::FP32>& MediumFp32Data()
         {
-            if (!medium_fp32_.module)
+            if ( !medium_fp32_.module )
             {
                 medium_fp32_ = LinearCpuTestData<TensorDataType::FP32>::Create(
                     "medium_linear_cpu", medium_shape_, 512, 256 );
@@ -121,7 +123,7 @@ namespace Modules::Layers::Tests
 
         LinearCpuTestData<TensorDataType::FP32>& NoBiasFp32Data()
         {
-            if (!no_bias_fp32_.module)
+            if ( !no_bias_fp32_.module )
             {
                 no_bias_fp32_ = LinearCpuTestData<TensorDataType::FP32>::Create(
                     "no_bias_linear_cpu", small_shape_, input_features_, output_features_, false );
@@ -150,10 +152,9 @@ namespace Modules::Layers::Tests
     void TestDeviceType( const LinearCpuTestData<TPrecision>& data )
     {
         EXPECT_EQ( data.module->getDeviceType(), DeviceType::Cpu );
-        ASSERT_NE( data.exec_context, nullptr );
 
-        auto device = data.exec_context->getDeviceId();
-        
+        // New pattern: module owns its execution context. Validate device id via module.
+        auto device = data.module->getDeviceId();
         EXPECT_EQ( device.type, DeviceType::Cpu );
     }
 
@@ -174,7 +175,7 @@ namespace Modules::Layers::Tests
     void TestParameterCount( const LinearCpuTestData<TPrecision>& data )
     {
         size_t expected_count = data.input_features * data.output_features;
-        if (data.has_bias)
+        if ( data.has_bias )
         {
             expected_count += data.output_features;
         }
@@ -186,8 +187,8 @@ namespace Modules::Layers::Tests
     {
         auto weight = data.module->getWeight();
         ASSERT_NE( weight, nullptr );
-        EXPECT_EQ( weight->shape()[0], data.output_features );
-        EXPECT_EQ( weight->shape()[1], data.input_features );
+        EXPECT_EQ( weight->shape()[ 0 ], data.output_features );
+        EXPECT_EQ( weight->shape()[ 1 ], data.input_features );
     }
 
     template<TensorDataType TPrecision>
@@ -195,10 +196,10 @@ namespace Modules::Layers::Tests
     {
         auto bias = data.module->getBias();
 
-        if (data.has_bias)
+        if ( data.has_bias )
         {
             ASSERT_NE( bias, nullptr );
-            EXPECT_EQ( bias->shape()[0], data.output_features );
+            EXPECT_EQ( bias->shape()[ 0 ], data.output_features );
         }
         else
         {
@@ -238,7 +239,7 @@ namespace Modules::Layers::Tests
 
         EXPECT_NO_THROW( data.module->forward( input, output ) );
         EXPECT_EQ( output.size(),
-            data.output_shape[0] * data.output_shape[1] * data.output_shape[2] );
+            data.output_shape[ 0 ] * data.output_shape[ 1 ] * data.output_shape[ 2 ] );
         EXPECT_EQ( output.shape(), data.output_shape );
     }
 
@@ -247,16 +248,16 @@ namespace Modules::Layers::Tests
     {
         auto params = data.module->getParameters();
 
-        if (data.has_bias)
+        if ( data.has_bias )
         {
             EXPECT_EQ( params.size(), 2 );
-            EXPECT_NE( params[0], nullptr );
-            EXPECT_NE( params[1], nullptr );
+            EXPECT_NE( params[ 0 ], nullptr );
+            EXPECT_NE( params[ 1 ], nullptr );
         }
         else
         {
             EXPECT_EQ( params.size(), 1 );
-            EXPECT_NE( params[0], nullptr );
+            EXPECT_NE( params[ 0 ], nullptr );
         }
     }
 
@@ -269,8 +270,8 @@ namespace Modules::Layers::Tests
         auto weight_grad = data.module->getWeightGrad();
 
         ASSERT_NE( weight_grad, nullptr ) << "Weight gradients should be allocated in training mode";
-        EXPECT_EQ( weight_grad->shape()[0], data.output_features );
-        EXPECT_EQ( weight_grad->shape()[1], data.input_features );
+        EXPECT_EQ( weight_grad->shape()[ 0 ], data.output_features );
+        EXPECT_EQ( weight_grad->shape()[ 1 ], data.input_features );
     }
 
     template<TensorDataType TPrecision>
@@ -281,10 +282,10 @@ namespace Modules::Layers::Tests
 
         auto bias_grad = data.module->getBiasGrad();
 
-        if (data.has_bias)
+        if ( data.has_bias )
         {
             ASSERT_NE( bias_grad, nullptr ) << "Bias gradients should be allocated in training mode";
-            EXPECT_EQ( bias_grad->shape()[0], data.output_features );
+            EXPECT_EQ( bias_grad->shape()[ 0 ], data.output_features );
         }
         else
         {
@@ -318,9 +319,9 @@ namespace Modules::Layers::Tests
         EXPECT_EQ( input_grad.shape(), data.input_shape );
 
         bool has_nonzero_grad = false;
-        for (size_t i = 0; i < input_grad.size(); ++i)
+        for ( size_t i = 0; i < input_grad.size(); ++i )
         {
-            if (std::abs( input_grad.data()[i] ) > 1e-6f)
+            if ( std::abs( input_grad.data()[ i ] ) > 1e-6f )
             {
                 has_nonzero_grad = true;
                 break;
@@ -442,7 +443,9 @@ namespace Modules::Layers::Tests
             "context_linear_cpu", small_shape_, input_features_, output_features_, ctx );
 
         EXPECT_EQ( data.module->getName(), "context_linear_cpu" );
-        EXPECT_EQ( data.exec_context, ctx );
+
+        // Module owns its own context now; ensure device identity matches the external context
+        EXPECT_EQ( data.module->getDeviceId(), ctx->getDeviceId() );
     }
 
     TEST_F( LinearCpuTests, EdgeCase_MinimalShape )
@@ -465,16 +468,13 @@ namespace Modules::Layers::Tests
         TestForward( data );
     }
 
-    TEST_F( LinearCpuTests, Error_NullExecutionContext )
+    TEST_F( LinearCpuTests, Construction_WithDeviceId )
     {
         LinearConfig config( 16, 32 );
         config.withName( "test_cpu" );
 
-        std::shared_ptr<ExecutionContext<DeviceType::Cpu>> null_ctx;
-
-        EXPECT_THROW(
-            (std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>( null_ctx, config )),
-            std::invalid_argument
+        EXPECT_NO_THROW(
+            (std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>( Device::Cpu(), config ))
         );
     }
 
@@ -483,10 +483,8 @@ namespace Modules::Layers::Tests
         LinearConfig invalid_config( 0, 32 );
         invalid_config.withName( "invalid_cpu" );
 
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-
         EXPECT_THROW(
-            (std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>( ctx, invalid_config )),
+            (std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>( Device::Cpu(), invalid_config )),
             std::invalid_argument
         );
     }
@@ -496,10 +494,8 @@ namespace Modules::Layers::Tests
         LinearConfig invalid_config( 16, 0 );
         invalid_config.withName( "invalid_cpu" );
 
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-
         EXPECT_THROW(
-            (std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>( ctx, invalid_config )),
+            (std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>( Device::Cpu(), invalid_config )),
             std::invalid_argument
         );
     }
@@ -562,7 +558,7 @@ namespace Modules::Layers::Tests
         CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.input_shape );
         CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.output_shape );
 
-        for (int iter = 0; iter < 10; ++iter)
+        for ( int iter = 0; iter < 10; ++iter )
         {
             random( input, -1.0f, 1.0f );
 
@@ -637,7 +633,7 @@ namespace Modules::Layers::Tests
         CpuTensor<TensorDataType::FP32> output_grad( Device::Cpu(), data.output_shape );
         CpuTensor<TensorDataType::FP32> input_grad( Device::Cpu(), data.input_shape );
 
-        for (int iter = 0; iter < 5; ++iter)
+        for ( int iter = 0; iter < 5; ++iter )
         {
             random( input, -1.0f, 1.0f );
             random( output_grad, -0.1f, 0.1f );
@@ -729,7 +725,7 @@ namespace Modules::Layers::Tests
         auto weight_grad = data.module->getWeightGrad();
         ASSERT_NE( weight_grad, nullptr ) << "Weight gradients should be allocated when training enabled before build";
 
-        if (data.has_bias)
+        if ( data.has_bias )
         {
             auto bias_grad = data.module->getBiasGrad();
             ASSERT_NE( bias_grad, nullptr ) << "Bias gradients should be allocated when training enabled before build";

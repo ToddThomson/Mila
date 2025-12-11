@@ -32,8 +32,7 @@ namespace Modules::Layers::Tests
         bool has_bias;
 
         LinearCudaTestData() : config( 1, 1 ), input_features( 0 ), output_features( 0 ), has_bias( true )
-        {
-        }
+        {}
 
         static LinearCudaTestData Create(
             const std::string& name,
@@ -55,8 +54,9 @@ namespace Modules::Layers::Tests
             data.config.withName( name )
                 .withBias( has_bias );
 
-            data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
-            data.module = std::make_shared<Linear<DeviceType::Cuda, TPrecision>>( data.exec_context, data.config );
+            // New ownership pattern: construct Linear with DeviceId (component owns its context).
+            data.exec_context = nullptr;
+            data.module = std::make_shared<Linear<DeviceType::Cuda, TPrecision>>( Device::Cuda( 0 ), data.config );
 
             return data;
         }
@@ -82,8 +82,10 @@ namespace Modules::Layers::Tests
             data.config.withName( name )
                 .withBias( has_bias );
 
+            // Tests can still hold the external context for device-id comparisons,
+            // but module is created using DeviceId (component owns its context).
             data.exec_context = context;
-            data.module = std::make_shared<Linear<DeviceType::Cuda, TPrecision>>( data.exec_context, data.config );
+            data.module = std::make_shared<Linear<DeviceType::Cuda, TPrecision>>( Device::Cuda( 0 ), data.config );
 
             return data;
         }
@@ -112,7 +114,7 @@ namespace Modules::Layers::Tests
 
         LinearCudaTestData<TensorDataType::FP32>& SmallFp32Data()
         {
-            if (!small_fp32_.module)
+            if ( !small_fp32_.module )
             {
                 small_fp32_ = LinearCudaTestData<TensorDataType::FP32>::Create(
                     "small_linear_cuda", small_shape_, input_features_, output_features_ );
@@ -122,7 +124,7 @@ namespace Modules::Layers::Tests
 
         LinearCudaTestData<TensorDataType::FP32>& MediumFp32Data()
         {
-            if (!medium_fp32_.module)
+            if ( !medium_fp32_.module )
             {
                 medium_fp32_ = LinearCudaTestData<TensorDataType::FP32>::Create(
                     "medium_linear_cuda", medium_shape_, 512, 256 );
@@ -132,7 +134,7 @@ namespace Modules::Layers::Tests
 
         LinearCudaTestData<TensorDataType::FP32>& LargeFp32Data()
         {
-            if (!large_fp32_.module)
+            if ( !large_fp32_.module )
             {
                 large_fp32_ = LinearCudaTestData<TensorDataType::FP32>::Create(
                     "large_linear_cuda", large_shape_, 1024, 768 );
@@ -142,7 +144,7 @@ namespace Modules::Layers::Tests
 
         LinearCudaTestData<TensorDataType::FP32>& NoBiasFp32Data()
         {
-            if (!no_bias_fp32_.module)
+            if ( !no_bias_fp32_.module )
             {
                 no_bias_fp32_ = LinearCudaTestData<TensorDataType::FP32>::Create(
                     "no_bias_linear_cuda", small_shape_, input_features_, output_features_, false );
@@ -152,7 +154,7 @@ namespace Modules::Layers::Tests
 
         LinearCudaTestData<TensorDataType::FP16>& SmallFp16Data()
         {
-            if (!small_fp16_.module)
+            if ( !small_fp16_.module )
             {
                 small_fp16_ = LinearCudaTestData<TensorDataType::FP16>::Create(
                     "small_linear_cuda_fp16", small_shape_, input_features_, output_features_ );
@@ -162,7 +164,7 @@ namespace Modules::Layers::Tests
 
         LinearCudaTestData<TensorDataType::BF16>& SmallBf16Data()
         {
-            if (!small_bf16_.module)
+            if ( !small_bf16_.module )
             {
                 small_bf16_ = LinearCudaTestData<TensorDataType::BF16>::Create(
                     "small_linear_cuda_bf16", small_shape_, input_features_, output_features_ );
@@ -196,10 +198,9 @@ namespace Modules::Layers::Tests
     void TestDeviceType( const LinearCudaTestData<TPrecision>& data )
     {
         EXPECT_EQ( data.module->getDeviceType(), DeviceType::Cuda );
-        ASSERT_NE( data.exec_context, nullptr );
 
-        auto device = data.exec_context->getDeviceId();
-        
+        // New pattern: module owns its execution context. Validate device id via module.
+        auto device = data.module->getDeviceId();
         EXPECT_EQ( device.type, DeviceType::Cuda );
     }
 
@@ -220,7 +221,7 @@ namespace Modules::Layers::Tests
     void TestParameterCount( const LinearCudaTestData<TPrecision>& data )
     {
         size_t expected_count = data.input_features * data.output_features;
-        if (data.has_bias)
+        if ( data.has_bias )
         {
             expected_count += data.output_features;
         }
@@ -232,8 +233,8 @@ namespace Modules::Layers::Tests
     {
         auto weight = data.module->getWeight();
         ASSERT_NE( weight, nullptr );
-        EXPECT_EQ( weight->shape()[0], data.output_features );
-        EXPECT_EQ( weight->shape()[1], data.input_features );
+        EXPECT_EQ( weight->shape()[ 0 ], data.output_features );
+        EXPECT_EQ( weight->shape()[ 1 ], data.input_features );
     }
 
     template<TensorDataType TPrecision>
@@ -241,10 +242,10 @@ namespace Modules::Layers::Tests
     {
         auto bias = data.module->getBias();
 
-        if (data.has_bias)
+        if ( data.has_bias )
         {
             ASSERT_NE( bias, nullptr );
-            EXPECT_EQ( bias->shape()[0], data.output_features );
+            EXPECT_EQ( bias->shape()[ 0 ], data.output_features );
         }
         else
         {
@@ -281,14 +282,14 @@ namespace Modules::Layers::Tests
         HostTensorType host_input( Device::Cpu(), data.input_shape );
         random( host_input, -1.0f, 1.0f );
 
-        DeviceTensorType device_input( Device::Cuda(0), data.input_shape );
-        DeviceTensorType device_output( Device::Cuda(0), data.output_shape );
+        DeviceTensorType device_input( Device::Cuda( 0 ), data.input_shape );
+        DeviceTensorType device_output( Device::Cuda( 0 ), data.output_shape );
 
         copy( host_input, device_input );
 
         EXPECT_NO_THROW( data.module->forward( device_input, device_output ) );
         EXPECT_EQ( device_output.size(),
-            data.output_shape[0] * data.output_shape[1] * data.output_shape[2] );
+            data.output_shape[ 0 ] * data.output_shape[ 1 ] * data.output_shape[ 2 ] );
         EXPECT_EQ( device_output.shape(), data.output_shape );
 
         HostTensorType host_output = toHost<TensorDataType::FP32>( device_output );
@@ -300,16 +301,16 @@ namespace Modules::Layers::Tests
     {
         auto params = data.module->getParameters();
 
-        if (data.has_bias)
+        if ( data.has_bias )
         {
             EXPECT_EQ( params.size(), 2 );
-            EXPECT_NE( params[0], nullptr );
-            EXPECT_NE( params[1], nullptr );
+            EXPECT_NE( params[ 0 ], nullptr );
+            EXPECT_NE( params[ 1 ], nullptr );
         }
         else
         {
             EXPECT_EQ( params.size(), 1 );
-            EXPECT_NE( params[0], nullptr );
+            EXPECT_NE( params[ 0 ], nullptr );
         }
     }
 
@@ -324,8 +325,8 @@ namespace Modules::Layers::Tests
 
         // In training mode, gradients should be allocated
         ASSERT_NE( weight_grad, nullptr ) << "Weight gradients should be allocated in training mode";
-        EXPECT_EQ( weight_grad->shape()[0], data.output_features );
-        EXPECT_EQ( weight_grad->shape()[1], data.input_features );
+        EXPECT_EQ( weight_grad->shape()[ 0 ], data.output_features );
+        EXPECT_EQ( weight_grad->shape()[ 1 ], data.input_features );
     }
 
     template<TensorDataType TPrecision>
@@ -337,11 +338,11 @@ namespace Modules::Layers::Tests
 
         auto bias_grad = data.module->getBiasGrad();
 
-        if (data.has_bias)
+        if ( data.has_bias )
         {
             // In training mode with bias, bias gradient should be allocated
             ASSERT_NE( bias_grad, nullptr ) << "Bias gradients should be allocated in training mode";
-            EXPECT_EQ( bias_grad->shape()[0], data.output_features );
+            EXPECT_EQ( bias_grad->shape()[ 0 ], data.output_features );
         }
         else
         {
@@ -364,10 +365,10 @@ namespace Modules::Layers::Tests
         random( host_input, -1.0f, 1.0f );
         random( host_output_grad, -0.1f, 0.1f );
 
-        DeviceTensorType device_input( Device::Cuda(0), data.input_shape );
-        DeviceTensorType device_output( Device::Cuda(0), data.output_shape );
-        DeviceTensorType device_output_grad( Device::Cuda(0), data.output_shape );
-        DeviceTensorType device_input_grad( Device::Cuda(0), data.input_shape );
+        DeviceTensorType device_input( Device::Cuda( 0 ), data.input_shape );
+        DeviceTensorType device_output( Device::Cuda( 0 ), data.output_shape );
+        DeviceTensorType device_output_grad( Device::Cuda( 0 ), data.output_shape );
+        DeviceTensorType device_input_grad( Device::Cuda( 0 ), data.input_shape );
 
         copy( host_input, device_input );
         copy( host_output_grad, device_output_grad );
@@ -386,9 +387,9 @@ namespace Modules::Layers::Tests
 
         // Verify gradients were computed (non-zero)
         bool has_nonzero_grad = false;
-        for (size_t i = 0; i < host_input_grad.size(); ++i)
+        for ( size_t i = 0; i < host_input_grad.size(); ++i )
         {
-            if (std::abs( host_input_grad.data()[i] ) > 1e-6f)
+            if ( std::abs( host_input_grad.data()[ i ] ) > 1e-6f )
             {
                 has_nonzero_grad = true;
                 break;
@@ -403,7 +404,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, GetName )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -413,7 +414,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, DeviceType )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -423,7 +424,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, IsBuilt_BeforeBuild )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -433,7 +434,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, IsBuilt_AfterBuild )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -449,7 +450,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, Build )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -460,7 +461,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, ParameterCount_WithBias )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -470,7 +471,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, ParameterCount_WithoutBias )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -480,7 +481,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, GetWeight )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -490,7 +491,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, GetBias_WithBias )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -500,7 +501,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, GetBias_WithoutBias )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -510,7 +511,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, HasBias_True )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -520,7 +521,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, HasBias_False )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -530,7 +531,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, GetParameters_WithBias )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -540,7 +541,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, GetParameters_WithoutBias )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -550,7 +551,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, ToString )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -561,7 +562,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, Forward_SmallShape )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -572,7 +573,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, Forward_MediumShape )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -583,7 +584,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, Forward_LargeShape )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -594,7 +595,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, Forward_WithoutBias )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -605,7 +606,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, Forward_FP16 )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -616,7 +617,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, Forward_BF16 )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -627,23 +628,25 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, WithContext_Construction )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
 
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda( 0 ) );
 
         auto data = LinearCudaTestData<TensorDataType::FP32>::CreateWithContext(
             "context_linear_cuda", small_shape_, input_features_, output_features_, ctx );
 
         EXPECT_EQ( data.module->getName(), "context_linear_cuda" );
-        EXPECT_EQ( data.exec_context, ctx );
+
+        // Module owns its own context now; ensure device identity matches the external context
+        EXPECT_EQ( data.module->getDeviceId(), ctx->getDeviceId() );
     }
 
     TEST_F( LinearCudaTests, EdgeCase_MinimalShape )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -658,7 +661,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, EdgeCase_LargeFeatures )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -669,7 +672,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, EdgeCase_BatchSize1 )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -682,9 +685,9 @@ namespace Modules::Layers::Tests
         TestForward( data );
     }
 
-    TEST_F( LinearCudaTests, Error_NullExecutionContext )
+    TEST_F( LinearCudaTests, Construction_WithDeviceId )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -692,17 +695,14 @@ namespace Modules::Layers::Tests
         LinearConfig config( 16, 32 );
         config.withName( "test_cuda" );
 
-        std::shared_ptr<ExecutionContext<DeviceType::Cuda>> null_ctx;
-
-        EXPECT_THROW(
-            (std::make_shared<Linear<DeviceType::Cuda, TensorDataType::FP32>>( null_ctx, config )),
-            std::invalid_argument
+        EXPECT_NO_THROW(
+            (std::make_shared<Linear<DeviceType::Cuda, TensorDataType::FP32>>( Device::Cuda( 0 ), config ))
         );
     }
 
     TEST_F( LinearCudaTests, Error_ForwardBeforeBuild )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -710,8 +710,8 @@ namespace Modules::Layers::Tests
         auto data = LinearCudaTestData<TensorDataType::FP32>::Create(
             "unbuild_cuda", small_shape_, input_features_, output_features_ );
 
-        CudaTensor<TensorDataType::FP32> input( Device::Cuda(0), data.input_shape );
-        CudaTensor<TensorDataType::FP32> output( Device::Cuda(0), data.output_shape );
+        CudaTensor<TensorDataType::FP32> input( Device::Cuda( 0 ), data.input_shape );
+        CudaTensor<TensorDataType::FP32> output( Device::Cuda( 0 ), data.output_shape );
 
         EXPECT_THROW(
             data.module->forward( input, output ),
@@ -721,7 +721,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, Error_ShapeMismatch )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -731,8 +731,8 @@ namespace Modules::Layers::Tests
 
         shape_t wrong_shape = { 2, 3, 64 };
 
-        CudaTensor<TensorDataType::FP32> input( Device::Cuda(0), wrong_shape );
-        CudaTensor<TensorDataType::FP32> output( Device::Cuda(0), { 2, 3, 32 } );
+        CudaTensor<TensorDataType::FP32> input( Device::Cuda( 0 ), wrong_shape );
+        CudaTensor<TensorDataType::FP32> output( Device::Cuda( 0 ), { 2, 3, 32 } );
 
         EXPECT_THROW(
             data.module->forward( input, output ),
@@ -742,7 +742,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, Synchronize )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -754,7 +754,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, SetTrainingMode )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -772,7 +772,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, MultipleForwardCalls )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -781,10 +781,10 @@ namespace Modules::Layers::Tests
         data.module->build( data.input_shape );
 
         CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), data.input_shape );
-        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda(0), data.input_shape );
-        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), data.input_shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda( 0 ), data.output_shape );
 
-        for (int iter = 0; iter < 10; ++iter)
+        for ( int iter = 0; iter < 10; ++iter )
         {
             random( host_input, -1.0f, 1.0f );
             copy( host_input, device_input );
@@ -795,7 +795,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, CpuCuda_OutputEquivalence )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -805,8 +805,8 @@ namespace Modules::Layers::Tests
         LinearConfig cpu_config( 8, 16 );
         cpu_config.withName( "cpu_equiv" ).withBias( true );
 
-        auto cpu_exec_context = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        auto cpu_module = std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>( cpu_exec_context, cpu_config );
+        // Construct CPU module using DeviceId (component owns its context)
+        auto cpu_module = std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>( Device::Cpu(), cpu_config );
 
         auto cuda_data = LinearCudaTestData<TensorDataType::FP32>::Create(
             "cuda_equiv", test_shape, 8, 16, true );
@@ -829,7 +829,7 @@ namespace Modules::Layers::Tests
         auto cpu_bias = cpu_module->getBias();
         auto cuda_bias = cuda_data.module->getBias();
 
-        if (cpu_bias && cuda_bias)
+        if ( cpu_bias && cuda_bias )
         {
             CpuTensor<TensorDataType::FP32> init_bias( Device::Cpu(), cpu_bias->shape() );
             zeros( init_bias );
@@ -844,8 +844,8 @@ namespace Modules::Layers::Tests
         CpuTensor<TensorDataType::FP32> cpu_output( Device::Cpu(), output_shape );
         cpu_module->forward( host_input, cpu_output );
 
-        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda(0), test_shape );
-        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), output_shape );
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), test_shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda( 0 ), output_shape );
         copy( host_input, device_input );
         cuda_data.module->forward( device_input, device_output );
 
@@ -854,13 +854,13 @@ namespace Modules::Layers::Tests
         const float epsilon = 1e-4f;
         bool all_close = true;
 
-        for (size_t i = 0; i < cpu_output.size(); ++i)
+        for ( size_t i = 0; i < cpu_output.size(); ++i )
         {
-            float cpu_val = cpu_output.data()[i];
-            float cuda_val = cuda_output_host.data()[i];
+            float cpu_val = cpu_output.data()[ i ];
+            float cuda_val = cuda_output_host.data()[ i ];
             float diff = std::abs( cpu_val - cuda_val );
 
-            if (diff > epsilon)
+            if ( diff > epsilon )
             {
                 all_close = false;
                 break;
@@ -876,7 +876,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, GetWeightGrad_BeforeBackward )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -887,7 +887,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, GetBiasGrad_BeforeBackward_WithBias )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -898,7 +898,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, GetBiasGrad_BeforeBackward_WithoutBias )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -909,7 +909,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, Backward_FP32 )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -920,7 +920,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, Backward_FP16 )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -931,7 +931,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, Backward_BF16 )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -947,7 +947,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, Backward_WithoutBias_FP32 )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -958,7 +958,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, Backward_MediumShape_FP32 )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -969,7 +969,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, Backward_LargeShape_FP32 )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -980,7 +980,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, Error_BackwardBeforeBuild_FP32 )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -988,9 +988,9 @@ namespace Modules::Layers::Tests
         auto data = LinearCudaTestData<TensorDataType::FP32>::Create(
             "unbuild_backward_cuda", small_shape_, input_features_, output_features_ );
 
-        CudaTensor<TensorDataType::FP32> input( Device::Cuda(0), data.input_shape );
-        CudaTensor<TensorDataType::FP32> output_grad( Device::Cuda(0), data.output_shape );
-        CudaTensor<TensorDataType::FP32> input_grad( Device::Cuda(0), data.input_shape );
+        CudaTensor<TensorDataType::FP32> input( Device::Cuda( 0 ), data.input_shape );
+        CudaTensor<TensorDataType::FP32> output_grad( Device::Cuda( 0 ), data.output_shape );
+        CudaTensor<TensorDataType::FP32> input_grad( Device::Cuda( 0 ), data.input_shape );
 
         EXPECT_THROW(
             data.module->backward( input, output_grad, input_grad ),
@@ -1000,7 +1000,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, Backward_EdgeCase_MinimalShape_FP32 )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -1015,7 +1015,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, Backward_EdgeCase_BatchSize1_FP32 )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -1030,7 +1030,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, Backward_MultipleIterations_FP32 )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -1044,12 +1044,12 @@ namespace Modules::Layers::Tests
         CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), data.input_shape );
         CpuTensor<TensorDataType::FP32> host_output_grad( Device::Cpu(), data.output_shape );
 
-        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda(0), data.input_shape );
-        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), data.output_shape );
-        CudaTensor<TensorDataType::FP32> device_output_grad( Device::Cuda(0), data.output_shape );
-        CudaTensor<TensorDataType::FP32> device_input_grad( Device::Cuda(0), data.input_shape );
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), data.input_shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda( 0 ), data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_output_grad( Device::Cuda( 0 ), data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_input_grad( Device::Cuda( 0 ), data.input_shape );
 
-        for (int iter = 0; iter < 5; ++iter)
+        for ( int iter = 0; iter < 5; ++iter )
         {
             random( host_input, -1.0f, 1.0f );
             random( host_output_grad, -0.1f, 0.1f );
@@ -1068,7 +1068,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, Training_InferenceToTrainingToInference_FP32 )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -1079,10 +1079,10 @@ namespace Modules::Layers::Tests
         EXPECT_FALSE( data.module->isTraining() );
         data.module->build( data.input_shape );
 
-        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda(0), data.input_shape );
-        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), data.output_shape );
-        CudaTensor<TensorDataType::FP32> device_output_grad( Device::Cuda(0), data.output_shape );
-        CudaTensor<TensorDataType::FP32> device_input_grad( Device::Cuda(0), data.input_shape );
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), data.input_shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda( 0 ), data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_output_grad( Device::Cuda( 0 ), data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_input_grad( Device::Cuda( 0 ), data.input_shape );
 
         CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), data.input_shape );
         random( host_input, -1.0f, 1.0f );
@@ -1133,7 +1133,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, Training_EnableBeforeBuild_FP32 )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -1150,17 +1150,17 @@ namespace Modules::Layers::Tests
         auto weight_grad = data.module->getWeightGrad();
         ASSERT_NE( weight_grad, nullptr ) << "Weight gradients should be allocated when training enabled before build";
 
-        if (data.has_bias)
+        if ( data.has_bias )
         {
             auto bias_grad = data.module->getBiasGrad();
             ASSERT_NE( bias_grad, nullptr ) << "Bias gradients should be allocated when training enabled before build";
         }
 
         // Run a training iteration
-        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda(0), data.input_shape );
-        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), data.output_shape );
-        CudaTensor<TensorDataType::FP32> device_output_grad( Device::Cuda(0), data.output_shape );
-        CudaTensor<TensorDataType::FP32> device_input_grad( Device::Cuda(0), data.input_shape );
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), data.input_shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda( 0 ), data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_output_grad( Device::Cuda( 0 ), data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_input_grad( Device::Cuda( 0 ), data.input_shape );
 
         CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), data.input_shape );
         CpuTensor<TensorDataType::FP32> host_output_grad( Device::Cpu(), data.output_shape );
@@ -1177,7 +1177,7 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCudaTests, Error_BackwardInInferenceMode_FP32 )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -1188,10 +1188,10 @@ namespace Modules::Layers::Tests
         data.module->build( data.input_shape );
         EXPECT_FALSE( data.module->isTraining() );
 
-        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda(0), data.input_shape );
-        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), data.output_shape );
-        CudaTensor<TensorDataType::FP32> device_output_grad( Device::Cuda(0), data.output_shape );
-        CudaTensor<TensorDataType::FP32> device_input_grad( Device::Cuda(0), data.input_shape );
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), data.input_shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda( 0 ), data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_output_grad( Device::Cuda( 0 ), data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_input_grad( Device::Cuda( 0 ), data.input_shape );
 
         CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), data.input_shape );
         random( host_input, -1.0f, 1.0f );

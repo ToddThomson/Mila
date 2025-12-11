@@ -126,9 +126,9 @@ add_executable( MilaTests
     #"Dnn/Components/Normalization/LayerNorm.Cuda.cpp"
     #"Dnn/Components/Normalization/LayerNormConfig.cpp"
 
-    #"Dnn/Components/Layers/Linear.Cpu.cpp"
-    #"Dnn/Components/Layers/Linear.Cuda.cpp"
-    #"Dnn/Components/Layers/LinearConfig.cpp"
+    "Dnn/Components/Layers/Linear.Cpu.cpp"
+    "Dnn/Components/Layers/Linear.Cuda.cpp"
+    "Dnn/Components/Layers/LinearConfig.cpp"
 
     #"Dnn/Components/Connections/Residual.Config.cpp"
     #"Dnn/Components/Connections/Residual.Cuda.cpp"

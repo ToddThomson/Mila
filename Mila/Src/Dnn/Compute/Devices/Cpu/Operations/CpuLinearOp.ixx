@@ -71,9 +71,6 @@ namespace Mila::Dnn::Compute
         using MR = CpuMemoryResource;
         using UnaryOperationBase = UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>;
         using TensorType = Tensor<TensorDataType::FP32, MR>;
-        //using Parameters = std::vector<std::shared_ptr<TensorType>>;
-        //using OutputState = std::vector<std::shared_ptr<TensorType>>;
-        //using float = typename TensorfloatMap<TPrecision>::host_type;
         using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
 
         CpuLinearOp( IExecutionContext* context, const LinearConfig& config )
@@ -355,7 +352,7 @@ namespace Mila::Dnn::Compute
         static constexpr int LOOP_UNROLL = 8;
 
         LinearConfig config_;
-        std::shared_ptr<CpuExecutionContext> context_;
+        IExecutionContext* context_;
 
         const float* weight_{ nullptr };
         const float* bias_{ nullptr };
@@ -463,7 +460,7 @@ namespace Mila::Dnn::Compute
         {
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>(
                 "LinearOp",
-                []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
+                []( IExecutionContext* context,
                     const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
                 {
                     const auto& linearConfig = static_cast<const LinearConfig&>(config);

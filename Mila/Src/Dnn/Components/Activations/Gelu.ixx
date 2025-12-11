@@ -96,9 +96,7 @@ namespace Mila::Dnn
          * @throws std::runtime_error if ExecutionContext creation fails.
          */
         explicit Gelu( DeviceId device_id, const GeluConfig& config )
-            : owned_context_( createOwnedContext( device_id ) )
-            , exec_context_( owned_context_.get() )
-            , config_( config )
+            : owned_context_( createOwnedContext( device_id ) ), exec_context_( owned_context_.get() ), config_( config )
         {
             config_.validate();
             createOperation();
@@ -181,9 +179,9 @@ namespace Mila::Dnn
             }
 
             operation_->backward(
-                output_grad,     // Gradient w.r.t. output (?L/?output)
-                input,           // Forward input (required for GELU gradient computation)
-                input_grad       // Output: gradient w.r.t. input (?L/?input)
+                input,           // Forward input
+                output_grad,     // Gradient w.r.t. output
+                input_grad       // Output: gradient w.r.t. input
             );
         }
 

@@ -128,8 +128,8 @@ namespace Mila::Dnn::Compute
         /*[[nodiscard]] std::shared_ptr<CudaDeviceResources> getResources() const noexcept
         {
             return resources_;
-        }
-*/
+        }*/
+
         /**
          * @brief Get a cuBLASLt handle for this context.
          *
@@ -139,10 +139,10 @@ namespace Mila::Dnn::Compute
          *
          * @return cublasLtHandle_t The cuBLASLt handle.
          */
-        /*[[nodiscard]] cublasLtHandle_t getCublasLtHandle() const
+        [[nodiscard]] cublasLtHandle_t getCublasLtHandle() const
         {
             return resources_->getCublasLtHandle();
-        }*/
+        }
 
 #ifdef USE_CUDNN
         /**

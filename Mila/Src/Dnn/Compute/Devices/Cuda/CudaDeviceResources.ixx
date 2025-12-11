@@ -1,20 +1,20 @@
 module;
-//#include <cuda_runtime.h>
-//#include <cublasLt.h>
-//#ifdef USE_CUDNN
-//#include <cudnn.h>
-//#endif
-//#include <mutex>
-//#include <unordered_map>
-//#include <utility>
-//#include <stdexcept>
-//#include <string>
+#include <cuda_runtime.h>
+#include <cublasLt.h>
+#ifdef USE_CUDNN
+#include <cudnn.h>
+#endif
+#include <mutex>
+#include <unordered_map>
+#include <utility>
+#include <stdexcept>
+#include <string>
 #include <compare>
 
 export module Compute.CudaDeviceResources;
 
 import Compute.DeviceId;
-//import Cuda.Helpers;
+import Cuda.Helpers;
 
 namespace Mila::Dnn::Compute
 {
@@ -24,31 +24,31 @@ namespace Mila::Dnn::Compute
         explicit CudaDeviceResources( DeviceId device_id )
             : device_id_( device_id )
         {
-			//initializeResources();
+			initializeResources();
         }
 
         ~CudaDeviceResources() {
-			//releaseResources();
+			releaseResources();
         }
 
-        //cublasLtHandle_t getCublasLtHandle() {
-        //    std::call_once( cublas_init_flag_, [this]() {
+        cublasLtHandle_t getCublasLtHandle() {
+            std::call_once( cublas_init_flag_, [this]() {
 
-        //        Cuda::setCurrentDevice( device_id_.index );
+                Cuda::setCurrentDevice( device_id_.index );
 
-        //        cublasStatus_t status = cublasLtCreate( &cublas_handle_ );
+                cublasStatus_t status = cublasLtCreate( &cublas_handle_ );
 
-        //        if (status != CUBLAS_STATUS_SUCCESS)
-        //        {
-        //            throw std::runtime_error(
-        //                "Failed to create cuBLASLt handle: " /* FIXME: + cublasStatusToString(status) */
-        //            );
-        //        }
+                if (status != CUBLAS_STATUS_SUCCESS)
+                {
+                    throw std::runtime_error(
+                        "Failed to create cuBLASLt handle: " /* FIXME: + cublasStatusToString(status) */
+                    );
+                }
 
-        //    } );
-        //    
-        //    return cublas_handle_;
-        //}
+            } );
+            
+            return cublas_handle_;
+        }
 
 #ifdef USE_CUDNN
         /**
@@ -142,17 +142,17 @@ namespace Mila::Dnn::Compute
     private:
         DeviceId device_id_;
         
-        //cudaStream_t stream_{ nullptr };
+        cudaStream_t stream_{ nullptr };
         bool stream_created_{ false };
 
-        //mutable cublasLtHandle_t cublas_handle_{ nullptr };
+        mutable cublasLtHandle_t cublas_handle_{ nullptr };
 
 #ifdef USE_CUDNN
         mutable cudnnHandle_t cudnn_handle_{ nullptr };
 #endif        
         
-        //mutable std::once_flag cublas_init_flag_;
-        //mutable std::once_flag cudnn_init_flag_;
+        mutable std::once_flag cublas_init_flag_;
+        mutable std::once_flag cudnn_init_flag_;
 
         /**
          * @brief Initializes CUDA execution resources (stream).
@@ -162,7 +162,7 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error If stream creation fails
          */
         void initializeResources() {
-            /*Cuda::setCurrentDevice( device_id_.index );
+            Cuda::setCurrentDevice( device_id_.index );
 
             cudaError_t error = cudaStreamCreateWithFlags(
                 &stream_,
@@ -177,7 +177,7 @@ namespace Mila::Dnn::Compute
                 );
             }
 
-            stream_created_ = true;*/
+            stream_created_ = true;
         }
 
         /**
@@ -196,19 +196,19 @@ namespace Mila::Dnn::Compute
             }
 #endif
 
-            //if (cublas_handle_)
-            //{
-            //    cublasLtDestroy( cublas_handle_ );
-            //    cublas_handle_ = nullptr;
-            //}
+            if (cublas_handle_)
+            {
+                cublasLtDestroy( cublas_handle_ );
+                cublas_handle_ = nullptr;
+            }
 
-            //// Destroy stream last
-            //if (stream_created_ && stream_)
-            //{
-            //    cudaStreamDestroy( stream_ );
-            //    stream_ = nullptr;
-            //    stream_created_ = false;
-            //}
+            // Destroy stream last
+            if (stream_created_ && stream_)
+            {
+                cudaStreamDestroy( stream_ );
+                stream_ = nullptr;
+                stream_created_ = false;
+            }
         }
     };
 }

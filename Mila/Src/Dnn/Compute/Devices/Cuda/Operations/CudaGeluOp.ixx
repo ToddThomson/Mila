@@ -27,6 +27,7 @@ import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
+import Compute.IExecutionContext;
 import Compute.CudaDeviceResources;
 import Compute.OperationType;
 import Compute.MemoryResource;
@@ -128,8 +129,8 @@ namespace Mila::Dnn::Compute
         using MR = CudaDeviceMemoryResource;
         using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
-        using Parameters = std::vector<std::shared_ptr<TensorType>>;
-        using OutputState = std::vector<std::shared_ptr<TensorType>>;
+        //using Parameters = std::vector<std::shared_ptr<TensorType>>;
+        //using OutputState = std::vector<std::shared_ptr<TensorType>>;
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::native_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 
@@ -140,7 +141,7 @@ namespace Mila::Dnn::Compute
         }
 
         // ====================================================================
-		// Lifecycle
+        // Lifecycle - None needed for stateless GELU
         // ====================================================================
 
 		// ====================================================================
@@ -206,8 +207,8 @@ namespace Mila::Dnn::Compute
         * @param output_state Cache tensors from forward pass.
         */
         void backward(
-            const ITensor& output_gradient,
             const ITensor& input,
+            const ITensor& output_gradient,
             ITensor& input_gradient ) const {
 
             //ComputePrecision::Policy policy = this->getPrecisionPolicy();

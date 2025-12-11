@@ -409,6 +409,7 @@ namespace Modules::Activations::Tests
 
         gelu->setTraining( true );
         gelu->build( shape );
+        
         gelu->forward( input, output );
         gelu->backward( input, output_grad, input_grad );
 
@@ -520,6 +521,7 @@ namespace Modules::Activations::Tests
 
         cuda_gelu->setTraining( true );
         cuda_gelu->build( shape );
+        
         cuda_gelu->forward( cuda_input, cuda_output );
         cuda_gelu->backward( cuda_input, cuda_output_grad, cuda_input_grad );
 

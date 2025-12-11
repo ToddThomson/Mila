@@ -33,7 +33,7 @@ import Compute.Precision;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
-//import Compute.CudaExecutionContext;
+import Compute.IExecutionContext;
 import Compute.OperationType;
 import Compute.MemoryResource;
 import Compute.CudaDeviceMemoryResource;
@@ -697,14 +697,9 @@ namespace Mila::Dnn::Compute
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::native_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 
-        CudaLinearOp( std::shared_ptr<CudaExecutionContext> context, const LinearConfig& config )
-            : context_( context ), config_( config ), impl_()
+        CudaLinearOp( IExecutionContext* context, const LinearConfig& config )
+            : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaLinearOp" ) ), config_( config ), impl_()
         {
-            if (!context_)
-            {
-                throw std::runtime_error( "CudaLinearOp requires a CUDA execution context" );
-            }
-
             config_.validate();
         }
 
@@ -1002,8 +997,9 @@ namespace Mila::Dnn::Compute
         }
 
     private:
+
         LinearConfig config_;
-        std::shared_ptr<CudaExecutionContext> context_;
+        CudaExecutionContext* context_;
         Detail::cuda_matmul_impl<NativeType> impl_;
 
         const NativeType* weight_{ nullptr };
@@ -1146,7 +1142,7 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32>(
                 opName,
-                []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
+                []( IExecutionContext* context,
                     const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
                 {
                     const auto& linearConfig = static_cast<const LinearConfig&>(config);

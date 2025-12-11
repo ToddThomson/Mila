@@ -109,7 +109,7 @@ export import Compute.OperationRegistryHelpers;
 // export import Compute.OperationAttributes;
 
 // ====================================================================
-// Compute - CPU Operations
+// Compute - CPU Operations ( internal )
 // ====================================================================
 //export import Compute.CpuEncoderOp;
 //export import Compute.CpuGeluOp;
@@ -119,7 +119,7 @@ export import Compute.OperationRegistryHelpers;
 //export import Compute.CpuSoftmaxOp;
 
 // ====================================================================
-// Compute - CUDA Operations
+// Compute - CUDA Operations ( internal )
 // ====================================================================
 //export import Compute.CudaEncoderOp;
 //export import Compute.CudaGeluOp;
@@ -177,7 +177,7 @@ export import Dnn.ConnectionType;
 //export import Dnn.Components.Encoder;
 export import Dnn.Components.Gelu;
 //export import Dnn.Components.LayerNorm;
-//export import Dnn.Components.Linear;
+export import Dnn.Components.Linear;
 //export import Dnn.Components.Residual;
 //export import Dnn.Components.Softmax;
 //export import Dnn.Components.SoftmaxCrossEntropy;

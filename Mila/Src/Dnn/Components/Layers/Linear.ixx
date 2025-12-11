@@ -32,6 +32,7 @@ import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
+import Compute.IExecutionContext;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
@@ -53,11 +54,7 @@ namespace Mila::Dnn
      *
      * Delegates computation to a device-specific UnaryOperation implementation
      * registered in the OperationRegistry. Accepts a type-erased IExecutionContext
-     * to hide device-specific implementation details from users.
-     *
-     * Construction:
-     * - Primary: std::make_shared<Linear>(exec_context, config) - Network-managed
-     * - Convenience: std::make_shared<Linear>(device_id, config) - Standalone
+     * ownership model compatible with other components (standalone or shared).
      *
      * @tparam TDeviceType Compile-time device type (Cpu, Cuda, Metal, Rocm).
      * @tparam TPrecision Compile-time tensor precision (FP32, FP16, BF16, etc.).
@@ -71,50 +68,27 @@ namespace Mila::Dnn
         using TensorType = Tensor<TPrecision, MR>;
 
         /**
-         * @brief Construct with an existing execution context.
+         * @brief Construct with a DeviceId (standalone): create and own an ExecutionContext.
          *
-         * Primary constructor for Network-managed components where the context
-         * is shared across multiple components. Accepts type-erased IExecutionContext
-         * to hide device-specific implementation details.
+         * Creates and owns an ExecutionContext for the specified device.
          *
-         * @param exec_context Type-erased execution context (IExecutionContext).
+         * @param device_id Device identifier (use Device::Cuda(0), Device::Cpu(), etc.).
          * @param config Linear configuration.
-         * @throws std::invalid_argument If exec_context is null or device type mismatch.
          */
-        explicit Linear(
-            std::shared_ptr<IExecutionContext> exec_context,
-            const LinearConfig& config
-        )
-            : exec_context_(exec_context), config_(config)
+        explicit Linear( DeviceId device_id, const LinearConfig& config )
+            : owned_context_( createOwnedContext( device_id ) ),
+              exec_context_( owned_context_.get() ),
+              config_( config )
         {
             if (!exec_context_)
             {
-                throw std::invalid_argument("ExecutionContext cannot be null.");
+                throw std::runtime_error( "ExecutionContext cannot be null." );
             }
 
             validateDeviceType();
             config_.validate();
             initializeParameters();
             createOperation();
-        }
-
-        /**
-         * @brief Construct with device identifier (context created internally).
-         *
-         * Convenience constructor for standalone components and testing.
-         * Creates a new execution context for the specified device.
-         *
-         * @param device_id Device identifier (use Device::Cuda(0), Device::Cpu(), etc.).
-         * @param config Linear configuration.
-         * @throws std::invalid_argument If device type doesn't match template parameter.
-         * @throws std::runtime_error If context creation fails.
-         */
-        explicit Linear(
-            DeviceId device_id,
-            const LinearConfig& config
-        )
-            : Linear(createExecutionContext(device_id), config)
-        {
         }
 
         ~Linear() override = default;
@@ -431,6 +405,29 @@ namespace Mila::Dnn
     protected:
 
         /**
+         * @brief Construct with a non-owning ExecutionContext (used for child components).
+         *
+         * Matches the ownership pattern used by Gelu: child components receive
+         * a raw pointer to an ExecutionContext owned by the parent.
+         *
+         * @param exec_context Non-owning execution context pointer (must be non-null).
+         * @param config Linear configuration.
+         */
+        explicit Linear( IExecutionContext* exec_context, const LinearConfig& config )
+            : exec_context_( exec_context ), config_( config )
+        {
+            if (!exec_context_)
+            {
+                throw std::invalid_argument( "ExecutionContext cannot be null." );
+            }
+
+            validateDeviceType();
+            config_.validate();
+            initializeParameters();
+            createOperation();
+        }
+
+        /**
          * @brief Hook invoked when training mode is about to change.
          *
          * Propagate training mode to the backend operation and allocate / free
@@ -465,8 +462,14 @@ namespace Mila::Dnn
         std::shared_ptr<TensorType> weight_grad_{nullptr};
         std::shared_ptr<TensorType> bias_grad_{nullptr};
 
-        std::unique_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{nullptr};
-        IExecutionContext* exec_context_;
+        // NOTE: Must be shared_ptr rather than unique_ptr
+        std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{nullptr};
+
+        // Execution context ownership model:
+        // - Standalone: owned_context_ holds the created context, exec_context_ points to it
+        // - Child: owned_context_ is null, exec_context_ points to parent's context
+        std::unique_ptr<IExecutionContext> owned_context_{ nullptr };
+        IExecutionContext* exec_context_{ nullptr };
 
         /**
          * @brief Validate that execution context device type matches template parameter.
@@ -574,20 +577,15 @@ namespace Mila::Dnn
         /**
          * @brief Create the backend compute operation.
          *
-         * Casts type-erased IExecutionContext to concrete ExecutionContext<TDeviceType>
-         * for backend operation creation. The cast is safe because validateDeviceType()
-         * has already verified the device type matches.
+         * Uses the type-erased IExecutionContext pointer to request a device-specific
+         * UnaryOperation from the OperationRegistry.
          */
         void createOperation()
         {
-            auto concrete_context = std::static_pointer_cast<ExecutionContext<TDeviceType>>(
-                exec_context_
-            );
-
             operation_ = OperationRegistry::instance()
                 .createUnaryOperation<TDeviceType, TPrecision>(
                     "LinearOp",
-                    concrete_context,
+                    exec_context_,
                     config_
                 );
 
@@ -595,6 +593,27 @@ namespace Mila::Dnn
             {
                 throw std::runtime_error("Failed to create Linear compute backend operation.");
             }
+        }
+
+        static std::unique_ptr<IExecutionContext> createOwnedContext( DeviceId device_id )
+        {
+            if (device_id.type != TDeviceType)
+            {
+                throw std::invalid_argument(
+                    std::format( "Linear: constructor device type mismatch: expected {}, got {}",
+                        deviceTypeToString( TDeviceType ),
+                        deviceTypeToString( device_id.type ) )
+                );
+            }
+
+            auto context = createExecutionContext( device_id );
+
+            if (!context)
+            {
+                throw std::runtime_error( "Linear: failed to create execution context for device" );
+            }
+
+            return context;
         }
     };
 }

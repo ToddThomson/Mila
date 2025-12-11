@@ -11,32 +11,45 @@ module;
 #include <stdexcept>
 
 export module Compute.CpuGeluOp;
+//
+//import Dnn.Components.Gelu;
+//import Dnn.Tensor;
+//import Dnn.ITensor;
+//import Dnn.TensorTypes;
+//import Dnn.TensorDataType;
+//import Dnn.TensorDataTypeTraits;
+//import Dnn.ComponentConfig;
+//import Compute.DeviceType;
+//import Compute.ExecutionContext;
+//import Compute.IExecutionContext;
+//import Compute.OperationType;
+//import Compute.OperationBase;
+//import Compute.UnaryOperation;
+//import Compute.OperationRegistry;
+//import Compute.MemoryResource;
+//import Compute.CpuMemoryResource;
+//import Compute.CpuTensorDataTypeTraits;
+//import Compute.CpuDevice;
+//import Compute.Precision;
 
 import Dnn.Components.Gelu;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
-import Dnn.TensorDataTypeTraits;
 import Dnn.ComponentConfig;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
-//import Compute.CpuExecutionContext;
 import Compute.OperationType;
-import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
-import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
-import Compute.CpuTensorDataTypeTraits;
-import Compute.CpuDevice;
-import Compute.Precision;
-
-using namespace Mila::Dnn;
 
 namespace Mila::Dnn::Compute
 {
+    using namespace Mila::Dnn;
+
     /**
      * @brief Scaling factor for GELU tanh approximation: sqrt(2/pi)
      *
@@ -168,7 +181,6 @@ namespace Mila::Dnn::Compute
          * @param input_grad Gradient to propagate to previous layer (dL/dinput, may be scalar).
          * @param output_state Cached tensors from forward pass (not used currently).
          */
-
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
@@ -205,6 +217,7 @@ namespace Mila::Dnn::Compute
                     0.5f * (1.0f + tanh_out) +
                     x * 0.5f * sech_out * GELU_SCALING_FACTOR * (1.0f + 3.0f * 0.044715f * x * x)
                     );
+                
                 dinp[i] += local_grad * dout[i];
             }
         }
