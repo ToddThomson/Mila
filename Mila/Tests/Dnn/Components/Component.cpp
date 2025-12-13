@@ -17,13 +17,11 @@ namespace Dnn::Components::Tests
     {
     public:
         MockComponentConfig()
-			: ComponentConfig( "mock")
-        {
-        }
+            : ComponentConfig( "mock" )
+        {}
 
         void validate() const override
         {
-            // Basic validation: name must not be empty
             if ( getName().empty() )
             {
                 throw std::invalid_argument( "MockComponentConfig: name must not be empty" );
@@ -41,37 +39,37 @@ namespace Dnn::Components::Tests
     };
 
     /**
-     * @brief Mock component for testing base Component functionality
+     * Mock component adapted to the new Component base API.
      *
-     * Implements the slimmer Component<TDeviceType, TPrecision> interface.
-     * The mock owns an ExecutionContext for tests and exposes minimal helpers used
-     * by the unit tests (execution context access, simple string helpers).
+     * - Supports construction without a device (no execution context set).
+     * - Supports construction from a DeviceId (owns the created execution context).
      *
-     * @tparam TDeviceType The compute device (CPU or CUDA)
-     * @tparam TPrecision  The tensor data precision (e.g. FP32)
+     * Derived class calls the protected Component::setExecutionContext() when an
+     * execution context is available.
      */
     template<DeviceType TDeviceType, TensorDataType TPrecision>
     class MockComponent : public Component<TDeviceType, TPrecision>
     {
     public:
         using ComponentBase = Component<TDeviceType, TPrecision>;
-        using ExecutionContextType = ExecutionContext<TDeviceType>;
 
-        explicit MockComponent( IExecutionContext* exec_context, const MockComponentConfig& config )
-            : exec_context_( exec_context ), config_( config )
+        explicit MockComponent( const MockComponentConfig& config )
+            : config_( config )
         {
-            if ( !exec_context_ )
-            {
-                throw std::invalid_argument( "ExecutionContext cannot be null" );
-            }
-
             config_.validate();
         }
 
-        // Expose execution context for tests
-        IExecutionContext* getExecutionContext() const
+        MockComponent( const MockComponentConfig& config, std::optional<DeviceId> device_id )
+            : config_( config )
         {
-            return exec_context_;
+            config_.validate();
+
+            if ( device_id.has_value() )
+            {
+                // Own an execution context when constructed from DeviceId.
+                owned_exec_context_ = createExecutionContext( device_id.value() );
+                this->setExecutionContext( owned_exec_context_.get() );
+            }
         }
 
         // ====================================================================
@@ -92,8 +90,6 @@ namespace Dnn::Components::Tests
             {
                 throw std::runtime_error( "Input and output tensors must have the same size" );
             }
-
-            // Minimal semantics for mock: no actual data copy required for these tests
         }
 
         void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
@@ -111,13 +107,11 @@ namespace Dnn::Components::Tests
             {
                 throw std::runtime_error( "Gradient tensors must have the same size" );
             }
-
-            // Minimal semantics for mock
         }
 
         void synchronize() override
         {
-            exec_context_->synchronize();
+            this->getExecutionContext()->synchronize();
         }
 
         size_t parameterCount() const override
@@ -137,6 +131,8 @@ namespace Dnn::Components::Tests
 
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
+            (void)archive;
+            (void)mode;
         }
 
         std::string toString() const override
@@ -147,18 +143,6 @@ namespace Dnn::Components::Tests
             return oss.str();
         }
 
-        // ====================================================================
-        // Build / lifecycle
-        // ====================================================================
-
-        void onBuilding( const shape_t& /*input_shape*/ ) override
-        {
-        }
-
-        // ====================================================================
-        // State/config helpers required by tests
-        // ====================================================================
-
         std::string getName() const override
         {
             return config_.getName();
@@ -166,16 +150,18 @@ namespace Dnn::Components::Tests
 
         DeviceId getDeviceId() const override
         {
-            return exec_context_->getDeviceId();
+            return this->getExecutionContext()->getDeviceId();
         }
 
-        // Expose precision policy for tests
+        // ====================================================================
+        // Test-specific helpers
+        // ====================================================================
+
         ComputePrecision::Policy getPrecisionPolicy() const
         {
             return config_.getPrecisionPolicy();
         }
 
-        // Test helpers to mimic original test expectations
         std::string testParametersToString() const
         {
             return parametersToString();
@@ -186,8 +172,13 @@ namespace Dnn::Components::Tests
             return stateToString();
         }
 
+    protected:
+
+        void onBuilding( const shape_t& /*input_shape*/ ) override
+        {}
+
     private:
-        // Simple device validation helper used by the mock
+
         void validateTensorDevice( const ITensor& tensor, const char* name ) const
         {
             if ( tensor.getDeviceType() != TDeviceType )
@@ -206,30 +197,25 @@ namespace Dnn::Components::Tests
 
         std::string stateToString() const
         {
-            // Empty state for this simple mock
             return std::string();
         }
 
         MockComponentConfig config_;
-        IExecutionContext* exec_context_;
+        std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
     };
 
     /**
-     * @brief Test data structure holding component and test configuration
-     *
-     * TPrecision defaults to FP32 so existing tests remain concise while
-     * exercising the new Component<TDevice, TPrecision> API.
+     * Test data factory updated to work with the new MockComponent constructors.
+     * Factories continue to provide both "create from DeviceId" and "create with
+     * an owned execution context" flows.
      */
     template<DeviceType TDeviceType, TensorDataType TPrecision = TensorDataType::FP32>
     struct ComponentTestData
     {
         std::shared_ptr<MockComponent<TDeviceType, TPrecision>> component;
         bool is_training;
-
-        // Keep ownership of the created execution context so it outlives the component.
         std::unique_ptr<IExecutionContext> exec_context;
 
-        // Create by device id (now create ExecutionContext via factory and forward raw ptr to component ctor)
         static ComponentTestData Create(
             int device_id,
             bool is_training = false )
@@ -240,21 +226,20 @@ namespace Dnn::Components::Tests
             MockComponentConfig config;
             config.withName( "mock_component" );
 
-            // Build an execution context appropriate for the device type via factory
-            std::unique_ptr<IExecutionContext> ctx;
-
             if constexpr ( TDeviceType == DeviceType::Cuda )
             {
-                ctx = createExecutionContext( Device::Cuda( device_id ) );
+                data.exec_context = createExecutionContext( Device::Cuda( device_id ) );
             }
             else
             {
-                ctx = createExecutionContext( Device::Cpu() );
+                data.exec_context = createExecutionContext( Device::Cpu() );
             }
 
-            data.exec_context = std::move( ctx );
-
-            data.component = std::make_shared<MockComponent<TDeviceType, TPrecision>>( data.exec_context.get(), config );
+            // Construct component from the DeviceId (component will own its exec context)
+            data.component = std::make_shared<MockComponent<TDeviceType, TPrecision>>(
+                config,
+                std::optional<DeviceId>( data.exec_context->getDeviceId() )
+            );
 
             if ( data.is_training )
             {
@@ -276,7 +261,11 @@ namespace Dnn::Components::Tests
 
             data.exec_context = std::move( exec_context );
 
-            data.component = std::make_shared<MockComponent<TDeviceType, TPrecision>>( data.exec_context.get(), config );
+            // Construct component from the DeviceId (component will own its exec context)
+            data.component = std::make_shared<MockComponent<TDeviceType, TPrecision>>(
+                config,
+                std::optional<DeviceId>( data.exec_context->getDeviceId() )
+            );
 
             if ( data.is_training )
             {
@@ -291,8 +280,7 @@ namespace Dnn::Components::Tests
     {
     protected:
         void SetUp() override
-        {
-        }
+        {}
 
         void TearDown() override
         {
@@ -308,7 +296,6 @@ namespace Dnn::Components::Tests
         {
             if ( !cpu_data_.component )
             {
-                // CPU device id: 0 (CPU implementations may ignore the id)
                 cpu_data_ = ComponentTestData<DeviceType::Cpu>::Create( 0 );
             }
             return cpu_data_;
@@ -345,7 +332,6 @@ namespace Dnn::Components::Tests
         {
             if ( !context_cpu_data_.component )
             {
-                // Create a CPU execution context explicitly via factory
                 auto exec_context = createExecutionContext( Device::Cpu() );
                 context_cpu_data_ = ComponentTestData<DeviceType::Cpu>::CreateWithContext( std::move( exec_context ) );
             }
@@ -356,8 +342,7 @@ namespace Dnn::Components::Tests
         {
             if ( !context_cuda_data_.component )
             {
-                // Create a CUDA execution context for device 0 via factory
-                auto exec_context = createExecutionContext( Device::Cuda(0) );
+                auto exec_context = createExecutionContext( Device::Cuda( 0 ) );
                 context_cuda_data_ = ComponentTestData<DeviceType::Cuda>::CreateWithContext( std::move( exec_context ) );
             }
             return context_cuda_data_;
@@ -403,16 +388,12 @@ namespace Dnn::Components::Tests
     template<DeviceType TDeviceType, TensorDataType TPrecision = TensorDataType::FP32>
     void TestDeviceType( const ComponentTestData<TDeviceType, TPrecision>& data )
     {
-        auto exec_context = data.component->getExecutionContext();
-        EXPECT_NE( exec_context, nullptr );
-
-        auto device = exec_context->getDeviceId();
+        auto device = data.component->getDeviceId();
 
         EXPECT_EQ( device.type, TDeviceType );
         EXPECT_EQ( data.component->getDeviceType(), TDeviceType );
     }
 
-    // Minimal precision test to match new Component API (mock exposes precision via config)
     template<DeviceType TDeviceType, TensorDataType TPrecision = TensorDataType::FP32>
     void TestPrecision( const ComponentTestData<TDeviceType, TPrecision>& data )
     {
@@ -429,33 +410,23 @@ namespace Dnn::Components::Tests
         EXPECT_EQ( state_str, "" );
     }
 
-    /**
-     * @brief Tests forward and backward passes with ITensor interface
-     *
-     * Demonstrates that components can accept tensors with any compatible
-     * memory resource for the same device type.
-     */
     template<DeviceType TDeviceType, TensorDataType TPrecision = TensorDataType::FP32>
     void TestForwardBackward( const ComponentTestData<TDeviceType, TPrecision>& data )
     {
-        // Determine appropriate memory resource for device
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda,
             CudaDeviceMemoryResource,
             CpuMemoryResource>;
 
         std::vector<int64_t> shape = { 2, 3 };
 
-        // Get execution context & device from component
-        auto exec_ctx = data.component->getExecutionContext();
+        auto exec_ctx = data.exec_context.get();
         auto device = exec_ctx->getDeviceId();
 
-        // Create tensors using device pointer (Tensor ctor accepts device)
         Tensor<TensorDataType::FP32, MR> input( device, shape );
         Tensor<TensorDataType::FP32, MR> output( device, shape );
         Tensor<TensorDataType::FP32, MR> input_grad( device, shape );
         Tensor<TensorDataType::FP32, MR> output_grad( device, shape );
 
-        // Initialize input and output_grad
         if constexpr ( TDeviceType == DeviceType::Cpu )
         {
             auto* input_data = input.data();
@@ -463,13 +434,12 @@ namespace Dnn::Components::Tests
 
             for ( size_t i = 0; i < input.size(); ++i )
             {
-                input_data[i] = static_cast<float>( i + 1.0f );
-                grad_data[i] = 0.5f;
+                input_data[ i ] = static_cast<float>( i + 1.0f );
+                grad_data[ i ] = 0.5f;
             }
         }
         else
         {
-            // For CUDA, initialize via host tensor and transfer
             Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( Device::Cpu(), shape );
             Tensor<TensorDataType::FP32, CpuMemoryResource> host_grad( Device::Cpu(), shape );
 
@@ -478,21 +448,16 @@ namespace Dnn::Components::Tests
 
             for ( size_t i = 0; i < host_input.size(); ++i )
             {
-                host_input_data[i] = static_cast<float>( i + 1.0f );
-                host_grad_data[i] = 0.5f;
+                host_input_data[ i ] = static_cast<float>( i + 1.0f );
+                host_grad_data[ i ] = 0.5f;
             }
 
-            // Transfer to device using TensorOps if available (kept minimal here)
             exec_ctx->synchronize();
         }
 
-        // Test forward pass via ITensor interface
         EXPECT_NO_THROW( data.component->forward( input, output ) );
-
-        // Test backward pass via ITensor interface
         EXPECT_NO_THROW( data.component->backward( input, output_grad, input_grad ) );
 
-        // Verify basic tensor properties (do not assume mock implements identity copy)
         EXPECT_EQ( output.size(), input.size() );
         EXPECT_EQ( input_grad.size(), output_grad.size() );
     }
@@ -505,18 +470,17 @@ namespace Dnn::Components::Tests
 
         if constexpr ( TDeviceType == DeviceType::Cuda )
         {
-            // Negative device id should be invalid for CUDA: factory must throw
             EXPECT_THROW(
-                ( createExecutionContext( Device::Cuda(-1) ) ), std::invalid_argument
+                (createExecutionContext( Device::Cuda( -1 ) )),
+                std::invalid_argument
             );
         }
         else
         {
-            // CPU may accept the id (ignored), ensure construction succeeds
-            auto exec_ctx = createExecutionContext( Device::Cpu() );
-            
+            // Constructing with a valid Cpu DeviceId should not throw.
+            DeviceId cpu_id = Device::Cpu();
             EXPECT_NO_THROW(
-                (std::make_shared<MockComponent<TDeviceType, TPrecision>>(  exec_ctx.get(), config ))
+                (std::make_shared<MockComponent<TDeviceType, TPrecision>>( config, std::optional<DeviceId>( cpu_id ) ))
             );
         }
     }
@@ -527,12 +491,41 @@ namespace Dnn::Components::Tests
         MockComponentConfig config;
         config.withName( "test_component" );
 
-        std::unique_ptr<IExecutionContext> null_context;
+        // Construct without device id is allowed; calling getDeviceId() should throw.
+        auto comp = std::make_shared<MockComponent<TDeviceType, TPrecision>>( config );
 
         EXPECT_THROW(
-            (std::make_shared<MockComponent<TDeviceType, TPrecision>>( null_context.get(), config )),
-            std::invalid_argument
+            comp->getDeviceId(),
+            std::runtime_error
         );
+    }
+
+    template<DeviceType TDeviceType, TensorDataType TPrecision = TensorDataType::FP32>
+    void TestDeviceTypeMismatch()
+    {
+        MockComponentConfig config;
+        config.withName( "test_component" );
+
+        if constexpr ( TDeviceType == DeviceType::Cuda )
+        {
+            auto cpu_ctx = createExecutionContext( Device::Cpu() );
+            DeviceId cpu_id = cpu_ctx->getDeviceId();
+
+            EXPECT_THROW(
+                (std::make_shared<MockComponent<TDeviceType, TPrecision>>( config, std::optional<DeviceId>( cpu_id ) )),
+                std::invalid_argument
+            );
+        }
+        else
+        {
+            auto cuda_ctx = createExecutionContext( Device::Cuda( 0 ) );
+            DeviceId cuda_id = cuda_ctx->getDeviceId();
+
+            EXPECT_THROW(
+                (std::make_shared<MockComponent<TDeviceType, TPrecision>>( config, std::optional<DeviceId>( cuda_id ) )),
+                std::invalid_argument
+            );
+        }
     }
 
     // ====================================================================
@@ -681,5 +674,15 @@ namespace Dnn::Components::Tests
     TEST_F( ComponentTests, NullExecutionContext_Cuda )
     {
         TestNullExecutionContext<DeviceType::Cuda>();
+    }
+
+    TEST_F( ComponentTests, DeviceTypeMismatch_Cpu )
+    {
+        TestDeviceTypeMismatch<DeviceType::Cpu>();
+    }
+
+    TEST_F( ComponentTests, DeviceTypeMismatch_Cuda )
+    {
+        TestDeviceTypeMismatch<DeviceType::Cuda>();
     }
 }

@@ -57,12 +57,13 @@ export import Compute.OperationBase;
 export import Compute.OperationType;
 export import Compute.UnaryOperation;
 export import Compute.BinaryOperation;
-//export import Compute.Precision;
+export import Compute.Precision;
 
 // ====================================================================
 // Compute - Execution Context
 // ====================================================================
-export import Compute.ExecutionContext;
+export import Compute.IExecutionContext;
+export import Compute.ExecutionContextFactory;
 
 // ====================================================================
 // Compute - Devices

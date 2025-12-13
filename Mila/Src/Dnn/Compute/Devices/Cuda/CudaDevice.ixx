@@ -274,7 +274,7 @@ namespace Mila::Dnn::Compute
     };
 
     /**
-     * @brief CUDA device plugin for device-agnostic registration.
+     * @brief CUDA device registrar for device-agnostic registration.
      *
      * Encapsulates CUDA-specific logic for device discovery and registration,
      * providing a clean static interface while handling CUDA runtime API

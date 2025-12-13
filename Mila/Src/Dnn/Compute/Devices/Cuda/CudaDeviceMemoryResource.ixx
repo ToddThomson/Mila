@@ -102,6 +102,7 @@ namespace Mila::Dnn::Compute
                     std::string( cudaGetErrorString( result ) ) +
                     " (size: " + std::to_string( bytes ) + " bytes)" +
                     " (device: " + std::to_string( device_id_ ) + ")";
+                
                 throw CudaBadAlloc( errorMsg );
             }
 

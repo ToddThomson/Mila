@@ -19,19 +19,31 @@ namespace Dnn::Networks::Tests
     /**
      * @brief Minimal test component using factory-compatible constructor.
      *
-     * Updated to accept IExecutionContext* to work with CompositeComponent's
-     * factory method pattern.
+     * Updated to support both construction from an existing non-owning
+     * IExecutionContext* (used by CompositeComponent::addComponent) and
+     * construction from a DeviceId (component owns created execution context).
      */
     class TestComponent : public Component<DeviceType::Cpu, TensorDataType::FP32>
     {
     public:
+        using ComponentBase = Component<DeviceType::Cpu, TensorDataType::FP32>;
+
+        // Construct from non-owning execution context (used by CompositeComponent::addComponent)
         explicit TestComponent( IExecutionContext* exec_context, size_t param_count = 0 )
-            : exec_context_( exec_context ), param_count_( param_count )
+            : ComponentBase()
+            , param_count_( param_count )
         {
-            if ( !exec_context_ )
-            {
-                throw std::invalid_argument( "TestComponent: ExecutionContext cannot be null" );
-            }
+            // Delegate context validation/setting to base helper
+            setExecutionContext( exec_context );
+        }
+
+        // Construct from DeviceId: component will own an execution context for the device
+        explicit TestComponent( DeviceId device_id, size_t param_count = 0 )
+            : ComponentBase()
+            , param_count_( param_count )
+        {
+            owned_exec_context_ = createExecutionContext( device_id );
+            setExecutionContext( owned_exec_context_.get() );
         }
 
         void synchronize() override
@@ -72,22 +84,24 @@ namespace Dnn::Networks::Tests
 
         DeviceId getDeviceId() const override
         {
-            return exec_context_->getDeviceId();
+            return this->getExecutionContext()->getDeviceId();
         }
+
+    protected:
 
         void onBuilding( const shape_t& /*input_shape*/ ) override
         {}
 
     private:
-        IExecutionContext* exec_context_;
         std::string name_;
         size_t param_count_;
+        std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
     };
 
     /**
      * @brief Concrete Network subclass for testing.
      *
-     * Provides public access to protected constructor and implements onBuilding
+     * Exposes protected constructor for test scenarios and implements onBuilding
      * to propagate build to all children.
      */
     template<DeviceType TDeviceType, TensorDataType TPrecision = TensorDataType::FP32>
@@ -105,9 +119,9 @@ namespace Dnn::Networks::Tests
         {}
 
     protected:
+
         void onBuilding( const shape_t& input_shape ) override
         {
-            // Build all children - parent controls lifecycle
             for ( const auto& [name, component] : this->getNamedComponents() )
             {
                 if ( !component->isBuilt() )
@@ -175,6 +189,24 @@ namespace Dnn::Networks::Tests
         );
     }
 
+    TEST_F( NetworkTests, ConstructWithDeviceTypeMismatch_Throws )
+    {
+        EXPECT_THROW(
+            TestableNetwork<DeviceType::Cpu>( Device::Cuda( 0 ), "mismatch_net" ),
+            std::invalid_argument
+        );
+    }
+
+    TEST_F( NetworkTests, ConstructWithSharedContext_DeviceTypeMismatch_Throws )
+    {
+        auto cuda_context = createExecutionContext( Device::Cuda( 0 ) );
+
+        EXPECT_THROW(
+            TestableNetwork<DeviceType::Cpu>( cuda_context.get(), "mismatch_net" ),
+            std::invalid_argument
+        );
+    }
+
     // ====================================================================
     // Chainable Factory Method Tests
     // ====================================================================
@@ -183,7 +215,6 @@ namespace Dnn::Networks::Tests
     {
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "chain_test" );
 
-        // Test method chaining
         net.addComponent<TestComponent>( "comp1", 5 )
             .addComponent<TestComponent>( "comp2", 10 );
 
@@ -196,7 +227,6 @@ namespace Dnn::Networks::Tests
     {
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "multi_chain" );
 
-        // Test extended chaining
         net.addComponent<TestComponent>( "comp1", 1 )
             .addComponent<TestComponent>( "comp2", 2 )
             .addComponent<TestComponent>( "comp3", 3 )
@@ -237,7 +267,6 @@ namespace Dnn::Networks::Tests
 
         net.addComponent<TestComponent>( "pre_build", 0 );
 
-        // Only network build needed
         net.build( { 1 } );
 
         EXPECT_THROW(
@@ -322,7 +351,6 @@ namespace Dnn::Networks::Tests
 
         net.addComponent<TestComponent>( "locked", 0 );
 
-        // Only network build needed
         net.build( { 1 } );
 
         EXPECT_THROW(
@@ -355,7 +383,6 @@ namespace Dnn::Networks::Tests
 
         net.addComponent<TestComponent>( "locked", 0 );
 
-        // Only network build needed
         net.build( { 1 } );
 
         EXPECT_THROW(
@@ -382,7 +409,6 @@ namespace Dnn::Networks::Tests
         EXPECT_FALSE( comp1->isBuilt() );
         EXPECT_FALSE( comp2->isBuilt() );
 
-        // Only network build needed - children built via onBuilding()
         net.build( { 2, 3 } );
 
         EXPECT_TRUE( net.isBuilt() );
@@ -398,7 +424,6 @@ namespace Dnn::Networks::Tests
             .addComponent<TestComponent>( "p2", 20 )
             .addComponent<TestComponent>( "p3", 15 );
 
-        // Only network build needed
         net.build( { 1 } );
 
         EXPECT_EQ( net.parameterCount(), 45u );
@@ -434,7 +459,6 @@ namespace Dnn::Networks::Tests
 
         net.addComponent<TestComponent>( "eval", 0 );
 
-        // Only network build needed
         net.build( { 1 } );
 
         EXPECT_FALSE( net.isTraining() );
@@ -450,7 +474,6 @@ namespace Dnn::Networks::Tests
 
         net.addComponent<TestComponent>( "train", 0 );
 
-        // Only network build needed
         net.build( { 1 } );
 
         net.setTraining( true );
@@ -536,7 +559,6 @@ namespace Dnn::Networks::Tests
         net.addComponent<TestComponent>( "mod1", 10 )
             .addComponent<TestComponent>( "mod2", 20 );
 
-        // Only network build needed
         net.build( { 1 } );
 
         {
@@ -582,7 +604,7 @@ namespace Dnn::Networks::Tests
         std::filesystem::remove( path, ec );
     }
 
-    TEST_F( NetworkTests, Save_BeforeBuild_Throws )
+    TEST_F( NetworkTests, Save_BeforeBuild_Succeeds )
     {
         auto path = makeTempArchivePath();
         std::error_code ec;
@@ -595,9 +617,8 @@ namespace Dnn::Networks::Tests
         auto writer = std::make_unique<ZipSerializer>();
         ModelArchive archive( path.string(), std::move( writer ), OpenMode::Write );
 
-        EXPECT_THROW(
-            net.save( archive, SerializationMode::Architecture ),
-            std::runtime_error
+        EXPECT_NO_THROW(
+            net.save( archive, SerializationMode::Architecture )
         );
 
         archive.close();
@@ -614,7 +635,6 @@ namespace Dnn::Networks::Tests
 
         net.addComponent<TestComponent>( "loadme", 5 );
 
-        // Only network build needed
         net.build( { 1 } );
 
         {

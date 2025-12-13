@@ -15,6 +15,7 @@ module;
 #include <stdexcept>
 #include <format>
 #include <utility>
+#include <optional>
 
 export module Dnn.Components.Gelu;
 export import :Config;
@@ -28,7 +29,8 @@ import Dnn.TensorTypes;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
-import Compute.ExecutionContext;
+import Compute.IExecutionContext;
+import Compute.ExecutionContextFactory;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.CpuMemoryResource;
@@ -54,13 +56,20 @@ namespace Mila::Dnn
      * @tparam TDeviceType Compile-time device identifier (DeviceType::Cpu or DeviceType::Cuda).
      * @tparam TPrecision  Tensor data precision used by this module.
      *
+     * Construction Modes:
+     * - **Standalone mode**: Construct with DeviceId to create and own an ExecutionContext.
+     *   The component manages the context lifetime and uses it for operation execution.
+     * - **Shared mode**: Construct without DeviceId; parent (Network/CompositeComponent) 
+     *   provides ExecutionContext via setExecutionContext() after construction.
+     *
      * Ownership:
-     * - Standalone mode: creates and owns an ExecutionContext via the public constructor.
-     * - Child mode: shares parent's ExecutionContext via the protected constructor.
+     * - Standalone mode: Component owns its ExecutionContext (stored in owned_exec_context_).
+     * - Shared mode: Component borrows ExecutionContext from parent; lifecycle managed externally.
      *
      * Preconditions:
      * - The module's `build(const shape_t&)` must be called before `forward()` to
      *   fully initialize the backend operation.
+     * - Shared mode requires parent to call setExecutionContext() before build().
      *
      * Behavior:
      * - Stateless: no trainable parameters; `parameterCount()` returns 0 and
@@ -80,50 +89,69 @@ namespace Mila::Dnn
     {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
-        using ExecutionContextType = ExecutionContext<TDeviceType>;
         using TensorType = Tensor<TPrecision, MR>;
 
         /**
-         * @brief Construct GELU in standalone mode with owned ExecutionContext.
+         * @brief Construct GELU activation module with optional ExecutionContext ownership.
          *
-         * Creates and owns an ExecutionContext for the specified device.
-         * Suitable for top-level, independently-used components.
+         * Supports two construction modes:
          *
-         * @param device_id DeviceId identifying the device for this module.
+         * **Standalone mode (device_id provided)**:
+         * - Creates and owns an ExecutionContext for the specified device.
+         * - Registers the owned context with the base Component class via setExecutionContext().
+         * - Backend operation is created immediately in onExecutionContextSet() hook.
+         * - Use case: Unit tests, standalone component usage.
+         *
+         * **Shared mode (device_id not provided)**:
+         * - Does not create ExecutionContext; expects parent to provide one.
+         * - Parent (Network/CompositeComponent) calls setExecutionContext() after construction.
+         * - Backend operation created when parent sets context.
+         * - Use case: Components added to Network via addComponent<Gelu>(...).
+         *
          * @param config GELU configuration (name and approximation method).
+         * @param device_id Optional device identifier. If provided, creates owned ExecutionContext
+         *                  for standalone mode. If nullopt, expects shared context from parent.
          *
+         * @throws std::invalid_argument if config is invalid (via config.validate()).
          * @throws std::invalid_argument if device_id.type does not match TDeviceType.
-         * @throws std::runtime_error if ExecutionContext creation fails.
+         * @throws std::runtime_error if ExecutionContext creation fails (standalone mode).
+         * @throws std::runtime_error if backend operation creation fails in onExecutionContextSet().
+         *
+         * @note In standalone mode, setExecutionContext() is called to register the owned
+         *       context with the base class, enabling getExecutionContext() and triggering
+         *       the onExecutionContextSet() hook for operation creation.
+         *
+         * @example
+         * // Standalone mode (owns context)
+         * GeluConfig config;
+         * Gelu<DeviceType::Cpu, TensorDataType::FP32> gelu(config, Device::Cpu());
+         *
+         * @example
+         * // Shared mode (borrows parent's context)
+         * Network<DeviceType::Cpu, TensorDataType::FP32> net(Device::Cpu(), "my_net");
+         * net.addComponent<Gelu>("gelu", GeluConfig());
          */
-        explicit Gelu( DeviceId device_id, const GeluConfig& config )
-            : owned_context_( createOwnedContext( device_id ) ), exec_context_( owned_context_.get() ), config_( config )
+        explicit Gelu( const GeluConfig& config, std::optional<DeviceId> device_id = std::nullopt )
+            : config_( config )
         {
             config_.validate();
-            createOperation();
+
+            if (device_id.has_value())
+            {
+                if ( device_id->type != TDeviceType )
+                {
+                    throw std::invalid_argument( "Gelu: device type mismatch" );
+                }
+
+                owned_exec_context_ = createExecutionContext( device_id.value() );
+                
+                // Register owned context with base class to enable getExecutionContext()
+                // and trigger onExecutionContextSet() hook for operation creation
+                this->setExecutionContext( owned_exec_context_.get() );
+            }
         }
 
         ~Gelu() override = default;
-
-        // ====================================================================
-        // Lifecycle
-        // ====================================================================
-        
-        /**
-         * @brief Initialize backend operation and perform any shape-dependent allocation.
-         *
-         * Allocates or configures the underlying UnaryOperation using the provided
-         * input shape. Must be called before `forward()`.
-         *
-         * @param input_shape Expected shape for input tensors.
-         *
-         * @throws std::invalid_argument If `input_shape` is incompatible with the module configuration.
-         * @throws std::runtime_error If backend allocation or build fails.
-         */
-        void onBuilding( const shape_t& input_shape ) override
-        {
-            operation_->build( input_shape );
-            input_shape_ = input_shape;
-        }
 
         // ====================================================================
         // Computation
@@ -138,6 +166,9 @@ namespace Mila::Dnn
          *
          * @param input Const reference to the input tensor (non-owning).
          * @param output Reference to the tensor that will receive results (caller-allocated).
+         *
+         * @throws std::runtime_error if module has not been built via build().
+         * @throws std::runtime_error if operation backend is not initialized.
          */
         void forward( const ITensor& input, ITensor& output )
         {
@@ -159,12 +190,12 @@ namespace Mila::Dnn
          * @param input_grad Reference to the tensor to be populated with the gradient
          *                   w.r.t. the module input (?L/?input, caller-allocated).
          *
-         * @throws std::runtime_error if module has not been built via build()
-         * @throws std::runtime_error if backend operation is not available
+         * @throws std::runtime_error if module has not been built via build().
+         * @throws std::runtime_error if module is not in training mode.
          *
-         * @note GELU has no parameters, so no parameter gradients are computed
-         * @note The implementation accumulates into input_grad (does not overwrite)
-         * @note Requires setTraining(true) for gradient computation in some backends
+         * @note GELU has no parameters, so no parameter gradients are computed.
+         * @note The implementation accumulates into input_grad (does not overwrite).
+         * @note Requires setTraining(true) for gradient computation in some backends.
          */
         void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
         {
@@ -178,28 +209,25 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Gelu::backward: module must be in training mode to compute gradients" );
             }
 
-            operation_->backward(
-                input,           // Forward input
-                output_grad,     // Gradient w.r.t. output
-                input_grad       // Output: gradient w.r.t. input
-            );
+            operation_->backward( input, output_grad, input_grad );
         }
 
         /**
          * @brief Wait for all asynchronous work submitted by this module to complete.
          *
-         * On CPU implementations this may be a no-op. Use to ensure results are
-         * visible on the host or to measure synchronous timings.
+         * Synchronizes the underlying ExecutionContext. On CPU implementations this 
+         * may be a no-op. Use to ensure results are visible on the host or to measure 
+         * synchronous timings.
          */
         void synchronize() override
         {
-            exec_context_->synchronize();
+            this->getExecutionContext()->synchronize();
         }
 
         /**
          * @brief Return the configured GELU approximation method.
          *
-         * @return Configured GeluConfig::ApproximationMethod value.
+         * @return Configured GeluConfig::ApproximationMethod value (Exact or Tanh).
          */
         GeluConfig::ApproximationMethod getApproximationMethod() const
         {
@@ -211,12 +239,20 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
-         * @brief Persist module state.
+         * @brief Persist module state to archive.
          *
-         * GELU is stateless (no trainable tensors) but we persist:
-         * - module type and name
-         * - template parameters (device and precision) so a loader can validate
-         * - serialized GeluConfig via its toJson() helper
+         * GELU is stateless (no trainable tensors) but persists:
+         * - Module type ("Gelu") and version (1)
+         * - Module name from config
+         * - Template parameters (device type and precision) for loader validation
+         * - Serialized GeluConfig (approximation method)
+         *
+         * Files written:
+         * - meta.json: Module metadata and template parameters
+         * - config.json: GeluConfig serialization
+         *
+         * @param archive Archive to write to.
+         * @param mode Serialization mode (currently unused, all state is always saved).
          */
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
@@ -237,14 +273,23 @@ namespace Mila::Dnn
 
         /**
          * @internal
-         * @brief Factory method to reconstruct from archive
+         * @brief Factory method to reconstruct Gelu module from archive.
          *
-         * Called by ComponentFactory during deserialization.
+         * Called by ComponentFactory during deserialization. Reconstructs a Gelu
+         * instance in shared mode (using provided ExecutionContext from parent).
          *
-         * @param archive Archive to read from
-         * @param module_name Name of the module in the archive
-         * @param exec_context Execution context for the new module (shared from parent)
-         * @return Unique pointer to reconstructed Gelu module
+         * Reads and validates:
+         * - meta.json: Module type, version, template parameters
+         * - config.json: GeluConfig
+         *
+         * @param archive Archive to read from.
+         * @param module_name Name of the module in the archive (for diagnostics).
+         * @param exec_context Execution context for the new module (shared from parent).
+         * @return Unique pointer to reconstructed Gelu module.
+         *
+         * @throws std::runtime_error if version mismatch or type mismatch.
+         * @throws std::runtime_error if device type or precision mismatch.
+         * @throws nlohmann::json::exception if JSON parsing fails.
          */
         static std::unique_ptr<Gelu> fromArchive_(
             ModelArchive& archive,
@@ -261,8 +306,7 @@ namespace Mila::Dnn
                 config.fromJson( cfg );
                 config.validate();
 
-                // Use protected constructor to share execution context
-                return std::unique_ptr<Gelu>( new Gelu( exec_context, config ) );
+                return std::make_unique<Gelu>( config );
             }
             catch (const json::exception& e)
             {
@@ -289,11 +333,25 @@ namespace Mila::Dnn
             return 0;
         }
 
+        /**
+         * @brief Get trainable parameter tensors.
+         *
+         * GELU has no trainable parameters.
+         *
+         * @return Empty vector.
+         */
         std::vector<ITensor*> getParameters() const override
         {
             return {};
         }
 
+        /**
+         * @brief Get parameter gradient tensors.
+         *
+         * GELU has no trainable parameters, therefore no gradients.
+         *
+         * @return Empty vector.
+         */
         std::vector<ITensor*> getGradients() const override
         {
             return {};
@@ -307,17 +365,38 @@ namespace Mila::Dnn
          * @brief Module name for logging and diagnostics.
          *
          * Returns the name stored in the GeluConfig (may be empty).
+         *
+         * @return Module name string.
          */
         std::string getName() const override
         {
             return config_.getName();
         }
 
+        /**
+         * @brief Get the device identifier for this module.
+         *
+         * Returns the DeviceId from the ExecutionContext. In standalone mode,
+         * this is the device specified at construction. In shared mode, this
+         * is the parent's device.
+         *
+         * @return DeviceId indicating device type and index.
+         */
         DeviceId getDeviceId() const override
         {
-            return exec_context_->getDeviceId();
+            return this->getExecutionContext()->getDeviceId();
         }
 
+        /**
+         * @brief Generate human-readable description of the module.
+         *
+         * Produces a multi-line string showing:
+         * - Module name
+         * - Device type
+         * - Approximation method
+         *
+         * @return Formatted string representation.
+         */
         std::string toString() const override
         {
             std::ostringstream oss;
@@ -329,37 +408,50 @@ namespace Mila::Dnn
         }
 
     protected:
-        
-        /**
-         * @brief Construct GELU as child component sharing parent's ExecutionContext.
-         *
-         * Used internally by CompositeComponent/Network to create children that share
-         * a common execution context. The context is not owned; lifecycle is managed
-         * by the parent.
-         *
-         * @param exec_context Non-owning pointer to shared execution context (must be non-null).
-         * @param config GELU configuration.
-         *
-         * @throws std::invalid_argument if exec_context is null.
-         */
-        explicit Gelu( IExecutionContext* exec_context, const GeluConfig& config )
-            : exec_context_( exec_context ), config_( config )
-        {
-            if (!exec_context_)
-            {
-                throw std::invalid_argument( "Gelu: ExecutionContext cannot be null." );
-            }
 
-            validateExecutionContext_<TDeviceType>( exec_context_, "Gelu" );
-            config_.validate();
+        /**
+         * @brief Hook invoked after ExecutionContext is set.
+         *
+         * Called by Component::setExecutionContext() after the context is
+         * registered. Creates the backend UnaryOperation using the OperationRegistry.
+         *
+         * This hook is triggered in two scenarios:
+         * - Standalone mode: Immediately in constructor after owned context creation
+         * - Shared mode: When parent calls setExecutionContext() after construction
+         *
+         * @throws std::runtime_error if operation creation fails.
+         */
+        void onExecutionContextSet() override
+        {
             createOperation();
         }
 
         /**
-         * @brief Hook invoked when training mode is about to change.
+         * @brief Hook invoked during build() to initialize backend operation.
          *
-         * Propagate training mode to the backend operation. Called with the
-         * Module's training mutex held; do not call setTraining() here.
+         * Delegates shape-dependent initialization to the backend UnaryOperation.
+         * Must be called before `forward()` or `backward()`.
+         *
+         * @param input_shape Expected shape for input tensors.
+         *
+         * @throws std::invalid_argument if input_shape is incompatible with the module configuration.
+         * @throws std::runtime_error if backend allocation or build fails.
+         */
+        void onBuilding( const shape_t& input_shape ) override
+        {
+            operation_->build( input_shape );
+            input_shape_ = input_shape;
+        }
+
+        /**
+         * @brief Hook invoked when training mode changes.
+         *
+         * Propagates training mode to the backend operation. Called by
+         * Component::setTraining() with the training mutex held.
+         *
+         * @param is_training New training mode state.
+         *
+         * @note Do not call setTraining() from this hook (reentrancy prohibited).
          */
         void onTrainingChanging( bool is_training ) override
         {
@@ -370,36 +462,24 @@ namespace Mila::Dnn
 
         GeluConfig config_;
         shape_t input_shape_;
-        
-        // Execution context ownership model:
-        // - Standalone: owned_context_ is populated, exec_context_ points to it
-        // - Child: owned_context_ is empty, exec_context_ points to parent's context
-        std::unique_ptr<IExecutionContext> owned_context_{ nullptr };
-        IExecutionContext* exec_context_{ nullptr };
+        std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
 
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
 
-        static std::unique_ptr<IExecutionContext> createOwnedContext( DeviceId device_id )
-        {
-            if (device_id.type != TDeviceType)
-            {
-                throw std::invalid_argument(
-                    std::format( "Gelu: constructor device type mismatch: expected {}, got {}",
-                        deviceTypeToString( TDeviceType ),
-                        deviceTypeToString( device_id.type ) )
-                );
-            }
-
-            auto context = createExecutionContext( device_id );
-
-            if (!context)
-            {
-                throw std::runtime_error( "Gelu: failed to create execution context for device" );
-            }
-
-            return context;
-        }
-
+        /**
+         * @brief Validate metadata from archive during deserialization.
+         *
+         * Verifies:
+         * - Version is 1
+         * - Type is "Gelu"
+         * - Device type matches TDeviceType
+         * - Precision matches TPrecision
+         *
+         * @param meta Parsed meta.json object.
+         * @param module_name Module name for error messages.
+         *
+         * @throws std::runtime_error if validation fails.
+         */
         static void validateMetadata_( const json& meta, const std::string& module_name )
         {
             int version = meta.value( "version", 0 );
@@ -424,7 +504,7 @@ namespace Mila::Dnn
             std::string file_precision = meta.value( "template_precision", "" );
 
             std::string expected_device = deviceTypeToString( TDeviceType );
-            std::string expected_precision = "FP32"; // FIXME: precisionToString( TPrecision );
+            std::string expected_precision = "FP32";
 
             if (file_device != expected_device)
             {
@@ -443,15 +523,25 @@ namespace Mila::Dnn
             }
         }
 
+        /**
+         * @brief Create backend UnaryOperation from OperationRegistry.
+         *
+         * Called by onExecutionContextSet() hook. Looks up "GeluOp" in the
+         * OperationRegistry and creates a device-specific implementation.
+         *
+         * @throws std::runtime_error if operation creation fails.
+         * @throws std::runtime_error if "GeluOp" is not registered for this device/precision.
+         */
         void createOperation()
         {
             operation_ = OperationRegistry::instance()
                 .createUnaryOperation<TDeviceType, TPrecision>(
-                    "GeluOp", exec_context_, config_ );
+                    "GeluOp", this->getExecutionContext(), config_ );
 
             if (!operation_)
             {
-                throw std::runtime_error( "Failed to create GELU compute backend operation." );
+                throw std::runtime_error(
+                    "Gelu: Failed to create compute backend operation." );
             }
         }
     };

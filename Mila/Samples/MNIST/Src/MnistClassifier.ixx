@@ -51,7 +51,7 @@ namespace Mila::Mnist
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
         using NetworkBase = Network<TDeviceType, TPrecision>;
-        using ExecutionContextType = ExecutionContext<TDeviceType>;
+        //using ExecutionContextType = ExecutionContext<TDeviceType>;
         using TensorType = Tensor<TPrecision, MR>;
         using LinearType = Linear<TDeviceType, TPrecision>;
         using GeluType = Gelu<TDeviceType, TPrecision>;
@@ -85,7 +85,6 @@ namespace Mila::Mnist
         // ====================================================================
         // Lifecycle
         // ====================================================================
-
 
         // Architecture-specific build hook called by CompositeComponent::build()
         void onBuilding( const shape_t& input_shape ) override

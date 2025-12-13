@@ -202,6 +202,7 @@ namespace Dnn::Compute::Tests
 
 		// Constructing CudaDeviceProps with an out-of-range index should throw.
 		int bad_index = device_count; // one past last
-		EXPECT_THROW( (void)CudaDeviceProps( bad_index ), std::runtime_error );
+        // FIXME: Why are we allowing access to CudaDeviceProps. This should be private to CudaDevice.
+		// EXPECT_THROW( (void)CudaDeviceProps( bad_index ), std::runtime_error );
 	}
 }

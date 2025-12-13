@@ -20,10 +20,16 @@ namespace Dnn::Compute::ExecutionContexts::Tests
     protected:
         void SetUp() override
         {
-            cuda_backend_available_ = hasBackend( DeviceType::Cuda );
+            int device_count = getDeviceCount( DeviceType::Cuda );
+            cuda_available_ = (device_count > 0);
+
+            if ( !cuda_available_ )
+            {
+                return;
+            }
         }
 
-        bool cuda_backend_available_{ false };
+        bool cuda_available_{ false };
     };
 
     // ============================================================================
@@ -31,7 +37,7 @@ namespace Dnn::Compute::ExecutionContexts::Tests
     // ============================================================================
 
     TEST_F( CudaExecutionContextTest, CreateExecutionContextSucceedsOrSkips ) {
-        if ( !cuda_backend_available_ ) {
+        if ( !cuda_available_ ) {
             GTEST_SKIP() << "CUDA backend not enabled in this build";
         }
 
@@ -58,7 +64,7 @@ namespace Dnn::Compute::ExecutionContexts::Tests
     // ============================================================================
 
     TEST_F( CudaExecutionContextTest, GetDeviceId ) {
-        if ( !cuda_backend_available_ ) {
+        if ( !cuda_available_ ) {
             GTEST_SKIP() << "CUDA backend not enabled in this build";
         }
 
@@ -78,7 +84,7 @@ namespace Dnn::Compute::ExecutionContexts::Tests
     }
 
     TEST_F( CudaExecutionContextTest, Synchronize ) {
-        if ( !cuda_backend_available_ ) {
+        if ( !cuda_available_ ) {
             GTEST_SKIP() << "CUDA backend not enabled in this build";
         }
 
@@ -98,7 +104,7 @@ namespace Dnn::Compute::ExecutionContexts::Tests
     }
 
     TEST_F( CudaExecutionContextTest, MultipleSynchronizeCalls ) {
-        if ( !cuda_backend_available_ ) {
+        if ( !cuda_available_ ) {
             GTEST_SKIP() << "CUDA backend not enabled in this build";
         }
 
@@ -125,7 +131,7 @@ namespace Dnn::Compute::ExecutionContexts::Tests
     // ============================================================================
 
     TEST_F( CudaExecutionContextTest, MultipleIndependentContexts ) {
-        if ( !cuda_backend_available_ ) {
+        if ( !cuda_available_ ) {
             GTEST_SKIP() << "CUDA backend not enabled in this build";
         }
 
@@ -157,7 +163,7 @@ namespace Dnn::Compute::ExecutionContexts::Tests
     // ============================================================================
 
     TEST_F( CudaExecutionContextTest, SharedPointerVector ) {
-        if ( !cuda_backend_available_ ) {
+        if ( !cuda_available_ ) {
             GTEST_SKIP() << "CUDA backend not enabled in this build";
         }
 
@@ -189,7 +195,7 @@ namespace Dnn::Compute::ExecutionContexts::Tests
     // ============================================================================
 
     TEST_F( CudaExecutionContextTest, DeviceIdOutlivesContext ) {
-        if ( !cuda_backend_available_ ) {
+        if ( !cuda_available_ ) {
             GTEST_SKIP() << "CUDA backend not enabled in this build";
         }
 

@@ -4,7 +4,7 @@
 
 import Mila;
 
-namespace Modules::Layers::Tests
+namespace Dnn::Components::Layers::Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;

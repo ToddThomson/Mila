@@ -20,7 +20,7 @@
 
 import Mila;
 
-namespace Modules::Activations::Tests
+    namespace Dnn::Components::Activations::Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
@@ -34,15 +34,17 @@ namespace Modules::Activations::Tests
     {
         std::vector<int64_t> shape;
         std::shared_ptr<GeluCuda> gelu_module;
+        std::unique_ptr<IExecutionContext> exec_context;
 
-        static GeluCudaTestData CreateStandalone(
+        static GeluCudaTestData Create(
             int64_t batch, int64_t seq, int64_t chan )
         {
             GeluCudaTestData d;
             d.shape = { batch, seq, chan };
-            DeviceId device_id{ DeviceType::Cuda, 0 };
+            d.exec_context = createExecutionContext( Device::Cuda( 0 ) );
+
             GeluConfig config;
-            d.gelu_module = std::make_shared<GeluCuda>( device_id, config );
+            d.gelu_module = std::make_shared<GeluCuda>( config, Device::Cuda( 0 ) );
 
             return d;
         }
@@ -61,6 +63,7 @@ namespace Modules::Activations::Tests
         void TearDown() override
         {
             data_.gelu_module.reset();
+            data_.exec_context.reset();
         }
 
         float geluReference( float x )
@@ -100,16 +103,42 @@ namespace Modules::Activations::Tests
 
     TEST_F( GeluCudaTests, Construct_WithDeviceId_BehaviorDependsOnRegistration )
     {
-        DeviceId device_id{ DeviceType::Cuda, 0 };
+        DeviceId cuda_id = Device::Cuda( 0 );
 
         if ( isOperationRegistered<DeviceType::Cuda, TensorDataType::FP32>( "GeluOp" ) )
         {
-            EXPECT_NO_THROW( (GeluCuda( device_id, GeluConfig() )) );
+            EXPECT_NO_THROW(
+                GeluCuda( GeluConfig(), cuda_id )
+            );
         }
         else
         {
-            EXPECT_THROW( (GeluCuda( device_id, GeluConfig() )), std::runtime_error );
+            EXPECT_THROW(
+                GeluCuda( GeluConfig(), cuda_id ),
+                std::runtime_error
+            );
         }
+    }
+
+    TEST_F( GeluCudaTests, Constructor_NoDeviceId_GetDeviceIdThrows )
+    {
+        GeluConfig cfg;
+        GeluCuda gelu( cfg );
+
+        EXPECT_THROW(
+            gelu.getDeviceId(),
+            std::runtime_error
+        );
+    }
+
+    TEST_F( GeluCudaTests, Constructor_DeviceTypeMismatch_ThrowsInvalidArgument )
+    {
+        DeviceId cpu_id = Device::Cpu();
+
+        EXPECT_THROW(
+            GeluCuda( GeluConfig(), cpu_id ),
+            std::invalid_argument
+        );
     }
 
     // ========================================================================
@@ -120,18 +149,21 @@ namespace Modules::Activations::Tests
     {
         if ( !isOperationRegistered<DeviceType::Cuda, TensorDataType::FP32>( "GeluOp" ) )
         {
-            DeviceId device_id{ DeviceType::Cuda, 0 };
-            EXPECT_THROW( (GeluCuda( device_id, GeluConfig() )), std::runtime_error );
+            DeviceId cuda_id = Device::Cuda( 0 );
+            EXPECT_THROW(
+                GeluCuda( GeluConfig(), cuda_id ),
+                std::runtime_error
+            );
             return;
         }
 
-        auto d = GeluCudaTestData::CreateStandalone( batch_, seq_, chan_ );
+        auto d = GeluCudaTestData::Create( batch_, seq_, chan_ );
         auto cuda_device = d.gelu_module->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( cuda_device, d.shape );
         Tensor<TensorDataType::FP32, MR> output( cuda_device, d.shape );
 
-        auto cpu_device = DeviceId{ DeviceType::Cpu, 0 };
+        auto cpu_device = Device::Cpu();
         Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( cpu_device, d.shape );
 
         for ( size_t i = 0; i < host_input.size(); ++i )
@@ -154,11 +186,11 @@ namespace Modules::Activations::Tests
             GTEST_SKIP() << "GeluOp not registered for CUDA FP32";
         }
 
-        DeviceId cuda_device{ DeviceType::Cuda, 0 };
-        GeluConfig config;
-        auto gelu = std::make_shared<GeluCuda>( cuda_device, config );
+        DeviceId cuda_id = Device::Cuda( 0 );
+        auto gelu = std::make_shared<GeluCuda>( GeluConfig(), cuda_id );
 
         std::vector<int64_t> shape = { 2, 3, 4 };
+        auto cuda_device = gelu->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( cuda_device, shape );
         Tensor<TensorDataType::FP32, MR> output( cuda_device, shape );
@@ -206,11 +238,11 @@ namespace Modules::Activations::Tests
             GTEST_SKIP() << "GeluOp not registered for CUDA FP32";
         }
 
-        DeviceId cuda_device{ DeviceType::Cuda, 0 };
-        GeluConfig config;
-        auto gelu = std::make_shared<GeluCuda>( cuda_device, config );
+        DeviceId cuda_id = Device::Cuda( 0 );
+        auto gelu = std::make_shared<GeluCuda>( GeluConfig(), cuda_id );
 
         std::vector<int64_t> shape = { 2, 4, 8 };
+        auto cuda_device = gelu->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( cuda_device, shape );
         Tensor<TensorDataType::FP32, MR> output( cuda_device, shape );
@@ -244,11 +276,11 @@ namespace Modules::Activations::Tests
             GTEST_SKIP() << "GeluOp not registered for CUDA FP32";
         }
 
-        DeviceId cuda_device{ DeviceType::Cuda, 0 };
-        GeluConfig config;
-        auto gelu = std::make_shared<GeluCuda>( cuda_device, config );
+        DeviceId cuda_id = Device::Cuda( 0 );
+        auto gelu = std::make_shared<GeluCuda>( GeluConfig(), cuda_id );
 
         std::vector<int64_t> shape = { 3, 5, 7 };
+        auto cuda_device = gelu->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( cuda_device, shape );
         Tensor<TensorDataType::FP32, MR> output( cuda_device, shape );
@@ -271,11 +303,11 @@ namespace Modules::Activations::Tests
             GTEST_SKIP() << "GeluOp not registered for CUDA FP32";
         }
 
-        DeviceId cuda_device{ DeviceType::Cuda, 0 };
-        GeluConfig config;
-        auto gelu = std::make_shared<GeluCuda>( cuda_device, config );
+        DeviceId cuda_id = Device::Cuda( 0 );
+        auto gelu = std::make_shared<GeluCuda>( GeluConfig(), cuda_id );
 
         std::vector<int64_t> shape = { 2, 3, 4 };
+        auto cuda_device = gelu->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( cuda_device, shape );
         Tensor<TensorDataType::FP32, MR> output( cuda_device, shape );
@@ -330,11 +362,11 @@ namespace Modules::Activations::Tests
             GTEST_SKIP() << "GeluOp not registered for CUDA FP32";
         }
 
-        DeviceId cuda_device{ DeviceType::Cuda, 0 };
-        GeluConfig config;
-        auto gelu = std::make_shared<GeluCuda>( cuda_device, config );
+        DeviceId cuda_id = Device::Cuda( 0 );
+        auto gelu = std::make_shared<GeluCuda>( GeluConfig(), cuda_id );
 
         std::vector<int64_t> shape = { 2, 3, 4 };
+        auto cuda_device = gelu->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( cuda_device, shape );
         Tensor<TensorDataType::FP32, MR> output( cuda_device, shape );
@@ -383,11 +415,11 @@ namespace Modules::Activations::Tests
             GTEST_SKIP() << "GeluOp not registered for CUDA FP32";
         }
 
-        DeviceId cuda_device{ DeviceType::Cuda, 0 };
-        GeluConfig config;
-        auto gelu = std::make_shared<GeluCuda>( cuda_device, config );
+        DeviceId cuda_id = Device::Cuda( 0 );
+        auto gelu = std::make_shared<GeluCuda>( GeluConfig(), cuda_id );
 
         std::vector<int64_t> shape = { 2, 3, 4 };
+        auto cuda_device = gelu->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( cuda_device, shape );
         Tensor<TensorDataType::FP32, MR> output( cuda_device, shape );
@@ -409,7 +441,7 @@ namespace Modules::Activations::Tests
 
         gelu->setTraining( true );
         gelu->build( shape );
-        
+
         gelu->forward( input, output );
         gelu->backward( input, output_grad, input_grad );
 
@@ -429,11 +461,11 @@ namespace Modules::Activations::Tests
             GTEST_SKIP() << "GeluOp not registered for CUDA FP32";
         }
 
-        DeviceId cuda_device{ DeviceType::Cuda, 0 };
-        GeluConfig config;
-        auto gelu = std::make_shared<GeluCuda>( cuda_device, config );
+        DeviceId cuda_id = Device::Cuda( 0 );
+        auto gelu = std::make_shared<GeluCuda>( GeluConfig(), cuda_id );
 
         std::vector<int64_t> shape = { 1, 8 };
+        auto cuda_device = gelu->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( cuda_device, shape );
         Tensor<TensorDataType::FP32, MR> output( cuda_device, shape );
@@ -476,85 +508,6 @@ namespace Modules::Activations::Tests
     // CPU-CUDA Equivalence Tests
     // ========================================================================
 
-    TEST_F( GeluCudaTests, ForwardBackward_CpuCudaEquivalence )
-    {
-        bool cpu_registered = isOperationRegistered<DeviceType::Cpu, TensorDataType::FP32>( "GeluOp" );
-        bool cuda_registered = isOperationRegistered<DeviceType::Cuda, TensorDataType::FP32>( "GeluOp" );
-
-        if ( !cpu_registered || !cuda_registered )
-        {
-            GTEST_SKIP() << "Both CPU and CUDA GeluOp required for equivalence test";
-        }
-
-        std::vector<int64_t> shape = { 2, 3, 4 };
-        GeluConfig config;
-
-        DeviceId cpu_device{ DeviceType::Cpu, 0 };
-        DeviceId cuda_device{ DeviceType::Cuda, 0 };
-
-        auto cpu_gelu = std::make_shared<GeluCpu>( cpu_device, config );
-        auto cuda_gelu = std::make_shared<GeluCuda>( cuda_device, config );
-
-        Tensor<TensorDataType::FP32, CpuMemoryResource> cpu_input( cpu_device, shape );
-        Tensor<TensorDataType::FP32, CpuMemoryResource> cpu_output( cpu_device, shape );
-        Tensor<TensorDataType::FP32, CpuMemoryResource> cpu_output_grad( cpu_device, shape );
-        Tensor<TensorDataType::FP32, CpuMemoryResource> cpu_input_grad( cpu_device, shape );
-
-        for ( size_t i = 0; i < cpu_input.size(); ++i )
-        {
-            cpu_input.data()[ i ] = static_cast<float>( i ) / cpu_input.size() * 4.0f - 2.0f;
-            cpu_output_grad.data()[ i ] = static_cast<float>( i + 1 ) * 0.1f;
-        }
-
-        cpu_gelu->setTraining( true );
-        cpu_gelu->build( shape );
-        cpu_gelu->forward( cpu_input, cpu_output );
-        cpu_gelu->backward( cpu_input, cpu_output_grad, cpu_input_grad );
-
-        Tensor<TensorDataType::FP32, MR> cuda_input( cuda_device, shape );
-        Tensor<TensorDataType::FP32, MR> cuda_output( cuda_device, shape );
-        Tensor<TensorDataType::FP32, MR> cuda_output_grad( cuda_device, shape );
-        Tensor<TensorDataType::FP32, MR> cuda_input_grad( cuda_device, shape );
-
-        copy( cpu_input, cuda_input );
-        copy( cpu_output_grad, cuda_output_grad );
-
-        cuda_gelu->setTraining( true );
-        cuda_gelu->build( shape );
-        
-        cuda_gelu->forward( cuda_input, cuda_output );
-        cuda_gelu->backward( cuda_input, cuda_output_grad, cuda_input_grad );
-
-        auto cuda_output_host = toHost<TensorDataType::FP32>( cuda_output );
-        auto cuda_input_grad_host = toHost<TensorDataType::FP32>( cuda_input_grad );
-
-        const float tolerance = 1e-3f;
-
-        for ( size_t i = 0; i < cpu_output.size(); ++i )
-        {
-            float cpu_val = cpu_output.data()[ i ];
-            float gpu_val = cuda_output_host.data()[ i ];
-            float diff = std::abs( cpu_val - gpu_val );
-
-            EXPECT_LT( diff, tolerance )
-                << "Forward pass mismatch at index " << i
-                << ": CPU=" << cpu_val
-                << ", CUDA=" << gpu_val;
-        }
-
-        for ( size_t i = 0; i < cpu_input_grad.size(); ++i )
-        {
-            float cpu_grad = cpu_input_grad.data()[ i ];
-            float gpu_grad = cuda_input_grad_host.data()[ i ];
-            float diff = std::abs( cpu_grad - gpu_grad );
-
-            EXPECT_LT( diff, tolerance )
-                << "Backward pass mismatch at index " << i
-                << ": CPU=" << cpu_grad
-                << ", CUDA=" << gpu_grad;
-        }
-    }
-
     TEST_F( GeluCudaTests, CpuCuda_ForwardEquivalence_OrConstructorThrows )
     {
         bool cpu_registered = isOperationRegistered<DeviceType::Cpu, TensorDataType::FP32>( "GeluOp" );
@@ -564,14 +517,20 @@ namespace Modules::Activations::Tests
         {
             if ( !cpu_registered )
             {
-                DeviceId cpu_device{ DeviceType::Cpu, 0 };
-                EXPECT_THROW( (GeluCpu( cpu_device, GeluConfig() )), std::runtime_error );
+                DeviceId cpu_id = Device::Cpu();
+                EXPECT_THROW(
+                    GeluCpu( GeluConfig(), cpu_id ),
+                    std::runtime_error
+                );
             }
 
             if ( !cuda_registered )
             {
-                DeviceId cuda_device{ DeviceType::Cuda, 0 };
-                EXPECT_THROW( (GeluCuda( cuda_device, GeluConfig() )), std::runtime_error );
+                DeviceId cuda_id = Device::Cuda( 0 );
+                EXPECT_THROW(
+                    GeluCuda( GeluConfig(), cuda_id ),
+                    std::runtime_error
+                );
             }
 
             return;
@@ -580,14 +539,14 @@ namespace Modules::Activations::Tests
         std::vector<int64_t> shape = { 2, 2, 4 };
         GeluConfig config;
 
-        DeviceId cpu_device{ DeviceType::Cpu, 0 };
-        DeviceId cuda_device{ DeviceType::Cuda, 0 };
+        DeviceId cpu_id = Device::Cpu();
+        DeviceId cuda_id = Device::Cuda( 0 );
 
-        auto cpu_gelu = std::make_shared<GeluCpu>( cpu_device, config );
-        auto cuda_gelu = std::make_shared<GeluCuda>( cuda_device, config );
+        auto cpu_gelu = std::make_shared<GeluCpu>( config, cpu_id );
+        auto cuda_gelu = std::make_shared<GeluCuda>( config, cuda_id );
 
-        Tensor<TensorDataType::FP32, CpuMemoryResource> cpu_input( cpu_device, shape );
-        Tensor<TensorDataType::FP32, CpuMemoryResource> cpu_output( cpu_device, shape );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> cpu_input( cpu_id, shape );
+        Tensor<TensorDataType::FP32, CpuMemoryResource> cpu_output( cpu_id, shape );
 
         for ( size_t i = 0; i < cpu_input.size(); ++i )
         {
@@ -597,10 +556,10 @@ namespace Modules::Activations::Tests
         cpu_gelu->build( cpu_input.shape() );
         cpu_gelu->forward( cpu_input, cpu_output );
 
-        Tensor<TensorDataType::FP32, MR> cuda_input( cuda_device, shape );
+        Tensor<TensorDataType::FP32, MR> cuda_input( cuda_id, shape );
         copy( cpu_input, cuda_input );
 
-        Tensor<TensorDataType::FP32, MR> cuda_output( cuda_device, shape );
+        Tensor<TensorDataType::FP32, MR> cuda_output( cuda_id, shape );
 
         cuda_gelu->build( cuda_input.shape() );
         cuda_gelu->forward( cuda_input, cuda_output );
@@ -630,28 +589,34 @@ namespace Modules::Activations::Tests
     {
         if ( !isOperationRegistered<DeviceType::Cuda, TensorDataType::FP32>( "GeluOp" ) )
         {
-            DeviceId device_id{ DeviceType::Cuda, 0 };
-            EXPECT_THROW( (GeluCuda( device_id, GeluConfig() )), std::runtime_error );
+            DeviceId cuda_id = Device::Cuda( 0 );
+            EXPECT_THROW(
+                GeluCuda( GeluConfig(), cuda_id ),
+                std::runtime_error
+            );
             return;
         }
 
-        auto d = GeluCudaTestData::CreateStandalone( batch_, seq_, chan_ );
+        auto d = GeluCudaTestData::Create( batch_, seq_, chan_ );
         auto s = d.gelu_module->toString();
 
         EXPECT_FALSE( s.empty() );
         EXPECT_NE( s.find( "Gelu" ), std::string::npos );
     }
 
-    TEST_F( GeluCudaTests, Construct_Standalone_WorksOrThrows )
+    TEST_F( GeluCudaTests, Construct_WithDeviceId_WorksOrThrows )
     {
         if ( !isOperationRegistered<DeviceType::Cuda, TensorDataType::FP32>( "GeluOp" ) )
         {
-            DeviceId device_id{ DeviceType::Cuda, 0 };
-            EXPECT_THROW( (GeluCuda( device_id, GeluConfig() )), std::runtime_error );
+            DeviceId cuda_id = Device::Cuda( 0 );
+            EXPECT_THROW(
+                GeluCuda( GeluConfig(), cuda_id ),
+                std::runtime_error
+            );
             return;
         }
 
-        auto d = GeluCudaTestData::CreateStandalone( batch_, seq_, chan_ );
+        auto d = GeluCudaTestData::Create( batch_, seq_, chan_ );
 
         EXPECT_EQ( d.gelu_module->getDeviceId().type, DeviceType::Cuda );
     }

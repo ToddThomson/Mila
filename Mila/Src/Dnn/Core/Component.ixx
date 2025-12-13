@@ -14,6 +14,7 @@ module;
 #include <mutex>
 #include <atomic>
 #include <stdexcept>
+#include <format>
 
 export module Dnn.Component;
 
@@ -25,6 +26,7 @@ import Dnn.TensorTypes;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
+import Compute.IExecutionContext;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 
@@ -36,14 +38,24 @@ namespace Mila::Dnn
     /**
      * @brief Abstract base class for neural network components.
      *
-     * @tparam TDeviceType Compile-time device identifier for this component.
+     * Component enforces a single ownership model: all components receive a non-owning
+     * pointer to an IExecutionContext that is owned by the parent (Network or test fixture).
+     * This ensures consistent resource sharing and eliminates dual constructor patterns.
      *
-     * Module provides a minimal, device-parametrized interface for:
-     * - build / lifecycle management,
+     * Ownership model:
+     * - Components NEVER own ExecutionContext
+     * - Parent (Network/CompositeComponent) owns and provides shared context
+     * - Tests explicitly create context and pass raw pointer to components
+     *
+     * The base class provides:
+     * - build / lifecycle management with protected onBuilding() hook,
      * - parameter and gradient access,
      * - synchronization and serialization,
-     * - training/evaluation mode transitions with a serialized hook,
+     * - training/evaluation mode transitions with a serialized onTrainingChanging() hook,
      * - short human-readable diagnostics via `toString()`.
+     *
+     * @tparam TDeviceType Compile-time device identifier for this component.
+     * @tparam TPrecision Tensor data precision for this component.
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
@@ -77,7 +89,7 @@ namespace Mila::Dnn
          *
          * @throws std::logic_error if component is already built.
          * @throws std::invalid_argument if input_shape is invalid for this component.
-         * @throws Any exception from onBuilding() or buildImpl().
+         * @throws Any exception from onBuilding().
          */
         virtual void build( const shape_t& input_shape ) final
         {
@@ -143,7 +155,6 @@ namespace Mila::Dnn
             }
             catch ( ... )
             {
-                // Revert to previous state on exception to preserve invariants.
                 is_training_.store( prev );
                 throw;
             }
@@ -153,7 +164,6 @@ namespace Mila::Dnn
          * @brief Query whether the module is configured for training behavior.
          *
          * This performs a relaxed atomic read and is safe for concurrent access.
-         * Subclasses may override to implement derived behavior.
          *
          * @return true if module is in training mode.
          */
@@ -201,9 +211,6 @@ namespace Mila::Dnn
          */
         virtual std::vector<ITensor*> getGradients() const = 0;
 
-        // REVIEW: Revisit during Model training loop implementation
-        // Consider combining into pairs or visitor pattern based on optimizer needs
-        
         // ====================================================================
         // Serialization
         // ====================================================================
@@ -236,7 +243,7 @@ namespace Mila::Dnn
          *   inference runtime to recreate the same module type and load its
          *   parameters on a possibly different device.
          */
-        virtual void save_( ModelArchive& archive, SerializationMode model ) const = 0;
+        virtual void save_( ModelArchive& archive, SerializationMode mode ) const = 0;
 
         // ====================================================================
         // State and Configuration
@@ -269,6 +276,9 @@ namespace Mila::Dnn
             return TDeviceType;
         }
 
+        /**
+         * @brief Compile-time tensor precision for this module instance.
+         */
         static constexpr TensorDataType getPrecision() noexcept
         {
             return TPrecision;
@@ -299,6 +309,130 @@ namespace Mila::Dnn
     protected:
 
         /**
+         * @brief Set the execution context for this component.
+         *
+         * This method establishes the device and execution environment for the component.
+         * It can only be called once - the execution context is immutable after setting.
+         *
+         * Called by:
+         * - The component itself (standalone mode with owned context)
+         * - Parent composite when adding child (shared context mode)
+         * - ComponentFactory during deserialization
+         *
+         * After setting the context, the onExecutionContextSet() hook is invoked to allow
+         * the component to perform context-dependent initialization.
+         *
+         * @param context Non-owning pointer to execution context (must be non-null)
+         *
+         * @throws std::invalid_argument if context is null
+         * @throws std::runtime_error if context has already been set (immutability violation)
+         * @throws std::invalid_argument if context device type doesn't match TDeviceType
+         */
+        void setExecutionContext( IExecutionContext* context )
+        {
+            if ( !context )
+            {
+                throw std::invalid_argument(
+                    std::format( "Component::setExecutionContext: context cannot be null for component '{}'",
+                        getName() )
+                );
+            }
+
+            if ( exec_context_ )
+            {
+                throw std::runtime_error(
+                    std::format( "Component::setExecutionContext: context already set for component '{}'. "
+                        "ExecutionContext is immutable and cannot be changed after initial assignment.",
+                        getName() )
+                );
+            }
+
+            DeviceId device_id = context->getDeviceId();
+
+            if ( device_id.type != TDeviceType )
+            {
+                throw std::invalid_argument(
+                    std::format( "Component::setExecutionContext: device type mismatch for component '{}'. "
+                        "Expected {}, but context has device type {}",
+                        getName(),
+                        deviceTypeToString( TDeviceType ),
+                        deviceTypeToString( device_id.type ) )
+                );
+            }
+
+
+            exec_context_ = context;
+
+            try
+            {
+                onExecutionContextSet();
+            }
+            catch ( const std::exception& e )
+            {
+                exec_context_ = nullptr;
+
+                throw std::runtime_error(
+                    std::format( "Component::setExecutionContext: onExecutionContextSet() failed for component '{}': {}",
+                        getName(), e.what() )
+                );
+            }
+        }
+        
+        /**
+         * @brief Get the shared execution context.
+         *
+         * Provides access to the execution context for derived classes to:
+         * - Query device information
+         * - Create tensors on the correct device
+         * - Pass to backend operations
+         * - Synchronize device work
+         *
+         * @return Non-owning pointer to execution context (guaranteed non-null).
+         */
+        IExecutionContext* getExecutionContext() const
+        {
+            if ( !exec_context_ )
+            {
+                throw std::runtime_error(
+                    std::format( "Component::getExecutionContext: context not set for component '{}'. "
+                        "Call setExecutionContext() or provide DeviceId to constructor.",
+                        getName() )
+                );
+            }
+
+            return exec_context_;
+        }
+
+        /**
+         * @brief Check if execution context has been set.
+         *
+         * @return true if context is set, false otherwise
+         */
+        bool hasExecutionContext() const noexcept
+        {
+            return exec_context_ != nullptr;
+        }
+
+        /**
+         * @brief Lifecycle hook: Called immediately after ExecutionContext is set.
+         *
+         * Override this to perform initialization that requires a valid ExecutionContext.
+         * At the time this is called, getExecutionContext() is guaranteed to return a
+         * valid context.
+         *
+         * Common uses:
+         * - Composite components: Create and configure child components
+         * - Leaf components: Usually don't need this (use onBuilding instead)
+         * - Device resource allocation: Query device capabilities, allocate memory pools
+         *
+         * Default implementation does nothing.
+         *
+         * @throws Any exception thrown will cause setExecutionContext() to fail and
+         *         restore the component to a "context not set" state.
+         */
+        virtual void onExecutionContextSet() {}
+
+        /**
          * @brief Hook invoked when training mode is about to change.
          *
          * The hook is called while `training_mutex_` is held and after the
@@ -327,8 +461,8 @@ namespace Mila::Dnn
          * @brief Hook invoked before the component is built.
          *
          * The hook is called after `isBuilt()` has been verified as false but
-         * before `buildImpl()` executes. Implementations should perform any
-         * validation, child component preparation, or pre-build setup required.
+         * before the component is marked as built. Implementations should perform
+         * any validation, child component preparation, or pre-build setup required.
          *
          * Preconditions and expectations:
          * - MUST NOT call `build()` (no reentrancy).
@@ -354,10 +488,11 @@ namespace Mila::Dnn
 
     private:
 
+        IExecutionContext* exec_context_{ nullptr };
+
         std::atomic<bool> is_training_{ false };
         std::mutex training_mutex_;
 
-		// REVIEW: mutex for build()? Currently single-threaded use is assumed.
         bool built_{ false };
     };
 }

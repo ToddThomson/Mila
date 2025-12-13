@@ -11,9 +11,6 @@
 
 import Mila;
 
-// Private Module Imports for testing
-//import Compute.DeviceRegistrar;
-
 namespace Dnn::Compute::Registry::Tests
 {
 	using namespace Mila::Dnn;
@@ -24,14 +21,10 @@ namespace Dnn::Compute::Registry::Tests
 	protected:
 		void SetUp() override
 		{
-			// Ensure registrar/registry are initialized (registrar may register factories)
-			//(void)DeviceRegistrar::instance();
-			(void)DeviceRegistry::instance();
 		}
 
 		void TearDown() override
 		{
-			// DeviceRegistry is a singleton; state persists between tests by design
 		}
 	};
 
@@ -146,12 +139,14 @@ namespace Dnn::Compute::Registry::Tests
 						auto devices = registry.listDeviceIds();
 						if ( devices.empty() )
 						{
-							thread_success = false; break;
+							thread_success = false;
+							break;
 						}
 
 						if ( !registry.hasDeviceType( DeviceType::Cpu ) )
 						{
-							thread_success = false; break;
+							thread_success = false;
+							break;
 						}
 					}
 					catch ( ... )

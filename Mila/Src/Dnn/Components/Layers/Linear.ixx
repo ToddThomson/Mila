@@ -17,6 +17,7 @@ module;
 #include <cstdint>
 #include <cstring>
 #include <format>
+#include <optional>
 
 export module Dnn.Components.Linear;
 export import :Config;
@@ -31,7 +32,7 @@ import Compute.Precision;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
-import Compute.ExecutionContext;
+import Compute.ExecutionContextFactory;
 import Compute.IExecutionContext;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
@@ -53,8 +54,13 @@ namespace Mila::Dnn
      * @brief Linear (fully connected) component.
      *
      * Delegates computation to a device-specific UnaryOperation implementation
-     * registered in the OperationRegistry. Accepts a type-erased IExecutionContext
-     * ownership model compatible with other components (standalone or shared).
+     * registered in the OperationRegistry. All Linear instances share an
+     * ExecutionContext owned by the parent (Network or test fixture).
+     *
+     * Ownership model:
+     * - Linear NEVER owns ExecutionContext
+     * - Context is always provided by parent and shared across component hierarchy
+     * - Single constructor accepts IExecutionContext* (validated by base class)
      *
      * @tparam TDeviceType Compile-time device type (Cpu, Cuda, Metal, Rocm).
      * @tparam TPrecision Compile-time tensor precision (FP32, FP16, BF16, etc.).
@@ -64,64 +70,43 @@ namespace Mila::Dnn
     class Linear final : public Component<TDeviceType, TPrecision>
     {
     public:
+        using ComponentBase = Component<TDeviceType, TPrecision>;
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
         using TensorType = Tensor<TPrecision, MR>;
 
         /**
-         * @brief Construct with a DeviceId (standalone): create and own an ExecutionContext.
+         * @brief Construct Linear with shared ExecutionContext.
          *
-         * Creates and owns an ExecutionContext for the specified device.
+         * Used by CompositeComponent/Network to create components that share
+         * a common execution context owned by the parent. The context is not
+         * owned; lifecycle is managed by the parent.
          *
-         * @param device_id Device identifier (use Device::Cuda(0), Device::Cpu(), etc.).
+         * @param exec_context Non-owning pointer to shared execution context (must be non-null).
          * @param config Linear configuration.
+         *
+         * @throws std::invalid_argument if exec_context is null or device type mismatches.
          */
-        explicit Linear( DeviceId device_id, const LinearConfig& config )
-            : owned_context_( createOwnedContext( device_id ) ),
-              exec_context_( owned_context_.get() ),
-              config_( config )
+        explicit Linear( const LinearConfig& config, std::optional<DeviceId> device_id = std::nullopt )
+            : config_( config )
         {
-            if (!exec_context_)
+            config_.validate();
+
+            if ( device_id.has_value() )
             {
-                throw std::runtime_error( "ExecutionContext cannot be null." );
+                if ( device_id->type != TDeviceType )
+                {
+                    throw std::invalid_argument( "Linear: device type mismatch" );
+                }
+                
+                owned_exec_context_ = createExecutionContext( device_id.value() );
+                this->setExecutionContext( owned_exec_context_.get() );
             }
 
-            validateDeviceType();
-            config_.validate();
             initializeParameters();
-            createOperation();
         }
 
         ~Linear() override = default;
 
-        // ====================================================================
-        // Lifecycle
-        // ====================================================================
-
-        /**
-         * @brief Build the Component using an input shape.
-         *
-         * Linear layer parameters are eagerly created in the constructor based
-         * on the configuration. This method binds parameters to the backend
-         * operation and triggers backend-specific setup.
-         *
-         * If in training mode, also initializes gradient tensors and binds them
-         * to the operation.
-         */
-        void onBuilding(const shape_t& input_shape) override
-        {
-            validateInputShape(input_shape);
-
-            operation_->setParameters(weight_.get(), bias_.get());
-            operation_->setTraining(this->isTraining());
-
-            if (this->isTraining())
-            {
-                initializeGradients();
-                operation_->setGradients(weight_grad_.get(), bias_grad_.get());
-            }
-
-            operation_->build(input_shape);
-        }
 
         // ====================================================================
         // Compute operation dispatch
@@ -132,16 +117,16 @@ namespace Mila::Dnn
          *
          * Computes y = x * W^T + b (if bias is enabled).
          */
-        void forward(const ITensor& input, ITensor& output)
+        void forward( const ITensor& input, ITensor& output )
         {
-            if (!this->isBuilt())
+            if ( !this->isBuilt() )
             {
-                throw std::runtime_error("Linear Component must be built before calling forward.");
+                throw std::runtime_error( "Linear Component must be built before calling forward." );
             }
 
-            validateInputShape(input);
+            validateInputShape( input );
 
-            operation_->forward(input, output);
+            operation_->forward( input, output );
         }
 
         /**
@@ -149,29 +134,29 @@ namespace Mila::Dnn
          *
          * Computes gradients with respect to input and parameters.
          */
-        void backward(const ITensor& input, const ITensor& output_grad, ITensor& input_grad)
+        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
         {
-            if (!this->isBuilt())
+            if ( !this->isBuilt() )
             {
-                throw std::runtime_error("Linear Component must be built before calling backward.");
+                throw std::runtime_error( "Linear Component must be built before calling backward." );
             }
 
-            if (!this->isTraining())
+            if ( !this->isTraining() )
             {
-                throw std::runtime_error("Linear Component must be in training mode to call backward. Call setTraining(true) first.");
+                throw std::runtime_error( "Linear Component must be in training mode to call backward. Call setTraining(true) first." );
             }
 
-            if (!weight_grad_)
+            if ( !weight_grad_ )
             {
-                throw std::runtime_error("Linear Component weight gradients not initialized. This is a bug.");
+                throw std::runtime_error( "Linear Component weight gradients not initialized. This is a bug." );
             }
 
-            if (config_.hasBias() && !bias_grad_)
+            if ( config_.hasBias() && !bias_grad_ )
             {
-                throw std::runtime_error("Linear Component bias gradients not initialized. This is a bug.");
+                throw std::runtime_error( "Linear Component bias gradients not initialized. This is a bug." );
             }
 
-            operation_->backward(input, output_grad, input_grad);
+            operation_->backward( input, output_grad, input_grad );
         }
 
         // ====================================================================
@@ -179,7 +164,6 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
-         * @internal
          * @brief Save component state to a ModelArchive.
          *
          * This method writes relative entries into the archive. Callers are
@@ -190,21 +174,21 @@ namespace Mila::Dnn
          * @param archive ModelArchive to write to (scoped by caller)
          * @param mode SerializationMode (currently unused)
          */
-        void save_(ModelArchive& archive, SerializationMode mode) const override
+        void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
             (void)mode;
 
             json meta = json::object();
-            meta["type"] = "Linear";
-            meta["version"] = 1;
-            meta["name"] = this->getName();
+            meta[ "type" ] = "Linear";
+            meta[ "version" ] = 1;
+            meta[ "name" ] = this->getName();
 
-            archive.writeJson("meta.json", meta);
+            archive.writeJson( "meta.json", meta );
 
             json cfg = config_.toJson();
-            archive.writeJson("config.json", cfg);
+            archive.writeJson( "config.json", cfg );
 
-            if (weight_)
+            if ( weight_ )
             {
                 TensorMetadata tmeta;
                 tmeta.dtype = weight_->getDataTypeName();
@@ -213,24 +197,24 @@ namespace Mila::Dnn
                 tmeta.layout = "row_major";
                 tmeta.byte_order = "little";
 
-                if constexpr (std::is_same_v<MR, CpuMemoryResource>)
+                if constexpr ( std::is_same_v<MR, CpuMemoryResource> )
                 {
                     const void* data_ptr = weight_->rawData();
-                    writeTensorBlob(archive, "tensors/weight", tmeta, data_ptr, tmeta.byte_size);
+                    writeTensorBlob( archive, "tensors/weight", tmeta, data_ptr, tmeta.byte_size );
                 }
                 else
                 {
                     using HostTensorType = Tensor<dtype_t::FP32, CpuMemoryResource>;
-                    HostTensorType host_weight(Device::Cpu(), weight_->shape());
+                    HostTensorType host_weight( Device::Cpu(), weight_->shape() );
 
-                    copy(*weight_, host_weight);
+                    copy( *weight_, host_weight );
 
                     const void* host_ptr = host_weight.rawData();
-                    writeTensorBlob(archive, "tensors/weight", tmeta, host_ptr, tmeta.byte_size);
+                    writeTensorBlob( archive, "tensors/weight", tmeta, host_ptr, tmeta.byte_size );
                 }
             }
 
-            if (config_.hasBias() && bias_)
+            if ( config_.hasBias() && bias_ )
             {
                 TensorMetadata bmeta;
                 bmeta.dtype = bias_->getDataTypeName();
@@ -239,20 +223,20 @@ namespace Mila::Dnn
                 bmeta.layout = "row_major";
                 bmeta.byte_order = "little";
 
-                if constexpr (std::is_same_v<MR, CpuMemoryResource>)
+                if constexpr ( std::is_same_v<MR, CpuMemoryResource> )
                 {
                     const void* data_ptr = bias_->rawData();
-                    writeTensorBlob(archive, "tensors/bias", bmeta, data_ptr, bmeta.byte_size);
+                    writeTensorBlob( archive, "tensors/bias", bmeta, data_ptr, bmeta.byte_size );
                 }
                 else
                 {
                     using HostTensorType = Tensor<dtype_t::FP32, CpuMemoryResource>;
-                    HostTensorType host_bias(Device::Cpu(), bias_->shape());
+                    HostTensorType host_bias( Device::Cpu(), bias_->shape() );
 
-                    copy(*bias_, host_bias);
+                    copy( *bias_, host_bias );
 
                     const void* host_ptr = host_bias.rawData();
-                    writeTensorBlob(archive, "tensors/bias", bmeta, host_ptr, bmeta.byte_size);
+                    writeTensorBlob( archive, "tensors/bias", bmeta, host_ptr, bmeta.byte_size );
                 }
             }
         }
@@ -265,10 +249,10 @@ namespace Mila::Dnn
         {
             size_t count = 0;
 
-            if (weight_)
+            if ( weight_ )
                 count += weight_->size();
 
-            if (config_.hasBias() && bias_)
+            if ( config_.hasBias() && bias_ )
                 count += bias_->size();
 
             return count;
@@ -278,29 +262,29 @@ namespace Mila::Dnn
         {
             std::vector<ITensor*> params;
 
-            if (weight_)
-                params.push_back(weight_.get());
+            if ( weight_ )
+                params.push_back( weight_.get() );
 
-            if (bias_)
-                params.push_back(bias_.get());
+            if ( bias_ )
+                params.push_back( bias_.get() );
 
             return params;
         }
 
         std::vector<ITensor*> getGradients() const override
         {
-            if (!this->isTraining())
+            if ( !this->isTraining() )
             {
-                throw std::runtime_error("Linear: getGradients called when not in training mode");
+                throw std::runtime_error( "Linear: getGradients called when not in training mode" );
             }
 
             std::vector<ITensor*> grads;
 
-            if (weight_grad_)
-                grads.push_back(weight_grad_.get());
+            if ( weight_grad_ )
+                grads.push_back( weight_grad_.get() );
 
-            if (bias_grad_)
-                grads.push_back(bias_grad_.get());
+            if ( bias_grad_ )
+                grads.push_back( bias_grad_.get() );
 
             return grads;
         }
@@ -336,12 +320,12 @@ namespace Mila::Dnn
 
         DeviceId getDeviceId() const override
         {
-            return exec_context_->getDeviceId();
+            return this->getExecutionContext()->getDeviceId();
         }
 
         void synchronize() override
         {
-            exec_context_->synchronize();
+            this->getExecutionContext()->synchronize();
         }
 
         std::string toString() const override
@@ -351,7 +335,7 @@ namespace Mila::Dnn
             oss << "Linear: " << getName() << std::endl;
             oss << "Input features: " << config_.getInputFeatures();
             oss << ", Output features: " << config_.getOutputFeatures() << std::endl;
-            oss << "Device: " << deviceTypeToString(this->getDeviceType()) << std::endl;
+            oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
             oss << "Has Bias: " << (config_.hasBias() ? "Yes" : "No") << std::endl;
             oss << "Parameter count: " << parameterCount() << std::endl;
 
@@ -404,28 +388,37 @@ namespace Mila::Dnn
 
     protected:
 
-        /**
-         * @brief Construct with a non-owning ExecutionContext (used for child components).
-         *
-         * Matches the ownership pattern used by Gelu: child components receive
-         * a raw pointer to an ExecutionContext owned by the parent.
-         *
-         * @param exec_context Non-owning execution context pointer (must be non-null).
-         * @param config Linear configuration.
-         */
-        explicit Linear( IExecutionContext* exec_context, const LinearConfig& config )
-            : exec_context_( exec_context ), config_( config )
+        void onExecutionContextSet() override
         {
-            if (!exec_context_)
-            {
-                throw std::invalid_argument( "ExecutionContext cannot be null." );
-            }
-
-            validateDeviceType();
-            config_.validate();
-            initializeParameters();
             createOperation();
         }
+
+        /**
+         * @brief Build the Component using an input shape.
+         *
+         * Linear layer parameters are eagerly created in the constructor based
+         * on the configuration. This method binds parameters to the backend
+         * operation and triggers backend-specific setup.
+         *
+         * If in training mode, also initializes gradient tensors and binds them
+         * to the operation.
+         */
+        void onBuilding( const shape_t& input_shape ) override
+        {
+            validateInputShape( input_shape );
+
+            operation_->setParameters( weight_.get(), bias_.get() );
+            operation_->setTraining( this->isTraining() );
+
+            if ( this->isTraining() )
+            {
+                initializeGradients();
+                operation_->setGradients( weight_grad_.get(), bias_grad_.get() );
+            }
+
+            operation_->build( input_shape );
+        }
+
 
         /**
          * @brief Hook invoked when training mode is about to change.
@@ -434,70 +427,46 @@ namespace Mila::Dnn
          * parameter gradient buffers as appropriate. Called with Component's
          * training mutex held; do not call setTraining() here.
          */
-        void onTrainingChanging(bool is_training) override
+        void onTrainingChanging( bool is_training ) override
         {
-            operation_->setTraining(is_training);
+            operation_->setTraining( is_training );
 
-            if (is_training)
+            if ( is_training )
             {
                 initializeGradients();
-                operation_->setGradients(weight_grad_.get(), bias_grad_.get());
+                operation_->setGradients( weight_grad_.get(), bias_grad_.get() );
             }
             else
             {
                 operation_->clearGradients();
 
-                if (weight_grad_) zeros(*weight_grad_);
-                if (bias_grad_) zeros(*bias_grad_);
+                if ( weight_grad_ ) zeros( *weight_grad_ );
+                if ( bias_grad_ ) zeros( *bias_grad_ );
             }
         }
 
     private:
 
         LinearConfig config_;
+        std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
 
-        std::shared_ptr<TensorType> weight_{nullptr};
-        std::shared_ptr<TensorType> bias_{nullptr};
+        std::shared_ptr<TensorType> weight_{ nullptr };
+        std::shared_ptr<TensorType> bias_{ nullptr };
 
-        std::shared_ptr<TensorType> weight_grad_{nullptr};
-        std::shared_ptr<TensorType> bias_grad_{nullptr};
+        std::shared_ptr<TensorType> weight_grad_{ nullptr };
+        std::shared_ptr<TensorType> bias_grad_{ nullptr };
 
-        // NOTE: Must be shared_ptr rather than unique_ptr
-        std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{nullptr};
-
-        // Execution context ownership model:
-        // - Standalone: owned_context_ holds the created context, exec_context_ points to it
-        // - Child: owned_context_ is null, exec_context_ points to parent's context
-        std::unique_ptr<IExecutionContext> owned_context_{ nullptr };
-        IExecutionContext* exec_context_{ nullptr };
-
-        /**
-         * @brief Validate that execution context device type matches template parameter.
-         *
-         * @throws std::invalid_argument If device type mismatch.
-         */
-        void validateDeviceType() const
-        {
-            if (exec_context_->getDeviceId().type != TDeviceType)
-            {
-                throw std::invalid_argument(
-                    std::format("Device type mismatch: Linear<{}> requires {}, got {}",
-                               deviceTypeToString(TDeviceType),
-                               deviceTypeToString(TDeviceType),
-                               deviceTypeToString(exec_context_->getDeviceId().type))
-                );
-            }
-        }
+        std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
 
         /**
          * @brief Validate input shape for linear operation.
          *
          * Ensures the last dimension matches the configured input_features.
          */
-        void validateInputShape(const ITensor& input) const
+        void validateInputShape( const ITensor& input ) const
         {
             const auto& input_shape = input.shape();
-            validateInputShape(input_shape);
+            validateInputShape( input_shape );
         }
 
         /**
@@ -505,20 +474,20 @@ namespace Mila::Dnn
          *
          * Ensures the last dimension matches the configured input_features.
          */
-        void validateInputShape(const shape_t& input_shape) const
+        void validateInputShape( const shape_t& input_shape ) const
         {
-            if (input_shape.empty())
+            if ( input_shape.empty() )
             {
-                throw std::invalid_argument("Linear: input must have rank >= 1");
+                throw std::invalid_argument( "Linear: input must have rank >= 1" );
             }
 
             int64_t input_features = input_shape.back();
 
-            if (input_features != config_.getInputFeatures())
+            if ( input_features != config_.getInputFeatures() )
             {
                 throw std::invalid_argument(
-                    std::format("Linear: input feature dimension mismatch. Expected {}, got {}",
-                               config_.getInputFeatures(), input_features)
+                    std::format( "Linear: input feature dimension mismatch. Expected {}, got {}",
+                        config_.getInputFeatures(), input_features )
                 );
             }
         }
@@ -528,22 +497,22 @@ namespace Mila::Dnn
          */
         void initializeGradients()
         {
-            auto device = exec_context_->getDeviceId();
+            auto device = this->getExecutionContext()->getDeviceId();
 
-            if (!weight_grad_)
+            if ( !weight_grad_ )
             {
-                weight_grad_ = std::make_shared<TensorType>(device, weight_->shape());
-                weight_grad_->setName(this->getName() + ".weight.grad");
+                weight_grad_ = std::make_shared<TensorType>( device, weight_->shape() );
+                weight_grad_->setName( this->getName() + ".weight.grad" );
 
-                zeros(*weight_grad_);
+                zeros( *weight_grad_ );
             }
 
-            if (config_.hasBias() && !bias_grad_)
+            if ( config_.hasBias() && !bias_grad_ )
             {
-                bias_grad_ = std::make_shared<TensorType>(device, bias_->shape());
-                bias_grad_->setName(this->getName() + ".bias.grad");
+                bias_grad_ = std::make_shared<TensorType>( device, bias_->shape() );
+                bias_grad_->setName( this->getName() + ".bias.grad" );
 
-                zeros(*bias_grad_);
+                zeros( *bias_grad_ );
             }
         }
 
@@ -558,62 +527,41 @@ namespace Mila::Dnn
             int64_t input_features = config_.getInputFeatures();
             int64_t output_features = config_.getOutputFeatures();
 
-            auto device = exec_context_->getDeviceId();
+            auto device = this->getExecutionContext()->getDeviceId();
 
-            weight_ = std::make_shared<TensorType>(device, shape_t{output_features, input_features});
-            weight_->setName(this->getName() + ".weight");
+            weight_ = std::make_shared<TensorType>( device, shape_t{ output_features, input_features } );
+            weight_->setName( this->getName() + ".weight" );
 
-            xavier<TPrecision, MR>(*weight_, input_features, output_features);
+            xavier<TPrecision, MR>( *weight_, input_features, output_features );
 
-            if (config_.hasBias())
+            if ( config_.hasBias() )
             {
-                bias_ = std::make_shared<TensorType>(device, shape_t{output_features});
-                bias_->setName(this->getName() + ".bias");
+                bias_ = std::make_shared<TensorType>( device, shape_t{ output_features } );
+                bias_->setName( this->getName() + ".bias" );
 
-                zeros(*bias_);
+                zeros( *bias_ );
             }
         }
 
         /**
          * @brief Create the backend compute operation.
          *
-         * Uses the type-erased IExecutionContext pointer to request a device-specific
-         * UnaryOperation from the OperationRegistry.
+         * Uses the shared ExecutionContext from the base class to request a
+         * device-specific UnaryOperation from the OperationRegistry.
          */
         void createOperation()
         {
             operation_ = OperationRegistry::instance()
                 .createUnaryOperation<TDeviceType, TPrecision>(
                     "LinearOp",
-                    exec_context_,
+                    this->getExecutionContext(),
                     config_
                 );
 
-            if (!operation_)
+            if ( !operation_ )
             {
-                throw std::runtime_error("Failed to create Linear compute backend operation.");
+                throw std::runtime_error( "Failed to create Linear compute backend operation." );
             }
-        }
-
-        static std::unique_ptr<IExecutionContext> createOwnedContext( DeviceId device_id )
-        {
-            if (device_id.type != TDeviceType)
-            {
-                throw std::invalid_argument(
-                    std::format( "Linear: constructor device type mismatch: expected {}, got {}",
-                        deviceTypeToString( TDeviceType ),
-                        deviceTypeToString( device_id.type ) )
-                );
-            }
-
-            auto context = createExecutionContext( device_id );
-
-            if (!context)
-            {
-                throw std::runtime_error( "Linear: failed to create execution context for device" );
-            }
-
-            return context;
         }
     };
 }

@@ -9,7 +9,7 @@
 
 import Mila;
 
-namespace Modules::Layers::Tests
+namespace Dnn::Components::Layers::Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
@@ -17,14 +17,24 @@ namespace Modules::Layers::Tests
     template<TensorDataType TPrecision>
     using CpuTensor = Tensor<TPrecision, CpuMemoryResource>;
 
+    /**
+     * @brief Test data structure for Linear component tests.
+     *
+     * Updated to use the new Linear constructor signature:
+     *   Linear(const LinearConfig&, std::optional<DeviceId> device_id = std::nullopt)
+     *
+     * Tests construct the component with an explicit DeviceId (Device::Cpu())
+     * so the component creates/owns its execution context for standalone tests.
+     * CreateWithContext accepts an execution context and passes its DeviceId to
+     * the Linear constructor so the component reports the same DeviceId.
+     */
     template<TensorDataType TPrecision>
     struct LinearCpuTestData
     {
         shape_t input_shape;
         shape_t output_shape;
         LinearConfig config;
-        std::shared_ptr<ExecutionContext<DeviceType::Cpu>> exec_context;
-        std::shared_ptr<Linear<DeviceType::Cpu, TPrecision>> module;
+        std::shared_ptr<Linear<DeviceType::Cpu, TPrecision>> component;
         int64_t input_features;
         int64_t output_features;
         bool has_bias;
@@ -52,9 +62,11 @@ namespace Modules::Layers::Tests
             data.config.withName( name )
                 .withBias( has_bias );
 
-            // New ownership pattern: construct Linear with DeviceId (component owns its context).
-            data.exec_context = nullptr;
-            data.module = std::make_shared<Linear<DeviceType::Cpu, TPrecision>>( Device::Cpu(), data.config );
+            // Construct using DeviceId directly (component will create its own context)
+            data.component = std::make_shared<Linear<DeviceType::Cpu, TPrecision>>(
+                data.config,
+                Device::Cpu()
+            );
 
             return data;
         }
@@ -64,7 +76,7 @@ namespace Modules::Layers::Tests
             const shape_t& input_shape,
             int64_t input_features,
             int64_t output_features,
-            std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
+            std::unique_ptr<IExecutionContext> context,
             bool has_bias = true )
         {
             LinearCpuTestData data;
@@ -80,10 +92,13 @@ namespace Modules::Layers::Tests
             data.config.withName( name )
                 .withBias( has_bias );
 
-            // Tests can still hold the external context for device-id comparisons,
-            // but module is created using DeviceId (component owns its context).
-            data.exec_context = context;
-            data.module = std::make_shared<Linear<DeviceType::Cpu, TPrecision>>( Device::Cpu(), data.config );
+            // Use DeviceId from provided context to construct component (component creates its own context)
+            DeviceId ctx_id = context->getDeviceId();
+
+            data.component = std::make_shared<Linear<DeviceType::Cpu, TPrecision>>(
+                data.config,
+                ctx_id
+            );
 
             return data;
         }
@@ -103,7 +118,7 @@ namespace Modules::Layers::Tests
 
         LinearCpuTestData<TensorDataType::FP32>& SmallFp32Data()
         {
-            if ( !small_fp32_.module )
+            if ( !small_fp32_.component )
             {
                 small_fp32_ = LinearCpuTestData<TensorDataType::FP32>::Create(
                     "small_linear_cpu", small_shape_, input_features_, output_features_ );
@@ -113,7 +128,7 @@ namespace Modules::Layers::Tests
 
         LinearCpuTestData<TensorDataType::FP32>& MediumFp32Data()
         {
-            if ( !medium_fp32_.module )
+            if ( !medium_fp32_.component )
             {
                 medium_fp32_ = LinearCpuTestData<TensorDataType::FP32>::Create(
                     "medium_linear_cpu", medium_shape_, 512, 256 );
@@ -123,7 +138,7 @@ namespace Modules::Layers::Tests
 
         LinearCpuTestData<TensorDataType::FP32>& NoBiasFp32Data()
         {
-            if ( !no_bias_fp32_.module )
+            if ( !no_bias_fp32_.component )
             {
                 no_bias_fp32_ = LinearCpuTestData<TensorDataType::FP32>::Create(
                     "no_bias_linear_cpu", small_shape_, input_features_, output_features_, false );
@@ -145,30 +160,29 @@ namespace Modules::Layers::Tests
     template<TensorDataType TPrecision>
     void TestGetName( const LinearCpuTestData<TPrecision>& data, const std::string& expected_name )
     {
-        EXPECT_EQ( data.module->getName(), expected_name );
+        EXPECT_EQ( data.component->getName(), expected_name );
     }
 
     template<TensorDataType TPrecision>
     void TestDeviceType( const LinearCpuTestData<TPrecision>& data )
     {
-        EXPECT_EQ( data.module->getDeviceType(), DeviceType::Cpu );
+        EXPECT_EQ( data.component->getDeviceType(), DeviceType::Cpu );
 
-        // New pattern: module owns its execution context. Validate device id via module.
-        auto device = data.module->getDeviceId();
+        auto device = data.component->getDeviceId();
         EXPECT_EQ( device.type, DeviceType::Cpu );
     }
 
     template<TensorDataType TPrecision>
     void TestIsBuilt( const LinearCpuTestData<TPrecision>& data, bool expected_built )
     {
-        EXPECT_EQ( data.module->isBuilt(), expected_built );
+        EXPECT_EQ( data.component->isBuilt(), expected_built );
     }
 
     template<TensorDataType TPrecision>
     void TestBuild( LinearCpuTestData<TPrecision>& data )
     {
-        EXPECT_NO_THROW( data.module->build( data.input_shape ) );
-        EXPECT_TRUE( data.module->isBuilt() );
+        EXPECT_NO_THROW( data.component->build( data.input_shape ) );
+        EXPECT_TRUE( data.component->isBuilt() );
     }
 
     template<TensorDataType TPrecision>
@@ -179,13 +193,13 @@ namespace Modules::Layers::Tests
         {
             expected_count += data.output_features;
         }
-        EXPECT_EQ( data.module->parameterCount(), expected_count );
+        EXPECT_EQ( data.component->parameterCount(), expected_count );
     }
 
     template<TensorDataType TPrecision>
     void TestGetWeight( const LinearCpuTestData<TPrecision>& data )
     {
-        auto weight = data.module->getWeight();
+        auto weight = data.component->getWeight();
         ASSERT_NE( weight, nullptr );
         EXPECT_EQ( weight->shape()[ 0 ], data.output_features );
         EXPECT_EQ( weight->shape()[ 1 ], data.input_features );
@@ -194,7 +208,7 @@ namespace Modules::Layers::Tests
     template<TensorDataType TPrecision>
     void TestGetBias( const LinearCpuTestData<TPrecision>& data )
     {
-        auto bias = data.module->getBias();
+        auto bias = data.component->getBias();
 
         if ( data.has_bias )
         {
@@ -210,13 +224,13 @@ namespace Modules::Layers::Tests
     template<TensorDataType TPrecision>
     void TestHasBias( const LinearCpuTestData<TPrecision>& data )
     {
-        EXPECT_EQ( data.module->hasBias(), data.has_bias );
+        EXPECT_EQ( data.component->hasBias(), data.has_bias );
     }
 
     template<TensorDataType TPrecision>
     void TestToString( const LinearCpuTestData<TPrecision>& data )
     {
-        std::string output = data.module->toString();
+        std::string output = data.component->toString();
 
         EXPECT_NE( output.find( "Linear" ), std::string::npos );
         EXPECT_NE( output.find( data.config.getName() ), std::string::npos );
@@ -230,14 +244,14 @@ namespace Modules::Layers::Tests
     {
         using TensorType = CpuTensor<TPrecision>;
 
-        data.module->build( data.input_shape );
+        data.component->build( data.input_shape );
 
         TensorType input( Device::Cpu(), data.input_shape );
         TensorType output( Device::Cpu(), data.output_shape );
 
         random( input, -1.0f, 1.0f );
 
-        EXPECT_NO_THROW( data.module->forward( input, output ) );
+        EXPECT_NO_THROW( data.component->forward( input, output ) );
         EXPECT_EQ( output.size(),
             data.output_shape[ 0 ] * data.output_shape[ 1 ] * data.output_shape[ 2 ] );
         EXPECT_EQ( output.shape(), data.output_shape );
@@ -246,7 +260,7 @@ namespace Modules::Layers::Tests
     template<TensorDataType TPrecision>
     void TestGetParameters( const LinearCpuTestData<TPrecision>& data )
     {
-        auto params = data.module->getParameters();
+        auto params = data.component->getParameters();
 
         if ( data.has_bias )
         {
@@ -264,10 +278,10 @@ namespace Modules::Layers::Tests
     template<TensorDataType TPrecision>
     void TestGetWeightGrad( LinearCpuTestData<TPrecision>& data )
     {
-        data.module->setTraining( true );
-        data.module->build( data.input_shape );
+        data.component->setTraining( true );
+        data.component->build( data.input_shape );
 
-        auto weight_grad = data.module->getWeightGrad();
+        auto weight_grad = data.component->getWeightGrad();
 
         ASSERT_NE( weight_grad, nullptr ) << "Weight gradients should be allocated in training mode";
         EXPECT_EQ( weight_grad->shape()[ 0 ], data.output_features );
@@ -277,10 +291,10 @@ namespace Modules::Layers::Tests
     template<TensorDataType TPrecision>
     void TestGetBiasGrad( LinearCpuTestData<TPrecision>& data )
     {
-        data.module->setTraining( true );
-        data.module->build( data.input_shape );
+        data.component->setTraining( true );
+        data.component->build( data.input_shape );
 
-        auto bias_grad = data.module->getBiasGrad();
+        auto bias_grad = data.component->getBiasGrad();
 
         if ( data.has_bias )
         {
@@ -298,8 +312,8 @@ namespace Modules::Layers::Tests
     {
         using TensorType = CpuTensor<TPrecision>;
 
-        data.module->setTraining( true );
-        data.module->build( data.input_shape );
+        data.component->setTraining( true );
+        data.component->build( data.input_shape );
 
         TensorType input( Device::Cpu(), data.input_shape );
         TensorType output( Device::Cpu(), data.output_shape );
@@ -310,10 +324,10 @@ namespace Modules::Layers::Tests
         random( output_grad, -0.1f, 0.1f );
         zeros( input_grad );
 
-        data.module->forward( input, output );
+        data.component->forward( input, output );
 
         EXPECT_NO_THROW(
-            data.module->backward( input, output_grad, input_grad )
+            data.component->backward( input, output_grad, input_grad )
         ) << "Backward pass should succeed for CPU Linear operation in training mode";
 
         EXPECT_EQ( input_grad.shape(), data.input_shape );
@@ -331,17 +345,64 @@ namespace Modules::Layers::Tests
     }
 
     // ====================================================================
-    // Existing Tests
+    // Construction Tests
+    // ====================================================================
+
+    TEST_F( LinearCpuTests, Construction_WithDeviceId )
+    {
+        LinearConfig config( 16, 32 );
+        config.withName( "test_cpu" );
+
+        EXPECT_NO_THROW(
+            (std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>(
+                config,
+                Device::Cpu()
+            ))
+        );
+    }
+
+    TEST_F( LinearCpuTests, Construction_NoDeviceId_Throws )
+    {
+        LinearConfig config( 16, 32 );
+        config.withName( "null_test" );
+
+        // Linear requires a device id (or parent must call setExecutionContext).
+        EXPECT_THROW(
+            (std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>(
+                config
+            )),
+            std::runtime_error
+        );
+    }
+
+    TEST_F( LinearCpuTests, Construction_DeviceTypeMismatch_Throws )
+    {
+        LinearConfig config( 16, 32 );
+        config.withName( "mismatch_test" );
+
+        EXPECT_THROW(
+            (std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>(
+                config,
+                Device::Cuda( 0 )
+            )),
+            std::invalid_argument
+        );
+    }
+
+    // ====================================================================
+    // Basic Property Tests
     // ====================================================================
 
     TEST_F( LinearCpuTests, GetName )
     {
-        TestGetName( SmallFp32Data(), "small_linear_cpu" );
+        const auto& data = SmallFp32Data();
+        TestGetName( data, "small_linear_cpu" );
     }
 
     TEST_F( LinearCpuTests, DeviceType )
     {
-        TestDeviceType( SmallFp32Data() );
+        const auto& data = SmallFp32Data();
+        TestDeviceType( data );
     }
 
     TEST_F( LinearCpuTests, IsBuilt_BeforeBuild )
@@ -351,18 +412,18 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCpuTests, IsBuilt_AfterBuild )
     {
-        auto data = SmallFp32Data();
+        auto& data = SmallFp32Data();
 
-        EXPECT_FALSE( data.module->isBuilt() );
+        EXPECT_FALSE( data.component->isBuilt() );
 
-        data.module->build( data.input_shape );
+        data.component->build( data.input_shape );
 
-        EXPECT_TRUE( data.module->isBuilt() );
+        EXPECT_TRUE( data.component->isBuilt() );
     }
 
     TEST_F( LinearCpuTests, Build )
     {
-        auto data = SmallFp32Data();
+        auto& data = SmallFp32Data();
         TestBuild( data );
     }
 
@@ -413,39 +474,42 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCpuTests, ToString )
     {
-        auto data = SmallFp32Data();
+        const auto& data = SmallFp32Data();
         TestToString( data );
     }
 
+    // ====================================================================
+    // Forward Pass Tests
+    // ====================================================================
+
     TEST_F( LinearCpuTests, Forward_SmallShape )
     {
-        auto data = SmallFp32Data();
+        auto& data = SmallFp32Data();
         TestForward( data );
     }
 
     TEST_F( LinearCpuTests, Forward_MediumShape )
     {
-        auto data = MediumFp32Data();
+        auto& data = MediumFp32Data();
         TestForward( data );
     }
 
     TEST_F( LinearCpuTests, Forward_WithoutBias )
     {
-        auto data = NoBiasFp32Data();
+        auto& data = NoBiasFp32Data();
         TestForward( data );
     }
 
     TEST_F( LinearCpuTests, WithContext_Construction )
     {
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
+        auto ctx = createExecutionContext( Device::Cpu() );
+        auto ctx_id = ctx->getDeviceId();
 
         auto data = LinearCpuTestData<TensorDataType::FP32>::CreateWithContext(
-            "context_linear_cpu", small_shape_, input_features_, output_features_, ctx );
+            "context_linear_cpu", small_shape_, input_features_, output_features_, std::move( ctx ) );
 
-        EXPECT_EQ( data.module->getName(), "context_linear_cpu" );
-
-        // Module owns its own context now; ensure device identity matches the external context
-        EXPECT_EQ( data.module->getDeviceId(), ctx->getDeviceId() );
+        EXPECT_EQ( data.component->getName(), "context_linear_cpu" );
+        EXPECT_EQ( data.component->getDeviceId(), ctx_id );
     }
 
     TEST_F( LinearCpuTests, EdgeCase_MinimalShape )
@@ -468,15 +532,9 @@ namespace Modules::Layers::Tests
         TestForward( data );
     }
 
-    TEST_F( LinearCpuTests, Construction_WithDeviceId )
-    {
-        LinearConfig config( 16, 32 );
-        config.withName( "test_cpu" );
-
-        EXPECT_NO_THROW(
-            (std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>( Device::Cpu(), config ))
-        );
-    }
+    // ====================================================================
+    // Error Handling Tests
+    // ====================================================================
 
     TEST_F( LinearCpuTests, Error_InvalidConfig_ZeroInputFeatures )
     {
@@ -484,7 +542,10 @@ namespace Modules::Layers::Tests
         invalid_config.withName( "invalid_cpu" );
 
         EXPECT_THROW(
-            (std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>( Device::Cpu(), invalid_config )),
+            (std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>(
+                invalid_config,
+                Device::Cpu()
+            )),
             std::invalid_argument
         );
     }
@@ -495,7 +556,10 @@ namespace Modules::Layers::Tests
         invalid_config.withName( "invalid_cpu" );
 
         EXPECT_THROW(
-            (std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>( Device::Cpu(), invalid_config )),
+            (std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>(
+                invalid_config,
+                Device::Cpu()
+            )),
             std::invalid_argument
         );
     }
@@ -509,15 +573,15 @@ namespace Modules::Layers::Tests
         CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.output_shape );
 
         EXPECT_THROW(
-            data.module->forward( input, output ),
+            data.component->forward( input, output ),
             std::runtime_error
         );
     }
 
     TEST_F( LinearCpuTests, Error_ShapeMismatch )
     {
-        auto data = SmallFp32Data();
-        data.module->build( data.input_shape );
+        auto& data = SmallFp32Data();
+        data.component->build( data.input_shape );
 
         shape_t wrong_shape = { 2, 3, 64 };
 
@@ -525,35 +589,35 @@ namespace Modules::Layers::Tests
         CpuTensor<TensorDataType::FP32> output( Device::Cpu(), { 2, 3, 32 } );
 
         EXPECT_THROW(
-            data.module->forward( input, output ),
+            data.component->forward( input, output ),
             std::invalid_argument
         );
     }
 
     TEST_F( LinearCpuTests, Synchronize )
     {
-        auto data = SmallFp32Data();
+        auto& data = SmallFp32Data();
 
-        EXPECT_NO_THROW( data.module->synchronize() );
+        EXPECT_NO_THROW( data.component->synchronize() );
     }
 
     TEST_F( LinearCpuTests, SetTrainingMode )
     {
-        auto data = SmallFp32Data();
+        auto& data = SmallFp32Data();
 
-        EXPECT_FALSE( data.module->isTraining() );
+        EXPECT_FALSE( data.component->isTraining() );
 
-        data.module->setTraining( true );
-        EXPECT_TRUE( data.module->isTraining() );
+        data.component->setTraining( true );
+        EXPECT_TRUE( data.component->isTraining() );
 
-        data.module->setTraining( false );
-        EXPECT_FALSE( data.module->isTraining() );
+        data.component->setTraining( false );
+        EXPECT_FALSE( data.component->isTraining() );
     }
 
     TEST_F( LinearCpuTests, MultipleForwardCalls )
     {
-        auto data = MediumFp32Data();
-        data.module->build( data.input_shape );
+        auto& data = MediumFp32Data();
+        data.component->build( data.input_shape );
 
         CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.input_shape );
         CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.output_shape );
@@ -562,7 +626,7 @@ namespace Modules::Layers::Tests
         {
             random( input, -1.0f, 1.0f );
 
-            EXPECT_NO_THROW( data.module->forward( input, output ) );
+            EXPECT_NO_THROW( data.component->forward( input, output ) );
         }
     }
 
@@ -572,37 +636,37 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCpuTests, GetWeightGrad_BeforeBackward )
     {
-        auto data = SmallFp32Data();
+        auto& data = SmallFp32Data();
         TestGetWeightGrad( data );
     }
 
     TEST_F( LinearCpuTests, GetBiasGrad_BeforeBackward_WithBias )
     {
-        auto data = SmallFp32Data();
+        auto& data = SmallFp32Data();
         TestGetBiasGrad( data );
     }
 
     TEST_F( LinearCpuTests, GetBiasGrad_BeforeBackward_WithoutBias )
     {
-        auto data = NoBiasFp32Data();
+        auto& data = NoBiasFp32Data();
         TestGetBiasGrad( data );
     }
 
     TEST_F( LinearCpuTests, Backward_SmallShape )
     {
-        auto data = SmallFp32Data();
+        auto& data = SmallFp32Data();
         TestBackward( data );
     }
 
     TEST_F( LinearCpuTests, Backward_MediumShape )
     {
-        auto data = MediumFp32Data();
+        auto& data = MediumFp32Data();
         TestBackward( data );
     }
 
     TEST_F( LinearCpuTests, Backward_WithoutBias )
     {
-        auto data = NoBiasFp32Data();
+        auto& data = NoBiasFp32Data();
         TestBackward( data );
     }
 
@@ -616,17 +680,17 @@ namespace Modules::Layers::Tests
         CpuTensor<TensorDataType::FP32> input_grad( Device::Cpu(), data.input_shape );
 
         EXPECT_THROW(
-            data.module->backward( input, output_grad, input_grad ),
+            data.component->backward( input, output_grad, input_grad ),
             std::runtime_error
         );
     }
 
     TEST_F( LinearCpuTests, Backward_MultipleIterations )
     {
-        auto data = SmallFp32Data();
+        auto& data = SmallFp32Data();
 
-        data.module->setTraining( true );
-        data.module->build( data.input_shape );
+        data.component->setTraining( true );
+        data.component->build( data.input_shape );
 
         CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.input_shape );
         CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.output_shape );
@@ -639,10 +703,10 @@ namespace Modules::Layers::Tests
             random( output_grad, -0.1f, 0.1f );
             zeros( input_grad );
 
-            data.module->forward( input, output );
+            data.component->forward( input, output );
 
             EXPECT_NO_THROW(
-                data.module->backward( input, output_grad, input_grad )
+                data.component->backward( input, output_grad, input_grad )
             ) << "Backward iteration " << iter << " failed";
         }
     }
@@ -669,10 +733,10 @@ namespace Modules::Layers::Tests
 
     TEST_F( LinearCpuTests, Training_InferenceToTrainingToInference )
     {
-        auto data = SmallFp32Data();
+        auto& data = SmallFp32Data();
 
-        EXPECT_FALSE( data.module->isTraining() );
-        data.module->build( data.input_shape );
+        EXPECT_FALSE( data.component->isTraining() );
+        data.component->build( data.input_shape );
 
         CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.input_shape );
         CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.output_shape );
@@ -682,52 +746,52 @@ namespace Modules::Layers::Tests
         random( input, -1.0f, 1.0f );
         random( output_grad, -0.1f, 0.1f );
 
-        EXPECT_NO_THROW( data.module->forward( input, output ) );
+        EXPECT_NO_THROW( data.component->forward( input, output ) );
 
         EXPECT_THROW(
-            data.module->backward( input, output_grad, input_grad ),
+            data.component->backward( input, output_grad, input_grad ),
             std::runtime_error
         ) << "Backward should fail in inference mode";
 
-        data.module->setTraining( true );
-        EXPECT_TRUE( data.module->isTraining() );
+        data.component->setTraining( true );
+        EXPECT_TRUE( data.component->isTraining() );
 
-        auto weight_grad = data.module->getWeightGrad();
+        auto weight_grad = data.component->getWeightGrad();
         ASSERT_NE( weight_grad, nullptr ) << "Gradients should be initialized when switching to training";
 
-        EXPECT_NO_THROW( data.module->forward( input, output ) );
+        EXPECT_NO_THROW( data.component->forward( input, output ) );
 
         zeros( input_grad );
         EXPECT_NO_THROW(
-            data.module->backward( input, output_grad, input_grad )
+            data.component->backward( input, output_grad, input_grad )
         ) << "Backward should work after switching to training mode";
 
-        data.module->setTraining( false );
-        EXPECT_FALSE( data.module->isTraining() );
+        data.component->setTraining( false );
+        EXPECT_FALSE( data.component->isTraining() );
 
-        EXPECT_NO_THROW( data.module->forward( input, output ) );
+        EXPECT_NO_THROW( data.component->forward( input, output ) );
 
         EXPECT_THROW(
-            data.module->backward( input, output_grad, input_grad ),
+            data.component->backward( input, output_grad, input_grad ),
             std::runtime_error
         ) << "Backward should fail after switching back to inference mode";
     }
 
     TEST_F( LinearCpuTests, Training_EnableBeforeBuild )
     {
-        auto data = SmallFp32Data();
+        auto& data = SmallFp32Data();
 
-        data.module->setTraining( true );
-        EXPECT_TRUE( data.module->isTraining() );
+        data.component->setTraining( true );
+        EXPECT_TRUE( data.component->isTraining() );
 
-        data.module->build( data.input_shape );
+        data.component->build( data.input_shape );
 
-        auto weight_grad = data.module->getWeightGrad();
+        auto weight_grad = data.component->getWeightGrad();
         ASSERT_NE( weight_grad, nullptr ) << "Weight gradients should be allocated when training enabled before build";
 
         if ( data.has_bias )
         {
-            auto bias_grad = data.module->getBiasGrad();
+            auto bias_grad = data.component->getBiasGrad();
             ASSERT_NE( bias_grad, nullptr ) << "Bias gradients should be allocated when training enabled before build";
         }
 
@@ -740,16 +804,16 @@ namespace Modules::Layers::Tests
         random( output_grad, -0.1f, 0.1f );
         zeros( input_grad );
 
-        EXPECT_NO_THROW( data.module->forward( input, output ) );
-        EXPECT_NO_THROW( data.module->backward( input, output_grad, input_grad ) );
+        EXPECT_NO_THROW( data.component->forward( input, output ) );
+        EXPECT_NO_THROW( data.component->backward( input, output_grad, input_grad ) );
     }
 
     TEST_F( LinearCpuTests, Error_BackwardInInferenceMode )
     {
-        auto data = SmallFp32Data();
+        auto& data = SmallFp32Data();
 
-        data.module->build( data.input_shape );
-        EXPECT_FALSE( data.module->isTraining() );
+        data.component->build( data.input_shape );
+        EXPECT_FALSE( data.component->isTraining() );
 
         CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.input_shape );
         CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.output_shape );
@@ -758,11 +822,11 @@ namespace Modules::Layers::Tests
 
         random( input, -1.0f, 1.0f );
 
-        data.module->forward( input, output );
+        data.component->forward( input, output );
 
         EXPECT_THROW(
-            data.module->backward( input, output_grad, input_grad ),
+            data.component->backward( input, output_grad, input_grad ),
             std::runtime_error
-        ) << "Backward should throw when module is not in training mode";
+        ) << "Backward should throw when component is not in training mode";
     }
 }

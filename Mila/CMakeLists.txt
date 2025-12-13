@@ -299,7 +299,7 @@ PUBLIC
         #"Src/Dnn/Components/MilaComponents.ixx"
         #"Src/Dnn/Core/Loss.ixx"
         
- )
+  "Src/Dnn/Compute/EscecutionContextFactory.ixx")
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 

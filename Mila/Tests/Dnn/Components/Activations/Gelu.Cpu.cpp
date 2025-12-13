@@ -2,8 +2,8 @@
  * @file Gelu.Cpu.cpp
  * @brief Unit tests for GELU activation module on CPU device.
  *
- * Verifies basic API, forward/backward invocation, config, and standalone
- * constructor behavior for the CPU-specialized Gelu module.
+ * Verifies basic API, forward/backward invocation, config, and constructor
+ * behavior for the CPU-specialized Gelu module.
  *
  * Tests assert behavior for both registered and unregistered backend operation:
  * - If the backend operation is registered the module should construct and operate.
@@ -22,7 +22,7 @@
 
 import Mila;
 
-namespace Modules::Activations::Tests
+    namespace Dnn::Components::Activations::Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
@@ -33,16 +33,16 @@ namespace Modules::Activations::Tests
     struct GeluCpuTestData
     {
         std::vector<int64_t> shape;
-        std::shared_ptr<GeluCpu> gelu_;
+        std::shared_ptr<GeluCpu> gelu;
 
-        static GeluCpuTestData CreateStandalone(
+        static GeluCpuTestData Create(
             int64_t batch, int64_t seq, int64_t chan )
         {
             GeluCpuTestData d;
             d.shape = { batch, seq, chan };
-            DeviceId device_id{ DeviceType::Cpu, 0 };
+
             GeluConfig config;
-            d.gelu_ = std::make_shared<GeluCpu>( device_id, config );
+            d.gelu = std::make_shared<GeluCpu>( config, Device::Cpu() );
 
             return d;
         }
@@ -60,7 +60,7 @@ namespace Modules::Activations::Tests
 
         void TearDown() override
         {
-            data_.gelu_.reset();
+            data_.gelu.reset();
         }
 
         float geluReference( float x )
@@ -100,24 +100,52 @@ namespace Modules::Activations::Tests
 
     TEST_F( GeluCpuTests, Construct_WithDeviceId_ThrowsWhenOpNotRegistered )
     {
-        DeviceId device_id{ DeviceType::Cpu, 0 };
+        DeviceId cpu_id = Device::Cpu();
 
         if ( !isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ) )
         {
-            EXPECT_THROW( GeluCpu( device_id, GeluConfig() ), std::runtime_error );
+            EXPECT_THROW(
+                GeluCpu( GeluConfig(), cpu_id ),
+                std::runtime_error
+            );
         }
         else
         {
-            EXPECT_NO_THROW( GeluCpu( device_id, GeluConfig() ) );
+            EXPECT_NO_THROW(
+                GeluCpu( GeluConfig(), cpu_id )
+            );
         }
+    }
+
+    TEST_F( GeluCpuTests, Constructor_NoDeviceId_GetDeviceIdThrows )
+    {
+        GeluConfig cfg;
+        GeluCpu gelu( cfg );
+
+        EXPECT_THROW(
+            gelu.getDeviceId(),
+            std::runtime_error
+        );
     }
 
     TEST_F( GeluCpuTests, Constructor_InvalidConfig_ThrowsInvalidArgument )
     {
-        DeviceId device_id{ DeviceType::Cpu, 0 };
         GeluConfig bad_cfg = GeluConfig().withApproximationMethod( GeluConfig::ApproximationMethod::Exact );
 
-        EXPECT_THROW( GeluCpu( device_id, bad_cfg ), std::invalid_argument );
+        EXPECT_THROW(
+            GeluCpu( bad_cfg, Device::Cpu() ),
+            std::invalid_argument
+        );
+    }
+
+    TEST_F( GeluCpuTests, Constructor_DeviceTypeMismatch_ThrowsInvalidArgument )
+    {
+        DeviceId cuda_id = Device::Cuda( 0 );
+
+        EXPECT_THROW(
+            GeluCpu( GeluConfig(), cuda_id ),
+            std::invalid_argument
+        );
     }
 
     // ========================================================================
@@ -128,13 +156,16 @@ namespace Modules::Activations::Tests
     {
         if ( !isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ) )
         {
-            DeviceId device_id{ DeviceType::Cpu, 0 };
-            EXPECT_THROW( GeluCpu( device_id, GeluConfig() ), std::runtime_error );
+            DeviceId cpu_id = Device::Cpu();
+            EXPECT_THROW(
+                GeluCpu( GeluConfig(), cpu_id ),
+                std::runtime_error
+            );
             return;
         }
 
-        auto d = GeluCpuTestData::CreateStandalone( batch_, seq_, chan_ );
-        auto device = d.gelu_->getDeviceId();
+        auto d = GeluCpuTestData::Create( batch_, seq_, chan_ );
+        auto device = d.gelu->getDeviceId();
 
         Tensor<dtype_t::FP32, MR> input( device, d.shape );
         Tensor<dtype_t::FP32, MR> output( device, d.shape );
@@ -144,9 +175,9 @@ namespace Modules::Activations::Tests
             input.data()[ i ] = static_cast<float>( i ) / input.size() * 4.0f - 2.0f;
         }
 
-        d.gelu_->build( d.shape );
+        d.gelu->build( d.shape );
 
-        EXPECT_NO_THROW( d.gelu_->forward( input, output ) );
+        EXPECT_NO_THROW( d.gelu->forward( input, output ) );
         EXPECT_EQ( output.size(), input.size() );
     }
 
@@ -157,8 +188,8 @@ namespace Modules::Activations::Tests
             GTEST_SKIP() << "GeluOp not registered for CPU FP32";
         }
 
-        DeviceId device_id{ DeviceType::Cpu, 0 };
-        auto gelu = std::make_shared<GeluCpu>( device_id, GeluConfig() );
+        DeviceId device_id = Device::Cpu();
+        auto gelu = std::make_shared<GeluCpu>( GeluConfig(), device_id );
 
         std::vector<int64_t> shape = { 2, 3, 4 };
 
@@ -201,8 +232,8 @@ namespace Modules::Activations::Tests
             GTEST_SKIP() << "GeluOp not registered for CPU FP32";
         }
 
-        DeviceId device_id{ DeviceType::Cpu, 0 };
-        auto gelu = std::make_shared<GeluCpu>( device_id, GeluConfig() );
+        DeviceId device_id = Device::Cpu();
+        auto gelu = std::make_shared<GeluCpu>( GeluConfig(), device_id );
 
         std::vector<int64_t> shape = { 2, 4, 8 };
 
@@ -232,8 +263,8 @@ namespace Modules::Activations::Tests
             GTEST_SKIP() << "GeluOp not registered for CPU FP32";
         }
 
-        DeviceId device_id{ DeviceType::Cpu, 0 };
-        auto gelu = std::make_shared<GeluCpu>( device_id, GeluConfig() );
+        DeviceId device_id = Device::Cpu();
+        auto gelu = std::make_shared<GeluCpu>( GeluConfig(), device_id );
 
         std::vector<int64_t> shape = { 3, 5, 7 };
 
@@ -258,8 +289,8 @@ namespace Modules::Activations::Tests
             GTEST_SKIP() << "GeluOp not registered for CPU FP32";
         }
 
-        DeviceId device_id{ DeviceType::Cpu, 0 };
-        auto gelu = std::make_shared<GeluCpu>( device_id, GeluConfig() );
+        DeviceId device_id = Device::Cpu();
+        auto gelu = std::make_shared<GeluCpu>( GeluConfig(), device_id );
 
         std::vector<int64_t> shape = { 2, 3, 4 };
 
@@ -305,8 +336,8 @@ namespace Modules::Activations::Tests
             GTEST_SKIP() << "GeluOp not registered for CPU FP32";
         }
 
-        DeviceId device_id{ DeviceType::Cpu, 0 };
-        auto gelu = std::make_shared<GeluCpu>( device_id, GeluConfig() );
+        DeviceId device_id = Device::Cpu();
+        auto gelu = std::make_shared<GeluCpu>( GeluConfig(), device_id );
 
         std::vector<int64_t> shape = { 2, 3, 4 };
 
@@ -349,8 +380,8 @@ namespace Modules::Activations::Tests
             GTEST_SKIP() << "GeluOp not registered for CPU FP32";
         }
 
-        DeviceId device_id{ DeviceType::Cpu, 0 };
-        auto gelu = std::make_shared<GeluCpu>( device_id, GeluConfig() );
+        DeviceId device_id = Device::Cpu();
+        auto gelu = std::make_shared<GeluCpu>( GeluConfig(), device_id );
 
         std::vector<int64_t> shape = { 2, 3, 4 };
 
@@ -385,8 +416,8 @@ namespace Modules::Activations::Tests
             GTEST_SKIP() << "GeluOp not registered for CPU FP32";
         }
 
-        DeviceId device_id{ DeviceType::Cpu, 0 };
-        auto gelu = std::make_shared<GeluCpu>( device_id, GeluConfig() );
+        DeviceId device_id = Device::Cpu();
+        auto gelu = std::make_shared<GeluCpu>( GeluConfig(), device_id );
 
         std::vector<int64_t> shape = { 1, 8 };
 
@@ -426,8 +457,8 @@ namespace Modules::Activations::Tests
             GTEST_SKIP() << "GeluOp not registered for CPU FP32";
         }
 
-        DeviceId device_id{ DeviceType::Cpu, 0 };
-        auto gelu = std::make_shared<GeluCpu>( device_id, GeluConfig() );
+        DeviceId device_id = Device::Cpu();
+        auto gelu = std::make_shared<GeluCpu>( GeluConfig(), device_id );
 
         std::vector<int64_t> shape = { 2, 3 };
 
@@ -447,8 +478,8 @@ namespace Modules::Activations::Tests
             GTEST_SKIP() << "GeluOp not registered for CPU FP32";
         }
 
-        DeviceId device_id{ DeviceType::Cpu, 0 };
-        auto gelu = std::make_shared<GeluCpu>( device_id, GeluConfig() );
+        DeviceId device_id = Device::Cpu();
+        auto gelu = std::make_shared<GeluCpu>( GeluConfig(), device_id );
 
         std::vector<int64_t> shape = { 2, 3 };
 
@@ -500,13 +531,16 @@ namespace Modules::Activations::Tests
     {
         if ( !isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ) )
         {
-            DeviceId device_id{ DeviceType::Cpu, 0 };
-            EXPECT_THROW( GeluCpu( device_id, GeluConfig() ), std::runtime_error );
+            DeviceId cpu_id = Device::Cpu();
+            EXPECT_THROW(
+                GeluCpu( GeluConfig(), cpu_id ),
+                std::runtime_error
+            );
             return;
         }
 
-        auto d = GeluCpuTestData::CreateStandalone( batch_, seq_, chan_ );
-        auto s = d.gelu_->toString();
+        auto d = GeluCpuTestData::Create( batch_, seq_, chan_ );
+        auto s = d.gelu->toString();
 
         EXPECT_FALSE( s.empty() );
         EXPECT_NE( s.find( "Gelu" ), std::string::npos );
@@ -516,43 +550,52 @@ namespace Modules::Activations::Tests
     {
         if ( !isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ) )
         {
-            DeviceId device_id{ DeviceType::Cpu, 0 };
-            EXPECT_THROW( GeluCpu( device_id, GeluConfig() ), std::runtime_error );
+            DeviceId cpu_id = Device::Cpu();
+            EXPECT_THROW(
+                GeluCpu( GeluConfig(), cpu_id ),
+                std::runtime_error
+            );
             return;
         }
 
-        auto d = GeluCpuTestData::CreateStandalone( batch_, seq_, chan_ );
+        auto d = GeluCpuTestData::Create( batch_, seq_, chan_ );
 
-        EXPECT_EQ( d.gelu_->getApproximationMethod(), GeluConfig::ApproximationMethod::Tanh );
+        EXPECT_EQ( d.gelu->getApproximationMethod(), GeluConfig::ApproximationMethod::Tanh );
     }
 
     TEST_F( GeluCpuTests, DeviceId_DeviceTypeMatchesOrConstructorThrows )
     {
         if ( !isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ) )
         {
-            DeviceId device_id{ DeviceType::Cpu, 0 };
-            EXPECT_THROW( GeluCpu( device_id, GeluConfig() ), std::runtime_error );
+            DeviceId cpu_id = Device::Cpu();
+            EXPECT_THROW(
+                GeluCpu( GeluConfig(), cpu_id ),
+                std::runtime_error
+            );
             return;
         }
 
-        auto d = GeluCpuTestData::CreateStandalone( batch_, seq_, chan_ );
-        auto dev = d.gelu_->getDeviceId();
+        auto d = GeluCpuTestData::Create( batch_, seq_, chan_ );
+        auto dev = d.gelu->getDeviceId();
 
         EXPECT_EQ( dev.type, DeviceType::Cpu );
     }
 
-    TEST_F( GeluCpuTests, Construct_Standalone_WorksOrThrows )
+    TEST_F( GeluCpuTests, Construct_WithDeviceId_WorksOrThrows )
     {
         if ( !isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ) )
         {
-            DeviceId device_id{ DeviceType::Cpu, 0 };
-            EXPECT_THROW( GeluCpu( device_id, GeluConfig() ), std::runtime_error );
+            EXPECT_THROW(
+                GeluCpu( GeluConfig(), Device::Cpu() ),
+                std::runtime_error
+            );
+            
             return;
         }
 
-        auto d = GeluCpuTestData::CreateStandalone( batch_, seq_, chan_ );
+        auto d = GeluCpuTestData::Create( batch_, seq_, chan_ );
 
-        EXPECT_EQ( d.gelu_->getDeviceId().type, DeviceType::Cpu );
+        EXPECT_EQ( d.gelu->getDeviceId().type, DeviceType::Cpu );
     }
 
     TEST_F( GeluCpuTests, Synchronize_ParameterCount_SetTraining )
@@ -562,16 +605,16 @@ namespace Modules::Activations::Tests
             GTEST_SKIP() << "GeluOp not registered for CPU FP32";
         }
 
-        auto d = GeluCpuTestData::CreateStandalone( batch_, seq_, chan_ );
+        auto d = GeluCpuTestData::Create( batch_, seq_, chan_ );
 
-        EXPECT_NO_THROW( d.gelu_->synchronize() );
+        EXPECT_NO_THROW( d.gelu->synchronize() );
 
-        EXPECT_EQ( d.gelu_->parameterCount(), 0u );
+        EXPECT_EQ( d.gelu->parameterCount(), 0u );
 
-        d.gelu_->setTraining( true );
-        EXPECT_TRUE( d.gelu_->isTraining() );
+        d.gelu->setTraining( true );
+        EXPECT_TRUE( d.gelu->isTraining() );
 
-        d.gelu_->setTraining( false );
-        EXPECT_FALSE( d.gelu_->isTraining() );
+        d.gelu->setTraining( false );
+        EXPECT_FALSE( d.gelu->isTraining() );
     }
 }

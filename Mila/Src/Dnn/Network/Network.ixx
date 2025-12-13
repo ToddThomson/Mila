@@ -24,6 +24,8 @@ import Dnn.CompositeComponent;
 import Dnn.ComponentFactory;
 import Dnn.TensorDataType;
 import Compute.ExecutionContext;
+import Compute.ExecutionContextFactory;
+import Compute.IExecutionContext;
 import Compute.DeviceType;
 import Compute.Device;
 import Compute.DeviceId;
@@ -41,49 +43,107 @@ namespace Mila::Dnn
      * @brief Lightweight composite network container.
      *
      * Network is a specialized CompositeComponent that represents a complete neural
-     * network model. It manages child components and provides high-level serialization
-     * and model management operations.
+     * network model and serves as the top-level entry point for users. It manages
+     * child components and provides high-level serialization and model management
+     * operations.
      *
-     * Construction patterns:
-     * - **Standalone**: Public constructor accepting DeviceId and name creates owned ExecutionContext
-     * - **Deserialization**: Protected constructor accepting IExecutionContext* for factory reconstruction
+     * Ownership Model:
+     * - **Network owns ExecutionContext** when constructed via DeviceId (primary use case)
+     * - All child components share the Network's ExecutionContext (efficient resource pooling)
+     * - Network can also share a parent's context when used as a nested component (rare)
      *
-     * The Network owns and manages the shared ExecutionContext that is propagated to all
-     * child components for efficient resource sharing via the factory method pattern.
+     * Construction Patterns:
+     * - **Primary**: Public constructor accepting DeviceId creates and owns ExecutionContext
+     *   - User-facing API: `Network(Device::Cpu(), "my_model")`
+     *   - Network manages context lifetime, children borrow it
+     * - **Secondary**: Public constructor accepting IExecutionContext* for deserialization/nesting
+     *   - Used by factory reconstruction and nested network scenarios
+     *   - Network shares parent's context, does not own it
      *
      * Child Component Construction:
-     * - Network does not expose `addComponent(ComponentPtr)` - this would break ExecutionContext sharing
-     * - Derived classes or builders should construct children using the template factory method:
-     *   `addComponent<ComponentType>(name, config_args...)`
-     * - Factory method enforces that all children share the Network's ExecutionContext
+     * - Use fluent `addComponent<ComponentType>(name, config_args...)` to build network hierarchy
+     * - Factory method ensures all children share the Network's ExecutionContext
+     * - Children are constructed with IExecutionContext* (single constructor pattern)
+     *
+     * Design Rationale:
+     * - Network is special because it's the ownership boundary for ExecutionContext
+     * - Users shouldn't need to manage ExecutionContext manually (ergonomics)
+     * - All other components use single IExecutionContext* constructor (simplicity)
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
-    class Network : public CompositeComponent<TDeviceType, TPrecision>
+        class Network : public CompositeComponent<TDeviceType, TPrecision>
     {
     public:
         using CompositeBase = CompositeComponent<TDeviceType, TPrecision>;
         using ComponentPtr = typename CompositeBase::ComponentPtr;
-        using ExecutionContextType = ExecutionContext<TDeviceType>;
 
         /**
-         * @brief Construct network with owned ExecutionContext.
+         * @brief Construct network with owned ExecutionContext (primary constructor).
          *
-         * Creates a new network with its own ExecutionContext that will be shared
-         * with all child components added via the factory method.
+         * This is the main user-facing constructor. Creates and owns an ExecutionContext
+         * for the specified device, which will be shared with all child components added
+         * via the factory method pattern.
          *
          * @param device_id DeviceId identifying the device for this network and its children.
          * @param name Network name for identification and serialization.
          *
+         * @throws std::invalid_argument if name is empty.
          * @throws std::invalid_argument if device_id.type does not match TDeviceType.
          * @throws std::runtime_error if ExecutionContext creation fails.
          */
         explicit Network( DeviceId device_id, const std::string& name )
-            : CompositeBase( device_id ), name_( name )
+            : name_( name )
         {
-            if (name_.empty())
+            if ( name_.empty() )
             {
                 throw std::invalid_argument( "Network: name cannot be empty" );
             }
+
+            // create and own an execution context for the requested device
+            createOwnedContext( device_id );
+
+            // propagate owned context to composite base and therefore to any children added
+            CompositeBase::setExecutionContext( owned_context_.get() );
+        }
+
+        /**
+         * @brief Construct network that shares an existing execution context.
+         *
+         * Secondary constructor used for deserialization and nested networks.
+         * The provided context is non-owning; the network will share it with children.
+         *
+         * @param exec_context Non-owning execution context to share with the network.
+         * @param name Network name for identification and serialization.
+         *
+         * @throws std::invalid_argument if name is empty or exec_context is null
+         * @throws std::invalid_argument if exec_context device type does not match TDeviceType
+         */
+        explicit Network( IExecutionContext* exec_context, const std::string& name )
+            : name_( name )
+        {
+            if ( name_.empty() )
+            {
+                throw std::invalid_argument( "Network: name cannot be empty" );
+            }
+
+            if ( exec_context == nullptr )
+            {
+                throw std::invalid_argument( "Network: exec_context cannot be null" );
+            }
+
+            if ( exec_context->getDeviceId().type != TDeviceType )
+            {
+                throw std::invalid_argument(
+                    std::format(
+                        "Network: constructor device type mismatch: expected {}, got {}",
+                        deviceTypeToString( TDeviceType ),
+                        deviceTypeToString( exec_context->getDeviceId().type )
+                    )
+                );
+            }
+
+            // share the provided execution context with composite base and children
+            CompositeBase::setExecutionContext( exec_context );
         }
 
         ~Network() override = default;
@@ -111,7 +171,7 @@ namespace Mila::Dnn
             std::vector<std::string> names;
             names.reserve( named_map.size() );
 
-            for (const auto& p : named_map)
+            for ( const auto& p : named_map )
             {
                 names.push_back( p.first );
             }
@@ -119,13 +179,13 @@ namespace Mila::Dnn
             std::sort( names.begin(), names.end() );
 
             json net_meta;
-            net_meta["format_version"] = 1;
-            net_meta["name"] = name_;
-            net_meta["num_components"] = names.size();
-            net_meta["mode"] = serializationModeToString( mode );
+            net_meta[ "format_version" ] = 1;
+            net_meta[ "name" ] = name_;
+            net_meta[ "num_components" ] = names.size();
+            net_meta[ "mode" ] = serializationModeToString( mode );
 
             auto now = std::chrono::system_clock::now();
-            net_meta["export_time"] = static_cast<int64_t>(
+            net_meta[ "export_time" ] = static_cast<int64_t>(
                 std::chrono::system_clock::to_time_t( now )
             );
 
@@ -133,23 +193,23 @@ namespace Mila::Dnn
 
             json arch = json::array();
 
-            for (size_t i = 0; i < names.size(); ++i)
+            for ( size_t i = 0; i < names.size(); ++i )
             {
-                const auto& nm = names[i];
+                const auto& nm = names[ i ];
                 json entry = json::object();
-                entry["name"] = nm;
-                entry["path"] = "components/" + nm;
-                entry["index"] = static_cast<int>( i );
+                entry[ "name" ] = nm;
+                entry[ "path" ] = "components/" + nm;
+                entry[ "index" ] = static_cast<int>( i );
                 arch.push_back( entry );
             }
 
             archive.writeJson( "network/architecture.json", arch );
 
-            for (const auto& nm : names)
+            for ( const auto& nm : names )
             {
                 auto it = named_map.find( nm );
 
-                if (it == named_map.end())
+                if ( it == named_map.end() )
                 {
                     throw std::runtime_error(
                         "Network::save: inconsistent named components map for '" + nm + "'"
@@ -163,7 +223,7 @@ namespace Mila::Dnn
                     ModelArchive::ScopedScope scope( archive, std::string( "components/" ) + nm );
                     component->save_( archive, mode );
                 }
-                catch (const std::exception& e)
+                catch ( const std::exception& e )
                 {
                     throw std::runtime_error(
                         std::format(
@@ -203,17 +263,17 @@ namespace Mila::Dnn
 
             json arch = archive.readJson( "network/architecture.json" );
 
-            if (net_meta.contains( "num_components" ))
+            if ( net_meta.contains( "num_components" ) )
             {
                 size_t hint = net_meta.at( "num_components" ).get<size_t>();
                 size_t actual = 0;
 
-                if (arch.is_array())
+                if ( arch.is_array() )
                 {
                     actual = arch.size();
                 }
 
-                if (hint != actual)
+                if ( hint != actual )
                 {
                     throw std::runtime_error(
                         std::format(
@@ -225,21 +285,17 @@ namespace Mila::Dnn
                 }
             }
 
-            auto network = std::unique_ptr<Network>(
-                new Network( exec_context, name )
-            );
+            auto network = std::unique_ptr<Network>( new Network( exec_context, name ) );
 
-            // Reconstruct each child component from the archive using ComponentFactory.
-            // The factory will create components using the network's shared ExecutionContext.
-            for (const auto& item : arch)
+            for ( const auto& item : arch )
             {
                 std::string component_name;
 
-                if (item.is_object() && item.contains( "name" ))
+                if ( item.is_object() && item.contains( "name" ) )
                 {
                     component_name = item.at( "name" ).get<std::string>();
                 }
-                else if (item.is_string())
+                else if ( item.is_string() )
                 {
                     component_name = item.get<std::string>();
                 }
@@ -252,23 +308,13 @@ namespace Mila::Dnn
 
                 try
                 {
-                    // ComponentFactory::createFromArchive will:
-                    // 1. Read component metadata from archive
-                    // 2. Dispatch to concrete component type's fromArchive_() method
-                    // 3. Return a type-erased component (TODO: currently returns void*)
+                    // ComponentFactory is expected to reconstruct a component instance
+                    // that already shares the provided exec_context. Once available,
+                    // it should be registered with the network so it participates in
+                    // build/serialization.
                     //
-                    // Once ComponentFactory dispatch is implemented, it should call:
-                    //   auto component = ComponentFactory::createFromArchive<TDeviceType>(
-                    //       archive, component_name, exec_context);
-                    //
-                    // The concrete component's fromArchive_() static method will use the
-                    // protected constructor that accepts IExecutionContext*, ensuring
-                    // the reconstructed component shares the network's context.
-                    //
-                    // For now, document the intended pattern:
-                    // network->registerReconstructedComponent(component_name, component);
-
-                    // Placeholder until ComponentFactory dispatch is implemented
+                    // The actual dispatch to ComponentFactory::createFromArchive is
+                    // TODO: implement in ComponentFactory. This is the documented hook.
                     throw std::runtime_error(
                         std::format(
                             "Network::load: ComponentFactory dispatch not yet implemented for component '{}'",
@@ -276,7 +322,7 @@ namespace Mila::Dnn
                         )
                     );
                 }
-                catch (const std::exception& e)
+                catch ( const std::exception& e )
                 {
                     throw std::runtime_error(
                         std::format(
@@ -322,27 +368,6 @@ namespace Mila::Dnn
     protected:
 
         /**
-         * @brief Construct network as child component sharing parent's ExecutionContext.
-         *
-         * Used by factory or deserialization to create a network that shares
-         * an existing execution context. Typically called via the static load() method.
-         *
-         * @param exec_context Non-owning pointer to shared execution context (must be non-null).
-         * @param name Network name for identification.
-         *
-         * @throws std::invalid_argument if exec_context is null or name is empty.
-         */
-        explicit Network( IExecutionContext* exec_context, const std::string& name )
-            : CompositeBase( exec_context )
-            , name_( name )
-        {
-            if (name_.empty())
-            {
-                throw std::invalid_argument( "Network: name cannot be empty" );
-            }
-        }
-
-        /**
          * @brief Register a pre-constructed component during deserialization.
          *
          * Internal helper used by load() to register components reconstructed by
@@ -357,21 +382,21 @@ namespace Mila::Dnn
          */
         void registerReconstructedComponent( const std::string& name, ComponentPtr component )
         {
-            if (this->isBuilt())
+            if ( this->isBuilt() )
             {
                 throw std::runtime_error(
                     "Network::registerReconstructedComponent: cannot add components after build()"
                 );
             }
 
-            if (!component)
+            if ( !component )
             {
                 throw std::invalid_argument(
                     "Network::registerReconstructedComponent: component cannot be null"
                 );
             }
 
-            if (this->hasComponent( name ))
+            if ( this->hasComponent( name ) )
             {
                 throw std::invalid_argument(
                     "Network::registerReconstructedComponent: component name '" + name + "' already exists"
@@ -380,12 +405,62 @@ namespace Mila::Dnn
 
             // Direct registration without using factory method since component was
             // already constructed by ComponentFactory with the correct ExecutionContext
-            this->child_component_map_[name] = component;
+            this->child_component_map_[ name ] = component;
             this->child_components_.push_back( component );
         }
 
     private:
 
+        /**
+         * @brief Create and validate owned execution context.
+         *
+         * Helper for the primary (DeviceId) constructor. Creates an ExecutionContext
+         * for the specified device and validates that the device type matches the
+         * Network's template parameter.
+         *
+         * @param device_id Device identifier for context creation
+         * @return Unique pointer to created execution context
+         *
+         * @throws std::invalid_argument if device type mismatches template parameter
+         * @throws std::runtime_error if context creation fails
+         */
+        IExecutionContext* createOwnedContext( DeviceId device_id )
+        {
+            if ( device_id.type != TDeviceType )
+            {
+                throw std::invalid_argument(
+                    std::format(
+                        "Network: constructor device type mismatch: expected {}, got {}",
+                        deviceTypeToString( TDeviceType ),
+                        deviceTypeToString( device_id.type )
+                    )
+                );
+            }
+
+            owned_context_ = createExecutionContext( device_id );
+
+            if ( !owned_context_ )
+            {
+                throw std::runtime_error(
+                    "Network: failed to create execution context for device"
+                );
+            }
+
+            return owned_context_.get();
+        }
+
+        /**
+         * @brief Owned ExecutionContext (only populated for primary constructor).
+         *
+         * Ownership model:
+         * - Primary constructor (DeviceId): owned_context_ is populated, passed to CompositeBase
+         * - Secondary constructor (IExecutionContext*): owned_context_ is null, shares parent's context
+         */
+        std::unique_ptr<IExecutionContext> owned_context_{ nullptr };
+
+        /**
+         * @brief Network name for identification and serialization.
+         */
         std::string name_;
 
         friend class ComponentFactory;
