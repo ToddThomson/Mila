@@ -133,14 +133,9 @@ namespace Mila::Dnn::Compute
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::native_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 
-        CudaLayerNormOp( std::shared_ptr<CudaExecutionContext> context, const LayerNormConfig& config )
-            : config_( config ), context_( context ), impl_()
+        CudaLayerNormOp( IExecutionContext* context, const LayerNormConfig& config )
+            : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaLayerNormOp" ) ), config_( config ), impl_()
         {
-            if (!context_)
-            {
-                throw std::runtime_error( "CudaLayerNormOp requires a CUDA execution context" );
-            }
-
             config_.validate();
         }
 
@@ -416,7 +411,7 @@ namespace Mila::Dnn::Compute
 
     private:
         LayerNormConfig config_;
-        std::shared_ptr<CudaExecutionContext> context_;
+        CudaExecutionContext* context_;
         Detail::cuda_layernorm_impl<NativeType> impl_;
 
         // Cached native device parameter pointers (module owns underlying tensors)
@@ -449,7 +444,7 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32>(
                 opName,
-                []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
+                []( IExecutionContext* context,
                     const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
                 {
                     const auto& lnConfig = static_cast<const LayerNormConfig&>(config);
@@ -459,7 +454,7 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP16, TensorDataType::FP16>(
                 opName,
-                []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
+                []( IExecutionContext* context,
                     const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
                 {
                     const auto& lnConfig = static_cast<const LayerNormConfig&>(config);

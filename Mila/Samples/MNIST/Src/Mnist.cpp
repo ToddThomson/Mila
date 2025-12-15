@@ -315,6 +315,8 @@ template<DeviceType TDeviceType, TensorDataType TDataType, typename THostMR>
 (std::is_same_v<THostMR, CudaPinnedMemoryResource> || std::is_same_v<THostMR, CpuMemoryResource>)
 void trainMnist( const MnistConfig& config )
 {
+    // TJT: WIP to move toward new Network API usage
+    
     // ========================================================================
 	// Mnist training setup using low-level API
 	// ========================================================================
@@ -382,9 +384,7 @@ void trainMnist( const MnistConfig& config )
         .withBeta1( config.beta1 )
         .withBeta2( config.beta2 )
         .withEpsilon( config.epsilon )
-        .withWeightDecay( config.weight_decay )
-        .withName( "AdamW" );
-
+        .withWeightDecay( config.weight_decay );
     // Validate configuration
     adamw_config.validate();
 
@@ -394,7 +394,7 @@ void trainMnist( const MnistConfig& config )
         adamw_config );*/
 
     auto optimizer = std::make_shared<AdamWOptimizer<TDeviceType, TDataType>>(
-		exec_context, adamw_config );
+		mnist_net->getExecutionContext(), adamw_config);
 
     // Register all model parameters with the optimizer
     auto params = mnist_net->getParameters();
@@ -447,7 +447,7 @@ void trainMnist( const MnistConfig& config )
 
             // Forward pass
             mnist_net->forward( input_batch, output );
-            exec_context->synchronize();
+            mnist_net->synchronize();
 
             // Copy output to CPU for loss computation
             // REVIEW: Without passing the exec_context, we are implicitly synchronizing here
@@ -517,7 +517,7 @@ void trainMnist( const MnistConfig& config )
 
             mnist_net->forward( input_batch, output );
 
-            copy( output, logits, exec_context.get() );
+            copy( output, logits, mnist_net->getExecutionContext());
 
             test_loss += softmaxCrossEntropyLoss( logits, target_batch );
             test_acc += computeAccuracy( logits, target_batch );
@@ -548,7 +548,7 @@ template<DeviceType TDeviceType, TensorDataType TPrecision, typename THostMR>
 void trainUsingModel( const MnistConfig& config )
 {
 	// ========================================================================
-	// WIP: Use Model abstraction for training
+	// WIP: Using Model abstraction for training
     // ========================================================================
 
 	// REVIEW: Get canonical device memory resource type for device
@@ -558,18 +558,18 @@ void trainUsingModel( const MnistConfig& config )
     // Model setup
     // ============================================================
 
-    std::shared_ptr<ExecutionContext<TDeviceType>> exec_context;
+    DeviceId device_id;
     if constexpr (TDeviceType == DeviceType::Cuda)
     {
-        exec_context = std::make_shared<ExecutionContext<TDeviceType>>( 0 );
+        device_id = Device::Cuda( 0 );
     }
     else
     {
-        exec_context = std::make_shared<ExecutionContext<TDeviceType>>();
+        device_id = Device::Cpu();
     }
 
     auto net = std::make_unique<MnistClassifier<TDeviceType, TPrecision>>(
-        exec_context,
+        device_id,
         "MnistClassifier",
         config.batch_size );
 
@@ -613,7 +613,7 @@ void trainUsingModel( const MnistConfig& config )
         adamw_config );*/
 
     auto optimizer = std::make_unique<AdamWOptimizer<TDeviceType, TPrecision>>(
-        exec_context, adamw_config );
+        net->getExecutionContext(), adamw_config );
         //config.learning_rate,
         //config.beta1,
         //config.beta2,

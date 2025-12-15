@@ -141,20 +141,17 @@ namespace Dnn::Components::Activations::Tests
         EXPECT_NO_THROW( config.validate() );
     }
 
-    TEST_F( GeluConfigTests, RvalueFluentChainingAndName ) {
-        // Ensure fluent API works on temporaries and preserves chaining
+    TEST_F( GeluConfigTests, RvalueFluentChaining ) {
+        // Ensure fluent API works on temporaries and preserves chaining for approximation method
         auto cfg = GeluConfig()
-            .withApproximationMethod( GeluConfig::ApproximationMethod::Exact )
-            .withName( "gelu_temp" );
+            .withApproximationMethod( GeluConfig::ApproximationMethod::Exact );
 
         EXPECT_EQ( cfg.getApproximationMethod(), GeluConfig::ApproximationMethod::Exact );
-        EXPECT_EQ( cfg.getName(), "gelu_temp" );
     }
 
     TEST_F( GeluConfigTests, JsonSerializationRoundTrip ) {
         GeluConfig config;
-        config.withApproximationMethod( GeluConfig::ApproximationMethod::Sigmoid )
-              .withName( "gelu_json" );
+        config.withApproximationMethod( GeluConfig::ApproximationMethod::Sigmoid );
 
         auto j = config.toJson();
 
@@ -162,6 +159,5 @@ namespace Dnn::Components::Activations::Tests
         loaded.fromJson( j );
 
         EXPECT_EQ( loaded.getApproximationMethod(), GeluConfig::ApproximationMethod::Sigmoid );
-        EXPECT_EQ( loaded.getName(), "gelu_json" );
     }
 }

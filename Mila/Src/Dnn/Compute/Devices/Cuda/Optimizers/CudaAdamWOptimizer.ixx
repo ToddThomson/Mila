@@ -68,7 +68,7 @@ namespace Mila::Dnn::Compute
         using MR = CudaDeviceMemoryResource;
         using TensorType = Tensor<TPrecision, MR>;
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::native_type;
-        using ExecutionContextType = ExecutionContext<DeviceType::Cuda>;
+        using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 
         /**
          * @brief Construct CUDA AdamW optimizer.
@@ -79,13 +79,8 @@ namespace Mila::Dnn::Compute
          * @throws std::invalid_argument if exec_context is null
          */
         explicit CudaAdamWOptimizer( IExecutionContext* context, const OptimizerConfig& config )
-            : exec_context_( context ), config_( config ), grad_scale_{ 1.0f }, step_count_{ 0 }
+            : exec_context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaAdamOptimizer")), config_(config), grad_scale_{1.0f}, step_count_{0}
         {
-            if (!exec_context_)
-            {
-                throw std::invalid_argument( "CudaAdamWOptimizer: ExecutionContext cannot be null" );
-            }
-
             validateHyperparameters();
         }
 
@@ -387,7 +382,7 @@ namespace Mila::Dnn::Compute
     private:
 
         OptimizerConfig config_;
-        IExecutionContext* exec_context_;
+        CudaExecutionContext* exec_context_;
 
         float grad_scale_{ 1.0f };
         

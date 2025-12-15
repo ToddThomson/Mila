@@ -92,17 +92,12 @@ namespace Mila::Dnn
          * @throws std::runtime_error if ExecutionContext creation fails.
          */
         explicit Network( DeviceId device_id, const std::string& name )
-            : name_( name )
+            : CompositeBase( name )
         {
-            if ( name_.empty() )
-            {
-                throw std::invalid_argument( "Network: name cannot be empty" );
-            }
-
-            // create and own an execution context for the requested device
+            // Create and own an execution context for the requested device
             createOwnedContext( device_id );
 
-            // propagate owned context to composite base and therefore to any children added
+            // Propagate owned context to composite base and therefore to any children added
             CompositeBase::setExecutionContext( owned_context_.get() );
         }
 
@@ -119,13 +114,8 @@ namespace Mila::Dnn
          * @throws std::invalid_argument if exec_context device type does not match TDeviceType
          */
         explicit Network( IExecutionContext* exec_context, const std::string& name )
-            : name_( name )
+            : CompositeBase(  name )
         {
-            if ( name_.empty() )
-            {
-                throw std::invalid_argument( "Network: name cannot be empty" );
-            }
-
             if ( exec_context == nullptr )
             {
                 throw std::invalid_argument( "Network: exec_context cannot be null" );
@@ -180,7 +170,7 @@ namespace Mila::Dnn
 
             json net_meta;
             net_meta[ "format_version" ] = 1;
-            net_meta[ "name" ] = name_;
+            net_meta[ "name" ] = this->getName();
             net_meta[ "num_components" ] = names.size();
             net_meta[ "mode" ] = serializationModeToString( mode );
 
@@ -342,15 +332,22 @@ namespace Mila::Dnn
         // Component interface
         // ====================================================================
 
+        // TJT: Temporary API
+
+        IExecutionContext* getExecutionContext() const
+        {
+            return this->getExecutionContext();
+        }
+
         /**
          * @brief Get the network name.
          *
          * @return Network name used for identification and serialization
          */
-        std::string getName() const override
+        /*std::string getName() const override
         {
             return name_;
-        }
+        }*/
 
         /**
          * @brief Generate a human-readable description.
@@ -360,7 +357,7 @@ namespace Mila::Dnn
         std::string toString() const override
         {
             std::ostringstream oss;
-            oss << "Network: " << name_ << " " << CompositeBase::toString();
+            oss << "Network: " << this->getName() << " " << CompositeBase::toString();
 
             return oss.str();
         }
@@ -461,7 +458,7 @@ namespace Mila::Dnn
         /**
          * @brief Network name for identification and serialization.
          */
-        std::string name_;
+        //std::string name_;
 
         friend class ComponentFactory;
     };

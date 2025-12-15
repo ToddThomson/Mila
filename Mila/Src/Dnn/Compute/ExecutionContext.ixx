@@ -21,7 +21,7 @@ module;
 
 export module Compute.ExecutionContext;
 
-import Compute.ExecutionContextTemplate;
+export import Compute.ExecutionContextTemplate;
 export import Compute.IExecutionContext;
 
 export import :Cpu;

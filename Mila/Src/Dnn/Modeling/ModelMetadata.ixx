@@ -5,7 +5,7 @@ module;
 #include <chrono>
 #include <cstdint>
 
-export module ModelMetadata;
+export module Modeling.ModelMetadata;
 
 import nlohmann.json;
 

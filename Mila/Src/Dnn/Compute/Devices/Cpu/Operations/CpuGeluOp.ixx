@@ -11,26 +11,6 @@ module;
 #include <stdexcept>
 
 export module Compute.CpuGeluOp;
-//
-//import Dnn.Components.Gelu;
-//import Dnn.Tensor;
-//import Dnn.ITensor;
-//import Dnn.TensorTypes;
-//import Dnn.TensorDataType;
-//import Dnn.TensorDataTypeTraits;
-//import Dnn.ComponentConfig;
-//import Compute.DeviceType;
-//import Compute.ExecutionContext;
-//import Compute.IExecutionContext;
-//import Compute.OperationType;
-//import Compute.OperationBase;
-//import Compute.UnaryOperation;
-//import Compute.OperationRegistry;
-//import Compute.MemoryResource;
-//import Compute.CpuMemoryResource;
-//import Compute.CpuTensorDataTypeTraits;
-//import Compute.CpuDevice;
-//import Compute.Precision;
 
 import Dnn.Components.Gelu;
 import Dnn.Tensor;

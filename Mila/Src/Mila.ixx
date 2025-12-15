@@ -80,7 +80,7 @@ export import Compute.CudaDevice;
 // ============================================================================
 // Compute - Optimizers
 // ============================================================================
-//export import Compute.OptimizerBase;
+export import Compute.OptimizerBase;
 
 // ====================================================================
 // Compute - Device Registry
@@ -192,8 +192,8 @@ export import Dnn.Components.Linear;
 // ============================================================================
 // Dnn - Optimizers
 // ============================================================================
-//export import Dnn.Optimizers.AdamW;
-//export import Dnn.Optimizers.AdamWConfig;
+export import Dnn.Optimizers.AdamW;
+export import Dnn.Optimizers.AdamWConfig;
 
 // ============================================================================
 // Dnn - LossFunctions
@@ -203,7 +203,7 @@ export import Dnn.Components.Linear;
 // ============================================================================
 // Dnn - Data
 // ============================================================================
-//export import Data.DatasetReader;
+export import Data.DatasetReader;
 
 // ============================================================================
 // Serialization
@@ -218,13 +218,13 @@ export import Serialization.ZipSerializer;
 // Network
 // ============================================================================
 export import Dnn.Network;
-//export import Dnn.NetworkFactory;
+export import Dnn.NetworkFactory;
 
 // ============================================================================
 // Modeling
 // ============================================================================
-//export import Dnn.Model;
-//export import Dnn.ModelConfig;
+export import Dnn.Model;
+export import Dnn.ModelConfig;
 
 namespace Mila
 {

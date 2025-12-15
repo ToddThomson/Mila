@@ -249,7 +249,7 @@ namespace Mila::Dnn::Compute
     private:
 
         GeluConfig config_; ///< Configuration for the GELU operation.
-		CudaExecutionContext* context_; ///< Optional execution context for CUDA resources.
+		CudaExecutionContext* context_; ///< Execution context for CUDA resources.
         Detail::cuda_gelu_impl<NativeType> impl_; ///< Implementation details for the GELU operation.
     };
 

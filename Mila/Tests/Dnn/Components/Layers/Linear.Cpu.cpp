@@ -20,13 +20,8 @@ namespace Dnn::Components::Layers::Tests
     /**
      * @brief Test data structure for Linear component tests.
      *
-     * Updated to use the new Linear constructor signature:
-     *   Linear(const LinearConfig&, std::optional<DeviceId> device_id = std::nullopt)
-     *
-     * Tests construct the component with an explicit DeviceId (Device::Cpu())
-     * so the component creates/owns its execution context for standalone tests.
-     * CreateWithContext accepts an execution context and passes its DeviceId to
-     * the Linear constructor so the component reports the same DeviceId.
+     * Name is no longer part of the config. Tests now pass the component name
+     * explicitly to the Linear constructor and keep configs name-free.
      */
     template<TensorDataType TPrecision>
     struct LinearCpuTestData
@@ -59,10 +54,9 @@ namespace Dnn::Components::Layers::Tests
             data.output_shape.back() = output_features;
 
             data.config = LinearConfig( input_features, output_features );
-            data.config.withName( name )
-                .withBias( has_bias );
+            data.config.withBias( has_bias );
 
-            // Construct using DeviceId directly (component will create its own context)
+            // Construct using DeviceId directly (component will create/own its context)
             data.component = std::make_shared<Linear<DeviceType::Cpu, TPrecision>>(
                 data.config,
                 Device::Cpu()
@@ -89,8 +83,7 @@ namespace Dnn::Components::Layers::Tests
             data.output_shape.back() = output_features;
 
             data.config = LinearConfig( input_features, output_features );
-            data.config.withName( name )
-                .withBias( has_bias );
+            data.config.withBias( has_bias );
 
             // Use DeviceId from provided context to construct component (component creates its own context)
             DeviceId ctx_id = context->getDeviceId();
@@ -233,7 +226,7 @@ namespace Dnn::Components::Layers::Tests
         std::string output = data.component->toString();
 
         EXPECT_NE( output.find( "Linear" ), std::string::npos );
-        EXPECT_NE( output.find( data.config.getName() ), std::string::npos );
+        EXPECT_NE( output.find( data.component->getName() ), std::string::npos );
         EXPECT_NE( output.find( "Input features:" ), std::string::npos );
         EXPECT_NE( output.find( "Output features:" ), std::string::npos );
         EXPECT_NE( output.find( "Device:" ), std::string::npos );
@@ -351,7 +344,7 @@ namespace Dnn::Components::Layers::Tests
     TEST_F( LinearCpuTests, Construction_WithDeviceId )
     {
         LinearConfig config( 16, 32 );
-        config.withName( "test_cpu" );
+        config.withBias( true );
 
         EXPECT_NO_THROW(
             (std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>(
@@ -364,7 +357,7 @@ namespace Dnn::Components::Layers::Tests
     TEST_F( LinearCpuTests, Construction_NoDeviceId_Throws )
     {
         LinearConfig config( 16, 32 );
-        config.withName( "null_test" );
+        config.withBias( true );
 
         // Linear requires a device id (or parent must call setExecutionContext).
         EXPECT_THROW(
@@ -378,7 +371,7 @@ namespace Dnn::Components::Layers::Tests
     TEST_F( LinearCpuTests, Construction_DeviceTypeMismatch_Throws )
     {
         LinearConfig config( 16, 32 );
-        config.withName( "mismatch_test" );
+        config.withBias( true );
 
         EXPECT_THROW(
             (std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>(
@@ -539,7 +532,7 @@ namespace Dnn::Components::Layers::Tests
     TEST_F( LinearCpuTests, Error_InvalidConfig_ZeroInputFeatures )
     {
         LinearConfig invalid_config( 0, 32 );
-        invalid_config.withName( "invalid_cpu" );
+        invalid_config.withBias( true );
 
         EXPECT_THROW(
             (std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>(
@@ -553,7 +546,7 @@ namespace Dnn::Components::Layers::Tests
     TEST_F( LinearCpuTests, Error_InvalidConfig_ZeroOutputFeatures )
     {
         LinearConfig invalid_config( 16, 0 );
-        invalid_config.withName( "invalid_cpu" );
+        invalid_config.withBias( true );
 
         EXPECT_THROW(
             (std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>(

@@ -21,7 +21,7 @@ add_library( Mila STATIC
     # TJT: Deprecated "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaMHA.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaGelu.cu"
     #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaResidual.cu"
-    #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaSoftmax.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaSoftmax.cu"
     #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaSoftmaxCrossEntropy.cu"
     
     #--------------------------------------------------------------------------
@@ -38,9 +38,9 @@ add_library( Mila STATIC
     #--------------------------------------------------------------------------
     # Cuda Optimizer Kernels
     #--------------------------------------------------------------------------
-    #"Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaOptimizers.h"
-    #"Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaAdamW.cu"
-    #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Reduction.h"
+    "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaOptimizers.h"
+    "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaAdamW.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Reduction.h"
 )
 
  set_target_properties( Mila PROPERTIES
@@ -170,12 +170,12 @@ PUBLIC
         "Src/Dnn/Components/Layers/LinearConfig.ixx"
         #"Src/Dnn/Components/Layers/Encoder.ixx"
         #"Src/Dnn/Components/Layers/EncoderConfig.ixx"
-        #"Src/Dnn/Components/Losses/Softmax.ixx"
-        #"Src/Dnn/Components/Losses/SoftmaxConfig.ixx"
+        "Src/Dnn/Components/Losses/Softmax.ixx"
+        "Src/Dnn/Components/Losses/SoftmaxConfig.ixx"
 
         # Components - Normalization / Losses / Regularization / Blocks
-        #"Src/Dnn/Components/Normalization/LayerNorm.ixx"
-        #"Src/Dnn/Components/Normalization/LayerNormConfig.ixx"
+        "Src/Dnn/Components/Normalization/LayerNorm.ixx"
+        "Src/Dnn/Components/Normalization/LayerNormConfig.ixx"
         
         #"Src/Dnn/Components/Losses/SoftmaxCrossEntropy.ixx"
         #"Src/Dnn/Components/Losses/CrossEntropyConfig.ixx"
@@ -184,8 +184,8 @@ PUBLIC
         #"Src/Dnn/Components/Regularization/DropoutConfig.ixx"
         
         # --- Blocks ---
-        #"Src/Dnn/Components/Blocks/MLP.ixx"
-        #"Src/Dnn/Components/Blocks/MLPConfig.ixx"
+        "Src/Dnn/Components/Blocks/MLP.ixx"
+        "Src/Dnn/Components/Blocks/MLPConfig.ixx"
         #"Src/Dnn/Components/Blocks/Transformer.ixx"
         #"Src/Dnn/Components/Blocks/Transformer.Config.ixx"
 
@@ -199,6 +199,7 @@ PUBLIC
         "Src/Dnn/Compute/ExecutionContext.Template.ixx"
         "Src/Dnn/Compute/ExecutionContext.ixx"
         "Src/Dnn/Compute/IExecutionContext.ixx"
+        "Src/Dnn/Compute/EscecutionContextFactory.ixx"
 
         "Src/Dnn/Compute/ComputeDeviceTraits.ixx"
         "Src/Dnn/Compute/DeviceTypeTraits.ixx"
@@ -213,7 +214,7 @@ PUBLIC
         #----------------------------------------------------------------------
         # Dnn / Compute / Optimizers
         #----------------------------------------------------------------------
-        #"Src/Dnn/Compute/Optimizers/OptimizerBase.ixx"
+        "Src/Dnn/Compute/Optimizers/OptimizerBase.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Compute / Operations
@@ -238,7 +239,7 @@ PUBLIC
         #----------------------------------------------------------------------
         # Dnn / Data
         #----------------------------------------------------------------------
-        #"Src/Dnn/Data/DatasetLoader.ixx"
+        "Src/Dnn/Data/DatasetLoader.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Serialization
@@ -266,40 +267,43 @@ PUBLIC
         # Dnn / Compute / Operation Registry Helpers
         #----------------------------------------------------------------------
         
-        #"Src/Dnn/Optimizers/AdamW.ixx"
-        #"Src/Dnn/Optimizers/AdamWConfig.ixx"
+        "Src/Dnn/Optimizers/AdamW.ixx"
+        "Src/Dnn/Optimizers/AdamWConfig.ixx"
 
         #----------------------------------------------------------------------
         # Network
-        #---------------------------------------------------------------
+        #----------------------------------------------------------------------
         "Src/Dnn/Network/Network.ixx"
-        #"Src/Dnn/Network/NetworkFactory.ixx"
+        "Src/Dnn/Network/NetworkFactory.ixx"
 
         #----------------------------------------------------------------------
         # Dnn / Modeling
         #----------------------------------------------------------------------
-        #"Src/Dnn/Modeling/Model.ixx"
-        #"Src/Dnn/Modeling/ModelConfig.ixx"
-        #"Src/Dnn/Modeling/ModelMetadata.ixx"
+        "Src/Dnn/Modeling/Model.ixx"
+        "Src/Dnn/Modeling/ModelConfig.ixx"
+        "Src/Dnn/Modeling/ModelMetadata.ixx"
 
-        #"Src/Dnn/Modeling/Checkpoints/CheckpointManager.ixx"
-        #"Src/Dnn/Modeling/Checkpoints/CheckpointMetaData.ixx"
+        "Src/Dnn/Modeling/Checkpoints/CheckpointManager.ixx"
+        "Src/Dnn/Modeling/Checkpoints/CheckpointMetaData.ixx"
         
-        #"Src/Dnn/Modeling/TrainingHistory.ixx"
+        "Src/Dnn/Modeling/TrainingHistory.ixx"
         #"Src/Dnn/Modeling/ModelExporter.ixx"
 
         #----------------------------------------------------------------------
-        # Dnn Runtime Engine
+        # Dnn / Inference
         #----------------------------------------------------------------------
-        #"Src/Dnn/Engine/InferenceEngine.ixx"
+        #"Src/Dnn/Inference/InferenceEngine.ixx"
         
+        #----------------------------------------------------------------------
+        # Dnn / Extensibility
+        #----------------------------------------------------------------------
         #"Src/Dnn/Extensibility/PluginManager.ixx"
         #"Src/Dnn/Extensibility/IModulePlugin.ixx"
         #"Src/Dnn/Extensibility/PluginInfo.ixx"
-        #"Src/Dnn/Components/MilaComponents.ixx"
-        #"Src/Dnn/Core/Loss.ixx"
         
-  "Src/Dnn/Compute/EscecutionContextFactory.ixx")
+        "Src/Dnn/Components/MilaComponents.ixx"
+        "Src/Dnn/Core/Loss.ixx"
+)
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
@@ -325,13 +329,13 @@ if(MILA_HAS_CPU)
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuOperations.ixx"
                 #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuEncoderOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuGeluOp.ixx"
-                #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuLayerNormOp.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLayerNormOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLinearOp.ixx"
                 #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuAttentionOp.ixx"
                 #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuResidualOp.ixx"
                 #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxCrossEntropyOp.ixx"
-                #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxOp.ixx"
-                #"Src/Dnn/Compute/Devices/Cpu/Optimizers/CpuAdamWOptimizer.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxOp.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Optimizers/CpuAdamWOptimizer.ixx"
     )
     target_compile_definitions( Mila PUBLIC MILA_HAS_CPU)
     list(APPEND MILA_INSTALL_FILE_SET_ARGS FILE_SET cpu_modules DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
@@ -378,12 +382,12 @@ if(MILA_HAS_CUDA)
                 #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaEncoderOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/CublasLtMatMulBias.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/CudaGeluOp.ixx"
-                #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaLayerNormOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaLayerNormOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/CudaLinearOp.ixx"
                 #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaResidualOp.ixx"
-                #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaSoftmaxOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaSoftmaxOp.ixx"
                 #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaSoftmaxCrossEntropyOp.ixx"
-                #"Src/Dnn/Compute/Devices/Cuda/Optimizers/CudaAdamWOptimizer.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Optimizers/CudaAdamWOptimizer.ixx"
     )
 
     target_link_libraries( Mila PUBLIC 

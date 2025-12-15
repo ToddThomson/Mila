@@ -87,7 +87,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument if exec_context is null or device type mismatches.
          */
         explicit Linear( const LinearConfig& config, std::optional<DeviceId> device_id = std::nullopt )
-            : config_( config )
+            : ComponentBase( "linear" ), config_(config)
         {
             config_.validate();
 
@@ -313,10 +313,10 @@ namespace Mila::Dnn
         // Component interface
         // ====================================================================
 
-        std::string getName() const override
+        /*std::string getName() const override
         {
             return config_.getName();
-        }
+        }*/
 
         DeviceId getDeviceId() const override
         {
@@ -332,7 +332,7 @@ namespace Mila::Dnn
         {
             std::ostringstream oss;
             oss << "--------------------" << std::endl;
-            oss << "Linear: " << getName() << std::endl;
+            oss << "Linear: " << this->getName() << std::endl;
             oss << "Input features: " << config_.getInputFeatures();
             oss << ", Output features: " << config_.getOutputFeatures() << std::endl;
             oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;

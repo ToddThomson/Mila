@@ -52,10 +52,10 @@ namespace Mila::Dnn::Optimizers
         /**
          * @brief Default constructor.
          */
-        AdamWConfig()
+        /*AdamWConfig()
 			: ComponentConfig( "AdamW" )
         {
-        }
+        }*/
 
         // ====================================================================
         // Fluent Setters
@@ -209,7 +209,7 @@ namespace Mila::Dnn::Optimizers
         json toJson() const
         {
             json j;
-            j["name"] = name_;
+            //j["name"] = name_;
             j["precision"] = static_cast<int>( precision_ );
             j["learning_rate"] = learning_rate_;
             j["beta1"] = beta1_;
@@ -227,11 +227,11 @@ namespace Mila::Dnn::Optimizers
          * propagated from nlohmann::json getters.
          */
         void fromJson( const json& j )
-        {
+        {/*
             if ( j.contains( "name" ) )
             {
                 name_ = j.at( "name" ).get<std::string>();
-            }
+            }*/
 
             if ( j.contains( "precision" ) )
             {
@@ -276,8 +276,8 @@ namespace Mila::Dnn::Optimizers
                 << ", beta1=" << beta1_
                 << ", beta2=" << beta2_
                 << ", epsilon=" << epsilon_
-                << ", weight_decay=" << weight_decay_
-                << ", name=\"" << name_ << "\")";
+                << ", weight_decay=" << weight_decay_ << "\")";
+            
             return oss.str();
 		}
 

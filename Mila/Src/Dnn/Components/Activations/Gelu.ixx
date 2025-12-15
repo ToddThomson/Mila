@@ -90,6 +90,7 @@ namespace Mila::Dnn
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
         using TensorType = Tensor<TPrecision, MR>;
+        using ComponentBase = Component<TDeviceType, TPrecision>;
 
         /**
          * @brief Construct GELU activation module with optional ExecutionContext ownership.
@@ -132,11 +133,11 @@ namespace Mila::Dnn
          * net.addComponent<Gelu>("gelu", GeluConfig());
          */
         explicit Gelu( const GeluConfig& config, std::optional<DeviceId> device_id = std::nullopt )
-            : config_( config )
+            : ComponentBase( "gelu" ), config_( config )
         {
             config_.validate();
 
-            if (device_id.has_value())
+            if ( device_id.has_value() )
             {
                 if ( device_id->type != TDeviceType )
                 {
@@ -144,7 +145,7 @@ namespace Mila::Dnn
                 }
 
                 owned_exec_context_ = createExecutionContext( device_id.value() );
-                
+
                 // Register owned context with base class to enable getExecutionContext()
                 // and trigger onExecutionContextSet() hook for operation creation
                 this->setExecutionContext( owned_exec_context_.get() );
@@ -368,10 +369,10 @@ namespace Mila::Dnn
          *
          * @return Module name string.
          */
-        std::string getName() const override
+        /*std::string getName() const override
         {
             return config_.getName();
-        }
+        }*/
 
         /**
          * @brief Get the device identifier for this module.
@@ -401,7 +402,7 @@ namespace Mila::Dnn
         {
             std::ostringstream oss;
             oss << "--------------------" << std::endl;
-            oss << "Gelu: " << getName() << std::endl;
+            oss << "Gelu: " << this->getName() << std::endl;
             oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
             oss << "Approximation Method: " << config_.toString( config_.getApproximationMethod() ) << std::endl;
             return oss.str();

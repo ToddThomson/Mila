@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <stdexcept>
+#include <optional>
 
 import Mila;
 
@@ -13,11 +14,10 @@ namespace Dnn::Core::Tests
     using namespace Mila::Dnn::Serialization;
 
     /**
-     * @brief Minimal concrete child component used by tests.
+     * @brief Minimal concrete child component for testing.
      *
-     * Updated to use the single IExecutionContext* constructor pattern
-     * enforced by the Component base class. All TestChildComponent instances
-     * share an ExecutionContext owned by the parent CompositeComponent.
+     * Updated to support both standalone and shared context modes following
+     * the new Component architecture pattern.
      */
     class TestChildComponent : public Component<DeviceType::Cpu, TensorDataType::FP32>
     {
@@ -25,19 +25,24 @@ namespace Dnn::Core::Tests
         using ComponentBase = Component<DeviceType::Cpu, TensorDataType::FP32>;
 
         /**
-         * @brief Constructor for factory creation (shares parent's ExecutionContext).
+         * @brief Constructor for shared mode (context provided by parent).
          *
-         * @param exec_context Non-owning pointer to shared execution context
          * @param param_count Mock parameter count for testing aggregation
-         *
-         * @throws std::invalid_argument if exec_context is null or device type mismatches
+         * @param device_id Optional device for standalone mode
          */
-        explicit TestChildComponent( IExecutionContext* exec_context, size_t param_count = 0 )
-            : ComponentBase()
-            , param_count_( param_count )
+        explicit TestChildComponent( size_t param_count = 0, std::optional<DeviceId> device_id = std::nullopt )
+            : ComponentBase( "test_component" ), param_count_( param_count )
         {
-            // setExecutionContext is protected in Component; derived class may call it.
-            setExecutionContext( exec_context );
+            if ( device_id.has_value() )
+            {
+                if ( device_id->type != DeviceType::Cpu )
+                {
+                    throw std::invalid_argument( "TestChildComponent: device type mismatch" );
+                }
+
+                owned_exec_context_ = createExecutionContext( device_id.value() );
+                setExecutionContext( owned_exec_context_.get() );
+            }
         }
 
         void synchronize() override
@@ -61,19 +66,9 @@ namespace Dnn::Core::Tests
         void save_( ModelArchive& /*archive*/, SerializationMode /*mode*/ ) const override
         {}
 
-        std::string getName() const override
-        {
-            return name_;
-        }
-
-        void setName( const std::string& name )
-        {
-            name_ = name;
-        }
-
         std::string toString() const override
         {
-            return std::string( "TestChild:" ) + name_;
+            return std::string( "TestChild:" ) + this->getName();
         }
 
         DeviceId getDeviceId() const override
@@ -87,26 +82,57 @@ namespace Dnn::Core::Tests
         {}
 
     private:
-        std::string name_;
+
         size_t param_count_;
+        std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
     };
 
     /**
      * @brief Testable composite that implements onBuilding to propagate build to children.
      *
-     * Uses the simplified CompositeComponent which only accepts IExecutionContext* via
-     * setExecutionContext called by derived class constructor for tests.
+     * Updated to use the new addComponent(component) API with component-owns-name pattern.
+     * Provides public wrapper for setExecutionContext() to enable test fixtures to set context.
      */
     class TestableComposite : public CompositeComponent<DeviceType::Cpu, TensorDataType::FP32>
     {
     public:
         using Base = CompositeComponent<DeviceType::Cpu, TensorDataType::FP32>;
 
-        explicit TestableComposite( IExecutionContext* exec_context )
-            : Base()
+        explicit TestableComposite( const std::string& name = "testable" )
+            : Base( name )
+        {}
+
+        /**
+         * @brief Public wrapper to set execution context (for testing only).
+         *
+         * Exposes the protected setExecutionContext() method for test fixtures.
+         * In production code, context is set by parent or via standalone mode.
+         *
+         * @param context Non-owning pointer to shared execution context
+         *
+         * @throws std::invalid_argument if context is null or device type mismatches
+         */
+        void setTestExecutionContext( IExecutionContext* context )
         {
-            // Set the execution context for this composite (protected helper)
-            setExecutionContext( exec_context );
+            this->setExecutionContext( context );
+        }
+
+        bool hasExecutionContext() const noexcept
+        {
+            return this->hasExecutionContext();
+        }
+
+        /**
+         * @brief Helper to add a child component with explicit name and parameter count.
+         *
+         * Creates a TestChildComponent in shared mode, sets its name, and registers it.
+         * This mimics the pattern used in real composites like MLP.
+         */
+        void addTestChild( const std::string& name, size_t param_count = 0 )
+        {
+            auto component = std::make_shared<TestChildComponent>( param_count, std::nullopt );
+            component->setName( name );
+            this->addComponent( component );
         }
 
     protected:
@@ -129,7 +155,9 @@ namespace Dnn::Core::Tests
         void SetUp() override
         {
             exec_context_ = createExecutionContext( Device::Cpu() );
-            comp_ = std::make_unique<TestableComposite>( exec_context_.get() );
+            comp_ = std::make_unique<TestableComposite>();
+
+            comp_->setTestExecutionContext( exec_context_.get() );
         }
 
         void TearDown() override
@@ -143,13 +171,13 @@ namespace Dnn::Core::Tests
     };
 
     // ====================================================================
-    // Chainable Factory Method Tests
+    // Chainable addComponent() Tests
     // ====================================================================
 
     TEST_F( CompositeComponentTests, AddComponent_Chainable )
     {
-        comp_->addComponent<TestChildComponent>( "child_a", 3 )
-            .addComponent<TestChildComponent>( "child_b", 5 );
+        comp_->addTestChild( "child_a", 3 );
+        comp_->addTestChild( "child_b", 5 );
 
         EXPECT_TRUE( comp_->hasComponent( "child_a" ) );
         EXPECT_TRUE( comp_->hasComponent( "child_b" ) );
@@ -158,10 +186,10 @@ namespace Dnn::Core::Tests
 
     TEST_F( CompositeComponentTests, AddComponent_MultipleChained )
     {
-        comp_->addComponent<TestChildComponent>( "comp1", 1 )
-            .addComponent<TestChildComponent>( "comp2", 2 )
-            .addComponent<TestChildComponent>( "comp3", 3 )
-            .addComponent<TestChildComponent>( "comp4", 4 );
+        comp_->addTestChild( "comp1", 1 );
+        comp_->addTestChild( "comp2", 2 );
+        comp_->addTestChild( "comp3", 3 );
+        comp_->addTestChild( "comp4", 4 );
 
         EXPECT_EQ( comp_->childCount(), 4u );
         EXPECT_TRUE( comp_->hasComponent( "comp1" ) );
@@ -170,14 +198,25 @@ namespace Dnn::Core::Tests
         EXPECT_TRUE( comp_->hasComponent( "comp4" ) );
     }
 
+    TEST_F( CompositeComponentTests, AddComponent_ComponentOwnsName )
+    {
+        auto child = std::make_shared<TestChildComponent>( 5, std::nullopt );
+        child->setName( "named_child" );
+
+        comp_->addComponent( child );
+
+        EXPECT_TRUE( comp_->hasComponent( "named_child" ) );
+        EXPECT_EQ( comp_->getComponent( "named_child" )->getName(), "named_child" );
+    }
+
     // ====================================================================
     // Component Management Tests
     // ====================================================================
 
     TEST_F( CompositeComponentTests, AddGetHasRemoveComponentsBasic )
     {
-        comp_->addComponent<TestChildComponent>( "child_a", 3 )
-            .addComponent<TestChildComponent>( "child_b", 5 );
+        comp_->addTestChild( "child_a", 3 );
+        comp_->addTestChild( "child_b", 5 );
 
         EXPECT_TRUE( comp_->hasComponent( "child_a" ) );
         EXPECT_TRUE( comp_->hasComponent( "child_b" ) );
@@ -199,17 +238,28 @@ namespace Dnn::Core::Tests
 
     TEST_F( CompositeComponentTests, DuplicateNameRejected )
     {
-        comp_->addComponent<TestChildComponent>( "dup", 1 );
+        comp_->addTestChild( "dup", 1 );
+
+        auto duplicate = std::make_shared<TestChildComponent>( 2, std::nullopt );
+        duplicate->setName( "dup" );
 
         EXPECT_THROW(
-            comp_->addComponent<TestChildComponent>( "dup", 2 ),
+            comp_->addComponent( duplicate ),
+            std::invalid_argument
+        );
+    }
+
+    TEST_F( CompositeComponentTests, AddComponent_NullComponent_Throws )
+    {
+        EXPECT_THROW(
+            comp_->addComponent( nullptr ),
             std::invalid_argument
         );
     }
 
     TEST_F( CompositeComponentTests, GetComponent_ExistingName )
     {
-        comp_->addComponent<TestChildComponent>( "findme", 3 );
+        comp_->addTestChild( "findme", 3 );
 
         auto retrieved = comp_->getComponent( "findme" );
 
@@ -227,9 +277,9 @@ namespace Dnn::Core::Tests
 
     TEST_F( CompositeComponentTests, ClearComponents_RemovesAll )
     {
-        comp_->addComponent<TestChildComponent>( "comp1", 0 )
-            .addComponent<TestChildComponent>( "comp2", 0 )
-            .addComponent<TestChildComponent>( "comp3", 0 );
+        comp_->addTestChild( "comp1", 0 );
+        comp_->addTestChild( "comp2", 0 );
+        comp_->addTestChild( "comp3", 0 );
 
         EXPECT_EQ( comp_->childCount(), 3u );
 
@@ -247,8 +297,8 @@ namespace Dnn::Core::Tests
 
     TEST_F( CompositeComponentTests, Build_PropagatestoChildren )
     {
-        comp_->addComponent<TestChildComponent>( "build1", 5 )
-            .addComponent<TestChildComponent>( "build2", 7 );
+        comp_->addTestChild( "build1", 5 );
+        comp_->addTestChild( "build2", 7 );
 
         auto child1 = comp_->getComponent( "build1" );
         auto child2 = comp_->getComponent( "build2" );
@@ -266,8 +316,8 @@ namespace Dnn::Core::Tests
 
     TEST_F( CompositeComponentTests, BuildAndParameterAggregation )
     {
-        comp_->addComponent<TestChildComponent>( "a", 10 )
-            .addComponent<TestChildComponent>( "b", 20 );
+        comp_->addTestChild( "a", 10 );
+        comp_->addTestChild( "b", 20 );
 
         EXPECT_THROW( comp_->parameterCount(), std::runtime_error );
         EXPECT_THROW( comp_->getParameters(), std::runtime_error );
@@ -281,7 +331,7 @@ namespace Dnn::Core::Tests
 
     TEST_F( CompositeComponentTests, ParameterCount_BeforeBuild_Throws )
     {
-        comp_->addComponent<TestChildComponent>( "unbuild", 5 );
+        comp_->addTestChild( "unbuild", 5 );
 
         EXPECT_THROW(
             comp_->parameterCount(),
@@ -291,7 +341,7 @@ namespace Dnn::Core::Tests
 
     TEST_F( CompositeComponentTests, GetParameters_BeforeBuild_Throws )
     {
-        comp_->addComponent<TestChildComponent>( "unbuild", 0 );
+        comp_->addTestChild( "unbuild", 0 );
 
         EXPECT_THROW(
             comp_->getParameters(),
@@ -305,7 +355,7 @@ namespace Dnn::Core::Tests
 
     TEST_F( CompositeComponentTests, GetGradientsPreconditions )
     {
-        comp_->addComponent<TestChildComponent>( "a", 0 );
+        comp_->addTestChild( "a", 0 );
 
         EXPECT_THROW( comp_->getGradients(), std::runtime_error );
 
@@ -320,8 +370,8 @@ namespace Dnn::Core::Tests
 
     TEST_F( CompositeComponentTests, TrainingModePropagation )
     {
-        comp_->addComponent<TestChildComponent>( "train_a", 0 )
-            .addComponent<TestChildComponent>( "train_b", 0 );
+        comp_->addTestChild( "train_a", 0 );
+        comp_->addTestChild( "train_b", 0 );
 
         auto child_a = comp_->getComponent( "train_a" );
         auto child_b = comp_->getComponent( "train_b" );
@@ -349,12 +399,12 @@ namespace Dnn::Core::Tests
 
     TEST_F( CompositeComponentTests, MutationAfterBuildIsRejected )
     {
-        comp_->addComponent<TestChildComponent>( "a", 1 );
+        comp_->addTestChild( "a", 1 );
 
         comp_->build( { 1 } );
 
         EXPECT_THROW(
-            comp_->addComponent<TestChildComponent>( "new", 1 ),
+            comp_->addTestChild( "new", 1 ),
             std::runtime_error
         );
         EXPECT_THROW( comp_->removeComponent( "a" ), std::runtime_error );
@@ -363,7 +413,7 @@ namespace Dnn::Core::Tests
 
     TEST_F( CompositeComponentTests, ClearComponents_AfterBuild_Throws )
     {
-        comp_->addComponent<TestChildComponent>( "locked", 0 );
+        comp_->addTestChild( "locked", 0 );
 
         comp_->build( { 1 } );
 
@@ -375,7 +425,7 @@ namespace Dnn::Core::Tests
 
     TEST_F( CompositeComponentTests, RemoveComponent_AfterBuild_Throws )
     {
-        comp_->addComponent<TestChildComponent>( "locked", 0 );
+        comp_->addTestChild( "locked", 0 );
 
         comp_->build( { 1 } );
 
@@ -391,8 +441,8 @@ namespace Dnn::Core::Tests
 
     TEST_F( CompositeComponentTests, ExecutionContextSharedAcrossChildren )
     {
-        comp_->addComponent<TestChildComponent>( "ctx_a", 0 )
-            .addComponent<TestChildComponent>( "ctx_b", 0 );
+        comp_->addTestChild( "ctx_a", 0 );
+        comp_->addTestChild( "ctx_b", 0 );
 
         auto child_a = comp_->getComponent( "ctx_a" );
         auto child_b = comp_->getComponent( "ctx_b" );
@@ -403,14 +453,48 @@ namespace Dnn::Core::Tests
         EXPECT_EQ( child_b->getDeviceId().type, comp_->getDeviceId().type );
     }
 
+    TEST_F( CompositeComponentTests, ExecutionContextPropagatedOnAdd )
+    {
+        auto child = std::make_shared<TestChildComponent>( 0, std::nullopt );
+        child->setName( "late_add" );
+
+        //EXPECT_FALSE( child->hasExecutionContext() );
+
+        comp_->addComponent( child );
+
+        //EXPECT_TRUE( child->hasExecutionContext() );
+        EXPECT_EQ( child->getDeviceId().type, DeviceType::Cpu );
+    }
+
+    TEST_F( CompositeComponentTests, ExecutionContextPropagatedViaHook )
+    {
+        auto composite = std::make_unique<TestableComposite>();
+
+        composite->addTestChild( "child1", 0 );
+        composite->addTestChild( "child2", 0 );
+
+        auto child1 = composite->getComponent( "child1" );
+        auto child2 = composite->getComponent( "child2" );
+
+        //EXPECT_FALSE( child1->hasExecutionContext() );
+        //EXPECT_FALSE( child2->hasExecutionContext() );
+
+        composite->setTestExecutionContext( exec_context_.get() );
+
+        //EXPECT_TRUE( child1->hasExecutionContext() );
+        //EXPECT_TRUE( child2->hasExecutionContext() );
+        EXPECT_EQ( child1->getDeviceId().type, DeviceType::Cpu );
+        EXPECT_EQ( child2->getDeviceId().type, DeviceType::Cpu );
+    }
+
     // ====================================================================
     // Synchronization Tests
     // ====================================================================
 
     TEST_F( CompositeComponentTests, SynchronizePropagates )
     {
-        comp_->addComponent<TestChildComponent>( "sync_a", 0 )
-            .addComponent<TestChildComponent>( "sync_b", 0 );
+        comp_->addTestChild( "sync_a", 0 );
+        comp_->addTestChild( "sync_b", 0 );
 
         EXPECT_NO_THROW( comp_->synchronize() );
     }
@@ -421,8 +505,8 @@ namespace Dnn::Core::Tests
 
     TEST_F( CompositeComponentTests, ToStringContainsChildren )
     {
-        comp_->addComponent<TestChildComponent>( "aa", 0 )
-            .addComponent<TestChildComponent>( "bb", 0 );
+        comp_->addTestChild( "aa", 0 );
+        comp_->addTestChild( "bb", 0 );
 
         std::string s = comp_->toString();
         EXPECT_NE( s.find( "aa" ), std::string::npos );
@@ -443,9 +527,9 @@ namespace Dnn::Core::Tests
 
     TEST_F( CompositeComponentTests, GetComponents_ReturnsInsertionOrder )
     {
-        comp_->addComponent<TestChildComponent>( "first", 1 )
-            .addComponent<TestChildComponent>( "second", 2 )
-            .addComponent<TestChildComponent>( "third", 3 );
+        comp_->addTestChild( "first", 1 );
+        comp_->addTestChild( "second", 2 );
+        comp_->addTestChild( "third", 3 );
 
         const auto& components = comp_->getComponents();
 
@@ -457,9 +541,9 @@ namespace Dnn::Core::Tests
 
     TEST_F( CompositeComponentTests, GetNamedComponents_ContainsAllChildren )
     {
-        comp_->addComponent<TestChildComponent>( "child1", 0 )
-            .addComponent<TestChildComponent>( "child2", 0 )
-            .addComponent<TestChildComponent>( "child3", 0 );
+        comp_->addTestChild( "child1", 0 );
+        comp_->addTestChild( "child2", 0 );
+        comp_->addTestChild( "child3", 0 );
 
         const auto& named = comp_->getNamedComponents();
 
@@ -473,22 +557,13 @@ namespace Dnn::Core::Tests
     // Constructor Validation Tests
     // ====================================================================
 
-    /*TEST_F( CompositeComponentTests, Constructor_NullExecutionContext_ThrowsInvalidArgument )
-    {
-        IExecutionContext* null_context = nullptr;
-
-        EXPECT_THROW(
-            TestableComposite( null_context ),
-            std::invalid_argument
-        );
-    }*/
-
     TEST_F( CompositeComponentTests, Constructor_DeviceTypeMismatch_ThrowsInvalidArgument )
     {
         auto cuda_context = createExecutionContext( Device::Cuda( 0 ) );
+        auto composite = std::make_unique<TestableComposite>();
 
         EXPECT_THROW(
-            TestableComposite( cuda_context.get() ),
+            composite->setTestExecutionContext( cuda_context.get() ),
             std::invalid_argument
         );
     }

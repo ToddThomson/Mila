@@ -45,48 +45,41 @@ namespace Dnn::Components::Layers::Tests
 
         auto& result = config
             .withBias( false )
-            .withName( "test_linear" )
             .withPrecisionPolicy( ComputePrecision::Policy::Performance );
 
         EXPECT_EQ( &result, &config );
         EXPECT_EQ( config.getInputFeatures(), input_features );
         EXPECT_EQ( config.getOutputFeatures(), output_features );
         EXPECT_FALSE( config.hasBias() );
-        EXPECT_EQ( config.getName(), "test_linear" );
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Performance );
     }
 
     TEST_F( LinearConfigTests, ValidationSuccess ) {
         LinearConfig config( 128, 64 );
-        config.withName( "valid_config" );
 
         EXPECT_NO_THROW( config.validate() );
     }
 
     TEST_F( LinearConfigTests, ValidationFailure_ZeroInputFeatures ) {
         LinearConfig config( 0, 64 );
-        config.withName( "test_config" );
 
         EXPECT_THROW( config.validate(), std::invalid_argument );
     }
 
     TEST_F( LinearConfigTests, ValidationFailure_ZeroOutputFeatures ) {
         LinearConfig config( 128, 0 );
-        config.withName( "test_config" );
 
         EXPECT_THROW( config.validate(), std::invalid_argument );
     }
 
     TEST_F( LinearConfigTests, ValidationFailure_BothZeroFeatures ) {
         LinearConfig config( 0, 0 );
-        config.withName( "test_config" );
 
         EXPECT_THROW( config.validate(), std::invalid_argument );
     }
 
     TEST_F( LinearConfigTests, ValidationErrorMessage_ZeroFeatures ) {
         LinearConfig config( 0, 64 );
-        config.withName( "test_config" );
 
         try {
             config.validate();
@@ -102,13 +95,11 @@ namespace Dnn::Components::Layers::Tests
         LinearConfig config( 512, 256 );
 
         config.withBias( false )
-            .withName( "test_linear" )
             .withPrecisionPolicy( ComputePrecision::Policy::Accuracy );
 
         EXPECT_EQ( config.getInputFeatures(), 512 );
         EXPECT_EQ( config.getOutputFeatures(), 256 );
         EXPECT_FALSE( config.hasBias() );
-        EXPECT_EQ( config.getName(), "test_linear" );
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Accuracy );
     }
 
@@ -117,15 +108,13 @@ namespace Dnn::Components::Layers::Tests
         size_t output_features = 512;
 
         LinearConfig config( input_features, output_features );
-        config.withBias( false )
-            .withName( "persistent_linear" );
+        config.withBias( false );
 
         LinearConfig copied_config = config;
 
         EXPECT_EQ( copied_config.getInputFeatures(), input_features );
         EXPECT_EQ( copied_config.getOutputFeatures(), output_features );
         EXPECT_FALSE( copied_config.hasBias() );
-        EXPECT_EQ( copied_config.getName(), "persistent_linear" );
     }
 
     TEST_F( LinearConfigTests, EdgeCases_LargeFeatureDimensions ) {
@@ -178,50 +167,42 @@ namespace Dnn::Components::Layers::Tests
 
     TEST_F( LinearConfigTests, TypicalNeuralNetworkConfigurations ) {
         LinearConfig hidden_layer( 768, 3072 );
-        hidden_layer.withName( "transformer_ffn_hidden" )
-            .withBias( true );
+        hidden_layer.withBias( true );
 
         EXPECT_EQ( hidden_layer.getInputFeatures(), 768 );
         EXPECT_EQ( hidden_layer.getOutputFeatures(), 3072 );
         EXPECT_TRUE( hidden_layer.hasBias() );
-        EXPECT_EQ( hidden_layer.getName(), "transformer_ffn_hidden" );
         EXPECT_NO_THROW( hidden_layer.validate() );
 
         LinearConfig output_layer( 3072, 768 );
-        output_layer.withName( "transformer_ffn_output" )
-            .withBias( true );
+        output_layer.withBias( true );
 
         EXPECT_EQ( output_layer.getInputFeatures(), 3072 );
         EXPECT_EQ( output_layer.getOutputFeatures(), 768 );
         EXPECT_TRUE( output_layer.hasBias() );
-        EXPECT_EQ( output_layer.getName(), "transformer_ffn_output" );
         EXPECT_NO_THROW( output_layer.validate() );
     }
 
     TEST_F( LinearConfigTests, ClassificationHeadConfiguration ) {
         LinearConfig classification_head( 768, 1000 );
-        classification_head.withName( "classification_head" )
-            .withBias( false )
+        classification_head.withBias( false )
             .withPrecisionPolicy( ComputePrecision::Policy::Accuracy );
 
         EXPECT_EQ( classification_head.getInputFeatures(), 768 );
         EXPECT_EQ( classification_head.getOutputFeatures(), 1000 );
         EXPECT_FALSE( classification_head.hasBias() );
-        EXPECT_EQ( classification_head.getName(), "classification_head" );
         EXPECT_EQ( classification_head.getPrecisionPolicy(), ComputePrecision::Policy::Accuracy );
         EXPECT_NO_THROW( classification_head.validate() );
     }
 
     TEST_F( LinearConfigTests, EmbeddingProjectionConfiguration ) {
         LinearConfig embedding_projection( 50257, 768 );
-        embedding_projection.withName( "token_embedding_projection" )
-            .withBias( false )
+        embedding_projection.withBias( false )
             .withPrecisionPolicy( ComputePrecision::Policy::Performance );
 
         EXPECT_EQ( embedding_projection.getInputFeatures(), 50257 );
         EXPECT_EQ( embedding_projection.getOutputFeatures(), 768 );
         EXPECT_FALSE( embedding_projection.hasBias() );
-        EXPECT_EQ( embedding_projection.getName(), "token_embedding_projection" );
         EXPECT_EQ( embedding_projection.getPrecisionPolicy(), ComputePrecision::Policy::Performance );
         EXPECT_NO_THROW( embedding_projection.validate() );
     }
@@ -231,15 +212,13 @@ namespace Dnn::Components::Layers::Tests
         size_t original_input = config.getInputFeatures();
         size_t original_output = config.getOutputFeatures();
 
-        config.withBias( false )
-            .withName( "chained_config" );
+        config.withBias( false );
 
         config.withBias( true );
 
         EXPECT_EQ( config.getInputFeatures(), original_input );
         EXPECT_EQ( config.getOutputFeatures(), original_output );
         EXPECT_TRUE( config.hasBias() );
-        EXPECT_EQ( config.getName(), "chained_config" );
     }
 
     TEST_F( LinearConfigTests, DefaultValidation ) {

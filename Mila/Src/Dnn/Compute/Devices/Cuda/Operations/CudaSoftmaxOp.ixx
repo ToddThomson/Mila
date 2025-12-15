@@ -131,8 +131,8 @@ namespace Mila::Dnn::Compute
         using NativeType = typename Cuda::TensorDataTypeMap<TPrecision>::native_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 
-        CudaSoftmaxOp( std::shared_ptr<CudaExecutionContext> context, const SoftmaxConfig& config )
-            : context_( context ), config_( config ), impl_()
+        CudaSoftmaxOp( IExecutionContext* context, const SoftmaxConfig& config )
+            : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaSoftmaxOp" ) ), config_( config ), impl_()
         {
             if (!context_)
             {
@@ -322,7 +322,7 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32>(
                 opName,
-                []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
+                []( IExecutionContext* context,
                     const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
                 {
                     const auto& softmaxConfig = static_cast<const SoftmaxConfig&>(config);
@@ -332,7 +332,7 @@ namespace Mila::Dnn::Compute
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP16, TensorDataType::FP16>(
                 opName,
-                []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
+                []( IExecutionContext* context,
                     const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
                 {
                     const auto& softmaxConfig = static_cast<const SoftmaxConfig&>(config);

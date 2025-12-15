@@ -62,6 +62,23 @@ namespace Mila::Dnn
     class Component
     {
     public:
+
+        /**
+         * @brief Construct component with required name identifier.
+         *
+         * The name is used for identification, logging, and serialization.
+         * Names must be valid identifiers: start with a letter, contain only
+         * letters, digits, '.', '_', '-', and be 1-128 characters long.
+         *
+         * @param name Component name identifier (mandatory)
+         *
+         * @throws std::invalid_argument if name is not a valid identifier
+         */
+        explicit Component( const std::string& name )
+            : name_( name ), built_( false ), is_training_( false )
+        {
+            validateName( name_ );
+        }
         
         virtual ~Component() = default;
 
@@ -250,12 +267,41 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
-         * @brief Module name used for logging and diagnostics.
+         * @brief Get the component's name identifier.
          *
-         * Implementations should return a stable identifier used in `toString()`
-         * and when saving parameters.
+         * The name is used for logging, diagnostics, and serialization.
+         *
+         * @return Component name string
          */
-        virtual std::string getName() const = 0;
+        std::string getName() const
+        {
+            return name_;
+        }
+
+        /**
+         * @brief Set the component's name identifier.
+         *
+         * The name is validated and must be a valid identifier: start with a letter,
+         * contain only letters, digits, '.', '_', '-', and be 1-128 characters long.
+         *
+         * @param name New component name
+         *
+         * @throws std::invalid_argument if name is not a valid identifier
+         * @throws std::runtime_error if component is already built (name is immutable after build)
+         */
+        void setName( const std::string& name )
+        {
+            if ( isBuilt() )
+            {
+                throw std::runtime_error(
+                    std::format( "Component::setName: cannot change name after component is built. Current name: '{}'",
+                        name_ )
+                );
+            }
+
+            validateName( name );
+            name_ = name;
+        }
 
         // ====================================================================
         // Device information and access
@@ -488,11 +534,87 @@ namespace Mila::Dnn
 
     private:
 
+        std::string name_;
+
         IExecutionContext* exec_context_{ nullptr };
 
         std::atomic<bool> is_training_{ false };
         std::mutex training_mutex_;
 
         bool built_{ false };
+
+        /**
+         * @brief Validates the component name.
+         *
+         * Enforces identifier rules: must start with a letter and contain only
+         * letters, digits, '.', '_', '-' with length between 1 and 128 characters.
+         *
+         * @param name Name to validate
+         *
+         * @throws std::invalid_argument if name is not a valid identifier
+         */
+        static void validateName( const std::string& name )
+        {
+            if ( !isIdentifier( name ) )
+            {
+                throw std::invalid_argument(
+                    std::format(
+                        "Component: invalid name '{}'. Name must start with a letter and contain only "
+                        "letters, digits, '.', '_', '-' (1..128 chars)",
+                        name
+                    )
+                );
+            }
+        }
+
+        /**
+         * @brief Checks if string is a valid identifier.
+         *
+         * Rules: start with A-Za-z, then allow A-Za-z0-9._- ; length 1..128.
+         *
+         * @param s String to check
+         * @return true if valid identifier, false otherwise
+         */
+        static bool isIdentifier( const std::string& s ) noexcept
+        {
+            constexpr std::size_t kMinLen = 1;
+            constexpr std::size_t kMaxLen = 128;
+
+            if ( s.size() < kMinLen || s.size() > kMaxLen )
+            {
+                return false;
+            }
+
+            auto isAsciiAlpha = []( unsigned char c ) noexcept {
+                return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+            };
+
+            auto isAsciiAlphaNum = []( unsigned char c ) noexcept {
+                return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+            };
+
+            const unsigned char first = static_cast<unsigned char>(s[ 0 ]);
+            if ( !isAsciiAlpha( first ) )
+            {
+                return false;
+            }
+
+            for ( unsigned char uc : s )
+            {
+                if ( isAsciiAlphaNum( uc ) )
+                {
+                    continue;
+                }
+
+                if ( uc == '.' || uc == '_' || uc == '-' )
+                {
+                    continue;
+                }
+
+                return false;
+            }
+
+            return true;
+        }
     };
 }

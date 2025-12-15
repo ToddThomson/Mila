@@ -4,7 +4,8 @@
  *
  * CompositeComponent provides standardized child management (add, remove, get)
  * and aggregates parameters, gradients, and training state across children.
- * Derived classes define execution semantics (forward/backward/build).
+ * Derived classes define execution semantics (forward/backward) and architecture
+ * graph creation (createGraph()).
  */
 
 module;
@@ -38,36 +39,41 @@ namespace Mila::Dnn
     /**
      * @brief A component that contains and manages child components.
      *
-     * CompositeComponent is a device-parameterized abstract container. It does not
-     * implement the computational interface (forward/backward) so derived types
-     * must provide execution semantics while benefiting from standardized child
-     * management.
+     * CompositeComponent is a device-parameterized abstract container that manages
+     * child component lifecycle, aggregates operations (parameters, gradients, training
+     * mode), and provides context propagation. Derived types implement execution
+     * semantics (forward/backward) and architecture definition (createGraph()).
+     *
+     * Architecture Philosophy:
+     * - Context-independent graph creation: Architecture defined without device knowledge
+     * - Three-phase lifecycle: Graph creation ? Context binding ? Shape binding
+     * - Automatic context propagation: Base class propagates context to all children
+     * - Component-owns-name: Children manage their own identity via getName()
      *
      * Features:
-     * - Fluent API for declarative child component construction
-     * - Factory method pattern enforces ExecutionContext sharing
+     * - Component-based child registration via addComponent(component)
+     * - Automatic context propagation to children via onExecutionContextSet()
      * - Aggregate parameters and gradients across children
      * - Propagate training mode to all children
      * - Recursive serialization of child hierarchy
      * - Template method pattern for build lifecycle
-     * - Shared ExecutionContext management across child hierarchy
      *
      * ExecutionContext ownership:
      * - CompositeComponent NEVER owns ExecutionContext
      * - All instances share an ExecutionContext owned by parent (Network or test fixture)
-     * - Single constructor accepts IExecutionContext* (validated by base class)
-     * - Context is propagated to all children via factory method pattern
+     * - Context is propagated to all children automatically
      *
-     * Child component construction:
-     * - Use fluent `addComponent<T>(name, config)` to construct children with shared context
-     * - Factory method returns *this for chainable calls
-     * - Components must be fully configured via constructor (configuration-driven design)
-     * - Children are built by parent's `onBuilding()` hook, not by external callers
+     * Child component construction pattern:
+     * 1. Derived class constructs child components in createGraph() (called from constructor)
+     * 2. Children are created in shared mode (no ExecutionContext initially)
+     * 3. Children call setName() to establish hierarchical identity
+     * 4. Children are registered via addComponent(component)
+     * 5. When parent gets context, onExecutionContextSet() propagates to all children
      *
-     * Design pattern:
-     * - Template Method: `build()` calls `onBuilding()` to build children with correct shapes
-     * - Factory Method: `addComponent<T>()` constructs children using the constructor pattern
+     * Design patterns:
+     * - Template Method: build() calls onBuilding() to build children with shapes
      * - Composite: manages child lifecycle and aggregates operations
+     * - Hook Method: onExecutionContextSet() propagates context to children
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         class CompositeComponent : public Component<TDeviceType, TPrecision>
@@ -77,20 +83,21 @@ namespace Mila::Dnn
         using ComponentPtr = std::shared_ptr<Component<TDeviceType, TPrecision>>;
 
         /**
-         * @brief Construct composite component with shared ExecutionContext.
+         * @brief Construct composite component with name.
          *
-         * Used by Network or test fixtures to create composite components that share
-         * a common execution context. The context is not owned; lifecycle is managed
-         * by the parent.
+         * The composite component is named for identification in hierarchical structures.
+         * Derived classes should call createGraph() from their constructor to define
+         * the architecture graph (context-independent).
          *
-         * All child components added via addComponent() will share this same context,
-         * enabling efficient resource pooling across the component hierarchy.
+         * All child components added via addComponent() will receive ExecutionContext
+         * automatically when the composite receives its context (via onExecutionContextSet).
          *
-         * @param exec_context Non-owning pointer to shared execution context (must be non-null).
+         * @param name Component name identifier (mandatory)
          *
-         * @throws std::invalid_argument if exec_context is null or device type mismatches.
+         * @throws std::invalid_argument if name is not a valid identifier
          */
-        explicit CompositeComponent()
+        explicit CompositeComponent( const std::string& name )
+            : ComponentBase( name )
         {}
 
         virtual ~CompositeComponent() = default;
@@ -106,38 +113,36 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
-         * @brief Add a child component using factory method pattern (chainable).
+         * @brief Add a pre-constructed child component (chainable).
          *
-         * Constructs a child component with the shared ExecutionContext and adds it
-         * to the composite. Returns *this for method chaining, enabling fluent API
-         * for declarative network construction.
+         * Registers a component that was constructed externally (typically by the
+         * derived class in its createGraph() method). The component's getName() is
+         * used as the lookup key.
          *
-         * The component is constructed using the standard constructor that accepts
-         * IExecutionContext*, ensuring all children share the parent's execution context.
-         * Component must be fully configured via constructor arguments (config objects).
+         * Components are expected to be created in shared mode (no ExecutionContext).
+         * Context will be automatically propagated to all children when this composite
+         * receives its context via onExecutionContextSet().
          *
-         * Usage:
+         * Usage pattern in derived class:
          * @code
-         * composite
-         *     .addComponent<Linear>("encoder", encoder_config)
-         *     .addComponent<Gelu>("activation", gelu_config)
-         *     .addComponent<Linear>("decoder", decoder_config);
+         * void MLP::createGraph()
+         * {
+         *     auto fc1 = std::make_shared<LinearType>(config, std::nullopt);
+         *     fc1->setName(this->getName() + ".fc1");
+         *     this->addComponent(fc1);
+         *     // ... more components
+         * }
          * @endcode
          *
-         * @tparam TComponent Component type to construct
-         * @tparam Args Constructor argument types (forwarded to component constructor)
-         *
-         * @param name Unique name for the child component (used for lookup and serialization)
-         * @param args Arguments forwarded to component's constructor
+         * @param component Shared pointer to the constructed component
          *
          * @return Reference to *this for method chaining
          *
          * @throws std::runtime_error if called after build()
-         * @throws std::invalid_argument if name already exists
-         * @throws Any exception from component constructor
+         * @throws std::invalid_argument if component is null
+         * @throws std::invalid_argument if component name already exists
          */
-        template<typename TComponent, typename... Args>
-        CompositeComponent& addComponent( const std::string& name, Args&&... args )
+        CompositeComponent& addComponent( ComponentPtr component )
         {
             if ( this->isBuilt() )
             {
@@ -146,20 +151,31 @@ namespace Mila::Dnn
                 );
             }
 
-            auto component = std::make_shared<TComponent>(
-                this->getExecutionContext(),
-                std::forward<Args>( args )...
-            );
+            if ( !component )
+            {
+                throw std::invalid_argument( "Component cannot be null" );
+            }
+
+            std::string name = component->getName();
 
             if ( child_component_map_.find( name ) != child_component_map_.end() )
             {
                 throw std::invalid_argument(
-                    "Component name '" + name + "' already exists"
+                    std::format( "Component name '{}' already exists", name )
                 );
             }
 
             child_component_map_[ name ] = component;
             child_components_.push_back( component );
+
+            // FIXME:
+            /*if ( this->hasExecutionContext() )
+            {
+                if ( !component->hasExecutionContext() )
+                {
+                    component->setExecutionContext( this->getExecutionContext() );
+                }
+            }*/
 
             return *this;
         }
@@ -179,7 +195,7 @@ namespace Mila::Dnn
             if ( it == child_component_map_.end() )
             {
                 throw std::out_of_range(
-                    "No component named '" + name + "' found"
+                    std::format( "No component named '{}' found", name )
                 );
             }
 
@@ -449,18 +465,6 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
-         * @brief Get the name of this composite component.
-         *
-         * Derived classes should override to provide specific names.
-         *
-         * @return Component name for diagnostics and serialization
-         */
-        std::string getName() const override
-        {
-            return "CompositeComponent";
-        }
-
-        /**
          * @brief Generate a human-readable description.
          *
          * @return String representation showing children
@@ -468,7 +472,7 @@ namespace Mila::Dnn
         std::string toString() const override
         {
             std::ostringstream oss;
-            oss << getName() << " { children: [";
+            oss << this->getName() << " { children: [";
 
             bool first = true;
 
@@ -480,7 +484,7 @@ namespace Mila::Dnn
                 }
 
                 first = false;
-                oss << name << ": " << component->toString();
+                oss << name << ": " << component->getName();
             }
 
             oss << "] }";
@@ -502,9 +506,9 @@ namespace Mila::Dnn
          * void MLP::onBuilding(const shape_t& input_shape) override
          * {
          *     // Cache typed pointers once during build
-         *     fc1_ = this->getComponentAs<LinearType>("fc1");
-         *     activation_ = this->getComponentAs<GeluType>("act");
-         *     fc2_ = this->getComponentAs<LinearType>("fc2");
+         *     fc1_ = this->getComponentAs<LinearType>(this->getName() + ".fc1");
+         *     activation_ = this->getComponentAs<GeluType>(this->getName() + ".act");
+         *     fc2_ = this->getComponentAs<LinearType>(this->getName() + ".fc2");
          *
          *     // Build children with computed shapes
          *     fc1_->build(input_shape);
@@ -523,7 +527,7 @@ namespace Mila::Dnn
         std::shared_ptr<TComponent> getComponentAs( const std::string& name ) const
         {
             auto base = getComponent( name );
-            auto typed = std::dynamic_pointer_cast<TComponent>(base);
+            auto typed = std::dynamic_pointer_cast<TComponent>( base );
 
             if ( !typed )
             {
@@ -536,6 +540,32 @@ namespace Mila::Dnn
             }
 
             return typed;
+        }
+
+        /**
+         * @brief Hook invoked after ExecutionContext is set.
+         *
+         * Propagates the execution context to all child components that don't
+         * already have one. This enables the pattern where composites define
+         * their architecture graph in the constructor (context-independent)
+         * and context is bound later when available.
+         *
+         * Called by Component::setExecutionContext() after the context is registered.
+         * Automatically invoked for both standalone mode (component creates own context)
+         * and shared mode (parent provides context).
+         *
+         * Override this in derived classes if additional context-dependent initialization
+         * is required beyond context propagation to children.
+         */
+        void onExecutionContextSet() override
+        {
+            /*for ( auto& component : child_components_ )
+            {
+                if ( !component->hasExecutionContext() )
+                {
+                    component->setExecutionContext( this->getExecutionContext() );
+                }
+            }*/
         }
 
         /**
@@ -574,7 +604,7 @@ namespace Mila::Dnn
                 );
             }
 
-            archive.addMetadata( "type", getName() );
+            archive.addMetadata( "type", this->getName() );
             archive.addMetadata( "version", "1" );
             archive.addMetadata( "child_count", std::to_string( child_components_.size() ) );
 
@@ -607,11 +637,13 @@ namespace Mila::Dnn
          *
          * This vector holds shared ownership of the composite's direct children and
          * preserves the order in which children were added. The insertion order is
-         * used for build sequencing, ordered iteration, and determining serialization
-         * ordering.
+         * used for build sequencing, ordered iteration, and serialization ordering.
          *
-         * Invariant: Children are constructed but not built until parent's onBuilding()
-         * is called via the template method pattern in Component::build().
+         * Lifecycle invariants:
+         * - Children are constructed in createGraph() (called from derived constructor)
+         * - Children are registered via addComponent() before context is available
+         * - Context is propagated to children via onExecutionContextSet() hook
+         * - Children are built by parent's onBuilding() via template method pattern
          *
          * Threading: access is not internally synchronized. Mutations and lifecycle
          * operations must be externally serialized.
@@ -621,13 +653,16 @@ namespace Mila::Dnn
         /**
          * @brief Lookup map from child name to component pointer.
          *
-         * Provides O(1) name-based lookup for children. Keys must be unique and stable
-         * (provided by caller at addComponent time). This map is used for diagnostics,
-         * getComponent()/hasComponent(), and to pair with `child_components_` when
-         * deterministic ordering is required.
+         * Provides O(1) name-based lookup for children. Keys are component names
+         * (obtained via component->getName()) and must be unique within the composite.
          *
-         * Note: insertion order is preserved by `child_components_`; the unordered_map
-         * does not guarantee ordering.
+         * Used for:
+         * - getComponent()/hasComponent() queries
+         * - getComponentAs<T>() typed retrieval in derived classes
+         * - Diagnostics and debugging
+         *
+         * Note: insertion order is preserved by `child_components_`; this unordered_map
+         * does not guarantee ordering but provides fast lookup.
          */
         std::unordered_map<std::string, ComponentPtr> child_component_map_;
 

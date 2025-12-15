@@ -36,17 +36,6 @@ namespace Mila::Dnn
     public:
         
         /**
-         * @brief Default constructor with name "layer_norm".
-         *
-         * @note When adding multiple LayerNorm components to a container,
-         *       use .withName() to provide unique names.
-		 */
-        LayerNormConfig()
-            : ComponentConfig( "layer_norm" )
-        {
-		}
-
-        /**
          * @brief Set the normalized shape (size of features to normalize).
          *
          * When using this method, the weight and bias tensors will be created
@@ -248,10 +237,10 @@ namespace Mila::Dnn
          */
         void fromJson( const json& j )
         {
-            if ( j.contains( "name" ) )
+            /*if ( j.contains( "name" ) )
             {
-                name_ = j.at( "name" ).get<std::string>();
-            }
+                this->setName( j.at("name").get<std::string>() );
+            }*/
 
             if ( j.contains( "precision" ) )
             {

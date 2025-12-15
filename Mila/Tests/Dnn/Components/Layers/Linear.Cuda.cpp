@@ -22,12 +22,9 @@ namespace Dnn::Components::Layers::Tests
     /**
      * @brief Test data structure for CUDA Linear component tests.
      *
-     * Updated to use the new Linear constructor signature:
-     *   Linear(const LinearConfig&, std::optional<DeviceId> device_id = std::nullopt)
-     *
-     * Tests construct the component with an explicit DeviceId (Device::Cuda(0))
-     * so the component creates/owns its execution context for standalone tests.
-     * CreateWithContext uses the provided execution context's DeviceId.
+     * Updated to use the new Linear constructor signature that accepts an explicit
+     * component name. Config objects no longer carry a name; name is provided at
+     * component construction time.
      */
     template<TensorDataType TPrecision>
     struct LinearCudaTestData
@@ -60,8 +57,7 @@ namespace Dnn::Components::Layers::Tests
             data.output_shape.back() = output_features;
 
             data.config = LinearConfig( input_features, output_features );
-            data.config.withName( name )
-                .withBias( has_bias );
+            data.config.withBias( has_bias );
 
             // Construct using DeviceId directly (component will create/own its context).
             data.component = std::make_shared<Linear<DeviceType::Cuda, TPrecision>>(
@@ -90,10 +86,9 @@ namespace Dnn::Components::Layers::Tests
             data.output_shape.back() = output_features;
 
             data.config = LinearConfig( input_features, output_features );
-            data.config.withName( name )
-                .withBias( has_bias );
+            data.config.withBias( has_bias );
 
-            // Use DeviceId from provided context to construct component (component creates its own context).
+            // Use DeviceId from provided context to construct component.
             DeviceId ctx_id = context->getDeviceId();
 
             data.component = std::make_shared<Linear<DeviceType::Cuda, TPrecision>>(
@@ -278,7 +273,7 @@ namespace Dnn::Components::Layers::Tests
         std::string output = data.component->toString();
 
         EXPECT_NE( output.find( "Linear" ), std::string::npos );
-        EXPECT_NE( output.find( data.config.getName() ), std::string::npos );
+        EXPECT_NE( output.find( data.component->getName() ), std::string::npos );
         EXPECT_NE( output.find( "Input features:" ), std::string::npos );
         EXPECT_NE( output.find( "Output features:" ), std::string::npos );
         EXPECT_NE( output.find( "Device:" ), std::string::npos );
@@ -418,7 +413,7 @@ namespace Dnn::Components::Layers::Tests
         }
 
         LinearConfig config( 16, 32 );
-        config.withName( "test_cuda" );
+        config.withBias( true );
 
         EXPECT_NO_THROW(
             (std::make_shared<Linear<DeviceType::Cuda, TensorDataType::FP32>>(
@@ -436,7 +431,7 @@ namespace Dnn::Components::Layers::Tests
         }
 
         LinearConfig config( 16, 32 );
-        config.withName( "null_test" );
+        config.withBias( true );
 
         // Linear requires a DeviceId (or parent must call setExecutionContext).
         EXPECT_THROW(
@@ -455,7 +450,7 @@ namespace Dnn::Components::Layers::Tests
         }
 
         LinearConfig config( 16, 32 );
-        config.withName( "mismatch_test" );
+        config.withBias( true );
 
         EXPECT_THROW(
             (std::make_shared<Linear<DeviceType::Cuda, TensorDataType::FP32>>(

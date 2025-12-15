@@ -4,25 +4,25 @@
  */
 
 module;
-export module Modules.MilaModules;
+export module Components.MilaComponents;
 
 // Activations
 export import Dnn.Components.Gelu;
 
 // Blocks
 export import Dnn.Blocks.MLP;
-export import Dnn.Blocks.Transformer;
+// FIXME: export import Dnn.Blocks.Transformer;
 
 // Connection Layers
-export import Dnn.Components.Residual;
+// FIXME: export import Dnn.Components.Residual;
 
 // Layers
-export import Dnn.Components.Attention;
-export import Dnn.Components.Encoder;
+// FIXME: export import Dnn.Components.Attention;
+// export import Dnn.Components.Encoder;
 export import Dnn.Components.Linear;
 
 //Losses
-export import Dnn.Components.SoftmaxCrossEntropy;
+// FIXME: export import Dnn.Components.SoftmaxCrossEntropy;
 export import Dnn.Components.Softmax;
 
 // Normalization

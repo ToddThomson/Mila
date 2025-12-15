@@ -504,7 +504,7 @@ namespace Mila::Dnn::Compute
         {
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>(
                 "LayerNormOp",
-                []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
+                []( IExecutionContext* context,
                     const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
                 {
                     const auto& lnConfig = static_cast<const LayerNormConfig&>(config);

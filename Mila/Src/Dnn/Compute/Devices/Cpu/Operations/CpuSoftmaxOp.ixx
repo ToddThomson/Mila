@@ -69,7 +69,7 @@ namespace Mila::Dnn::Compute
         using TensorType = Tensor<TensorDataType::FP32, MR>;
         using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
 
-        CpuSoftmaxOp( std::shared_ptr<CpuExecutionContext> context, const SoftmaxConfig& config )
+        CpuSoftmaxOp( IExecutionContext* context, const SoftmaxConfig& config )
             : context_( context ), config_( config )
         {
             if (!context_)
@@ -272,9 +272,8 @@ namespace Mila::Dnn::Compute
 
     private:
         SoftmaxConfig config_;
-        std::shared_ptr<CpuExecutionContext> context_;
+        IExecutionContext* context_;
 
-        // Cached dimension values computed once in build() for hot-path dispatch
         int64_t cached_axis_{ -1 };
         int64_t cached_outer_size_{ 0 };
         int64_t cached_dim_size_{ 0 };
@@ -289,7 +288,7 @@ namespace Mila::Dnn::Compute
         {
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>(
                 "SoftmaxOp",
-                []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
+                []( IExecutionContext* context,
                     const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>>
                 {
                     const auto& softmaxConfig = dynamic_cast<const SoftmaxConfig&>(config);

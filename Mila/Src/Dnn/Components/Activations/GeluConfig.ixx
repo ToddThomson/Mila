@@ -65,10 +65,10 @@ namespace Mila::Dnn
          * @note When adding multiple GELU components to a container,
          *       use .withName() to provide unique names.
 		 */
-        GeluConfig()
+        /*GeluConfig()
             : ComponentConfig( "gelu" )
         {
-        }
+        }*/
 
         /**
          * @brief Configure the approximation method for GELU computation.
@@ -124,7 +124,7 @@ namespace Mila::Dnn
         json toJson() const
         {
             json j;
-            j["name"] = name_;
+            //j["name"] = name_;
             j["precision"] = static_cast<int>(precision_);
             j["approximation_method"] = std::string( GeluConfig::toString( approximation_method_ ) );
 
@@ -141,10 +141,10 @@ namespace Mila::Dnn
         void fromJson( const json& j )
         {
             // Read name if present
-            if (j.contains( "name" ))
+            /*if (j.contains( "name" ))
             {
                 name_ = j.at( "name" ).get<std::string>();
-            }
+            }*/
 
             // Read precision if present (stored as integer)
             if (j.contains( "precision" ))
@@ -186,7 +186,6 @@ namespace Mila::Dnn
         {
             std::ostringstream oss;
             oss << "GeluConfig: { ";
-            oss << "name=" << name_ << ", ";
             oss << "precision=" << static_cast<int>( precision_ ) << ", ";
             oss << "approximation_method=" << static_cast<std::string_view>(GeluConfig::toString( approximation_method_ ));
             oss << " }";

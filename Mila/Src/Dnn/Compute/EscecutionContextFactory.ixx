@@ -7,6 +7,7 @@ module;
 
 export module Compute.ExecutionContextFactory;
 
+import Compute.IExecutionContext;
 import Compute.ExecutionContext;
 import Compute.DeviceType;
 import Compute.DeviceId;

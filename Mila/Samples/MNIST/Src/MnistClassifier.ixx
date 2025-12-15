@@ -2,7 +2,7 @@
  * @file MnistClassifier.ixx
  * @brief MNIST digit classifier using feedforward neural network architecture.
  *
- * Device-templated composite module implementing a three-layer neural network
+ * Device-templated network implementing a three-layer neural network
  * for MNIST handwritten digit classification (784 -> 128 -> 64 -> 10).
  */
 
@@ -15,6 +15,9 @@ module;
 #include <stdexcept>
 #include <cstdint>
 #include <ostream>
+#include <format>
+#include <utility>
+#include <optional>
 
 export module Mnist.Classifier;
 
@@ -35,8 +38,9 @@ namespace Mila::Mnist
      *   Input (784) -> Linear (128) -> GELU -> Linear (64) -> GELU -> Linear (10) -> Output
      *
      * Design philosophy:
-     * - Two-phase initialization: onBuilding() does architecture-specific setup; base class manages lifecycle
-     * - Composite module pattern: manages child modules (3x Linear + 2x Gelu)
+     * - Three-phase initialization: constructor creates architecture graph; Network base class 
+     *   propagates context to children; onBuilding() builds children with shapes and allocates buffers
+     * - Context-independent architecture: component graph defined without device knowledge
      * - Shape-agnostic configuration: batch size and MNIST dimensions define structure
      * - Runtime shape determined at onBuilding() time from actual input tensor
      * - Child components stored as concrete types for type safety and direct access
@@ -49,20 +53,36 @@ namespace Mila::Mnist
     class MnistClassifier : public Network<TDeviceType, TPrecision>
     {
     public:
+
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
         using NetworkBase = Network<TDeviceType, TPrecision>;
-        //using ExecutionContextType = ExecutionContext<TDeviceType>;
         using TensorType = Tensor<TPrecision, MR>;
         using LinearType = Linear<TDeviceType, TPrecision>;
         using GeluType = Gelu<TDeviceType, TPrecision>;
         using ComponentPtr = typename NetworkBase::ComponentPtr;
 
         /**
-         * @brief Construct classifier with execution context.
+         * @brief Construct MNIST classifier network.
          *
-         * @param exec_context Shared execution context for device resources.
-         * @param name Classifier name for identification (mandatory).
+         * Architecture is created immediately in the constructor (context-independent).
+         * ExecutionContext is created and bound by the Network base class.
+         *
+         * Construction sequence:
+         * 1. Validate batch size
+         * 2. Create architecture graph (no device required)
+         * 3. Network base creates and binds ExecutionContext
+         * 4. Context automatically propagated to children
+         *
+         * @param device_id Device identifier for network execution.
+         * @param name Classifier name for identification.
          * @param batch_size Batch size for training/inference.
+         *
+         * @throws std::invalid_argument if batch_size <= 0.
+         * @throws std::invalid_argument if device_id.type does not match TDeviceType.
+         * @throws std::runtime_error if ExecutionContext creation fails.
+         *
+         * @note Architecture is inspectable immediately after construction.
+         *       Network base class handles ExecutionContext creation and propagation.
          */
         explicit MnistClassifier(
             DeviceId device_id,
@@ -70,67 +90,22 @@ namespace Mila::Mnist
             int64_t batch_size )
             : NetworkBase( device_id, name ), batch_size_( batch_size )
         {
-            if (batch_size_ <= 0)
+            if ( batch_size_ <= 0 )
             {
                 throw std::invalid_argument( "Batch size must be greater than zero." );
             }
 
-            // Use the supplied execution context to construct child modules.
-            // NetworkBase stores a non-owning reference; this class does not keep exec_context.
-            createComponents(); // std::static_pointer_cast<ExecutionContextType>(this->getDeviceId()->getExecutionContext()) );
+            createGraph();
         }
 
         ~MnistClassifier() override = default;
-
-        // ====================================================================
-        // Lifecycle
-        // ====================================================================
-
-        // Architecture-specific build hook called by CompositeComponent::build()
-        void onBuilding( const shape_t& input_shape ) override
-        {
-            // validate input shape and compute per-child shapes
-            validateInputShape( input_shape );
-
-            input_shape_ = input_shape;
-
-            hidden1_shape_ = input_shape;
-            hidden1_shape_.back() = HIDDEN1_SIZE;
-
-            hidden2_shape_ = input_shape;
-            hidden2_shape_.back() = HIDDEN2_SIZE;
-
-            output_shape_ = input_shape;
-            output_shape_.back() = MNIST_NUM_CLASSES;
-
-            // Use base helpers so child training-mode is synchronized and preconditions are checked.
-            fc1_->build( input_shape );
-            gelu1_->build( hidden1_shape_ );
-            fc2_->build(  hidden1_shape_ );
-            gelu2_->build( hidden2_shape_ );
-            output_fc_->build(  hidden2_shape_ );
-
-            auto device = this->getDeviceId();
-
-            hidden1_pre_act_ = std::make_shared<TensorType>( device, hidden1_shape_ );
-            hidden1_pre_act_->setName( this->getName() + ".hidden1_pre_act" );
-
-            hidden1_ = std::make_shared<TensorType>( device, hidden1_shape_ );
-            hidden1_->setName( this->getName() + ".hidden1" );
-
-            hidden2_pre_act_ = std::make_shared<TensorType>( device, hidden2_shape_ );
-            hidden2_pre_act_->setName( this->getName() + ".hidden2_pre_act" );
-
-            hidden2_ = std::make_shared<TensorType>( device, hidden2_shape_ );
-            hidden2_->setName( this->getName() + ".hidden2" );
-        }
 
         // ====================================================================
         // Compute operation dispatch
         // ====================================================================
 
         /**
-         * @brief Forward pass - HOT PATH, pure dispatch to child modules.
+         * @brief Forward pass - HOT PATH, pure dispatch to child components.
          *
          * All setup and validation was done in onBuilding(). This method chains
          * forward calls through the classifier structure using pre-allocated buffers.
@@ -140,7 +115,7 @@ namespace Mila::Mnist
          */
         void forward( const ITensor& input, ITensor& output )
         {
-            if (!this->isBuilt())
+            if ( !this->isBuilt() )
             {
                 throw std::runtime_error( "MnistClassifier must be built before calling forward." );
             }
@@ -153,13 +128,13 @@ namespace Mila::Mnist
         }
 
         /**
-         * @brief Backward pass - HOT PATH, pure dispatch to child modules.
+         * @brief Backward pass - HOT PATH, pure dispatch to child components.
          *
          * Chains backward calls through the classifier structure in reverse order.
          */
         void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
         {
-            if (!this->isBuilt())
+            if ( !this->isBuilt() )
             {
                 throw std::runtime_error( "MnistClassifier must be built before calling backward." );
             }
@@ -186,28 +161,7 @@ namespace Mila::Mnist
         }
 
         // ====================================================================
-        // Serialization
-        // ====================================================================
-
-        /* TJT: Moved to Network::Save
-        void save( ModelArchive& archive, SerializationMode mode ) const override
-        {
-            for (const auto& m : this->getComponents())
-            {
-                m->save_( archive, mode );
-            }
-        }
-
-        void load( ModelArchive& archive, SerializationMode mode ) override
-        {
-            for (const auto& m : this->getComponents())
-            {
-                m->load( archive, mode );
-            }
-        } */
-
-        // ====================================================================
-        // Module interface
+        // Component interface
         // ====================================================================
 
         DeviceId getDeviceId() const override
@@ -218,69 +172,21 @@ namespace Mila::Mnist
         void synchronize() override
         {
             NetworkBase::synchronize();
-
-            if (fc1_) fc1_->synchronize();
-            if (gelu1_) gelu1_->synchronize();
-            if (fc2_) fc2_->synchronize();
-            if (gelu2_) gelu2_->synchronize();
-            if (output_fc_) output_fc_->synchronize();
         }
 
         size_t parameterCount() const override
         {
-            size_t total = 0;
-
-            total += fc1_->parameterCount();
-            total += gelu1_->parameterCount();
-            total += fc2_->parameterCount();
-            total += gelu2_->parameterCount();
-            total += output_fc_->parameterCount();
-
-            return total;
+            return NetworkBase::parameterCount();
         }
 
         std::vector<ITensor*> getParameters() const override
         {
-            std::vector<ITensor*> params;
-
-            auto fc1_params = fc1_->getParameters();
-            params.insert( params.end(), fc1_params.begin(), fc1_params.end() );
-
-            auto gelu1_params = gelu1_->getParameters();
-            params.insert( params.end(), gelu1_params.begin(), gelu1_params.end() );
-
-            auto fc2_params = fc2_->getParameters();
-            params.insert( params.end(), fc2_params.begin(), fc2_params.end() );
-
-            auto gelu2_params = gelu2_->getParameters();
-            params.insert( params.end(), gelu2_params.begin(), gelu2_params.end() );
-
-            auto output_params = output_fc_->getParameters();
-            params.insert( params.end(), output_params.begin(), output_params.end() );
-
-            return params;
+            return NetworkBase::getParameters();
         }
 
         std::vector<ITensor*> getGradients() const override
         {
-            std::vector<ITensor*> grads;
-
-            auto fc1_grads = fc1_->getGradients();
-            grads.insert( grads.end(), fc1_grads.begin(), fc1_grads.end() );
-
-            auto gelu1_grads = gelu1_->getGradients();
-            grads.insert( grads.end(), gelu1_grads.begin(), gelu1_grads.end() );
-
-            auto fc2_grads = fc2_->getGradients();
-            grads.insert( grads.end(), fc2_grads.begin(), fc2_grads.end() );
-
-            auto gelu2_grads = gelu2_->getGradients();
-            grads.insert( grads.end(), gelu2_grads.begin(), gelu2_grads.end() );
-
-            auto output_grads = output_fc_->getGradients();
-            grads.insert( grads.end(), output_grads.begin(), output_grads.end() );
-
-            return grads;
+            return NetworkBase::getGradients();
         }
 
         std::string toString() const override
@@ -288,42 +194,76 @@ namespace Mila::Mnist
             std::ostringstream oss;
             oss << std::endl;
             oss << "MNIST Classifier: " << this->getName() << std::endl;
-            oss << "Device: " << getDeviceId().toString() << std::endl;
+
+            if ( this->hasExecutionContext() )
+            {
+                oss << "Device: " << getDeviceId().toString() << std::endl;
+            }
+            else
+            {
+                oss << "Device: (context not set)" << std::endl;
+            }
+
             oss << "Architecture:" << std::endl;
             oss << "  Input:   784 features (28x28 flattened)" << std::endl;
             oss << "  Layer 1: 784 -> " << HIDDEN1_SIZE << " + GELU" << std::endl;
             oss << "  Layer 2: " << HIDDEN1_SIZE << " -> " << HIDDEN2_SIZE << " + GELU" << std::endl;
             oss << "  Output:  " << HIDDEN2_SIZE << " -> " << MNIST_NUM_CLASSES << " classes" << std::endl;
-            oss << "Parameters: " << parameterCount() << std::endl;
+
+            if ( this->isBuilt() )
+            {
+                oss << "Parameters: " << parameterCount() << std::endl;
+            }
+
             oss << "Batch size: " << batch_size_ << std::endl;
 
-            if (this->isBuilt())
+            if ( this->isBuilt() )
             {
                 oss << "Input shape: (";
-                for (size_t i = 0; i < input_shape_.size(); ++i)
+                for ( size_t i = 0; i < input_shape_.size(); ++i )
                 {
-                    oss << input_shape_[i];
-                    if (i != input_shape_.size() - 1)
+                    oss << input_shape_[ i ];
+                    if ( i != input_shape_.size() - 1 )
                         oss << ", ";
                 }
                 oss << ")" << std::endl;
 
                 oss << "Output shape: (";
-                for (size_t i = 0; i < output_shape_.size(); ++i)
+                for ( size_t i = 0; i < output_shape_.size(); ++i )
                 {
-                    oss << output_shape_[i];
-                    if (i != output_shape_.size() - 1)
+                    oss << output_shape_[ i ];
+                    if ( i != output_shape_.size() - 1 )
                         oss << ", ";
                 }
                 oss << ")" << std::endl;
             }
 
             oss << "Components: " << std::endl;
-            if (fc1_) oss << "  - fc1: " << fc1_->getName() << std::endl;
-            if (gelu1_) oss << "  - gelu1: " << gelu1_->getName() << std::endl;
-            if (fc2_) oss << "  - fc2: " << fc2_->getName() << std::endl;
-            if (gelu2_) oss << "  - gelu2: " << gelu2_->getName() << std::endl;
-            if (output_fc_) oss << "  - output: " << output_fc_->getName() << std::endl;
+
+            if ( fc1_ )
+            {
+                oss << "  - fc1: " << fc1_->getName() << std::endl;
+            }
+
+            if ( gelu1_ )
+            {
+                oss << "  - gelu1: " << gelu1_->getName() << std::endl;
+            }
+
+            if ( fc2_ )
+            {
+                oss << "  - fc2: " << fc2_->getName() << std::endl;
+            }
+
+            if ( gelu2_ )
+            {
+                oss << "  - gelu2: " << gelu2_->getName() << std::endl;
+            }
+
+            if ( output_fc_ )
+            {
+                oss << "  - output: " << output_fc_->getName() << std::endl;
+            }
 
             oss << std::endl;
 
@@ -333,18 +273,78 @@ namespace Mila::Mnist
     protected:
 
         /**
-         * @brief Hook invoked when training mode is about to change.
+         * @brief Create the MNIST classifier network graph (context-independent).
          *
-         * Propagate new training mode to child modules. Called with the
-         * CompositeComponent's training mutex held; do not call setTraining() here.
+         * Defines the computational graph:
+         *   fc1 -> gelu1 -> fc2 -> gelu2 -> output
+         *
+         * Components are created in shared mode (no ExecutionContext).
+         * Context binding happens automatically via Network base class which
+         * creates ExecutionContext and propagates to children.
+         *
+         * Called from constructor before ExecutionContext is created.
+         * This enables architecture introspection without requiring a device.
          */
-        void onTrainingChanging( bool newMode ) override
+        void createGraph()
         {
-            if (fc1_) fc1_->setTraining( newMode );
-            if (gelu1_) gelu1_->setTraining( newMode );
-            if (fc2_) fc2_->setTraining( newMode );
-            if (gelu2_) gelu2_->setTraining( newMode );
-            if (output_fc_) output_fc_->setTraining( newMode );
+            addLinear( "fc1", MNIST_IMAGE_SIZE, HIDDEN1_SIZE );
+            addActivation( "gelu1" );
+            addLinear( "fc2", HIDDEN1_SIZE, HIDDEN2_SIZE );
+            addActivation( "gelu2" );
+            addLinear( "output", HIDDEN2_SIZE, MNIST_NUM_CLASSES );
+        }
+
+        /**
+         * @brief Hook invoked during build() to initialize network with input shape.
+         *
+         * Validates input shape, computes per-layer shapes, caches typed pointers to children,
+         * builds all child components with appropriate shapes, and allocates intermediate buffers.
+         *
+         * All children have ExecutionContext at this point (propagated by Network base).
+         */
+        void onBuilding( const shape_t& input_shape ) override
+        {
+            validateInputShape( input_shape );
+
+            input_shape_ = input_shape;
+
+            hidden1_shape_ = input_shape;
+            hidden1_shape_.back() = HIDDEN1_SIZE;
+
+            hidden2_shape_ = input_shape;
+            hidden2_shape_.back() = HIDDEN2_SIZE;
+
+            output_shape_ = input_shape;
+            output_shape_.back() = MNIST_NUM_CLASSES;
+
+            fc1_ = this->template getComponentAs<LinearType>( this->getName() + ".fc1" );
+            fc1_->build( input_shape );
+
+            gelu1_ = this->template getComponentAs<GeluType>( this->getName() + ".gelu1" );
+            gelu1_->build( hidden1_shape_ );
+
+            fc2_ = this->template getComponentAs<LinearType>( this->getName() + ".fc2" );
+            fc2_->build( hidden1_shape_ );
+
+            gelu2_ = this->template getComponentAs<GeluType>( this->getName() + ".gelu2" );
+            gelu2_->build( hidden2_shape_ );
+
+            output_fc_ = this->template getComponentAs<LinearType>( this->getName() + ".output" );
+            output_fc_->build( hidden2_shape_ );
+
+            auto device = this->getDeviceId();
+
+            hidden1_pre_act_ = std::make_shared<TensorType>( device, hidden1_shape_ );
+            hidden1_pre_act_->setName( this->getName() + ".hidden1_pre_act" );
+
+            hidden1_ = std::make_shared<TensorType>( device, hidden1_shape_ );
+            hidden1_->setName( this->getName() + ".hidden1" );
+
+            hidden2_pre_act_ = std::make_shared<TensorType>( device, hidden2_shape_ );
+            hidden2_pre_act_->setName( this->getName() + ".hidden2_pre_act" );
+
+            hidden2_ = std::make_shared<TensorType>( device, hidden2_shape_ );
+            hidden2_->setName( this->getName() + ".hidden2" );
         }
 
     private:
@@ -369,61 +369,57 @@ namespace Mila::Mnist
         std::shared_ptr<TensorType> hidden2_pre_act_{ nullptr };
         std::shared_ptr<TensorType> hidden2_{ nullptr };
 
+        /**
+         * @brief Helper to create and register a linear layer child component.
+         *
+         * @param suffix Component name suffix (will be prefixed with classifier name)
+         * @param in_features Input feature dimension
+         * @param out_features Output feature dimension
+         */
+        void addLinear( const std::string& suffix, dim_t in_features, dim_t out_features )
+        {
+            auto cfg = LinearConfig( in_features, out_features ).withBias( false );
+
+            auto component = std::make_shared<LinearType>( cfg, std::nullopt );
+            component->setName( this->getName() + "." + suffix );
+
+            this->addComponent( component );
+        }
+
+        /**
+         * @brief Helper to create and register an activation layer child component.
+         *
+         * @param suffix Component name suffix
+         */
+        void addActivation( const std::string& suffix )
+        {
+            auto cfg = GeluConfig();
+
+            auto component = std::make_shared<GeluType>( cfg );
+            component->setName( this->getName() + "." + suffix );
+
+            this->addComponent( component );
+        }
+
+        /**
+         * @brief Validate input shape for MNIST classifier.
+         */
         void validateInputShape( const shape_t& input_shape ) const
         {
-            if (input_shape.empty())
+            if ( input_shape.empty() )
             {
                 throw std::invalid_argument( "MnistClassifier: input must have rank >= 1" );
             }
 
             int64_t input_features = input_shape.back();
 
-            if (input_features != MNIST_IMAGE_SIZE)
+            if ( input_features != MNIST_IMAGE_SIZE )
             {
                 std::ostringstream oss;
                 oss << "MnistClassifier: input feature dimension mismatch. Expected "
                     << MNIST_IMAGE_SIZE << " (28x28 flattened), got " << input_features;
                 throw std::invalid_argument( oss.str() );
             }
-        }
-
-        // Create Components and register them with the composite component container (NetworkBase::addComponent() )
-        void createComponents()
-        {
-            auto exec_context = NetworkBase::getExecutionContext();
-
-            auto fc1_config = LinearConfig( MNIST_IMAGE_SIZE, HIDDEN1_SIZE )
-                .withName( this->getName() + ".fc1" )
-                .withBias( false );
-
-            fc1_ = std::make_shared<LinearType>( exec_context, fc1_config );
-            this->addComponent( fc1_ );
-
-            auto gelu1_config = GeluConfig();
-            gelu1_config.withName( this->getName() + ".gelu1" );
-
-            gelu1_ = std::make_shared<GeluType>( exec_context, gelu1_config );
-            this->addComponent( gelu1_ );
-
-            auto fc2_config = LinearConfig( HIDDEN1_SIZE, HIDDEN2_SIZE );
-            fc2_config.withName( this->getName() + ".fc2" )
-                .withBias( false );
-
-            fc2_ = std::make_shared<LinearType>( exec_context, fc2_config );
-            this->addComponent( fc2_ );
-
-            auto gelu2_config = GeluConfig();
-            gelu2_config.withName( this->getName() + ".gelu2" );
-
-            gelu2_ = std::make_shared<GeluType>( exec_context, gelu2_config );
-            this->addComponent( gelu2_ );
-
-            auto output_config = LinearConfig( HIDDEN2_SIZE, MNIST_NUM_CLASSES );
-            output_config.withName( this->getName() + ".output" )
-                .withBias( false );
-
-            output_fc_ = std::make_shared<LinearType>( exec_context, output_config );
-            this->addComponent( output_fc_ );
         }
     };
 }

@@ -30,16 +30,6 @@ namespace Mila::Dnn
     public:
         
         /**
-         * @brief Default constructor with name "softmax".
-         *
-         * @note When adding multiple Softmax components to a container,
-         *       use .withName() to provide unique names.
-         */
-        SoftmaxConfig() : ComponentConfig( "softmax" )
-        {
-        }
-
-        /**
          * @brief C++23-style fluent setter for the axis along which to apply softmax.
          *
          * @param axis Dimension for softmax computation (default: -1 for last dimension)
@@ -79,7 +69,7 @@ namespace Mila::Dnn
         json toJson() const
         {
             json j;
-            j["name"] = name_;
+            //j["name"] = this->getName();
             //j["precision"] = static_cast<int>( precision_ );
             //j["axis"] = axis_;
 
@@ -114,8 +104,7 @@ namespace Mila::Dnn
          * @return std::string Human-readable representation
 		 */
         std::string toString() const override {
-            return "SoftmaxConfig(name=" + name_ +
-                   ", precision=" + std::to_string( static_cast<int>( precision_ ) ) +
+            return "SoftmaxConfig( precision=" + std::to_string( static_cast<int>( precision_ ) ) +
                    ", axis=" + std::to_string( axis_ ) + ")";
 		}
 

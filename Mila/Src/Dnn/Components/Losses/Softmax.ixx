@@ -14,6 +14,7 @@ module;
 #include <stdexcept>
 #include <cstdint>
 #include <type_traits>
+#include <optional>
 
 export module Dnn.Components.Softmax;
 export import :Config;
@@ -28,7 +29,9 @@ import Compute.Precision;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
+import Compute.IExecutionContext;
 import Compute.ExecutionContext;
+import Compute.ExecutionContextFactory;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
@@ -52,6 +55,16 @@ namespace Mila::Dnn
      * The operation computes: softmax(x) = exp(x - max(x)) / sum(exp(x - max(x)))
      * across a specified axis.
      *
+     * Construction Modes:
+     * - **Standalone mode**: Construct with DeviceId to create and own an ExecutionContext.
+     *   The component manages the context lifetime and uses it for operation execution.
+     * - **Shared mode**: Construct without DeviceId; parent (Network/CompositeComponent) 
+     *   provides ExecutionContext via setExecutionContext() after construction.
+     *
+     * Ownership:
+     * - Standalone mode: Component owns its ExecutionContext (stored in owned_exec_context_).
+     * - Shared mode: Component borrows ExecutionContext from parent; lifecycle managed externally.
+     *
      * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda)
      * @tparam TPrecision Abstract tensor precision (TensorDataType)
      */
@@ -63,55 +76,67 @@ namespace Mila::Dnn
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
         using ExecutionContextType = ExecutionContext<TDeviceType>;
         using TensorType = Tensor<TPrecision, MR>;
-        using Parameters = std::vector<std::shared_ptr<TensorType>>;
-        using OutputState = std::vector<std::shared_ptr<TensorType>>;
 
         /**
-         * @brief Construct with an existing execution context.
+         * @brief Construct Softmax with optional ExecutionContext ownership.
          *
-         * @param exec_context Shared execution context for device resources.
-         * @param config Softmax configuration.
+         * Supports two construction modes:
+         *
+         * **Standalone mode (device_id provided)**:
+         * - Creates and owns an ExecutionContext for the specified device.
+         * - Registers the owned context with the base Component class via setExecutionContext().
+         * - Backend operation is created immediately in onExecutionContextSet() hook.
+         * - Use case: Unit tests, standalone component usage.
+         *
+         * **Shared mode (device_id not provided)**:
+         * - Does not create ExecutionContext; expects parent to provide one.
+         * - Parent (Network/CompositeComponent) calls setExecutionContext() after construction.
+         * - Backend operation created when parent sets context.
+         * - Use case: Components added to Network via addComponent<Softmax>(...).
+         *
+         * @param config Softmax configuration (axis and name).
+         * @param device_id Optional device identifier. If provided, creates owned ExecutionContext
+         *                  for standalone mode. If nullopt, expects shared context from parent.
+         *
+         * @throws std::invalid_argument if config is invalid (via config.validate()).
+         * @throws std::invalid_argument if device_id.type does not match TDeviceType.
+         * @throws std::runtime_error if ExecutionContext creation fails (standalone mode).
+         * @throws std::runtime_error if backend operation creation fails in onExecutionContextSet().
+         *
+         * @note In standalone mode, setExecutionContext() is called to register the owned
+         *       context with the base class, enabling getExecutionContext() and triggering
+         *       the onExecutionContextSet() hook for operation creation.
+         *
+         * @example
+         * // Standalone mode (owns context)
+         * SoftmaxConfig config;
+         * config.withAxis(-1);
+         * Softmax<DeviceType::Cpu, TensorDataType::FP32> softmax(config, Device::Cpu());
+         *
+         * @example
+         * // Shared mode (borrows parent's context)
+         * Network<DeviceType::Cpu, TensorDataType::FP32> net(Device::Cpu(), "my_net");
+         * net.addComponent<Softmax>("softmax", SoftmaxConfig().withAxis(-1));
          */
-        explicit Softmax( IExecutionContext* exec_context, const SoftmaxConfig& config )
-            : exec_context_( exec_context ), config_( config )
+        explicit Softmax( const SoftmaxConfig& config, std::optional<DeviceId> device_id = std::nullopt )
+            : config_( config )
         {
-            if (!exec_context_)
-            {
-                throw std::invalid_argument( "ExecutionContext cannot be null." );
-            }
-
             config_.validate();
 
-            createOperation();
+            if (device_id.has_value())
+            {
+                if (device_id->type != TDeviceType)
+                {
+                    throw std::invalid_argument( "Softmax: device type mismatch" );
+                }
+
+                owned_exec_context_ = createExecutionContext( device_id.value() );
+
+                this->setExecutionContext( owned_exec_context_.get() );
+            }
         }
 
         ~Softmax() override = default;
-
-        // ====================================================================
-        // Lifecycle
-        // ====================================================================
-
-        /**
-         * @brief Build the module using an input shape.
-         *
-         * Softmax is stateless and has no parameters to allocate. This method
-         * validates the input shape and delegates to the backend operation's
-         * build method to cache dimension computations.
-         */
-        void onBuilding( const shape_t& input_shape ) override
-        {
-            validateInputShape( input_shape );
-
-            // Ensure backend is aware of current training mode before build.
-            if (operation_)
-            {
-                operation_->setTraining( this->isTraining() );
-            }
-
-            operation_->setParameters( nullptr, nullptr );
-
-            operation_->build( input_shape );
-        }
 
         // ====================================================================
         // Compute operation dispatch
@@ -128,8 +153,6 @@ namespace Mila::Dnn
             {
                 throw std::runtime_error( "Softmax module must be built before calling forward." );
             }
-
-            validateInputShape( input );
 
             operation_->forward( input, output );
         }
@@ -156,55 +179,121 @@ namespace Mila::Dnn
         }
 
         // ====================================================================
+        // Synchronization
+        // ====================================================================
+
+        /**
+         * @brief Wait for all asynchronous work submitted by this module to complete.
+         *
+         * Synchronizes the underlying ExecutionContext. On CPU implementations this 
+         * may be a no-op. Use to ensure results are visible on the host or to measure 
+         * synchronous timings.
+         */
+        void synchronize() override
+        {
+            this->getExecutionContext()->synchronize();
+        }
+
+        // ====================================================================
         // Serialization
         // ====================================================================
 
+        /**
+         * @brief Persist module state to archive.
+         *
+         * Softmax is stateless (no trainable tensors) but persists:
+         * - Module type and version metadata
+         * - Configuration (axis)
+         *
+         * @param archive Archive to write to.
+         * @param mode Serialization mode (currently unused for stateless components).
+         */
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
-            // No-op: stateless activation
             (void)archive;
+            (void)mode;
         }
-
-        //void load( ModelArchive& archive, SerializationMode mode ) override
-        //{
-        //    // No-op: stateless activation
-        //    (void)archive;
-        //}
 
         // ====================================================================
-        // Module interface
+        // Parameters and Gradients
         // ====================================================================
 
-        std::string getName() const override
-        {
-            return config_.getName();
-        }
-
-        DeviceId getDeviceId() const override
-        {
-            return exec_context_->getDeviceId();
-        }
-
-        void synchronize() override
-        {
-            exec_context_->synchronize();
-        }
-
+        /**
+         * @brief Number of trainable parameters.
+         *
+         * Softmax is stateless and exposes no trainable parameters.
+         *
+         * @return 0
+         */
         size_t parameterCount() const override
         {
             return 0;
         }
 
+        /**
+         * @brief Get trainable parameter tensors.
+         *
+         * Softmax has no trainable parameters.
+         *
+         * @return Empty vector.
+         */
         std::vector<ITensor*> getParameters() const override
         {
             return {};
         }
 
+        /**
+         * @brief Get parameter gradient tensors.
+         *
+         * Softmax has no trainable parameters, therefore no gradients.
+         *
+         * @return Empty vector.
+         */
         std::vector<ITensor*> getGradients() const override
         {
             return {};
         }
 
+        // ====================================================================
+        // Component interface
+        // ====================================================================
+
+        /**
+         * @brief Module name for logging and diagnostics.
+         *
+         * Returns the name stored in the SoftmaxConfig (may be empty).
+         *
+         * @return Module name string.
+         */
+        std::string getName() const override
+        {
+            return config_.getName();
+        }
+
+        /**
+         * @brief Get the device identifier for this module.
+         *
+         * Returns the DeviceId from the ExecutionContext. In standalone mode,
+         * this is the device specified at construction. In shared mode, this
+         * is the parent's device.
+         *
+         * @return DeviceId indicating device type and index.
+         */
+        DeviceId getDeviceId() const override
+        {
+            return this->getExecutionContext()->getDeviceId();
+        }
+
+        /**
+         * @brief Generate human-readable description of the module.
+         *
+         * Produces a multi-line string showing:
+         * - Module name
+         * - Device type
+         * - Axis configuration
+         *
+         * @return Formatted string representation.
+         */
         std::string toString() const override
         {
             std::ostringstream oss;
@@ -242,12 +331,58 @@ namespace Mila::Dnn
         }
 
     protected:
+
+        // ====================================================================
+        // Lifecycle hooks
+        // ====================================================================
+
         /**
-         * @brief Hook invoked when training mode is about to change.
+         * @brief Hook invoked after ExecutionContext is set.
          *
-         * Stateless Softmax simply informs the backend operation of the new
-         * training mode. Called with Module's training mutex held; do not call
-         * setTraining() here.
+         * Called by Component::setExecutionContext() after the context is
+         * registered. Creates the backend UnaryOperation using the OperationRegistry.
+         *
+         * This hook is triggered in two scenarios:
+         * - Standalone mode: Immediately in constructor after owned context creation
+         * - Shared mode: When parent calls setExecutionContext() after construction
+         *
+         * @throws std::runtime_error if operation creation fails.
+         */
+        void onExecutionContextSet() override
+        {
+            createOperation();
+        }
+
+        /**
+         * @brief Hook invoked during build() to initialize component with input shape.
+         *
+         * Softmax is stateless and has no parameters to allocate. This method
+         * validates the input shape and delegates to the backend operation's
+         * build method to cache dimension computations.
+         *
+         * @param input_shape Expected shape for input tensors.
+         *
+         * @throws std::invalid_argument if input_shape is invalid or axis out of bounds.
+         * @throws std::runtime_error if backend build fails.
+         */
+        void onBuilding( const shape_t& input_shape ) override
+        {
+            validateInputShape( input_shape );
+
+            operation_->setParameters( nullptr, nullptr );
+
+            operation_->build( input_shape );
+        }
+
+        /**
+         * @brief Hook invoked when training mode changes.
+         *
+         * Propagates training mode to the backend operation. Called by
+         * Component::setTraining() with the training mutex held.
+         *
+         * @param is_training New training mode state.
+         *
+         * @note Do not call setTraining() from this hook (reentrancy prohibited).
          */
         void onTrainingChanging( bool is_training ) override
         {
@@ -256,9 +391,8 @@ namespace Mila::Dnn
 
     private:
         SoftmaxConfig config_;
-
+        std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
         std::unique_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
-        IExecutionContext* exec_context_;
 
         /**
          * @brief Validate input shape for softmax operation.
@@ -300,15 +434,15 @@ namespace Mila::Dnn
         /**
          * @brief Create the backend compute operation.
          *
-         * Looks up the appropriate device-specific operation from the registry
-         * and creates an instance bound to this module's execution context.
+         * Uses the shared ExecutionContext from the base class to request a
+         * device-specific UnaryOperation from the OperationRegistry.
          */
         void createOperation()
         {
             operation_ = OperationRegistry::instance()
                 .createUnaryOperation<TDeviceType, TPrecision>(
                     "SoftmaxOp",
-                    exec_context_,
+                    this->getExecutionContext(),
                     config_ );
 
             if (!operation_)
@@ -317,11 +451,4 @@ namespace Mila::Dnn
             }
         }
     };
-
-    // Convenience aliases for common usages
-    /*export template<TensorDataType TPrecision>
-        using CpuSoftmax = Softmax<DeviceType::Cpu, TPrecision>;
-
-    export template<TensorDataType TPrecision>
-        using CudaSoftmax = Softmax<DeviceType::Cuda, TPrecision>; */
 }

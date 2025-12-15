@@ -17,22 +17,15 @@ namespace Dnn::Components::Tests
     {
     public:
         MockComponentConfig()
-            : ComponentConfig( "mock" )
         {}
 
         void validate() const override
-        {
-            if ( getName().empty() )
-            {
-                throw std::invalid_argument( "MockComponentConfig: name must not be empty" );
-            }
-        }
+        {}
 
         std::string toString() const
         {
             std::ostringstream oss;
-            oss << "MockComponentConfig(name=" << getName()
-                << ", precision_policy=" << static_cast<int>(getPrecisionPolicy())
+            oss << "MockComponentConfig( precision_policy=" << static_cast<int>(getPrecisionPolicy())
                 << ")";
             return oss.str();
         }
@@ -54,13 +47,13 @@ namespace Dnn::Components::Tests
         using ComponentBase = Component<TDeviceType, TPrecision>;
 
         explicit MockComponent( const MockComponentConfig& config )
-            : config_( config )
+            : ComponentBase( "mock_component" ), config_( config )
         {
             config_.validate();
         }
 
         MockComponent( const MockComponentConfig& config, std::optional<DeviceId> device_id )
-            : config_( config )
+            : ComponentBase( "mock_component" ), config_( config )
         {
             config_.validate();
 
@@ -138,14 +131,9 @@ namespace Dnn::Components::Tests
         std::string toString() const override
         {
             std::ostringstream oss;
-            oss << "MockComponent: " << getName() << std::endl;
+            oss << "MockComponent: " << this->getName() << std::endl;
             oss << "Training: " << (this->isTraining() ? "true" : "false") << std::endl;
             return oss.str();
-        }
-
-        std::string getName() const override
-        {
-            return config_.getName();
         }
 
         DeviceId getDeviceId() const override
@@ -224,7 +212,6 @@ namespace Dnn::Components::Tests
             data.is_training = is_training;
 
             MockComponentConfig config;
-            config.withName( "mock_component" );
 
             if constexpr ( TDeviceType == DeviceType::Cuda )
             {
@@ -257,7 +244,6 @@ namespace Dnn::Components::Tests
             data.is_training = is_training;
 
             MockComponentConfig config;
-            config.withName( "mock_component_context" );
 
             data.exec_context = std::move( exec_context );
 
@@ -466,7 +452,6 @@ namespace Dnn::Components::Tests
     void TestInvalidDeviceId()
     {
         MockComponentConfig config;
-        config.withName( "test_component" );
 
         if constexpr ( TDeviceType == DeviceType::Cuda )
         {
@@ -489,7 +474,6 @@ namespace Dnn::Components::Tests
     void TestNullExecutionContext()
     {
         MockComponentConfig config;
-        config.withName( "test_component" );
 
         // Construct without device id is allowed; calling getDeviceId() should throw.
         auto comp = std::make_shared<MockComponent<TDeviceType, TPrecision>>( config );
@@ -504,7 +488,6 @@ namespace Dnn::Components::Tests
     void TestDeviceTypeMismatch()
     {
         MockComponentConfig config;
-        config.withName( "test_component" );
 
         if constexpr ( TDeviceType == DeviceType::Cuda )
         {
@@ -638,17 +621,14 @@ namespace Dnn::Components::Tests
     TEST_F( ComponentTests, ComponentConfig_DefaultValues )
     {
         MockComponentConfig config;
-        EXPECT_EQ( config.getName(), "mock" );
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Auto );
     }
 
     TEST_F( ComponentTests, ComponentConfig_CustomValues )
     {
         MockComponentConfig config;
-        config.withName( "custom_component" )
-            .withPrecisionPolicy( ComputePrecision::Policy::Performance );
+        config.withPrecisionPolicy( ComputePrecision::Policy::Performance );
 
-        EXPECT_EQ( config.getName(), "custom_component" );
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Performance );
     }
 

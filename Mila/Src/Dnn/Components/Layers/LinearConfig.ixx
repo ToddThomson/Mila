@@ -59,7 +59,7 @@ namespace Mila::Dnn
          * @param output_features Number of output features (channels). Must be > 0.
          */
         LinearConfig( dim_t input_features, dim_t output_features )
-			: input_features_( input_features ), output_features_( output_features ), ComponentConfig( "linear" )
+			: input_features_( input_features ), output_features_( output_features )
         {
         }
 
@@ -73,7 +73,7 @@ namespace Mila::Dnn
          * @return Self&& Reference to this configuration (for chaining).
          */
         template <typename Self>
-        decltype(auto) withBias( this Self&& self, bool has_bias )
+        Self&& withBias( this Self&& self, bool has_bias )
         {
             self.has_bias_ = has_bias;
             return std::forward<Self>( self );
@@ -86,7 +86,7 @@ namespace Mila::Dnn
          * prefers setters over the constructor.
          */
         template <typename Self>
-        decltype(auto) withInputFeatures( this Self&& self, dim_t input_features )
+        Self&& withInputFeatures( this Self&& self, dim_t input_features )
         {
             self.input_features_ = input_features;
             return std::forward<Self>( self );
@@ -99,7 +99,7 @@ namespace Mila::Dnn
          * prefers setters over the constructor.
          */
         template <typename Self>
-        decltype(auto) withOutputFeatures( this Self&& self, dim_t output_features )
+        Self&& withOutputFeatures( this Self&& self, dim_t output_features )
         {
             self.output_features_ = output_features;
             return std::forward<Self>( self );
@@ -162,7 +162,7 @@ namespace Mila::Dnn
         json toJson() const
         {
             json j;
-            j["name"] = name_;
+            //j["name"] = name_;
             j["precision"] = static_cast<int>( precision_ );
             j["input_features"] = static_cast<int64_t>( input_features_ );
             j["output_features"] = static_cast<int64_t>( output_features_ );
@@ -179,10 +179,10 @@ namespace Mila::Dnn
          */
         void fromJson( const json& j )
         {
-            if ( j.contains( "name" ) )
+            /*if ( j.contains( "name" ) )
             {
                 name_ = j.at( "name" ).get<std::string>();
-            }
+            }*/
 
             if ( j.contains( "precision" ) )
             {

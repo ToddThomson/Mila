@@ -7,6 +7,7 @@
 #include <chrono>
 #include <format>
 #include <system_error>
+#include <optional>
 
 import Mila;
 
@@ -17,33 +18,35 @@ namespace Dnn::Networks::Tests
     using namespace Mila::Dnn::Serialization;
 
     /**
-     * @brief Minimal test component using factory-compatible constructor.
+     * @brief Minimal test component for testing Network.
      *
-     * Updated to support both construction from an existing non-owning
-     * IExecutionContext* (used by CompositeComponent::addComponent) and
-     * construction from a DeviceId (component owns created execution context).
+     * Updated to support both standalone and shared context modes following
+     * the new Component architecture pattern.
      */
     class TestComponent : public Component<DeviceType::Cpu, TensorDataType::FP32>
     {
     public:
         using ComponentBase = Component<DeviceType::Cpu, TensorDataType::FP32>;
 
-        // Construct from non-owning execution context (used by CompositeComponent::addComponent)
-        explicit TestComponent( IExecutionContext* exec_context, size_t param_count = 0 )
-            : ComponentBase()
-            , param_count_( param_count )
+        /**
+         * @brief Constructor for shared mode (context provided by parent).
+         *
+         * @param param_count Mock parameter count for testing aggregation
+         * @param device_id Optional device for standalone mode
+         */
+        explicit TestComponent( size_t param_count = 0, std::optional<DeviceId> device_id = std::nullopt )
+            : ComponentBase( "test_component" ), param_count_( param_count )
         {
-            // Delegate context validation/setting to base helper
-            setExecutionContext( exec_context );
-        }
+            if ( device_id.has_value() )
+            {
+                if ( device_id->type != DeviceType::Cpu )
+                {
+                    throw std::invalid_argument( "TestComponent: device type mismatch" );
+                }
 
-        // Construct from DeviceId: component will own an execution context for the device
-        explicit TestComponent( DeviceId device_id, size_t param_count = 0 )
-            : ComponentBase()
-            , param_count_( param_count )
-        {
-            owned_exec_context_ = createExecutionContext( device_id );
-            setExecutionContext( owned_exec_context_.get() );
+                owned_exec_context_ = createExecutionContext( device_id.value() );
+                setExecutionContext( owned_exec_context_.get() );
+            }
         }
 
         void synchronize() override
@@ -67,19 +70,9 @@ namespace Dnn::Networks::Tests
         void save_( ModelArchive& /*archive*/, SerializationMode /*mode*/ ) const override
         {}
 
-        std::string getName() const override
-        {
-            return name_;
-        }
-
-        void setName( const std::string& name )
-        {
-            name_ = name;
-        }
-
         std::string toString() const override
         {
-            return "TestComponent:" + name_;
+            return std::string( "TestComponent:" ) + this->getName();
         }
 
         DeviceId getDeviceId() const override
@@ -93,7 +86,7 @@ namespace Dnn::Networks::Tests
         {}
 
     private:
-        std::string name_;
+
         size_t param_count_;
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
     };
@@ -101,8 +94,8 @@ namespace Dnn::Networks::Tests
     /**
      * @brief Concrete Network subclass for testing.
      *
-     * Exposes protected constructor for test scenarios and implements onBuilding
-     * to propagate build to all children.
+     * Implements createGraph() to define network architecture and onBuilding()
+     * to propagate build to all children. Uses the component-owns-name pattern.
      */
     template<DeviceType TDeviceType, TensorDataType TPrecision = TensorDataType::FP32>
     class TestableNetwork : public Network<TDeviceType, TPrecision>
@@ -117,6 +110,19 @@ namespace Dnn::Networks::Tests
         explicit TestableNetwork( IExecutionContext* exec_context, const std::string& name )
             : Base( exec_context, name )
         {}
+
+        /**
+         * @brief Helper to add a test component with explicit name and parameter count.
+         *
+         * Creates a TestComponent in shared mode, sets its name, and registers it.
+         * This mimics the pattern used in real networks like MnistClassifier.
+         */
+        void addTestComponent( const std::string& name, size_t param_count = 0 )
+        {
+            auto component = std::make_shared<TestComponent>( param_count, std::nullopt );
+            component->setName( name );
+            this->addComponent( component );
+        }
 
     protected:
 
@@ -208,15 +214,28 @@ namespace Dnn::Networks::Tests
     }
 
     // ====================================================================
-    // Chainable Factory Method Tests
+    // Component Registration Tests (New API)
     // ====================================================================
+
+    TEST_F( NetworkTests, AddComponent_ComponentOwnsName )
+    {
+        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "name_test" );
+
+        auto comp = std::make_shared<TestComponent>( 5, std::nullopt );
+        comp->setName( "named_comp" );
+
+        net.addComponent( comp );
+
+        EXPECT_TRUE( net.hasComponent( "named_comp" ) );
+        EXPECT_EQ( net.getComponent( "named_comp" )->getName(), "named_comp" );
+    }
 
     TEST_F( NetworkTests, AddComponent_Chainable )
     {
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "chain_test" );
 
-        net.addComponent<TestComponent>( "comp1", 5 )
-            .addComponent<TestComponent>( "comp2", 10 );
+        net.addTestComponent( "comp1", 5 );
+        net.addTestComponent( "comp2", 10 );
 
         EXPECT_TRUE( net.hasComponent( "comp1" ) );
         EXPECT_TRUE( net.hasComponent( "comp2" ) );
@@ -227,36 +246,37 @@ namespace Dnn::Networks::Tests
     {
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "multi_chain" );
 
-        net.addComponent<TestComponent>( "comp1", 1 )
-            .addComponent<TestComponent>( "comp2", 2 )
-            .addComponent<TestComponent>( "comp3", 3 )
-            .addComponent<TestComponent>( "comp4", 4 );
+        net.addTestComponent( "comp1", 1 );
+        net.addTestComponent( "comp2", 2 );
+        net.addTestComponent( "comp3", 3 );
+        net.addTestComponent( "comp4", 4 );
 
         EXPECT_EQ( net.childCount(), 4u );
         EXPECT_TRUE( net.hasComponent( "comp1" ) );
         EXPECT_TRUE( net.hasComponent( "comp4" ) );
     }
 
-    TEST_F( NetworkTests, AddComponent_UsingFactoryMethod )
+    TEST_F( NetworkTests, AddComponent_NullComponent_Throws )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "factory_test" );
+        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "null_test" );
 
-        net.addComponent<TestComponent>( "comp1", 5 )
-            .addComponent<TestComponent>( "comp2", 10 );
-
-        EXPECT_TRUE( net.hasComponent( "comp1" ) );
-        EXPECT_TRUE( net.hasComponent( "comp2" ) );
-        EXPECT_EQ( net.childCount(), 2u );
+        EXPECT_THROW(
+            net.addComponent( nullptr ),
+            std::invalid_argument
+        );
     }
 
     TEST_F( NetworkTests, AddComponent_DuplicateName_Throws )
     {
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "dup_test" );
 
-        net.addComponent<TestComponent>( "duplicate", 1 );
+        net.addTestComponent( "duplicate", 1 );
+
+        auto duplicate = std::make_shared<TestComponent>( 2, std::nullopt );
+        duplicate->setName( "duplicate" );
 
         EXPECT_THROW(
-            net.addComponent<TestComponent>( "duplicate", 2 ),
+            net.addComponent( duplicate ),
             std::invalid_argument
         );
     }
@@ -265,12 +285,12 @@ namespace Dnn::Networks::Tests
     {
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "post_build_test" );
 
-        net.addComponent<TestComponent>( "pre_build", 0 );
+        net.addTestComponent( "pre_build", 0 );
 
         net.build( { 1 } );
 
         EXPECT_THROW(
-            net.addComponent<TestComponent>( "post_build", 0 ),
+            net.addTestComponent( "post_build", 0 ),
             std::runtime_error
         );
     }
@@ -279,8 +299,8 @@ namespace Dnn::Networks::Tests
     {
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "ctx_share_test" );
 
-        net.addComponent<TestComponent>( "ctx1", 0 )
-            .addComponent<TestComponent>( "ctx2", 0 );
+        net.addTestComponent( "ctx1", 0 );
+        net.addTestComponent( "ctx2", 0 );
 
         auto comp1 = net.getComponent( "ctx1" );
         auto comp2 = net.getComponent( "ctx2" );
@@ -288,6 +308,21 @@ namespace Dnn::Networks::Tests
         EXPECT_EQ( comp1->getDeviceId().type, net.getDeviceId().type );
         EXPECT_EQ( comp2->getDeviceId().type, net.getDeviceId().type );
         EXPECT_EQ( comp1->getDeviceId().type, comp2->getDeviceId().type );
+    }
+
+    TEST_F( NetworkTests, AddComponent_ContextPropagatedImmediately )
+    {
+        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "ctx_prop_test" );
+
+        auto comp = std::make_shared<TestComponent>( 0, std::nullopt );
+        comp->setName( "late_add" );
+
+        //EXPECT_FALSE( comp->hasExecutionContext() );
+
+        net.addComponent( comp );
+
+        //EXPECT_TRUE( comp->hasExecutionContext() );
+        EXPECT_EQ( comp->getDeviceId().type, DeviceType::Cpu );
     }
 
     // ====================================================================
@@ -298,7 +333,7 @@ namespace Dnn::Networks::Tests
     {
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "get_test" );
 
-        net.addComponent<TestComponent>( "findme", 3 );
+        net.addTestComponent( "findme", 3 );
 
         auto retrieved = net.getComponent( "findme" );
 
@@ -320,7 +355,7 @@ namespace Dnn::Networks::Tests
     {
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "has_test" );
 
-        net.addComponent<TestComponent>( "exists", 0 );
+        net.addTestComponent( "exists", 0 );
 
         EXPECT_TRUE( net.hasComponent( "exists" ) );
         EXPECT_FALSE( net.hasComponent( "does_not_exist" ) );
@@ -330,7 +365,7 @@ namespace Dnn::Networks::Tests
     {
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "remove_test" );
 
-        net.addComponent<TestComponent>( "removeme", 0 );
+        net.addTestComponent( "removeme", 0 );
 
         EXPECT_TRUE( net.hasComponent( "removeme" ) );
         EXPECT_TRUE( net.removeComponent( "removeme" ) );
@@ -349,7 +384,7 @@ namespace Dnn::Networks::Tests
     {
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "remove_post_build" );
 
-        net.addComponent<TestComponent>( "locked", 0 );
+        net.addTestComponent( "locked", 0 );
 
         net.build( { 1 } );
 
@@ -363,9 +398,9 @@ namespace Dnn::Networks::Tests
     {
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "clear_test" );
 
-        net.addComponent<TestComponent>( "comp1", 0 )
-            .addComponent<TestComponent>( "comp2", 0 )
-            .addComponent<TestComponent>( "comp3", 0 );
+        net.addTestComponent( "comp1", 0 );
+        net.addTestComponent( "comp2", 0 );
+        net.addTestComponent( "comp3", 0 );
 
         EXPECT_EQ( net.childCount(), 3u );
 
@@ -381,7 +416,7 @@ namespace Dnn::Networks::Tests
     {
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "clear_post_build" );
 
-        net.addComponent<TestComponent>( "locked", 0 );
+        net.addTestComponent( "locked", 0 );
 
         net.build( { 1 } );
 
@@ -399,8 +434,8 @@ namespace Dnn::Networks::Tests
     {
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "build_test" );
 
-        net.addComponent<TestComponent>( "build1", 5 )
-            .addComponent<TestComponent>( "build2", 7 );
+        net.addTestComponent( "build1", 5 );
+        net.addTestComponent( "build2", 7 );
 
         auto comp1 = net.getComponent( "build1" );
         auto comp2 = net.getComponent( "build2" );
@@ -420,9 +455,9 @@ namespace Dnn::Networks::Tests
     {
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "param_test" );
 
-        net.addComponent<TestComponent>( "p1", 10 )
-            .addComponent<TestComponent>( "p2", 20 )
-            .addComponent<TestComponent>( "p3", 15 );
+        net.addTestComponent( "p1", 10 );
+        net.addTestComponent( "p2", 20 );
+        net.addTestComponent( "p3", 15 );
 
         net.build( { 1 } );
 
@@ -433,7 +468,7 @@ namespace Dnn::Networks::Tests
     {
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "param_pre_build" );
 
-        net.addComponent<TestComponent>( "unbuild", 5 );
+        net.addTestComponent( "unbuild", 5 );
 
         EXPECT_THROW(
             net.parameterCount(),
@@ -445,7 +480,7 @@ namespace Dnn::Networks::Tests
     {
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "get_params_pre_build" );
 
-        net.addComponent<TestComponent>( "unbuild", 0 );
+        net.addTestComponent( "unbuild", 0 );
 
         EXPECT_THROW(
             net.getParameters(),
@@ -457,7 +492,7 @@ namespace Dnn::Networks::Tests
     {
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "grads_no_train" );
 
-        net.addComponent<TestComponent>( "eval", 0 );
+        net.addTestComponent( "eval", 0 );
 
         net.build( { 1 } );
 
@@ -472,7 +507,7 @@ namespace Dnn::Networks::Tests
     {
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "grads_train" );
 
-        net.addComponent<TestComponent>( "train", 0 );
+        net.addTestComponent( "train", 0 );
 
         net.build( { 1 } );
 
@@ -489,8 +524,8 @@ namespace Dnn::Networks::Tests
     {
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "training_prop" );
 
-        net.addComponent<TestComponent>( "t1", 0 )
-            .addComponent<TestComponent>( "t2", 0 );
+        net.addTestComponent( "t1", 0 );
+        net.addTestComponent( "t2", 0 );
 
         auto comp1 = net.getComponent( "t1" );
         auto comp2 = net.getComponent( "t2" );
@@ -520,8 +555,8 @@ namespace Dnn::Networks::Tests
     {
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "sync_test" );
 
-        net.addComponent<TestComponent>( "s1", 0 )
-            .addComponent<TestComponent>( "s2", 0 );
+        net.addTestComponent( "s1", 0 );
+        net.addTestComponent( "s2", 0 );
 
         EXPECT_NO_THROW( net.synchronize() );
     }
@@ -534,8 +569,8 @@ namespace Dnn::Networks::Tests
     {
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "info_test" );
 
-        net.addComponent<TestComponent>( "child_a", 0 )
-            .addComponent<TestComponent>( "child_b", 0 );
+        net.addTestComponent( "child_a", 0 );
+        net.addTestComponent( "child_b", 0 );
 
         std::string info = net.toString();
 
@@ -556,8 +591,8 @@ namespace Dnn::Networks::Tests
 
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "save_test" );
 
-        net.addComponent<TestComponent>( "mod1", 10 )
-            .addComponent<TestComponent>( "mod2", 20 );
+        net.addTestComponent( "mod1", 10 );
+        net.addTestComponent( "mod2", 20 );
 
         net.build( { 1 } );
 
@@ -612,7 +647,7 @@ namespace Dnn::Networks::Tests
 
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "unbuilt_save" );
 
-        net.addComponent<TestComponent>( "unbuild", 0 );
+        net.addTestComponent( "unbuild", 0 );
 
         auto writer = std::make_unique<ZipSerializer>();
         ModelArchive archive( path.string(), std::move( writer ), OpenMode::Write );
@@ -633,7 +668,7 @@ namespace Dnn::Networks::Tests
 
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "load_test" );
 
-        net.addComponent<TestComponent>( "loadme", 5 );
+        net.addTestComponent( "loadme", 5 );
 
         net.build( { 1 } );
 
@@ -683,9 +718,9 @@ namespace Dnn::Networks::Tests
     {
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "order_test" );
 
-        net.addComponent<TestComponent>( "first", 1 )
-            .addComponent<TestComponent>( "second", 2 )
-            .addComponent<TestComponent>( "third", 3 );
+        net.addTestComponent( "first", 1 );
+        net.addTestComponent( "second", 2 );
+        net.addTestComponent( "third", 3 );
 
         const auto& components = net.getComponents();
 
@@ -699,9 +734,9 @@ namespace Dnn::Networks::Tests
     {
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "named_test" );
 
-        net.addComponent<TestComponent>( "child1", 0 )
-            .addComponent<TestComponent>( "child2", 0 )
-            .addComponent<TestComponent>( "child3", 0 );
+        net.addTestComponent( "child1", 0 );
+        net.addTestComponent( "child2", 0 );
+        net.addTestComponent( "child3", 0 );
 
         const auto& named = net.getNamedComponents();
 
