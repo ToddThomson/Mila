@@ -25,7 +25,6 @@ namespace Modules::Normalization::Tests
         shape_t shape;
         shape_t normalized_shape;
         LayerNormConfig config;
-        std::shared_ptr<ExecutionContext<DeviceType::Cuda>> exec_context;
         std::shared_ptr<LayerNorm<DeviceType::Cuda, TPrecision>> layer_norm;
         bool is_training;
 
@@ -43,15 +42,17 @@ namespace Modules::Normalization::Tests
             data.is_training = is_training;
 
             data.config = LayerNormConfig();
-            data.config.withName( name )
+            data.config
                 .withNormalizedShape( normalized_shape )
                 .withBias( has_bias )
                 .withEpsilon( epsilon );
 
-            data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
-            data.layer_norm = std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>( data.exec_context, data.config );
-
-			data.layer_norm->setTraining( is_training );
+            // Use factory to obtain a temporary execution context and pass its DeviceId
+            // to the LayerNorm constructor (standalone mode). The component will create
+            // and own its own execution context for that DeviceId.
+            auto temp_ctx = createExecutionContext( Device::Cuda( 0 ) );
+            data.layer_norm = std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>( name, data.config, temp_ctx->getDeviceId() );
+            data.layer_norm->setTraining( is_training );
 
             return data;
         }
@@ -69,24 +70,26 @@ namespace Modules::Normalization::Tests
             data.is_training = is_training;
 
             data.config = LayerNormConfig();
-            data.config.withName( name )
+            data.config
                 .withAxis( axis )
                 .withBias( has_bias )
                 .withEpsilon( epsilon );
 
-            data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
-            data.layer_norm = std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>( data.exec_context, data.config );
-
-			data.layer_norm->setTraining( is_training );
+            auto temp_ctx = createExecutionContext( Device::Cuda( 0 ) );
+            data.layer_norm = std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>( name, data.config, temp_ctx->getDeviceId() );
+            data.layer_norm->setTraining( is_training );
 
             return data;
         }
 
+        // Accept a raw IExecutionContext pointer (caller may own the unique_ptr returned
+        // by createExecutionContext()). We only use the device id from the provided context
+        // to construct the component (component will create/own its own ExecutionContext).
         static LayerNormCudaTestData CreateWithContext(
             const std::string& name,
             const shape_t& shape,
             const shape_t& normalized_shape,
-            std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
+            IExecutionContext* context,
             bool has_bias = true,
             float epsilon = 1e-5f,
             bool is_training = false )
@@ -97,15 +100,14 @@ namespace Modules::Normalization::Tests
             data.is_training = is_training;
 
             data.config = LayerNormConfig();
-            data.config.withName( name )
+            data.config
                 .withNormalizedShape( normalized_shape )
                 .withBias( has_bias )
                 .withEpsilon( epsilon );
 
-            data.exec_context = context;
-            data.layer_norm = std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>( data.exec_context, data.config );
+            data.layer_norm = std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>( name, data.config, context->getDeviceId() );
 
-			data.layer_norm->setTraining( is_training );
+            data.layer_norm->setTraining( is_training );
 
             return data;
         }
@@ -119,7 +121,7 @@ namespace Modules::Normalization::Tests
             int device_count = getDeviceCount( DeviceType::Cuda );
             cuda_available_ = (device_count > 0);
 
-            if (!cuda_available_)
+            if ( !cuda_available_ )
             {
                 return;
             }
@@ -138,13 +140,11 @@ namespace Modules::Normalization::Tests
         }
 
         void TearDown() override
-        {
-			// Tensor RAII handles cleanup
-        }
+        {}
 
         LayerNormCudaTestData<TensorDataType::FP32>& SmallFp32Data()
         {
-            if (!small_fp32_.layer_norm)
+            if ( !small_fp32_.layer_norm )
             {
                 small_fp32_ = LayerNormCudaTestData<TensorDataType::FP32>::Create(
                     "small_layernorm_cuda", small_shape_, small_normalized_shape_ );
@@ -154,29 +154,29 @@ namespace Modules::Normalization::Tests
 
         LayerNormCudaTestData<TensorDataType::FP32>& MediumFp32Data()
         {
-            if (!medium_fp32_.layer_norm)
+            if ( !medium_fp32_.layer_norm )
             {
                 medium_fp32_ = LayerNormCudaTestData<TensorDataType::FP32>::Create(
                     "medium_layernorm_cuda", medium_shape_, medium_normalized_shape_ );
             }
-            
+
             return medium_fp32_;
         }
 
         LayerNormCudaTestData<TensorDataType::FP32>& LargeFp32Data()
         {
-            if (!large_fp32_.layer_norm)
+            if ( !large_fp32_.layer_norm )
             {
                 large_fp32_ = LayerNormCudaTestData<TensorDataType::FP32>::Create(
                     "large_layernorm_cuda", large_shape_, large_normalized_shape_ );
             }
-            
+
             return large_fp32_;
         }
 
         LayerNormCudaTestData<TensorDataType::FP32>& TrainingFp32Data()
         {
-            if (!training_fp32_.layer_norm)
+            if ( !training_fp32_.layer_norm )
             {
                 training_fp32_ = LayerNormCudaTestData<TensorDataType::FP32>::Create(
                     "training_layernorm_cuda", medium_shape_, medium_normalized_shape_, true, 1e-5f, true );
@@ -211,10 +211,8 @@ namespace Modules::Normalization::Tests
     void TestDeviceType( const LayerNormCudaTestData<TPrecision>& data )
     {
         EXPECT_EQ( data.layer_norm->getDeviceType(), DeviceType::Cuda );
-        ASSERT_NE( data.exec_context, nullptr );
 
-        auto device = data.exec_context->getDeviceId();
-        
+        auto device = data.layer_norm->getDeviceId();
         EXPECT_EQ( device.type, DeviceType::Cuda );
     }
 
@@ -238,27 +236,11 @@ namespace Modules::Normalization::Tests
     }
 
     template<TensorDataType TPrecision>
-    void TestParameters( const LayerNormCudaTestData<TPrecision>& data, size_t expected_weight_size )
+    void TestParameters( const LayerNormCudaTestData<TPrecision>& data, size_t /*expected_weight_size*/ )
     {
-        /*auto weight = data.layer_norm->getWeight();
-        ASSERT_NE( weight, nullptr );
-        EXPECT_EQ( weight->size(), expected_weight_size );
-
-        auto bias = data.layer_norm->getBias();
-
-        if (data.config.hasBias())
-        {
-            ASSERT_NE( bias, nullptr );
-            EXPECT_EQ( bias->size(), expected_weight_size );
-        }
-        else
-        {
-            EXPECT_EQ( bias, nullptr );
-        }*/
-
         auto params = data.layer_norm->getParameters();
 
-        if (data.config.hasBias())
+        if ( data.config.hasBias() )
         {
             EXPECT_EQ( params.size(), 2 );
         }
@@ -280,7 +262,7 @@ namespace Modules::Normalization::Tests
         std::string output = data.layer_norm->toString();
 
         EXPECT_NE( output.find( "LayerNorm" ), std::string::npos );
-        EXPECT_NE( output.find( data.config.getName() ), std::string::npos );
+        EXPECT_NE( output.find( data.layer_norm->getName() ), std::string::npos );
         EXPECT_NE( output.find( "Device:" ), std::string::npos );
         EXPECT_NE( output.find( "Epsilon:" ), std::string::npos );
         EXPECT_NE( output.find( "Has Bias:" ), std::string::npos );
@@ -297,8 +279,8 @@ namespace Modules::Normalization::Tests
         HostTensorType host_input( Device::Cpu(), data.shape );
         random( host_input, -2.0f, 2.0f );
 
-        DeviceTensorType device_input( Device::Cuda(0), data.shape );
-        DeviceTensorType device_output( Device::Cuda(0), data.shape );
+        DeviceTensorType device_input( Device::Cuda( 0 ), data.shape );
+        DeviceTensorType device_output( Device::Cuda( 0 ), data.shape );
 
         copy( host_input, device_input );
 
@@ -318,29 +300,29 @@ namespace Modules::Normalization::Tests
 
         size_t outer_size = 1;
 
-        for (size_t i = 0; i + norm_dims < shape.size(); ++i)
+        for ( size_t i = 0; i + norm_dims < shape.size(); ++i )
         {
-            outer_size *= static_cast<size_t>( shape[i] );
+            outer_size *= static_cast<size_t>( shape[ i ] );
         }
 
         size_t norm_size = 1;
 
-        for (auto dim : normalized_shape)
+        for ( auto dim : normalized_shape )
         {
             norm_size *= static_cast<size_t>( dim );
         }
 
         auto output_ptr = output.data();
 
-        for (size_t outer_idx = 0; outer_idx < outer_size; ++outer_idx)
+        for ( size_t outer_idx = 0; outer_idx < outer_size; ++outer_idx )
         {
             float sum = 0.0f;
             float sum_sq = 0.0f;
 
-            for (size_t norm_idx = 0; norm_idx < norm_size; ++norm_idx)
+            for ( size_t norm_idx = 0; norm_idx < norm_size; ++norm_idx )
             {
                 size_t idx = outer_idx * norm_size + norm_idx;
-                float val = static_cast<float>( output_ptr[idx] );
+                float val = static_cast<float>( output_ptr[ idx ] );
                 sum += val;
                 sum_sq += val * val;
             }
@@ -355,7 +337,7 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, GetName )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -368,7 +350,7 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, DeviceType )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -378,7 +360,7 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, TrainingMode_Default )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -388,7 +370,7 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, TrainingMode_Enabled )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -398,7 +380,7 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, IsBuilt_BeforeBuild )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -408,7 +390,7 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, IsBuilt_AfterBuild )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -424,7 +406,7 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, Build )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -435,7 +417,7 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, Parameters_WithBias )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -445,7 +427,7 @@ namespace Modules::Normalization::Tests
 
         size_t norm_size = 1;
 
-        for (auto dim : data.normalized_shape)
+        for ( auto dim : data.normalized_shape )
         {
             norm_size *= dim;
         }
@@ -455,7 +437,7 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, Parameters_WithoutBias )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -467,7 +449,7 @@ namespace Modules::Normalization::Tests
 
         size_t norm_size = 1;
 
-        for (auto dim : data.normalized_shape)
+        for ( auto dim : data.normalized_shape )
         {
             norm_size *= dim;
         }
@@ -477,7 +459,7 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, ParameterCount_WithBias )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -487,7 +469,7 @@ namespace Modules::Normalization::Tests
 
         size_t norm_size = 1;
 
-        for (auto dim : data.normalized_shape)
+        for ( auto dim : data.normalized_shape )
         {
             norm_size *= dim;
         }
@@ -497,7 +479,7 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, ParameterCount_WithoutBias )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -509,7 +491,7 @@ namespace Modules::Normalization::Tests
 
         size_t norm_size = 1;
 
-        for (auto dim : data.normalized_shape)
+        for ( auto dim : data.normalized_shape )
         {
             norm_size *= dim;
         }
@@ -519,7 +501,7 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, ToString )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -530,25 +512,18 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, Forward_SmallShape )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
 
-		// 1. Use cached test data
         auto data = SmallFp32Data();
-
-
-		// 2. Alternatively, create new test data
-        /*auto data = LayerNormCudaTestData<TensorDataType::FP32>::Create(
-            "small_layernorm_cuda", small_shape_, small_normalized_shape_, false );*/
-
         TestForward( data );
     }
 
     TEST_F( LayerNormCudaTests, Forward_MediumShape )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -559,7 +534,7 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, Forward_LargeShape )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -570,7 +545,7 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, Forward_WithoutBias )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -583,7 +558,7 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, Forward_DifferentEpsilon )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -596,7 +571,7 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, Forward_Normalization )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -607,22 +582,10 @@ namespace Modules::Normalization::Tests
         CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), data.shape );
         random( host_input, -5.0f, 5.0f );
 
-        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda(0), data.shape );
-        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), data.shape );
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), data.shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda( 0 ), data.shape );
 
         copy( host_input, device_input );
-
-        //auto weight = data.layer_norm->getWeight();
-        //auto bias = data.layer_norm->getBias();
-
-        //CpuTensor<TensorDataType::FP32> host_weight( Device::Cpu(), weight->shape() );
-        //CpuTensor<TensorDataType::FP32> host_bias( Device::Cpu(), bias->shape() );
-
-        //ones( host_weight );
-        //zeros( host_bias );
-
-        //copy( host_weight, *weight );
-        //copy( host_bias, *bias );
 
         data.layer_norm->forward( device_input, device_output );
 
@@ -633,7 +596,7 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, Forward_MultipleTrailingDims )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -649,8 +612,8 @@ namespace Modules::Normalization::Tests
         CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), shape );
         random( host_input, -3.0f, 3.0f );
 
-        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda(0), shape );
-        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), shape );
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda( 0 ), shape );
 
         copy( host_input, device_input );
 
@@ -660,7 +623,7 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, WithAxis_Construction )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -674,7 +637,7 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, WithAxis_Build )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -684,16 +647,11 @@ namespace Modules::Normalization::Tests
 
         EXPECT_NO_THROW( data.layer_norm->build( data.shape ) );
         EXPECT_TRUE( data.layer_norm->isBuilt() );
-
-        //auto weight = data.layer_norm->getWeight();
-
-        //ASSERT_NE( weight, nullptr );
-        //EXPECT_EQ( weight->size(), static_cast<size_t>(data.shape.back()) );
     }
 
     TEST_F( LayerNormCudaTests, WithAxis_Forward )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -706,23 +664,24 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, WithContext_Construction )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
 
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
+        // Use factory to create a context and pass its raw pointer (we only need the DeviceId)
+        auto ctx = createExecutionContext( Device::Cuda( 0 ) );
 
         auto data = LayerNormCudaTestData<TensorDataType::FP32>::CreateWithContext(
-            "context_layernorm_cuda", medium_shape_, medium_normalized_shape_, ctx );
+            "context_layernorm_cuda", medium_shape_, medium_normalized_shape_, ctx.get() );
 
         EXPECT_EQ( data.layer_norm->getName(), "context_layernorm_cuda" );
-        EXPECT_EQ( data.exec_context, ctx );
+        EXPECT_EQ( data.layer_norm->getDeviceId().type, DeviceType::Cuda );
     }
 
     TEST_F( LayerNormCudaTests, EdgeCase_MinimalShape )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -738,7 +697,7 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, EdgeCase_LargeNormalizedDim )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -749,7 +708,7 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, EdgeCase_TransformerSize )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -762,7 +721,7 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, EdgeCase_AllZeros )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -773,8 +732,8 @@ namespace Modules::Normalization::Tests
         CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), data.shape );
         zeros( host_input );
 
-        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda(0), data.shape );
-        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), data.shape );
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), data.shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda( 0 ), data.shape );
 
         copy( host_input, device_input );
 
@@ -783,7 +742,7 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, EdgeCase_ConstantValues )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -794,53 +753,51 @@ namespace Modules::Normalization::Tests
         CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), data.shape );
         fill( host_input, 5.0f );
 
-        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda(0), data.shape );
-        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), data.shape );
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), data.shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda( 0 ), data.shape );
 
         copy( host_input, device_input );
 
         EXPECT_NO_THROW( data.layer_norm->forward( device_input, device_output ) );
     }
 
-    TEST_F( LayerNormCudaTests, Error_NullExecutionContext )
+    TEST_F( LayerNormCudaTests, Error_BuildWithoutContext )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
 
         LayerNormConfig config;
-        config.withName( "test_cuda" ).withNormalizedShape( { 4 } );
+        config.withNormalizedShape( { 4 } );
 
-        std::shared_ptr<ExecutionContext<DeviceType::Cuda>> null_ctx;
+        // Shared-mode construction (no DeviceId) is allowed — but build should fail
+        // because no execution context is set on the component.
+        auto module = std::make_shared<LayerNorm<DeviceType::Cuda, TensorDataType::FP32>>( "null_context_test_cuda", config, std::nullopt );
 
         EXPECT_THROW(
-            (std::make_shared<LayerNorm<DeviceType::Cuda, TensorDataType::FP32>>( null_ctx, config )),
-            std::invalid_argument
+            module->build( shape_t{ 2, 1, 4 } ),
+            std::runtime_error
         );
     }
 
     TEST_F( LayerNormCudaTests, Error_InvalidConfig )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
 
         LayerNormConfig invalid_config;
-        invalid_config.withName( "invalid_cuda" );
-
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
-
         EXPECT_THROW(
-            (std::make_shared<LayerNorm<DeviceType::Cuda, TensorDataType::FP32>>( ctx, invalid_config )),
+            (std::make_shared<LayerNorm<DeviceType::Cuda, TensorDataType::FP32>>( "ln", invalid_config, Device::Cuda(0))),
             std::invalid_argument
         );
     }
 
     TEST_F( LayerNormCudaTests, Error_ForwardBeforeBuild_WithAxis )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -848,8 +805,8 @@ namespace Modules::Normalization::Tests
         auto data = LayerNormCudaTestData<TensorDataType::FP32>::CreateWithAxis(
             "unbuild_cuda", medium_shape_, -1 );
 
-        CudaTensor<TensorDataType::FP32> input( Device::Cuda(0), data.shape );
-        CudaTensor<TensorDataType::FP32> output( Device::Cuda(0), data.shape );
+        CudaTensor<TensorDataType::FP32> input( Device::Cuda( 0 ), data.shape );
+        CudaTensor<TensorDataType::FP32> output( Device::Cuda( 0 ), data.shape );
 
         EXPECT_THROW(
             data.layer_norm->forward( input, output ),
@@ -859,7 +816,7 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, Error_ShapeMismatch )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -869,8 +826,8 @@ namespace Modules::Normalization::Tests
 
         shape_t wrong_shape = { 2, 3, 8 };
 
-        CudaTensor<TensorDataType::FP32> input( Device::Cuda(0), wrong_shape );
-        CudaTensor<TensorDataType::FP32> output( Device::Cuda(0), wrong_shape );
+        CudaTensor<TensorDataType::FP32> input( Device::Cuda( 0 ), wrong_shape );
+        CudaTensor<TensorDataType::FP32> output( Device::Cuda( 0 ), wrong_shape );
 
         EXPECT_THROW(
             data.layer_norm->forward( input, output ),
@@ -880,7 +837,7 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, Synchronize )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -892,7 +849,7 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, SetTrainingMode )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -910,7 +867,7 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, MultipleForwardCalls )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -919,10 +876,10 @@ namespace Modules::Normalization::Tests
         data.layer_norm->build( data.shape );
 
         CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), data.shape );
-        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda(0), data.shape );
-        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), data.shape );
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), data.shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda( 0 ), data.shape );
 
-        for (int iter = 0; iter < 10; ++iter)
+        for ( int iter = 0; iter < 10; ++iter )
         {
             random( host_input, -2.0f, 2.0f );
             copy( host_input, device_input );
@@ -933,7 +890,7 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCudaTests, CpuCuda_OutputEquivalence )
     {
-        if (!cuda_available_)
+        if ( !cuda_available_ )
         {
             GTEST_SKIP() << "CUDA not available";
         }
@@ -941,15 +898,13 @@ namespace Modules::Normalization::Tests
         shape_t test_shape = { 2, 4, 8 };
         shape_t normalized_shape = { 8 };
 
-        // Create CPU module directly
+        // Create CPU module directly (standalone)
         LayerNormConfig cpu_config;
-        cpu_config.withName( "cpu_equiv" )
-            .withNormalizedShape( normalized_shape )
+        cpu_config.withNormalizedShape( normalized_shape )
             .withBias( true )
             .withEpsilon( 1e-5f );
 
-        auto cpu_exec_context = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        auto cpu_module = std::make_shared<LayerNorm<DeviceType::Cpu, TensorDataType::FP32>>( cpu_exec_context, cpu_config );
+        auto cpu_module = std::make_shared<LayerNorm<DeviceType::Cpu, TensorDataType::FP32>>( "cpu_ln", cpu_config, Device::Cpu());
 
         // Create CUDA module
         auto cuda_data = LayerNormCudaTestData<TensorDataType::FP32>::Create(
@@ -963,27 +918,13 @@ namespace Modules::Normalization::Tests
         CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), test_shape );
         random( host_input, -2.0f, 2.0f );
 
-        // Initialize parameters with same values for both CPU and CUDA
-        //CpuTensor<TensorDataType::FP32> cpu_weight( Device::Cpu(), normalized_shape );
-        //CpuTensor<TensorDataType::FP32> cpu_bias( Device::Cpu(), normalized_shape );
-        //ones( cpu_weight );
-        //zeros( cpu_bias );
-
-        //// Copy parameters to CPU module
-        //copy( cpu_weight, *cpu_module->getWeight() );
-        //copy( cpu_bias, *cpu_module->getBias() );
-
-        //// Copy parameters to CUDA module
-        //copy( cpu_weight, *cuda_data.layer_norm->getWeight() );
-        //copy( cpu_bias, *cuda_data.layer_norm->getBias() );
-
         // Run CPU forward pass
         CpuTensor<TensorDataType::FP32> cpu_output( Device::Cpu(), test_shape );
         cpu_module->forward( host_input, cpu_output );
 
         // Run CUDA forward pass
-        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda(0), test_shape );
-        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), test_shape );
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), test_shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda( 0 ), test_shape );
         copy( host_input, device_input );
         cuda_data.layer_norm->forward( device_input, device_output );
 
@@ -994,13 +935,13 @@ namespace Modules::Normalization::Tests
         const float epsilon = 1e-4f;
         bool all_close = true;
 
-        for (size_t i = 0; i < cpu_output.size(); ++i)
+        for ( size_t i = 0; i < cpu_output.size(); ++i )
         {
-            float cpu_val = cpu_output.data()[i];
-            float cuda_val = cuda_output_host.data()[i];
+            float cpu_val = cpu_output.data()[ i ];
+            float cuda_val = cuda_output_host.data()[ i ];
             float diff = std::abs( cpu_val - cuda_val );
 
-            if (diff > epsilon)
+            if ( diff > epsilon )
             {
                 all_close = false;
                 break;

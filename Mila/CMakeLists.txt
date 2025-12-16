@@ -10,7 +10,7 @@ add_library( Mila STATIC
     # Cuda Operations Kernels
     #--------------------------------------------------------------------------
     #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaEncoder.cu"
-    #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaLayerNorm.cu"
+    
 
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/CudaReduction.cu"
 
@@ -20,6 +20,7 @@ add_library( Mila STATIC
 
     # TJT: Deprecated "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaMHA.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaGelu.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaLayerNorm.cu"
     #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaResidual.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaSoftmax.cu"
     #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaSoftmaxCrossEntropy.cu"
@@ -199,7 +200,7 @@ PUBLIC
         "Src/Dnn/Compute/ExecutionContext.Template.ixx"
         "Src/Dnn/Compute/ExecutionContext.ixx"
         "Src/Dnn/Compute/IExecutionContext.ixx"
-        "Src/Dnn/Compute/EscecutionContextFactory.ixx"
+        "Src/Dnn/Compute/ExecutionContextFactory.ixx"
 
         "Src/Dnn/Compute/ComputeDeviceTraits.ixx"
         "Src/Dnn/Compute/DeviceTypeTraits.ixx"
@@ -266,7 +267,6 @@ PUBLIC
         #----------------------------------------------------------------------
         # Dnn / Compute / Operation Registry Helpers
         #----------------------------------------------------------------------
-        
         "Src/Dnn/Optimizers/AdamW.ixx"
         "Src/Dnn/Optimizers/AdamWConfig.ixx"
 

@@ -58,6 +58,7 @@ namespace Dnn::Components::Layers::Tests
 
             // Construct using DeviceId directly (component will create/own its context)
             data.component = std::make_shared<Linear<DeviceType::Cpu, TPrecision>>(
+                name,
                 data.config,
                 Device::Cpu()
             );
@@ -89,6 +90,7 @@ namespace Dnn::Components::Layers::Tests
             DeviceId ctx_id = context->getDeviceId();
 
             data.component = std::make_shared<Linear<DeviceType::Cpu, TPrecision>>(
+                name,
                 data.config,
                 ctx_id
             );
@@ -116,6 +118,7 @@ namespace Dnn::Components::Layers::Tests
                 small_fp32_ = LinearCpuTestData<TensorDataType::FP32>::Create(
                     "small_linear_cpu", small_shape_, input_features_, output_features_ );
             }
+            
             return small_fp32_;
         }
 
@@ -348,23 +351,24 @@ namespace Dnn::Components::Layers::Tests
 
         EXPECT_NO_THROW(
             (std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>(
+                "linear_cpu",
                 config,
                 Device::Cpu()
             ))
         );
     }
 
-    TEST_F( LinearCpuTests, Construction_NoDeviceId_Throws )
+    TEST_F( LinearCpuTests, Construction_NoDeviceId_AllowsSharedMode )
     {
         LinearConfig config( 16, 32 );
         config.withBias( true );
 
         // Linear requires a device id (or parent must call setExecutionContext).
-        EXPECT_THROW(
+        EXPECT_NO_THROW(
             (std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>(
+                "linear_cpu",
                 config
-            )),
-            std::runtime_error
+            ))
         );
     }
 
@@ -375,6 +379,7 @@ namespace Dnn::Components::Layers::Tests
 
         EXPECT_THROW(
             (std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>(
+                "linear_cpu",
                 config,
                 Device::Cuda( 0 )
             )),
@@ -536,6 +541,7 @@ namespace Dnn::Components::Layers::Tests
 
         EXPECT_THROW(
             (std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>(
+                "invalid_fc_cpu",
                 invalid_config,
                 Device::Cpu()
             )),
@@ -550,6 +556,7 @@ namespace Dnn::Components::Layers::Tests
 
         EXPECT_THROW(
             (std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>(
+                "invalid_fc_cpu",
                 invalid_config,
                 Device::Cpu()
             )),

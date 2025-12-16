@@ -137,8 +137,8 @@ namespace Mila::Dnn
          * mlp->setName("mlp");
          * net.addComponent(mlp);
          */
-        explicit MLP( const MLPConfig& config, std::optional<DeviceId> device_id = std::nullopt )
-            : CompositeComponentBase( "mlp" ), config_( config )
+        explicit MLP( const std::string& name, const MLPConfig& config, std::optional<DeviceId> device_id = std::nullopt )
+            : CompositeComponentBase( name ), config_( config )
         {
             config_.validate();
 
@@ -425,8 +425,7 @@ namespace Mila::Dnn
             auto cfg = LinearConfig( in_features, out_features )
                 .withBias( config_.hasBias() );
 
-            auto component = std::make_shared<LinearType>( cfg, std::nullopt );
-            component->setName( this->getName() + "." + suffix );
+            auto component = std::make_shared<LinearType>( this->getName() + "." + suffix, cfg, std::nullopt );
 
             this->addComponent( component );
         }
@@ -440,8 +439,7 @@ namespace Mila::Dnn
         {
             auto cfg = LayerNormConfig().withAxis( -1 );
 
-            auto component = std::make_shared<LayerNormType>( cfg, std::nullopt );
-            component->setName( this->getName() + "." + suffix );
+            auto component = std::make_shared<LayerNormType>( this->getName() + "." + suffix, cfg, std::nullopt );
 
             this->addComponent( component );
         }
@@ -458,8 +456,7 @@ namespace Mila::Dnn
                 case ActivationType::Gelu:
                 {
                     auto cfg = GeluConfig();
-                    auto component = std::make_shared<GeluType>( cfg, std::nullopt );
-                    component->setName( this->getName() + "." + suffix );
+                    auto component = std::make_shared<GeluType>( this->getName() + "." + suffix, cfg, std::nullopt );
                     this->addComponent( component );
                     break;
                 }

@@ -53,7 +53,7 @@ namespace Mila::Dnn::Compute
 
 			//CpuEncoderOpRegistrar::registerOperations();
 			CpuGeluOpRegistrar::registerOperations();
-			//CpuLayerNormOpRegistrar::registerOperations();
+			CpuLayerNormOpRegistrar::registerOperations();
 			CpuLinearOpRegistrar::registerOperations();
 			//CpuAttentionOpRegistrar::registerOperations();
 			//CpuResidualOpRegistrar::registerOperations();
@@ -61,7 +61,7 @@ namespace Mila::Dnn::Compute
 
 			//CudaEncoderOpRegistrar::registerOperations();
 			CudaGeluOpRegistrar::registerOperations();
-			//CudaLayerNormOpRegistrar::registerOperations();
+			CudaLayerNormOpRegistrar::registerOperations();
 			CudaLinearOpRegistrar::registerOperations();
 			//CudaAttentionOpRegistrar::registerOperations();
 			//CudaResidualOpRegistrar::registerOperations();

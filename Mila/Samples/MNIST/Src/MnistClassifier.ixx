@@ -85,10 +85,10 @@ namespace Mila::Mnist
          *       Network base class handles ExecutionContext creation and propagation.
          */
         explicit MnistClassifier(
-            DeviceId device_id,
             const std::string& name,
-            int64_t batch_size )
-            : NetworkBase( device_id, name ), batch_size_( batch_size )
+            int64_t batch_size,
+            DeviceId device_id )
+            : NetworkBase( name, device_id ), batch_size_( batch_size )
         {
             if ( batch_size_ <= 0 )
             {
@@ -380,8 +380,7 @@ namespace Mila::Mnist
         {
             auto cfg = LinearConfig( in_features, out_features ).withBias( false );
 
-            auto component = std::make_shared<LinearType>( cfg, std::nullopt );
-            component->setName( this->getName() + "." + suffix );
+            auto component = std::make_shared<LinearType>( this->getName() + "." + suffix, cfg, std::nullopt );
 
             this->addComponent( component );
         }
@@ -395,8 +394,7 @@ namespace Mila::Mnist
         {
             auto cfg = GeluConfig();
 
-            auto component = std::make_shared<GeluType>( cfg );
-            component->setName( this->getName() + "." + suffix );
+            auto component = std::make_shared<GeluType>( this->getName() + "." + suffix, cfg );
 
             this->addComponent( component );
         }

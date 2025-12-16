@@ -18,7 +18,7 @@ namespace Modules::Normalization::Tests
     TEST_F( LayerNormConfigTests, DefaultConstructor ) {
         LayerNormConfig config;
 
-        // Axis is optional by default (not set)
+        // Axis / normalized_shape not set by default
         EXPECT_FALSE( config.getAxis().has_value() );
         EXPECT_TRUE( config.hasBias() );
         EXPECT_FLOAT_EQ( config.getEpsilon(), 1e-5f );
@@ -73,27 +73,25 @@ namespace Modules::Normalization::Tests
             .withAxis( 2 )
             .withBias( false )
             .withEpsilon( 1e-4f )
-            .withName( "test_layernorm" );
+            .withPrecisionPolicy( ComputePrecision::Policy::Performance );
 
         EXPECT_EQ( &result, &config );
         ASSERT_TRUE( config.getAxis().has_value() );
         EXPECT_EQ( config.getAxis().value(), 2 );
         EXPECT_FALSE( config.hasBias() );
         EXPECT_FLOAT_EQ( config.getEpsilon(), 1e-4f );
-        EXPECT_EQ( config.getName(), "test_layernorm" );
+        EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Performance );
     }
 
-    TEST_F( LayerNormConfigTests, Validate_Throws_WhenInputShapeMissing ) {
+    TEST_F( LayerNormConfigTests, Validate_Throws_WhenNeitherAxisNorNormalizedShape ) {
         LayerNormConfig config;
-        config.withEpsilon( 1e-5f )
-            .withName( "valid_config" );
+        config.withEpsilon( 1e-5f );
 
         EXPECT_THROW( config.validate(), std::invalid_argument );
     }
 
     TEST_F( LayerNormConfigTests, ValidationErrorMessage_Default ) {
         LayerNormConfig config;
-        config.withName( "test_config" );
 
         try {
             config.validate();
@@ -101,7 +99,7 @@ namespace Modules::Normalization::Tests
         }
         catch ( const std::invalid_argument& e ) {
             std::string error_msg = e.what();
-            // Updated validation message references normalized_shape or axis requirement
+            // Validation requires either normalized_shape or axis to be specified
             EXPECT_TRUE( error_msg.find( "normalized_shape" ) != std::string::npos ||
                          error_msg.find( "axis" ) != std::string::npos );
         }
@@ -113,14 +111,12 @@ namespace Modules::Normalization::Tests
         config.withAxis( -1 )
             .withBias( true )
             .withEpsilon( 1e-5f )
-            .withName( "test_layernorm" )
             .withPrecisionPolicy( ComputePrecision::Policy::Performance );
 
         ASSERT_TRUE( config.getAxis().has_value() );
         EXPECT_EQ( config.getAxis().value(), -1 );
         EXPECT_TRUE( config.hasBias() );
         EXPECT_FLOAT_EQ( config.getEpsilon(), 1e-5f );
-        EXPECT_EQ( config.getName(), "test_layernorm" );
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Performance );
     }
 
@@ -130,7 +126,7 @@ namespace Modules::Normalization::Tests
         config.withAxis( 2 )
             .withBias( false )
             .withEpsilon( 1e-6f )
-            .withName( "persistent_layernorm" );
+            .withPrecisionPolicy( ComputePrecision::Policy::Accuracy );
 
         LayerNormConfig copied_config = config;
 
@@ -138,7 +134,7 @@ namespace Modules::Normalization::Tests
         EXPECT_EQ( copied_config.getAxis().value(), 2 );
         EXPECT_FALSE( copied_config.hasBias() );
         EXPECT_FLOAT_EQ( copied_config.getEpsilon(), 1e-6f );
-        EXPECT_EQ( copied_config.getName(), "persistent_layernorm" );
+        EXPECT_EQ( copied_config.getPrecisionPolicy(), ComputePrecision::Policy::Accuracy );
     }
 
     TEST_F( LayerNormConfigTests, EdgeCases_ExtremeAxisValues ) {
@@ -195,21 +191,34 @@ namespace Modules::Normalization::Tests
         EXPECT_FLOAT_EQ( config.getEpsilon(), 1e-8f );
     }
 
-    TEST_F( LayerNormConfigTests, TypicalTransformerConfiguration_NoInputShape ) {
+    TEST_F( LayerNormConfigTests, TypicalTransformerConfiguration_WithAxis ) {
         LayerNormConfig config;
 
         config.withAxis( -1 )
             .withBias( true )
-            .withEpsilon( 1e-12f )
-            .withName( "transformer_layernorm" );
+            .withEpsilon( 1e-12f );
 
         ASSERT_TRUE( config.getAxis().has_value() );
         EXPECT_EQ( config.getAxis().value(), -1 );
         EXPECT_TRUE( config.hasBias() );
         EXPECT_FLOAT_EQ( config.getEpsilon(), 1e-12f );
-        EXPECT_EQ( config.getName(), "transformer_layernorm" );
         
-        // With axis explicitly set, validate should succeed (axis is considered specified)
+        // With axis explicitly set, validate should succeed
+        EXPECT_NO_THROW( config.validate() );
+    }
+
+    TEST_F( LayerNormConfigTests, WithNormalizedShape_AllowsEagerValidation ) {
+        LayerNormConfig config;
+
+        config.withNormalizedShape( shape_t{ 768 } )
+              .withBias( true )
+              .withEpsilon( 1e-5f );
+
+        EXPECT_TRUE( config.hasNormalizedShape() );
+        EXPECT_EQ( config.getNormalizedShape().size(), 1u );
+        EXPECT_EQ( config.getNormalizedShape()[0], 768 );
+
+        // normalized_shape satisfies validation requirement
         EXPECT_NO_THROW( config.validate() );
     }
 }

@@ -42,7 +42,7 @@ import Mila;
             d.shape = { batch, seq, chan };
 
             GeluConfig config;
-            d.gelu = std::make_shared<GeluCpu>( config, Device::Cpu() );
+            d.gelu = std::make_shared<GeluCpu>( "gelu", config, Device::Cpu() );
 
             return d;
         }
@@ -105,14 +105,14 @@ import Mila;
         if ( !isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ) )
         {
             EXPECT_THROW(
-                GeluCpu( GeluConfig(), cpu_id ),
+                GeluCpu( "gelu", GeluConfig(), cpu_id ),
                 std::runtime_error
             );
         }
         else
         {
             EXPECT_NO_THROW(
-                GeluCpu( GeluConfig(), cpu_id )
+                GeluCpu( "gelu", GeluConfig(), cpu_id )
             );
         }
     }
@@ -120,7 +120,7 @@ import Mila;
     TEST_F( GeluCpuTests, Constructor_NoDeviceId_GetDeviceIdThrows )
     {
         GeluConfig cfg;
-        GeluCpu gelu( cfg );
+        GeluCpu gelu( "gelu", cfg );
 
         EXPECT_THROW(
             gelu.getDeviceId(),
@@ -133,7 +133,7 @@ import Mila;
         GeluConfig bad_cfg = GeluConfig().withApproximationMethod( GeluConfig::ApproximationMethod::Exact );
 
         EXPECT_THROW(
-            GeluCpu( bad_cfg, Device::Cpu() ),
+            GeluCpu( "gelu", bad_cfg, Device::Cpu() ),
             std::invalid_argument
         );
     }
@@ -143,7 +143,7 @@ import Mila;
         DeviceId cuda_id = Device::Cuda( 0 );
 
         EXPECT_THROW(
-            GeluCpu( GeluConfig(), cuda_id ),
+            GeluCpu( "gelu", GeluConfig(), cuda_id ),
             std::invalid_argument
         );
     }
@@ -158,7 +158,7 @@ import Mila;
         {
             DeviceId cpu_id = Device::Cpu();
             EXPECT_THROW(
-                GeluCpu( GeluConfig(), cpu_id ),
+                GeluCpu( "gelu", GeluConfig(), cpu_id ),
                 std::runtime_error
             );
             return;
@@ -189,7 +189,7 @@ import Mila;
         }
 
         DeviceId device_id = Device::Cpu();
-        auto gelu = std::make_shared<GeluCpu>( GeluConfig(), device_id );
+        auto gelu = std::make_shared<GeluCpu>( "gelu", GeluConfig(), device_id );
 
         std::vector<int64_t> shape = { 2, 3, 4 };
 
@@ -233,7 +233,7 @@ import Mila;
         }
 
         DeviceId device_id = Device::Cpu();
-        auto gelu = std::make_shared<GeluCpu>( GeluConfig(), device_id );
+        auto gelu = std::make_shared<GeluCpu>( "gelu", GeluConfig(), device_id );
 
         std::vector<int64_t> shape = { 2, 4, 8 };
 
@@ -264,7 +264,7 @@ import Mila;
         }
 
         DeviceId device_id = Device::Cpu();
-        auto gelu = std::make_shared<GeluCpu>( GeluConfig(), device_id );
+        auto gelu = std::make_shared<GeluCpu>( "gelu", GeluConfig(), device_id );
 
         std::vector<int64_t> shape = { 3, 5, 7 };
 
@@ -290,7 +290,7 @@ import Mila;
         }
 
         DeviceId device_id = Device::Cpu();
-        auto gelu = std::make_shared<GeluCpu>( GeluConfig(), device_id );
+        auto gelu = std::make_shared<GeluCpu>( "gelu", GeluConfig(), device_id );
 
         std::vector<int64_t> shape = { 2, 3, 4 };
 
@@ -337,7 +337,7 @@ import Mila;
         }
 
         DeviceId device_id = Device::Cpu();
-        auto gelu = std::make_shared<GeluCpu>( GeluConfig(), device_id );
+        auto gelu = std::make_shared<GeluCpu>( "gelu", GeluConfig(), device_id );
 
         std::vector<int64_t> shape = { 2, 3, 4 };
 
@@ -381,7 +381,7 @@ import Mila;
         }
 
         DeviceId device_id = Device::Cpu();
-        auto gelu = std::make_shared<GeluCpu>( GeluConfig(), device_id );
+        auto gelu = std::make_shared<GeluCpu>( "gelu", GeluConfig(), device_id );
 
         std::vector<int64_t> shape = { 2, 3, 4 };
 
@@ -417,7 +417,7 @@ import Mila;
         }
 
         DeviceId device_id = Device::Cpu();
-        auto gelu = std::make_shared<GeluCpu>( GeluConfig(), device_id );
+        auto gelu = std::make_shared<GeluCpu>( "gelu", GeluConfig(), device_id );
 
         std::vector<int64_t> shape = { 1, 8 };
 
@@ -458,7 +458,7 @@ import Mila;
         }
 
         DeviceId device_id = Device::Cpu();
-        auto gelu = std::make_shared<GeluCpu>( GeluConfig(), device_id );
+        auto gelu = std::make_shared<GeluCpu>( "gelu", GeluConfig(), device_id );
 
         std::vector<int64_t> shape = { 2, 3 };
 
@@ -479,7 +479,7 @@ import Mila;
         }
 
         DeviceId device_id = Device::Cpu();
-        auto gelu = std::make_shared<GeluCpu>( GeluConfig(), device_id );
+        auto gelu = std::make_shared<GeluCpu>( "gelu", GeluConfig(), device_id );
 
         std::vector<int64_t> shape = { 2, 3 };
 
@@ -533,7 +533,7 @@ import Mila;
         {
             DeviceId cpu_id = Device::Cpu();
             EXPECT_THROW(
-                GeluCpu( GeluConfig(), cpu_id ),
+                GeluCpu( "gelu", GeluConfig(), cpu_id ),
                 std::runtime_error
             );
             return;
@@ -552,7 +552,7 @@ import Mila;
         {
             DeviceId cpu_id = Device::Cpu();
             EXPECT_THROW(
-                GeluCpu( GeluConfig(), cpu_id ),
+                GeluCpu( "gelu", GeluConfig(), cpu_id ),
                 std::runtime_error
             );
             return;
@@ -569,7 +569,7 @@ import Mila;
         {
             DeviceId cpu_id = Device::Cpu();
             EXPECT_THROW(
-                GeluCpu( GeluConfig(), cpu_id ),
+                GeluCpu( "gelu", GeluConfig(), cpu_id ),
                 std::runtime_error
             );
             return;
@@ -586,10 +586,10 @@ import Mila;
         if ( !isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ) )
         {
             EXPECT_THROW(
-                GeluCpu( GeluConfig(), Device::Cpu() ),
+                GeluCpu( "gelu", GeluConfig(), Device::Cpu() ),
                 std::runtime_error
             );
-            
+
             return;
         }
 

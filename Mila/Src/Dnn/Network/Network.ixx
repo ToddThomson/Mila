@@ -91,7 +91,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument if device_id.type does not match TDeviceType.
          * @throws std::runtime_error if ExecutionContext creation fails.
          */
-        explicit Network( DeviceId device_id, const std::string& name )
+        explicit Network( const std::string& name, DeviceId device_id )
             : CompositeBase( name )
         {
             // Create and own an execution context for the requested device
@@ -113,8 +113,8 @@ namespace Mila::Dnn
          * @throws std::invalid_argument if name is empty or exec_context is null
          * @throws std::invalid_argument if exec_context device type does not match TDeviceType
          */
-        explicit Network( IExecutionContext* exec_context, const std::string& name )
-            : CompositeBase(  name )
+        explicit Network( const std::string& name, IExecutionContext* exec_context )
+            : CompositeBase( name )
         {
             if ( exec_context == nullptr )
             {
@@ -275,7 +275,7 @@ namespace Mila::Dnn
                 }
             }
 
-            auto network = std::unique_ptr<Network>( new Network( exec_context, name ) );
+            auto network = std::unique_ptr<Network>( new Network( name, exec_context ) );
 
             for ( const auto& item : arch )
             {

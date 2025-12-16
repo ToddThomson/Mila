@@ -1,7 +1,7 @@
 #include <string>
 #include <iostream>
 #include <iomanip>
-#include <chrono>
+//#include <chrono>
 #include <filesystem>
 #include <format>
 #include <limits>
@@ -352,9 +352,9 @@ void trainMnist( const MnistConfig& config )
     }
 
     auto mnist_net = std::make_unique<MnistClassifier<TDeviceType, TDataType>>(
-        device_id,
         "Mnist",
-        config.batch_size );
+        config.batch_size,
+        device_id );
 
     mnist_net->setTraining( true );
 

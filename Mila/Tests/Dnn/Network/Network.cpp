@@ -20,8 +20,7 @@ namespace Dnn::Networks::Tests
     /**
      * @brief Minimal test component for testing Network.
      *
-     * Updated to support both standalone and shared context modes following
-     * the new Component architecture pattern.
+     * Component now owns its name at construction time.
      */
     class TestComponent : public Component<DeviceType::Cpu, TensorDataType::FP32>
     {
@@ -31,11 +30,14 @@ namespace Dnn::Networks::Tests
         /**
          * @brief Constructor for shared mode (context provided by parent).
          *
+         * @param name Component name (required by new Component ctor)
          * @param param_count Mock parameter count for testing aggregation
          * @param device_id Optional device for standalone mode
          */
-        explicit TestComponent( size_t param_count = 0, std::optional<DeviceId> device_id = std::nullopt )
-            : ComponentBase( "test_component" ), param_count_( param_count )
+        explicit TestComponent( const std::string& name,
+            size_t param_count = 0,
+            std::optional<DeviceId> device_id = std::nullopt )
+            : ComponentBase( name ), param_count_( param_count )
         {
             if ( device_id.has_value() )
             {
@@ -104,23 +106,22 @@ namespace Dnn::Networks::Tests
         using Base = Network<TDeviceType, TPrecision>;
 
         explicit TestableNetwork( DeviceId device_id, const std::string& name )
-            : Base( device_id, name )
+            : Base( name, device_id )
         {}
 
         explicit TestableNetwork( IExecutionContext* exec_context, const std::string& name )
-            : Base( exec_context, name )
+            : Base( name, exec_context )
         {}
 
         /**
          * @brief Helper to add a test component with explicit name and parameter count.
          *
-         * Creates a TestComponent in shared mode, sets its name, and registers it.
+         * Creates a TestComponent in shared mode (name-owned-by-component) and registers it.
          * This mimics the pattern used in real networks like MnistClassifier.
          */
         void addTestComponent( const std::string& name, size_t param_count = 0 )
         {
-            auto component = std::make_shared<TestComponent>( param_count, std::nullopt );
-            component->setName( name );
+            auto component = std::make_shared<TestComponent>( name, param_count, std::nullopt );
             this->addComponent( component );
         }
 
@@ -221,8 +222,7 @@ namespace Dnn::Networks::Tests
     {
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "name_test" );
 
-        auto comp = std::make_shared<TestComponent>( 5, std::nullopt );
-        comp->setName( "named_comp" );
+        auto comp = std::make_shared<TestComponent>( "named_comp", 5, std::nullopt );
 
         net.addComponent( comp );
 
@@ -272,8 +272,7 @@ namespace Dnn::Networks::Tests
 
         net.addTestComponent( "duplicate", 1 );
 
-        auto duplicate = std::make_shared<TestComponent>( 2, std::nullopt );
-        duplicate->setName( "duplicate" );
+        auto duplicate = std::make_shared<TestComponent>( "duplicate", 2, std::nullopt );
 
         EXPECT_THROW(
             net.addComponent( duplicate ),
@@ -314,8 +313,7 @@ namespace Dnn::Networks::Tests
     {
         TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "ctx_prop_test" );
 
-        auto comp = std::make_shared<TestComponent>( 0, std::nullopt );
-        comp->setName( "late_add" );
+        auto comp = std::make_shared<TestComponent>( "late_add", 0, std::nullopt );
 
         //EXPECT_FALSE( comp->hasExecutionContext() );
 

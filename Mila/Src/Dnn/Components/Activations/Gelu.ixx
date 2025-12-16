@@ -132,8 +132,8 @@ namespace Mila::Dnn
          * Network<DeviceType::Cpu, TensorDataType::FP32> net(Device::Cpu(), "my_net");
          * net.addComponent<Gelu>("gelu", GeluConfig());
          */
-        explicit Gelu( const GeluConfig& config, std::optional<DeviceId> device_id = std::nullopt )
-            : ComponentBase( "gelu" ), config_( config )
+        explicit Gelu( const std::string& name, const GeluConfig& config, std::optional<DeviceId> device_id = std::nullopt )
+            : ComponentBase( name ), config_( config )
         {
             config_.validate();
 

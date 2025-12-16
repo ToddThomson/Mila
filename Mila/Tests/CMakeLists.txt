@@ -122,9 +122,9 @@ add_executable( MilaTests
     "Dnn/Components/Activations/Gelu.Cuda.cpp"
     "Dnn/Components/Activations/GeluConfig.cpp"
 
-    #"Dnn/Components/Normalization/LayerNorm.Cpu.cpp"
-    #"Dnn/Components/Normalization/LayerNorm.Cuda.cpp"
-    #"Dnn/Components/Normalization/LayerNormConfig.cpp"
+    "Dnn/Components/Normalization/LayerNorm.Cpu.cpp"
+    "Dnn/Components/Normalization/LayerNorm.Cuda.cpp"
+    "Dnn/Components/Normalization/LayerNormConfig.cpp"
 
     "Dnn/Components/Layers/Linear.Cpu.cpp"
     "Dnn/Components/Layers/Linear.Cuda.cpp"
@@ -141,9 +141,9 @@ add_executable( MilaTests
     # --------------------------------------------------------------
     # Modules::Blocks Tests
     # --------------------------------------------------------------
-    #"Dnn/Components/Blocks/MLP.Cpu.cpp"
+    "Dnn/Components/Blocks/MLP.Cpu.cpp"
     #"Dnn/Components/Blocks/MLP.Cuda.cpp"
-    #"Dnn/Components/Blocks/MLPConfig.cpp"
+    "Dnn/Components/Blocks/MLPConfig.cpp"
 
     #"Dnn/Components/Blocks/Transformer.Cpu.cpp"
     

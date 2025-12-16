@@ -11,7 +11,7 @@ export module Compute.CudaOperations;
 //export import Compute.CudaAttentionOp;
 //export import Compute.CudaEncoderOp;
 export import Compute.CudaGeluOp;
-//export import Compute.CudaLayerNormOp;
+export import Compute.CudaLayerNormOp;
 export import Compute.CudaLinearOp;
 //export import Compute.CudaMatMulBiasGeluOp;
 ///export import Compute.CudaResidualOp;

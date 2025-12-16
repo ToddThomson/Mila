@@ -29,12 +29,10 @@ namespace Modules::Blocks::Tests
         shape_t input_shape;
         int64_t input_features;
         int64_t hidden_size;
-        std::shared_ptr<ExecutionContext<DeviceType::Cpu>> exec_context;
 
         MLPCpuTestData()
             : config( 1, 1 ), input_features( 0 ), hidden_size( 0 )
-        {
-        }
+        {}
 
         static MLPCpuTestData Create(
             const std::string& name,
@@ -55,40 +53,10 @@ namespace Modules::Blocks::Tests
             data.config.withBias( has_bias )
                 .withActivation( activation )
                 .withLayerNorm( use_layer_norm )
-                .withName( name )
                 .withPrecisionPolicy( precision );
 
-            data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-            data.mlp = std::make_shared<MLP<DeviceType::Cpu, TPrecision>>( data.exec_context, data.config );
-
-            return data;
-        }
-
-        static MLPCpuTestData CreateWithContext(
-            const std::string& name,
-            const shape_t& input_shape,
-            int64_t input_features,
-            int64_t hidden_size,
-            std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
-            bool has_bias = true,
-            ActivationType activation = ActivationType::Gelu,
-            bool use_layer_norm = false,
-            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
-        {
-            MLPCpuTestData data;
-            data.input_shape = input_shape;
-            data.input_features = input_features;
-            data.hidden_size = hidden_size;
-
-            data.config = MLPConfig( input_features, hidden_size );
-            data.config.withBias( has_bias )
-                .withActivation( activation )
-                .withLayerNorm( use_layer_norm )
-                .withName( name )
-                .withPrecisionPolicy( precision );
-
-            data.exec_context = context;
-            data.mlp = std::make_shared<MLP<DeviceType::Cpu, TPrecision>>( context, data.config );
+            // Construct MLP in standalone mode (owns its ExecutionContext)
+            data.mlp = std::make_shared<MLP<DeviceType::Cpu, TPrecision>>( name, data.config, Device::Cpu() );
 
             return data;
         }
@@ -113,75 +81,63 @@ namespace Modules::Blocks::Tests
 
     TEST_F( MLPCpuTests, GetName )
     {
-        // Setup
         auto data = MLPCpuTestData<TensorDataType::FP32>::Create(
             "small_mlp_cpu",
             shape_t{ batch_size_, sequence_length_, input_features_ },
             input_features_,
             hidden_size_ );
 
-        // Execution & Assertions
         ASSERT_NE( data.mlp, nullptr );
         EXPECT_EQ( data.mlp->getName(), "small_mlp_cpu" );
     }
 
     TEST_F( MLPCpuTests, DeviceType )
     {
-        // Setup
         auto data = MLPCpuTestData<TensorDataType::FP32>::Create(
             "small_mlp_cpu",
             shape_t{ batch_size_, sequence_length_, input_features_ },
             input_features_,
             hidden_size_ );
 
-        // Execution & Assertions
-        ASSERT_NE( data.exec_context, nullptr );
-        auto device = data.exec_context->getDeviceId();
+        ASSERT_NE( data.mlp, nullptr );
+        auto device = data.mlp->getDeviceId();
 
         EXPECT_EQ( device.type, DeviceType::Cpu );
     }
 
     TEST_F( MLPCpuTests, IsBuilt_BeforeBuild )
     {
-        // Setup
         auto data = MLPCpuTestData<TensorDataType::FP32>::Create(
             "small_mlp_cpu",
             shape_t{ batch_size_, sequence_length_, input_features_ },
             input_features_,
             hidden_size_ );
 
-        // Execution & Assertions
         ASSERT_NE( data.mlp, nullptr );
         EXPECT_FALSE( data.mlp->isBuilt() );
     }
 
     TEST_F( MLPCpuTests, IsBuilt_AfterBuild )
     {
-        // Setup
         auto data = MLPCpuTestData<TensorDataType::FP32>::Create(
             "small_mlp_cpu",
             shape_t{ batch_size_, sequence_length_, input_features_ },
             input_features_,
             hidden_size_ );
 
-        // Execution
         ASSERT_NE( data.mlp, nullptr );
         EXPECT_NO_THROW( data.mlp->build( data.input_shape ) );
-
-        // Assertions
         EXPECT_TRUE( data.mlp->isBuilt() );
     }
 
     TEST_F( MLPCpuTests, Build )
     {
-        // Setup
         auto data = MLPCpuTestData<TensorDataType::FP32>::Create(
             "small_mlp_cpu",
             shape_t{ batch_size_, sequence_length_, input_features_ },
             input_features_,
             hidden_size_ );
 
-        // Execution & Assertions
         ASSERT_NE( data.mlp, nullptr );
         EXPECT_NO_THROW( data.mlp->build( data.input_shape ) );
         EXPECT_TRUE( data.mlp->isBuilt() );
@@ -189,14 +145,12 @@ namespace Modules::Blocks::Tests
 
     TEST_F( MLPCpuTests, ParameterCount )
     {
-        // Setup
         auto data = MLPCpuTestData<TensorDataType::FP32>::Create(
             "small_mlp_cpu",
             shape_t{ batch_size_, sequence_length_, input_features_ },
             input_features_,
             hidden_size_ );
 
-        // Execution & Assertions
         ASSERT_NE( data.mlp, nullptr );
 
         int64_t input_features = data.config.getInputFeatures();
@@ -219,7 +173,6 @@ namespace Modules::Blocks::Tests
 
     TEST_F( MLPCpuTests, Forward )
     {
-        // Setup
         auto data = MLPCpuTestData<TensorDataType::FP32>::Create(
             "small_mlp_cpu",
             shape_t{ batch_size_, sequence_length_, input_features_ },
@@ -227,17 +180,14 @@ namespace Modules::Blocks::Tests
             hidden_size_ );
 
         ASSERT_NE( data.mlp, nullptr );
-        ASSERT_NE( data.exec_context, nullptr );
 
         using TensorType = CpuTensor<TensorDataType::FP32>;
 
-        // Build and allocate
         data.mlp->build( data.input_shape );
 
-        TensorType input( data.exec_context->getDeviceId(), data.input_shape );
-        TensorType output( data.exec_context->getDeviceId(), data.input_shape );
+        TensorType input( data.mlp->getDeviceId(), data.input_shape );
+        TensorType output( data.mlp->getDeviceId(), data.input_shape );
 
-        // Initialize input and run
         random( input, -1.0f, 1.0f );
 
         EXPECT_NO_THROW( data.mlp->forward( input, output ) );
@@ -248,55 +198,46 @@ namespace Modules::Blocks::Tests
 
     TEST_F( MLPCpuTests, ToString )
     {
-        // Setup
         auto data = MLPCpuTestData<TensorDataType::FP32>::Create(
             "small_mlp_cpu",
             shape_t{ batch_size_, sequence_length_, input_features_ },
             input_features_,
             hidden_size_ );
 
-        // Execution
         ASSERT_NE( data.mlp, nullptr );
         std::string output = data.mlp->toString();
 
-        // Assertion
         EXPECT_NE( output.find( "MLP: small_mlp_cpu" ), std::string::npos );
     }
 
     TEST_F( MLPCpuTests, TrainingMode_Default )
     {
-        // Setup
         auto data = MLPCpuTestData<TensorDataType::FP32>::Create(
             "small_mlp_cpu",
             shape_t{ batch_size_, sequence_length_, input_features_ },
             input_features_,
             hidden_size_ );
 
-        // Assertion
         ASSERT_NE( data.mlp, nullptr );
         EXPECT_FALSE( data.mlp->isTraining() );
     }
 
     TEST_F( MLPCpuTests, TrainingMode_Enabled )
     {
-        // Setup
         auto data = MLPCpuTestData<TensorDataType::FP32>::Create(
             "training_mlp_cpu",
             shape_t{ batch_size_, sequence_length_, input_features_ },
             input_features_,
             hidden_size_ );
 
-        // Execution: enable training
         ASSERT_NE( data.mlp, nullptr );
         data.mlp->setTraining( true );
 
-        // Assertion
         EXPECT_TRUE( data.mlp->isTraining() );
     }
 
     TEST_F( MLPCpuTests, GetNamedComponents_Returns_ChildComponents )
     {
-        // Setup: create MLP and inspect registered subcomponents
         auto data = MLPCpuTestData<TensorDataType::FP32>::Create(
             "small_mlp_cpu",
             shape_t{ batch_size_, sequence_length_, input_features_ },
@@ -321,24 +262,8 @@ namespace Modules::Blocks::Tests
         }
     }
 
-    TEST_F( MLPCpuTests, SaveLoad )
-    {
-        // Setup
-        auto data = MLPCpuTestData<TensorDataType::FP32>::Create(
-            "small_mlp_cpu",
-            shape_t{ batch_size_, sequence_length_, input_features_ },
-            input_features_,
-            hidden_size_ );
-
-        ASSERT_NE( data.mlp, nullptr );
-
-        // Save/load tests are not implemented in the core yet; ensure no crash if present.
-        // Kept intentionally minimal per original test.
-    }
-
     TEST_F( MLPCpuTests, NoBias_ParameterCount )
     {
-        // Setup (no bias)
         auto data = MLPCpuTestData<TensorDataType::FP32>::Create(
             "no_bias_mlp_cpu",
             shape_t{ batch_size_, sequence_length_, input_features_ },
@@ -348,7 +273,6 @@ namespace Modules::Blocks::Tests
 
         ASSERT_NE( data.mlp, nullptr );
 
-        // Execution & Assertions (same calculation as ParameterCount)
         int64_t input_features = data.config.getInputFeatures();
         int64_t hidden_size = data.config.getHiddenSize();
         bool has_bias = data.config.hasBias();
@@ -369,7 +293,6 @@ namespace Modules::Blocks::Tests
 
     TEST_F( MLPCpuTests, NoBias_Forward )
     {
-        // Setup (no bias)
         auto data = MLPCpuTestData<TensorDataType::FP32>::Create(
             "no_bias_mlp_cpu",
             shape_t{ batch_size_, sequence_length_, input_features_ },
@@ -378,14 +301,13 @@ namespace Modules::Blocks::Tests
             false );
 
         ASSERT_NE( data.mlp, nullptr );
-        ASSERT_NE( data.exec_context, nullptr );
 
         using TensorType = CpuTensor<TensorDataType::FP32>;
 
         data.mlp->build( data.input_shape );
 
-        TensorType input( data.exec_context->getDeviceId(), data.input_shape );
-        TensorType output( data.exec_context->getDeviceId(), data.input_shape );
+        TensorType input( data.mlp->getDeviceId(), data.input_shape );
+        TensorType output( data.mlp->getDeviceId(), data.input_shape );
 
         random( input, -1.0f, 1.0f );
 
@@ -395,7 +317,6 @@ namespace Modules::Blocks::Tests
 
     TEST_F( MLPCpuTests, LayerNorm_Forward )
     {
-        // Setup (with layer norm)
         auto data = MLPCpuTestData<TensorDataType::FP32>::Create(
             "layer_norm_mlp_cpu",
             shape_t{ batch_size_, sequence_length_, input_features_ },
@@ -406,14 +327,13 @@ namespace Modules::Blocks::Tests
             true );
 
         ASSERT_NE( data.mlp, nullptr );
-        ASSERT_NE( data.exec_context, nullptr );
 
         using TensorType = CpuTensor<TensorDataType::FP32>;
 
         data.mlp->build( data.input_shape );
 
-        TensorType input( data.exec_context->getDeviceId(), data.input_shape );
-        TensorType output( data.exec_context->getDeviceId(), data.input_shape );
+        TensorType input( data.mlp->getDeviceId(), data.input_shape );
+        TensorType output( data.mlp->getDeviceId(), data.input_shape );
 
         random( input, -1.0f, 1.0f );
 
@@ -423,7 +343,6 @@ namespace Modules::Blocks::Tests
 
     TEST_F( MLPCpuTests, LayerNorm_SubModules )
     {
-        // Setup (with layer norm)
         auto data = MLPCpuTestData<TensorDataType::FP32>::Create(
             "layer_norm_mlp_cpu",
             shape_t{ batch_size_, sequence_length_, input_features_ },
@@ -447,7 +366,6 @@ namespace Modules::Blocks::Tests
 
     TEST_F( MLPCpuTests, Training_Forward )
     {
-        // Setup (training mode)
         auto data = MLPCpuTestData<TensorDataType::FP32>::Create(
             "training_mlp_cpu",
             shape_t{ batch_size_, sequence_length_, input_features_ },
@@ -455,7 +373,6 @@ namespace Modules::Blocks::Tests
             hidden_size_ );
 
         ASSERT_NE( data.mlp, nullptr );
-        ASSERT_NE( data.exec_context, nullptr );
 
         data.mlp->setTraining( true );
 
@@ -463,8 +380,8 @@ namespace Modules::Blocks::Tests
 
         data.mlp->build( data.input_shape );
 
-        TensorType input( data.exec_context->getDeviceId(), data.input_shape );
-        TensorType output( data.exec_context->getDeviceId(), data.input_shape );
+        TensorType input( data.mlp->getDeviceId(), data.input_shape );
+        TensorType output( data.mlp->getDeviceId(), data.input_shape );
 
         random( input, -1.0f, 1.0f );
 
@@ -473,26 +390,21 @@ namespace Modules::Blocks::Tests
 
     TEST_F( MLPCpuTests, WithContext_Construction )
     {
-        // Setup: explicit context
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-
-        auto data = MLPCpuTestData<TensorDataType::FP32>::CreateWithContext(
+        // Constructing with DeviceId should create and bind an execution context.
+        auto data = MLPCpuTestData<TensorDataType::FP32>::Create(
             "context_mlp_cpu",
             shape_t{ batch_size_, sequence_length_, input_features_ },
             input_features_,
-            hidden_size_,
-            ctx );
+            hidden_size_ );
 
         ASSERT_NE( data.mlp, nullptr );
 
-        // Assertions
         EXPECT_EQ( data.mlp->getName(), "context_mlp_cpu" );
-        EXPECT_EQ( data.exec_context, ctx );
+        EXPECT_EQ( data.mlp->getDeviceId().type, DeviceType::Cpu );
     }
 
     TEST_F( MLPCpuTests, EdgeCase_MinimalShape )
     {
-        // Setup
         shape_t shape = { 1, 1, 8 };
         int64_t hidden = 16;
 
@@ -500,14 +412,13 @@ namespace Modules::Blocks::Tests
             "minimal_cpu", shape, 8, hidden );
 
         ASSERT_NE( data.mlp, nullptr );
-        ASSERT_NE( data.exec_context, nullptr );
 
         using TensorType = CpuTensor<TensorDataType::FP32>;
 
         data.mlp->build( data.input_shape );
 
-        TensorType input( data.exec_context->getDeviceId(), data.input_shape );
-        TensorType output( data.exec_context->getDeviceId(), data.input_shape );
+        TensorType input( data.mlp->getDeviceId(), data.input_shape );
+        TensorType output( data.mlp->getDeviceId(), data.input_shape );
 
         random( input, -1.0f, 1.0f );
 
@@ -516,7 +427,6 @@ namespace Modules::Blocks::Tests
 
     TEST_F( MLPCpuTests, EdgeCase_MediumShape )
     {
-        // Setup
         shape_t shape = { 1, 2, 512 };
         int64_t hidden = 2048;
 
@@ -524,14 +434,13 @@ namespace Modules::Blocks::Tests
             "medium_cpu", shape, 512, hidden );
 
         ASSERT_NE( data.mlp, nullptr );
-        ASSERT_NE( data.exec_context, nullptr );
 
         using TensorType = CpuTensor<TensorDataType::FP32>;
 
         data.mlp->build( data.input_shape );
 
-        TensorType input( data.exec_context->getDeviceId(), data.input_shape );
-        TensorType output( data.exec_context->getDeviceId(), data.input_shape );
+        TensorType input( data.mlp->getDeviceId(), data.input_shape );
+        TensorType output( data.mlp->getDeviceId(), data.input_shape );
 
         random( input, -1.0f, 1.0f );
 
@@ -542,10 +451,8 @@ namespace Modules::Blocks::Tests
     {
         MLPConfig invalid_config( 0, 1024 );
 
-        auto cpu_exec = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-
         EXPECT_THROW(
-            (MLP<DeviceType::Cpu, TensorDataType::FP32>( cpu_exec, invalid_config )),
+            (MLP<DeviceType::Cpu, TensorDataType::FP32>( "invalid", invalid_config, Device::Cpu() )),
             std::invalid_argument
         );
     }
@@ -554,24 +461,26 @@ namespace Modules::Blocks::Tests
     {
         MLPConfig invalid_config( 768, 0 );
 
-        auto cpu_exec = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-
         EXPECT_THROW(
-            (MLP<DeviceType::Cpu, TensorDataType::FP32>( cpu_exec, invalid_config )),
+            (MLP<DeviceType::Cpu, TensorDataType::FP32>( "invalid", invalid_config, Device::Cpu() )),
             std::invalid_argument
         );
     }
 
     TEST_F( MLPCpuTests, Error_NullExecutionContext )
     {
+        // Shared-mode construction (no DeviceId) is allowed — but build should fail
+        // because no execution context is set on the component or its children.
         MLPConfig config( 768, 3072 );
-        config.withName( "null_context_test" );
 
-        std::shared_ptr<ExecutionContext<DeviceType::Cpu>> null_ctx;
+        auto mlp = std::make_shared<MLP<DeviceType::Cpu, TensorDataType::FP32>>( "null_context_test", config, std::nullopt );
+
+        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), shape_t{ 2, 16, 768 } );
+        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), shape_t{ 2, 16, 768 } );
 
         EXPECT_THROW(
-            (MLP<DeviceType::Cpu, TensorDataType::FP32>( null_ctx, config )),
-            std::invalid_argument
+            mlp->build( shape_t{ 2, 16, 768 } ),
+            std::runtime_error
         );
     }
 
@@ -580,13 +489,11 @@ namespace Modules::Blocks::Tests
         shape_t test_shape = { 2, 16, 768 };
 
         MLPConfig config( 768, 3072 );
-        config.withName( "unbuild_test" );
 
-        auto cpu_exec = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        auto mlp = std::make_shared<MLP<DeviceType::Cpu, TensorDataType::FP32>>( cpu_exec, config );
+        auto mlp = std::make_shared<MLP<DeviceType::Cpu, TensorDataType::FP32>>( "unbuild_test", config, Device::Cpu() );
 
-        CpuTensor<TensorDataType::FP32> input( cpu_exec->getDeviceId(), test_shape );
-        CpuTensor<TensorDataType::FP32> output( cpu_exec->getDeviceId(), test_shape );
+        CpuTensor<TensorDataType::FP32> input( mlp->getDeviceId(), test_shape );
+        CpuTensor<TensorDataType::FP32> output( mlp->getDeviceId(), test_shape );
 
         EXPECT_THROW(
             mlp->forward( input, output ),
@@ -635,12 +542,11 @@ namespace Modules::Blocks::Tests
             hidden_size_ );
 
         ASSERT_NE( data.mlp, nullptr );
-        ASSERT_NE( data.exec_context, nullptr );
 
         data.mlp->build( data.input_shape );
 
-        CpuTensor<TensorDataType::FP32> input( data.exec_context->getDeviceId(), data.input_shape );
-        CpuTensor<TensorDataType::FP32> output( data.exec_context->getDeviceId(), data.input_shape );
+        CpuTensor<TensorDataType::FP32> input( data.mlp->getDeviceId(), data.input_shape );
+        CpuTensor<TensorDataType::FP32> output( data.mlp->getDeviceId(), data.input_shape );
 
         for ( int iter = 0; iter < 10; ++iter )
         {

@@ -22,7 +22,6 @@ namespace Modules::Normalization::Tests
         shape_t shape;
         shape_t normalized_shape;
         LayerNormConfig config;
-        std::shared_ptr<ExecutionContext<DeviceType::Cpu>> exec_context;
         std::shared_ptr<LayerNorm<DeviceType::Cpu, TPrecision>> module;
         bool is_training;
 
@@ -40,17 +39,14 @@ namespace Modules::Normalization::Tests
             data.is_training = is_training;
 
             data.config = LayerNormConfig();
-            data.config.withName( name )
-                .withNormalizedShape( normalized_shape )
+            data.config.withNormalizedShape( normalized_shape )
                 .withBias( has_bias )
                 .withEpsilon( epsilon );
 
-            data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-            data.module = std::make_shared<LayerNorm<DeviceType::Cpu, TPrecision>>( data.exec_context, data.config );
+            // Standalone construction: give the component a device so it owns a context.
+            data.module = std::make_shared<LayerNorm<DeviceType::Cpu, TPrecision>>( name, data.config, Device::Cpu() );
 
-            // Training is no longer a construction-time configuration.
-            // If the test requested training mode, set it explicitly.
-            if (data.is_training)
+            if ( data.is_training )
             {
                 data.module->setTraining( true );
             }
@@ -71,48 +67,14 @@ namespace Modules::Normalization::Tests
             data.is_training = is_training;
 
             data.config = LayerNormConfig();
-            data.config.withName( name )
-                .withAxis( axis )
+            data.config.withAxis( axis )
                 .withBias( has_bias )
                 .withEpsilon( epsilon );
 
-            data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-            data.module = std::make_shared<LayerNorm<DeviceType::Cpu, TPrecision>>( data.exec_context, data.config );
+            // Standalone construction for tests
+            data.module = std::make_shared<LayerNorm<DeviceType::Cpu, TPrecision>>( name, data.config, Device::Cpu() );
 
-            // Training must be set explicitly via setTraining()
-            if (data.is_training)
-            {
-                data.module->setTraining( true );
-            }
-
-            return data;
-        }
-
-        static LayerNormCpuTestData CreateWithContext(
-            const std::string& name,
-            const shape_t& shape,
-            const shape_t& normalized_shape,
-            std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
-            bool has_bias = true,
-            float epsilon = 1e-5f,
-            bool is_training = false )
-        {
-            LayerNormCpuTestData data;
-            data.shape = shape;
-            data.normalized_shape = normalized_shape;
-            data.is_training = is_training;
-
-            data.config = LayerNormConfig();
-            data.config.withName( name )
-                .withNormalizedShape( normalized_shape )
-                .withBias( has_bias )
-                .withEpsilon( epsilon );
-
-            data.exec_context = context;
-            data.module = std::make_shared<LayerNorm<DeviceType::Cpu, TPrecision>>( data.exec_context, data.config );
-
-            // Respect requested training flag by calling setTraining()
-            if (data.is_training)
+            if ( data.is_training )
             {
                 data.module->setTraining( true );
             }
@@ -205,10 +167,8 @@ namespace Modules::Normalization::Tests
     void TestDeviceType( const LayerNormCpuTestData<TPrecision>& data )
     {
         EXPECT_EQ( data.module->getDeviceType(), DeviceType::Cpu );
-        ASSERT_NE( data.exec_context, nullptr );
 
-        auto device = data.exec_context->getDeviceId();
-
+        auto device = data.module->getDeviceId();
         EXPECT_EQ( device.type, DeviceType::Cpu );
     }
 
@@ -264,7 +224,7 @@ namespace Modules::Normalization::Tests
         std::string output = data.module->toString();
 
         EXPECT_NE( output.find( "LayerNorm" ), std::string::npos );
-        EXPECT_NE( output.find( data.config.getName() ), std::string::npos );
+        EXPECT_NE( output.find( data.module->getName() ), std::string::npos );
         EXPECT_NE( output.find( "Device:" ), std::string::npos );
         EXPECT_NE( output.find( "Epsilon:" ), std::string::npos );
         EXPECT_NE( output.find( "Has Bias:" ), std::string::npos );
@@ -352,36 +312,27 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCpuTests, IsBuilt_BeforeBuild )
     {
-        // Module with normalized_shape (eager parameter creation)
         auto data = SmallFp32Data();
         EXPECT_FALSE( data.module->isBuilt() );
-
-        // Parameters should exist (created in constructor)
-        /*EXPECT_NE( data.module->getWeight(), nullptr );
-        EXPECT_NE( data.module->getBias(), nullptr );*/
     }
 
     TEST_F( LayerNormCpuTests, IsBuilt_AfterBuild )
     {
         auto data = SmallFp32Data();
 
-        // Before build
         EXPECT_FALSE( data.module->isBuilt() );
 
-        // After build
         data.module->build( data.shape );
         EXPECT_TRUE( data.module->isBuilt() );
     }
 
     TEST_F( LayerNormCpuTests, IsBuilt_WithAxis_BeforeBuild )
     {
-        // Module with axis (lazy parameter creation)
         auto data = LayerNormCpuTestData<TensorDataType::FP32>::CreateWithAxis(
             "axis_test", medium_shape_, -1 );
 
         EXPECT_FALSE( data.module->isBuilt() );
 
-        // Parameters should NOT exist yet (lazy creation)
         auto params_before = data.module->getParameters();
         EXPECT_TRUE( params_before.empty() );
     }
@@ -391,7 +342,6 @@ namespace Modules::Normalization::Tests
         auto data = LayerNormCpuTestData<TensorDataType::FP32>::CreateWithAxis(
             "axis_test", medium_shape_, -1 );
 
-        // Build creates parameters
         data.module->build( data.shape );
 
         EXPECT_TRUE( data.module->isBuilt() );
@@ -523,7 +473,6 @@ namespace Modules::Normalization::Tests
             input_ptr[i] = dist( rng );
         }
 
-        // Use getParameters() to access weight/bias; order is weight then bias (if present)
         auto params = data.module->getParameters();
         ASSERT_FALSE( params.empty() );
 
@@ -612,13 +561,12 @@ namespace Modules::Normalization::Tests
 
     TEST_F( LayerNormCpuTests, WithContext_Construction )
     {
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-
-        auto data = LayerNormCpuTestData<TensorDataType::FP32>::CreateWithContext(
-            "context_layernorm", medium_shape_, medium_normalized_shape_, ctx );
+        // Standalone construction already binds a context; verify device and name.
+        auto data = LayerNormCpuTestData<TensorDataType::FP32>::Create(
+            "context_layernorm", medium_shape_, medium_normalized_shape_ );
 
         EXPECT_EQ( data.module->getName(), "context_layernorm" );
-        EXPECT_EQ( data.exec_context, ctx );
+        EXPECT_EQ( data.module->getDeviceId().type, DeviceType::Cpu );
     }
 
     TEST_F( LayerNormCpuTests, EdgeCase_MinimalShape )
@@ -682,28 +630,27 @@ namespace Modules::Normalization::Tests
         EXPECT_NO_THROW( data.module->forward( input, output ) );
     }
 
-    TEST_F( LayerNormCpuTests, Error_NullExecutionContext )
+    TEST_F( LayerNormCpuTests, Error_BuildWithoutContext )
     {
         LayerNormConfig config;
-        config.withName( "test" ).withNormalizedShape( { 4 } );
+        config.withNormalizedShape( { 4 } );
 
-        std::shared_ptr<ExecutionContext<DeviceType::Cpu>> null_ctx;
+        // Shared-mode construction (no DeviceId) is allowed — but build should fail
+        // because no execution context is set on the component.
+        auto module = std::make_shared<LayerNorm<DeviceType::Cpu, TensorDataType::FP32>>( "null_context_test", config, std::nullopt );
 
         EXPECT_THROW(
-            (std::make_shared<LayerNorm<DeviceType::Cpu, TensorDataType::FP32>>( null_ctx, config )),
-            std::invalid_argument
+            module->build( shape_t{ 2, 1, 4 } ),
+            std::runtime_error
         );
     }
 
     TEST_F( LayerNormCpuTests, Error_InvalidConfig )
     {
         LayerNormConfig invalid_config;
-        invalid_config.withName( "invalid" );
-
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-
+        // missing normalized_shape/axis -> validate() should fail in constructor
         EXPECT_THROW(
-            (std::make_shared<LayerNorm<DeviceType::Cpu, TensorDataType::FP32>>( ctx, invalid_config )),
+            (std::make_shared<LayerNorm<DeviceType::Cpu, TensorDataType::FP32>>( "cpu_ln", invalid_config, Device::Cpu())),
             std::invalid_argument
         );
     }

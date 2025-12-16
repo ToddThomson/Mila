@@ -54,29 +54,13 @@ namespace Mila::Dnn
      * Delegates computation to a device-specific UnaryOperation implementation
      * registered in the OperationRegistry. Normalizes input across specified
      * dimensions and applies learned affine transformation (weight and bias).
-     *
-     * Construction Modes:
-     * - **Standalone mode**: Construct with DeviceId to create and own an ExecutionContext.
-     *   The component manages the context lifetime and uses it for operation execution.
-     * - **Shared mode**: Construct without DeviceId; parent (Network/CompositeComponent)
-     *   provides ExecutionContext via setExecutionContext() after construction.
-     *
-     * Ownership:
-     * - Standalone mode: Component owns its ExecutionContext (stored in owned_exec_context_).
-     * - Shared mode: Component borrows ExecutionContext from parent; lifecycle managed externally.
-     *
-     * Parameter allocation strategy:
-     * - If normalized_shape provided at construction: parameters allocated immediately
-     * - If axis provided (shape-agnostic): parameters allocated during build() based on input shape
-     *
-     * @tparam TDeviceType Compile-time device type (Cpu, Cuda, Metal, Rocm).
-     * @tparam TPrecision Compile-time tensor precision (FP32, FP16, BF16, etc.).
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
     class LayerNorm : public Component<TDeviceType, TPrecision>
     {
     public:
+        using ComponentBase = Component<TDeviceType, TPrecision>;
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
         using ExecutionContextType = ExecutionContext<TDeviceType>;
         using TensorType = Tensor<TPrecision, MR>;
@@ -84,47 +68,12 @@ namespace Mila::Dnn
         /**
          * @brief Construct LayerNorm with optional ExecutionContext ownership.
          *
-         * Supports two construction modes:
-         *
-         * **Standalone mode (device_id provided)**:
-         * - Creates and owns an ExecutionContext for the specified device.
-         * - Registers the owned context with the base Component class via setExecutionContext().
-         * - Backend operation is created immediately in onExecutionContextSet() hook.
-         * - Use case: Unit tests, standalone component usage.
-         *
-         * **Shared mode (device_id not provided)**:
-         * - Does not create ExecutionContext; expects parent to provide one.
-         * - Parent (Network/CompositeComponent) calls setExecutionContext() after construction.
-         * - Backend operation created when parent sets context.
-         * - Use case: Components added to Network via addComponent<LayerNorm>(...).
-         *
-         * @param config LayerNorm configuration (normalized_shape or axis, epsilon, bias).
-         * @param device_id Optional device identifier. If provided, creates owned ExecutionContext
-         *                  for standalone mode. If nullopt, expects shared context from parent.
-         *
-         * @throws std::invalid_argument if config is invalid (via config.validate()).
-         * @throws std::invalid_argument if device_id.type does not match TDeviceType.
-         * @throws std::runtime_error if ExecutionContext creation fails (standalone mode).
-         *
-         * @note In standalone mode, setExecutionContext() is called to register the owned
-         *       context with the base class, enabling getExecutionContext() and triggering
-         *       the onExecutionContextSet() hook for operation creation.
-         *
-         * @example
-         * // Standalone mode (owns context)
-         * LayerNormConfig config;
-         * config.withNormalizedShape({768});
-         * LayerNorm<DeviceType::Cpu, TensorDataType::FP32> ln(config, Device::Cpu());
-         *
-         * @example
-         * // Shared mode (borrows parent's context)
-         * Network<DeviceType::Cpu, TensorDataType::FP32> net(Device::Cpu(), "my_net");
-         * LayerNormConfig config;
-         * config.withAxis(-1);
-         * net.addComponent<LayerNorm>("ln", config);
+         * The component is constructed with a default implementation name and may
+         * be renamed by callers via `setName()` prior to building. Supports both
+         * standalone (owns context) and shared (parent provides context) modes.
          */
-        explicit LayerNorm( const LayerNormConfig& config, std::optional<DeviceId> device_id = std::nullopt )
-            : config_( config )
+        explicit LayerNorm( const std::string& name, const LayerNormConfig& config, std::optional<DeviceId> device_id = std::nullopt )
+            : ComponentBase( name ), config_( config )
         {
             config_.validate();
 
@@ -138,11 +87,13 @@ namespace Mila::Dnn
                 owned_exec_context_ = createExecutionContext( device_id.value() );
 
                 this->setExecutionContext( owned_exec_context_.get() );
-            }
 
-            if ( config_.hasNormalizedShape() )
-            {
-                initializeParameters();
+                // If normalized_shape was provided we can eagerly allocate parameters
+                // because an execution context is available.
+                if ( config_.hasNormalizedShape() )
+                {
+                    initializeParameters();
+                }
             }
         }
 
@@ -152,12 +103,6 @@ namespace Mila::Dnn
         // Compute operation dispatch
         // ====================================================================
 
-        /**
-         * @brief Forward pass - delegates to backend operation.
-         *
-         * Normalizes input across specified dimensions and applies learned
-         * affine transformation.
-         */
         void forward( const ITensor& input, ITensor& output )
         {
             if ( !this->isBuilt() )
@@ -170,11 +115,6 @@ namespace Mila::Dnn
             operation_->forward( input, output );
         }
 
-        /**
-         * @brief Backward pass - delegates to backend operation.
-         *
-         * Computes gradients with respect to input and parameters.
-         */
         void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
         {
             if ( !this->isBuilt() )
@@ -209,10 +149,14 @@ namespace Mila::Dnn
             std::vector<ITensor*> params;
 
             if ( weight_ )
+            {
                 params.push_back( weight_.get() );
+            }
 
             if ( bias_ )
+            {
                 params.push_back( bias_.get() );
+            }
 
             return params;
         }
@@ -227,10 +171,14 @@ namespace Mila::Dnn
             std::vector<ITensor*> grads;
 
             if ( weight_grad_ )
+            {
                 grads.push_back( weight_grad_.get() );
+            }
 
             if ( bias_grad_ )
+            {
                 grads.push_back( bias_grad_.get() );
+            }
 
             return grads;
         }
@@ -240,10 +188,14 @@ namespace Mila::Dnn
             size_t count = 0;
 
             if ( weight_ )
+            {
                 count += weight_->size();
+            }
 
             if ( config_.hasBias() && bias_ )
+            {
                 count += bias_->size();
+            }
 
             return count;
         }
@@ -251,11 +203,6 @@ namespace Mila::Dnn
         // ====================================================================
         // Component interface
         // ====================================================================
-
-        std::string getName() const override
-        {
-            return config_.getName();
-        }
 
         DeviceId getDeviceId() const override
         {
@@ -271,7 +218,7 @@ namespace Mila::Dnn
         {
             std::ostringstream oss;
             oss << "--------------------" << std::endl;
-            oss << "LayerNorm: " << getName() << std::endl;
+            oss << "LayerNorm: " << this->getName() << std::endl;
             oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
             oss << "Epsilon: " << config_.getEpsilon() << std::endl;
             oss << "Has Bias: " << (config_.hasBias() ? "Yes" : "No") << std::endl;
@@ -289,18 +236,17 @@ namespace Mila::Dnn
         /**
          * @brief Hook invoked after ExecutionContext is set.
          *
-         * Called by Component::setExecutionContext() after the context is
-         * registered. Creates the backend UnaryOperation using the OperationRegistry.
-         *
-         * This hook is triggered in two scenarios:
-         * - Standalone mode: Immediately in constructor after owned context creation
-         * - Shared mode: When parent calls setExecutionContext() after construction
-         *
-         * @throws std::runtime_error if operation creation fails.
+         * Create backend operation and allocate eager parameters if normalized_shape
+         * was provided but parameters haven't yet been allocated.
          */
         void onExecutionContextSet() override
         {
             createOperation();
+
+            if ( config_.hasNormalizedShape() && !weight_ )
+            {
+                initializeParameters();
+            }
         }
 
         /**
@@ -308,9 +254,6 @@ namespace Mila::Dnn
          *
          * Validates input shape, allocates parameters if needed (axis mode),
          * binds parameters to backend operation, and triggers backend build.
-         *
-         * If in training mode, also allocates gradient tensors and binds them
-         * to the operation.
          */
         void onBuilding( const shape_t& input_shape ) override
         {
@@ -336,10 +279,7 @@ namespace Mila::Dnn
          * @brief Hook invoked when training mode is about to change.
          *
          * Propagates training mode to the backend operation and allocates / frees
-         * parameter gradient buffers as appropriate. Called with Component's
-         * training mutex held; do not call setTraining() here.
-         *
-         * @param is_training New training mode (true = training, false = eval).
+         * parameter gradient buffers as appropriate.
          */
         void onTrainingChanging( bool is_training ) override
         {
@@ -365,7 +305,7 @@ namespace Mila::Dnn
     private:
         LayerNormConfig config_;
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
-        std::unique_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
 
         std::vector<int64_t> outer_shape_;
 
@@ -375,9 +315,6 @@ namespace Mila::Dnn
         std::shared_ptr<TensorType> weight_grad_{ nullptr };
         std::shared_ptr<TensorType> bias_grad_{ nullptr };
 
-        /**
-         * @brief Validate input shape against normalized_shape configuration.
-         */
         void validateInputShape( const ITensor& input ) const
         {
             const auto& norm_shape = config_.getNormalizedShape();
@@ -399,9 +336,6 @@ namespace Mila::Dnn
             }
         }
 
-        /**
-         * @brief Validate input shape against normalized_shape configuration.
-         */
         void validateInputShape( const shape_t& input_shape ) const
         {
             const auto& norm_shape = config_.getNormalizedShape();
@@ -422,12 +356,6 @@ namespace Mila::Dnn
             }
         }
 
-        /**
-         * @brief Allocate parameters based on input shape (axis mode).
-         *
-         * Called when config uses axis instead of normalized_shape.
-         * Computes parameter size from input shape and allocates weight/bias.
-         */
         void allocateParametersForShape( const shape_t& input_shape )
         {
             int64_t channels = 1;
@@ -476,14 +404,9 @@ namespace Mila::Dnn
             }
         }
 
-        /**
-         * @brief Allocate parameters based on normalized_shape configuration.
-         *
-         * Called when config provides normalized_shape at construction time.
-         * Enables eager parameter allocation independent of input shape.
-         */
         void initializeParameters()
         {
+            // If axis mode is used we do not allocate here.
             if ( config_.getAxis().has_value() )
             {
                 return;
@@ -510,11 +433,6 @@ namespace Mila::Dnn
             }
         }
 
-        /**
-         * @brief Allocate and zero-initialize parameter gradient tensors.
-         *
-         * Called when entering training mode or during build if already in training mode.
-         */
         void initializeParameterGradients()
         {
             auto device = this->getExecutionContext()->getDeviceId();
@@ -534,12 +452,6 @@ namespace Mila::Dnn
             }
         }
 
-        /**
-         * @brief Create the backend compute operation.
-         *
-         * Uses the shared ExecutionContext from the base class to request a
-         * device-specific UnaryOperation from the OperationRegistry.
-         */
         void createOperation()
         {
             operation_ = OperationRegistry::instance()

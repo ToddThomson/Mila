@@ -92,7 +92,6 @@ namespace Modules::Blocks::Tests
             .withBias( false )
             .withActivation( ActivationType::Gelu )
             .withLayerNorm( true )
-            .withName( "test_mlp" )
             .withPrecisionPolicy( ComputePrecision::Policy::Performance );
 
         EXPECT_EQ( &result, &config );
@@ -101,14 +100,12 @@ namespace Modules::Blocks::Tests
         EXPECT_FALSE( config.hasBias() );
         EXPECT_EQ( config.getActivationType(), ActivationType::Gelu );
         EXPECT_TRUE( config.useLayerNorm() );
-        EXPECT_EQ( config.getName(), "test_mlp" );
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Performance );
     }
 
     TEST_F( MLPConfigTests, Validation_Success )
     {
         MLPConfig config( 512, 2048 );
-        config.withName( "valid_config" );
 
         EXPECT_NO_THROW( config.validate() );
     }
@@ -116,7 +113,6 @@ namespace Modules::Blocks::Tests
     TEST_F( MLPConfigTests, Validation_Failure_ZeroInputFeatures )
     {
         MLPConfig config( 0, 1024 );
-        config.withName( "test_config" );
 
         EXPECT_THROW( config.validate(), std::invalid_argument );
     }
@@ -124,7 +120,6 @@ namespace Modules::Blocks::Tests
     TEST_F( MLPConfigTests, Validation_Failure_NegativeInputFeatures )
     {
         MLPConfig config( -1, 1024 );
-        config.withName( "test_config" );
 
         EXPECT_THROW( config.validate(), std::invalid_argument );
     }
@@ -132,7 +127,6 @@ namespace Modules::Blocks::Tests
     TEST_F( MLPConfigTests, Validation_Failure_ZeroHiddenSize )
     {
         MLPConfig config( 512, 0 );
-        config.withName( "test_config" );
 
         EXPECT_THROW( config.validate(), std::invalid_argument );
     }
@@ -140,7 +134,6 @@ namespace Modules::Blocks::Tests
     TEST_F( MLPConfigTests, Validation_Failure_NegativeHiddenSize )
     {
         MLPConfig config( 512, -1 );
-        config.withName( "test_config" );
 
         EXPECT_THROW( config.validate(), std::invalid_argument );
     }
@@ -148,7 +141,6 @@ namespace Modules::Blocks::Tests
     TEST_F( MLPConfigTests, Validation_ErrorMessage_ZeroInputFeatures )
     {
         MLPConfig config( 0, 1024 );
-        config.withName( "test_config" );
 
         try
         {
@@ -166,7 +158,6 @@ namespace Modules::Blocks::Tests
     TEST_F( MLPConfigTests, Validation_ErrorMessage_ZeroHiddenSize )
     {
         MLPConfig config( 512, 0 );
-        config.withName( "test_config" );
 
         try
         {
@@ -188,7 +179,6 @@ namespace Modules::Blocks::Tests
         config.withBias( false )
             .withActivation( ActivationType::Gelu )
             .withLayerNorm( true )
-            .withName( "test_mlp" )
             .withPrecisionPolicy( ComputePrecision::Policy::Accuracy );
 
         EXPECT_EQ( config.getInputFeatures(), 768 );
@@ -196,7 +186,6 @@ namespace Modules::Blocks::Tests
         EXPECT_FALSE( config.hasBias() );
         EXPECT_EQ( config.getActivationType(), ActivationType::Gelu );
         EXPECT_TRUE( config.useLayerNorm() );
-        EXPECT_EQ( config.getName(), "test_mlp" );
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Accuracy );
     }
 
@@ -208,8 +197,7 @@ namespace Modules::Blocks::Tests
         MLPConfig config( input_features, hidden_size );
         config.withBias( false )
             .withActivation( ActivationType::Gelu )
-            .withLayerNorm( true )
-            .withName( "persistent_mlp" );
+            .withLayerNorm( true );
 
         MLPConfig copied_config = config;
 
@@ -218,7 +206,6 @@ namespace Modules::Blocks::Tests
         EXPECT_FALSE( copied_config.hasBias() );
         EXPECT_EQ( copied_config.getActivationType(), ActivationType::Gelu );
         EXPECT_TRUE( copied_config.useLayerNorm() );
-        EXPECT_EQ( copied_config.getName(), "persistent_mlp" );
     }
 
     TEST_F( MLPConfigTests, EdgeCase_LargeFeatureDimensions )
@@ -266,15 +253,13 @@ namespace Modules::Blocks::Tests
         MLPConfig config( transformer_features, ffn_hidden_size );
         config.withBias( true )
             .withActivation( ActivationType::Gelu )
-            .withLayerNorm( false )
-            .withName( "transformer_ffn" );
+            .withLayerNorm( false );
 
         EXPECT_EQ( config.getInputFeatures(), transformer_features );
         EXPECT_EQ( config.getHiddenSize(), ffn_hidden_size );
         EXPECT_TRUE( config.hasBias() );
         EXPECT_EQ( config.getActivationType(), ActivationType::Gelu );
         EXPECT_FALSE( config.useLayerNorm() );
-        EXPECT_EQ( config.getName(), "transformer_ffn" );
 
         EXPECT_NO_THROW( config.validate() );
     }
@@ -295,22 +280,18 @@ namespace Modules::Blocks::Tests
         config.withBias( false )
             .withLayerNorm( true );
 
-        config.withName( "chained_config" );
-
         EXPECT_EQ( config.getInputFeatures(), original_features );
         EXPECT_EQ( config.getHiddenSize(), original_hidden );
         EXPECT_FALSE( config.hasBias() );
         EXPECT_TRUE( config.useLayerNorm() );
-        EXPECT_EQ( config.getName(), "chained_config" );
     }
 
     TEST_F( MLPConfigTests, GPT2_Style_Configuration )
     {
-        // GPT-2 small: 768 ? 3072
+        // GPT-2 small: 768 -> 3072
         MLPConfig gpt2_small( 768, 3072 );
         gpt2_small.withBias( true )
-            .withActivation( ActivationType::Gelu )
-            .withName( "gpt2_small_mlp" );
+            .withActivation( ActivationType::Gelu );
 
         EXPECT_EQ( gpt2_small.getInputFeatures(), 768 );
         EXPECT_EQ( gpt2_small.getHiddenSize(), 3072 );

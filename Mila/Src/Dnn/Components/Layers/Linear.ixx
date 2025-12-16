@@ -1,9 +1,6 @@
 /**
  * @file Linear.ixx
  * @brief Device-templated Linear (fully connected) component.
- *
- * Delegates compute to a UnaryOperation backend. Component owns weight/bias
- * parameters and exposes them to callers (optimizers, serializers).
  */
 
 module;
@@ -58,9 +55,16 @@ namespace Mila::Dnn
      * ExecutionContext owned by the parent (Network or test fixture).
      *
      * Ownership model:
-     * - Linear NEVER owns ExecutionContext
-     * - Context is always provided by parent and shared across component hierarchy
-     * - Single constructor accepts IExecutionContext* (validated by base class)
+     * - Linear NEVER owns ExecutionContext in shared mode
+     * - Standalone mode: Linear owns its ExecutionContext (for unit tests)
+     * - Context is shared across component hierarchy when part of Network
+     *
+     * Construction Modes:
+     * - **Standalone mode (device_id provided)**: Creates and owns an ExecutionContext
+     *   for the specified device. Used in unit tests and standalone component usage.
+     * - **Shared mode (device_id not provided)**: Does not create ExecutionContext;
+     *   expects parent to provide one via setExecutionContext(). Used when added
+     *   to Network via addComponent<Linear>(...).
      *
      * @tparam TDeviceType Compile-time device type (Cpu, Cuda, Metal, Rocm).
      * @tparam TPrecision Compile-time tensor precision (FP32, FP16, BF16, etc.).
@@ -75,19 +79,47 @@ namespace Mila::Dnn
         using TensorType = Tensor<TPrecision, MR>;
 
         /**
-         * @brief Construct Linear with shared ExecutionContext.
+         * @brief Construct Linear with optional ExecutionContext ownership.
          *
-         * Used by CompositeComponent/Network to create components that share
-         * a common execution context owned by the parent. The context is not
-         * owned; lifecycle is managed by the parent.
+         * Supports two construction modes:
          *
-         * @param exec_context Non-owning pointer to shared execution context (must be non-null).
+         * **Standalone mode (device_id provided)**:
+         * - Creates and owns an ExecutionContext for the specified device.
+         * - Registers the owned context with the base Component class via setExecutionContext().
+         * - Parameters and backend operation are created in lifecycle hooks.
+         * - Use case: Unit tests, standalone component usage.
+         *
+         * **Shared mode (device_id not provided)**:
+         * - Does not create ExecutionContext; expects parent to provide one.
+         * - Parent (Network/CompositeComponent) calls setExecutionContext() after construction.
+         * - Parameters and operation created when parent sets context.
+         * - Use case: Components added to Network via addComponent<Linear>(...).
+         *
          * @param config Linear configuration.
+         * @param device_id Optional device identifier. If provided, creates owned ExecutionContext
+         *                  for standalone mode. If nullopt, expects shared context from parent.
          *
-         * @throws std::invalid_argument if exec_context is null or device type mismatches.
+         * @throws std::invalid_argument if config is invalid (via config.validate()).
+         * @throws std::invalid_argument if device_id.type does not match TDeviceType.
+         * @throws std::runtime_error if ExecutionContext creation fails (standalone mode).
+         *
+         * @note In standalone mode, setExecutionContext() is called to register the owned
+         *       context with the base class, enabling getExecutionContext() and triggering
+         *       the onExecutionContextSet() hook for initialization.
+         *
+         * @example
+         * // Standalone mode (owns context)
+         * LinearConfig config;
+         * config.setInputFeatures(128).setOutputFeatures(64);
+         * Linear<DeviceType::Cpu, TensorDataType::FP32> linear(config, Device::Cpu());
+         *
+         * @example
+         * // Shared mode (borrows parent's context)
+         * Network<DeviceType::Cpu, TensorDataType::FP32> net(Device::Cpu(), "my_net");
+         * net.addComponent<Linear>("fc1", LinearConfig().setInputFeatures(128).setOutputFeatures(64));
          */
-        explicit Linear( const LinearConfig& config, std::optional<DeviceId> device_id = std::nullopt )
-            : ComponentBase( "linear" ), config_(config)
+        explicit Linear( const std::string& name, const LinearConfig& config, std::optional<DeviceId> device_id = std::nullopt )
+            : ComponentBase( name ), config_( config )
         {
             config_.validate();
 
@@ -97,16 +129,14 @@ namespace Mila::Dnn
                 {
                     throw std::invalid_argument( "Linear: device type mismatch" );
                 }
-                
+
                 owned_exec_context_ = createExecutionContext( device_id.value() );
+
                 this->setExecutionContext( owned_exec_context_.get() );
             }
-
-            initializeParameters();
         }
 
         ~Linear() override = default;
-
 
         // ====================================================================
         // Compute operation dispatch
@@ -313,11 +343,6 @@ namespace Mila::Dnn
         // Component interface
         // ====================================================================
 
-        /*std::string getName() const override
-        {
-            return config_.getName();
-        }*/
-
         DeviceId getDeviceId() const override
         {
             return this->getExecutionContext()->getDeviceId();
@@ -388,15 +413,28 @@ namespace Mila::Dnn
 
     protected:
 
+        /**
+         * @brief Hook invoked after ExecutionContext is set.
+         *
+         * Called by Component::setExecutionContext() after the context is
+         * registered. Initializes parameters and creates the backend operation.
+         *
+         * This hook is triggered in two scenarios:
+         * - Standalone mode: Immediately in constructor after owned context creation
+         * - Shared mode: When parent calls setExecutionContext() after construction
+         *
+         * @throws std::runtime_error if parameter initialization or operation creation fails.
+         */
         void onExecutionContextSet() override
         {
+            initializeParameters();
             createOperation();
         }
 
         /**
          * @brief Build the Component using an input shape.
          *
-         * Linear layer parameters are eagerly created in the constructor based
+         * Linear layer parameters are eagerly created in onExecutionContextSet() based
          * on the configuration. This method binds parameters to the backend
          * operation and triggers backend-specific setup.
          *
@@ -519,6 +557,7 @@ namespace Mila::Dnn
         /**
          * @brief Allocate and initialize weight and optional bias tensors.
          *
+         * Called from onExecutionContextSet() hook once device is known.
          * Tensors are created on the execution context device and initialized
          * using Xavier initialization for weights. Bias is zero-initialized.
          */
@@ -546,8 +585,8 @@ namespace Mila::Dnn
         /**
          * @brief Create the backend compute operation.
          *
-         * Uses the shared ExecutionContext from the base class to request a
-         * device-specific UnaryOperation from the OperationRegistry.
+         * Called from onExecutionContextSet() hook. Uses the shared ExecutionContext
+         * to request a device-specific UnaryOperation from the OperationRegistry.
          */
         void createOperation()
         {

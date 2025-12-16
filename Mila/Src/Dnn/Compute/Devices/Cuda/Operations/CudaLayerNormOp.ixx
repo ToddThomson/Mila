@@ -32,7 +32,6 @@ import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.IExecutionContext;
 import Compute.ExecutionContext;
-//import Compute.CudaExecutionContext;
 import Compute.CudaDeviceResources;
 import Compute.OperationType;
 import Compute.MemoryResource;
@@ -66,7 +65,7 @@ namespace Mila::Dnn::Compute
                 int B, int T, int C, float epsilon,
                 cudaStream_t stream )
             {
-                cuda_layernorm_forward_fp32( Y, mean, rstd, X, weight, bias, B, T, C, epsilon, stream );
+                // FIXME: cuda_layernorm_forward_fp32( Y, mean, rstd, X, weight, bias, B, T, C, epsilon, stream );
             }
 
             static inline void backward(
@@ -91,7 +90,7 @@ namespace Mila::Dnn::Compute
                 int B, int T, int C, float epsilon,
                 cudaStream_t stream )
             {
-                cuda_layernorm_forward_fp16( Y, mean, rstd, X, weight, bias, B, T, C, epsilon, stream );
+                // FIXME: cuda_layernorm_forward_fp16( Y, mean, rstd, X, weight, bias, B, T, C, epsilon, stream );
             }
 
             static inline void backward(
@@ -355,14 +354,14 @@ namespace Mila::Dnn::Compute
 
             cudaStream_t stream = context_->getStream();
 
-            Detail::cuda_layernorm_impl<NativeType>::forward(
+            /*Detail::cuda_layernorm_impl<NativeType>::forward(
                 Y, X,
                 weight_, bias_,
                 mean_, rstd_,
                 cached_B_, cached_T_, cached_C_,
                 config_.getEpsilon(),
                 stream
-            );
+            );*/
         }
 
         /**
@@ -385,13 +384,13 @@ namespace Mila::Dnn::Compute
 
             cudaStream_t stream = context_->getStream();
 
-            Detail::cuda_layernorm_impl<NativeType>::backward(
+            /*Detail::cuda_layernorm_impl<NativeType>::backward(
                 dX, dweight, dbias,
                 dY, X, weight_,
                 mean_, rstd_,
                 cached_B_, cached_T_, cached_C_,
                 stream
-            );
+            );*/
         }
 
         OperationType getOperationType() const override

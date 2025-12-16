@@ -61,6 +61,10 @@ namespace Mila::Dnn
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
     class Component
     {
+        // Allow composite parent to manage child contexts
+        template<DeviceType, TensorDataType>
+        friend class CompositeComponent;
+
     public:
 
         /**
@@ -75,9 +79,8 @@ namespace Mila::Dnn
          * @throws std::invalid_argument if name is not a valid identifier
          */
         explicit Component( const std::string& name )
-            : name_( name ), built_( false ), is_training_( false )
+            : name_( validateName( name ) ), built_( false ), is_training_( false )
         {
-            validateName( name_ );
         }
         
         virtual ~Component() = default;
@@ -273,34 +276,9 @@ namespace Mila::Dnn
          *
          * @return Component name string
          */
-        std::string getName() const
+        const std::string getName() const
         {
             return name_;
-        }
-
-        /**
-         * @brief Set the component's name identifier.
-         *
-         * The name is validated and must be a valid identifier: start with a letter,
-         * contain only letters, digits, '.', '_', '-', and be 1-128 characters long.
-         *
-         * @param name New component name
-         *
-         * @throws std::invalid_argument if name is not a valid identifier
-         * @throws std::runtime_error if component is already built (name is immutable after build)
-         */
-        void setName( const std::string& name )
-        {
-            if ( isBuilt() )
-            {
-                throw std::runtime_error(
-                    std::format( "Component::setName: cannot change name after component is built. Current name: '{}'",
-                        name_ )
-                );
-            }
-
-            validateName( name );
-            name_ = name;
         }
 
         // ====================================================================
@@ -336,11 +314,11 @@ namespace Mila::Dnn
 
         /**
          * @brief Stream output uses `toString()` to provide a human-readable
-         * description of the module.
+         * description of the component.
          */
-        friend std::ostream& operator<<( std::ostream& os, const Component& module )
+        friend std::ostream& operator<<( std::ostream& os, const Component& component )
         {
-            os << module.toString();
+            os << component.toString();
 
             return os;
         }
@@ -553,7 +531,7 @@ namespace Mila::Dnn
          *
          * @throws std::invalid_argument if name is not a valid identifier
          */
-        static void validateName( const std::string& name )
+        static const std::string& validateName( const std::string& name )
         {
             if ( !isIdentifier( name ) )
             {
@@ -565,6 +543,8 @@ namespace Mila::Dnn
                     )
                 );
             }
+
+            return name;
         }
 
         /**

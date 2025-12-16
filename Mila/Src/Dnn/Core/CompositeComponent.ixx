@@ -76,7 +76,7 @@ namespace Mila::Dnn
      * - Hook Method: onExecutionContextSet() propagates context to children
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
-        class CompositeComponent : public Component<TDeviceType, TPrecision>
+    class CompositeComponent : public Component<TDeviceType, TPrecision>
     {
     public:
         using ComponentBase = Component<TDeviceType, TPrecision>;
@@ -168,14 +168,14 @@ namespace Mila::Dnn
             child_component_map_[ name ] = component;
             child_components_.push_back( component );
 
-            // FIXME:
-            /*if ( this->hasExecutionContext() )
+            if ( this->hasExecutionContext() )
             {
-                if ( !component->hasExecutionContext() )
+                // FIXME:
+                /*if ( !component->hasExecutionContext() )
                 {
                     component->setExecutionContext( this->getExecutionContext() );
-                }
-            }*/
+                }*/
+            }
 
             return *this;
         }
@@ -533,9 +533,7 @@ namespace Mila::Dnn
             {
                 throw std::runtime_error(
                     std::format(
-                        "Component '{}' cannot be cast to requested type",
-                        name
-                    )
+                        "Component '{}' cannot be cast to requested type", name )
                 );
             }
 
@@ -559,13 +557,13 @@ namespace Mila::Dnn
          */
         void onExecutionContextSet() override
         {
-            /*for ( auto& component : child_components_ )
+            for ( auto& component : child_components_ )
             {
                 if ( !component->hasExecutionContext() )
                 {
                     component->setExecutionContext( this->getExecutionContext() );
                 }
-            }*/
+            }
         }
 
         /**

@@ -17,7 +17,8 @@ namespace Dnn::Core::Tests
      * @brief Minimal concrete child component for testing.
      *
      * Updated to support both standalone and shared context modes following
-     * the new Component architecture pattern.
+     * the new Component architecture pattern. Component now requires a name
+     * at construction time (component-owns-name).
      */
     class TestChildComponent : public Component<DeviceType::Cpu, TensorDataType::FP32>
     {
@@ -27,11 +28,14 @@ namespace Dnn::Core::Tests
         /**
          * @brief Constructor for shared mode (context provided by parent).
          *
+         * @param name Component name (required by new Component ctor)
          * @param param_count Mock parameter count for testing aggregation
          * @param device_id Optional device for standalone mode
          */
-        explicit TestChildComponent( size_t param_count = 0, std::optional<DeviceId> device_id = std::nullopt )
-            : ComponentBase( "test_component" ), param_count_( param_count )
+        explicit TestChildComponent( const std::string& name,
+            size_t param_count = 0,
+            std::optional<DeviceId> device_id = std::nullopt )
+            : ComponentBase( name ), param_count_( param_count )
         {
             if ( device_id.has_value() )
             {
@@ -50,16 +54,19 @@ namespace Dnn::Core::Tests
 
         size_t parameterCount() const override
         {
+
             return param_count_;
         }
 
         std::vector<ITensor*> getParameters() const override
         {
+
             return {};
         }
 
         std::vector<ITensor*> getGradients() const override
         {
+
             return {};
         }
 
@@ -68,11 +75,13 @@ namespace Dnn::Core::Tests
 
         std::string toString() const override
         {
+
             return std::string( "TestChild:" ) + this->getName();
         }
 
         DeviceId getDeviceId() const override
         {
+
             return this->getExecutionContext()->getDeviceId();
         }
 
@@ -80,7 +89,6 @@ namespace Dnn::Core::Tests
 
         void onBuilding( const shape_t& /*input_shape*/ ) override
         {}
-
     private:
 
         size_t param_count_;
@@ -125,13 +133,12 @@ namespace Dnn::Core::Tests
         /**
          * @brief Helper to add a child component with explicit name and parameter count.
          *
-         * Creates a TestChildComponent in shared mode, sets its name, and registers it.
+         * Creates a TestChildComponent in shared mode (name-owned-by-component) and registers it.
          * This mimics the pattern used in real composites like MLP.
          */
         void addTestChild( const std::string& name, size_t param_count = 0 )
         {
-            auto component = std::make_shared<TestChildComponent>( param_count, std::nullopt );
-            component->setName( name );
+            auto component = std::make_shared<TestChildComponent>( name, param_count, std::nullopt );
             this->addComponent( component );
         }
 
@@ -200,8 +207,7 @@ namespace Dnn::Core::Tests
 
     TEST_F( CompositeComponentTests, AddComponent_ComponentOwnsName )
     {
-        auto child = std::make_shared<TestChildComponent>( 5, std::nullopt );
-        child->setName( "named_child" );
+        auto child = std::make_shared<TestChildComponent>( "named_child", 5, std::nullopt );
 
         comp_->addComponent( child );
 
@@ -240,8 +246,7 @@ namespace Dnn::Core::Tests
     {
         comp_->addTestChild( "dup", 1 );
 
-        auto duplicate = std::make_shared<TestChildComponent>( 2, std::nullopt );
-        duplicate->setName( "dup" );
+        auto duplicate = std::make_shared<TestChildComponent>( "dup", 2, std::nullopt );
 
         EXPECT_THROW(
             comp_->addComponent( duplicate ),
@@ -455,8 +460,7 @@ namespace Dnn::Core::Tests
 
     TEST_F( CompositeComponentTests, ExecutionContextPropagatedOnAdd )
     {
-        auto child = std::make_shared<TestChildComponent>( 0, std::nullopt );
-        child->setName( "late_add" );
+        auto child = std::make_shared<TestChildComponent>( "late_add", 0, std::nullopt );
 
         //EXPECT_FALSE( child->hasExecutionContext() );
 

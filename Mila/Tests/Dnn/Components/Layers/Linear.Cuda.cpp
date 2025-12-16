@@ -59,8 +59,9 @@ namespace Dnn::Components::Layers::Tests
             data.config = LinearConfig( input_features, output_features );
             data.config.withBias( has_bias );
 
-            // Construct using DeviceId directly (component will create/own its context).
+            // Construct using name + DeviceId (component will create/own its context).
             data.component = std::make_shared<Linear<DeviceType::Cuda, TPrecision>>(
+                name,
                 data.config,
                 Device::Cuda( 0 )
             );
@@ -92,6 +93,7 @@ namespace Dnn::Components::Layers::Tests
             DeviceId ctx_id = context->getDeviceId();
 
             data.component = std::make_shared<Linear<DeviceType::Cuda, TPrecision>>(
+                name,
                 data.config,
                 ctx_id
             );
@@ -417,13 +419,14 @@ namespace Dnn::Components::Layers::Tests
 
         EXPECT_NO_THROW(
             (std::make_shared<Linear<DeviceType::Cuda, TensorDataType::FP32>>(
+                "construct_with_dev",
                 config,
                 Device::Cuda( 0 )
             ))
         );
     }
 
-    TEST_F( LinearCudaTests, Construction_NoDeviceId_Throws )
+    TEST_F( LinearCudaTests, Construction_NoDeviceId_GetDeviceIdThrows )
     {
         if ( !cuda_available_ )
         {
@@ -433,11 +436,15 @@ namespace Dnn::Components::Layers::Tests
         LinearConfig config( 16, 32 );
         config.withBias( true );
 
-        // Linear requires a DeviceId (or parent must call setExecutionContext).
+        // Shared-mode construction (name provided, no DeviceId) is allowed;
+        // getDeviceId() should throw until an execution context is set.
+        auto comp = std::make_shared<Linear<DeviceType::Cuda, TensorDataType::FP32>>(
+            "no_dev_ctor",
+            config
+        );
+
         EXPECT_THROW(
-            (std::make_shared<Linear<DeviceType::Cuda, TensorDataType::FP32>>(
-                config
-            )),
+            comp->getDeviceId(),
             std::runtime_error
         );
     }
@@ -454,6 +461,7 @@ namespace Dnn::Components::Layers::Tests
 
         EXPECT_THROW(
             (std::make_shared<Linear<DeviceType::Cuda, TensorDataType::FP32>>(
+                "mismatch_ctor",
                 config,
                 Device::Cpu()
             )),
