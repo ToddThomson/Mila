@@ -39,6 +39,7 @@ import Compute.CudaDeviceMemoryResource;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 import Serialization.Tensor;
+import Serialization.Metadata;
 import nlohmann.json;
 
 namespace Mila::Dnn
@@ -193,7 +194,7 @@ namespace Mila::Dnn
         // Serialization
         // ====================================================================
 
-        /**
+                /**
          * @brief Save component state to a ModelArchive.
          *
          * This method writes relative entries into the archive. Callers are
@@ -208,15 +209,19 @@ namespace Mila::Dnn
         {
             (void)mode;
 
-            json meta = json::object();
-            meta[ "type" ] = "Linear";
-            meta[ "version" ] = 1;
-            meta[ "name" ] = this->getName();
+            SerializationMetadata meta;
+            meta.set( "type", "Linear" )
+                .set( "version", int64_t( 1 ) )
+                .set( "name", this->getName() );
 
-            archive.writeJson( "meta.json", meta );
+            archive.writeMetadata( "meta.json", meta );
 
-            json cfg = config_.toJson();
-            archive.writeJson( "config.json", cfg );
+            SerializationMetadata cfg;
+            cfg.set( "input_features", config_.getInputFeatures() )
+                .set( "output_features", config_.getOutputFeatures() )
+                .set( "has_bias", config_.hasBias() );
+
+            archive.writeMetadata( "config.json", cfg );
 
             if ( weight_ )
             {

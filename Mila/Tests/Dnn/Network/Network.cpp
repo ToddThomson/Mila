@@ -20,7 +20,8 @@ namespace Dnn::Networks::Tests
     /**
      * @brief Minimal test component for testing Network.
      *
-     * Component now owns its name at construction time.
+     * Component owns its name at construction time and supports both
+     * standalone mode (owns ExecutionContext) and shared mode (borrows context).
      */
     class TestComponent : public Component<DeviceType::Cpu, TensorDataType::FP32>
     {
@@ -28,11 +29,11 @@ namespace Dnn::Networks::Tests
         using ComponentBase = Component<DeviceType::Cpu, TensorDataType::FP32>;
 
         /**
-         * @brief Constructor for shared mode (context provided by parent).
+         * @brief Constructor for test component.
          *
-         * @param name Component name (required by new Component ctor)
+         * @param name Component name (required by Component base class)
          * @param param_count Mock parameter count for testing aggregation
-         * @param device_id Optional device for standalone mode
+         * @param device_id Optional device for standalone mode (testing only)
          */
         explicit TestComponent( const std::string& name,
             size_t param_count = 0,
@@ -69,8 +70,14 @@ namespace Dnn::Networks::Tests
             return {};
         }
 
-        void save_( ModelArchive& /*archive*/, SerializationMode /*mode*/ ) const override
-        {}
+        void save_( ModelArchive& archive, SerializationMode /*mode*/ ) const override
+        {
+            SerializationMetadata meta;
+            meta.set( "component_type", "TestComponent" )
+                .set( "param_count", static_cast<int64_t>(param_count_) );
+
+            archive.writeMetadata( "meta.json", meta );
+        }
 
         std::string toString() const override
         {
@@ -83,12 +90,10 @@ namespace Dnn::Networks::Tests
         }
 
     protected:
-
         void onBuilding( const shape_t& /*input_shape*/ ) override
         {}
 
     private:
-
         size_t param_count_;
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
     };
@@ -96,8 +101,11 @@ namespace Dnn::Networks::Tests
     /**
      * @brief Concrete Network subclass for testing.
      *
-     * Implements createGraph() to define network architecture and onBuilding()
-     * to propagate build to all children. Uses the component-owns-name pattern.
+     * Follows the new Network architecture:
+     * - Owns ExecutionContext (created in constructor)
+     * - Builds component graph via createGraph()
+     * - Propagates context to children via setExecutionContext()
+     * - Implements save_() hook for type-specific metadata
      */
     template<DeviceType TDeviceType, TensorDataType TPrecision = TensorDataType::FP32>
     class TestableNetwork : public Network<TDeviceType, TPrecision>
@@ -105,19 +113,49 @@ namespace Dnn::Networks::Tests
     public:
         using Base = Network<TDeviceType, TPrecision>;
 
-        explicit TestableNetwork( DeviceId device_id, const std::string& name )
-            : Base( name, device_id )
-        {}
+        /**
+         * @brief Construct testable network with owned ExecutionContext.
+         *
+         * Follows concrete network pattern:
+         * 1. Create ExecutionContext
+         * 2. Build component graph (context-independent)
+         * 3. Propagate context to self and children
+         */
+        explicit TestableNetwork( const std::string& name, DeviceId device_id )
+            : Base( name ),
+            owned_context_( createExecutionContext( device_id ) )
+        {
+            if ( device_id.type != TDeviceType )
+            {
+                throw std::invalid_argument(
+                    std::format( "TestableNetwork: device type mismatch: expected {}, got {}",
+                        deviceTypeToString( TDeviceType ),
+                        deviceTypeToString( device_id.type ) ) );
+            }
+        }
 
-        explicit TestableNetwork( IExecutionContext* exec_context, const std::string& name )
-            : Base( name, exec_context )
-        {}
+        /**
+         * @brief Finalize network construction and propagate context.
+         *
+         * Call this after adding all components to propagate ExecutionContext
+         * to all children. This mimics the pattern used by concrete networks
+         * like MnistClassifier.
+         */
+        void finalizeConstruction()
+        {
+            if ( !owned_context_ )
+            {
+                throw std::runtime_error( "TestableNetwork: owned_context_ is null" );
+            }
+
+            this->setExecutionContext( owned_context_.get() );
+        }
 
         /**
          * @brief Helper to add a test component with explicit name and parameter count.
          *
-         * Creates a TestComponent in shared mode (name-owned-by-component) and registers it.
-         * This mimics the pattern used in real networks like MnistClassifier.
+         * Creates a TestComponent in shared mode (no ExecutionContext) and registers it.
+         * Context will be propagated when finalizeConstruction() is called.
          */
         void addTestComponent( const std::string& name, size_t param_count = 0 )
         {
@@ -125,18 +163,52 @@ namespace Dnn::Networks::Tests
             this->addComponent( component );
         }
 
-    protected:
+        /**
+         * @brief Static factory method for deserialization (testing only).
+         *
+         * Not fully implemented - used to test that concrete classes can provide
+         * their own Load() methods.
+         */
+        static std::unique_ptr<TestableNetwork> Load( ModelArchive& /*archive*/,
+            DeviceId /*device_id*/ )
+        {
+            throw std::runtime_error(
+                "TestableNetwork::Load: deserialization not implemented for test class" );
+        }
 
+    protected:
+        /**
+         * @brief Hook for saving type-specific metadata (required by Network base).
+         *
+         * Implements the serialization contract by writing type identifier using
+         * SerializationMetadata abstraction.
+         */
+        void save_( ModelArchive& archive, SerializationMode /*mode*/ ) const override
+        {
+            SerializationMetadata meta;
+            meta.set( "type", "TestableNetwork" )
+                .set( "test_metadata", "This is a test network" );
+
+            archive.writeMetadata( "network/testable_meta.json", meta );
+        }
+
+        /**
+         * @brief Build hook - propagates build to all children.
+         */
         void onBuilding( const shape_t& input_shape ) override
         {
-            for ( const auto& [name, component] : this->getNamedComponents() )
+            for ( const auto& pair : this->getNamedComponents() )
             {
+                const auto& component = pair.second;
                 if ( !component->isBuilt() )
                 {
                     component->build( input_shape );
                 }
             }
         }
+
+    private:
+        std::unique_ptr<IExecutionContext> owned_context_{ nullptr };
     };
 
     // ====================================================================
@@ -163,7 +235,8 @@ namespace Dnn::Networks::Tests
 
     TEST_F( NetworkTests, ConstructWithDeviceId_CreatesOwnedContext )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "test_network" );
+        TestableNetwork<DeviceType::Cpu> net( "test_network", Device::Cpu() );
+        net.finalizeConstruction();
 
         EXPECT_EQ( net.getName(), "test_network" );
         EXPECT_EQ( net.getDeviceId().type, DeviceType::Cpu );
@@ -172,26 +245,7 @@ namespace Dnn::Networks::Tests
     TEST_F( NetworkTests, ConstructWithEmptyName_Throws )
     {
         EXPECT_THROW(
-            TestableNetwork<DeviceType::Cpu>( Device::Cpu(), "" ),
-            std::invalid_argument
-        );
-    }
-
-    TEST_F( NetworkTests, ConstructWithSharedContext_SharesContext )
-    {
-        auto exec_context = createExecutionContext( Device::Cpu() );
-        TestableNetwork<DeviceType::Cpu> net( exec_context.get(), "shared_ctx_net" );
-
-        EXPECT_EQ( net.getName(), "shared_ctx_net" );
-        EXPECT_EQ( net.getDeviceId().type, DeviceType::Cpu );
-    }
-
-    TEST_F( NetworkTests, ConstructWithNullContext_Throws )
-    {
-        IExecutionContext* null_ctx = nullptr;
-
-        EXPECT_THROW(
-            TestableNetwork<DeviceType::Cpu>( null_ctx, "null_ctx_net" ),
+            TestableNetwork<DeviceType::Cpu>( "", Device::Cpu() ),
             std::invalid_argument
         );
     }
@@ -199,32 +253,22 @@ namespace Dnn::Networks::Tests
     TEST_F( NetworkTests, ConstructWithDeviceTypeMismatch_Throws )
     {
         EXPECT_THROW(
-            TestableNetwork<DeviceType::Cpu>( Device::Cuda( 0 ), "mismatch_net" ),
-            std::invalid_argument
-        );
-    }
-
-    TEST_F( NetworkTests, ConstructWithSharedContext_DeviceTypeMismatch_Throws )
-    {
-        auto cuda_context = createExecutionContext( Device::Cuda( 0 ) );
-
-        EXPECT_THROW(
-            TestableNetwork<DeviceType::Cpu>( cuda_context.get(), "mismatch_net" ),
+            TestableNetwork<DeviceType::Cpu>( "mismatch_net", Device::Cuda( 0 ) ),
             std::invalid_argument
         );
     }
 
     // ====================================================================
-    // Component Registration Tests (New API)
+    // Component Registration Tests
     // ====================================================================
 
     TEST_F( NetworkTests, AddComponent_ComponentOwnsName )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "name_test" );
+        TestableNetwork<DeviceType::Cpu> net( "name_test", Device::Cpu() );
 
         auto comp = std::make_shared<TestComponent>( "named_comp", 5, std::nullopt );
-
         net.addComponent( comp );
+        net.finalizeConstruction();
 
         EXPECT_TRUE( net.hasComponent( "named_comp" ) );
         EXPECT_EQ( net.getComponent( "named_comp" )->getName(), "named_comp" );
@@ -232,10 +276,11 @@ namespace Dnn::Networks::Tests
 
     TEST_F( NetworkTests, AddComponent_Chainable )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "chain_test" );
+        TestableNetwork<DeviceType::Cpu> net( "chain_test", Device::Cpu() );
 
         net.addTestComponent( "comp1", 5 );
         net.addTestComponent( "comp2", 10 );
+        net.finalizeConstruction();
 
         EXPECT_TRUE( net.hasComponent( "comp1" ) );
         EXPECT_TRUE( net.hasComponent( "comp2" ) );
@@ -244,12 +289,13 @@ namespace Dnn::Networks::Tests
 
     TEST_F( NetworkTests, AddComponent_MultipleChained )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "multi_chain" );
+        TestableNetwork<DeviceType::Cpu> net( "multi_chain", Device::Cpu() );
 
         net.addTestComponent( "comp1", 1 );
         net.addTestComponent( "comp2", 2 );
         net.addTestComponent( "comp3", 3 );
         net.addTestComponent( "comp4", 4 );
+        net.finalizeConstruction();
 
         EXPECT_EQ( net.childCount(), 4u );
         EXPECT_TRUE( net.hasComponent( "comp1" ) );
@@ -258,7 +304,7 @@ namespace Dnn::Networks::Tests
 
     TEST_F( NetworkTests, AddComponent_NullComponent_Throws )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "null_test" );
+        TestableNetwork<DeviceType::Cpu> net( "null_test", Device::Cpu() );
 
         EXPECT_THROW(
             net.addComponent( nullptr ),
@@ -268,7 +314,7 @@ namespace Dnn::Networks::Tests
 
     TEST_F( NetworkTests, AddComponent_DuplicateName_Throws )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "dup_test" );
+        TestableNetwork<DeviceType::Cpu> net( "dup_test", Device::Cpu() );
 
         net.addTestComponent( "duplicate", 1 );
 
@@ -282,9 +328,10 @@ namespace Dnn::Networks::Tests
 
     TEST_F( NetworkTests, AddComponent_AfterBuild_Throws )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "post_build_test" );
+        TestableNetwork<DeviceType::Cpu> net( "post_build_test", Device::Cpu() );
 
         net.addTestComponent( "pre_build", 0 );
+        net.finalizeConstruction();
 
         net.build( { 1 } );
 
@@ -296,10 +343,11 @@ namespace Dnn::Networks::Tests
 
     TEST_F( NetworkTests, AddComponent_SharesExecutionContext )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "ctx_share_test" );
+        TestableNetwork<DeviceType::Cpu> net( "ctx_share_test", Device::Cpu() );
 
         net.addTestComponent( "ctx1", 0 );
         net.addTestComponent( "ctx2", 0 );
+        net.finalizeConstruction();
 
         auto comp1 = net.getComponent( "ctx1" );
         auto comp2 = net.getComponent( "ctx2" );
@@ -309,17 +357,15 @@ namespace Dnn::Networks::Tests
         EXPECT_EQ( comp1->getDeviceId().type, comp2->getDeviceId().type );
     }
 
-    TEST_F( NetworkTests, AddComponent_ContextPropagatedImmediately )
+    TEST_F( NetworkTests, AddComponent_ContextPropagatedOnFinalize )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "ctx_prop_test" );
+        TestableNetwork<DeviceType::Cpu> net( "ctx_prop_test", Device::Cpu() );
 
         auto comp = std::make_shared<TestComponent>( "late_add", 0, std::nullopt );
-
-        //EXPECT_FALSE( comp->hasExecutionContext() );
-
         net.addComponent( comp );
 
-        //EXPECT_TRUE( comp->hasExecutionContext() );
+        net.finalizeConstruction();
+
         EXPECT_EQ( comp->getDeviceId().type, DeviceType::Cpu );
     }
 
@@ -329,9 +375,10 @@ namespace Dnn::Networks::Tests
 
     TEST_F( NetworkTests, GetComponent_ExistingName_ReturnsComponent )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "get_test" );
+        TestableNetwork<DeviceType::Cpu> net( "get_test", Device::Cpu() );
 
         net.addTestComponent( "findme", 3 );
+        net.finalizeConstruction();
 
         auto retrieved = net.getComponent( "findme" );
 
@@ -341,7 +388,8 @@ namespace Dnn::Networks::Tests
 
     TEST_F( NetworkTests, GetComponent_NonExistentName_Throws )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "get_fail_test" );
+        TestableNetwork<DeviceType::Cpu> net( "get_fail_test", Device::Cpu() );
+        net.finalizeConstruction();
 
         EXPECT_THROW(
             net.getComponent( "nonexistent" ),
@@ -351,9 +399,10 @@ namespace Dnn::Networks::Tests
 
     TEST_F( NetworkTests, HasComponent_ReturnsCorrectStatus )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "has_test" );
+        TestableNetwork<DeviceType::Cpu> net( "has_test", Device::Cpu() );
 
         net.addTestComponent( "exists", 0 );
+        net.finalizeConstruction();
 
         EXPECT_TRUE( net.hasComponent( "exists" ) );
         EXPECT_FALSE( net.hasComponent( "does_not_exist" ) );
@@ -361,7 +410,7 @@ namespace Dnn::Networks::Tests
 
     TEST_F( NetworkTests, RemoveComponent_ExistingComponent_ReturnsTrue )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "remove_test" );
+        TestableNetwork<DeviceType::Cpu> net( "remove_test", Device::Cpu() );
 
         net.addTestComponent( "removeme", 0 );
 
@@ -373,16 +422,18 @@ namespace Dnn::Networks::Tests
 
     TEST_F( NetworkTests, RemoveComponent_NonExistent_ReturnsFalse )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "remove_fail_test" );
+        TestableNetwork<DeviceType::Cpu> net( "remove_fail_test", Device::Cpu() );
+        net.finalizeConstruction();
 
         EXPECT_FALSE( net.removeComponent( "never_existed" ) );
     }
 
     TEST_F( NetworkTests, RemoveComponent_AfterBuild_Throws )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "remove_post_build" );
+        TestableNetwork<DeviceType::Cpu> net( "remove_post_build", Device::Cpu() );
 
         net.addTestComponent( "locked", 0 );
+        net.finalizeConstruction();
 
         net.build( { 1 } );
 
@@ -394,7 +445,7 @@ namespace Dnn::Networks::Tests
 
     TEST_F( NetworkTests, ClearComponents_RemovesAllChildren )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "clear_test" );
+        TestableNetwork<DeviceType::Cpu> net( "clear_test", Device::Cpu() );
 
         net.addTestComponent( "comp1", 0 );
         net.addTestComponent( "comp2", 0 );
@@ -412,9 +463,10 @@ namespace Dnn::Networks::Tests
 
     TEST_F( NetworkTests, ClearComponents_AfterBuild_Throws )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "clear_post_build" );
+        TestableNetwork<DeviceType::Cpu> net( "clear_post_build", Device::Cpu() );
 
         net.addTestComponent( "locked", 0 );
+        net.finalizeConstruction();
 
         net.build( { 1 } );
 
@@ -430,10 +482,11 @@ namespace Dnn::Networks::Tests
 
     TEST_F( NetworkTests, Build_PropagatestoChildren )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "build_test" );
+        TestableNetwork<DeviceType::Cpu> net( "build_test", Device::Cpu() );
 
         net.addTestComponent( "build1", 5 );
         net.addTestComponent( "build2", 7 );
+        net.finalizeConstruction();
 
         auto comp1 = net.getComponent( "build1" );
         auto comp2 = net.getComponent( "build2" );
@@ -451,11 +504,12 @@ namespace Dnn::Networks::Tests
 
     TEST_F( NetworkTests, ParameterCount_AggregatesChildren )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "param_test" );
+        TestableNetwork<DeviceType::Cpu> net( "param_test", Device::Cpu() );
 
         net.addTestComponent( "p1", 10 );
         net.addTestComponent( "p2", 20 );
         net.addTestComponent( "p3", 15 );
+        net.finalizeConstruction();
 
         net.build( { 1 } );
 
@@ -464,9 +518,10 @@ namespace Dnn::Networks::Tests
 
     TEST_F( NetworkTests, ParameterCount_BeforeBuild_Throws )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "param_pre_build" );
+        TestableNetwork<DeviceType::Cpu> net( "param_pre_build", Device::Cpu() );
 
         net.addTestComponent( "unbuild", 5 );
+        net.finalizeConstruction();
 
         EXPECT_THROW(
             net.parameterCount(),
@@ -476,9 +531,10 @@ namespace Dnn::Networks::Tests
 
     TEST_F( NetworkTests, GetParameters_BeforeBuild_Throws )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "get_params_pre_build" );
+        TestableNetwork<DeviceType::Cpu> net( "get_params_pre_build", Device::Cpu() );
 
         net.addTestComponent( "unbuild", 0 );
+        net.finalizeConstruction();
 
         EXPECT_THROW(
             net.getParameters(),
@@ -488,9 +544,10 @@ namespace Dnn::Networks::Tests
 
     TEST_F( NetworkTests, GetGradients_NotTraining_Throws )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "grads_no_train" );
+        TestableNetwork<DeviceType::Cpu> net( "grads_no_train", Device::Cpu() );
 
         net.addTestComponent( "eval", 0 );
+        net.finalizeConstruction();
 
         net.build( { 1 } );
 
@@ -503,9 +560,10 @@ namespace Dnn::Networks::Tests
 
     TEST_F( NetworkTests, GetGradients_TrainingMode_Succeeds )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "grads_train" );
+        TestableNetwork<DeviceType::Cpu> net( "grads_train", Device::Cpu() );
 
         net.addTestComponent( "train", 0 );
+        net.finalizeConstruction();
 
         net.build( { 1 } );
 
@@ -520,10 +578,11 @@ namespace Dnn::Networks::Tests
 
     TEST_F( NetworkTests, SetTraining_PropagatestoChildren )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "training_prop" );
+        TestableNetwork<DeviceType::Cpu> net( "training_prop", Device::Cpu() );
 
         net.addTestComponent( "t1", 0 );
         net.addTestComponent( "t2", 0 );
+        net.finalizeConstruction();
 
         auto comp1 = net.getComponent( "t1" );
         auto comp2 = net.getComponent( "t2" );
@@ -551,10 +610,11 @@ namespace Dnn::Networks::Tests
 
     TEST_F( NetworkTests, Synchronize_DoesNotThrow )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "sync_test" );
+        TestableNetwork<DeviceType::Cpu> net( "sync_test", Device::Cpu() );
 
         net.addTestComponent( "s1", 0 );
         net.addTestComponent( "s2", 0 );
+        net.finalizeConstruction();
 
         EXPECT_NO_THROW( net.synchronize() );
     }
@@ -565,10 +625,11 @@ namespace Dnn::Networks::Tests
 
     TEST_F( NetworkTests, ToString_ContainsNameAndChildren )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "info_test" );
+        TestableNetwork<DeviceType::Cpu> net( "info_test", Device::Cpu() );
 
         net.addTestComponent( "child_a", 0 );
         net.addTestComponent( "child_b", 0 );
+        net.finalizeConstruction();
 
         std::string info = net.toString();
 
@@ -578,7 +639,7 @@ namespace Dnn::Networks::Tests
     }
 
     // ====================================================================
-    // Serialization Tests
+    // Serialization Tests (Refactored to use SerializationMetadata)
     // ====================================================================
 
     TEST_F( NetworkTests, Save_WritesMetadataAndArchitecture )
@@ -587,10 +648,11 @@ namespace Dnn::Networks::Tests
         std::error_code ec;
         std::filesystem::remove( path, ec );
 
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "save_test" );
+        TestableNetwork<DeviceType::Cpu> net( "save_test", Device::Cpu() );
 
         net.addTestComponent( "mod1", 10 );
         net.addTestComponent( "mod2", 20 );
+        net.finalizeConstruction();
 
         net.build( { 1 } );
 
@@ -607,29 +669,51 @@ namespace Dnn::Networks::Tests
             auto reader = std::make_unique<ZipSerializer>();
             ModelArchive archive( path.string(), std::move( reader ), OpenMode::Read );
 
+            // Verify base network metadata using SerializationMetadata
             EXPECT_TRUE( archive.hasFile( "network/meta.json" ) );
-            auto meta = archive.readJson( "network/meta.json" );
+            auto meta = archive.readMetadata( "network/meta.json" );
 
-            EXPECT_EQ( meta.at( "name" ).get<std::string>(), "save_test" );
-            EXPECT_EQ( meta.at( "num_components" ).get<size_t>(), 2u );
-            EXPECT_EQ( meta.at( "format_version" ).get<int>(), 1 );
-            EXPECT_TRUE( meta.contains( "export_time" ) );
-            EXPECT_EQ( meta.at( "mode" ).get<std::string>(),
+            EXPECT_EQ( meta.getString( "name" ), "save_test" );
+            EXPECT_EQ( meta.getInt( "num_components" ), 2 );
+            EXPECT_EQ( meta.getInt( "format_version" ), 1 );
+            EXPECT_TRUE( meta.has( "export_time" ) );
+            EXPECT_EQ( meta.getString( "mode" ),
                 serializationModeToString( SerializationMode::Architecture ) );
 
+            // Verify concrete class metadata
+            EXPECT_TRUE( archive.hasFile( "network/testable_meta.json" ) );
+            auto testable_meta = archive.readMetadata( "network/testable_meta.json" );
+            EXPECT_EQ( testable_meta.getString( "type" ), "TestableNetwork" );
+            EXPECT_EQ( testable_meta.getString( "test_metadata" ), "This is a test network" );
+
+            // Verify architecture metadata
             EXPECT_TRUE( archive.hasFile( "network/architecture.json" ) );
-            auto arch = archive.readJson( "network/architecture.json" );
+            auto arch_meta = archive.readMetadata( "network/architecture.json" );
+            EXPECT_EQ( arch_meta.getInt( "num_components" ), 2 );
 
-            ASSERT_TRUE( arch.is_array() );
-            EXPECT_EQ( arch.size(), 2u );
+            // Verify individual component descriptors
+            EXPECT_TRUE( archive.hasFile( "network/component_mod1.json" ) );
+            auto comp1_desc = archive.readMetadata( "network/component_mod1.json" );
+            EXPECT_EQ( comp1_desc.getString( "name" ), "mod1" );
+            EXPECT_EQ( comp1_desc.getString( "path" ), "components/mod1" );
+            EXPECT_EQ( comp1_desc.getInt( "index" ), 0 );
 
-            EXPECT_EQ( arch[ 0 ].at( "name" ).get<std::string>(), "mod1" );
-            EXPECT_EQ( arch[ 0 ].at( "path" ).get<std::string>(), "components/mod1" );
-            EXPECT_EQ( arch[ 0 ].at( "index" ).get<int>(), 0 );
+            EXPECT_TRUE( archive.hasFile( "network/component_mod2.json" ) );
+            auto comp2_desc = archive.readMetadata( "network/component_mod2.json" );
+            EXPECT_EQ( comp2_desc.getString( "name" ), "mod2" );
+            EXPECT_EQ( comp2_desc.getString( "path" ), "components/mod2" );
+            EXPECT_EQ( comp2_desc.getInt( "index" ), 1 );
 
-            EXPECT_EQ( arch[ 1 ].at( "name" ).get<std::string>(), "mod2" );
-            EXPECT_EQ( arch[ 1 ].at( "path" ).get<std::string>(), "components/mod2" );
-            EXPECT_EQ( arch[ 1 ].at( "index" ).get<int>(), 1 );
+            // Verify component metadata was written
+            EXPECT_TRUE( archive.hasFile( "components/mod1/meta.json" ) );
+            auto mod1_meta = archive.readMetadata( "components/mod1/meta.json" );
+            EXPECT_EQ( mod1_meta.getString( "component_type" ), "TestComponent" );
+            EXPECT_EQ( mod1_meta.getInt( "param_count" ), 10 );
+
+            EXPECT_TRUE( archive.hasFile( "components/mod2/meta.json" ) );
+            auto mod2_meta = archive.readMetadata( "components/mod2/meta.json" );
+            EXPECT_EQ( mod2_meta.getString( "component_type" ), "TestComponent" );
+            EXPECT_EQ( mod2_meta.getInt( "param_count" ), 20 );
 
             archive.close();
         }
@@ -643,9 +727,10 @@ namespace Dnn::Networks::Tests
         std::error_code ec;
         std::filesystem::remove( path, ec );
 
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "unbuilt_save" );
+        TestableNetwork<DeviceType::Cpu> net( "unbuilt_save", Device::Cpu() );
 
         net.addTestComponent( "unbuild", 0 );
+        net.finalizeConstruction();
 
         auto writer = std::make_unique<ZipSerializer>();
         ModelArchive archive( path.string(), std::move( writer ), OpenMode::Write );
@@ -658,49 +743,14 @@ namespace Dnn::Networks::Tests
         std::filesystem::remove( path, ec );
     }
 
-    TEST_F( NetworkTests, Load_ThrowsUntilFactoryImplemented )
-    {
-        auto path = makeTempArchivePath();
-        std::error_code ec;
-        std::filesystem::remove( path, ec );
-
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "load_test" );
-
-        net.addTestComponent( "loadme", 5 );
-
-        net.build( { 1 } );
-
-        {
-            auto writer = std::make_unique<ZipSerializer>();
-            ModelArchive archive( path.string(), std::move( writer ), OpenMode::Write );
-            net.save( archive, SerializationMode::Architecture );
-            archive.close();
-        }
-
-        {
-            auto reader = std::make_unique<ZipSerializer>();
-            ModelArchive archive( path.string(), std::move( reader ), OpenMode::Read );
-
-            auto exec_ctx = createExecutionContext( Device::Cpu() );
-
-            EXPECT_THROW(
-                TestableNetwork<DeviceType::Cpu>::load( archive, exec_ctx.get() ),
-                std::runtime_error
-            );
-
-            archive.close();
-        }
-
-        std::filesystem::remove( path, ec );
-    }
-
     // ====================================================================
     // Empty Network Tests
     // ====================================================================
 
     TEST_F( NetworkTests, EmptyNetwork_HasNoChildren )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "empty" );
+        TestableNetwork<DeviceType::Cpu> net( "empty", Device::Cpu() );
+        net.finalizeConstruction();
 
         EXPECT_EQ( net.childCount(), 0u );
         EXPECT_FALSE( net.hasChildren() );
@@ -714,11 +764,12 @@ namespace Dnn::Networks::Tests
 
     TEST_F( NetworkTests, GetComponents_ReturnsInsertionOrder )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "order_test" );
+        TestableNetwork<DeviceType::Cpu> net( "order_test", Device::Cpu() );
 
         net.addTestComponent( "first", 1 );
         net.addTestComponent( "second", 2 );
         net.addTestComponent( "third", 3 );
+        net.finalizeConstruction();
 
         const auto& components = net.getComponents();
 
@@ -730,11 +781,12 @@ namespace Dnn::Networks::Tests
 
     TEST_F( NetworkTests, GetNamedComponents_ContainsAllChildren )
     {
-        TestableNetwork<DeviceType::Cpu> net( Device::Cpu(), "named_test" );
+        TestableNetwork<DeviceType::Cpu> net( "named_test", Device::Cpu() );
 
         net.addTestComponent( "child1", 0 );
         net.addTestComponent( "child2", 0 );
         net.addTestComponent( "child3", 0 );
+        net.finalizeConstruction();
 
         const auto& named = net.getNamedComponents();
 

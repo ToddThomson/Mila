@@ -359,10 +359,10 @@ void trainMnist( const MnistConfig& config )
     mnist_net->setTraining( true );
 
     // Get device from model's execution context
-    auto device = mnist_net->getDeviceId();
+    //auto device = mnist_net->getDeviceId();
 
-    MnistDataLoader<TensorDataType::FP32, THostMR> train_loader( config.data_directory, config.batch_size, true, device );
-    MnistDataLoader<TensorDataType::FP32, THostMR> test_loader( config.data_directory, config.batch_size, false, device );
+    MnistDataLoader<TensorDataType::FP32, THostMR> train_loader( config.data_directory, config.batch_size, true, device_id );
+    MnistDataLoader<TensorDataType::FP32, THostMR> test_loader( config.data_directory, config.batch_size, false, device_id );
 
     // Build the model with the input shape from the data loader
     shape_t input_shape = { train_loader.batchSize(), MNIST_IMAGE_SIZE };
@@ -414,16 +414,16 @@ void trainMnist( const MnistConfig& config )
         << " parameter groups" << std::endl;
 
     // Allocate tensors for training
-    Tensor<TDataType, DeviceMR> input_batch( device, input_shape );
+    Tensor<TDataType, DeviceMR> input_batch( device_id, input_shape );
     Tensor<TDataType, CpuMemoryResource> target_batch( Device::Cpu(), { train_loader.batchSize(), MNIST_NUM_CLASSES } );
 
     Tensor<TDataType, CpuMemoryResource> logits( Device::Cpu(), { train_loader.batchSize(), MNIST_NUM_CLASSES } );
-    Tensor<TDataType, DeviceMR> output( device, { train_loader.batchSize(), MNIST_NUM_CLASSES } );
+    Tensor<TDataType, DeviceMR> output( device_id, { train_loader.batchSize(), MNIST_NUM_CLASSES } );
 
     // Allocate gradient tensors for backward pass
     Tensor<TDataType, CpuMemoryResource> output_grad_cpu( Device::Cpu(), { train_loader.batchSize(), MNIST_NUM_CLASSES } );
-    Tensor<TDataType, DeviceMR> output_grad( device, { train_loader.batchSize(), MNIST_NUM_CLASSES } );
-    Tensor<TDataType, DeviceMR> input_grad( device, input_shape );
+    Tensor<TDataType, DeviceMR> output_grad( device_id, { train_loader.batchSize(), MNIST_NUM_CLASSES } );
+    Tensor<TDataType, DeviceMR> input_grad( device_id, input_shape );
 
     std::cout << "Starting training for " << config.epochs << " epochs..." << std::endl;
 

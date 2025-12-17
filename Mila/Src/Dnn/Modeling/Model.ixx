@@ -37,16 +37,15 @@ import Modeling.CheckpointManager;
 import Modeling.CheckpointMetaData;
 import Modeling.TrainingHistory;
 import Serialization.ModelArchive;
+import Serialization.Metadata;
 import Serialization.ZipSerializer;
 import Serialization.OpenMode;
 import Serialization.Mode;
 import Utils.Logger;
-import nlohmann.json;
 
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Serialization;
-    using json = nlohmann::json;
 
     /**
      * @brief High-level model wrapper that owns network and optimizer.
@@ -84,20 +83,20 @@ namespace Mila::Dnn
          *
          * @param network Unique pointer to the network implementation.
          * @param optimizer Unique pointer to the optimizer instance.
+         * @param config Model configuration for training, checkpointing, etc.
          */
         Model(
             std::unique_ptr<Network<TDeviceType, TPrecision>> network,
             std::unique_ptr<Compute::Optimizer<TDeviceType, TPrecision>> optimizer,
-			//std::unique_ptr<Loss<TDeviceType, TPrecision>> loss_fn,
             const ModelConfig& config )
-			: network_( std::move( network ) ), optimizer_( std::move( optimizer ) ), config_( config )
+            : network_( std::move( network ) ), optimizer_( std::move( optimizer ) ), config_( config )
         {
-            if (!network_)
+            if ( !network_ )
             {
                 throw std::invalid_argument( "Model: network cannot be null" );
             }
             
-            if (!optimizer_)
+            if ( !optimizer_ )
             {
                 throw std::invalid_argument( "Model: optimizer cannot be null" );
             }
@@ -117,21 +116,23 @@ namespace Mila::Dnn
          * Postconditions:
          *  - Checkpoints may be written to disk via `saveTrainingCheckpoint`.
          *
+         * @param train_reader Dataset reader for training data
+         * @param val_reader Optional dataset reader for validation data
          * @return TrainingHistory that accumulates per-epoch statistics.
          */
-		template<TensorDataType TInputType, TensorDataType TTargetType, typename TMemoryResource>
+        template<TensorDataType TInputType, TensorDataType TTargetType, typename TMemoryResource>
         TrainingHistory train(
             Data::DatasetReader<TInputType, TTargetType, TMemoryResource> train_reader,
-			std::optional<Data::DatasetReader<TInputType, TTargetType, TMemoryResource>> val_reader = std::nullopt )
+            std::optional<Data::DatasetReader<TInputType, TTargetType, TMemoryResource>> val_reader = std::nullopt )
         {
             TrainingHistory history;
 
-            if (config_.getVerbose())
+            if ( config_.getVerbose() )
             {
                 Utils::Logger::info_fmt( "Starting training for {} epochs...", config_.getEpochs() );
             }
 
-            for (std::size_t epoch = 0; epoch < config_.getEpochs(); ++epoch)
+            for ( std::size_t epoch = 0; epoch < config_.getEpochs(); ++epoch )
             {
                 history.current_epoch = epoch;
 
@@ -139,12 +140,12 @@ namespace Mila::Dnn
                 history.train_losses.push_back( train_loss );
 
                 double val_loss = 0.0;
-                if (config_.getValidationSplit() > 0.0)
+                if ( config_.getValidationSplit() > 0.0 )
                 {
                     val_loss = validateEpoch();
                     history.val_losses.push_back( val_loss );
 
-                    if (val_loss < history.best_val_loss)
+                    if ( val_loss < history.best_val_loss )
                     {
                         history.best_val_loss = val_loss;
                         history.epochs_without_improvement = 0;
@@ -155,9 +156,9 @@ namespace Mila::Dnn
                     }
                 }
 
-                if (config_.getVerbose())
+                if ( config_.getVerbose() )
                 {
-                    if (config_.getValidationSplit() > 0.0)
+                    if ( config_.getValidationSplit() > 0.0 )
                     {
                         Utils::Logger::info_fmt( "Epoch {}/{}: loss = {:.6f}, val_loss = {:.6f}",
                             epoch + 1, config_.getEpochs(), train_loss, val_loss );
@@ -169,7 +170,7 @@ namespace Mila::Dnn
                     }
                 }
 
-                if ((epoch + 1) % config_.getCheckpointFrequency() == 0)
+                if ( (epoch + 1) % config_.getCheckpointFrequency() == 0 )
                 {
                     Modeling::CheckpointMetadata metadata{
                         .epoch = epoch,
@@ -182,10 +183,10 @@ namespace Mila::Dnn
                     saveTrainingCheckpoint( metadata );
                 }
 
-                if (config_.getEarlyStoppingEnabled() &&
-                    history.epochs_without_improvement >= config_.getEarlyStoppingPatience())
+                if ( config_.getEarlyStoppingEnabled() &&
+                    history.epochs_without_improvement >= config_.getEarlyStoppingPatience() )
                 {
-                    if (config_.getVerbose())
+                    if ( config_.getVerbose() )
                     {
                         Utils::Logger::info_fmt( "Early stopping triggered after {} epochs without improvement",
                             history.epochs_without_improvement );
@@ -196,54 +197,6 @@ namespace Mila::Dnn
 
             return history;
         }
-
-        /**
-         * @brief Resume training from the latest checkpoint and continue for additional epochs.
-         *
-         * This method:
-         *  - Loads the latest checkpoint,
-         *  - Adjusts the configured epoch count if additional_epochs > 0,
-         *  - Continues training from the epoch after the checkpoint.
-         *
-         * @param additional_epochs Optional number of epochs to append to the resumed schedule.
-         * @return TrainingHistory aggregated from resumed training.
-         *
-         * @throws std::runtime_error if no checkpoint exists to resume from.
-         */
-        /*TrainingHistory resumeTraining( std::size_t additional_epochs = 0 )
-        {
-            if (!checkpoint_manager_)
-            {
-                checkpoint_manager_ = std::make_unique<Modeling::CheckpointManager>( config_ );
-                checkpoint_manager_->scanCheckpoints();
-            }
-
-            auto latest = loadLatestCheckpoint();
-            if (!latest)
-            {
-                throw std::runtime_error( "No checkpoint found to resume from" );
-            }
-
-            if (config_.getVerbose())
-            {
-                Utils::Logger::info_fmt( "Resuming training from epoch {}", latest->epoch + 1 );
-            }
-
-            std::size_t original_epochs = config_.getEpochs();
-            if (additional_epochs > 0)
-            {
-                config_.setEpochs( latest->epoch + additional_epochs );
-            }
-
-            TrainingHistory history = trainFromEpoch( latest->epoch + 1 );
-
-            if (additional_epochs > 0)
-            {
-                config_.setEpochs( original_epochs );
-            }
-
-            return history;
-        }*/
 
         /**
          * @brief Evaluate the model on a dataset.
@@ -262,10 +215,10 @@ namespace Mila::Dnn
          * @brief Save a full training checkpoint to the provided filepath.
          *
          * Writes a ZIP archive with:
-         *  - model/meta.json
+         *  - model/meta.json (using SerializationMetadata)
          *  - network/* (delegated to Network::save)
          *  - optimizer/* (delegated to optimizer->save)
-         *  - model/config.json
+         *  - model/config.json (using SerializationMetadata)
          *
          * Preconditions:
          *  - The archive path must be writable.
@@ -277,20 +230,21 @@ namespace Mila::Dnn
             auto serializer = std::make_unique<ZipSerializer>();
             ModelArchive archive( filepath, std::move( serializer ), OpenMode::Write );
 
-            json model_meta;
-            model_meta["model_version"] = 1;
-            model_meta["device"] = deviceTypeToString( TDeviceType );
-            model_meta["precision"] = "FP32"; // FIXME: precisionToString( TPrecision );
-            model_meta["framework_version"] = 1; // MILA_VERSION;
-            archive.writeJson( "model/meta.json", model_meta );
+            SerializationMetadata model_meta;
+            model_meta.set( "model_version", int64_t( 1 ) )
+                      .set( "device", deviceTypeToString( TDeviceType ) )
+                      .set( "precision", "FP32" ) // FIXME: precisionToString( TPrecision )
+                      .set( "framework_version", int64_t( 1 ) ); // MILA_VERSION
+            
+            archive.writeMetadata( "model/meta.json", model_meta );
 
             network_->save( archive, SerializationMode::Checkpoint );
 
             optimizer_->save( archive, "optimizer/" );
 
-			// FIXME:
-            //json cfg = config_.toJson();
-            //archive.writeJson( "model/config.json", cfg );
+            // FIXME: Serialize config when ModelConfig has serialization support
+            // SerializationMetadata cfg = config_.toMetadata();
+            // archive.writeMetadata( "model/config.json", cfg );
 
             archive.close();
         }
@@ -308,6 +262,8 @@ namespace Mila::Dnn
          * @param filepath Filesystem path to the checkpoint archive.
          * @param exec_context Execution context to attach to reconstructed network.
          * @return Unique pointer to a reconstructed Model instance.
+         *
+         * @throws std::runtime_error if metadata validation fails
          */
         static std::unique_ptr<Model> fromCheckpoint(
             const std::string& filepath,
@@ -316,34 +272,29 @@ namespace Mila::Dnn
             auto serializer = std::make_unique<ZipSerializer>();
             ModelArchive archive( filepath, std::move( serializer ), OpenMode::Read );
 
-            json model_meta = archive.readJson( "model/meta.json" );
+            SerializationMetadata model_meta = archive.readMetadata( "model/meta.json" );
             validateModelMetadata<TDeviceType, TPrecision>( model_meta );
 
-            auto network = NetworkFactory::create<TDeviceType>( archive, exec_context );
+            auto network = NetworkFactory::create<TDeviceType, TPrecision>( archive, exec_context );
 
-            //auto optimizer = OptimizerFactory::create<TDeviceType, TPrecision>(
-            //    archive, "optimizer/", network->getParameters() );
+            // TODO: OptimizerFactory integration
+            // auto optimizer = OptimizerFactory::create<TDeviceType, TPrecision>(
+            //     archive, "optimizer/", network->getParameters() );
 
             auto adamw_config = Optimizers::AdamWConfig();
-                /*.withLearningRate( config.learning_rate )
-                .withBeta1( config.beta1 )
-                .withBeta2( config.beta2 )
-                .withEpsilon( config.epsilon )
-                .withWeightDecay( config.weight_decay )
-                .withName( "AdamW" );*/
-
-            auto optimizer = std::make_shared<Optimizers::AdamWOptimizer<TDeviceType, dtype_t::FP32>>(
+            auto optimizer = std::make_unique<Optimizers::AdamWOptimizer<TDeviceType, dtype_t::FP32>>(
                 exec_context, adamw_config );
 
-            json cfg = archive.readJson( "model/config.json" );
-            ModelConfig config;
-            //config.fromJson( cfg );
+            // FIXME: Deserialize config when ModelConfig has serialization support
+            // auto cfg = archive.readMetadata( "model/config.json" );
+            // ModelConfig config = ModelConfig::fromMetadata( cfg );
+            ModelConfig config; // Placeholder
 
             auto model = std::make_unique<Model>(
                 std::move( network ),
-                std::move( optimizer )
+                std::move( optimizer ),
+                config
             );
-            //model->config_ = std::move( config );
 
             return model;
         }
@@ -362,57 +313,25 @@ namespace Mila::Dnn
             auto serializer = std::make_unique<ZipSerializer>();
             ModelArchive archive( filepath, std::move( serializer ), OpenMode::Write );
 
-            json model_meta;
-            model_meta["model_version"] = 1;
-            model_meta["device"] = deviceTypeToString( TDeviceType );
-            model_meta["precision"] = "FP32"; // FIXME: precisionToString( TPrecision );
-            model_meta["export_mode"] = true;
-            archive.writeJson( "model/meta.json", model_meta );
+            SerializationMetadata model_meta;
+            model_meta.set( "model_version", int64_t( 1 ) )
+                      .set( "device", deviceTypeToString( TDeviceType ) )
+                      .set( "precision", "FP32" ) // FIXME: precisionToString( TPrecision )
+                      .set( "export_mode", true );
+            
+            archive.writeMetadata( "model/meta.json", model_meta );
 
             network_->save( archive, SerializationMode::WeightsOnly );
 
             archive.close();
         }
 
-        ///**
-        // * @brief Load a model exported for inference.
-        // *
-        // * Validates that the archive was exported (not a training checkpoint)
-        // * and then reconstructs the network via NetworkFactory.
-        // *
-        // * @param filepath Path to exported model archive.
-        // * @param exec_context Execution context for device resources.
-        // * @return Unique pointer to reconstructed Network instance.
-        // *
-        // * @throws std::runtime_error if archive is not an exported model.
-        // */
-        //static std::unique_ptr<Network<TDeviceType>> loadModel(
-        //    const std::string& filepath,
-        //    std::shared_ptr<Compute::ExecutionContext<TDeviceType>> exec_context )
-        //{
-        //    auto serializer = std::make_unique<ZipSerializer>();
-        //    ModelArchive archive( filepath, std::move( serializer ), OpenMode::Read );
-
-        //    json model_meta = archive.readJson( "model/meta.json" );
-
-        //    if (!model_meta.value( "export_mode", false ))
-        //    {
-        //        throw std::runtime_error(
-        //            "File is not an exported model. Use loadCheckpoint() for training checkpoints." );
-        //    }
-
-        //    validateModelMetadata<TDeviceType, TPrecision>( model_meta );
-
-        //    return NetworkFactory::create<TDeviceType>( archive, exec_context );
-        //}
-
-
         /**
          * @brief Access the owned network (const).
          *
          * @return Reference to the internal Network instance.
          */
-        const Network<TDeviceType,TPrecision>& network() const
+        const Network<TDeviceType, TPrecision>& network() const
         {
             return *network_;
         }
@@ -438,25 +357,28 @@ namespace Mila::Dnn
          * @brief Validate that model metadata in an archive matches requested device/precision.
          *
          * Throws on mismatch.
+         *
+         * @param meta Metadata to validate
+         * @throws std::runtime_error if device or precision mismatch
          */
         template<Compute::DeviceType D, TensorDataType P>
-        static void validateModelMetadata( const json& meta )
+        static void validateModelMetadata( const SerializationMetadata& meta )
         {
-            std::string file_device = meta.at( "device" ).get<std::string>();
-            std::string file_precision = meta.at( "precision" ).get<std::string>();
+            std::string file_device = meta.tryGetString( "device" ).value_or( "" );
+            std::string file_precision = meta.tryGetString( "precision" ).value_or( "" );
 
-            if (file_device != deviceTypeToString( D ))
+            if ( file_device != deviceTypeToString( D ) )
             {
                 throw std::runtime_error(
                     std::format( "Device mismatch: file='{}', requested='{}'",
                         file_device, deviceTypeToString( D ) ) );
             }
 
-            if (file_precision != "FP32" /* precisionToString(P) */ )
+            if ( file_precision != "FP32" /* precisionToString(P) */ )
             {
                 throw std::runtime_error(
                     std::format( "Precision mismatch: file='{}', requested='{}'",
-                        file_precision, "FP32"/*precisionToString(P) */));
+                        file_precision, "FP32" /* precisionToString(P) */ ) );
             }
         }
 
@@ -464,7 +386,8 @@ namespace Mila::Dnn
          * @internal
          * @brief Create and persist a training checkpoint using the CheckpointManager.
          *
-         * Writes model/meta.json, network data, optimizer state and model/config.json.
+         * Writes model/meta.json, network data, optimizer state and model/config.json
+         * using SerializationMetadata abstraction.
          *
          * @param metadata Checkpoint metadata used to name and register the checkpoint.
          */
@@ -476,24 +399,26 @@ namespace Mila::Dnn
             auto serializer = std::make_unique<ZipSerializer>();
             ModelArchive archive( filepath.string(), std::move( serializer ), OpenMode::Write );
 
-            json model_meta;
-            model_meta["model_version"] = 1;
-            model_meta["device"] = deviceTypeToString( TDeviceType );
-            model_meta["precision"] = "FP32"; // FIXME: precisionToString( TPrecision );
-            model_meta["framework_version"] = 1;// MILA_VERSION;
-            model_meta["epoch"] = metadata.epoch;
-            model_meta["train_loss"] = metadata.train_loss;
-            model_meta["val_loss"] = metadata.val_loss;
-            model_meta["timestamp"] = std::chrono::system_clock::to_time_t( metadata.timestamp );
-            archive.writeJson( "model/meta.json", model_meta );
+            SerializationMetadata model_meta;
+            model_meta.set( "model_version", int64_t( 1 ) )
+                      .set( "device", deviceTypeToString( TDeviceType ) )
+                      .set( "precision", "FP32" ) // FIXME: precisionToString( TPrecision )
+                      .set( "framework_version", int64_t( 1 ) ) // MILA_VERSION
+                      .set( "epoch", static_cast<int64_t>( metadata.epoch ) )
+                      .set( "train_loss", metadata.train_loss )
+                      .set( "val_loss", metadata.val_loss )
+                      .set( "timestamp", static_cast<int64_t>(
+                          std::chrono::system_clock::to_time_t( metadata.timestamp ) ) );
+            
+            archive.writeMetadata( "model/meta.json", model_meta );
 
             network_->save( archive, SerializationMode::Checkpoint );
 
             optimizer_->save( archive, "optimizer/" );
 
-            // FIXME:
-            //json cfg = config_.toJson();
-            //archive.writeJson( "model/config.json", cfg );
+            // FIXME: Serialize config when ModelConfig has serialization support
+            // SerializationMetadata cfg = config_.toMetadata();
+            // archive.writeMetadata( "model/config.json", cfg );
 
             archive.close();
 
@@ -501,7 +426,7 @@ namespace Mila::Dnn
             saved_metadata.filepath = filepath;
             checkpoint_manager_->addCheckpoint( saved_metadata );
 
-            if (config_.getVerbose())
+            if ( config_.getVerbose() )
             {
                 Utils::Logger::info_fmt(
                     "Checkpoint saved: {} (epoch {}, train_loss: {:.6f}, val_loss: {:.6f})",
@@ -523,15 +448,16 @@ namespace Mila::Dnn
             auto serializer = std::make_unique<ZipSerializer>();
             ModelArchive archive( filepath.string(), std::move( serializer ), OpenMode::Read );
 
-            json model_meta = archive.readJson( "model/meta.json" );
+            SerializationMetadata model_meta = archive.readMetadata( "model/meta.json" );
             validateModelMetadata<TDeviceType, TPrecision>( model_meta );
 
             network_->load( archive, SerializationMode::Checkpoint );
 
             optimizer_->load( archive, "optimizer/" );
 
-            json cfg = archive.readJson( "model/config.json" );
-            // FIXME: config_.fromJson( cfg );
+            // FIXME: Deserialize config when ModelConfig has serialization support
+            // auto cfg = archive.readMetadata( "model/config.json" );
+            // config_ = ModelConfig::fromMetadata( cfg );
         }
 
         /**
@@ -567,14 +493,14 @@ namespace Mila::Dnn
          */
         TrainingHistory trainFromEpoch( std::size_t start_epoch )
         {
-            if (!checkpoint_manager_)
+            if ( !checkpoint_manager_ )
             {
                 checkpoint_manager_ = std::make_unique<Modeling::CheckpointManager>( config_ );
             }
 
             TrainingHistory history;
 
-            if (config_.getVerbose())
+            if ( config_.getVerbose() )
             {
                 Utils::Logger::info_fmt( "Continuing training from epoch {} to {}...",
                     start_epoch, config_.getEpochs() );

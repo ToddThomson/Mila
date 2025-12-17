@@ -5,7 +5,7 @@
 
 import Mila;
 
-namespace Modules::Normalization::Tests
+namespace Dnn::Components::Normalization::Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;

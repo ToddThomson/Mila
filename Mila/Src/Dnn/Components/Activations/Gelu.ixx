@@ -1,8 +1,8 @@
 /**
  * @file Gelu.ixx
- * @brief GELU activation module implementation.
+ * @brief GELU activation component implementation.
  *
- * Device-templated GELU module that delegates computation to a registered
+ * Device-templated GELU component that delegates computation to a registered
  * device-specific UnaryOperation backend.
  */
 
@@ -38,6 +38,7 @@ import Compute.CudaDeviceMemoryResource;
 import Serialization.ModelArchive;
 import Serialization.Tensor;
 import Serialization.Mode;
+import Serialization.Metadata;
 import nlohmann.json;
 
 namespace Mila::Dnn
@@ -47,19 +48,19 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Serialization;
 
     /**
-     * @brief Gaussian Error Linear Unit (GELU) activation module.
+     * @brief Gaussian Error Linear Unit (GELU) activation component.
      *
-     * Device-templated GELU module that performs forward (and optionally
+     * Device-templated GELU component that performs forward (and optionally
      * backward) computation by delegating to a registered device-specific
      * UnaryOperation implementation found via the OperationRegistry.
      *
      * @tparam TDeviceType Compile-time device identifier (DeviceType::Cpu or DeviceType::Cuda).
-     * @tparam TPrecision  Tensor data precision used by this module.
+     * @tparam TPrecision  Tensor data precision used by this component.
      *
      * Construction Modes:
      * - **Standalone mode**: Construct with DeviceId to create and own an ExecutionContext.
      *   The component manages the context lifetime and uses it for operation execution.
-     * - **Shared mode**: Construct without DeviceId; parent (Network/CompositeComponent) 
+     * - **Shared mode**: Construct without DeviceId; parent (Network/CompositeComponent)
      *   provides ExecutionContext via setExecutionContext() after construction.
      *
      * Ownership:
@@ -67,7 +68,7 @@ namespace Mila::Dnn
      * - Shared mode: Component borrows ExecutionContext from parent; lifecycle managed externally.
      *
      * Preconditions:
-     * - The module's `build(const shape_t&)` must be called before `forward()` to
+     * - The component's `build(const shape_t&)` must be called before `forward()` to
      *   fully initialize the backend operation.
      * - Shared mode requires parent to call setExecutionContext() before build().
      *
@@ -80,7 +81,7 @@ namespace Mila::Dnn
      * - `backward()` computes input gradients for GELU activation (no parameter gradients).
      *
      * Threading / Synchronization:
-     * - Module does not guarantee thread-safety; call `synchronize()` to wait
+     * - Component does not guarantee thread-safety; call `synchronize()` to wait
      *   for outstanding device work to complete when needed.
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
@@ -93,7 +94,7 @@ namespace Mila::Dnn
         using ComponentBase = Component<TDeviceType, TPrecision>;
 
         /**
-         * @brief Construct GELU activation module with optional ExecutionContext ownership.
+         * @brief Construct GELU activation component with optional ExecutionContext ownership.
          *
          * Supports two construction modes:
          *
@@ -109,7 +110,8 @@ namespace Mila::Dnn
          * - Backend operation created when parent sets context.
          * - Use case: Components added to Network via addComponent<Gelu>(...).
          *
-         * @param config GELU configuration (name and approximation method).
+         * @param name Component name identifier (mandatory).
+         * @param config GELU configuration (approximation method).
          * @param device_id Optional device identifier. If provided, creates owned ExecutionContext
          *                  for standalone mode. If nullopt, expects shared context from parent.
          *
@@ -125,7 +127,7 @@ namespace Mila::Dnn
          * @example
          * // Standalone mode (owns context)
          * GeluConfig config;
-         * Gelu<DeviceType::Cpu, TensorDataType::FP32> gelu(config, Device::Cpu());
+         * Gelu<DeviceType::Cpu, TensorDataType::FP32> gelu("gelu", config, Device::Cpu());
          *
          * @example
          * // Shared mode (borrows parent's context)
@@ -146,8 +148,6 @@ namespace Mila::Dnn
 
                 owned_exec_context_ = createExecutionContext( device_id.value() );
 
-                // Register owned context with base class to enable getExecutionContext()
-                // and trigger onExecutionContextSet() hook for operation creation
                 this->setExecutionContext( owned_exec_context_.get() );
             }
         }
@@ -159,25 +159,35 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
-         * @brief Run the forward computation for this GELU module.
+         * @brief Run the forward computation for this GELU component.
          *
          * Delegates the computation to the device-specific UnaryOperation backend.
          * The caller must ensure `input` and `output` are allocated on the same
-         * device as this module and that `build()` has been called.
+         * device as this component and that `build()` has been called.
          *
          * @param input Const reference to the input tensor (non-owning).
          * @param output Reference to the tensor that will receive results (caller-allocated).
          *
-         * @throws std::runtime_error if module has not been built via build().
+         * @throws std::runtime_error if component has not been built via build().
          * @throws std::runtime_error if operation backend is not initialized.
          */
         void forward( const ITensor& input, ITensor& output )
         {
+            if ( !this->isBuilt() )
+            {
+                throw std::runtime_error( "Gelu::forward: component must be built before forward pass" );
+            }
+
+            if ( !operation_ )
+            {
+                throw std::runtime_error( "Gelu::forward: operation backend not initialized" );
+            }
+
             operation_->forward( input, output );
         }
 
         /**
-         * @brief Compute gradients with respect to the module input.
+         * @brief Compute gradients with respect to the component input.
          *
          * Delegates to the backend UnaryOperation::backward implementation to compute
          * the gradient of GELU with respect to the input. For GELU, there are no
@@ -187,12 +197,13 @@ namespace Mila::Dnn
          * dL/dinput = dL/doutput * dGELU(input)/dinput
          *
          * @param input Const reference to the original forward input.
-         * @param output_grad Const reference to the gradient w.r.t. module output (?L/?output).
+         * @param output_grad Const reference to the gradient w.r.t. component output (?L/?output).
          * @param input_grad Reference to the tensor to be populated with the gradient
-         *                   w.r.t. the module input (?L/?input, caller-allocated).
+         *                   w.r.t. the component input (?L/?input, caller-allocated).
          *
-         * @throws std::runtime_error if module has not been built via build().
-         * @throws std::runtime_error if module is not in training mode.
+         * @throws std::runtime_error if component has not been built via build().
+         * @throws std::runtime_error if component is not in training mode.
+         * @throws std::runtime_error if operation backend is not initialized.
          *
          * @note GELU has no parameters, so no parameter gradients are computed.
          * @note The implementation accumulates into input_grad (does not overwrite).
@@ -200,25 +211,32 @@ namespace Mila::Dnn
          */
         void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
         {
-            if (!this->isBuilt())
+            if ( !this->isBuilt() )
             {
-                throw std::runtime_error( "Gelu::backward: module must be built before backward pass" );
+                throw std::runtime_error( "Gelu::backward: component must be built before backward pass" );
             }
 
-            if (!this->isTraining())
+            if ( !this->isTraining() )
             {
-                throw std::runtime_error( "Gelu::backward: module must be in training mode to compute gradients" );
+                throw std::runtime_error( "Gelu::backward: component must be in training mode to compute gradients" );
+            }
+
+            if ( !operation_ )
+            {
+                throw std::runtime_error( "Gelu::backward: operation backend not initialized" );
             }
 
             operation_->backward( input, output_grad, input_grad );
         }
 
         /**
-         * @brief Wait for all asynchronous work submitted by this module to complete.
+         * @brief Wait for all asynchronous work submitted by this component to complete.
          *
-         * Synchronizes the underlying ExecutionContext. On CPU implementations this 
-         * may be a no-op. Use to ensure results are visible on the host or to measure 
+         * Synchronizes the underlying ExecutionContext. On CPU implementations this
+         * may be a no-op. Use to ensure results are visible on the host or to measure
          * synchronous timings.
+         *
+         * @throws std::runtime_error if ExecutionContext has not been set.
          */
         void synchronize() override
         {
@@ -240,16 +258,16 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
-         * @brief Persist module state to archive.
+         * @brief Persist component state to archive.
          *
          * GELU is stateless (no trainable tensors) but persists:
-         * - Module type ("Gelu") and version (1)
-         * - Module name from config
+         * - Component type ("Gelu") and version (1)
+         * - Component name from config
          * - Template parameters (device type and precision) for loader validation
          * - Serialized GeluConfig (approximation method)
          *
          * Files written:
-         * - meta.json: Module metadata and template parameters
+         * - meta.json: Component metadata and template parameters
          * - config.json: GeluConfig serialization
          *
          * @param archive Archive to write to.
@@ -259,61 +277,67 @@ namespace Mila::Dnn
         {
             (void)mode;
 
-            json meta = json::object();
-            meta["type"] = "Gelu";
-            meta["version"] = 1;
-            meta["name"] = this->getName();
-            meta["template_device"] = deviceTypeToString( TDeviceType );
-            meta["template_precision"] = static_cast<int>( TPrecision );
+            SerializationMetadata meta;
+            meta.set( "type", "Gelu" )
+                .set( "version", int64_t( 1 ) )
+                .set( "name", this->getName() )
+                .set( "template_device", deviceTypeToString( TDeviceType ) )
+                .set( "template_precision", static_cast<int64_t>(TPrecision) );
 
-            archive.writeJson( "meta.json", meta );
+            archive.writeMetadata( "meta.json", meta );
 
-            json cfg = config_.toJson();
-            archive.writeJson( "config.json", cfg );
+            SerializationMetadata cfg;
+            cfg.set( "approximation_method",
+                static_cast<int64_t>(config_.getApproximationMethod()) );
+
+            archive.writeMetadata( "config.json", cfg );
         }
 
         /**
          * @internal
-         * @brief Factory method to reconstruct Gelu module from archive.
+         * @brief Factory method to reconstruct Gelu component from archive.
          *
          * Called by ComponentFactory during deserialization. Reconstructs a Gelu
          * instance in shared mode (using provided ExecutionContext from parent).
          *
          * Reads and validates:
-         * - meta.json: Module type, version, template parameters
+         * - meta.json: Component type, version, template parameters
          * - config.json: GeluConfig
          *
          * @param archive Archive to read from.
-         * @param module_name Name of the module in the archive (for diagnostics).
-         * @param exec_context Execution context for the new module (shared from parent).
-         * @return Unique pointer to reconstructed Gelu module.
+         * @param component_name Name of the component in the archive (for diagnostics).
+         * @param exec_context Execution context for the new component (shared from parent).
+         * @return Unique pointer to reconstructed Gelu component.
          *
          * @throws std::runtime_error if version mismatch or type mismatch.
          * @throws std::runtime_error if device type or precision mismatch.
-         * @throws nlohmann::json::exception if JSON parsing fails.
+         * @throws std::runtime_error if metadata parsing fails.
          */
         static std::unique_ptr<Gelu> fromArchive_(
             ModelArchive& archive,
-            const std::string& module_name,
+            const std::string& component_name,
             IExecutionContext* exec_context )
         {
             try
             {
-                json meta = archive.readJson( "meta.json" );
-                validateMetadata_( meta, module_name );
+                SerializationMetadata meta = archive.readMetadata( "meta.json" );
+                validateMetadata_( meta, component_name );
 
-                json cfg = archive.readJson( "config.json" );
+                SerializationMetadata cfg = archive.readMetadata( "config.json" );
+
                 GeluConfig config;
-                config.fromJson( cfg );
+                auto approx_method = static_cast<GeluConfig::ApproximationMethod>(
+                    cfg.getInt( "approximation_method" ));
+                config.withApproximationMethod( approx_method );
                 config.validate();
 
-                return std::make_unique<Gelu>( config );
+                return std::make_unique<Gelu>( component_name, config );
             }
-            catch (const json::exception& e)
+            catch ( const std::exception& e )
             {
                 throw std::runtime_error(
-                    std::format( "Gelu::fromArchive: JSON error for '{}': {}",
-                        module_name, e.what() )
+                    std::format( "Gelu::fromArchive: error for '{}': {}",
+                        component_name, e.what() )
                 );
             }
         }
@@ -363,25 +387,15 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
-         * @brief Module name for logging and diagnostics.
-         *
-         * Returns the name stored in the GeluConfig (may be empty).
-         *
-         * @return Module name string.
-         */
-        /*std::string getName() const override
-        {
-            return config_.getName();
-        }*/
-
-        /**
-         * @brief Get the device identifier for this module.
+         * @brief Get the device identifier for this component.
          *
          * Returns the DeviceId from the ExecutionContext. In standalone mode,
          * this is the device specified at construction. In shared mode, this
          * is the parent's device.
          *
          * @return DeviceId indicating device type and index.
+         *
+         * @throws std::runtime_error if ExecutionContext has not been set.
          */
         DeviceId getDeviceId() const override
         {
@@ -389,10 +403,10 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Generate human-readable description of the module.
+         * @brief Generate human-readable description of the component.
          *
          * Produces a multi-line string showing:
-         * - Module name
+         * - Component name
          * - Device type
          * - Approximation method
          *
@@ -405,6 +419,7 @@ namespace Mila::Dnn
             oss << "Gelu: " << this->getName() << std::endl;
             oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
             oss << "Approximation Method: " << config_.toString( config_.getApproximationMethod() ) << std::endl;
+
             return oss.str();
         }
 
@@ -420,7 +435,12 @@ namespace Mila::Dnn
          * - Standalone mode: Immediately in constructor after owned context creation
          * - Shared mode: When parent calls setExecutionContext() after construction
          *
+         * State guards:
+         * - Expects ExecutionContext to be set (guaranteed by Component::setExecutionContext)
+         * - Can be called before build() (operation creation is independent of shape)
+         *
          * @throws std::runtime_error if operation creation fails.
+         * @throws std::runtime_error if "GeluOp" is not registered for this device/precision.
          */
         void onExecutionContextSet() override
         {
@@ -433,13 +453,28 @@ namespace Mila::Dnn
          * Delegates shape-dependent initialization to the backend UnaryOperation.
          * Must be called before `forward()` or `backward()`.
          *
+         * State guards:
+         * - Expects ExecutionContext to be set (required for operation creation)
+         * - Expects operation to be initialized (created in onExecutionContextSet)
+         * - Expects component to be unbuilt (guaranteed by Component::build)
+         *
          * @param input_shape Expected shape for input tensors.
          *
-         * @throws std::invalid_argument if input_shape is incompatible with the module configuration.
+         * @throws std::invalid_argument if input_shape is incompatible with the component configuration.
          * @throws std::runtime_error if backend allocation or build fails.
+         * @throws std::runtime_error if operation is not initialized.
          */
         void onBuilding( const shape_t& input_shape ) override
         {
+            if ( !operation_ )
+            {
+                throw std::runtime_error(
+                    std::format( "Gelu::onBuilding: operation backend not initialized for component '{}'. "
+                        "Ensure onExecutionContextSet() was called successfully.",
+                        this->getName() )
+                );
+            }
+
             operation_->build( input_shape );
             input_shape_ = input_shape;
         }
@@ -450,13 +485,21 @@ namespace Mila::Dnn
          * Propagates training mode to the backend operation. Called by
          * Component::setTraining() with the training mutex held.
          *
+         * State guards:
+         * - Expects operation to be initialized (should be created in onExecutionContextSet)
+         * - Can be called before or after build()
+         *
          * @param is_training New training mode state.
          *
          * @note Do not call setTraining() from this hook (reentrancy prohibited).
+         * @note If operation is not initialized, silently returns (may occur during construction).
          */
         void onTrainingChanging( bool is_training ) override
         {
-            operation_->setTraining( is_training );
+            if ( operation_ )
+            {
+                operation_->setTraining( is_training );
+            }
         }
 
     private:
@@ -476,50 +519,50 @@ namespace Mila::Dnn
          * - Device type matches TDeviceType
          * - Precision matches TPrecision
          *
-         * @param meta Parsed meta.json object.
-         * @param module_name Module name for error messages.
+         * @param meta Parsed metadata.
+         * @param component_name Component name for error messages.
          *
          * @throws std::runtime_error if validation fails.
          */
-        static void validateMetadata_( const json& meta, const std::string& module_name )
+        static void validateMetadata_( const SerializationMetadata& meta, const std::string& component_name )
         {
-            int version = meta.value( "version", 0 );
-            if (version != 1)
+            int64_t version = meta.tryGetInt( "version" ).value_or( 0 );
+            if ( version != 1 )
             {
                 throw std::runtime_error(
                     std::format( "Gelu: unsupported version {} for '{}'",
-                        version, module_name )
+                        version, component_name )
                 );
             }
 
-            std::string type = meta.value( "type", "" );
-            if (type != "Gelu")
+            std::string type = meta.tryGetString( "type" ).value_or( "" );
+            if ( type != "Gelu" )
             {
                 throw std::runtime_error(
                     std::format( "Gelu: type mismatch for '{}': expected 'Gelu', got '{}'",
-                        module_name, type )
+                        component_name, type )
                 );
             }
 
-            std::string file_device = meta.value( "template_device", "" );
-            std::string file_precision = meta.value( "template_precision", "" );
+            std::string file_device = meta.tryGetString( "template_device" ).value_or( "" );
+            int64_t file_precision = meta.tryGetInt( "template_precision" ).value_or( -1 );
 
             std::string expected_device = deviceTypeToString( TDeviceType );
-            std::string expected_precision = "FP32";
+            int64_t expected_precision = static_cast<int64_t>(TPrecision);
 
-            if (file_device != expected_device)
+            if ( file_device != expected_device )
             {
                 throw std::runtime_error(
                     std::format( "Gelu: device mismatch for '{}': archive='{}', expected='{}'",
-                        module_name, file_device, expected_device )
+                        component_name, file_device, expected_device )
                 );
             }
 
-            if (file_precision != expected_precision)
+            if ( file_precision != expected_precision )
             {
                 throw std::runtime_error(
-                    std::format( "Gelu: precision mismatch for '{}': archive='{}', expected='{}'",
-                        module_name, file_precision, expected_precision )
+                    std::format( "Gelu: precision mismatch for '{}': archive={}, expected={}",
+                        component_name, file_precision, expected_precision )
                 );
             }
         }
@@ -539,10 +582,12 @@ namespace Mila::Dnn
                 .createUnaryOperation<TDeviceType, TPrecision>(
                     "GeluOp", this->getExecutionContext(), config_ );
 
-            if (!operation_)
+            if ( !operation_ )
             {
                 throw std::runtime_error(
-                    "Gelu: Failed to create compute backend operation." );
+                    std::format( "Gelu: Failed to create compute backend operation for component '{}'",
+                        this->getName() )
+                );
             }
         }
     };

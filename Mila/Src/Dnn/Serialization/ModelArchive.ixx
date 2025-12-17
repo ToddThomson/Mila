@@ -2,9 +2,7 @@
  * @file ModelArchive.ixx
  * @brief Structured archive helper used by component save/load implementations.
  *
- * Provides a small scoping API so callers may set a logical namespace (scope)
- * for subsequent read/write calls. This keeps leaf `save_()` implementations
- * scope-relative and avoids repetitive path concatenation at each component.
+ * Provides scoping API and type-safe metadata access without exposing JSON implementation.
  */
 
 module;
@@ -21,20 +19,26 @@ export module Serialization.ModelArchive;
 
 import Serialization.ModelSerializer;
 import Serialization.OpenMode;
+import Serialization.Metadata;
 import nlohmann.json;
 
 namespace Mila::Dnn::Serialization
 {
-	using json = nlohmann::json;
+    using json = nlohmann::json;
 
     /**
      * @brief ModelArchive provides high-level helpers for component serialization.
      *
      * Responsibilities:
      *  - Coordinate ModelSerializer lifecycle (open/close)
-     *  - Write/read structured JSON metadata files
+     *  - Write/read type-safe metadata (abstracts JSON implementation)
      *  - Write/read arbitrary binary blobs
-     *  - Enforce ArchiveMode for type-safe operations
+     *  - Enforce OpenMode for type-safe operations
+     *
+     * Metadata Abstraction:
+     * - User code interacts with SerializationMetadata (type-safe, format-agnostic)
+     * - ModelArchive handles conversion to/from JSON internally
+     * - Future format changes (XML, binary, etc.) won't break user code
      *
      * A simple scoping API (pushScope/popScope / ScopedScope) allows callers to
      * set a logical directory prefix used by subsequent read/write operations.
@@ -56,14 +60,14 @@ namespace Mila::Dnn::Serialization
          * @throws std::runtime_error if serializer cannot be opened in the specified mode
          */
         explicit ModelArchive( const std::string& filepath, std::unique_ptr<ModelSerializer> serializer, OpenMode mode )
-			: filepath_( filepath ), serializer_( std::move( serializer ) ), mode_( mode ), closed_( false )
+            : filepath_( filepath ), serializer_( std::move( serializer ) ), mode_( mode ), closed_( false )
         {
-            if (!serializer_)
+            if ( !serializer_ )
             {
                 throw std::invalid_argument( "ModelArchive requires a non-null serializer" );
             }
 
-            if (!serializer_->open( filepath, mode ))
+            if ( !serializer_->open( filepath, mode ) )
             {
                 throw std::runtime_error(
                     std::format( "ModelArchive: failed to open '{}' for {}", filepath, archiveModeToString( mode ) ) );
@@ -75,20 +79,18 @@ namespace Mila::Dnn::Serialization
          */
         ~ModelArchive()
         {
-            if (!closed_ && serializer_)
+            if ( !closed_ && serializer_ )
             {
                 try
                 {
                     close();
                 }
-                catch (...)
+                catch ( ... )
                 {
-                    // Suppress exceptions in destructor
                 }
             }
         }
 
-        // Non-copyable, movable
         ModelArchive( const ModelArchive& ) = delete;
         ModelArchive& operator=( const ModelArchive& ) = delete;
 
@@ -98,20 +100,20 @@ namespace Mila::Dnn::Serialization
             , mode_( other.mode_ )
             , closed_( other.closed_ )
         {
-            other.closed_ = true;  // Prevent double-close
+            other.closed_ = true;
         }
 
         ModelArchive& operator=( ModelArchive&& other ) noexcept
         {
-            if (this != &other)
+            if ( this != &other )
             {
-                if (!closed_)
+                if ( !closed_ )
                 {
                     try
                     {
                         close();
                     }
-                    catch (...)
+                    catch ( ... )
                     {
                     }
                 }
@@ -124,43 +126,26 @@ namespace Mila::Dnn::Serialization
             return *this;
         }
 
-        /**
-         * @brief Get the current archive mode.
-         */
         OpenMode getMode() const noexcept
         {
             return mode_;
         }
 
-        /**
-         * @brief Get the filepath for this archive.
-         */
         const std::string& getFilepath() const noexcept
         {
             return filepath_;
         }
 
-        /**
-         * @brief Check if archive is closed
-         */
         bool isClosed() const noexcept
         {
             return closed_;
         }
 
-        /**
-         * @brief Finalize and close the archive
-         *
-         * For write mode, ensures all data is flushed.
-         * For read mode, releases resources.
-         *
-         * @throws std::runtime_error if close fails
-         */
         void close()
         {
-            if (closed_) return;
+            if ( closed_ ) return;
 
-            if (!serializer_)
+            if ( !serializer_ )
             {
                 closed_ = true;
                 return;
@@ -171,7 +156,7 @@ namespace Mila::Dnn::Serialization
                 serializer_->close();
                 closed_ = true;
             }
-            catch (const std::exception& e)
+            catch ( const std::exception& e )
             {
                 throw std::runtime_error(
                     std::format( "ModelArchive::close failed for '{}': {}", filepath_, e.what() ) );
@@ -182,49 +167,27 @@ namespace Mila::Dnn::Serialization
         // Scoping helpers
         // ====================================================================
 
-        /**
-         * @brief Push a logical scope onto the archive scope stack.
-         *
-         * The scope is a path fragment (for example "components/<name>" or "network").
-         * Subsequent read/write calls that use relative paths will be resolved under
-         * the composed scope. Use popScope() to restore the previous scope.
-         */
         void pushScope( const std::string& scope )
         {
-            // Normalize: remove leading/trailing slashes to avoid double separators.
             std::string s = scope;
-            while (!s.empty() && s.front() == '/') s.erase( s.begin() );
-            while (!s.empty() && s.back() == '/') s.pop_back();
+            while ( !s.empty() && s.front() == '/' ) s.erase( s.begin() );
+            while ( !s.empty() && s.back() == '/' ) s.pop_back();
 
-            if (!s.empty())
+            if ( !s.empty() )
             {
                 scope_stack_.push_back( s );
             }
-            else
-            {
-                // Pushing an empty scope is a no-op.
-            }
         }
 
-        /**
-         * @brief Pop the most recently pushed scope.
-         *
-         * @throws std::runtime_error if no scope to pop.
-         */
         void popScope()
         {
-            if (scope_stack_.empty())
+            if ( scope_stack_.empty() )
             {
                 throw std::runtime_error( "ModelArchive::popScope: no scope to pop" );
             }
             scope_stack_.pop_back();
         }
 
-        /**
-         * @brief RAII helper that pushes a scope and pops it on destruction.
-         *
-         * Use this to ensure scoped path is restored even in exception cases.
-         */
         class ScopedScope
         {
         public:
@@ -236,24 +199,21 @@ namespace Mila::Dnn::Serialization
 
             ~ScopedScope()
             {
-                if (active_)
+                if ( active_ )
                 {
                     try
                     {
                         archive_.popScope();
                     }
-                    catch (...)
+                    catch ( ... )
                     {
-                        // Suppress exceptions from destructor
                     }
                 }
             }
 
-            // Disable copy
             ScopedScope( const ScopedScope& ) = delete;
             ScopedScope& operator=( const ScopedScope& ) = delete;
 
-            // Allow move
             ScopedScope( ScopedScope&& other ) noexcept
                 : archive_( other.archive_ ), active_( other.active_ )
             {
@@ -272,17 +232,13 @@ namespace Mila::Dnn::Serialization
         bool hasFile( const std::string& path ) const
         {
             requireOpen( "hasFile" );
-
-            const std::string full = scopedPath( path );
-            return serializer_->hasFile( full );
+            return serializer_->hasFile( scopedPath( path ) );
         }
 
         size_t getFileSize( const std::string& path ) const
         {
             requireOpen( "getFileSize" );
-
-            const std::string full = scopedPath( path );
-            return serializer_->getFileSize( full );
+            return serializer_->getFileSize( scopedPath( path ) );
         }
 
         std::vector<std::string> listFiles() const
@@ -292,41 +248,105 @@ namespace Mila::Dnn::Serialization
         }
 
         // ====================================================================
-        // Write Operations
+        // Type-Safe Metadata Write/Read (USER-FACING API)
         // ====================================================================
 
         /**
-         * @brief Write a JSON object to the archive at `path`.
+         * @brief Write type-safe metadata to the archive.
          *
-         * If a scope is active and `path` is relative, the path will be resolved
-         * under the active scope. Paths that already begin with a top-level root
-         * (for example "network/" or "components/") are treated as absolute and
-         * are not prefixed.
+         * User-facing API that abstracts JSON serialization format.
+         * Components use SerializationMetadata to build metadata without
+         * knowledge of underlying format.
+         *
+         * @param path Archive path for metadata file
+         * @param metadata Type-safe metadata container
          *
          * @throws std::runtime_error if archive is not in Write mode
          * @throws std::runtime_error on serialization failure
+         *
+         * @example
+         * SerializationMetadata meta;
+         * meta.set("type", "Linear")
+         *     .set("version", 1)
+         *     .set("input_features", 128);
+         * archive.writeMetadata("meta.json", meta);
          */
-        void writeJson( const std::string& path, const json& j )
+        void writeMetadata( const std::string& path, const SerializationMetadata& metadata )
         {
-            requireOpen( "writeJson" );
-            requireMode( OpenMode::Write, "writeJson" );
+            requireOpen( "writeMetadata" );
+            requireMode( OpenMode::Write, "writeMetadata" );
+
+            json j = metadata.toJson();
 
             const std::string full = scopedPath( path );
 
-            std::string s = j.dump(2);
-            if (!serializer_->addData( full, s.data(), s.size() ))
+            std::string s = j.dump( 2 );
+            if ( !serializer_->addData( full, s.data(), s.size() ) )
             {
                 throw std::runtime_error(
-                    std::format( "ModelArchive::writeJson failed for path: {}", full ) );
+                    std::format( "ModelArchive::writeMetadata failed for path: {}", full ) );
             }
         }
 
         /**
+         * @brief Read type-safe metadata from the archive.
+         *
+         * User-facing API that abstracts JSON deserialization format.
+         * Components use SerializationMetadata to read metadata without
+         * knowledge of underlying format.
+         *
+         * @param path Archive path for metadata file
+         * @return Type-safe metadata container
+         *
+         * @throws std::runtime_error if archive is not in Read mode
+         * @throws std::runtime_error if file missing or parse fails
+         *
+         * @example
+         * auto meta = archive.readMetadata("meta.json");
+         * std::string type = meta.getString("type");
+         * int64_t version = meta.getInt("version");
+         * int64_t features = meta.getInt("input_features");
+         */
+        SerializationMetadata readMetadata( const std::string& path ) const
+        {
+            requireMode( OpenMode::Read, "readMetadata" );
+
+            const std::string full = scopedPath( path );
+
+            size_t sz = serializer_->getFileSize( full );
+            if ( sz == 0 )
+            {
+                throw std::runtime_error( "ModelArchive::readMetadata missing file: " + full );
+            }
+
+            std::string s( sz, '\0' );
+            size_t read = serializer_->extractData( full, s.data(), sz );
+            if ( read != sz )
+            {
+                throw std::runtime_error( "ModelArchive::readMetadata failed to read entire file: " + full );
+            }
+
+            try
+            {
+                json j = json::parse( s );
+                return SerializationMetadata::fromJson( j );
+            }
+            catch ( const std::exception& e )
+            {
+                throw std::runtime_error( std::string( "ModelArchive::readMetadata parse error: " ) + e.what() );
+            }
+        }
+
+        // ====================================================================
+        // Binary Blob Operations
+        // ====================================================================
+
+        /**
          * @brief Write raw binary blob to archive.
          *
-         * If a scope is active and `path` is relative, the path will be resolved
-         * under the active scope. Paths that already begin with a top-level root
-         * (for example "network/" or "components/") are treated as absolute.
+         * @param path Archive path for binary data
+         * @param data Pointer to source bytes
+         * @param size Number of bytes to write
          *
          * @throws std::runtime_error if archive is not in Write mode
          * @throws std::runtime_error on write failure
@@ -335,70 +355,26 @@ namespace Mila::Dnn::Serialization
         {
             requireOpen( "writeBlob" );
             requireMode( OpenMode::Write, "writeBlob" );
-            
-            if (!data && size > 0)
+
+            if ( !data && size > 0 )
             {
                 throw std::invalid_argument( "ModelArchive::writeBlob: null data with non-zero size" );
             }
 
             const std::string full = scopedPath( path );
 
-            if (!serializer_->addData( full, data, size ))
+            if ( !serializer_->addData( full, data, size ) )
             {
                 throw std::runtime_error(
                     std::format( "ModelArchive::writeBlob failed for path: {}", full ) );
             }
         }
 
-        // ====================================================================
-        // Read Operations
-        // ====================================================================
-
-        /**
-         * @brief Read and parse JSON object from `path`.
-         *
-         * If a scope is active and `path` is relative, the path will be resolved
-         * under the active scope. Paths that already begin with a top-level root
-         * (for example "network/" or "components/") are treated as absolute.
-         *
-         * @throws std::runtime_error if archive is not in Read mode
-         * @throws std::runtime_error if file missing or parse fails
-         */
-        json readJson( const std::string& path ) const
-        {
-            requireMode( OpenMode::Read, "readJson" );
-
-            const std::string full = scopedPath( path );
-
-            size_t sz = serializer_->getFileSize( full );
-            if (sz == 0)
-            {
-                throw std::runtime_error( "ModelArchive::readJson missing file: " + full );
-            }
-
-            std::string s( sz, '\0' );
-            size_t read = serializer_->extractData( full, s.data(), sz );
-            if (read != sz)
-            {
-                throw std::runtime_error( "ModelArchive::readJson failed to read entire file: " + full );
-            }
-
-            try
-            {
-                return json::parse( s );
-            }
-            catch (const std::exception& e)
-            {
-                throw std::runtime_error( std::string( "ModelArchive::readJson parse error: " ) + e.what() );
-            }
-        }
-
         /**
          * @brief Read raw binary blob from archive into returned vector.
          *
-         * If a scope is active and `path` is relative, the path will be resolved
-         * under the active scope. Paths that already begin with a top-level root
-         * (for example "network/" or "components/") are treated as absolute.
+         * @param path Archive path for binary data
+         * @return Vector containing file contents
          *
          * @throws std::runtime_error if archive is not in Read mode
          * @throws std::runtime_error if file missing or read fails
@@ -410,21 +386,21 @@ namespace Mila::Dnn::Serialization
 
             const std::string full = scopedPath( path );
 
-            if (!serializer_->hasFile( full ))
+            if ( !serializer_->hasFile( full ) )
             {
                 throw std::runtime_error(
                     std::format( "ModelArchive::readBlob: file not found: {}", full ) );
             }
 
             size_t sz = serializer_->getFileSize( full );
-            if (sz == 0)
+            if ( sz == 0 )
             {
-                return {};  // Empty file -> empty vector
+                return {};
             }
 
             std::vector<uint8_t> buf( sz );
             size_t read = serializer_->extractData( full, buf.data(), sz );
-            if (read != sz)
+            if ( read != sz )
             {
                 throw std::runtime_error(
                     std::format( "ModelArchive::readBlob: incomplete read from {}", full ) );
@@ -434,12 +410,13 @@ namespace Mila::Dnn::Serialization
         }
 
         /**
-         * @brief Read binary blob directly into provided buffer
+         * @brief Read binary blob directly into provided buffer.
          *
-         * @param path Path in archive
+         * @param path Archive path
          * @param buffer Pre-allocated buffer
          * @param buffer_size Size of buffer
          * @return Number of bytes read
+         *
          * @throws std::runtime_error if file missing or buffer too small
          */
         size_t readBlobInto( const std::string& path, void* buffer, size_t buffer_size ) const
@@ -449,14 +426,14 @@ namespace Mila::Dnn::Serialization
 
             const std::string full = scopedPath( path );
 
-            if (!serializer_->hasFile( full ))
+            if ( !serializer_->hasFile( full ) )
             {
                 throw std::runtime_error(
                     std::format( "ModelArchive::readBlobInto: file not found: {}", full ) );
             }
 
             size_t file_size = serializer_->getFileSize( full );
-            if (file_size > buffer_size)
+            if ( file_size > buffer_size )
             {
                 throw std::runtime_error(
                     std::format( "ModelArchive::readBlobInto: buffer too small ({} < {})",
@@ -464,7 +441,7 @@ namespace Mila::Dnn::Serialization
             }
 
             size_t read = serializer_->extractData( full, buffer, file_size );
-            if (read != file_size)
+            if ( read != file_size )
             {
                 throw std::runtime_error(
                     std::format( "ModelArchive::readBlobInto: incomplete read from {}", full ) );
@@ -474,15 +451,21 @@ namespace Mila::Dnn::Serialization
         }
 
         /**
-     * @brief Add metadata key-value pair.
-     */
+         * @brief Add simple metadata key-value pair.
+         *
+         * For simple string metadata (archive-level tags, format markers, etc.).
+         * Use writeMetadata() for structured component metadata.
+         */
         void addMetadata( const std::string& key, const std::string& value )
         {
             serializer_->addMetadata( key, value );
         }
 
         /**
-         * @brief Retrieve metadata value.
+         * @brief Retrieve simple metadata value.
+         *
+         * For simple string metadata (archive-level tags, format markers, etc.).
+         * Use readMetadata() for structured component metadata.
          */
         std::string getMetadata( const std::string& key ) const
         {
@@ -493,50 +476,43 @@ namespace Mila::Dnn::Serialization
         std::unique_ptr<ModelSerializer> serializer_;
         std::string filepath_;
         OpenMode mode_;
-		bool closed_{ false };
-
-        // Scope stack: top is back()
+        bool closed_{ false };
         std::vector<std::string> scope_stack_;
 
-        // Top-level roots treated as absolute paths (do not prefix with scope)
         static inline const std::vector<std::string> kAbsoluteRoots = { "network/", "components/", "modules/" };
 
-        // Compose current scope prefix, or empty string if no scope
         std::string currentPrefix() const
         {
-            if (scope_stack_.empty()) return std::string();
+            if ( scope_stack_.empty() ) return std::string();
 
             std::string p;
-            for (size_t i = 0; i < scope_stack_.size(); ++i)
+            for ( size_t i = 0; i < scope_stack_.size(); ++i )
             {
-                if (i) p.push_back( '/' );
-                p += scope_stack_[i];
+                if ( i ) p.push_back( '/' );
+                p += scope_stack_[ i ];
             }
 
-            // Ensure trailing slash
-            if (!p.empty() && p.back() != '/') p.push_back( '/' );
+            if ( !p.empty() && p.back() != '/' ) p.push_back( '/' );
 
             return p;
         }
 
-        // Determine if caller provided an absolute path that should not be prefixed
         bool isAbsolutePath( const std::string& path ) const noexcept
         {
-            if (path.empty()) return false;
-            if (path.front() == '/') return true;
+            if ( path.empty() ) return false;
+            if ( path.front() == '/' ) return true;
 
-            for (const auto& root : kAbsoluteRoots)
+            for ( const auto& root : kAbsoluteRoots )
             {
-                if (path.rfind( root, 0 ) == 0) return true;
+                if ( path.rfind( root, 0 ) == 0 ) return true;
             }
 
             return false;
         }
 
-        // Resolve a user-specified path into the final archive path using current scope.
         std::string scopedPath( const std::string& path ) const
         {
-            if (isAbsolutePath( path ) || scope_stack_.empty())
+            if ( isAbsolutePath( path ) || scope_stack_.empty() )
             {
                 return path;
             }
@@ -546,7 +522,7 @@ namespace Mila::Dnn::Serialization
 
         void requireMode( OpenMode expected, const char* op ) const
         {
-            if (mode_ != expected)
+            if ( mode_ != expected )
             {
                 throw std::runtime_error(
                     std::format( "ModelArchive::{}: operation requires {} mode, but archive is in {} mode",
@@ -556,7 +532,7 @@ namespace Mila::Dnn::Serialization
 
         void requireOpen( const char* op ) const
         {
-            if (closed_)
+            if ( closed_ )
             {
                 throw std::runtime_error(
                     std::format( "ModelArchive::{}: archive is closed", op ) );

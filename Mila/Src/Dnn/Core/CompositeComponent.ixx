@@ -167,15 +167,15 @@ namespace Mila::Dnn
 
             child_component_map_[ name ] = component;
             child_components_.push_back( component );
-
-            if ( this->hasExecutionContext() )
+            
+            // setExecutionContext should be done after network building
+            /*if ( this->hasExecutionContext() )
             {
-                // FIXME:
-                /*if ( !component->hasExecutionContext() )
+                if ( !component->hasExecutionContext() )
                 {
                     component->setExecutionContext( this->getExecutionContext() );
-                }*/
-            }
+                }
+            }*/
 
             return *this;
         }
