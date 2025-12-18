@@ -1,7 +1,7 @@
 #include <string>
 #include <iostream>
 #include <iomanip>
-//#include <chrono>
+#include <chrono>
 #include <filesystem>
 #include <format>
 #include <limits>
@@ -312,44 +312,15 @@ float computeAccuracy( const Tensor<TDataType, MR>& logits,
 
 template<DeviceType TDeviceType, TensorDataType TDataType, typename THostMR>
     requires PrecisionSupportedOnDevice<TDataType, TDeviceType> &&
-(std::is_same_v<THostMR, CudaPinnedMemoryResource> || std::is_same_v<THostMR, CpuMemoryResource>)
+        (std::is_same_v<THostMR, CudaPinnedMemoryResource> || std::is_same_v<THostMR, CpuMemoryResource>)
 void trainMnist( const MnistConfig& config )
 {
-    // TJT: WIP to move toward new Network API usage
-    
     // ========================================================================
-	// Mnist training setup using low-level API
+	// Mnist training setup using low-level APIs
 	// ========================================================================
 
-    using DeviceMR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
-
-    // ============================================================
-    // Mnist setup
-    // ============================================================
-
-    // Deprecated: ExecutionContext creation is now handled by Network/MnistClassifier
-
-    /*std::shared_ptr<ExecutionContext<TDeviceType>> exec_context;
-
-    if constexpr ( TDeviceType == DeviceType::Cuda )
-    {
-        exec_context = std::make_shared<ExecutionContext<TDeviceType>>( Device::Cuda(0) );
-    }
-    else
-    {
-        exec_context = std::make_shared<ExecutionContext<TDeviceType>>();
-    }*/
-
-    DeviceId device_id;
-
-    if ( config.compute_device == DeviceType::Cuda )
-    {
-        device_id = Device::Cuda( 0 );
-    }
-    else
-    {
-        device_id = Device::Cpu();
-    }
+    using DeviceMR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
+    DeviceId device_id = Device::getDeviceId<TDeviceType>(0);
 
     auto mnist_net = std::make_unique<MnistClassifier<TDeviceType, TDataType>>(
         "Mnist",
@@ -358,18 +329,12 @@ void trainMnist( const MnistConfig& config )
 
     mnist_net->setTraining( true );
 
-    // Get device from model's execution context
-    //auto device = mnist_net->getDeviceId();
-
     MnistDataLoader<TensorDataType::FP32, THostMR> train_loader( config.data_directory, config.batch_size, true, device_id );
     MnistDataLoader<TensorDataType::FP32, THostMR> test_loader( config.data_directory, config.batch_size, false, device_id );
 
     // Build the model with the input shape from the data loader
     shape_t input_shape = { train_loader.batchSize(), MNIST_IMAGE_SIZE };
     mnist_net->build( input_shape );
-
-    // In Mnist.cpp, right after model->build():
-    //exec_context->synchronize();
 
     std::cout << "Mnist Classifier built successfully!" << std::endl;
     std::cout << mnist_net->toString() << std::endl;
@@ -385,13 +350,6 @@ void trainMnist( const MnistConfig& config )
         .withBeta2( config.beta2 )
         .withEpsilon( config.epsilon )
         .withWeightDecay( config.weight_decay );
-    // Validate configuration
-    adamw_config.validate();
-
-    /* TODO: AdamW config object constructor
-    auto optimizer = std::make_shared<AdamWOptimizer<TDeviceType, TDataType>>(
-        exec_context,
-        adamw_config );*/
 
     auto optimizer = std::make_shared<AdamWOptimizer<TDeviceType, TDataType>>(
 		mnist_net->getExecutionContext(), adamw_config);
@@ -541,7 +499,6 @@ void trainMnist( const MnistConfig& config )
     }
 }
 
-
 template<DeviceType TDeviceType, TensorDataType TPrecision, typename THostMR>
     requires PrecisionSupportedOnDevice<TPrecision, TDeviceType> &&
 (std::is_same_v<THostMR, CudaPinnedMemoryResource> || std::is_same_v<THostMR, CpuMemoryResource>)
@@ -576,17 +533,14 @@ void trainUsingModel( const MnistConfig& config )
     //mnist_net->setTraining( true );
 
     // Get device from model's execution context
-    auto device = net->getDeviceId();
+    auto device_id = net->getDeviceId();
 
-    MnistDataLoader<TensorDataType::FP32, THostMR> train_loader( config.data_directory, config.batch_size, true, device );
-    MnistDataLoader<TensorDataType::FP32, THostMR> test_loader( config.data_directory, config.batch_size, false, device );
+    MnistDataLoader<TensorDataType::FP32, THostMR> train_loader( config.data_directory, config.batch_size, true, device_id );
+    MnistDataLoader<TensorDataType::FP32, THostMR> test_loader( config.data_directory, config.batch_size, false, device_id );
 
     // Build the model with the input shape from the data loader
     shape_t input_shape = { train_loader.batchSize(), MNIST_IMAGE_SIZE };
     net->build( input_shape );
-
-    // In Mnist.cpp, right after model->build():
-    //exec_context->synchronize();
 
     std::cout << "Mnist Network built successfully!" << std::endl;
     std::cout << net->toString() << std::endl;
@@ -604,21 +558,8 @@ void trainUsingModel( const MnistConfig& config )
         .withWeightDecay( config.weight_decay )
         .withName( "AdamW" );
 
-    // Validate configuration
-    adamw_config.validate();
-
-    /* TODO: AdamW config object constructor
-    auto optimizer = std::make_shared<AdamWOptimizer<TDeviceType, TDataType>>(
-        exec_context,
-        adamw_config );*/
-
     auto optimizer = std::make_unique<AdamWOptimizer<TDeviceType, TPrecision>>(
         net->getExecutionContext(), adamw_config );
-        //config.learning_rate,
-        //config.beta1,
-        //config.beta2,
-        //config.epsilon,
-        //config.weight_decay );
 
     // Register all model parameters and gradients with the optimizer
 	
@@ -626,7 +567,6 @@ void trainUsingModel( const MnistConfig& config )
 	// the optimizer will have invalid references.
 
 	// TJT: This should be done via a model method to avoid exposing internal details.
-
     auto params = net->getParameters();
     auto param_grads = net->getGradients();
 
@@ -660,16 +600,16 @@ void trainUsingModel( const MnistConfig& config )
     );
 
     // Allocate tensors for training
-    Tensor<TPrecision, DeviceMR> input_batch( device, input_shape );
+    Tensor<TPrecision, DeviceMR> input_batch( device_id, input_shape );
     Tensor<TPrecision, CpuMemoryResource> target_batch( Device::Cpu(), { train_loader.batchSize(), MNIST_NUM_CLASSES } );
 
     Tensor<TPrecision, CpuMemoryResource> logits( Device::Cpu(), { train_loader.batchSize(), MNIST_NUM_CLASSES } );
-    Tensor<TPrecision, DeviceMR> output( device, { train_loader.batchSize(), MNIST_NUM_CLASSES } );
+    Tensor<TPrecision, DeviceMR> output( device_id, { train_loader.batchSize(), MNIST_NUM_CLASSES } );
 
     // Allocate gradient tensors for backward pass
     Tensor<TPrecision, CpuMemoryResource> output_grad_cpu( Device::Cpu(), { train_loader.batchSize(), MNIST_NUM_CLASSES } );
-    Tensor<TPrecision, DeviceMR> output_grad( device, { train_loader.batchSize(), MNIST_NUM_CLASSES } );
-    Tensor<TPrecision, DeviceMR> input_grad( device, input_shape );
+    Tensor<TPrecision, DeviceMR> output_grad( device_id, { train_loader.batchSize(), MNIST_NUM_CLASSES } );
+    Tensor<TPrecision, DeviceMR> input_grad( device_id, input_shape );
 
 	//model.train( train_loader, test_loader );
 

@@ -74,7 +74,7 @@ namespace Mila::Dnn::Compute
          * @param config Configuration for GELU operation.
          * @throws std::runtime_error If the context is not for a CPU device.
          */
-        CpuGeluOp(  IExecutionContext* context, const GeluConfig& config )
+        CpuGeluOp( IExecutionContext* context, const GeluConfig& config )
             : context_( context ), config_( config )
         {
             if (!context_)

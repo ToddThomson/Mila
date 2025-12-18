@@ -98,5 +98,11 @@ namespace Mila::Dnn::Compute
         {
             return DeviceId{ DeviceType::Rocm, index };
         }
+
+        template<DeviceType TDeviceType>
+        static constexpr DeviceId getDeviceId( int index ) noexcept
+        {
+            return DeviceId{ TDeviceType, index };
+        }
     };
 }

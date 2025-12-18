@@ -71,9 +71,9 @@ export import Compute.ExecutionContextFactory;
 export import Compute.Device;
 export import Compute.DeviceId;
 export import Compute.DeviceType;
-//export import Compute.DeviceTypeTraits;
-//export import Compute.DeviceTypeTraits.Cpu;
-//export import Compute.DeviceTypeTraits.Cuda;
+export import Compute.DeviceTypeTraits;
+export import Compute.DeviceTypeTraits.Cpu;
+export import Compute.DeviceTypeTraits.Cuda;
 export import Compute.CpuDevice;
 export import Compute.CudaDevice;
 

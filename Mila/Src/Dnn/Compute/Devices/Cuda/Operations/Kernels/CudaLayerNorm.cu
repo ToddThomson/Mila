@@ -6,9 +6,61 @@
 //#include <cooperative_groups/reduce.h>
 #include "../../Helpers/CudaUtils.h"
 
+// TJT: The cooperative groups headers above cause issues with our build system currently,
+// so the code that depends on them has been commented out for now.
+
 namespace Mila::Dnn::Compute
 {
     //namespace cg = cooperative_groups;
+
+    //__global__ void layernorm_forward_fp32_kernel( float* __restrict__ out, float* __restrict__ mean, float* __restrict__ rstd,
+    //    const float* __restrict__ inp, const float* __restrict__ weight,
+    //    const float* __restrict__ bias, int N, int C ) {
+    //    int lane_id = threadIdx.x % WARP_SIZE;
+    //    int warp_id = threadIdx.x / WARP_SIZE;
+    //    int num_warps = blockDim.x / WARP_SIZE;
+
+    //    int idx = blockIdx.x * num_warps + warp_id;
+    //    if ( idx >= N ) {
+    //        return;
+    //    } // guard
+
+    //    // the row of input that this group of threads is responsible for
+    //    const float* x = inp + idx * C;
+
+    //    // mean
+    //    float sum = 0.0f;
+    //    for ( int i = lane_id; i < C; i += WARP_SIZE ) {
+    //        sum += (float)x[ i ];
+    //    }
+    //    sum = warpReduceSum( sum );
+    //    float m = sum / C;
+    //    if ( lane_id == 0 && mean != nullptr ) {
+    //        __stcs( mean + idx, m );
+    //    }
+
+    //    // rstd
+    //    sum = 0.0f;
+    //    for ( int i = lane_id; i < C; i += WARP_SIZE ) {
+    //        float diff = (float)x[ i ] - m;
+    //        sum += diff * diff;
+    //    }
+    //    sum = warpReduceSum( sum );
+    //    float s = rsqrtf( sum / C + 1e-5f );
+    //    if ( lane_id == 0 && rstd != nullptr ) {
+    //        __stcs( rstd + idx, s );
+    //    }
+
+    //    // final normalization and scaling by weight/bias
+    //    float* o = out + idx * C;
+    //    for ( int c = lane_id; c < C; c += WARP_SIZE ) {
+    //        // load and store using the .cs "streaming" hint to the compiler,
+    //        // indicating that this data will not be reused soon, and can be streamed through the caches
+    //        // this allows the threads to get more cache-hits for the (shared) weight and bias parameters
+    //        float n = s * ((float)__ldcs( x + c ) - m);
+    //        __stcs( o + c, (float)(n * (float)weight[ c ] + (float)bias[ c ]) );
+    //    }
+    //}
 
     //__global__ void layernorm_forward_fp32_kernel( float* __restrict__ Y, float* __restrict__ mean, float* __restrict__ rstd,
     //    const float* __restrict__ X, const float* __restrict__ weight,  const float* __restrict__ bias, int N, int C, float epsilon ) 
@@ -128,10 +180,10 @@ namespace Mila::Dnn::Compute
         const int N = B * T;
         const int grid_size = ceil_div( N * 32, block_size );
 
-        //layernorm_forward_fp32_kernel <<<grid_size, block_size, 0, stream >>> (
-        //    Y, mean, rstd, X, weight, bias, N, C, epsilon);
+        /*layernorm_forward_fp32_kernel<<<grid_size, block_size, 0, stream>>>(
+            Y, mean, rstd, X, weight, bias, N, C, epsilon);
 
-        //cudaCheck( cudaGetLastError() );
+        cudaCheck( cudaGetLastError() );*/
     }
 
     void cuda_layernorm_forward_fp16(

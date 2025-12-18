@@ -159,10 +159,6 @@ namespace Mila::Dnn
 
         ~MLP() override = default;
 
-        // ====================================================================
-        // Compute operation forward and backward dispatch
-        // ====================================================================
-
         /**
          * @brief Forward pass - HOT PATH, pure dispatch to child components.
          *
@@ -319,36 +315,6 @@ namespace Mila::Dnn
 
     protected:
 
-        // ====================================================================
-        // Lifecycle hooks
-        // ====================================================================
-
-        /**
-         * @brief Create the MLP block architecture (context-independent).
-         *
-         * Defines the computational graph based on configuration:
-         *   fc1 -> [norm] -> activation -> fc2
-         *
-         * Components are created in shared mode (no ExecutionContext).
-         * Context binding happens later via setExecutionContext() which
-         * triggers onExecutionContextSet() hook for context propagation.
-         *
-         * Called from constructor before any device resources are bound.
-         * This enables architecture introspection without requiring a device.
-         */
-        void createGraph()
-        {
-            addLinear( "fc1", config_.getInputFeatures(), config_.getHiddenSize() );
-
-            if ( config_.useLayerNorm() )
-            {
-                addLayerNorm( "norm" );
-            }
-
-            addActivation( "act" );
-            addLinear( "fc2", config_.getHiddenSize(), config_.getInputFeatures() );
-        }
-
         /**
          * @brief Hook invoked during build() to initialize component with input shape.
          *
@@ -397,6 +363,7 @@ namespace Mila::Dnn
         }
 
     private:
+        
         MLPConfig config_;
 
         shape_t cached_input_shape_;
@@ -412,6 +379,32 @@ namespace Mila::Dnn
         std::shared_ptr<TensorType> fc1_output_{ nullptr };
         std::shared_ptr<TensorType> norm_output_{ nullptr };
         std::shared_ptr<TensorType> act_output_{ nullptr };
+
+        /**
+         * @brief Create the MLP block architecture (context-independent).
+         *
+         * Defines the computational graph based on configuration:
+         *   fc1 -> [norm] -> activation -> fc2
+         *
+         * Components are created in shared mode (no ExecutionContext).
+         * Context binding happens later via setExecutionContext() which
+         * triggers onExecutionContextSet() hook for context propagation.
+         *
+         * Called from constructor before any device resources are bound.
+         * This enables architecture introspection without requiring a device.
+         */
+        void createGraph()
+        {
+            addLinear( "fc1", config_.getInputFeatures(), config_.getHiddenSize() );
+
+            if ( config_.useLayerNorm() )
+            {
+                addLayerNorm( "norm" );
+            }
+
+            addActivation( "act" );
+            addLinear( "fc2", config_.getHiddenSize(), config_.getInputFeatures() );
+        }
 
         /**
          * @brief Helper to create and register a linear layer child component.

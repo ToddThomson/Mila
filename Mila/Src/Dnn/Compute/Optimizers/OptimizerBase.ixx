@@ -112,9 +112,7 @@ namespace Mila::Dnn::Compute
          * }
          * @endcode
          */
-        virtual void addParameter(
-            ITensor* param,
-            ITensor* grad ) = 0;
+        virtual void addParameter( ITensor* param, ITensor* grad ) = 0;
 
         /**
          * @brief Perform one optimization step.

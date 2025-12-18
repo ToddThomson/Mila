@@ -32,7 +32,8 @@ namespace Dnn::Core::Tests
          * @param param_count Mock parameter count for testing aggregation
          * @param device_id Optional device for standalone mode
          */
-        explicit TestChildComponent( const std::string& name,
+        explicit TestChildComponent( 
+            const std::string& name,
             size_t param_count = 0,
             std::optional<DeviceId> device_id = std::nullopt )
             : ComponentBase( name ), param_count_( param_count )
@@ -173,7 +174,7 @@ namespace Dnn::Core::Tests
             exec_context_.reset();
         }
 
-        std::unique_ptr<IExecutionContext> exec_context_;
+        std::unique_ptr<IExecutionContext> exec_context_{ nullptr };
         std::unique_ptr<TestableComposite> comp_;
     };
 
@@ -460,13 +461,13 @@ namespace Dnn::Core::Tests
 
     TEST_F( CompositeComponentTests, ExecutionContextPropagatedOnAdd )
     {
+        auto composite = std::make_unique<TestableComposite>();
         auto child = std::make_shared<TestChildComponent>( "late_add", 0, std::nullopt );
 
-        //EXPECT_FALSE( child->hasExecutionContext() );
+        composite->addComponent( child );
 
-        comp_->addComponent( child );
+        composite->setTestExecutionContext( exec_context_.get() );
 
-        //EXPECT_TRUE( child->hasExecutionContext() );
         EXPECT_EQ( child->getDeviceId().type, DeviceType::Cpu );
     }
 

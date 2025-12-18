@@ -64,6 +64,7 @@ target_include_directories( Mila PRIVATE ${miniz_SOURCE_DIR})
 if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
   target_compile_options(Mila PRIVATE 
     $<$<COMPILE_LANGUAGE:CXX>:/std:c++latest /permissive- /Zc:preprocessor /W4>
+    $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/Zc:preprocessor>
   )
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   target_compile_options(Mila PRIVATE 
@@ -174,7 +175,7 @@ PUBLIC
         "Src/Dnn/Components/Losses/Softmax.ixx"
         "Src/Dnn/Components/Losses/SoftmaxConfig.ixx"
 
-        # Components - Normalization / Losses / Regularization / Blocks
+        # Components - Normalization / Losses / Regularization / Composites
         "Src/Dnn/Components/Normalization/LayerNorm.ixx"
         "Src/Dnn/Components/Normalization/LayerNormConfig.ixx"
         
@@ -184,11 +185,10 @@ PUBLIC
         #"Src/Dnn/Components/Regularization/Dropout.ixx"
         #"Src/Dnn/Components/Regularization/DropoutConfig.ixx"
         
-        # --- Blocks ---
-        "Src/Dnn/Components/Blocks/MLP.ixx"
-        "Src/Dnn/Components/Blocks/MLPConfig.ixx"
-        #"Src/Dnn/Components/Blocks/Transformer.ixx"
-        #"Src/Dnn/Components/Blocks/Transformer.Config.ixx"
+        "Src/Dnn/Components/Composites/MLP.ixx"
+        "Src/Dnn/Components/Composites/MLPConfig.ixx"
+        #"Src/Dnn/Components/Composites/Transformer.ixx"
+        #"Src/Dnn/Components/Composites/Transformer.Config.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Compute (core)

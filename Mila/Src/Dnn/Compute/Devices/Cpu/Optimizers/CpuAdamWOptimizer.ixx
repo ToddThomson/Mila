@@ -31,7 +31,6 @@ import Compute.OptimizerBase;
 import Compute.DeviceType;
 import Compute.CpuMemoryResource;
 import Compute.ExecutionContext;
-//import Compute.CpuExecutionContext;
 
 namespace Mila::Dnn::Compute
 {

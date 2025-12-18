@@ -141,19 +141,36 @@ namespace Mila::Dnn
          * @throws std::runtime_error if called after build()
          * @throws std::invalid_argument if component is null
          * @throws std::invalid_argument if component name already exists
+         * @throws std::invalid_argument if component already has its own ExecutionContext
          */
         CompositeComponent& addComponent( ComponentPtr component )
         {
             if ( this->isBuilt() )
             {
                 throw std::runtime_error(
-                    "Cannot add components after build() has been called"
-                );
+                    "Cannot add components after build() has been called" );
             }
 
             if ( !component )
             {
                 throw std::invalid_argument( "Component cannot be null" );
+            }
+
+            // Enforce that children are created in shared mode (no standalone context).
+            // All children of a composite must share the parent's ExecutionContext;
+            if ( component->hasExecutionContext() )
+            {
+                throw std::invalid_argument(
+                    std::format( "Component '{}' already has an ExecutionContext; children must be created in shared mode",
+                        component->getName() )
+                );
+            }
+
+            // Propagate ExecutionContext if already set on this composite
+            if ( this->hasExecutionContext() )
+            {
+                component->setExecutionContext( this->getExecutionContext() );
+                component->setTraining( this->isTraining() );
             }
 
             std::string name = component->getName();
@@ -168,15 +185,6 @@ namespace Mila::Dnn
             child_component_map_[ name ] = component;
             child_components_.push_back( component );
             
-            // setExecutionContext should be done after network building
-            /*if ( this->hasExecutionContext() )
-            {
-                if ( !component->hasExecutionContext() )
-                {
-                    component->setExecutionContext( this->getExecutionContext() );
-                }
-            }*/
-
             return *this;
         }
 

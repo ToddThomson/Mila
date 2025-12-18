@@ -18,8 +18,6 @@ import Dnn.TensorDataTypeTraits;
 import Compute.OptimizerBase;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
-//import Compute.CpuExecutionContext;
-//import Compute.CudaExecutionContext;
 import Compute.CpuAdamWOptimizer;
 import Compute.CudaAdamWOptimizer;
 
@@ -42,6 +40,7 @@ namespace Mila::Dnn::Optimizers
     class AdamWOptimizer : public Optimizer<TDeviceType, TPrecision>
     {
     public:
+        
         using ExecutionContextType = ExecutionContext<TDeviceType>;
         using OptimizerType = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaAdamWOptimizer<TPrecision>, CpuAdamWOptimizer<TPrecision>>;
 

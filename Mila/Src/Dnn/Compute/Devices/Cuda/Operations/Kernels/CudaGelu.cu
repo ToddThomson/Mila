@@ -61,7 +61,7 @@ namespace Mila::Dnn::Compute
             float cube = GELU_CUBIC_COEFF * x * x * x;
             float tanh_arg = GELU_SCALING_FACTOR * (x + cube);
 
-			// TODO: Alternative implementation using sech^2 
+			// TODO: Alternative implementation using sech^2
             //float tanh_out = tanhf( tanh_arg );
             //float sech_squared = 1.0f - tanh_out * tanh_out;
             //float local_grad = 0.5f * (1.0f + tanh_out) + x * 0.5f * sech_squared * GELU_SCALING_FACTOR * (1.0f + 3.0f * GELU_CUBIC_COEFF * x * x);
@@ -177,7 +177,7 @@ namespace Mila::Dnn::Compute
         const int block_size = 128;
         const int grid_size = ceil_div( N, block_size );
 
-        gelu_forward_fp32_kernel << <grid_size, block_size, 0, stream >> > (Y, X, N);
+        gelu_forward_fp32_kernel<<<grid_size, block_size, 0, stream>>> (Y, X, N);
 
         cudaCheck( cudaGetLastError() );
     }

@@ -118,6 +118,14 @@ namespace Mila::Dnn
                 throw std::logic_error( "Component already built. Cannot rebuild." );
             }
 
+            if ( !hasExecutionContext() )
+            {
+                throw std::runtime_error(
+                    std::format( "Component::build: ExecutionContext must be set before building component '{}'",
+                        getName() )
+                );
+            }
+
             onBuilding( input_shape );
 
             built_ = true;
@@ -383,7 +391,6 @@ namespace Mila::Dnn
                         deviceTypeToString( device_id.type ) )
                 );
             }
-
 
             exec_context_ = context;
 

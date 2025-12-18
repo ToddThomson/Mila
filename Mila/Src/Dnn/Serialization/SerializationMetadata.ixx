@@ -94,6 +94,18 @@ namespace Mila::Dnn::Serialization
         }
 
         /**
+         * @brief Set string value from C-string literal.
+         *
+         * @param key Metadata key
+         * @param value C-string value
+         * @return Reference to this for method chaining
+         */
+        SerializationMetadata& set( const std::string& key, const char* value )
+        {
+            return set( key, std::string( value ) );
+        }
+
+        /**
          * @brief Set string value.
          *
          * @param key Metadata key

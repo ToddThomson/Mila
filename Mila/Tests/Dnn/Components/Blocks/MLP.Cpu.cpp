@@ -153,6 +153,8 @@ namespace Dnn::Components::Blocks::Tests
 
         ASSERT_NE( data.mlp, nullptr );
 
+        data.mlp->build( data.input_shape );
+
         int64_t input_features = data.config.getInputFeatures();
         int64_t hidden_size = data.config.getHiddenSize();
         bool has_bias = data.config.hasBias();
@@ -272,6 +274,8 @@ namespace Dnn::Components::Blocks::Tests
             false );
 
         ASSERT_NE( data.mlp, nullptr );
+
+        data.mlp->build( data.input_shape );
 
         int64_t input_features = data.config.getInputFeatures();
         int64_t hidden_size = data.config.getHiddenSize();
