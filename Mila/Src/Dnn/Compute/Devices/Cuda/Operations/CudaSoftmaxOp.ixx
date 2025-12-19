@@ -1,12 +1,9 @@
 /**
  * @file CudaSoftmaxOp.ixx
  * @brief CUDA implementation of Softmax operation (TensorDataType-based).
- *
- * Ported to the ExecutionContext / TensorDataType UnaryOperation interface
- * following the two-phase initialization pattern used by CudaLayerNormOp.
  */
 
-    module;
+module;
 #include <vector>
 #include <iostream>
 #include <memory>
@@ -30,7 +27,6 @@ import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
-//import Compute.CudaExecutionContext;
 import Compute.CudaDeviceResources;
 import Compute.OperationType;
 import Compute.MemoryResource;
@@ -299,7 +295,7 @@ namespace Mila::Dnn::Compute
 
     private:
         SoftmaxConfig config_;
-        std::shared_ptr<CudaExecutionContext> context_;
+        CudaExecutionContext* context_;
         Detail::cuda_softmax_impl<NativeType> impl_;
 
         // Cached dimension values computed once in build() for hot-path dispatch

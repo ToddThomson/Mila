@@ -9,7 +9,7 @@ export module Components.MilaComponents;
 // Activations
 export import Dnn.Components.Gelu;
 
-// Blocks
+// Composite Layers
 export import Dnn.Blocks.MLP;
 // FIXME: export import Dnn.Blocks.Transformer;
 
@@ -23,10 +23,10 @@ export import Dnn.Components.Linear;
 
 //Losses
 // FIXME: export import Dnn.Components.SoftmaxCrossEntropy;
-export import Dnn.Components.Softmax;
 
 // Normalization
 export import Dnn.Components.LayerNorm;
+export import Dnn.Components.Softmax;
 
 // Regularization
 // FUTURE: export import Dnn.Components.Dropout;

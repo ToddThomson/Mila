@@ -172,12 +172,12 @@ PUBLIC
         "Src/Dnn/Components/Layers/LinearConfig.ixx"
         #"Src/Dnn/Components/Layers/Encoder.ixx"
         #"Src/Dnn/Components/Layers/EncoderConfig.ixx"
-        "Src/Dnn/Components/Losses/Softmax.ixx"
-        "Src/Dnn/Components/Losses/SoftmaxConfig.ixx"
 
         # Components - Normalization / Losses / Regularization / Composites
         "Src/Dnn/Components/Normalization/LayerNorm.ixx"
         "Src/Dnn/Components/Normalization/LayerNormConfig.ixx"
+        "Src/Dnn/Components/Normalization/Softmax.ixx"
+        "Src/Dnn/Components/Normalization/SoftmaxConfig.ixx"
         
         #"Src/Dnn/Components/Losses/SoftmaxCrossEntropy.ixx"
         #"Src/Dnn/Components/Losses/CrossEntropyConfig.ixx"
@@ -303,7 +303,7 @@ PUBLIC
         
         "Src/Dnn/Components/MilaComponents.ixx"
         "Src/Dnn/Core/Loss.ixx"
- "Src/Dnn/Serialization/SerializationMetadata.ixx")
+ "Src/Dnn/Serialization/SerializationMetadata.ixx" "Src/Dnn/Core/FusedComponent.ixx")
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 

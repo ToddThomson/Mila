@@ -29,6 +29,7 @@ import Compute.Precision;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
+import Compute.DeviceTypeTraits;
 import Compute.IExecutionContext;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
@@ -73,8 +74,8 @@ namespace Mila::Dnn
     class Softmax : public Component<TDeviceType, TPrecision>
     {
     public:
-        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
-        using ExecutionContextType = ExecutionContext<TDeviceType>;
+        using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
+        using ComponentBase = Component<TDeviceType, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
 
         /**
@@ -118,8 +119,8 @@ namespace Mila::Dnn
          * Network<DeviceType::Cpu, TensorDataType::FP32> net(Device::Cpu(), "my_net");
          * net.addComponent<Softmax>("softmax", SoftmaxConfig().withAxis(-1));
          */
-        explicit Softmax( const SoftmaxConfig& config, std::optional<DeviceId> device_id = std::nullopt )
-            : config_( config )
+        explicit Softmax( const std::string& name, const SoftmaxConfig& config, std::optional<DeviceId> device_id = std::nullopt )
+            : ComponentBase( name ), config_( config )
         {
             config_.validate();
 
@@ -259,18 +260,6 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
-         * @brief Module name for logging and diagnostics.
-         *
-         * Returns the name stored in the SoftmaxConfig (may be empty).
-         *
-         * @return Module name string.
-         */
-        std::string getName() const override
-        {
-            return config_.getName();
-        }
-
-        /**
          * @brief Get the device identifier for this module.
          *
          * Returns the DeviceId from the ExecutionContext. In standalone mode,
@@ -298,7 +287,7 @@ namespace Mila::Dnn
         {
             std::ostringstream oss;
             oss << "--------------------" << std::endl;
-            oss << "Softmax: " << getName() << std::endl;
+            oss << "Softmax: " << this->getName() << std::endl;
             oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
             oss << "Axis: " << config_.getAxis() << std::endl;
             oss << "Parameter count: 0 (stateless)" << std::endl;
@@ -392,7 +381,7 @@ namespace Mila::Dnn
     private:
         SoftmaxConfig config_;
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
-        std::unique_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
 
         /**
          * @brief Validate input shape for softmax operation.

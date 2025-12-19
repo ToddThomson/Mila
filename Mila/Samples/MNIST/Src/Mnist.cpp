@@ -29,7 +29,7 @@ struct MnistConfig
 {
     std::string data_directory = "./Data/DataSets/Mnist";
     int64_t batch_size = 128;
-    size_t epochs = 5;
+    size_t epochs = 9000;
     float learning_rate = 0.001f;
     float beta1 = 0.9f;
     float beta2 = 0.999f;

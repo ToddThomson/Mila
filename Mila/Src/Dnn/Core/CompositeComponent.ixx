@@ -22,6 +22,7 @@ export module Dnn.CompositeComponent;
 
 import Dnn.Component;
 import Dnn.ComponentFactory;
+import Dnn.FusedComponent;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
 import Compute.Device;
@@ -503,6 +504,62 @@ namespace Mila::Dnn
     protected:
 
         /**
+         * @brief Virtual hook for graph optimization after construction.
+         *
+         * Called automatically after createGraph() completes. Derived classes
+         * can override to perform fusion, pruning, or other optimizations.
+         *
+         * Default implementation does nothing. Override to enable fusion:
+         * @code
+         * void optimize() override {
+         *     fuseSequentialOperations({"Linear", "Gelu"}, "LinearGeluOp");
+         * }
+         * @endcode
+         */
+        virtual void optimize()
+        {
+        }
+
+        /**
+         * @brief Fuse a sequence of operations into a single backend operation.
+         *
+         * Searches for consecutive components matching the pattern and replaces
+         * them with a single component delegating to a fused backend operation.
+         *
+         * @param pattern Component type sequence to match (e.g., {"Linear", "Gelu"})
+         * @param fused_op_name Backend operation name in registry (e.g., "LinearGeluOp")
+         */
+        void fuseSequentialOperations(
+            const std::vector<std::string>& pattern,
+            const std::string& fused_op_name )
+        {
+            if ( pattern.size() < 2 )
+                return;
+
+            for ( size_t i = 0; i + pattern.size() <= child_components_.size(); ++i )
+            {
+                bool matches = true;
+
+                for ( size_t j = 0; j < pattern.size(); ++j )
+                {
+                    auto& component = child_components_[ i + j ];
+
+                    if ( component->getName().find( pattern[ j ] ) == std::string::npos )
+                    {
+                        matches = false;
+                        break;
+                    }
+                }
+
+                if ( matches )
+                {
+                    fusePair( i, pattern.size(), fused_op_name );
+                    i = 0;
+                }
+            }
+        }
+
+        /**
          * @brief Retrieve a typed child component by name (for derived class use).
          *
          * Helper method for derived composites (like MLP) that need to cache typed
@@ -572,6 +629,8 @@ namespace Mila::Dnn
                     component->setExecutionContext( this->getExecutionContext() );
                 }
             }
+
+            optimize();
         }
 
         /**
@@ -671,6 +730,39 @@ namespace Mila::Dnn
          * does not guarantee ordering but provides fast lookup.
          */
         std::unordered_map<std::string, ComponentPtr> child_component_map_;
+
+        /**
+         * @brief Replace N consecutive components with a single fused component.
+         */
+        void fusePair(
+            size_t start_idx,
+            size_t count,
+            const std::string& fused_op_name )
+        {
+            std::vector<ComponentPtr> to_fuse;
+
+            for ( size_t i = 0; i < count; ++i )
+            {
+                to_fuse.push_back( child_components_[ start_idx + i ] );
+            }
+
+            auto fused = std::make_shared<FusedComponent<TDeviceType, TPrecision>>(
+                fused_op_name,
+                to_fuse,
+                this->getExecutionContext() );
+
+            child_components_.erase(
+                child_components_.begin() + start_idx,
+                child_components_.begin() + start_idx + count );
+            child_components_.insert( child_components_.begin() + start_idx, fused );
+
+            for ( auto& comp : to_fuse )
+            {
+                child_component_map_.erase( comp->getName() );
+            }
+
+            child_component_map_[ fused->getName() ] = fused;
+        }
 
         friend class ComponentFactory;
     };

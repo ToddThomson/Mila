@@ -1,24 +1,20 @@
 /**
  * @file SoftmaxConfig.ixx
  * @brief Configuration interface for the Softmax module in the Mila DNN framework.
- *
- * Defines the SoftmaxConfig class, providing a type-safe fluent interface for configuring
- * the Softmax activation function module.
  */
 
 module;
 #include <cstdint>
 #include <string>
-#include <memory> // TJT: Note: Without this include, VS2026 will not complile nlohmann::json
 
 export module Dnn.Components.Softmax:Config;
 
 import Dnn.ComponentConfig;
-import nlohmann.json;
+import Serialization.Metadata;
 
 namespace Mila::Dnn
 {
-    using json = nlohmann::json;
+    using namespace Mila::Dnn::Serialization;
 
     /**
      * @brief Configuration class for Softmax module.
@@ -54,59 +50,55 @@ namespace Mila::Dnn
          *
          * @throws std::invalid_argument If validation fails
          */
-        void validate() const override {
-            // No additional validation needed for Softmax
-        }
-
-        /**
-         * @brief Serialize this configuration to JSON.
-         *
-         * Keys:
-         * - "name" : string
-         * - "precision" : integer (underlying value of ComputePrecision::Policy)
-         * - "axis" : integer (axis for softmax)
-         */
-        json toJson() const
+        void validate() const override
         {
-            json j;
-            //j["name"] = this->getName();
-            //j["precision"] = static_cast<int>( precision_ );
-            //j["axis"] = axis_;
-
-            return j;
+            ComponentConfig::validate();
         }
 
         /**
-         * @brief Deserialize configuration from JSON.
+         * @brief Serialize this configuration to SerializationMetadata.
+         *
+         * @return SerializationMetadata containing configuration parameters
+         */
+        SerializationMetadata toSerializationMetadata() const
+        {
+            SerializationMetadata meta;
+            meta.set( "precision", static_cast<int64_t>( precision_ ) )
+                .set( "axis", axis_ );
+
+            return meta;
+        }
+
+        /**
+         * @brief Deserialize configuration from SerializationMetadata.
          *
          * Missing keys leave fields at their current values.
+         *
+         * @param meta SerializationMetadata containing configuration parameters
          */
-   //     void fromJson( const json& j )
-   //     {
-   //         if ( j.contains( "name" ) ) {
-   //             name_ = j.at( "name" ).get<std::string>();
-   //         }
+        void fromSerializationMetadata( const SerializationMetadata& meta )
+        {
+            if ( meta.has( "precision" ) )
+            {
+                precision_ = static_cast<decltype( precision_ )>( meta.getInt( "precision" ) );
+            }
 
-			///*
-
-   //         if ( j.contains( "precision" ) ) {
-   //             precision_ = static_cast<decltype(precision_)>( j.at( "precision" ).get<int>() );
-   //         }
-
-   //         if ( j.contains( "axis" ) ) {
-   //             axis_ = j.at( "axis" ).get<int64_t>();
-   //         }*/
-   //     }
+            if ( meta.has( "axis" ) )
+            {
+                axis_ = meta.getInt( "axis" );
+            }
+        }
 
         /**
          * @brief Get a string representation of the configuration.
          *
          * @return std::string Human-readable representation
-		 */
-        std::string toString() const override {
+         */
+        std::string toString() const override
+        {
             return "SoftmaxConfig( precision=" + std::to_string( static_cast<int>( precision_ ) ) +
                    ", axis=" + std::to_string( axis_ ) + ")";
-		}
+        }
 
     private:
         int64_t axis_ = -1;

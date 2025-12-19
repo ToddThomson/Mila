@@ -180,7 +180,7 @@ export import Dnn.Components.Gelu;
 export import Dnn.Components.LayerNorm;
 export import Dnn.Components.Linear;
 //export import Dnn.Components.Residual;
-//export import Dnn.Components.Softmax;
+export import Dnn.Components.Softmax;
 //export import Dnn.Components.SoftmaxCrossEntropy;
 
 // ============================================================================

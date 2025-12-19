@@ -134,9 +134,9 @@ add_executable( MilaTests
     #"Dnn/Components/Connections/Residual.Cuda.cpp"
     #"Dnn/Components/Connections/Residual.Cpu.cpp"
 
-    #"Dnn/Components/Layers/Softmax.Cpu.cpp"
-    #"Dnn/Components/Layers/Softmax.Cuda.cpp"    
-    #"Dnn/Components/Layers/SoftmaxConfig.cpp"
+    "Dnn/Components/Normalization/Softmax.Cpu.cpp"
+    "Dnn/Components/Normalization/Softmax.Cuda.cpp"    
+    "Dnn/Components/Normalization/SoftmaxConfig.cpp"
 
     # --------------------------------------------------------------
     # Modules::Blocks Tests

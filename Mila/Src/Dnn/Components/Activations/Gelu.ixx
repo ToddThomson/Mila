@@ -507,7 +507,6 @@ namespace Mila::Dnn
         GeluConfig config_;
         shape_t input_shape_;
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
-
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
 
         /**

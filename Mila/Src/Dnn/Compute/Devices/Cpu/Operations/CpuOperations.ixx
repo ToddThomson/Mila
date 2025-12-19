@@ -15,5 +15,5 @@ export import Compute.CpuGeluOp;
 export import Compute.CpuLayerNormOp;
 export import Compute.CpuLinearOp;
 //export import Compute.CpuResidualOp;
-//export import Compute.CpuSoftmaxOp;
+export import Compute.CpuSoftmaxOp;
 //export import Compute.CpuSoftmaxCrossEntropyOp;
