@@ -40,6 +40,7 @@ import Compute.MemoryResource;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
 import Compute.CudaDevice;
+import Compute.OperationRegistrarHelpers;
 
 namespace Mila::Dnn::Compute
 {
@@ -58,6 +59,7 @@ namespace Mila::Dnn::Compute
          * @brief Single-precision (float) specialization for CUDA encoder operations.
          */
         template <>
+
         struct cuda_encoder_impl<float>
         {
             cuda_encoder_impl() = default;
@@ -137,8 +139,11 @@ namespace Mila::Dnn::Compute
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::native_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 
-        CudaEncoderOp( std::shared_ptr<CudaExecutionContext> context, const EncoderConfig& config )
-            : config_( config ), context_( context ), impl_()
+        // Expose ConfigType so registrar helpers can statically cast ComponentConfig
+        using ConfigType = EncoderConfig;
+
+        CudaEncoderOp( IExecutionContext* context, const EncoderConfig& config )
+            : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaEncoderOp" ) ), config_( config ), impl_()
         {
             if (!context_)
             {
@@ -308,7 +313,7 @@ namespace Mila::Dnn::Compute
          * @brief Backward pass - HOT PATH, pure dispatch to CUDA kernel.
          *
          * Similar to forward(), this method does minimal work and dispatches
-         * directly to the backward kernel using cached dimensions from build().
+         * directly to the backward kernel using cached dimensions from build(). 
          *
          * Accumulates gradients into wte and wpe embedding tables.
          * Token indices are discrete (non-differentiable), so no input gradient.
@@ -400,31 +405,13 @@ namespace Mila::Dnn::Compute
         {
             const std::string opName = "EncoderOp";
 
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::INT32, TensorDataType::FP32>(
-                opName,
-                []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::INT32, TensorDataType::FP32>>
-                {
-                    const auto& encoder_config = dynamic_cast<const EncoderConfig&>(config);
-                    return std::make_shared<CudaEncoderOp<TensorDataType::INT32, TensorDataType::FP32>>( context, encoder_config );
-                }
-            );
+            registerUnaryOpType<DeviceType::Cuda,
+                CudaEncoderOp<TensorDataType::INT32, TensorDataType::FP32>,
+                TensorDataType::INT32, TensorDataType::FP32>( opName );
 
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::INT32, TensorDataType::FP16>(
-                opName,
-                []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::INT32, TensorDataType::FP16>>
-                {
-                    const auto& encoder_config = dynamic_cast<const EncoderConfig&>(config);
-                    return std::make_shared<CudaEncoderOp<TensorDataType::INT32, TensorDataType::FP16>>( context, encoder_config );
-                }
-            );
+            registerUnaryOpType<DeviceType::Cuda,
+                CudaEncoderOp<TensorDataType::INT32, TensorDataType::FP16>,
+                TensorDataType::INT32, TensorDataType::FP16>( opName );
         }
-
-        static inline bool isRegistered = []()
-            {
-                registerOperations();
-                return true;
-            }();
     };
 }

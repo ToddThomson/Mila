@@ -322,6 +322,7 @@ namespace Mila::Dnn::Compute
                     const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
                 {
                     const auto& softmaxConfig = static_cast<const SoftmaxConfig&>(config);
+                    
                     return std::make_shared<CudaSoftmaxOp<TensorDataType::FP32>>( context, softmaxConfig );
                 }
             );
@@ -332,14 +333,10 @@ namespace Mila::Dnn::Compute
                     const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
                 {
                     const auto& softmaxConfig = static_cast<const SoftmaxConfig&>(config);
+                    
                     return std::make_shared<CudaSoftmaxOp<TensorDataType::FP16>>( context, softmaxConfig );
                 }
             );
         }
-
-        static inline bool isRegistered = []() {
-            registerOperations();
-            return true;
-            }();
     };
 }

@@ -66,16 +66,6 @@ namespace Mila::Dnn::Compute
         CudaMatMulBiasGeluOp() : UnaryOperationBase( OperationType::FusedOp ) {}
 
         /**
-         * @brief Constructs a new CUDA MatMul-Bias-GELU fused operation with a specific device context.
-         *
-         * @param context The device context to use for this operation.
-         * @throws std::runtime_error If the context is not for a CUDA device.
-         */
-        CudaMatMulBiasGeluOp( std::shared_ptr<DeviceContext> context )
-            : UnaryOperationBase( OperationType::FusedOp, context ) {
-        }
-
-        /**
          * @brief Performs the forward pass of the fused MatMul-Bias-GELU operation on CUDA.
          *
          * This method efficiently computes a matrix multiplication followed by a bias addition

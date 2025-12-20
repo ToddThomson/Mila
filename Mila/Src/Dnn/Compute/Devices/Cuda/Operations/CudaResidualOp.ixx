@@ -33,10 +33,10 @@ import Compute.BinaryOperation;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
-//import Compute.CudaExecutionContext;
 import Compute.OperationType;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
+import Compute.OperationRegistrarHelpers;
 
 namespace Mila::Dnn::Compute
 {
@@ -95,6 +95,7 @@ namespace Mila::Dnn::Compute
         using MR = CudaDeviceMemoryResource;
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::native_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
+        using ConfigType = ResidualConfig;
 
         /**
          * @brief Construct with a non-null CUDA execution context.
@@ -102,8 +103,8 @@ namespace Mila::Dnn::Compute
          * The context parameter is required and validated at runtime. Callers must
          * pass a std::shared_ptr<ExecutionContext<DeviceType::Cuda>>.
          */
-        CudaResidualOp( std::shared_ptr<CudaExecutionContext> context, const ResidualConfig& config )
-            : context_( context )//, config_( config )
+        CudaResidualOp( IExecutionContext* context, const ResidualConfig& config )
+            : context_(  ), config_( config )
         {
             if (!context_)
             {
@@ -177,40 +178,29 @@ namespace Mila::Dnn::Compute
 
     private:
         
-        std::shared_ptr<CudaExecutionContext> context_;
-        //ResidualConfig config_;
+        CudaExecutionContext* context_; ///< Execution context for CUDA resources.
+        ResidualConfig config_;
     };
 
     export class CudaResidualOpRegistrar
     {
     public:
-        template <TensorDataType TInputA, TensorDataType TInputB = TInputA, TensorDataType TPrecision = TInputA>
-        static void registerForType( const std::string& opName )
-        {
-            OperationRegistry::instance().registerBinaryOperation<DeviceType::Cuda, TInputA, TInputB, TPrecision>(
-                opName,
-                []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context, const ComponentConfig& config )
-                    -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, TInputA, TInputB, TPrecision>>
-                {
-                    const auto& residualConfig = static_cast<const ResidualConfig&>(config);
-                    auto ctx = std::static_pointer_cast<ExecutionContext<DeviceType::Cuda>>(context);
-                    
-                    return std::make_shared<CudaResidualOp<TInputA, TInputB, TPrecision>>( ctx, residualConfig );
-                }
-            );
-        }
 
         static void registerOperations()
         {
             const std::string opName = "ResidualOp";
 
-            registerForType<TensorDataType::FP32>( opName );
-            registerForType<TensorDataType::FP16>( opName );
-        }
+            // Register for FP32
+            registerBinaryOpType<DeviceType::Cuda,
+                CudaResidualOp<TensorDataType::FP32>,
+                TensorDataType::FP32, TensorDataType::FP32,
+                TensorDataType::FP32>(opName);
 
-        /*static inline bool isRegistered = []() {
-            registerOperations();
-            return true;
-            }();*/
+            // Register for FP16
+            registerBinaryOpType<DeviceType::Cuda,
+                CudaResidualOp<TensorDataType::FP16>,
+                TensorDataType::FP16, TensorDataType::FP16,
+                TensorDataType::FP16>(opName);
+        }
     };
 }

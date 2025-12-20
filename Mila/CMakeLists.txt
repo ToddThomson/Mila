@@ -21,7 +21,7 @@ add_library( Mila STATIC
     # TJT: Deprecated "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaMHA.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaGelu.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaLayerNorm.cu"
-    #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaResidual.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaResidual.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaSoftmax.cu"
     #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaSoftmaxCrossEntropy.cu"
     
@@ -155,23 +155,22 @@ PUBLIC
         #---------------------------------------------------------------
         
         # Components - Activations
-
         "Src/Dnn/Components/Activations/ActivationType.ixx"
         "Src/Dnn/Components/Activations/Gelu.ixx"
         "Src/Dnn/Components/Activations/GeluConfig.ixx"
         
         # Components - Connections
         "Src/Dnn/Components/Connections/ConnectionType.ixx"
-        #"Src/Dnn/Components/Connections/Residual.ixx"
-        #"Src/Dnn/Components/Connections/ResidualConfig.ixx"
+        "Src/Dnn/Components/Connections/Residual.ixx"
+        "Src/Dnn/Components/Connections/ResidualConfig.ixx"
 
         # Components - Layers
-        #"Src/Dnn/Components/Layers/Attention.ixx"
-        #"Src/Dnn/Components/Layers/AttentionConfig.ixx"
+        "Src/Dnn/Components/Layers/Attention.ixx"
+        "Src/Dnn/Components/Layers/AttentionConfig.ixx"
         "Src/Dnn/Components/Layers/Linear.ixx"
         "Src/Dnn/Components/Layers/LinearConfig.ixx"
-        #"Src/Dnn/Components/Layers/Encoder.ixx"
-        #"Src/Dnn/Components/Layers/EncoderConfig.ixx"
+        "Src/Dnn/Components/Layers/Encoder.ixx"
+        "Src/Dnn/Components/Layers/EncoderConfig.ixx"
 
         # Components - Normalization / Losses / Regularization / Composites
         "Src/Dnn/Components/Normalization/LayerNorm.ixx"
@@ -303,7 +302,10 @@ PUBLIC
         
         "Src/Dnn/Components/MilaComponents.ixx"
         "Src/Dnn/Core/Loss.ixx"
- "Src/Dnn/Serialization/SerializationMetadata.ixx" "Src/Dnn/Core/FusedComponent.ixx")
+        "Src/Dnn/Serialization/SerializationMetadata.ixx"
+        "Src/Dnn/Core/FusedComponent.ixx"
+        "Src/Dnn/Compute/Operations/OperationRegistrarHelpers.ixx"
+)
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
@@ -327,12 +329,12 @@ if(MILA_HAS_CPU)
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Transfer.ixx"
                 
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuOperations.ixx"
-                #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuEncoderOp.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuEncoderOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuGeluOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLayerNormOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLinearOp.ixx"
-                #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuAttentionOp.ixx"
-                #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuResidualOp.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuAttentionOp.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuResidualOp.ixx"
                 #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxCrossEntropyOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Optimizers/CpuAdamWOptimizer.ixx"
@@ -378,13 +380,13 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Transfer.ixx"
                 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/CudaOperations.ixx"
-                #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaAttentionOp.ixx"
-                #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaEncoderOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaAttentionOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaEncoderOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/CublasLtMatMulBias.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/CudaGeluOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/CudaLayerNormOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/CudaLinearOp.ixx"
-                #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaResidualOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaResidualOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/CudaSoftmaxOp.ixx"
                 #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaSoftmaxCrossEntropyOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Optimizers/CudaAdamWOptimizer.ixx"

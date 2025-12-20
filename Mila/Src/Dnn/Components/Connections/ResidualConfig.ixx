@@ -1,9 +1,8 @@
 /**
  * @file ResidualConfig.ixx
- * @brief Configuration interface for the Residual module in the Mila DNN framework.
+ * @brief Configuration for the Residual component.
  *
- * ResidualConfig provides a type-safe fluent interface to configure Residual
- * connection modules.
+ * Provides fluent setters consumed by Residual components and backend factories.
  */
 
 module;
@@ -18,33 +17,21 @@ export module Dnn.Components.Residual:Config;
 
 import Dnn.ComponentConfig;
 import Dnn.ConnectionType;
-import nlohmann.json;
+import Serialization.Metadata;
 
 namespace Mila::Dnn
 {
-    using json = nlohmann::json;
+    using Serialization::SerializationMetadata;
 
     /**
-     * @brief Configuration class for Residual connection module.
+     * @brief Configuration class for Residual connection component.
      *
      * ResidualConfig is a lightweight, fluent configuration object consumed by
-     * Residual modules and by compute-backend factories.
+     * Residual components and by compute-backend factories.
      */
     export class ResidualConfig : public ComponentConfig
     {
     public:
-
-        /**
-         * @brief Default constructor.
-         *
-         * Leaves the configuration in a valid default state:
-         *  - scaling factor = 1.0
-         *  - connection type = Addition
-         */
-        ResidualConfig()
-            : ComponentConfig( "residual" )
-        {
-		}
 
         // ====================================================================
         // Fluent setters
@@ -107,49 +94,55 @@ namespace Mila::Dnn
 
         void validate() const override
         {
-			ComponentConfig::validate();
+            ComponentConfig::validate();
 
-            if (scaling_factor_ <= 0.0f)
+            if ( scaling_factor_ <= 0.0f )
             {
                 throw std::invalid_argument( "ResidualConfig: scaling_factor must be > 0" );
             }
         }
 
         // ====================================================================
-        // Serialization (ModuleConfig interface)
+        // Serialization (ComponentConfig interface)
         // ====================================================================
 
-        json toJson()
+        /**
+         * @brief Convert configuration to serialization metadata.
+         *
+         * Produces a SerializationMetadata object containing the configuration
+         * fields suitable for writing into an archive by the caller.
+         */
+        SerializationMetadata toMetadata() const
         {
-            json j;
-            j["name"] = name_;
-            j["precision"] = static_cast<int>( precision_ );
-            j["scaling_factor"] = scaling_factor_;
-            j["connection_type"] = static_cast<int>( connection_type_ );
+            SerializationMetadata meta;
+            meta.set( "precision", static_cast<int64_t>( precision_ ) )
+                .set( "scaling_factor", static_cast<double>( scaling_factor_ ) )
+                .set( "connection_type", static_cast<int64_t>( connection_type_ ) );
 
-            return j;
+            return meta;
         }
 
-        void fromJson( const json& j )
+        /**
+         * @brief Populate configuration from serialization metadata.
+         *
+         * Reads available fields from the provided metadata and updates the
+         * configuration object accordingly.
+         */
+        void fromMetadata( const SerializationMetadata& meta )
         {
-            if ( j.contains( "name" ) )
+            if ( auto prec = meta.tryGetInt( "precision" ) )
             {
-                name_ = j.at( "name" ).get<std::string>();
+                precision_ = static_cast<decltype( precision_ )>( *prec );
             }
 
-            if ( j.contains( "precision" ) )
+            if ( auto sf = meta.tryGetFloat( "scaling_factor" ) )
             {
-                precision_ = static_cast<decltype( precision_)>( j.at( "precision" ).get<int>() );
+                scaling_factor_ = static_cast<float>( *sf );
             }
 
-            if ( j.contains( "scaling_factor" ) )
+            if ( auto ct = meta.tryGetInt( "connection_type" ) )
             {
-                scaling_factor_ = j.at( "scaling_factor" ).get<float>();
-            }
-
-            if ( j.contains( "connection_type" ) )
-            {
-                connection_type_ = static_cast<ConnectionType>( j.at( "connection_type" ).get<int>() );
+                connection_type_ = static_cast<ConnectionType>( *ct );
             }
         }
 
@@ -164,10 +157,10 @@ namespace Mila::Dnn
         {
             std::ostringstream oss;
 
-            oss << "ResidualConfig: " << getName() << std::endl;
+            oss << "ResidualConfig" << std::endl;
             oss << "scaling factor: " << scaling_factor_ << std::endl;
             oss << "connection type: " << connectionTypeToString( connection_type_ ) << std::endl;
-			
+
             return oss.str();
         }
 

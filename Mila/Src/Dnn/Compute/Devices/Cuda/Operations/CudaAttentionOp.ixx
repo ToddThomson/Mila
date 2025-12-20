@@ -33,9 +33,9 @@ import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.IExecutionContext;
 import Compute.ExecutionContext;
-//import Compute.CudaExecutionContext;
 import Compute.CudaDeviceResources;
 import Compute.OperationType;
+import Compute.OperationRegistrarHelpers;
 import Compute.MemoryResource;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
@@ -128,9 +128,10 @@ namespace Mila::Dnn::Compute
         using TensorType = Tensor<TPrecision, MR>;
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::native_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
+        using ConfigType = AttentionConfig;
 
-        CudaAttentionOp( std::shared_ptr<CudaExecutionContext> context, const AttentionConfig& config )
-            : config_( config ), context_( context ), impl_()
+        CudaAttentionOp( IExecutionContext* context, const AttentionConfig& config )
+            : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaAttentionOp" ) ), config_( config ), impl_()
         {
             if (!context_)
             {
@@ -366,33 +367,13 @@ namespace Mila::Dnn::Compute
         {
             const std::string opName = "AttentionOp";
 
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32>(
-                opName,
-                []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                    const ComponentConfig& config )
-                -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32>>
-                {
-                    const auto& mha_config = dynamic_cast<const AttentionConfig&>(config);
-                    return std::make_shared<CudaAttentionOp<TensorDataType::FP32>>( context, mha_config );
-                }
-            );
+            registerUnaryOpType<DeviceType::Cuda,
+                CudaAttentionOp<TensorDataType::FP32>,
+                TensorDataType::FP32>( opName );
 
-            // Register FP16 version
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP16, TensorDataType::FP16>(
-                opName,
-                []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
-                {
-                    const auto& mha_config = dynamic_cast<const AttentionConfig&>(config);
-                    return std::make_shared<CudaAttentionOp<TensorDataType::FP16>>( context, mha_config );
-                }
-            );
+            registerUnaryOpType<DeviceType::Cuda,
+                CudaAttentionOp<TensorDataType::FP16>,
+                TensorDataType::FP16>( opName );
         }
-
-        static inline bool isRegistered = []()
-            {
-                registerOperations();
-                return true;
-            }();
     };
 }

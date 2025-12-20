@@ -40,7 +40,7 @@ namespace Mila::Dnn
          * @param num_heads The number of attention heads
          */
         AttentionConfig( dim_t embedding_dim, dim_t num_heads )
-			: embedding_dim_( embedding_dim ), num_heads_( num_heads ), ComponentConfig( "attention" )
+			: embedding_dim_( embedding_dim ), num_heads_( num_heads )
         {
         }
 
@@ -160,7 +160,6 @@ namespace Mila::Dnn
         {
             std::ostringstream oss;
             oss << "AttentionConfig: { ";
-            oss << "name=" << name_ << ", ";
             oss << "precision=" << static_cast<int>(precision_) << ", ";
             oss << " }";
             return oss.str();

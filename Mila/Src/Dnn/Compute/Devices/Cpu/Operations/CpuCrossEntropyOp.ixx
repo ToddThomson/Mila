@@ -62,16 +62,6 @@ namespace Mila::Dnn::Compute
         }
 
         /**
-         * @brief Constructs a new CPU Cross Entropy operation with a specific device context.
-         *
-         * @param context The device context to use for this operation.
-         * @throws std::runtime_error If the context is not for a CPU device.
-         */
-        CpuCrossEntropyOp( std::shared_ptr<DeviceContext> context, const CrossEntropyConfig& config )
-            : OperationBase( OperationType::CrossEntropyOp, context ), config_( config ) {
-        }
-
-        /**
          * @brief Performs the forward pass of the cross entropy operation.
          *
          * Computes the negative log likelihood of the correct class for each sample.

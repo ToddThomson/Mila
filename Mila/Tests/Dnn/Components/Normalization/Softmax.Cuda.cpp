@@ -8,7 +8,7 @@
 
 import Mila;
 
-namespace Dnn::Components::Normalization::Tests
+namespace Components_Normalization_Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
@@ -154,7 +154,7 @@ namespace Dnn::Components::Normalization::Tests
     // ====================================================================
 
     template<typename T>
-    class SoftmaxCudaTests : public ::testing::Test
+    class SoftmaxCudaTests : public testing::Test
     {
     protected:
         void SetUp() override

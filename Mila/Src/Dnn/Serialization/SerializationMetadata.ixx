@@ -47,28 +47,6 @@ namespace Mila::Dnn::Serialization
      * Provides fluent API for building and reading component metadata without
      * exposing JSON implementation details. Internally uses JSON for serialization
      * but can be swapped with other formats without breaking user code.
-     *
-     * Common Usage Patterns:
-     *
-     * **Writing metadata**:
-     * @code
-     * SerializationMetadata meta;
-     * meta.set("type", "Linear")
-     *     .set("version", 1)
-     *     .set("name", component_name)
-     *     .set("input_shape", shape_t{128, 64})
-     *     .set("has_bias", true);
-     * archive.writeMetadata("meta.json", meta);
-     * @endcode
-     *
-     * **Reading metadata**:
-     * @code
-     * auto meta = archive.readMetadata("meta.json");
-     * std::string type = meta.getString("type");
-     * int64_t version = meta.getInt("version");
-     * shape_t shape = meta.getShape("input_shape");
-     * bool has_bias = meta.getBool("has_bias");
-     * @endcode
      */
     export class SerializationMetadata
     {
@@ -90,6 +68,7 @@ namespace Mila::Dnn::Serialization
         SerializationMetadata& set( const std::string& key, MetadataValue value )
         {
             data_[ key ] = std::move( value );
+
             return *this;
         }
 
@@ -115,6 +94,7 @@ namespace Mila::Dnn::Serialization
         SerializationMetadata& set( const std::string& key, const std::string& value )
         {
             data_[ key ] = value;
+
             return *this;
         }
 
@@ -128,11 +108,12 @@ namespace Mila::Dnn::Serialization
         SerializationMetadata& set( const std::string& key, int64_t value )
         {
             data_[ key ] = value;
+
             return *this;
         }
 
         /**
-         * @brief Set floating-point value.
+         * @brief Set floating-point value (double).
          *
          * @param key Metadata key
          * @param value Double value
@@ -141,7 +122,23 @@ namespace Mila::Dnn::Serialization
         SerializationMetadata& set( const std::string& key, double value )
         {
             data_[ key ] = value;
+
             return *this;
+        }
+
+        /**
+         * @brief Set floating-point value (float).
+         *
+         * Stores the float as double in the internal representation for
+         * consistent handling by the metadata container.
+         *
+         * @param key Metadata key
+         * @param value Float value
+         * @return Reference to this for method chaining
+         */
+        SerializationMetadata& set( const std::string& key, float value )
+        {
+            return set( key, static_cast<double>( value ) );
         }
 
         /**
@@ -154,6 +151,7 @@ namespace Mila::Dnn::Serialization
         SerializationMetadata& set( const std::string& key, bool value )
         {
             data_[ key ] = value;
+
             return *this;
         }
 
@@ -167,6 +165,7 @@ namespace Mila::Dnn::Serialization
         SerializationMetadata& set( const std::string& key, const std::vector<double>& value )
         {
             data_[ key ] = value;
+
             return *this;
         }
 
@@ -180,6 +179,7 @@ namespace Mila::Dnn::Serialization
         SerializationMetadata& set( const std::string& key, const std::vector<std::string>& value )
         {
             data_[ key ] = value;
+
             return *this;
         }
 
@@ -435,6 +435,57 @@ namespace Mila::Dnn::Serialization
             if ( const auto* i = std::get_if<int64_t>( &it->second ) )
             {
                 return *i;
+            }
+
+            return std::nullopt;
+        }
+
+        /**
+         * @brief Get optional double value.
+         *
+         * @param key Metadata key
+         * @return Double value or std::nullopt if not found or type mismatch
+         */
+        std::optional<double> tryGetDouble( const std::string& key ) const noexcept
+        {
+            auto it = data_.find( key );
+            if ( it == data_.end() )
+            {
+                return std::nullopt;
+            }
+
+            if ( const auto* d = std::get_if<double>( &it->second ) )
+            {
+                return *d;
+            }
+
+            return std::nullopt;
+        }
+
+        /**
+         * @brief Get optional float value.
+         *
+         * Converts stored integer or double metadata to float when possible.
+         *
+         * @param key Metadata key
+         * @return Float value or std::nullopt if not found or type mismatch
+         */
+        std::optional<float> tryGetFloat( const std::string& key ) const noexcept
+        {
+            auto it = data_.find( key );
+            if ( it == data_.end() )
+            {
+                return std::nullopt;
+            }
+
+            if ( const auto* d = std::get_if<double>( &it->second ) )
+            {
+                return static_cast<float>( *d );
+            }
+
+            if ( const auto* i = std::get_if<int64_t>( &it->second ) )
+            {
+                return static_cast<float>( *i );
             }
 
             return std::nullopt;

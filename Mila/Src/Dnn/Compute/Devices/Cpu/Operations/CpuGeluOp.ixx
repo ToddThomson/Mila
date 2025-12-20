@@ -253,16 +253,5 @@ namespace Mila::Dnn::Compute
                 }
             );
         }
-
-        /**
-         * @brief Static initialization flag ensuring operations are registered
-         *
-         * This static member is initialized before main(), causing registerOperations()
-         * to be called automatically when the module is loaded.
-         */
-        static inline bool isRegistered = []() {
-            registerOperations();
-            return true;
-            }();
     };
 }

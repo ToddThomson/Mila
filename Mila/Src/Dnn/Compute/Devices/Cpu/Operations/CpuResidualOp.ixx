@@ -36,7 +36,6 @@ import Dnn.ComponentConfig;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
-//import Compute.CpuExecutionContext;
 import Compute.OperationType;
 import Compute.OperationBase;
 import Compute.BinaryOperation;
@@ -70,7 +69,7 @@ namespace Mila::Dnn::Compute
          * @param context Optional CPU execution context. If provided, it is validated.
          * @param config Residual operation configuration.
          */
-        CpuResidualOp( std::shared_ptr<CpuExecutionContext> context, const ResidualConfig& config )
+        CpuResidualOp( IExecutionContext* context, const ResidualConfig& config )
             :  context_( context ), config_( config )
         {
             if (!context_ )
@@ -149,7 +148,7 @@ namespace Mila::Dnn::Compute
 
     private:
         
-        std::shared_ptr<CpuExecutionContext> context_;
+        IExecutionContext* context_;
         ResidualConfig config_;
     };
 
@@ -166,19 +165,14 @@ namespace Mila::Dnn::Compute
         {
             OperationRegistry::instance().registerBinaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32, TensorDataType::FP32>(
                 "ResidualOp",
-                []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context, const ComponentConfig& config )
+                []( IExecutionContext* context, const ComponentConfig& config )
                 -> std::shared_ptr<BinaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
                 {
                     const auto& residualConfig = static_cast<const ResidualConfig&>(config);
-                    auto ctx = std::static_pointer_cast<ExecutionContext<DeviceType::Cpu>>(context);
-                    return std::make_shared<CpuResidualOp>( ctx, residualConfig );
+                   
+                    return std::make_unique<CpuResidualOp>( context, residualConfig );
                 }
             );
         }
-
-        static inline bool isRegistered = []() {
-            registerOperations();
-            return true;
-            }();
     };
 }

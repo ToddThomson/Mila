@@ -93,7 +93,7 @@ namespace Mila::Dnn::Compute
          * @param context CPU execution context
          * @param config CrossEntropy configuration (vocab_size required)
          */
-        CpuSoftmaxCrossEntropyOp( std::shared_ptr<CpuExecutionContext> context, const CrossEntropyConfig& config )
+        CpuSoftmaxCrossEntropyOp( IExecutionContext* context, const CrossEntropyConfig& config )
             : context_( context ), config_( config )
         {
             if (!context_)

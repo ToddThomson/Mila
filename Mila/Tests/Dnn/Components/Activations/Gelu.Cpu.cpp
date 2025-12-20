@@ -22,7 +22,7 @@
 
 import Mila;
 
-    namespace Dnn::Components::Activations::Tests
+namespace Dnn::Components::Activations::Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;

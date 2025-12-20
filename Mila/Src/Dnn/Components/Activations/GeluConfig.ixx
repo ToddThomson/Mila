@@ -60,17 +60,6 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Default constructor with name "gelu".
-         *
-         * @note When adding multiple GELU components to a container,
-         *       use .withName() to provide unique names.
-		 */
-        /*GeluConfig()
-            : ComponentConfig( "gelu" )
-        {
-        }*/
-
-        /**
          * @brief Configure the approximation method for GELU computation.
          *
          * Note: Currently, only the Tanh approximation method is supported.

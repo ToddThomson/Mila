@@ -35,17 +35,6 @@ namespace Mila::Dnn
     public:
         
         /**
-         * @brief Default constructor with name "encoder".
-         *
-         * @note When adding multiple Encoder components to a container,
-         *       use .withName() to provide unique names.
-		 */
-        EncoderConfig()
-            : ComponentConfig( "encoder" )
-        {
-		}
-
-        /**
          * @brief C++23-style fluent setter for embedding dimension.
          */
         template <typename Self>

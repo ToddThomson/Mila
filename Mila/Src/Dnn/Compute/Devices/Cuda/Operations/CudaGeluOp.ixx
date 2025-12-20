@@ -294,16 +294,5 @@ namespace Mila::Dnn::Compute
                 }
             );
         }
-
-        /**
-         * @brief Self-registration mechanism that registers the operation during startup.
-         *
-         * This static member ensures the operation is registered when the program starts
-         * without requiring explicit registration calls.
-         */
-        static inline bool isRegistered = []() {
-            registerOperations();
-            return true;
-            }();
     };
 }

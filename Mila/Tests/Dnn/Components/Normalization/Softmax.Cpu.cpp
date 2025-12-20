@@ -9,7 +9,7 @@
 
 import Mila;
 
-namespace Dnn::Components::Normalization::Tests
+namespace Components_Normalization_Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
