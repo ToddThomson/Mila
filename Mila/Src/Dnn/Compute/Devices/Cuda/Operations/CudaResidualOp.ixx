@@ -7,11 +7,6 @@
  * dispatches to device kernels in the `Detail` namespace based on the native
  * compute type (float / half).
  *
- * Notes:
- *  - Forward is implemented using the CUDA kernels exposed in Kernels/CudaOps.h.
- *  - Backward pass is not implemented and will throw if invoked.
- *  - The class requires a non-null CUDA execution context at construction.
- *
  * @since Alpha
  */
 
@@ -104,7 +99,7 @@ namespace Mila::Dnn::Compute
          * pass a std::shared_ptr<ExecutionContext<DeviceType::Cuda>>.
          */
         CudaResidualOp( IExecutionContext* context, const ResidualConfig& config )
-            : context_(  ), config_( config )
+            : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaResidualOp" ) ), config_( config )
         {
             if (!context_)
             {

@@ -2,13 +2,13 @@
 #include <memory>
 #include <vector>
 #include <string>
-#include <stdexcept>
 #include <cmath>
+#include <stdexcept>
 #include <cstdint>
 
 import Mila;
 
-namespace Modules::Connections::Tests
+namespace Components_Connections_Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
@@ -16,137 +16,485 @@ namespace Modules::Connections::Tests
     template<TensorDataType TPrecision>
     using CudaTensor = Tensor<TPrecision, CudaDeviceMemoryResource>;
 
-    using HostTensor = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+    template<TensorDataType TPrecision>
+    using CpuTensor = Tensor<TPrecision, CpuMemoryResource>;
 
-    class CudaResidualTests : public ::testing::Test
+    // ====================================================================
+    // Test Shape Definitions
+    // ====================================================================
+
+    enum class TestShapeSize
+    {
+        Small,
+        Medium,
+        Large,
+        Minimal
+    };
+
+    struct TestShape
+    {
+        TestShapeSize size;
+        shape_t dimensions;
+        std::string name;
+
+        static TestShape Small()
+        {
+            return { TestShapeSize::Small, { 2, 3, 4 }, "Small" };
+        }
+
+        static TestShape Medium()
+        {
+            return { TestShapeSize::Medium, { 4, 64, 256 }, "Medium" };
+        }
+
+        static TestShape Large()
+        {
+            return { TestShapeSize::Large, { 8, 128, 512 }, "Large" };
+        }
+
+        static TestShape Minimal()
+        {
+            return { TestShapeSize::Minimal, { 1 }, "Minimal" };
+        }
+
+        static std::vector<TestShape> StandardShapes()
+        {
+            return { Small(), Medium(), Large() };
+        }
+    };
+
+    // ====================================================================
+    // Precision Traits
+    // ====================================================================
+
+    template<TensorDataType TPrecision>
+    struct PrecisionTraits
+    {
+        static constexpr TensorDataType value = TPrecision;
+        static constexpr const char* name = "Unknown";
+        static constexpr float tolerance = 1e-4f;
+    };
+
+    template<>
+    struct PrecisionTraits<TensorDataType::FP32>
+    {
+        static constexpr TensorDataType value = TensorDataType::FP32;
+        static constexpr const char* name = "FP32";
+        static constexpr float tolerance = 1e-4f;
+    };
+
+    template<>
+    struct PrecisionTraits<TensorDataType::FP16>
+    {
+        static constexpr TensorDataType value = TensorDataType::FP16;
+        static constexpr const char* name = "FP16";
+        static constexpr float tolerance = 1e-2f;
+    };
+
+    // ====================================================================
+    // Fixture
+    // ====================================================================
+
+    template<TensorDataType TPrecision>
+    struct ResidualTestFixture
+    {
+        TestShape test_shape;
+        ResidualConfig config;
+        std::shared_ptr<Residual<DeviceType::Cuda, TPrecision>> component;
+        float scaling;
+        bool is_training;
+
+        static ResidualTestFixture Create( TestShape shape, float scaling = 1.0f, bool is_training = false )
+        {
+            ResidualTestFixture fixture;
+            fixture.test_shape = shape;
+            fixture.scaling = scaling;
+            fixture.is_training = is_training;
+
+            fixture.config = ResidualConfig();
+            fixture.config.withScalingFactor( scaling );
+
+            std::string name = std::string( "residual_cuda_" ) + shape.name + "_" + PrecisionTraits<TPrecision>::name;
+
+            fixture.component = std::make_shared<Residual<DeviceType::Cuda, TPrecision>>(
+                name,
+                fixture.config,
+                Device::Cuda( 0 )
+            );
+
+            fixture.component->setTraining( is_training );
+
+            return fixture;
+        }
+
+        const shape_t& shape() const
+        {
+            return test_shape.dimensions;
+        }
+    };
+
+    // ====================================================================
+    // Typed Tests
+    // ====================================================================
+
+    template<typename T>
+    class ResidualCudaTests : public testing::Test
     {
     protected:
         void SetUp() override
         {
-            // Use DeviceRegistry to determine whether CUDA support was registered.
-            // Tests must not call CUDA runtime APIs directly.
-            cuda_available_ = DeviceRegistry::instance().hasDeviceType( DeviceType::Cuda );
-
-            small_shape_ = { 2, 3, 4 }; // small tensor for correctness checks
+            int device_count = getDeviceCount( DeviceType::Cuda );
+            cuda_available_ = (device_count > 0);
         }
 
         bool cuda_available_{ false };
-        shape_t small_shape_;
     };
 
-    TEST_F( CudaResidualTests, Constructor_NullContext_Throws )
+    template<TensorDataType TPrecision>
+    struct PrecisionType {
+        static constexpr TensorDataType value = TPrecision;
+    };
+
+    using PrecisionTypes = ::testing::Types<
+        PrecisionType<TensorDataType::FP32>,
+        PrecisionType<TensorDataType::FP16>
+    >;
+
+    TYPED_TEST_SUITE( ResidualCudaTests, PrecisionTypes );
+
+    // ====================================================================
+    // Construction / Device tests
+    // ====================================================================
+
+    TYPED_TEST( ResidualCudaTests, Constructor_WithValidDeviceId_CreatesComponent )
     {
-        if (!cuda_available_) GTEST_SKIP() << "CUDA not available";
-
-        ResidualConfig cfg;
-        cfg.withName( "res_null_ctx" );
-
-        std::shared_ptr<ExecutionContext<DeviceType::Cuda>> null_ctx;
-        EXPECT_THROW(
-            (std::make_shared<Residual<DeviceType::Cuda, TensorDataType::FP32>>( null_ctx, cfg )),
-            std::invalid_argument );
-    }
-
-    TEST_F( CudaResidualTests, ParameterCount_DefaultsToZero )
-    {
-        if (!cuda_available_) GTEST_SKIP() << "CUDA not available";
-
-        ResidualConfig cfg;
-        cfg.withName( "res_paramcount" );
-
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
-        auto module = std::make_shared<Residual<DeviceType::Cuda, TensorDataType::FP32>>( ctx, cfg );
-
-        EXPECT_EQ( module->parameterCount(), 0u );
-    }
-
-    TEST_F( CudaResidualTests, GetName_ToString )
-    {
-        if (!cuda_available_) GTEST_SKIP() << "CUDA not available";
-
-        ResidualConfig cfg;
-        cfg.withName( "res_info" );
-
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
-        auto module = std::make_shared<Residual<DeviceType::Cuda, TensorDataType::FP32>>( ctx, cfg );
-
-        EXPECT_EQ( module->getName(), "res_info" );
-
-        std::string s = module->toString();
-        EXPECT_NE( s.find( "Residual" ), std::string::npos );
-    }
-
-    TEST_F( CudaResidualTests, Forward_ElementwiseAdd )
-    {
-        if (!cuda_available_) GTEST_SKIP() << "CUDA not available";
-
-        ResidualConfig cfg;
-        cfg.withName( "res_forward" ).withScalingFactor( 1.0f );
-
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
-        auto module = std::make_shared<Residual<DeviceType::Cuda, TensorDataType::FP32>>( ctx, cfg );
-
-        // Host inputs (CPU)
-        HostTensor host_A( Device::Cpu(), small_shape_ );
-        HostTensor host_B( Device::Cpu(), small_shape_ );
-
-        // Fill deterministic values
-        for (size_t i = 0; i < host_A.size(); ++i)
+        if ( !this->cuda_available_ )
         {
-            host_A.data()[i] = static_cast<float>( i ) * 0.25f;
-            host_B.data()[i] = static_cast<float>( i ) * 0.75f;
+            GTEST_SKIP() << "CUDA not available";
         }
 
-        // Device tensors
-        CudaTensor<TensorDataType::FP32> device_A( ctx->getDeviceId(), small_shape_ );
-        CudaTensor<TensorDataType::FP32> device_B( ctx->getDeviceId(), small_shape_ );
-        CudaTensor<TensorDataType::FP32> device_Y( ctx->getDeviceId(), small_shape_ );
+        constexpr TensorDataType TPrecision = TypeParam::value;
 
-        // Copy host -> device
+        ResidualConfig cfg;
+        cfg.withScalingFactor( 1.0f );
+
+        std::shared_ptr<Residual<DeviceType::Cuda, TPrecision>> component{ nullptr };
+
+        ASSERT_NO_THROW(
+            (component = std::make_shared<Residual<DeviceType::Cuda, TPrecision>>(
+                "ctor_device_cuda",
+                cfg,
+                Device::Cuda( 0 )
+            ))
+        );
+
+        ASSERT_NE( component, nullptr );
+        EXPECT_EQ( component->getDeviceType(), DeviceType::Cuda );
+
+        auto device = component->getDeviceId();
+
+        EXPECT_EQ( device.type, DeviceType::Cuda );
+    }
+
+    TYPED_TEST( ResidualCudaTests, Constructor_WithoutDeviceId_CreatesComponent )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        ResidualConfig cfg;
+        cfg.withScalingFactor( 1.0f );
+
+        std::shared_ptr<Residual<DeviceType::Cuda, TPrecision>> component;
+
+        ASSERT_NO_THROW(
+            (component = std::make_shared<Residual<DeviceType::Cuda, TPrecision>>(
+                "ctor_shared_cuda",
+                cfg
+            ))
+        );
+
+        ASSERT_NE( component, nullptr );
+    }
+
+    TYPED_TEST( ResidualCudaTests, Constructor_WithInvalidDeviceType_ThrowsInvalidArgument )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        ResidualConfig cfg;
+        cfg.withScalingFactor( 1.0f );
+
+        EXPECT_THROW(
+            ((void)std::make_shared<Residual<DeviceType::Cuda, TPrecision>>(
+                "invalid_ctor",
+                cfg,
+                Device::Cpu()
+            )),
+            std::invalid_argument
+        );
+    }
+
+    // ====================================================================
+    // Introspection / lifecycle tests
+    // ====================================================================
+
+    TYPED_TEST( ResidualCudaTests, IsTraining_DefaultsToFalse )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto fixture = ResidualTestFixture<TPrecision>::Create( TestShape::Small(), 1.0f, false );
+
+        EXPECT_FALSE( fixture.component->isTraining() );
+    }
+
+    TYPED_TEST( ResidualCudaTests, SetTraining_TogglesState )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto fixture = ResidualTestFixture<TPrecision>::Create( TestShape::Small() );
+
+        EXPECT_FALSE( fixture.component->isTraining() );
+
+        fixture.component->setTraining( true );
+        EXPECT_TRUE( fixture.component->isTraining() );
+
+        fixture.component->setTraining( false );
+        EXPECT_FALSE( fixture.component->isTraining() );
+    }
+
+    TYPED_TEST( ResidualCudaTests, ParameterCount_AfterConstruction_ReturnsZero )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto fixture = ResidualTestFixture<TPrecision>::Create( TestShape::Small() );
+
+        EXPECT_EQ( fixture.component->parameterCount(), 0 );
+    }
+
+    TYPED_TEST( ResidualCudaTests, ToString_ContainsComponentInfo )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto fixture = ResidualTestFixture<TPrecision>::Create( TestShape::Small() );
+        std::string output = fixture.component->toString();
+
+        EXPECT_NE( output.find( "Residual" ), std::string::npos );
+        EXPECT_NE( output.find( "Device:" ), std::string::npos );
+    }
+
+    TYPED_TEST( ResidualCudaTests, Synchronize_AfterConstruction_Succeeds )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto fixture = ResidualTestFixture<TPrecision>::Create( TestShape::Small() );
+
+        EXPECT_NO_THROW( fixture.component->synchronize() );
+    }
+
+    // ====================================================================
+    // Forward / Build tests
+    // ====================================================================
+
+    TYPED_TEST( ResidualCudaTests, Forward_BeforeBuild_ThrowsRuntimeError )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto fixture = ResidualTestFixture<TPrecision>::Create( TestShape::Small() );
+
+        CudaTensor<TPrecision> A( Device::Cuda( 0 ), fixture.shape() );
+        CudaTensor<TPrecision> B( Device::Cuda( 0 ), fixture.shape() );
+        CudaTensor<TPrecision> Y( Device::Cuda( 0 ), fixture.shape() );
+
+        EXPECT_THROW( fixture.component->forward( A, B, Y ), std::runtime_error );
+    }
+
+    TYPED_TEST( ResidualCudaTests, Build_WithVariousShapes_SetsBuiltState )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto shapes = TestShape::StandardShapes();
+
+        for ( const auto& test_shape : shapes )
+        {
+            auto fixture = ResidualTestFixture<TPrecision>::Create( test_shape );
+
+            EXPECT_FALSE( fixture.component->isBuilt() )
+                << "Component should not be built before build() for shape: " << test_shape.name;
+
+            EXPECT_NO_THROW( fixture.component->build( fixture.shape() ) )
+                << "Build failed for shape: " << test_shape.name;
+
+            EXPECT_TRUE( fixture.component->isBuilt() )
+                << "Component should be built after build() for shape: " << test_shape.name;
+        }
+    }
+
+    TYPED_TEST( ResidualCudaTests, Forward_WithVariousShapes_ProducesValidOutput )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto shapes = TestShape::StandardShapes();
+
+        for ( const auto& test_shape : shapes )
+        {
+            auto fixture = ResidualTestFixture<TPrecision>::Create( test_shape, 1.0f );
+            fixture.component->build( fixture.shape() );
+
+            CpuTensor<TensorDataType::FP32> host_A( Device::Cpu(), fixture.shape() );
+            CpuTensor<TensorDataType::FP32> host_B( Device::Cpu(), fixture.shape() );
+
+            random( host_A, -2.0f, 2.0f );
+            random( host_B, -2.0f, 2.0f );
+
+            CudaTensor<TPrecision> device_A( Device::Cuda( 0 ), fixture.shape() );
+            CudaTensor<TPrecision> device_B( Device::Cuda( 0 ), fixture.shape() );
+            CudaTensor<TPrecision> device_Y( Device::Cuda( 0 ), fixture.shape() );
+
+            copy( host_A, device_A );
+            copy( host_B, device_B );
+
+            EXPECT_NO_THROW( fixture.component->forward( device_A, device_B, device_Y ) )
+                << "Forward failed for shape: " << test_shape.name;
+
+            EXPECT_EQ( device_Y.size(), device_A.size() )
+                << "Output size mismatch for shape: " << test_shape.name;
+
+            EXPECT_EQ( device_Y.shape(), device_A.shape() )
+                << "Output shape mismatch for shape: " << test_shape.name;
+        }
+    }
+
+    TYPED_TEST( ResidualCudaTests, Forward_ElementwiseAdd_MatchesCpu )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        TestShape test_shape = TestShape::Small();
+        ResidualConfig cfg;
+        cfg.withScalingFactor( 1.0f );
+
+        auto cpu_component = std::make_shared<Residual<DeviceType::Cpu, TensorDataType::FP32>>(
+            "cpu_ref",
+            cfg,
+            Device::Cpu()
+        );
+
+        auto cuda_fixture = ResidualTestFixture<TPrecision>::Create( test_shape, 1.0f );
+
+        cpu_component->build( test_shape.dimensions );
+        cuda_fixture.component->build( cuda_fixture.shape() );
+
+        CpuTensor<TensorDataType::FP32> host_A( Device::Cpu(), test_shape.dimensions );
+        CpuTensor<TensorDataType::FP32> host_B( Device::Cpu(), test_shape.dimensions );
+
+        random( host_A, -1.0f, 1.0f );
+        random( host_B, -1.0f, 1.0f );
+
+        CpuTensor<TensorDataType::FP32> cpu_Y( Device::Cpu(), test_shape.dimensions );
+        cpu_component->forward( host_A, host_B, cpu_Y );
+
+        CudaTensor<TPrecision> device_A( Device::Cuda( 0 ), test_shape.dimensions );
+        CudaTensor<TPrecision> device_B( Device::Cuda( 0 ), test_shape.dimensions );
+        CudaTensor<TPrecision> device_Y( Device::Cuda( 0 ), test_shape.dimensions );
+
         copy( host_A, device_A );
         copy( host_B, device_B );
 
-        // Forward via Residual module (delegates to registered CUDA backend)
-        EXPECT_NO_THROW( module->forward( device_A, device_B, device_Y ) );
+        cuda_fixture.component->forward( device_A, device_B, device_Y );
 
-        // Copy result back to host for verification
-        HostTensor host_Y = toHost<TensorDataType::FP32>( device_Y );
+        CpuTensor<TensorDataType::FP32> cuda_Y_host = toHost<TensorDataType::FP32>( device_Y );
 
-        const float eps = 1e-4f;
-        for (size_t i = 0; i < host_Y.size(); ++i)
+        const float eps = PrecisionTraits<TPrecision>::tolerance;
+        for ( size_t i = 0; i < cpu_Y.size(); ++i )
         {
-            float expected = host_A.data()[i] + host_B.data()[i];
-            float got = host_Y.data()[i];
+            float expected = cpu_Y.data()[ i ];
+            float got = cuda_Y_host.data()[ i ];
             EXPECT_NEAR( got, expected, eps ) << "Mismatch at index " << i;
         }
     }
 
-    TEST_F( CudaResidualTests, EdgeCase_MinimalShape )
+    TYPED_TEST( ResidualCudaTests, EdgeCase_MinimalShape )
     {
-        if (!cuda_available_) GTEST_SKIP() << "CUDA not available";
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
 
-        ResidualConfig cfg;
-        cfg.withName( "res_minimal" );
+        constexpr TensorDataType TPrecision = TypeParam::value;
 
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
-        auto module = std::make_shared<Residual<DeviceType::Cuda, TensorDataType::FP32>>( ctx, cfg );
+        TestShape minimal_shape = TestShape::Minimal();
+        auto fixture = ResidualTestFixture<TPrecision>::Create( minimal_shape );
 
-        shape_t minimal = { 1 };
-        HostTensor host_A( Device::Cpu(), minimal );
-        HostTensor host_B( Device::Cpu(), minimal );
-        host_A.data()[0] = 1.0f;
-        host_B.data()[0] = 2.0f;
+        fixture.component->build( fixture.shape() );
 
-        CudaTensor<TensorDataType::FP32> device_A( ctx->getDeviceId(), minimal );
-        CudaTensor<TensorDataType::FP32> device_B( ctx->getDeviceId(), minimal );
-        CudaTensor<TensorDataType::FP32> device_Y( ctx->getDeviceId(), minimal );
+        CpuTensor<TensorDataType::FP32> host_A( Device::Cpu(), minimal_shape.dimensions );
+        CpuTensor<TensorDataType::FP32> host_B( Device::Cpu(), minimal_shape.dimensions );
+
+        host_A.data()[ 0 ] = 1.0f;
+        host_B.data()[ 0 ] = 2.0f;
+
+        CudaTensor<TPrecision> device_A( Device::Cuda( 0 ), minimal_shape.dimensions );
+        CudaTensor<TPrecision> device_B( Device::Cuda( 0 ), minimal_shape.dimensions );
+        CudaTensor<TPrecision> device_Y( Device::Cuda( 0 ), minimal_shape.dimensions );
 
         copy( host_A, device_A );
         copy( host_B, device_B );
 
-        EXPECT_NO_THROW( module->forward( device_A, device_B, device_Y ) );
+        EXPECT_NO_THROW( fixture.component->forward( device_A, device_B, device_Y ) );
 
-        HostTensor host_Y = toHost<TensorDataType::FP32>( device_Y );
-        EXPECT_FLOAT_EQ( host_Y.data()[0], 3.0f );
+        CpuTensor<TensorDataType::FP32> host_Y = toHost<TensorDataType::FP32>( device_Y );
+        EXPECT_FLOAT_EQ( host_Y.data()[ 0 ], 3.0f );
     }
 }

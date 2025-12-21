@@ -14,11 +14,11 @@ export module Dnn.Components.Attention:Config;
 import Dnn.Component;
 import Dnn.ComponentConfig;
 import Dnn.TensorTypes;
-import nlohmann.json;
+import Serialization.Metadata;
 
 namespace Mila::Dnn
 {
-    using json = nlohmann::json;
+    using Serialization::SerializationMetadata;
 
     /**
      * @brief Configuration class for Attention module.
@@ -40,9 +40,8 @@ namespace Mila::Dnn
          * @param num_heads The number of attention heads
          */
         AttentionConfig( dim_t embedding_dim, dim_t num_heads )
-			: embedding_dim_( embedding_dim ), num_heads_( num_heads )
-        {
-        }
+            : embedding_dim_( embedding_dim ), num_heads_( num_heads )
+        {}
 
         /**
          * @brief C++23-style fluent setter for embedding dimension.
@@ -87,81 +86,75 @@ namespace Mila::Dnn
          */
         void validate() const override
         {
-            if (embedding_dim_ <= 0)
+            if ( embedding_dim_ <= 0 )
             {
-                throw std::invalid_argument( "Embedding dimension must be greater than zero" );
+                throw std::invalid_argument( "AttentionConfig: embedding_dim must be > 0" );
             }
 
-            if (num_heads_ <= 0)
+            if ( num_heads_ <= 0 )
             {
-                throw std::invalid_argument( "Number of attention heads must be greater than zero" );
+                throw std::invalid_argument( "AttentionConfig: num_heads must be > 0" );
             }
 
-            if (embedding_dim_ % num_heads_ != 0)
+            if ( embedding_dim_ % num_heads_ != 0 )
             {
-                throw std::invalid_argument( "Embedding dimension must be divisible by number of heads" );
+                throw std::invalid_argument( "AttentionConfig: embedding_dim must be divisible by num_heads" );
             }
         }
 
         /**
-         * @brief Serialize configuration to JSON.
+         * @brief Convert configuration to serialization metadata.
          *
-         * Keys:
-         * - "name" : string
-         * - "precision" : integer (underlying value of ComputePrecision::Policy)
-         * - "embedding_dim" : integer
-         * - "num_heads" : integer
+         * Produces a SerializationMetadata object containing the configuration
+         * fields suitable for writing into an archive by the caller.
          */
-        //json toJson() const
-        //{
-        //    json j;
-        //    /*j["name"] = name_;
-        //    j["precision"] = static_cast<int>( precision_ );
-        //    j["embedding_dim"] = static_cast<int64_t>( embedding_dim_ );
-        //    j["num_heads"] = static_cast<int64_t>( num_heads_ );*/
+        SerializationMetadata toMetadata() const
+        {
+            SerializationMetadata meta;
+            meta.set( "precision", static_cast<int64_t>(precision_) )
+                .set( "embedding_dim", static_cast<int64_t>(embedding_dim_) )
+                .set( "num_heads", static_cast<int64_t>(num_heads_) );
 
-        //    return j;
-        //}
+            return meta;
+        }
 
         /**
-         * @brief Deserialize configuration from JSON (ModuleConfig interface).
+         * @brief Populate configuration from serialization metadata.
          *
-         * Missing keys leave fields at their current values.
+         * Reads available fields from the provided metadata and updates the
+         * configuration object accordingly.
          */
-        //void fromJson( const json& j )
-        //{
-        //    /*if ( j.contains( "name" ) )
-        //    {
-        //        name_ = j.at( "name" ).get<std::string>();
-        //    }
+        void fromMetadata( const SerializationMetadata& meta )
+        {
+            if ( auto prec = meta.tryGetInt( "precision" ) )
+            {
+                precision_ = static_cast<decltype(precision_)>(*prec);
+            }
 
-        //    if ( j.contains( "precision" ) )
-        //    {
-        //        precision_ = static_cast<decltype( precision_)>( j.at( "precision" ).get<int>() );
-        //    }
+            if ( auto ed = meta.tryGetInt( "embedding_dim" ) )
+            {
+                embedding_dim_ = static_cast<dim_t>(*ed);
+            }
 
-        //    if ( j.contains( "embedding_dim" ) )
-        //    {
-        //        embedding_dim_ = static_cast<dim_t>( j.at( "embedding_dim" ).get<int64_t>() );
-        //    }
-
-        //    if ( j.contains( "num_heads" ) )
-        //    {
-        //        num_heads_ = static_cast<dim_t>( j.at( "num_heads" ).get<int64_t>() );
-        //    }*/
-        //}
+            if ( auto nh = meta.tryGetInt( "num_heads" ) )
+            {
+                num_heads_ = static_cast<dim_t>(*nh);
+            }
+        }
 
         /**
-         * @brief String representation of the configuration (ModuleConfig interface).
+         * @brief String representation of the configuration.
          *
-		 * @return std::string Human-readable description of the configuration.
+         * @return std::string Human-readable description of the configuration.
          */
         std::string toString() const override
         {
             std::ostringstream oss;
             oss << "AttentionConfig: { ";
             oss << "precision=" << static_cast<int>(precision_) << ", ";
-            oss << " }";
+            oss << "embedding_dim=" << embedding_dim_ << ", ";
+            oss << "num_heads=" << num_heads_ << " }";
+
             return oss.str();
         }
 

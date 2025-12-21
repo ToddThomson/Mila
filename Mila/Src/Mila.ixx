@@ -174,12 +174,12 @@ export import Dnn.TensorInitializers;
 export import Dnn.ActivationType;
 export import Dnn.ConnectionType;
 
-//export import Dnn.Components.Attention;
-//export import Dnn.Components.Encoder;
+export import Dnn.Components.Attention;
+export import Dnn.Components.Encoder;
 export import Dnn.Components.Gelu;
 export import Dnn.Components.LayerNorm;
 export import Dnn.Components.Linear;
-//export import Dnn.Components.Residual;
+export import Dnn.Components.Residual;
 export import Dnn.Components.Softmax;
 //export import Dnn.Components.SoftmaxCrossEntropy;
 

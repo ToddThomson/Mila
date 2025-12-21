@@ -14,11 +14,11 @@ export import Dnn.Blocks.MLP;
 // FIXME: export import Dnn.Blocks.Transformer;
 
 // Connection Layers
-// FIXME: export import Dnn.Components.Residual;
+export import Dnn.Components.Residual;
 
 // Layers
-// FIXME: export import Dnn.Components.Attention;
-// export import Dnn.Components.Encoder;
+export import Dnn.Components.Attention;
+export import Dnn.Components.Encoder;
 export import Dnn.Components.Linear;
 
 //Losses

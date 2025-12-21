@@ -1,10 +1,11 @@
 #include <gtest/gtest.h>
 #include <memory>
 #include <stdexcept>
+#include <string>
 
 import Mila;
 
-namespace Modules::Layers::Tests
+namespace Components::Layers::Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
@@ -13,8 +14,7 @@ namespace Modules::Layers::Tests
     {
     protected:
         void SetUp() override
-        {
-        }
+        {}
     };
 
     TEST_F( EncoderConfigTests, FluentSettersAndAccessors )
@@ -23,14 +23,12 @@ namespace Modules::Layers::Tests
         auto& result = config
             .withChannels( 256 )
             .withMaxSequenceLength( 1024 )
-            .withVocabularyLength( 50257 )
-            .withName( "test_encoder" );
+            .withVocabularyLength( 50257 );
 
         EXPECT_EQ( &result, &config );
         EXPECT_EQ( config.getChannels(), 256u );
         EXPECT_EQ( config.getMaxSequenceLength(), 1024u );
         EXPECT_EQ( config.getVocabularyLength(), 50257u );
-        EXPECT_EQ( config.getName(), "test_encoder" );
     }
 
     TEST_F( EncoderConfigTests, ValidationSuccess )
@@ -38,8 +36,7 @@ namespace Modules::Layers::Tests
         EncoderConfig config;
         config.withChannels( 128 )
             .withMaxSequenceLength( 512 )
-            .withVocabularyLength( 10000 )
-            .withName( "valid_encoder" );
+            .withVocabularyLength( 10000 );
 
         EXPECT_NO_THROW( config.validate() );
     }
@@ -49,8 +46,7 @@ namespace Modules::Layers::Tests
         EncoderConfig config;
         config.withChannels( 0 )
             .withMaxSequenceLength( 512 )
-            .withVocabularyLength( 10000 )
-            .withName( "bad_channels" );
+            .withVocabularyLength( 10000 );
 
         EXPECT_THROW( config.validate(), std::invalid_argument );
     }
@@ -60,8 +56,7 @@ namespace Modules::Layers::Tests
         EncoderConfig config;
         config.withChannels( 128 )
             .withMaxSequenceLength( 0 )
-            .withVocabularyLength( 10000 )
-            .withName( "bad_max_seq" );
+            .withVocabularyLength( 10000 );
 
         EXPECT_THROW( config.validate(), std::invalid_argument );
     }
@@ -71,8 +66,7 @@ namespace Modules::Layers::Tests
         EncoderConfig config;
         config.withChannels( 128 )
             .withMaxSequenceLength( 512 )
-            .withVocabularyLength( 0 )
-            .withName( "bad_vocab" );
+            .withVocabularyLength( 0 );
 
         EXPECT_THROW( config.validate(), std::invalid_argument );
     }
@@ -82,18 +76,17 @@ namespace Modules::Layers::Tests
         EncoderConfig config;
         config.withChannels( 0 )
             .withMaxSequenceLength( 16 )
-            .withVocabularyLength( 100 )
-            .withName( "err_msg" );
+            .withVocabularyLength( 100 );
 
         try
         {
             config.validate();
             FAIL() << "Expected std::invalid_argument to be thrown";
         }
-        catch (const std::invalid_argument& e)
+        catch ( const std::invalid_argument& e )
         {
             std::string msg = e.what();
-            EXPECT_NE( msg.find( "Embedding dimension" ), std::string::npos );
+            EXPECT_NE( msg.find( "channels" ), std::string::npos );
         }
     }
 
@@ -102,15 +95,32 @@ namespace Modules::Layers::Tests
         EncoderConfig config;
         config.withChannels( 64 )
             .withMaxSequenceLength( 256 )
-            .withVocabularyLength( 20000 )
-            .withName( "persistent_encoder" );
+            .withVocabularyLength( 20000 );
 
         EncoderConfig copy = config;
 
         EXPECT_EQ( copy.getChannels(), 64u );
         EXPECT_EQ( copy.getMaxSequenceLength(), 256u );
         EXPECT_EQ( copy.getVocabularyLength(), 20000u );
-        EXPECT_EQ( copy.getName(), "persistent_encoder" );
+    }
+
+    TEST_F( EncoderConfigTests, ConfigurationPersistence_Metadata_RoundTrip )
+    {
+        EncoderConfig config;
+        config.withChannels( 512 )
+            .withMaxSequenceLength( 2048 )
+            .withVocabularyLength( 30000 )
+            .withPrecisionPolicy( ComputePrecision::Policy::Performance );
+
+        auto meta = config.toMetadata();
+
+        EncoderConfig restored;
+        restored.fromMetadata( meta );
+
+        EXPECT_EQ( restored.getChannels(), 512u );
+        EXPECT_EQ( restored.getMaxSequenceLength(), 2048u );
+        EXPECT_EQ( restored.getVocabularyLength(), 30000u );
+        EXPECT_EQ( restored.getPrecisionPolicy(), ComputePrecision::Policy::Performance );
     }
 
     TEST_F( EncoderConfigTests, EdgeCases_LargeDimensions )
@@ -118,8 +128,7 @@ namespace Modules::Layers::Tests
         EncoderConfig config;
         config.withChannels( 4096 )
             .withMaxSequenceLength( 16384 )
-            .withVocabularyLength( 1000000 )
-            .withName( "large_encoder" );
+            .withVocabularyLength( 1000000 );
 
         EXPECT_EQ( config.getChannels(), 4096u );
         EXPECT_EQ( config.getMaxSequenceLength(), 16384u );
@@ -132,8 +141,7 @@ namespace Modules::Layers::Tests
         EncoderConfig config;
         config.withChannels( 1 )
             .withMaxSequenceLength( 1 )
-            .withVocabularyLength( 1 )
-            .withName( "minimal_encoder" );
+            .withVocabularyLength( 1 );
 
         EXPECT_EQ( config.getChannels(), 1u );
         EXPECT_EQ( config.getMaxSequenceLength(), 1u );
@@ -161,11 +169,10 @@ namespace Modules::Layers::Tests
             .withVocabularyLength( 1000 );
 
         // chaining again and ensuring values persist / update correctly
-        config.withChannels( 256 ).withName( "chain_preserve" );
+        config.withChannels( 256 );
 
         EXPECT_EQ( config.getChannels(), 256u );
         EXPECT_EQ( config.getMaxSequenceLength(), 256u );
         EXPECT_EQ( config.getVocabularyLength(), 1000u );
-        EXPECT_EQ( config.getName(), "chain_preserve" );
     }
 }

@@ -105,19 +105,19 @@ add_executable( MilaTests
     # --------------------------------------------------------------
     # Dnn::Components Tests
     # --------------------------------------------------------------
-    "Dnn/Components/Component.cpp"
-    "Dnn/Components/ComponentConfig.cpp"
+    "Dnn/Core/Component.cpp"
+    "Dnn/Core/ComponentConfig.cpp"
+    "Dnn/Core/CompositeComponent.cpp"
 
-    #"Dnn/Components/Layers/Attention.Cpu.cpp"
+   
+    "Dnn/Components/Layers/Attention.Config.cpp"
+    "Dnn/Components/Layers/Attention.Cpu.cpp"
+    "Dnn/Components/Layers/Attention.Cuda.cpp"
     
-    #"Dnn/Components/Layers/Encoder.Cpu.cpp"
-    #"Dnn/Components/Layers/Encoder.Cuda.cpp"
-    #"Dnn/Components/Layers/EncoderConfig.cpp"
+    "Dnn/Components/Layers/Encoder.Cpu.cpp"
+    "Dnn/Components/Layers/Encoder.Cuda.cpp"
+    "Dnn/Components/Layers/EncoderConfig.cpp"
     
-    #"Dnn/Components/Connections/Residual.Cpu.cpp"
-    #"Dnn/Components/Connections/Residual.Cuda.cpp"
-    #"Dnn/Components/Connections/Residual.Config.cpp"
-
     "Dnn/Components/Activations/Gelu.Cpu.cpp"
     "Dnn/Components/Activations/Gelu.Cuda.cpp"
     "Dnn/Components/Activations/GeluConfig.cpp"
@@ -130,9 +130,9 @@ add_executable( MilaTests
     "Dnn/Components/Layers/Linear.Cuda.cpp"
     "Dnn/Components/Layers/LinearConfig.cpp"
 
-    #"Dnn/Components/Connections/Residual.Config.cpp"
-    #"Dnn/Components/Connections/Residual.Cuda.cpp"
-    #"Dnn/Components/Connections/Residual.Cpu.cpp"
+    "Dnn/Components/Connections/Residual.Config.cpp"
+    "Dnn/Components/Connections/Residual.Cuda.cpp"
+    "Dnn/Components/Connections/Residual.Cpu.cpp"
 
     "Dnn/Components/Normalization/Softmax.Cpu.cpp"
     "Dnn/Components/Normalization/Softmax.Cuda.cpp"    
@@ -185,16 +185,16 @@ add_executable( MilaTests
     #"Dnn/Components/Losses/CrossEntropy.Cpu.cpp"
     #"Dnn/Components/Losses/SoftmaxCrossEntropy.Cuda.cpp"
     #"Dnn/Components/Losses/CrossEntropy.Config.cpp"
-    #"Dnn/Components/Layers/Attention.Cuda.cpp"
-    #"Dnn/Components/Layers/Attention.Config.cpp"
+    
     #"Dnn/Components/Blocks/Transformer.Cuda.cpp"
     #"Dnn/Components/Blocks/Transformer.Config.cpp"
 
     #"Dnn/Serialization/ModelArchive.cpp" 
     #"Dnn/Modeling/Network.Cpu.cpp"
-    
    
- "Dnn/Core/CompositeComponent.cpp" "Dnn/Network/Network.cpp")
+    
+    "Dnn/Network/Network.cpp"
+)
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
 

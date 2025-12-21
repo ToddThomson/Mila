@@ -3,7 +3,7 @@
  * @brief Configuration interface for the Encoder module in the Mila DNN framework.
  *
  * Defines the EncoderConfig class, providing a type-safe fluent interface for configuring
- * Encoder modules. Inherits from ModuleConfig CRTP base and adds Encoder-specific options
+ * Encoder modules. Inherits from ComponentConfig CRTP base and adds Encoder-specific options
  * such as embedding dimension, number of heads, and feed-forward layer size.
  *
  * Exposed as part of the Encoder module via module partitions.
@@ -20,11 +20,11 @@ export module Dnn.Components.Encoder:Config;
 import Dnn.Component;
 import Dnn.ComponentConfig;
 import Dnn.ActivationType;
-import nlohmann.json;
+import Serialization.Metadata;
 
 namespace Mila::Dnn
 {
-    using json = nlohmann::json;
+    using Serialization::SerializationMetadata;
 
     /**
      * @brief Configuration class for Encoder module.
@@ -93,82 +93,78 @@ namespace Mila::Dnn
         void validate() const override {
 
             if ( channels_ == 0 ) {
-                throw std::invalid_argument( "Embedding dimension (channels) must be greater than zero" );
+                throw std::invalid_argument( "EncoderConfig: channels must be > 0" );
             }
 
             if ( max_seq_len_ == 0 ) {
-                throw std::invalid_argument( "Maximum sequence length must be greater than zero" );
+                throw std::invalid_argument( "EncoderConfig: max_sequence_length must be > 0" );
             }
 
             if ( vocab_len_ == 0 ) {
-                throw std::invalid_argument( "Vocabulary length must be greater than zero" );
+                throw std::invalid_argument( "EncoderConfig: vocabulary_length must be > 0" );
             }
         }
 
         /**
-         * @brief Serialize this configuration to JSON.
+         * @brief Convert configuration to serialization metadata.
          *
-         * Keys:
-         * - "name" : string
-         * - "precision" : integer (underlying value of ComputePrecision::Policy)
-         * - "channels" : integer
-         * - "max_sequence_length" : integer
-         * - "vocabulary_length" : integer
+         * Produces a SerializationMetadata object containing the configuration
+         * fields suitable for writing into an archive by the caller.
          */
-        json toJson() const
+        SerializationMetadata toMetadata() const
         {
-            json j;
-            //j["name"] = name_;
-            ////j["precision"] = static_cast<int>( precision_ );
-            //j["channels"] = channels_;
-            //j["max_sequence_length"] = max_seq_len_;
-            //j["vocabulary_length"] = vocab_len_;
+            SerializationMetadata meta;
+            meta.set( "precision", static_cast<int64_t>( precision_ ) )
+                .set( "channels", static_cast<int64_t>( channels_ ) )
+                .set( "max_sequence_length", static_cast<int64_t>( max_seq_len_ ) )
+                .set( "vocabulary_length", static_cast<int64_t>( vocab_len_ ) );
 
-            return j;
+            return meta;
         }
 
         /**
-         * @brief Deserialize configuration from JSON.
+         * @brief Populate configuration from serialization metadata.
          *
-         * Missing keys leave fields at their current values. Unknown or
-         * ill-typed values will throw via nlohmann::json exceptions.
+         * Reads available fields from the provided metadata and updates the
+         * configuration object accordingly.
          */
-        void fromJson( const json& j )
+        void fromMetadata( const SerializationMetadata& meta )
         {
-            //if ( j.contains( "name" ) ) {
-            //    name_ = j.at( "name" ).get<std::string>();
-            //}
+            if ( auto prec = meta.tryGetInt( "precision" ) )
+            {
+                precision_ = static_cast<decltype( precision_ )>( *prec );
+            }
 
-            //if ( j.contains( "precision" ) ) {
-            //    //precision_ = static_cast<decltype(precision_)>( j.at( "precision" ).get<int>() );
-            //}
+            if ( auto ch = meta.tryGetInt( "channels" ) )
+            {
+                channels_ = static_cast<size_t>( *ch );
+            }
 
-            //if ( j.contains( "channels" ) ) {
-            //    channels_ = j.at( "channels" ).get<size_t>();
-            //}
+            if ( auto ms = meta.tryGetInt( "max_sequence_length" ) )
+            {
+                max_seq_len_ = static_cast<size_t>( *ms );
+            }
 
-            //if ( j.contains( "max_sequence_length" ) ) {
-            //    max_seq_len_ = j.at( "max_sequence_length" ).get<size_t>();
-            //}
-
-            //if ( j.contains( "vocabulary_length" ) ) {
-            //    vocab_len_ = j.at( "vocabulary_length" ).get<size_t>();
-            //}
+            if ( auto vl = meta.tryGetInt( "vocabulary_length" ) )
+            {
+                vocab_len_ = static_cast<size_t>( *vl );
+            }
         }
 
         /**
          * @brief Produce a short, human-readable summary of this configuration.
          *
          * Overrides ComponentConfig::toString() to include Encoder-specific fields.
-		 */
+         */
         std::string toString() const override
         {
             std::ostringstream oss;
             oss << "channels=" << channels_
                 << ", max_sequence_length=" << max_seq_len_
                 << ", vocabulary_length=" << vocab_len_;
+
             return oss.str();
-		}
+        }
 
     private:
         size_t channels_ = 0;         ///< The embedding dimension size

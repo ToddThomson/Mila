@@ -9,8 +9,7 @@ add_library( Mila STATIC
     #--------------------------------------------------------------------------
     # Cuda Operations Kernels
     #--------------------------------------------------------------------------
-    #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaEncoder.cu"
-    
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaEncoder.cu"
 
     "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/CudaReduction.cu"
 
@@ -35,13 +34,14 @@ add_library( Mila STATIC
     "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/CudaTensorOps.h"
     "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.h"
     "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Reduction.h"
 
     #--------------------------------------------------------------------------
     # Cuda Optimizer Kernels
     #--------------------------------------------------------------------------
     "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaOptimizers.h"
     "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaAdamW.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Reduction.h"
+    
 )
 
  set_target_properties( Mila PROPERTIES

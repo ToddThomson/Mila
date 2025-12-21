@@ -288,7 +288,7 @@ namespace Mila::Dnn::Compute
 
     private:
         AttentionConfig config_;
-        std::shared_ptr<CudaExecutionContext> context_;
+        CudaExecutionContext* context_;
         Detail::cuda_mha_impl<NativeType> impl_;
 
         // Cached dimension values computed once in build() for hot-path dispatch

@@ -198,16 +198,6 @@ namespace Mila::Dnn
             return {};
         }
 
-        /**
-         * @brief Get the component name from configuration.
-         *
-         * @returns Component name string.
-         */
-        std::string getName() const override
-        {
-            return config_.getName();
-        }
-
         DeviceId getDeviceId() const override
         {
             return this->getExecutionContext()->getDeviceId();

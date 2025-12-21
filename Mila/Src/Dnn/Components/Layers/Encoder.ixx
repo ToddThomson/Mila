@@ -15,6 +15,7 @@ module;
 #include <type_traits>
 #include <stdexcept>
 #include <cstdint>
+#include <optional>
 
 export module Dnn.Components.Encoder;
 export import :Config;
@@ -29,7 +30,9 @@ import Compute.Precision;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
+import Compute.DeviceTypeTraits;
 import Compute.ExecutionContext;
+import Compute.ExecutionContextFactory;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
@@ -56,6 +59,10 @@ namespace Mila::Dnn
      * Module owns trainable parameters (wte, wpe) and exposes them via accessors.
      * The operation implements embedding lookup and position encoding addition.
      *
+     * Construction modes:
+     * - Standalone: provide a DeviceId to create and own an ExecutionContext.
+     * - Deferred/shared: omit DeviceId and caller must call setExecutionContext() before build().
+     *
      * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda)
      * @tparam TPrecision Abstract tensor precision (TensorDataType) for embeddings
      * @tparam TTargets Data type for token indices (typically INT32)
@@ -65,33 +72,41 @@ namespace Mila::Dnn
     class Encoder : public Component<TDeviceType, TPrecision>
     {
     public:
-        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
-        using ExecutionContextType = ExecutionContext<TDeviceType>;
+        using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using EmbeddingsTensorType = Tensor<TPrecision, MR>;
         using TokenIndexType = Tensor<TIndex, MR>;
-
+        using ComponentBase = Component<TDeviceType, TPrecision>;
+    
         /**
-         * @brief Construct with an existing execution context.
+         * @brief Construct Encoder component.
          *
-         * @param exec_context Shared execution context for device resources.
-         * @param config Encoder configuration.
+         * Two modes:
+         * - Standalone: provide DeviceId and component will create and own an ExecutionContext.
+         * - Deferred/shared: omit DeviceId and caller must call setExecutionContext() before build().
+         *
+         * @param name Component name identifier (mandatory)
+         * @param config Encoder configuration
+         * @param device_id Optional DeviceId to create owned ExecutionContext (standalone mode)
          */
-        explicit Encoder( IExecutionContext* exec_context, const EncoderConfig& config )
-            : exec_context_( exec_context ), config_( config )
+        explicit Encoder( const std::string& name, const EncoderConfig& config, std::optional<DeviceId> device_id = std::nullopt )
+            : ComponentBase( name ), config_( config )
         {
-            if (!exec_context_)
-            {
-                throw std::invalid_argument( "ExecutionContext cannot be null." );
-            }
-
             config_.validate();
 
-            initializeParameters();
-            createOperation();
+            if ( device_id.has_value() )
+            {
+                if ( device_id->type != TDeviceType )
+                {
+                    throw std::invalid_argument( "Encoder: device type mismatch" );
+                }
+
+                owned_exec_context_ = createExecutionContext( device_id.value() );
+
+                this->setExecutionContext( owned_exec_context_.get() );
+            }
         }
 
         ~Encoder() override = default;
-
 
         // ====================================================================
         // Compute operation dispatch
@@ -109,7 +124,7 @@ namespace Mila::Dnn
          */
         void forward( const ITensor& input, ITensor& output )
         {
-            if (!this->isBuilt())
+            if ( !this->isBuilt() )
             {
                 throw std::runtime_error( "Encoder module must be built before calling forward." );
             }
@@ -137,14 +152,12 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Encoder module must be in training mode to call backward. Call setTraining(true) first." );
             }
 
-            // Ensure gradients are initialized (defensive check)
             if ( !wte_grad_ || !wpe_grad_ )
             {
                 throw std::runtime_error( "Encoder module gradients not initialized. This is a bug." );
             }
 
-            // Create dummy input gradient (token IDs are non-differentiable)
-            auto device = exec_context_->getDeviceId();
+            auto device = this->getExecutionContext()->getDeviceId();
             auto input_shape = input.shape();
             TokenIndexType input_grad_dummy( device, input_shape );
 
@@ -158,15 +171,8 @@ namespace Mila::Dnn
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
             // Persist parameters if present
-            if (wte_)
-            {
-                // archive.saveTensor( this->getName() + ".wte", *wte_ );
-            }
-
-            if (wpe_)
-            {
-                // archive.saveTensor( this->getName() + ".wpe", *wpe_ );
-            }
+            (void)archive;
+            (void)mode;
         }
 
         // ====================================================================
@@ -177,10 +183,10 @@ namespace Mila::Dnn
         {
             size_t count = 0;
 
-            if (wte_)
+            if ( wte_ )
                 count += wte_->size();
 
-            if (wpe_)
+            if ( wpe_ )
                 count += wpe_->size();
 
             return count;
@@ -190,10 +196,10 @@ namespace Mila::Dnn
         {
             std::vector<ITensor*> params;
 
-            if (wte_)
+            if ( wte_ )
                 params.push_back( wte_.get() );
 
-            if (wpe_)
+            if ( wpe_ )
                 params.push_back( wpe_.get() );
 
             return params;
@@ -201,66 +207,51 @@ namespace Mila::Dnn
 
         std::vector<ITensor*> getGradients() const override
         {
-            if (!this->isTraining())
+            if ( !this->isTraining() )
             {
                 throw std::runtime_error( "Encoder: getGradients called when not in training mode" );
             }
 
             std::vector<ITensor*> grads;
 
-            if (wte_grad_)
+            if ( wte_grad_ )
                 grads.push_back( wte_grad_.get() );
 
-            if (wpe_grad_)
+            if ( wpe_grad_ )
                 grads.push_back( wpe_grad_.get() );
 
             return grads;
         }
 
-        /**
-         * @brief Get token embedding gradient tensor.
-         *
-         * @return Shared pointer to wte gradient, or nullptr if not in training mode
-         */
         std::shared_ptr<EmbeddingsTensorType> getWteGrad() const noexcept
         {
             return wte_grad_;
         }
 
-        /**
-         * @brief Get positional embedding gradient tensor.
-         *
-         * @return Shared pointer to wpe gradient, or nullptr if not in training mode
-         */
         std::shared_ptr<EmbeddingsTensorType> getWpeGrad() const noexcept
         {
             return wpe_grad_;
         }
 
         // ====================================================================
-        // Module interface
+        // Component interface
         // ====================================================================
-
-        std::string getName() const override
-        {
-            return config_.getName();
-        }
 
         DeviceId getDeviceId() const override
         {
-            return exec_context_->getDeviceId();
+            return this->getExecutionContext()->getDeviceId();
         }
 
         void synchronize() override
         {
-            exec_context_->synchronize();
+            this->getExecutionContext()->synchronize();
         }
 
         std::string toString() const override
         {
             std::ostringstream oss;
             oss << "--------------------" << std::endl;
-            oss << "Encoder: " << getName() << std::endl;
+            oss << "Encoder: " << this->getName() << std::endl;
             oss << "Vocabulary: " << config_.getVocabularyLength() << " tokens" << std::endl;
             oss << "Max sequence length: " << config_.getMaxSequenceLength() << std::endl;
             oss << "Embedding dimension: " << config_.getChannels() << std::endl;
@@ -274,61 +265,31 @@ namespace Mila::Dnn
         // Parameter accessors
         // ====================================================================
 
-        /**
-         * @brief Return shared ownership of the token embedding tensor (wte).
-         *
-         * @returns Shared pointer to the wte tensor.
-         */
         std::shared_ptr<EmbeddingsTensorType> getTokenEmbedding() const noexcept
         {
             return wte_;
         }
 
-        /**
-         * @brief Return shared ownership of the positional embedding tensor (wpe).
-         *
-         * @returns Shared pointer to the wpe tensor.
-         */
         std::shared_ptr<EmbeddingsTensorType> getPositionalEmbedding() const noexcept
         {
             return wpe_;
         }
 
-        /**
-         * @brief Get the configuration.
-         *
-         * @returns Reference to the EncoderConfig.
-         */
         const EncoderConfig& getConfig() const noexcept
         {
             return config_;
         }
 
-        /**
-         * @brief Gets the vocabulary length.
-         *
-         * @return int64_t The vocabulary length (V).
-         */
         int64_t getVocabularyLength() const noexcept
         {
             return config_.getVocabularyLength();
         }
 
-        /**
-         * @brief Gets the maximum sequence length.
-         *
-         * @return int64_t The maximum sequence length (maxT).
-         */
         int64_t getMaxSequenceLength() const noexcept
         {
             return config_.getMaxSequenceLength();
         }
 
-        /**
-         * @brief Gets the embedding dimension (channels).
-         *
-         * @return int64_t The number of channels (C).
-         */
         int64_t getChannels() const noexcept
         {
             return config_.getChannels();
@@ -340,29 +301,27 @@ namespace Mila::Dnn
         // Lifecycle
         // ====================================================================
 
-
         /**
-         * @brief Build the module using an input shape.
+         * @brief Called after ExecutionContext is set on the base Component.
          *
-         * Encoder parameters are eagerly created in the constructor based on
-         * configuration (vocab_size, max_seq_len, embedding_dim). This method
-         * binds parameters to the backend operation and triggers backend-specific setup.
-         *
-         * If in training mode, also initializes gradient tensors and binds them
-         * to the operation.
-         *
-         * @param input_shape Expected shape: (batch_size, sequence_length)
+         * Initialize device-bound parameters and create the backend operation.
          */
+        void onExecutionContextSet() override
+        {
+            exec_context_ = this->getExecutionContext();
+
+            initializeParameters();
+            createOperation();
+        }
+
         void onBuilding( const shape_t& input_shape ) override
         {
             validateInputShape( input_shape );
 
             operation_->setTraining( this->isTraining() );
 
-            // Bind forward parameters to operation
             operation_->setParameters( wte_.get(), wpe_.get() );
 
-            // If training mode, initialize gradients and bind to operation
             if ( this->isTraining() )
             {
                 initializeParameterGradients();
@@ -372,24 +331,13 @@ namespace Mila::Dnn
             operation_->build( input_shape );
         }
 
-        /**
-         * @brief Hook invoked when training mode is about to change.
-         *
-         * Propagate training mode to the backend operation. When enabling
-         * training after the module is built, allocate and bind gradient
-         * tensors. When disabling training, unbind gradients and free buffers
-         * to release memory.
-         *
-         * Called with Module's training mutex held; do not call setTraining() here.
-         */
         void onTrainingChanging( bool is_training ) override
         {
             operation_->setTraining( is_training );
 
             if ( is_training )
             {
-                // Entering training: if already built ensure gradients allocated and bound
-                if (this->isBuilt())
+                if ( this->isBuilt() )
                 {
                     initializeParameterGradients();
                     operation_->setGradients( wte_grad_.get(), wpe_grad_.get() );
@@ -397,7 +345,6 @@ namespace Mila::Dnn
             }
             else
             {
-                // Leaving training: unbind and free gradients
                 operation_->clearGradients();
 
                 wte_grad_.reset();
@@ -414,34 +361,26 @@ namespace Mila::Dnn
         std::shared_ptr<EmbeddingsTensorType> wte_grad_{ nullptr };
         std::shared_ptr<EmbeddingsTensorType> wpe_grad_{ nullptr };
 
-        std::unique_ptr<UnaryOperation<TDeviceType, TIndex, TPrecision>> operation_{ nullptr };
-        IExecutionContext* exec_context_;
+        std::shared_ptr<UnaryOperation<TDeviceType, TIndex, TPrecision>> operation_{ nullptr };
+        IExecutionContext* exec_context_{ nullptr };
+        std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
 
-        /**
-         * @brief Validate input shape for encoder operation.
-         *
-         * Ensures input is rank-2 (batch_size, sequence_length) and sequence
-         * length doesn't exceed configured maximum.
-         */
         void validateInputShape( const ITensor& input ) const
         {
             const auto& input_shape = input.shape();
             validateInputShape( input_shape );
         }
 
-        /**
-         * @brief Validate input shape for encoder operation.
-         */
         void validateInputShape( const shape_t& input_shape ) const
         {
-            if (input_shape.size() != 2)
+            if ( input_shape.size() != 2 )
             {
                 throw std::invalid_argument( "Encoder: input must have rank 2 (batch_size, sequence_length)" );
             }
 
             int64_t seq_length = input_shape[1];
 
-            if (seq_length > config_.getMaxSequenceLength())
+            if ( seq_length > config_.getMaxSequenceLength() )
             {
                 std::ostringstream oss;
                 oss << "Encoder: sequence length " << seq_length
@@ -450,82 +389,56 @@ namespace Mila::Dnn
             }
         }
 
-        /**
-         * @brief Ensure gradient tensors are allocated with correct shapes.
-         */
         void initializeParameterGradients()
         {
-            auto device = exec_context_->getDeviceId();
+            auto device = this->getExecutionContext()->getDeviceId();
 
-            if (!wte_grad_)
+            if ( !wte_grad_ )
             {
-                wte_grad_ = std::make_shared<EmbeddingsTensorType>(
-                    device,
-                    wte_->shape() );
+                wte_grad_ = std::make_shared<EmbeddingsTensorType>( device, wte_->shape() );
                 wte_grad_->setName( this->getName() + ".wte.grad" );
                 zeros( *wte_grad_ );
             }
 
-            if (!wpe_grad_)
+            if ( !wpe_grad_ )
             {
-                wpe_grad_ = std::make_shared<EmbeddingsTensorType>(
-                    device,
-                    wpe_->shape() );
+                wpe_grad_ = std::make_shared<EmbeddingsTensorType>( device, wpe_->shape() );
                 wpe_grad_->setName( this->getName() + ".wpe.grad" );
                 zeros( *wpe_grad_ );
             }
         }
 
-        /**
-         * @brief Allocate and initialize token and positional embedding tensors.
-         *
-         * Tensors are created on the execution context device and initialized
-         * using Xavier initialization for both wte and wpe.
-         */
         void initializeParameters()
         {
             int64_t vocab_size = config_.getVocabularyLength();
             int64_t max_seq_len = config_.getMaxSequenceLength();
             int64_t embedding_dim = config_.getChannels();
 
-            auto device = exec_context_->getDeviceId();
+            auto device = this->getExecutionContext()->getDeviceId();
 
-            // Token embeddings: (vocab_size, embedding_dim)
             wte_ = std::make_shared<EmbeddingsTensorType>( device, shape_t{ vocab_size, embedding_dim } );
             wte_->setName( this->getName() + ".wte" );
             xavier<TPrecision, MR>( *wte_, vocab_size, embedding_dim );
 
-            // Positional embeddings: (max_seq_len, embedding_dim)
             wpe_ = std::make_shared<EmbeddingsTensorType>( device, shape_t{ max_seq_len, embedding_dim } );
             wpe_->setName( this->getName() + ".wpe" );
             xavier<TPrecision, MR>( *wpe_, max_seq_len, embedding_dim );
         }
 
-        /**
-         * @brief Create the backend compute operation.
-         *
-         * Looks up the appropriate device-specific operation from the registry
-         * and creates an instance bound to this module's execution context.
-         */
         void createOperation()
         {
             operation_ = OperationRegistry::instance()
                 .createUnaryOperation<TDeviceType, TIndex, TPrecision>(
                     "EncoderOp",
-                    exec_context_,
+                    this->getExecutionContext(),
                     config_ );
 
-            if (!operation_)
+            if ( !operation_ )
             {
                 throw std::runtime_error( "Failed to create Encoder compute backend operation." );
             }
         }
     };
 
-    // Convenience aliases for common usages
-    /*export template<TensorDataType TPrecision, TensorDataType TTargets = dtype_t::INT32>
-        using CpuEncoder = Encoder<DeviceType::Cpu, TPrecision, TTargets>;
-
-    export template<TensorDataType TPrecision, TensorDataType TTargets = dtype_t::INT32>
-        using CudaEncoder = Encoder<DeviceType::Cuda, TPrecision, TTargets>;*/
+    // Convenience aliases for common usages (commented out)
 }

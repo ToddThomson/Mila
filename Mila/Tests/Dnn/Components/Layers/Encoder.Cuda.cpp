@@ -8,7 +8,7 @@
 
 import Mila;
 
-namespace Modules::Layers::Tests
+namespace Components::Layers::Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
@@ -27,7 +27,6 @@ namespace Modules::Layers::Tests
         shape_t input_shape;
         shape_t output_shape;
         EncoderConfig config;
-        std::shared_ptr<ExecutionContext<DeviceType::Cuda>> exec_context;
         std::shared_ptr<Encoder<DeviceType::Cuda, TensorDataType::INT32, TPrecision>> module;
         int64_t channels;
         int64_t max_seq_len;
@@ -53,14 +52,19 @@ namespace Modules::Layers::Tests
 
             d.config.withChannels( static_cast<size_t>(channels) )
                 .withMaxSequenceLength( static_cast<size_t>(max_seq_len) )
-                .withVocabularyLength( static_cast<size_t>(vocab_len) )
-                .withName( name );
+                .withVocabularyLength( static_cast<size_t>(vocab_len) );
 
-            d.exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
-            d.module = std::make_shared<Encoder<DeviceType::Cuda, TensorDataType::INT32, TPrecision>>( d.exec_context, d.config );
+            // Construct in standalone mode so component owns its ExecutionContext
+            d.module = std::make_shared<Encoder<DeviceType::Cuda, TensorDataType::INT32, TPrecision>>(
+                name,
+                d.config,
+                Device::Cuda( 0 )
+            );
 
-            if (is_training)
+            if ( is_training )
+            {
                 d.module->setTraining( true );
+            }
 
             return d;
         }
@@ -83,21 +87,35 @@ namespace Modules::Layers::Tests
 
         EncoderCudaTestData<TensorDataType::FP32>& CudaFp32()
         {
-            if (!cuda_fp32_.module)
+            if ( !cuda_fp32_.module )
             {
                 cuda_fp32_ = EncoderCudaTestData<TensorDataType::FP32>::Create(
-                    "cuda_encoder_fp32", batch_size_, sequence_length_, channels_, max_seq_len_, vocab_len_, false );
+                    "cuda_encoder_fp32",
+                    batch_size_,
+                    sequence_length_,
+                    channels_,
+                    max_seq_len_,
+                    vocab_len_,
+                    false );
             }
+
             return cuda_fp32_;
         }
 
         EncoderCudaTestData<TensorDataType::FP32>& CudaFp32Training()
         {
-            if (!cuda_fp32_training_.module)
+            if ( !cuda_fp32_training_.module )
             {
                 cuda_fp32_training_ = EncoderCudaTestData<TensorDataType::FP32>::Create(
-                    "cuda_encoder_fp32_train", batch_size_, sequence_length_, channels_, max_seq_len_, vocab_len_, true );
+                    "cuda_encoder_fp32_train",
+                    batch_size_,
+                    sequence_length_,
+                    channels_,
+                    max_seq_len_,
+                    vocab_len_,
+                    true );
             }
+
             return cuda_fp32_training_;
         }
 
@@ -112,30 +130,40 @@ namespace Modules::Layers::Tests
         EncoderCudaTestData<TensorDataType::FP32> cuda_fp32_training_;
     };
 
+    // Helper verifications
+
     template<TensorDataType TPrecision>
     void TestParameterCount( const EncoderCudaTestData<TPrecision>& d )
     {
         size_t expected = (static_cast<size_t>(d.vocab_len) * static_cast<size_t>(d.channels)) +
             (static_cast<size_t>(d.max_seq_len) * static_cast<size_t>(d.channels));
+
         EXPECT_EQ( d.module->parameterCount(), expected );
     }
 
     template<TensorDataType TPrecision>
     void TestBuildAndForward( EncoderCudaTestData<TPrecision>& d )
     {
-        if (!d.module)
+        if ( !d.module )
+        {
             GTEST_SKIP() << "Module not initialized";
+        }
 
-        d.module->build( d.input_shape );
+        // Ensure module is built before forward
+        EXPECT_NO_THROW( d.module->build( d.input_shape ) );
+        EXPECT_TRUE( d.module->isBuilt() );
 
-        CudaIndexTensor device_input( d.exec_context->getDeviceId(), d.input_shape );
-        CudaTensor<TPrecision> device_output( d.exec_context->getDeviceId(), d.output_shape );
+        // Device tensors created from module's device id
+        CudaIndexTensor device_input( d.module->getDeviceId(), d.input_shape );
+        CudaTensor<TPrecision> device_output( d.module->getDeviceId(), d.output_shape );
 
         // Fill host input then copy to device
-        HostIndexTensor host_input( d.exec_context->getDeviceId(), d.input_shape );
-        auto hptr = static_cast<int32_t*>(host_input.rawData());
-        for (size_t i = 0; i < host_input.size(); ++i)
-            hptr[i] = static_cast<int32_t>( i % static_cast<size_t>( d.vocab_len ) );
+        HostIndexTensor host_input( Device::Cpu(), d.input_shape );
+        auto hptr = host_input.data();
+        for ( size_t i = 0; i < host_input.size(); ++i )
+        {
+            hptr[ i ] = static_cast<int32_t>( i % static_cast<size_t>( d.vocab_len ) );
+        }
 
         copy( host_input, device_input );
 
@@ -146,6 +174,11 @@ namespace Modules::Layers::Tests
     template<TensorDataType TPrecision>
     void TestTrainingGradAllocation( EncoderCudaTestData<TPrecision>& d )
     {
+        if ( !d.module )
+        {
+            GTEST_SKIP() << "Module not initialized";
+        }
+
         d.module->setTraining( true );
         d.module->build( d.input_shape );
 
@@ -154,44 +187,71 @@ namespace Modules::Layers::Tests
 
         ASSERT_NE( wte_grad, nullptr );
         ASSERT_NE( wpe_grad, nullptr );
+
+        EXPECT_EQ( wte_grad->shape()[ 0 ], static_cast<int64_t>(d.vocab_len) );
+        EXPECT_EQ( wpe_grad->shape()[ 0 ], static_cast<int64_t>(d.max_seq_len) );
     }
 
     // Tests
 
     TEST_F( EncoderCudaTests, ParameterCount )
     {
-        if (!cuda_available_) GTEST_SKIP() << "CUDA not available";
+        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
         TestParameterCount( CudaFp32() );
     }
 
     TEST_F( EncoderCudaTests, BuildAndForward )
     {
-        if (!cuda_available_) GTEST_SKIP() << "CUDA not available";
+        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
         TestBuildAndForward( CudaFp32() );
     }
 
     TEST_F( EncoderCudaTests, Training_GradientsAllocated )
     {
-        if (!cuda_available_) GTEST_SKIP() << "CUDA not available";
+        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
         TestTrainingGradAllocation( CudaFp32Training() );
     }
 
     TEST_F( EncoderCudaTests, ToStringContainsName )
     {
-        if (!cuda_available_) GTEST_SKIP() << "CUDA not available";
+        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
         auto d = CudaFp32();
         auto s = d.module->toString();
-        EXPECT_NE( s.find( d.config.getName() ), std::string::npos );
+        EXPECT_NE( s.find( d.module->getName() ), std::string::npos );
     }
 
-    TEST_F( EncoderCudaTests, Error_NullExecutionContext )
+    TEST_F( EncoderCudaTests, Constructor_WithoutDeviceId_AllowsDeferredContext_BuildThrows )
     {
-        if (!cuda_available_) GTEST_SKIP() << "CUDA not available";
+        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
-        EncoderConfig config;
-        config.withChannels( 16 ).withMaxSequenceLength( 8 ).withVocabularyLength( 100 ).withName( "bad" );
+        EncoderConfig cfg;
+        cfg.withChannels( 16 ).withMaxSequenceLength( 8 ).withVocabularyLength( 100 );
 
-        std::shared_ptr<ExecutionContext<DeviceType::Cuda>> null_ctx;
-        EXPECT_THROW( (std::make_shared<Encoder<DeviceType::Cuda, TensorDataType::INT32, TensorDataType::FP32>>( null_ctx, config )), std::invalid_argument );
+        auto component = std::make_shared<Encoder<DeviceType::Cuda, TensorDataType::INT32, TensorDataType::FP32>>(
+            "deferred_cuda_encoder",
+            cfg );
+
+        EXPECT_THROW( component->build( shape_t{ 1,1 } ), std::runtime_error );
+    }
+
+    TEST_F( EncoderCudaTests, Constructor_WithInvalidDevice_ThrowsInvalidArgument )
+    {
+        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        EncoderConfig cfg;
+        cfg.withChannels( 16 )
+            .withMaxSequenceLength( 8 )
+            .withVocabularyLength( 100 );
+
+        EXPECT_THROW(
+            ( (void)std::make_shared<Encoder<DeviceType::Cuda, TensorDataType::INT32, TensorDataType::FP32>>(
+                "invalid_device",
+                cfg,
+                Device::Cpu() ) ),
+            std::invalid_argument );
     }
 }
