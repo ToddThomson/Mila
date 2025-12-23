@@ -25,6 +25,7 @@ import Dnn.CompositeComponent;
 import Dnn.TensorDataType;
 import Compute.DeviceType;
 import Compute.DeviceId;
+import Compute.OptimizerBase;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 import Serialization.Metadata;
@@ -131,6 +132,87 @@ namespace Mila::Dnn
         {}
 
         ~Network() override = default;
+
+        // ====================================================================
+        // Training Setup
+        // ====================================================================
+
+        /**
+         * @brief Create and configure an optimizer for this network's parameters.
+         *
+         * Factory method that creates an optimizer, enables training mode on the network,
+         * and registers all network parameters and gradients in a single atomic operation.
+         *
+         * Lifecycle:
+         * 1. Enables training mode (allocates gradients for all components)
+         * 2. Creates optimizer using network's ExecutionContext
+         * 3. Registers all network parameters and gradients
+         * 4. Returns ready-to-use optimizer
+         *
+         * Usage Pattern:
+         * @code
+         * // Build network
+         * mnist_net->build(input_shape);
+         * 
+         * // Create optimizer in one step
+         * auto optimizer = mnist_net->createOptimizer<AdamWOptimizer<DeviceType::Cuda, TensorDataType::FP32>>(
+         *     AdamWConfig()
+         *         .withLearningRate(0.001f)
+         *         .withWeightDecay(0.01f)
+         * );
+         * 
+         * // Optimizer is ready to use
+         * optimizer->step();
+         * @endcode
+         *
+         * @tparam TOptimizer Optimizer type (e.g., AdamWOptimizer, SGD)
+         * @tparam TConfig Optimizer configuration type
+         * @param config Optimizer configuration
+         * @return Shared pointer to configured and ready-to-use optimizer
+         *
+         * @throws std::runtime_error if network is not built
+         * @throws std::runtime_error if parameter/gradient count mismatch
+         *
+         * @note This method automatically calls setTraining(true), so explicit
+         *       training mode activation is not required.
+         */
+        template<typename TOptimizer, typename TConfig>
+        std::shared_ptr<TOptimizer> createOptimizer( const TConfig& config )
+        {
+            if ( !this->isBuilt() )
+            {
+                throw std::runtime_error(
+                    std::format(
+                        "Network::createOptimizer: Network '{}' must be built before creating optimizer",
+                        this->getName() )
+                );
+            }
+
+            this->setTraining( true );
+
+            auto optimizer = std::make_shared<TOptimizer>(
+                this->getExecutionContext(), config );
+
+            auto params = this->getParameters();
+            auto grads = this->getGradients();
+
+            if ( params.size() != grads.size() )
+            {
+                throw std::runtime_error(
+                    std::format(
+                        "Network::createOptimizer: Parameter/gradient count mismatch for network '{}'. "
+                        "Parameters: {}, Gradients: {}",
+                        this->getName(), params.size(), grads.size() )
+                );
+            }
+
+            for ( size_t i = 0; i < params.size(); ++i )
+            {
+                optimizer->addParameter( params[i], grads[i] );
+            }
+
+            return optimizer;
+        }
 
         // ====================================================================
         // Serialization

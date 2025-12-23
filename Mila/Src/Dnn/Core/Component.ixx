@@ -115,7 +115,7 @@ namespace Mila::Dnn
         {
             if ( isBuilt() )
             {
-                throw std::logic_error( "Component already built. Cannot rebuild." );
+                throw std::runtime_error( "Component already built. Cannot rebuild." );
             }
 
             if ( !hasExecutionContext() )
@@ -147,6 +147,11 @@ namespace Mila::Dnn
          * This method provides a serialized transition between evaluation and
          * training modes. It is idempotent: calling with the current mode is a no-op.
          *
+         * Lifecycle requirement:
+         * - setTraining(true) MUST be called AFTER build() to ensure proper gradient
+         *   buffer allocation and backend operation configuration.
+         * - setTraining(false) can be called at any time (for disabling training).
+         *
          * Behavior:
          * - Thread-safety: the transition is serialized by an internal mutex.
          * - Atomic update: the underlying `is_training_` atomic is updated to the
@@ -156,17 +161,29 @@ namespace Mila::Dnn
          *   previous training state and rethrows the exception.
          *
          * Usage:
-         * - Call `setTraining(true)` to enable training behavior (allocate gradients,
-         *   enable backward, etc.).
+         * - Call `setTraining(true)` AFTER build() to enable training behavior
+         *   (allocate gradients, enable backward, etc.).
          * - Call `setTraining(false)` to enter evaluation mode (disable gradient use).
          *
          * @param is_training True to enable training-mode behavior.
          *
+         * @throws std::runtime_error if is_training is true but component is not built.
          * @throws Any exception propagated from the `onTrainingChanging()` hook;
          *         if thrown, the prior training state is restored.
          */
         void setTraining( bool is_training )
         {
+            if ( !isBuilt() )
+            {
+                throw std::runtime_error(
+                    std::format(
+                        "Component::setTraining: Cannot enable training mode before build(). "
+                        "Component '{}' must be built before calling setTraining(). "
+                        "Lifecycle: construction ? setExecutionContext() ? build() ? setTraining()",
+                        getName() )
+                );
+            }
+
             std::lock_guard<std::mutex> lk( training_mutex_ );
 
             if ( is_training_.load() == is_training )
@@ -473,6 +490,7 @@ namespace Mila::Dnn
          * backend gradient pointers).
          *
          * Preconditions and expectations:
+         * - Component MUST be built before setTraining(true) is called (enforced by setTraining()).
          * - MUST NOT call `setTraining()` (no reentrancy).
          * - Should avoid throwing; if an exception is thrown it will be
          *   propagated to the caller of `setTraining()` and the previous state

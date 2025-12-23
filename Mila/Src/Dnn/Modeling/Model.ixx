@@ -2,8 +2,9 @@
  * @file Model.ixx
  * @brief Training and persistence orchestration for device-templated Models.
  *
- * Provides the Model class which owns a network and optimizer, coordinates
- * training/evaluation loops, and exposes import/export and checkpointing helpers.
+ * Provides the Model class which coordinates training/evaluation loops,
+ * checkpointing, and model export. Model is an optional convenience layer
+ * that wraps Network + Optimizer for high-level training workflows.
  */
 
 module;
@@ -14,6 +15,7 @@ module;
 #include <stdexcept>
 #include <optional>
 #include <string>
+#include <format>
 
 export module Dnn.Model;
 
@@ -21,13 +23,13 @@ import Dnn.TensorDataType;
 import Dnn.TensorTypes;
 import Dnn.TensorDataTypeTraits;
 import Compute.DeviceType;
+import Compute.DeviceTypeTraits;
+import Compute.DeviceId;
 import Compute.OptimizerBase;
 import Compute.ExecutionContext;
 import Data.DatasetReader;
 import Dnn.Network;
 import Dnn.NetworkFactory;
-
-import Dnn.Loss;
 
 import Dnn.Optimizers.AdamW;
 import Dnn.Optimizers.AdamWConfig;
@@ -45,25 +47,52 @@ import Utils.Logger;
 
 namespace Mila::Dnn
 {
+    using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Serialization;
 
     /**
-     * @brief High-level model wrapper that owns network and optimizer.
+     * @brief High-level training orchestration wrapper for Network + Optimizer.
      *
-     * The Model class coordinates training/evaluation, checkpointing and
-     * model export. It is parameterized by compile-time device and precision
-     * so all contained modules and optimizers are device/precision-consistent.
+     * Model is an **optional convenience layer** that coordinates training loops,
+     * checkpointing, and evaluation. It is not required for inference or low-level
+     * training - Network can be used standalone.
      *
-     * Ownership:
-     *  - The Model takes ownership of a `Network` and an `Optimizer` via
-     *    unique_ptr at construction.
+     * Design Philosophy:
+     * - **Network is primary** - self-contained, reusable for inference
+     * - **Model is optional** - training convenience, not infrastructure manager
+     * - **Network owns ExecutionContext** - self-contained resource management
+     * - **Model coordinates training** - orchestrates training/eval/checkpointing
+     *
+     * Ownership Model:
+     * - Model takes ownership of Network and Optimizer via unique_ptr
+     * - Network already owns its ExecutionContext (created in Network constructor)
+     * - Optimizer references Network's parameters (registered via Network::createOptimizer())
+     *
+     * Construction Pattern:
+     * @code
+     * // Build network
+     * auto mnist_net = std::make_unique<MnistClassifier<DeviceType::Cuda, TensorDataType::FP32>>(
+     *     "Mnist", batch_size, device_id );
+     * mnist_net->build( input_shape );
+     * 
+     * // Create model (Network creates optimizer internally)
+     * auto model = Model<DeviceType::Cuda, TensorDataType::FP32>::create(
+     *     std::move( mnist_net ),
+     *     AdamWConfig().withLearningRate( 0.001f ).withWeightDecay( 0.01f ),
+     *     ModelConfig().withEpochs( 20 ).withBatchSize( 128 )
+     * );
+     * 
+     * // High-level training
+     * auto history = model->train( train_loader, val_loader );
+     * model->save( "trained_model.mila" );
+     * @endcode
      *
      * Threading / Safety:
-     *  - Not thread-safe. Callers must serialize access to a Model instance.
+     * - Not thread-safe. Callers must serialize access to a Model instance.
      *
      * Template parameters:
-     *  - TDeviceType: compile-time compute device (CPU, CUDA, ...).
-     *  - TPrecision: compile-time tensor precision enum.
+     * - TDeviceType: compile-time compute device (CPU, CUDA, ...)
+     * - TPrecision: compile-time tensor precision enum
      */
     export template<Compute::DeviceType TDeviceType, Mila::Dnn::TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
@@ -71,59 +100,156 @@ namespace Mila::Dnn
     {
     public:
 
+        // ====================================================================
+        // Factory Methods (Preferred Construction Pattern)
+        // ====================================================================
+
         /**
-         * @brief Construct a Model from an already-constructed network and optimizer.
+         * @brief Create a Model with Network and Optimizer in one clean step.
+         *
+         * Factory method that creates a Model by:
+         * 1. Taking ownership of the already-built Network
+         * 2. Using Network::createOptimizer() to create and register optimizer
+         * 3. Constructing Model with Network + Optimizer + Config
+         *
+         * This is the **preferred** way to create a Model as it leverages
+         * Network::createOptimizer() for automatic training mode setup and
+         * parameter registration.
          *
          * Preconditions:
-         *  - `network` must be non-null and already configured for the target device.
-         *  - `optimizer` must be non-null and compatible with the network parameter layout.
+         * - Network must be non-null and already built via network->build()
+         * - Network owns its ExecutionContext (created in Network constructor)
          *
-         * Ownership:
-         *  - Model takes ownership of both `network` and `optimizer`.
+         * Lifecycle:
+         * 1. Network created and built by caller
+         * 2. Model::create() calls Network::createOptimizer()
+         * 3. Network::createOptimizer() enables training mode and registers parameters
+         * 4. Model constructed with Network + Optimizer
          *
-         * @param network Unique pointer to the network implementation.
-         * @param optimizer Unique pointer to the optimizer instance.
-         * @param config Model configuration for training, checkpointing, etc.
+         * @tparam TOptimizer Optimizer type (e.g., AdamWOptimizer)
+         * @tparam TOptimizerConfig Optimizer configuration type
+         * @param network Unique pointer to built network
+         * @param optimizer_config Optimizer configuration
+         * @param model_config Model training configuration
+         * @return Unique pointer to constructed Model
+         *
+         * @throws std::invalid_argument if network is null or not built
+         *
+         * @example
+         * auto model = Model<DeviceType::Cuda, TensorDataType::FP32>::create(
+         *     std::move( mnist_net ),
+         *     AdamWConfig().withLearningRate( 0.001f ),
+         *     ModelConfig().withEpochs( 20 )
+         * );
          */
-        Model(
+        template<typename TOptimizer, typename TOptimizerConfig>
+        static std::unique_ptr<Model> create(
             std::unique_ptr<Network<TDeviceType, TPrecision>> network,
-            std::unique_ptr<Compute::Optimizer<TDeviceType, TPrecision>> optimizer,
-            const ModelConfig& config )
-            : network_( std::move( network ) ), optimizer_( std::move( optimizer ) ), config_( config )
+            const TOptimizerConfig& optimizer_config,
+            const ModelConfig& model_config )
         {
-            if ( !network_ )
+            if ( !network )
             {
-                throw std::invalid_argument( "Model: network cannot be null" );
-            }
-            
-            if ( !optimizer_ )
-            {
-                throw std::invalid_argument( "Model: optimizer cannot be null" );
+                throw std::invalid_argument( "Model::create: network cannot be null" );
             }
 
-            checkpoint_manager_ = std::make_unique<Modeling::CheckpointManager>( config_ );
+            if ( !network->isBuilt() )
+            {
+                throw std::invalid_argument(
+                    std::format( "Model::create: network '{}' must be built before creating Model",
+                        network->getName() ) );
+            }
+
+            auto optimizer = network->template createOptimizer<TOptimizer>( optimizer_config );
+
+            return std::unique_ptr<Model>( new Model(
+                std::move( network ),
+                std::move( optimizer ),
+                model_config ) );
         }
+
+        /**
+         * @brief Load a training checkpoint and reconstruct a Model instance.
+         *
+         * This factory method reads checkpoint metadata and uses NetworkFactory
+         * to reconstruct the network, then loads optimizer state.
+         *
+         * Preconditions:
+         * - Checkpoint archive must be valid and contain required metadata
+         *
+         * @param filepath Filesystem path to the checkpoint archive
+         * @param device_id Device to load network on (may differ from saved device)
+         * @return Unique pointer to reconstructed Model instance
+         *
+         * @throws std::runtime_error if metadata validation fails
+         * @throws std::runtime_error if network reconstruction fails
+         *
+         * @example
+         * auto model = Model<DeviceType::Cuda, TensorDataType::FP32>::fromCheckpoint(
+         *     "checkpoint_epoch_10.mila",
+         *     Device::Cuda( 0 ) );
+         */
+        static std::unique_ptr<Model> fromCheckpoint(
+            const std::string& filepath,
+            Mila::Dnn:: DeviceId device_id )
+        {
+            auto serializer = std::make_unique<ZipSerializer>();
+            ModelArchive archive( filepath, std::move( serializer ), OpenMode::Read );
+
+            SerializationMetadata model_meta = archive.readMetadata( "model/meta.json" );
+            validateModelMetadata<TDeviceType, TPrecision>( model_meta );
+
+            // TODO: NetworkFactory needs to be updated to accept DeviceId instead of ExecutionContext
+            // For now, create a temporary context (Network will create its own)
+            auto temp_context = std::make_shared<Compute::ExecutionContext<TDeviceType>>( device_id );
+            auto network = NetworkFactory::create<TDeviceType, TPrecision>( archive, temp_context );
+
+            // TODO: Read optimizer config from checkpoint
+            // For now, create default AdamW config
+            auto optimizer_config = Optimizers::AdamWConfig();
+            
+            // Use Network::createOptimizer() to create and register optimizer
+            auto optimizer = network->template createOptimizer<Optimizers::AdamWOptimizer<TDeviceType, TPrecision>>(
+                optimizer_config );
+
+            // Load optimizer state from checkpoint
+            optimizer->load( archive, "optimizer/" );
+
+            // FIXME: Deserialize config when ModelConfig has serialization support
+            ModelConfig config;
+
+            return std::unique_ptr<Model>( new Model(
+                std::move( network ),
+                std::move( optimizer ),
+                config ) );
+        }
+
+        // ====================================================================
+        // Training and Evaluation
+        // ====================================================================
 
         /**
          * @brief Run the configured training loop.
          *
          * Implements a simple epoch loop driven by `config_`. This method:
-         *  - Recreates the checkpoint manager if needed.
-         *  - Calls `trainEpoch()` for each epoch.
-         *  - Optionally runs validation and saves checkpoints at configured intervals.
-         *  - Honors early stopping settings in `config_`.
+         * - Calls trainEpoch() for each epoch
+         * - Optionally runs validation and saves checkpoints at configured intervals
+         * - Honors early stopping settings in config_
          *
          * Postconditions:
-         *  - Checkpoints may be written to disk via `saveTrainingCheckpoint`.
+         * - Checkpoints may be written to disk via saveTrainingCheckpoint
          *
          * @param train_reader Dataset reader for training data
          * @param val_reader Optional dataset reader for validation data
-         * @return TrainingHistory that accumulates per-epoch statistics.
+         * @return TrainingHistory that accumulates per-epoch statistics
+         *
+         * @note Current implementation is a placeholder - trainEpoch() and
+         *       validateEpoch() need to be implemented with actual training logic
          */
         template<TensorDataType TInputType, TensorDataType TTargetType, typename TMemoryResource>
         TrainingHistory train(
-            Data::DatasetReader<TInputType, TTargetType, TMemoryResource> train_reader,
-            std::optional<Data::DatasetReader<TInputType, TTargetType, TMemoryResource>> val_reader = std::nullopt )
+            Data::DatasetReader<TInputType, TTargetType, TMemoryResource>& train_reader,
+            std::optional<Data::DatasetReader<TInputType, TTargetType, TMemoryResource>*> val_reader = std::nullopt )
         {
             TrainingHistory history;
 
@@ -136,12 +262,14 @@ namespace Mila::Dnn
             {
                 history.current_epoch = epoch;
 
+                network_->setTraining( true );
                 double train_loss = trainEpoch();
                 history.train_losses.push_back( train_loss );
 
                 double val_loss = 0.0;
-                if ( config_.getValidationSplit() > 0.0 )
+                if ( val_reader.has_value() )
                 {
+                    network_->setTraining( false );
                     val_loss = validateEpoch();
                     history.val_losses.push_back( val_loss );
 
@@ -158,7 +286,7 @@ namespace Mila::Dnn
 
                 if ( config_.getVerbose() )
                 {
-                    if ( config_.getValidationSplit() > 0.0 )
+                    if ( val_reader.has_value() )
                     {
                         Utils::Logger::info_fmt( "Epoch {}/{}: loss = {:.6f}, val_loss = {:.6f}",
                             epoch + 1, config_.getEpochs(), train_loss, val_loss );
@@ -204,26 +332,31 @@ namespace Mila::Dnn
          * Placeholder: current implementation returns 0.0. Replace with dataset-driven
          * evaluation logic when integrating DatasetReader/Loader.
          *
-         * @return Computed evaluation metric (loss) as double.
+         * @return Computed evaluation metric (loss) as double
          */
         double evaluate( /* DatasetReader& test_data */ )
         {
+            // TODO: Implement evaluation loop
             return 0.0;
         }
+
+        // ====================================================================
+        // Serialization and Checkpointing
+        // ====================================================================
 
         /**
          * @brief Save a full training checkpoint to the provided filepath.
          *
          * Writes a ZIP archive with:
-         *  - model/meta.json (using SerializationMetadata)
-         *  - network/* (delegated to Network::save)
-         *  - optimizer/* (delegated to optimizer->save)
-         *  - model/config.json (using SerializationMetadata)
+         * - model/meta.json (using SerializationMetadata)
+         * - network/* (delegated to Network::save)
+         * - optimizer/* (delegated to optimizer->save)
+         * - model/config.json (using SerializationMetadata)
          *
          * Preconditions:
-         *  - The archive path must be writable.
+         * - The archive path must be writable
          *
-         * @param filepath Filesystem path where checkpoint is written.
+         * @param filepath Filesystem path where checkpoint is written
          */
         void saveCheckpoint( const std::string& filepath ) const
         {
@@ -250,63 +383,13 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Load a training checkpoint and reconstruct a Model instance.
-         *
-         * This factory method reads checkpoint metadata and uses NetworkFactory
-         * to reconstruct the network. Optimizer reconstruction is currently
-         * simplified and a device/precision-compatible optimizer is created.
-         *
-         * Preconditions:
-         *  - `exec_context` must be valid for the requested device.
-         *
-         * @param filepath Filesystem path to the checkpoint archive.
-         * @param exec_context Execution context to attach to reconstructed network.
-         * @return Unique pointer to a reconstructed Model instance.
-         *
-         * @throws std::runtime_error if metadata validation fails
-         */
-        static std::unique_ptr<Model> fromCheckpoint(
-            const std::string& filepath,
-            std::shared_ptr<Compute::ExecutionContext<TDeviceType>> exec_context )
-        {
-            auto serializer = std::make_unique<ZipSerializer>();
-            ModelArchive archive( filepath, std::move( serializer ), OpenMode::Read );
-
-            SerializationMetadata model_meta = archive.readMetadata( "model/meta.json" );
-            validateModelMetadata<TDeviceType, TPrecision>( model_meta );
-
-            auto network = NetworkFactory::create<TDeviceType, TPrecision>( archive, exec_context );
-
-            // TODO: OptimizerFactory integration
-            // auto optimizer = OptimizerFactory::create<TDeviceType, TPrecision>(
-            //     archive, "optimizer/", network->getParameters() );
-
-            auto adamw_config = Optimizers::AdamWConfig();
-            auto optimizer = std::make_unique<Optimizers::AdamWOptimizer<TDeviceType, dtype_t::FP32>>(
-                exec_context, adamw_config );
-
-            // FIXME: Deserialize config when ModelConfig has serialization support
-            // auto cfg = archive.readMetadata( "model/config.json" );
-            // ModelConfig config = ModelConfig::fromMetadata( cfg );
-            ModelConfig config; // Placeholder
-
-            auto model = std::make_unique<Model>(
-                std::move( network ),
-                std::move( optimizer ),
-                config
-            );
-
-            return model;
-        }
-
-        /**
          * @brief Export a model artifact intended for inference.
          *
          * Produces a compact archive containing model metadata and weights only.
-         * The exported archive is validated by `loadModel()` via the `export_mode`
+         * The exported archive is validated by loadModel() via the export_mode
          * metadata flag.
          *
-         * @param filepath Path to write exported model file.
+         * @param filepath Path to write exported model file
          */
         void save( const std::string& filepath ) const
         {
@@ -326,10 +409,14 @@ namespace Mila::Dnn
             archive.close();
         }
 
+        // ====================================================================
+        // Accessors
+        // ====================================================================
+
         /**
          * @brief Access the owned network (const).
          *
-         * @return Reference to the internal Network instance.
+         * @return Reference to the internal Network instance
          */
         const Network<TDeviceType, TPrecision>& network() const
         {
@@ -337,26 +424,80 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief Access the owned network (mutable).
+         *
+         * @return Reference to the internal Network instance
+         */
+        Network<TDeviceType, TPrecision>& network()
+        {
+            return *network_;
+        }
+
+        /**
          * @brief Access the owned optimizer (const).
          *
-         * @return Reference to the internal Optimizer instance.
+         * @return Reference to the internal Optimizer instance
          */
         const Compute::Optimizer<TDeviceType, TPrecision>& optimizer() const
         {
             return *optimizer_;
         }
 
+        /**
+         * @brief Access the owned optimizer (mutable).
+         *
+         * @return Reference to the internal Optimizer instance
+         */
+        Compute::Optimizer<TDeviceType, TPrecision>& optimizer()
+        {
+            return *optimizer_;
+        }
+
     private:
+
+        /**
+         * @brief Private constructor (use factory methods for construction).
+         *
+         * Constructs a Model from an already-built network and optimizer.
+         * This constructor is private to enforce the factory pattern via
+         * Model::create() which properly uses Network::createOptimizer().
+         *
+         * @param network Unique pointer to built network
+         * @param optimizer Unique pointer to configured optimizer
+         * @param config Model configuration for training
+         */
+        Model(
+            std::unique_ptr<Network<TDeviceType, TPrecision>> network,
+            std::unique_ptr<Compute::Optimizer<TDeviceType, TPrecision>> optimizer,
+            const ModelConfig& config )
+            : network_( std::move( network ) ), optimizer_( std::move( optimizer ) ), config_( config )
+        {
+            if ( !network_ )
+            {
+                throw std::invalid_argument( "Model: network cannot be null" );
+            }
+            
+            if ( !optimizer_ )
+            {
+                throw std::invalid_argument( "Model: optimizer cannot be null" );
+            }
+
+            checkpoint_manager_ = std::make_unique<Modeling::CheckpointManager>( config_ );
+        }
+
+        // Member variables
         std::unique_ptr<Network<TDeviceType, TPrecision>> network_;
         std::unique_ptr<Compute::Optimizer<TDeviceType, TPrecision>> optimizer_;
         const ModelConfig config_;
         std::unique_ptr<Modeling::CheckpointManager> checkpoint_manager_;
 
+        // ====================================================================
+        // Internal Helper Methods
+        // ====================================================================
+
         /**
          * @internal
          * @brief Validate that model metadata in an archive matches requested device/precision.
-         *
-         * Throws on mismatch.
          *
          * @param meta Metadata to validate
          * @throws std::runtime_error if device or precision mismatch
@@ -386,10 +527,7 @@ namespace Mila::Dnn
          * @internal
          * @brief Create and persist a training checkpoint using the CheckpointManager.
          *
-         * Writes model/meta.json, network data, optimizer state and model/config.json
-         * using SerializationMetadata abstraction.
-         *
-         * @param metadata Checkpoint metadata used to name and register the checkpoint.
+         * @param metadata Checkpoint metadata used to name and register the checkpoint
          */
         void saveTrainingCheckpoint( const Modeling::CheckpointMetadata& metadata )
         {
@@ -438,10 +576,7 @@ namespace Mila::Dnn
          * @internal
          * @brief Load a checkpoint archive from a given path and restore state.
          *
-         * Reads model/meta.json and validates, then delegates to network->load
-         * and optimizer->load before applying configuration from the archive.
-         *
-         * @param filepath Filesystem path to the checkpoint archive.
+         * @param filepath Filesystem path to the checkpoint archive
          */
         void loadCheckpointFromPath( const std::filesystem::path& filepath )
         {
@@ -464,10 +599,18 @@ namespace Mila::Dnn
          * @internal
          * @brief Single-epoch training implementation.
          *
-         * Replace with dataset-driven training logic. Returns epoch training loss.
+         * TODO: Replace with dataset-driven training logic
+         * 
+         * @return Epoch training loss
          */
         double trainEpoch()
         {
+            // TODO: Implement training epoch loop
+            // - Iterate over batches
+            // - Forward pass
+            // - Compute loss
+            // - Backward pass
+            // - Optimizer step
             return 0.0;
         }
 
@@ -475,101 +618,17 @@ namespace Mila::Dnn
          * @internal
          * @brief Single-epoch validation implementation.
          *
-         * Replace with dataset-driven validation logic. Returns validation loss.
+         * TODO: Replace with dataset-driven validation logic
+         * 
+         * @return Validation loss
          */
         double validateEpoch()
         {
+            // TODO: Implement validation epoch loop
+            // - Iterate over batches
+            // - Forward pass (no backward)
+            // - Compute loss
             return 0.0;
-        }
-
-        /**
-         * @internal
-         * @brief Continue training from a specific starting epoch.
-         *
-         * Called by resumeTraining after determining the resume point.
-         *
-         * @param start_epoch Epoch index to begin training from (inclusive).
-         * @return Aggregated TrainingHistory for resumed runs.
-         */
-        TrainingHistory trainFromEpoch( std::size_t start_epoch )
-        {
-            if ( !checkpoint_manager_ )
-            {
-                checkpoint_manager_ = std::make_unique<Modeling::CheckpointManager>( config_ );
-            }
-
-            TrainingHistory history;
-
-            if ( config_.getVerbose() )
-            {
-                Utils::Logger::info_fmt( "Continuing training from epoch {} to {}...",
-                    start_epoch, config_.getEpochs() );
-            }
-
-            for ( std::size_t epoch = start_epoch; epoch < config_.getEpochs(); ++epoch )
-            {
-                history.current_epoch = epoch;
-
-                double train_loss = trainEpoch();
-                history.train_losses.push_back( train_loss );
-
-                double val_loss = 0.0;
-                if ( config_.getValidationSplit() > 0.0 )
-                {
-                    val_loss = validateEpoch();
-                    history.val_losses.push_back( val_loss );
-
-                    if ( val_loss < history.best_val_loss )
-                    {
-                        history.best_val_loss = val_loss;
-                        history.epochs_without_improvement = 0;
-                    }
-                    else
-                    {
-                        history.epochs_without_improvement++;
-                    }
-                }
-
-                if ( config_.getVerbose() )
-                {
-                    if ( config_.getValidationSplit() > 0.0 )
-                    {
-                        Utils::Logger::info_fmt( "Epoch {}/{}: loss = {:.6f}, val_loss = {:.6f}",
-                            epoch + 1, config_.getEpochs(), train_loss, val_loss );
-                    }
-                    else
-                    {
-                        Utils::Logger::info_fmt( "Epoch {}/{}: loss = {:.6f}",
-                            epoch + 1, config_.getEpochs(), train_loss );
-                    }
-                }
-
-                if ( (epoch + 1) % config_.getCheckpointFrequency() == 0 )
-                {
-                    Modeling::CheckpointMetadata metadata{
-                        .epoch = epoch,
-                        .train_loss = train_loss,
-                        .val_loss = val_loss,
-                        .timestamp = std::chrono::system_clock::now(),
-                        .filepath = {}
-                    };
-
-                    saveTrainingCheckpoint( metadata );
-                }
-
-                if ( config_.getEarlyStoppingEnabled() &&
-                    history.epochs_without_improvement >= config_.getEarlyStoppingPatience() )
-                {
-                    if ( config_.getVerbose() )
-                    {
-                        Utils::Logger::info_fmt( "Early stopping triggered after {} epochs without improvement",
-                            history.epochs_without_improvement );
-                    }
-                    break;
-                }
-            }
-
-            return history;
         }
     };
 }

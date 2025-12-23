@@ -186,8 +186,8 @@ PUBLIC
         
         "Src/Dnn/Components/Composites/MLP.ixx"
         "Src/Dnn/Components/Composites/MLPConfig.ixx"
-        #"Src/Dnn/Components/Composites/Transformer.ixx"
-        #"Src/Dnn/Components/Composites/Transformer.Config.ixx"
+        "Src/Dnn/Components/Composites/Transformer.ixx"
+        "Src/Dnn/Components/Composites/Transformer.Config.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Compute (core)

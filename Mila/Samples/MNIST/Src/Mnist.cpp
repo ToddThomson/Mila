@@ -29,7 +29,7 @@ struct MnistConfig
 {
     std::string data_directory = "./Data/DataSets/Mnist";
     int64_t batch_size = 128;
-    size_t epochs = 9000;
+    size_t epochs = 20;
     float learning_rate = 0.001f;
     float beta1 = 0.9f;
     float beta2 = 0.999f;
@@ -327,46 +327,34 @@ void trainMnist( const MnistConfig& config )
         config.batch_size,
         device_id );
 
-    mnist_net->setTraining( true );
-
     MnistDataLoader<TensorDataType::FP32, THostMR> train_loader( config.data_directory, config.batch_size, true, device_id );
     MnistDataLoader<TensorDataType::FP32, THostMR> test_loader( config.data_directory, config.batch_size, false, device_id );
 
     // Build the model with the input shape from the data loader
     shape_t input_shape = { train_loader.batchSize(), MNIST_IMAGE_SIZE };
+    
     mnist_net->build( input_shape );
 
     std::cout << "Mnist Classifier built successfully!" << std::endl;
     std::cout << mnist_net->toString() << std::endl;
 
+    // Set training mode
+    // REVIEW: This seems a bit brittle as the Optimizer and the getParameters()
+    //         and getGradients() methods depend on the model being in training mode
+    mnist_net->setTraining( true );
+
     // ============================================================
     // AdamW optimizer setup
+    // Create optimizer (automatic training mode + registration)
     // ============================================================
-
-    // Create AdamW optimizer configuration
-    auto adamw_config = AdamWConfig()
+    auto optimizer = mnist_net->createOptimizer<AdamWOptimizer<TDeviceType, TDataType>>(
+        AdamWConfig()
         .withLearningRate( config.learning_rate )
         .withBeta1( config.beta1 )
         .withBeta2( config.beta2 )
         .withEpsilon( config.epsilon )
-        .withWeightDecay( config.weight_decay );
-
-    auto optimizer = std::make_shared<AdamWOptimizer<TDeviceType, TDataType>>(
-		mnist_net->getExecutionContext(), adamw_config);
-
-    // Register all model parameters with the optimizer
-    auto params = mnist_net->getParameters();
-    auto param_grads = mnist_net->getGradients();
-
-    if ( params.size() != param_grads.size() )
-    {
-        throw std::runtime_error( "Parameter count mismatch between parameters and gradients" );
-    }
-
-    for ( size_t i = 0; i < params.size(); ++i )
-    {
-        optimizer->addParameter( params[i], param_grads[i] );
-    }
+        .withWeightDecay( config.weight_decay )
+    );
 
     std::cout << "Optimizer initialized with " << optimizer->getParameterCount()
         << " parameter groups" << std::endl;

@@ -17,11 +17,11 @@ export module Dnn.Blocks.Transformer:Config;
 import Dnn.TensorTypes;
 import Dnn.ComponentConfig;
 import Dnn.ActivationType;
-import nlohmann.json;
+import Serialization.Metadata;
 
 namespace Mila::Dnn
 {
-    using json = nlohmann::json;
+    using Serialization::SerializationMetadata;
 
     /**
      * @brief Configuration class for Transformer modules.
@@ -42,7 +42,7 @@ namespace Mila::Dnn
          * and throws std::invalid_argument if they are violated.
          */
         TransformerConfig( dim_t embedding_dim, dim_t num_heads )
-			: embedding_dim_( embedding_dim ), num_heads_( num_heads ), ComponentConfig( "transformer" )
+            : embedding_dim_( embedding_dim ), num_heads_( num_heads )
         {
             if ( embedding_dim <= 0 )
             {
@@ -171,78 +171,75 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Serialize this configuration to JSON (ModuleConfig interface).
+         * @brief Convert configuration to serialization metadata.
+         *
+         * Produces a SerializationMetadata object containing the configuration
+         * fields suitable for writing into an archive by the caller.
          */
-        /*json toJson() const override
+        SerializationMetadata toMetadata() const
         {
-            json j;
-            j["name"] = name_;
-            j["precision"] = static_cast<int>( precision_ );
-            j["embedding_dim"] = static_cast<int64_t>( embedding_dim_ );
-            j["num_heads"] = static_cast<int64_t>( num_heads_ );
-            j["hidden_dim"] = static_cast<int64_t>( hidden_dim_ );
-            j["use_bias"] = use_bias_;
-            j["activation"] = static_cast<int>( activation_type_ );
+            SerializationMetadata meta;
+            meta.set( "precision", static_cast<int64_t>(precision_) )
+                .set( "embedding_dim", static_cast<int64_t>(embedding_dim_) )
+                .set( "num_heads", static_cast<int64_t>(num_heads_) )
+                .set( "hidden_dim", static_cast<int64_t>(hidden_dim_) )
+                .set( "use_bias", use_bias_ )
+                .set( "activation", static_cast<int64_t>(activation_type_) );
 
-            return j;
-        }*/
+            return meta;
+        }
 
         /**
-         * @brief Deserialize this configuration from JSON (ModuleConfig interface).
+         * @brief Deserialize this configuration from SerializationMetadata.
          *
          * Missing keys leave fields at their current values.
          */
-        /*void fromJson( const json& j ) override
+        void fromMetadata( const SerializationMetadata& meta )
         {
-            if ( j.contains( "name" ) )
+            if ( auto p = meta.tryGetInt( "precision" ) )
             {
-                name_ = j.at( "name" ).get<std::string>();
+                precision_ = static_cast<decltype(precision_)>(*p);
             }
 
-            if ( j.contains( "precision" ) )
+            if ( auto ed = meta.tryGetInt( "embedding_dim" ) )
             {
-                precision_ = static_cast<decltype( precision_)>( j.at( "precision" ).get<int>() );
+                embedding_dim_ = static_cast<dim_t>(*ed);
             }
 
-            if ( j.contains( "embedding_dim" ) )
+            if ( auto nh = meta.tryGetInt( "num_heads" ) )
             {
-                embedding_dim_ = static_cast<dim_t>( j.at( "embedding_dim" ).get<int64_t>() );
+                num_heads_ = static_cast<dim_t>(*nh);
             }
 
-            if ( j.contains( "num_heads" ) )
+            if ( auto hd = meta.tryGetInt( "hidden_dim" ) )
             {
-                num_heads_ = static_cast<dim_t>( j.at( "num_heads" ).get<int64_t>() );
+                hidden_dim_ = static_cast<dim_t>(*hd);
             }
 
-            if ( j.contains( "hidden_dim" ) )
+            if ( auto ub = meta.tryGetBool( "use_bias" ) )
             {
-                hidden_dim_ = static_cast<dim_t>( j.at( "hidden_dim" ).get<int64_t>() );
+                use_bias_ = *ub;
             }
 
-            if ( j.contains( "use_bias" ) )
+            if ( auto act = meta.tryGetInt( "activation" ) )
             {
-                use_bias_ = j.at( "use_bias" ).get<bool>();
+                activation_type_ = static_cast<ActivationType>(*act);
             }
-
-            if ( j.contains( "activation" ) )
-            {
-                activation_type_ = static_cast<ActivationType>( j.at( "activation" ).get<int>() );
-            }
-        }*/
+        }
 
         std::string toString() const override
         {
             std::ostringstream oss;
 
-            oss << "Transformer: " << getName() << std::endl;
+            oss << "Transformer: " << std::endl;
             oss << "Embedding Dim: " << embedding_dim_ << std::endl;
             oss << "Num Heads: " << num_heads_ << std::endl;
             oss << "Hidden Dim: " << hidden_dim_ << std::endl;
             oss << "Use Bias: " << (use_bias_ ? "Yes" : "No") << std::endl;
-            oss << "Activation: " << static_cast<int>( activation_type_ ) << std::endl;
-			
+            oss << "Activation: " << static_cast<int>(activation_type_) << std::endl;
+
             return oss.str();
-		}
+        }
 
     private:
         dim_t embedding_dim_;

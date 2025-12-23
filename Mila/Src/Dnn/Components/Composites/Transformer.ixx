@@ -14,6 +14,7 @@ module;
 #include <stdexcept>
 #include <cstdint>
 #include <type_traits>
+#include <optional>
 
 export module Dnn.Blocks.Transformer;
 export import :Config;
@@ -34,12 +35,15 @@ import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
+import Compute.IExecutionContext;
+import Compute.ExecutionContextFactory;
 import Dnn.Components.LayerNorm;
 import Dnn.Components.Attention;
 import Dnn.Components.Residual;
 import Dnn.Components.Linear;
 import Dnn.Blocks.MLP;
 import Serialization.ModelArchive;
+import Serialization.Mode;
 
 namespace Mila::Dnn
 {
@@ -53,8 +57,10 @@ namespace Mila::Dnn
      *   LayerNorm -> QKV projection -> MultiHeadSelfAttention -> Residual ->
      *   LayerNorm -> MLP -> Residual
      *
-     * Two-phase initialization: createModules() constructs child components,
-     * onBuilding() finalizes shapes and allocates intermediate tensors.
+     * Construction follows the same patterns used by the `MLP` block:
+     * - Graph created in constructor (context-independent)
+     * - Optional owned ExecutionContext when a DeviceId is provided
+     * - Shape-dependent build occurs in onBuilding()
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
@@ -63,6 +69,7 @@ namespace Mila::Dnn
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
         using CompositeComponentBase = CompositeComponent<TDeviceType, TPrecision>;
+        using ComponentPtr = typename CompositeComponentBase::ComponentPtr;
         using ExecutionContextType = ExecutionContext<TDeviceType>;
         using TensorType = Tensor<TPrecision, MR>;
         using LayerNormType = LayerNorm<TDeviceType, TPrecision>;
@@ -72,139 +79,122 @@ namespace Mila::Dnn
         using MLPType = MLP<TDeviceType, TPrecision>;
 
         /**
-         * @brief Construct with an execution context and config.
+         * @brief Construct Transformer in shared or standalone mode.
          *
-         * Execution context must be non-null. Components are created here;
-         * concrete shape-dependent setup happens in onBuilding().
+         * - name: component name (used as prefix for sub-components)
+         * - config: validated configuration for the Transformer
+         * - device_id (optional): when provided and matching TDeviceType, an owned
+         *   ExecutionContext is created and bound (standalone mode). Otherwise the
+         *   component expects a parent to set an ExecutionContext (shared mode).
          */
-        explicit Transformer( IExecutionContext* exec_context,
-            const TransformerConfig& config )
-            : exec_context_( exec_context ), config_( config )
+        explicit Transformer( const std::string& name, const TransformerConfig& config, std::optional<DeviceId> device_id = std::nullopt )
+            : CompositeComponentBase( name ), config_( config )
         {
-            if (!exec_context_)
-            {
-                throw std::invalid_argument( "ExecutionContext cannot be null." );
-            }
-
             config_.validate();
 
-            createModules();
+            createGraph();
+
+            if ( device_id.has_value() )
+            {
+                if ( device_id->type != TDeviceType )
+                {
+                    throw std::invalid_argument( "Transformer: device type mismatch" );
+                }
+
+                owned_exec_context_ = createExecutionContext( device_id.value() );
+
+                this->setExecutionContext( owned_exec_context_.get() );
+            }
         }
 
         ~Transformer() override = default;
 
         // ====================================================================
-        // Build lifecycle
-        // ====================================================================
-
-        /*bool isBuilt() const override
-        {
-            return CompositeComponentBase::isBuilt() && attn_ && ln1_ && ln2_ && ffn_ && res1_ && res2_ && qkv_proj_;
-        }*/
-
-        // ====================================================================
-        // Forward and backward dispatch
+        // Forward and backward dispatch (hot path)
         // ====================================================================
 
         void forward( const ITensor& input, ITensor& output )
         {
-            if (!this->isBuilt())
+            if ( !this->isBuilt() )
             {
                 throw std::runtime_error( "Transformer must be built before forward()." );
             }
 
-            // Work with concrete TensorType references for buffers
             TensorType const& in_t = static_cast<TensorType const&>(input);
             TensorType& out_t = static_cast<TensorType&>(output);
 
-            // Pre-LN: normalize first
             ln1_->forward( in_t, *ln1_output_ );
 
-            // Project normalized embeddings to concatenated QKV: [B,T,3*embedding_dim]
             qkv_proj_->forward( *ln1_output_, *qkv_output_ );
 
-            // Attention consumes concatenated QKV and produces [B,T,embedding_dim]
             attn_->forward( *qkv_output_, *attn_output_ );
 
-            // res1 = in + attn_output (use Residual component)
             res1_->forward( in_t, *attn_output_, *res1_output_ );
 
             ln2_->forward( *res1_output_, *ln2_output_ );
+
             ffn_->forward( *ln2_output_, *ffn_output_ );
 
-            // out = res1 + ffn_output (use Residual component)
             res2_->forward( *res1_output_, *ffn_output_, out_t );
 
-            // Mark whether the forward was executed in training mode.
-            // Only a training-mode forward can be used as the basis for backward().
             forward_executed_ = this->isTraining();
         }
 
         void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
         {
-            if (!this->isBuilt())
+            if ( !this->isBuilt() )
             {
                 throw std::runtime_error( "Transformer must be built before backward()." );
             }
 
-            if (!this->isTraining())
+            if ( !this->isTraining() )
             {
                 throw std::runtime_error( "Transformer must be in training mode to call backward(). Call setTraining(true) first." );
             }
 
-            if (!forward_executed_)
+            if ( !forward_executed_ )
             {
                 throw std::runtime_error( "Transformer::backward: a training-mode forward() must be executed before backward()" );
             }
 
-            // Concrete tensor references
-            const TensorType& in_t = static_cast<const TensorType&>( input );
-            const TensorType& out_grad_t = static_cast<const TensorType&>( output_grad );
-            TensorType& in_grad_t = static_cast<TensorType&>( input_grad );
+            const TensorType& in_t = static_cast<const TensorType&>(input);
+            const TensorType& out_grad_t = static_cast<const TensorType&>(output_grad);
+            TensorType& in_grad_t = static_cast<TensorType&>(input_grad);
 
-            auto device = exec_context_->getDeviceId();
+            auto device = this->getDeviceId();
 
-            // Shapes
             const shape_t& act_shape = cached_input_shape_;
             shape_t qkv_shape = act_shape;
-            qkv_shape.back() = static_cast<int64_t>( config_.getEmbeddingDim() * 3 );
+            qkv_shape.back() = static_cast<int64_t>(config_.getEmbeddingDim() * 3);
 
-            // Step 1: d_out -> propagate through final residual (res2)
-            // res2: out = res1 + ffn_output  => d_res1 += d_out, d_ffn += d_out
-            TensorType d_res1(device, act_shape);
-            TensorType d_ffn(device, act_shape);
+            // d_res1 and d_ffn initialized from d_out
+            TensorType d_res1( device, act_shape );
+            TensorType d_ffn( device, act_shape );
 
             zeros( d_res1 );
             zeros( d_ffn );
 
-            // initialize both to d_out
             copy( out_grad_t, d_res1 );
             copy( out_grad_t, d_ffn );
 
-            // Step 2: Backprop through FFN: ffn_input = ln2_output_, ffn_output -> d_ln2
-            TensorType d_ln2(device, act_shape);
+            TensorType d_ln2( device, act_shape );
             zeros( d_ln2 );
 
             ffn_->backward( *ln2_output_, d_ffn, d_ln2 );
 
-            // Step 3: Backprop through LayerNorm2: input = res1_output_ -> produces d_res1_from_ln2
-            TensorType d_res1_from_ln2(device, act_shape);
+            TensorType d_res1_from_ln2( device, act_shape );
             zeros( d_res1_from_ln2 );
 
             ln2_->backward( *res1_output_, d_ln2, d_res1_from_ln2 );
 
-            // Step 4: Accumulate gradients arriving at res1_output_
-            // d_res1_total = d_res1 + d_res1_from_ln2
-            TensorType d_res1_total(device, act_shape);
+            TensorType d_res1_total( device, act_shape );
             zeros( d_res1_total );
 
-            // Use residual forward to add two tensors: reusable and efficient via backend
+            // use residual forward to sum the two contributors
             res1_->forward( d_res1, d_res1_from_ln2, d_res1_total );
 
-            // Step 5: Backprop through residual1: res1 = in + attn_output
-            // => d_in_from_res += d_res1_total ; d_attn += d_res1_total
-            TensorType d_in_from_res(device, act_shape);
-            TensorType d_attn(device, act_shape);
+            TensorType d_in_from_res( device, act_shape );
+            TensorType d_attn( device, act_shape );
 
             zeros( d_in_from_res );
             zeros( d_attn );
@@ -212,181 +202,72 @@ namespace Mila::Dnn
             copy( d_res1_total, d_in_from_res );
             copy( d_res1_total, d_attn );
 
-            // Step 6: Backprop through Attention: input = qkv_output_, output_grad = d_attn -> d_qkv
-            TensorType d_qkv(device, qkv_shape);
+            TensorType d_qkv( device, qkv_shape );
             zeros( d_qkv );
 
             attn_->backward( *qkv_output_, d_attn, d_qkv );
 
-            // Step 7: Backprop through QKV projection (linear): input = ln1_output_ -> d_ln1
-            TensorType d_ln1(device, act_shape);
+            TensorType d_ln1( device, act_shape );
             zeros( d_ln1 );
 
             qkv_proj_->backward( *ln1_output_, d_qkv, d_ln1 );
 
-            // Step 8: Backprop through LayerNorm1: input = original input -> d_in_from_ln1
-            TensorType d_in_from_ln1(device, act_shape);
+            TensorType d_in_from_ln1( device, act_shape );
             zeros( d_in_from_ln1 );
 
             ln1_->backward( in_t, d_ln1, d_in_from_ln1 );
 
-            // Step 9: Combine gradients for original input:
-            // d_input_total = d_in_from_res + d_in_from_ln1
             zeros( in_grad_t );
 
-            // Reuse residual forward to sum the two contributors into input_grad
             res1_->forward( d_in_from_res, d_in_from_ln1, in_grad_t );
 
-            // Invalidate the forward-executed flag: a new training-mode forward() is required
-            // before another backward() can be called.
             forward_executed_ = false;
         }
 
         // ====================================================================
-        // Serialization
+        // Serialization (follow MLP style)
         // ====================================================================
 
-        void save( ModelArchive& archive ) const
+        void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
-            attn_->save( archive );
-            ln1_->save( archive );
-            ln2_->save( archive );
-            qkv_proj_->save( archive );
-            res1_->save( archive );
-            res2_->save( archive );
-            ffn_->save( archive );
+            attn_->save_( archive, mode );
+            ln1_->save_( archive, mode );
+            ln2_->save_( archive, mode );
+            qkv_proj_->save_( archive, mode );
+            res1_->save_( archive, mode );
+            res2_->save_( archive, mode );
+            ffn_->save_( archive, mode );
         }
 
-        void load( ModelArchive& archive )
+        void load_( ModelArchive& archive, SerializationMode mode )
         {
-            attn_->load( archive );
-            ln1_->load( archive );
-            ln2_->load( archive );
-            qkv_proj_->load( archive );
-            res1_->load( archive );
-            res2_->load( archive );
-            ffn_->load( archive );
+            attn_->load_( archive, mode );
+            ln1_->load_( archive, mode );
+            ln2_->load_( archive, mode );
+            qkv_proj_->load_( archive, mode );
+            res1_->load_( archive, mode );
+            res2_->load_( archive, mode );
+            ffn_->load_( archive, mode );
         }
 
         // ====================================================================
-        // Component interface
+        // Diagnostics
         // ====================================================================
-
-        std::string getName() const override
-        {
-            return config_.getName();
-        }
-
-        DeviceId getDeviceId() const override
-        {
-            return exec_context_->getDeviceId();
-        }
-
-        void synchronize() override
-        {
-            if (exec_context_)
-            {
-                exec_context_->synchronize();
-            }
-
-            attn_->synchronize();
-            ln1_->synchronize();
-            ln2_->synchronize();
-            qkv_proj_->synchronize();
-            res1_->synchronize();
-            res2_->synchronize();
-            ffn_->synchronize();
-        }
-
-        size_t parameterCount() const override
-        {
-            size_t total = 0;
-
-            total += attn_->parameterCount();
-            total += ln1_->parameterCount();
-            total += ln2_->parameterCount();
-            total += qkv_proj_->parameterCount();
-            total += res1_->parameterCount();
-            total += res2_->parameterCount();
-            total += ffn_->parameterCount();
-
-            return total;
-        }
-
-        std::vector<ITensor*> getParameters() const override
-        {
-            std::vector<ITensor*> params;
-
-            auto p = attn_->getParameters();
-            params.insert( params.end(), p.begin(), p.end() );
-
-            p = ln1_->getParameters();
-            params.insert( params.end(), p.begin(), p.end() );
-
-            p = ln2_->getParameters();
-            params.insert( params.end(), p.begin(), p.end() );
-
-            p = qkv_proj_->getParameters();
-            params.insert( params.end(), p.begin(), p.end() );
-
-            p = res1_->getParameters();
-            params.insert( params.end(), p.begin(), p.end() );
-
-            p = res2_->getParameters();
-            params.insert( params.end(), p.begin(), p.end() );
-
-            p = ffn_->getParameters();
-            params.insert( params.end(), p.begin(), p.end() );
-
-            return params;
-        }
-
-        std::vector<ITensor*> getGradients() const override
-        {
-            if (!this->isTraining())
-            {
-                throw std::runtime_error( "Cannot get parameter gradients when not in training mode" );
-            }
-
-            std::vector<ITensor*> grads;
-
-            auto g = attn_->getGradients();
-            grads.insert( grads.end(), g.begin(), g.end() );
-
-            g = ln1_->getGradients();
-            grads.insert( grads.end(), g.begin(), g.end() );
-
-            g = ln2_->getGradients();
-            grads.insert( grads.end(), g.begin(), g.end() );
-
-            g = qkv_proj_->getGradients();
-            grads.insert( grads.end(), g.begin(), g.end() );
-
-            g = res1_->getGradients();
-            grads.insert( grads.end(), g.begin(), g.end() );
-
-            g = res2_->getGradients();
-            grads.insert( grads.end(), g.begin(), g.end() );
-
-            g = ffn_->getGradients();
-            grads.insert( grads.end(), g.begin(), g.end() );
-
-            return grads;
-        }
 
         std::string toString() const override
         {
             std::ostringstream oss;
             oss << "====================" << std::endl;
-            oss << "Transformer: " << getName() << std::endl;
+            oss << "Transformer: " << this->getName() << std::endl;
 
-            if (!cached_input_shape_.empty())
+            if ( !cached_input_shape_.empty() )
             {
-                oss << "Input shape: ("; 
-                for (size_t i = 0; i < cached_input_shape_.size(); ++i)
+                oss << "Input shape: (";
+                for ( size_t i = 0; i < cached_input_shape_.size(); ++i )
                 {
-                    oss << cached_input_shape_[i];
-                    if (i != cached_input_shape_.size() - 1) oss << ", ";
+                    oss << cached_input_shape_[ i ];
+                    if ( i != cached_input_shape_.size() - 1 )
+                        oss << ", ";
                 }
                 oss << ")" << std::endl;
             }
@@ -395,9 +276,19 @@ namespace Mila::Dnn
             oss << "MLP hidden dimension: " << config_.getHiddenDimension() << std::endl;
             oss << "Architecture: Pre-LN" << std::endl;
 
-            oss << "Device: " << exec_context_->getDeviceId().toString() << std::endl;
+            if ( this->hasExecutionContext() )
+            {
+                oss << "Device: " << this->getDeviceId().toString() << std::endl;
+            }
+            else
+            {
+                oss << "Device: (context not set)" << std::endl;
+            }
 
-            oss << "Parameter count: " << parameterCount() << std::endl;
+            if ( this->isBuilt() )
+            {
+                oss << "Parameter count: " << this->parameterCount() << std::endl;
+            }
 
             // blank line before return per style
 
@@ -413,119 +304,51 @@ namespace Mila::Dnn
             return config_;
         }
 
-        /*std::shared_ptr<AttentionType> getAttention() const noexcept
-        {
-            return attn_;
-        }
-        std::shared_ptr<LayerNormType> getLn1() const noexcept
-        {
-            return ln1_;
-        }
-        std::shared_ptr<LayerNormType> getLn2() const noexcept
-        {
-            return ln2_;
-        }
-        std::shared_ptr<ResidualType> getRes1() const noexcept
-        {
-            return res1_;
-        }
-        std::shared_ptr<ResidualType> getRes2() const noexcept
-        {
-            return res2_;
-        }
-        std::shared_ptr<MLPType> getFFN() const noexcept
-        {
-           return ffn_;
-        } */
-
     protected:
 
         /**
-         * @brief Architecture-specific build hook.
+         * @brief Build hook: validate shape, bind children and allocate buffers.
          *
-         * Called from CompositeComponent::build() once per-instance. Implement
-         * shape propagation here and call build() directly on child components.
-         * After this method returns the base class will validate child build
-         * state and mark the composite built.
+         * Mirrors the approach used by `MLP::onBuilding`.
          */
         void onBuilding( const shape_t& input_shape ) override
         {
-            // Validate runtime input shape and consistency with config
             validateInputShape( input_shape );
 
             cached_input_shape_ = input_shape;
 
-            // Build LayerNorm for [B,T,embedding_dim]
-            if (!ln1_)
-            {
-                throw std::runtime_error( "Transformer: ln1 component not initialized before build()" );
-            }
-
-            ln1_->setTraining( this->isTraining() );
+            // build layernorm 1
+            ln1_ = this->template getComponentAs<LayerNormType>( this->getName() + ".lnorm_1" );
             ln1_->build( input_shape );
 
-            // QKV projection is a linear from embedding_dim -> 3 * embedding_dim
-            if (!qkv_proj_)
-            {
-                throw std::runtime_error( "Transformer: qkv_proj component not initialized before build()" );
-            }
-
-            qkv_proj_->setTraining( this->isTraining() );
+            // qkv proj
+            qkv_proj_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_qkv_proj" );
             qkv_proj_->build( input_shape );
 
-            // Attention expects concatenated QKV: trailing dimension = 3 * embedding_dim
+            // attention expects 3*embedding trailing dim
             shape_t qkv_shape = input_shape;
-            qkv_shape.back() = static_cast<int64_t>( config_.getEmbeddingDim() * 3 );
+            qkv_shape.back() = static_cast<int64_t>(config_.getEmbeddingDim() * 3);
 
-            if (!attn_)
-            {
-                throw std::runtime_error( "Transformer: attn component not initialized before build()" );
-            }
-
-            attn_->setTraining( this->isTraining() );
+            attn_ = this->template getComponentAs<AttentionType>( this->getName() + ".attn" );
             attn_->build( qkv_shape );
 
-            // LayerNorm2 keeps same trailing dim as res1_output (embedding_dim)
-            if (!ln2_)
-            {
-                throw std::runtime_error( "Transformer: ln2 component not initialized before build()" );
-            }
-
-            ln2_->setTraining( this->isTraining() );
+            ln2_ = this->template getComponentAs<LayerNormType>( this->getName() + ".lnorm_2" );
             ln2_->build( input_shape );
 
-            // Residual modules may allocate projection parameters if needed
-            if (!res1_)
-            {
-                throw std::runtime_error( "Transformer: res1 component not initialized before build()" );
-            }
-
-            res1_->setTraining( this->isTraining() );
+            res1_ = this->template getComponentAs<ResidualType>( this->getName() + ".res_1" );
             res1_->build( input_shape );
 
-            if (!res2_)
-            {
-                throw std::runtime_error( "Transformer: res2 component not initialized before build()" );
-            }
-
-            res2_->setTraining( this->isTraining() );
+            res2_ = this->template getComponentAs<ResidualType>( this->getName() + ".res_2" );
             res2_->build( input_shape );
 
-            // MLP may change hidden dim internally; let MLP handle it
-            if (!ffn_)
-            {
-                throw std::runtime_error( "Transformer: ffn component not initialized before build()" );
-            }
-
-            ffn_->setTraining( this->isTraining() );
+            ffn_ = this->template getComponentAs<MLPType>( this->getName() + ".mlp" );
             ffn_->build( input_shape );
 
-            auto device = exec_context_->getDeviceId();
+            auto device = this->getDeviceId();
 
             ln1_output_ = std::make_shared<TensorType>( device, input_shape );
-            ln1_output_->setName( this->getName() + ".ln1_output" );
+            ln1_output_->setName( this->getName() + ".lnorm_1_output" );
 
-            // qkv_output has trailing dim 3 * embedding_dim
             qkv_output_ = std::make_shared<TensorType>( device, qkv_shape );
             qkv_output_->setName( this->getName() + ".qkv_output" );
 
@@ -533,47 +356,40 @@ namespace Mila::Dnn
             attn_output_->setName( this->getName() + ".attn_output" );
 
             res1_output_ = std::make_shared<TensorType>( device, input_shape );
-            res1_output_->setName( this->getName() + ".res1_output" );
+            res1_output_->setName( this->getName() + ".res_1_output" );
 
             ln2_output_ = std::make_shared<TensorType>( device, input_shape );
-            ln2_output_->setName( this->getName() + ".ln2_output" );
+            ln2_output_->setName( this->getName() + ".lnorm_2_output" );
 
             ffn_output_ = std::make_shared<TensorType>( device, input_shape );
             ffn_output_->setName( this->getName() + ".ffn_output" );
 
             res2_output_ = std::make_shared<TensorType>( device, input_shape );
-            res2_output_->setName( this->getName() + ".res2_output" );
+            res2_output_->setName( this->getName() + ".res_2_output" );
         }
 
-        /**
-         * @brief Hook invoked when training mode is about to change.
-         *
-         * Propagate the new mode to all child components and invalidate the
-         * cached forward-executed flag so a fresh training forward is required.
-         *
-         * Called with CompositeComponent's training mutex held; do not call setTraining() here.
-         */
         void onTrainingChanging( bool is_training ) override
         {
-            if (attn_)     attn_->setTraining( is_training );
-            if (ln1_)      ln1_->setTraining( is_training );
-            if (ln2_)      ln2_->setTraining( is_training );
-            if (qkv_proj_) qkv_proj_->setTraining( is_training );
-            if (res1_)     res1_->setTraining( is_training );
-            if (res2_)     res2_->setTraining( is_training );
-            if (ffn_)      ffn_->setTraining( is_training );
+            // Propagate to children. Order does not matter here.
+            if ( attn_ )     attn_->setTraining( is_training );
+            if ( ln1_ )      ln1_->setTraining( is_training );
+            if ( ln2_ )      ln2_->setTraining( is_training );
+            if ( qkv_proj_ ) qkv_proj_->setTraining( is_training );
+            if ( res1_ )     res1_->setTraining( is_training );
+            if ( res2_ )     res2_->setTraining( is_training );
+            if ( ffn_ )      ffn_->setTraining( is_training );
 
             forward_executed_ = false;
         }
 
     private:
         TransformerConfig config_;
-        IExecutionContext* exec_context_{ nullptr };
 
         shape_t cached_input_shape_;
 
-        // Guard to ensure backward() is only used after a training-mode forward()
         bool forward_executed_{ false };
+
+        std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
 
         std::shared_ptr<AttentionType> attn_{ nullptr };
         std::shared_ptr<LayerNormType> ln1_{ nullptr };
@@ -591,82 +407,70 @@ namespace Mila::Dnn
         std::shared_ptr<TensorType> ffn_output_{ nullptr };
         std::shared_ptr<TensorType> res2_output_{ nullptr };
 
-        void createModules()
+        /**
+         * @brief Create component graph without binding to a device/context.
+         *
+         * Components are created in shared mode (no ExecutionContext). Parent
+         * will provide a context later or an owned context will be created.
+         */
+        void createGraph()
         {
-            dim_t embedding_dim = config_.getEmbeddingDim();
-            dim_t num_heads = config_.getNumHeads();
-            dim_t hidden_dim = static_cast<dim_t>(config_.getHiddenDimension());
+            // Attention
+            auto attn_cfg = AttentionConfig( config_.getEmbeddingDim(), config_.getNumHeads() );
 
-            // If hidden dim not specified, follow default: 4x embedding dim
-            if (hidden_dim == 0)
-            {
-                hidden_dim = embedding_dim * 4;
-            }
+            auto attn_component = std::make_shared<AttentionType>( this->getName() + ".attn", attn_cfg, std::nullopt );
+            this->addComponent( attn_component );
 
-            // Attention module is configured with base embedding_dim and num_heads.
-            auto attn_cfg = AttentionConfig( embedding_dim, num_heads );
-            attn_cfg.withName( config_.getName() + ".attn" );
+            // LayerNorms
+            auto ln1_cfg = LayerNormConfig().withNormalizedShape( shape_t{ static_cast<int64_t>(config_.getEmbeddingDim()) } );
+            auto ln1_component = std::make_shared<LayerNormType>( this->getName() + ".lnorm_1", ln1_cfg, std::nullopt );
+            this->addComponent( ln1_component );
 
-            attn_ = std::make_shared<AttentionType>( exec_context_, attn_cfg );
-            this->addComponent( attn_ );
+            auto ln2_cfg = LayerNormConfig().withNormalizedShape( shape_t{ static_cast<int64_t>(config_.getEmbeddingDim()) } );
+            auto ln2_component = std::make_shared<LayerNormType>( this->getName() + ".lnorm_2", ln2_cfg, std::nullopt );
+            this->addComponent( ln2_component );
 
-            // LayerNorms configured to normalize over the trailing embedding_dim
-            auto ln1_cfg = LayerNormConfig();
-            ln1_cfg.withNormalizedShape( shape_t{ static_cast<int64_t>( embedding_dim ) } )
-                .withName( config_.getName() + ".ln1" );
+            // QKV projection
+            auto qkv_cfg = LinearConfig( static_cast<dim_t>(config_.getEmbeddingDim()), static_cast<dim_t>(config_.getEmbeddingDim() * 3) );
+            qkv_cfg.withBias( config_.useBias() );
+            auto qkv_component = std::make_shared<LinearType>( this->getName() + ".fc_qkv_proj", qkv_cfg, std::nullopt );
+            this->addComponent( qkv_component );
 
-            ln1_ = std::make_shared<LayerNormType>( exec_context_, ln1_cfg );
-            this->addComponent( ln1_ );
-
-            auto ln2_cfg = LayerNormConfig();
-            ln2_cfg.withNormalizedShape( shape_t{ static_cast<int64_t>( embedding_dim ) } )
-                .withName( config_.getName() + ".ln2" );
-
-            ln2_ = std::make_shared<LayerNormType>( exec_context_, ln2_cfg );
-            this->addComponent( ln2_ );
-
-            // QKV projection: Linear(in=embedding_dim, out=3*embedding_dim)
-            auto qkv_cfg = LinearConfig( static_cast<dim_t>( embedding_dim ), static_cast<dim_t>( embedding_dim * 3 ) );
-            qkv_cfg.withName( config_.getName() + ".qkv_proj" )
-                .withBias( config_.useBias() );
-
-            qkv_proj_ = std::make_shared<LinearType>( exec_context_, qkv_cfg );
-            this->addComponent( qkv_proj_ );
-
-            // Residual configurations (simple addition, default scaling)
+            // Residual modules
             ResidualConfig res_cfg1;
-            res_cfg1.withName( config_.getName() + ".res1" )
-                .withScalingFactor( 1.0f );
+            res_cfg1.withScalingFactor( 1.0f );
+            auto res1_component = std::make_shared<ResidualType>( this->getName() + ".res_1", res_cfg1, std::nullopt );
+            this->addComponent( res1_component );
 
             ResidualConfig res_cfg2;
-            res_cfg2.withName( config_.getName() + ".res2" )
-                .withScalingFactor( 1.0f );
+            res_cfg2.withScalingFactor( 1.0f );
+            auto res2_component = std::make_shared<ResidualType>( this->getName() + ".res_2", res_cfg2, std::nullopt );
+            this->addComponent( res2_component );
 
-            res1_ = std::make_shared<ResidualType>( exec_context_, res_cfg1 );
-            this->addComponent( res1_ );
+            // MLP (FFN)
+            dim_t hidden_dim = static_cast<dim_t>(config_.getHiddenDimension());
+            if ( hidden_dim == 0 )
+            {
+                hidden_dim = static_cast<dim_t>(config_.getEmbeddingDim() * 4);
+            }
 
-            res2_ = std::make_shared<ResidualType>( exec_context_, res_cfg2 );
-            this->addComponent( res2_ );
+            auto mlp_cfg = MLPConfig( static_cast<dim_t>(config_.getEmbeddingDim()), static_cast<dim_t>(hidden_dim) );
+            mlp_cfg.withBias( config_.useBias() )
+                   .withActivation( config_.getActivationType() );
 
-            auto mlp_cfg = MLPConfig( static_cast<dim_t>(embedding_dim), static_cast<dim_t>(hidden_dim) );
-            mlp_cfg.withName( config_.getName() + ".mlp" )
-                .withBias( config_.useBias() )
-                .withActivation( config_.getActivationType() );
-
-            ffn_ = std::make_shared<MLPType>( exec_context_, mlp_cfg );
-            this->addComponent( ffn_ );
+            auto mlp_component = std::make_shared<MLPType>( this->getName() + ".mlp", mlp_cfg, std::nullopt );
+            this->addComponent( mlp_component );
         }
 
         void validateInputShape( const shape_t& input_shape ) const
         {
-            // Expect model layout [B, T, embedding_dim]
-            if (input_shape.size() != 3)
+            if ( input_shape.size() != 3 )
             {
                 throw std::invalid_argument( "Transformer: input must have model-layout shape [B, T, embedding_dim]" );
             }
 
             int64_t trailing = input_shape.back();
-            if (trailing != static_cast<int64_t>( config_.getEmbeddingDim() ))
+            if ( trailing != static_cast<int64_t>(config_.getEmbeddingDim()) )
             {
                 std::ostringstream oss;
                 oss << "Transformer: embedding dimension mismatch. Config says "

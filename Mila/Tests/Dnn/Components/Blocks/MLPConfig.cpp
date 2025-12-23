@@ -6,7 +6,7 @@
 
 import Mila;
 
-namespace Dnn::Components::Blocks::Tests
+namespace CompositeComponents_Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;

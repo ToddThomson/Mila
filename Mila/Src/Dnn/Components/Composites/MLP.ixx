@@ -30,6 +30,7 @@ import Compute.MemoryResource;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
+import Compute.DeviceTypeTraits;
 import Compute.IExecutionContext;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
@@ -80,10 +81,9 @@ namespace Mila::Dnn
     class MLP : public CompositeComponent<TDeviceType, TPrecision>
     {
     public:
-        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
+        using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using CompositeComponentBase = CompositeComponent<TDeviceType, TPrecision>;
         using ComponentPtr = typename CompositeComponentBase::ComponentPtr;
-        using ExecutionContextType = ExecutionContext<TDeviceType>;
         using TensorType = Tensor<TPrecision, MR>;
         using LinearType = Linear<TDeviceType, TPrecision>;
         using GeluType = Gelu<TDeviceType, TPrecision>;
@@ -360,6 +360,39 @@ namespace Mila::Dnn
 
             act_output_ = std::make_shared<TensorType>( device, cached_hidden_shape_ );
             act_output_->setName( this->getName() + ".act_output" );
+        }
+
+        /**
+         * @brief Hook invoked when training mode is about to change.
+         *
+         * Propagates training mode to all child components (fc1, fc2, activation, norm).
+         * Called by Component::setTraining() with the training mutex held.
+         *
+         * @param is_training New training mode (true = training, false = eval)
+         *
+         * @note Do not call setTraining() from this hook (reentrancy prohibited).
+         */
+        void onTrainingChanging( bool is_training ) override
+        {
+            if ( fc1_ )
+            {
+                fc1_->setTraining( is_training );
+            }
+
+            if ( norm_ )
+            {
+                norm_->setTraining( is_training );
+            }
+
+            if ( activation_ )
+            {
+                activation_->setTraining( is_training );
+            }
+
+            if ( fc2_ )
+            {
+                fc2_->setTraining( is_training );
+            }
         }
 
     private:

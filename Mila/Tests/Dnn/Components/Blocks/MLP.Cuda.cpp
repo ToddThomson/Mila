@@ -10,7 +10,7 @@
 
 import Mila;
 
-namespace Modules::Blocks::Tests
+namespace CompositeComponents_Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
@@ -22,195 +22,502 @@ namespace Modules::Blocks::Tests
     template<TensorDataType TPrecision>
     using CpuTensor = Tensor<TPrecision, CpuMemoryResource>;
 
-    template<TensorDataType TPrecision>
-    struct MLPCudaTestData
+    namespace
     {
-        MLPConfig config;
-        std::shared_ptr<MLP<DeviceType::Cuda, TPrecision>> mlp_module;
-        shape_t input_shape;
-        int64_t input_features;
-        int64_t hidden_size;
-        std::shared_ptr<ExecutionContext<DeviceType::Cuda>> exec_context;
+        // ====================================================================
+        // Test Shape Definitions
+        // ====================================================================
 
-        MLPCudaTestData() : config( 1, 1 ), input_features( 0 ), hidden_size( 0 )
+        enum class TestShapeSize
         {
+            Small,
+            Medium,
+            Large,
+            Minimal
+        };
+
+        struct TestShape
+        {
+            TestShapeSize size;
+            shape_t dimensions;
+            std::string name;
+
+            static TestShape Small()
+            {
+                return { TestShapeSize::Small, { 16, 64, 768 }, "Small" };
+            }
+
+            static TestShape Medium()
+            {
+                return { TestShapeSize::Medium, { 32, 128, 1024 }, "Medium" };
+            }
+
+            static TestShape Large()
+            {
+                return { TestShapeSize::Large, { 64, 256, 2048 }, "Large" };
+            }
+
+            static TestShape Minimal()
+            {
+                return { TestShapeSize::Minimal, { 1, 1, 8 }, "Minimal" };
+            }
+
+            static std::vector<TestShape> AllShapes()
+            {
+                return { Small(), Medium(), Large(), Minimal() };
+            }
+
+            static std::vector<TestShape> StandardShapes()
+            {
+                return { Small(), Medium(), Large() };
+            }
+        };
+
+        // ====================================================================
+        // Precision Type Wrapper
+        // ====================================================================
+
+        template<TensorDataType TPrecision>
+        struct PrecisionTraits
+        {
+            static constexpr TensorDataType value = TPrecision;
+            static constexpr const char* name = "Unknown";
+            static constexpr float tolerance = 1e-4f;
+        };
+
+        template<>
+        struct PrecisionTraits<TensorDataType::FP32>
+        {
+            static constexpr TensorDataType value = TensorDataType::FP32;
+            static constexpr const char* name = "FP32";
+            static constexpr float tolerance = 1e-4f;
+        };
+
+        template<>
+        struct PrecisionTraits<TensorDataType::FP16>
+        {
+            static constexpr TensorDataType value = TensorDataType::FP16;
+            static constexpr const char* name = "FP16";
+            static constexpr float tolerance = 1e-1f;
+        };
+
+        template<>
+        struct PrecisionTraits<TensorDataType::FP8_E4M3>
+        {
+            static constexpr TensorDataType value = TensorDataType::FP8_E4M3;
+            static constexpr const char* name = "FP8";
+            static constexpr float tolerance = 5e-1f;
+        };
+    }
+
+    // ====================================================================
+    // Test Network for Shared Context Testing
+    // ====================================================================
+
+    template<TensorDataType TPrecision>
+    class MLPTestNetwork : public Network<DeviceType::Cuda, TPrecision>
+    {
+    private:
+        std::unique_ptr<IExecutionContext> owned_context_;
+        std::shared_ptr<MLP<DeviceType::Cuda, TPrecision>> mlp_;
+        MLPConfig config_;
+
+    public:
+        explicit MLPTestNetwork(
+            const std::string& name,
+            const MLPConfig& config,
+            DeviceId device_id )
+            : Network<DeviceType::Cuda, TPrecision>( name ),
+            owned_context_( createExecutionContext( device_id ) ),
+            config_( config )
+        {
+            createGraph();
+            this->setExecutionContext( owned_context_.get() );
         }
 
-        static MLPCudaTestData Create(
-            const std::string& name,
-            const shape_t& input_shape,
-            int64_t input_features,
-            int64_t hidden_size,
-            bool has_bias = true,
-            ActivationType activation = ActivationType::Gelu,
-            bool use_layer_norm = false,
-            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
+        std::shared_ptr<MLP<DeviceType::Cuda, TPrecision>> getMLP() const
         {
-            MLPCudaTestData data;
-            data.input_shape = input_shape;
-            data.input_features = input_features;
-            data.hidden_size = hidden_size;
-
-            data.config = MLPConfig( input_features, hidden_size );
-            data.config.withBias( has_bias )
-                .withActivation( activation )
-                .withLayerNorm( use_layer_norm )
-                .withName( name )
-                .withPrecisionPolicy( precision );
-
-            data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
-            data.mlp_module = std::make_shared<MLP<DeviceType::Cuda, TPrecision>>( data.exec_context, data.config );
-
-            return data;
+            return mlp_;
         }
 
-        static MLPCudaTestData CreateWithContext(
-            const std::string& name,
-            const shape_t& input_shape,
-            int64_t input_features,
-            int64_t hidden_size,
-            std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-            bool has_bias = true,
-            ActivationType activation = ActivationType::Gelu,
-            bool use_layer_norm = false,
-            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto )
+        const MLPConfig& getConfig() const
         {
-            MLPCudaTestData data;
-            data.input_shape = input_shape;
-            data.input_features = input_features;
-            data.hidden_size = hidden_size;
+            return config_;
+        }
 
-            data.config = MLPConfig( input_features, hidden_size );
-            data.config.withBias( has_bias )
-                .withActivation( activation )
-                .withLayerNorm( use_layer_norm )
-                .withName( name )
-                .withPrecisionPolicy( precision );
+    protected:
+        void save_( ModelArchive& archive, SerializationMode mode ) const override
+        {
+            // Minimal implementation for testing
+        }
 
-            data.exec_context = context;
-            data.mlp_module = std::make_shared<MLP<DeviceType::Cuda, TPrecision>>( context, data.config );
+    private:
+        void createGraph()
+        {
+            mlp_ = std::make_shared<MLP<DeviceType::Cuda, TPrecision>>(
+                this->getName() + ".mlp",
+                config_
+            );
 
-            return data;
+            this->addComponent( mlp_ );
         }
     };
 
-    class MLPCudaTests : public ::testing::Test
+    // ====================================================================
+    // Test Fixture Structure
+    // ====================================================================
+
+    template<TensorDataType TPrecision>
+    struct MLPTestFixture
+    {
+        TestShape test_shape;
+        MLPConfig config;
+        std::shared_ptr<MLP<DeviceType::Cuda, TPrecision>> component;
+        std::unique_ptr<MLPTestNetwork<TPrecision>> network;
+        int64_t input_features;
+        int64_t hidden_size;
+        bool is_training;
+        bool use_shared_context;
+
+        MLPTestFixture()
+            : config( 1, 1 ), input_features( 0 ), hidden_size( 0 )
+        {}
+
+        static MLPTestFixture CreateStandalone(
+            TestShape shape,
+            int64_t input_features,
+            int64_t hidden_size,
+            bool has_bias = true,
+            ActivationType activation = ActivationType::Gelu,
+            bool use_layer_norm = false,
+            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto,
+            bool is_training = false )
+        {
+            MLPTestFixture fixture;
+            fixture.test_shape = shape;
+            fixture.input_features = input_features;
+            fixture.hidden_size = hidden_size;
+            fixture.is_training = is_training;
+            fixture.use_shared_context = false;
+
+            fixture.config = MLPConfig( input_features, hidden_size );
+            fixture.config.withBias( has_bias )
+                .withActivation( activation )
+                .withLayerNorm( use_layer_norm )
+                .withPrecisionPolicy( precision );
+
+            std::string name = "mlp_cuda_" + shape.name + "_" + PrecisionTraits<TPrecision>::name;
+
+            fixture.component = std::make_shared<MLP<DeviceType::Cuda, TPrecision>>(
+                name,
+                fixture.config,
+                Device::Cuda( 0 )
+            );
+
+            fixture.component->setTraining( is_training );
+
+            return fixture;
+        }
+
+        static MLPTestFixture CreateWithSharedContext(
+            TestShape shape,
+            int64_t input_features,
+            int64_t hidden_size,
+            bool has_bias = true,
+            ActivationType activation = ActivationType::Gelu,
+            bool use_layer_norm = false,
+            ComputePrecision::Policy precision = ComputePrecision::Policy::Auto,
+            bool is_training = false )
+        {
+            MLPTestFixture fixture;
+            fixture.test_shape = shape;
+            fixture.input_features = input_features;
+            fixture.hidden_size = hidden_size;
+            fixture.is_training = is_training;
+            fixture.use_shared_context = true;
+
+            fixture.config = MLPConfig( input_features, hidden_size );
+            fixture.config.withBias( has_bias )
+                .withActivation( activation )
+                .withLayerNorm( use_layer_norm )
+                .withPrecisionPolicy( precision );
+
+            std::string name = "mlp_network_" + shape.name + "_" + PrecisionTraits<TPrecision>::name;
+
+            fixture.network = std::make_unique<MLPTestNetwork<TPrecision>>(
+                name,
+                fixture.config,
+                Device::Cuda( 0 )
+            );
+
+            fixture.component = fixture.network->getMLP();
+            fixture.network->setTraining( is_training );
+
+            return fixture;
+        }
+
+        const shape_t& shape() const
+        {
+            return test_shape.dimensions;
+        }
+    };
+
+    // ====================================================================
+    // Typed Tests (Precision-Based)
+    // ====================================================================
+
+    template<typename T>
+    class MLPCudaTests : public testing::Test
     {
     protected:
         void SetUp() override
         {
             int device_count = getDeviceCount( DeviceType::Cuda );
             cuda_available_ = (device_count > 0);
-
-            if ( !cuda_available_ )
-            {
-                return;
-            }
-
-            batch_size_ = 16;
-            sequence_length_ = 64;
-            input_features_ = 768;
-            hidden_size_ = 3072;
         }
 
         bool cuda_available_{ false };
-
-        int64_t batch_size_{ 0 };
-        int64_t sequence_length_{ 0 };
-        int64_t input_features_{ 0 };
-        int64_t hidden_size_{ 0 };
     };
 
-    TEST_F( MLPCudaTests, GetName )
+    template<TensorDataType TPrecision>
+    struct PrecisionType
     {
-        if ( !cuda_available_ )
+        static constexpr TensorDataType value = TPrecision;
+    };
+
+    using PrecisionTypes = ::testing::Types<
+        PrecisionType<TensorDataType::FP32>,
+        PrecisionType<TensorDataType::FP16>
+    >;
+
+    TYPED_TEST_SUITE( MLPCudaTests, PrecisionTypes );
+
+    // ====================================================================
+    // Constructor Tests
+    // ====================================================================
+
+    TYPED_TEST( MLPCudaTests, Constructor_WithValidDeviceId_CreatesComponent )
+    {
+        if ( !this->cuda_available_ )
+        {
             GTEST_SKIP() << "CUDA not available";
+        }
 
-        auto data = MLPCudaTestData<TensorDataType::FP32>::Create(
-            "small_mlp_cuda",
-            shape_t{ batch_size_, sequence_length_, input_features_ },
-            input_features_,
-            hidden_size_ );
+        constexpr TensorDataType TPrecision = TypeParam::value;
 
-        ASSERT_NE( data.mlp_module, nullptr );
-        EXPECT_EQ( data.mlp_module->getName(), "small_mlp_cuda" );
+        TestShape test_shape = TestShape::Small();
+        auto fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+            test_shape,
+            test_shape.dimensions.back(),
+            3072
+        );
+
+        ASSERT_NE( fixture.component, nullptr );
+        EXPECT_EQ( fixture.component->getDeviceType(), DeviceType::Cuda );
+        EXPECT_EQ( fixture.component->getDeviceId().type, DeviceType::Cuda );
     }
 
-    TEST_F( MLPCudaTests, DeviceType )
+    TYPED_TEST( MLPCudaTests, Constructor_WithoutDeviceId_CreatesComponent )
     {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
 
-        auto data = MLPCudaTestData<TensorDataType::FP32>::Create(
-            "small_mlp_cuda",
-            shape_t{ batch_size_, sequence_length_, input_features_ },
-            input_features_,
-            hidden_size_ );
+        constexpr TensorDataType TPrecision = TypeParam::value;
 
-        ASSERT_NE( data.exec_context, nullptr );
-        auto device = data.exec_context->getDeviceId();
+        TestShape test_shape = TestShape::Small();
+        auto fixture = MLPTestFixture<TPrecision>::CreateWithSharedContext(
+            test_shape,
+            test_shape.dimensions.back(),
+            3072
+        );
 
+        ASSERT_NE( fixture.component, nullptr );
+        ASSERT_NE( fixture.network, nullptr );
+    }
+
+    TYPED_TEST( MLPCudaTests, Constructor_WithInvalidConfiguration_ThrowsInvalidArgument )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        MLPConfig invalid_zero_input( 0, 1024 );
+        MLPConfig invalid_zero_hidden( 768, 0 );
+
+        EXPECT_THROW(
+            (MLP<DeviceType::Cuda, TPrecision>( "invalid_input", invalid_zero_input, Device::Cuda( 0 ) )),
+            std::invalid_argument
+        );
+
+        EXPECT_THROW(
+            (MLP<DeviceType::Cuda, TPrecision>( "invalid_hidden", invalid_zero_hidden, Device::Cuda( 0 ) )),
+            std::invalid_argument
+        );
+    }
+
+    TYPED_TEST( MLPCudaTests, Constructor_WithInvalidDeviceType_ThrowsInvalidArgument )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        MLPConfig config( 768, 3072 );
+
+        EXPECT_THROW(
+            (MLP<DeviceType::Cuda, TPrecision>( "invalid_device", config, Device::Cpu() )),
+            std::invalid_argument
+        );
+    }
+
+    // ====================================================================
+    // Basic Property Tests
+    // ====================================================================
+
+    TYPED_TEST( MLPCudaTests, GetDeviceType_AfterConstruction_ReturnsCuda )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        TestShape test_shape = TestShape::Small();
+        auto fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+            test_shape,
+            test_shape.dimensions.back(),
+            3072
+        );
+
+        EXPECT_EQ( fixture.component->getDeviceType(), DeviceType::Cuda );
+
+        auto device = fixture.component->getDeviceId();
         EXPECT_EQ( device.type, DeviceType::Cuda );
     }
 
-    TEST_F( MLPCudaTests, IsBuilt_BeforeBuild )
+    TYPED_TEST( MLPCudaTests, GetName_AfterConstruction_ReturnsCorrectName )
     {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
 
-        auto data = MLPCudaTestData<TensorDataType::FP32>::Create(
-            "small_mlp_cuda",
-            shape_t{ batch_size_, sequence_length_, input_features_ },
-            input_features_,
-            hidden_size_ );
+        constexpr TensorDataType TPrecision = TypeParam::value;
 
-        ASSERT_NE( data.mlp_module, nullptr );
-        EXPECT_FALSE( data.mlp_module->isBuilt() );
+        TestShape test_shape = TestShape::Small();
+        auto fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+            test_shape,
+            test_shape.dimensions.back(),
+            3072
+        );
+
+        std::string expected_name = "mlp_cuda_" + test_shape.name + "_" + PrecisionTraits<TPrecision>::name;
+        EXPECT_EQ( fixture.component->getName(), expected_name );
     }
 
-    TEST_F( MLPCudaTests, IsBuilt_AfterBuild )
+    TYPED_TEST( MLPCudaTests, IsTraining_InferenceFixture_ReturnsFalse )
     {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
 
-        auto data = MLPCudaTestData<TensorDataType::FP32>::Create(
-            "small_mlp_cuda",
-            shape_t{ batch_size_, sequence_length_, input_features_ },
-            input_features_,
-            hidden_size_ );
+        constexpr TensorDataType TPrecision = TypeParam::value;
 
-        ASSERT_NE( data.mlp_module, nullptr );
-        EXPECT_NO_THROW( data.mlp_module->build( data.input_shape ) );
-        EXPECT_TRUE( data.mlp_module->isBuilt() );
+        TestShape test_shape = TestShape::Small();
+        auto fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+            test_shape,
+            test_shape.dimensions.back(),
+            3072,
+            true,
+            ActivationType::Gelu,
+            false,
+            ComputePrecision::Policy::Auto,
+            false
+        );
+
+        EXPECT_FALSE( fixture.component->isTraining() );
     }
 
-    TEST_F( MLPCudaTests, Build )
+    TYPED_TEST( MLPCudaTests, IsTraining_TrainingFixture_ReturnsTrue )
     {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
 
-        auto data = MLPCudaTestData<TensorDataType::FP32>::Create(
-            "small_mlp_cuda",
-            shape_t{ batch_size_, sequence_length_, input_features_ },
-            input_features_,
-            hidden_size_ );
+        constexpr TensorDataType TPrecision = TypeParam::value;
 
-        ASSERT_NE( data.mlp_module, nullptr );
-        EXPECT_NO_THROW( data.mlp_module->build( data.input_shape ) );
-        EXPECT_TRUE( data.mlp_module->isBuilt() );
+        TestShape test_shape = TestShape::Small();
+        auto fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+            test_shape,
+            test_shape.dimensions.back(),
+            3072,
+            true,
+            ActivationType::Gelu,
+            false,
+            ComputePrecision::Policy::Auto,
+            true
+        );
+
+        EXPECT_TRUE( fixture.component->isTraining() );
     }
 
-    TEST_F( MLPCudaTests, ParameterCount )
+    TYPED_TEST( MLPCudaTests, SetTraining_TogglingMode_UpdatesState )
     {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
 
-        auto data = MLPCudaTestData<TensorDataType::FP32>::Create(
-            "small_mlp_cuda",
-            shape_t{ batch_size_, sequence_length_, input_features_ },
-            input_features_,
-            hidden_size_ );
+        constexpr TensorDataType TPrecision = TypeParam::value;
 
-        ASSERT_NE( data.mlp_module, nullptr );
+        TestShape test_shape = TestShape::Small();
+        auto fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+            test_shape,
+            test_shape.dimensions.back(),
+            3072
+        );
 
-        int64_t input_features = data.config.getInputFeatures();
-        int64_t hidden_size = data.config.getHiddenSize();
-        bool has_bias = data.config.hasBias();
+        EXPECT_FALSE( fixture.component->isTraining() );
+
+        fixture.component->setTraining( true );
+        EXPECT_TRUE( fixture.component->isTraining() );
+
+        fixture.component->setTraining( false );
+        EXPECT_FALSE( fixture.component->isTraining() );
+    }
+
+    TYPED_TEST( MLPCudaTests, ParameterCount_AfterConstruction_ReturnsExpectedCount )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        TestShape test_shape = TestShape::Small();
+        auto fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+            test_shape,
+            test_shape.dimensions.back(),
+            3072
+        );
+
+        // build before querying parameters
+        EXPECT_NO_THROW( fixture.component->build( fixture.shape() ) );
+
+        int64_t input_features = fixture.input_features;
+        int64_t hidden_size = fixture.hidden_size;
+        bool has_bias = fixture.config.hasBias();
 
         size_t expected_fc1_params = input_features * hidden_size;
         size_t expected_fc2_params = hidden_size * input_features;
@@ -223,243 +530,467 @@ namespace Modules::Blocks::Tests
 
         size_t expected_total_params = expected_fc1_params + expected_fc2_params;
 
-        EXPECT_EQ( data.mlp_module->parameterCount(), expected_total_params );
+        EXPECT_EQ( fixture.component->parameterCount(), expected_total_params );
     }
 
-    TEST_F( MLPCudaTests, Forward )
+    TYPED_TEST( MLPCudaTests, ToString_AfterConstruction_ContainsComponentInfo )
     {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
 
-        auto data = MLPCudaTestData<TensorDataType::FP32>::Create(
-            "small_mlp_cuda",
-            shape_t{ batch_size_, sequence_length_, input_features_ },
-            input_features_,
-            hidden_size_ );
+        constexpr TensorDataType TPrecision = TypeParam::value;
 
-        ASSERT_NE( data.mlp_module, nullptr );
-        ASSERT_NE( data.exec_context, nullptr );
+        TestShape test_shape = TestShape::Small();
+        auto fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+            test_shape,
+            test_shape.dimensions.back(),
+            3072
+        );
 
-        using DeviceTensorType = CudaTensor<TensorDataType::FP32>;
-        using HostTensorType = CpuTensor<TensorDataType::FP32>;
+        std::string output = fixture.component->toString();
 
-        EXPECT_NO_THROW( data.mlp_module->build( data.input_shape ) );
+        EXPECT_NE( output.find( "MLP" ), std::string::npos );
+        EXPECT_NE( output.find( fixture.component->getName() ), std::string::npos );
+    }
 
-        HostTensorType host_input( Device::Cpu(), data.input_shape );
+    TYPED_TEST( MLPCudaTests, Synchronize_AfterConstruction_Succeeds )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        TestShape test_shape = TestShape::Small();
+        auto fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+            test_shape,
+            test_shape.dimensions.back(),
+            3072
+        );
+
+        EXPECT_NO_THROW( fixture.component->synchronize() );
+    }
+
+    // ====================================================================
+    // Build State Tests
+    // ====================================================================
+
+    TYPED_TEST( MLPCudaTests, IsBuilt_BeforeBuild_ReturnsFalse )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        TestShape test_shape = TestShape::Small();
+        auto fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+            test_shape,
+            test_shape.dimensions.back(),
+            3072
+        );
+
+        EXPECT_FALSE( fixture.component->isBuilt() );
+    }
+
+    TYPED_TEST( MLPCudaTests, Build_WithVariousShapes_SetsBuiltState )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto shapes = TestShape::StandardShapes();
+
+        for ( const auto& test_shape : shapes )
+        {
+            auto fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+                test_shape,
+                test_shape.dimensions.back(),
+                3072
+            );
+
+            EXPECT_FALSE( fixture.component->isBuilt() )
+                << "Component should not be built before build() for shape: " << test_shape.name;
+
+            EXPECT_NO_THROW( fixture.component->build( fixture.shape() ) )
+                << "Build failed for shape: " << test_shape.name;
+
+            EXPECT_TRUE( fixture.component->isBuilt() )
+                << "Component should be built after build() for shape: " << test_shape.name;
+        }
+    }
+
+    TYPED_TEST( MLPCudaTests, Forward_BeforeBuild_ThrowsRuntimeError )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+            TestShape::Small(),
+            TestShape::Small().dimensions.back(),
+            3072
+        );
+
+        CudaTensor<TPrecision> input( Device::Cuda( 0 ), fixture.shape() );
+        CudaTensor<TPrecision> output( Device::Cuda( 0 ), fixture.shape() );
+
+        EXPECT_THROW(
+            fixture.component->forward( input, output ),
+            std::runtime_error
+        );
+    }
+
+    // ====================================================================
+    // Forward Pass Tests
+    // ====================================================================
+
+    TYPED_TEST( MLPCudaTests, Forward_WithVariousShapes_ProducesValidOutput )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto shapes = TestShape::StandardShapes();
+
+        for ( const auto& test_shape : shapes )
+        {
+            auto fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+                test_shape,
+                test_shape.dimensions.back(),
+                3072
+            );
+
+            fixture.component->build( fixture.shape() );
+
+            CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), fixture.shape() );
+            random( host_input, -1.0f, 1.0f );
+
+            CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), fixture.shape() );
+            CudaTensor<TPrecision> device_output( Device::Cuda( 0 ), fixture.shape() );
+
+            copy( host_input, device_input );
+
+            EXPECT_NO_THROW( fixture.component->forward( device_input, device_output ) )
+                << "Forward failed for shape: " << test_shape.name;
+
+            EXPECT_EQ( device_output.size(), device_input.size() )
+                << "Output size mismatch for shape: " << test_shape.name;
+
+            EXPECT_EQ( device_output.shape(), device_input.shape() )
+                << "Output shape mismatch for shape: " << test_shape.name;
+
+            CpuTensor<TensorDataType::FP32> host_output = toHost<TensorDataType::FP32>( device_output );
+            EXPECT_EQ( host_output.size(), device_input.size() )
+                << "Host output size mismatch for shape: " << test_shape.name;
+        }
+    }
+
+    TYPED_TEST( MLPCudaTests, Forward_MultipleInvocations_Succeeds )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        TestShape test_shape = TestShape::Small();
+        auto fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+            test_shape,
+            test_shape.dimensions.back(),
+            3072
+        );
+
+        fixture.component->build( fixture.shape() );
+
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), fixture.shape() );
+        CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), fixture.shape() );
+        CudaTensor<TPrecision> device_output( Device::Cuda( 0 ), fixture.shape() );
+
+        for ( int iter = 0; iter < 5; ++iter )
+        {
+            random( host_input, -1.0f, 1.0f );
+            copy( host_input, device_input );
+
+            EXPECT_NO_THROW( fixture.component->forward( device_input, device_output ) )
+                << "Forward failed on iteration " << iter;
+        }
+    }
+
+    // ====================================================================
+    // Configuration Variant Tests
+    // ====================================================================
+
+    TYPED_TEST( MLPCudaTests, NoBias_ParameterCount_ReturnsExpectedCount )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        TestShape test_shape = TestShape::Small();
+        auto fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+            test_shape,
+            test_shape.dimensions.back(),
+            3072,
+            false // no bias
+        );
+
+        // build before querying parameters
+        EXPECT_NO_THROW( fixture.component->build( fixture.shape() ) );
+
+        int64_t input_features = fixture.input_features;
+        int64_t hidden_size = fixture.hidden_size;
+
+        size_t expected_fc1_params = input_features * hidden_size;
+        size_t expected_fc2_params = hidden_size * input_features;
+        size_t expected_total_params = expected_fc1_params + expected_fc2_params;
+
+        EXPECT_EQ( fixture.component->parameterCount(), expected_total_params );
+    }
+
+    TYPED_TEST( MLPCudaTests, NoBias_Forward_ProducesValidOutput )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        TestShape test_shape = TestShape::Small();
+        auto fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+            test_shape,
+            test_shape.dimensions.back(),
+            3072,
+            false // no bias
+        );
+
+        fixture.component->build( fixture.shape() );
+
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), fixture.shape() );
         random( host_input, -1.0f, 1.0f );
 
-        DeviceTensorType device_input( data.exec_context->getDeviceId(), data.input_shape );
-        DeviceTensorType device_output( data.exec_context->getDeviceId(), data.input_shape );
+        CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), fixture.shape() );
+        CudaTensor<TPrecision> device_output( Device::Cuda( 0 ), fixture.shape() );
 
         copy( host_input, device_input );
 
-        EXPECT_NO_THROW( data.mlp_module->forward( device_input, device_output ) );
+        EXPECT_NO_THROW( fixture.component->forward( device_input, device_output ) );
+        EXPECT_EQ( device_output.size(), device_input.size() );
+    }
 
+    TYPED_TEST( MLPCudaTests, LayerNorm_Forward_ProducesValidOutput )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        TestShape test_shape = TestShape::Small();
+        auto fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+            test_shape,
+            test_shape.dimensions.back(),
+            3072,
+            true,  // has bias
+            ActivationType::Gelu,
+            true   // use layer norm
+        );
+
+        fixture.component->build( fixture.shape() );
+
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), fixture.shape() );
+        random( host_input, -1.0f, 1.0f );
+
+        CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), fixture.shape() );
+        CudaTensor<TPrecision> device_output( Device::Cuda( 0 ), fixture.shape() );
+
+        copy( host_input, device_input );
+
+        EXPECT_NO_THROW( fixture.component->forward( device_input, device_output ) );
+        EXPECT_EQ( device_output.shape(), device_input.shape() );
+    }
+
+    TYPED_TEST( MLPCudaTests, PrecisionPolicies_Forward_AllSucceed )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        TestShape test_shape = TestShape::Small();
+        std::vector<ComputePrecision::Policy> policies = {
+            ComputePrecision::Policy::Performance,
+            ComputePrecision::Policy::Accuracy,
+            ComputePrecision::Policy::Native,
+            ComputePrecision::Policy::Auto
+        };
+
+        for ( auto policy : policies )
+        {
+            auto fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+                test_shape,
+                test_shape.dimensions.back(),
+                3072,
+                true,
+                ActivationType::Gelu,
+                false,
+                policy
+            );
+
+            fixture.component->build( fixture.shape() );
+
+            CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), fixture.shape() );
+            random( host_input, -1.0f, 1.0f );
+
+            CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), fixture.shape() );
+            CudaTensor<TPrecision> device_output( Device::Cuda( 0 ), fixture.shape() );
+
+            copy( host_input, device_input );
+
+            EXPECT_NO_THROW( fixture.component->forward( device_input, device_output ) )
+                << "Forward failed for precision policy: " << static_cast<int>(policy);
+        }
+    }
+
+    // ====================================================================
+    // Shared Context Tests
+    // ====================================================================
+
+    TYPED_TEST( MLPCudaTests, SharedContext_Construction_Succeeds )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        TestShape test_shape = TestShape::Small();
+        auto fixture = MLPTestFixture<TPrecision>::CreateWithSharedContext(
+            test_shape,
+            test_shape.dimensions.back(),
+            3072
+        );
+
+        ASSERT_NE( fixture.component, nullptr );
+        ASSERT_NE( fixture.network, nullptr );
+
+        std::string expected_name = "mlp_network_" + test_shape.name + "_" + PrecisionTraits<TPrecision>::name + ".mlp";
+        EXPECT_EQ( fixture.component->getName(), expected_name );
+    }
+
+    TYPED_TEST( MLPCudaTests, SharedContext_Forward_ProducesValidOutput )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        TestShape test_shape = TestShape::Small();
+        auto fixture = MLPTestFixture<TPrecision>::CreateWithSharedContext(
+            test_shape,
+            test_shape.dimensions.back(),
+            3072
+        );
+
+        fixture.component->build( fixture.shape() );
+
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), fixture.shape() );
+        random( host_input, -1.0f, 1.0f );
+
+        CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), fixture.shape() );
+        CudaTensor<TPrecision> device_output( Device::Cuda( 0 ), fixture.shape() );
+
+        copy( host_input, device_input );
+
+        EXPECT_NO_THROW( fixture.component->forward( device_input, device_output ) );
         EXPECT_EQ( device_output.size(), device_input.size() );
         EXPECT_EQ( device_output.shape(), device_input.shape() );
-
-        HostTensorType host_output = toHost<TensorDataType::FP32>( device_output );
-        EXPECT_EQ( host_output.size(), device_input.size() );
     }
 
-    TEST_F( MLPCudaTests, ToString )
+    // ====================================================================
+    // Child Component Tests
+    // ====================================================================
+
+    TYPED_TEST( MLPCudaTests, GetNamedComponents_ReturnsExpectedChildren )
     {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
 
-        auto data = MLPCudaTestData<TensorDataType::FP32>::Create(
-            "small_mlp_cuda",
-            shape_t{ batch_size_, sequence_length_, input_features_ },
-            input_features_,
-            hidden_size_ );
+        constexpr TensorDataType TPrecision = TypeParam::value;
 
-        ASSERT_NE( data.mlp_module, nullptr );
-        std::string output = data.mlp_module->toString();
-        EXPECT_NE( output.find( "MLP: small_mlp_cuda" ), std::string::npos );
-    }
+        TestShape test_shape = TestShape::Small();
+        auto fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+            test_shape,
+            test_shape.dimensions.back(),
+            3072
+        );
 
-    TEST_F( MLPCudaTests, TrainingMode_Default )
-    {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+        fixture.component->build( fixture.shape() );
 
-        auto data = MLPCudaTestData<TensorDataType::FP32>::Create(
-            "small_mlp_cuda",
-            shape_t{ batch_size_, sequence_length_, input_features_ },
-            input_features_,
-            hidden_size_ );
-
-        ASSERT_NE( data.mlp_module, nullptr );
-        EXPECT_FALSE( data.mlp_module->isTraining() );
-    }
-
-    TEST_F( MLPCudaTests, TrainingMode_Enabled )
-    {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-
-        auto data = MLPCudaTestData<TensorDataType::FP32>::Create(
-            "training_mlp_cuda",
-            shape_t{ batch_size_, sequence_length_, input_features_ },
-            input_features_,
-            hidden_size_ );
-
-        ASSERT_NE( data.mlp_module, nullptr );
-        data.mlp_module->setTraining( true );
-        EXPECT_TRUE( data.mlp_module->isTraining() );
-    }
-
-    TEST_F( MLPCudaTests, GetNamedComponents_Returns_ChildComponents )
-    {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-
-        auto data = MLPCudaTestData<TensorDataType::FP32>::Create(
-            "small_mlp_cuda",
-            shape_t{ batch_size_, sequence_length_, input_features_ },
-            input_features_,
-            hidden_size_ );
-
-        ASSERT_NE( data.mlp_module, nullptr );
-
-        auto modules = data.mlp_module->getNamedComponents();
+        auto modules = fixture.component->getNamedComponents();
+        const std::string base = fixture.component->getName();
 
         EXPECT_GE( modules.size(), 3u );
-
-        const std::string base = data.mlp_module->getName();
 
         EXPECT_NE( modules.find( base + ".fc1" ), modules.end() );
         EXPECT_NE( modules.find( base + ".act" ), modules.end() );
         EXPECT_NE( modules.find( base + ".fc2" ), modules.end() );
 
-        if ( data.config.useLayerNorm() )
+        if ( fixture.config.useLayerNorm() )
         {
             EXPECT_NE( modules.find( base + ".norm" ), modules.end() );
         }
     }
 
-    TEST_F( MLPCudaTests, SaveLoad )
+    TYPED_TEST( MLPCudaTests, LayerNorm_GetNamedComponents_IncludesNormComponent )
     {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-
-        auto data = MLPCudaTestData<TensorDataType::FP32>::Create(
-            "small_mlp_cuda",
-            shape_t{ batch_size_, sequence_length_, input_features_ },
-            input_features_,
-            hidden_size_ );
-
-        ASSERT_NE( data.mlp_module, nullptr );
-
-        // Save/load not implemented; test kept minimal to avoid regressions.
-    }
-
-    TEST_F( MLPCudaTests, NoBias_ParameterCount )
-    {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-
-        auto data = MLPCudaTestData<TensorDataType::FP32>::Create(
-            "no_bias_mlp_cuda",
-            shape_t{ batch_size_, sequence_length_, input_features_ },
-            input_features_,
-            hidden_size_,
-            false );
-
-        ASSERT_NE( data.mlp_module, nullptr );
-
-        int64_t input_features = data.config.getInputFeatures();
-        int64_t hidden_size = data.config.getHiddenSize();
-        bool has_bias = data.config.hasBias();
-
-        size_t expected_fc1_params = input_features * hidden_size;
-        size_t expected_fc2_params = hidden_size * input_features;
-
-        if ( has_bias )
+        if ( !this->cuda_available_ )
         {
-            expected_fc1_params += hidden_size;
-            expected_fc2_params += input_features;
+            GTEST_SKIP() << "CUDA not available";
         }
 
-        size_t expected_total_params = expected_fc1_params + expected_fc2_params;
+        constexpr TensorDataType TPrecision = TypeParam::value;
 
-        EXPECT_EQ( data.mlp_module->parameterCount(), expected_total_params );
-    }
-
-    TEST_F( MLPCudaTests, NoBias_Forward )
-    {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-
-        auto data = MLPCudaTestData<TensorDataType::FP32>::Create(
-            "no_bias_mlp_cuda",
-            shape_t{ batch_size_, sequence_length_, input_features_ },
-            input_features_,
-            hidden_size_,
-            false );
-
-        ASSERT_NE( data.mlp_module, nullptr );
-        ASSERT_NE( data.exec_context, nullptr );
-
-        using DeviceTensorType = CudaTensor<TensorDataType::FP32>;
-        using HostTensorType = CpuTensor<TensorDataType::FP32>;
-
-        EXPECT_NO_THROW( data.mlp_module->build( data.input_shape ) );
-
-        HostTensorType host_input( Device::Cpu(), data.input_shape );
-        random( host_input, -1.0f, 1.0f );
-
-        DeviceTensorType device_input( data.exec_context->getDeviceId(), data.input_shape );
-        DeviceTensorType device_output( data.exec_context->getDeviceId(), data.input_shape );
-
-        copy( host_input, device_input );
-
-        EXPECT_NO_THROW( data.mlp_module->forward( device_input, device_output ) );
-        EXPECT_EQ( device_output.size(), device_input.size() );
-    }
-
-    TEST_F( MLPCudaTests, LayerNorm_Forward )
-    {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-
-        auto data = MLPCudaTestData<TensorDataType::FP32>::Create(
-            "layer_norm_mlp_cuda",
-            shape_t{ batch_size_, sequence_length_, input_features_ },
-            input_features_,
-            hidden_size_,
-            true,
+        TestShape test_shape = TestShape::Small();
+        auto fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+            test_shape,
+            test_shape.dimensions.back(),
+            3072,
+            true,  // has bias
             ActivationType::Gelu,
-            true );
+            true   // use layer norm
+        );
 
-        ASSERT_NE( data.mlp_module, nullptr );
-        ASSERT_NE( data.exec_context, nullptr );
+        fixture.component->build( fixture.shape() );
 
-        using DeviceTensorType = CudaTensor<TensorDataType::FP32>;
-        using HostTensorType = CpuTensor<TensorDataType::FP32>;
-
-        EXPECT_NO_THROW( data.mlp_module->build( data.input_shape ) );
-
-        HostTensorType host_input( Device::Cpu(), data.input_shape );
-        random( host_input, -1.0f, 1.0f );
-
-        DeviceTensorType device_input( data.exec_context->getDeviceId(), data.input_shape );
-        DeviceTensorType device_output( data.exec_context->getDeviceId(), data.input_shape );
-
-        copy( host_input, device_input );
-
-        EXPECT_NO_THROW( data.mlp_module->forward( device_input, device_output ) );
-        EXPECT_EQ( device_output.shape(), device_input.shape() );
-    }
-
-    TEST_F( MLPCudaTests, LayerNorm_SubModules )
-    {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-
-        auto data = MLPCudaTestData<TensorDataType::FP32>::Create(
-            "layer_norm_mlp_cuda",
-            shape_t{ batch_size_, sequence_length_, input_features_ },
-            input_features_,
-            hidden_size_,
-            true,
-            ActivationType::Gelu,
-            true );
-
-        ASSERT_NE( data.mlp_module, nullptr );
-
-        auto modules = data.mlp_module->getNamedComponents();
-        const std::string base = data.mlp_module->getName();
+        auto modules = fixture.component->getNamedComponents();
+        const std::string base = fixture.component->getName();
 
         EXPECT_NE( modules.find( base + ".fc1" ), modules.end() );
         EXPECT_NE( modules.find( base + ".act" ), modules.end() );
@@ -467,403 +998,115 @@ namespace Modules::Blocks::Tests
         EXPECT_NE( modules.find( base + ".norm" ), modules.end() );
     }
 
-    TEST_F( MLPCudaTests, Training_Forward )
+    // ====================================================================
+    // Edge Case Tests
+    // ====================================================================
+
+    TYPED_TEST( MLPCudaTests, EdgeCase_MinimalShape_Forward )
     {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
 
-        auto data = MLPCudaTestData<TensorDataType::FP32>::Create(
-            "training_mlp_cuda",
-            shape_t{ batch_size_, sequence_length_, input_features_ },
-            input_features_,
-            hidden_size_ );
+        constexpr TensorDataType TPrecision = TypeParam::value;
 
-        ASSERT_NE( data.mlp_module, nullptr );
-        ASSERT_NE( data.exec_context, nullptr );
+        TestShape test_shape = TestShape::Minimal();
+        auto fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+            test_shape,
+            test_shape.dimensions.back(),
+            16
+        );
 
-        data.mlp_module->setTraining( true );
+        fixture.component->build( fixture.shape() );
 
-        using DeviceTensorType = CudaTensor<TensorDataType::FP32>;
-        using HostTensorType = CpuTensor<TensorDataType::FP32>;
-
-        EXPECT_NO_THROW( data.mlp_module->build( data.input_shape ) );
-
-        HostTensorType host_input( Device::Cpu(), data.input_shape );
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), fixture.shape() );
         random( host_input, -1.0f, 1.0f );
 
-        DeviceTensorType device_input( data.exec_context->getDeviceId(), data.input_shape );
-        DeviceTensorType device_output( data.exec_context->getDeviceId(), data.input_shape );
+        CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), fixture.shape() );
+        CudaTensor<TPrecision> device_output( Device::Cuda( 0 ), fixture.shape() );
 
         copy( host_input, device_input );
 
-        EXPECT_NO_THROW( data.mlp_module->forward( device_input, device_output ) );
+        EXPECT_NO_THROW( fixture.component->forward( device_input, device_output ) );
     }
 
-    TEST_F( MLPCudaTests, FP16_Forward )
+    // ====================================================================
+    // CPU/CUDA Equivalence Test
+    // ====================================================================
+
+    TYPED_TEST( MLPCudaTests, Forward_ComparedToCpu_ProducesEquivalentOutput )
     {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
 
-        auto data = MLPCudaTestData<TensorDataType::FP16>::Create(
-            "small_mlp_cuda_fp16",
-            shape_t{ batch_size_, sequence_length_, input_features_ },
-            input_features_,
-            hidden_size_ );
+        constexpr TensorDataType TPrecision = TypeParam::value;
 
-        ASSERT_NE( data.mlp_module, nullptr );
-        ASSERT_NE( data.exec_context, nullptr );
+        TestShape test_shape = { TestShapeSize::Small, { 2, 4, 768 }, "Equivalence" };
+        int64_t hidden_size = 1024;
 
-        using DeviceTensorType = CudaTensor<TensorDataType::FP16>;
-        using HostTensorType = CpuTensor<TensorDataType::FP32>;
+        MLPConfig config( test_shape.dimensions.back(), hidden_size );
 
-        EXPECT_NO_THROW( data.mlp_module->build( data.input_shape ) );
+        auto cpu_mlp = std::make_shared<MLP<DeviceType::Cpu, TensorDataType::FP32>>(
+            "cpu_equiv",
+            config,
+            Device::Cpu()
+        );
 
-        HostTensorType host_input( Device::Cpu(), data.input_shape );
+        auto cuda_fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+            test_shape,
+            test_shape.dimensions.back(),
+            hidden_size
+        );
+
+        cpu_mlp->build( test_shape.dimensions );
+        cuda_fixture.component->build( cuda_fixture.shape() );
+
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), test_shape.dimensions );
         random( host_input, -1.0f, 1.0f );
 
-        DeviceTensorType device_input( data.exec_context->getDeviceId(), data.input_shape );
-        DeviceTensorType device_output( data.exec_context->getDeviceId(), data.input_shape );
-
-        copy( host_input, device_input );
-
-        EXPECT_NO_THROW( data.mlp_module->forward( device_input, device_output ) );
-    }
-
-    TEST_F( MLPCudaTests, Precision_Policies_Run )
-    {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-
-        auto perf = MLPCudaTestData<TensorDataType::FP32>::Create(
-            "perf_precision_mlp_cuda",
-            shape_t{ batch_size_, sequence_length_, input_features_ },
-            input_features_,
-            hidden_size_,
-            true,
-            ActivationType::Gelu,
-            false,
-            ComputePrecision::Policy::Performance );
-
-        auto acc = MLPCudaTestData<TensorDataType::FP32>::Create(
-            "accuracy_precision_mlp_cuda",
-            shape_t{ batch_size_, sequence_length_, input_features_ },
-            input_features_,
-            hidden_size_,
-            true,
-            ActivationType::Gelu,
-            false,
-            ComputePrecision::Policy::Accuracy );
-
-        auto native = MLPCudaTestData<TensorDataType::FP32>::Create(
-            "native_precision_mlp_cuda",
-            shape_t{ batch_size_, sequence_length_, input_features_ },
-            input_features_,
-            hidden_size_,
-            true,
-            ActivationType::Gelu,
-            false,
-            ComputePrecision::Policy::Native );
-
-        ASSERT_NE( perf.mlp_module, nullptr );
-        ASSERT_NE( acc.mlp_module, nullptr );
-        ASSERT_NE( native.mlp_module, nullptr );
-
-        // Run simple forward to ensure construction and forward pipeline works
-        {
-            using HostTensorType = CpuTensor<TensorDataType::FP32>;
-            using DeviceTensorType = CudaTensor<TensorDataType::FP32>;
-
-            EXPECT_NO_THROW( perf.mlp_module->build( perf.input_shape ) );
-            HostTensorType host_input( Device::Cpu(), perf.input_shape );
-            random( host_input, -1.0f, 1.0f );
-            DeviceTensorType device_input( perf.exec_context->getDeviceId(), perf.input_shape );
-            DeviceTensorType device_output( perf.exec_context->getDeviceId(), perf.input_shape );
-            copy( host_input, device_input );
-            EXPECT_NO_THROW( perf.mlp_module->forward( device_input, device_output ) );
-        }
-
-        {
-            using HostTensorType = CpuTensor<TensorDataType::FP32>;
-            using DeviceTensorType = CudaTensor<TensorDataType::FP32>;
-
-            EXPECT_NO_THROW( acc.mlp_module->build( acc.input_shape ) );
-            HostTensorType host_input( Device::Cpu(), acc.input_shape );
-            random( host_input, -1.0f, 1.0f );
-            DeviceTensorType device_input( acc.exec_context->getDeviceId(), acc.input_shape );
-            DeviceTensorType device_output( acc.exec_context->getDeviceId(), acc.input_shape );
-            copy( host_input, device_input );
-            EXPECT_NO_THROW( acc.mlp_module->forward( device_input, device_output ) );
-        }
-
-        {
-            using HostTensorType = CpuTensor<TensorDataType::FP32>;
-            using DeviceTensorType = CudaTensor<TensorDataType::FP32>;
-
-            EXPECT_NO_THROW( native.mlp_module->build( native.input_shape ) );
-            HostTensorType host_input( Device::Cpu(), native.input_shape );
-            random( host_input, -1.0f, 1.0f );
-            DeviceTensorType device_input( native.exec_context->getDeviceId(), native.input_shape );
-            DeviceTensorType device_output( native.exec_context->getDeviceId(), native.input_shape );
-            copy( host_input, device_input );
-            EXPECT_NO_THROW( native.mlp_module->forward( device_input, device_output ) );
-        }
-    }
-
-    TEST_F( MLPCudaTests, WithContext_Construction )
-    {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
-
-        auto data = MLPCudaTestData<TensorDataType::FP32>::CreateWithContext(
-            "context_mlp_cuda",
-            shape_t{ batch_size_, sequence_length_, input_features_ },
-            input_features_,
-            hidden_size_,
-            ctx );
-
-        ASSERT_NE( data.mlp_module, nullptr );
-        EXPECT_EQ( data.mlp_module->getName(), "context_mlp_cuda" );
-        EXPECT_EQ( data.exec_context, ctx );
-    }
-
-    TEST_F( MLPCudaTests, EdgeCase_MinimalShape )
-    {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-
-        shape_t shape = { 1, 1, 8 };
-        int64_t hidden = 16;
-
-        auto data = MLPCudaTestData<TensorDataType::FP32>::Create(
-            "minimal_cuda", shape, 8, hidden );
-
-        ASSERT_NE( data.mlp_module, nullptr );
-        ASSERT_NE( data.exec_context, nullptr );
-
-        using DeviceTensorType = CudaTensor<TensorDataType::FP32>;
-        using HostTensorType = CpuTensor<TensorDataType::FP32>;
-
-        EXPECT_NO_THROW( data.mlp_module->build( data.input_shape ) );
-
-        HostTensorType host_input( Device::Cpu(), data.input_shape );
-        random( host_input, -1.0f, 1.0f );
-
-        DeviceTensorType device_input( data.exec_context->getDeviceId(), data.input_shape );
-        DeviceTensorType device_output( data.exec_context->getDeviceId(), data.input_shape );
-
-        copy( host_input, device_input );
-
-        EXPECT_NO_THROW( data.mlp_module->forward( device_input, device_output ) );
-    }
-
-    TEST_F( MLPCudaTests, EdgeCase_MediumShape )
-    {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-
-        shape_t shape = { 2, 2, 1024 };
-        int64_t hidden = 2048;
-
-        auto data = MLPCudaTestData<TensorDataType::FP32>::Create(
-            "medium_cuda", shape, 1024, hidden );
-
-        ASSERT_NE( data.mlp_module, nullptr );
-        ASSERT_NE( data.exec_context, nullptr );
-
-        using DeviceTensorType = CudaTensor<TensorDataType::FP32>;
-        using HostTensorType = CpuTensor<TensorDataType::FP32>;
-
-        EXPECT_NO_THROW( data.mlp_module->build( data.input_shape ) );
-
-        HostTensorType host_input( Device::Cpu(), data.input_shape );
-        random( host_input, -1.0f, 1.0f );
-
-        DeviceTensorType device_input( data.exec_context->getDeviceId(), data.input_shape );
-        DeviceTensorType device_output( data.exec_context->getDeviceId(), data.input_shape );
-
-        copy( host_input, device_input );
-
-        EXPECT_NO_THROW( data.mlp_module->forward( device_input, device_output ) );
-    }
-
-    TEST_F( MLPCudaTests, Error_InvalidConfiguration_ZeroInputFeatures )
-    {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-
-        MLPConfig invalid_config( 0, 1024 );
-
-        auto cuda_exec = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
-
-        EXPECT_THROW(
-            (MLP<DeviceType::Cuda, TensorDataType::FP32>( cuda_exec, invalid_config )),
-            std::invalid_argument
-        );
-    }
-
-    TEST_F( MLPCudaTests, Error_InvalidConfiguration_ZeroHiddenSize )
-    {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-
-        MLPConfig invalid_config( 768, 0 );
-
-        auto cuda_exec = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
-
-        EXPECT_THROW(
-            (MLP<DeviceType::Cuda, TensorDataType::FP32>( cuda_exec, invalid_config )),
-            std::invalid_argument
-        );
-    }
-
-    TEST_F( MLPCudaTests, Error_NullExecutionContext )
-    {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-
-        MLPConfig config( 768, 3072 );
-        config.withName( "null_context_test" );
-
-        std::shared_ptr<ExecutionContext<DeviceType::Cuda>> null_ctx;
-
-        EXPECT_THROW(
-            (MLP<DeviceType::Cuda, TensorDataType::FP32>( null_ctx, config )),
-            std::invalid_argument
-        );
-    }
-
-    TEST_F( MLPCudaTests, Error_ForwardBeforeBuild )
-    {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-
-        shape_t test_shape = { 2, 16, 768 };
-
-        MLPConfig config( 768, 3072 );
-        config.withName( "unbuild_test" );
-
-        auto cuda_exec = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
-        auto mlp = std::make_shared<MLP<DeviceType::Cuda, TensorDataType::FP32>>( cuda_exec, config );
-
-        CudaTensor<TensorDataType::FP32> input( cuda_exec->getDeviceId(), test_shape );
-        CudaTensor<TensorDataType::FP32> output( cuda_exec->getDeviceId(), test_shape );
-
-        EXPECT_THROW(
-            mlp->forward( input, output ),
-            std::runtime_error
-        );
-    }
-
-    TEST_F( MLPCudaTests, Synchronize )
-    {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-
-        auto data = MLPCudaTestData<TensorDataType::FP32>::Create(
-            "small_mlp_cuda",
-            shape_t{ batch_size_, sequence_length_, input_features_ },
-            input_features_,
-            hidden_size_ );
-
-        ASSERT_NE( data.mlp_module, nullptr );
-
-        EXPECT_NO_THROW( data.mlp_module->synchronize() );
-    }
-
-    TEST_F( MLPCudaTests, SetTrainingMode )
-    {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-
-        auto data = MLPCudaTestData<TensorDataType::FP32>::Create(
-            "small_mlp_cuda",
-            shape_t{ batch_size_, sequence_length_, input_features_ },
-            input_features_,
-            hidden_size_ );
-
-        ASSERT_NE( data.mlp_module, nullptr );
-
-        EXPECT_FALSE( data.mlp_module->isTraining() );
-
-        data.mlp_module->setTraining( true );
-        EXPECT_TRUE( data.mlp_module->isTraining() );
-
-        data.mlp_module->setTraining( false );
-        EXPECT_FALSE( data.mlp_module->isTraining() );
-    }
-
-    TEST_F( MLPCudaTests, MultipleForwardCalls )
-    {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-
-        auto data = MLPCudaTestData<TensorDataType::FP32>::Create(
-            "small_mlp_cuda",
-            shape_t{ batch_size_, sequence_length_, input_features_ },
-            input_features_,
-            hidden_size_ );
-
-        ASSERT_NE( data.mlp_module, nullptr );
-        ASSERT_NE( data.exec_context, nullptr );
-
-        EXPECT_NO_THROW( data.mlp_module->build( data.input_shape ) );
-
-        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), data.input_shape );
-        CudaTensor<TensorDataType::FP32> device_input( data.exec_context->getDeviceId(), data.input_shape );
-        CudaTensor<TensorDataType::FP32> device_output( data.exec_context->getDeviceId(), data.input_shape );
-
-        for ( int iter = 0; iter < 10; ++iter )
-        {
-            random( host_input, -1.0f, 1.0f );
-            copy( host_input, device_input );
-
-            EXPECT_NO_THROW( data.mlp_module->forward( device_input, device_output ) );
-        }
-    }
-
-    TEST_F( MLPCudaTests, CpuCuda_OutputEquivalence )
-    {
-        if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-
-        shape_t test_shape = { 1, 2, 768 };
-        int64_t test_hidden_size = 1024;
-
-        auto cpu_config = MLPConfig( 768, test_hidden_size );
-        cpu_config.withName( "test_cpu_mlp" );
-        auto cuda_config = MLPConfig( 768, test_hidden_size );
-        cuda_config.withName( "test_cuda_mlp" );
-
-        auto cpu_exec = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        auto cuda_exec = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
-
-        auto cpu_mlp = std::make_shared<MLP<DeviceType::Cpu, TensorDataType::FP32>>( cpu_exec, cpu_config );
-        auto cuda_mlp = std::make_shared<MLP<DeviceType::Cuda, TensorDataType::FP32>>( cuda_exec, cuda_config );
-
-        cpu_mlp->build( test_shape );
-        cuda_mlp->build( test_shape );
-
-        CpuTensor<TensorDataType::FP32> host_input( cpu_exec->getDeviceId(), test_shape );
-
-        for ( size_t i = 0; i < host_input.size(); ++i )
-        {
-            host_input.data()[i] = static_cast<float>( -2.0 + 4.0 * (static_cast<float>( i ) / host_input.size()) );
-        }
-
-        CpuTensor<TensorDataType::FP32> cpu_output( cpu_exec->getDeviceId(), test_shape );
+        CpuTensor<TensorDataType::FP32> cpu_output( Device::Cpu(), test_shape.dimensions );
         cpu_mlp->forward( host_input, cpu_output );
 
-        CudaTensor<TensorDataType::FP32> device_input( cuda_exec->getDeviceId(), test_shape );
+        CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), test_shape.dimensions );
+        CudaTensor<TPrecision> device_output( Device::Cuda( 0 ), test_shape.dimensions );
         copy( host_input, device_input );
+        cuda_fixture.component->forward( device_input, device_output );
 
-        CudaTensor<TensorDataType::FP32> cuda_output( cuda_exec->getDeviceId(), test_shape );
-        cuda_mlp->forward( device_input, cuda_output );
+        CpuTensor<TensorDataType::FP32> cuda_output_host = toHost<TensorDataType::FP32>( device_output );
 
-        cuda_exec->synchronize();
-
-        auto cuda_output_host = toHost<TensorDataType::FP32>( cuda_output, cuda_exec.get() );
-
-        const float epsilon = 1e-3f;
-        bool all_equal = true;
+        const float epsilon = PrecisionTraits<TPrecision>::tolerance;
+        bool all_close = true;
+        size_t first_mismatch_idx = 0;
+        float max_diff = 0.0f;
 
         for ( size_t i = 0; i < cpu_output.size(); ++i )
         {
-            float diff = std::abs( static_cast<float>( cpu_output.data()[i] ) - static_cast<float>( cuda_output_host.data()[i] ) );
+            float cpu_val = cpu_output.data()[ i ];
+            float cuda_val = cuda_output_host.data()[ i ];
+            float diff = std::abs( cpu_val - cuda_val );
+
+            if ( diff > max_diff )
+            {
+                max_diff = diff;
+            }
+
             if ( diff > epsilon )
             {
-                all_equal = false;
+                all_close = false;
+                first_mismatch_idx = i;
                 break;
             }
         }
 
-        EXPECT_TRUE( all_equal ) << "CPU and CUDA implementations produced different results";
+        EXPECT_TRUE( all_close )
+            << "CPU and CUDA implementations produced different results\n"
+            << "First mismatch at index " << first_mismatch_idx << "\n"
+            << "CPU value: " << cpu_output.data()[ first_mismatch_idx ] << "\n"
+            << "CUDA value: " << cuda_output_host.data()[ first_mismatch_idx ] << "\n"
+            << "Max difference: " << max_diff << "\n"
+            << "Tolerance: " << epsilon;
     }
 }

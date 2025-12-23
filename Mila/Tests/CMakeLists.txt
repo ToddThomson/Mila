@@ -139,13 +139,15 @@ add_executable( MilaTests
     "Dnn/Components/Normalization/SoftmaxConfig.cpp"
 
     # --------------------------------------------------------------
-    # Modules::Blocks Tests
+    # Components::Blocks Tests
     # --------------------------------------------------------------
     "Dnn/Components/Blocks/MLP.Cpu.cpp"
-    #"Dnn/Components/Blocks/MLP.Cuda.cpp"
+    "Dnn/Components/Blocks/MLP.Cuda.cpp"
     "Dnn/Components/Blocks/MLPConfig.cpp"
 
-    #"Dnn/Components/Blocks/Transformer.Cpu.cpp"
+    "Dnn/Components/Blocks/Transformer.Config.cpp"
+    "Dnn/Components/Blocks/Transformer.Cpu.cpp"
+    "Dnn/Components/Blocks/Transformer.Cuda.cpp"
     
     # --------------------------------------------------------------
     # Data Tests
@@ -186,8 +188,7 @@ add_executable( MilaTests
     #"Dnn/Components/Losses/SoftmaxCrossEntropy.Cuda.cpp"
     #"Dnn/Components/Losses/CrossEntropy.Config.cpp"
     
-    #"Dnn/Components/Blocks/Transformer.Cuda.cpp"
-    #"Dnn/Components/Blocks/Transformer.Config.cpp"
+    
 
     #"Dnn/Serialization/ModelArchive.cpp" 
     #"Dnn/Modeling/Network.Cpu.cpp"
