@@ -4,24 +4,31 @@ set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 
 add_library( Mila STATIC
     "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaUtils.h"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaOps.h"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/CudaOps.h"
 
     #--------------------------------------------------------------------------
     # Cuda Operations Kernels
     #--------------------------------------------------------------------------
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaEncoder.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Encoder/Kernels/Encoder.Fp32.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Encoder/Kernels/Encoder.Fp16.cu"
 
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/CudaReduction.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatMul/CudaMatMulFp32.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatMul/CudaMatMulFp16.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatMul/CudaLinearGelu.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatMul/CudaReduction.cu"
 
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/CudaMatMulFp32.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/CudaMatMulFp16.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/MatMul/CudaLinearGelu.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.Fp16.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.Fp32.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.cuh"
+    
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/Kernels/LayerNorm.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/Kernels/LayerNorm.cuh"
 
-    # TJT: Deprecated "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaMHA.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaGelu.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaLayerNorm.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaResidual.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaSoftmax.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/Kernels/Softmax.Fp32.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/Kernels/Softmax.cuh"
+
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/Kernels/CudaResidual.cu"
+        
     #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaSoftmaxCrossEntropy.cu"
     
     #--------------------------------------------------------------------------
@@ -41,6 +48,7 @@ add_library( Mila STATIC
     #--------------------------------------------------------------------------
     "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaOptimizers.h"
     "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaAdamW.cu"
+    
 )
 
  set_target_properties( Mila PROPERTIES
@@ -379,14 +387,15 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Transfer.ixx"
                 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/CudaOperations.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaAttentionOp.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaEncoderOp.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Operations/CublasLtMatMulBias.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaGeluOp.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaLayerNormOp.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaLinearOp.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaResidualOp.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaSoftmaxOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/CudaAttentionOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Encoder/CudaEncoderOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CublasLtMatMulBias.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/CudaGeluOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/LayerNormOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/CudaSoftmaxOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/CudaResidualOp.ixx"
+                
                 #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaSoftmaxCrossEntropyOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Optimizers/CudaAdamWOptimizer.ixx"
     )
@@ -397,6 +406,11 @@ if(MILA_HAS_CUDA)
     )
 
     target_compile_definitions(Mila PUBLIC MILA_HAS_CUDA)
+
+    target_include_directories(Mila PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/Src/Dnn/Compute/Devices/Cuda/Helpers"
+    )
+
     list(APPEND MILA_INSTALL_FILE_SET_ARGS FILE_SET cuda_modules DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
     message(STATUS "Added CUDA backend modules")

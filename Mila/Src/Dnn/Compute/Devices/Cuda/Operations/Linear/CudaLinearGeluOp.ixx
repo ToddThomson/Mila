@@ -35,7 +35,7 @@ import Compute.CudaDeviceMemoryResource;
 //        cublasLtHandle_t ltHandle, cudaStream_t stream );
 //}
 
-namespace Mila::Dnn::Compute
+namespace Mila::Dnn::Compute::Cuda::MatMulBiasGelu
 {
     /**
      * @brief CUDA implementation of the fused MatMul-Bias-GELU operation.

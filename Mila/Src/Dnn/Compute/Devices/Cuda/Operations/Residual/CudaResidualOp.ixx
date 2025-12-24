@@ -11,7 +11,7 @@
  */
 
 module;
-#include "Kernels/CudaOps.h"
+#include "Kernels/Residual.cuh"
 #include <memory>
 #include <cuda_fp16.h>
 #include <stdexcept>
@@ -33,7 +33,7 @@ import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
 import Compute.OperationRegistrarHelpers;
 
-namespace Mila::Dnn::Compute
+namespace Mila::Dnn::Compute::Cuda::Residual
 {
     //using namespace Mila::Dnn;
 

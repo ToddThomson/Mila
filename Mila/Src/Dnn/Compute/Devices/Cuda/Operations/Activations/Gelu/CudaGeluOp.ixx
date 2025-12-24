@@ -10,8 +10,8 @@ module;
 #include <cuda_fp16.h>
 #include <stdexcept>
 #include <type_traits>
-#include "Kernels/CudaOps.h"
 #include <string>
+#include "Kernels/Gelu.cuh"
 
 export module Compute.CudaGeluOp;
 
@@ -36,7 +36,7 @@ import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
 import Compute.CudaDevice;
 
-namespace Mila::Dnn::Compute
+namespace Mila::Dnn::Compute::Cuda::Gelu
 {
     namespace Detail
     {

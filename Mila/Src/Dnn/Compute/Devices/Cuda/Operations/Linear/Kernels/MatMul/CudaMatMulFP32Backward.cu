@@ -1,4 +1,4 @@
-namespace Mila::Dnn::Compute
+namespace Mila::Dnn::Compute::Cuda::Linear
 {
     // NOTES:
     // - Backward kernel using cublas for FP32 matmul

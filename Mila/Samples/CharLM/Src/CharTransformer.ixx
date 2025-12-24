@@ -239,8 +239,8 @@ namespace Mila::CharLM
                 encoder_->forward( input, *activations_[0] );
 
                 // DEBUG:
-                encoder_->synchronize();
-                cudaCheckLastError();
+                //encoder_->synchronize();
+                //cudaCheckLastError();
 
                 for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
                 {

@@ -1,10 +1,10 @@
 #include <cuda_runtime.h>
 #include "device_launch_parameters.h"
-#include "../../../Helpers/CudaUtils.h"
+#include "CudaUtils.h"
 #include <stdexcept>
 #include <string>
 
-namespace Mila::Dnn::Compute
+namespace Mila::Dnn::Compute::Cuda::Linear
 {
     // Optimized kernel for out_features divisible by 32
     // this kernel performs a column-wise reduction over dout, in PyTorch equivalent to:

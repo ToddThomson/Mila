@@ -14,9 +14,9 @@ module;
 #include <exception>
 #include <cstdint>
 #include <type_traits>
-#include "Kernels/CudaOps.h"
 #include <sstream>
 #include <cassert>
+#include "Kernels/Linear.cuh"
 
 export module Compute.CudaLinearOp;
 
@@ -43,7 +43,7 @@ import Compute.CudaTensorDataType;
 import CublasLt.Error;
 import Utils.Logger;
 
-namespace Mila::Dnn::Compute
+namespace Mila::Dnn::Compute::Cuda::Linear
 {
     using namespace Mila::Dnn;
 
@@ -415,12 +415,12 @@ namespace Mila::Dnn::Compute
             else if constexpr (std::is_same_v<TNative, half>)
             {
 				throw std::logic_error( "Bias gradient computation for half is not yet implemented" );
-                //cuda_reduce_sum_batch_fp16( bias_grad, output_grad, batch_size, out_features, stream );
+                // FIXME: cuda_reduce_sum_batch_fp16( bias_grad, output_grad, batch_size, out_features, stream );
             }
             else if constexpr (std::is_same_v<TNative, nv_bfloat16>)
             {
 				throw std::logic_error( "Bias gradient computation for bfloat16 is not yet implemented" );
-                //cuda_reduce_sum_batch_bfp16( bias_grad, output_grad, batch_size, out_features, stream );
+                // FIXME: cuda_reduce_sum_batch_bfp16( bias_grad, output_grad, batch_size, out_features, stream );
             }
             else
             {

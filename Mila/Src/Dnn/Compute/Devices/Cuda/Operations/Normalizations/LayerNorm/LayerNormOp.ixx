@@ -13,7 +13,7 @@ module;
 #include <stdexcept>
 #include <cstdint>
 #include <cuda_fp16.h>
-#include "Kernels/CudaOps.h"
+#include "Kernels/LayerNorm.cuh"
 
 export module Compute.CudaLayerNormOp;
 
@@ -40,7 +40,7 @@ import Compute.CudaTensorDataType;
 import Compute.CudaDevice;
 import Compute.Precision;
 
-namespace Mila::Dnn::Compute
+namespace Mila::Dnn::Compute::Cuda::LayerNorm
 {
     namespace Detail
     {

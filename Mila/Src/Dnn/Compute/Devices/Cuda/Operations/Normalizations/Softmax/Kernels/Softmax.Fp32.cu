@@ -4,10 +4,10 @@
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
 #include "device_launch_parameters.h"
-#include "../../Helpers/CudaUtils.h"
+#include "CudaUtils.h"
 #include <cmath>
 
-namespace Mila::Dnn::Compute
+namespace Mila::Dnn::Compute::Cuda::Softmax
 {
     /**
      * @brief CUDA kernel for softmax with arbitrary axis support (FP32 version)

@@ -4,9 +4,9 @@
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
 #include "device_launch_parameters.h"
-#include "../../Helpers/CudaUtils.h"
+#include "CudaUtils.h"
 
-namespace Mila::Dnn::Compute
+namespace Mila::Dnn::Compute::Cuda::Residual
 {
     /**
      * @brief CUDA kernel for element-wise addition of two input tensors with FP32 precision

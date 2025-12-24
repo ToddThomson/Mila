@@ -4,12 +4,12 @@
 #include "device_launch_parameters.h"
 //#include <cooperative_groups.h>
 //#include <cooperative_groups/reduce.h>
-#include "../../Helpers/CudaUtils.h"
+#include "CudaUtils.h"
 
 // TJT: The cooperative groups headers above cause issues with our build system currently,
 // so the code that depends on them has been commented out for now.
 
-namespace Mila::Dnn::Compute
+namespace Mila::Dnn::Compute::Cuda::LayerNorm
 {
     //namespace cg = cooperative_groups;
 

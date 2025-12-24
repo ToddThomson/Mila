@@ -14,7 +14,7 @@ module;
 #include <stdexcept>
 #include <cstdint>
 #include <cuda_fp16.h>
-#include "Kernels/CudaOps.h"
+#include "Kernels/Attention.cuh"
 
 export module Compute.CudaAttentionOp;
 
@@ -41,7 +41,7 @@ import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
 import Compute.CudaDevice;
 
-namespace Mila::Dnn::Compute
+namespace Mila::Dnn::Compute::Cuda::Attention
 {
     namespace Detail
     {

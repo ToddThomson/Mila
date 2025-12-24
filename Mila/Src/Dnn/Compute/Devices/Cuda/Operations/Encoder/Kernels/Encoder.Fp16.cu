@@ -4,54 +4,10 @@
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
 #include "device_launch_parameters.h"
-#include "../../Helpers/CudaUtils.h"
+#include "CudaUtils.h"
 
-namespace Mila::Dnn::Compute
+namespace Mila::Dnn::Compute::Cuda::Encoder
 {
-    /**
-     * @brief Adds two float4 vectors element-wise
-     *
-     * @param a First float4 vector
-     * @param b Second float4 vector
-     * @return float4 Result of component-wise addition
-     */
-    __device__ inline float4 add_float4( const float4& a, const float4& b ) {
-        return make_float4( a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w );
-    }
-
-    /**
-     * @brief CUDA kernel for encoder forward pass using float4 vectorization
-     *
-     * This kernel uses float4 operations for memory efficiency, which leads to
-     * using 128-bit LDG/STG instructions in SASS, very helpful in memory-bound
-     * kernels like encoder_forward.
-     *
-     * @param Y Output tensor [B, T, C]
-     * @param X Input indices [B, T]
-     * @param Wte Token embedding weights [vocab_size, C]
-     * @param Wpe Position embedding weights [max_seq_len, C]
-     * @param B Batch size
-     * @param T Sequence length
-     * @param C Hidden dimension size (must be divisible by 4)
-     */
-    __global__ void encoder_forward_fp32_kernel( 
-        float4* Y, const int* X, 
-        const float4* Wte, const float4* Wpe,
-        int B, int T, int C )
-    {
-        int C4 = C / 4;
-        int idx = blockIdx.x * blockDim.x + threadIdx.x;
-        int N = B * T * C4;
-        if ( idx < N ) {
-            int bt = idx / C4;
-            int b = bt / T;
-            int t = bt % T;
-            int c4 = idx % C4;
-            int ix = X[ b * T + t ];
-            Y[ b * T * C4 + t * C4 + c4 ] = add_float4( Wte[ ix * C4 + c4 ], Wpe[ t * C4 + c4 ] );
-        }
-    }
-
     /**
      * @brief Adds two half2 vectors element-wise
      *
@@ -93,43 +49,6 @@ namespace Mila::Dnn::Compute
             int ix = X[ b * T + t ];
             Y[ b * T * C2 + t * C2 + c2 ] = add_half2( Wte[ ix * C2 + c2 ], Wpe[ t * C2 + c2 ] );
         }
-    }
-
-    /**
-     * @brief Host function to launch encoder forward pass with full precision (FP32)
-     *
-     * Combines token embeddings and positional embeddings for transformer encoder input.
-     *
-     * @param Y Output tensor [B, T, C]
-     * @param X Input token indices [B, T]
-     * @param Wte Token embedding weights [vocab_size, C]
-     * @param Wpe Position embedding weights [max_seq_len, C]
-     * @param B Batch size
-     * @param T Sequence length
-     * @param C Hidden dimension size (must be divisible by 4)
-     * @param stream CUDA stream for asynchronous execution
-     */
-    void cuda_encoder_forward_fp32(
-        float* Y,
-        const int* X,
-        const float* Wte, const float* Wpe,
-        int B, int T, int C,
-        cudaStream_t stream ) {
-
-        // FP32 implementation
-        assert( C % 4 == 0 );
-        const int block_size = 128; // 512;
-        const int N = B * T * C;
-        const int grid_size = ceil_div( N / 4, block_size );
-
-        encoder_forward_fp32_kernel<<<grid_size, block_size, 0, stream>>> (
-            reinterpret_cast<float4*>(Y),
-            X,
-            reinterpret_cast<const float4*>(Wte),
-            reinterpret_cast<const float4*>(Wpe),
-            B, T, C);
-
-        cudaCheck( cudaGetLastError() );
     }
 
     /**

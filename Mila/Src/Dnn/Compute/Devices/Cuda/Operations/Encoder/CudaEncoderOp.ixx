@@ -13,8 +13,8 @@ module;
 #include <string>
 #include <stdexcept>
 #include <cstdint>
-#include "Kernels/CudaOps.h"
 #include <type_traits>
+#include "Kernels/Encoder.cuh"
 
 export module Compute.CudaEncoderOp;
 
@@ -33,7 +33,7 @@ import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
 import Compute.OperationRegistrarHelpers;
 
-namespace Mila::Dnn::Compute
+namespace Mila::Dnn::Compute::Cuda::Encoder
 {
     namespace Detail
     {

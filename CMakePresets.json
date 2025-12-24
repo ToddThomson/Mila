@@ -12,10 +12,10 @@
       "binaryDir": "${sourceDir}/out/build/windows-${presetName}",
       "installDir": "${sourceDir}/out/install/windows-${presetName}",
       "environment": {
+        "VCToolsVersion": "14.44.35207",
         "VCToolsInstallDir": "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.44.35207/"
       },
       "cacheVariables": {
-        "VCToolsetVersion": "14.44.35207",
         "CMAKE_C_COMPILER": "$env{VCToolsInstallDir}/bin/Hostx64/x64/cl.exe",
         "CMAKE_CXX_COMPILER": "$env{VCToolsInstallDir}/bin/Hostx64/x64/cl.exe",
         "CMAKE_CUDA_HOST_COMPILER": "$env{VCToolsInstallDir}/bin/Hostx64/x64/cl.exe",
