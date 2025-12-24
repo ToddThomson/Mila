@@ -23,23 +23,14 @@ import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
-import Dnn.TensorDataTypeTraits;
-import Dnn.TensorHostTypeMap;
-import Dnn.ComponentConfig;
 import Compute.Precision;
-import Compute.OperationBase;
 import Compute.UnaryOperation;
-import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.IExecutionContext;
 import Compute.ExecutionContext;
-//import Compute.CudaExecutionContext;
-import Compute.CudaDeviceResources;
 import Compute.OperationType;
-import Compute.MemoryResource;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
-import Compute.CudaDevice;
 import Compute.OperationRegistrarHelpers;
 
 namespace Mila::Dnn::Compute
@@ -132,10 +123,8 @@ namespace Mila::Dnn::Compute
     {
     public:
         using MR = CudaDeviceMemoryResource;
-        //using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TInput, TPrecision>;
+        using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TInput, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
-        //using Parameters = std::vector<std::shared_ptr<TensorType>>;
-        //using OutputState = std::vector<std::shared_ptr<TensorType>>;
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::native_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 
@@ -145,11 +134,6 @@ namespace Mila::Dnn::Compute
         CudaEncoderOp( IExecutionContext* context, const EncoderConfig& config )
             : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaEncoderOp" ) ), config_( config ), impl_()
         {
-            if (!context_)
-            {
-                throw std::runtime_error( "CudaEncoderOp requires a CUDA execution context" );
-            }
-
             config_.validate();
         }
 
@@ -268,7 +252,7 @@ namespace Mila::Dnn::Compute
                     "CudaEncoderOp::build - parameter embedding dimension doesn't match configuration" );
             }
 
-            //UnaryOperationBase::build( input_shape );
+            UnaryOperationBase::build( input_shape );
         }
 
         // ====================================================================
@@ -353,14 +337,14 @@ namespace Mila::Dnn::Compute
             return "Cuda::EncoderOp";
         }
 
-        const EncoderConfig& getConfig() const
+        /*const EncoderConfig& getConfig() const
         {
             return config_;
-        }
+        }*/
 
     private:
         EncoderConfig config_;
-        std::shared_ptr<CudaExecutionContext> context_;
+        CudaExecutionContext* context_;
         Detail::cuda_encoder_impl<NativeType> impl_;
 
         // Cached native device parameter pointers (module owns underlying tensors)

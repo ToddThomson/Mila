@@ -190,7 +190,7 @@ namespace Dnn::Components::Normalization::Tests
         EXPECT_NO_THROW( data.module->build( data.shape ) );
         EXPECT_TRUE( data.module->isBuilt() );
 
-        EXPECT_THROW( data.module->build( data.shape ), std::logic_error );
+        EXPECT_THROW( data.module->build( data.shape ), std::runtime_error );
     }
 
     template<TensorDataType TPrecision>
@@ -695,6 +695,7 @@ namespace Dnn::Components::Normalization::Tests
     TEST_F( LayerNormCpuTests, SetTrainingMode )
     {
         auto data = SmallFp32Data();
+        data.module->build( data.shape );
 
         EXPECT_FALSE( data.module->isTraining() );
 

@@ -133,11 +133,6 @@ namespace Mila::Dnn::Compute
         CudaAttentionOp( IExecutionContext* context, const AttentionConfig& config )
             : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaAttentionOp" ) ), config_( config ), impl_()
         {
-            if (!context_)
-            {
-                throw std::runtime_error( "CudaAttentionOp requires a CUDA execution context" );
-            }
-
             config_.validate();
         }
 

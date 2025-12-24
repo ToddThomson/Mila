@@ -403,7 +403,7 @@ namespace Mila::Dnn::Compute
 
     private:
         CrossEntropyConfig config_;
-        std::shared_ptr<CudaExecutionContext> context_;
+        CudaExecutionContext* context_;
 
         // Parameters bound via setParameters()
         const NativeType* class_weights_{ nullptr };

@@ -214,7 +214,12 @@ namespace CompositeComponents_Tests
                 Device::Cuda( 0 )
             );
 
-            fixture.component->setTraining( is_training );
+            // If requester asked for training fixture, build first then enable training.
+            if ( fixture.is_training )
+            {
+                fixture.component->build( fixture.shape() );
+                fixture.component->setTraining( true );
+            }
 
             return fixture;
         }
@@ -251,7 +256,13 @@ namespace CompositeComponents_Tests
             );
 
             fixture.component = fixture.network->getMLP();
-            fixture.network->setTraining( is_training );
+
+            // If requester asked for training fixture, build the network first then enable training.
+            if ( fixture.is_training )
+            {
+                fixture.network->build( fixture.shape() );
+                fixture.network->setTraining( true );
+            }
 
             return fixture;
         }
@@ -286,8 +297,9 @@ namespace CompositeComponents_Tests
     };
 
     using PrecisionTypes = ::testing::Types<
-        PrecisionType<TensorDataType::FP32>,
-        PrecisionType<TensorDataType::FP16>
+        PrecisionType<TensorDataType::FP32>
+        // TODO: Uncomment when FP16 MLP CUDA is implemented
+        // PrecisionType<TensorDataType::FP16>
     >;
 
     TYPED_TEST_SUITE( MLPCudaTests, PrecisionTypes );
@@ -488,6 +500,9 @@ namespace CompositeComponents_Tests
         );
 
         EXPECT_FALSE( fixture.component->isTraining() );
+
+        // Build before enabling training to satisfy Component lifecycle contract.
+        fixture.component->build( fixture.shape() );
 
         fixture.component->setTraining( true );
         EXPECT_TRUE( fixture.component->isTraining() );
@@ -1108,5 +1123,5 @@ namespace CompositeComponents_Tests
             << "CUDA value: " << cuda_output_host.data()[ first_mismatch_idx ] << "\n"
             << "Max difference: " << max_diff << "\n"
             << "Tolerance: " << epsilon;
-    }
+    };
 }

@@ -533,6 +533,7 @@ namespace CompositeComponents_Tests
         data.mlp->setTraining( true );
         EXPECT_TRUE( data.mlp->isTraining() );
 
+        data.mlp->build( data.input_shape );
         data.mlp->setTraining( false );
         EXPECT_FALSE( data.mlp->isTraining() );
     }

@@ -715,11 +715,47 @@ namespace Mila::Dnn
          */
         std::string getBufferString() const {
             if constexpr (is_host_accessible()) {
-                return "Buffer content display not implemented for abstract data types";
+                if ( !buffer_ ) {
+                    return std::string( "No buffer allocated." );
+                }
+
+                // Start recursive printing from index 0 and depth 0
+                return outputBuffer( 0, 0 );
             }
             else {
                 return "Tensor is not host-accessible. Cannot output buffer contents.";
             }
+        }
+
+        std::string outputBuffer( size_t index, size_t depth ) const {
+            using TElementType = typename TensorHostTypeMap<TDataType>::host_type;
+            std::ostringstream oss;
+            if ( depth == shape_.size() - 1 ) {
+                for ( size_t i = 0; i < shape_[ depth ]; ++i ) {
+                    if ( i < 3 || i >= shape_[ depth ] - 3 ) {
+                        TElementType value = static_cast<TElementType*>( buffer_->data() )[ index + i ];
+                        oss << std::setw( 10 ) << value << " ";
+                    }
+                    else if ( i == 3 ) {
+                        oss << "... ";
+                    }
+                }
+            }
+            else {
+                for ( size_t i = 0; i < shape_[ depth ]; ++i ) {
+                    if ( i < 3 || i >= shape_[ depth ] - 3 ) {
+                        oss << "[ ";
+                        oss << outputBuffer( index + i * shape_[ depth + 1 ], depth + 1 );
+                        oss << "]" << std::endl;
+                    }
+                    else if ( i == 3 ) {
+                        oss << "[ ... ]" << std::endl;
+                        i = shape_[ depth ] - 4;
+                    }
+                }
+            }
+            
+            return oss.str();
         }
     };
 

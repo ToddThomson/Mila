@@ -61,10 +61,10 @@ namespace Components::Layers::Tests
                 Device::Cuda( 0 )
             );
 
-            if ( is_training )
+            /*if ( is_training )
             {
                 d.module->setTraining( true );
-            }
+            }*/
 
             return d;
         }
@@ -179,8 +179,8 @@ namespace Components::Layers::Tests
             GTEST_SKIP() << "Module not initialized";
         }
 
-        d.module->setTraining( true );
         d.module->build( d.input_shape );
+        d.module->setTraining( true );
 
         auto wte_grad = d.module->getWteGrad();
         auto wpe_grad = d.module->getWpeGrad();

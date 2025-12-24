@@ -32,6 +32,7 @@ import Compute.MemoryResource;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
+import Compute.DeviceTypeTraits;
 import Compute.ExecutionContext;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
@@ -67,7 +68,7 @@ namespace Mila::Dnn
     class Transformer : public CompositeComponent<TDeviceType, TPrecision>
     {
     public:
-        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
+        using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using CompositeComponentBase = CompositeComponent<TDeviceType, TPrecision>;
         using ComponentPtr = typename CompositeComponentBase::ComponentPtr;
         using ExecutionContextType = ExecutionContext<TDeviceType>;

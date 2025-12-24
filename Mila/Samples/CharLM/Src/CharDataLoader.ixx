@@ -12,18 +12,6 @@ module;
 #include <stdexcept>
 #include <memory>
 
-#include <iostream>
-#include <vector>
-#include <random>
-#include <algorithm>
-#include <string>
-#include <filesystem>
-#include <fstream>
-#include <type_traits>
-#include <cstdint>
-#include <stdexcept>
-#include <memory>
-
 export module CharLM.CharDataLoader;
 
 import Mila;
@@ -39,56 +27,28 @@ namespace Mila::CharLM
     /**
      * @brief Character-level text data loader for language modeling.
      *
-     * Pure data loader that efficiently loads preprocessed token sequences.
-     * Does NOT handle vocabulary or text encoding/decoding - only loads
-     * raw token indices from preprocessed binary files.
-     *
-     * Key features:
-     * - Fast loading from preprocessed binary files
-     * - Sliding window sequence generation with configurable stride
-     * - Optional shuffling for training mode
-     * - Efficient batch processing with pre-allocated tensors
-     * - Support for both CPU and pinned memory resources
-     *
-     * Prerequisites:
-     * - <text_file>.vocab must exist (for reading vocab size only)
-     * - <text_file>.tokens must exist (tokenized data)
-     *
-     * Sequence structure:
-     * - Input: [t, t+1, ..., t+seq_len-1]
-     * - Target: [t+1, t+2, ..., t+seq_len] (shifted by 1 for next-token prediction)
-     *
-     * @tparam TInput Tensor data type for token indices (typically FP32 for compatibility)
-     * @tparam TMemoryResource Memory resource type (CpuMemoryResource or CudaPinnedMemoryResource)
+     * Loads preprocessed token sequences. Token indices are always INT32.
+     * Supports CPU and pinned host memory resources for batched I/O.
      */
-    export template<TensorDataType TInput, typename TMemoryResource>
-        requires PrecisionSupportedOnDevice<TInput, DeviceType::Cpu> &&
-    (std::is_same_v<TMemoryResource, CudaPinnedMemoryResource> ||
-        std::is_same_v<TMemoryResource, CpuMemoryResource>)
-        class CharDataLoader : public DatasetReader<TInput, TInput, TMemoryResource>
+    export template<typename TMemoryResource>
+        requires (std::is_same_v<TMemoryResource, CudaPinnedMemoryResource> ||
+                  std::is_same_v<TMemoryResource, CpuMemoryResource>)
+    class CharDataLoader : public DatasetReader<TensorDataType::INT32, TensorDataType::INT32, TMemoryResource>
     {
     public:
-        using BaseLoader = DatasetReader<TInput, TInput, TMemoryResource>;
-        using HostType = typename TensorHostTypeMap<TInput>::host_type;
-        using TensorType = Tensor<TInput, TMemoryResource>;
+        using BaseLoader = DatasetReader<TensorDataType::INT32, TensorDataType::INT32, TMemoryResource>;
+        using HostType = typename TensorHostTypeMap<TensorDataType::INT32>::host_type;
+        using TensorType = Tensor<TensorDataType::INT32, TMemoryResource>;
 
         /**
          * @brief Constructs character-level data loader from preprocessed files.
          *
-         * Loads tokenized data from preprocessed binary files. Only reads
-         * vocabulary size from .vocab file header (doesn't load full vocabulary).
-         *
          * @param text_file_base Base path to preprocessed files (without extensions)
-         *                       e.g., "data/shakespeare" for shakespeare.vocab and shakespeare.tokens
          * @param batch_size Number of sequences per batch
          * @param seq_length Length of each sequence (context window)
          * @param is_training Whether to shuffle sequences (training mode)
          * @param device Compute device for tensor allocation
          * @param stride Step size for sliding window (default: seq_length for non-overlapping)
-         *
-         * @throws std::invalid_argument If device is null or seq_length <= 0
-         * @throws std::runtime_error If device type doesn't match memory resource requirements
-         * @throws std::runtime_error If vocabulary or tokens files are missing or invalid
          */
         CharDataLoader(
             const std::string& text_file_base,
@@ -129,7 +89,7 @@ namespace Mila::CharLM
             // Read vocabulary size from .vocab file header (don't load full vocabulary)
             loadVocabSize();
 
-            // Load tokenized data
+            // Load tokenized data and validate tokens against vocab size
             loadTokens();
             createSequences();
 
@@ -191,15 +151,37 @@ namespace Mila::CharLM
                 // Copy input sequence (tokens[start : start+seq_length])
                 for (int64_t t = 0; t < seq_length_; ++t)
                 {
+                    const int32_t token = tokens_[seq_start_idx + t];
+
+                    // Safety check: ensure token still within vocabulary bounds
+                    if (token < 0 || static_cast<uint32_t>(token) >= vocab_size_)
+                    {
+                        throw std::runtime_error(
+                            "CharDataLoader::nextBatch - token index out of range at global token position " +
+                            std::to_string(seq_start_idx + t) + ": value=" + std::to_string(token) +
+                            ", vocab_size=" + std::to_string(vocab_size_) );
+                    }
+
                     input_tensor_->data()[i * seq_length_ + t] =
-                        static_cast<HostType>( tokens_[seq_start_idx + t] );
+                        static_cast<HostType>( token );
                 }
 
                 // Copy target sequence (tokens[start+1 : start+seq_length+1])
                 for (int64_t t = 0; t < seq_length_; ++t)
                 {
+                    const int32_t token = tokens_[seq_start_idx + t + 1];
+
+                    // Safety check: ensure token still within vocabulary bounds
+                    if (token < 0 || static_cast<uint32_t>(token) >= vocab_size_)
+                    {
+                        throw std::runtime_error(
+                            "CharDataLoader::nextBatch - target token index out of range at global token position " +
+                            std::to_string(seq_start_idx + t + 1) + ": value=" + std::to_string(token) +
+                            ", vocab_size=" + std::to_string(vocab_size_) );
+                    }
+
                     target_tensor_->data()[i * seq_length_ + t] =
-                        static_cast<HostType>( tokens_[seq_start_idx + t + 1] );
+                        static_cast<HostType>( token );
                 }
             }
 
@@ -228,9 +210,6 @@ namespace Mila::CharLM
 
         /**
          * @brief Gets the vocabulary size.
-         *
-         * Read from vocabulary file header during construction.
-         * Does not require loading the full vocabulary.
          */
         size_t vocabSize() const
         {
@@ -293,13 +272,6 @@ namespace Mila::CharLM
 
         /**
          * @brief Loads vocabulary size from .vocab file header.
-         *
-         * Only reads the header to get vocabulary size - does NOT load
-         * the full vocabulary mappings. This is all the data loader needs.
-         *
-         * Vocab file format:
-         *   Bytes 0-7: vocab_size (size_t)
-         *   Bytes 8+: vocabulary data (not loaded by data loader)
          */
         void loadVocabSize()
         {
@@ -316,16 +288,12 @@ namespace Mila::CharLM
             {
                 throw std::runtime_error( "Invalid vocabulary file: " + vocab_file_ );
             }
-
-            // Don't read the rest - we only need the size
         }
 
         /**
          * @brief Loads tokenized data from preprocessed binary file.
          *
-         * Format:
-         *   Bytes 0-7: num_tokens (size_t)
-         *   Bytes 8+: token_indices (int32_t array)
+         * Validates that each token index is within [0, vocab_size_).
          */
         void loadTokens()
         {
@@ -353,13 +321,25 @@ namespace Mila::CharLM
             {
                 throw std::runtime_error( "Error reading tokens file: " + tokens_file_ );
             }
+
+            // Validate tokens are within vocabulary bounds
+            for ( size_t i = 0; i < tokens_.size(); ++i )
+            {
+                int32_t tok = tokens_[i];
+
+                if ( tok < 0 || static_cast<uint32_t>(tok) >= vocab_size_ )
+                {
+                    throw std::runtime_error(
+                        "Invalid token index in tokens file at position " + std::to_string(i) +
+                        ": value=" + std::to_string(tok) +
+                        ", vocab_size=" + std::to_string(vocab_size_) +
+                        ". Ensure tokens were preprocessed with the same vocabulary." );
+                }
+            }
         }
 
         /**
          * @brief Creates sequence start indices for sliding window approach.
-         *
-         * Stores only start indices (memory efficient) rather than
-         * materializing all sequences.
          */
         void createSequences()
         {

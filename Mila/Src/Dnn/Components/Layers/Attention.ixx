@@ -217,8 +217,6 @@ namespace Mila::Dnn
 
         void onExecutionContextSet() override
         {
-            exec_context_ = this->getExecutionContext();
-
             createOperation();
         }
 
@@ -246,7 +244,6 @@ namespace Mila::Dnn
         shape_t input_shape_;
 
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
-        IExecutionContext* exec_context_{ nullptr };
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
 
         void validateConcatenatedQKVShape( const shape_t& shape ) const

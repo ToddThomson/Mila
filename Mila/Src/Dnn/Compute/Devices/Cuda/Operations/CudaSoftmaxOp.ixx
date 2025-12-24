@@ -130,11 +130,6 @@ namespace Mila::Dnn::Compute
         CudaSoftmaxOp( IExecutionContext* context, const SoftmaxConfig& config )
             : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaSoftmaxOp" ) ), config_( config ), impl_()
         {
-            if (!context_)
-            {
-                throw std::runtime_error( "CudaSoftmaxOp requires a CUDA execution context" );
-            }
-
             config_.validate();
         }
 

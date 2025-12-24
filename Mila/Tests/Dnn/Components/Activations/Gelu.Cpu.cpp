@@ -249,8 +249,8 @@ namespace Dnn::Components::Activations::Tests
             input_grad.data()[ i ] = 0.0f;
         }
 
-        gelu->setTraining( true );
         gelu->build( shape );
+        gelu->setTraining( true );
         gelu->forward( input, output );
 
         EXPECT_NO_THROW( gelu->backward( input, output_grad, input_grad ) );
@@ -273,8 +273,8 @@ namespace Dnn::Components::Activations::Tests
         Tensor<dtype_t::FP32, MR> output_grad( device_id, shape );
         Tensor<dtype_t::FP32, MR> input_grad( device_id, shape );
 
-        gelu->setTraining( true );
         gelu->build( shape );
+        gelu->setTraining( true );
         gelu->forward( input, output );
         gelu->backward( input, output_grad, input_grad );
 
@@ -306,8 +306,8 @@ namespace Dnn::Components::Activations::Tests
             input_grad.data()[ i ] = 0.0f;
         }
 
-        gelu->setTraining( true );
         gelu->build( shape );
+        gelu->setTraining( true );
         gelu->forward( input, output );
         gelu->backward( input, output_grad, input_grad );
 
@@ -352,9 +352,9 @@ namespace Dnn::Components::Activations::Tests
             output_grad.data()[ i ] = static_cast<float>( i + 1 ) * 0.1f;
             input_grad.data()[ i ] = 0.0f;
         }
-
-        gelu->setTraining( true );
+        
         gelu->build( shape );
+        gelu->setTraining( true );
         gelu->forward( input, output );
         gelu->backward( input, output_grad, input_grad );
 
@@ -397,8 +397,8 @@ namespace Dnn::Components::Activations::Tests
             input_grad.data()[ i ] = 0.0f;
         }
 
-        gelu->setTraining( true );
         gelu->build( shape );
+        gelu->setTraining( true );
         gelu->forward( input, output );
         gelu->backward( input, output_grad, input_grad );
 
@@ -435,8 +435,8 @@ namespace Dnn::Components::Activations::Tests
             input_grad.data()[ i ] = 0.0f;
         }
 
-        gelu->setTraining( true );
         gelu->build( shape );
+        gelu->setTraining( true );
 
         EXPECT_NO_THROW( gelu->forward( input, output ) );
         EXPECT_NO_THROW( gelu->backward( input, output_grad, input_grad ) );
@@ -494,9 +494,9 @@ namespace Dnn::Components::Activations::Tests
             output_grad.data()[ i ] = 1.0f;
             input_grad.data()[ i ] = 10.0f;
         }
-
-        gelu->setTraining( true );
+        
         gelu->build( shape );
+        gelu->setTraining( true );
         gelu->forward( input, output );
 
         std::vector<float> initial_grads( input_grad.size() );
@@ -606,6 +606,7 @@ namespace Dnn::Components::Activations::Tests
         }
 
         auto d = GeluCpuTestData::Create( batch_, seq_, chan_ );
+        d.gelu->build( d.shape );
 
         EXPECT_NO_THROW( d.gelu->synchronize() );
 

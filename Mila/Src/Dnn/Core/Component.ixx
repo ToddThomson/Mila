@@ -179,7 +179,7 @@ namespace Mila::Dnn
                     std::format(
                         "Component::setTraining: Cannot enable training mode before build(). "
                         "Component '{}' must be built before calling setTraining(). "
-                        "Lifecycle: construction ? setExecutionContext() ? build() ? setTraining()",
+                        "Lifecycle: construction -> setExecutionContext() -> build() -> setTraining()",
                         getName() )
                 );
             }

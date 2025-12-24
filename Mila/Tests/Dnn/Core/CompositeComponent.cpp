@@ -386,6 +386,9 @@ namespace Dnn::Core::Tests
         EXPECT_FALSE( child_a->isTraining() );
         EXPECT_FALSE( child_b->isTraining() );
 
+        // Build before enabling training to satisfy Component lifecycle contract.
+        comp_->build( { 1 } );
+
         comp_->setTraining( true );
 
         EXPECT_TRUE( comp_->isTraining() );

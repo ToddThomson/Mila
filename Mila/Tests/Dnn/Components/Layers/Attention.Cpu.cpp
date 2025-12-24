@@ -106,6 +106,7 @@ namespace Components::Layers::Tests
 
         DeviceId dev{ DeviceType::Cpu, 0 };
         auto module = std::make_shared<Attention<DeviceType::Cpu, TensorDataType::FP32>>( "attn_train_toggle", cfg, dev );
+        module->build( shape_t{ 1, 1, 192 } );
 
         EXPECT_FALSE( module->isTraining() );
 

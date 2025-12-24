@@ -18,11 +18,13 @@ module;
 #include <iostream>
 #include <format>
 #include <optional>
+#include <cassert>
 
 export module CharLM.Transformer;
 
 import Mila;
 import Dnn.Network;
+import Cuda.Error; // Debugging
 
 namespace Mila::CharLM
 {
@@ -31,7 +33,30 @@ namespace Mila::CharLM
     using namespace Mila::Dnn::Serialization;
 
     /**
-     * @brief Configuration for CharTransformer model.
+     * @brief Configuration parameters for `CharTransformer`.
+     *
+     * Encapsulates construction-time parameters used to build a `CharTransformer`
+     * network instance. Each member documents a semantic constraint; callers
+     * should call `validate()` (the constructor does this automatically) to
+     * ensure the configuration is valid prior to constructing the network.
+     *
+     * Members:
+     *  - `vocab_size` : Number of distinct tokens in the vocabulary (V). Must be > 0.
+     *  - `max_seq_length` : Maximum supported sequence length (T). Must be > 0.
+     *  - `embedding_dim` : Embedding dimension / model width (D). Must be > 0 and
+     *      divisible by `num_heads`.
+     *  - `num_heads` : Number of attention heads. Must be > 0.
+     *  - `num_layers` : Number of transformer blocks (model depth). Must be > 0.
+     *  - `mlp_hidden_dim` : Hidden dimension of the feed-forward (MLP) sub-layer.
+     *      Must be > 0.
+     *
+     * Validation:
+     *  - `validate()` throws `std::invalid_argument` when any constraint is violated.
+     *
+     * Usage:
+     *  - Provide a populated `CharTransformerConfig` to the `CharTransformer`
+     *    constructor. The network constructor will call `validate()` and will
+     *    throw on invalid configurations.
      */
     export struct CharTransformerConfig
     {
@@ -72,6 +97,11 @@ namespace Mila::CharLM
      *
      * Transformer decoder architecture for next-character prediction:
      *   Input tokens (B, T) -> Embeddings (B, T, D) -> Transformer Blocks -> Logits (B, T, V)
+     * Where:
+     *   B = batch size
+     *   T = sequence length
+     *   D = embedding dimension
+     *   V = vocabulary size
      *
      * Construction Pattern:
      * 1. Constructor creates and owns ExecutionContext
@@ -183,10 +213,11 @@ namespace Mila::CharLM
         // ====================================================================
 
         /**
-         * @brief Forward pass - HOT PATH, pure dispatch to child components.
+         * @brief Forward pass.
          *
-         * All setup and validation was done in onBuilding(). This method chains
-         * forward calls through the transformer structure using pre-allocated buffers.
+         * When in training mode the transformer stores per-layer activations to
+         * support backward. In inference mode a two-buffer ping-pong is used to
+         * minimize memory allocations.
          *
          * @param input Input tensor containing token indices (batch_size, seq_length)
          * @param output Output tensor for next-token logits (batch_size, seq_length, vocab_size)
@@ -200,40 +231,59 @@ namespace Mila::CharLM
                 throw std::runtime_error( "CharTransformer must be built before calling forward." );
             }
 
-            encoder_->forward( input, *embedded_ );
+            if ( this->isTraining() )
+            {
+                // Training path: use per-layer activation buffers (one per stage)
+                assert( activations_.size() == transformer_blocks_.size() + 1 );
 
-            if ( transformer_blocks_.empty() )
-            {
-                copy( *embedded_, *transformer_output_ );
-            }
-            else
-            {
-                ITensor* read = embedded_.get();
-                ITensor* write = transformer_output_.get();
+                encoder_->forward( input, *activations_[0] );
+
+                // DEBUG:
+                encoder_->synchronize();
+                cudaCheckLastError();
 
                 for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
                 {
-                    transformer_blocks_[ i ]->forward( *read, *write );
-                    transformer_blocks_[ i ]->synchronize();
-
-                    std::swap( read, write );
+                    transformer_blocks_[ i ]->forward( *activations_[ i ], *activations_[ i + 1 ] );
                 }
+
+                final_layernorm_->forward( *activations_.back(), *normalized_ );
+                lm_head_->forward( *normalized_, output );
+            }
+            else
+            {
+                // Inference path: reuse two preallocated buffers (ping-pong)
+                encoder_->forward( input, *embedded_ );
+
+                ITensor* current_input = embedded_.get();
+                ITensor* current_output = transformer_output_.get();
+
+                for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
+                {
+                    transformer_blocks_[ i ]->forward( *current_input, *current_output );
+
+                    std::swap( current_input, current_output );
+                }
+
+                final_layernorm_->forward( *current_input, *normalized_ );
+                lm_head_->forward( *normalized_, output );
             }
 
-            final_layernorm_->forward( *transformer_output_, *normalized_ );
-            lm_head_->forward( *normalized_, output );
+            cudaCheckLastError();
         }
 
         /**
-         * @brief Backward pass - HOT PATH, pure dispatch to child components.
+         * @brief Backward pass.
          *
-         * Chains backward calls through the transformer structure in reverse order.
+         * Backpropagates gradients through lm_head, final layernorm, transformer
+         * blocks and finally the encoder. Requires stored activations when in
+         * training mode; calling backward when not training is an error.
          *
          * @param input Original forward input tensor
          * @param output_grad Gradient w.r.t. transformer output
          * @param input_grad Gradient w.r.t. transformer input (output)
          *
-         * @throws std::runtime_error if transformer has not been built
+         * @throws std::runtime_error if transformer has not been built or not in training mode
          */
         void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
         {
@@ -242,20 +292,40 @@ namespace Mila::CharLM
                 throw std::runtime_error( "CharTransformer must be built before calling backward." );
             }
 
+            if ( !this->isTraining() )
+            {
+                throw std::runtime_error( "CharTransformer: backward requires training mode (setTraining(true))." );
+            }
+
+            // Ensure activations and grad buffers exist
+            assert( activations_.size() == transformer_blocks_.size() + 1 );
+            assert( activation_grads_.size() == transformer_blocks_.size() + 1 );
+
             auto device = this->getDeviceId();
 
-            TensorType normalized_grad( device, cached_embedding_shape_ );
+            // Grad through lm_head: normalized_ -> normalized_grad
+            TensorType normalized_grad( device, embedding_shape_ );
             zeros( normalized_grad );
             lm_head_->backward( *normalized_, output_grad, normalized_grad );
 
-            TensorType transformer_output_grad( device, cached_embedding_shape_ );
-            zeros( transformer_output_grad );
-            final_layernorm_->backward( *transformer_output_, normalized_grad, transformer_output_grad );
+            // Grad through final layernorm: last activation -> grad for last activation
+            zeros( *activation_grads_.back() );
+            final_layernorm_->backward( *activations_.back(), normalized_grad, *activation_grads_.back() );
 
-            TensorType& embedding_grad = transformer_output_grad;
+            // Backprop through transformer blocks in reverse order
+            for ( int64_t i = static_cast<int64_t>( transformer_blocks_.size() ) - 1; i >= 0; --i )
+            {
+                // transformer_blocks_[i] expects: input activation, output grad, produces input grad
+                transformer_blocks_[ static_cast<size_t>( i ) ]->backward(
+                    *activations_[ static_cast<size_t>( i ) ],
+                    *activation_grads_[ static_cast<size_t>( i + 1 ) ],
+                    *activation_grads_[ static_cast<size_t>( i ) ] );
+            }
 
-            encoder_->backward( input, embedding_grad );
+            // Finally backprop through encoder using gradient computed for activation 0
+            encoder_->backward( input, *activation_grads_[0] );
 
+            // Zero any user-provided input_grad tensor (encoder produces no input gradients)
             if ( auto* in_t = dynamic_cast<TensorType*>(&input_grad) )
             {
                 zeros( *in_t );
@@ -391,13 +461,34 @@ namespace Mila::CharLM
             if ( this->isBuilt() )
             {
                 meta.set( "input_shape", cached_input_shape_ )
-                    .set( "embedding_shape", cached_embedding_shape_ )
+                    .set( "embedding_shape", embedding_shape_ )
                     .set( "output_shape", cached_output_shape_ )
                     .set( "batch_size", batch_size_ )
                     .set( "seq_length", seq_length_ );
             }
 
             archive.writeMetadata( "transformer_meta.json", meta );
+        }
+
+        /**
+         * @brief Called when training mode changes.
+         *
+         * Allocate or free per-layer activation buffers to support backward.
+         */
+        void onTrainingChanging( bool is_training ) override
+        {
+            // If built, allocate/free activation buffers immediately. Otherwise
+            // allocation will be performed in onBuilding() after shapes are known.
+            if ( this->isBuilt() )
+            {
+                if ( is_training )
+                    allocateActivationBuffers();
+                //else
+                //    freeActivationBuffers();
+            }
+
+            // Propagate to base (if implementation exists) - keep existing behavior
+            NetworkBase::onTrainingChanging( is_training );
         }
 
         /**
@@ -420,7 +511,7 @@ namespace Mila::CharLM
             batch_size_ = input_shape[ 0 ];
             seq_length_ = input_shape[ 1 ];
 
-            cached_embedding_shape_ = { batch_size_, seq_length_, config_.embedding_dim };
+            embedding_shape_ = { batch_size_, seq_length_, config_.embedding_dim };
             cached_output_shape_ = { batch_size_, seq_length_, config_.vocab_size };
 
             encoder_ = this->template getComponentAs<EncoderType>( this->getName() + ".encoder" );
@@ -430,26 +521,29 @@ namespace Mila::CharLM
             {
                 std::string block_name = this->getName() + ".layer" + std::to_string( i );
                 auto block = this->template getComponentAs<TransformerBlockType>( block_name );
-                block->build( cached_embedding_shape_ );
+                block->build( embedding_shape_ );
                 transformer_blocks_.push_back( block );
             }
 
             final_layernorm_ = this->template getComponentAs<LayerNormType>( this->getName() + ".final_layernorm" );
-            final_layernorm_->build( cached_embedding_shape_ );
+            final_layernorm_->build( embedding_shape_ );
 
             lm_head_ = this->template getComponentAs<LinearType>( this->getName() + ".lm_head" );
-            lm_head_->build( cached_embedding_shape_ );
+            lm_head_->build( embedding_shape_ );
 
-            auto device = this->getDeviceId();
+            auto device_id = this->getDeviceId();
 
-            embedded_ = std::make_shared<TensorType>( device, cached_embedding_shape_ );
+            embedded_ = std::make_shared<TensorType>( device_id, embedding_shape_ );
             embedded_->setName( this->getName() + ".embedded" );
 
-            transformer_output_ = std::make_shared<TensorType>( device, cached_embedding_shape_ );
+            transformer_output_ = std::make_shared<TensorType>( device_id, embedding_shape_ );
             transformer_output_->setName( this->getName() + ".transformer_output" );
 
-            normalized_ = std::make_shared<TensorType>( device, cached_embedding_shape_ );
+            normalized_ = std::make_shared<TensorType>( device_id, embedding_shape_ );
             normalized_->setName( this->getName() + ".normalized" );
+
+            // Allocate activation buffers
+            allocateActivationBuffers();
         }
 
     private:
@@ -459,7 +553,7 @@ namespace Mila::CharLM
         CharTransformerConfig config_;
 
         shape_t cached_input_shape_;
-        shape_t cached_embedding_shape_;
+        shape_t embedding_shape_;
         shape_t cached_output_shape_;
         int64_t batch_size_{ 0 };
         int64_t seq_length_{ 0 };
@@ -472,6 +566,12 @@ namespace Mila::CharLM
         std::shared_ptr<TensorType> embedded_{ nullptr };
         std::shared_ptr<TensorType> transformer_output_{ nullptr };
         std::shared_ptr<TensorType> normalized_{ nullptr };
+
+        // Activation storage used only in training mode:
+        // activations_[0] = encoder output, activations_[i+1] = output of block i
+        std::vector<std::shared_ptr<TensorType>> activations_;
+        // Per-activation gradients used during backward (same layout/size as activations_)
+        std::vector<std::shared_ptr<TensorType>> activation_grads_;
 
         /**
          * @brief Validate input shape for CharTransformer.
@@ -513,7 +613,7 @@ namespace Mila::CharLM
             enc_cfg.validate();
 
             auto encoder = std::make_shared<EncoderType>(
-                this->getName() + ".encoder", enc_cfg, std::nullopt );
+                this->getName() + ".encoder", enc_cfg );
 
             this->addComponent( encoder );
 
@@ -547,6 +647,46 @@ namespace Mila::CharLM
                 this->getName() + ".lm_head", lm_head_config, std::nullopt );
 
             this->addComponent( lm_head );
+        }
+
+        /**
+         * @brief Allocate per-layer activation and gradient buffers.
+         *
+         * Creates `num_layers + 1` buffers of shape `embedding_shape_`:
+         *   activations_[0] - encoder output
+         *   activations_[i+1] - output of transformer block i
+         *
+         * Also creates activation_grads_ with the same layout.
+         */
+        void allocateActivationBuffers()
+        {
+            // Avoid double allocation
+            if ( !activations_.empty() )
+                return;
+
+            size_t stages = transformer_blocks_.size() + 1;
+            activations_.resize( stages );
+            activation_grads_.resize( stages );
+
+            auto device_id = this->getDeviceId();
+
+            for ( size_t i = 0; i < stages; ++i )
+            {
+                activations_[ i ] = std::make_shared<TensorType>( device_id, embedding_shape_ );
+                activations_[ i ]->setName( this->getName() + ".activation." + std::to_string( i ) );
+
+                activation_grads_[ i ] = std::make_shared<TensorType>( device_id, embedding_shape_ );
+                activation_grads_[ i ]->setName( this->getName() + ".activation_grad." + std::to_string( i ) );
+
+                // Initialize grad buffers to zero
+                zeros( *activation_grads_[ i ] );
+            }
+        }
+
+        void freeActivationBuffers()
+        {
+            activations_.clear();
+            activation_grads_.clear();
         }
 
         /**

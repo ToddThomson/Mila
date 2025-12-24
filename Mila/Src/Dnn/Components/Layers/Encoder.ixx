@@ -81,8 +81,8 @@ namespace Mila::Dnn
          * @brief Construct Encoder component.
          *
          * Two modes:
-         * - Standalone: provide DeviceId and component will create and own an ExecutionContext.
-         * - Deferred/shared: omit DeviceId and caller must call setExecutionContext() before build().
+         * - Standalone mode: provide DeviceId and component will create and own an ExecutionContext.
+         * - Child mode: omit DeviceId and parent must call setExecutionContext() before build().
          *
          * @param name Component name identifier (mandatory)
          * @param config Encoder configuration
@@ -265,7 +265,7 @@ namespace Mila::Dnn
         // Parameter accessors
         // ====================================================================
 
-        std::shared_ptr<EmbeddingsTensorType> getTokenEmbedding() const noexcept
+        /*std::shared_ptr<EmbeddingsTensorType> getTokenEmbedding() const noexcept
         {
             return wte_;
         }
@@ -273,12 +273,12 @@ namespace Mila::Dnn
         std::shared_ptr<EmbeddingsTensorType> getPositionalEmbedding() const noexcept
         {
             return wpe_;
-        }
+        }*/
 
-        const EncoderConfig& getConfig() const noexcept
+        /*const EncoderConfig& getConfig() const noexcept
         {
             return config_;
-        }
+        }*/
 
         int64_t getVocabularyLength() const noexcept
         {
@@ -308,9 +308,8 @@ namespace Mila::Dnn
          */
         void onExecutionContextSet() override
         {
-            exec_context_ = this->getExecutionContext();
-
             initializeParameters();
+
             createOperation();
         }
 
@@ -318,15 +317,16 @@ namespace Mila::Dnn
         {
             validateInputShape( input_shape );
 
-            operation_->setTraining( this->isTraining() );
+            //operation_->setTraining( this->isTraining() );
 
             operation_->setParameters( wte_.get(), wpe_.get() );
 
-            if ( this->isTraining() )
-            {
-                initializeParameterGradients();
-                operation_->setGradients( wte_grad_.get(), wpe_grad_.get() );
-            }
+            // BUG: isTraining() is always false here during build
+            //if ( this->isTraining() )
+            //{
+            //    initializeParameterGradients();
+            //    operation_->setGradients( wte_grad_.get(), wpe_grad_.get() );
+            //}
 
             operation_->build( input_shape );
         }
@@ -347,8 +347,11 @@ namespace Mila::Dnn
             {
                 operation_->clearGradients();
 
-                wte_grad_.reset();
-                wpe_grad_.reset();
+                if ( wte_grad_ )
+                    zeros( *wte_grad_ );
+                
+                if ( wpe_grad_ )
+                    zeros( *wpe_grad_ );
             }
         }
 
@@ -362,7 +365,6 @@ namespace Mila::Dnn
         std::shared_ptr<EmbeddingsTensorType> wpe_grad_{ nullptr };
 
         std::shared_ptr<UnaryOperation<TDeviceType, TIndex, TPrecision>> operation_{ nullptr };
-        IExecutionContext* exec_context_{ nullptr };
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
 
         void validateInputShape( const ITensor& input ) const
@@ -414,13 +416,13 @@ namespace Mila::Dnn
             int64_t max_seq_len = config_.getMaxSequenceLength();
             int64_t embedding_dim = config_.getChannels();
 
-            auto device = this->getExecutionContext()->getDeviceId();
+            auto device_id = this->getExecutionContext()->getDeviceId();
 
-            wte_ = std::make_shared<EmbeddingsTensorType>( device, shape_t{ vocab_size, embedding_dim } );
+            wte_ = std::make_shared<EmbeddingsTensorType>( device_id, shape_t{ vocab_size, embedding_dim } );
             wte_->setName( this->getName() + ".wte" );
             xavier<TPrecision, MR>( *wte_, vocab_size, embedding_dim );
 
-            wpe_ = std::make_shared<EmbeddingsTensorType>( device, shape_t{ max_seq_len, embedding_dim } );
+            wpe_ = std::make_shared<EmbeddingsTensorType>( device_id, shape_t{ max_seq_len, embedding_dim } );
             wpe_->setName( this->getName() + ".wpe" );
             xavier<TPrecision, MR>( *wpe_, max_seq_len, embedding_dim );
         }
@@ -439,6 +441,4 @@ namespace Mila::Dnn
             }
         }
     };
-
-    // Convenience aliases for common usages (commented out)
 }

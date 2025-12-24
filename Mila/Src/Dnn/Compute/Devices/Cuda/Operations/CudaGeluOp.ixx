@@ -240,9 +240,9 @@ namespace Mila::Dnn::Compute
             return "Cuda::GeluOp";
         }
 
-        const GeluConfig& getConfig() const {
+        /*const GeluConfig& getConfig() const {
             return config_;
-        }
+        }*/
 
     private:
 

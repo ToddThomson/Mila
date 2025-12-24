@@ -223,7 +223,7 @@ namespace Mila::Dnn::Compute
             const int N_half2 = N / 2;
             const int grid_size = ceil_div( N_half2, block_size );
 
-            gelu_forward_fp16_vectorized_kernel << <grid_size, block_size, 0, stream >> > (
+            gelu_forward_fp16_vectorized_kernel<<<grid_size, block_size, 0, stream>>> (
                 reinterpret_cast<half2*>(Y),
                 reinterpret_cast<const half2*>(X),
                 N_half2);
@@ -254,7 +254,7 @@ namespace Mila::Dnn::Compute
         const int block_size = 128;
         const int grid_size = ceil_div( N, block_size );
 
-        gelu_backward_fp16_kernel << <grid_size, block_size, 0, stream >> > (dX, X, dY, N);
+        gelu_backward_fp16_kernel<<<grid_size, block_size, 0, stream>>> (dX, X, dY, N);
 
         cudaCheck( cudaGetLastError() );
     }

@@ -52,7 +52,7 @@ namespace Dnn::Components::Normalization::Tests
             // and own its own execution context for that DeviceId.
             auto temp_ctx = createExecutionContext( Device::Cuda( 0 ) );
             data.layer_norm = std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>( name, data.config, temp_ctx->getDeviceId() );
-            data.layer_norm->setTraining( is_training );
+            //data.layer_norm->setTraining( is_training );
 
             return data;
         }
@@ -77,7 +77,7 @@ namespace Dnn::Components::Normalization::Tests
 
             auto temp_ctx = createExecutionContext( Device::Cuda( 0 ) );
             data.layer_norm = std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>( name, data.config, temp_ctx->getDeviceId() );
-            data.layer_norm->setTraining( is_training );
+            //data.layer_norm->setTraining( is_training );
 
             return data;
         }
@@ -106,8 +106,6 @@ namespace Dnn::Components::Normalization::Tests
                 .withEpsilon( epsilon );
 
             data.layer_norm = std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>( name, data.config, context->getDeviceId() );
-
-            data.layer_norm->setTraining( is_training );
 
             return data;
         }
@@ -855,6 +853,7 @@ namespace Dnn::Components::Normalization::Tests
         }
 
         auto data = SmallFp32Data();
+        data.layer_norm->build( data.shape );
 
         EXPECT_FALSE( data.layer_norm->isTraining() );
 

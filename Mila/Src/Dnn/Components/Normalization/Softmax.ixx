@@ -314,10 +314,10 @@ namespace Mila::Dnn
          *
          * @return Reference to the SoftmaxConfig.
          */
-        const SoftmaxConfig& getConfig() const noexcept
+        /*const SoftmaxConfig& getConfig() const noexcept
         {
             return config_;
-        }
+        }*/
 
     protected:
 

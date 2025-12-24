@@ -122,7 +122,9 @@ namespace Components_Connections_Tests
                 Device::Cuda( 0 )
             );
 
-            fixture.component->setTraining( is_training );
+            // Note: do not call setTraining() here. Tests must call build() before setTraining()
+            // because setTraining() is propagated to the backend operation which is initialized
+            // during build/after the execution context is set.
 
             return fixture;
         }
@@ -270,6 +272,9 @@ namespace Components_Connections_Tests
         constexpr TensorDataType TPrecision = TypeParam::value;
 
         auto fixture = ResidualTestFixture<TPrecision>::Create( TestShape::Small() );
+
+        // Build before toggling training to satisfy backend operation lifecycle.
+        EXPECT_NO_THROW( fixture.component->build( fixture.shape() ) );
 
         EXPECT_FALSE( fixture.component->isTraining() );
 

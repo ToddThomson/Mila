@@ -169,6 +169,13 @@ add_executable( MilaTests
     #"Dnn/Serialization/ZipSerializer.cpp"
 
     # --------------------------------------------------------------
+    # Network Tests
+    # --------------------------------------------------------------
+    "Dnn/Network/Network.cpp"
+    #"Dnn/Modeling/Network.Cpu.cpp"
+    #"Dnn/Modeling/Network.Cuda.cpp"
+
+    # --------------------------------------------------------------
     # Modeling Tests
     # --------------------------------------------------------------
     #"Dnn/Modeling/Model.Cpu.cpp"
@@ -191,10 +198,10 @@ add_executable( MilaTests
     
 
     #"Dnn/Serialization/ModelArchive.cpp" 
-    #"Dnn/Modeling/Network.Cpu.cpp"
+    
    
     
-    "Dnn/Network/Network.cpp"
+    
 )
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )

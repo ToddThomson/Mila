@@ -799,7 +799,7 @@ namespace Dnn::Components::Layers::Tests
         auto& data = SmallFp32Data();
 
         EXPECT_FALSE( data.component->isTraining() );
-
+        data.component->build( data.input_shape );
         data.component->setTraining( true );
         EXPECT_TRUE( data.component->isTraining() );
 

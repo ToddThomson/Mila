@@ -230,6 +230,10 @@ namespace Dnn::Components::Tests
 
             if ( data.is_training )
             {
+                // Build before enabling training to satisfy Component lifecycle contract.
+                shape_t build_shape = { 2, 3 };
+                data.component->build( build_shape );
+
                 data.component->setTraining( true );
             }
 
@@ -255,6 +259,10 @@ namespace Dnn::Components::Tests
 
             if ( data.is_training )
             {
+                // Build before enabling training to satisfy Component lifecycle contract.
+                shape_t build_shape = { 2, 3 };
+                data.component->build( build_shape );
+
                 data.component->setTraining( true );
             }
 

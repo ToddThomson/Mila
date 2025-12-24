@@ -57,8 +57,10 @@ namespace Components::Layers::Tests
                 d.config,
                 Device::Cpu() );
 
-            if ( d.is_training )
+            /*if ( d.is_training ) {
+                d.module->build( d.input_shape );
                 d.module->setTraining( true );
+            }*/
 
             return d;
         }
@@ -120,7 +122,6 @@ namespace Components::Layers::Tests
     template<TensorDataType TPrecision>
     void TestBuildAndForward( EncoderCpuTestData<TPrecision>& d )
     {
-        // Build
         EXPECT_NO_THROW( d.module->build( d.input_shape ) );
         EXPECT_TRUE( d.module->isBuilt() );
 
@@ -151,8 +152,8 @@ namespace Components::Layers::Tests
     template<TensorDataType TPrecision>
     void TestTrainingGradAllocation( EncoderCpuTestData<TPrecision>& d )
     {
-        d.module->setTraining( true );
         d.module->build( d.input_shape );
+        d.module->setTraining( true );
 
         auto wte_grad = d.module->getWteGrad();
         auto wpe_grad = d.module->getWpeGrad();

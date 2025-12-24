@@ -138,7 +138,8 @@ namespace Components_Normalization_Tests
                 Device::Cuda( 0 )
             );
 
-            fixture.component->setTraining( is_training );
+            // NOTE: do not call setTraining() here. The backend operation is created
+            // during build(), so tests must call build() before enabling training.
 
             return fixture;
         }
@@ -297,6 +298,10 @@ namespace Components_Normalization_Tests
         TestShape test_shape = TestShape::Small();
         auto fixture = SoftmaxTestFixture<TPrecision>::Create( test_shape, -1, true );
 
+        // Build then enable training so the backend operation receives the flag
+        fixture.component->build( fixture.shape() );
+        fixture.component->setTraining( true );
+
         EXPECT_TRUE( fixture.component->isTraining() );
     }
 
@@ -311,6 +316,9 @@ namespace Components_Normalization_Tests
 
         TestShape test_shape = TestShape::Small();
         auto fixture = SoftmaxTestFixture<TPrecision>::Create( test_shape );
+
+        // Build before toggling training to satisfy backend lifecycle.
+        fixture.component->build( fixture.shape() );
 
         EXPECT_FALSE( fixture.component->isTraining() );
 

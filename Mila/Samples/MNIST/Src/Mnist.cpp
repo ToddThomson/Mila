@@ -338,9 +338,7 @@ void trainMnist( const MnistConfig& config )
     std::cout << "Mnist Classifier built successfully!" << std::endl;
     std::cout << mnist_net->toString() << std::endl;
 
-    // Set training mode
-    // REVIEW: This seems a bit brittle as the Optimizer and the getParameters()
-    //         and getGradients() methods depend on the model being in training mode
+    // After building, set training mode
     mnist_net->setTraining( true );
 
     // ============================================================

@@ -262,8 +262,9 @@ import Mila;
         copy( host_input, input );
         copy( host_output_grad, output_grad );
 
-        gelu->setTraining( true );
+        // Build before enabling training to satisfy Component lifecycle contract.
         gelu->build( shape );
+        gelu->setTraining( true );
         gelu->forward( input, output );
 
         EXPECT_NO_THROW( gelu->backward( input, output_grad, input_grad ) );
@@ -287,8 +288,9 @@ import Mila;
         Tensor<TensorDataType::FP32, MR> output_grad( cuda_device, shape );
         Tensor<TensorDataType::FP32, MR> input_grad( cuda_device, shape );
 
-        gelu->setTraining( true );
+        // Build before enabling training to satisfy Component lifecycle contract.
         gelu->build( shape );
+        gelu->setTraining( true );
         gelu->forward( input, output );
         gelu->backward( input, output_grad, input_grad );
 
@@ -330,8 +332,9 @@ import Mila;
         copy( host_output_grad, output_grad );
         copy( host_input_grad, input_grad );
 
-        gelu->setTraining( true );
+        // Build before enabling training to satisfy Component lifecycle contract.
         gelu->build( shape );
+        gelu->setTraining( true );
         gelu->forward( input, output );
         gelu->backward( input, output_grad, input_grad );
 
@@ -386,8 +389,9 @@ import Mila;
         copy( host_input, input );
         copy( host_output_grad, output_grad );
 
-        gelu->setTraining( true );
+        // Build before enabling training to satisfy Component lifecycle contract.
         gelu->build( shape );
+        gelu->setTraining( true );
         gelu->forward( input, output );
         gelu->backward( input, output_grad, input_grad );
 
@@ -439,8 +443,9 @@ import Mila;
         copy( host_input, input );
         copy( host_output_grad, output_grad );
 
-        gelu->setTraining( true );
+        // Build before enabling training to satisfy Component lifecycle contract.
         gelu->build( shape );
+        gelu->setTraining( true );
 
         gelu->forward( input, output );
         gelu->backward( input, output_grad, input_grad );
@@ -487,8 +492,9 @@ import Mila;
         copy( host_input, input );
         copy( host_output_grad, output_grad );
 
-        gelu->setTraining( true );
+        // Build before enabling training to satisfy Component lifecycle contract.
         gelu->build( shape );
+        gelu->setTraining( true );
 
         EXPECT_NO_THROW( gelu->forward( input, output ) );
         EXPECT_NO_THROW( gelu->backward( input, output_grad, input_grad ) );

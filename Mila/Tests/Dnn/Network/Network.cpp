@@ -584,6 +584,8 @@ namespace Dnn::Networks::Tests
         net.addTestComponent( "t2", 0 );
         net.finalizeConstruction();
 
+        net.build( { 1 } );
+
         auto comp1 = net.getComponent( "t1" );
         auto comp2 = net.getComponent( "t2" );
 

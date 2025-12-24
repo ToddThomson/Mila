@@ -60,7 +60,7 @@ namespace Mila::Dnn
         /**
          * @brief Memory resource type used for tensors, selected based on device type.
          */
-        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
+        using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
 
         /**
          * @brief Alias for base Component type.

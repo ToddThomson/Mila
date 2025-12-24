@@ -369,6 +369,9 @@ namespace Mila::Dnn::Compute::Cuda
             constexpr size_t element_size = TensorDataTypeTraits<TDataType>::size_in_bytes;
             const size_t bytes = count * element_size;
 
+            // DEBUG: Check for any previous CUDA errors
+            cudaCheckLastError( std::source_location::current() );
+
             cudaError_t status = cudaMemcpyAsync(
                 dst_data, src_data, bytes,
                 cudaMemcpyDeviceToHost,

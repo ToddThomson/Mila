@@ -147,8 +147,8 @@ namespace Components_Layers_Attention_Tests
                 Device::Cuda( 0 )
             );
 
-            fixture.component->setTraining( is_training );
-
+            // Do not call setTraining() here. The backend operation is created during build(),
+            // and setTraining() must be called after build() to propagate the training flag.
             return fixture;
         }
 
@@ -278,6 +278,9 @@ namespace Components_Layers_Attention_Tests
 
         auto fixture = AttentionTestFixture<TPrecision>::Create( TestShape::Small(), false );
 
+        // Build before checking/propagating training state to backend operation
+        fixture.component->build( fixture.input_shape() );
+
         EXPECT_FALSE( fixture.component->isTraining() );
     }
 
@@ -289,6 +292,10 @@ namespace Components_Layers_Attention_Tests
 
         auto fixture = AttentionTestFixture<TPrecision>::Create( TestShape::Small(), true );
 
+        // Build then enable training so the backend operation receives the flag
+        fixture.component->build( fixture.input_shape() );
+        fixture.component->setTraining( true );
+
         EXPECT_TRUE( fixture.component->isTraining() );
     }
 
@@ -299,6 +306,9 @@ namespace Components_Layers_Attention_Tests
         constexpr TensorDataType TPrecision = TypeParam::value;
 
         auto fixture = AttentionTestFixture<TPrecision>::Create( TestShape::Small(), false );
+
+        // Build before toggling training to satisfy backend lifecycle.
+        fixture.component->build( fixture.input_shape() );
 
         EXPECT_FALSE( fixture.component->isTraining() );
 

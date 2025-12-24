@@ -133,6 +133,16 @@ namespace Mila::Dnn
 
         ~Network() override = default;
 
+        /**
+         * @brief Synchronize all child components.
+         *
+         * Waits for outstanding device operations on all children.
+         */
+        void synchronize() override
+        {
+            this->getExecutionContext()->synchronize();
+        }
+
         // ====================================================================
         // Training Setup
         // ====================================================================

@@ -29,6 +29,7 @@ import Dnn.TensorTypes;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
+import Compute.DeviceTypeTraits;
 import Compute.IExecutionContext;
 import Compute.ExecutionContextFactory;
 import Compute.UnaryOperation;
@@ -89,7 +90,7 @@ namespace Mila::Dnn
     class Gelu : public Component<TDeviceType, TPrecision>
     {
     public:
-        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
+        using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using TensorType = Tensor<TPrecision, MR>;
         using ComponentBase = Component<TDeviceType, TPrecision>;
 

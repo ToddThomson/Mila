@@ -174,7 +174,12 @@ namespace CompositeComponents_Tests
                 Device::Cpu()
             );
 
-            fixture.component->setTraining( is_training );
+            // Build before enabling training to satisfy Component lifecycle contract.
+            if ( fixture.is_training )
+            {
+                fixture.component->build( fixture.shape() );
+                fixture.component->setTraining( true );
+            }
 
             return fixture;
         }
@@ -214,7 +219,13 @@ namespace CompositeComponents_Tests
             );
 
             fixture.component = fixture.network->getTransformer();
-            fixture.network->setTraining( is_training );
+
+            // Build network before enabling training to satisfy Component lifecycle contract.
+            if ( fixture.is_training )
+            {
+                fixture.network->build( fixture.shape() );
+                fixture.network->setTraining( true );
+            }
 
             return fixture;
         }
@@ -422,6 +433,9 @@ namespace CompositeComponents_Tests
         );
 
         EXPECT_FALSE( fixture.component->isTraining() );
+
+        // Build before enabling training to satisfy Component lifecycle contract.
+        fixture.component->build( fixture.shape() );
 
         fixture.component->setTraining( true );
         EXPECT_TRUE( fixture.component->isTraining() );

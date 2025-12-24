@@ -200,7 +200,7 @@ bool parseCommandLine( int argc, char** argv, CharLMConfig& config )
 template<TensorDataType TDataType>
 void sequenceCrossEntropyGradient(
     const Tensor<TDataType, CpuMemoryResource>& logits,
-    const Tensor<TDataType, CpuMemoryResource>& targets,
+    const Tensor<TensorDataType::INT32, CpuMemoryResource>& targets,
     Tensor<TDataType, CpuMemoryResource>& output_grad )
 {
     using HostType = typename TensorHostTypeMap<TDataType>::host_type;
@@ -245,7 +245,7 @@ void sequenceCrossEntropyGradient(
 template<TensorDataType TDataType>
 float sequenceCrossEntropyLoss(
     const Tensor<TDataType, CpuMemoryResource>& logits,
-    const Tensor<TDataType, CpuMemoryResource>& targets )
+    const Tensor<TensorDataType::INT32, CpuMemoryResource>& targets )
 {
     size_t batch_size = logits.shape()[0];
     size_t seq_length = logits.shape()[1];
@@ -294,7 +294,8 @@ void trainCharLM( const CharLMConfig& config )
     using DeviceMR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
     DeviceId device_id = Device::getDeviceId<TDeviceType>(0);
 
-    CharDataLoader<TensorDataType::FP32, THostMR> train_loader(
+    // Data loader should produce INT32 token indices (tokens/targets) on host memory resource
+    CharDataLoader<THostMR> train_loader(
         config.data_file,
         config.batch_size,
         config.seq_length,
@@ -341,12 +342,16 @@ void trainCharLM( const CharLMConfig& config )
     shape_t sequence_shape = { config.batch_size, config.seq_length };
     shape_t logits_shape = { config.batch_size, config.seq_length, static_cast<int64_t>(actual_vocab_size) };
 
-    Tensor<TDataType, DeviceMR> input_batch( device_id, sequence_shape );
-    Tensor<TDataType, DeviceMR> target_batch( device_id, sequence_shape );
+    // Inputs/targets are token indices (INT32) on device
+    Tensor<TensorDataType::INT32, DeviceMR> input_batch( device_id, sequence_shape );
+    Tensor<TensorDataType::INT32, DeviceMR> target_batch( device_id, sequence_shape );
+
+    // Model output / logits use the model numeric type
     Tensor<TDataType, DeviceMR> output( device_id, logits_shape );
 
+    // Host copies for loss computation: logits host in model numeric type, targets host as INT32
     Tensor<TDataType, CpuMemoryResource> logits_cpu( Device::Cpu(), logits_shape );
-    Tensor<TDataType, CpuMemoryResource> targets_cpu( Device::Cpu(), sequence_shape );
+    Tensor<TensorDataType::INT32, CpuMemoryResource> targets_cpu( Device::Cpu(), sequence_shape );
 
     Tensor<TDataType, CpuMemoryResource> output_grad_cpu( Device::Cpu(), logits_shape );
     Tensor<TDataType, DeviceMR> output_grad( device_id, logits_shape );

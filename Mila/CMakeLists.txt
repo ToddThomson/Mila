@@ -41,7 +41,6 @@ add_library( Mila STATIC
     #--------------------------------------------------------------------------
     "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaOptimizers.h"
     "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaAdamW.cu"
-    
 )
 
  set_target_properties( Mila PROPERTIES

@@ -107,7 +107,9 @@ namespace Components_Normalization_Tests
                 fixture.config,
                 Device::Cpu() );
 
-            fixture.component->setTraining( is_training );
+            // Note: Do not call setTraining() here. Tests must call build() before setTraining()
+            // because setTraining() is propagated to the backend operation which is initialized
+            // during build().
 
             return fixture;
         }
@@ -159,6 +161,12 @@ namespace Components_Normalization_Tests
             {
                 TestShape shape = TestShape::FromSize( size );
                 auto fixture = SoftmaxTestFixture::Create( shape, default_axis_, true );
+
+                // Build the component before enabling training so the backend operation
+                // is initialized and can receive the training flag and gradient setup.
+                fixture.component->build( fixture.shape() );
+                fixture.component->setTraining( true );
+
                 auto result = training_fixtures_.emplace( size, std::move( fixture ) );
                 it = result.first;
             }
@@ -295,6 +303,9 @@ namespace Components_Normalization_Tests
     TEST_F( SoftmaxCpuTests, SetTraining_TogglingMode_UpdatesState )
     {
         auto& fixture = GetInferenceFixture( TestShapeSize::Small );
+
+        // Build before toggling training so the backend operation is initialized.
+        fixture.component->build( fixture.shape() );
 
         EXPECT_FALSE( fixture.component->isTraining() );
 

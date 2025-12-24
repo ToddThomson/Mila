@@ -274,8 +274,8 @@ namespace Dnn::Components::Layers::Tests
     template<TensorDataType TPrecision>
     void TestGetWeightGrad( LinearCpuTestData<TPrecision>& data )
     {
-        data.component->setTraining( true );
         data.component->build( data.input_shape );
+        data.component->setTraining( true );
 
         auto weight_grad = data.component->getWeightGrad();
 
@@ -287,8 +287,8 @@ namespace Dnn::Components::Layers::Tests
     template<TensorDataType TPrecision>
     void TestGetBiasGrad( LinearCpuTestData<TPrecision>& data )
     {
-        data.component->setTraining( true );
         data.component->build( data.input_shape );
+        data.component->setTraining( true );
 
         auto bias_grad = data.component->getBiasGrad();
 
@@ -308,8 +308,8 @@ namespace Dnn::Components::Layers::Tests
     {
         using TensorType = CpuTensor<TPrecision>;
 
-        data.component->setTraining( true );
         data.component->build( data.input_shape );
+        data.component->setTraining( true );
 
         TensorType input( Device::Cpu(), data.input_shape );
         TensorType output( Device::Cpu(), data.output_shape );
@@ -607,6 +607,7 @@ namespace Dnn::Components::Layers::Tests
 
         EXPECT_FALSE( data.component->isTraining() );
 
+        data.component->build( data.input_shape );
         data.component->setTraining( true );
         EXPECT_TRUE( data.component->isTraining() );
 
@@ -689,8 +690,8 @@ namespace Dnn::Components::Layers::Tests
     {
         auto& data = SmallFp32Data();
 
-        data.component->setTraining( true );
         data.component->build( data.input_shape );
+        data.component->setTraining( true );
 
         CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.input_shape );
         CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.output_shape );
@@ -727,7 +728,7 @@ namespace Dnn::Components::Layers::Tests
 
         auto data = LinearCpuTestData<TensorDataType::FP32>::Create(
             "batch1_backward_cpu", shape, 16, 32 );
-
+        
         TestBackward( data );
     }
 
@@ -781,10 +782,9 @@ namespace Dnn::Components::Layers::Tests
     {
         auto& data = SmallFp32Data();
 
+        data.component->build( data.input_shape );
         data.component->setTraining( true );
         EXPECT_TRUE( data.component->isTraining() );
-
-        data.component->build( data.input_shape );
 
         auto weight_grad = data.component->getWeightGrad();
         ASSERT_NE( weight_grad, nullptr ) << "Weight gradients should be allocated when training enabled before build";

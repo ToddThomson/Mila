@@ -29,6 +29,7 @@ import Compute.Precision;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
+import Compute.DeviceTypeTraits;
 import Compute.ExecutionContextFactory;
 import Compute.IExecutionContext;
 import Compute.UnaryOperation;
@@ -76,7 +77,7 @@ namespace Mila::Dnn
     {
     public:
         using ComponentBase = Component<TDeviceType, TPrecision>;
-        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
+        using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using TensorType = Tensor<TPrecision, MR>;
 
         /**

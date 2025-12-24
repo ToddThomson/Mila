@@ -34,9 +34,11 @@ namespace Mila::Dnn::Compute
      * @param T Sequence length
      * @param C Hidden dimension size (must be divisible by 4)
      */
-    __global__ void encoder_forward_fp32_kernel( float4* Y,
-        const int* X, const float4* Wte, const float4* Wpe,
-        int B, int T, int C ) {
+    __global__ void encoder_forward_fp32_kernel( 
+        float4* Y, const int* X, 
+        const float4* Wte, const float4* Wpe,
+        int B, int T, int C )
+    {
         int C4 = C / 4;
         int idx = blockIdx.x * blockDim.x + threadIdx.x;
         int N = B * T * C4;
@@ -116,11 +118,11 @@ namespace Mila::Dnn::Compute
 
         // FP32 implementation
         assert( C % 4 == 0 );
-        const int block_size = 512;
+        const int block_size = 128; // 512;
         const int N = B * T * C;
         const int grid_size = ceil_div( N / 4, block_size );
 
-        encoder_forward_fp32_kernel << <grid_size, block_size, 0, stream >> > (
+        encoder_forward_fp32_kernel<<<grid_size, block_size, 0, stream>>> (
             reinterpret_cast<float4*>(Y),
             X,
             reinterpret_cast<const float4*>(Wte),

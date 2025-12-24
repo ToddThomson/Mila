@@ -25,6 +25,7 @@ import Compute.DeviceType;
 import Compute.CudaDeviceResources;
 import Compute.DeviceRegistry;
 import Cuda.Helpers;
+import Cuda.Error;
 
 namespace Mila::Dnn::Compute
 {
@@ -97,7 +98,11 @@ namespace Mila::Dnn::Compute
          */
         void synchronize() override
         {
+            cudaCheckLastError();
+
             Cuda::setCurrentDevice( device_id_.index );
+
+            cudaCheckLastError();
             
             cudaError_t error = cudaStreamSynchronize( stream_ );
 

@@ -45,7 +45,6 @@ namespace Mila::Dnn::Compute
     {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
-
         // Concrete tensor aliases for implementers to use (typed, device-aware)
         using TensorOutputType = Tensor<TPrecision, MR>;
         using TensorInputType  = Tensor<TInput, MR>;

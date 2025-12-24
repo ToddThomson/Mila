@@ -171,7 +171,8 @@ namespace Mila::Dnn
             if ( this->hasExecutionContext() )
             {
                 component->setExecutionContext( this->getExecutionContext() );
-                component->setTraining( this->isTraining() );
+                // This is a bug: setTraining cannot be called until after build()!
+                // component->setTraining( this->isTraining() );
             }
 
             std::string name = component->getName();
@@ -447,10 +448,9 @@ namespace Mila::Dnn
          */
         void synchronize() override
         {
-            for ( auto& component : child_components_ )
-            {
-                component->synchronize();
-            }
+            // All children share this composite's ExecutionContext and stream
+            // One synchronization is sufficient due to CUDA stream ordering
+            this->getExecutionContext()->synchronize();
         }
 
         // ====================================================================
