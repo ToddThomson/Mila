@@ -303,29 +303,36 @@ namespace Mila::CharLM
 
             auto device = this->getDeviceId();
 
-            // Grad through lm_head: normalized_ -> normalized_grad
+            // 1. Backprop through lm_head (final linear layer)
+            //    Input:  output_grad = ?Loss/?logits (from loss function)
+            //    Output: normalized_grad = ?Loss/?normalized
             TensorType normalized_grad( device, embedding_shape_ );
             zeros( normalized_grad );
             lm_head_->backward( *normalized_, output_grad, normalized_grad );
 
-            // Grad through final layernorm: last activation -> grad for last activation
+            // 2. Backprop through final layer norm
+            //    Input:  normalized_grad = ?Loss/?normalized
+            //    Output: activation_grads_.back() = ?Loss/?(last transformer block output)
             zeros( *activation_grads_.back() );
             final_layernorm_->backward( *activations_.back(), normalized_grad, *activation_grads_.back() );
 
-            // Backprop through transformer blocks in reverse order
+            // 3. Backprop through transformer blocks (in reverse order)
+            //    Each block takes gradient w.r.t. its output and produces gradient w.r.t. its input
             for ( int64_t i = static_cast<int64_t>( transformer_blocks_.size() ) - 1; i >= 0; --i )
             {
-                // transformer_blocks_[i] expects: input activation, output grad, produces input grad
-                transformer_blocks_[ static_cast<size_t>( i ) ]->backward(
-                    *activations_[ static_cast<size_t>( i ) ],
-                    *activation_grads_[ static_cast<size_t>( i + 1 ) ],
-                    *activation_grads_[ static_cast<size_t>( i ) ] );
+                transformer_blocks_[ i ]->backward(
+                    *activations_[ i ],           // Forward input to this block
+                    *activation_grads_[ i + 1 ],  // ?Loss/?(block output)
+                    *activation_grads_[ i ]       // ?Loss/?(block input) ? computed here
+                );
             }
 
-            // Finally backprop through encoder using gradient computed for activation 0
+            // 4. Backprop through encoder (token embedding layer)
+            //    Input:  activation_grads_[0] = ?Loss/?embeddings
+            //    Output: Updates encoder's embedding table gradients
             encoder_->backward( input, *activation_grads_[0] );
 
-            // Zero any user-provided input_grad tensor (encoder produces no input gradients)
+            // 5. Zero the input gradient (encoder doesn't produce gradients w.r.t. token indices)
             if ( auto* in_t = dynamic_cast<TensorType*>(&input_grad) )
             {
                 zeros( *in_t );

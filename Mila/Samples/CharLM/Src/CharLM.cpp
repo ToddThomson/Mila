@@ -21,6 +21,7 @@ import Mila;
 
 import CharLM.Transformer;
 import CharLM.CharDataLoader;
+import CharLM.Vocabulary;
 
 namespace fs = std::filesystem;
 
@@ -48,6 +49,10 @@ struct CharLMConfig
     int64_t num_heads = 4;
     int64_t num_layers = 4;
     int64_t mlp_hidden_dim = 1024;
+
+    float sample_temperature = 0.8f;
+    int64_t sample_length = 300;
+    std::string sample_prompt = "ROMEO:\n";
 };
 
 void printUsage()
@@ -67,6 +72,8 @@ void printUsage()
     std::cout << "  --embedding-dim <int>    Embedding dimension (default: 256)\n";
     std::cout << "  --num-heads <int>        Number of attention heads (default: 4)\n";
     std::cout << "  --num-layers <int>       Number of transformer layers (default: 4)\n";
+    std::cout << "  --sample-temperature <float> Sampling temperature (default: 0.8)\n";
+    std::cout << "  --sample-length <int>    Length of generated samples (default: 300)\n";
     std::cout << "  --help                   Show this help message\n";
 }
 
@@ -165,6 +172,14 @@ bool parseCommandLine( int argc, char** argv, CharLMConfig& config )
         {
             config.num_layers = std::stoi( argv[++i] );
         }
+        else if (arg == "--sample-temperature" && i + 1 < argc)
+        {
+            config.sample_temperature = std::stof( argv[++i] );
+        }
+        else if (arg == "--sample-length" && i + 1 < argc)
+        {
+            config.sample_length = std::stoi( argv[++i] );
+        }
         else if (arg.substr( 0, 2 ) == "--")
         {
             std::cerr << "Unknown option: " << arg << std::endl;
@@ -186,6 +201,8 @@ bool parseCommandLine( int argc, char** argv, CharLMConfig& config )
     std::cout << "  Embedding dimension: " << config.embedding_dim << std::endl;
     std::cout << "  Number of heads: " << config.num_heads << std::endl;
     std::cout << "  Number of layers: " << config.num_layers << std::endl;
+    std::cout << "  Sample temperature: " << config.sample_temperature << std::endl;
+    std::cout << "  Sample length: " << config.sample_length << std::endl;
 
     if (!fs::exists( config.data_file ))
     {
@@ -286,6 +303,138 @@ float computePerplexity( float loss )
     return std::exp( loss );
 }
 
+template<TensorDataType TDataType>
+int32_t sampleFromLogits(
+    const typename TensorHostTypeMap<TDataType>::host_type* logits_ptr,
+    size_t vocab_size,
+    float temperature,
+    std::mt19937& rng )
+{
+    using HostType = typename TensorHostTypeMap<TDataType>::host_type;
+
+    float max_logit = -std::numeric_limits<float>::infinity();
+    for ( size_t v = 0; v < vocab_size; ++v )
+    {
+        max_logit = std::max( max_logit, static_cast<float>( logits_ptr[ v ] ) );
+    }
+
+    std::vector<float> probs( vocab_size );
+    float sum = 0.0f;
+
+    for ( size_t v = 0; v < vocab_size; ++v )
+    {
+        float scaled_logit = (static_cast<float>( logits_ptr[ v ] ) - max_logit) / temperature;
+        probs[ v ] = std::exp( scaled_logit );
+        sum += probs[ v ];
+    }
+
+    for ( size_t v = 0; v < vocab_size; ++v )
+    {
+        probs[ v ] /= sum;
+    }
+
+    std::uniform_real_distribution<float> dist( 0.0f, 1.0f );
+    float sample = dist( rng );
+    float cumsum = 0.0f;
+
+    for ( size_t v = 0; v < vocab_size; ++v )
+    {
+        cumsum += probs[ v ];
+        if ( sample < cumsum )
+        {
+            return static_cast<int32_t>( v );
+        }
+    }
+
+    return static_cast<int32_t>( vocab_size - 1 );
+}
+
+template<DeviceType TDeviceType, TensorDataType TDataType, typename THostMR>
+    requires PrecisionSupportedOnDevice<TDataType, TDeviceType> &&
+             (std::is_same_v<THostMR, CudaPinnedMemoryResource> || std::is_same_v<THostMR, CpuMemoryResource>)
+std::string generateSample(
+    CharTransformer<TDeviceType, TDataType>* model,
+    const CharVocabulary& vocab,
+    DeviceId device_id,
+    const CharLMConfig& config,
+    size_t epoch )
+{
+    using DeviceMR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
+
+    bool was_training = model->isTraining();
+    model->setTraining( false );
+
+    std::vector<int32_t> prompt_tokens;
+    for (char c : config.sample_prompt)
+    {
+        prompt_tokens.push_back( vocab.charToIndex( c ) );
+    }
+
+    std::vector<int32_t> generated_tokens = prompt_tokens;
+    std::mt19937 rng( static_cast<unsigned int>( epoch ) );
+
+    size_t vocab_size = vocab.size();
+    int64_t max_context = std::min( static_cast<int64_t>( generated_tokens.size() ), config.seq_length );
+
+    shape_t context_shape = { 1, max_context };
+    shape_t logits_shape = { 1, max_context, static_cast<int64_t>( vocab_size ) };
+
+    Tensor<TensorDataType::INT32, DeviceMR> context_device( device_id, context_shape );
+    Tensor<TDataType, DeviceMR> logits_device( device_id, logits_shape );
+    Tensor<TDataType, CpuMemoryResource> logits_cpu( Device::Cpu(), logits_shape );
+
+    for (int64_t i = 0; i < config.sample_length; ++i)
+    {
+        int64_t context_start = std::max( int64_t( 0 ), static_cast<int64_t>( generated_tokens.size() ) - config.seq_length );
+        int64_t context_len = static_cast<int64_t>( generated_tokens.size() ) - context_start;
+
+        context_shape = { 1, context_len };
+        logits_shape = { 1, context_len, static_cast<int64_t>( vocab_size ) };
+
+        context_device = Tensor<TensorDataType::INT32, DeviceMR>( device_id, context_shape );
+        logits_device = Tensor<TDataType, DeviceMR>( device_id, logits_shape );
+        logits_cpu = Tensor<TDataType, CpuMemoryResource>( Device::Cpu(), logits_shape );
+
+        Tensor<TensorDataType::INT32, CpuMemoryResource> context_cpu( Device::Cpu(), context_shape );
+        for (int64_t j = 0; j < context_len; ++j)
+        {
+            context_cpu.data()[j] = generated_tokens[context_start + j];
+        }
+
+        copy( context_cpu, context_device );
+
+        model->forward( context_device, logits_device );
+        model->synchronize();
+
+        copy( logits_device, logits_cpu );
+
+        // Calculate offset to last token's logits in the flattened array
+        size_t last_token_offset = (context_len - 1) * vocab_size;
+
+        // Sample directly from the pointer at the last token position
+        int32_t next_token = sampleFromLogits<TDataType>(
+            logits_cpu.data() + last_token_offset,
+            vocab_size,
+            config.sample_temperature,
+            rng );
+
+        generated_tokens.push_back( next_token );
+    }
+
+    std::string generated_text;
+    for (int32_t token : generated_tokens)
+    {
+        generated_text += vocab.indexToChar( token );
+    }
+
+    if (was_training)
+    {
+        model->setTraining( true );
+    }
+
+    return generated_text;
+}
+
 template<DeviceType TDeviceType, TensorDataType TDataType, typename THostMR>
     requires PrecisionSupportedOnDevice<TDataType, TDeviceType> &&
              (std::is_same_v<THostMR, CudaPinnedMemoryResource> || std::is_same_v<THostMR, CpuMemoryResource>)
@@ -294,7 +443,6 @@ void trainCharLM( const CharLMConfig& config )
     using DeviceMR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
     DeviceId device_id = Device::getDeviceId<TDeviceType>(0);
 
-    // Data loader should produce INT32 token indices (tokens/targets) on host memory resource
     CharDataLoader<THostMR> train_loader(
         config.data_file,
         config.batch_size,
@@ -306,6 +454,11 @@ void trainCharLM( const CharLMConfig& config )
 
     size_t actual_vocab_size = train_loader.vocabSize();
     std::cout << "Actual vocabulary size from data: " << actual_vocab_size << std::endl;
+
+    std::string vocab_file = config.data_file + ".vocab";
+    CharVocabulary vocab;
+    vocab.load( vocab_file );
+    std::cout << "Loaded vocabulary from: " << vocab_file << std::endl;
 
     CharTransformerConfig model_config;
     model_config.vocab_size = actual_vocab_size;
@@ -326,7 +479,6 @@ void trainCharLM( const CharLMConfig& config )
     std::cout << "Model built successfully!" << std::endl;
     std::cout << model->toString() << std::endl;
 
-    // Create optimizer (automatic training mode + registration)
     auto optimizer = model->createOptimizer<AdamWOptimizer<TDeviceType, TDataType>>(
         AdamWConfig()
             .withLearningRate( config.learning_rate )
@@ -342,17 +494,11 @@ void trainCharLM( const CharLMConfig& config )
     shape_t sequence_shape = { config.batch_size, config.seq_length };
     shape_t logits_shape = { config.batch_size, config.seq_length, static_cast<int64_t>(actual_vocab_size) };
 
-    // Inputs/targets are token indices (INT32) on device
     Tensor<TensorDataType::INT32, DeviceMR> input_batch( device_id, sequence_shape );
     Tensor<TensorDataType::INT32, DeviceMR> target_batch( device_id, sequence_shape );
-
-    // Model output / logits use the model numeric type
     Tensor<TDataType, DeviceMR> output( device_id, logits_shape );
-
-    // Host copies for loss computation: logits host in model numeric type, targets host as INT32
     Tensor<TDataType, CpuMemoryResource> logits_cpu( Device::Cpu(), logits_shape );
     Tensor<TensorDataType::INT32, CpuMemoryResource> targets_cpu( Device::Cpu(), sequence_shape );
-
     Tensor<TDataType, CpuMemoryResource> output_grad_cpu( Device::Cpu(), logits_shape );
     Tensor<TDataType, DeviceMR> output_grad( device_id, logits_shape );
     Tensor<TDataType, DeviceMR> input_grad( device_id, sequence_shape );
@@ -423,6 +569,16 @@ void trainCharLM( const CharLMConfig& config )
             << " - Avg Perplexity: " << std::setprecision( 2 ) << epoch_perplexity
             << " - LR: " << std::scientific << std::setprecision( 3 ) << optimizer->getLearningRate()
             << std::endl;
+
+        std::cout << "\n--- Generated Sample (Epoch " << (epoch + 1) << ") ---" << std::endl;
+        /*std::string sample = generateSample<TDeviceType, TDataType, THostMR>(
+            model.get(),
+            vocab,
+            device_id,
+            config,
+            epoch );*/
+        //std::cout << sample << std::endl;
+        std::cout << "--- End Sample ---\n" << std::endl;
     }
 
     std::cout << "Training complete!" << std::endl;

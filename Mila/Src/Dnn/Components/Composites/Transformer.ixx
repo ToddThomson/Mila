@@ -121,22 +121,19 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Transformer must be built before forward()." );
             }
 
-            TensorType const& in_t = static_cast<TensorType const&>(input);
-            TensorType& out_t = static_cast<TensorType&>(output);
-
-            ln1_->forward( in_t, *ln1_output_ );
+            ln1_->forward( input, *ln1_output_ );
 
             qkv_proj_->forward( *ln1_output_, *qkv_output_ );
 
             attn_->forward( *qkv_output_, *attn_output_ );
 
-            res1_->forward( in_t, *attn_output_, *res1_output_ );
+            res1_->forward( input, *attn_output_, *res1_output_ );
 
             ln2_->forward( *res1_output_, *ln2_output_ );
 
             ffn_->forward( *ln2_output_, *ffn_output_ );
 
-            res2_->forward( *res1_output_, *ffn_output_, out_t );
+            res2_->forward( *res1_output_, *ffn_output_, output );
 
             forward_executed_ = this->isTraining();
         }
@@ -158,25 +155,20 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Transformer::backward: a training-mode forward() must be executed before backward()" );
             }
 
-            const TensorType& in_t = static_cast<const TensorType&>(input);
-            const TensorType& out_grad_t = static_cast<const TensorType&>(output_grad);
-            TensorType& in_grad_t = static_cast<TensorType&>(input_grad);
-
             auto device = this->getDeviceId();
 
             const shape_t& act_shape = cached_input_shape_;
             shape_t qkv_shape = act_shape;
             qkv_shape.back() = static_cast<int64_t>(config_.getEmbeddingDim() * 3);
 
-            // d_res1 and d_ffn initialized from d_out
             TensorType d_res1( device, act_shape );
             TensorType d_ffn( device, act_shape );
 
             zeros( d_res1 );
             zeros( d_ffn );
 
-            copy( out_grad_t, d_res1 );
-            copy( out_grad_t, d_ffn );
+            copy( static_cast<const TensorType&>(output_grad), d_res1 );
+            copy( static_cast<const TensorType&>(output_grad), d_ffn );
 
             TensorType d_ln2( device, act_shape );
             zeros( d_ln2 );
@@ -191,7 +183,6 @@ namespace Mila::Dnn
             TensorType d_res1_total( device, act_shape );
             zeros( d_res1_total );
 
-            // use residual forward to sum the two contributors
             res1_->forward( d_res1, d_res1_from_ln2, d_res1_total );
 
             TensorType d_in_from_res( device, act_shape );
@@ -216,11 +207,14 @@ namespace Mila::Dnn
             TensorType d_in_from_ln1( device, act_shape );
             zeros( d_in_from_ln1 );
 
-            ln1_->backward( in_t, d_ln1, d_in_from_ln1 );
+            ln1_->backward( input, d_ln1, d_in_from_ln1 );
 
-            zeros( in_grad_t );
+            if ( auto* grad_t = dynamic_cast<TensorType*>(&input_grad) )
+            {
+                zeros( *grad_t );
+            }
 
-            res1_->forward( d_in_from_res, d_in_from_ln1, in_grad_t );
+            res1_->forward( d_in_from_res, d_in_from_ln1, input_grad );
 
             forward_executed_ = false;
         }

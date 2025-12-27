@@ -15,6 +15,7 @@ PUBLIC
        TYPE CXX_MODULES FILES
 		"Src/CharTransformer.ixx"
 		"Src/CharDataLoader.ixx"
+		"Tools/CharVocabulary.ixx"
 		
 )
 

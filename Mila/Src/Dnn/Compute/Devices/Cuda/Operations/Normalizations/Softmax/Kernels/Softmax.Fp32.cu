@@ -6,6 +6,7 @@
 #include "device_launch_parameters.h"
 #include "CudaUtils.h"
 #include <cmath>
+#include "Softmax.cuh"
 
 namespace Mila::Dnn::Compute::Cuda::Softmax
 {
@@ -22,8 +23,8 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
             int outer_idx = idx / inner_size;
             int inner_idx = idx % inner_size;
 
-            // Find maximum value in this slice for numerical stability
             float max_val = -INFINITY;
+
             for ( int d = 0; d < dim_size; d++ ) {
                 int index = outer_idx * dim_size * inner_size + d * inner_size + inner_idx;
                 float val = X[ index ];
@@ -32,16 +33,16 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
                 }
             }
 
-            // Compute sum of exp(x - max_val)
             float sum = 0.0f;
+
             for ( int d = 0; d < dim_size; d++ ) {
                 int index = outer_idx * dim_size * inner_size + d * inner_size + inner_idx;
                 Y[ index ] = expf( X[ index ] - max_val );
                 sum += Y[ index ];
             }
 
-            // Normalize by sum
             float inv_sum = 1.0f / sum;
+
             for ( int d = 0; d < dim_size; d++ ) {
                 int index = outer_idx * dim_size * inner_size + d * inner_size + inner_idx;
                 Y[ index ] *= inv_sum;
@@ -50,10 +51,69 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
     }
 
     /**
-     * @brief CUDA kernel for softmax with arbitrary axis support (FP16 version)
+     * @brief CUDA kernel for softmax forward pass with FP32 precision
      */
-    __global__ void softmax_forward_general_fp16_kernel(
-        half* Y, const half* X,
+    __global__ void softmax_forward_fp32_kernel( float* Y, const float* X, int N, int C )
+    {
+        int i = blockIdx.x * blockDim.x + threadIdx.x;
+
+        if ( i < N ) {
+            const float* X_row = X + i * C;
+            float* Y_row = Y + i * C;
+
+            float maxval = -INFINITY;
+
+            for ( int j = 0; j < C; j++ ) {
+                if ( X_row[ j ] > maxval ) {
+                    maxval = X_row[ j ];
+                }
+            }
+
+            double sum = 0.0;
+
+            for ( int j = 0; j < C; j++ ) {
+                Y_row[ j ] = expf( X_row[ j ] - maxval );
+                sum += Y_row[ j ];
+            }
+
+            for ( int j = 0; j < C; j++ ) {
+                Y_row[ j ] /= (float)sum;
+            }
+        }
+    }
+
+    /**
+     * @brief CUDA kernel for backward softmax on contiguous last-axis (FP32)
+     *
+     * dX_i = Y_i * (dY_i - sum_j dY_j * Y_j)
+     */
+    __global__ void softmax_backward_fp32_kernel(
+        float* dX, const float* dY, const float* Y, int N, int C )
+    {
+        int i = blockIdx.x * blockDim.x + threadIdx.x;
+
+        if ( i < N ) {
+            const float* y_row = Y + i * C;
+            const float* dy_row = dY + i * C;
+            float* dx_row = dX + i * C;
+
+            float dot = 0.0f;
+
+            for ( int j = 0; j < C; j++ ) {
+                dot += dy_row[ j ] * y_row[ j ];
+            }
+
+            for ( int j = 0; j < C; j++ ) {
+                dx_row[ j ] = y_row[ j ] * ( dy_row[ j ] - dot );
+            }
+        }
+    }
+
+    /**
+     * @brief CUDA kernel for backward softmax with arbitrary axis (FP32)
+     */
+    __global__ void softmax_backward_general_fp32_kernel(
+        float* dX, const float* dY, const float* Y,
         int outer_size, int dim_size, int inner_size )
     {
         int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -62,112 +122,20 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
             int outer_idx = idx / inner_size;
             int inner_idx = idx % inner_size;
 
-            // Find maximum value in this slice for numerical stability
-            float max_val = -INFINITY;  // Use float for intermediate computations
+            float dot = 0.0f;
+
             for ( int d = 0; d < dim_size; d++ ) {
                 int index = outer_idx * dim_size * inner_size + d * inner_size + inner_idx;
-                float val = __half2float( X[ index ] );
-                if ( val > max_val ) {
-                    max_val = val;
-                }
+                dot += dY[ index ] * Y[ index ];
             }
 
-            // Compute sum of exp(x - max_val)
-            float sum = 0.0f;
             for ( int d = 0; d < dim_size; d++ ) {
                 int index = outer_idx * dim_size * inner_size + d * inner_size + inner_idx;
-                float exp_val = expf( __half2float( X[ index ] ) - max_val );
-                Y[ index ] = __float2half( exp_val );
-                sum += exp_val;
-            }
-
-            // Normalize by sum
-            float inv_sum = 1.0f / sum;
-            for ( int d = 0; d < dim_size; d++ ) {
-                int index = outer_idx * dim_size * inner_size + d * inner_size + inner_idx;
-                Y[ index ] = __float2half( __half2float( Y[ index ] ) * inv_sum );
+                dX[ index ] = Y[ index ] * ( dY[ index ] - dot );
             }
         }
     }
 
-    /**
-     * @brief CUDA kernel for softmax forward pass with FP32 precision
-     *
-     * Computes softmax function on each row of the input tensor.
-     *
-     * @param Y Output tensor (N, C)
-     * @param X Input tensor (N, C)
-     * @param N Number of rows
-     * @param C Number of columns (features)
-     */
-    __global__ void softmax_forward_fp32_kernel( float* Y, const float* X, int N, int C ) {
-        // input is (N, C)
-        // output is (N, C), each row of input will get softmaxed
-        int i = blockIdx.x * blockDim.x + threadIdx.x;
-        if ( i < N ) {
-            const float* X_row = X + i * C;
-            float* Y_row = Y + i * C;
-
-            float maxval = -INFINITY;
-            for ( int j = 0; j < C; j++ ) {
-                if ( X_row[ j ] > maxval ) {
-                    maxval = X_row[ j ];
-                }
-            }
-            double sum = 0.0;
-            for ( int j = 0; j < C; j++ ) {
-                Y_row[ j ] = expf( X_row[ j ] - maxval );
-                sum += Y_row[ j ];
-            }
-            for ( int j = 0; j < C; j++ ) {
-                Y_row[ j ] /= (float)sum;
-            }
-        }
-    }
-
-    /**
-     * @brief CUDA kernel for softmax forward pass with FP16 precision
-     *
-     * Computes softmax function on each row of the input tensor using half precision.
-     *
-     * @param Y Output tensor (N, C) in half precision
-     * @param X Input tensor (N, C) in half precision
-     * @param N Number of rows
-     * @param C Number of columns (features)
-     */
-    __global__ void softmax_forward_fp16_kernel( half* Y, const half* X, int N, int C ) {
-        int i = blockIdx.x * blockDim.x + threadIdx.x;
-        if ( i < N ) {
-            const half* X_row = X + i * C;
-            half* Y_row = Y + i * C;
-
-            // Find max value for numerical stability
-            float maxval = -INFINITY;
-            for ( int j = 0; j < C; j++ ) {
-                float val = __half2float( X_row[ j ] );
-                if ( val > maxval ) {
-                    maxval = val;
-                }
-            }
-
-            // Compute exp and sum
-            float sum = 0.0f;
-            for ( int j = 0; j < C; j++ ) {
-                float val = expf( __half2float( X_row[ j ] ) - maxval );
-                Y_row[ j ] = __float2half( val );
-                sum += val;
-            }
-
-            // Normalize
-            for ( int j = 0; j < C; j++ ) {
-                Y_row[ j ] = __float2half( __half2float( Y_row[ j ] ) / sum );
-            }
-        }
-    }
-
-    /**
-     * @brief Host function to launch softmax forward pass (FP32 version)
-     */
     void cuda_softmax_forward_fp32(
         float* Y,
         const float* X,
@@ -178,31 +146,11 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
         const int block_size = 512;
         const int grid_size = ceil_div( N, block_size );
 
-        softmax_forward_fp32_kernel << <grid_size, block_size, 0, stream >> > (Y, X, N, C);
-        
+        softmax_forward_fp32_kernel<<<grid_size, block_size, 0, stream>>>(Y, X, N, C);
+
         cudaCheck( cudaGetLastError() );
     }
 
-    /**
-     * @brief Host function to launch softmax forward pass (FP16 version)
-     */
-    void cuda_softmax_forward_fp16(
-        half* Y,
-        const half* X,
-        int N,
-        int C,
-        cudaStream_t stream )
-    {
-        const int block_size = 512;
-        const int grid_size = ceil_div( N, block_size );
-
-        softmax_forward_fp16_kernel << <grid_size, block_size, 0, stream >> > (Y, X, N, C);
-        cudaCheck( cudaGetLastError() );
-    }
-
-    /**
-     * @brief Host function to launch arbitrary axis softmax (FP32 version)
-     */
     void cuda_softmax_forward_general_fp32(
         float* Y,
         const float* X,
@@ -215,18 +163,31 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
         int block_size = 512;
         int grid_size = ceil_div( total_slices, block_size );
 
-        softmax_forward_general_fp32_kernel << <grid_size, block_size, 0, stream >> > (
-            Y, X, outer_size, dim_size, inner_size);
+        softmax_forward_general_fp32_kernel<<<grid_size, block_size, 0, stream>>>(Y, X, outer_size, dim_size, inner_size);
 
         cudaCheck( cudaGetLastError() );
     }
 
-    /**
-     * @brief Host function to launch arbitrary axis softmax (FP16 version)
-     */
-    void cuda_softmax_forward_general_fp16(
-        half* Y,
-        const half* X,
+    void cuda_softmax_backward_fp32(
+        float* dX,
+        const float* dY,
+        const float* Y,
+        int N,
+        int C,
+        cudaStream_t stream )
+    {
+        const int block_size = 512;
+        const int grid_size = ceil_div( N, block_size );
+
+        softmax_backward_fp32_kernel<<<grid_size, block_size, 0, stream>>>(dX, dY, Y, N, C);
+
+        cudaCheck( cudaGetLastError() );
+    }
+
+    void cuda_softmax_backward_general_fp32(
+        float* dX,
+        const float* dY,
+        const float* Y,
         int outer_size,
         int dim_size,
         int inner_size,
@@ -236,44 +197,9 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
         int block_size = 512;
         int grid_size = ceil_div( total_slices, block_size );
 
-        softmax_forward_general_fp16_kernel << <grid_size, block_size, 0, stream >> > (
-            Y, X, outer_size, dim_size, inner_size);
+        softmax_backward_general_fp32_kernel<<<grid_size, block_size, 0, stream>>>(dX, dY, Y, outer_size, dim_size, inner_size);
 
         cudaCheck( cudaGetLastError() );
-    }
-
-    // Wrappers for backwards compatibility
-    template <typename TPrecision>
-    void cuda_softmax_forward(
-        TPrecision* Y,
-        const TPrecision* X,
-        int N,
-        int C,
-        cudaStream_t stream )
-    {
-        if constexpr ( std::is_same_v<TPrecision, float> ) {
-            cuda_softmax_forward_fp32( Y, X, N, C, stream );
-        }
-        else if constexpr ( std::is_same_v<TPrecision, half> ) {
-            cuda_softmax_forward_fp16( Y, X, N, C, stream );
-        }
-    }
-
-    template <typename TPrecision>
-    void cuda_softmax_forward_general(
-        TPrecision* Y,
-        const TPrecision* X,
-        int outer_size,
-        int dim_size,
-        int inner_size,
-        cudaStream_t stream )
-    {
-        if constexpr ( std::is_same_v<TPrecision, float> ) {
-            cuda_softmax_forward_general_fp32( Y, X, outer_size, dim_size, inner_size, stream );
-        }
-        else if constexpr ( std::is_same_v<TPrecision, half> ) {
-            cuda_softmax_forward_general_fp16( Y, X, outer_size, dim_size, inner_size, stream );
-        }
     }
 
     // Explicit instantiations for float
@@ -292,17 +218,19 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
         int inner_size,
         cudaStream_t stream );
 
-    // Explicit instantiations for half
-    template void cuda_softmax_forward<half>(
-        half* Y,
-        const half* X,
+    // Backward explicit instantiations for float
+    template void cuda_softmax_backward<float>(
+        float* dX,
+        const float* dY,
+        const float* Y,
         int N,
         int C,
         cudaStream_t stream );
 
-    template void cuda_softmax_forward_general<half>(
-        half* Y,
-        const half* X,
+    template void cuda_softmax_backward_general<float>(
+        float* dX,
+        const float* dY,
+        const float* Y,
         int outer_size,
         int dim_size,
         int inner_size,

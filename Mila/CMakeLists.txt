@@ -12,6 +12,9 @@ add_library( Mila STATIC
     "Src/Dnn/Compute/Devices/Cuda/Operations/Encoder/Kernels/Encoder.Fp32.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Encoder/Kernels/Encoder.Fp16.cu"
 
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Kernels/Attention.cuh"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Kernels/CudaMHA.cu"
+
     "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatMul/CudaMatMulFp32.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatMul/CudaMatMulFp16.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatMul/CudaLinearGelu.cu"
@@ -21,10 +24,12 @@ add_library( Mila STATIC
     "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.Fp32.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.cuh"
     
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/Kernels/LayerNorm.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/Kernels/LayerNorm.Fp32.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/Kernels/LayerNorm.Fp16.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/Kernels/LayerNorm.cuh"
 
     "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/Kernels/Softmax.Fp32.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/Kernels/Softmax.Fp16.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/Kernels/Softmax.cuh"
 
     "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/Kernels/CudaResidual.cu"
@@ -48,7 +53,6 @@ add_library( Mila STATIC
     #--------------------------------------------------------------------------
     "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaOptimizers.h"
     "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaAdamW.cu"
-    
 )
 
  set_target_properties( Mila PROPERTIES
@@ -312,7 +316,7 @@ PUBLIC
         "Src/Dnn/Serialization/SerializationMetadata.ixx"
         "Src/Dnn/Core/FusedComponent.ixx"
         "Src/Dnn/Compute/Operations/OperationRegistrarHelpers.ixx"
-)
+ "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtHelpers.ixx")
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 

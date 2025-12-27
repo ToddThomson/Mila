@@ -260,7 +260,7 @@ namespace Mila
     /// <returns>True if initialization succeeded, false otherwise</returns>
     export bool initialize( unsigned int randomSeed = 0 ) {
         try {
-            initializeLogger( Utils::LogLevel::Info );
+            initializeLogger( Utils::LogLevel::Debug );
 
             Core::RandomGenerator::getInstance().setSeed( randomSeed );
 

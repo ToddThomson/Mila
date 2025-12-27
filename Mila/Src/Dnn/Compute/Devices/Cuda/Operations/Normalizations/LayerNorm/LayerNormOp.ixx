@@ -1,9 +1,6 @@
 /**
  * @file CudaLayerNormOp.ixx
- * @brief CUDA implementation of Layer Normalization operation (TensorDataType-based).
- *
- * Ported to the ExecutionContext / TensorDataType UnaryOperation interface
- * following the pattern used by CpuLayerNormOp and CudaGeluOp.
+ * @brief CUDA implementation of Layer Normalization operation.
  */
 
 module;
@@ -62,19 +59,21 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
                 float* Y, const float* X,
                 const float* weight, const float* bias,
                 float* mean, float* rstd,
-                int B, int T, int C, float epsilon,
+                int outer_size, int inner_size, int norm_dim,
+                float epsilon,
                 cudaStream_t stream )
             {
-                cuda_layernorm_forward_fp32( Y, mean, rstd, X, weight, bias, B, T, C, epsilon, stream );
+                cuda_layernorm_forward_fp32( Y, mean, rstd, X, weight, bias, outer_size, inner_size, norm_dim, epsilon, stream );
             }
 
             static inline void backward(
                 float* dX, float* dweight, float* dbias,
                 const float* dY, const float* X, const float* weight,
                 const float* mean, const float* rstd,
-                int B, int T, int C, cudaStream_t stream )
+                int outer_size, int inner_size, int norm_dim,
+                cudaStream_t stream )
             {
-                // FIXME: cuda_layernorm_backward_fp32( dX, dweight, dbias, dY, X, weight, mean, rstd, B, T, C, stream );
+                cuda_layernorm_backward_fp32( dX, dweight, dbias, dY, X, weight, mean, rstd, outer_size, inner_size, norm_dim, stream );
             }
         };
 
@@ -87,19 +86,21 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
                 half* Y, const half* X,
                 const half* weight, const half* bias,
                 half* mean, half* rstd,
-                int B, int T, int C, float epsilon,
+                int outer_size, int inner_size, int norm_dim,
+                float epsilon,
                 cudaStream_t stream )
             {
-                // FIXME: cuda_layernorm_forward_fp16( Y, mean, rstd, X, weight, bias, B, T, C, epsilon, stream );
+                // FIXME: cuda_layernorm_forward_fp16( Y, mean, rstd, X, weight, bias, outer_size, inner_size, norm_dim, epsilon, stream );
             }
 
             static inline void backward(
                 half* dX, half* dweight, half* dbias,
                 const half* dY, const half* X, const half* weight,
                 const half* mean, const half* rstd,
-                int B, int T, int C, cudaStream_t stream )
+                int outer_size, int inner_size, int norm_dim,
+                cudaStream_t stream )
             {
-                // FIXME: cuda_layernorm_backward_fp16( dX, dweight, dbias, dY, X, weight, mean, rstd, B, T, C, stream );
+                // FIXME: cuda_layernorm_backward_fp16( dX, dweight, dbias, dY, X, weight, mean, rstd, outer_size, inner_size, norm_dim, stream );
             }
         };
     }
@@ -107,17 +108,18 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
     using namespace Mila::Dnn;
 
     /**
-     * @brief CUDA implementation of Layer Normalization using abstract TensorDataType API.
+     * @brief CUDA implementation of Layer Normalization.
      *
-     * Template parameter TPrecision selects the abstract tensor precision (e.g. FP32, FP16).
-     * NativeType is the corresponding CUDA device representation for that precision.
+     * Normalizes activations along a specified axis by computing mean and variance,
+     * then applying an affine transformation with learnable weight and bias parameters.
      *
      * Design philosophy:
-     * - Two-phase initialization: build() does all setup, forward()/backward() are pure dispatch
-     * - Module owns weight/bias parameters and binds them via setParameters()
-     * - Operation allocates backend-owned mean/rstd device storage during build()
-     * - All dimension computation and validation happens once in build()
-     * - Forward/backward are hot-path methods with minimal overhead
+     * - Two-phase initialization: build() allocates resources, forward()/backward() dispatch to kernels
+     * - Component owns weight/bias parameters, operation caches device pointers
+     * - Operation owns ephemeral forward-pass statistics (mean/rstd) required for backward
+     * - All dimension computation happens once in build() for zero-overhead hot-path execution
+     *
+     * @tparam TPrecision Abstract tensor precision (FP32, FP16, etc.)
      */
     export template<TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cuda>
@@ -127,57 +129,58 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
         using MR = CudaDeviceMemoryResource;
         using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
-        using Parameters = std::vector<std::shared_ptr<TensorType>>;
-        using OutputState = std::vector<std::shared_ptr<TensorType>>;
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::native_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 
         CudaLayerNormOp( IExecutionContext* context, const LayerNormConfig& config )
-            : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaLayerNormOp" ) ), config_( config ), impl_()
+            : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaLayerNormOp" ) )
+            , config_( config )
+            , impl_()
         {
             config_.validate();
         }
 
-        // ====================================================================
-		// Parameters and Gradients
-        // ====================================================================
-
         /**
-         * @brief Set parameter tensor references (module remains owner).
+         * @brief Bind component-owned parameter tensors.
          *
-         * The operation caches native device pointers for hot-path access. The
-         * weight tensor is required; bias is bound only when the LayerNorm
-         * config indicates a bias is present.
+         * Caches native device pointers for zero-overhead hot-path access.
+         * Weight is required; bias is optional based on configuration.
          *
-         * Note: build() requires parameters to be bound before it is called.
+         * @param weight Scaling parameter applied after normalization (required)
+         * @param bias Shift parameter applied after normalization (optional)
+         *
+         * @throws std::invalid_argument If weight is null or not a CUDA tensor
+         * @throws std::invalid_argument If bias is required by config but null or not a CUDA tensor
+         *
+         * @note Must be called before build()
          */
         void setParameters( ITensor* weight, ITensor* bias ) override
         {
-            if (!weight)
+            if ( !weight )
             {
                 throw std::invalid_argument( "CudaLayerNormOp::setParameters - weight parameter is required" );
             }
 
-            if (weight->getDeviceType() != DeviceType::Cuda)
+            if ( weight->getDeviceType() != DeviceType::Cuda )
             {
                 throw std::invalid_argument( "CudaLayerNormOp::setParameters - weight must be a CUDA tensor" );
             }
 
-            weight_ = static_cast<NativeType*>(weight->rawData());
+            weight_ = static_cast<NativeType*>( weight->rawData() );
 
-            if (config_.hasBias())
+            if ( config_.hasBias() )
             {
-                if (!bias)
+                if ( !bias )
                 {
                     throw std::invalid_argument( "CudaLayerNormOp::setParameters - bias parameter expected but null was provided" );
                 }
 
-                if (bias->getDeviceType() != DeviceType::Cuda)
+                if ( bias->getDeviceType() != DeviceType::Cuda )
                 {
                     throw std::invalid_argument( "CudaLayerNormOp::setParameters - bias must be a CUDA tensor" );
                 }
 
-                bias_ = static_cast<NativeType*>(bias->rawData());
+                bias_ = static_cast<NativeType*>( bias->rawData() );
             }
             else
             {
@@ -186,47 +189,46 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
         }
 
         /**
-         * @brief Set parameter gradient tensor references for training.
+         * @brief Bind component-owned parameter gradient tensors for training.
          *
-         * The operation caches native device gradient pointers for hot-path write access
-         * during backward(). Weight gradient is required; bias gradient is bound
-         * only when the LayerNorm config indicates a bias is present.
+         * Caches native device gradient pointers for backward pass writes.
+         * Weight gradient is required; bias gradient is optional based on configuration.
          *
-         * @param weight_grad Gradient tensor for weight parameter
-         * @param bias_grad Gradient tensor for bias parameter (optional based on config)
+         * @param weight_grad Gradient accumulator for weight parameter (required)
+         * @param bias_grad Gradient accumulator for bias parameter (optional)
          *
-         * @throws std::invalid_argument If weight_grad is null
-         * @throws std::invalid_argument If weight_grad is not a CUDA tensor
-         * @throws std::invalid_argument If bias_grad is null when config requires bias
-         * @throws std::invalid_argument If bias_grad is not a CUDA tensor when required
+         * @throws std::invalid_argument If weight_grad is null or not a CUDA tensor
+         * @throws std::invalid_argument If bias_grad is required by config but null or not a CUDA tensor
+         *
+         * @note Must be called before training (backward pass)
          */
         void setGradients( ITensor* weight_grad, ITensor* bias_grad ) override
         {
-            if (!weight_grad)
+            if ( !weight_grad )
             {
-                throw std::invalid_argument( "CudaLayerNormOp::setParameterGradients - weight gradient is required" );
+                throw std::invalid_argument( "CudaLayerNormOp::setGradients - weight gradient is required" );
             }
 
-            if (weight_grad->getDeviceType() != DeviceType::Cuda)
+            if ( weight_grad->getDeviceType() != DeviceType::Cuda )
             {
-                throw std::invalid_argument( "CudaLayerNormOp::setParameterGradients - weight gradient must be a CUDA tensor" );
+                throw std::invalid_argument( "CudaLayerNormOp::setGradients - weight gradient must be a CUDA tensor" );
             }
 
-            weight_grad_ = static_cast<NativeType*>(weight_grad->rawData());
+            weight_grad_ = static_cast<NativeType*>( weight_grad->rawData() );
 
-            if (config_.hasBias())
+            if ( config_.hasBias() )
             {
-                if (!bias_grad)
+                if ( !bias_grad )
                 {
-                    throw std::invalid_argument( "CudaLayerNormOp::setParameterGradients - bias gradient expected but null was provided" );
+                    throw std::invalid_argument( "CudaLayerNormOp::setGradients - bias gradient expected but null was provided" );
                 }
 
-                if (bias_grad->getDeviceType() != DeviceType::Cuda)
+                if ( bias_grad->getDeviceType() != DeviceType::Cuda )
                 {
-                    throw std::invalid_argument( "CudaLayerNormOp::setParameterGradients - bias gradient must be a CUDA tensor" );
+                    throw std::invalid_argument( "CudaLayerNormOp::setGradients - bias gradient must be a CUDA tensor" );
                 }
 
-                bias_grad_ = static_cast<NativeType*>(bias_grad->rawData());
+                bias_grad_ = static_cast<NativeType*>( bias_grad->rawData() );
             }
             else
             {
@@ -234,123 +236,140 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
             }
         }
 
-        // ====================================================================
-        // Lifecycle
-        // ====================================================================
-
         /**
-         * @brief Build the operation for a concrete input shape.
+         * @brief Prepare operation for execution with concrete input shape.
          *
-         * This is the COLD PATH where all setup, validation, and computation happens ONCE.
-         * After build() completes, forward() and backward() become pure dispatch methods.
+         * Cold-path initialization: computes normalization axis, partitions tensor dimensions,
+         * and allocates forward-pass statistics storage.
          *
-         * Responsibilities:
-         *  1. Validate parameters are bound via setParameters()
-         *  2. Validate input shape compatibility with configuration
-         *  3. Compute and cache normalization axis
-         *  4. Compute and cache kernel dispatch dimensions [B, T, C]
-         *  5. Allocate backend-owned device storage for mean/rstd
-         *  6. Cache all device pointers for hot-path access
+         * Dimension partitioning:
+         * - norm_axis: The axis along which normalization is applied
+         * - outer_size: Product of all dimensions before norm_axis
+         * - inner_size: Product of all dimensions after norm_axis
+         * - norm_dim: Size of the dimension at norm_axis
          *
-         * After build(), the operation is ready for zero-overhead forward/backward dispatch.
+         * Example: For shape [2, 3, 4, 5] with axis=2:
+         * - norm_axis = 2
+         * - outer_size = 2 * 3 = 6
+         * - inner_size = 5
+         * - norm_dim = 4
+         *
+         * Forward-pass statistics (mean, rstd) are allocated with size outer_size * inner_size
+         * to store one mean/rstd value per normalized slice.
+         *
+         * @param input_shape Shape of input tensor to be normalized
+         *
+         * @throws std::runtime_error If parameters not bound via setParameters()
+         * @throws std::invalid_argument If input shape incompatible with configuration
+         * @throws std::invalid_argument If computed normalization axis is out of range
+         *
+         * @note After build(), forward() and backward() become pure dispatch with zero overhead
          */
         void build( const shape_t& input_shape ) override
         {
-            if (weight_ == nullptr)
+            if ( weight_ == nullptr )
             {
-                throw std::runtime_error( "CudaLayerNormOp::build requires parameters bound via setParameters() before build()." );
+                throw std::runtime_error( "CudaLayerNormOp::build requires parameters bound via setParameters() before build()" );
             }
 
-            if (config_.hasBias() && bias_ == nullptr)
+            if ( config_.hasBias() && bias_ == nullptr )
             {
-                throw std::runtime_error( "CudaLayerNormOp::build - bias expected by config but not bound via setParameters()." );
+                throw std::runtime_error( "CudaLayerNormOp::build - bias expected by config but not bound via setParameters()" );
             }
 
-            if (!config_.getNormalizedShape().empty())
+            if ( !config_.getNormalizedShape().empty() )
             {
-                if (input_shape.size() < config_.getNormalizedShape().size())
+                if ( input_shape.size() < config_.getNormalizedShape().size() )
                 {
                     throw std::invalid_argument( "CudaLayerNormOp::build - input rank is less than normalized_shape rank" );
                 }
 
                 size_t offset = input_shape.size() - config_.getNormalizedShape().size();
-                for (size_t i = 0; i < config_.getNormalizedShape().size(); ++i)
+
+                for ( size_t i = 0; i < config_.getNormalizedShape().size(); ++i )
                 {
-                    if (input_shape[offset + i] != config_.getNormalizedShape()[i])
+                    if ( input_shape[ offset + i ] != config_.getNormalizedShape()[ i ] )
                     {
                         throw std::invalid_argument( "CudaLayerNormOp::build - input trailing dimensions don't match normalized_shape" );
                     }
                 }
             }
-            else if (!config_.getAxis().has_value())
+            else if ( !config_.getAxis().has_value() )
             {
                 throw std::invalid_argument( "CudaLayerNormOp::build - configuration must specify normalized_shape or axis before build()" );
             }
 
             const auto& shape = input_shape;
-            const int64_t ndim = static_cast<int64_t>(shape.size());
+            const int64_t ndim = static_cast<int64_t>( shape.size() );
 
             int64_t axis = -1;
-            if (config_.getAxis().has_value())
+
+            if ( config_.getAxis().has_value() )
             {
                 axis = config_.getAxis().value();
             }
             else
             {
-                axis = static_cast<int64_t>(shape.size()) - static_cast<int64_t>(config_.getNormalizedShape().size());
+                axis = static_cast<int64_t>( shape.size() ) - static_cast<int64_t>( config_.getNormalizedShape().size() );
             }
 
-            if (axis < 0)
+            if ( axis < 0 )
+            {
                 axis += ndim;
+            }
 
-            if (axis < 0 || axis >= ndim)
+            if ( axis < 0 || axis >= ndim )
             {
                 throw std::invalid_argument( "CudaLayerNormOp::build - computed axis out of range" );
             }
 
-            cached_axis_ = axis;
+            norm_axis_ = axis;
 
-            int64_t outer_size = 1;
-            for (int64_t i = 0; i < axis; ++i)
-                outer_size *= static_cast<int64_t>( shape[i] );
+            int64_t outer = 1;
+            for ( int64_t i = 0; i < axis; ++i )
+            {
+                outer *= static_cast<int64_t>( shape[ i ] );
+            }
 
-            int64_t inner_size = 1;
-            for (int64_t i = axis + 1; i < ndim; ++i)
-                inner_size *= static_cast<int64_t>( shape[i] );
+            int64_t inner = 1;
+            for ( int64_t i = axis + 1; i < ndim; ++i )
+            {
+                inner *= static_cast<int64_t>( shape[ i ] );
+            }
 
-            const int64_t dim_size = static_cast<int64_t>( shape[axis] );
-            const int64_t expected_slices = outer_size * inner_size;
+            const int64_t dim = static_cast<int64_t>( shape[ axis ] );
+            const int64_t num_slices = outer * inner;
 
-            cached_B_ = static_cast<int>( outer_size );
-            cached_T_ = static_cast<int>( inner_size );
-            cached_C_ = static_cast<int>( dim_size );
+            outer_size_ = static_cast<int>( outer );
+            inner_size_ = static_cast<int>( inner );
+            norm_dim_ = static_cast<int>( dim );
 
             auto device = context_->getDeviceId();
 
-            mean_storage_ = std::make_shared<TensorType>( device, shape_t{ expected_slices } );
-            mean_storage_->setName( "CudaLayerNormOp.mean" );
-            mean_ = static_cast<NativeType*>(mean_storage_->rawData());
+            mean_tensor_ = std::make_shared<TensorType>( device, shape_t{ num_slices } );
+            mean_tensor_->setName( "mean" );
+            mean_ = static_cast<NativeType*>( mean_tensor_->rawData() );
 
-            rstd_storage_ = std::make_shared<TensorType>( device, shape_t{ expected_slices } );
-            rstd_storage_->setName( "CudaLayerNormOp.rstd" );
-            rstd_ = static_cast<NativeType*>(rstd_storage_->rawData());
+            rstd_tensor_ = std::make_shared<TensorType>( device, shape_t{ num_slices } );
+            rstd_tensor_->setName( "rstd" );
+            rstd_ = static_cast<NativeType*>( rstd_tensor_->rawData() );
 
             UnaryOperationBase::build( input_shape );
         }
 
         /**
-         * @brief Forward pass - HOT PATH, pure dispatch to CUDA kernel.
+         * @brief Execute forward pass (hot path).
          *
-         * All setup, validation, and dimension computation was done in build().
-         * This method extracts raw pointers and dispatches directly to the kernel
-         * using pre-computed cached dimensions.
+         * Computes normalized output and caches forward-pass statistics (mean, rstd)
+         * required for backward gradient computation.
          *
-         * Zero redundant work - maximum performance.
+         * @param input Input tensor to normalize
+         * @param output Normalized output tensor (same shape as input)
          */
         void forward( const ITensor& input, ITensor& output ) const override
         {
-            const NativeType* X = static_cast<const NativeType*>(input.rawData());
-            NativeType* Y = static_cast<NativeType*>(output.rawData());
+            const NativeType* X = static_cast<const NativeType*>( input.rawData() );
+            NativeType* Y = static_cast<NativeType*>( output.rawData() );
 
             cudaStream_t stream = context_->getStream();
 
@@ -358,39 +377,38 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
                 Y, X,
                 weight_, bias_,
                 mean_, rstd_,
-                cached_B_, cached_T_, cached_C_,
+                outer_size_, inner_size_, norm_dim_,
                 config_.getEpsilon(),
-                stream
-            );
+                stream );
         }
 
         /**
-         * @brief Backward pass - HOT PATH, pure dispatch to CUDA kernel.
+         * @brief Execute backward pass (hot path).
          *
-         * Similar to forward(), this method does minimal work and dispatches
-         * directly to the backward kernel using cached dimensions from build().
+         * Computes input gradient and accumulates parameter gradients using
+         * forward-pass statistics cached during forward().
+         *
+         * @param input Original forward-pass input (required for gradient computation)
+         * @param output_grad Gradient of loss with respect to output
+         * @param input_grad Gradient of loss with respect to input (computed)
          */
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
             ITensor& input_grad ) const override
         {
-            const NativeType* X = static_cast<const NativeType*>(input.rawData());
-            const NativeType* dY = static_cast<const NativeType*>(output_grad.rawData());
-            NativeType* dX = static_cast<NativeType*>(input_grad.rawData());
-
-            NativeType* dweight = weight_grad_;
-            NativeType* dbias = bias_grad_;
+            const NativeType* X = static_cast<const NativeType*>( input.rawData() );
+            const NativeType* dY = static_cast<const NativeType*>( output_grad.rawData() );
+            NativeType* dX = static_cast<NativeType*>( input_grad.rawData() );
 
             cudaStream_t stream = context_->getStream();
 
-            /*Detail::cuda_layernorm_impl<NativeType>::backward(
-                dX, dweight, dbias,
+            Detail::cuda_layernorm_impl<NativeType>::backward(
+                dX, weight_grad_, bias_grad_,
                 dY, X, weight_,
                 mean_, rstd_,
-                cached_B_, cached_T_, cached_C_,
-                stream
-            );*/
+                outer_size_, inner_size_, norm_dim_,
+                stream );
         }
 
         OperationType getOperationType() const override
@@ -413,25 +431,20 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
         CudaExecutionContext* context_;
         Detail::cuda_layernorm_impl<NativeType> impl_;
 
-        // Cached native device parameter pointers (module owns underlying tensors)
         NativeType* weight_{ nullptr };
         NativeType* bias_{ nullptr };
-
-        // Cached native device parameter gradient pointers (module owns underlying tensors)
         NativeType* weight_grad_{ nullptr };
         NativeType* bias_grad_{ nullptr };
 
-        // Backend-owned device runtime statistics storage
-        std::shared_ptr<TensorType> mean_storage_;
-        std::shared_ptr<TensorType> rstd_storage_;
+        std::shared_ptr<TensorType> mean_tensor_;
+        std::shared_ptr<TensorType> rstd_tensor_;
         NativeType* mean_{ nullptr };
         NativeType* rstd_{ nullptr };
 
-        // Cached dimension values computed once in build() for hot-path dispatch
-        int64_t cached_axis_{ -1 };
-        int cached_B_{ 0 };  // outer_size: batch and leading dimensions
-        int cached_T_{ 0 };  // inner_size: trailing dimensions after normalized axis
-        int cached_C_{ 0 };  // dim_size: size of the normalized axis dimension
+        int64_t norm_axis_{ -1 };
+        int outer_size_{ 0 };
+        int inner_size_{ 0 };
+        int norm_dim_{ 0 };
     };
 
     export class CudaLayerNormOpRegistrar
@@ -446,25 +459,18 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
                 []( IExecutionContext* context,
                     const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
                 {
-                    const auto& lnConfig = static_cast<const LayerNormConfig&>(config);
+                    const auto& lnConfig = static_cast<const LayerNormConfig&>( config );
                     return std::make_shared<CudaLayerNormOp<TensorDataType::FP32>>( context, lnConfig );
-                }
-            );
+                } );
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP16, TensorDataType::FP16>(
                 opName,
                 []( IExecutionContext* context,
                     const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
                 {
-                    const auto& lnConfig = static_cast<const LayerNormConfig&>(config);
+                    const auto& lnConfig = static_cast<const LayerNormConfig&>( config );
                     return std::make_shared<CudaLayerNormOp<TensorDataType::FP16>>( context, lnConfig );
-                }
-            );
+                } );
         }
-
-        static inline bool isRegistered = []() {
-            registerOperations();
-            return true;
-            }();
     };
 }
