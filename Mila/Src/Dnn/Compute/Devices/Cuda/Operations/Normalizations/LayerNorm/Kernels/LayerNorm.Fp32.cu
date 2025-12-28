@@ -1,4 +1,3 @@
-//#include <cassert>
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
 #include "device_launch_parameters.h"
@@ -9,6 +8,8 @@
 
 namespace Mila::Dnn::Compute::Cuda::LayerNorm
 {
+    // REVIEW: Consider templating on training mode and bias presence for potential optimizations.
+
     /**
      * @brief FP32 layer normalization forward kernel with float4 vectorization.
      *
@@ -116,21 +117,37 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
         {
             float4 vals = reinterpret_cast<const float4*>( x )[ i ];
             float4 w = reinterpret_cast<const float4*>( weight )[ i ];
-            float4 b = reinterpret_cast<const float4*>( bias )[ i ];
 
             float4 result;
-            result.x = s * ( vals.x - m ) * w.x + b.x;
-            result.y = s * ( vals.y - m ) * w.y + b.y;
-            result.z = s * ( vals.z - m ) * w.z + b.z;
-            result.w = s * ( vals.w - m ) * w.w + b.w;
+            #pragma unroll
+            for ( int j = 0; j < 4; j++ )
+            {
+                (&result.x)[ j ] = s * ((&vals.x)[ j ] - m) * (&w.x)[ j ];
+            }
+
+            if ( bias != nullptr )
+            {
+                float4 b = reinterpret_cast<const float4*>( bias )[ i ];
+                #pragma unroll
+                for ( int j = 0; j < 4; j++ )
+                {
+                    (&result.x)[ j ] += (&b.x)[ j ];
+                }
+            }
 
             reinterpret_cast<float4*>( o )[ i ] = result;
         }
 
         for ( int c = vec_size * 4 + lane_id; c < norm_dim; c += WARP_SIZE )
         {
-            float n = s * ( __ldcs( x + c ) - m );
-            __stcs( o + c, n * weight[ c ] + bias[ c ] );
+            float n = s * (__ldcs( x + c ) - m) * weight[ c ];
+
+            if ( bias != nullptr )
+            {
+                n += bias[ c ];
+            }
+
+            __stcs( o + c, n );
         }
     }
 
@@ -203,7 +220,11 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
 
                 int c = i * 4 + j;
                 atomicAdd( &dweight[ c ], dy_val * xhat );
-                atomicAdd( &dbias[ c ], dy_val );
+
+                if ( dbias != nullptr )
+                {
+                    atomicAdd( &dbias[ c ], dy_val );
+                }
             }
         }
 
@@ -218,7 +239,11 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
             sum_dy_w_xhat += dy_val * w_val * xhat;
 
             atomicAdd( &dweight[ c ], dy_val * xhat );
-            atomicAdd( &dbias[ c ], dy_val );
+
+            if ( dbias != nullptr )
+            {
+                atomicAdd( &dbias[ c ], dy_val );
+            }
         }
 
         for ( int offset = WARP_SIZE / 2; offset > 0; offset /= 2 )

@@ -483,6 +483,7 @@ namespace Components_Normalization_Tests
             copy( host_input, device_input );
 
             fixture.component->forward( device_input, device_output );
+            fixture.component->synchronize();
 
             CpuTensor<TensorDataType::FP32> host_output = toHost<TensorDataType::FP32>( device_output );
 
@@ -513,6 +514,8 @@ namespace Components_Normalization_Tests
             }
 
             auto output_ptr = host_output.data();
+
+            auto debug_output = host_output.toString( true );
 
             for ( int64_t outer = 0; outer < outer_size; ++outer )
             {

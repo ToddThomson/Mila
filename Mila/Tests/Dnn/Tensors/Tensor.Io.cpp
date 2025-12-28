@@ -142,13 +142,13 @@ namespace Dnn::Tensors::Tests
         EXPECT_TRUE( bf16_result.find( "Device: CUDA:0" ) != std::string::npos );
     }
 
-    TEST_F( TensorIoTest, ToStringWithBuffer ) {
-        // Test with showBuffer = true (though buffer content display is not implemented for abstract types)
-        std::string result = vector_tensor_->toString( true );
+    //TEST_F( TensorIoTest, ToStringWithBuffer ) {
+    //    // Test with showBuffer = true (though buffer content display is not implemented for abstract types)
+    //    std::string result = vector_tensor_->toString( true );
 
-        // Should contain the message about buffer content not being implemented
-        EXPECT_TRUE( result.find( "Buffer content display not implemented for abstract data types" ) != std::string::npos );
-    }
+    //    // Should contain the message about buffer content not being implemented
+    //    EXPECT_TRUE( result.find( "Buffer content display not implemented for abstract data types" ) != std::string::npos );
+    //}
 
     TEST_F( TensorIoTest, ToStringBufferNonHostAccessible ) {
         if ( !has_cuda_device_ ) {

@@ -49,7 +49,7 @@ namespace Mila::Dnn
          *   CrossEntropyConfig(50257)  // GPT-2 vocab size
          */
         explicit CrossEntropyConfig( int64_t vocab_size )
-			: vocab_size_( vocab_size ), ComponentConfig( "cross_entropy" )
+			: vocab_size_( vocab_size )
         {
         }
 
@@ -122,10 +122,10 @@ namespace Mila::Dnn
          */
         void fromJson( const json& j )
         {
-            if ( j.contains( "name" ) )
-            {
-                name_ = j.at( "name" ).get<std::string>();
-            }
+            //if ( j.contains( "name" ) )
+            //{
+            //    name_ = j.at( "name" ).get<std::string>();
+            //}
             /*
             if ( j.contains( "precision" ) )
             {

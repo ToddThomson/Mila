@@ -26,7 +26,7 @@ namespace Mila::Dnn
     public:
         
         /**
-         * @brief C++23-style fluent setter for the axis along which to apply softmax.
+         * @brief fluent setter for the axis along which to apply softmax.
          *
          * @param axis Dimension for softmax computation (default: -1 for last dimension)
          * @return Self&& for method chaining

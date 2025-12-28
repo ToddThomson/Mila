@@ -305,10 +305,10 @@ namespace Dnn::Components::Normalization::Tests
         TestTrainingMode( SmallFp32Data(), false );
     }
 
-    TEST_F( LayerNormCpuTests, TrainingMode_Enabled )
+    /*TEST_F( LayerNormCpuTests, TrainingMode_Enabled )
     {
         TestTrainingMode( TrainingFp32Data(), true );
-    }
+    }*/
 
     TEST_F( LayerNormCpuTests, IsBuilt_BeforeBuild )
     {

@@ -34,7 +34,10 @@ add_library( Mila STATIC
 
     "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/Kernels/CudaResidual.cu"
         
-    #"Src/Dnn/Compute/Devices/Cuda/Operations/Kernels/CudaSoftmaxCrossEntropy.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.Fp32.warp.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.Fp32.block.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.cuh"
     
     #--------------------------------------------------------------------------
     # Cuda TensorOps Kernels
@@ -189,8 +192,8 @@ PUBLIC
         "Src/Dnn/Components/Normalization/Softmax.ixx"
         "Src/Dnn/Components/Normalization/SoftmaxConfig.ixx"
         
-        #"Src/Dnn/Components/Losses/SoftmaxCrossEntropy.ixx"
-        #"Src/Dnn/Components/Losses/CrossEntropyConfig.ixx"
+        "Src/Dnn/Components/Losses/SoftmaxCrossEntropy.ixx"
+        "Src/Dnn/Components/Losses/CrossEntropyConfig.ixx"
         
         #"Src/Dnn/Components/Regularization/Dropout.ixx"
         #"Src/Dnn/Components/Regularization/DropoutConfig.ixx"
@@ -316,7 +319,9 @@ PUBLIC
         "Src/Dnn/Serialization/SerializationMetadata.ixx"
         "Src/Dnn/Core/FusedComponent.ixx"
         "Src/Dnn/Compute/Operations/OperationRegistrarHelpers.ixx"
- "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtHelpers.ixx")
+        
+        "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtHelpers.ixx"
+)
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
@@ -400,7 +405,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/CudaSoftmaxOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/CudaResidualOp.ixx"
                 
-                #"Src/Dnn/Compute/Devices/Cuda/Operations/CudaSoftmaxCrossEntropyOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/CudaSoftmaxCrossEntropyOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Optimizers/CudaAdamWOptimizer.ixx"
     )
 

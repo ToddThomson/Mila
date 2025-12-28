@@ -156,7 +156,7 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Linear Component must be built before calling forward." );
             }
 
-            validateInputShape( input );
+            validateInputShape( input.shape() );
 
             operation_->forward( input, output );
         }
@@ -195,7 +195,7 @@ namespace Mila::Dnn
         // Serialization
         // ====================================================================
 
-                /**
+        /**
          * @brief Save component state to a ModelArchive.
          *
          * This method writes relative entries into the archive. Callers are
@@ -434,6 +434,7 @@ namespace Mila::Dnn
         void onExecutionContextSet() override
         {
             initializeParameters();
+
             createOperation();
         }
 
@@ -484,8 +485,12 @@ namespace Mila::Dnn
             {
                 operation_->clearGradients();
 
-                if ( weight_grad_ ) zeros( *weight_grad_ );
-                if ( bias_grad_ ) zeros( *bias_grad_ );
+                // Prefer to keep gradient buffers allocated for next training phase.
+                if ( weight_grad_ )
+                    zeros( *weight_grad_ );
+                
+                if ( bias_grad_ )
+                    zeros( *bias_grad_ );
             }
         }
 
@@ -501,17 +506,6 @@ namespace Mila::Dnn
         std::shared_ptr<TensorType> bias_grad_{ nullptr };
 
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
-
-        /**
-         * @brief Validate input shape for linear operation.
-         *
-         * Ensures the last dimension matches the configured input_features.
-         */
-        void validateInputShape( const ITensor& input ) const
-        {
-            const auto& input_shape = input.shape();
-            validateInputShape( input_shape );
-        }
 
         /**
          * @brief Validate input shape for linear operation.
@@ -605,7 +599,7 @@ namespace Mila::Dnn
 
             if ( !operation_ )
             {
-                throw std::runtime_error( "Failed to create Linear compute backend operation." );
+                throw std::runtime_error( "Failed to create Linear operation." );
             }
         }
     };

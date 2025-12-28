@@ -1,8 +1,5 @@
 # Mila — Copilot Instructions
 
-## Focus
-- Primary focus is now on training and persistence orchestration for device-templated Models
-
 ## Code generation policy
 - Generate code only when explicitly requested (e.g., "implement", "update", "write code", "generate", "create code"). Otherwise provide analysis, design guidance, and minimal examples.
 - Mila is at the Alpha stage of development, please do not consider backward compatibility with previous versions when generating code.

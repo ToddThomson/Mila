@@ -372,6 +372,7 @@ namespace Mila::Dnn::Compute::Cuda
             // DEBUG: Check for any previous CUDA errors
             cudaCheckLastError( std::source_location::current() );
 
+            // BUG: LayerNorm test
             cudaError_t status = cudaMemcpyAsync(
                 dst_data, src_data, bytes,
                 cudaMemcpyDeviceToHost,

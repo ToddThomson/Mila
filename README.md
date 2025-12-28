@@ -7,11 +7,11 @@
 Mila Deep Neural Network Library
 
 ## Prerelease Notice
-Mila, version 0.9.949-alpha
+Mila, version 0.9.950-alpha
 This is a an internal development only build of Mila.
 
 ## Roadmap
-Mila is targeting a **v0.1.0-beta release in 10-12 weeks** featuring a stable high-level Model API, GPU-accelerated loss functions, comprehensive checkpointing, and production-quality MNIST examples with 98%+ accuracy. 
+Mila is targeting a **v0.1.0-beta release in 10-12 weeks (late February, 2026 )** featuring a stable high-level Model API, GPU-accelerated loss functions, comprehensive checkpointing, and production-quality MNIST examples with 98%+ accuracy. 
 See the complete [ROADMAP.md](ROADMAP.md) for detailed weekly milestones, success criteria, and the path to beta.
 
 ## Description

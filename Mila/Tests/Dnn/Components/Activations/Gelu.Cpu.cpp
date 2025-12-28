@@ -466,8 +466,6 @@ namespace Dnn::Components::Activations::Tests
         Tensor<dtype_t::FP32, MR> output_grad( device_id, shape );
         Tensor<dtype_t::FP32, MR> input_grad( device_id, shape );
 
-        gelu->setTraining( true );
-
         EXPECT_THROW( gelu->backward( input, output_grad, input_grad ), std::runtime_error );
     }
 

@@ -582,6 +582,12 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             num_heads_ = config_.getNumHeads();
             head_size_ = embedding_dim_ / num_heads_;
 
+            if ( embedding_dim_ % num_heads_ != 0 )
+            {
+                throw std::invalid_argument(
+                    "CudaAttentionOp: embedding_dim must be divisible by num_heads" );
+            }
+
             allocateStateTensors();
 
             cublaslt_handle_ = context_->getCublasLtHandle();
@@ -610,21 +616,12 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             const float alpha = 1.0f;
             const float beta = 0.0f;
 
-            // Step 1: Split and permute concatenated QKV input
-            // Input:  X [B, T, 3*C] - concatenated Q, K, V along feature dimension
-            // Output: Q, K, V each [B, NH, T, HS] - separated and reshaped for multi-head processing
-            // This transforms from model layout to multi-head layout for efficient batched matmuls
             Detail::cuda_mha_kernels<NativeType>::permute_qkv(
                 q_, k_, v_,
                 X,
                 batch_size_, seq_length_, num_heads_, head_size_,
                 stream );
 
-            // Step 2: Compute attention scores using cuBLASLt
-            // Computes: preatt = K^T @ Q for each (batch, head) pair
-            // Input:  K [B, NH, T, HS], Q [B, NH, T, HS]
-            // Output: preatt [B, NH, T, T] - raw attention scores before softmax
-            // Each position attends to all previous positions (causal masking applied in softmax)
             execute_plan<NativeType>(
                 cublaslt_handle_,
                 qk_score_plan_,
@@ -635,12 +632,6 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 nullptr,
                 stream );
 
-            // Step 3: Apply scaled softmax with causal masking
-            // Computes: att = softmax(preatt / sqrt(head_size)) with mask(t2 <= t)
-            // Input:  preatt [B, NH, T, T] - raw attention scores
-            // Output: att [B, NH, T, T] - normalized attention probabilities
-            // Scaling by 1/sqrt(HS) prevents dot products from growing too large
-            // Causal mask ensures position t can only attend to positions 0..t
             const float scale = 1.0f / sqrtf( static_cast<float>(head_size_) );
 
             Detail::cuda_mha_kernels<NativeType>::softmax_forward(
@@ -648,11 +639,6 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 batch_size_, num_heads_, seq_length_,
                 stream );
 
-            // Step 4: Apply attention to values using cuBLASLt
-            // Computes: vaccum = V @ Att for each (batch, head) pair
-            // Input:  V [B, NH, T, HS], Att [B, NH, T, T]
-            // Output: vaccum [B, NH, T, HS] - weighted sum of values by attention
-            // Each output position is a weighted combination of all value vectors
             execute_plan<NativeType>(
                 cublaslt_handle_,
                 att_value_plan_,
@@ -663,10 +649,6 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 nullptr,
                 stream );
 
-            // Step 5: Concatenate and permute multi-head outputs
-            // Input:  vaccum [B, NH, T, HS] - separate head outputs
-            // Output: Y [B, T, C] where C = NH * HS - concatenated output in model layout
-            // Transforms from multi-head layout back to model layout for downstream layers
             Detail::cuda_mha_kernels<NativeType>::unpermute_output(
                 vaccum_, Y,
                 batch_size_, seq_length_, num_heads_, head_size_,
@@ -693,20 +675,11 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             const float alpha = 1.0f;
             const float beta = 0.0f;
 
-            // Step 1: Unpermute output gradient from model layout to multi-head layout
-            // Input:  dY [B, T, C] - gradient from downstream layers (model layout)
-            // Output: dvaccum [B, NH, T, HS] - gradient reshaped for multi-head processing
-            // Reverse of forward's final unpermute step
             Detail::cuda_mha_kernels<NativeType>::unpermute_backward(
                 dvaccum_, dY,
                 batch_size_, seq_length_, num_heads_, head_size_,
                 stream );
 
-            // Step 2: Compute gradient w.r.t. values using cuBLASLt
-            // Computes: dV = Att^T @ dvaccum for each (batch, head) pair
-            // Input:  Att [B, NH, T, T] (forward attention weights), dvaccum [B, NH, T, HS]
-            // Output: dV [B, NH, T, HS] - gradient w.r.t. value vectors
-            // Backpropagates through: vaccum = V @ Att
             execute_plan<NativeType>(
                 cublaslt_handle_,
                 backward_v_plan_,
@@ -717,11 +690,6 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 nullptr,
                 stream );
 
-            // Step 3: Compute gradient w.r.t. attention weights using cuBLASLt
-            // Computes: dAtt = dvaccum @ V^T for each (batch, head) pair
-            // Input:  dvaccum [B, NH, T, HS], V [B, NH, T, HS] (forward values)
-            // Output: dAtt [B, NH, T, T] - gradient w.r.t. attention probabilities
-            // Backpropagates through: vaccum = V @ Att
             execute_plan<NativeType>(
                 cublaslt_handle_,
                 backward_att_plan_,
@@ -732,22 +700,11 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 nullptr,
                 stream );
 
-            // Step 4: Backpropagate through softmax with causal mask
-            // Computes: dPreatt = softmax_backward(dAtt, Att)
-            // Input:  dAtt [B, NH, T, T] (gradient w.r.t. attention probabilities)
-            //         Att [B, NH, T, T] (forward attention probabilities)
-            // Output: dPreatt [B, NH, T, T] - gradient w.r.t. pre-softmax scores
-            // Accounts for softmax Jacobian and causal masking structure
             Detail::cuda_mha_kernels<NativeType>::softmax_backward(
                 dpreatt_, datt_, att_,
                 batch_size_, num_heads_, seq_length_,
                 stream );
 
-            // Step 5: Compute gradient w.r.t. queries using cuBLASLt
-            // Computes: dQ = dPreatt @ K for each (batch, head) pair
-            // Input:  dPreatt [B, NH, T, T], K [B, NH, T, HS] (forward keys)
-            // Output: dQ [B, NH, T, HS] - gradient w.r.t. query vectors
-            // Backpropagates through: preatt = K^T @ Q
             execute_plan<NativeType>(
                 cublaslt_handle_,
                 backward_q_plan_,
@@ -758,11 +715,6 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 nullptr,
                 stream );
 
-            // Step 6: Compute gradient w.r.t. keys using cuBLASLt
-            // Computes: dK = dPreatt^T @ Q for each (batch, head) pair
-            // Input:  dPreatt [B, NH, T, T], Q [B, NH, T, HS] (forward queries)
-            // Output: dK [B, NH, T, HS] - gradient w.r.t. key vectors
-            // Backpropagates through: preatt = K^T @ Q
             execute_plan<NativeType>(
                 cublaslt_handle_,
                 backward_k_plan_,
@@ -773,10 +725,6 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 nullptr,
                 stream );
 
-            // Step 7: Permute and concatenate QKV gradients back to model layout
-            // Input:  dQ, dK, dV each [B, NH, T, HS] - separate head gradients
-            // Output: dX [B, T, 3*C] - concatenated gradient in model layout
-            // Reverse of forward's initial QKV permutation step
             Detail::cuda_mha_kernels<NativeType>::permute_backward(
                 dX,
                 dq_, dk_, dv_,
@@ -820,6 +768,20 @@ namespace Mila::Dnn::Compute::Cuda::Attention
         Detail::CublasLtMatMulPlan<NativeType> backward_q_plan_;
         Detail::CublasLtMatMulPlan<NativeType> backward_k_plan_;
 
+        std::shared_ptr<TensorType> q_tensor_;
+        std::shared_ptr<TensorType> k_tensor_;
+        std::shared_ptr<TensorType> v_tensor_;
+        std::shared_ptr<TensorType> preatt_tensor_;
+        std::shared_ptr<TensorType> att_tensor_;
+        std::shared_ptr<TensorType> vaccum_tensor_;
+
+        std::shared_ptr<TensorType> dq_tensor_;
+        std::shared_ptr<TensorType> dk_tensor_;
+        std::shared_ptr<TensorType> dv_tensor_;
+        std::shared_ptr<TensorType> dpreatt_tensor_;
+        std::shared_ptr<TensorType> datt_tensor_;
+        std::shared_ptr<TensorType> dvaccum_tensor_;
+
         NativeType* q_{ nullptr };
         NativeType* k_{ nullptr };
         NativeType* v_{ nullptr };
@@ -834,15 +796,6 @@ namespace Mila::Dnn::Compute::Cuda::Attention
         NativeType* datt_{ nullptr };
         NativeType* dvaccum_{ nullptr };
 
-        /**
-         * @brief Validate input tensor shape for attention.
-         *
-         * Expects input shape to be [batch_size, seq_length, 3*embedding_dim].
-         *
-         * @param input_shape Shape of the input tensor.
-         *
-         * @throws std::invalid_argument if shape has incorrect rank or last dimension.
-         */
         void validateInputShape( const shape_t& input_shape ) const
         {
             if ( input_shape.size() != 3 )
@@ -861,12 +814,11 @@ namespace Mila::Dnn::Compute::Cuda::Attention
         }
 
         /**
-         * @brief Allocate device tensors used as intermediate state during forward/backward.
+         * @brief Allocate device tensors for intermediate state during forward/backward.
          *
-         * Creates device tensors for Q, K, V, attention scores, probabilities and all
-         * intermediate gradients.
-         * Ownership is held by the local shared_ptr instances to keep lifetime tied to the
-         * operation's state objects managed by the framework Tensor class.
+         * Creates managed tensors for Q, K, V, attention scores, probabilities and gradients.
+         * Ownership through shared_ptr ensures proper RAII semantics and automatic cleanup.
+         * Raw pointers are cached for performance-critical forward/backward hot paths.
          */
         void allocateStateTensors()
         {
@@ -879,17 +831,17 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 static_cast<int64_t>(head_size_)
             };
 
-            auto q_tensor = std::make_shared<TensorType>( device, qkv_shape );
-            q_tensor->setName( "q_" );
-            q_ = static_cast<NativeType*>(q_tensor->rawData());
+            q_tensor_ = std::make_shared<TensorType>( device, qkv_shape );
+            q_tensor_->setName( "q_" );
+            q_ = static_cast<NativeType*>(q_tensor_->rawData());
 
-            auto k_tensor = std::make_shared<TensorType>( device, qkv_shape );
-            k_tensor->setName( "k_" );
-            k_ = static_cast<NativeType*>(k_tensor->rawData());
+            k_tensor_ = std::make_shared<TensorType>( device, qkv_shape );
+            k_tensor_->setName( "k_" );
+            k_ = static_cast<NativeType*>(k_tensor_->rawData());
 
-            auto v_tensor = std::make_shared<TensorType>( device, qkv_shape );
-            v_tensor->setName( "v_" );
-            v_ = static_cast<NativeType*>(v_tensor->rawData());
+            v_tensor_ = std::make_shared<TensorType>( device, qkv_shape );
+            v_tensor_->setName( "v_" );
+            v_ = static_cast<NativeType*>(v_tensor_->rawData());
 
             shape_t att_shape = {
                 static_cast<int64_t>(batch_size_),
@@ -898,48 +850,43 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 static_cast<int64_t>(seq_length_)
             };
 
-            auto preatt_tensor = std::make_shared<TensorType>( device, att_shape );
-            preatt_tensor->setName( "preatt_" );
-            preatt_ = static_cast<NativeType*>(preatt_tensor->rawData());
+            preatt_tensor_ = std::make_shared<TensorType>( device, att_shape );
+            preatt_tensor_->setName( "preatt_" );
+            preatt_ = static_cast<NativeType*>(preatt_tensor_->rawData());
 
-            auto att_tensor = std::make_shared<TensorType>( device, att_shape );
-            att_tensor->setName( "att_" );
-            att_ = static_cast<NativeType*>(att_tensor->rawData());
+            att_tensor_ = std::make_shared<TensorType>( device, att_shape );
+            att_tensor_->setName( "att_" );
+            att_ = static_cast<NativeType*>(att_tensor_->rawData());
 
-            auto vaccum_tensor = std::make_shared<TensorType>( device, qkv_shape );
-            vaccum_tensor->setName( "vaccum_" );
-            vaccum_ = static_cast<NativeType*>(vaccum_tensor->rawData());
+            vaccum_tensor_ = std::make_shared<TensorType>( device, qkv_shape );
+            vaccum_tensor_->setName( "vaccum_" );
+            vaccum_ = static_cast<NativeType*>(vaccum_tensor_->rawData());
 
-            auto dq_tensor = std::make_shared<TensorType>( device, qkv_shape );
-            dq_tensor->setName( "dq_" );
-            dq_ = static_cast<NativeType*>(dq_tensor->rawData());
+            dq_tensor_ = std::make_shared<TensorType>( device, qkv_shape );
+            dq_tensor_->setName( "dq_" );
+            dq_ = static_cast<NativeType*>(dq_tensor_->rawData());
 
-            auto dk_tensor = std::make_shared<TensorType>( device, qkv_shape );
-            dk_tensor->setName( "dk_" );
-            dk_ = static_cast<NativeType*>(dk_tensor->rawData());
+            dk_tensor_ = std::make_shared<TensorType>( device, qkv_shape );
+            dk_tensor_->setName( "dk_" );
+            dk_ = static_cast<NativeType*>(dk_tensor_->rawData());
 
-            auto dv_tensor = std::make_shared<TensorType>( device, qkv_shape );
-            dv_tensor->setName( "dv_" );
-            dv_ = static_cast<NativeType*>(dv_tensor->rawData());
+            dv_tensor_ = std::make_shared<TensorType>( device, qkv_shape );
+            dv_tensor_->setName( "dv_" );
+            dv_ = static_cast<NativeType*>(dv_tensor_->rawData());
 
-            auto dpreatt_tensor = std::make_shared<TensorType>( device, att_shape );
-            dpreatt_tensor->setName( "dpreatt_" );
-            dpreatt_ = static_cast<NativeType*>(dpreatt_tensor->rawData());
+            dpreatt_tensor_ = std::make_shared<TensorType>( device, att_shape );
+            dpreatt_tensor_->setName( "dpreatt_" );
+            dpreatt_ = static_cast<NativeType*>(dpreatt_tensor_->rawData());
 
-            auto datt_tensor = std::make_shared<TensorType>( device, att_shape );
-            datt_tensor->setName( "datt_" );
-            datt_ = static_cast<NativeType*>(datt_tensor->rawData());
+            datt_tensor_ = std::make_shared<TensorType>( device, att_shape );
+            datt_tensor_->setName( "datt_" );
+            datt_ = static_cast<NativeType*>(datt_tensor_->rawData());
 
-            auto dvaccum_tensor = std::make_shared<TensorType>( device, qkv_shape );
-            dvaccum_tensor->setName( "dvaccum_" );
-            dvaccum_ = static_cast<NativeType*>(dvaccum_tensor->rawData());
+            dvaccum_tensor_ = std::make_shared<TensorType>( device, qkv_shape );
+            dvaccum_tensor_->setName( "dvaccum_" );
+            dvaccum_ = static_cast<NativeType*>(dvaccum_tensor_->rawData());
         }
 
-        /**
-         * @brief Build all required cuBLASLt plans once per input configuration.
-         *
-         * This caches plan descriptors and algorithms so forward/backward are zero-overhead.
-         */
         void buildCublasLtPlans()
         {
             cudaDataType_t cuda_data_type = getCudaDataType();
@@ -1009,11 +956,6 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 scale_type );
         }
 
-        /**
-         * @brief Get CUDA data type for the configured template precision.
-         *
-         * @return cudaDataType_t CUDA runtime type for elements (CUDA_R_32F or CUDA_R_16F)
-         */
         cudaDataType_t getCudaDataType() const
         {
             if constexpr ( std::is_same_v<NativeType, float> )
@@ -1026,12 +968,6 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             }
         }
 
-        /**
-         * @brief Select cuBLAS compute and scaling types according to precision policy.
-         *
-         * @param[out] compute_type Selected cublasComputeType_t
-         * @param[out] scale_type Selected cudaDataType_t used for scaling parameters
-         */
         void getComputeTypes( cublasComputeType_t& compute_type, cudaDataType_t& scale_type ) const
         {
             scale_type = CUDA_R_32F;

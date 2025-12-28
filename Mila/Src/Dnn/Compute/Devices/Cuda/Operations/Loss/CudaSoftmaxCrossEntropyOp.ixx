@@ -21,7 +21,7 @@ module;
 #include <stdexcept>
 #include <cstdint>
 #include <type_traits>
-#include "Kernels/CudaOps.h"
+#include "Kernels/SoftmaxCrossEntropy.cuh"
 
 export module Compute.CudaSoftmaxCrossEntropyOp;
 
@@ -37,13 +37,12 @@ import Compute.BinaryOperation;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
-//import Compute.CudaExecutionContext;
 import Compute.OperationType;
 import Compute.MemoryResource;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
 
-namespace Mila::Dnn::Compute
+namespace Mila::Dnn::Compute::Cuda::SoftmaxCrossEntropy
 {
     using namespace Mila::Dnn;
 
@@ -67,7 +66,7 @@ namespace Mila::Dnn::Compute
         {
             static inline void forward(
                 float* losses,
-                float* probs,
+                //float* probs,
                 const float* logits,
                 const int* targets,
                 int batch_size,
@@ -75,23 +74,23 @@ namespace Mila::Dnn::Compute
                 int vocab_size,
                 cudaStream_t stream )
             {
-                cuda_softmax_crossentropy_forward<float>(
-                    losses, probs, logits, targets,
+                cuda_softmax_crossentropy_forward_fp32(
+                    losses, /* probs, */ logits, targets,
                     batch_size, seq_len, vocab_size, stream );
             }
 
             static inline void backward(
                 float* dlogits,
                 const float* dlosses,
-                const float* probs,
+                const float* logits,
                 const int* targets,
                 int batch_size,
                 int seq_len,
                 int vocab_size,
                 cudaStream_t stream )
             {
-                cuda_softmax_crossentropy_backward<float>(
-                    dlogits, dlosses, probs, targets,
+                cuda_softmax_crossentropy_backward_fp32(
+                    dlogits, dlosses, logits, targets,
                     batch_size, seq_len, vocab_size, stream );
             }
         };
@@ -102,7 +101,7 @@ namespace Mila::Dnn::Compute
         {
             static inline void forward(
                 half* losses,
-                half* probs,
+                //half* probs,
                 const half* logits,
                 const int* targets,
                 int batch_size,
@@ -110,24 +109,24 @@ namespace Mila::Dnn::Compute
                 int vocab_size,
                 cudaStream_t stream )
             {
-                cuda_softmax_crossentropy_forward<half>(
+                /*cuda_softmax_crossentropy_forward<half>(
                     losses, probs, logits, targets,
-                    batch_size, seq_len, vocab_size, stream );
+                    batch_size, seq_len, vocab_size, stream );*/
             }
 
             static inline void backward(
                 half* dlogits,
                 const half* dlosses,
-                const half* probs,
+                //const half* probs,
                 const int* targets,
                 int batch_size,
                 int seq_len,
                 int vocab_size,
                 cudaStream_t stream )
             {
-                cuda_softmax_crossentropy_backward<half>(
+                /*cuda_softmax_crossentropy_backward<half>(
                     dlogits, dlosses, probs, targets,
-                    batch_size, seq_len, vocab_size, stream );
+                    batch_size, seq_len, vocab_size, stream );*/
             }
         };
     }
@@ -173,16 +172,9 @@ namespace Mila::Dnn::Compute
          * @param context CUDA execution context
          * @param config CrossEntropy configuration (vocab_size required)
          */
-        CudaSoftmaxCrossEntropyOp(
-            std::shared_ptr<CudaExecutionContext> context,
-            const CrossEntropyConfig& config )
-            : context_( context ), config_( config )
+        CudaSoftmaxCrossEntropyOp( IExecutionContext* context, const CrossEntropyConfig& config )
+            : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaGeluOp" ) ), config_( config )
         {
-            if (!context_)
-            {
-                throw std::runtime_error( "CudaSoftmaxCrossEntropyOp requires a CUDA execution context" );
-            }
-
             config_.validate();
         }
 
@@ -309,20 +301,21 @@ namespace Mila::Dnn::Compute
          * @param output Loss tensor (per-sample losses [batch, seq])
          */
         void forward(
-            const ITensor& inputA,
-            const ITensor& inputB,
+            const ITensor& logits,
+            const ITensor& targets,
             ITensor& output ) const override
         {
-            const NativeType* logits_ptr = static_cast<const NativeType*>(inputA.rawData());
-            const TargetsNativeType* targets_ptr = static_cast<const TargetsNativeType*>(inputB.rawData());
+            const NativeType* logits_ptr = static_cast<const NativeType*>(logits.rawData());
+            const TargetsNativeType* targets_ptr = static_cast<const TargetsNativeType*>(targets.rawData());
+            
             NativeType* losses_ptr = static_cast<NativeType*>(output.rawData());
 
             // Cache probabilities internally for backward pass
-            NativeType* probs_ptr = static_cast<NativeType*>(cached_probs_->rawData());
+            //NativeType* probs_ptr = static_cast<NativeType*>(cached_probs_->rawData());
 
             Detail::cuda_softmax_crossentropy_impl<NativeType>::forward(
                 losses_ptr,
-                probs_ptr,
+                //probs_ptr,
                 logits_ptr,
                 targets_ptr,
                 cached_batch_size_,
@@ -346,40 +339,39 @@ namespace Mila::Dnn::Compute
          *     dL/dlogits[i] = prob[i] - (i == target ? 1 : 0)
          *     Scale by output_gradient
          *
-         * @param inputA Logits tensor from forward pass
-         * @param inputB Targets tensor from forward pass
-         * @param output_gradient Gradient w.r.t. loss (per-sample gradients)
-         * @param inputA_gradient Output: gradient w.r.t. logits
-         * @param inputB_gradient Unused (targets are integers, not differentiable)
+         * @param logits Logits tensor from forward pass
+         * @param targets Targets tensor from forward pass
+         * @param loss_grad Gradient w.r.t. loss (per-sample gradients)
+         * @param logits_grad Output: gradient w.r.t. logits
+         * @param targets_grad Unused (targets are integers, not differentiable)
          */
         void backward(
-            const ITensor& inputA,
-            const ITensor& inputB,
-            const ITensor& output_gradient,
-            ITensor& inputA_gradient,
-            ITensor& inputB_gradient ) const override
+            const ITensor& logits,
+            const ITensor& targets,
+            const ITensor& loss_grad,
+            ITensor& logits_grad,
+            ITensor& targets_grad /* not used */) const override
         {
-            const TargetsNativeType* targets_ptr = static_cast<const TargetsNativeType*>(inputB.rawData());
-            const NativeType* dlosses_ptr = static_cast<const NativeType*>(output_gradient.rawData());
-            NativeType* dlogits_ptr = static_cast<NativeType*>(inputA_gradient.rawData());
+            const TargetsNativeType* targets_ptr = static_cast<const TargetsNativeType*>(targets.rawData());
+            const NativeType* dlosses_ptr = static_cast<const NativeType*>( loss_grad.rawData());
+            NativeType* dlogits_ptr = static_cast<NativeType*>(logits_grad.rawData());
 
             // Use cached probabilities from forward pass
-            const NativeType* probs_ptr = static_cast<const NativeType*>(cached_probs_->rawData());
+            //const NativeType* probs_ptr = static_cast<const NativeType*>(cached_probs_->rawData());
 
             // Call CUDA kernel for fused backward pass
             Detail::cuda_softmax_crossentropy_impl<NativeType>::backward(
                 dlogits_ptr,
                 dlosses_ptr,
-                probs_ptr,
+                dlogits_ptr,
                 targets_ptr,
                 cached_batch_size_,
                 cached_seq_len_,
                 cached_vocab_size_,
                 cached_stream_ );
 
-            // Note: inputB_gradient (targets) is intentionally unused
-            // Integer targets are not differentiable
-            (void)inputB_gradient;
+            // Note: targets_grad is intentionally unused. Integer targets are not differentiable
+            (void)targets_grad;
         }
 
         // ====================================================================
@@ -428,43 +420,17 @@ namespace Mila::Dnn::Compute
         {
             const std::string opName = "SoftmaxCrossEntropyOp";
 
-            OperationRegistry::instance().registerBinaryOperation<
-                DeviceType::Cuda,
-				TensorDataType::FP32,
-                TensorDataType::FP32,
-				TensorDataType::INT32>(
-                    opName,
-                    []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                        const ComponentConfig& config )
-                    -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32, TensorDataType::INT32>>
-                    {
-                        const auto& crossEntropyConfig = static_cast<const CrossEntropyConfig&>(config);
-                        return std::make_shared<CudaSoftmaxCrossEntropyOp<TensorDataType::FP32, TensorDataType::FP32, TensorDataType::INT32>>(
-                            context, crossEntropyConfig );
-                    }
-                );
+            OperationRegistry::instance().registerBinaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32, TensorDataType::INT32>(
+                opName,
+                []( IExecutionContext* context, const ComponentConfig& config )
+                -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32, TensorDataType::INT32>>
+                {
+                    const auto& crossEntropyConfig = static_cast<const CrossEntropyConfig&>(config);
 
-            // Register FP16 variant with INT32 targets
-            OperationRegistry::instance().registerBinaryOperation<
-                DeviceType::Cuda,
-				TensorDataType::FP16,
-                TensorDataType::FP16,
-				TensorDataType::INT32>(
-                    opName,
-                    []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                        const ComponentConfig& config )
-                    -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, TensorDataType::FP16, TensorDataType::FP16, TensorDataType::INT32>>
-                    {
-                        const auto& ceConfig = static_cast<const CrossEntropyConfig&>(config);
-                        return std::make_shared<CudaSoftmaxCrossEntropyOp<TensorDataType::FP16, TensorDataType::FP16, TensorDataType::INT32>>(
-                            context, ceConfig );
-                    }
-                );
+                    return std::make_shared<CudaSoftmaxCrossEntropyOp<TensorDataType::FP32, TensorDataType::FP32, TensorDataType::INT32>>(
+                        context, crossEntropyConfig );
+                }
+            );
         }
-
-        static inline bool isRegistered = []() {
-            registerOperations();
-            return true;
-            }();
     };
 }

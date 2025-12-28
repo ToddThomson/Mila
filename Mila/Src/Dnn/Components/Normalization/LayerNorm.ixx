@@ -63,7 +63,6 @@ namespace Mila::Dnn
     public:
         using ComponentBase = Component<TDeviceType, TPrecision>;
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
-        using ExecutionContextType = ExecutionContext<TDeviceType>;
         using TensorType = Tensor<TPrecision, MR>;
 
         /**
@@ -76,6 +75,7 @@ namespace Mila::Dnn
         explicit LayerNorm( const std::string& name, const LayerNormConfig& config, std::optional<DeviceId> device_id = std::nullopt )
             : ComponentBase( name ), config_( config )
         {
+            // REVIEW: All of this is common boilerplate. Consider moving to ComponentBase
             config_.validate();
 
             if ( device_id.has_value() )
@@ -88,13 +88,6 @@ namespace Mila::Dnn
                 owned_exec_context_ = createExecutionContext( device_id.value() );
 
                 this->setExecutionContext( owned_exec_context_.get() );
-
-                // If normalized_shape was provided we can eagerly allocate parameters
-                // because an execution context is available.
-                if ( config_.hasNormalizedShape() )
-                {
-                    initializeParameters();
-                }
             }
         }
 
@@ -111,7 +104,7 @@ namespace Mila::Dnn
                 throw std::runtime_error( "LayerNorm module must be built before calling forward." );
             }
 
-            validateInputShape( input );
+            validateInputShape( input.shape() );
 
             operation_->forward( input, output );
         }
@@ -218,7 +211,6 @@ namespace Mila::Dnn
         std::string toString() const override
         {
             std::ostringstream oss;
-            oss << "--------------------" << std::endl;
             oss << "LayerNorm: " << this->getName() << std::endl;
             oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
             oss << "Epsilon: " << config_.getEpsilon() << std::endl;
@@ -243,11 +235,6 @@ namespace Mila::Dnn
         void onExecutionContextSet() override
         {
             createOperation();
-
-            if ( config_.hasNormalizedShape() && !weight_ )
-            {
-                initializeParameters();
-            }
         }
 
         /**
@@ -260,18 +247,9 @@ namespace Mila::Dnn
         {
             validateInputShape( input_shape );
 
-            if ( !config_.hasNormalizedShape() )
-            {
-                allocateParametersForShape( input_shape );
-            }
+            allocateParameters( &input_shape );
 
             operation_->setParameters( weight_.get(), bias_.get() );
-
-            if ( this->isTraining() )
-            {
-                initializeParameterGradients();
-                operation_->setGradients( weight_grad_.get(), bias_grad_.get() );
-            }
 
             operation_->build( input_shape );
         }
@@ -284,22 +262,29 @@ namespace Mila::Dnn
          */
         void onTrainingChanging( bool is_training ) override
         {
+            // REVIEW: What does this mean for operations?
             operation_->setTraining( is_training );
 
             if ( is_training )
             {
-                if ( this->isBuilt() )
-                {
-                    initializeParameterGradients();
-                    operation_->setGradients( weight_grad_.get(), config_.hasBias() ? bias_grad_.get() : nullptr );
-                }
+                initializeGradients();
+                
+                operation_->setGradients( weight_grad_.get(), config_.hasBias() ? bias_grad_.get() : nullptr );
             }
             else
             {
                 operation_->clearGradients();
 
-                weight_grad_.reset();
-                bias_grad_.reset();
+                // Prefer to keep gradient buffers allocated for next training phase.
+                if ( weight_grad_ )
+                {
+                    zeros( *weight_grad_ );
+                }
+
+                if ( bias_grad_ )
+                {
+                    zeros( *bias_grad_ );
+                }
             }
         }
 
@@ -315,27 +300,6 @@ namespace Mila::Dnn
 
         std::shared_ptr<TensorType> weight_grad_{ nullptr };
         std::shared_ptr<TensorType> bias_grad_{ nullptr };
-
-        void validateInputShape( const ITensor& input ) const
-        {
-            const auto& norm_shape = config_.getNormalizedShape();
-            const auto& input_shape = input.shape();
-
-            if ( input_shape.size() < norm_shape.size() )
-            {
-                throw std::invalid_argument( "Input rank must be >= normalized_shape rank" );
-            }
-
-            size_t offset = input_shape.size() - norm_shape.size();
-
-            for ( size_t i = 0; i < norm_shape.size(); ++i )
-            {
-                if ( input_shape[ offset + i ] != norm_shape[ i ] )
-                {
-                    throw std::invalid_argument( "Input trailing dimensions don't match normalized_shape" );
-                }
-            }
-        }
 
         void validateInputShape( const shape_t& input_shape ) const
         {
@@ -357,14 +321,28 @@ namespace Mila::Dnn
             }
         }
 
-        void allocateParametersForShape( const shape_t& input_shape )
+        /**
+         * @brief Single parameter allocation routine.
+         *
+         * `input_shape` is provided: allocate for axis mode (requires input shape),
+         *   or use `computeNormalizedShapePartition` to compute outer_shape when both
+         *   normalized_shape and input shape are available.
+         *
+         * This consolidates previous duplicate routines into a single authoritative allocator.
+         */
+        void allocateParameters( const shape_t* input_shape )
         {
+            if ( weight_ )
+            {
+                return;
+            }
+
             int64_t channels = 1;
 
             if ( config_.getAxis().has_value() )
             {
                 const dim_t axis = config_.getAxis().value();
-                AxisPartition ap = computeAxisPartition( input_shape, axis, "LayerNorm" );
+                AxisPartition ap = computeAxisPartition( *input_shape, axis, "LayerNorm" );
 
                 channels = ap.axis_size;
 
@@ -373,24 +351,42 @@ namespace Mila::Dnn
                 if ( ap.normalized_axis > 0 )
                 {
                     outer_shape_.insert( outer_shape_.end(),
-                        input_shape.begin(),
-                        input_shape.begin() + ap.normalized_axis );
+                        input_shape->begin(),
+                        input_shape->begin() + ap.normalized_axis );
                 }
 
-                if ( ap.normalized_axis + 1 < static_cast<int64_t>(input_shape.size()) )
+                if ( ap.normalized_axis + 1 < static_cast<int64_t>( input_shape->size() ) )
                 {
                     outer_shape_.insert( outer_shape_.end(),
-                        input_shape.begin() + ap.normalized_axis + 1,
-                        input_shape.end() );
+                        input_shape->begin() + ap.normalized_axis + 1,
+                        input_shape->end() );
                 }
             }
             else
             {
                 const auto& normalized_shape = config_.getNormalizedShape();
-                MultiAxisPartition mp = computeNormalizedShapePartition( input_shape, normalized_shape, "LayerNorm" );
 
-                channels = mp.normalized_size;
-                outer_shape_ = std::move( mp.outer_shape );
+                if ( normalized_shape.empty() )
+                {
+                    throw std::invalid_argument( "LayerNorm: cannot allocate parameters without normalized_shape or axis" );
+                }
+
+                if ( input_shape )
+                {
+                    MultiAxisPartition mp = computeNormalizedShapePartition( *input_shape, normalized_shape, "LayerNorm" );
+
+                    channels = mp.normalized_size;
+                    outer_shape_ = std::move( mp.outer_shape );
+                }
+                else
+                {
+                    for ( const auto& dim : normalized_shape )
+                    {
+                        channels *= dim;
+                    }
+
+                    outer_shape_.clear();
+                }
             }
 
             auto device = this->getExecutionContext()->getDeviceId();
@@ -405,49 +401,20 @@ namespace Mila::Dnn
             }
         }
 
-        void initializeParameters()
+        void initializeGradients()
         {
-            // If axis mode is used we do not allocate here.
-            if ( config_.getAxis().has_value() )
-            {
-                return;
-            }
-
-            const auto& normalized_shape = config_.getNormalizedShape();
-
-            int64_t channels = 1;
-
-            for ( const auto& dim : normalized_shape )
-            {
-                channels *= dim;
-            }
-
-            auto device = this->getExecutionContext()->getDeviceId();
-
-            weight_ = std::make_shared<TensorType>( device, shape_t{ channels } );
-            weight_->setName( this->getName() + ".weight" );
-
-            if ( config_.hasBias() )
-            {
-                bias_ = std::make_shared<TensorType>( device, shape_t{ channels } );
-                bias_->setName( this->getName() + ".bias" );
-            }
-        }
-
-        void initializeParameterGradients()
-        {
-            auto device = this->getExecutionContext()->getDeviceId();
+            auto device_id = this->getExecutionContext()->getDeviceId();
 
             if ( !weight_grad_ && weight_ )
             {
-                weight_grad_ = std::make_shared<TensorType>( device, weight_->shape() );
+                weight_grad_ = std::make_shared<TensorType>( device_id, weight_->shape() );
                 weight_grad_->setName( this->getName() + ".weight.grad" );
                 zeros( *weight_grad_ );
             }
 
             if ( config_.hasBias() && !bias_grad_ && bias_ )
             {
-                bias_grad_ = std::make_shared<TensorType>( device, bias_->shape() );
+                bias_grad_ = std::make_shared<TensorType>( device_id, bias_->shape() );
                 bias_grad_->setName( this->getName() + ".bias.grad" );
                 zeros( *bias_grad_ );
             }

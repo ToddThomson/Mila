@@ -35,24 +35,31 @@ struct CharLMConfig
     std::string data_file = "./Data/DataSets/TinyShakespeare/input.txt";
     int64_t batch_size = 32;
     int64_t seq_length = 128;
-    size_t epochs = 10;
-    float learning_rate = 3e-4f;
+    size_t epochs = 200;
+    float learning_rate = 0.005f; // we've tried 3e-4f; 0.001f
     float beta1 = 0.9f;
     float beta2 = 0.999f;
     float epsilon = 1e-8f;
-    float weight_decay = 0.01f;
+    float weight_decay = 0.000001f; // we've tried 0.01f, 0.001f
     DeviceType compute_device = DeviceType::Cuda;
     TensorDataType precision = TensorDataType::FP32;
     ComputePrecision::Policy precisionPolicy = ComputePrecision::Policy::Auto;
 
-    int64_t embedding_dim = 256;
-    int64_t num_heads = 4;
-    int64_t num_layers = 4;
-    int64_t mlp_hidden_dim = 1024;
+    int64_t embedding_dim = 384;
+    int64_t num_heads = 6;
+    int64_t num_layers = 6;
+    int64_t mlp_hidden_dim = 1536;
 
     float sample_temperature = 0.8f;
     int64_t sample_length = 300;
+    size_t sample_every_n_epochs = 5;
     std::string sample_prompt = "ROMEO:\n";
+
+    // Simple epoch-based learning-rate scheduler:
+    // lr_decay: multiplicative factor applied when schedule triggers (e.g., 0.9)
+    // lr_decay_every_n_epochs: apply decay every N epochs (0 = disable)
+    float lr_decay = 1.0f;
+    size_t lr_decay_every_n_epochs = 0;
 };
 
 void printUsage()
@@ -74,6 +81,9 @@ void printUsage()
     std::cout << "  --num-layers <int>       Number of transformer layers (default: 4)\n";
     std::cout << "  --sample-temperature <float> Sampling temperature (default: 0.8)\n";
     std::cout << "  --sample-length <int>    Length of generated samples (default: 300)\n";
+    std::cout << "  --sample-every <int>     Generate sample every N epochs (default: 1, 0=disable)\n";
+    std::cout << "  --lr-decay <float>       Multiplicative LR decay factor (e.g. 0.9). 1.0 means no decay.\n";
+    std::cout << "  --lr-decay-every <int>   Apply LR decay every N epochs (0 = disable)\n";
     std::cout << "  --help                   Show this help message\n";
 }
 
@@ -180,6 +190,18 @@ bool parseCommandLine( int argc, char** argv, CharLMConfig& config )
         {
             config.sample_length = std::stoi( argv[++i] );
         }
+        else if (arg == "--sample-every" && i + 1 < argc)
+        {
+            config.sample_every_n_epochs = std::stoi( argv[++i] );
+        }
+        else if (arg == "--lr-decay" && i + 1 < argc)
+        {
+            config.lr_decay = std::stof( argv[++i] );
+        }
+        else if (arg == "--lr-decay-every" && i + 1 < argc)
+        {
+            config.lr_decay_every_n_epochs = static_cast<size_t>( std::stoll( argv[++i] ) );
+        }
         else if (arg.substr( 0, 2 ) == "--")
         {
             std::cerr << "Unknown option: " << arg << std::endl;
@@ -203,6 +225,9 @@ bool parseCommandLine( int argc, char** argv, CharLMConfig& config )
     std::cout << "  Number of layers: " << config.num_layers << std::endl;
     std::cout << "  Sample temperature: " << config.sample_temperature << std::endl;
     std::cout << "  Sample length: " << config.sample_length << std::endl;
+    std::cout << "  Sample every N epochs: " << config.sample_every_n_epochs << std::endl;
+    std::cout << "  LR decay factor: " << config.lr_decay << std::endl;
+    std::cout << "  LR decay every N epochs: " << config.lr_decay_every_n_epochs << std::endl;
 
     if (!fs::exists( config.data_file ))
     {
@@ -267,6 +292,7 @@ float sequenceCrossEntropyLoss(
     size_t batch_size = logits.shape()[0];
     size_t seq_length = logits.shape()[1];
     size_t vocab_size = logits.shape()[2];
+
     float loss = 0.0f;
 
     for (size_t b = 0; b < batch_size; ++b)
@@ -349,6 +375,99 @@ int32_t sampleFromLogits(
     return static_cast<int32_t>( vocab_size - 1 );
 }
 
+
+// -----------------------------------------------------------------------------
+// Small parameter / gradient norm logger
+// - Non-invasive: logs a per-epoch summary (mean and max L2 norms).
+// - Uses dynamic_cast to typed Tensor; ignores tensors that don't match expected
+//   device/precision types.
+// -----------------------------------------------------------------------------
+template<DeviceType TDeviceType, TensorDataType TDataType>
+void logParameterAndGradientNorms( CharTransformer<TDeviceType, TDataType>* model )
+{
+    using DeviceMR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
+    using DeviceTensor = Tensor<TDataType, DeviceMR>;
+
+    std::vector<ITensor*> params;
+    std::vector<ITensor*> grads;
+
+    try
+    {
+        params = model->getParameters();
+    }
+    catch ( const std::exception& )
+    {
+        // If getParameters throws for some reason, skip logging
+        return;
+    }
+
+    try
+    {
+        grads = model->getGradients();
+    }
+    catch ( const std::exception& )
+    {
+        // Gradients may not be available; continue with parameters only
+        grads.clear();
+    }
+
+    double sum_param_norm = 0.0;
+    double max_param_norm = 0.0;
+    size_t param_count = 0;
+
+    for ( ITensor* p : params )
+    {
+        auto* dp = dynamic_cast<DeviceTensor*>( p );
+        if ( !dp ) continue;
+
+        auto host = toHost<TDataType>( *dp );
+
+        double s = 0.0;
+        for ( size_t i = 0; i < host.size(); ++i )
+        {
+            double v = static_cast<double>( host.data()[ i ] );
+            s += v * v;
+        }
+
+        double norm = std::sqrt( s );
+        sum_param_norm += norm;
+        max_param_norm = std::max( max_param_norm, norm );
+        param_count++;
+    }
+
+    double sum_grad_norm = 0.0;
+    double max_grad_norm = 0.0;
+    size_t grad_count = 0;
+
+    for ( ITensor* g : grads )
+    {
+        auto* dg = dynamic_cast<DeviceTensor*>( g );
+        if ( !dg ) continue;
+
+        auto host = toHost<TDataType>( *dg );
+
+        double s = 0.0;
+        for ( size_t i = 0; i < host.size(); ++i )
+        {
+            double v = static_cast<double>( host.data()[ i ] );
+            s += v * v;
+        }
+
+        double norm = std::sqrt( s );
+        sum_grad_norm += norm;
+        max_grad_norm = std::max( max_grad_norm, norm );
+        grad_count++;
+    }
+
+    std::cout << "  [NORM] params: count=" << param_count
+              << " mean=" << (param_count ? (sum_param_norm / param_count) : 0.0)
+              << " max=" << max_param_norm
+              << " | grads: count=" << grad_count
+              << " mean=" << (grad_count ? (sum_grad_norm / grad_count) : 0.0)
+              << " max=" << max_grad_norm
+              << std::endl;
+}
+
 template<DeviceType TDeviceType, TensorDataType TDataType, typename THostMR>
     requires PrecisionSupportedOnDevice<TDataType, TDeviceType> &&
              (std::is_same_v<THostMR, CudaPinnedMemoryResource> || std::is_same_v<THostMR, CpuMemoryResource>)
@@ -361,44 +480,44 @@ std::string generateSample(
 {
     using DeviceMR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
 
-    bool was_training = model->isTraining();
-    model->setTraining( false );
+    // DEBUG: temporarily set model to eval mode
+    //bool was_training = model->isTraining();
+    //model->setTraining( false );
 
     std::vector<int32_t> prompt_tokens;
-    for (char c : config.sample_prompt)
+    for ( char c : config.sample_prompt )
     {
         prompt_tokens.push_back( vocab.charToIndex( c ) );
     }
 
     std::vector<int32_t> generated_tokens = prompt_tokens;
-    std::mt19937 rng( static_cast<unsigned int>( epoch ) );
+    std::mt19937 rng( static_cast<unsigned int>(epoch) );
 
     size_t vocab_size = vocab.size();
-    int64_t max_context = std::min( static_cast<int64_t>( generated_tokens.size() ), config.seq_length );
 
-    shape_t context_shape = { 1, max_context };
-    shape_t logits_shape = { 1, max_context, static_cast<int64_t>( vocab_size ) };
+    int64_t model_batch_size = config.batch_size;
+    int64_t model_seq_length = config.seq_length;
 
-    Tensor<TensorDataType::INT32, DeviceMR> context_device( device_id, context_shape );
+    shape_t model_shape = { model_batch_size, model_seq_length };
+    shape_t logits_shape = { model_batch_size, model_seq_length, static_cast<int64_t>(vocab_size) };
+
+    Tensor<TensorDataType::INT32, DeviceMR> context_device( device_id, model_shape );
     Tensor<TDataType, DeviceMR> logits_device( device_id, logits_shape );
     Tensor<TDataType, CpuMemoryResource> logits_cpu( Device::Cpu(), logits_shape );
+    Tensor<TensorDataType::INT32, CpuMemoryResource> context_cpu( Device::Cpu(), model_shape );
 
-    for (int64_t i = 0; i < config.sample_length; ++i)
+    for ( int64_t i = 0; i < config.sample_length; ++i )
     {
-        int64_t context_start = std::max( int64_t( 0 ), static_cast<int64_t>( generated_tokens.size() ) - config.seq_length );
-        int64_t context_len = static_cast<int64_t>( generated_tokens.size() ) - context_start;
+        int64_t context_start = std::max( int64_t( 0 ),
+            static_cast<int64_t>( generated_tokens.size() ) - model_seq_length );
+        int64_t actual_context_len = static_cast<int64_t>( generated_tokens.size() ) - context_start;
 
-        context_shape = { 1, context_len };
-        logits_shape = { 1, context_len, static_cast<int64_t>( vocab_size ) };
+        std::fill_n( context_cpu.data(), model_batch_size * model_seq_length, 0 );
 
-        context_device = Tensor<TensorDataType::INT32, DeviceMR>( device_id, context_shape );
-        logits_device = Tensor<TDataType, DeviceMR>( device_id, logits_shape );
-        logits_cpu = Tensor<TDataType, CpuMemoryResource>( Device::Cpu(), logits_shape );
-
-        Tensor<TensorDataType::INT32, CpuMemoryResource> context_cpu( Device::Cpu(), context_shape );
-        for (int64_t j = 0; j < context_len; ++j)
+        int64_t pad_left = model_seq_length - actual_context_len;
+        for ( int64_t j = 0; j < actual_context_len; ++j )
         {
-            context_cpu.data()[j] = generated_tokens[context_start + j];
+            context_cpu.data()[ pad_left + j ] = generated_tokens[ context_start + j ];
         }
 
         copy( context_cpu, context_device );
@@ -408,12 +527,10 @@ std::string generateSample(
 
         copy( logits_device, logits_cpu );
 
-        // Calculate offset to last token's logits in the flattened array
-        size_t last_token_offset = (context_len - 1) * vocab_size;
+        size_t batch_0_last_token_offset = (model_seq_length - 1) * vocab_size;
 
-        // Sample directly from the pointer at the last token position
         int32_t next_token = sampleFromLogits<TDataType>(
-            logits_cpu.data() + last_token_offset,
+            logits_cpu.data() + batch_0_last_token_offset,
             vocab_size,
             config.sample_temperature,
             rng );
@@ -422,15 +539,15 @@ std::string generateSample(
     }
 
     std::string generated_text;
-    for (int32_t token : generated_tokens)
+    for ( int32_t token : generated_tokens )
     {
         generated_text += vocab.indexToChar( token );
     }
 
-    if (was_training)
-    {
-        model->setTraining( true );
-    }
+    //if ( was_training )
+    //{
+    //    model->setTraining( true );
+    //}
 
     return generated_text;
 }
@@ -491,11 +608,18 @@ void trainCharLM( const CharLMConfig& config )
     std::cout << "Optimizer initialized with " << optimizer->getParameterCount()
         << " parameter groups" << std::endl;
 
+    if (config.lr_decay != 1.0f && config.lr_decay_every_n_epochs == 0)
+    {
+        // apply decay every epoch by default when a decay factor is set
+        const_cast<CharLMConfig&>(config).lr_decay_every_n_epochs = 1;
+    }
+
     shape_t sequence_shape = { config.batch_size, config.seq_length };
     shape_t logits_shape = { config.batch_size, config.seq_length, static_cast<int64_t>(actual_vocab_size) };
 
     Tensor<TensorDataType::INT32, DeviceMR> input_batch( device_id, sequence_shape );
     Tensor<TensorDataType::INT32, DeviceMR> target_batch( device_id, sequence_shape );
+
     Tensor<TDataType, DeviceMR> output( device_id, logits_shape );
     Tensor<TDataType, CpuMemoryResource> logits_cpu( Device::Cpu(), logits_shape );
     Tensor<TensorDataType::INT32, CpuMemoryResource> targets_cpu( Device::Cpu(), sequence_shape );
@@ -508,6 +632,19 @@ void trainCharLM( const CharLMConfig& config )
 
     for (size_t epoch = 0; epoch < config.epochs; ++epoch)
     {
+        if (config.lr_decay != 1.0f &&
+            config.lr_decay_every_n_epochs > 0 &&
+            epoch > 0 &&
+            ( (epoch % config.lr_decay_every_n_epochs) == 0 ) )
+        {
+            float old_lr = optimizer->getLearningRate();
+            float new_lr = old_lr * config.lr_decay;
+            optimizer->setLearningRate( new_lr );
+
+            std::cout << "Adjusted learning rate: " << std::scientific << std::setprecision(3)
+                      << old_lr << " -> " << new_lr << std::endl;
+        }
+
         train_loader.reset();
 
         float epoch_loss = 0.0f;
@@ -521,6 +658,9 @@ void trainCharLM( const CharLMConfig& config )
 
             copy( train_loader.inputs(), input_batch );
             copy( train_loader.targets(), target_batch );
+
+            optimizer->zeroGrad();
+            zeros( input_grad );
 
             model->forward( input_batch, output );
             model->synchronize();
@@ -536,12 +676,13 @@ void trainCharLM( const CharLMConfig& config )
 
             copy( output_grad_cpu, output_grad );
 
-            optimizer->zeroGrad();
-            zeros( input_grad );
-
             model->backward( input_batch, output_grad, input_grad );
+            
+            // Ensure all gradients are ready before optimizer step
+            model->synchronize();
 
             optimizer->step();
+            model->synchronize();
 
             epoch_loss += batch_loss;
             batches++;
@@ -570,15 +711,39 @@ void trainCharLM( const CharLMConfig& config )
             << " - LR: " << std::scientific << std::setprecision( 3 ) << optimizer->getLearningRate()
             << std::endl;
 
-        std::cout << "\n--- Generated Sample (Epoch " << (epoch + 1) << ") ---" << std::endl;
-        /*std::string sample = generateSample<TDeviceType, TDataType, THostMR>(
-            model.get(),
-            vocab,
-            device_id,
-            config,
-            epoch );*/
-        //std::cout << sample << std::endl;
-        std::cout << "--- End Sample ---\n" << std::endl;
+        // Log parameter and gradient norms (per-epoch summary)
+        try
+        {
+            logParameterAndGradientNorms<TDeviceType, TDataType>( model.get() );
+        }
+        catch ( const std::exception& e )
+        {
+            std::cerr << "Warning: failed to log parameter/gradient norms: " << e.what() << std::endl;
+        }
+
+        // Generate sample every N epochs (or never if sample_every_n_epochs == 0)
+        if (config.sample_every_n_epochs > 0 && 
+            ((epoch + 1) % config.sample_every_n_epochs == 0 || epoch + 1 == config.epochs))
+        {
+            std::cout << "\n--- Generated Sample (Epoch " << (epoch + 1) << ") ---" << std::endl;
+            
+            try
+            {
+                std::string sample = generateSample<TDeviceType, TDataType, THostMR>(
+                    model.get(),
+                    vocab,
+                    device_id,
+                    config,
+                    epoch );
+                std::cout << sample << std::endl;
+            }
+            catch (const std::exception& e)
+            {
+                std::cerr << "Error generating sample: " << e.what() << std::endl;
+            }
+            
+            std::cout << "--- End Sample ---\n" << std::endl;
+        }
     }
 
     std::cout << "Training complete!" << std::endl;
@@ -618,8 +783,6 @@ int main( int argc, char** argv )
             std::cout << "Using CPU device" << std::endl;
             trainCharLM<DeviceType::Cpu, TensorDataType::FP32, CpuMemoryResource>( config );
         }
-
-        std::cout << "Training complete!" << std::endl;
     }
     catch (const std::exception& e)
     {

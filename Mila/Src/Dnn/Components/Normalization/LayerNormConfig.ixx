@@ -4,9 +4,7 @@
  *
  * Defines the LayerNormConfig class, providing a type-safe fluent interface for configuring
  * Layer Normalization modules. Inherits from ModuleConfig CRTP base and adds LayerNorm-specific
- * options: normalization dimensions, epsilon, and bias configuration.
- *
- * Exposed as part of the LayerNorm module via module partitions.
+ * options: normalization dimensions, epsilon, bias configuration and serialization support.
  */
 
 module;
@@ -21,11 +19,11 @@ export module Dnn.Components.LayerNorm:Config;
 
 import Dnn.ComponentConfig;
 import Dnn.TensorTypes;
-import nlohmann.json;
+import Serialization.Metadata;
 
 namespace Mila::Dnn
 {
-    using json = nlohmann::json;
+    using Serialization::SerializationMetadata;
 
     /**
      * @brief Configuration class for Layer Normalization module.
@@ -37,9 +35,6 @@ namespace Mila::Dnn
         
         /**
          * @brief Set the normalized shape (size of features to normalize).
-         *
-         * When using this method, the weight and bias tensors will be created
-         * at module construction time with this exact shape.
          *
          * @param shape Vector of dimensions representing the feature shape
          * @return Self&& for method chaining
@@ -60,9 +55,6 @@ namespace Mila::Dnn
 
         /**
          * @brief Set the normalization axis.
-         *
-         * When using this method, the weight and bias tensors will be lazy-initialized
-         * on the first forward pass based on the input tensor shape.
          *
          * @param axis The axis along which to normalize (default is -1, the last dimension)
          * @return Self&& for method chaining
@@ -199,79 +191,82 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Serialize configuration to JSON (ModuleConfig interface).
+         * @brief Convert configuration to SerializationMetadata.
          *
          * Keys:
-         * - "name" : string
          * - "precision" : integer (underlying value of ComputePrecision::Policy)
          * - "normalized_shape" : array<int64_t> OR "axis" : integer
          * - "has_bias" : boolean
          * - "epsilon" : float
+         *
+         * @return SerializationMetadata containing configuration fields
          */
-        /*json toJson() const
+        SerializationMetadata toSerializationMetadata() const
         {
-            json j;
-            j["name"] = name_;
-            j["precision"] = static_cast<int>( precision_ );
+            SerializationMetadata meta;
+            meta.set( "precision", static_cast<int64_t>( precision_ ) )
+                .set( "has_bias", has_bias_ )
+                .set( "epsilon", epsilon_ );
 
             if (!normalized_shape_.empty())
             {
-                j["normalized_shape"] = normalized_shape_;
+                meta.set( "normalized_shape", normalized_shape_ );
             }
             else if (axis_.has_value())
             {
-                j["axis"] = axis_.value();
+                meta.set( "axis", axis_.value() );
             }
 
-            j["has_bias"] = has_bias_;
-            j["epsilon"] = epsilon_;
-
-            return j;
-        }*/
+            return meta;
+        }
 
         /**
-         * @brief Deserialize configuration from JSON (ModuleConfig interface).
+         * @brief Populate configuration from SerializationMetadata.
          *
          * Missing keys leave fields at their current values. If both "normalized_shape"
          * and "axis" are provided an exception is thrown to avoid ambiguous state.
+         *
+         * @param meta SerializationMetadata containing configuration parameters
          */
-        void fromJson( const json& j )
+        void fromSerializationMetadata( const SerializationMetadata& meta )
         {
-            /*if ( j.contains( "name" ) )
+            if ( auto prec = meta.tryGetInt( "precision" ) )
             {
-                this->setName( j.at("name").get<std::string>() );
-            }*/
-
-            if ( j.contains( "precision" ) )
-            {
-                precision_ = static_cast<decltype( precision_)>( j.at( "precision" ).get<int>() );
+                precision_ = static_cast<decltype( precision_)>( *prec );
             }
 
-            const bool has_ns = j.contains( "normalized_shape" );
-            const bool has_ax = j.contains( "axis" );
+            const bool has_ns = meta.has( "normalized_shape" );
+            const bool has_ax = meta.has( "axis" );
 
-            if (has_ns && has_ax)
+            if ( has_ns && has_ax )
             {
-                throw std::invalid_argument( "LayerNormConfig::fromJson: both normalized_shape and axis present" );
+                throw std::invalid_argument( "LayerNormConfig::fromSerializationMetadata: both normalized_shape and axis present" );
             }
 
             if ( has_ns )
             {
-                normalized_shape_ = j.at( "normalized_shape" ).get<shape_t>();
+                auto maybe_shape = meta.tryGetShape( "normalized_shape" );
+                if ( maybe_shape.has_value() )
+                {
+                    normalized_shape_ = std::move( maybe_shape.value() );
+                }
             }
             else if ( has_ax )
             {
-                axis_ = j.at( "axis" ).get<int64_t>();
+                if ( auto ax = meta.tryGetInt( "axis" ) )
+                {
+                    axis_ = *ax;
+                }
             }
 
-            if ( j.contains( "has_bias" ) )
+            if ( auto hb = meta.tryGetBool( "has_bias" ) )
             {
-                has_bias_ = j.at( "has_bias" ).get<bool>();
+                has_bias_ = *hb;
             }
 
-            if ( j.contains( "epsilon" ) )
+            if ( auto eps = meta.tryGetFloat( "epsilon" ) )
             {
-                epsilon_ = j.at( "epsilon" ).get<float>();
+                epsilon_ = *eps;
             }
         }
 
@@ -298,6 +293,7 @@ namespace Mila::Dnn
             repr += ", has_bias=" + std::string( has_bias_ ? "true" : "false" );
             repr += ", epsilon=" + std::to_string( epsilon_ );
             repr += ")";
+
             return repr;
 		}
 

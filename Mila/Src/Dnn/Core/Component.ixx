@@ -61,7 +61,7 @@ namespace Mila::Dnn
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
     class Component
     {
-        // Allow composite parent to manage child contexts
+        // Allow composite parent to manage child execution contexts
         template<DeviceType, TensorDataType>
         friend class CompositeComponent;
 
@@ -176,10 +176,7 @@ namespace Mila::Dnn
             if ( !isBuilt() )
             {
                 throw std::runtime_error(
-                    std::format(
-                        "Component::setTraining: Cannot enable training mode before build(). "
-                        "Component '{}' must be built before calling setTraining(). "
-                        "Lifecycle: construction -> setExecutionContext() -> build() -> setTraining()",
+                    std::format( "Component::setTraining: component '{}' must be built before enabling training",
                         getName() )
                 );
             }
