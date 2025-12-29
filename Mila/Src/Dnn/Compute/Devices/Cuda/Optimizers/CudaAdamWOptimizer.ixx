@@ -30,7 +30,6 @@ import Compute.OptimizerBase;
 import Compute.DeviceType;
 import Compute.CudaDeviceMemoryResource;
 import Compute.ExecutionContext;
-//import Compute.CudaExecutionContext;
 import Compute.CudaTensorDataType;
 
 namespace Mila::Dnn::Compute
@@ -272,20 +271,21 @@ namespace Mila::Dnn::Compute
          *
          * @throws std::runtime_error if no parameters have been registered
          */
-        void zeroGrad() override
-        {
-            if (grads_.empty())
-            {
-                throw std::runtime_error( "CudaAdamWOptimizer: no gradients to zero." );
-            }
-
-            for (auto* grad : grads_)
-            {
-                // The grad must be valid!
-				auto total_size = grad->size() * grad->elementSize();
-                cudaMemsetAsync( grad->rawData(), 0, total_size, exec_context_->getStream() );
-            }
-        }
+    //    // TJT: zeroGradients() is now handled by the component/model
+    //    void zeroGrad() override
+    //    {
+    //        if (grads_.empty())
+    //        {
+    //            throw std::runtime_error( "CudaAdamWOptimizer: no gradients to zero." );
+    //        }
+    //
+    //        for (auto* grad : grads_)
+    //        {
+    //            // The grad must be valid!
+	//			//auto total_size = grad->size() * grad->elementSize();
+    //            cudaMemsetAsync( grad->rawData(), 0, total_size, exec_context_->getStream() );
+    //        }
+    //    }
 
         /**
          * @brief Get current learning rate.
@@ -388,7 +388,7 @@ namespace Mila::Dnn::Compute
         
         size_t step_count_;
 
-        // Non-owning pointers to parameters and gradients (module owns these)
+        // Non-owning pointers to parameters and gradients (component owns these)
         std::vector<ITensor*> params_;
         std::vector<ITensor*> grads_;
 

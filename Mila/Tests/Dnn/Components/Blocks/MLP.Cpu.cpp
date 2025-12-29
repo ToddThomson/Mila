@@ -233,6 +233,7 @@ namespace CompositeComponents_Tests
             hidden_size_ );
 
         ASSERT_NE( data.mlp, nullptr );
+        data.mlp->build( data.input_shape );
         data.mlp->setTraining( true );
 
         EXPECT_TRUE( data.mlp->isTraining() );
@@ -377,12 +378,11 @@ namespace CompositeComponents_Tests
             hidden_size_ );
 
         ASSERT_NE( data.mlp, nullptr );
+        data.mlp->build( data.input_shape );
 
         data.mlp->setTraining( true );
 
         using TensorType = CpuTensor<TensorDataType::FP32>;
-
-        data.mlp->build( data.input_shape );
 
         TensorType input( data.mlp->getDeviceId(), data.input_shape );
         TensorType output( data.mlp->getDeviceId(), data.input_shape );
@@ -530,10 +530,11 @@ namespace CompositeComponents_Tests
 
         EXPECT_FALSE( data.mlp->isTraining() );
 
+        data.mlp->build( data.input_shape );
+
         data.mlp->setTraining( true );
         EXPECT_TRUE( data.mlp->isTraining() );
 
-        data.mlp->build( data.input_shape );
         data.mlp->setTraining( false );
         EXPECT_FALSE( data.mlp->isTraining() );
     }

@@ -301,20 +301,20 @@ namespace Mila::CharLM
             assert( activations_.size() == transformer_blocks_.size() + 1 );
             assert( activation_grads_.size() == transformer_blocks_.size() + 1 );
 
-            auto device = this->getDeviceId();
+            auto device_id = this->getDeviceId();
 
             // 1. Backprop through lm_head (final linear layer)
-            //    Input:  output_grad = ?Loss/?logits (from loss function)
-            //    Output: normalized_grad = ?Loss/?normalized
-            TensorType normalized_grad( device, embedding_shape_ );
-            zeros( normalized_grad );
-            lm_head_->backward( *normalized_, output_grad, normalized_grad );
+            //    Input:  output_grad = dLoss/dlogits (from loss function)
+            //    Output: normalized_grad = dLoss/dnormalized
+            zeros( *normalized_grad_ );
+
+            lm_head_->backward( *normalized_, output_grad, *normalized_grad_ );
 
             // 2. Backprop through final layer norm
             //    Input:  normalized_grad = ?Loss/?normalized
             //    Output: activation_grads_.back() = ?Loss/?(last transformer block output)
             zeros( *activation_grads_.back() );
-            final_layernorm_->backward( *activations_.back(), normalized_grad, *activation_grads_.back() );
+            final_layernorm_->backward( *activations_.back(), *normalized_grad_, *activation_grads_.back() );
 
             // 3. Backprop through transformer blocks (in reverse order)
             //    Each block takes gradient w.r.t. its output and produces gradient w.r.t. its input
@@ -337,6 +337,17 @@ namespace Mila::CharLM
             {
                 zeros( *in_t );
             }
+        }
+
+        void zeroGradients() override
+        {
+            encoder_->zeroGradients();
+            for ( auto& block : transformer_blocks_ )
+            {
+                block->zeroGradients();
+            }
+            final_layernorm_->zeroGradients();
+            lm_head_->zeroGradients();
         }
 
         // ====================================================================
@@ -365,19 +376,19 @@ namespace Mila::CharLM
                 oss << "  Sequence length: " << seq_length_ << std::endl;
 
                 oss << "  Input shape: (";
-                for ( size_t i = 0; i < cached_input_shape_.size(); ++i )
+                for ( size_t i = 0; i < input_shape_.size(); ++i )
                 {
-                    oss << cached_input_shape_[ i ];
-                    if ( i != cached_input_shape_.size() - 1 )
+                    oss << input_shape_[ i ];
+                    if ( i != input_shape_.size() - 1 )
                         oss << ", ";
                 }
                 oss << ")" << std::endl;
 
                 oss << "  Output shape: (";
-                for ( size_t i = 0; i < cached_output_shape_.size(); ++i )
+                for ( size_t i = 0; i < output_shape_.size(); ++i )
                 {
-                    oss << cached_output_shape_[ i ];
-                    if ( i != cached_output_shape_.size() - 1 )
+                    oss << output_shape_[ i ];
+                    if ( i != output_shape_.size() - 1 )
                         oss << ", ";
                 }
                 oss << ")" << std::endl;
@@ -447,7 +458,7 @@ namespace Mila::CharLM
          * @brief Save transformer-specific configuration (required by Network base).
          *
          * Implements the serialization contract by writing type identifier
-         * and configuration metadata to enable reconstruction via Load().
+         * and configuration metadata to enable reconstruction via Load(). 
          *
          * @param archive Archive to write to
          * @param mode Serialization mode (passed from Network::save())
@@ -467,9 +478,9 @@ namespace Mila::CharLM
 
             if ( this->isBuilt() )
             {
-                meta.set( "input_shape", cached_input_shape_ )
+                meta.set( "input_shape", input_shape_ )
                     .set( "embedding_shape", embedding_shape_ )
-                    .set( "output_shape", cached_output_shape_ )
+                    .set( "output_shape", output_shape_ )
                     .set( "batch_size", batch_size_ )
                     .set( "seq_length", seq_length_ );
             }
@@ -486,13 +497,14 @@ namespace Mila::CharLM
         {
             // If built, allocate/free activation buffers immediately. Otherwise
             // allocation will be performed in onBuilding() after shapes are known.
-            if ( this->isBuilt() )
+
+            if ( is_training )
             {
-                if ( is_training )
-                    allocateActivationBuffers();
-                //else
-                //    freeActivationBuffers();
+                allocateActivationBuffers();
             }
+            //else
+            //    freeActivationBuffers();
+
 
             // Propagate to base (if implementation exists) - keep existing behavior
             NetworkBase::onTrainingChanging( is_training );
@@ -514,12 +526,12 @@ namespace Mila::CharLM
         {
             validateInputShape( input_shape );
 
-            cached_input_shape_ = input_shape;
+            input_shape_ = input_shape;
             batch_size_ = input_shape[ 0 ];
             seq_length_ = input_shape[ 1 ];
 
             embedding_shape_ = { batch_size_, seq_length_, config_.embedding_dim };
-            cached_output_shape_ = { batch_size_, seq_length_, config_.vocab_size };
+            output_shape_ = { batch_size_, seq_length_, config_.vocab_size };
 
             encoder_ = this->template getComponentAs<EncoderType>( this->getName() + ".encoder" );
             encoder_->build( input_shape );
@@ -549,8 +561,14 @@ namespace Mila::CharLM
             normalized_ = std::make_shared<TensorType>( device_id, embedding_shape_ );
             normalized_->setName( this->getName() + ".normalized" );
 
+            // Pre-allocate normalized_grad to avoid per-step device allocation in backward()
+            normalized_grad_ = std::make_shared<TensorType>( device_id, embedding_shape_ );
+            normalized_grad_->setName( this->getName() + ".normalized_grad" );
+            //zeros( *normalized_grad_ );
+
             // Allocate activation buffers
-            allocateActivationBuffers();
+            // This should be done in onTrainingChanging()
+            // allocateActivationBuffers();
         }
 
     private:
@@ -559,9 +577,9 @@ namespace Mila::CharLM
 
         CharTransformerConfig config_;
 
-        shape_t cached_input_shape_;
+        shape_t input_shape_;
         shape_t embedding_shape_;
-        shape_t cached_output_shape_;
+        shape_t output_shape_;
         int64_t batch_size_{ 0 };
         int64_t seq_length_{ 0 };
 
@@ -573,6 +591,9 @@ namespace Mila::CharLM
         std::shared_ptr<TensorType> embedded_{ nullptr };
         std::shared_ptr<TensorType> transformer_output_{ nullptr };
         std::shared_ptr<TensorType> normalized_{ nullptr };
+
+        // Preallocated grad for normalized_ to avoid per-backward allocation
+        std::shared_ptr<TensorType> normalized_grad_{ nullptr };
 
         // Activation storage used only in training mode:
         // activations_[0] = encoder output, activations_[i+1] = output of block i
@@ -633,7 +654,7 @@ namespace Mila::CharLM
                 tcfg.withBias( false );
                 tcfg.withActivation( ActivationType::Gelu );
 
-                auto block = std::make_shared<TransformerBlockType>(
+                auto block = std::make_shared<TransformerBlockType>( 
                     this->getName() + ".layer" + std::to_string( i ), tcfg, std::nullopt );
 
                 this->addComponent( block );
@@ -686,14 +707,18 @@ namespace Mila::CharLM
                 activation_grads_[ i ]->setName( this->getName() + ".activation_grad." + std::to_string( i ) );
 
                 // Initialize grad buffers to zero
-                zeros( *activation_grads_[ i ] );
+                //zeros( *activation_grads_[ i ] );
             }
+
+            normalized_grad_ = std::make_shared<TensorType>( device_id, embedding_shape_ );
+            normalized_grad_->setName( this->getName() + ".normalized_grad" );
         }
 
         void freeActivationBuffers()
         {
             activations_.clear();
             activation_grads_.clear();
+            normalized_grad_.reset();
         }
 
         /**

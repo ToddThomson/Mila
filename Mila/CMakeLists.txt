@@ -32,7 +32,8 @@ add_library( Mila STATIC
     "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/Kernels/Softmax.Fp16.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/Kernels/Softmax.cuh"
 
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/Kernels/CudaResidual.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/Kernels/Residual.Fp32.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/Kernels/Residual.Fp16.cu"
         
     "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.Fp32.warp.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.Fp32.block.cu"

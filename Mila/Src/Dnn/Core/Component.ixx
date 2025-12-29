@@ -253,6 +253,18 @@ namespace Mila::Dnn
          */
         virtual std::vector<ITensor*> getGradients() const = 0;
 
+        /**
+         * @brief Clear all model-owned gradients for this component.
+         *
+         * Default implementation is a no-op. Composite components should override to
+         * recurse to children. Leaf components should override to zero their
+         * parameter and activation gradients using device-aware helpers.
+         */
+        virtual void zeroGradients()
+        {
+            // Default: no-op. Leaf/composite implementations may override.
+        }
+
         // ====================================================================
         // Serialization
         // ====================================================================

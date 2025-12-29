@@ -12,7 +12,7 @@ export module Dnn.ConnectionType;
 namespace Mila::Dnn
 {
     /**
-     * @brief Connection types supported by residual and skip-connection modules.
+     * @brief Connection types supported by residual and skip-connection components.
      *
      * Defines how the input and transformed output are combined in
      * residual and skip-connection architectures.

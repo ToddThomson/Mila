@@ -10,11 +10,15 @@ module;
 #include <memory>
 #include <vector>
 #include <string>
-#include <stdexcept>
 #include <sstream>
-#include <numeric>
-#include <functional>
+#include <iostream>
+#include <stdexcept>
 #include <cstdint>
+#include <type_traits>
+#include <optional>
+//#include <numeric>
+//#include <functional>
+//#include <cstdint>
 #ifdef USE_OMP
 #include <omp.h>
 #endif
@@ -248,6 +252,14 @@ namespace Mila::Dnn::Compute
         void forward( const ITensor& input, ITensor& output ) const override
         {
             const float* X = static_cast<const float*>(input.rawData());
+
+            // DEBUG:
+            if ( const auto* in_t = dynamic_cast<const TensorType*>(&input) )
+            {
+                std::clog << this->getName() << ": ln input:\n" << in_t->toString( true ) << std::endl;
+            }
+            //----
+
             float* Y = static_cast<float*>(output.rawData());
 
             const float* W = weight_;

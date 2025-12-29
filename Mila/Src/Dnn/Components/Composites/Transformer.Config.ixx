@@ -61,7 +61,13 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief C++23-style fluent setter for hidden dimension.
+         * @brief fluent setter for hidden dimension.
+         *
+         * If set to 0 the Transformer implementation will default the MLP hidden
+         * dimension to 4 × embedding_dim (conventional Transformer default).
+         *
+         * @param hidden_dim Hidden dimension for the feed-forward network. Use 0
+         * to request the implementation default (4 × embedding_dim).
          */
         template <typename Self>
         decltype(auto) withHiddenDimension( this Self&& self, dim_t hidden_dim )
@@ -244,7 +250,7 @@ namespace Mila::Dnn
     private:
         dim_t embedding_dim_;
         dim_t num_heads_;
-        dim_t hidden_dim_ = 0;  // If 0, implementation may default to 4x embedding_dim
+        dim_t hidden_dim_ = 0;  // Default to 4x embedding_dim
         bool use_bias_ = true;
         ActivationType activation_type_ = ActivationType::Gelu;
     };

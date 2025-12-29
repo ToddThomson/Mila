@@ -227,19 +227,20 @@ namespace Mila::Dnn::Compute
          *
          * @throws std::runtime_error if no parameters have been registered
          */
-        void zeroGrad() override
-        {
-            if (grads_.empty())
-            {
-                throw std::runtime_error( "CpuAdamWOptimizer: no gradients to zero" );
-            }
+         // TJT: ZeroGradients() is now handled at the component level.
+        //void zeroGrad() override
+        //{
+        //    if (grads_.empty())
+        //    {
+        //        throw std::runtime_error( "CpuAdamWOptimizer: no gradients to zero" );
+        //    }
 
-            for (auto* grad : grads_)
-            {
-                // Zero gradient using memset
-                std::memset( grad->rawData(), 0, grad->size() * grad->elementSize() );
-            }
-        }
+        //    for (auto* grad : grads_)
+        //    {
+        //        // Zero gradient using memset
+        //        std::memset( grad->rawData(), 0, grad->size() * grad->elementSize() );
+        //    }
+        //}
 
         /**
          * @brief Get current learning rate.

@@ -5,12 +5,6 @@
  * Defines the abstract Optimizer class template that provides a uniform interface
  * for parameter update algorithms (SGD, Adam, AdamW, etc.) across different devices
  * and precision levels.
- *
- * Design philosophy:
- * - Device-templated: CPU and CUDA implementations through template specialization
- * - Precision-templated: Supports FP32, FP16, BF16 computation
- * - Stateful: Maintains optimizer state (momentum, variance) per parameter
- * - Minimal interface: Core operations only (add, step, zero)
  */
 
 module;
@@ -34,7 +28,6 @@ namespace Mila::Dnn::Compute
      * specific update rules (SGD, Adam, AdamW, etc.). The optimizer:
      * - Maintains internal state per parameter (momentum, velocity, etc.)
      * - Performs parameter updates via step()
-     * - Manages gradient lifecycle via zeroGrad()
      *
      * Template Parameters:
      * @tparam TDeviceType Device where optimization occurs (DeviceType::Cpu or DeviceType::Cuda)
@@ -55,10 +48,10 @@ namespace Mila::Dnn::Compute
      *
      * // Training loop
      * for (size_t epoch = 0; epoch < num_epochs; ++epoch) {
-     *     optimizer->zeroGrad();           // Clear previous gradients
-     *     model->forward(input, output);   // Forward pass
-     *     model->backward(input, grad);    // Compute gradients
-     *     optimizer->step();               // Update parameters
+     *     model->zeroGradients();           // Clear model-owned gradients (activation + parameter grads)
+     *     model->forward(input, output);    // Forward pass
+     *     model->backward(input, grad);     // Compute gradients
+     *     optimizer->step();                // Update parameters
      * }
      * @endcode
      *
@@ -100,7 +93,6 @@ namespace Mila::Dnn::Compute
          * @note State tensors are initialized to zero on first registration
          *
          * @see step()
-         * @see zeroGrad()
          *
          * Example:
          * @code
@@ -118,7 +110,7 @@ namespace Mila::Dnn::Compute
          * @brief Perform one optimization step.
          *
          * Updates all registered parameters using their accumulated gradients
-         * according to the optimizer's update rule (SGD, Adam, AdamW, etc.).
+         * according to the optimizer's update rule (SGD, Adam, AdamW, etc.). 
          * This is the HOT PATH method called every training iteration.
          *
          * For algorithms with state (Adam, AdamW):
@@ -131,55 +123,22 @@ namespace Mila::Dnn::Compute
          * @throws std::runtime_error if gradient data is invalid or null
          *
          * @note Gradients should be computed via backward() before calling step()
-         * @note Does NOT zero gradients; call zeroGrad() after step() or before backward()
          * @note For CUDA implementations, may be asynchronous (uses device stream)
          * @note Increments internal step counter for algorithms requiring it (Adam, AdamW)
          *
          * @see addParameter()
-         * @see zeroGrad()
          * @see backward()
          *
          * Typical sequence:
          * @code
-         * optimizer->zeroGrad();              // Clear previous gradients
-         * model->forward(input, output);      // Forward pass
+         * model->zeroGradients();              // Clear previous gradients (model-managed)
+         * model->forward(input, output);       // Forward pass
          * loss = computeLoss(output, target);
-         * model->backward(input, loss_grad);  // Compute gradients
-         * optimizer->step();                  // Update parameters
+         * model->backward(input, loss_grad);   // Compute gradients
+         * optimizer->step();                   // Update parameters
          * @endcode
          */
         virtual void step() = 0;
-
-        /**
-         * @brief Zero all registered gradient tensors.
-         *
-         * Clears gradient accumulation for all parameters registered with this
-         * optimizer. Must be called before each backward pass to prevent gradient
-         * accumulation across iterations.
-         *
-         * @throws std::runtime_error if no parameters have been registered
-         *
-         * @note This is a convenience method; gradients can also be zeroed manually
-         * @note For CUDA implementations, may be asynchronous (uses device stream)
-         * @note Call either before backward() or after step(), never between them
-         *
-         * @see addParameter()
-         * @see step()
-         *
-         * Example:
-         * @code
-         * // Option 1: Zero before backward (recommended)
-         * optimizer->zeroGrad();
-         * model->backward(input, grad);
-         * optimizer->step();
-         *
-         * // Option 2: Zero after step
-         * model->backward(input, grad);
-         * optimizer->step();
-         * optimizer->zeroGrad();
-         * @endcode
-         */
-        virtual void zeroGrad() = 0;
 
         /**
          * @brief Get the current learning rate.

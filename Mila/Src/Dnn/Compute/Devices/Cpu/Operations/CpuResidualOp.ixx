@@ -59,10 +59,7 @@ namespace Mila::Dnn::Compute
     {
     public:
         using MR = CpuMemoryResource;
-        //using BinaryOperationBase = BinaryOperation<DeviceType::Cpu, TensorDataType::FP32>;
-        //using TensorType = Tensor<TensorDataType::FP32, MR>;
-        using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
-
+        
         /**
          * @brief Construct with optional CPU execution context.
          *

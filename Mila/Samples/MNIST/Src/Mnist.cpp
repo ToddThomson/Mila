@@ -413,7 +413,7 @@ void trainMnist( const MnistConfig& config )
             copy( output_grad_cpu, output_grad );
 
             // 3. Zero gradients before backward pass
-            optimizer->zeroGrad();
+            mnist_net->zeroGradients();
             zeros( input_grad );
 
             // 4. Backward pass through model (computes parameter gradients)

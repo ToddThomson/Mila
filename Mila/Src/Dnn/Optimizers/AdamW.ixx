@@ -63,11 +63,11 @@ namespace Mila::Dnn::Optimizers
 
             config.validate();
 
-            const float lr = config.getLearningRate();
+            /*const float lr = config.getLearningRate();
             const float beta1 = config.getBeta1();
             const float beta2 = config.getBeta2();
             const float eps = config.getEpsilon();
-            const float wd = config.getWeightDecay();
+            const float wd = config.getWeightDecay();*/
 
             impl_ = std::make_shared<OptimizerType>(
                     context_, config_ );
@@ -89,10 +89,11 @@ namespace Mila::Dnn::Optimizers
             impl_->step();
         }
 
-        void zeroGrad() override
+        // TJT: Disabled to avoid confusion with Component::zeroGradients() 
+        /*void zeroGrad() override
         {
             impl_->zeroGrad();
-        }
+        }*/
 
         float getLearningRate() const override
         {
@@ -148,10 +149,4 @@ namespace Mila::Dnn::Optimizers
 		IExecutionContext* context_;
         std::shared_ptr<OptimizerType> impl_;
     };
-
-    //export template<TensorDataType TPrecision>
-    //    using CpuAdamWOptimizerFP32 = AdamWOptimizer<DeviceType::Cpu, TPrecision>;
-
-    //export template<TensorDataType TPrecision>
-    //    using CudaAdamWOptimizerFP32 = AdamWOptimizer<DeviceType::Cuda, TPrecision>;
 }

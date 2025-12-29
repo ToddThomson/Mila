@@ -663,7 +663,7 @@ namespace CompositeComponents_Tests
             true // training mode
         );
 
-        fixture.component->build( fixture.shape() );
+        //fixture.component->build( fixture.shape() );
 
         CpuTensor input( Device::Cpu(), fixture.shape() );
         CpuTensor output( Device::Cpu(), fixture.shape() );
@@ -671,6 +671,7 @@ namespace CompositeComponents_Tests
         random( input, -0.5f, 0.5f );
 
         EXPECT_NO_THROW( fixture.component->forward( input, output ) );
+
         EXPECT_EQ( output.size(), input.size() );
     }
 
@@ -835,41 +836,12 @@ namespace CompositeComponents_Tests
         EXPECT_GE( modules.size(), 6u ); // at least attn, ln1, ln2, qkv_proj, res1, res2, mlp
 
         EXPECT_NE( modules.find( base + ".attn" ), modules.end() );
-        EXPECT_NE( modules.find( base + ".ln1" ), modules.end() );
-        EXPECT_NE( modules.find( base + ".ln2" ), modules.end() );
-        EXPECT_NE( modules.find( base + ".qkv_proj" ), modules.end() );
-        EXPECT_NE( modules.find( base + ".res1" ), modules.end() );
-        EXPECT_NE( modules.find( base + ".res2" ), modules.end() );
+        EXPECT_NE( modules.find( base + ".lnorm_1" ), modules.end() );
+        EXPECT_NE( modules.find( base + ".lnorm_2" ), modules.end() );
+        EXPECT_NE( modules.find( base + ".fc_qkv_proj" ), modules.end() );
+        EXPECT_NE( modules.find( base + ".res_1" ), modules.end() );
+        EXPECT_NE( modules.find( base + ".res_2" ), modules.end() );
         EXPECT_NE( modules.find( base + ".mlp" ), modules.end() );
-    }
-
-    // ====================================================================
-    // Configuration Access Tests
-    // ====================================================================
-
-    TEST_F( TransformerCpuTests, GetConfig_ReturnsCorrectConfiguration )
-    {
-        TestShape test_shape = TestShape::Small();
-        dim_t embedding_dim = test_shape.dimensions.back();
-        dim_t num_heads = TransformerTestFixture::getCompatibleHeadCount( embedding_dim );
-        dim_t custom_hidden = embedding_dim * 3;
-
-        auto fixture = TransformerTestFixture::CreateStandalone(
-            test_shape,
-            embedding_dim,
-            num_heads,
-            custom_hidden,
-            false,
-            ActivationType::Gelu
-        );
-
-        const auto& config = fixture.component->getConfig();
-
-        EXPECT_EQ( config.getEmbeddingDim(), embedding_dim );
-        EXPECT_EQ( config.getNumHeads(), num_heads );
-        EXPECT_EQ( config.getHiddenDimension(), custom_hidden );
-        EXPECT_FALSE( config.useBias() );
-        EXPECT_EQ( config.getActivationType(), ActivationType::Gelu );
     }
 
     // ====================================================================

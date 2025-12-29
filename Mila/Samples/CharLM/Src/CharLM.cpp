@@ -36,11 +36,11 @@ struct CharLMConfig
     int64_t batch_size = 32;
     int64_t seq_length = 128;
     size_t epochs = 200;
-    float learning_rate = 0.005f; // we've tried 3e-4f; 0.001f
+    float learning_rate = 1e-4f; // we've tried 3e-4f; 0.001f, 0.0005f
     float beta1 = 0.9f;
     float beta2 = 0.999f;
     float epsilon = 1e-8f;
-    float weight_decay = 0.000001f; // we've tried 0.01f, 0.001f
+    float weight_decay = 0.0f; // we've tried 0.01f, 0.001f, 0.0001f
     DeviceType compute_device = DeviceType::Cuda;
     TensorDataType precision = TensorDataType::FP32;
     ComputePrecision::Policy precisionPolicy = ComputePrecision::Policy::Auto;
@@ -656,15 +656,16 @@ void trainCharLM( const CharLMConfig& config )
         {
             train_loader.nextBatch();
 
+            // Load input and target batches to device
+            // NOTE: moving the targets to device required for when loss is computed on device ( not yet implemented )
             copy( train_loader.inputs(), input_batch );
             copy( train_loader.targets(), target_batch );
 
-            optimizer->zeroGrad();
-            zeros( input_grad );
-
+            // Run forward to get logits on device
             model->forward( input_batch, output );
             model->synchronize();
 
+            // Move logits and targets to host and compute loss + output gradients on CPU
             copy( output, logits_cpu );
             copy( target_batch, targets_cpu );
 
@@ -675,6 +676,9 @@ void trainCharLM( const CharLMConfig& config )
             sequenceCrossEntropyGradient( logits_cpu, targets_cpu, output_grad_cpu );
 
             copy( output_grad_cpu, output_grad );
+
+            model->zeroGradients();
+            zeros( input_grad );
 
             model->backward( input_batch, output_grad, input_grad );
             

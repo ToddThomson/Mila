@@ -222,6 +222,13 @@ namespace Mila::Mnist
             fc1_->backward( input, hidden1_pre_grad, input_grad );
         }
 
+        void zeroGradients() override
+        {
+            fc1_->zeroGradients();
+            fc2_->zeroGradients();
+            output_fc_->zeroGradients();
+        }
+
         // ====================================================================
         // Component interface
         // ====================================================================
