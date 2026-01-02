@@ -82,10 +82,25 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
 
             float4 grad = dY[ bt * C4 + c4 ];
 
+            // DEBUG: Print first gradient
+            //if ( bt == 0 && c4 == 0 ) {
+            //    printf( "First grad: %.6f, %.6f, %.6f, %.6f\n",
+            //        grad.x, grad.y, grad.z, grad.w );
+            //    printf( "dWte before: %.6f, %.6f, %.6f, %.6f\n",
+            //        dWte[ ix * C4 + c4 ].x, dWte[ ix * C4 + c4 ].y,
+            //        dWte[ ix * C4 + c4 ].z, dWte[ ix * C4 + c4 ].w );
+            //}
+
             atomicAdd( &dWte[ ix * C4 + c4 ].x, grad.x );
             atomicAdd( &dWte[ ix * C4 + c4 ].y, grad.y );
             atomicAdd( &dWte[ ix * C4 + c4 ].z, grad.z );
             atomicAdd( &dWte[ ix * C4 + c4 ].w, grad.w );
+
+ /*           if ( bt == 0 && c4 == 0 ) {
+                printf( "dWte after: %.6f, %.6f, %.6f, %.6f\n",
+                    dWte[ ix * C4 + c4 ].x, dWte[ ix * C4 + c4 ].y,
+                    dWte[ ix * C4 + c4 ].z, dWte[ ix * C4 + c4 ].w );
+            }*/
 
             atomicAdd( &dWpe[ t * C4 + c4 ].x, grad.x );
             atomicAdd( &dWpe[ t * C4 + c4 ].y, grad.y );
@@ -93,7 +108,6 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
             atomicAdd( &dWpe[ t * C4 + c4 ].w, grad.w );
         }
     }
-
 
     /**
      * @brief Host function to launch encoder forward pass with full precision (FP32)

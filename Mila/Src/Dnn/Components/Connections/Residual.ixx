@@ -144,43 +144,26 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Execute the backward pass (gradient computation).
-         *
-         * Currently a placeholder; backend gradient support should be invoked
-         * here when available.
+         * @brief Execute the backward pass
          *
          * @throws std::runtime_error if backend not initialized.
-         *
-         * NOTE:
-         * The compute backend BinaryOperation interface exposes a 5-argument
-         * backward signature:
-         *   backward(input_a, input_b, output_grad, input_a_grad, input_b_grad)
-         *
-         * To preserve the existing component-level 3-arg API used throughout
-         * the codebase we keep a 3-arg wrapper that forwards to the backend's
-         * 5-arg signature. The wrapper aliases missing arguments when a
-         * separate buffer for the second input/grad is not supplied by the
-         * caller. A full 5-arg overload is also provided for callsites that
-         * can supply both input tensors and both gradient outputs.
          */
-        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
+        void backward( 
+            const ITensor& input_a, const ITensor& input_b,
+            const ITensor& output_grad, 
+            ITensor& input_a_grad, ITensor& input_b_grad )
         {
             if ( !operation_ )
             {
                 throw std::runtime_error( "Residual::backward: operation backend not initialized" );
             }
 
-            // Forward to the full backend signature.
-            // When the caller provides only a single input_grad buffer we alias
-            // the second input and second input_grad to the provided ones.
-            // This preserves existing callsites while satisfying backends that
-            // implement the expanded signature (e.g., CudaResidualOp).
             operation_->backward(
-                input,          // input_a
-                input,          // input_b (aliased)
-                output_grad,    // dY
-                input_grad,     // dX1
-                input_grad      // dX2 (aliased)
+                input_a,
+                input_b,
+                output_grad,
+                input_a_grad,
+                input_b_grad
             );
         }
 

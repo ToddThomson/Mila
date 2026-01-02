@@ -458,7 +458,7 @@ namespace Mila::Dnn::Compute
         int total_rows = B_NH * T;
         int num_blocks = ceil_div( total_rows, block_size );
 
-        softmax_forward_fp32_kernel << <num_blocks, block_size, 0, stream >> > (att, scale, preatt, B_NH, T);
+        softmax_forward_fp32_kernel <<<num_blocks, block_size, 0, stream >> > (att, scale, preatt, B_NH, T);
 
         cudaCheck( cudaGetLastError() );
     }
@@ -484,11 +484,11 @@ namespace Mila::Dnn::Compute
         cudaStream_t stream )
     {
         const int block_size = 256;
-        int C = NH * HS;
-        int total_threads = B * T * C;
+        int total_threads = B * T * NH * HS;
         int num_blocks = ceil_div( total_threads, block_size );
+        // Launch kernel with: num_blocks=6144, block_size=256
 
-        unpermute_backward_fp32_kernel << <num_blocks, block_size, 0, stream >> > (dvaccum, dout, B, T, NH, HS);
+        unpermute_backward_fp32_kernel <<<num_blocks, block_size, 0, stream >>>( dvaccum, dout, B, T, NH, HS );
 
         cudaCheck( cudaGetLastError() );
     }
@@ -500,10 +500,10 @@ namespace Mila::Dnn::Compute
         cudaStream_t stream )
     {
         const int block_size = 256;
-        int total_threads = B * NH * T * HS;
+        int total_threads = B * T * NH * HS;
         int num_blocks = ceil_div( total_threads, block_size );
 
-        permute_backward_fp32_kernel << <num_blocks, block_size, 0, stream >> > (dinp, dq, dk, dv, B, T, NH, HS);
+        permute_backward_fp32_kernel <<<num_blocks, block_size, 0, stream >> > (dinp, dq, dk, dv, B, T, NH, HS);
 
         cudaCheck( cudaGetLastError() );
     }

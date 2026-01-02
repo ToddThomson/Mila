@@ -322,7 +322,7 @@ PUBLIC
         "Src/Dnn/Compute/Operations/OperationRegistrarHelpers.ixx"
         
         "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtHelpers.ixx"
-)
+ "Src/Dnn/Tensors/Operations/TensorOps.Zero.ixx")
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
@@ -355,7 +355,7 @@ if(MILA_HAS_CPU)
                 #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxCrossEntropyOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Optimizers/CpuAdamWOptimizer.ixx"
-    )
+     "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Zero.ixx")
     target_compile_definitions( Mila PUBLIC MILA_HAS_CPU)
     list(APPEND MILA_INSTALL_FILE_SET_ARGS FILE_SET cpu_modules DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
@@ -408,7 +408,7 @@ if(MILA_HAS_CUDA)
                 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/CudaSoftmaxCrossEntropyOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Optimizers/CudaAdamWOptimizer.ixx"
-    )
+     "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Zero.ixx")
 
     target_link_libraries( Mila PUBLIC 
         CUDA::cudart

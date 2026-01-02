@@ -70,7 +70,7 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
                 int B, int T, int C,
                 cudaStream_t stream )
             {
-                // FIXME: cuda_encoder_backward_fp32( dwte, dwpe, X, dY, B, T, C, stream );
+                cuda_encoder_backward_fp32( dwte, dwpe, dY, X, B, T, C, stream );
             }
         };
 
@@ -97,7 +97,7 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
                 int B, int T, int C,
                 cudaStream_t stream )
             {
-                // FIXME: cuda_encoder_backward_fp16( dwte, dwpe, X, dY, B, T, C, stream );
+                // TODO: cuda_encoder_backward_fp16( dwte, dwpe, X, dY, B, T, C, stream );
             }
         };
     }

@@ -25,6 +25,8 @@ import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
+import Dnn.TensorOps;
+import Dnn.TensorInitializers;
 import Dnn.Component;
 import Dnn.CompositeComponent;
 import Dnn.ActivationType;
@@ -153,10 +155,9 @@ namespace Mila::Dnn
             }*/
 
             ln2_->forward( *res1_output_, *ln2_output_ );
-            /*if ( ln2_output_ )
-            {
-                std::clog << this->getName() << ": ln2_output:\n" << ln2_output_->toString( true ) << std::endl;
-            }*/
+            
+            //std::clog << this->getName() << ": ln2_output:\n" << ln2_output_->toString( true ) << std::endl;
+            
 
             ffn_->forward( *ln2_output_, *ffn_output_ );
 
@@ -172,52 +173,171 @@ namespace Mila::Dnn
 
         void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
         {
+            //std::clog << "Transformer block: " << this->getName() << ": " << " Starting backward pass..." << std::endl;
+
             if ( !this->isBuilt() )
             {
                 throw std::runtime_error( "Transformer must be built before backward()." );
             }
-
             if ( !this->isTraining() )
             {
                 throw std::runtime_error( "Transformer must be in training mode to call backward(). Call setTraining(true) first." );
             }
-
             if ( !forward_executed_ )
             {
                 throw std::runtime_error( "Transformer::backward: a training-mode forward() must be executed before backward()" );
             }
 
-            // Gradient buffer usage (5 pre-allocated buffers):
-            //   d_act_1_: reused for d_ffn -> d_ln2 -> d_attn -> d_ln1
-            //   d_act_2_: reused for d_res1_from_ln2 -> d_in_from_ln1
-            //   d_act_3_: holds d_res1 / d_res1_total / d_in_from_res (residual path)
-            //   d_act_4_: scratch for gradient accumulation
-            //   d_qkv_:   QKV projection gradients (3x embedding dim)
+            // Helper: dump a concrete TensorType or copy to host then dump.
+            auto dumpITensor = [&]( const ITensor& t, const std::string& label )
+                {
+                    const TensorType* tptr = dynamic_cast<const TensorType*>(&t);
+                    if ( !tptr )
+                    {
+                        std::clog << this->getName() << ": " << label << " (non-concrete ITensor - skipping dump)" << std::endl;
+                        return;
+                    }
 
-            copy( static_cast<const TensorType&>(output_grad), *d_act_3_ );
+                    if constexpr ( MR::is_host_accessible )
+                    {
+                        std::clog << this->getName() << ": " << label << ":\n" << tptr->toString( true ) << std::endl;
+                    }
+                    else
+                    {
+                        Tensor<TPrecision, CpuMemoryResource> host_copy( Device::Cpu(), tptr->shape() );
+                        host_copy.setName( this->getName() + "." + label + ".host_copy" );
+
+                        // Use execution context for proper D2H transfer when applicable
+                        copy( *tptr, host_copy );
+
+                        std::clog << this->getName() << ": " << label << " (host copy):\n" << host_copy.toString( true ) << std::endl;
+                    }
+                };
+
+            // Helper: dump a TensorType reference (for internal buffers)
+            auto dumpTensorType = [&]( const TensorType& t, const std::string& label )
+                {
+                    if constexpr ( MR::is_host_accessible )
+                    {
+                        std::clog << this->getName() << ": " << label << ":\n" << t.toString( true ) << std::endl;
+                    }
+                    else
+                    {
+                        Tensor<TPrecision, CpuMemoryResource> host_copy( Device::Cpu(), t.shape() );
+                        host_copy.setName( this->getName() + "." + label + ".host_copy" );
+
+                        copy( t, host_copy );
+
+                        std::clog << this->getName() << ": " << label << " (host copy):\n" << host_copy.toString( true ) << std::endl;
+                    }
+                };
+
+            // Dump initial output_grad provided by caller
+            //dumpITensor( output_grad, "output_grad_initial" );
+
+            // Copy output gradient to starting buffer
             copy( static_cast<const TensorType&>(output_grad), *d_act_1_ );
 
-            ffn_->backward( *ln2_output_, *d_act_1_, *d_act_2_ );
+            // Dump after copy into d_act_1_
+            //dumpTensorType( *d_act_1_, "d_act_1_after_copy" );
 
-            ln2_->backward( *res1_output_, *d_act_2_, *d_act_4_ );
+            // Backprop through res2: output = res1_output + ffn_output ===
+            // Split gradient into two paths
+            res2_->backward(
+                *res1_output_,     // input_a (residual path from res1)
+                *ffn_output_,      // input_b (FFN output)
+                *d_act_1_,         // output_grad (gradient from loss)
+                *d_act_2_,         // input_a_grad -> gradient for res1_output (residual path)
+                *d_act_3_          // input_b_grad -> gradient for ffn_output (FFN branch)
+            );
 
-            res1_->backward( *d_act_3_, *d_act_4_, *d_act_3_ );
+            // Dump gradients from res2 backward
+            //dumpTensorType( *d_act_2_, "d_act_2_after_res2_backward" );
+            //dumpTensorType( *d_act_3_, "d_act_3_after_res2_backward" );
 
-            copy( *d_act_3_, *d_act_1_ );
+            // === Backprop through FFN branch ===
+            ffn_->backward( *ln2_output_, *d_act_3_, *d_act_4_ );
 
+            // Dump after ffn backward
+            //dumpTensorType( *d_act_4_, "d_act_4_after_ffn_backward" );
+
+            ln2_->backward( *res1_output_, *d_act_4_, *d_act_3_ );
+
+            // Dump after ln2 backward (d_act_3_ updated)
+            //dumpTensorType( *d_act_3_, "d_act_3_after_ln2_backward" );
+
+            // Accumulate FFN branch gradient into res1_output gradient
+            add( *d_act_2_, *d_act_3_, *d_act_2_ );  // d_act_2_ now has total gradient for res1_output
+
+            // Dump after accumulation into d_act_2_
+            //dumpTensorType( *d_act_2_, "d_act_2_after_add_ffn" );
+
+            // === Backprop through res1: res1_output = input + attn_output ===
+            // Split gradient into two paths
+            res1_->backward(
+                input,             // input_a (original input, residual path)
+                *attn_output_,     // input_b (attention output)
+                *d_act_2_,         // output_grad (total gradient for res1_output)
+                *d_act_3_,         // input_a_grad -> gradient for input (residual path)
+                *d_act_1_          // input_b_grad -> gradient for attn_output (attention branch)
+            );
+
+            // Dump after res1 backward
+            //dumpTensorType( *d_act_3_, "d_act_3_after_res1_backward" );
+            //dumpTensorType( *d_act_1_, "d_act_1_after_res1_backward" );
+
+            // === Backprop through attention branch ===
             attn_->backward( *qkv_output_, *d_act_1_, *d_qkv_ );
+            
+            this->getExecutionContext()->synchronize();
+
+            // Dump after attention backward (d_qkv_)
+            //dumpTensorType( *d_qkv_, "d_qkv_after_attn_backward" );
 
             qkv_proj_->backward( *ln1_output_, *d_qkv_, *d_act_1_ );
 
-            ln1_->backward( input, *d_act_1_, *d_act_2_ );
+            this->getExecutionContext()->synchronize();
 
-            res1_->backward( *d_act_3_, *d_act_2_, input_grad );
+            // Dump after qkv_proj backward (d_act_1_)
+            //dumpTensorType( *d_act_1_, "d_act_1_after_qkv_proj_backward" );
+
+            ln1_->backward( input, *d_act_1_, *d_act_4_ );
+
+            // Dump after ln1 backward (d_act_4_)
+            //dumpTensorType( *d_act_4_, "d_act_4_after_ln1_backward" );
+
+            // Accumulate attention branch gradient into input gradient
+            add( *d_act_3_, *d_act_4_, static_cast<TensorType&>(input_grad), this->getExecutionContext() );
+
+            // Debug: when the destination input_grad is a concrete Tensor of this device / precision,
+            // print its buffer contents (toString(true) will provide host-readable representation).
+ /*           if ( auto* in_grad_t = dynamic_cast<TensorType*>(&input_grad) )
+            {
+                Tensor<TPrecision, CpuMemoryResource> host_copy( Device::Cpu(), static_cast<const TensorType&>(input_grad).shape() );
+                host_copy.setName( this->getName() + ".input_grad_host_copy" );
+
+                copy( static_cast<const TensorType&>(input_grad), host_copy, this->getExecutionContext() );
+
+                std::clog << this->getName() << ": input_grad after attention accumulation:\n"
+                    << host_copy.toString( true ) << std::endl;
+            }*/
 
             forward_executed_ = false;
         }
 
+        void zeroGradients() override
+        {
+            attn_->zeroGradients();
+            qkv_proj_->zeroGradients();
+            ln1_->zeroGradients();
+            ln2_->zeroGradients();
+            res1_->zeroGradients();
+            res2_->zeroGradients();
+            ffn_->zeroGradients();
+        }
+
         // ====================================================================
-        // Serialization (follow MLP style)
+        // Serialization
         // ====================================================================
 
         void save_( ModelArchive& archive, SerializationMode mode ) const override

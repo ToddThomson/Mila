@@ -38,9 +38,9 @@ namespace Mila::Mnist
      *   Input (784) -> Linear (128) -> GELU -> Linear (64) -> GELU -> Linear (10) -> Output
      *
      * Construction Pattern:
-     * 1. Constructor creates and owns ExecutionContext
-     * 2. Component graph is built via createGraph() (context-independent)
-     * 3. Context is propagated to self and all children via setExecutionContext()
+     * 1. Constructor creates and owns ExecutionContext for specified device
+     * 2. Build component graph (context-independent)
+     * 3. Propagate context to self and all children
      * 4. onBuilding() hook builds children with shapes and allocates buffers
      *
      * Serialization Contract:
@@ -201,29 +201,49 @@ namespace Mila::Mnist
                 throw std::runtime_error( "MnistClassifier: must be built before backward pass" );
             }
 
-            auto device = this->getDeviceId();
-
-            TensorType hidden2_grad( device, hidden2_shape_ );
-            zeros( hidden2_grad );
-            output_fc_->backward( *hidden2_, output_grad, hidden2_grad );
-
-            TensorType hidden2_pre_grad( device, hidden2_shape_ );
-            zeros( hidden2_pre_grad );
-            gelu2_->backward( *hidden2_pre_act_, hidden2_grad, hidden2_pre_grad );
-
-            TensorType hidden1_grad( device, hidden1_shape_ );
-            zeros( hidden1_grad );
-            fc2_->backward( *hidden1_, hidden2_pre_grad, hidden1_grad );
-
-            TensorType hidden1_pre_grad( device, hidden1_shape_ );
-            zeros( hidden1_pre_grad );
-            gelu1_->backward( *hidden1_pre_act_, hidden1_grad, hidden1_pre_grad );
-
-            fc1_->backward( input, hidden1_pre_grad, input_grad );
+            // Use pre-allocated gradient buffers created during onBuilding().
+            // Caller must call zeroGradients() to ensure buffers are cleared before use.
+            output_fc_->backward( *hidden2_, output_grad, *hidden2_grad_ );
+            gelu2_->backward( *hidden2_pre_act_, *hidden2_grad_, *hidden2_pre_grad_ );
+            fc2_->backward( *hidden1_, *hidden2_pre_grad_, *hidden1_grad_ );
+            gelu1_->backward( *hidden1_pre_act_, *hidden1_grad_, *hidden1_pre_grad_ );
+            fc1_->backward( input, *hidden1_pre_grad_, input_grad );
         }
 
         void zeroGradients() override
         {
+            // If not built, nothing to clear
+            if ( !this->isBuilt() )
+            {
+                return;
+            }
+
+            // Zero activation/hidden gradients allocated during build
+            if ( hidden2_grad_ )
+            {
+                //zeros( *hidden2_grad_ );
+                zero( *hidden2_grad_ );
+            }
+
+            if ( hidden2_pre_grad_ )
+            {
+                //zeros( *hidden2_pre_grad_ );
+                zero( *hidden2_pre_grad_ );
+            }
+
+            if ( hidden1_grad_ )
+            {
+                //zeros( *hidden1_grad_ );
+                zero( *hidden1_grad_ );
+            }
+
+            if ( hidden1_pre_grad_ )
+            {
+                //zeros( *hidden1_pre_grad_ );
+                zero( *hidden1_pre_grad_ );
+            }
+
+            // Zero gradients in child components
             fc1_->zeroGradients();
             fc2_->zeroGradients();
             output_fc_->zeroGradients();
@@ -402,6 +422,19 @@ namespace Mila::Mnist
 
             hidden2_ = std::make_shared<TensorType>( device, hidden2_shape_ );
             hidden2_->setName( this->getName() + ".hidden2" );
+
+            // Pre-allocate gradient tensors used during backward propagation.
+            hidden2_grad_ = std::make_shared<TensorType>( device, hidden2_shape_ );
+            hidden2_grad_->setName( this->getName() + ".hidden2_grad" );
+
+            hidden2_pre_grad_ = std::make_shared<TensorType>( device, hidden2_shape_ );
+            hidden2_pre_grad_->setName( this->getName() + ".hidden2_pre_grad" );
+
+            hidden1_grad_ = std::make_shared<TensorType>( device, hidden1_shape_ );
+            hidden1_grad_->setName( this->getName() + ".hidden1_grad" );
+
+            hidden1_pre_grad_ = std::make_shared<TensorType>( device, hidden1_shape_ );
+            hidden1_pre_grad_->setName( this->getName() + ".hidden1_pre_grad" );
         }
 
     private:
@@ -433,6 +466,12 @@ namespace Mila::Mnist
         std::shared_ptr<TensorType> hidden1_{ nullptr };
         std::shared_ptr<TensorType> hidden2_pre_act_{ nullptr };
         std::shared_ptr<TensorType> hidden2_{ nullptr };
+
+        // Gradient buffers (pre-allocated during onBuilding)
+        std::shared_ptr<TensorType> hidden2_grad_{ nullptr };
+        std::shared_ptr<TensorType> hidden2_pre_grad_{ nullptr };
+        std::shared_ptr<TensorType> hidden1_grad_{ nullptr };
+        std::shared_ptr<TensorType> hidden1_pre_grad_{ nullptr };
 
         /**
          * @brief Create the MNIST classifier network graph (context-independent).

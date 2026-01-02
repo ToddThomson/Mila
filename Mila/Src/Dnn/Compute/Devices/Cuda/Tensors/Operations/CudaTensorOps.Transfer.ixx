@@ -141,9 +141,9 @@ namespace Mila::Dnn::Compute::Cuda
             if ( exec_context )
             {
                 if ( exec_context->getDeviceId().type != DeviceType::Cuda ) {
-                    throw std::invalid_argument(
-                        std::format( "CUDA operations require a CUDA execution context, got {}",
-                            deviceTypeToString( exec_context->getDeviceId().type ) )
+                    throw std::invalid_argument( "CUDA operations require a CUDA execution context"
+                        //std::format( "CUDA operations require a CUDA execution context, got {}",
+                        //    deviceTypeToString( exec_context->getDeviceId().type ) )
                     );
                 }
             

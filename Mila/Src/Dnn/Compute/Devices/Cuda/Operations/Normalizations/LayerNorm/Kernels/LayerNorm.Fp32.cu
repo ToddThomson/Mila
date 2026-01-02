@@ -201,6 +201,27 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
         float sum_dy_w = 0.0f;
         float sum_dy_w_xhat = 0.0f;
 
+        // ADD THIS DEBUG FOR FIRST SLICE ONLY:
+        //if ( idx == 0 && lane_id == 0 ) {
+        //    printf( "=== LAYERNORM BACKWARD KERNEL DEBUG ===\n" );
+        //    printf( "num_slices: %d\n", num_slices );
+        //    printf( "norm_dim: %d\n", norm_dim );
+        //    printf( "mean[0]: %.6f\n", mean[ 0 ] );
+        //    printf( "rstd[0]: %.6f\n", rstd[ 0 ] );
+        //    printf( "First 5 dout values:\n" );
+        //    for ( int i = 0; i < 5; i++ ) {
+        //        printf( "  dout[%d]: %.6f\n", i, dout[ i ] );
+        //    }
+        //    printf( "First 5 inp values:\n" );
+        //    for ( int i = 0; i < 5; i++ ) {
+        //        printf( "  inp[%d]: %.6f\n", i, inp[ i ] );
+        //    }
+        //    printf( "First 5 weight values:\n" );
+        //    for ( int i = 0; i < 5; i++ ) {
+        //        printf( "  weight[%d]: %.6f\n", i, weight[ i ] );
+        //    }
+        //}
+
         for ( int i = lane_id; i < vec_size; i += WARP_SIZE )
         {
             float4 x_vec = reinterpret_cast<const float4*>( x )[ i ];
@@ -290,8 +311,30 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
             float xhat = ( x_val - m ) * s;
             float dxhat = dy_val * w_val;
 
+            //if ( idx == 0 && lane_id == 0 ) {  // First slice, first lane
+            //    printf( "LayerNorm Backward Debug:\n" );
+            //    printf( "  mean[0]: %f\n", m );
+            //    printf( "  rstd[0]: %f\n", s );
+            //    printf( "  sum_dy_w: %f\n", sum_dy_w );
+            //    printf( "  sum_dy_w_xhat: %f\n", sum_dy_w_xhat );
+            //    printf( "  norm_factor: %f\n", norm_factor );
+            //    printf( "  First dy value: %f\n", dy[ 0 ] );
+            //    printf( "  First weight value: %f\n", weight[ 0 ] );
+            //}
+
             dx[ c ] = ( dxhat - norm_factor * sum_dy_w - norm_factor * xhat * sum_dy_w_xhat ) * s;
         }
+
+        // ADD THIS AT THE END, AFTER COMPUTING dx:
+        /*if ( idx == 0 && lane_id == 0 ) {
+            printf( "sum_dy_w: %.10e\n", sum_dy_w );
+            printf( "sum_dy_w_xhat: %.10e\n", sum_dy_w_xhat );
+            printf( "norm_factor: %.10e\n", norm_factor );
+            printf( "First 5 dinp values written:\n" );
+            for ( int i = 0; i < 5; i++ ) {
+                printf( "  dinp[%d]: %.10e\n", i, dinp[ i ] );
+            }
+        }*/
     }
 
     void cuda_layernorm_forward_fp32(

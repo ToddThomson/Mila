@@ -12,6 +12,8 @@ module;
 #include <cuda_fp16.h>
 #include "Kernels/LayerNorm.cuh"
 
+#include <iostream> // DEBUG
+
 export module Compute.CudaLayerNormOp;
 
 import Dnn.Components.LayerNorm;
@@ -27,6 +29,13 @@ import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
+
+// DEBUG:
+import Compute.Device;
+import Compute.DeviceId;
+import Dnn.TensorOps;
+import Compute.CpuMemoryResource;
+
 import Compute.IExecutionContext;
 import Compute.ExecutionContext;
 import Compute.CudaDeviceResources;
@@ -380,6 +389,17 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
                 outer_size_, inner_size_, norm_dim_,
                 config_.getEpsilon(),
                 stream );
+
+            //context_->synchronize();
+
+            //Tensor<TensorDataType::FP32, CpuMemoryResource> host_copy( Device::Cpu(), mean_tensor_->shape() );
+            //copy( *mean_tensor_, host_copy );
+
+            //std::clog << "CudaLayerNormOp::forward - mean:\n" << host_copy[0] << " " << host_copy[1] << std::endl;
+
+            //copy( *rstd_tensor_, host_copy );
+
+            //std::clog << "CudaLayerNormOp::forward - rstd:\n" << host_copy[ 0 ] << " " << host_copy[ 1 ] << std::endl;
         }
 
         /**

@@ -121,7 +121,7 @@ export namespace Mila::Dnn::Compute::Cuda::Common::CublasLtHelpers
      * @brief Build a cuBLASLt matmul plan for strided-batched matmuls.
      *
      * This builder accepts explicit layout dimensions (rows/cols) and element-stride
-     * values (in elements) for A, B and C. Stride attributes are set in bytes.
+     * values (in elements) for A, B and C.
      *
      * Parameters:
      *  - handle: cuBLASLt handle (must be valid)
@@ -130,9 +130,12 @@ export namespace Mila::Dnn::Compute::Cuda::Common::CublasLtHelpers
      *  - C_rows, C_cols, ldC, strideC_elems: layout describing C in memory (elements)
      *  - opA, opB: cublasOperation_t specifying transpose behavior requested by caller
      *  - compute_type, scale_type, cuda_data_type: cuBLASLt types
+     *  - batch_count: number of batched matmuls to perform
      *  - has_bias: enable bias epilogue if true
      *
      * Returns a plan with descriptors created and an algorithm heuristically selected (if available).
+     *
+     * @note CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET expects stride in elements, not bytes.
      */
     template <typename TNative>
     CublasLtMatMulPlan<TNative> build_strided_plan(
@@ -144,127 +147,124 @@ export namespace Mila::Dnn::Compute::Cuda::Common::CublasLtHelpers
         cublasComputeType_t compute_type,
         cudaDataType_t scale_type,
         cudaDataType_t cuda_data_type,
+        int batch_count,
         bool has_bias = false )
     {
-        // Log all input parameters for debugging
-        //Utils::Logger::info( "=== build_strided_plan DEBUG ===" );
-        //Utils::Logger::info( "A: rows=" + std::to_string(A_rows) + ", cols=" + std::to_string(A_cols) + 
-        //                    ", ld=" + std::to_string(ldA) + ", stride=" + std::to_string(strideA_elems) );
-        //Utils::Logger::info( "B: rows=" + std::to_string(B_rows) + ", cols=" + std::to_string(B_cols) + 
-        //                    ", ld=" + std::to_string(ldB) + ", stride=" + std::to_string(strideB_elems) );
-        //Utils::Logger::info( "C: rows=" + std::to_string(C_rows) + ", cols=" + std::to_string(C_cols) + 
-        //                    ", ld=" + std::to_string(ldC) + ", stride=" + std::to_string(strideC_elems) );
-        //Utils::Logger::info( "opA=" + std::to_string(opA) + ", opB=" + std::to_string(opB) );
-
         CublasLtMatMulPlan<TNative> plan;
         plan.has_bias_epilogue = has_bias;
 
-        // Create matmul descriptor with selected compute/scale types
         cublasStatus_t status = cublasLtMatmulDescCreate( &plan.matmul_desc, compute_type, scale_type );
-        if (status != CUBLAS_STATUS_SUCCESS)
+        if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "cublasLtMatmulDescCreate failed with status: " + std::to_string(status) );
+            Utils::Logger::error( "cublasLtMatmulDescCreate failed with status: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
-        // Set transpose attributes
         status = cublasLtMatmulDescSetAttribute(
             plan.matmul_desc, CUBLASLT_MATMUL_DESC_TRANSA, &opA, sizeof( cublasOperation_t ) );
-        if (status != CUBLAS_STATUS_SUCCESS)
+        if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "Set TRANSA failed with status: " + std::to_string(status) );
+            Utils::Logger::error( "Set TRANSA failed with status: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
         status = cublasLtMatmulDescSetAttribute(
             plan.matmul_desc, CUBLASLT_MATMUL_DESC_TRANSB, &opB, sizeof( cublasOperation_t ) );
-        if (status != CUBLAS_STATUS_SUCCESS)
+        if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "Set TRANSB failed with status: " + std::to_string(status) );
+            Utils::Logger::error( "Set TRANSB failed with status: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
-        if (has_bias)
+        if ( has_bias )
         {
             const int epilogue = CUBLASLT_EPILOGUE_BIAS;
             cublasLtCheckStatus( cublasLtMatmulDescSetAttribute(
                 plan.matmul_desc, CUBLASLT_MATMUL_DESC_EPILOGUE, &epilogue, sizeof( epilogue ) ) );
         }
 
-        // Create matrix layouts (rows, cols, leading dimension expressed in elements)
         status = cublasLtMatrixLayoutCreate(
             &plan.layoutA, cuda_data_type, A_rows, A_cols, ldA );
-        if (status != CUBLAS_STATUS_SUCCESS)
+        if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "cublasLtMatrixLayoutCreate for A failed with status: " + std::to_string(status) );
+            Utils::Logger::error( "cublasLtMatrixLayoutCreate for A failed with status: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
         status = cublasLtMatrixLayoutCreate(
             &plan.layoutB, cuda_data_type, B_rows, B_cols, ldB );
-        if (status != CUBLAS_STATUS_SUCCESS)
+        if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "cublasLtMatrixLayoutCreate for B failed with status: " + std::to_string(status) );
+            Utils::Logger::error( "cublasLtMatrixLayoutCreate for B failed with status: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
         status = cublasLtMatrixLayoutCreate(
             &plan.layoutC, cuda_data_type, C_rows, C_cols, ldC );
-        if (status != CUBLAS_STATUS_SUCCESS)
+        if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "cublasLtMatrixLayoutCreate for C failed with status: " + std::to_string(status) );
+            Utils::Logger::error( "cublasLtMatrixLayoutCreate for C failed with status: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
-        // Set strided-batch offsets (bytes)
-        const long long elem_size = static_cast<long long>( sizeof( TNative ) );
-        const long long strideA_bytes = strideA_elems * elem_size;
-        const long long strideB_bytes = strideB_elems * elem_size;
-        const long long strideC_bytes = strideC_elems * elem_size;
-
-        /*Utils::Logger::info( "Stride bytes: A=" + std::to_string(strideA_bytes) + 
-                            ", B=" + std::to_string(strideB_bytes) + 
-                            ", C=" + std::to_string(strideC_bytes) );*/
-
+        // CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET expects stride in ELEMENTS, not bytes
         status = cublasLtMatrixLayoutSetAttribute(
-            plan.layoutA, CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, &strideA_bytes, sizeof( strideA_bytes ) );
-        if (status != CUBLAS_STATUS_SUCCESS)
+            plan.layoutA, CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, &strideA_elems, sizeof( strideA_elems ) );
+        if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "Set stride A failed with status: " + std::to_string(status) );
+            Utils::Logger::error( "Set stride A failed with status: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
         status = cublasLtMatrixLayoutSetAttribute(
-            plan.layoutB, CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, &strideB_bytes, sizeof( strideB_bytes ) );
-        if (status != CUBLAS_STATUS_SUCCESS)
+            plan.layoutB, CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, &strideB_elems, sizeof( strideB_elems ) );
+        if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "Set stride B failed with status: " + std::to_string(status) );
+            Utils::Logger::error( "Set stride B failed with status: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
         status = cublasLtMatrixLayoutSetAttribute(
-            plan.layoutC, CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, &strideC_bytes, sizeof( strideC_bytes ) );
-        if (status != CUBLAS_STATUS_SUCCESS)
+            plan.layoutC, CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, &strideC_elems, sizeof( strideC_elems ) );
+        if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "Set stride C failed with status: " + std::to_string(status) );
+            Utils::Logger::error( "Set stride C failed with status: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
-        // Create preference object and query a heuristic algorithm
+        status = cublasLtMatrixLayoutSetAttribute(
+            plan.layoutA, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &batch_count, sizeof( batch_count ) );
+        if ( status != CUBLAS_STATUS_SUCCESS )
+        {
+            Utils::Logger::error( "Set batch count A failed with status: " + std::to_string( status ) );
+            cublasLtCheckStatus( status );
+        }
+
+        status = cublasLtMatrixLayoutSetAttribute(
+            plan.layoutB, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &batch_count, sizeof( batch_count ) );
+        if ( status != CUBLAS_STATUS_SUCCESS )
+        {
+            Utils::Logger::error( "Set batch count B failed with status: " + std::to_string( status ) );
+            cublasLtCheckStatus( status );
+        }
+
+        status = cublasLtMatrixLayoutSetAttribute(
+            plan.layoutC, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &batch_count, sizeof( batch_count ) );
+        if ( status != CUBLAS_STATUS_SUCCESS )
+        {
+            Utils::Logger::error( "Set batch count C failed with status: " + std::to_string( status ) );
+            cublasLtCheckStatus( status );
+        }
+
         cublasLtCheckStatus( cublasLtMatmulPreferenceCreate( &plan.preference ) );
 
         cublasLtMatmulHeuristicResult_t heuristic_result{};
         int returned_algo_count = 0;
 
-        //Utils::Logger::info( "Calling cublasLtMatmulAlgoGetHeuristic..." );
-
         status = cublasLtMatmulAlgoGetHeuristic(
             handle, plan.matmul_desc,
             plan.layoutA, plan.layoutB, plan.layoutC, plan.layoutC,
             plan.preference, 1, &heuristic_result, &returned_algo_count );
-
-        //Utils::Logger::info( "cublasLtMatmulAlgoGetHeuristic returned status: " + std::to_string(status) + 
-        //                    ", algo count: " + std::to_string(returned_algo_count) );
 
         if ( status == CUBLAS_STATUS_SUCCESS && returned_algo_count > 0 )
         {

@@ -19,8 +19,8 @@ namespace Mila::Dnn::Compute::Cuda::Residual
      *
      * Formula: dX1 += dY, dX2 += dY
      *
-     * @param dX1 Gradient tensor for first input (accumulated)
-     * @param dX2 Gradient tensor for second input (accumulated)
+     * @param dX1 Gradient tensor for first input
+     * @param dX2 Gradient tensor for second input
      * @param dY Gradient from downstream layers
      * @param N Total number of elements in the tensors
      * @param stream CUDA stream for asynchronous execution
@@ -46,8 +46,8 @@ namespace Mila::Dnn::Compute::Cuda::Residual
      *
      * Formula: dX1 += dY, dX2 += dY
      *
-     * @param dX1 Gradient tensor for first input in half precision (accumulated)
-     * @param dX2 Gradient tensor for second input in half precision (accumulated)
+     * @param dX1 Gradient tensor for first input in half precision
+     * @param dX2 Gradient tensor for second input in half precision
      * @param dY Gradient from downstream layers in half precision
      * @param N Total number of elements in the tensors
      * @param stream CUDA stream for asynchronous execution

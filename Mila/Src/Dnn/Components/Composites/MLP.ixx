@@ -200,28 +200,33 @@ namespace Mila::Dnn
                 throw std::runtime_error( "MLP component must be built before calling backward." );
             }
 
-            auto device = this->getDeviceId();
-
-            TensorType fc2_grad( device, cached_hidden_shape_ );
-            fc2_->backward( *act_output_, output_grad, fc2_grad );
+            fc2_->backward( *act_output_, output_grad, *fc2_grad_ );
 
             if ( config_.useLayerNorm() )
             {
-                TensorType act_grad( device, cached_hidden_shape_ );
-                activation_->backward( *norm_output_, fc2_grad, act_grad );
+                activation_->backward( *norm_output_, *fc2_grad_, *act_grad_ );
 
-                TensorType norm_grad( device, cached_hidden_shape_ );
-                norm_->backward( *fc1_output_, act_grad, norm_grad );
+                norm_->backward( *fc1_output_, *act_grad_, *norm_grad_ );
 
-                fc1_->backward( input, norm_grad, input_grad );
+                fc1_->backward( input, *norm_grad_, input_grad );
             }
             else
             {
-                TensorType act_grad( device, cached_hidden_shape_ );
-                activation_->backward( *fc1_output_, fc2_grad, act_grad );
+                activation_->backward( *fc1_output_, *fc2_grad_, *act_grad_ );
 
-                fc1_->backward( input, act_grad, input_grad );
+                fc1_->backward( input, *act_grad_, input_grad );
             }
+        }
+
+        void zeroGradients() override
+        {
+            fc1_->zeroGradients();
+            if ( norm_ )
+            {
+                norm_->zeroGradients();
+            }
+            activation_->zeroGradients();
+            fc2_->zeroGradients();
         }
 
         // ====================================================================
@@ -360,6 +365,19 @@ namespace Mila::Dnn
 
             act_output_ = std::make_shared<TensorType>( device, cached_hidden_shape_ );
             act_output_->setName( this->getName() + ".act_output" );
+
+            // Preallocate gradient buffers used in backward() to avoid per-call allocation
+            fc2_grad_ = std::make_shared<TensorType>( device, cached_hidden_shape_ );
+            fc2_grad_->setName( this->getName() + ".fc2_grad" );
+
+            act_grad_ = std::make_shared<TensorType>( device, cached_hidden_shape_ );
+            act_grad_->setName( this->getName() + ".act_grad" );
+
+            if ( config_.useLayerNorm() )
+            {
+                norm_grad_ = std::make_shared<TensorType>( device, cached_hidden_shape_ );
+                norm_grad_->setName( this->getName() + ".norm_grad" );
+            }
         }
 
         /**
@@ -412,6 +430,11 @@ namespace Mila::Dnn
         std::shared_ptr<TensorType> fc1_output_{ nullptr };
         std::shared_ptr<TensorType> norm_output_{ nullptr };
         std::shared_ptr<TensorType> act_output_{ nullptr };
+
+        // Preallocated gradient buffers (allocated in onBuilding)
+        std::shared_ptr<TensorType> fc2_grad_{ nullptr };
+        std::shared_ptr<TensorType> act_grad_{ nullptr };
+        std::shared_ptr<TensorType> norm_grad_{ nullptr };
 
         /**
          * @brief Create the MLP block architecture (context-independent).

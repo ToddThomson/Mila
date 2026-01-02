@@ -39,14 +39,14 @@ namespace Mila::Dnn
         {
             auto gen = Core::RandomGenerator::getInstance().getGenerator();
 
-            if constexpr (TensorDataTypeTraits<TDataType>::is_integer_type)
+            if constexpr ( TensorDataTypeTraits<TDataType>::is_integer_type )
             {
                 std::uniform_int_distribution<int32_t> dis( min_val, max_val );
 
                 std::vector<int32_t> values( count );
-                for (size_t i = 0; i < count; ++i)
+                for ( size_t i = 0; i < count; ++i )
                 {
-                    values[i] = dis( gen );
+                    values[ i ] = dis( gen );
                 }
 
                 return values;
@@ -56,9 +56,45 @@ namespace Mila::Dnn
                 std::uniform_real_distribution<float> dis( min_val, max_val );
 
                 std::vector<float> values( count );
-                for (size_t i = 0; i < count; ++i)
+                for ( size_t i = 0; i < count; ++i )
                 {
-                    values[i] = dis( gen );
+                    values[ i ] = dis( gen );
+                }
+                return values;
+            }
+        }
+
+        /**
+         * @brief Generates host-native random values using normal distribution
+         *
+         * Uses Box-Muller transform for integer types (rounded to integers).
+         * For floating-point types, uses std::normal_distribution directly.
+         */
+        template<TensorDataType TDataType>
+        auto generate_host_normal_values( size_t count, float mean, float stddev )
+        {
+            auto gen = Core::RandomGenerator::getInstance().getGenerator();
+
+            if constexpr ( TensorDataTypeTraits<TDataType>::is_integer_type )
+            {
+                std::normal_distribution<float> dis( mean, stddev );
+
+                std::vector<int32_t> values( count );
+                for ( size_t i = 0; i < count; ++i )
+                {
+                    values[ i ] = static_cast<int32_t>( std::round( dis( gen ) ) );
+                }
+
+                return values;
+            }
+            else
+            {
+                std::normal_distribution<float> dis( mean, stddev );
+
+                std::vector<float> values( count );
+                for ( size_t i = 0; i < count; ++i )
+                {
+                    values[ i ] = dis( gen );
                 }
                 return values;
             }
@@ -76,6 +112,25 @@ namespace Mila::Dnn
         {
 
             auto host_values = generate_host_values<TDataType>( tensor.size(), min_val, max_val );
+
+            // Create span over generated host values and forward to device-dispatching fill.
+            using HV = host_value_t<TDataType>;
+            std::span<const HV> values_span{ reinterpret_cast<const HV*>(host_values.data()), host_values.size() };
+
+            fill( tensor, values_span );
+        }
+
+        /**
+         * @brief Core normal distribution implementation with TensorOps dispatch
+         *
+         * Generates host values using normal distribution and forwards them to
+         * TensorOps::fill for device dispatch and conversion. Uses span to avoid extra copies.
+         */
+        template<TensorDataType TDataType, typename TMemoryResource>
+        void fill_normal_distribution( Tensor<TDataType, TMemoryResource>& tensor,
+            float mean, float stddev )
+        {
+            auto host_values = generate_host_normal_values<TDataType>( tensor.size(), mean, stddev );
 
             // Create span over generated host values and forward to device-dispatching fill.
             using HV = host_value_t<TDataType>;
@@ -103,10 +158,10 @@ namespace Mila::Dnn
             size_t input_size, size_t output_size )
         {
             // Handle edge cases
-            if (input_size == 0 && output_size == 0)
+            if ( input_size == 0 && output_size == 0 )
             {
                 // Fallback initialization
-                if constexpr (TensorDataTypeTraits<TDataType>::is_integer_type)
+                if constexpr ( TensorDataTypeTraits<TDataType>::is_integer_type )
                 {
                     fill_uniform_distribution( tensor, -1, 1 );
                 }
@@ -124,7 +179,7 @@ namespace Mila::Dnn
             float limit = std::sqrt( 6.0f / static_cast<float>(total_size) );
 
             // Apply Xavier range using appropriate host type
-            if constexpr (TensorDataTypeTraits<TDataType>::is_integer_type)
+            if constexpr ( TensorDataTypeTraits<TDataType>::is_integer_type )
             {
                 // For integer tensors, ensure reasonable range (minimum ±1)
                 int32_t int_limit = std::max( static_cast<int32_t>(std::round( limit )), 1 );
@@ -159,12 +214,46 @@ namespace Mila::Dnn
         requires isValidTensor<TDataType, TMemoryResource>
     void random( Tensor<TDataType, TMemoryResource>& tensor, host_value_t<TDataType> min_val, host_value_t<TDataType> max_val )
     {
-        if (min_val > max_val)
+        if ( min_val > max_val )
         {
             throw std::invalid_argument( "min_val must be <= max_val" );
         }
 
         Detail::fill_uniform_distribution( tensor, min_val, max_val );
+    }
+
+    /**
+     * @brief Fill tensor with values from normal (Gaussian) distribution.
+     *
+     * Generates pseudorandom values using normal distribution N(mean, stddev²) and
+     * writes them into the provided tensor. Works with both host-backed and device-backed tensors.
+     * Initialization is reproducible when the framework RNG seed is controlled.
+     *
+     * For integer tensors, values are generated from the normal distribution and rounded
+     * to the nearest integer.
+     *
+     * Common uses:
+     * - Embedding initialization: normal(tensor, 0.0f, 0.02f)
+     * - Weight initialization: normal(tensor, 0.0f, 1.0f / sqrt(embedding_dim))
+     *
+     * @tparam TDataType Abstract tensor data type
+     * @tparam TMemoryResource Memory resource (host or device)
+     * @param tensor Target tensor to initialize (pre-allocated)
+     * @param mean Mean of the normal distribution
+     * @param stddev Standard deviation of the normal distribution
+     *
+     * @throws std::invalid_argument if stddev is negative
+     */
+    export template<TensorDataType TDataType, typename TMemoryResource>
+        requires isValidTensor<TDataType, TMemoryResource>
+    void normal( Tensor<TDataType, TMemoryResource>& tensor, float mean, float stddev )
+    {
+        if ( stddev < 0.0f )
+        {
+            throw std::invalid_argument( "stddev must be non-negative" );
+        }
+
+        Detail::fill_normal_distribution( tensor, mean, stddev );
     }
 
     /**
@@ -200,7 +289,7 @@ namespace Mila::Dnn
         requires isValidTensor<TDataType, TMemoryResource>
     void zeros( Tensor<TDataType, TMemoryResource>& tensor )
     {
-        if constexpr (TensorDataTypeTraits<TDataType>::is_integer_type)
+        if constexpr ( TensorDataTypeTraits<TDataType>::is_integer_type )
         {
             Detail::fill_constant_from_host( tensor, static_cast<host_value_t<TDataType>>(0) );
         }
@@ -223,7 +312,7 @@ namespace Mila::Dnn
         requires isValidTensor<TDataType, TMemoryResource>
     void ones( Tensor<TDataType, TMemoryResource>& tensor )
     {
-        if constexpr (TensorDataTypeTraits<TDataType>::is_integer_type)
+        if constexpr ( TensorDataTypeTraits<TDataType>::is_integer_type )
         {
             Detail::fill_constant_from_host( tensor, static_cast<host_value_t<TDataType>>(1) );
         }
@@ -241,7 +330,7 @@ namespace Mila::Dnn
      * @brief Random initialization with symmetric range for integer tensors
      */
     export template<TensorDataType TDataType, typename TMemoryResource>
-        requires isValidTensor<TDataType, TMemoryResource> && TensorDataTypeTraits<TDataType>::is_integer_type
+        requires isValidTensor<TDataType, TMemoryResource>&& TensorDataTypeTraits<TDataType>::is_integer_type
     void random( Tensor<TDataType, TMemoryResource>& tensor, int32_t magnitude )
     {
         random( tensor, -magnitude, magnitude );
@@ -255,5 +344,18 @@ namespace Mila::Dnn
     void random( Tensor<TDataType, TMemoryResource>& tensor, float magnitude )
     {
         random( tensor, -magnitude, magnitude );
+    }
+
+    /**
+     * @brief Normal initialization with zero mean (standard normal scaled by stddev)
+     *
+     * Convenience overload for normal(tensor, 0.0f, stddev).
+     * Common pattern for embedding and weight initialization.
+     */
+    export template<TensorDataType TDataType, typename TMemoryResource>
+        requires isValidTensor<TDataType, TMemoryResource>
+    void normal( Tensor<TDataType, TMemoryResource>& tensor, float stddev )
+    {
+        normal( tensor, 0.0f, stddev );
     }
 }

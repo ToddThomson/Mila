@@ -28,6 +28,7 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorPartitioning;
+import Dnn.TensorInitializers;
 import Compute.Precision;
 import Compute.Device;
 import Compute.DeviceId;
@@ -122,6 +123,21 @@ namespace Mila::Dnn
             }
 
             operation_->backward( input, output_grad, input_grad );
+        }
+
+        void zeroGradients() override
+        {
+            //std::clog << this->getName() << ": " << " Zeroing Grads" << std::endl;
+
+            if ( weight_grad_ )
+            {
+                zero( *weight_grad_, this->getExecutionContext() );
+            }
+            
+            if ( config_.hasBias() && bias_grad_ )
+            {
+                zero( *bias_grad_, this->getExecutionContext() );
+            }
         }
 
         // ====================================================================
@@ -269,7 +285,7 @@ namespace Mila::Dnn
             {
                 initializeGradients();
                 
-                operation_->setGradients( weight_grad_.get(), config_.hasBias() ? bias_grad_.get() : nullptr );
+                operation_->setGradients( weight_grad_.get(), bias_grad_.get() );
             }
             else
             {
@@ -393,11 +409,13 @@ namespace Mila::Dnn
 
             weight_ = std::make_shared<TensorType>( device, shape_t{ channels } );
             weight_->setName( this->getName() + ".weight" );
+            ones( *weight_ );
 
             if ( config_.hasBias() )
             {
                 bias_ = std::make_shared<TensorType>( device, shape_t{ channels } );
                 bias_->setName( this->getName() + ".bias" );
+                zero( *bias_ );
             }
         }
 

@@ -164,6 +164,19 @@ namespace Mila::Dnn
             operation_->backward( input, output_grad, input_grad_dummy );
         }
 
+        void zeroGradients() override
+        {
+            if ( wte_grad_ )
+            {
+                zero( *wte_grad_, this->getExecutionContext() );
+            }
+
+            if ( wpe_grad_ )
+            {
+                zero( *wpe_grad_, this->getExecutionContext() );
+            }
+        }
+
         // ====================================================================
         // Serialization
         // ====================================================================
@@ -399,14 +412,14 @@ namespace Mila::Dnn
             {
                 wte_grad_ = std::make_shared<EmbeddingsTensorType>( device, wte_->shape() );
                 wte_grad_->setName( this->getName() + ".wte.grad" );
-                zeros( *wte_grad_ );
+                zero( *wte_grad_ );
             }
 
             if ( !wpe_grad_ )
             {
                 wpe_grad_ = std::make_shared<EmbeddingsTensorType>( device, wpe_->shape() );
                 wpe_grad_->setName( this->getName() + ".wpe.grad" );
-                zeros( *wpe_grad_ );
+                zero( *wpe_grad_ );
             }
         }
 
@@ -416,15 +429,18 @@ namespace Mila::Dnn
             int64_t max_seq_len = config_.getMaxSequenceLength();
             int64_t embedding_dim = config_.getChannels();
 
+            // Standard deviation = 1/sqrt(embedding_dim)
+            float std = 1.0f / std::sqrt( static_cast<float>(embedding_dim) );
+
             auto device_id = this->getExecutionContext()->getDeviceId();
 
             wte_ = std::make_shared<EmbeddingsTensorType>( device_id, shape_t{ vocab_size, embedding_dim } );
             wte_->setName( this->getName() + ".wte" );
-            xavier<TPrecision, MR>( *wte_, vocab_size, embedding_dim );
+            normal<TPrecision, MR>( *wte_, 0.0f, std );
 
             wpe_ = std::make_shared<EmbeddingsTensorType>( device_id, shape_t{ max_seq_len, embedding_dim } );
             wpe_->setName( this->getName() + ".wpe" );
-            xavier<TPrecision, MR>( *wpe_, max_seq_len, embedding_dim );
+            normal<TPrecision, MR>( *wte_, 0.0f, std );
         }
 
         void createOperation()

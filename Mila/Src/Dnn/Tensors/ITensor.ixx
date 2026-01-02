@@ -84,6 +84,17 @@ namespace Mila::Dnn
         virtual size_t elementSize() const = 0;
 
         /**
+         * @brief Get the total storage size in bytes backing the tensor's buffer.
+         *
+         * Returns the authoritative byte count for the tensor's logical elements
+         * (equivalent to the underlying TensorBuffer::storageBytes()) and is the
+         * value callers should use for raw memory operations (memset, memcpy, etc.).
+         *
+         * @return Number of bytes occupied by the tensor's logical elements (0 if no buffer)
+         */
+        virtual size_t getStorageSize() const = 0;
+
+        /**
          * @brief Get tensor element data type identifier
          * @return TensorDataType enumeration value corresponding to the element type
          * @note This can be used for runtime type checking and dispatch

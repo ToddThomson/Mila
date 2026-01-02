@@ -285,8 +285,10 @@ namespace Mila::CharLM
          *
          * @throws std::runtime_error if transformer has not been built or not in training mode
          */
-        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
+        void backward( const ITensor& input, const ITensor& output_grad )
         {
+            //std::clog << this->getName() << ": " << " Starting backward pass..." << std::endl;
+
             if ( !this->isBuilt() )
             {
                 throw std::runtime_error( "CharTransformer must be built before calling backward." );
@@ -301,51 +303,131 @@ namespace Mila::CharLM
             assert( activations_.size() == transformer_blocks_.size() + 1 );
             assert( activation_grads_.size() == transformer_blocks_.size() + 1 );
 
-            auto device_id = this->getDeviceId();
+            // Helper: dump an ITensor (if device-only, copy to host using execution context)
+            auto dumpITensor = [&]( const ITensor& t, const std::string& label )
+                {
+                    const TensorType* tptr = dynamic_cast<const TensorType*>(&t);
+                    if ( !tptr )
+                    {
+                        std::clog << this->getName() << ": " << label << " (non-concrete ITensor - skipping dump)" << std::endl;
+                        return;
+                    }
+
+                    if constexpr ( MR::is_host_accessible )
+                    {
+                        std::clog << this->getName() << ": " << label << ":\n" << tptr->toString( true ) << std::endl;
+                    }
+                    else
+                    {
+                        Tensor<TPrecision, CpuMemoryResource> host_copy( Device::Cpu(), tptr->shape() );
+                        host_copy.setName( this->getName() + "." + label + ".host_copy" );
+
+                        copy( *tptr, host_copy );
+
+                        std::clog << this->getName() << ": " << label << " (host copy):\n" << host_copy.toString( true ) << std::endl;
+                    }
+                };
+
+            // Helper: dump a shared_ptr<TensorType>
+            auto dumpShared = [&]( const std::shared_ptr<TensorType>& tptr, const std::string& label )
+                {
+                    if ( !tptr )
+                    {
+                        std::clog << this->getName() << ": " << label << " (null)" << std::endl;
+                        return;
+                    }
+
+                    if constexpr ( MR::is_host_accessible )
+                    {
+                        std::clog << this->getName() << ": " << label << ":\n" << tptr->toString( true ) << std::endl;
+                    }
+                    else
+                    {
+                        Tensor<TPrecision, CpuMemoryResource> host_copy( Device::Cpu(), tptr->shape() );
+                        host_copy.setName( this->getName() + "." + label + ".host_copy" );
+
+                        copy( *tptr, host_copy );
+
+                        std::clog << this->getName() << ": " << label << " (host copy):\n" << host_copy.toString( true ) << std::endl;
+                    }
+                };
+
+            // Dump initial output_grad provided by caller
+            //dumpITensor( output_grad, "output_grad_initial" );
 
             // 1. Backprop through lm_head (final linear layer)
             //    Input:  output_grad = dLoss/dlogits (from loss function)
             //    Output: normalized_grad = dLoss/dnormalized
-            zeros( *normalized_grad_ );
-
             lm_head_->backward( *normalized_, output_grad, *normalized_grad_ );
+
+            // Dump normalized_grad after lm_head backward
+           // dumpShared( normalized_grad_, "normalized_grad_after_lm_head_backward" );
 
             // 2. Backprop through final layer norm
             //    Input:  normalized_grad = ?Loss/?normalized
             //    Output: activation_grads_.back() = ?Loss/?(last transformer block output)
-            zeros( *activation_grads_.back() );
             final_layernorm_->backward( *activations_.back(), *normalized_grad_, *activation_grads_.back() );
+
+            // Dump activation_grads_.back() after final layernorm backward
+            //dumpShared( activation_grads_.back(), "activation_grad_last_after_final_ln_backward" );
 
             // 3. Backprop through transformer blocks (in reverse order)
             //    Each block takes gradient w.r.t. its output and produces gradient w.r.t. its input
-            for ( int64_t i = static_cast<int64_t>( transformer_blocks_.size() ) - 1; i >= 0; --i )
+            for ( int64_t i = static_cast<int64_t>(transformer_blocks_.size()) - 1; i >= 0; --i )
             {
+                // Dump args before block backward
+                //dumpShared( activations_[ i ], std::format( "activation.{}", i ) );
+                //dumpShared( activation_grads_[ i + 1 ], std::format( "activation_grad.{} (input to block)", i + 1 ) );
+
                 transformer_blocks_[ i ]->backward(
                     *activations_[ i ],           // Forward input to this block
-                    *activation_grads_[ i + 1 ],  // ?Loss/?(block output)
-                    *activation_grads_[ i ]       // ?Loss/?(block input) ? computed here
+                    *activation_grads_[ i + 1 ],  // dLoss/d(block output)
+                    *activation_grads_[ i ]       // dLoss/d(block input) ? computed here
                 );
+
+                // Dump resulting grad for this stage after backward
+                //dumpShared( activation_grads_[ i ], std::format( "activation_grad.{} (after block backward)", i ) );
+
+                // Also dump the output-side grad to show it was consumed/unchanged
+                //dumpShared( activation_grads_[ i + 1 ], std::format( "activation_grad.{} (after block backward)", i + 1 ) );
             }
 
             // 4. Backprop through encoder (token embedding layer)
             //    Input:  activation_grads_[0] = ?Loss/?embeddings
             //    Output: Updates encoder's embedding table gradients
-            encoder_->backward( input, *activation_grads_[0] );
+            //dumpShared( activation_grads_[ 0 ], "activation_grad.0_before_encoder_backward" );
 
-            // 5. Zero the input gradient (encoder doesn't produce gradients w.r.t. token indices)
-            if ( auto* in_t = dynamic_cast<TensorType*>(&input_grad) )
-            {
-                zeros( *in_t );
-            }
+            encoder_->backward( input, *activation_grads_[ 0 ] );
+
+            // Dump encoder-related gradient buffer after encoder backward (activation_grads_[0] may be unchanged)
+            //dumpShared( activation_grads_[ 0 ], "activation_grad.0_after_encoder_backward" );
         }
 
         void zeroGradients() override
         {
+
+            // Zero intermediate gradient buffers used in backward pass
+            if ( normalized_grad_ )
+            {
+                zero( *normalized_grad_ );
+            }
+
+            for ( auto& act_grad : activation_grads_ )
+            {
+                if ( act_grad )
+                {
+                    zero( *act_grad );
+                }
+            }
+
+            // Zero all component gradients
             encoder_->zeroGradients();
+
             for ( auto& block : transformer_blocks_ )
             {
                 block->zeroGradients();
             }
+            
             final_layernorm_->zeroGradients();
             lm_head_->zeroGradients();
         }
@@ -538,7 +620,7 @@ namespace Mila::CharLM
 
             for ( int64_t i = 0; i < config_.num_layers; ++i )
             {
-                std::string block_name = this->getName() + ".layer" + std::to_string( i );
+                std::string block_name = this->getName() + ".tf_layer_" + std::to_string( i );
                 auto block = this->template getComponentAs<TransformerBlockType>( block_name );
                 block->build( embedding_shape_ );
                 transformer_blocks_.push_back( block );
@@ -564,11 +646,6 @@ namespace Mila::CharLM
             // Pre-allocate normalized_grad to avoid per-step device allocation in backward()
             normalized_grad_ = std::make_shared<TensorType>( device_id, embedding_shape_ );
             normalized_grad_->setName( this->getName() + ".normalized_grad" );
-            //zeros( *normalized_grad_ );
-
-            // Allocate activation buffers
-            // This should be done in onTrainingChanging()
-            // allocateActivationBuffers();
         }
 
     private:
@@ -647,17 +724,17 @@ namespace Mila::CharLM
 
             for ( int64_t i = 0; i < config_.num_layers; ++i )
             {
-                TransformerConfig tcfg( static_cast<dim_t>( config_.embedding_dim ),
+                TransformerConfig tf_cfg( static_cast<dim_t>( config_.embedding_dim ),
                     static_cast<dim_t>( config_.num_heads ) );
 
-                tcfg.withHiddenDimension( static_cast<dim_t>( config_.mlp_hidden_dim ) );
-                tcfg.withBias( false );
-                tcfg.withActivation( ActivationType::Gelu );
+                tf_cfg.withHiddenDimension( static_cast<dim_t>( config_.mlp_hidden_dim ) );
+                tf_cfg.withBias( false )
+                    .withActivation( ActivationType::Gelu );
 
-                auto block = std::make_shared<TransformerBlockType>( 
-                    this->getName() + ".layer" + std::to_string( i ), tcfg, std::nullopt );
+                auto layer = std::make_shared<TransformerBlockType>( 
+                    this->getName() + ".tf_layer_" + std::to_string( i ), tf_cfg, std::nullopt );
 
-                this->addComponent( block );
+                this->addComponent( layer );
             }
 
             auto ln_config = LayerNormConfig()

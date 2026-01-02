@@ -191,6 +191,19 @@ namespace Mila::Dnn
             operation_->backward( input, output_grad, input_grad );
         }
 
+        void zeroGradients() override
+        {
+            if ( weight_grad_ )
+            {
+                zero( *weight_grad_ );
+            }
+
+            if ( config_.hasBias() && bias_grad_ )
+            {
+                zero( *bias_grad_ );
+            }
+        }
+
         // ====================================================================
         // Serialization
         // ====================================================================
@@ -487,10 +500,10 @@ namespace Mila::Dnn
 
                 // Prefer to keep gradient buffers allocated for next training phase.
                 if ( weight_grad_ )
-                    zeros( *weight_grad_ );
+                    zero( *weight_grad_ );
                 
                 if ( bias_grad_ )
-                    zeros( *bias_grad_ );
+                    zero( *bias_grad_ );
             }
         }
 
@@ -542,7 +555,7 @@ namespace Mila::Dnn
                 weight_grad_ = std::make_shared<TensorType>( device, weight_->shape() );
                 weight_grad_->setName( this->getName() + ".weight.grad" );
 
-                zeros( *weight_grad_ );
+                zero( *weight_grad_ );
             }
 
             if ( config_.hasBias() && !bias_grad_ )
@@ -550,7 +563,7 @@ namespace Mila::Dnn
                 bias_grad_ = std::make_shared<TensorType>( device, bias_->shape() );
                 bias_grad_->setName( this->getName() + ".bias.grad" );
 
-                zeros( *bias_grad_ );
+                zero( *bias_grad_ );
             }
         }
 
@@ -578,7 +591,7 @@ namespace Mila::Dnn
                 bias_ = std::make_shared<TensorType>( device, shape_t{ output_features } );
                 bias_->setName( this->getName() + ".bias" );
 
-                zeros( *bias_ );
+                zero( *bias_ );
             }
         }
 

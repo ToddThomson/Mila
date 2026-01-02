@@ -72,10 +72,9 @@ namespace Mila::Dnn::Compute::Cuda::Residual
      *
      * Propagates gradients through the residual connection. Since forward is y = x1 + x2,
      * the gradient flows equally to both inputs: dx1 = dy, dx2 = dy.
-     * This kernel accumulates gradients (+=) to support multiple gradient sources.
      *
-     * @param grad_input_1 Gradient w.r.t. first input (accumulated)
-     * @param grad_input_2 Gradient w.r.t. second input (accumulated)
+     * @param grad_input_1 Gradient w.r.t. first input
+     * @param grad_input_2 Gradient w.r.t. second input
      * @param grad_output Gradient from the next layer
      * @param N Total number of elements in the tensors
      */
@@ -87,25 +86,26 @@ namespace Mila::Dnn::Compute::Cuda::Residual
     {
         size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
 
-        if (idx < N)
+        if ( idx < N )
         {
-            float grad = __ldg( &grad_output[idx] );
-            atomicAdd( &grad_input_1[idx], grad );
-            atomicAdd( &grad_input_2[idx], grad );
+            float grad = __ldg( &grad_output[ idx ] );
+            grad_input_1[ idx ] = grad;
+            grad_input_2[ idx ] = grad;
         }
     }
 
     /**
-     * @brief Vectorized FP32 backward kernel using float4 for 4x throughput
-     *
-     * Processes four float values at once when propagating gradients.
-     * Uses atomic operations to safely accumulate gradients.
-     *
-     * @param grad_input_1 Gradient w.r.t. first input as float4 vectors
-     * @param grad_input_2 Gradient w.r.t. second input as float4 vectors
-     * @param grad_output Gradient from next layer as float4 vectors
-     * @param N Total number of float4 elements
-     */
+ * @brief Vectorized FP32 backward kernel using float4 for 4x throughput
+ *
+ * Processes four float values at once when propagating gradients.
+ * Uses direct assignment since residual backward simply broadcasts
+ * the output gradient to both input gradients.
+ *
+ * @param grad_input_1 Gradient w.r.t. first input as float4 vectors
+ * @param grad_input_2 Gradient w.r.t. second input as float4 vectors
+ * @param grad_output Gradient from next layer as float4 vectors
+ * @param N Total number of float4 elements
+ */
     __global__ void residual_backward_fp32_vectorized_kernel(
         float4* grad_input_1,
         float4* grad_input_2,
@@ -113,24 +113,11 @@ namespace Mila::Dnn::Compute::Cuda::Residual
         int N )
     {
         size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-
-        if (idx < N)
+        if ( idx < N )
         {
-            float4 grad = __ldg( &grad_output[idx] );
-
-            // We need to atomic-add each component separately
-            float* grad1_ptr = reinterpret_cast<float*>( &grad_input_1[idx] );
-            float* grad2_ptr = reinterpret_cast<float*>( &grad_input_2[idx] );
-
-            atomicAdd( &grad1_ptr[0], grad.x );
-            atomicAdd( &grad1_ptr[1], grad.y );
-            atomicAdd( &grad1_ptr[2], grad.z );
-            atomicAdd( &grad1_ptr[3], grad.w );
-
-            atomicAdd( &grad2_ptr[0], grad.x );
-            atomicAdd( &grad2_ptr[1], grad.y );
-            atomicAdd( &grad2_ptr[2], grad.z );
-            atomicAdd( &grad2_ptr[3], grad.w );
+            float4 grad = __ldg( &grad_output[ idx ] );
+            grad_input_1[ idx ] = grad;
+            grad_input_2[ idx ] = grad;
         }
     }
 
@@ -196,10 +183,10 @@ namespace Mila::Dnn::Compute::Cuda::Residual
      * Propagates gradients through the residual connection. Both inputs receive
      * the same gradient since the forward pass is simple addition.
      *
-     * Formula: grad_inp1 += grad_out, grad_inp2 += grad_out
+     * Formula: grad_inp1 = grad_out, grad_inp2 = grad_out
      *
-     * @param grad_inp1 Gradient tensor for first input (accumulated)
-     * @param grad_inp2 Gradient tensor for second input (accumulated)
+     * @param grad_inp1 Gradient tensor for first input
+     * @param grad_inp2 Gradient tensor for second input
      * @param grad_out Gradient from downstream layers
      * @param N Total number of elements in the tensors
      * @param stream CUDA stream for asynchronous execution

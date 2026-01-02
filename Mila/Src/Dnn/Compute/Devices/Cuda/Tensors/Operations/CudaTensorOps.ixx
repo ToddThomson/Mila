@@ -1,5 +1,6 @@
 export module Compute.CudaTensorOps;
 
+export import :Zero;
 export import :Fill;
 export import :Math;
 export import :Transfer;
@@ -12,5 +13,5 @@ namespace Mila::Dnn
 	using namespace Mila::Dnn::Compute::Cuda;
 
 	export template<>
-	struct TensorOps<Compute::DeviceType::Cuda> : FillOps, MathOps, TransferOps {};
+	struct TensorOps<Compute::DeviceType::Cuda> : ZeroOps, FillOps, MathOps, TransferOps {};
 }

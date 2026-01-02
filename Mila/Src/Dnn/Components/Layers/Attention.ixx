@@ -124,17 +124,17 @@ namespace Mila::Dnn
         {
             if ( !this->isBuilt() )
             {
-                throw std::runtime_error( "Attention module must be built before calling backward." );
+                throw std::runtime_error( "Attention must be built before calling backward." );
             }
 
             if ( !this->isTraining() )
             {
-                throw std::runtime_error( "Attention module must be in training mode to call backward. Call setTraining(true) first." );
+                throw std::runtime_error( "Attention must be in training mode to call backward. Call setTraining(true) first." );
             }
 
             validateBackwardShapes( input, output_grad, input_grad );
 
-            operation_->backward( output_grad, input, input_grad );
+            operation_->backward( input, output_grad, input_grad );
         }
 
         // ====================================================================

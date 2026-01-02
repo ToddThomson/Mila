@@ -229,6 +229,22 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief Returns the total storage size in bytes backing the tensor's buffer.
+         *
+         * Forwards to the authoritative TensorBuffer::storageBytes() value and
+         * returns 0 when no buffer is allocated.
+         */
+        size_t getStorageSize() const override
+        {
+            if ( !buffer_ )
+            {
+                return 0;
+            }
+
+            return buffer_->storageBytes();
+        }
+
+        /**
          * @brief Returns the tensor's abstract data type identifier
          */
         TensorDataType getDataType() const override {

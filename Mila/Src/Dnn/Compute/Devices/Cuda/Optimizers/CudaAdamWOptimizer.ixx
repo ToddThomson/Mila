@@ -153,11 +153,11 @@ namespace Mila::Dnn::Compute
 
             auto m_state = std::make_shared<Tensor<TensorDataType::FP32, MR>>( device, shape );
             m_state->setName( param->getName() + ".m" );
-            zeros( *m_state );
+            zero( *m_state );
 
             auto v_state = std::make_shared<Tensor<TensorDataType::FP32, MR>>( device, shape );
             v_state->setName( param->getName() + ".v" );
-            zeros( *v_state );
+            zero( *v_state );
 
             m_states_.push_back( m_state );
             v_states_.push_back( v_state );
@@ -175,7 +175,7 @@ namespace Mila::Dnn::Compute
                 // Initialize master param from current param values
                 // TODO: Implement copy with type conversion
                 // For now, initialize to zero
-                zeros( *master_param );
+                zero( *master_param );
 
                 master_params_.push_back( master_param );
                 master_param_data_.push_back( reinterpret_cast<float*>(master_param->rawData()) );
@@ -260,6 +260,9 @@ namespace Mila::Dnn::Compute
                     stream
                 );
             }
+
+            // DEBUG:
+            exec_context_->synchronize();
 
             // Note: No synchronization - caller can sync via exec_context_->synchronize() if needed
         }

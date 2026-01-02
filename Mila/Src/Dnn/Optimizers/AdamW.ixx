@@ -63,12 +63,6 @@ namespace Mila::Dnn::Optimizers
 
             config.validate();
 
-            /*const float lr = config.getLearningRate();
-            const float beta1 = config.getBeta1();
-            const float beta2 = config.getBeta2();
-            const float eps = config.getEpsilon();
-            const float wd = config.getWeightDecay();*/
-
             impl_ = std::make_shared<OptimizerType>(
                     context_, config_ );
         }
@@ -76,7 +70,7 @@ namespace Mila::Dnn::Optimizers
         ~AdamWOptimizer() override = default;
 
         // ====================================================================
-        // Optimizer Interface Implementation (Delegation)
+        // Optimizer Interface Implementation
         // ====================================================================
 
         void addParameter( ITensor* param, ITensor* grad ) override
@@ -89,12 +83,6 @@ namespace Mila::Dnn::Optimizers
             impl_->step();
         }
 
-        // TJT: Disabled to avoid confusion with Component::zeroGradients() 
-        /*void zeroGrad() override
-        {
-            impl_->zeroGrad();
-        }*/
-
         float getLearningRate() const override
         {
             return impl_->getLearningRate();
@@ -106,7 +94,7 @@ namespace Mila::Dnn::Optimizers
         }
 
         // ====================================================================
-        // AdamW-Specific Interface (Pass-through)
+        // AdamW-Specific Interface
         // ====================================================================
 
         size_t getStepCount() const noexcept

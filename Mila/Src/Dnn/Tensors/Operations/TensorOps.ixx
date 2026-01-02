@@ -4,6 +4,7 @@ export import Dnn.TensorOps.Base;
 export import Compute.CpuTensorOps;
 export import Compute.CudaTensorOps;
 
+export import :Zero;
 export import :Fill;
 export import :Math;
 export import :Transfer;

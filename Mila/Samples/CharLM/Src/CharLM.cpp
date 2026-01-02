@@ -36,11 +36,11 @@ struct CharLMConfig
     int64_t batch_size = 32;
     int64_t seq_length = 128;
     size_t epochs = 200;
-    float learning_rate = 1e-4f; // we've tried 3e-4f; 0.001f, 0.0005f
+    float learning_rate = 0.0003f; // 1e-4f; // we've tried 3e-4f; 0.001f, 0.0005f
     float beta1 = 0.9f;
     float beta2 = 0.999f;
     float epsilon = 1e-8f;
-    float weight_decay = 0.0f; // we've tried 0.01f, 0.001f, 0.0001f
+    float weight_decay = 0.001f; // we've tried 0.01f, 0.001f, 0.0001f
     DeviceType compute_device = DeviceType::Cuda;
     TensorDataType precision = TensorDataType::FP32;
     ComputePrecision::Policy precisionPolicy = ComputePrecision::Policy::Auto;
@@ -247,37 +247,37 @@ void sequenceCrossEntropyGradient(
 {
     using HostType = typename TensorHostTypeMap<TDataType>::host_type;
 
-    size_t batch_size = logits.shape()[0];
-    size_t seq_length = logits.shape()[1];
-    size_t vocab_size = logits.shape()[2];
+    size_t batch_size = logits.shape()[ 0 ];
+    size_t seq_length = logits.shape()[ 1 ];
+    size_t vocab_size = logits.shape()[ 2 ];
 
-    for (size_t b = 0; b < batch_size; ++b)
+    for ( size_t b = 0; b < batch_size; ++b )
     {
-        for (size_t t = 0; t < seq_length; ++t)
+        for ( size_t t = 0; t < seq_length; ++t )
         {
             float max_logit = -std::numeric_limits<float>::infinity();
-            for (size_t v = 0; v < vocab_size; ++v)
+            for ( size_t v = 0; v < vocab_size; ++v )
             {
                 size_t idx = b * seq_length * vocab_size + t * vocab_size + v;
-                max_logit = std::max( max_logit, static_cast<float>( logits.data()[idx] ) );
+                max_logit = std::max( max_logit, static_cast<float>( logits.data()[ idx ] ) );
             }
 
             float denom = 0.0f;
-            for (size_t v = 0; v < vocab_size; ++v)
+            for ( size_t v = 0; v < vocab_size; ++v )
             {
                 size_t idx = b * seq_length * vocab_size + t * vocab_size + v;
-                float exp_val = std::exp( static_cast<float>( logits.data()[idx] ) - max_logit );
+                float exp_val = std::exp( static_cast<float>( logits.data()[ idx ] ) - max_logit );
                 denom += exp_val;
             }
 
-            size_t target_idx = static_cast<size_t>( targets.data()[b * seq_length + t] );
-            for (size_t v = 0; v < vocab_size; ++v)
+            size_t target_idx = static_cast<size_t>( targets.data()[ b * seq_length + t ] );
+            for ( size_t v = 0; v < vocab_size; ++v )
             {
                 size_t idx = b * seq_length * vocab_size + t * vocab_size + v;
-                float prob = std::exp( static_cast<float>( logits.data()[idx] ) - max_logit ) / denom;
+                float prob = std::exp( static_cast<float>( logits.data()[ idx ] ) - max_logit ) / denom;
                 float target = (v == target_idx) ? 1.0f : 0.0f;
 
-                output_grad.data()[idx] = static_cast<HostType>(
+                output_grad.data()[ idx ] = static_cast<HostType>(
                     (prob - target) / static_cast<float>( batch_size * seq_length ) );
             }
         }
@@ -377,6 +377,7 @@ int32_t sampleFromLogits(
 
 
 // -----------------------------------------------------------------------------
+// DEBUG:
 // Small parameter / gradient norm logger
 // - Non-invasive: logs a per-epoch summary (mean and max L2 norms).
 // - Uses dynamic_cast to typed Tensor; ignores tensors that don't match expected
@@ -466,6 +467,71 @@ void logParameterAndGradientNorms( CharTransformer<TDeviceType, TDataType>* mode
               << " mean=" << (grad_count ? (sum_grad_norm / grad_count) : 0.0)
               << " max=" << max_grad_norm
               << std::endl;
+}
+
+/// <brief>Clip gradients in-place on device by copying to host, scaling, and copying back.
+/// <param name="model">Model whose gradients are clipped.</param>
+/// <param name="max_norm">Maximum allowed L2 norm across all gradient tensors.</param>
+template<DeviceType TDeviceType, TensorDataType TDataType>
+void clipGradients( CharTransformer<TDeviceType, TDataType>* model, float max_norm )
+{
+    using DeviceMR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
+    using DeviceTensor = Tensor<TDataType, DeviceMR>;
+    using HostTensor = Tensor<TDataType, CpuMemoryResource>;
+
+    std::vector<ITensor*> grads;
+
+    try
+    {
+        grads = model->getGradients();
+    }
+    catch ( const std::exception& )
+    {
+        // Gradients may not be available; nothing to clip
+        return;
+    }
+
+    // Gather host copies and compute global norm
+    double sumsq = 0.0;
+    std::vector<std::pair<DeviceTensor*, HostTensor>> host_pairs;
+    host_pairs.reserve( grads.size() );
+
+    for ( ITensor* g : grads )
+    {
+        auto* dg = dynamic_cast<DeviceTensor*>( g );
+        if ( !dg ) continue;
+
+        HostTensor host = toHost<TDataType>( *dg ); // copy to host
+        for ( size_t i = 0; i < host.size(); ++i )
+        {
+            double v = static_cast<double>( host.data()[ i ] );
+            sumsq += v * v;
+        }
+
+        host_pairs.emplace_back( dg, std::move(host) );
+    }
+
+    double total_norm = std::sqrt( sumsq );
+
+    if ( total_norm <= static_cast<double>( max_norm ) || total_norm == 0.0 )
+    {
+        return;
+    }
+
+    const float scale = static_cast<float>( max_norm / total_norm );
+
+    // Scale host copies and copy back to device
+    for ( auto &pair : host_pairs )
+    {
+        HostTensor &host = pair.second;
+        for ( size_t i = 0; i < host.size(); ++i )
+        {
+            host.data()[ i ] = ( host.data()[ i ] * scale );
+        }
+
+        // Copy scaled host gradient back to device tensor
+        copy( host, *pair.first );
+    }
 }
 
 template<DeviceType TDeviceType, TensorDataType TDataType, typename THostMR>
@@ -596,6 +662,9 @@ void trainCharLM( const CharLMConfig& config )
     std::cout << "Model built successfully!" << std::endl;
     std::cout << model->toString() << std::endl;
 
+    // After building, set training mode
+    model->setTraining( true );
+
     auto optimizer = model->createOptimizer<AdamWOptimizer<TDeviceType, TDataType>>(
         AdamWConfig()
             .withLearningRate( config.learning_rate )
@@ -614,18 +683,16 @@ void trainCharLM( const CharLMConfig& config )
         const_cast<CharLMConfig&>(config).lr_decay_every_n_epochs = 1;
     }
 
-    shape_t sequence_shape = { config.batch_size, config.seq_length };
     shape_t logits_shape = { config.batch_size, config.seq_length, static_cast<int64_t>(actual_vocab_size) };
 
-    Tensor<TensorDataType::INT32, DeviceMR> input_batch( device_id, sequence_shape );
-    Tensor<TensorDataType::INT32, DeviceMR> target_batch( device_id, sequence_shape );
+    Tensor<TensorDataType::INT32, DeviceMR> input_batch( device_id, input_shape );
+    Tensor<TensorDataType::INT32, DeviceMR> target_batch( device_id, input_shape );
 
     Tensor<TDataType, DeviceMR> output( device_id, logits_shape );
     Tensor<TDataType, CpuMemoryResource> logits_cpu( Device::Cpu(), logits_shape );
-    Tensor<TensorDataType::INT32, CpuMemoryResource> targets_cpu( Device::Cpu(), sequence_shape );
+    Tensor<TensorDataType::INT32, CpuMemoryResource> targets_cpu( Device::Cpu(), input_shape );
     Tensor<TDataType, CpuMemoryResource> output_grad_cpu( Device::Cpu(), logits_shape );
     Tensor<TDataType, DeviceMR> output_grad( device_id, logits_shape );
-    Tensor<TDataType, DeviceMR> input_grad( device_id, sequence_shape );
 
     std::cout << "Starting training for " << config.epochs << " epochs..." << std::endl;
     std::cout << "Total batches per epoch: " << train_loader.numBatches() << std::endl;
@@ -658,8 +725,13 @@ void trainCharLM( const CharLMConfig& config )
 
             // Load input and target batches to device
             // NOTE: moving the targets to device required for when loss is computed on device ( not yet implemented )
+            
             copy( train_loader.inputs(), input_batch );
             copy( train_loader.targets(), target_batch );
+
+            // DEBUG: print first input batch
+            //std::clog << "Inputs batch:\n" << train_loader.inputs().toString( true ) << std::endl;
+            //std::clog << "Targets batch:\n" << train_loader.targets().toString( true ) << std::endl;
 
             // Run forward to get logits on device
             model->forward( input_batch, output );
@@ -672,18 +744,107 @@ void trainCharLM( const CharLMConfig& config )
             float batch_loss = sequenceCrossEntropyLoss( logits_cpu, targets_cpu );
             float batch_perplexity = computePerplexity( batch_loss );
 
-            zeros( output_grad_cpu );
+            zero( output_grad_cpu );
             sequenceCrossEntropyGradient( logits_cpu, targets_cpu, output_grad_cpu );
+
+            //std::clog << "Output Grad:\n" << output_grad_cpu.toString( true ) << std::endl;
+
+            //// DEBUG: Gradient verification
+            //std::cout << "\n=== GRADIENT VERIFICATION ===\n";
+
+            //// Check first position
+            //int b = 0, t = 0;
+            //int target_token = targets_cpu.data()[ b * 128 + t ];
+            //std::cout << "Position [0,0] target token: " << target_token << "\n";
+
+            //// Print gradients for first position (all 66 vocab entries)
+            //std::cout << "Gradients for position [0,0]:\n";
+            //for ( int v = 0; v < 66; ++v ) {
+            //    size_t idx = 0 * 128 * 66 + 0 * 66 + v;
+            //    float grad = output_grad_cpu.data()[ idx ];
+            //    if ( v == target_token ) {
+            //        std::cout << "  [" << v << "] (TARGET): " << grad << "\n";
+            //    }
+            //    else if ( v < 5 || v > 60 ) {  // Show first 5 and last 5
+            //        std::cout << "  [" << v << "]: " << grad << "\n";
+            //    }
+            //}
+
+            //// Verify: sum of all gradients for one position should be close to 0
+            //float sum = 0.0f;
+            //for ( int v = 0; v < 66; ++v ) {
+            //    size_t idx = 0 * 128 * 66 + 0 * 66 + v;
+            //    sum += output_grad_cpu.data()[ idx ];
+            //}
+            //std::cout << "Sum of gradients (should be ~0): " << sum << "\n";
+
+            //// Count how many are negative
+            //int neg_count = 0;
+            //for ( size_t i = 0; i < 32 * 128 * 66; ++i ) {
+            //    if ( output_grad_cpu.data()[ i ] < 0 ) neg_count++;
+            //}
+            //std::cout << "Number of negative gradients: " << neg_count
+            //    << " (should be " << (32 * 128) << ")\n";
 
             copy( output_grad_cpu, output_grad );
 
             model->zeroGradients();
-            zeros( input_grad );
 
-            model->backward( input_batch, output_grad, input_grad );
+            model->backward( input_batch, output_grad );
             
             // Ensure all gradients are ready before optimizer step
             model->synchronize();
+
+            // Clip gradients to avoid spikes
+            //clipGradients<TDeviceType, TDataType>( model.get(), 10.0f );
+
+            // TEMPORARY DIAGNOSTIC: Check if gradients are actually being set
+            /*if ( batches == 1 && epoch == 0 )
+            {
+                try
+                {
+                    auto grads = model->getGradients();
+                    std::cout << "\n=== CHECKING MODEL GRADIENTS AFTER BACKWARD ===\n";
+                    std::cout << "Total gradient tensors: " << grads.size() << "\n";
+
+                    size_t zero_count = 0;
+                    size_t nonzero_count = 0;
+
+                    for ( size_t i = 0; i < std::min( grads.size(), size_t( 5 ) ); ++i )
+                    {
+                        auto* grad_fp32 = dynamic_cast<Tensor<TDataType, DeviceMR>*>( grads[ i ] );
+                        if ( grad_fp32 )
+                        {
+                            auto host_grad = toHost<TDataType>( *grad_fp32 );
+
+                            double sum = 0.0;
+                            size_t zeros = 0;
+                            for ( size_t j = 0; j < host_grad.size(); ++j )
+                            {
+                                double val = static_cast<double>( host_grad.data()[ j ] );
+                                sum += std::abs( val );
+                                if ( val == 0.0 ) zeros++;
+                            }
+
+                            std::cout << "Gradient " << i << ": size=" << host_grad.size()
+                                << " zeros=" << zeros
+                                << " mean_abs=" << (sum / host_grad.size())
+                                << "\n";
+
+                            if ( zeros == host_grad.size() ) zero_count++;
+                            else nonzero_count++;
+                        }
+                    }
+
+                    std::cout << "Summary: " << nonzero_count << " non-zero, "
+                        << zero_count << " all-zero gradient tensors (first 5)\n";
+                    std::cout << "=== END GRADIENT CHECK ===\n\n";
+                }
+                catch ( const std::exception& e )
+                {
+                    std::cerr << "Gradient check failed: " << e.what() << "\n";
+                }
+            }*/
 
             optimizer->step();
             model->synchronize();
