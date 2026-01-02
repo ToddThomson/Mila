@@ -60,7 +60,6 @@ namespace Mila::Dnn::Compute::Cuda::Attention
         template <typename TNative>
         using CublasLtMatMulPlan = CublasLtMatMulPlan<TNative>;
 
-
         template <typename TNative>
         CublasLtMatMulPlan<TNative> build_qk_score_plan(
             cublasLtHandle_t handle,
@@ -400,12 +399,32 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             const long long strideB = static_cast<long long>(seq_length) * static_cast<long long>(head_size);
             const long long strideC = static_cast<long long>(seq_length) * static_cast<long long>(seq_length);
 
-            auto plan = build_strided_plan<TNative>(
+            // FIX: Change to CUBLAS_OP_N, CUBLAS_OP_T to transpose V instead of dvaccum
+            // Mathematical operation: datt[T, T] = dvaccum[T, HS] @ V^T[HS, T]
+            // Row-major storage -> column-major cuBLAS interpretation:
+            // - A (dvaccum): [HS × T] (column-major view), opA=N -> no transpose
+            // - B (V): [HS × T] (column-major view), opB=T -> transposed to [T × HS]
+            // - C (datt): [T × T]
+            /*auto plan = build_strided_plan<TNative>(
                 handle,
                 head_size, seq_length, head_size, strideA,
                 head_size, seq_length, head_size, strideB,
                 seq_length, seq_length, seq_length, strideC,
                 CUBLAS_OP_T, CUBLAS_OP_N,
+                compute_type,
+                scale_type,
+                cuda_data_type,
+                batch_count,
+                false );*/
+
+            // 2nd try...
+
+            auto plan = build_strided_plan<TNative>(
+                handle,
+                seq_length, head_size, seq_length, strideA,  // A (dvaccum): [T × HS], ldA=T
+                seq_length, head_size, seq_length, strideB,  // B (V): [T × HS], ldB=T
+                seq_length, seq_length, seq_length, strideC, // C (datt): [T × T], ldC=T
+                CUBLAS_OP_N, CUBLAS_OP_T,  // No transpose A, transpose B
                 compute_type,
                 scale_type,
                 cuda_data_type,
@@ -460,6 +479,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             const long long strideB = static_cast<long long>(seq_length) * static_cast<long long>(head_size);
             const long long strideC = static_cast<long long>(seq_length) * static_cast<long long>(head_size);
 
+            // TJT: This builds but does not compute proper results starting at offset 64
             auto plan = build_strided_plan<TNative>(
                 handle,
                 seq_length, seq_length, seq_length, strideA,
@@ -585,10 +605,11 @@ namespace Mila::Dnn::Compute::Cuda::Attention
 
             static inline void softmax_backward(
                 float* dpreatt, const float* datt, const float* att,
+                float scale,
                 int B, int NH, int T,
                 cudaStream_t stream )
             {
-                cuda_softmax_backward_fp32( dpreatt, datt, att, B, NH, T, stream );
+                cuda_softmax_backward_fp32( dpreatt, datt, att, scale, B, NH, T, stream );
             }
 
             static inline void permute_backward(
@@ -642,10 +663,11 @@ namespace Mila::Dnn::Compute::Cuda::Attention
 
             static inline void softmax_backward(
                 half* dpreatt, const half* datt, const half* att,
+                float scale,
                 int B, int NH, int T,
                 cudaStream_t stream )
             {
-                cuda_softmax_backward_fp16( dpreatt, datt, att, B, NH, T, stream );
+                cuda_softmax_backward_fp16( dpreatt, datt, att, scale, B, NH, T, stream );
             }
 
             static inline void permute_backward(
@@ -810,12 +832,15 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             //    // Only print full tensors if there's an unexpected number of zeros
             //    if ( q_zero_count > 0 || k_zero_count > 0 )
             //    {
+            //        Utils::Logger::info( "Q and K tensors zeros found. Check QK matmul plan configuration." );
             //        Utils::Logger::info( this->getName() + ": dbg.q (host copy):\n" + host_q.toString( true ) );
             //        Utils::Logger::info( this->getName() + ": dbg.k (host copy):\n" + host_k.toString( true ) );
             //    }
             //    else
             //    {
             //        Utils::Logger::info( "Q and K tensors verified: no zeros found. QK matmul issue is in plan configuration." );
+            //        Utils::Logger::info( this->getName() + ": dbg.q (host copy):\n" + host_q.toString( true ) );
+            //        Utils::Logger::info( this->getName() + ": dbg.k (host copy):\n" + host_k.toString( true ) );
             //    }
             //}
 
@@ -823,7 +848,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 cublaslt_handle_,
                 qk_score_plan_,
                 &alpha,
-                q_, k_,
+                k_, q_, // swapped test fix
                 &beta,
                 preatt_,
                 nullptr,
@@ -834,7 +859,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 using HostTensorType = Tensor<TensorDataType::FP32, CpuMemoryResource>;
                 HostTensorType host_preatt( Device::Cpu(), preatt_tensor_->shape() );
                 host_preatt.setName( this->getName() + ".dbg.preatt.host_copy" );
-                copy( *preatt_tensor_, host_preatt, context_ );
+                copy( *preatt_tensor_, host_preatt );
                 Utils::Logger::info( this->getName() + ": dbg.preatt (host copy):\n" + host_preatt.toString( true ) );
             }*/
 
@@ -850,7 +875,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 using HostTensorType = Tensor<TensorDataType::FP32, CpuMemoryResource>;
                 HostTensorType host_att( Device::Cpu(), att_tensor_->shape() );
                 host_att.setName( this->getName() + ".dbg.att.host_copy" );
-                copy( *att_tensor_, host_att, context_ );
+                copy( *att_tensor_, host_att );
                 Utils::Logger::info( this->getName() + ": dbg.att (host copy):\n" + host_att.toString( true ) );
             }*/
 
@@ -869,7 +894,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 using HostTensorType = Tensor<TensorDataType::FP32, CpuMemoryResource>;
                 HostTensorType host_vaccum( Device::Cpu(), vaccum_tensor_->shape() );
                 host_vaccum.setName( this->getName() + ".dbg.vaccum.host_copy" );
-                copy( *vaccum_tensor_, host_vaccum, context_ );
+                copy( *vaccum_tensor_, host_vaccum );
                 Utils::Logger::info( this->getName() + ": dbg.vaccum (host copy):\n" + host_vaccum.toString( true ) );
             }*/
 
@@ -877,6 +902,16 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 vaccum_, Y,
                 batch_size_, seq_length_, num_heads_, head_size_,
                 stream );
+
+            /*context_->synchronize();
+            {    
+                using HostTensorType = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+                HostTensorType host_output( Device::Cpu(), output.shape() );
+                host_output.setName( this->getName() + ".dbg.output.host_copy" );
+                auto output_tensor = static_cast<const TensorType*>(&output);
+                copy( *output_tensor, host_output );
+                Utils::Logger::info( this->getName() + ": dbg.output (host copy):\n" + host_output.toString( true ) );
+            }*/
         }
 
         void backward(
@@ -898,11 +933,31 @@ namespace Mila::Dnn::Compute::Cuda::Attention
 
             const float alpha = 1.0f;
             const float beta = 0.0f;
+            const float scale = 1.0f / sqrtf( static_cast<float>(head_size_) );
 
             Detail::cuda_mha_kernels<NativeType>::unpermute_backward(
                 dvaccum_, dY,
                 batch_size_, seq_length_, num_heads_, head_size_,
                 stream );
+
+            using HostTensorType = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+
+            context_->synchronize();
+            {
+                
+                HostTensorType host_dvaccum( Device::Cpu(), dvaccum_tensor_->shape() );
+                host_dvaccum.setName( this->getName() + ".dbg.dvaccum.host_copy" );
+                copy( *dvaccum_tensor_, host_dvaccum );
+                Utils::Logger::info( this->getName() + ": dbg.dvaccum (host copy):\n" + host_dvaccum.toString( true ) );
+            }
+
+            context_->synchronize();
+            {
+                HostTensorType host_att( Device::Cpu(), att_tensor_->shape() );
+                host_att.setName( this->getName() + ".dbg.att.host_copy" );
+                copy( *att_tensor_, host_att );
+                Utils::Logger::info( this->getName() + ": dbg.att (host copy):\n" + host_att.toString( true ) );
+            }
 
             execute_plan<NativeType>(
                 cublaslt_handle_,
@@ -914,6 +969,22 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 nullptr,
                 stream );
 
+            context_->synchronize();
+            {
+                HostTensorType host_dv( Device::Cpu(), dv_tensor_->shape() );
+                host_dv.setName( this->getName() + ".dbg.dv.host_copy" );
+                copy( *dv_tensor_, host_dv );
+                Utils::Logger::info( this->getName() + ": dbg.dv (host copy):\n" + host_dv.toString( true ) );
+            }
+
+            context_->synchronize();
+            {
+                HostTensorType host_v( Device::Cpu(), v_tensor_->shape() );
+                host_v.setName( this->getName() + ".dbg.v.host_copy" );
+                copy( *v_tensor_, host_v );
+                Utils::Logger::info( this->getName() + ": dbg.v (host copy):\n" + host_v.toString( true ) );
+            }
+
             execute_plan<NativeType>(
                 cublaslt_handle_,
                 backward_att_plan_,
@@ -924,20 +995,45 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 nullptr,
                 stream );
 
+            context_->synchronize();
+            {
+                HostTensorType host_datt( Device::Cpu(), datt_tensor_->shape() );
+                host_datt.setName( this->getName() + ".dbg.datt.host_copy" );
+                copy( *datt_tensor_, host_datt );
+                Utils::Logger::info( this->getName() + ": dbg.datt (host copy):\n" + host_datt.toString( true ) );
+            }
+
             Detail::cuda_mha_kernels<NativeType>::softmax_backward(
                 dpreatt_, datt_, att_,
+                scale,
                 batch_size_, num_heads_, seq_length_,
                 stream );
+
+            context_->synchronize();
+            {
+                HostTensorType host_dpreatt( Device::Cpu(), dpreatt_tensor_->shape() );
+                host_dpreatt.setName( this->getName() + ".dbg.dpreatt.host_copy" );
+                copy( *dpreatt_tensor_, host_dpreatt );
+                Utils::Logger::info( this->getName() + ": dbg.dpreatt (host copy):\n" + host_dpreatt.toString( true ) );
+            }
 
             execute_plan<NativeType>(
                 cublaslt_handle_,
                 backward_q_plan_,
                 &alpha,
-                dpreatt_, k_,
+                k_, dpreatt_,
                 &beta,
                 dq_,
                 nullptr,
                 stream );
+
+            context_->synchronize();
+            {
+                HostTensorType host_dq( Device::Cpu(), dq_tensor_->shape() );
+                host_dq.setName( this->getName() + ".dbg.dq.host_copy" );
+                copy( *dq_tensor_, host_dq );
+                Utils::Logger::info( this->getName() + ": dbg.dq (host copy):\n" + host_dq.toString( true ) );
+            }
 
             execute_plan<NativeType>(
                 cublaslt_handle_,
@@ -950,39 +1046,27 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 stream );
 
             context_->synchronize();
-
-            // DEBUG:
-            //using HostTensorType = Tensor<TensorDataType::FP32, CpuMemoryResource>;
-            /*HostTensorType host_daccum( Device::Cpu(), dvaccum_tensor_->shape() );
-            host_daccum.setName( this->getName() + ".dbg.dvaccum.host_copy" );
-            copy( *dvaccum_tensor_, host_daccum, context_ );
-            Utils::Logger::info( this->getName() + ": dbg.dvaccum (host copy):\n" + host_daccum.toString( true ) );
-
-            HostTensorType host_att( Device::Cpu(), att_tensor_->shape() );
-            host_att.setName( this->getName() + ".dbg.att.host_copy" );
-            copy( *att_tensor_, host_att, context_ );
-            Utils::Logger::info( this->getName() + ": dbg.att (host copy):\n" + host_att.toString( true ) );
-
-            HostTensorType host_dv( Device::Cpu(), dv_tensor_->shape() );
-            host_dv.setName( this->getName() + ".dbg.dv.host_copy" );
-            copy( *dv_tensor_, host_dv, context_ );
-            Utils::Logger::info( this->getName() + ": dbg.dv (host copy):\n" + host_dv.toString( true ) );
-
-            HostTensorType host_dq( Device::Cpu(), dq_tensor_->shape() );
-            host_dq.setName( this->getName() + ".dbg.dq.host_copy" );
-            copy( *dq_tensor_, host_dq, context_ );
-            Utils::Logger::info( this->getName() + ": dbg.dq (host copy):\n" + host_dq.toString( true ) );
-
-            HostTensorType host_dk( Device::Cpu(), dk_tensor_->shape() );
-            host_dk.setName( this->getName() + ".dbg.dk.host_copy" );
-            copy( *dk_tensor_, host_dk, context_ );
-            Utils::Logger::info( this->getName() + ": dbg.dk (host copy):\n" + host_dk.toString( true ) );*/
+            {
+                HostTensorType host_dk( Device::Cpu(), dk_tensor_->shape() );
+                host_dk.setName( this->getName() + ".dbg.dk.host_copy" );
+                copy( *dk_tensor_, host_dk );
+                Utils::Logger::info( this->getName() + ": dbg.dk (host copy):\n" + host_dk.toString( true ) );
+            }
 
             Detail::cuda_mha_kernels<NativeType>::permute_backward(
                 dX,
                 dq_, dk_, dv_,
                 batch_size_, seq_length_, num_heads_, head_size_,
                 stream );
+
+            /*context_->synchronize();
+            {
+                HostTensorType host_dinput( Device::Cpu(), input_grad.shape() );
+                host_dinput.setName( this->getName() + ".dbg.dinput.host_copy" );
+                auto input_grad_tensor = static_cast<const TensorType*>(&input_grad);
+                copy( *input_grad_tensor, host_dinput );
+                Utils::Logger::info( this->getName() + ": dbg.dinput (host copy):\n" + host_dinput.toString( true ) );
+            }*/
         }
 
         OperationType getOperationType() const override

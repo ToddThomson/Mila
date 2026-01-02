@@ -10,7 +10,7 @@ import Mila;
 namespace Dnn::Tensors::Tests
 {
     using namespace Mila::Dnn;
-	using namespace Mila::Dnn::Compute;
+    using namespace Mila::Dnn::Compute;
 
     // ====================================================================
     // Random Initialization Tests - CPU Compute Device
@@ -31,16 +31,16 @@ namespace Dnn::Tensors::Tests
         float actual_max = std::numeric_limits<float>::lowest();
 
         auto* data = tensor.data();
-        const size_t rows = shape[0];
-        const size_t cols = shape[1];
+        const size_t rows = shape[ 0 ];
+        const size_t cols = shape[ 1 ];
 
-        for (size_t i = 0; i < rows; ++i)
+        for ( size_t i = 0; i < rows; ++i )
         {
-            for (size_t j = 0; j < cols; ++j)
+            for ( size_t j = 0; j < cols; ++j )
             {
                 const size_t idx = i * cols + j;
-                float val = static_cast<float>( data[idx] );
-                if (val < min_val || val > max_val)
+                float val = static_cast<float>( data[ idx ] );
+                if ( val < min_val || val > max_val )
                 {
                     all_in_range = false;
                 }
@@ -67,16 +67,16 @@ namespace Dnn::Tensors::Tests
         // Verify all values are within integer range
         bool all_in_range = true;
         auto* data = tensor.data();
-        const size_t rows = shape[0];
-        const size_t cols = shape[1];
+        const size_t rows = shape[ 0 ];
+        const size_t cols = shape[ 1 ];
 
-        for (size_t i = 0; i < rows; ++i)
+        for ( size_t i = 0; i < rows; ++i )
         {
-            for (size_t j = 0; j < cols; ++j)
+            for ( size_t j = 0; j < cols; ++j )
             {
                 const size_t idx = i * cols + j;
-                auto val = data[idx];
-                if (val < min_val || val > max_val)
+                auto val = data[ idx ];
+                if ( val < min_val || val > max_val )
                 {
                     all_in_range = false;
                 }
@@ -98,16 +98,16 @@ namespace Dnn::Tensors::Tests
         // Verify all values are positive and within range
         bool all_in_range = true;
         auto* data = tensor.data();
-        const size_t rows = shape[0];
-        const size_t cols = shape[1];
+        const size_t rows = shape[ 0 ];
+        const size_t cols = shape[ 1 ];
 
-        for (size_t i = 0; i < rows; ++i)
+        for ( size_t i = 0; i < rows; ++i )
         {
-            for (size_t j = 0; j < cols; ++j)
+            for ( size_t j = 0; j < cols; ++j )
             {
                 const size_t idx = i * cols + j;
-                auto val = data[idx];
-                if (static_cast<int64_t>( val ) < 0 || val < static_cast<uint32_t>( min_val ) || val > static_cast<uint32_t>(max_val))
+                auto val = data[ idx ];
+                if ( static_cast<int64_t>( val ) < 0 || val < static_cast<uint32_t>( min_val ) || val > static_cast<uint32_t>(max_val) )
                 {
                     all_in_range = false;
                 }
@@ -127,7 +127,7 @@ namespace Dnn::Tensors::Tests
         // Skip if CUDA not available
         try
         {
-            Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> dev_tensor( Device::Cuda(0), shape );
+            Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> dev_tensor( Device::Cuda( 0 ), shape );
 
             float min_val = -2.5f;
             float max_val = 2.5f;
@@ -135,9 +135,9 @@ namespace Dnn::Tensors::Tests
             random( dev_tensor, min_val, max_val );
 
             // Transfer to CPU for validation
-            Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> cpu_tensor( Device::Cpu(), shape);
+            Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> cpu_tensor( Device::Cpu(), shape );
             EXPECT_NO_THROW( copy( dev_tensor, cpu_tensor ) );
-            
+
 
             // Check values are within range
             bool all_in_range = true;
@@ -145,16 +145,16 @@ namespace Dnn::Tensors::Tests
             float actual_max = std::numeric_limits<float>::lowest();
 
             auto* data = cpu_tensor.data();
-            const size_t rows = cpu_tensor.shape()[0];
-            const size_t cols = cpu_tensor.shape()[1];
+            const size_t rows = cpu_tensor.shape()[ 0 ];
+            const size_t cols = cpu_tensor.shape()[ 1 ];
 
-            for (size_t i = 0; i < rows; ++i)
+            for ( size_t i = 0; i < rows; ++i )
             {
-                for (size_t j = 0; j < cols; ++j)
+                for ( size_t j = 0; j < cols; ++j )
                 {
                     const size_t idx = i * cols + j;
-                    float val = data[idx];
-                    if (val < min_val || val > max_val)
+                    float val = data[ idx ];
+                    if ( val < min_val || val > max_val )
                     {
                         all_in_range = false;
                     }
@@ -168,7 +168,7 @@ namespace Dnn::Tensors::Tests
             EXPECT_LT( actual_min, min_val + 0.3f );
             EXPECT_GT( actual_max, max_val - 0.3f );
         }
-        catch (const std::exception&)
+        catch ( const std::exception& )
         {
             GTEST_SKIP() << "CUDA device not available, skipping CUDA test";
         }
@@ -179,7 +179,7 @@ namespace Dnn::Tensors::Tests
 
         try
         {
-            Tensor<TensorDataType::INT32, Compute::CudaDeviceMemoryResource> dev_tensor( Device::Cuda(0), shape );
+            Tensor<TensorDataType::INT32, Compute::CudaDeviceMemoryResource> dev_tensor( Device::Cuda( 0 ), shape );
 
             int32_t min_val = -500;
             int32_t max_val = 500;
@@ -192,16 +192,16 @@ namespace Dnn::Tensors::Tests
 
             bool all_in_range = true;
             auto* data = cpu_tensor.data();
-            const size_t rows = cpu_tensor.shape()[0];
-            const size_t cols = cpu_tensor.shape()[1];
+            const size_t rows = cpu_tensor.shape()[ 0 ];
+            const size_t cols = cpu_tensor.shape()[ 1 ];
 
-            for (size_t i = 0; i < rows; ++i)
+            for ( size_t i = 0; i < rows; ++i )
             {
-                for (size_t j = 0; j < cols; ++j)
+                for ( size_t j = 0; j < cols; ++j )
                 {
                     const size_t idx = i * cols + j;
-                    auto val = data[idx];
-                    if (val < min_val || val > max_val)
+                    auto val = data[ idx ];
+                    if ( val < min_val || val > max_val )
                     {
                         all_in_range = false;
                     }
@@ -210,7 +210,7 @@ namespace Dnn::Tensors::Tests
 
             EXPECT_TRUE( all_in_range );
         }
-        catch (const std::exception&)
+        catch ( const std::exception& )
         {
             GTEST_SKIP() << "CUDA device not available, skipping CUDA test";
         }
@@ -224,7 +224,7 @@ namespace Dnn::Tensors::Tests
         try
         {
             std::vector<int64_t> shape = { 50, 50 };
-            Tensor<TensorDataType::FP32, Compute::CudaManagedMemoryResource> tensor( Device::Cuda(0), shape );
+            Tensor<TensorDataType::FP32, Compute::CudaManagedMemoryResource> tensor( Device::Cuda( 0 ), shape );
 
             float min_val = -1.0f;
             float max_val = 1.0f;
@@ -234,16 +234,16 @@ namespace Dnn::Tensors::Tests
             // Managed memory allows direct host access
             bool all_in_range = true;
             auto* data = tensor.data();
-            const size_t rows = tensor.shape()[0];
-            const size_t cols = tensor.shape()[1];
+            const size_t rows = tensor.shape()[ 0 ];
+            const size_t cols = tensor.shape()[ 1 ];
 
-            for (size_t i = 0; i < rows; ++i)
+            for ( size_t i = 0; i < rows; ++i )
             {
-                for (size_t j = 0; j < cols; ++j)
+                for ( size_t j = 0; j < cols; ++j )
                 {
                     const size_t idx = i * cols + j;
-                    float val = data[idx];
-                    if (val < min_val || val > max_val)
+                    float val = data[ idx ];
+                    if ( val < min_val || val > max_val )
                     {
                         all_in_range = false;
                     }
@@ -254,10 +254,147 @@ namespace Dnn::Tensors::Tests
             EXPECT_TRUE( tensor.is_host_accessible() );
             EXPECT_TRUE( tensor.is_device_accessible() );
         }
-        catch (const std::exception&)
+        catch ( const std::exception& )
         {
             GTEST_SKIP() << "CUDA managed memory not available, skipping test";
         }
+    }
+
+    // ====================================================================
+    // Normal Initialization Tests - CPU / CUDA / Parameter Validation
+    // ====================================================================
+
+    TEST( TensorInitializersTests, Normal_FP32_CPU ) {
+        std::vector<int64_t> shape = { 100, 100 };
+        Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
+
+        float mean = 0.0f;
+        float stddev = 1.0f;
+
+        normal( tensor, mean, stddev );
+
+        // Basic statistical sanity checks
+        bool all_in_range = true;
+        float actual_min = std::numeric_limits<float>::max();
+        float actual_max = std::numeric_limits<float>::lowest();
+        float running_sum = 0.0f;
+
+        auto* data = tensor.data();
+        const size_t rows = shape[ 0 ];
+        const size_t cols = shape[ 1 ];
+        const size_t total = rows * cols;
+
+        for ( size_t i = 0; i < total; ++i )
+        {
+            float val = data[ i ];
+            actual_min = std::min( actual_min, val );
+            actual_max = std::max( actual_max, val );
+            running_sum += val;
+            if ( std::isnan( val ) )
+            {
+                all_in_range = false;
+            }
+        }
+
+        float sample_mean = running_sum / static_cast<float>(total);
+
+        EXPECT_TRUE( all_in_range );
+        EXPECT_LT( actual_min, actual_max );
+        EXPECT_NEAR( sample_mean, mean, 0.2f ); // mean should be close to specified mean
+        EXPECT_LT( actual_min, -0.2f ); // expect some negative values
+        EXPECT_GT( actual_max, 0.2f );  // expect some positive values
+    }
+
+    TEST( TensorInitializersTests, Normal_INT32_CPU ) {
+        std::vector<int64_t> shape = { 60, 60 };
+        Tensor<TensorDataType::INT32, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
+
+        float mean = 0.0f;
+        float stddev = 2.0f;
+
+        normal( tensor, mean, stddev );
+
+        // For integer tensors values are rounded; ensure values are integers and within reasonable bounds
+        auto* data = tensor.data();
+        const size_t rows = shape[ 0 ];
+        const size_t cols = shape[ 1 ];
+
+        bool all_in_bounds = true;
+        for ( size_t i = 0; i < rows; ++i )
+        {
+            for ( size_t j = 0; j < cols; ++j )
+            {
+                const size_t idx = i * cols + j;
+                auto val = data[ idx ];
+                // Values should be within a reasonable multiple of stddev (6 stddev)
+                if ( val < static_cast<int32_t>( std::round( mean - 6.0f * stddev ) ) ||
+                    val > static_cast<int32_t>( std::round( mean + 6.0f * stddev ) ) )
+                {
+                    all_in_bounds = false;
+                }
+            }
+        }
+
+        EXPECT_TRUE( all_in_bounds );
+    }
+
+    TEST( TensorInitializersTests, Normal_FP32_CUDA ) {
+        std::vector<int64_t> shape = { 80, 80 };
+
+        try
+        {
+            Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> dev_tensor( Device::Cuda( 0 ), shape );
+
+            float mean = 0.5f;
+            float stddev = 0.5f;
+
+            normal( dev_tensor, mean, stddev );
+
+            // Transfer to CPU for validation
+            Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> cpu_tensor( Device::Cpu(), shape );
+            EXPECT_NO_THROW( copy( dev_tensor, cpu_tensor ) );
+
+            bool all_in_range = true;
+            float actual_min = std::numeric_limits<float>::max();
+            float actual_max = std::numeric_limits<float>::lowest();
+            float running_sum = 0.0f;
+
+            auto* data = cpu_tensor.data();
+            const size_t rows = cpu_tensor.shape()[ 0 ];
+            const size_t cols = cpu_tensor.shape()[ 1 ];
+            const size_t total = rows * cols;
+
+            for ( size_t i = 0; i < total; ++i )
+            {
+                float val = data[ i ];
+                running_sum += val;
+                actual_min = std::min( actual_min, val );
+                actual_max = std::max( actual_max, val );
+                if ( std::isnan( val ) )
+                {
+                    all_in_range = false;
+                }
+            }
+
+            float sample_mean = running_sum / static_cast<float>(total);
+
+            EXPECT_TRUE( all_in_range );
+            EXPECT_LT( actual_min, actual_max );
+            EXPECT_NEAR( sample_mean, mean, 0.25f );
+            EXPECT_LT( actual_min, mean - 0.2f );
+            EXPECT_GT( actual_max, mean + 0.2f );
+        }
+        catch ( const std::exception& )
+        {
+            GTEST_SKIP() << "CUDA device not available, skipping CUDA normal distribution test";
+        }
+    }
+
+    TEST( TensorInitializersTests, Normal_NegativeStddev_Throws ) {
+        std::vector<int64_t> shape = { 10, 10 };
+        Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
+
+        EXPECT_THROW( normal( tensor, 0.0f, -1.0f ), std::invalid_argument );
     }
 
     // ====================================================================
@@ -282,16 +419,16 @@ namespace Dnn::Tensors::Tests
         float actual_max = std::numeric_limits<float>::lowest();
 
         auto* data = tensor.data();
-        const size_t rows = shape[0];
-        const size_t cols = shape[1];
+        const size_t rows = shape[ 0 ];
+        const size_t cols = shape[ 1 ];
 
-        for (size_t i = 0; i < rows; ++i)
+        for ( size_t i = 0; i < rows; ++i )
         {
-            for (size_t j = 0; j < cols; ++j)
+            for ( size_t j = 0; j < cols; ++j )
             {
                 const size_t idx = i * cols + j;
-                float val = data[idx];
-                if (val < -limit || val > limit)
+                float val = data[ idx ];
+                if ( val < -limit || val > limit )
                 {
                     all_in_range = false;
                 }
@@ -320,16 +457,16 @@ namespace Dnn::Tensors::Tests
 
         bool all_in_range = true;
         auto* data = tensor.data();
-        const size_t rows = shape[0];
-        const size_t cols = shape[1];
+        const size_t rows = shape[ 0 ];
+        const size_t cols = shape[ 1 ];
 
-        for (size_t i = 0; i < rows; ++i)
+        for ( size_t i = 0; i < rows; ++i )
         {
-            for (size_t j = 0; j < cols; ++j)
+            for ( size_t j = 0; j < cols; ++j )
             {
                 const size_t idx = i * cols + j;
-                auto val = data[idx];
-                if (val < -int_limit || val > int_limit)
+                auto val = data[ idx ];
+                if ( val < -int_limit || val > int_limit )
                 {
                     all_in_range = false;
                 }
@@ -347,7 +484,7 @@ namespace Dnn::Tensors::Tests
         try
         {
             std::vector<int64_t> shape = { 100, 100 };
-            Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> tensor( Device::Cuda(0), shape );
+            Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> tensor( Device::Cuda( 0 ), shape );
 
             size_t input_size = 1024;
             size_t output_size = 512;
@@ -367,16 +504,16 @@ namespace Dnn::Tensors::Tests
             float actual_max = std::numeric_limits<float>::lowest();
 
             auto* data = cpu_tensor.data();
-            const size_t rows = cpu_tensor.shape()[0];
-            const size_t cols = cpu_tensor.shape()[1];
+            const size_t rows = cpu_tensor.shape()[ 0 ];
+            const size_t cols = cpu_tensor.shape()[ 1 ];
 
-            for (size_t i = 0; i < rows; ++i)
+            for ( size_t i = 0; i < rows; ++i )
             {
-                for (size_t j = 0; j < cols; ++j)
+                for ( size_t j = 0; j < cols; ++j )
                 {
                     const size_t idx = i * cols + j;
-                    float val = data[idx];
-                    if (val < -limit || val > limit)
+                    float val = data[ idx ];
+                    if ( val < -limit || val > limit )
                     {
                         all_in_range = false;
                     }
@@ -390,7 +527,7 @@ namespace Dnn::Tensors::Tests
             EXPECT_LT( actual_min, -0.6f * limit );
             EXPECT_GT( actual_max, 0.6f * limit );
         }
-        catch (const std::exception&)
+        catch ( const std::exception& )
         {
             GTEST_SKIP() << "CUDA device not available, skipping CUDA test";
         }
@@ -411,16 +548,16 @@ namespace Dnn::Tensors::Tests
 
         bool all_in_range = true;
         auto* data = tensor.data();
-        const size_t rows = shape[0];
-        const size_t cols = shape[1];
+        const size_t rows = shape[ 0 ];
+        const size_t cols = shape[ 1 ];
 
-        for (size_t i = 0; i < rows; ++i)
+        for ( size_t i = 0; i < rows; ++i )
         {
-            for (size_t j = 0; j < cols; ++j)
+            for ( size_t j = 0; j < cols; ++j )
             {
                 const size_t idx = i * cols + j;
-                float val = data[idx];
-                if (val < -limit || val > limit)
+                float val = data[ idx ];
+                if ( val < -limit || val > limit )
                 {
                     all_in_range = false;
                 }
@@ -442,15 +579,15 @@ namespace Dnn::Tensors::Tests
 
         // Verify all values are zero
         auto* data = tensor.data();
-        const size_t rows = shape[0];
-        const size_t cols = shape[1];
+        const size_t rows = shape[ 0 ];
+        const size_t cols = shape[ 1 ];
 
-        for (size_t i = 0; i < rows; ++i)
+        for ( size_t i = 0; i < rows; ++i )
         {
-            for (size_t j = 0; j < cols; ++j)
+            for ( size_t j = 0; j < cols; ++j )
             {
                 const size_t idx = i * cols + j;
-                float val = data[idx];
+                float val = data[ idx ];
                 EXPECT_FLOAT_EQ( val, 0.0f );
             }
         }
@@ -463,15 +600,15 @@ namespace Dnn::Tensors::Tests
         zeros( tensor );
 
         auto* data = tensor.data();
-        const size_t rows = shape[0];
-        const size_t cols = shape[1];
+        const size_t rows = shape[ 0 ];
+        const size_t cols = shape[ 1 ];
 
-        for (size_t i = 0; i < rows; ++i)
+        for ( size_t i = 0; i < rows; ++i )
         {
-            for (size_t j = 0; j < cols; ++j)
+            for ( size_t j = 0; j < cols; ++j )
             {
                 const size_t idx = i * cols + j;
-                auto val = data[idx];
+                auto val = data[ idx ];
                 EXPECT_EQ( val, 0 );
             }
         }
@@ -484,15 +621,15 @@ namespace Dnn::Tensors::Tests
         ones( tensor );
 
         auto* data = tensor.data();
-        const size_t rows = shape[0];
-        const size_t cols = shape[1];
+        const size_t rows = shape[ 0 ];
+        const size_t cols = shape[ 1 ];
 
-        for (size_t i = 0; i < rows; ++i)
+        for ( size_t i = 0; i < rows; ++i )
         {
-            for (size_t j = 0; j < cols; ++j)
+            for ( size_t j = 0; j < cols; ++j )
             {
                 const size_t idx = i * cols + j;
-                float val = data[idx];
+                float val = data[ idx ];
                 EXPECT_FLOAT_EQ( val, 1.0f );
             }
         }
@@ -505,15 +642,15 @@ namespace Dnn::Tensors::Tests
         ones( tensor );
 
         auto* data = tensor.data();
-        const size_t rows = shape[0];
-        const size_t cols = shape[1];
+        const size_t rows = shape[ 0 ];
+        const size_t cols = shape[ 1 ];
 
-        for (size_t i = 0; i < rows; ++i)
+        for ( size_t i = 0; i < rows; ++i )
         {
-            for (size_t j = 0; j < cols; ++j)
+            for ( size_t j = 0; j < cols; ++j )
             {
                 const size_t idx = i * cols + j;
-                auto val = data[idx];
+                auto val = data[ idx ];
                 EXPECT_EQ( val, 1u );
             }
         }
@@ -527,16 +664,16 @@ namespace Dnn::Tensors::Tests
         fill( tensor, fill_value );
 
         auto* data = tensor.data();
-        const size_t rows = shape[0];
-        const size_t cols = shape[1];
+        const size_t rows = shape[ 0 ];
+        const size_t cols = shape[ 1 ];
 
         // Verify all values match fill value
-        for (size_t i = 0; i < rows; ++i)
+        for ( size_t i = 0; i < rows; ++i )
         {
-            for (size_t j = 0; j < cols; ++j)
+            for ( size_t j = 0; j < cols; ++j )
             {
                 const size_t idx = i * cols + j;
-                float val = data[idx];
+                float val = data[ idx ];
                 EXPECT_FLOAT_EQ( val, fill_value );
             }
         }
@@ -550,15 +687,15 @@ namespace Dnn::Tensors::Tests
         fill( tensor, fill_value );
 
         auto* data = tensor.data();
-        const size_t rows = shape[0];
-        const size_t cols = shape[1];
+        const size_t rows = shape[ 0 ];
+        const size_t cols = shape[ 1 ];
 
-        for (size_t i = 0; i < rows; ++i)
+        for ( size_t i = 0; i < rows; ++i )
         {
-            for (size_t j = 0; j < cols; ++j)
+            for ( size_t j = 0; j < cols; ++j )
             {
                 const size_t idx = i * cols + j;
-                float val = data[idx];
+                float val = data[ idx ];
                 EXPECT_FLOAT_EQ( val, fill_value );
             }
         }
@@ -572,7 +709,7 @@ namespace Dnn::Tensors::Tests
         try
         {
             std::vector<int64_t> shape = { 50, 50 };
-            Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> tensor( Device::Cuda(0), shape );
+            Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> tensor( Device::Cuda( 0 ), shape );
 
             zeros( tensor );
 
@@ -582,20 +719,20 @@ namespace Dnn::Tensors::Tests
 
             // Verify all values are zero
             auto* data = cpu_tensor.data();
-            const size_t rows = cpu_tensor.shape()[0];
-            const size_t cols = cpu_tensor.shape()[1];
+            const size_t rows = cpu_tensor.shape()[ 0 ];
+            const size_t cols = cpu_tensor.shape()[ 1 ];
 
-            for (size_t i = 0; i < rows; ++i)
+            for ( size_t i = 0; i < rows; ++i )
             {
-                for (size_t j = 0; j < cols; ++j)
+                for ( size_t j = 0; j < cols; ++j )
                 {
                     const size_t idx = i * cols + j;
-                    float val = data[idx];
+                    float val = data[ idx ];
                     EXPECT_FLOAT_EQ( val, 0.0f );
                 }
             }
         }
-        catch (const std::exception&)
+        catch ( const std::exception& )
         {
             GTEST_SKIP() << "CUDA device not available, skipping CUDA test";
         }
@@ -605,7 +742,7 @@ namespace Dnn::Tensors::Tests
         try
         {
             std::vector<int64_t> shape = { 50, 50 };
-            Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> tensor( Device::Cuda(0), shape );
+            Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> tensor( Device::Cuda( 0 ), shape );
 
             ones( tensor );
 
@@ -615,20 +752,20 @@ namespace Dnn::Tensors::Tests
 
             // Verify all values are one
             auto* data = cpu_tensor.data();
-            const size_t rows = cpu_tensor.shape()[0];
-            const size_t cols = cpu_tensor.shape()[1];
+            const size_t rows = cpu_tensor.shape()[ 0 ];
+            const size_t cols = cpu_tensor.shape()[ 1 ];
 
-            for (size_t i = 0; i < rows; ++i)
+            for ( size_t i = 0; i < rows; ++i )
             {
-                for (size_t j = 0; j < cols; ++j)
+                for ( size_t j = 0; j < cols; ++j )
                 {
                     const size_t idx = i * cols + j;
-                    float val = data[idx];
+                    float val = data[ idx ];
                     EXPECT_FLOAT_EQ( val, 1.0f );
                 }
             }
         }
-        catch (const std::exception&)
+        catch ( const std::exception& )
         {
             GTEST_SKIP() << "CUDA device not available, skipping CUDA test";
         }
@@ -638,7 +775,7 @@ namespace Dnn::Tensors::Tests
         try
         {
             std::vector<int64_t> shape = { 50, 50 };
-            Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> tensor( Device::Cuda(0), shape );
+            Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> tensor( Device::Cuda( 0 ), shape );
 
             float fill_value = 2.71f;
             fill( tensor, fill_value );
@@ -649,20 +786,20 @@ namespace Dnn::Tensors::Tests
 
             // Verify all values match fill value
             auto* data = cpu_tensor.data();
-            const size_t rows = cpu_tensor.shape()[0];
-            const size_t cols = cpu_tensor.shape()[1];
+            const size_t rows = cpu_tensor.shape()[ 0 ];
+            const size_t cols = cpu_tensor.shape()[ 1 ];
 
-            for (size_t i = 0; i < rows; ++i)
+            for ( size_t i = 0; i < rows; ++i )
             {
-                for (size_t j = 0; j < cols; ++j)
+                for ( size_t j = 0; j < cols; ++j )
                 {
                     const size_t idx = i * cols + j;
-                    float val = data[idx];
+                    float val = data[ idx ];
                     EXPECT_FLOAT_EQ( val, fill_value );
                 }
             }
         }
-        catch (const std::exception&)
+        catch ( const std::exception& )
         {
             GTEST_SKIP() << "CUDA device not available, skipping CUDA test";
         }
@@ -672,7 +809,7 @@ namespace Dnn::Tensors::Tests
         try
         {
             std::vector<int64_t> shape = { 40, 40 };
-            Tensor<TensorDataType::INT32, Compute::CudaDeviceMemoryResource> tensor( Device::Cuda(0), shape );
+            Tensor<TensorDataType::INT32, Compute::CudaDeviceMemoryResource> tensor( Device::Cuda( 0 ), shape );
 
             int32_t fill_value = 42;
             fill( tensor, fill_value );
@@ -683,20 +820,20 @@ namespace Dnn::Tensors::Tests
 
 
             auto* data = cpu_tensor.data();
-            const size_t rows = cpu_tensor.shape()[0];
-            const size_t cols = cpu_tensor.shape()[1];
+            const size_t rows = cpu_tensor.shape()[ 0 ];
+            const size_t cols = cpu_tensor.shape()[ 1 ];
 
-            for (size_t i = 0; i < rows; ++i)
+            for ( size_t i = 0; i < rows; ++i )
             {
-                for (size_t j = 0; j < cols; ++j)
+                for ( size_t j = 0; j < cols; ++j )
                 {
                     const size_t idx = i * cols + j;
-                    auto val = data[idx];
+                    auto val = data[ idx ];
                     EXPECT_EQ( val, 42 );
                 }
             }
         }
-        catch (const std::exception&)
+        catch ( const std::exception& )
         {
             GTEST_SKIP() << "CUDA device not available, skipping CUDA test";
         }
@@ -707,7 +844,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST( TensorInitializersTests, InitializeEmptyTensor ) {
-        Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> empty_tensor( Device::Cpu(), {});
+        Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> empty_tensor( Device::Cpu(), {} );
         EXPECT_FALSE( empty_tensor.empty() );
 
         // These operations should not crash on empty tensors
@@ -728,12 +865,12 @@ namespace Dnn::Tensors::Tests
         fill( single_tensor, fill_value );
 
         auto* data = single_tensor.data();
-        float val = data[0];
+        float val = data[ 0 ];
         EXPECT_FLOAT_EQ( val, fill_value );
 
         // Test with random
         random( single_tensor, -10.0f, 10.0f );
-        val = data[0];
+        val = data[ 0 ];
         EXPECT_GE( val, -10.0f );
         EXPECT_LE( val, 10.0f );
     }
@@ -745,9 +882,9 @@ namespace Dnn::Tensors::Tests
         zeros( tensor_1d );
 
         auto* data = tensor_1d.data();
-        for (size_t i = 0; i < tensor_1d.size(); ++i)
+        for ( size_t i = 0; i < tensor_1d.size(); ++i )
         {
-            float val = data[i];
+            float val = data[ i ];
             EXPECT_FLOAT_EQ( val, 0.0f );
         }
     }
@@ -760,19 +897,19 @@ namespace Dnn::Tensors::Tests
         fill( tensor_3d, fill_value );
 
         auto* data = tensor_3d.data();
-        const size_t dim0 = shape[0];
-        const size_t dim1 = shape[1];
-        const size_t dim2 = shape[2];
+        const size_t dim0 = shape[ 0 ];
+        const size_t dim1 = shape[ 1 ];
+        const size_t dim2 = shape[ 2 ];
 
         // Test a few representative elements
-        for (size_t i = 0; i < 5; ++i)
+        for ( size_t i = 0; i < 5; ++i )
         {
-            for (size_t j = 0; j < 5; ++j)
+            for ( size_t j = 0; j < 5; ++j )
             {
-                for (size_t k = 0; k < 5; ++k)
+                for ( size_t k = 0; k < 5; ++k )
                 {
                     const size_t idx = i * (dim1 * dim2) + j * dim2 + k;
-                    float val = data[idx];
+                    float val = data[ idx ];
                     EXPECT_FLOAT_EQ( val, fill_value );
                 }
             }
@@ -790,9 +927,9 @@ namespace Dnn::Tensors::Tests
         // Reset to zeros and spot check a few values
         zeros( large_tensor );
         auto* data = large_tensor.data();
-        EXPECT_FLOAT_EQ( data[0], 0.0f );
-        EXPECT_FLOAT_EQ( data[499 * 500 + 499], 0.0f );
-        EXPECT_FLOAT_EQ( data[250 * 500 + 250], 0.0f );
+        EXPECT_FLOAT_EQ( data[ 0 ], 0.0f );
+        EXPECT_FLOAT_EQ( data[ 499 * 500 + 499 ], 0.0f );
+        EXPECT_FLOAT_EQ( data[ 250 * 500 + 250 ], 0.0f );
     }
 
     // ====================================================================
@@ -820,15 +957,15 @@ namespace Dnn::Tensors::Tests
 
         // All values should be approximately equal to the single value
         auto* data = tensor.data();
-        const size_t rows = shape[0];
-        const size_t cols = shape[1];
+        const size_t rows = shape[ 0 ];
+        const size_t cols = shape[ 1 ];
 
-        for (size_t i = 0; i < rows; ++i)
+        for ( size_t i = 0; i < rows; ++i )
         {
-            for (size_t j = 0; j < cols; ++j)
+            for ( size_t j = 0; j < cols; ++j )
             {
                 const size_t idx = i * cols + j;
-                float val = data[idx];
+                float val = data[ idx ];
                 EXPECT_NEAR( val, value, 0.01f );
             }
         }
@@ -868,7 +1005,7 @@ namespace Dnn::Tensors::Tests
             std::vector<int64_t> shape = { 50, 50 };
 
             Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> cpu_tensor( Device::Cpu(), shape );
-            Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> cuda_tensor( Device::Cuda(0), shape );
+            Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> cuda_tensor( Device::Cuda( 0 ), shape );
 
             float fill_value = 2.5f;
 
@@ -883,21 +1020,21 @@ namespace Dnn::Tensors::Tests
             // Verify both tensors have the same values
             auto* cpu_data = cpu_tensor.data();
             auto* cuda_data = cuda_to_cpu.data();
-            const size_t rows = shape[0];
-            const size_t cols = shape[1];
+            const size_t rows = shape[ 0 ];
+            const size_t cols = shape[ 1 ];
 
-            for (size_t i = 0; i < rows; ++i)
+            for ( size_t i = 0; i < rows; ++i )
             {
-                for (size_t j = 0; j < cols; ++j)
+                for ( size_t j = 0; j < cols; ++j )
                 {
                     const size_t idx = i * cols + j;
-                    float cpu_val = cpu_data[idx];
-                    float cuda_val = cuda_data[idx];
+                    float cpu_val = cpu_data[ idx ];
+                    float cuda_val = cuda_data[ idx ];
                     EXPECT_FLOAT_EQ( cpu_val, cuda_val );
                 }
             }
         }
-        catch (const std::exception&)
+        catch ( const std::exception& )
         {
             GTEST_SKIP() << "CUDA device not available, skipping cross-device test";
         }
@@ -909,7 +1046,7 @@ namespace Dnn::Tensors::Tests
             std::vector<int64_t> shape = { 30, 30 };
 
             Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> cpu_tensor( Device::Cpu(), shape );
-            Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> cuda_tensor( Device::Cuda(0), shape );
+            Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> cuda_tensor( Device::Cuda( 0 ), shape );
 
             zeros( cpu_tensor );
             zeros( cuda_tensor );
@@ -921,22 +1058,22 @@ namespace Dnn::Tensors::Tests
 
             auto* cpu_data = cpu_tensor.data();
             auto* cuda_data = cuda_to_cpu.data();
-            const size_t rows = shape[0];
-            const size_t cols = shape[1];
+            const size_t rows = shape[ 0 ];
+            const size_t cols = shape[ 1 ];
 
-            for (size_t i = 0; i < rows; ++i)
+            for ( size_t i = 0; i < rows; ++i )
             {
-                for (size_t j = 0; j < cols; ++j)
+                for ( size_t j = 0; j < cols; ++j )
                 {
                     const size_t idx = i * cols + j;
-                    float cpu_val = cpu_data[idx];
-                    float cuda_val = cuda_data[idx];
+                    float cpu_val = cpu_data[ idx ];
+                    float cuda_val = cuda_data[ idx ];
                     EXPECT_FLOAT_EQ( cpu_val, cuda_val );
                     EXPECT_FLOAT_EQ( cpu_val, 0.0f );
                 }
             }
         }
-        catch (const std::exception&)
+        catch ( const std::exception& )
         {
             GTEST_SKIP() << "CUDA device not available, skipping cross-device test";
         }
@@ -964,16 +1101,16 @@ namespace Dnn::Tensors::Tests
         // Tensors should have identical values
         auto* data1 = tensor1.data();
         auto* data2 = tensor2.data();
-        const size_t rows = shape[0];
-        const size_t cols = shape[1];
+        const size_t rows = shape[ 0 ];
+        const size_t cols = shape[ 1 ];
 
-        for (size_t i = 0; i < rows; ++i)
+        for ( size_t i = 0; i < rows; ++i )
         {
-            for (size_t j = 0; j < cols; ++j)
+            for ( size_t j = 0; j < cols; ++j )
             {
                 const size_t idx = i * cols + j;
-                float val1 = data1[idx];
-                float val2 = data2[idx];
+                float val1 = data1[ idx ];
+                float val2 = data2[ idx ];
                 EXPECT_FLOAT_EQ( val1, val2 );
             }
         }
@@ -994,17 +1131,17 @@ namespace Dnn::Tensors::Tests
         bool found_difference = false;
         auto* data1 = tensor1.data();
         auto* data2 = tensor2.data();
-        const size_t rows = shape[0];
-        const size_t cols = shape[1];
+        const size_t rows = shape[ 0 ];
+        const size_t cols = shape[ 1 ];
 
-        for (size_t i = 0; i < rows && !found_difference; ++i)
+        for ( size_t i = 0; i < rows && !found_difference; ++i )
         {
-            for (size_t j = 0; j < cols && !found_difference; ++j)
+            for ( size_t j = 0; j < cols && !found_difference; ++j )
             {
                 const size_t idx = i * cols + j;
-                float val1 = data1[idx];
-                float val2 = data2[idx];
-                if (std::abs( val1 - val2 ) > 1e-6f)
+                float val1 = data1[ idx ];
+                float val2 = data2[ idx ];
+                if ( std::abs( val1 - val2 ) > 1e-6f )
                 {
                     found_difference = true;
                 }

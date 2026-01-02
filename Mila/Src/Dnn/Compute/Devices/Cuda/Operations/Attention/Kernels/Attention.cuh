@@ -32,6 +32,7 @@ namespace Mila::Dnn::Compute
 
     void cuda_softmax_backward_fp32(
         float* dpreatt, const float* datt, const float* att,
+        float scale,
         int B, int NH, int T,
         cudaStream_t stream );
 
@@ -68,6 +69,7 @@ namespace Mila::Dnn::Compute
 
     void cuda_softmax_backward_fp16(
         half* dpreatt, const half* datt, const half* att,
+        float scale,
         int B, int NH, int T,
         cudaStream_t stream );
 

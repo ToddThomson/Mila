@@ -746,6 +746,7 @@ namespace Mila::Dnn
         std::string outputBuffer( size_t index, size_t depth ) const {
             using TElementType = typename TensorHostTypeMap<TDataType>::host_type;
             std::ostringstream oss;
+            
             if ( depth == shape_.size() - 1 ) {
                 for ( size_t i = 0; i < shape_[ depth ]; ++i ) {
                     if ( i < 3 || i >= shape_[ depth ] - 3 ) {
@@ -761,7 +762,7 @@ namespace Mila::Dnn
                 for ( size_t i = 0; i < shape_[ depth ]; ++i ) {
                     if ( i < 3 || i >= shape_[ depth ] - 3 ) {
                         oss << "[ ";
-                        oss << outputBuffer( index + i * shape_[ depth + 1 ], depth + 1 );
+                        oss << outputBuffer( index + i * strides_[ depth ], depth + 1 );
                         oss << "]" << std::endl;
                     }
                     else if ( i == 3 ) {

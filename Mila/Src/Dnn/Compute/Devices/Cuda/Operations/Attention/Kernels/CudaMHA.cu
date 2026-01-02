@@ -25,7 +25,7 @@ namespace Mila::Dnn::Compute
     /**
      * @brief Permute and split concatenated QKV input into separate Q, K, V tensors.
      *
-     * Input: [B, T, 3, NH, HS] (concatenated QKV)
+     * Input: [B, T, 3*C] where C = NH*HS (flat concatenated QKV)
      * Output: Q, K, V each [B, NH, T, HS]
      */
     __global__ void permute_qkv_fp32_kernel(
@@ -44,11 +44,17 @@ namespace Mila::Dnn::Compute
             int t = rest / HS;
             int hs = rest % HS;
 
-            int inp_idx = (b * T * 3 * NH * HS) + (t * 3 * NH * HS) + (0 * NH * HS) + (nh * HS) + hs;
+            int C = NH * HS;
+            int base_idx = b * T * 3 * C + t * 3 * C;
+            int head_offset = nh * HS + hs;
 
-            q[ idx ] = __ldcs( &inp[ inp_idx ] );
-            k[ idx ] = __ldcs( &inp[ inp_idx + NH * HS ] );
-            v[ idx ] = __ldcs( &inp[ inp_idx + 2 * NH * HS ] );
+            int q_idx = base_idx + head_offset;
+            int k_idx = base_idx + C + head_offset;
+            int v_idx = base_idx + 2 * C + head_offset;
+            
+            q[ idx ] = __ldcs( &inp[ q_idx ] );
+            k[ idx ] = __ldcs( &inp[ k_idx ] );
+            v[ idx ] = __ldcs( &inp[ v_idx ] );
         }
     }
 
@@ -68,11 +74,17 @@ namespace Mila::Dnn::Compute
             int t = rest / HS;
             int hs = rest % HS;
 
-            int inp_idx = (b * T * 3 * NH * HS) + (t * 3 * NH * HS) + (0 * NH * HS) + (nh * HS) + hs;
+            int C = NH * HS;
+            int base_idx = b * T * 3 * C + t * 3 * C;
+            int head_offset = nh * HS + hs;
 
-            q[ idx ] = __ldcs( &inp[ inp_idx ] );
-            k[ idx ] = __ldcs( &inp[ inp_idx + NH * HS ] );
-            v[ idx ] = __ldcs( &inp[ inp_idx + 2 * NH * HS ] );
+            int q_idx = base_idx + head_offset;
+            int k_idx = base_idx + C + head_offset;
+            int v_idx = base_idx + 2 * C + head_offset;
+
+            q[ idx ] = __ldcs( &inp[ q_idx ] );
+            k[ idx ] = __ldcs( &inp[ k_idx ] );
+            v[ idx ] = __ldcs( &inp[ v_idx ] );
         }
     }
 
@@ -239,6 +251,7 @@ namespace Mila::Dnn::Compute
      */
     __global__ void softmax_backward_fp32_kernel(
         float* dpreatt, const float* datt, const float* att,
+        float scale,
         int B_NH, int T )
     {
         int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -260,7 +273,7 @@ namespace Mila::Dnn::Compute
 
             for ( int t2 = 0; t2 <= t; ++t2 )
             {
-                dpreatt_row[ t2 ] = att_row[ t2 ] * (datt_row[ t2 ] - sum);
+                dpreatt_row[ t2 ] = scale * att_row[ t2 ] * (datt_row[ t2 ] - sum);
             }
 
             for ( int t2 = t + 1; t2 < T; ++t2 )
@@ -272,6 +285,7 @@ namespace Mila::Dnn::Compute
 
     __global__ void softmax_backward_fp16_kernel(
         half* dpreatt, const half* datt, const half* att,
+        float scale,
         int B_NH, int T )
     {
         int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -360,7 +374,8 @@ namespace Mila::Dnn::Compute
      * @brief Backward pass for QKV permutation (recombine gradients).
      *
      * Input: dq, dk, dv each [B, NH, T, HS]
-     * Output: dinp [B, T, 3, NH, HS] (concatenated gradient)
+     * Output: dinp [B, T, 3*C] where C = NH*HS (flat concatenated gradient)
+     * Within each token: [dQ_h0, dQ_h1, ..., dK_h0, dK_h1, ..., dV_h0, dV_h1, ...]
      */
     __global__ void permute_backward_fp32_kernel(
         float* dinp,
@@ -378,9 +393,13 @@ namespace Mila::Dnn::Compute
             int t = rest / HS;
             int hs = rest % HS;
 
-            int dinp_q_idx = (b * T * 3 * NH * HS) + (t * 3 * NH * HS) + (0 * NH * HS) + (nh * HS) + hs;
-            int dinp_k_idx = dinp_q_idx + NH * HS;
-            int dinp_v_idx = dinp_q_idx + 2 * NH * HS;
+            int C = NH * HS;
+            int base_idx = b * T * 3 * C + t * 3 * C;
+            int head_offset = nh * HS + hs;
+
+            int dinp_q_idx = base_idx + head_offset;
+            int dinp_k_idx = base_idx + C + head_offset;
+            int dinp_v_idx = base_idx + 2 * C + head_offset;
 
             dinp[ dinp_q_idx ] = dq[ idx ];
             dinp[ dinp_k_idx ] = dk[ idx ];
@@ -404,9 +423,13 @@ namespace Mila::Dnn::Compute
             int t = rest / HS;
             int hs = rest % HS;
 
-            int dinp_q_idx = (b * T * 3 * NH * HS) + (t * 3 * NH * HS) + (0 * NH * HS) + (nh * HS) + hs;
-            int dinp_k_idx = dinp_q_idx + NH * HS;
-            int dinp_v_idx = dinp_q_idx + 2 * NH * HS;
+            int C = NH * HS;
+            int base_idx = b * T * 3 * C + t * 3 * C;
+            int head_offset = nh * HS + hs;
+
+            int dinp_q_idx = base_idx + head_offset;
+            int dinp_k_idx = base_idx + C + head_offset;
+            int dinp_v_idx = base_idx + 2 * C + head_offset;
 
             dinp[ dinp_q_idx ] = dq[ idx ];
             dinp[ dinp_k_idx ] = dk[ idx ];
@@ -428,7 +451,7 @@ namespace Mila::Dnn::Compute
         int total_threads = B * NH * T * HS;
         int num_blocks = ceil_div( total_threads, block_size );
 
-        permute_qkv_fp32_kernel<<<num_blocks, block_size, 0, stream>>> (q, k, v, inp, B, T, NH, HS);
+        permute_qkv_fp32_kernel << <num_blocks, block_size, 0, stream >> > (q, k, v, inp, B, T, NH, HS);
 
         cudaCheck( cudaGetLastError() );
     }
@@ -458,13 +481,14 @@ namespace Mila::Dnn::Compute
         int total_rows = B_NH * T;
         int num_blocks = ceil_div( total_rows, block_size );
 
-        softmax_forward_fp32_kernel <<<num_blocks, block_size, 0, stream >> > (att, scale, preatt, B_NH, T);
+        softmax_forward_fp32_kernel << <num_blocks, block_size, 0, stream >> > (att, scale, preatt, B_NH, T);
 
         cudaCheck( cudaGetLastError() );
     }
 
     void cuda_softmax_backward_fp32(
         float* dpreatt, const float* datt, const float* att,
+        float scale,
         int B, int NH, int T,
         cudaStream_t stream )
     {
@@ -473,7 +497,7 @@ namespace Mila::Dnn::Compute
         int total_rows = B_NH * T;
         int num_blocks = ceil_div( total_rows, block_size );
 
-        softmax_backward_fp32_kernel << <num_blocks, block_size, 0, stream >> > (dpreatt, datt, att, B_NH, T);
+        softmax_backward_fp32_kernel << <num_blocks, block_size, 0, stream >> > (dpreatt, datt, att, scale, B_NH, T);
 
         cudaCheck( cudaGetLastError() );
     }
@@ -486,9 +510,8 @@ namespace Mila::Dnn::Compute
         const int block_size = 256;
         int total_threads = B * T * NH * HS;
         int num_blocks = ceil_div( total_threads, block_size );
-        // Launch kernel with: num_blocks=6144, block_size=256
 
-        unpermute_backward_fp32_kernel <<<num_blocks, block_size, 0, stream >>>( dvaccum, dout, B, T, NH, HS );
+        unpermute_backward_fp32_kernel << <num_blocks, block_size, 0, stream >> > (dvaccum, dout, B, T, NH, HS);
 
         cudaCheck( cudaGetLastError() );
     }
@@ -503,7 +526,7 @@ namespace Mila::Dnn::Compute
         int total_threads = B * T * NH * HS;
         int num_blocks = ceil_div( total_threads, block_size );
 
-        permute_backward_fp32_kernel <<<num_blocks, block_size, 0, stream >> > (dinp, dq, dk, dv, B, T, NH, HS);
+        permute_backward_fp32_kernel << <num_blocks, block_size, 0, stream >> > (dinp, dq, dk, dv, B, T, NH, HS);
 
         cudaCheck( cudaGetLastError() );
     }
@@ -559,6 +582,7 @@ namespace Mila::Dnn::Compute
 
     void cuda_softmax_backward_fp16(
         half* dpreatt, const half* datt, const half* att,
+        float scale,
         int B, int NH, int T,
         cudaStream_t stream )
     {
@@ -567,7 +591,7 @@ namespace Mila::Dnn::Compute
         int total_rows = B_NH * T;
         int num_blocks = ceil_div( total_rows, block_size );
 
-        softmax_backward_fp16_kernel << <num_blocks, block_size, 0, stream >> > (dpreatt, datt, att, B_NH, T);
+        softmax_backward_fp16_kernel << <num_blocks, block_size, 0, stream >> > (dpreatt, datt, att, scale, B_NH, T);
 
         cudaCheck( cudaGetLastError() );
     }
