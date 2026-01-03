@@ -498,6 +498,7 @@ namespace Components_Connections_Tests
         copy( host_B, device_B );
 
         EXPECT_NO_THROW( fixture.component->forward( device_A, device_B, device_Y ) );
+        fixture.component->synchronize();
 
         CpuTensor<TensorDataType::FP32> host_Y = toHost<TensorDataType::FP32>( device_Y );
         EXPECT_FLOAT_EQ( host_Y.data()[ 0 ], 3.0f );

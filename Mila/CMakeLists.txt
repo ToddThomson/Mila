@@ -12,8 +12,10 @@ add_library( Mila STATIC
     "Src/Dnn/Compute/Devices/Cuda/Operations/Encoder/Kernels/Encoder.Fp32.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Encoder/Kernels/Encoder.Fp16.cu"
 
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Kernels/Attention.cuh"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Kernels/CudaMHA.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Kernels/CudaAttention.cuh"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Kernels/CudaAttention.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Kernels/CudaAttention.Permute.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Kernels/CudaAttention.Softmax.cu"
 
     "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatMul/CudaMatMulFp32.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatMul/CudaMatMulFp16.cu"

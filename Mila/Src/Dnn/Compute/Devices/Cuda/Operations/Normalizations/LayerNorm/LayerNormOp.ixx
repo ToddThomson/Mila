@@ -9,6 +9,8 @@ module;
 #include <string>
 #include <stdexcept>
 #include <cstdint>
+#include <type_traits>
+#include <sstream>
 #include <cuda_fp16.h>
 #include "Kernels/LayerNorm.cuh"
 
@@ -45,6 +47,7 @@ import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
 import Compute.CudaDevice;
 import Compute.Precision;
+import Utils.Logger;
 
 namespace Mila::Dnn::Compute::Cuda::LayerNorm
 {
@@ -99,7 +102,7 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
                 float epsilon,
                 cudaStream_t stream )
             {
-                // FIXME: cuda_layernorm_forward_fp16( Y, mean, rstd, X, weight, bias, outer_size, inner_size, norm_dim, epsilon, stream );
+                cuda_layernorm_forward_fp16( Y, mean, rstd, X, weight, bias, outer_size, inner_size, norm_dim, epsilon, stream );
             }
 
             static inline void backward(
@@ -109,7 +112,7 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
                 int outer_size, int inner_size, int norm_dim,
                 cudaStream_t stream )
             {
-                // FIXME: cuda_layernorm_backward_fp16( dX, dweight, dbias, dY, X, weight, mean, rstd, outer_size, inner_size, norm_dim, stream );
+                cuda_layernorm_backward_fp16( dX, dweight, dbias, dY, X, weight, mean, rstd, outer_size, inner_size, norm_dim, stream );
             }
         };
     }
@@ -390,16 +393,15 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
                 config_.getEpsilon(),
                 stream );
 
-            //context_->synchronize();
+            context_->synchronize();
+            {
+                using HostTensorType = Tensor<TensorDataType::FP32, CpuMemoryResource>;
 
-            //Tensor<TensorDataType::FP32, CpuMemoryResource> host_copy( Device::Cpu(), mean_tensor_->shape() );
-            //copy( *mean_tensor_, host_copy );
-
-            //std::clog << "CudaLayerNormOp::forward - mean:\n" << host_copy[0] << " " << host_copy[1] << std::endl;
-
-            //copy( *rstd_tensor_, host_copy );
-
-            //std::clog << "CudaLayerNormOp::forward - rstd:\n" << host_copy[ 0 ] << " " << host_copy[ 1 ] << std::endl;
+                HostTensorType host_output( Device::Cpu(), output.shape() );
+                host_output.setName( this->getName() + ".dbg.output" );
+                copy( static_cast<const TensorType&>(output), host_output );
+                Utils::Logger::info( this->getName() + ": dbg.output:\n" + host_output.toString( true ) );
+            }
         }
 
         /**

@@ -8,7 +8,7 @@
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
 
-namespace Mila::Dnn::Compute
+namespace Mila::Dnn::Compute::Cuda::Attention
 {
     // ========================================================================
     // FP32 Kernel Functions
@@ -84,29 +84,6 @@ namespace Mila::Dnn::Compute
         int B, int T, int NH, int HS,
         cudaStream_t stream );
 
-    // ========================================================================
-    // Fallback implementations (legacy cuBLAS)
-    // ========================================================================
-
-    void cuda_mha_forward_fallback(
-        float* out,
-        float* q, float* k, float* v,
-        float* preatt, float* att, float* vaccum,
-        const float* inp,
-        int B, int T, int C, int NH,
-        cudaStream_t stream );
-
-    void cuda_mha_backward_fallback(
-        float* dinp,
-        float* dq, float* dk, float* dv,
-        float* dpreatt, float* datt, float* dvaccum,
-        const float* dout,
-        const float* inp,
-        const float* att,
-        const float* q, const float* k, const float* v,
-        int B, int T, int C, int NH,
-        cudaStream_t stream );
-
     // cuBLAS handle (defined in CudaDevice or CudaDeviceResources)
-    extern cublasHandle_t cublas_handle;
+    // extern cublasHandle_t cublas_handle;
 }

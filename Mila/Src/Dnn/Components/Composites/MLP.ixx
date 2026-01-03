@@ -220,12 +220,26 @@ namespace Mila::Dnn
 
         void zeroGradients() override
         {
+            // Zero gradients in preallocated buffers
+            zero( *fc2_grad_, this->getExecutionContext() );
+            
+            if ( config_.useLayerNorm() )
+            {
+                zero( *norm_grad_, this->getExecutionContext() );
+            }
+            
+            zero( *act_grad_, this->getExecutionContext() );
+
+            // Zero gradients in all child components
             fc1_->zeroGradients();
+            
             if ( norm_ )
             {
                 norm_->zeroGradients();
             }
+            
             activation_->zeroGradients();
+            
             fc2_->zeroGradients();
         }
 

@@ -327,6 +327,23 @@ namespace Mila::Dnn
 
         void zeroGradients() override
         {
+            // Zero gradients in pre-allocated buffers
+            if ( d_act_1_ )
+                zeros( *d_act_1_ );
+            
+            if ( d_act_2_ )
+                zeros( *d_act_2_ );
+            
+            if ( d_act_3_ )
+                zeros( *d_act_3_ );
+            
+            if ( d_act_4_ )
+                zeros( *d_act_4_ );
+            
+            if ( d_qkv_ )
+                zeros( *d_qkv_ );
+
+            // Zero gradients in all sub-components
             attn_->zeroGradients();
             qkv_proj_->zeroGradients();
             ln1_->zeroGradients();

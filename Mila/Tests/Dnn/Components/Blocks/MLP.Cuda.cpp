@@ -1047,7 +1047,293 @@ namespace CompositeComponents_Tests
     }
 
     // ====================================================================
-    // CPU/CUDA Equivalence Test
+// Backward Pass Tests
+// ====================================================================
+
+    TYPED_TEST( MLPCudaTests, Backward_BeforeBuild_ThrowsRuntimeError )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+            TestShape::Small(),
+            TestShape::Small().dimensions.back(),
+            3072
+        );
+
+        CudaTensor<TPrecision> input( Device::Cuda( 0 ), fixture.shape() );
+        CudaTensor<TPrecision> output( Device::Cuda( 0 ), fixture.shape() );
+        CudaTensor<TPrecision> output_grad( Device::Cuda( 0 ), fixture.shape() );
+        CudaTensor<TPrecision> input_grad( Device::Cuda( 0 ), fixture.shape() );
+
+        EXPECT_THROW(
+            fixture.component->backward( input, output_grad, input_grad ),
+            std::runtime_error
+        );
+    }
+
+    TYPED_TEST( MLPCudaTests, Backward_InferenceMode_ThrowsRuntimeError )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+            TestShape::Small(),
+            TestShape::Small().dimensions.back(),
+            3072
+        );
+
+        fixture.component->build( fixture.shape() );
+
+        EXPECT_FALSE( fixture.component->isTraining() );
+
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), fixture.shape() );
+        random( host_input, -1.0f, 1.0f );
+
+        CudaTensor<TPrecision> input( Device::Cuda( 0 ), fixture.shape() );
+        CudaTensor<TPrecision> output( Device::Cuda( 0 ), fixture.shape() );
+        CudaTensor<TPrecision> output_grad( Device::Cuda( 0 ), fixture.shape() );
+        CudaTensor<TPrecision> input_grad( Device::Cuda( 0 ), fixture.shape() );
+
+        copy( host_input, input );
+
+        fixture.component->forward( input, output );
+
+        EXPECT_THROW(
+            fixture.component->backward( input, output_grad, input_grad ),
+            std::runtime_error
+        ) << "Backward should throw when component is not in training mode";
+    }
+
+    TYPED_TEST( MLPCudaTests, Backward_TrainingMode_Succeeds )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+            TestShape::Small(),
+            TestShape::Small().dimensions.back(),
+            3072,
+            true,  // has_bias
+            ActivationType::Gelu,
+            false, // use_layer_norm
+            ComputePrecision::Policy::Auto,
+            true   // is_training
+        );
+
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), fixture.shape() );
+        CpuTensor<TensorDataType::FP32> host_output_grad( Device::Cpu(), fixture.shape() );
+
+        random( host_input, -1.0f, 1.0f );
+        random( host_output_grad, -0.1f, 0.1f );
+
+        CudaTensor<TPrecision> input( Device::Cuda( 0 ), fixture.shape() );
+        CudaTensor<TPrecision> output( Device::Cuda( 0 ), fixture.shape() );
+        CudaTensor<TPrecision> output_grad( Device::Cuda( 0 ), fixture.shape() );
+        CudaTensor<TPrecision> input_grad( Device::Cuda( 0 ), fixture.shape() );
+
+        copy( host_input, input );
+        copy( host_output_grad, output_grad );
+        zeros( input_grad );
+
+        fixture.component->forward( input, output );
+
+        EXPECT_NO_THROW(
+            fixture.component->backward( input, output_grad, input_grad )
+        ) << "Backward pass should succeed in training mode";
+
+        fixture.component->synchronize();
+
+        // Verify input gradients were computed
+        CpuTensor<TensorDataType::FP32> host_input_grad = toHost<TensorDataType::FP32>( input_grad );
+
+        bool has_nonzero_grad = false;
+        for ( size_t i = 0; i < host_input_grad.size(); ++i )
+        {
+            if ( std::abs( host_input_grad.data()[ i ] ) > 1e-6f )
+            {
+                has_nonzero_grad = true;
+                break;
+            }
+        }
+
+        EXPECT_TRUE( has_nonzero_grad ) << "Input gradients should contain non-zero values";
+    }
+
+    TYPED_TEST( MLPCudaTests, Backward_WithLayerNorm_Succeeds )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+            TestShape::Small(),
+            TestShape::Small().dimensions.back(),
+            3072,
+            true,  // has_bias
+            ActivationType::Gelu,
+            true,  // use_layer_norm
+            ComputePrecision::Policy::Auto,
+            true   // is_training
+        );
+
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), fixture.shape() );
+        random( host_input, -1.0f, 1.0f );
+
+        CudaTensor<TPrecision> input( Device::Cuda( 0 ), fixture.shape() );
+        CudaTensor<TPrecision> output( Device::Cuda( 0 ), fixture.shape() );
+        CudaTensor<TPrecision> output_grad( Device::Cuda( 0 ), fixture.shape() );
+        CudaTensor<TPrecision> input_grad( Device::Cuda( 0 ), fixture.shape() );
+
+        copy( host_input, input );
+        random( output_grad, -0.1f, 0.1f );
+        zeros( input_grad );
+
+        fixture.component->forward( input, output );
+
+        EXPECT_NO_THROW(
+            fixture.component->backward( input, output_grad, input_grad )
+        );
+        fixture.component->synchronize();
+
+        CpuTensor<TensorDataType::FP32> host_input_grad = toHost<TensorDataType::FP32>( input_grad );
+
+        bool has_nonzero_grad = false;
+        for ( size_t i = 0; i < host_input_grad.size(); ++i )
+        {
+            if ( std::abs( host_input_grad.data()[ i ] ) > 1e-6f )
+            {
+                has_nonzero_grad = true;
+                break;
+            }
+        }
+
+        EXPECT_TRUE( has_nonzero_grad );
+    }
+
+    TYPED_TEST( MLPCudaTests, Backward_MultipleIterations_Succeeds )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+            TestShape::Small(),
+            TestShape::Small().dimensions.back(),
+            3072,
+            true,  // has_bias
+            ActivationType::Gelu,
+            false, // use_layer_norm
+            ComputePrecision::Policy::Auto,
+            true   // is_training
+        );
+
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), fixture.shape() );
+        CudaTensor<TPrecision> input( Device::Cuda( 0 ), fixture.shape() );
+        CudaTensor<TPrecision> output( Device::Cuda( 0 ), fixture.shape() );
+        CudaTensor<TPrecision> output_grad( Device::Cuda( 0 ), fixture.shape() );
+        CudaTensor<TPrecision> input_grad( Device::Cuda( 0 ), fixture.shape() );
+
+        for ( int iter = 0; iter < 5; ++iter )
+        {
+            random( host_input, -1.0f, 1.0f );
+            copy( host_input, input );
+
+            random( output_grad, -0.1f, 0.1f );
+            zeros( input_grad );
+
+            fixture.component->forward( input, output );
+
+            EXPECT_NO_THROW(
+                fixture.component->backward( input, output_grad, input_grad )
+            ) << "Backward iteration " << iter << " failed";
+        }
+    }
+
+    TYPED_TEST( MLPCudaTests, ZeroGradients_ClearsParameterGradients )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+            TestShape::Small(),
+            TestShape::Small().dimensions.back(),
+            3072,
+            true,  // has_bias
+            ActivationType::Gelu,
+            false, // use_layer_norm
+            ComputePrecision::Policy::Auto,
+            true   // is_training
+        );
+
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), fixture.shape() );
+        random( host_input, -1.0f, 1.0f );
+
+        CudaTensor<TPrecision> input( Device::Cuda( 0 ), fixture.shape() );
+        CudaTensor<TPrecision> output( Device::Cuda( 0 ), fixture.shape() );
+        CudaTensor<TPrecision> output_grad( Device::Cuda( 0 ), fixture.shape() );
+        CudaTensor<TPrecision> input_grad( Device::Cuda( 0 ), fixture.shape() );
+
+        copy( host_input, input );
+        random( output_grad, -0.1f, 0.1f );
+
+        fixture.component->forward( input, output );
+        fixture.component->backward( input, output_grad, input_grad );
+        fixture.component->synchronize();
+
+        // Gradients should be non-zero after backward
+        auto grads = fixture.component->getGradients();
+        EXPECT_FALSE( grads.empty() );
+
+        // Zero gradients
+        EXPECT_NO_THROW( fixture.component->zeroGradients() );
+
+        // Verify all parameter gradients are zeroed
+        for ( auto* grad_tensor : grads )
+        {
+            auto cuda_grad = dynamic_cast<CudaTensor<TPrecision>*>(grad_tensor);
+            ASSERT_NE( cuda_grad, nullptr );
+
+            CpuTensor<TensorDataType::FP32> host_grad = toHost<TensorDataType::FP32>( *cuda_grad );
+
+            bool all_zero = true;
+            for ( size_t i = 0; i < host_grad.size(); ++i )
+            {
+                if ( std::abs( host_grad.data()[ i ] ) > 1e-6f )
+                {
+                    all_zero = false;
+                    break;
+                }
+            }
+
+            EXPECT_TRUE( all_zero ) << "Gradient tensor should be all zeros after zeroGradients()";
+        }
+    }
+
+    // ====================================================================
+    // CPU/CUDA Equivalence Tests
     // ====================================================================
 
     TYPED_TEST( MLPCudaTests, Forward_ComparedToCpu_ProducesEquivalentOutput )
@@ -1087,7 +1373,9 @@ namespace CompositeComponents_Tests
 
         CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), test_shape.dimensions );
         CudaTensor<TPrecision> device_output( Device::Cuda( 0 ), test_shape.dimensions );
+        
         copy( host_input, device_input );
+        
         cuda_fixture.component->forward( device_input, device_output );
         cuda_fixture.component->synchronize();
 
@@ -1124,5 +1412,134 @@ namespace CompositeComponents_Tests
             << "CUDA value: " << cuda_output_host.data()[ first_mismatch_idx ] << "\n"
             << "Max difference: " << max_diff << "\n"
             << "Tolerance: " << epsilon;
+    };
+
+    TYPED_TEST( MLPCudaTests, Backward_ComparedToCpu_ProducesEquivalentGradients )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        TestShape test_shape = { TestShapeSize::Small, { 2, 4, 768 }, "BackwardEquivalence" };
+        int64_t hidden_size = 1024;
+
+        MLPConfig config( test_shape.dimensions.back(), hidden_size );
+
+        auto cpu_mlp = std::make_shared<MLP<DeviceType::Cpu, TensorDataType::FP32>>(
+            "cpu_backward_equiv",
+            config,
+            Device::Cpu()
+        );
+
+        auto cuda_fixture = MLPTestFixture<TPrecision>::CreateStandalone(
+            test_shape,
+            test_shape.dimensions.back(),
+            hidden_size,
+            true,  // has_bias
+            ActivationType::Gelu,
+            false, // use_layer_norm
+            ComputePrecision::Policy::Auto,
+            true   // is_training
+        );
+
+        cpu_mlp->build( test_shape.dimensions );
+        cpu_mlp->setTraining( true );
+
+        // Use same input for both
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), test_shape.dimensions );
+        random( host_input, -1.0f, 1.0f );
+
+        CpuTensor<TensorDataType::FP32> host_output_grad( Device::Cpu(), test_shape.dimensions );
+        random( host_output_grad, -0.1f, 0.1f );
+
+        // CPU forward + backward
+        CpuTensor<TensorDataType::FP32> cpu_output( Device::Cpu(), test_shape.dimensions );
+        CpuTensor<TensorDataType::FP32> cpu_input_grad( Device::Cpu(), test_shape.dimensions );
+
+        cpu_mlp->forward( host_input, cpu_output );
+        cpu_mlp->zeroGradients();
+
+        // Linear/backward implementations accumulate into input_grad (use +=).
+        // Ensure host input_grad is zeroed before calling backward to avoid
+        // propagating uninitialized memory into gradients.
+        zeros( cpu_input_grad );
+
+        cpu_mlp->backward( host_input, host_output_grad, cpu_input_grad );
+
+        // CUDA forward + backward
+        CudaTensor<TPrecision> cuda_input( Device::Cuda( 0 ), test_shape.dimensions );
+        CudaTensor<TPrecision> cuda_output( Device::Cuda( 0 ), test_shape.dimensions );
+        CudaTensor<TPrecision> cuda_output_grad( Device::Cuda( 0 ), test_shape.dimensions );
+        CudaTensor<TPrecision> cuda_input_grad( Device::Cuda( 0 ), test_shape.dimensions );
+
+        copy( host_input, cuda_input );
+        copy( host_output_grad, cuda_output_grad );
+
+        cuda_fixture.component->forward( cuda_input, cuda_output );
+        cuda_fixture.component->zeroGradients();
+        cuda_fixture.component->backward( cuda_input, cuda_output_grad, cuda_input_grad );
+        cuda_fixture.component->synchronize();
+
+        // Compare input gradients
+        CpuTensor<TensorDataType::FP32> cuda_input_grad_host = toHost<TensorDataType::FP32>( cuda_input_grad );
+
+        const float epsilon = PrecisionTraits<TPrecision>::tolerance;
+        float max_diff = 0.0f;
+        size_t mismatch_idx = 0;
+
+        for ( size_t i = 0; i < cpu_input_grad.size(); ++i )
+        {
+            float cpu_val = cpu_input_grad.data()[ i ];
+            float cuda_val = cuda_input_grad_host.data()[ i ];
+            float diff = std::abs( cpu_val - cuda_val );
+
+            if ( diff > max_diff )
+            {
+                max_diff = diff;
+                mismatch_idx = i;
+            }
+        }
+
+        EXPECT_LT( max_diff, epsilon )
+            << "CPU and CUDA backward implementations produced different input gradients\n"
+            << "Mismatch at index " << mismatch_idx << "\n"
+            << "CPU gradient: " << cpu_input_grad.data()[ mismatch_idx ] << "\n"
+            << "CUDA gradient: " << cuda_input_grad_host.data()[ mismatch_idx ] << "\n"
+            << "Max difference: " << max_diff << "\n"
+            << "Tolerance: " << epsilon;
+
+        // Compare parameter gradients
+        auto cpu_param_grads = cpu_mlp->getGradients();
+        auto cuda_param_grads = cuda_fixture.component->getGradients();
+
+        ASSERT_EQ( cpu_param_grads.size(), cuda_param_grads.size() )
+            << "CPU and CUDA should have same number of parameter gradients";
+
+        for ( size_t p = 0; p < cpu_param_grads.size(); ++p )
+        {
+            auto* cpu_grad_tensor = dynamic_cast<CpuTensor<TensorDataType::FP32>*>( cpu_param_grads[ p ] );
+            auto* cuda_grad_tensor = dynamic_cast<CudaTensor<TPrecision>*>( cuda_param_grads[ p ] );
+
+            ASSERT_NE( cpu_grad_tensor, nullptr );
+            ASSERT_NE( cuda_grad_tensor, nullptr );
+
+            CpuTensor<TensorDataType::FP32> cuda_param_grad_host = toHost<TensorDataType::FP32>( *cuda_grad_tensor );
+
+            max_diff = 0.0f;
+            for ( size_t i = 0; i < cpu_grad_tensor->size(); ++i )
+            {
+                float diff = std::abs( cpu_grad_tensor->data()[ i ] - cuda_param_grad_host.data()[ i ] );
+                if ( diff > max_diff )
+                {
+                    max_diff = diff;
+                }
+            }
+
+            EXPECT_LT( max_diff, epsilon )
+                << "Parameter gradient " << p << " mismatch (max diff: " << max_diff << ")";
+        }
     };
 }

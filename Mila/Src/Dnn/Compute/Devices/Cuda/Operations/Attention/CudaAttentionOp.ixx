@@ -14,7 +14,7 @@ module;
 #include <type_traits>
 #include <sstream>
 #include <cassert>
-#include "Kernels/Attention.cuh"
+#include "Kernels/CudaAttention.cuh"
 
 export module Compute.CudaAttentionOp;
 
@@ -791,77 +791,24 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 batch_size_, seq_length_, num_heads_, head_size_,
                 stream );
 
-            // TJT: Verified. permute_qkv looks okay
-            // DEBUG:
-            //context_->synchronize();
-            //{
-            //    using HostTensorType = Tensor<TensorDataType::FP32, CpuMemoryResource>;
-
-            //    HostTensorType host_q( Device::Cpu(), q_tensor_->shape() );
-            //    host_q.setName( this->getName() + ".dbg.q.host_copy" );
-            //    copy( *q_tensor_, host_q, context_ );
-
-            //    HostTensorType host_k( Device::Cpu(), k_tensor_->shape() );
-            //    host_k.setName( this->getName() + ".dbg.k.host_copy" );
-            //    copy( *k_tensor_, host_k, context_ );
-
-            //    // Zero check: count zeros in Q and K tensors
-            //    const float* q_data = static_cast<const float*>(host_q.rawData());
-            //    const float* k_data = static_cast<const float*>(host_k.rawData());
-            //    const size_t total_elements = host_q.size();
-
-            //    size_t q_zero_count = 0;
-            //    size_t k_zero_count = 0;
-
-            //    for ( size_t i = 0; i < total_elements; ++i )
-            //    {
-            //        if ( q_data[ i ] == 0.0f ) ++q_zero_count;
-            //        if ( k_data[ i ] == 0.0f ) ++k_zero_count;
-            //    }
-
-            //    std::ostringstream oss;
-            //    oss << "Q tensor: " << q_zero_count << " zeros out of " << total_elements
-            //        << " elements (" << (100.0 * q_zero_count / total_elements) << "%)";
-            //    Utils::Logger::info( oss.str() );
-
-            //    oss.str( "" );
-            //    oss << "K tensor: " << k_zero_count << " zeros out of " << total_elements
-            //        << " elements (" << (100.0 * k_zero_count / total_elements) << "%)";
-            //    Utils::Logger::info( oss.str() );
-
-            //    // Only print full tensors if there's an unexpected number of zeros
-            //    if ( q_zero_count > 0 || k_zero_count > 0 )
-            //    {
-            //        Utils::Logger::info( "Q and K tensors zeros found. Check QK matmul plan configuration." );
-            //        Utils::Logger::info( this->getName() + ": dbg.q (host copy):\n" + host_q.toString( true ) );
-            //        Utils::Logger::info( this->getName() + ": dbg.k (host copy):\n" + host_k.toString( true ) );
-            //    }
-            //    else
-            //    {
-            //        Utils::Logger::info( "Q and K tensors verified: no zeros found. QK matmul issue is in plan configuration." );
-            //        Utils::Logger::info( this->getName() + ": dbg.q (host copy):\n" + host_q.toString( true ) );
-            //        Utils::Logger::info( this->getName() + ": dbg.k (host copy):\n" + host_k.toString( true ) );
-            //    }
-            //}
-
             execute_plan<NativeType>(
                 cublaslt_handle_,
                 qk_score_plan_,
                 &alpha,
-                k_, q_, // swapped test fix
+                k_, q_,
                 &beta,
                 preatt_,
                 nullptr,
                 stream );
 
-            /*context_->synchronize();
+            context_->synchronize();
             {
                 using HostTensorType = Tensor<TensorDataType::FP32, CpuMemoryResource>;
                 HostTensorType host_preatt( Device::Cpu(), preatt_tensor_->shape() );
                 host_preatt.setName( this->getName() + ".dbg.preatt.host_copy" );
                 copy( *preatt_tensor_, host_preatt );
                 Utils::Logger::info( this->getName() + ": dbg.preatt (host copy):\n" + host_preatt.toString( true ) );
-            }*/
+            }
 
             const float scale = 1.0f / sqrtf( static_cast<float>(head_size_) );
 

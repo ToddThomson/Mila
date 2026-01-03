@@ -8,15 +8,12 @@
 
 module;
 #include <cmath>
-#include <vector>
 #include <memory>
 #include <string>
 #include <stdexcept>
 #ifdef USE_OMP
 #include <omp.h>
 #endif
-//#include <cstdint>
-//#include <iostream>
 
 export module Compute.CpuLayerNormOp;
 
@@ -25,8 +22,7 @@ import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
-//import Dnn.TensorDataTypeTraits;
-//import Dnn.TensorHostTypeMap;
+//import Dnn.TensorInitializers;
 import Dnn.TensorPartitioning;
 import Dnn.ComponentConfig;
 import Compute.DeviceType;
@@ -36,11 +32,8 @@ import Compute.OperationType;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
-//import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CpuTensorDataTypeTraits;
-//import Compute.CpuDevice;
-//import Compute.Precision;
 
 namespace Mila::Dnn::Compute
 {
@@ -49,8 +42,8 @@ namespace Mila::Dnn::Compute
     /**
      * @brief CPU implementation of Layer Normalization using abstract TensorDataType API.
      *
-     * Template parameter TPrecision selects the abstract tensor precision (e.g. FP32).
-     * float is the corresponding CPU host representation for that precision.
+     * Uses proper Tensor instances for all internal state including statistics (mean/rstd),
+     * ensuring architectural consistency with the rest of the framework.
      */
     class CpuLayerNormOp : public UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>
     {
@@ -125,7 +118,7 @@ namespace Mila::Dnn::Compute
         {
             if (!weight_grad)
             {
-                throw std::invalid_argument( "CpuLayerNormOp::setParameterGradients - weight gradient is required" );
+                throw std::invalid_argument( "CpuLayerNormOp::setGradients - weight gradient is required" );
             }
 
             weight_grad_ = static_cast<float*>(weight_grad->rawData());
@@ -134,7 +127,7 @@ namespace Mila::Dnn::Compute
             {
                 if (!bias_grad)
                 {
-                    throw std::invalid_argument( "CpuLayerNormOp::setParameterGradients - bias gradient expected but null was provided" );
+                    throw std::invalid_argument( "CpuLayerNormOp::setGradients - bias gradient expected but null was provided" );
                 }
 
                 bias_grad_ = static_cast<float*>(bias_grad->rawData());
@@ -156,12 +149,11 @@ namespace Mila::Dnn::Compute
          *  - setParameters() has already been called so weight/bias pointers are available
          *  - configuration (axis or normalized_shape) is final
          *
-         * Allocates backend-owned runtime storage for mean/rstd sized to the
+         * Allocates backend-owned tensor storage for mean/rstd statistics sized to the
          * outer grouping implied by the input shape and normalized axes.
          */
         void build( const shape_t& input_shape ) override
         {
-            // Ensure parameters were bound before build (module must call setParameters first).
             if ( weight_ == nullptr )
             {
                 throw std::runtime_error( "CpuLayerNormOp::build requires parameters bound via setParameters() before build()." );
@@ -172,78 +164,12 @@ namespace Mila::Dnn::Compute
                 throw std::runtime_error( "CpuLayerNormOp::build - bias expected by config but not bound via setParameters()." );
             }
 
-            // Validate input_shape matches configuration
-            if ( !config_.getNormalizedShape().empty() )
-            {
-                // If normalized_shape configured, ensure input_shape trailing dims match.
-                if ( input_shape.size() < config_.getNormalizedShape().size() )
-                {
-                    throw std::invalid_argument( "CpuLayerNormOp::build - input rank is less than normalized_shape rank" );
-                }
+            validateInputShape( input_shape );
 
-                size_t offset = input_shape.size() - config_.getNormalizedShape().size();
-                for ( size_t i = 0; i < config_.getNormalizedShape().size(); ++i )
-                {
-                    if ( input_shape[ offset + i ] != config_.getNormalizedShape()[ i ] )
-                    {
-                        throw std::invalid_argument( "CpuLayerNormOp::build - input trailing dimensions don't match normalized_shape" );
-                    }
-                }
-            }
-            else if ( !config_.getAxis().has_value() )
-            {
-                // Neither normalized_shape nor axis available -> cannot determine statistics layout
-                throw std::invalid_argument( "CpuLayerNormOp::build - configuration must specify normalized_shape or axis before build()" );
-            }
+            computeAxisPartitioning( input_shape );
 
-            // Compute outer/inner grouping to size mean/rstd workspace
-            const auto& shape = input_shape;
-            const int64_t ndim = static_cast<int64_t>(shape.size());
+            allocateStatisticsTensors();
 
-            int64_t axis = -1;
-            if ( config_.getAxis().has_value() )
-            {
-                axis = config_.getAxis().value();
-            }
-            else
-            {
-                // normalize axis to trailing dims: choose first trailing dim index
-                axis = static_cast<int64_t>(shape.size()) - static_cast<int64_t>(config_.getNormalizedShape().size());
-            }
-
-            if ( axis < 0 )
-                axis += ndim;
-
-            if ( axis < 0 || axis >= ndim )
-            {
-                throw std::invalid_argument( "CpuLayerNormOp::build - computed axis out of range" );
-            }
-
-            int64_t outer_size = 1;
-            for ( int64_t i = 0; i < axis; ++i )
-                outer_size *= static_cast<int64_t>( shape[ i ] );
-
-            int64_t inner_size = 1;
-            for ( int64_t i = axis + 1; i < ndim; ++i )
-                inner_size *= static_cast<int64_t>( shape[ i ] );
-
-            const int64_t expected_slices = outer_size * inner_size;
-
-            // Cache computed grouping for forward/backward to use
-            axis_ = axis;
-            outer_size_ = outer_size;
-            inner_size_ = inner_size;
-            expected_slices_ = expected_slices;
-            dim_size_ = static_cast<int64_t>( shape[ axis ] );
-
-            // Allocate backend-owned mean/rstd storage sized per outer grouping.
-            mean_storage_.assign( static_cast<size_t>(expected_slices), float( 0 ) );
-            rstd_storage_.assign( static_cast<size_t>(expected_slices), float( 0 ) );
-
-            mean_ = mean_storage_.data();
-            rstd_ = rstd_storage_.data();
-
-            // Mark built
             UnaryOperationBase::build( input_shape );
         }
 
@@ -252,12 +178,10 @@ namespace Mila::Dnn::Compute
         // ====================================================================
 
         /**
-         * Forward:
-         * - input: ITensor containing input values
-         * - output: ITensor to write normalized result
+         * @brief Forward pass - normalize input and apply learned affine transform.
          *
          * Uses cached parameter raw pointers (weight_, bias_) and backend-owned
-         * mean/rstd storage allocated during build().
+         * mean/rstd tensor storage allocated during build().
          */
         void forward( const ITensor& input, ITensor& output ) const override
         {
@@ -277,30 +201,16 @@ namespace Mila::Dnn::Compute
             const float* weight = weight_;
             const float* bias = bias_;
 
-            float* mean = mean_;
-            float* rstd = rstd_;
+            float* mean = mean_->data();
+            float* rstd = rstd_->data();
 
             const auto& shape = input.shape();
-            const int64_t ndim = shape.size();
 
-            if ( ndim < 1 )
-            {
-                throw std::runtime_error( "CpuLayerNormOp::forward - input must have rank >= 1" );
-            }
+            validateShapeConsistency( shape );
 
-            // Use cached axis/grouping from build()
-            const int64_t axis = axis_;
             const int64_t outer_size = outer_size_;
             const int64_t dim_size = dim_size_;
             const int64_t inner_size = inner_size_;
-
-            int64_t computed_outer = 1;
-            for ( int64_t i = 0; i < axis; ++i ) computed_outer *= static_cast<int64_t>( shape[ i ] );
-            if ( computed_outer != outer_size )
-            {
-                // Defensive check: shapes changed since build
-                throw std::runtime_error( "CpuLayerNormOp::forward - input shape mismatch since build()" );
-            }
 
         #pragma omp parallel for collapse(2) if( (size_t)outer_size * (size_t)inner_size > 100 )
             for ( int64_t outer = 0; outer < outer_size; ++outer )
@@ -342,20 +252,17 @@ namespace Mila::Dnn::Compute
                     }
 
                     const int64_t slice_index = outer * inner_size + inner;
-                    if ( mean ) mean[ slice_index ] = static_cast<float>(m);
-                    if ( rstd ) rstd[ slice_index ] = static_cast<float>(s);
+                    mean[ slice_index ] = static_cast<float>(m);
+                    rstd[ slice_index ] = static_cast<float>(s);
                 }
             }
         }
 
         /**
-         * Backward:
-         * - input: ITensor of original inputs (same as forward input)
-         * - output_grad: gradient w.r.t. output (dout)
-         * - input_grad: gradient w.r.t. input (accumulated)
+         * @brief Backward pass - compute gradients for input and parameters.
          *
          * Parameter gradients are written directly to the pointers provided
-         * via setParameterGradients() (weight_grad_, bias_grad_).
+         * via setGradients() (weight_grad_, bias_grad_).
          */
         void backward(
             const ITensor& input,
@@ -380,30 +287,16 @@ namespace Mila::Dnn::Compute
             float* dweight = weight_grad_;
             float* dbias = bias_grad_;
 
-            const float* mean = mean_;
-            const float* rstd = rstd_;
+            const float* mean = mean_->data();
+            const float* rstd = rstd_->data();
 
             const auto& shape = input.shape();
-            const int64_t ndim = static_cast<int64_t>(shape.size());
 
-            if ( ndim < 1 )
-            {
-                throw std::runtime_error( "CpuLayerNormOp::backward - input must have rank >= 1" );
-            }
+            validateShapeConsistency( shape );
 
-            // Use cached axis/grouping from build()
-            const int64_t axis = axis_;
             const int64_t outer_size = outer_size_;
             const int64_t dim_size = dim_size_;
             const int64_t inner_size = inner_size_;
-
-            int64_t computed_outer = 1;
-            for ( int64_t i = 0; i < axis; ++i ) computed_outer *= static_cast<int64_t>( shape[ i ] );
-            if ( computed_outer != outer_size )
-            {
-                // Defensive check: shapes changed since build
-                throw std::runtime_error( "CpuLayerNormOp::backward - input shape mismatch since build()" );
-            }
 
         #pragma omp parallel for collapse(2) if( (size_t)outer_size * (size_t)inner_size > 100 )
             for ( int64_t outer = 0; outer < outer_size; ++outer )
@@ -415,8 +308,8 @@ namespace Mila::Dnn::Compute
                     float* dinp_slice = dinp + (outer * dim_size * inner_size) + inner;
 
                     const int64_t slice_index = outer * inner_size + inner;
-                    long double mean_slice = mean ? static_cast<long double>( mean[ slice_index ] ) : 0.0L;
-                    long double rstd_slice = rstd ? static_cast<long double>( rstd[ slice_index ] ) : 1.0L;
+                    long double mean_slice = static_cast<long double>( mean[ slice_index ] );
+                    long double rstd_slice = static_cast<long double>( rstd[ slice_index ] );
 
                     long double dnorm_mean = 0.0L;
                     long double dnorm_norm_mean = 0.0L;
@@ -482,11 +375,9 @@ namespace Mila::Dnn::Compute
         float* weight_grad_{ nullptr };
         float* bias_grad_{ nullptr };
 
-        // Backend-owned runtime statistics storage
-        std::vector<float> mean_storage_;
-        std::vector<float> rstd_storage_;
-        float* mean_{ nullptr };
-        float* rstd_{ nullptr };
+        // Backend-owned statistics tensors (proper Tensor instances)
+        std::shared_ptr<TensorType> mean_{ nullptr };
+        std::shared_ptr<TensorType> rstd_{ nullptr };
 
         // Cached axis/grouping computed at build-time to avoid recomputing in forward/backward
         int64_t axis_{ -1 };
@@ -494,6 +385,117 @@ namespace Mila::Dnn::Compute
         int64_t outer_size_{ 1 };
         int64_t inner_size_{ 1 };
         int64_t expected_slices_{ 0 };
+
+        /**
+         * @brief Validate input shape matches configuration.
+         */
+        void validateInputShape( const shape_t& input_shape ) const
+        {
+            if ( !config_.getNormalizedShape().empty() )
+            {
+                if ( input_shape.size() < config_.getNormalizedShape().size() )
+                {
+                    throw std::invalid_argument( "CpuLayerNormOp::build - input rank is less than normalized_shape rank" );
+                }
+
+                size_t offset = input_shape.size() - config_.getNormalizedShape().size();
+                for ( size_t i = 0; i < config_.getNormalizedShape().size(); ++i )
+                {
+                    if ( input_shape[ offset + i ] != config_.getNormalizedShape()[ i ] )
+                    {
+                        throw std::invalid_argument( "CpuLayerNormOp::build - input trailing dimensions don't match normalized_shape" );
+                    }
+                }
+            }
+            else if ( !config_.getAxis().has_value() )
+            {
+                throw std::invalid_argument( "CpuLayerNormOp::build - configuration must specify normalized_shape or axis before build()" );
+            }
+        }
+
+        /**
+         * @brief Compute axis partitioning for statistics computation.
+         */
+        void computeAxisPartitioning( const shape_t& input_shape )
+        {
+            const int64_t ndim = static_cast<int64_t>(input_shape.size());
+
+            int64_t axis = -1;
+            if ( config_.getAxis().has_value() )
+            {
+                axis = config_.getAxis().value();
+            }
+            else
+            {
+                axis = static_cast<int64_t>(input_shape.size()) - static_cast<int64_t>(config_.getNormalizedShape().size());
+            }
+
+            if ( axis < 0 )
+                axis += ndim;
+
+            if ( axis < 0 || axis >= ndim )
+            {
+                throw std::invalid_argument( "CpuLayerNormOp::build - computed axis out of range" );
+            }
+
+            int64_t outer_size = 1;
+            for ( int64_t i = 0; i < axis; ++i )
+                outer_size *= static_cast<int64_t>( input_shape[ i ] );
+
+            int64_t inner_size = 1;
+            for ( int64_t i = axis + 1; i < ndim; ++i )
+                inner_size *= static_cast<int64_t>( input_shape[ i ] );
+
+            const int64_t expected_slices = outer_size * inner_size;
+
+            axis_ = axis;
+            outer_size_ = outer_size;
+            inner_size_ = inner_size;
+            expected_slices_ = expected_slices;
+            dim_size_ = static_cast<int64_t>( input_shape[ axis ] );
+        }
+
+        /**
+         * @brief Allocate backend-owned statistics tensors (mean and reciprocal std dev).
+         */
+        void allocateStatisticsTensors()
+        {
+            auto device_id = context_->getDeviceId();
+
+            mean_ = std::make_shared<TensorType>( 
+                device_id, 
+                shape_t{ expected_slices_ } 
+            );
+            mean_->setName( "layernorm.mean" );
+
+            rstd_ = std::make_shared<TensorType>( 
+                device_id, 
+                shape_t{ expected_slices_ } 
+            );
+            rstd_->setName( "layernorm.rstd" );
+        }
+
+        /**
+         * @brief Validate input shape consistency with cached build-time dimensions.
+         */
+        void validateShapeConsistency( const shape_t& shape ) const
+        {
+            const int64_t ndim = static_cast<int64_t>(shape.size());
+
+            if ( ndim < 1 )
+            {
+                throw std::runtime_error( "CpuLayerNormOp - input must have rank >= 1" );
+            }
+
+            int64_t computed_outer = 1;
+            for ( int64_t i = 0; i < axis_; ++i )
+                computed_outer *= static_cast<int64_t>( shape[ i ] );
+
+            if ( computed_outer != outer_size_ )
+            {
+                throw std::runtime_error( "CpuLayerNormOp - input shape mismatch since build()" );
+            }
+        }
     };
 
     // Register CPU LayerNorm (FP32)
@@ -512,10 +514,5 @@ namespace Mila::Dnn::Compute
                 }
             );
         }
-
-        static inline bool isRegistered = []() {
-            registerOperations();
-            return true;
-            }();
     };
 }

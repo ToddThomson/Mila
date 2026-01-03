@@ -84,7 +84,7 @@ namespace Mila::Dnn::Compute::Cuda
 
 			if ( exec_context )
 			{
-				auto* cuda_ctx = static_cast<ExecutionContext<DeviceType::Cuda>*>( exec_context );
+				auto* cuda_ctx = cast_context_<DeviceType::Cuda>( exec_context );
 				stream = cuda_ctx->getStream();
 			}
 

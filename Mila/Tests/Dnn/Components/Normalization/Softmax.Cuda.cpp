@@ -606,6 +606,7 @@ namespace Components_Normalization_Tests
         CudaTensor<TPrecision> device_output( Device::Cuda( 0 ), test_shape.dimensions );
         copy( host_input, device_input );
         cuda_fixture.component->forward( device_input, device_output );
+        cuda_fixture.component->synchronize();
 
         CpuTensor<TensorDataType::FP32> cuda_output_host = toHost<TensorDataType::FP32>( device_output );
 

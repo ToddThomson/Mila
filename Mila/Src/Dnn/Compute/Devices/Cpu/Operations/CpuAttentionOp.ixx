@@ -17,6 +17,8 @@ module;
 #include <cstdint>
 #include <algorithm>
 #include <cstring>
+#include <iostream>
+#include <sstream>
 #ifdef USE_OMP
 #include <omp.h>
 #endif
@@ -125,6 +127,9 @@ namespace Mila::Dnn::Compute
          * Forward:
          *  - input_qkv: [B, T, 3 * embedding_dim]  (Q || K || V)
          *  - output:    [B, T, embedding_dim]
+         *
+         * This implementation also builds explicit per-head intermediate tensors
+         * (q, k, v, vaccum) and logs them when small to aid parity debugging with the CUDA path.
          */
         void forward( const ITensor& input_qkv, ITensor& output ) const override
         {
@@ -155,34 +160,79 @@ namespace Mila::Dnn::Compute
             const int64_t v_offset_in_last = 2 * D;
             const int64_t last_stride = 3 * D;
 
-            // Step 1: compute scores per head: scores[b, h, i, j] = (Q_bh[i] · K_bh[j]) * scale
+            auto device_id = context_->getDeviceId();
+
+            // Create explicit per-head Q/K/V buffers to mirror CUDA intermediate layout:
+            // q/k/v shape: [B, NH, T, HS]
+            shape_t qkv_shape = { B, NH, T, hs };
+
+            TensorType q_tensor( device_id, qkv_shape );
+            TensorType k_tensor( device_id, qkv_shape );
+            TensorType v_tensor( device_id, qkv_shape );
+
+            q_tensor.setName( this->getName() + ".q" );
+            k_tensor.setName( this->getName() + ".k" );
+            v_tensor.setName( this->getName() + ".v" );
+
+            float* q_data = q_tensor.data();
+            float* k_data = k_tensor.data();
+            float* v_data = v_tensor.data();
+
+            // Permute/pack Q, K, V from concatenated model-layout into per-head layout.
+#pragma omp parallel for collapse(2)
+            for (int64_t b = 0; b < B; b++)
+            {
+                for (int64_t h = 0; h < NH; h++)
+                {
+                    for (int64_t t = 0; t < T; t++)
+                    {
+                        for (int64_t kk = 0; kk < hs; kk++)
+                        {
+                            const int64_t emb_idx = h * hs + kk;
+
+                            // input index for Q, K, V within concatenated last-dimension
+                            const int64_t base = (b * T + t) * last_stride;
+
+                            const float qv = in_data[ base + q_offset_in_last + emb_idx ];
+                            const float kv = in_data[ base + k_offset_in_last + emb_idx ];
+                            const float vv = in_data[ base + v_offset_in_last + emb_idx ];
+
+                            const size_t idx = static_cast<size_t>( ( (b * NH + h) * T + t ) * hs + kk );
+
+                            q_data[ idx ] = qv;
+                            k_data[ idx ] = kv;
+                            v_data[ idx ] = vv;
+                        }
+                    }
+                }
+            }
+
+            // Step 1: compute scores per head: preatt[b, h, i, j] = (Q_bh[i] · K_bh[j]) * scale
 #pragma omp parallel for collapse(2)
             for (int64_t b = 0; b < B; b++)
             {
                 for (int64_t h = 0; h < NH; h++)
                 {
                     const int64_t score_offset = b * NH * T * T + h * T * T;
+
                     for (int64_t i = 0; i < T; i++)
                     {
                         for (int64_t j = 0; j < T; j++)
                         {
                             float sum = 0.0f;
-                            // sum over head-size
-                            for (int64_t k = 0; k < hs; k++)
+
+                            for (int64_t kk = 0; kk < hs; kk++)
                             {
-                                // embedding index within embedding_dim
-                                int64_t emb_idx = h * hs + k;
+                                const size_t qi = static_cast<size_t>( ( (b * NH + h) * T + i ) * hs + kk );
+                                const size_t kj = static_cast<size_t>( ( (b * NH + h) * T + j ) * hs + kk );
 
-                                // Q at (b, i, emb_idx) -> in_data[ ((b*T)+i) * (3*D) + q_offset + emb_idx ]
-                                const int64_t q_index = ((b * T + i) * last_stride) + q_offset_in_last + emb_idx;
-                                const int64_t k_index = ((b * T + j) * last_stride) + k_offset_in_last + emb_idx;
-
-                                const float qv = in_data[q_index];
-                                const float kv = in_data[k_index];
+                                const float qv = q_data[ qi ];
+                                const float kv = k_data[ kj ];
 
                                 sum += qv * kv;
                             }
-                            preatt_data[score_offset + i * T + j] = sum * scale;
+
+                            preatt_data[ score_offset + i * T + j ] = sum * scale;
                         }
                     }
                 }
@@ -228,32 +278,79 @@ namespace Mila::Dnn::Compute
                 }
             }
 
-            // Step 3: Out = Att × V  => write into model-layout output [B, T, D]
+            // Step 3: vaccum = Att × V  (per-head accumulated values) -> vaccum shape [B, NH, T, HS]
+            TensorType vaccum( device_id, qkv_shape );
+            vaccum.setName( this->getName() + ".vaccum" );
+            float* vaccum_data = vaccum.data();
+
+            std::memset( vaccum_data, 0, static_cast<size_t>(B) * NH * T * hs * sizeof( float ) );
+
 #pragma omp parallel for collapse(2)
             for (int64_t b = 0; b < B; b++)
             {
                 for (int64_t h = 0; h < NH; h++)
                 {
                     const int64_t score_offset = b * NH * T * T + h * T * T;
+
                     for (int64_t i = 0; i < T; i++)
                     {
-                        for (int64_t k = 0; k < hs; k++)
+                        for (int64_t kk = 0; kk < hs; kk++)
                         {
                             float sum = 0.0f;
+
                             for (int64_t j = 0; j < T; j++)
                             {
-                                // V at (b, j, emb_idx) with emb_idx = h*hs + k
-                                int64_t emb_idx = h * hs + k;
-                                const int64_t v_index = ((b * T + j) * last_stride) + v_offset_in_last + emb_idx;
+                                const size_t vidx = static_cast<size_t>( ( (b * NH + h) * T + j ) * hs + kk );
+                                const float vval = v_data[ vidx ];
 
-                                sum += att_data[score_offset + i * T + j] * in_data[v_index];
+                                sum += att_data[ score_offset + i * T + j ] * vval;
                             }
 
-                            // Write to output model-layout: out[(b*T + i)*D + (h*hs + k)]
-                            out_data[(b * T + i) * D + (h * hs + k)] = sum;
+                            const size_t outidx = static_cast<size_t>( ( (b * NH + h) * T + i ) * hs + kk );
+                            vaccum_data[ outidx ] = sum;
                         }
                     }
                 }
+            }
+
+            // Unpermute vaccum -> output model-layout [B, T, D]
+#pragma omp parallel for collapse(2)
+            for (int64_t b = 0; b < B; b++)
+            {
+                for (int64_t i = 0; i < T; i++)
+                {
+                    for (int64_t h = 0; h < NH; h++)
+                    {
+                        for (int64_t kk = 0; kk < hs; kk++)
+                        {
+                            const int64_t emb_idx = h * hs + kk;
+                            const size_t vidx = static_cast<size_t>( ( (b * NH + h) * T + i ) * hs + kk );
+                            out_data[ (b * T + i) * D + emb_idx ] = vaccum_data[ vidx ];
+                        }
+                    }
+                }
+            }
+
+            // Debug dump: only print small tensors to avoid overwhelming logs.
+            const size_t preatt_elems = static_cast<size_t>(B) * NH * T * T;
+            const size_t vaccum_elems = static_cast<size_t>(B) * NH * T * hs;
+
+            if ( preatt_elems <= 1024 )
+            {
+                std::cout << this->getName() << ": preatt_cache (shape [" << B << "," << NH << "," << T << "," << T << "]):\n";
+                std::cout << preatt_cache_->toString( true ) << "\n";
+            }
+
+            if ( preatt_elems <= 1024 )
+            {
+                std::cout << this->getName() << ": att_cache (shape [" << B << "," << NH << "," << T << "," << T << "]):\n";
+                std::cout << att_cache_->toString( true ) << "\n";
+            }
+
+            if ( vaccum_elems <= 1024 )
+            {
+                std::cout << this->getName() << ": vaccum (shape [" << B << "," << NH << "," << T << "," << hs << "]):\n";
+                std::cout << vaccum.toString( true ) << "\n";
             }
         }
 

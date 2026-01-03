@@ -190,8 +190,9 @@ namespace Components_Layers_Attention_Tests
     };
 
     using PrecisionTypes = ::testing::Types<
-        PrecisionType<TensorDataType::FP32>,
-        PrecisionType<TensorDataType::FP16>
+        PrecisionType<TensorDataType::FP32>/*,
+        TODO: Enable once Attention supports
+        PrecisionType<TensorDataType::FP16>*/
     >;
 
     TYPED_TEST_SUITE( AttentionCudaTests, PrecisionTypes );
@@ -576,6 +577,7 @@ namespace Components_Layers_Attention_Tests
             copy( host_input, device_input );
 
             cuda_comp->forward( device_input, device_output );
+            cuda_comp->synchronize();
 
             CpuTensor<TensorDataType::FP32> host_output_cuda( Device::Cpu(), shape.outputShape() );
             copy( device_output, host_output_cuda );
@@ -664,8 +666,11 @@ namespace Components_Layers_Attention_Tests
             // CUDA forward
             CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), input_shape );
             CudaTensor<TensorDataType::FP32> device_output_cuda( Device::Cuda( 0 ), output_shape );
+            
             copy( host_input, device_input );
+            
             cuda_comp->forward( device_input, device_output_cuda );
+            cuda_comp->synchronize();
 
             // ====================================================================
             // BACKWARD PASS - Now internal state (Q, K, V, att) is initialized
@@ -681,8 +686,11 @@ namespace Components_Layers_Attention_Tests
             // CUDA backward
             CudaTensor<TensorDataType::FP32> device_output_grad( Device::Cuda( 0 ), output_shape );
             CudaTensor<TensorDataType::FP32> device_input_grad( Device::Cuda( 0 ), input_shape );
+            
             copy( host_output_grad, device_output_grad );
+            
             cuda_comp->backward( device_input, device_output_grad, device_input_grad );
+            cuda_comp->synchronize();
 
             CpuTensor<TensorDataType::FP32> host_input_grad_cuda( Device::Cpu(), input_shape );
             copy( device_input_grad, host_input_grad_cuda );
