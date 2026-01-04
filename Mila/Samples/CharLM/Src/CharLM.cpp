@@ -52,7 +52,7 @@ struct CharLMConfig
 
     float sample_temperature = 0.8f;
     int64_t sample_length = 300;
-    size_t sample_every_n_epochs = 5;
+    size_t sample_every_n_epochs = 10;
     std::string sample_prompt = "ROMEO:\n";
 
     // Simple epoch-based learning-rate scheduler:

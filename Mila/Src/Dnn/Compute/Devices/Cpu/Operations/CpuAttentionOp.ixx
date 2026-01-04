@@ -335,7 +335,7 @@ namespace Mila::Dnn::Compute
             const size_t preatt_elems = static_cast<size_t>(B) * NH * T * T;
             const size_t vaccum_elems = static_cast<size_t>(B) * NH * T * hs;
 
-            if ( preatt_elems <= 1024 )
+            /*if ( preatt_elems <= 1024 )
             {
                 std::cout << this->getName() << ": preatt_cache (shape [" << B << "," << NH << "," << T << "," << T << "]):\n";
                 std::cout << preatt_cache_->toString( true ) << "\n";
@@ -351,7 +351,7 @@ namespace Mila::Dnn::Compute
             {
                 std::cout << this->getName() << ": vaccum (shape [" << B << "," << NH << "," << T << "," << hs << "]):\n";
                 std::cout << vaccum.toString( true ) << "\n";
-            }
+            }*/
         }
 
         /**

@@ -746,32 +746,38 @@ namespace Mila::Dnn
         std::string outputBuffer( size_t index, size_t depth ) const {
             using TElementType = typename TensorHostTypeMap<TDataType>::host_type;
             std::ostringstream oss;
-            
+
+            // Configuration: adjust these values to control output display
+            constexpr size_t show_rows = 5;  // Number of rows to show at start/end of each dimension
+            constexpr size_t show_cols = 5;  // Number of columns to show at start/end (innermost dimension)
+
             if ( depth == shape_.size() - 1 ) {
+                // Innermost dimension (columns)
                 for ( size_t i = 0; i < shape_[ depth ]; ++i ) {
-                    if ( i < 3 || i >= shape_[ depth ] - 3 ) {
+                    if ( i < show_cols || i >= shape_[ depth ] - show_cols ) {
                         TElementType value = static_cast<TElementType*>( buffer_->data() )[ index + i ];
                         oss << std::setw( 10 ) << value << " ";
                     }
-                    else if ( i == 3 ) {
+                    else if ( i == show_cols ) {
                         oss << "... ";
                     }
                 }
             }
             else {
+                // Higher dimensions (rows and batch dimensions)
                 for ( size_t i = 0; i < shape_[ depth ]; ++i ) {
-                    if ( i < 3 || i >= shape_[ depth ] - 3 ) {
+                    if ( i < show_rows || i >= shape_[ depth ] - show_rows ) {
                         oss << "[ ";
                         oss << outputBuffer( index + i * strides_[ depth ], depth + 1 );
                         oss << "]" << std::endl;
                     }
-                    else if ( i == 3 ) {
+                    else if ( i == show_rows ) {
                         oss << "[ ... ]" << std::endl;
-                        i = shape_[ depth ] - 4;
+                        i = shape_[ depth ] - show_rows - 1;
                     }
                 }
             }
-            
+
             return oss.str();
         }
     };

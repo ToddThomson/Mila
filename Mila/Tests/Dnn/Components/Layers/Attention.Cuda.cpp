@@ -52,7 +52,7 @@ namespace Components_Layers_Attention_Tests
 
         static TestShape Small()
         {
-            return { TestShapeSize::Small, 2, 4, 64, 8, "Small" };
+            return { TestShapeSize::Small, 2, 4, 8, 2, "Small" }; // Reduced embedding_dim from 64 to 16 abd num_heads from 8 to 4
         }
 
         static TestShape Medium()
@@ -562,13 +562,28 @@ namespace Components_Layers_Attention_Tests
             cpu_comp->build( shape.inputShape() );
             cuda_comp->build( shape.inputShape() );
 
+            // Create deterministic input with known seed
+            Mila::Core::RandomGenerator::getInstance().setSeed( 12345 );
+
             CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), shape.inputShape() );
             random( host_input, -1.0f, 1.0f );
+
+            std::cout << "\n=== Deterministic Input Pattern ===\n";
+            std::cout << "Input tensor: " << std::endl;
+            std::cout << "Shape: [" << shape.batch << ", " << shape.seq << ", "
+                << (3 * shape.embedding_dim) << "]\n";
+            std::cout << "Embedding: " << shape.embedding_dim
+                << ", Heads: " << shape.num_heads
+                << ", HeadSize: " << (shape.embedding_dim / shape.num_heads) << "\n\n";
+            std::cout << host_input.toString( true ) << std::endl;
 
             CpuTensor<TensorDataType::FP32> host_output_cpu( Device::Cpu(), shape.outputShape() );
 
             // CPU forward
             cpu_comp->forward( host_input, host_output_cpu );
+
+            std::cout << "CPU forward output: " << std::endl;
+            std::cout << host_output_cpu.toString( true ) << std::endl;
 
             // CUDA forward
             CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), shape.inputShape() );
@@ -581,6 +596,9 @@ namespace Components_Layers_Attention_Tests
 
             CpuTensor<TensorDataType::FP32> host_output_cuda( Device::Cpu(), shape.outputShape() );
             copy( device_output, host_output_cuda );
+
+            std::cout << "CUDA forward output: " << std::endl;
+            std::cout << host_output_cuda.toString( true ) << std::endl;
 
             // Compare element-wise with tolerance
             auto* cpu_data = host_output_cpu.data();

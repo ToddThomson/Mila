@@ -19,13 +19,6 @@ namespace Mila::Dnn::Compute::Cuda::Attention
     // FP32 Softmax with Causal Masking and Scaling
     // ========================================================================
 
-    /**
-     * @brief Softmax forward with causal masking and scaling.
-     *
-     * Applies softmax to pre-attention scores with causal mask (t2 <= t).
-     * Input: preatt [B*NH, T, T] (scaled attention scores)
-     * Output: att [B*NH, T, T] (attention probabilities)
-     */
     __global__ void softmax_forward_fp32_kernel(
         float* att, float scale, const float* preatt,
         int B_NH, int T )
@@ -33,39 +26,43 @@ namespace Mila::Dnn::Compute::Cuda::Attention
         int idx = blockIdx.x * blockDim.x + threadIdx.x;
         int total_rows = B_NH * T;
 
-        if ( idx < total_rows )
-        {
-            int t = idx % T;
-            const float* preatt_row = preatt + idx * T;
-            float* att_row = att + idx * T;
+        if ( idx < total_rows ) {
+            int b_nh = idx / T;      // Which (batch, head) pair
+            int t = idx % T;         // Query position (row index in [T,T] matrix)
 
-            // Pass 1: Find max (unscaled)
+            // Base pointer for this (batch, head) matrix
+            const float* preatt_matrix = preatt + b_nh * (T * T);
+            float* att_matrix = att + b_nh * (T * T);
+
+            // Column-major [T,T]: element at (row=t, col=t2) is at index: t + t2*T
+
+            // Pass 1: Find max (only over valid positions: t2 <= t for causal)
             float max_val = -INFINITY;
-            for ( int t2 = 0; t2 <= t; ++t2 )
-            {
-                max_val = fmaxf( max_val, preatt_row[ t2 ] );
+            for ( int t2 = 0; t2 <= t; ++t2 ) {
+                int idx_2d = t + t2 * T;  // Column-major indexing
+                max_val = fmaxf( max_val, preatt_matrix[ idx_2d ] );
             }
 
             // Pass 2: Compute exp((x - max) * scale) and sum
             float sum = 0.0f;
-            for ( int t2 = 0; t2 <= t; ++t2 )
-            {
-                float val = expf( (preatt_row[ t2 ] - max_val) * scale );
+            for ( int t2 = 0; t2 <= t; ++t2 ) {
+                int idx_2d = t + t2 * T;
+                float val = expf( (preatt_matrix[ idx_2d ] - max_val) * scale );
                 sum += val;
-                att_row[ t2 ] = val;
+                att_matrix[ idx_2d ] = val;
             }
 
             // Pass 3: Normalize
             float inv_sum = 1.0f / sum;
-            for ( int t2 = 0; t2 <= t; ++t2 )
-            {
-                att_row[ t2 ] *= inv_sum;
+            for ( int t2 = 0; t2 <= t; ++t2 ) {
+                int idx_2d = t + t2 * T;
+                att_matrix[ idx_2d ] *= inv_sum;
             }
 
-            // Pass 4: Apply causal mask
-            for ( int t2 = t + 1; t2 < T; ++t2 )
-            {
-                att_row[ t2 ] = 0.0f;
+            // Pass 4: Apply causal mask (zero out future positions)
+            for ( int t2 = t + 1; t2 < T; ++t2 ) {
+                int idx_2d = t + t2 * T;
+                att_matrix[ idx_2d ] = 0.0f;
             }
         }
     }

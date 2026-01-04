@@ -83,7 +83,4 @@ namespace Mila::Dnn::Compute::Cuda::Attention
         const half* dq, const half* dk, const half* dv,
         int B, int T, int NH, int HS,
         cudaStream_t stream );
-
-    // cuBLAS handle (defined in CudaDevice or CudaDeviceResources)
-    // extern cublasHandle_t cublas_handle;
 }

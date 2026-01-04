@@ -393,15 +393,15 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
                 config_.getEpsilon(),
                 stream );
 
-            context_->synchronize();
-            {
-                using HostTensorType = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+            //context_->synchronize();
+            //{
+            //    using HostTensorType = Tensor<TensorDataType::FP32, CpuMemoryResource>;
 
-                HostTensorType host_output( Device::Cpu(), output.shape() );
-                host_output.setName( this->getName() + ".dbg.output" );
-                copy( static_cast<const TensorType&>(output), host_output );
-                Utils::Logger::info( this->getName() + ": dbg.output:\n" + host_output.toString( true ) );
-            }
+            //    HostTensorType host_output( Device::Cpu(), output.shape() );
+            //    host_output.setName( this->getName() + ".dbg.output" );
+            //    copy( static_cast<const TensorType&>(output), host_output );
+            //    Utils::Logger::info( this->getName() + ": dbg.output:\n" + host_output.toString( true ) );
+            //}
         }
 
         /**
