@@ -205,6 +205,10 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
         }
     }
 
+    // ========================================================================
+    // Host launchers
+    // ========================================================================
+
     void cuda_layernorm_forward_fp32(
         float* Y, float* mean, float* rstd,
         const float* X, const float* weight, const float* bias,

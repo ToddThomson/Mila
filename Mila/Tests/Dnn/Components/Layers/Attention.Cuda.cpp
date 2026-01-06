@@ -52,7 +52,7 @@ namespace Components_Layers_Attention_Tests
 
         static TestShape Small()
         {
-            return { TestShapeSize::Small, 2, 4, 8, 2, "Small" }; // Reduced embedding_dim from 64 to 16 abd num_heads from 8 to 4
+            return { TestShapeSize::Small, 2, 4, 8, 2, "Small" };
         }
 
         static TestShape Medium()
@@ -582,9 +582,6 @@ namespace Components_Layers_Attention_Tests
             // CPU forward
             cpu_comp->forward( host_input, host_output_cpu );
 
-            std::cout << "CPU forward output: " << std::endl;
-            std::cout << host_output_cpu.toString( true ) << std::endl;
-
             // CUDA forward
             CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), shape.inputShape() );
             CudaTensor<TensorDataType::FP32> device_output( Device::Cuda( 0 ), shape.outputShape() );
@@ -596,6 +593,9 @@ namespace Components_Layers_Attention_Tests
 
             CpuTensor<TensorDataType::FP32> host_output_cuda( Device::Cpu(), shape.outputShape() );
             copy( device_output, host_output_cuda );
+
+            std::cout << "CPU forward output: " << std::endl;
+            std::cout << host_output_cpu.toString( true ) << std::endl;
 
             std::cout << "CUDA forward output: " << std::endl;
             std::cout << host_output_cuda.toString( true ) << std::endl;
@@ -629,32 +629,9 @@ namespace Components_Layers_Attention_Tests
 
         try
         {
-            // Minimal shape: 1 batch, 2 tokens, 4 embedding dim, 2 heads
-            // Input will be 3 * embedding_dim for concatenated QKV
-            constexpr int batch_size = 1;
-            constexpr int seq_length = 2;
-            constexpr int embedding_dim = 4;
-            constexpr int num_heads = 2;
-            constexpr int head_dim = embedding_dim / num_heads;  // = 2
-            constexpr int qkv_dim = 3 * embedding_dim;  // = 12
-
-            std::cout << "\n=== Minimal Test Configuration ===\n";
-            std::cout << "Batch: " << batch_size << ", Seq: " << seq_length << "\n";
-            std::cout << "Embed: " << embedding_dim << ", Heads: " << num_heads
-                << ", HeadDim: " << head_dim << "\n";
-            std::cout << "Input (QKV concat): " << qkv_dim << " (3 * " << embedding_dim << ")\n";
-            std::cout << "Output: " << embedding_dim << "\n\n";
-
-            AttentionConfig cfg( embedding_dim, num_heads );
+            auto shape = TestShape::Small();
+            AttentionConfig cfg( shape.embedding_dim, shape.num_heads );
             
-            shape_t input_shape{ batch_size, seq_length, qkv_dim };
-            shape_t output_shape{ batch_size, seq_length, embedding_dim };
-
-            // Use batch=1 version of Small shape to isolate batching issues
-            //TestShape shape{ TestShapeSize::Small, 1, 4, 64, 8, "Small_Batch1" };  // Changed from TestShape::Small()
-
-            //AttentionConfig cfg( shape.embedding_dim, shape.num_heads );
-
             auto cpu_comp = std::make_shared<Attention<DeviceType::Cpu, TensorDataType::FP32>>(
                 "attention_cpu_equiv_bwd", cfg, Device::Cpu()
             );
@@ -663,27 +640,39 @@ namespace Components_Layers_Attention_Tests
                 "attention_cuda_equiv_bwd", cfg, Device::Cuda( 0 )
             );
 
-            cpu_comp->build( input_shape );
-            cuda_comp->build( input_shape );
+            cpu_comp->build( shape.inputShape() );
+            cuda_comp->build( shape.inputShape() );
 
             cpu_comp->setTraining( true );
             cuda_comp->setTraining( true );
 
+            // Create deterministic input with known seed
+            Mila::Core::RandomGenerator::getInstance().setSeed( 12345 );
+
             // Create shared input for both CPU and CUDA forward passes
-            CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), input_shape );
+            CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), shape.inputShape() );
             random( host_input, -1.0f, 1.0f );
+
+            std::cout << "\n=== Deterministic Input Pattern ===\n";
+            std::cout << "Input tensor: " << std::endl;
+            std::cout << "Shape: [" << shape.batch << ", " << shape.seq << ", "
+                << (3 * shape.embedding_dim) << "]\n";
+            std::cout << "Embedding: " << shape.embedding_dim
+                << ", Heads: " << shape.num_heads
+                << ", HeadSize: " << (shape.embedding_dim / shape.num_heads) << "\n\n";
+            std::cout << host_input.toString( true ) << std::endl;
 
             // ====================================================================
             // FORWARD PASS - Required to establish internal state for backward
             // ====================================================================
 
             // CPU forward
-            CpuTensor<TensorDataType::FP32> host_output_cpu( Device::Cpu(), output_shape );
+            CpuTensor<TensorDataType::FP32> host_output_cpu( Device::Cpu(), shape.outputShape() );
             cpu_comp->forward( host_input, host_output_cpu );
 
             // CUDA forward
-            CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), input_shape );
-            CudaTensor<TensorDataType::FP32> device_output_cuda( Device::Cuda( 0 ), output_shape );
+            CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), shape.inputShape() );
+            CudaTensor<TensorDataType::FP32> device_output_cuda( Device::Cuda( 0 ), shape.outputShape() );
             
             copy( host_input, device_input );
             
@@ -694,24 +683,32 @@ namespace Components_Layers_Attention_Tests
             // BACKWARD PASS - Now internal state (Q, K, V, att) is initialized
             // ====================================================================
 
-            CpuTensor<TensorDataType::FP32> host_output_grad( Device::Cpu(), output_shape );
-            random( host_output_grad, -0.5f, 0.5f );
+            CpuTensor<TensorDataType::FP32> host_output_grad( Device::Cpu(), shape.outputShape() );
+            float* data = host_output_grad.data();
+            for ( size_t i = 0; i < host_output_grad.size(); ++i ) {
+                data[ i ] = static_cast<float>( i );
+            }
 
             // CPU backward
-            CpuTensor<TensorDataType::FP32> host_input_grad_cpu( Device::Cpu(), input_shape );
+            CpuTensor<TensorDataType::FP32> host_input_grad_cpu( Device::Cpu(), shape.inputShape() );
             cpu_comp->backward( host_input, host_output_grad, host_input_grad_cpu );
 
             // CUDA backward
-            CudaTensor<TensorDataType::FP32> device_output_grad( Device::Cuda( 0 ), output_shape );
-            CudaTensor<TensorDataType::FP32> device_input_grad( Device::Cuda( 0 ), input_shape );
+            CudaTensor<TensorDataType::FP32> device_output_grad( Device::Cuda( 0 ), shape.outputShape() );
+            CudaTensor<TensorDataType::FP32> device_input_grad( Device::Cuda( 0 ), shape.inputShape() );
             
             copy( host_output_grad, device_output_grad );
             
             cuda_comp->backward( device_input, device_output_grad, device_input_grad );
             cuda_comp->synchronize();
 
-            CpuTensor<TensorDataType::FP32> host_input_grad_cuda( Device::Cpu(), input_shape );
+            CpuTensor<TensorDataType::FP32> host_input_grad_cuda( Device::Cpu(), shape.inputShape() );
             copy( device_input_grad, host_input_grad_cuda );
+
+            std::cout << "CPU backward input gradient: " << std::endl;
+            std::cout << host_input_grad_cpu.toString( true ) << std::endl;
+            std::cout << "CUDA backward input gradient: " << std::endl;
+            std::cout << host_input_grad_cuda.toString( true ) << std::endl;
 
             // Compare element-wise with tolerance
             auto* cpu_data = host_input_grad_cpu.data();

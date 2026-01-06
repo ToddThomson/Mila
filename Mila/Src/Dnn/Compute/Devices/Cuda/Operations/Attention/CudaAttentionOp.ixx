@@ -1,6 +1,6 @@
 /**
  * @file CudaAttentionOp.ixx
- * @brief CUDA implementation of Multi-Head Attention with column-major cuBLASLt optimization.
+ * @brief CUDA implementation of Multi-Head Attention cuBLASLt optimization.
  */
 
 module;
@@ -58,11 +58,9 @@ namespace Mila::Dnn::Compute::Cuda::Attention
         using CublasLtMatMulPlan = CublasLtMatMulPlan<TNative>;
 
         /**
-         * @brief Build cuBLASLt plan for Q·K^T attention score computation.
+         * @brief Build cuBLASLt plan for Q·K^T attention score computation (row-major).
          *
-         * Each of Q, K, V shape: [B, NH, HS, T] in column-major layout
-         * 
-         * Column-major storage: Q[B, NH, HS, T] and K[B, NH, HS, T]
+         * Row-major storage: Q[K] and K[K] are stored as [T, HS] (rows = sequence length, cols = head size).
          * Mathematical operation: preatt[T, T] = Q[T, HS] @ K^T[HS, T]
          */
         template <typename TNative>
@@ -77,21 +75,27 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             cudaDataType_t scale_type )
         {
             const int batch_count = batch_size * num_heads;
-            const long long strideA = static_cast<long long>(head_size) * static_cast<long long>(seq_length);  // TJT: checked
-            const long long strideB = static_cast<long long>(head_size) * static_cast<long long>(seq_length);  // TJT: checked
-            const long long strideC = static_cast<long long>(seq_length) * static_cast<long long>(seq_length); // TJT: checked
 
+            // Row-major element stride (elements per head per batch): rows * cols = T * HS
+            const long long strideA = static_cast<long long>(seq_length) * static_cast<long long>(head_size);
+            const long long strideB = static_cast<long long>(seq_length) * static_cast<long long>(head_size);
+            const long long strideC = static_cast<long long>(seq_length) * static_cast<long long>(seq_length);
+
+            // Row-major interpretation:
+            // - A (Q): rows = T, cols = HS, ldA = HS
+            // - B (K): rows = T, cols = HS, ldB = HS (we will use K^T via opB = CUBLAS_OP_T)
+            // - C (preatt): rows = T, cols = T, ldC = T
             auto plan = build_strided_plan<TNative>(
                 handle,
-                head_size, seq_length, head_size, strideA,  // Q: (A_rows=HS, A_cols=T, ldA=HS, strideA)
-                head_size, seq_length, head_size, strideB,  // K: (B_rows=HS, B_cols=T, ldB=HS, strideB)
-                seq_length, seq_length, seq_length, strideC, // preatt: (C_rows=T, C_cols=T, ldC=T, strideC)
-                CUBLAS_OP_T, CUBLAS_OP_N,                    // Q^T @ K
-                compute_type,
-                scale_type,
-                cuda_data_type,
+                /*A_rows=*/ seq_length, /*A_cols=*/ head_size, /*ldA=*/ head_size, /*strideA=*/ strideA,
+                /*B_rows=*/ seq_length, /*B_cols=*/ head_size, /*ldB=*/ head_size, /*strideB=*/ strideB,
+                /*C_rows=*/ seq_length, /*C_cols=*/ seq_length, /*ldC=*/ seq_length, /*strideC=*/ strideC,
+                /*opA=*/ CUBLAS_OP_N, /*opB=*/ CUBLAS_OP_T,   // Q @ K^T
                 batch_count,
-                false );
+                false,
+                compute_type,
+                cuda_data_type,
+                scale_type );
 
             if ( !plan.isValid() || !plan.has_algorithm )
             {
@@ -113,21 +117,31 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             cudaDataType_t scale_type )
         {
             const int batch_count = batch_size * num_heads;
-            const long long strideA = static_cast<long long>(seq_length) * static_cast<long long>(seq_length);
-            const long long strideB = static_cast<long long>(head_size) * static_cast<long long>(seq_length);
-            const long long strideC = static_cast<long long>(head_size) * static_cast<long long>(seq_length);  // HS * T
+
+            //
+            // Row-major interpretation:
+            // - A (att): rows = T, cols = T, ldA = T, strideA = T * T
+            // - B (V)  : rows = T, cols = HS, ldB = HS, strideB = T * HS
+            // - C (v_out): rows = T, cols = HS, ldC = HS, strideC = T * HS
+            //
+            // Mathematical operation: v_out[T, HS] = att[T, T] @ V[T, HS]
+            //
+
+            const long long strideA = static_cast<long long>(seq_length) * static_cast<long long>(seq_length); // T * T
+            const long long strideB = static_cast<long long>(seq_length) * static_cast<long long>(head_size); // T * HS
+            const long long strideC = static_cast<long long>(seq_length) * static_cast<long long>(head_size); // T * HS
 
             auto plan = build_strided_plan<TNative>(
                 handle,
-                seq_length, seq_length, seq_length, strideA,   // att: [T, T]
-                head_size, seq_length, head_size, strideB,     // V: [HS, T]
-                head_size, seq_length, head_size, strideC,     // CHANGED: [HS, T] with ldc=HS
-                CUBLAS_OP_N, CUBLAS_OP_T,
-                compute_type,
-                scale_type,
-                cuda_data_type,
+                /*A_rows=*/ seq_length, /*A_cols=*/ seq_length, /*ldA=*/ seq_length, /*strideA=*/ strideA, // att: [T, T]
+                /*B_rows=*/ seq_length, /*B_cols=*/ head_size,  /*ldB=*/ head_size,  /*strideB=*/ strideB, // V:   [T, HS]
+                /*C_rows=*/ seq_length, /*C_cols=*/ head_size,  /*ldC=*/ head_size,  /*strideC=*/ strideC, // v_out:[T, HS]
+                /*opA=*/ CUBLAS_OP_N, /*opB=*/ CUBLAS_OP_N, // v_out = A @ B
                 batch_count,
-                false );
+                false,
+                compute_type,
+                cuda_data_type,
+                scale_type );
 
             if ( !plan.isValid() || !plan.has_algorithm )
             {
@@ -137,25 +151,6 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             return plan;
         }
 
-        /**
-         * @brief Build cuBLASLt plan for backward dV computation.
-         *
-         * Column-major storage: Att[B, NH, T, T] and dvaccum[B, NH, HS, T]
-         * Mathematical operation: dV[T, HS] = Att^T[T, T] @ dvaccum[T, HS]
-         * Rearranged: dV = dvaccum @ Att (since (A^T @ B)^T = B^T @ A)
-         *
-         * cuBLASLt column-major semantics:
-         * - Matrix A (dvaccum): stored with HS varying fastest, so rows=HS, cols=T, ldA=HS
-         * - Matrix B (Att): stored with T varying fastest, so rows=T, cols=T, ldB=T
-         * - Operation: C[HS,T] = A[HS,T] @ B^T[T,T] using opA=N, opB=T
-         * - Result C: rows=HS, cols=T, ldC=HS
-         *
-         * Strided-batched configuration:
-         * - Batch count: B * NH
-         * - A stride: HS*T elements per batch
-         * - B stride: T*T elements per batch
-         * - C stride: HS*T elements per batch
-         */
         template <typename TNative>
         CublasLtMatMulPlan<TNative> build_backward_v_plan(
             cublasLtHandle_t handle,
@@ -168,21 +163,32 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             cudaDataType_t scale_type )
         {
             const int batch_count = batch_size * num_heads;
-            const long long strideA = static_cast<long long>(head_size) * static_cast<long long>(seq_length);
-            const long long strideB = static_cast<long long>(seq_length) * static_cast<long long>(seq_length);
-            const long long strideC = static_cast<long long>(head_size) * static_cast<long long>(seq_length);
+
+            //
+            // Row-major interpretation (refactored):
+            // - A (att):   rows = T, cols = T,  ldA = T,  strideA = T * T
+            // - B (dVout): rows = T, cols = HS, ldB = HS, strideB = T * HS
+            // - C (dV):    rows = T, cols = HS, ldC = HS, strideC = T * HS
+            //
+            // Mathematical operation (row-major): dV[T,HS] = Att^T[T,T] @ dVout[T,HS]
+            // Map to cuBLAS op flags: opA = CUBLAS_OP_T, opB = CUBLAS_OP_N
+            //
+
+            const long long strideA = static_cast<long long>(seq_length) * static_cast<long long>(seq_length); // T * T
+            const long long strideB = static_cast<long long>(seq_length) * static_cast<long long>(head_size); // T * HS
+            const long long strideC = static_cast<long long>(seq_length) * static_cast<long long>(head_size); // T * HS
 
             auto plan = build_strided_plan<TNative>(
                 handle,
-                head_size, seq_length, head_size, strideA,
-                seq_length, seq_length, seq_length, strideB,
-                head_size, seq_length, head_size, strideC,
-                CUBLAS_OP_N, CUBLAS_OP_T,
-                compute_type,
-                scale_type,
-                cuda_data_type,
+                /*A_rows=*/ seq_length, /*A_cols=*/ seq_length, /*ldA=*/ seq_length, /*strideA=*/ strideA, // att: [T, T]
+                /*B_rows=*/ seq_length, /*B_cols=*/ head_size,  /*ldB=*/ head_size,  /*strideB=*/ strideB, // dVout: [T, HS]
+                /*C_rows=*/ seq_length, /*C_cols=*/ head_size,  /*ldC=*/ head_size,  /*strideC=*/ strideC, // dV: [T, HS]
+                /*opA=*/ CUBLAS_OP_T, /*opB=*/ CUBLAS_OP_N, // dV = Att^T @ dVout
                 batch_count,
-                false );
+                false,
+                compute_type,
+                cuda_data_type,
+                scale_type );
 
             if ( !plan.isValid() || !plan.has_algorithm )
             {
@@ -192,24 +198,6 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             return plan;
         }
 
-        /**
-         * @brief Build cuBLASLt plan for backward dAtt computation.
-         *
-         * Column-major storage: dvaccum[B, NH, HS, T] and V[B, NH, HS, T]
-         * Mathematical operation: dAtt[T, T] = dvaccum[T, HS] @ V^T[HS, T]
-         *
-         * cuBLASLt column-major semantics:
-         * - Matrix A (dvaccum): stored with HS varying fastest, so rows=HS, cols=T, ldA=HS
-         * - Matrix B (V): stored with HS varying fastest, so rows=HS, cols=T, ldB=HS
-         * - Operation: C[T,T] = A^T[T,HS] @ B[HS,T] using opA=T, opB=N
-         * - Result C: rows=T, cols=T, ldC=T
-         *
-         * Strided-batched configuration:
-         * - Batch count: B * NH
-         * - A stride: HS*T elements per batch
-         * - B stride: HS*T elements per batch
-         * - C stride: T*T elements per batch
-         */
         template <typename TNative>
         CublasLtMatMulPlan<TNative> build_backward_att_plan(
             cublasLtHandle_t handle,
@@ -222,21 +210,32 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             cudaDataType_t scale_type )
         {
             const int batch_count = batch_size * num_heads;
-            const long long strideA = static_cast<long long>(head_size) * static_cast<long long>(seq_length);
-            const long long strideB = static_cast<long long>(head_size) * static_cast<long long>(seq_length);
-            const long long strideC = static_cast<long long>(seq_length) * static_cast<long long>(seq_length);
+
+            //
+            // Row-major interpretation (refactored):
+            // - A (dVout): rows = T, cols = HS, ldA = HS, strideA = T * HS
+            // - B (V)    : rows = T, cols = HS, ldB = HS, strideB = T * HS
+            // - C (dAtt) : rows = T, cols = T,  ldC = T,  strideC = T * T
+            //
+            // Mathematical operation: dAtt[T, T] = dVout[T, HS] @ V[T, HS]^T
+            // cuBLAS mapping: opA = CUBLAS_OP_N, opB = CUBLAS_OP_T
+            //
+
+            const long long strideA = static_cast<long long>(seq_length) * static_cast<long long>(head_size); // T * HS
+            const long long strideB = static_cast<long long>(seq_length) * static_cast<long long>(head_size); // T * HS
+            const long long strideC = static_cast<long long>(seq_length) * static_cast<long long>(seq_length); // T * T
 
             auto plan = build_strided_plan<TNative>(
                 handle,
-                head_size, seq_length, head_size, strideA,
-                head_size, seq_length, head_size, strideB,
-                seq_length, seq_length, seq_length, strideC,
-                CUBLAS_OP_T, CUBLAS_OP_N,
-                compute_type,
-                scale_type,
-                cuda_data_type,
+                /*A_rows=*/ seq_length, /*A_cols=*/ head_size, /*ldA=*/ head_size, /*strideA=*/ strideA, // dVout: [T, HS]
+                /*B_rows=*/ seq_length, /*B_cols=*/ head_size, /*ldB=*/ head_size, /*strideB=*/ strideB, // V:     [T, HS]
+                /*C_rows=*/ seq_length, /*C_cols=*/ seq_length, /*ldC=*/ seq_length, /*strideC=*/ strideC, // dAtt:  [T, T]
+                /*opA=*/ CUBLAS_OP_N, /*opB=*/ CUBLAS_OP_T, // dAtt = A @ B^T
                 batch_count,
-                false );
+                false,
+                compute_type,
+                cuda_data_type,
+                scale_type );
 
             if ( !plan.isValid() || !plan.has_algorithm )
             {
@@ -246,25 +245,6 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             return plan;
         }
 
-        /**
-         * @brief Build cuBLASLt plan for backward dQ computation.
-         *
-         * Column-major storage: dPreatt[B, NH, T, T] and K[B, NH, HS, T]
-         * Mathematical operation: dQ[T, HS] = dPreatt[T, T] @ K[T, HS]
-         * Rearranged: dQ = K @ dPreatt^T (exploiting column-major for efficiency)
-         *
-         * cuBLASLt column-major semantics:
-         * - Matrix A (K): stored with HS varying fastest, so rows=HS, cols=T, ldA=HS
-         * - Matrix B (dPreatt): stored with T varying fastest, so rows=T, cols=T, ldB=T
-         * - Operation: C[HS,T] = A[HS,T] @ B^T[T,T] using opA=N, opB=T
-         * - Result C: rows=HS, cols=T, ldC=HS
-         *
-         * Strided-batched configuration:
-         * - Batch count: B * NH
-         * - A stride: HS*T elements per batch
-         * - B stride: T*T elements per batch
-         * - C stride: HS*T elements per batch
-         */
         template <typename TNative>
         CublasLtMatMulPlan<TNative> build_backward_q_plan(
             cublasLtHandle_t handle,
@@ -277,21 +257,30 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             cudaDataType_t scale_type )
         {
             const int batch_count = batch_size * num_heads;
-            const long long strideA = static_cast<long long>(head_size) * static_cast<long long>(seq_length);
-            const long long strideB = static_cast<long long>(seq_length) * static_cast<long long>(seq_length);
-            const long long strideC = static_cast<long long>(head_size) * static_cast<long long>(seq_length);
+
+            // Row-major interpretation:
+            // - A (dPreatt): rows = T, cols = T, ldA = T, strideA = T * T
+            // - B (K):       rows = T, cols = HS, ldB = HS, strideB = T * HS
+            // - C (dQ):      rows = T, cols = HS, ldC = HS, strideC = T * HS
+            //
+            // Mathematical operation (row-major): dQ[T,HS] = dPreatt[T,T] @ K[T,HS]
+            // cuBLAS mapping: opA = CUBLAS_OP_N, opB = CUBLAS_OP_N
+
+            const long long strideA = static_cast<long long>(seq_length) * static_cast<long long>(seq_length); // T * T
+            const long long strideB = static_cast<long long>(seq_length) * static_cast<long long>(head_size);  // T * HS
+            const long long strideC = static_cast<long long>(seq_length) * static_cast<long long>(head_size);  // T * HS
 
             auto plan = build_strided_plan<TNative>(
                 handle,
-                head_size, seq_length, head_size, strideA,
-                seq_length, seq_length, seq_length, strideB,
-                head_size, seq_length, head_size, strideC,
-                CUBLAS_OP_N, CUBLAS_OP_T,
-                compute_type,
-                scale_type,
-                cuda_data_type,
+                /*A_rows=*/ seq_length, /*A_cols=*/ seq_length, /*ldA=*/ seq_length, /*strideA=*/ strideA, // dPreatt: [T, T]
+                /*B_rows=*/ seq_length, /*B_cols=*/ head_size,  /*ldB=*/ head_size,  /*strideB=*/ strideB, // K/q: [T, HS]
+                /*C_rows=*/ seq_length, /*C_cols=*/ head_size,  /*ldC=*/ head_size,  /*strideC=*/ strideC, // dQ: [T, HS]
+                /*opA=*/ CUBLAS_OP_N, /*opB=*/ CUBLAS_OP_N, // C = A @ B
                 batch_count,
-                false );
+                false,
+                compute_type,
+                cuda_data_type,
+                scale_type );
 
             if ( !plan.isValid() || !plan.has_algorithm )
             {
@@ -301,25 +290,6 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             return plan;
         }
 
-        /**
-         * @brief Build cuBLASLt plan for backward dK computation.
-         *
-         * Column-major storage: dPreatt[B, NH, T, T] and Q[B, NH, HS, T]
-         * Mathematical operation: dK[T, HS] = dPreatt^T[T, T] @ Q[T, HS]
-         * Rearranged: dK = Q @ dPreatt (since (A^T @ B)^T = B^T @ A)
-         *
-         * cuBLASLt column-major semantics:
-         * - Matrix A (Q): stored with HS varying fastest, so rows=HS, cols=T, ldA=HS
-         * - Matrix B (dPreatt): stored with T varying fastest, so rows=T, cols=T, ldB=T
-         * - Operation: C[HS,T] = A[HS,T] @ B[T,T] using opA=N, opB=N
-         * - Result C: rows=HS, cols=T, ldC=HS
-         *
-         * Strided-batched configuration:
-         * - Batch count: B * NH
-         * - A stride: HS*T elements per batch
-         * - B stride: T*T elements per batch
-         * - C stride: HS*T elements per batch
-         */
         template <typename TNative>
         CublasLtMatMulPlan<TNative> build_backward_k_plan(
             cublasLtHandle_t handle,
@@ -332,21 +302,32 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             cudaDataType_t scale_type )
         {
             const int batch_count = batch_size * num_heads;
-            const long long strideA = static_cast<long long>(head_size) * static_cast<long long>(seq_length);
-            const long long strideB = static_cast<long long>(seq_length) * static_cast<long long>(seq_length);
-            const long long strideC = static_cast<long long>(head_size) * static_cast<long long>(seq_length);
+
+            //
+            // Row-major interpretation (refactored):
+            // - A (dPreatt): rows = T, cols = T, ldA = T, strideA = T * T
+            // - B (Q)      : rows = T, cols = HS, ldB = HS, strideB = T * HS
+            // - C (dK)     : rows = T, cols = HS, ldC = HS, strideC = T * HS
+            //
+            // Mathematical operation: dK[T, HS] = dPreatt^T[T, T] @ Q[T, HS]
+            // cuBLAS mapping: opA = CUBLAS_OP_T, opB = CUBLAS_OP_N
+            //
+
+            const long long strideA = static_cast<long long>(seq_length) * static_cast<long long>(seq_length); // T * T
+            const long long strideB = static_cast<long long>(seq_length) * static_cast<long long>(head_size); // T * HS
+            const long long strideC = static_cast<long long>(seq_length) * static_cast<long long>(head_size); // T * HS
 
             auto plan = build_strided_plan<TNative>(
                 handle,
-                head_size, seq_length, head_size, strideA,
-                seq_length, seq_length, seq_length, strideB,
-                head_size, seq_length, head_size, strideC,
-                CUBLAS_OP_N, CUBLAS_OP_N,
-                compute_type,
-                scale_type,
-                cuda_data_type,
+                /*A_rows=*/ seq_length, /*A_cols=*/ seq_length, /*ldA=*/ seq_length, /*strideA=*/ strideA, // dPreatt: [T, T]
+                /*B_rows=*/ seq_length, /*B_cols=*/ head_size,  /*ldB=*/ head_size,  /*strideB=*/ strideB, // Q:      [T, HS]
+                /*C_rows=*/ seq_length, /*C_cols=*/ head_size,  /*ldC=*/ head_size,  /*strideC=*/ strideC, // dK:     [T, HS]
+                /*opA=*/ CUBLAS_OP_T, /*opB=*/ CUBLAS_OP_N, // dK = A^T @ B
                 batch_count,
-                false );
+                false,
+                compute_type,
+                cuda_data_type,
+                scale_type );
 
             if ( !plan.isValid() || !plan.has_algorithm )
             {
@@ -530,17 +511,18 @@ namespace Mila::Dnn::Compute::Cuda::Attention
 
         void build( const shape_t& input_shape ) override
         {
+            // REVIEW: What happens when build fails partway through?
             validateInputShape( input_shape );
 
-            batch_size_ = static_cast<int>(input_shape[ 0 ]);
-            seq_length_ = static_cast<int>(input_shape[ 1 ]);
+            B_ = static_cast<int>(input_shape[ 0 ]);
+            T_ = static_cast<int>(input_shape[ 1 ]);
             qkv_dim_ = static_cast<int>(input_shape[ 2 ]);
 
             embedding_dim_ = qkv_dim_ / 3;
-            num_heads_ = config_.getNumHeads();
-            head_size_ = embedding_dim_ / num_heads_;
+            NH_ = config_.getNumHeads();
+            HS_ = embedding_dim_ / NH_;
 
-            if ( embedding_dim_ % num_heads_ != 0 )
+            if ( embedding_dim_ % NH_ != 0 )
             {
                 throw std::invalid_argument(
                     "CudaAttentionOp: embedding_dim must be divisible by num_heads" );
@@ -557,8 +539,10 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                     "Ensure CUDA 10.1 or newer is installed." );
             }
 
+            // REVIEW: Never used. PrecisionPolicy used in mixed-precision plan building in future?
             precision_policy_ = config_.getPrecisionPolicy();
 
+            // REVIEW: Can definitely throw. What is the user experience here?
             buildCublasLtPlans();
 
             UnaryOperationBase::build( input_shape );
@@ -573,41 +557,30 @@ namespace Mila::Dnn::Compute::Cuda::Attention
 
             const float alpha = 1.0f;
             const float beta = 0.0f;
-            const float scale = 1.0f / sqrtf( static_cast<float>(head_size_) );
+            const float scale = 1.0f / sqrtf( static_cast<float>(HS_) );
 
-            // Permute QKV from [B, T, 3*C] to separate Q, K, V with shape [B, NH, HS, T]
-            // in column-major layout for efficient cuBLASLt matmul
+            // Permute QKV from [B, T, 3*C] to separate Q, K, V with shape [B, NH, T, HS]
             Detail::cuda_mha_kernels<NativeType>::permute_qkv(
                 q_, k_, v_,
                 X,
-                batch_size_, seq_length_, num_heads_, head_size_,
+                B_, T_, NH_, HS_,
                 stream );
 
-            // Ensure permutation completed before inspecting device buffers
             context_->synchronize();
             {
-                // We have verified Q, K, V correctness via unit tests already.
-
-                // Dump Q, K, V using CublasLtHelpers debug utility for column-major tensors.
-                // Shapes: [B, NH, rows=HS, cols=T]
-                /*std::vector<int> qkv_shape = {
-                    static_cast<int>(batch_size_),
-                    static_cast<int>(num_heads_),
-                    static_cast<int>(head_size_),
-                    static_cast<int>(seq_length_)
-                };
-
-                std::string q_dump = dump_colmajor_tensor<NativeType>(
+                /*shape_t qkv_shape = { B_, NH_, T_, HS_ };
+                
+                std::string q_dump = dump_tensor<NativeType>(
                     q_, qkv_shape, this->getName() + ".dbg.Q", 4, stream );
 
                 Utils::Logger::info( this->getName() + ": dbg.Q (device dump):\n" + q_dump );
 
-                std::string k_dump = dump_colmajor_tensor<NativeType>(
+                std::string k_dump = dump_tensor<NativeType>(
                     k_, qkv_shape, this->getName() + ".dbg.K", 4, stream );
 
-                Utils::Logger::info( this->getName() + ": dbg.K (device dump):\n" + k_dump );
+                Utils::Logger::info( this->getName() + ": dbg.K (device dump):\n" + k_dump );*/
 
-                std::string v_dump = dump_colmajor_tensor<NativeType>(
+                /*std::string v_dump = dump_tensor<NativeType>(
                     v_, qkv_shape, this->getName() + ".dbg.V", 4, stream );
 
                 Utils::Logger::info( this->getName() + ": dbg.V (device dump):\n" + v_dump );*/
@@ -624,82 +597,53 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 nullptr,
                 stream );
 
-            // Ensure preatt is available on device before dumping
-            context_->synchronize();
+            /*context_->synchronize();
             {
-                // TJT: We have verified preatt correctness via unit tests already.
-
-                // Dump preatt (column-major [B, NH, T, T]) using the same helper
-                /*std::vector<int> preatt_shape = {
-                    static_cast<int>(batch_size_),
-                    static_cast<int>(num_heads_),
-                    static_cast<int>(seq_length_),
-                    static_cast<int>(seq_length_)
-                };
-
-                std::string preatt_dump = dump_colmajor_tensor<NativeType>(
+                shape_t preatt_shape = { B_, NH_, T_, T_ };
+                std::string preatt_dump = dump_tensor<NativeType>(
                     preatt_, preatt_shape, this->getName() + ".dbg.preatt", 4, stream );
 
-                Utils::Logger::info( this->getName() + ": dbg.preatt (device dump):\n" + preatt_dump );*/
-            }
+                Utils::Logger::info( this->getName() + ": dbg.preatt (device dump):\n" + preatt_dump );
+            }*/
 
-            // preatt_: [B, NH, T, T] in column-major
-            // att_: [B, NH, T, T] in column-major
+            // att_: [B, NH, T, T] (after softmax)
             Detail::cuda_mha_kernels<NativeType>::softmax_forward(
                 att_, 1.0f, preatt_,
-                batch_size_, num_heads_, seq_length_,
+                B_, NH_, T_,
                 stream );
 
-            // Ensure att is available on device before dumping
-            context_->synchronize();
+            /*context_->synchronize();
             {
-                // TJT: We have verified att correctness via unit tests already.
-
-                /*std::vector<int> att_shape = {
-                    static_cast<int>(batch_size_),
-                    static_cast<int>(num_heads_),
-                    static_cast<int>(seq_length_),
-                    static_cast<int>(seq_length_)
-                };
-
-                std::string att_dump = dump_colmajor_tensor<NativeType>(
+                shape_t att_shape = { B_, NH_, T_, T_ };
+                std::string att_dump = dump_tensor<NativeType>(
                     att_, att_shape, this->getName() + ".dbg.att", 4, stream );
 
-                Utils::Logger::info( this->getName() + ": dbg.att (device dump):\n" + att_dump );*/
-            }
+                Utils::Logger::info( this->getName() + ": dbg.att (device dump):\n" + att_dump );
+            }*/
 
+            // Compute output values: v_out = Att @ V^T
             execute_plan<NativeType>(
                 cublaslt_handle_,
                 att_value_plan_,
                 &alpha,
                 att_, v_,
                 &beta,
-                vaccum_,
+                v_out_,
                 nullptr,
                 stream );
 
-            // Ensure vaccum is available on device before dumping
-            context_->synchronize();
+            /*context_->synchronize();
             {
-                //// vaccum shape: [B, NH, HS, T] in column-major
-                //std::vector<int> vaccum_shape = {
-                //    static_cast<int64_t>(batch_size_),
-                //    static_cast<int64_t>(num_heads_),
-                //    static_cast<int64_t>(head_size_),
-                //    static_cast<int64_t>(seq_length_)
-                //};
+                shape_t v_out_shape = { B_, NH_, T_, HS_ };
+                std::string v_out_dump = dump_tensor<NativeType>(
+                    v_out_, v_out_shape, this->getName() + ".dbg.vaccum", 4, stream );
 
-                //std::string vaccum_dump = dump_colmajor_tensor<NativeType>(
-                //    vaccum_, vaccum_shape, this->getName() + ".dbg.vaccum", 4, stream );
+                Utils::Logger::info( this->getName() + ": dbg.vaccum (device dump):\n" + v_out_dump );
+            }*/
 
-                //Utils::Logger::info( this->getName() + ": dbg.vaccum (device dump):\n" + vaccum_dump );
-            }
-
-            // vaccum_: [B, NH, HS, T] in column-major
-            // Y: [B, T, C] in row-major where C = NH * HS
             Detail::cuda_mha_kernels<NativeType>::unpermute_output(
-                vaccum_, Y,
-                batch_size_, seq_length_, num_heads_, head_size_,
+                v_out_, Y,
+                B_, T_, NH_, HS_,
                 stream );
         }
 
@@ -722,63 +666,156 @@ namespace Mila::Dnn::Compute::Cuda::Attention
 
             const float alpha = 1.0f;
             const float beta = 0.0f;
-            const float scale = 1.0f / sqrtf( static_cast<float>(head_size_) );
+            const float scale = 1.0f / sqrtf( static_cast<float>(HS_) );
 
             Detail::cuda_mha_kernels<NativeType>::unpermute_backward(
-                dvaccum_, dY,
-                batch_size_, seq_length_, num_heads_, head_size_,  // Correct B, T, NH, HS
+                dVout_, dY,
+                B_, T_, NH_, HS_,
                 stream );
 
+            /*context_->synchronize();
+            {
+                shape_t dVout_shape = { B_, NH_, T_, HS_ };
+                std::string dVout_dump = dump_tensor<NativeType>(
+                    dVout_, dVout_shape, this->getName() + ".dbg.dVout", 4, stream );
+                Utils::Logger::info( this->getName() + ": dbg.dVout (device dump):\n" + dVout_dump );
+            }*/
+
+            /*context_->synchronize();
+            {
+                shape_t att_shape = { B_, NH_, T_, T_ };
+                std::string att_dump = dump_tensor<NativeType>(
+                    att_, att_shape, this->getName() + ".dbg.att", 4, stream );
+                Utils::Logger::info( this->getName() + ": dbg.att (device dump):\n" + att_dump );
+            }*/
+
+            // Compute dV = Att^T @ dVout^T
             execute_plan<NativeType>(
                 cublaslt_handle_,
                 backward_v_plan_,
                 &alpha,
-                dvaccum_, att_,
+                att_, dVout_,
                 &beta,
-                dv_,
+                dV_,
                 nullptr,
                 stream );
 
+            //context_->synchronize();
+            //{
+            //    // TJT: Verified correctness of dV via unit tests.
+
+            //    shape_t dv_shape = { B_, NH_, T_, HS_ };
+            //    std::string dv_dump = dump_tensor<NativeType>(
+            //        dV_, dv_shape, this->getName() + ".dbg.dV", 4, stream );
+            //    Utils::Logger::info( this->getName() + ": dbg.dV (device dump):\n" + dv_dump );
+            //}
+
+            /*context_->synchronize();
+            {
+                shape_t v_shape = { B_, NH_, T_, HS_ };
+                std::string v_dump = dump_tensor<NativeType>(
+                    v_, v_shape, this->getName() + ".dbg.V_backward", 4, stream );
+                Utils::Logger::info( this->getName() + ": dbg.V (for backward, device dump):\n" + v_dump );
+            }*/
+
+            // Compute dAtt = dVout^T @ V
             execute_plan<NativeType>(
                 cublaslt_handle_,
                 backward_att_plan_,
                 &alpha,
-                dvaccum_, v_,
+                dVout_, v_,
                 &beta,
                 datt_,
                 nullptr,
                 stream );
 
+            //context_->synchronize();
+            //{
+            //    // TJT: Verified correctness of dAtt via unit tests.
+
+            //    // Dump dAtt using CublasLtHelpers debug utility for column-major tensors.
+            //    shape_t datt_shape = { B_, NH_, T_, T_ };
+            //    std::string datt_dump = dump_tensor<NativeType>(
+            //        datt_, datt_shape, this->getName() + ".dbg.dAtt", 4, stream );
+            //    Utils::Logger::info( this->getName() + ": dbg.dAtt (device dump):\n" + datt_dump );
+            //}
+
             Detail::cuda_mha_kernels<NativeType>::softmax_backward(
                 dpreatt_, datt_, att_,
-                1.0f,
-                batch_size_, num_heads_, seq_length_,
+                scale,
+                B_, NH_, T_,
                 stream );
 
+            //context_->synchronize();
+            //{
+            //    // TJT: Verified correctness of dPreatt via unit tests.
+
+            //    shape_t dpreatt_shape = { B_, NH_, T_, T_ };
+            //    std::string dpreatt_dump = dump_tensor<NativeType>(
+            //        dpreatt_, dpreatt_shape, this->getName() + ".dbg.dPreatt", 4, stream );
+            //    Utils::Logger::info( this->getName() + ": dbg.dPreatt (for backward, device dump):\n" + dpreatt_dump );
+            //}
+
+            /*context_->synchronize();
+            {
+                shape_t k_shape = { B_, NH_, T_, HS_ };
+                std::string k_dump = dump_tensor<NativeType>(
+                    k_, k_shape, this->getName() + ".dbg.K_backward", 4, stream );
+                Utils::Logger::info( this->getName() + ": dbg.K (for backward, device dump):\n" + k_dump );
+            }*/
+
+            // Compute dQ = dPreatt @ K^T
             execute_plan<NativeType>(
                 cublaslt_handle_,
                 backward_q_plan_,
-                &scale,
-                k_, dpreatt_,
+                &alpha,
+                dpreatt_, k_,
                 &beta,
                 dq_,
                 nullptr,
                 stream );
 
+            /*context_->synchronize();
+            {
+                shape_t dq_shape = { B_, NH_, HS_, T_ };
+                
+                std::string dq_dump = dump_tensor<NativeType>(
+                    dq_, dq_shape, this->getName() + ".dbg.dQ", 4, stream );
+                Utils::Logger::info( this->getName() + ": dbg.dQ (device dump):\n" + dq_dump );
+            }*/
+
+            /*context_->synchronize();
+            {
+                shape_t q_shape = { B_, NH_, HS_, T_ };
+                std::string q_dump = dump_tensor<NativeType>(
+                    q_, q_shape, this->getName() + ".dbg.Q_backward", 4, stream );
+                Utils::Logger::info( this->getName() + ": dbg.Q (for backward, device dump):\n" + q_dump );
+            }   */
+
+            // Compute dK = dPreatt^T @ Q^T
             execute_plan<NativeType>(
                 cublaslt_handle_,
                 backward_k_plan_,
-                &scale,
-                q_, dpreatt_,
+                &alpha,
+                dpreatt_, q_,
                 &beta,
                 dk_,
                 nullptr,
                 stream );
 
+            /*context_->synchronize();
+            {
+                shape_t dk_shape = { B_, NH_, HS_, T_ };
+                std::string dk_dump = dump_tensor<NativeType>(
+                    dk_, dk_shape, this->getName() + ".dbg.dK", 4, stream );
+                Utils::Logger::info( this->getName() + ": dbg.dK (device dump):\n" + dk_dump );
+            }*/
+
+            // Permute gradients back to concatenated QKV format
             Detail::cuda_mha_kernels<NativeType>::permute_backward(
                 dX,
-                dq_, dk_, dv_,
-                batch_size_, seq_length_, num_heads_, head_size_,  // Output is [B, T, 3*C]
+                dq_, dk_, dV_,
+                B_, T_, NH_, HS_,
                 stream );
         }
 
@@ -801,12 +838,12 @@ namespace Mila::Dnn::Compute::Cuda::Attention
         AttentionConfig config_;
         CudaExecutionContext* context_;
 
-        int batch_size_{ 0 };
-        int seq_length_{ 0 };
+        int B_{ 0 };
+        int T_{ 0 };
         int qkv_dim_{ 0 };
         int embedding_dim_{ 0 };
-        int num_heads_{ 0 };
-        int head_size_{ 0 };
+        int NH_{ 0 };
+        int HS_{ 0 };
 
         cublasLtHandle_t cublaslt_handle_{ nullptr };
         ComputePrecision::Policy precision_policy_;
@@ -823,31 +860,33 @@ namespace Mila::Dnn::Compute::Cuda::Attention
         std::shared_ptr<TensorType> v_tensor_;
         std::shared_ptr<TensorType> preatt_tensor_;
         std::shared_ptr<TensorType> att_tensor_;
-        std::shared_ptr<TensorType> vaccum_tensor_;
+        std::shared_ptr<TensorType> v_out_tensor_;
 
         std::shared_ptr<TensorType> dq_tensor_;
         std::shared_ptr<TensorType> dk_tensor_;
-        std::shared_ptr<TensorType> dv_tensor_;
+        std::shared_ptr<TensorType> dV_tensor_;
         std::shared_ptr<TensorType> dpreatt_tensor_;
         std::shared_ptr<TensorType> datt_tensor_;
-        std::shared_ptr<TensorType> dvaccum_tensor_;
+        std::shared_ptr<TensorType> dVout_tensor_;
 
         NativeType* q_{ nullptr };
         NativeType* k_{ nullptr };
         NativeType* v_{ nullptr };
         NativeType* preatt_{ nullptr };
         NativeType* att_{ nullptr };
-        NativeType* vaccum_{ nullptr };
+        NativeType* v_out_{ nullptr };
 
         NativeType* dq_{ nullptr };
         NativeType* dk_{ nullptr };
-        NativeType* dv_{ nullptr };
+        NativeType* dV_{ nullptr };
         NativeType* dpreatt_{ nullptr };
         NativeType* datt_{ nullptr };
-        NativeType* dvaccum_{ nullptr };
+        NativeType* dVout_{ nullptr };
 
         void validateInputShape( const shape_t& input_shape ) const
         {
+            // REVIEW: Should input shape be just [ B, T ]?
+            // We already know embedding_dim from config.
             if ( input_shape.size() != 3 )
             {
                 throw std::invalid_argument(
@@ -867,13 +906,8 @@ namespace Mila::Dnn::Compute::Cuda::Attention
         {
             auto device = context_->getDeviceId();
 
-            // Each of Q, K, V shape: [B, NH, HS, T] in column-major layout
-            shape_t qkv_shape = {
-                static_cast<int64_t>(batch_size_),
-                static_cast<int64_t>(num_heads_),
-                static_cast<int64_t>(head_size_),
-                static_cast<int64_t>(seq_length_)
-            };
+            // Each of Q, K, V shape: [B, NH, T, HS]
+            shape_t qkv_shape = { B_, NH_, T_, HS_ };
 
             q_tensor_ = std::make_shared<TensorType>( device, qkv_shape );
             q_tensor_->setName( "q_" );
@@ -887,13 +921,8 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             v_tensor_->setName( "v_" );
             v_ = static_cast<NativeType*>(v_tensor_->rawData());
 
-            // attention scores shape: [B, NH, T, T] in column-major
-            shape_t att_shape = {
-                static_cast<int64_t>(batch_size_),
-                static_cast<int64_t>(num_heads_),
-                static_cast<int64_t>(seq_length_),
-                static_cast<int64_t>(seq_length_)
-            };
+            // attention scores shape: [B, NH, T, T]
+            shape_t att_shape = { B_, NH_, T_, T_ };
 
             preatt_tensor_ = std::make_shared<TensorType>( device, att_shape );
             preatt_tensor_->setName( "preatt_" );
@@ -903,17 +932,12 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             att_tensor_->setName( "att_" );
             att_ = static_cast<NativeType*>(att_tensor_->rawData());
 
-            // vaccum shape: [B, NH, HS, T] in column-major
-            shape_t vaccum_shape = {
-                static_cast<int64_t>(batch_size_),
-                static_cast<int64_t>(num_heads_),
-                static_cast<int64_t>(head_size_),
-                static_cast<int64_t>(seq_length_)
-            };
+            // v_out_ shape: [B, NH, T, HS]
+            shape_t v_out_shape = { B_, NH_, T_, HS_ };
 
-            vaccum_tensor_ = std::make_shared<TensorType>( device, vaccum_shape );
-            vaccum_tensor_->setName( "vaccum_" );
-            vaccum_ = static_cast<NativeType*>(vaccum_tensor_->rawData());
+            v_out_tensor_ = std::make_shared<TensorType>( device, v_out_shape );
+            v_out_tensor_->setName( "v_out_" );
+            v_out_ = static_cast<NativeType*>(v_out_tensor_->rawData());
 
             dq_tensor_ = std::make_shared<TensorType>( device, qkv_shape );
             dq_tensor_->setName( "dq_" );
@@ -923,9 +947,9 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             dk_tensor_->setName( "dk_" );
             dk_ = static_cast<NativeType*>(dk_tensor_->rawData());
 
-            dv_tensor_ = std::make_shared<TensorType>( device, qkv_shape );
-            dv_tensor_->setName( "dv_" );
-            dv_ = static_cast<NativeType*>(dv_tensor_->rawData());
+            dV_tensor_ = std::make_shared<TensorType>( device, qkv_shape );
+            dV_tensor_->setName( "dV_" );
+            dV_ = static_cast<NativeType*>(dV_tensor_->rawData());
 
             dpreatt_tensor_ = std::make_shared<TensorType>( device, att_shape );
             dpreatt_tensor_->setName( "dpreatt_" );
@@ -935,13 +959,15 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             datt_tensor_->setName( "datt_" );
             datt_ = static_cast<NativeType*>(datt_tensor_->rawData());
 
-            dvaccum_tensor_ = std::make_shared<TensorType>( device, vaccum_shape );
-            dvaccum_tensor_->setName( "dvaccum_" );
-            dvaccum_ = static_cast<NativeType*>(dvaccum_tensor_->rawData());
+            dVout_tensor_ = std::make_shared<TensorType>( device, v_out_shape );
+            dVout_tensor_->setName( "dVout_" );
+            dVout_ = static_cast<NativeType*>(dVout_tensor_->rawData());
         }
 
         void buildCublasLtPlans()
         {
+            // REVIEW: This is poor code. Must be based on NativeType and likely done in build_XXX_plan<NativeType>() functions.
+            
             cudaDataType_t cuda_data_type = getCudaDataType();
             cublasComputeType_t compute_type;
             cudaDataType_t scale_type;
@@ -950,60 +976,42 @@ namespace Mila::Dnn::Compute::Cuda::Attention
 
             qk_score_plan_ = Detail::build_qk_score_plan<NativeType>(
                 cublaslt_handle_,
-                batch_size_,
-                num_heads_,
-                seq_length_,
-                head_size_,
+                B_, NH_, T_, HS_,
                 cuda_data_type,
                 compute_type,
                 scale_type );
 
             att_value_plan_ = Detail::build_att_value_plan<NativeType>(
                 cublaslt_handle_,
-                batch_size_,
-                num_heads_,
-                seq_length_,
-                head_size_,
+                B_, NH_, T_, HS_,
                 cuda_data_type,
                 compute_type,
                 scale_type );
 
             backward_v_plan_ = Detail::build_backward_v_plan<NativeType>(
                 cublaslt_handle_,
-                batch_size_,
-                num_heads_,
-                seq_length_,
-                head_size_,
+                B_, NH_, T_, HS_,
                 cuda_data_type,
                 compute_type,
                 scale_type );
 
             backward_att_plan_ = Detail::build_backward_att_plan<NativeType>(
                 cublaslt_handle_,
-                batch_size_,
-                num_heads_,
-                seq_length_,
-                head_size_,
+                B_, NH_, T_, HS_,
                 cuda_data_type,
                 compute_type,
                 scale_type );
 
             backward_q_plan_ = Detail::build_backward_q_plan<NativeType>(
                 cublaslt_handle_,
-                batch_size_,
-                num_heads_,
-                seq_length_,
-                head_size_,
+                B_, NH_, T_, HS_,
                 cuda_data_type,
                 compute_type,
                 scale_type );
 
             backward_k_plan_ = Detail::build_backward_k_plan<NativeType>(
                 cublaslt_handle_,
-                batch_size_,
-                num_heads_,
-                seq_length_,
-                head_size_,
+                B_, NH_, T_, HS_,
                 cuda_data_type,
                 compute_type,
                 scale_type );

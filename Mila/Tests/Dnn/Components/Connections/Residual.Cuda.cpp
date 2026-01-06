@@ -458,6 +458,7 @@ namespace Components_Connections_Tests
         copy( host_B, device_B );
 
         cuda_fixture.component->forward( device_A, device_B, device_Y );
+        cuda_fixture.component->synchronize();
 
         CpuTensor<TensorDataType::FP32> cuda_Y_host = toHost<TensorDataType::FP32>( device_Y );
 

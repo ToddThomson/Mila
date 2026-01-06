@@ -748,33 +748,87 @@ namespace Mila::Dnn
             std::ostringstream oss;
 
             // Configuration: adjust these values to control output display
-            constexpr size_t show_rows = 5;  // Number of rows to show at start/end of each dimension
-            constexpr size_t show_cols = 5;  // Number of columns to show at start/end (innermost dimension)
+            constexpr size_t show_rows = 12;  // Number of rows to show at start/end of each dimension
+            constexpr size_t show_cols = 12;  // Number of columns to show at start/end (innermost dimension)
 
-            if ( depth == shape_.size() - 1 ) {
-                // Innermost dimension (columns)
+            // Indentation per nesting level (2 spaces requested)
+            constexpr size_t indent_size = 2;
+
+            // Handle scalar (empty shape)
+
+            if ( shape_.empty() ) {
+                TElementType value = static_cast<TElementType*>(buffer_->data())[ index ];
+                std::ostringstream vs;
+                vs << std::fixed << std::setprecision( 6 ) << value;
+                oss << vs.str();
+
+                // blank line before return
+                return oss.str();
+            }
+
+            const size_t last_depth = shape_.size() - 1;
+
+            // Innermost dimension: format columns with fixed precision and column alignment
+
+            if ( depth == last_depth ) {
+                std::vector<std::string> parts;
+                parts.reserve( shape_[ depth ] );
+                size_t max_width = 0;
+
                 for ( size_t i = 0; i < shape_[ depth ]; ++i ) {
                     if ( i < show_cols || i >= shape_[ depth ] - show_cols ) {
                         TElementType value = static_cast<TElementType*>( buffer_->data() )[ index + i ];
-                        oss << std::setw( 10 ) << value << " ";
+                        std::ostringstream vs;
+                        vs << std::fixed << std::setprecision( 6 ) << value;
+                        std::string s = vs.str();
+                        parts.push_back( s );
+                        if ( s.size() > max_width ) max_width = s.size();
                     }
                     else if ( i == show_cols ) {
-                        oss << "... ";
+                        parts.push_back( "..." );
+                        if ( 3 > max_width ) max_width = 3;
                     }
                 }
+
+                for ( size_t p = 0; p < parts.size(); ++p ) {
+                    if ( p ) oss << ' ';
+                    oss << std::setw( static_cast<int>( max_width ) ) << parts[ p ];
+                }
+
+                // blank line before return
+                return oss.str();
             }
-            else {
-                // Higher dimensions (rows and batch dimensions)
-                for ( size_t i = 0; i < shape_[ depth ]; ++i ) {
-                    if ( i < show_rows || i >= shape_[ depth ] - show_rows ) {
-                        oss << "[ ";
-                        oss << outputBuffer( index + i * strides_[ depth ], depth + 1 );
-                        oss << "]" << std::endl;
+
+            // Higher dimensions: nested blocks with two-space indentation per level
+            const std::string indent( depth * indent_size, ' ' );
+            const std::string child_indent( (depth + 1) * indent_size, ' ' );
+
+            for ( size_t i = 0; i < shape_[ depth ]; ++i ) {
+                if ( i < show_rows || i >= shape_[ depth ] - show_rows ) {
+                    size_t offset = static_cast<size_t>( i * static_cast<size_t>( strides_[ depth ] ) );
+
+                    // If the child is the innermost dimension, print the bracket and content on one line.
+                    if ( depth + 1 == last_depth ) {
+                        oss << indent << "[ " << outputBuffer( index + offset, depth + 1 ) << " ]" << std::endl;
                     }
-                    else if ( i == show_rows ) {
-                        oss << "[ ... ]" << std::endl;
-                        i = shape_[ depth ] - show_rows - 1;
+                    else {
+                        // Multi-line nested block: opening bracket, inner content (already indented by recursive call), closing bracket.
+                        oss << indent << "[" << std::endl;
+
+                        std::string inner = outputBuffer( index + offset, depth + 1 );
+                        std::istringstream iss( inner );
+                        std::string line;
+                        while ( std::getline( iss, line ) ) {
+                            // Recursive output already includes the correct indentation for its depth.
+                            oss << line << std::endl;
+                        }
+
+                        oss << indent << "]" << std::endl;
                     }
+                }
+                else if ( i == show_rows ) {
+                    oss << indent << "[ ... ]" << std::endl;
+                    i = shape_[ depth ] - show_rows - 1;
                 }
             }
 

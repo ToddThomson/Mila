@@ -20,6 +20,7 @@ module;
 
 export module CublasLtHelpers;
 
+import Dnn.TensorTypes;
 import CublasLt.Error;
 import Utils.Logger;
 
@@ -148,11 +149,12 @@ export namespace Mila::Dnn::Compute::Cuda::Common::CublasLtHelpers
         int B_rows, int B_cols, int ldB, long long strideB_elems,
         int C_rows, int C_cols, int ldC, long long strideC_elems,
         cublasOperation_t opA, cublasOperation_t opB,
-        cublasComputeType_t compute_type,
-        cudaDataType_t scale_type,
-        cudaDataType_t cuda_data_type,
         int batch_count,
-        bool has_bias = false )
+        bool has_bias = false,
+        cublasComputeType_t compute_type = CUBLAS_COMPUTE_32F,
+        cudaDataType_t cuda_data_type = CUDA_R_32F,
+        cudaDataType_t scale_type = CUDA_R_32F,
+        cublasLtOrder_t order = CUBLASLT_ORDER_ROW )
     {
         CublasLtMatMulPlan<TNative> plan;
         plan.has_bias_epilogue = has_bias;
@@ -195,6 +197,15 @@ export namespace Mila::Dnn::Compute::Cuda::Common::CublasLtHelpers
             cublasLtCheckStatus( status );
         }
 
+        status = cublasLtMatrixLayoutSetAttribute(
+            plan.layoutA, CUBLASLT_MATRIX_LAYOUT_ORDER, &order, sizeof( order ) );
+        
+        if ( status != CUBLAS_STATUS_SUCCESS )
+        {
+            Utils::Logger::error( "Set order for A failed with status: " + std::to_string( status ) );
+            cublasLtCheckStatus( status );
+        }
+
         status = cublasLtMatrixLayoutCreate(
             &plan.layoutB, cuda_data_type, B_rows, B_cols, ldB );
         if ( status != CUBLAS_STATUS_SUCCESS )
@@ -203,11 +214,27 @@ export namespace Mila::Dnn::Compute::Cuda::Common::CublasLtHelpers
             cublasLtCheckStatus( status );
         }
 
+        status = cublasLtMatrixLayoutSetAttribute(
+            plan.layoutB, CUBLASLT_MATRIX_LAYOUT_ORDER, &order, sizeof( order ) );
+        if ( status != CUBLAS_STATUS_SUCCESS )
+        {
+            Utils::Logger::error( "Set order for B failed with status: " + std::to_string( status ) );
+            cublasLtCheckStatus( status );
+        }
+
         status = cublasLtMatrixLayoutCreate(
             &plan.layoutC, cuda_data_type, C_rows, C_cols, ldC );
         if ( status != CUBLAS_STATUS_SUCCESS )
         {
             Utils::Logger::error( "cublasLtMatrixLayoutCreate for C failed with status: " + std::to_string( status ) );
+            cublasLtCheckStatus( status );
+        }
+
+        status = cublasLtMatrixLayoutSetAttribute(
+            plan.layoutC, CUBLASLT_MATRIX_LAYOUT_ORDER, &order, sizeof( order ) );
+        if ( status != CUBLAS_STATUS_SUCCESS )
+        {
+            Utils::Logger::error( "Set order for C failed with status: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
@@ -342,19 +369,13 @@ export namespace Mila::Dnn::Compute::Cuda::Common::CublasLtHelpers
         }
     }
 
-    // Add to CublasLtHelpers.ixx
-
-#include <sstream>
-#include <iomanip>
-#include <vector>
-#include <string>
-#include <cuda_runtime.h>
-
-/**
- * @brief Helper to dump a single 2D column-major matrix (host memory)
- */
+    /**
+     * @brief Helper to dump a single 2D row-major matrix (host memory)
+     *
+     * Indexing: element (row=r, col=c) -> host_data[r * cols + c]
+     */
     template<typename T>
-    void dump_2d_colmajor_host(
+    void dump_2d_rowmajor_host(
         std::ostringstream& oss,
         const T* host_data,
         int rows,
@@ -370,13 +391,12 @@ export namespace Mila::Dnn::Compute::Cuda::Common::CublasLtHelpers
         for ( int r = 0; r < rows_display; ++r ) {
             oss << indent_str << "[ ";
             for ( int c = 0; c < cols_display; ++c ) {
-                // Column-major indexing: element (row=r, col=c) is at r + c*rows
-                T value = host_data[ r + c * rows ];
+                T value = host_data[ r * cols + c ];
                 oss << std::setw( 10 ) << static_cast<float>( value );
                 if ( c < cols_display - 1 ) oss << " ";
             }
             if ( cols_display < cols ) {
-                oss << " ... (" << (cols - cols_display) << " more)";
+                oss << " ... (" << (cols - cols_display) << " more)"; 
             }
             oss << " ]\n";
         }
@@ -387,23 +407,23 @@ export namespace Mila::Dnn::Compute::Cuda::Common::CublasLtHelpers
     }
 
     /**
-     * @brief Debug utility to dump column-major tensor from device memory
+     * @brief Debug utility to dump row-major tensor from device memory
      *
      * This utility copies data from device to host, then properly interprets
-     * the column-major layout for display.
+     * the row-major layout for display.
      *
      * @tparam T Data type (float, __half, etc.)
-     * @param device_data Device pointer to column-major data
-     * @param shape Shape vector [B, NH, rows, cols] or similar
+     * @param device_data Device pointer to row-major data
+     * @param shape Shape vector (shape_t)
      * @param name Tensor name for display
      * @param max_display_size Maximum elements to display per dimension
      * @param stream CUDA stream for async copy (nullptr for default stream)
      * @return String representation of the tensor
      */
     template<typename T = float>
-    std::string dump_colmajor_tensor(
+    std::string dump_tensor(
         const T* device_data,
-        const std::vector<int>& shape,
+        const shape_t& shape,
         const std::string& name = "tensor",
         int max_display_size = 8,
         cudaStream_t stream = nullptr )
@@ -418,11 +438,11 @@ export namespace Mila::Dnn::Compute::Cuda::Common::CublasLtHelpers
 
         // Calculate total size
         size_t total_size = 1;
-        for ( int dim : shape ) {
+        for ( auto dim : shape ) {
             if ( dim <= 0 ) {
                 return name + ": <invalid shape>\n";
             }
-            total_size *= dim;
+            total_size *= static_cast<size_t>( dim );
         }
 
         // Allocate host memory
@@ -451,30 +471,32 @@ export namespace Mila::Dnn::Compute::Cuda::Common::CublasLtHelpers
         }
 
         // Header
-        oss << "\n=== Column-Major Tensor: " << name << " ===\n";
+        oss << "\n=== Row-Major Tensor: " << name << " ===\n";
         oss << "Shape: [";
         for ( size_t i = 0; i < shape.size(); ++i ) {
             oss << shape[ i ];
             if ( i < shape.size() - 1 ) oss << ", ";
         }
-        oss << "] (column-major for last 2 dims)\n";
+        oss << "] (row-major for last 2 dims)\n";
         oss << "Total elements: " << total_size << "\n\n";
 
         const T* read_ptr = host_data.data();
 
         // Determine what to display based on dimensionality
         if ( shape.size() == 2 ) {
-            // Simple 2D matrix [rows, cols] in column-major
-            dump_2d_colmajor_host( oss, read_ptr, shape[ 0 ], shape[ 1 ], max_display_size, 0 );
+            // Simple 2D matrix [rows, cols] in row-major
+            int rows = static_cast<int>( shape[0] );
+            int cols = static_cast<int>( shape[1] );
+            dump_2d_rowmajor_host( oss, read_ptr, rows, cols, max_display_size, 0 );
         }
         else if ( shape.size() == 4 ) {
-            // Common case: [B, NH, rows, cols] - attention matrices
-            int B = shape[ 0 ];
-            int NH = shape[ 1 ];
-            int rows = shape[ 2 ];
-            int cols = shape[ 3 ];
+            // Common case: [B, NH, rows, cols]
+            int B = static_cast<int>( shape[0] );
+            int NH = static_cast<int>( shape[1] );
+            int rows = static_cast<int>( shape[2] );
+            int cols = static_cast<int>( shape[3] );
 
-            int b_display = std::min( B, max_display_size / 2 );  // Show fewer batches
+            int b_display = std::min( B, max_display_size / 2 );
             int nh_display = std::min( NH, max_display_size / 2 );
 
             for ( int b = 0; b < b_display; ++b ) {
@@ -482,9 +504,9 @@ export namespace Mila::Dnn::Compute::Cuda::Common::CublasLtHelpers
                 for ( int nh = 0; nh < nh_display; ++nh ) {
                     oss << "  Head " << nh << ":\n";
 
-                    // Pointer to this (b, nh) matrix
-                    size_t matrix_offset = (b * NH * rows * cols) + (nh * rows * cols);
-                    dump_2d_colmajor_host( oss, read_ptr + matrix_offset, rows, cols, max_display_size, 4 );
+                    // Pointer to this (b, nh) matrix (row-major block)
+                    size_t matrix_offset = ( static_cast<size_t>(b) * NH + static_cast<size_t>(nh) ) * rows * cols;
+                    dump_2d_rowmajor_host( oss, read_ptr + matrix_offset, rows, cols, max_display_size, 4 );
                     oss << "\n";
                 }
                 if ( nh_display < NH ) {
@@ -496,17 +518,17 @@ export namespace Mila::Dnn::Compute::Cuda::Common::CublasLtHelpers
             }
         }
         else if ( shape.size() == 3 ) {
-            // [B, rows, cols] case
-            int B = shape[ 0 ];
-            int rows = shape[ 1 ];
-            int cols = shape[ 2 ];
+            // [B, rows, cols] case (row-major)
+            int B = static_cast<int>( shape[0] );
+            int rows = static_cast<int>( shape[1] );
+            int cols = static_cast<int>( shape[2] );
 
             int b_display = std::min( B, max_display_size / 2 );
 
             for ( int b = 0; b < b_display; ++b ) {
                 oss << "Batch " << b << ":\n";
-                size_t matrix_offset = b * rows * cols;
-                dump_2d_colmajor_host( oss, read_ptr + matrix_offset, rows, cols, max_display_size, 2 );
+                size_t matrix_offset = static_cast<size_t>(b) * rows * cols;
+                dump_2d_rowmajor_host( oss, read_ptr + matrix_offset, rows, cols, max_display_size, 2 );
                 oss << "\n";
             }
             if ( b_display < B ) {
@@ -515,250 +537,10 @@ export namespace Mila::Dnn::Compute::Cuda::Common::CublasLtHelpers
         }
         else {
             oss << "Unsupported shape dimensionality (" << shape.size()
-                << ") for column-major display\n";
+                << ") for row-major display\n";
             oss << "Supported: 2D [rows, cols], 3D [B, rows, cols], 4D [B, NH, rows, cols]\n";
         }
 
         return oss.str();
     }
-
-    /**
-     * @brief Verify column-major attention matrix properties (causal + row sums)
-     *
-     * Copies from device and checks:
-     * 1. Causal masking: att[t, t2] = 0 for t2 > t
-     * 2. Row normalization: sum(att[t, :]) = 1.0 for each row t
-     *
-     * @param device_att Device pointer to attention matrix [B, NH, T, T] in column-major
-     * @param B Batch size
-     * @param NH Number of heads
-     * @param T Sequence length
-     * @param tolerance Tolerance for floating point comparisons
-     * @param stream CUDA stream (nullptr for default)
-     * @return true if all checks pass
-     */
-    inline bool verify_colmajor_attention(
-        const float* device_att,
-        int B, int NH, int T,
-        float tolerance = 1e-4,
-        cudaStream_t stream = nullptr )
-    {
-        // Copy to host
-        size_t total_size = static_cast<size_t>(B) * NH * T * T;
-        std::vector<float> host_att( total_size );
-
-        cudaError_t err;
-        if ( stream != nullptr ) {
-            err = cudaMemcpyAsync( host_att.data(), device_att,
-                total_size * sizeof( float ),
-                cudaMemcpyDeviceToHost,
-                stream );
-            if ( err == cudaSuccess ) {
-                err = cudaStreamSynchronize( stream );
-            }
-        }
-        else {
-            err = cudaMemcpy( host_att.data(), device_att,
-                total_size * sizeof( float ),
-                cudaMemcpyDeviceToHost );
-        }
-
-        if ( err != cudaSuccess ) {
-            std::cerr << "cudaMemcpy failed: " << cudaGetErrorString( err ) << "\n";
-            return false;
-        }
-
-        bool all_passed = true;
-        int causal_violations = 0;
-        int sum_violations = 0;
-
-        for ( int b = 0; b < B; ++b ) {
-            for ( int nh = 0; nh < NH; ++nh ) {
-                size_t matrix_offset = (static_cast<size_t>( b ) * NH * T * T) +
-                    (static_cast<size_t>( nh ) * T * T);
-
-                for ( int t = 0; t < T; ++t ) {
-                    float row_sum = 0.0f;
-
-                    for ( int t2 = 0; t2 < T; ++t2 ) {
-                        // Column-major: element (row=t, col=t2) at t + t2*T
-                        float value = host_att[ matrix_offset + t + t2 * T ];
-
-                        // Check causal masking
-                        if ( t2 > t ) {
-                            if ( std::abs( value ) > tolerance ) {
-                                if ( causal_violations < 5 ) {  // Limit output
-                                    std::cerr << "Causal mask violation at [b=" << b
-                                        << ", nh=" << nh << ", t=" << t
-                                        << ", t2=" << t2 << "]: value=" << value << "\n";
-                                }
-                                causal_violations++;
-                                all_passed = false;
-                            }
-                        }
-                        else {
-                            row_sum += value;
-                        }
-                    }
-
-                    // Check row sum (should be 1.0)
-                    if ( std::abs( row_sum - 1.0f ) > tolerance ) {
-                        if ( sum_violations < 5 ) {  // Limit output
-                            std::cerr << "Row sum violation at [b=" << b
-                                << ", nh=" << nh << ", t=" << t
-                                << "]: sum=" << row_sum << " (expected 1.0)\n";
-                        }
-                        sum_violations++;
-                        all_passed = false;
-                    }
-                }
-            }
-        }
-
-        if ( !all_passed ) {
-            std::cerr << "\n=== Attention Verification Failed ===\n";
-            if ( causal_violations > 0 ) {
-                std::cerr << "Total causal violations: " << causal_violations << "\n";
-            }
-            if ( sum_violations > 0 ) {
-                std::cerr << "Total row sum violations: " << sum_violations << "\n";
-            }
-        }
-
-        return all_passed;
-    }
-
-    /**
-     * @brief Compare two column-major tensors element-wise (both on device)
-     *
-     * Useful for validating kernel outputs against reference implementations.
-     *
-     * @param device_a First tensor on device
-     * @param device_b Second tensor on device
-     * @param size Number of elements
-     * @param name Name for error reporting
-     * @param tolerance Absolute difference tolerance
-     * @param stream CUDA stream (nullptr for default)
-     * @return true if tensors match within tolerance
-     */
-    template<typename T = float>
-    bool compare_colmajor_tensors(
-        const T* device_a,
-        const T* device_b,
-        size_t size,
-        const std::string& name = "tensors",
-        float tolerance = 1e-5,
-        cudaStream_t stream = nullptr )
-    {
-        // Copy both to host
-        std::vector<T> host_a( size );
-        std::vector<T> host_b( size );
-
-        cudaError_t err_a, err_b;
-        if ( stream != nullptr ) {
-            err_a = cudaMemcpyAsync( host_a.data(), device_a,
-                size * sizeof( T ),
-                cudaMemcpyDeviceToHost,
-                stream );
-            err_b = cudaMemcpyAsync( host_b.data(), device_b,
-                size * sizeof( T ),
-                cudaMemcpyDeviceToHost,
-                stream );
-            if ( err_a == cudaSuccess && err_b == cudaSuccess ) {
-                cudaStreamSynchronize( stream );
-            }
-        }
-        else {
-            err_a = cudaMemcpy( host_a.data(), device_a,
-                size * sizeof( T ),
-                cudaMemcpyDeviceToHost );
-            err_b = cudaMemcpy( host_b.data(), device_b,
-                size * sizeof( T ),
-                cudaMemcpyDeviceToHost );
-        }
-
-        if ( err_a != cudaSuccess || err_b != cudaSuccess ) {
-            std::cerr << "cudaMemcpy failed during comparison\n";
-            return false;
-        }
-
-        bool all_match = true;
-        int mismatch_count = 0;
-        float max_diff = 0.0f;
-        size_t max_diff_idx = 0;
-
-        for ( size_t i = 0; i < size; ++i ) {
-            float val_a = static_cast<float>( host_a[ i ] );
-            float val_b = static_cast<float>( host_b[ i ] );
-            float diff = std::abs( val_a - val_b );
-
-            if ( diff > tolerance ) {
-                all_match = false;
-                mismatch_count++;
-
-                if ( diff > max_diff ) {
-                    max_diff = diff;
-                    max_diff_idx = i;
-                }
-
-                // Report first few mismatches
-                if ( mismatch_count <= 10 ) {
-                    std::cerr << "Mismatch at index " << i
-                        << ": " << val_a << " vs " << val_b
-                        << " (diff=" << diff << ")\n";
-                }
-            }
-        }
-
-        if ( !all_match ) {
-            std::cerr << "\n=== Comparison Failed for " << name << " ===\n";
-            std::cerr << "Total mismatches: " << mismatch_count << "/" << size
-                << " (" << (100.0 * mismatch_count / size) << "%)\n";
-            std::cerr << "Max difference: " << max_diff
-                << " at index " << max_diff_idx << "\n";
-        }
-        else {
-            std::cout << "=== Comparison Passed for " << name << " ===\n";
-            std::cout << "All " << size << " elements match within tolerance "
-                << tolerance << "\n";
-        }
-
-        return all_match;
-    }
-
-    // Usage examples:
-    /*
-    // Example 1: Dump attention matrix after softmax (device memory)
-    std::string att_str = dump_colmajor_tensor_device(
-        att_,                           // Device pointer
-        {batch_size_, num_heads_, seq_length_, seq_length_},
-        "attention_weights",
-        4,                              // Show 4x4 matrices max
-        stream_                         // Your CUDA stream
-    );
-    std::cout << att_str;
-
-    // Example 2: Verify attention properties (device memory)
-    bool valid = verify_colmajor_attention_device(
-        att_,
-        batch_size_,
-        num_heads_,
-        seq_length_,
-        1e-4f,
-        stream_
-    );
-    if (!valid) {
-        std::cerr << "Attention matrix verification failed!\n";
-    }
-
-    // Example 3: Compare two device tensors
-    bool match = compare_colmajor_tensors_device(
-        att_gpu,           // Your kernel output (device)
-        att_reference,     // Reference implementation (device)
-        B * NH * T * T,
-        "attention_output",
-        1e-5f,
-        stream_
-    );
-    */
 }

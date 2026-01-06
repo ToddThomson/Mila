@@ -1,12 +1,16 @@
 /**
  * @file CudaAttention.Softmax.cu
- * @brief CUDA kernels for Multi - Head Attention auxiliary operations.
+ * @brief CUDA kernels for Multi-Head Attention auxiliary operations.
  *
- *Provides kernels for operations that cannot be handled by cuBLASLt :
+ * Provides kernels for operations that cannot be handled by cuBLASLt:
+ * - Softmax with causal masking
+ * - Backward pass for softmax
  *
- * -Softmax with causal masking
- * -Backward pass for softmax
-*/
+ * All operations use row-major layout exclusively:
+ * - Attention matrices: [B*NH, T, T] where each row is contiguous
+ * - Indexing: element at (row=t, col=t2) is at index t*T + t2
+ * - Each query position t attends to key positions 0..t (causal masking)
+ */
 
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
@@ -19,6 +23,25 @@ namespace Mila::Dnn::Compute::Cuda::Attention
     // FP32 Softmax with Causal Masking and Scaling
     // ========================================================================
 
+    /**
+     * @brief Softmax forward pass with causal masking (FP32).
+     *
+     * Applies scaled softmax to preatt and writes to att, with causal masking.
+     * Each thread processes one row (query position) of the attention matrix.
+     *
+     * Preconditions:
+     * - preatt size >= B*NH * T * T
+     * - att size >= B*NH * T * T
+     *
+     * Side-effects:
+     * - Writes to device buffer att.
+     *
+     * @param att Output attention weights [B*NH, T, T].
+     * @param scale Scaling factor (typically 1/sqrt(head_size)).
+     * @param preatt Input pre-softmax scores [B*NH, T, T].
+     * @param B_NH Combined batch and head count (B * NH).
+     * @param T Sequence length.
+     */
     __global__ void softmax_forward_fp32_kernel(
         float* att, float scale, const float* preatt,
         int B_NH, int T )
@@ -26,54 +49,68 @@ namespace Mila::Dnn::Compute::Cuda::Attention
         int idx = blockIdx.x * blockDim.x + threadIdx.x;
         int total_rows = B_NH * T;
 
-        if ( idx < total_rows ) {
-            int b_nh = idx / T;      // Which (batch, head) pair
-            int t = idx % T;         // Query position (row index in [T,T] matrix)
+        if ( idx < total_rows )
+        {
+            int b_nh = idx / T;
+            int t = idx % T;
 
-            // Base pointer for this (batch, head) matrix
             const float* preatt_matrix = preatt + b_nh * (T * T);
             float* att_matrix = att + b_nh * (T * T);
 
-            // Column-major [T,T]: element at (row=t, col=t2) is at index: t + t2*T
+            const float* preatt_row = preatt_matrix + t * T;
+            float* att_row = att_matrix + t * T;
 
-            // Pass 1: Find max (only over valid positions: t2 <= t for causal)
             float max_val = -INFINITY;
-            for ( int t2 = 0; t2 <= t; ++t2 ) {
-                int idx_2d = t + t2 * T;  // Column-major indexing
-                max_val = fmaxf( max_val, preatt_matrix[ idx_2d ] );
+
+            for ( int t2 = 0; t2 <= t; ++t2 )
+            {
+                max_val = fmaxf( max_val, preatt_row[ t2 ] );
             }
 
-            // Pass 2: Compute exp((x - max) * scale) and sum
             float sum = 0.0f;
-            for ( int t2 = 0; t2 <= t; ++t2 ) {
-                int idx_2d = t + t2 * T;
-                float val = expf( (preatt_matrix[ idx_2d ] - max_val) * scale );
+
+            for ( int t2 = 0; t2 <= t; ++t2 )
+            {
+                float val = expf( (preatt_row[ t2 ] - max_val) * scale );
                 sum += val;
-                att_matrix[ idx_2d ] = val;
+                att_row[ t2 ] = val;
             }
 
-            // Pass 3: Normalize
             float inv_sum = 1.0f / sum;
-            for ( int t2 = 0; t2 <= t; ++t2 ) {
-                int idx_2d = t + t2 * T;
-                att_matrix[ idx_2d ] *= inv_sum;
+
+            for ( int t2 = 0; t2 <= t; ++t2 )
+            {
+                att_row[ t2 ] *= inv_sum;
             }
 
-            // Pass 4: Apply causal mask (zero out future positions)
-            for ( int t2 = t + 1; t2 < T; ++t2 ) {
-                int idx_2d = t + t2 * T;
-                att_matrix[ idx_2d ] = 0.0f;
+            for ( int t2 = t + 1; t2 < T; ++t2 )
+            {
+                att_row[ t2 ] = 0.0f;
             }
         }
     }
 
     /**
-    * @brief Softmax backward pass.
-    *
-    * Computes gradient of pre-softmax scores from gradient of softmax output.
-    * Input: datt [B*NH, T, T], att [B*NH, T, T]
-    * Output: dpreatt [B*NH, T, T]
-    */
+     * @brief Softmax backward pass (FP32).
+     *
+     * Computes gradient of pre-softmax scores from gradient of softmax output.
+     * Each thread processes one row of the gradient matrices.
+     *
+     * Preconditions:
+     * - datt size >= B*NH * T * T
+     * - att size >= B*NH * T * T
+     * - dpreatt size >= B*NH * T * T
+     *
+     * Side-effects:
+     * - Writes to device buffer dpreatt.
+     *
+     * @param dpreatt Output gradient of pre-softmax scores [B*NH, T, T].
+     * @param datt Input gradient of attention weights [B*NH, T, T].
+     * @param att Input attention weights [B*NH, T, T].
+     * @param scale Scaling factor (typically 1/sqrt(head_size)).
+     * @param B_NH Combined batch and head count (B * NH).
+     * @param T Sequence length.
+     */
     __global__ void softmax_backward_fp32_kernel(
         float* dpreatt, const float* datt, const float* att,
         float scale,
@@ -84,10 +121,16 @@ namespace Mila::Dnn::Compute::Cuda::Attention
 
         if ( idx < total_rows )
         {
+            int b_nh = idx / T;
             int t = idx % T;
-            const float* att_row = att + idx * T;
-            const float* datt_row = datt + idx * T;
-            float* dpreatt_row = dpreatt + idx * T;
+
+            const float* att_matrix = att + b_nh * (T * T);
+            const float* datt_matrix = datt + b_nh * (T * T);
+            float* dpreatt_matrix = dpreatt + b_nh * (T * T);
+
+            const float* att_row = att_matrix + t * T;
+            const float* datt_row = datt_matrix + t * T;
+            float* dpreatt_row = dpreatt_matrix + t * T;
 
             float sum = 0.0f;
 
@@ -112,6 +155,25 @@ namespace Mila::Dnn::Compute::Cuda::Attention
     // FP16 Softmax with Causal Masking and Scaling
     // ========================================================================
 
+    /**
+     * @brief Softmax forward pass with causal masking (FP16).
+     *
+     * FP16 variant of softmax_forward_fp32_kernel.
+     * Computations performed in FP32 for numerical stability.
+     *
+     * Preconditions:
+     * - preatt size >= B*NH * T * T
+     * - att size >= B*NH * T * T
+     *
+     * Side-effects:
+     * - Writes to device buffer att.
+     *
+     * @param att Output attention weights [B*NH, T, T].
+     * @param scale Scaling factor (typically 1/sqrt(head_size)).
+     * @param preatt Input pre-softmax scores [B*NH, T, T].
+     * @param B_NH Combined batch and head count (B * NH).
+     * @param T Sequence length.
+     */
     __global__ void softmax_forward_fp16_kernel(
         half* att, float scale, const half* preatt,
         int B_NH, int T )
@@ -121,19 +183,24 @@ namespace Mila::Dnn::Compute::Cuda::Attention
 
         if ( idx < total_rows )
         {
+            int b_nh = idx / T;
             int t = idx % T;
-            const half* preatt_row = preatt + idx * T;
-            half* att_row = att + idx * T;
 
-            // Find max (in float precision for numerical stability)
+            const half* preatt_matrix = preatt + b_nh * (T * T);
+            half* att_matrix = att + b_nh * (T * T);
+
+            const half* preatt_row = preatt_matrix + t * T;
+            half* att_row = att_matrix + t * T;
+
             float max_val = -INFINITY;
+
             for ( int t2 = 0; t2 <= t; ++t2 )
             {
                 max_val = fmaxf( max_val, __half2float( preatt_row[ t2 ] ) );
             }
 
-            // Compute exp and sum
             float sum = 0.0f;
+
             for ( int t2 = 0; t2 <= t; ++t2 )
             {
                 float val = expf( (__half2float( preatt_row[ t2 ] ) - max_val) * scale );
@@ -141,21 +208,41 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 att_row[ t2 ] = __float2half( val );
             }
 
-            // Normalize
             float inv_sum = 1.0f / sum;
+
             for ( int t2 = 0; t2 <= t; ++t2 )
             {
                 att_row[ t2 ] = __float2half( __half2float( att_row[ t2 ] ) * inv_sum );
             }
 
-            // Causal mask
             for ( int t2 = t + 1; t2 < T; ++t2 )
             {
                 att_row[ t2 ] = __float2half( 0.0f );
             }
         }
     }
-   
+
+    /**
+     * @brief Softmax backward pass (FP16).
+     *
+     * FP16 variant of softmax_backward_fp32_kernel.
+     * Computations performed in FP32 for numerical stability.
+     *
+     * Preconditions:
+     * - datt size >= B*NH * T * T
+     * - att size >= B*NH * T * T
+     * - dpreatt size >= B*NH * T * T
+     *
+     * Side-effects:
+     * - Writes to device buffer dpreatt.
+     *
+     * @param dpreatt Output gradient of pre-softmax scores [B*NH, T, T].
+     * @param datt Input gradient of attention weights [B*NH, T, T].
+     * @param att Input attention weights [B*NH, T, T].
+     * @param scale Scaling factor (typically 1/sqrt(head_size)).
+     * @param B_NH Combined batch and head count (B * NH).
+     * @param T Sequence length.
+     */
     __global__ void softmax_backward_fp16_kernel(
         half* dpreatt, const half* datt, const half* att,
         float scale,
@@ -166,10 +253,16 @@ namespace Mila::Dnn::Compute::Cuda::Attention
 
         if ( idx < total_rows )
         {
+            int b_nh = idx / T;
             int t = idx % T;
-            const half* att_row = att + idx * T;
-            const half* datt_row = datt + idx * T;
-            half* dpreatt_row = dpreatt + idx * T;
+
+            const half* att_matrix = att + b_nh * (T * T);
+            const half* datt_matrix = datt + b_nh * (T * T);
+            half* dpreatt_matrix = dpreatt + b_nh * (T * T);
+
+            const half* att_row = att_matrix + t * T;
+            const half* datt_row = datt_matrix + t * T;
+            half* dpreatt_row = dpreatt_matrix + t * T;
 
             float sum = 0.0f;
 
@@ -180,7 +273,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention
 
             for ( int t2 = 0; t2 <= t; ++t2 )
             {
-                float grad = __half2float( att_row[ t2 ] ) * (__half2float( datt_row[ t2 ] ) - sum);
+                float grad = scale * __half2float( att_row[ t2 ] ) * (__half2float( datt_row[ t2 ] ) - sum);
                 dpreatt_row[ t2 ] = __float2half( grad );
             }
 
@@ -195,6 +288,17 @@ namespace Mila::Dnn::Compute::Cuda::Attention
     // Host Functions
     // ========================================================================
 
+    /**
+     * @brief Launch softmax_forward_fp32_kernel with causal masking.
+     *
+     * @param att Output attention weights [B*NH, T, T].
+     * @param scale Scaling factor (typically 1/sqrt(head_size)).
+     * @param preatt Input pre-softmax scores [B*NH, T, T].
+     * @param B Batch size.
+     * @param NH Number of heads.
+     * @param T Sequence length.
+     * @param stream CUDA stream to launch the kernel on.
+     */
     void cuda_softmax_forward_fp32(
         float* att, float scale, const float* preatt,
         int B, int NH, int T,
@@ -210,6 +314,18 @@ namespace Mila::Dnn::Compute::Cuda::Attention
         cudaCheck( cudaGetLastError() );
     }
 
+    /**
+     * @brief Launch softmax_backward_fp32_kernel.
+     *
+     * @param dpreatt Output gradient of pre-softmax scores [B*NH, T, T].
+     * @param datt Input gradient of attention weights [B*NH, T, T].
+     * @param att Input attention weights [B*NH, T, T].
+     * @param scale Scaling factor (typically 1/sqrt(head_size)).
+     * @param B Batch size.
+     * @param NH Number of heads.
+     * @param T Sequence length.
+     * @param stream CUDA stream to launch the kernel on.
+     */
     void cuda_softmax_backward_fp32(
         float* dpreatt, const float* datt, const float* att,
         float scale,
@@ -226,6 +342,17 @@ namespace Mila::Dnn::Compute::Cuda::Attention
         cudaCheck( cudaGetLastError() );
     }
 
+    /**
+     * @brief Launch softmax_forward_fp16_kernel with causal masking.
+     *
+     * @param att Output attention weights [B*NH, T, T].
+     * @param scale Scaling factor (typically 1/sqrt(head_size)).
+     * @param preatt Input pre-softmax scores [B*NH, T, T].
+     * @param B Batch size.
+     * @param NH Number of heads.
+     * @param T Sequence length.
+     * @param stream CUDA stream to launch the kernel on.
+     */
     void cuda_softmax_forward_fp16(
         half* att, float scale, const half* preatt,
         int B, int NH, int T,
@@ -241,6 +368,18 @@ namespace Mila::Dnn::Compute::Cuda::Attention
         cudaCheck( cudaGetLastError() );
     }
 
+    /**
+     * @brief Launch softmax_backward_fp16_kernel.
+     *
+     * @param dpreatt Output gradient of pre-softmax scores [B*NH, T, T].
+     * @param datt Input gradient of attention weights [B*NH, T, T].
+     * @param att Input attention weights [B*NH, T, T].
+     * @param scale Scaling factor (typically 1/sqrt(head_size)).
+     * @param B Batch size.
+     * @param NH Number of heads.
+     * @param T Sequence length.
+     * @param stream CUDA stream to launch the kernel on.
+     */
     void cuda_softmax_backward_fp16(
         half* dpreatt, const half* datt, const half* att,
         float scale,

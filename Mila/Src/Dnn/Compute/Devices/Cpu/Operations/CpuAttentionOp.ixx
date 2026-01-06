@@ -1,11 +1,6 @@
 /**
  * @file CpuAttentionOp.ixx
- * @brief CPU implementation of the Multi-Head Attention operation (concatenated QKV input).
- *
- * Accepts a single input tensor in model layout [B, T, 3 * embedding_dim] where
- * the last dimension concatenates Q, K and V (each of size embedding_dim). Internally
- * the operator splits and computes attention per-head and returns output in model
- * layout [B, T, embedding_dim].
+ * @brief CPU implementation of Multi-Head Attention operation.
  */
 
 module;
@@ -17,8 +12,9 @@ module;
 #include <cstdint>
 #include <algorithm>
 #include <cstring>
-#include <iostream>
+#include <cassert>
 #include <sstream>
+#include <iostream>
 #ifdef USE_OMP
 #include <omp.h>
 #endif
@@ -42,6 +38,7 @@ import Compute.ExecutionContext;
 import Compute.CpuDevice;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
+import Utils.Logger;
 
 namespace Mila::Dnn::Compute
 {
@@ -50,12 +47,26 @@ namespace Mila::Dnn::Compute
     /**
      * @brief CPU implementation of Multi-Head Attention operation.
      *
-     * This variant expects a single concatenated input in model-layout:
-     *   input:  [B, T, 3 * embedding_dim]  (Q || K || V)
-     *   output: [B, T, embedding_dim]
+     * Design philosophy:
+     * - Two-phase initialization: build() creates all required tensors, forward()/backward() use them
+     * - All dimension computation and tensor allocation happens once in build()
+     * - Forward/backward are hot-path methods with zero setup overhead
      *
-     * Internally splits input into Q/K/V, computes attention per-head and writes
-     * output back in model-layout.
+     * Forward pass:
+     *  1. Permute QKV from [B, T, 3*C] to separate Q, K, V [B, NH, T, HS]
+     *  2. Compute attention scores: preatt = Q @ K^T
+     *  3. Apply softmax with causal masking: att = softmax(preatt / sqrt(HS))
+     *  4. Compute values: v_out = Att @ V
+     *  5. Unpermute output from [B, NH, T, HS] to [B, T, C]
+     *
+     * Backward pass:
+     *  1. Unpermute output gradient to [B, NH, T, HS]
+     *  2. Compute dV = Att^T @ dVout
+     *  3. Compute dAtt = dVout @ V^T
+     *  4. Softmax backward: dPreatt = softmax_backward(dAtt, Att) * scale
+     *  5. Compute dQ = dPreatt @ K
+     *  6. Compute dK = dPreatt^T @ Q
+     *  7. Permute gradients back to concatenated QKV format
      */
     export class CpuAttentionOp : public UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>
     {
@@ -67,7 +78,7 @@ namespace Mila::Dnn::Compute
         explicit CpuAttentionOp( IExecutionContext* context, const AttentionConfig& config )
             : context_( context ), config_( config )
         {
-            if (!context_)
+            if ( !context_ )
             {
                 throw std::invalid_argument( "ExecutionContext cannot be null." );
             }
@@ -77,419 +88,86 @@ namespace Mila::Dnn::Compute
 
         ~CpuAttentionOp() override = default;
 
-        // Build expects model-layout input shape: [B, T, 3 * embedding_dim]
         void build( const shape_t& input_shape ) override
         {
-            if (is_built_)
+            if ( is_built_ )
             {
                 return;
             }
 
-            validateModelLayoutShape( input_shape );
+            validateInputShape( input_shape );
 
-            cached_batch_size_ = input_shape[0];
-            cached_seq_length_ = input_shape[1];
+            B_ = static_cast<int>(input_shape[ 0 ]);
+            T_ = static_cast<int>(input_shape[ 1 ]);
+            qkv_dim_ = static_cast<int>(input_shape[ 2 ]);
 
-            cached_qkv_dim_ = input_shape[2];
-            cached_embedding_dim_ = config_.getEmbeddingDim();
+            embedding_dim_ = qkv_dim_ / 3;
+            NH_ = config_.getNumHeads();
+            HS_ = embedding_dim_ / NH_;
 
-            if (cached_qkv_dim_ != 3 * cached_embedding_dim_)
-            {
-                throw std::invalid_argument( "CpuAttentionOp: input last-dimension must equal 3 * embedding_dim (Q||K||V)" );
-            }
-
-            cached_num_heads_ = config_.getNumHeads();
-            if (cached_num_heads_ <= 0) throw std::invalid_argument( "CpuAttentionOp: num_heads must be > 0" );
-
-            cached_head_size_ = static_cast<int64_t>(cached_embedding_dim_ / cached_num_heads_);
-            if (cached_head_size_ * cached_num_heads_ != cached_embedding_dim_)
+            if ( embedding_dim_ % NH_ != 0 )
             {
                 throw std::invalid_argument( "CpuAttentionOp: embedding_dim must be divisible by num_heads" );
             }
 
-            // Allocate state tensors (attention scores / weights)
             allocateStateTensors();
 
             is_built_ = true;
         }
 
         void setParameters( ITensor* /*unused1*/, ITensor* /*unused2*/ ) override
-        {
-            // No learnable parameters
-        }
+        {}
 
         void setGradients( ITensor* /*unused1*/, ITensor* /*unused2*/ ) override
+        {}
+
+        void forward( const ITensor& input, ITensor& output ) const override
         {
-            // No learnable parameters
+            assert( is_built_ && "CpuAttentionOp must be built before calling forward()" );
+
+            const float* X = static_cast<const float*>(input.rawData());
+            float* Y = static_cast<float*>(output.rawData());
+
+            const float scale = 1.0f / std::sqrt( static_cast<float>(HS_) );
+
+            permuteQKV( X );
+
+            computeAttentionScores( scale );
+
+            applySoftmax();
+
+            computeOutputValues();
+
+            unpermute( Y );
         }
 
-        /**
-         * Forward:
-         *  - input_qkv: [B, T, 3 * embedding_dim]  (Q || K || V)
-         *  - output:    [B, T, embedding_dim]
-         *
-         * This implementation also builds explicit per-head intermediate tensors
-         * (q, k, v, vaccum) and logs them when small to aid parity debugging with the CUDA path.
-         */
-        void forward( const ITensor& input_qkv, ITensor& output ) const override
-        {
-            if (!is_built_)
-            {
-                throw std::runtime_error( "CpuAttentionOp: forward called before build()" );
-            }
-
-            validateModelLayoutShapes( input_qkv, output );
-
-            const float* in_data = static_cast<const float*>(static_cast<const ITensor&>(input_qkv).rawData());
-            float* out_data = static_cast<float*>(output.rawData());
-
-            const int64_t B = cached_batch_size_;
-            const int64_t T = cached_seq_length_;
-            const int64_t D = cached_embedding_dim_;
-            const int64_t NH = cached_num_heads_;
-            const int64_t hs = cached_head_size_;
-
-            const float scale = 1.0f / std::sqrt( static_cast<float>(hs) );
-
-            float* preatt_data = preatt_cache_->data();
-            float* att_data = att_cache_->data();
-
-            // Convenience offsets for Q/K/V within the last-dimension
-            const int64_t q_offset_in_last = 0;
-            const int64_t k_offset_in_last = D;
-            const int64_t v_offset_in_last = 2 * D;
-            const int64_t last_stride = 3 * D;
-
-            auto device_id = context_->getDeviceId();
-
-            // Create explicit per-head Q/K/V buffers to mirror CUDA intermediate layout:
-            // q/k/v shape: [B, NH, T, HS]
-            shape_t qkv_shape = { B, NH, T, hs };
-
-            TensorType q_tensor( device_id, qkv_shape );
-            TensorType k_tensor( device_id, qkv_shape );
-            TensorType v_tensor( device_id, qkv_shape );
-
-            q_tensor.setName( this->getName() + ".q" );
-            k_tensor.setName( this->getName() + ".k" );
-            v_tensor.setName( this->getName() + ".v" );
-
-            float* q_data = q_tensor.data();
-            float* k_data = k_tensor.data();
-            float* v_data = v_tensor.data();
-
-            // Permute/pack Q, K, V from concatenated model-layout into per-head layout.
-#pragma omp parallel for collapse(2)
-            for (int64_t b = 0; b < B; b++)
-            {
-                for (int64_t h = 0; h < NH; h++)
-                {
-                    for (int64_t t = 0; t < T; t++)
-                    {
-                        for (int64_t kk = 0; kk < hs; kk++)
-                        {
-                            const int64_t emb_idx = h * hs + kk;
-
-                            // input index for Q, K, V within concatenated last-dimension
-                            const int64_t base = (b * T + t) * last_stride;
-
-                            const float qv = in_data[ base + q_offset_in_last + emb_idx ];
-                            const float kv = in_data[ base + k_offset_in_last + emb_idx ];
-                            const float vv = in_data[ base + v_offset_in_last + emb_idx ];
-
-                            const size_t idx = static_cast<size_t>( ( (b * NH + h) * T + t ) * hs + kk );
-
-                            q_data[ idx ] = qv;
-                            k_data[ idx ] = kv;
-                            v_data[ idx ] = vv;
-                        }
-                    }
-                }
-            }
-
-            // Step 1: compute scores per head: preatt[b, h, i, j] = (Q_bh[i] · K_bh[j]) * scale
-#pragma omp parallel for collapse(2)
-            for (int64_t b = 0; b < B; b++)
-            {
-                for (int64_t h = 0; h < NH; h++)
-                {
-                    const int64_t score_offset = b * NH * T * T + h * T * T;
-
-                    for (int64_t i = 0; i < T; i++)
-                    {
-                        for (int64_t j = 0; j < T; j++)
-                        {
-                            float sum = 0.0f;
-
-                            for (int64_t kk = 0; kk < hs; kk++)
-                            {
-                                const size_t qi = static_cast<size_t>( ( (b * NH + h) * T + i ) * hs + kk );
-                                const size_t kj = static_cast<size_t>( ( (b * NH + h) * T + j ) * hs + kk );
-
-                                const float qv = q_data[ qi ];
-                                const float kv = k_data[ kj ];
-
-                                sum += qv * kv;
-                            }
-
-                            preatt_data[ score_offset + i * T + j ] = sum * scale;
-                        }
-                    }
-                }
-            }
-
-            // Step 2: Apply causal mask and softmax -> att_data
-#pragma omp parallel for collapse(3)
-            for (int64_t b = 0; b < B; b++)
-            {
-                for (int64_t h = 0; h < NH; h++)
-                {
-                    for (int64_t t = 0; t < T; t++)
-                    {
-                        const int64_t score_offset = b * NH * T * T + h * T * T;
-                        float* scores_row = preatt_data + score_offset + t * T;
-                        float* att_row = att_data + score_offset + t * T;
-
-                        float maxval = -INFINITY;
-                        for (int64_t t2 = 0; t2 <= t; t2++)
-                        {
-                            if (scores_row[t2] > maxval) maxval = scores_row[t2];
-                        }
-
-                        float expsum = 0.0f;
-                        for (int64_t t2 = 0; t2 <= t; t2++)
-                        {
-                            float expv = std::exp( scores_row[t2] - maxval );
-                            att_row[t2] = expv;
-                            expsum += expv;
-                        }
-
-                        const float expsum_inv = (expsum > 0.0f) ? (1.0f / expsum) : 0.0f;
-                        for (int64_t t2 = 0; t2 <= t; t2++)
-                        {
-                            att_row[t2] *= expsum_inv;
-                        }
-
-                        for (int64_t t2 = t + 1; t2 < T; t2++)
-                        {
-                            att_row[t2] = 0.0f;
-                        }
-                    }
-                }
-            }
-
-            // Step 3: vaccum = Att × V  (per-head accumulated values) -> vaccum shape [B, NH, T, HS]
-            TensorType vaccum( device_id, qkv_shape );
-            vaccum.setName( this->getName() + ".vaccum" );
-            float* vaccum_data = vaccum.data();
-
-            std::memset( vaccum_data, 0, static_cast<size_t>(B) * NH * T * hs * sizeof( float ) );
-
-#pragma omp parallel for collapse(2)
-            for (int64_t b = 0; b < B; b++)
-            {
-                for (int64_t h = 0; h < NH; h++)
-                {
-                    const int64_t score_offset = b * NH * T * T + h * T * T;
-
-                    for (int64_t i = 0; i < T; i++)
-                    {
-                        for (int64_t kk = 0; kk < hs; kk++)
-                        {
-                            float sum = 0.0f;
-
-                            for (int64_t j = 0; j < T; j++)
-                            {
-                                const size_t vidx = static_cast<size_t>( ( (b * NH + h) * T + j ) * hs + kk );
-                                const float vval = v_data[ vidx ];
-
-                                sum += att_data[ score_offset + i * T + j ] * vval;
-                            }
-
-                            const size_t outidx = static_cast<size_t>( ( (b * NH + h) * T + i ) * hs + kk );
-                            vaccum_data[ outidx ] = sum;
-                        }
-                    }
-                }
-            }
-
-            // Unpermute vaccum -> output model-layout [B, T, D]
-#pragma omp parallel for collapse(2)
-            for (int64_t b = 0; b < B; b++)
-            {
-                for (int64_t i = 0; i < T; i++)
-                {
-                    for (int64_t h = 0; h < NH; h++)
-                    {
-                        for (int64_t kk = 0; kk < hs; kk++)
-                        {
-                            const int64_t emb_idx = h * hs + kk;
-                            const size_t vidx = static_cast<size_t>( ( (b * NH + h) * T + i ) * hs + kk );
-                            out_data[ (b * T + i) * D + emb_idx ] = vaccum_data[ vidx ];
-                        }
-                    }
-                }
-            }
-
-            // Debug dump: only print small tensors to avoid overwhelming logs.
-            const size_t preatt_elems = static_cast<size_t>(B) * NH * T * T;
-            const size_t vaccum_elems = static_cast<size_t>(B) * NH * T * hs;
-
-            /*if ( preatt_elems <= 1024 )
-            {
-                std::cout << this->getName() << ": preatt_cache (shape [" << B << "," << NH << "," << T << "," << T << "]):\n";
-                std::cout << preatt_cache_->toString( true ) << "\n";
-            }
-
-            if ( preatt_elems <= 1024 )
-            {
-                std::cout << this->getName() << ": att_cache (shape [" << B << "," << NH << "," << T << "," << T << "]):\n";
-                std::cout << att_cache_->toString( true ) << "\n";
-            }
-
-            if ( vaccum_elems <= 1024 )
-            {
-                std::cout << this->getName() << ": vaccum (shape [" << B << "," << NH << "," << T << "," << hs << "]):\n";
-                std::cout << vaccum.toString( true ) << "\n";
-            }*/
-        }
-
-        /**
-         * Backward:
-         *  - input_qkv: [B, T, 3*D]  (Q||K||V)
-         *  - output_grad: [B, T, D]
-         *  - input_grad: [B, T, 3*D] (written)
-         *
-         * Implements gradient propagation for the above forward.
-         */
         void backward(
-            const ITensor& input_qkv,
+            const ITensor& input,
             const ITensor& output_grad,
             ITensor& input_grad ) const override
         {
-            if (!is_built_)
-            {
-                throw std::runtime_error( "CpuAttentionOp: backward called before build()" );
-            }
+            assert( is_built_ && "CpuAttentionOp must be built before calling backward()" );
 
-            validateModelLayoutShapesForBackward( input_qkv, output_grad, input_grad );
-
-            const float* in_data = static_cast<const float*>(static_cast<const ITensor&>(input_qkv).rawData());
             const float* dY = static_cast<const float*>(output_grad.rawData());
-            float* dIn = static_cast<float*>(input_grad.rawData());
+            float* dX = static_cast<float*>(input_grad.rawData());
 
-            const int64_t B = cached_batch_size_;
-            const int64_t T = cached_seq_length_;
-            const int64_t D = cached_embedding_dim_;
-            const int64_t NH = cached_num_heads_;
-            const int64_t hs = cached_head_size_;
+            const float scale = 1.0f / std::sqrt( static_cast<float>(HS_) );
 
-            const float scale = 1.0f / std::sqrt( static_cast<float>(hs) );
+            std::memset( dX, 0, static_cast<size_t>(B_) * T_ * qkv_dim_ * sizeof( float ) );
 
-            float* preatt_data = preatt_cache_->data();
-            float* att_data = att_cache_->data();
+            unpermute_backward( dY );
 
-            const int64_t last_stride = 3 * D;
-            const int64_t q_offset_in_last = 0;
-            const int64_t k_offset_in_last = D;
-            const int64_t v_offset_in_last = 2 * D;
+            computeGradientV();
 
-            // Zero input_grad
-            std::memset( dIn, 0, static_cast<size_t>(B) * T * (3 * D) * sizeof( float ) );
+            computeGradientAtt();
 
-            // Temporary buffers for intermediate grads dAtt, dPreatt
-            auto device_id = context_->getDeviceId();
-            shape_t score_shape = { B, NH, T, T };
+            computeGradientPreatt( scale );
 
-            TensorType dAtt( device_id, score_shape );
-            TensorType dPreatt( device_id, score_shape );
+            computeGradientQ();
 
-            float* datt_data = dAtt.data();
-            float* dpreatt_data = dPreatt.data();
+            computeGradientK();
 
-            std::memset( datt_data, 0, static_cast<size_t>(B) * NH * T * T * sizeof( float ) );
-            std::memset( dpreatt_data, 0, static_cast<size_t>(B) * NH * T * T * sizeof( float ) );
-
-            // Backprop through Att × V, softmax, and QK^T
-#pragma omp parallel for collapse(2)
-            for (int64_t b = 0; b < B; b++)
-            {
-                for (int64_t h = 0; h < NH; h++)
-                {
-                    const int64_t score_offset = b * NH * T * T + h * T * T;
-
-                    // Pointers are computed on-the-fly from concatenated input
-                    for (int64_t t = 0; t < T; t++)
-                    {
-                        for (int64_t t2 = 0; t2 < T; t2++)
-                        {
-                            for (int64_t k = 0; k < hs; k++)
-                            {
-                                // indices for V and output_grad
-                                int64_t emb_idx = h * hs + k;
-
-                                // dY at (b, t, emb_idx) -> dY[ (b*T + t)*D + emb_idx ]
-                                const float dout_val = dY[(b * T + t) * D + emb_idx];
-
-                                // Accumulate dAtt and dV
-                                // dAtt[t, t2] += dout[t, emb_idx] * V[t2, emb_idx]
-                                // dV[t2, emb_idx] += Att[t, t2] * dout[t, emb_idx]
-                                const int64_t v_index = ((b * T + t2) * last_stride) + v_offset_in_last + emb_idx;
-                                const float v_val = in_data[v_index];
-
-                                // atomic accumulation is not used here; omp may cause race if parallelized across same locations.
-                                // We parallelized outer loops (b,h) so inner loops are safe.
-                                datt_data[score_offset + t * T + t2] += dout_val * v_val;
-                                // accumulate into dV at (b, t2, emb_idx) -> dIn position for V segment
-                                dIn[(b * T + t2) * last_stride + v_offset_in_last + emb_idx] += att_data[score_offset + t * T + t2] * dout_val;
-                            }
-                        }
-                    }
-
-                    // softmax backward (causal): dpreatt += J_softmax^T * dAtt
-                    for (int64_t t = 0; t < T; t++)
-                    {
-                        const float* att_row = att_data + score_offset + t * T;
-                        const float* datt_row = datt_data + score_offset + t * T;
-                        float* dpreatt_row = dpreatt_data + score_offset + t * T;
-
-                        for (int64_t t2 = 0; t2 <= t; t2++)
-                        {
-                            for (int64_t t3 = 0; t3 <= t; t3++)
-                            {
-                                const float indicator = (t2 == t3) ? 1.0f : 0.0f;
-                                const float local_derivative = att_row[t2] * (indicator - att_row[t3]);
-                                dpreatt_row[t3] += local_derivative * datt_row[t2];
-                            }
-                        }
-                    }
-
-                    // dQ = dPreatt × K × scale
-                    // dK = dPreatt^T × Q × scale
-                    for (int64_t t = 0; t < T; t++)
-                    {
-                        for (int64_t t2 = 0; t2 < T; t2++)
-                        {
-                            const float coeff = dpreatt_data[score_offset + t * T + t2] * scale;
-                            for (int64_t k = 0; k < hs; k++)
-                            {
-                                int64_t emb_idx = h * hs + k;
-
-                                // Q at (b, t, emb_idx) -> in_data[ ((b*T)+t)*last_stride + q_offset + emb_idx ]
-                                const int64_t q_index = ((b * T + t) * last_stride) + q_offset_in_last + emb_idx;
-                                const int64_t k_index = ((b * T + t2) * last_stride) + k_offset_in_last + emb_idx;
-
-                                const float q_val = in_data[q_index];
-                                const float k_val = in_data[k_index];
-
-                                // accumulate into dQ and dK locations inside dIn (for Q and K segments)
-                                dIn[(b * T + t) * last_stride + q_offset_in_last + emb_idx] += coeff * k_val;
-                                dIn[(b * T + t2) * last_stride + k_offset_in_last + emb_idx] += coeff * q_val;
-                            }
-                        }
-                    }
-                }
-            }
+            permute_backward( dX );
         }
 
         OperationType getOperationType() const override
@@ -507,95 +185,477 @@ namespace Mila::Dnn::Compute
         AttentionConfig config_;
         bool is_built_{ false };
 
-        // Cached dimensions for model-layout / per-head computations
-        int64_t cached_batch_size_{ 0 };
-        int64_t cached_seq_length_{ 0 };
-        int64_t cached_qkv_dim_{ 0 };
-        int64_t cached_embedding_dim_{ 0 };
-        int64_t cached_num_heads_{ 0 };
-        int64_t cached_head_size_{ 0 };
+        int B_{ 0 };
+        int T_{ 0 };
+        int qkv_dim_{ 0 };
+        int embedding_dim_{ 0 };
+        int NH_{ 0 };
+        int HS_{ 0 };
 
-        // State tensors: attention scores/weights [B, NH, T, T]
-        mutable std::shared_ptr<TensorType> preatt_cache_{ nullptr };
-        mutable std::shared_ptr<TensorType> att_cache_{ nullptr };
+        std::shared_ptr<TensorType> q_tensor_;
+        std::shared_ptr<TensorType> k_tensor_;
+        std::shared_ptr<TensorType> v_tensor_;
+        std::shared_ptr<TensorType> preatt_tensor_;
+        std::shared_ptr<TensorType> att_tensor_;
+        std::shared_ptr<TensorType> v_out_tensor_;
 
-        void validateModelLayoutShape( const shape_t& s ) const
+        std::shared_ptr<TensorType> dq_tensor_;
+        std::shared_ptr<TensorType> dk_tensor_;
+        std::shared_ptr<TensorType> dv_tensor_;
+        std::shared_ptr<TensorType> dpreatt_tensor_;
+        std::shared_ptr<TensorType> datt_tensor_;
+        std::shared_ptr<TensorType> dvout_tensor_;
+
+        float* q_{ nullptr };
+        float* k_{ nullptr };
+        float* v_{ nullptr };
+        float* preatt_{ nullptr };
+        float* att_{ nullptr };
+        float* v_out_{ nullptr };
+
+        float* dq_{ nullptr };
+        float* dk_{ nullptr };
+        float* dv_{ nullptr };
+        float* dpreatt_{ nullptr };
+        float* datt_{ nullptr };
+        float* dvout_{ nullptr };
+
+        void validateInputShape( const shape_t& input_shape ) const
         {
-            if (s.size() != 3)
+            if ( input_shape.size() != 3 )
             {
-                throw std::invalid_argument( "CpuAttentionOp: expected model-layout shape [B, T, 3*embedding_dim]" );
-            }
-        }
-
-        void validateModelLayoutShapes( const ITensor& in, const ITensor& out ) const
-        {
-            const auto& ishape = in.shape();
-            const auto& oshape = out.shape();
-
-            validateModelLayoutShape( ishape );
-
-            const int64_t D_expected = config_.getEmbeddingDim();
-            if (ishape[2] != 3 * D_expected)
-            {
-                throw std::invalid_argument( "CpuAttentionOp: input last-dimension must be 3 * embedding_dim" );
+                throw std::invalid_argument(
+                    "CpuAttentionOp: input must have rank 3 (batch_size, seq_length, 3*embedding_dim)" );
             }
 
-            if (oshape.size() != 3 || oshape[2] != D_expected)
+            const int64_t expected_qkv_dim = 3 * config_.getEmbeddingDim();
+
+            if ( input_shape[ 2 ] != expected_qkv_dim )
             {
-                throw std::invalid_argument( "CpuAttentionOp: output must be [B, T, embedding_dim]" );
-            }
-
-            if (oshape[0] != ishape[0] || oshape[1] != ishape[1])
-            {
-                throw std::invalid_argument( "CpuAttentionOp: input and output batch/sequence dimensions must match" );
-            }
-        }
-
-        void validateModelLayoutShapesForBackward(
-            const ITensor& in, const ITensor& out_grad, const ITensor& in_grad ) const
-        {
-            const auto& ishape = in.shape();
-
-            validateModelLayoutShape( ishape );
-
-            const int64_t D_expected = config_.getEmbeddingDim();
-            if (ishape[2] != 3 * D_expected)
-            {
-                throw std::invalid_argument( "CpuAttentionOp: input last-dimension must be 3 * embedding_dim" );
-            }
-
-            if (out_grad.shape().size() != 3 || out_grad.shape()[2] != D_expected)
-            {
-                throw std::invalid_argument( "CpuAttentionOp: output_grad must be [B, T, embedding_dim]" );
-            }
-
-            if (in_grad.shape().size() != 3 || in_grad.shape()[2] != 3 * D_expected)
-            {
-                throw std::invalid_argument( "CpuAttentionOp: input_grad must be [B, T, 3*embedding_dim]" );
-            }
-
-            if (out_grad.shape()[0] != ishape[0] || out_grad.shape()[1] != ishape[1] ||
-                in_grad.shape()[0] != ishape[0] || in_grad.shape()[1] != ishape[1])
-            {
-                throw std::invalid_argument( "CpuAttentionOp: batch/sequence dimensions must match between tensors" );
+                throw std::invalid_argument(
+                    "CpuAttentionOp: input last dimension must be 3*embedding_dim (Q, K, V concatenated)" );
             }
         }
 
         void allocateStateTensors()
         {
-            auto device_id = context_->getDeviceId();
+            auto device = context_->getDeviceId();
 
-            const int64_t B = cached_batch_size_;
-            const int64_t NH = cached_num_heads_;
-            const int64_t T = cached_seq_length_;
+            shape_t qkv_shape = { B_, NH_, T_, HS_ };
 
-            shape_t score_shape = { B, NH, T, T };
+            q_tensor_ = std::make_shared<TensorType>( device, qkv_shape );
+            q_tensor_->setName( "q_" );
+            q_ = q_tensor_->data();
 
-            preatt_cache_ = std::make_shared<TensorType>( device_id, score_shape );
-            preatt_cache_->setName( "preatt_cache" );
+            k_tensor_ = std::make_shared<TensorType>( device, qkv_shape );
+            k_tensor_->setName( "k_" );
+            k_ = k_tensor_->data();
 
-            att_cache_ = std::make_shared<TensorType>( device_id, score_shape );
-            att_cache_->setName( "att_cache" );
+            v_tensor_ = std::make_shared<TensorType>( device, qkv_shape );
+            v_tensor_->setName( "v_" );
+            v_ = v_tensor_->data();
+
+            shape_t att_shape = { B_, NH_, T_, T_ };
+
+            preatt_tensor_ = std::make_shared<TensorType>( device, att_shape );
+            preatt_tensor_->setName( "preatt_" );
+            preatt_ = preatt_tensor_->data();
+
+            att_tensor_ = std::make_shared<TensorType>( device, att_shape );
+            att_tensor_->setName( "att_" );
+            att_ = att_tensor_->data();
+
+            shape_t v_out_shape = { B_, NH_, T_, HS_ };
+
+            v_out_tensor_ = std::make_shared<TensorType>( device, v_out_shape );
+            v_out_tensor_->setName( "v_out_" );
+            v_out_ = v_out_tensor_->data();
+
+            dq_tensor_ = std::make_shared<TensorType>( device, qkv_shape );
+            dq_tensor_->setName( "dq_" );
+            dq_ = dq_tensor_->data();
+
+            dk_tensor_ = std::make_shared<TensorType>( device, qkv_shape );
+            dk_tensor_->setName( "dk_" );
+            dk_ = dk_tensor_->data();
+
+            dv_tensor_ = std::make_shared<TensorType>( device, qkv_shape );
+            dv_tensor_->setName( "dv_" );
+            dv_ = dv_tensor_->data();
+
+            dpreatt_tensor_ = std::make_shared<TensorType>( device, att_shape );
+            dpreatt_tensor_->setName( "dpreatt_" );
+            dpreatt_ = dpreatt_tensor_->data();
+
+            datt_tensor_ = std::make_shared<TensorType>( device, att_shape );
+            datt_tensor_->setName( "datt_" );
+            datt_ = datt_tensor_->data();
+
+            dvout_tensor_ = std::make_shared<TensorType>( device, v_out_shape );
+            dvout_tensor_->setName( "dvout_" );
+            dvout_ = dvout_tensor_->data();
+        }
+
+        void permuteQKV( const float* X ) const
+        {
+        #pragma omp parallel for collapse(2)
+            for ( int b = 0; b < B_; b++ )
+            {
+                for ( int h = 0; h < NH_; h++ )
+                {
+                    for ( int t = 0; t < T_; t++ )
+                    {
+                        for ( int k = 0; k < HS_; k++ )
+                        {
+                            const int emb_idx = h * HS_ + k;
+                            const size_t base = static_cast<size_t>( (b * T_ + t) * qkv_dim_ );
+                            const size_t idx = static_cast<size_t>( ((b * NH_ + h) * T_ + t) * HS_ + k );
+
+                            q_[ idx ] = X[ base + emb_idx ];
+                            k_[ idx ] = X[ base + embedding_dim_ + emb_idx ];
+                            v_[ idx ] = X[ base + 2 * embedding_dim_ + emb_idx ];
+                        }
+                    }
+                }
+            }
+        }
+
+        void computeAttentionScores( float scale ) const
+        {
+        #pragma omp parallel for collapse(2)
+            for ( int b = 0; b < B_; b++ )
+            {
+                for ( int h = 0; h < NH_; h++ )
+                {
+                    const size_t score_offset = static_cast<size_t>( (b * NH_ + h) * T_ * T_ );
+
+                    for ( int i = 0; i < T_; i++ )
+                    {
+                        for ( int j = 0; j < T_; j++ )
+                        {
+                            float sum = 0.0f;
+
+                            for ( int k = 0; k < HS_; k++ )
+                            {
+                                const size_t qi = static_cast<size_t>( ((b * NH_ + h) * T_ + i) * HS_ + k );
+                                const size_t kj = static_cast<size_t>( ((b * NH_ + h) * T_ + j) * HS_ + k );
+
+                                sum += q_[ qi ] * k_[ kj ];
+                            }
+
+                            preatt_[ score_offset + i * T_ + j ] = sum * scale;
+                        }
+                    }
+                }
+            }
+        }
+
+        void applySoftmax() const
+        {
+        #pragma omp parallel for collapse(3)
+            for ( int b = 0; b < B_; b++ )
+            {
+                for ( int h = 0; h < NH_; h++ )
+                {
+                    for ( int t = 0; t < T_; t++ )
+                    {
+                        const size_t score_offset = static_cast<size_t>( (b * NH_ + h) * T_ * T_ );
+                        float* scores_row = preatt_ + score_offset + t * T_;
+                        float* att_row = att_ + score_offset + t * T_;
+
+                        float maxval = -INFINITY;
+                        for ( int t2 = 0; t2 <= t; t2++ )
+                        {
+                            if ( scores_row[ t2 ] > maxval ) maxval = scores_row[ t2 ];
+                        }
+
+                        float expsum = 0.0f;
+                        for ( int t2 = 0; t2 <= t; t2++ )
+                        {
+                            float expv = std::exp( scores_row[ t2 ] - maxval );
+                            att_row[ t2 ] = expv;
+                            expsum += expv;
+                        }
+
+                        const float expsum_inv = (expsum > 0.0f) ? (1.0f / expsum) : 0.0f;
+                        for ( int t2 = 0; t2 <= t; t2++ )
+                        {
+                            att_row[ t2 ] *= expsum_inv;
+                        }
+
+                        for ( int t2 = t + 1; t2 < T_; t2++ )
+                        {
+                            att_row[ t2 ] = 0.0f;
+                        }
+                    }
+                }
+            }
+        }
+
+        void computeOutputValues() const
+        {
+            std::memset( v_out_, 0, static_cast<size_t>(B_) * NH_ * T_ * HS_ * sizeof( float ) );
+
+        #pragma omp parallel for collapse(2)
+            for ( int b = 0; b < B_; b++ )
+            {
+                for ( int h = 0; h < NH_; h++ )
+                {
+                    const size_t score_offset = static_cast<size_t>( (b * NH_ + h) * T_ * T_ );
+
+                    for ( int i = 0; i < T_; i++ )
+                    {
+                        for ( int k = 0; k < HS_; k++ )
+                        {
+                            float sum = 0.0f;
+
+                            for ( int j = 0; j < T_; j++ )
+                            {
+                                const size_t vidx = static_cast<size_t>( ((b * NH_ + h) * T_ + j) * HS_ + k );
+                                sum += att_[ score_offset + i * T_ + j ] * v_[ vidx ];
+                            }
+
+                            const size_t outidx = static_cast<size_t>( ((b * NH_ + h) * T_ + i) * HS_ + k );
+                            v_out_[ outidx ] = sum;
+                        }
+                    }
+                }
+            }
+        }
+
+        void unpermute( float* Y ) const
+        {
+        #pragma omp parallel for collapse(2)
+            for ( int b = 0; b < B_; b++ )
+            {
+                for ( int i = 0; i < T_; i++ )
+                {
+                    for ( int h = 0; h < NH_; h++ )
+                    {
+                        for ( int k = 0; k < HS_; k++ )
+                        {
+                            const int emb_idx = h * HS_ + k;
+                            const size_t vidx = static_cast<size_t>( ((b * NH_ + h) * T_ + i) * HS_ + k );
+                            Y[ (b * T_ + i) * embedding_dim_ + emb_idx ] = v_out_[ vidx ];
+                        }
+                    }
+                }
+            }
+        }
+
+        void unpermute_backward( const float* dY ) const
+        {
+        #pragma omp parallel for collapse(2)
+            for ( int b = 0; b < B_; b++ )
+            {
+                for ( int h = 0; h < NH_; h++ )
+                {
+                    for ( int t = 0; t < T_; t++ )
+                    {
+                        for ( int k = 0; k < HS_; k++ )
+                        {
+                            const int emb_idx = h * HS_ + k;
+                            const size_t idx = static_cast<size_t>( ((b * NH_ + h) * T_ + t) * HS_ + k );
+                            dvout_[ idx ] = dY[ (b * T_ + t) * embedding_dim_ + emb_idx ];
+                        }
+                    }
+                }
+            }
+        }
+
+        void computeGradientV() const
+        {
+            std::memset( dv_, 0, static_cast<size_t>(B_) * NH_ * T_ * HS_ * sizeof( float ) );
+
+        #pragma omp parallel for collapse(2)
+            for ( int b = 0; b < B_; b++ )
+            {
+                for ( int h = 0; h < NH_; h++ )
+                {
+                    const size_t score_offset = static_cast<size_t>( (b * NH_ + h) * T_ * T_ );
+
+                    for ( int j = 0; j < T_; j++ )
+                    {
+                        for ( int k = 0; k < HS_; k++ )
+                        {
+                            float sum = 0.0f;
+
+                            for ( int i = 0; i < T_; i++ )
+                            {
+                                const size_t dvout_idx = static_cast<size_t>( ((b * NH_ + h) * T_ + i) * HS_ + k );
+                                sum += att_[ score_offset + i * T_ + j ] * dvout_[ dvout_idx ];
+                            }
+
+                            const size_t dv_idx = static_cast<size_t>( ((b * NH_ + h) * T_ + j) * HS_ + k );
+                            dv_[ dv_idx ] = sum;
+                        }
+                    }
+                }
+            }
+        }
+
+        void computeGradientAtt() const
+        {
+            std::memset( datt_, 0, static_cast<size_t>(B_) * NH_ * T_ * T_ * sizeof( float ) );
+
+        #pragma omp parallel for collapse(2)
+            for ( int b = 0; b < B_; b++ )
+            {
+                for ( int h = 0; h < NH_; h++ )
+                {
+                    const size_t score_offset = static_cast<size_t>( (b * NH_ + h) * T_ * T_ );
+
+                    for ( int i = 0; i < T_; i++ )
+                    {
+                        for ( int j = 0; j < T_; j++ )
+                        {
+                            float sum = 0.0f;
+
+                            for ( int k = 0; k < HS_; k++ )
+                            {
+                                const size_t dvout_idx = static_cast<size_t>( ((b * NH_ + h) * T_ + i) * HS_ + k );
+                                const size_t v_idx = static_cast<size_t>( ((b * NH_ + h) * T_ + j) * HS_ + k );
+                                sum += dvout_[ dvout_idx ] * v_[ v_idx ];
+                            }
+
+                            datt_[ score_offset + i * T_ + j ] = sum;
+                        }
+                    }
+                }
+            }
+        }
+
+        void computeGradientPreatt( float scale ) const
+        {
+            std::memset( dpreatt_, 0, static_cast<size_t>(B_) * NH_ * T_ * T_ * sizeof( float ) );
+
+        #pragma omp parallel for collapse(2)
+            for ( int b = 0; b < B_; b++ )
+            {
+                for ( int h = 0; h < NH_; h++ )
+                {
+                    const size_t score_offset = static_cast<size_t>( (b * NH_ + h) * T_ * T_ );
+
+                    for ( int t = 0; t < T_; t++ )
+                    {
+                        const float* att_row = att_ + score_offset + t * T_;
+                        const float* datt_row = datt_ + score_offset + t * T_;
+                        float* dpreatt_row = dpreatt_ + score_offset + t * T_;
+
+                        for ( int t2 = 0; t2 <= t; t2++ )
+                        {
+                            for ( int t3 = 0; t3 <= t; t3++ )
+                            {
+                                const float indicator = (t2 == t3) ? 1.0f : 0.0f;
+                                const float local_derivative = att_row[ t2 ] * (indicator - att_row[ t3 ]);
+                                dpreatt_row[ t3 ] += local_derivative * datt_row[ t2 ];
+                            }
+                        }
+
+                        for ( int t2 = 0; t2 <= t; t2++ )
+                        {
+                            dpreatt_row[ t2 ] *= scale;
+                        }
+                    }
+                }
+            }
+
+            // DEBUG: Print pre-attention scores and dPreatt tensors
+            /*std::cout << "Computed gradient dPreatt" << std::endl;
+            std::cout << dpreatt_tensor_->toString( true ) << std::endl;*/
+        }
+
+        void computeGradientQ() const
+        {
+            std::memset( dq_, 0, static_cast<size_t>(B_) * NH_ * T_ * HS_ * sizeof( float ) );
+
+        #pragma omp parallel for collapse(2)
+            for ( int b = 0; b < B_; b++ )
+            {
+                for ( int h = 0; h < NH_; h++ )
+                {
+                    const size_t score_offset = static_cast<size_t>( (b * NH_ + h) * T_ * T_ );
+
+                    for ( int i = 0; i < T_; i++ )
+                    {
+                        for ( int k = 0; k < HS_; k++ )
+                        {
+                            float sum = 0.0f;
+
+                            for ( int j = 0; j < T_; j++ )
+                            {
+                                const size_t k_idx = static_cast<size_t>( ((b * NH_ + h) * T_ + j) * HS_ + k );
+                                sum += dpreatt_[ score_offset + i * T_ + j ] * k_[ k_idx ];
+                            }
+
+                            const size_t dq_idx = static_cast<size_t>( ((b * NH_ + h) * T_ + i) * HS_ + k );
+                            dq_[ dq_idx ] = sum;
+                        }
+                    }
+                }
+            }
+
+            // DEBUG: Print K and dQ tensors
+            /*std::cout << "Key tensor K" << std::endl;
+            std::cout << k_tensor_->toString( true ) << std::endl;
+
+            std::cout << "Computed gradient dQ" << std::endl;
+            std::cout << dq_tensor_->toString( true ) << std::endl;*/
+        }
+
+        void computeGradientK() const
+        {
+            std::memset( dk_, 0, static_cast<size_t>(B_) * NH_ * T_ * HS_ * sizeof( float ) );
+
+        #pragma omp parallel for collapse(2)
+            for ( int b = 0; b < B_; b++ )
+            {
+                for ( int h = 0; h < NH_; h++ )
+                {
+                    const size_t score_offset = static_cast<size_t>( (b * NH_ + h) * T_ * T_ );
+
+                    for ( int j = 0; j < T_; j++ )
+                    {
+                        for ( int k = 0; k < HS_; k++ )
+                        {
+                            float sum = 0.0f;
+
+                            for ( int i = 0; i < T_; i++ )
+                            {
+                                const size_t q_idx = static_cast<size_t>( ((b * NH_ + h) * T_ + i) * HS_ + k );
+                                sum += dpreatt_[ score_offset + i * T_ + j ] * q_[ q_idx ];
+                            }
+
+                            const size_t dk_idx = static_cast<size_t>( ((b * NH_ + h) * T_ + j) * HS_ + k );
+                            dk_[ dk_idx ] = sum;
+                        }
+                    }
+                }
+            }
+        }
+
+        void permute_backward( float* dX ) const
+        {
+        #pragma omp parallel for collapse(2)
+            for ( int b = 0; b < B_; b++ )
+            {
+                for ( int h = 0; h < NH_; h++ )
+                {
+                    for ( int t = 0; t < T_; t++ )
+                    {
+                        for ( int k = 0; k < HS_; k++ )
+                        {
+                            const int emb_idx = h * HS_ + k;
+                            const size_t idx = static_cast<size_t>( ((b * NH_ + h) * T_ + t) * HS_ + k );
+                            const size_t base = static_cast<size_t>( (b * T_ + t) * qkv_dim_ );
+
+                            dX[ base + emb_idx ] = dq_[ idx ];
+                            dX[ base + embedding_dim_ + emb_idx ] = dk_[ idx ];
+                            dX[ base + 2 * embedding_dim_ + emb_idx ] = dv_[ idx ];
+                        }
+                    }
+                }
+            }
         }
     };
 
@@ -611,7 +671,7 @@ namespace Mila::Dnn::Compute
                 []( IExecutionContext* context, const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
                 {
                     const auto& attention_config = dynamic_cast<const AttentionConfig&>(config);
-                    
+
                     return std::make_shared<CpuAttentionOp>( context, attention_config );
                 }
             );

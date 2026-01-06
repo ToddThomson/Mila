@@ -1145,9 +1145,11 @@ namespace CompositeComponents_Tests
 
         constexpr TensorDataType TPrecision = TypeParam::value;
 
-        TestShape test_shape = { TestShapeSize::Small, { 1, 2, 64 }, "Equivalence" };
+        TestShape test_shape = { TestShapeSize::Small, { 2, 2, 64 }, "Equivalence" };
         dim_t embedding_dim = 64;
         dim_t num_heads = 2;
+
+        // TJT: HS = embedding_dim / num_heads must be integer
 
         TransformerConfig config( embedding_dim, num_heads );
 
@@ -1174,7 +1176,9 @@ namespace CompositeComponents_Tests
 
         CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), test_shape.dimensions );
         CudaTensor<TPrecision> device_output( Device::Cuda( 0 ), test_shape.dimensions );
+        
         copy( host_input, device_input );
+        
         cuda_fixture.component->forward( device_input, device_output );
         cuda_fixture.component->synchronize();
 
@@ -1211,5 +1215,195 @@ namespace CompositeComponents_Tests
             << "CUDA value: " << cuda_output_host.data()[ first_mismatch_idx ] << "\n"
             << "Max difference: " << max_diff << "\n"
             << "Tolerance: " << epsilon;
+    }
+
+    // ====================================================================
+    // Backward / CPU-CUDA Equivalence Tests
+    // ====================================================================
+
+    TYPED_TEST( TransformerCudaTests, Backward_CPU_CUDA_Equivalence )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        // Small deterministic shape used for backward equivalence checks
+        TestShape test_shape = { TestShapeSize::Small, { 2, 2, 64 }, "BackwardEquiv" };
+        dim_t embedding_dim = 64;
+        dim_t num_heads = 2;
+
+        TransformerConfig config( embedding_dim, num_heads );
+
+        // CPU transformer (FP32)
+        auto cpu_transformer = std::make_shared<Transformer<DeviceType::Cpu, TensorDataType::FP32>>(
+            "cpu_backward_equiv",
+            config,
+            Device::Cpu()
+        );
+
+        // CUDA transformer constructed the same way as the CPU transformer (FP32 on CUDA)
+        auto cuda_transformer = std::make_shared<Transformer<DeviceType::Cuda, TensorDataType::FP32>>(
+            "cuda_backward_equiv",
+            config,
+            Device::Cuda( 0 )
+        );
+
+        // Build and enable training for both components
+        cpu_transformer->build( test_shape.dimensions );
+        cpu_transformer->setTraining( true );
+
+        cuda_transformer->build( test_shape.dimensions );
+        cuda_transformer->setTraining( true );
+
+        // Create deterministic input with known seed
+        Mila::Core::RandomGenerator::getInstance().setSeed( 12345 );
+
+        // Prepare inputs and grads
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), test_shape.dimensions );
+        random( host_input, -0.1f, 0.1f );
+        
+        // Forward pass (necessary to populate any internal state)
+        CpuTensor<TensorDataType::FP32> cpu_output( Device::Cpu(), test_shape.dimensions );
+        cpu_transformer->forward( host_input, cpu_output );
+
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), test_shape.dimensions );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda( 0 ), test_shape.dimensions );
+        copy( host_input, device_input );
+
+        cuda_transformer->forward( device_input, device_output );
+        cuda_transformer->synchronize();
+
+        CpuTensor<TensorDataType::FP32> host_output_grad( Device::Cpu(), test_shape.dimensions );
+        float* data = host_output_grad.data();
+        for ( size_t i = 0; i < host_output_grad.size(); ++i ) {
+            data[ i ] = static_cast<float>( i );
+        }
+
+        // CPU backward
+        CpuTensor<TensorDataType::FP32> cpu_input_grad( Device::Cpu(), test_shape.dimensions );
+        cpu_transformer->backward( host_input, host_output_grad, cpu_input_grad );
+
+        // CUDA backward
+        CudaTensor<TensorDataType::FP32> device_output_grad( Device::Cuda( 0 ), test_shape.dimensions );
+        CudaTensor<TensorDataType::FP32> device_input_grad( Device::Cuda( 0 ), test_shape.dimensions );
+        copy( host_output_grad, device_output_grad );
+
+        cuda_transformer->backward( device_input, device_output_grad, device_input_grad );
+        cuda_transformer->synchronize();
+
+        CpuTensor<TensorDataType::FP32> cuda_input_grad_host = toHost<TensorDataType::FP32>( device_input_grad );
+
+        std::cout << "CPU backward input gradient: " << std::endl;
+        std::cout << cpu_input_grad.toString( true ) << std::endl;
+        std::cout << "CUDA backward input gradient: " << std::endl;
+        std::cout << cuda_input_grad_host.toString( true ) << std::endl;
+
+        // Compare elementwise
+        const float epsilon = PrecisionTraits<TPrecision>::tolerance;
+        bool all_close = true;
+        size_t first_mismatch = 0;
+        float max_diff = 0.0f;
+
+        for ( size_t i = 0; i < cpu_input_grad.size(); ++i )
+        {
+            float cpu_val = cpu_input_grad.data()[ i ];
+            float cuda_val = cuda_input_grad_host.data()[ i ];
+            float diff = std::abs( cpu_val - cuda_val );
+
+            if ( diff > max_diff ) max_diff = diff;
+
+            if ( diff > epsilon )
+            {
+                all_close = false;
+                first_mismatch = i;
+                break;
+            }
+        }
+
+        EXPECT_TRUE( all_close )
+            << "CPU and CUDA backward input gradients differ\n"
+            << "First mismatch index: " << first_mismatch << "\n"
+            << "CPU value: " << cpu_input_grad.data()[ first_mismatch ] << "\n"
+            << "CUDA value: " << cuda_input_grad_host.data()[ first_mismatch ] << "\n"
+            << "Max difference: " << max_diff << "\n"
+            << "Tolerance: " << epsilon;
+    }
+
+    TYPED_TEST( TransformerCudaTests, Backward_Sanity_SmallDeterministic )
+    {
+        if ( !this->cuda_available_ )
+        {
+            GTEST_SKIP() << "CUDA not available";
+        }
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        // Minimal deterministic case (batch=1, seq=1) to ensure shapes and indexing are correct
+        TestShape test_shape = { TestShapeSize::Minimal, { 1, 1, 64 }, "BackwardMinimal" };
+        dim_t embedding_dim = 64;
+        dim_t num_heads = 1;
+
+        TransformerConfig config( embedding_dim, num_heads );
+
+        auto cpu_transformer = std::make_shared<Transformer<DeviceType::Cpu, TensorDataType::FP32>>(
+            "cpu_backward_minimal",
+            config,
+            Device::Cpu()
+        );
+
+        auto cuda_transformer = std::make_shared<Transformer<DeviceType::Cuda, TensorDataType::FP32>>(
+            "cuda_backward_minimal",
+            config,
+            Device::Cuda( 0 )
+        );
+
+        cpu_transformer->build( test_shape.dimensions );
+        cpu_transformer->setTraining( true );
+
+        cuda_transformer->build( test_shape.dimensions );
+        cuda_transformer->setTraining( true );
+
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), test_shape.dimensions );
+        // deterministic pattern for easier debugging
+        for ( size_t i = 0; i < host_input.size(); ++i ) host_input.data()[ i ] = static_cast<float>( i ) * 0.01f;
+
+        CpuTensor<TensorDataType::FP32> host_output_cpu( Device::Cpu(), test_shape.dimensions );
+        cpu_transformer->forward( host_input, host_output_cpu );
+
+        CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), test_shape.dimensions );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda( 0 ), test_shape.dimensions );
+        copy( host_input, device_input );
+
+        cuda_transformer->forward( device_input, device_output );
+        cuda_transformer->synchronize();
+
+        // deterministic output grad
+        CpuTensor<TensorDataType::FP32> host_output_grad( Device::Cpu(), test_shape.dimensions );
+        for ( size_t i = 0; i < host_output_grad.size(); ++i ) host_output_grad.data()[ i ] = 1.0f;
+
+        CpuTensor<TensorDataType::FP32> cpu_input_grad( Device::Cpu(), test_shape.dimensions );
+        cpu_transformer->backward( host_input, host_output_grad, cpu_input_grad );
+
+        CudaTensor<TensorDataType::FP32> device_output_grad( Device::Cuda( 0 ), test_shape.dimensions );
+        CudaTensor<TensorDataType::FP32> device_input_grad( Device::Cuda( 0 ), test_shape.dimensions );
+        copy( host_output_grad, device_output_grad );
+
+        cuda_transformer->backward( device_input, device_output_grad, device_input_grad );
+        cuda_transformer->synchronize();
+
+        CpuTensor<TensorDataType::FP32> cuda_input_grad_host = toHost<TensorDataType::FP32>( device_input_grad );
+
+        // Sanity checks: sizes and exact-ish equality
+        EXPECT_EQ( cpu_input_grad.size(), cuda_input_grad_host.size() );
+
+        const float epsilon = PrecisionTraits<TPrecision>::tolerance;
+        for ( size_t i = 0; i < cpu_input_grad.size(); ++i )
+        {
+            EXPECT_NEAR( cpu_input_grad.data()[ i ], cuda_input_grad_host.data()[ i ], epsilon )
+                << "Mismatch at element " << i;
+        }
     }
 }

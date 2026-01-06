@@ -3,13 +3,15 @@
  * @brief CUDA kernels for Multi-Head Attention auxiliary operations.
  *
  * Provides kernels for operations that cannot be handled by cuBLASLt:
- * - QKV permutation (split and reshape) - column-major variants
- * - Output unpermutation (reshape and concatenate) - column-major variants
+ * - QKV permutation (split and reshape)
+ * - Output unpermutation (reshape and concatenate)
  * - Backward pass for softmax and permutations
  *
- * Column-major layout: [B, NH, HS, T] - each head is [HS rows, T cols] in column-major
- *   - Columns are contiguous: index = t * HS + hs
- *   - cuBLAS column-major sees this as [HS, T] matrix per head
+ * All operations use row-major layout exclusively:
+ * - Input X: [B, T, 3*C] where C = NH * HS
+ * - Per-head tensors (Q, K, V, vaccum): [B, NH, T, HS]
+ * - Output: [B, T, C]
+ * - Memory layout: innermost dimension is contiguous (HS values per sequence position)
  *
  * The matmul operations are delegated to cuBLASLt plans built in CudaAttentionOp.
  */
@@ -22,28 +24,27 @@
 namespace Mila::Dnn::Compute::Cuda::Attention
 {
     // ========================================================================
-    // Forward Pass Kernels - Column Major
+    // Forward Pass Kernels
     // ========================================================================
 
     /**
-     * @brief Split row-major input X into column-major Q, K, V (FP32).
+     * @brief Split input X into Q, K, V (FP32).
      *
      * Each thread handles one element identified by (b, nh, t, hs).
-     * Reads concatenated Q/K/V from row-major X[b, t, 3*C] where C = NH*HS
-     * and writes into column-major per-head outputs Q, K, V with layout
-     * [B, NH, HS, T].
+     * Reads concatenated Q/K/V from X[b, t, 3*C] where C = NH*HS
+     * and writes into per-head outputs Q, K, V with layout [B, NH, T, HS].
      *
      * Preconditions:
      * - X size >= B * T * 3 * (NH * HS)
-     * - Q, K, V size >= B * NH * HS * T
+     * - Q, K, V size >= B * NH * T * HS
      *
      * Side-effects:
      * - Writes to device buffers Q, K, V.
      *
-     * @param Q Output queries in column-major [B, NH, HS, T].
-     * @param K Output keys in column-major [B, NH, HS, T].
-     * @param V Output values in column-major [B, NH, HS, T].
-     * @param X Input concatenated QKV in row-major [B, T, 3 * NH * HS].
+     * @param Q Output queries [B, NH, T, HS].
+     * @param K Output keys [B, NH, T, HS].
+     * @param V Output values [B, NH, T, HS].
+     * @param X Input concatenated QKV [B, T, 3 * NH * HS].
      * @param B Batch size.
      * @param T Sequence length.
      * @param NH Number of heads.
@@ -73,8 +74,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             int k_idx = base_idx + C + head_offset;
             int v_idx = base_idx + 2 * C + head_offset;
 
-            // Column-major [HS, T]: column t starts at t*HS, row hs is offset hs
-            int out_idx = b * (NH * HS * T) + nh * (HS * T) + t * HS + hs;
+            int out_idx = b * (NH * T * HS) + nh * (T * HS) + t * HS + hs;
 
             Q[ out_idx ] = __ldcs( &X[ q_idx ] );
             K[ out_idx ] = __ldcs( &X[ k_idx ] );
@@ -83,21 +83,21 @@ namespace Mila::Dnn::Compute::Cuda::Attention
     }
 
     /**
-     * @brief Split row-major input X into column-major Q, K, V (FP16).
+     * @brief Split input X into Q, K, V (FP16).
      *
-     * Same behavior as the FP32 kernel but for half precision buffers.
+     * FP16 variant of permute_qkv_fp32_kernel.
      *
      * Preconditions:
      * - X size >= B * T * 3 * (NH * HS)
-     * - Q, K, V size >= B * NH * HS * T
+     * - Q, K, V size >= B * NH * T * HS
      *
      * Side-effects:
      * - Writes to device buffers Q, K, V.
      *
-     * @param Q Output queries in column-major [B, NH, HS, T].
-     * @param K Output keys in column-major [B, NH, HS, T].
-     * @param V Output values in column-major [B, NH, HS, T].
-     * @param X Input concatenated QKV in row-major [B, T, 3 * NH * HS].
+     * @param Q Output queries [B, NH, T, HS].
+     * @param K Output keys [B, NH, T, HS].
+     * @param V Output values [B, NH, T, HS].
+     * @param X Input concatenated QKV [B, T, 3 * NH * HS].
      * @param B Batch size.
      * @param T Sequence length.
      * @param NH Number of heads.
@@ -127,8 +127,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             int k_idx = base_idx + C + head_offset;
             int v_idx = base_idx + 2 * C + head_offset;
 
-            // Column-major [HS, T]: column t starts at t*HS, row hs is offset hs
-            int out_idx = b * (NH * HS * T) + nh * (HS * T) + t * HS + hs;
+            int out_idx = b * (NH * T * HS) + nh * (T * HS) + t * HS + hs;
 
             Q[ out_idx ] = __ldcs( &X[ q_idx ] );
             K[ out_idx ] = __ldcs( &X[ k_idx ] );
@@ -137,24 +136,23 @@ namespace Mila::Dnn::Compute::Cuda::Attention
     }
 
     // ========================================================================
-    // Output Unpermute - Column Major
+    // Output Unpermute
     // ========================================================================
 
     /**
-     * @brief Reorder column-major vaccum into row-major out (FP32).
+     * @brief Reorder per-head vaccum into concatenated output (FP32).
      *
-     * Reads vaccum organized as column-major per-head [B, NH, HS, T] and
-     * writes out as row-major [B, T, C] where C = NH * HS.
+     * Reads vaccum organized as [B, NH, T, HS] and writes out as [B, T, C] where C = NH * HS.
      *
      * Preconditions:
-     * - vaccum size >= B * NH * HS * T
+     * - vaccum size >= B * NH * T * HS
      * - out size >= B * T * C
      *
      * Side-effects:
      * - Writes to device buffer out.
      *
-     * @param vaccum Input column-major buffer [B, NH, HS, T].
-     * @param out Output row-major buffer [B, T, C].
+     * @param vaccum Input buffer [B, NH, T, HS].
+     * @param out Output buffer [B, T, C].
      * @param B Batch size.
      * @param T Sequence length.
      * @param NH Number of heads.
@@ -164,13 +162,11 @@ namespace Mila::Dnn::Compute::Cuda::Attention
         const float* vaccum, float* out,
         int B, int T, int NH, int HS )
     {
-        // vaccum: [B, NH, HS, T] in column-major (output from permute kernel)
-        // out: [B, T, C] in row-major where C = NH * HS
-
         int idx = blockIdx.x * blockDim.x + threadIdx.x;
         const int C = NH * HS;
 
-        if ( idx < B * T * C ) {
+        if ( idx < B * T * C )
+        {
             const int b = idx / (T * C);
             int rest = idx % (T * C);
             const int t = rest / C;
@@ -178,29 +174,26 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             const int nh = c / HS;
             const int hs = c % HS;
 
-            // Note: Despite dimension parameters [HS, T], cuBLASLt outputs the natural
-            // result of att[T,T] @ V^T[T,HS] which is column-major [T, HS].
-            // Memory layout: T is contiguous (stride 1), HS is strided (stride T)
-            const int vaccum_idx = b * (NH * HS * T) + nh * (HS * T) + hs * T + t;
+            const int vaccum_idx = b * (NH * T * HS) + nh * (T * HS) + t * HS + hs;
 
             out[ idx ] = vaccum[ vaccum_idx ];
         }
     }
 
     /**
-     * @brief Reorder column-major vaccum into row-major out (FP16).
+     * @brief Reorder per-head vaccum into concatenated output (FP16).
      *
      * FP16 variant of unpermute_output_fp32_kernel.
      *
      * Preconditions:
-     * - vaccum size >= B * NH * HS * T
+     * - vaccum size >= B * NH * T * HS
      * - out size >= B * T * C
      *
      * Side-effects:
      * - Writes to device buffer out.
      *
-     * @param vaccum Input column-major buffer [B, NH, HS, T].
-     * @param out Output row-major buffer [B, T, C].
+     * @param vaccum Input buffer [B, NH, T, HS].
+     * @param out Output buffer [B, T, C].
      * @param B Batch size.
      * @param T Sequence length.
      * @param NH Number of heads.
@@ -223,32 +216,30 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             int nh = c / HS;
             int hs = c % HS;
 
-            // Column-major [HS, T]: column t starts at t*HS, row hs is offset hs
-            int vaccum_idx = (b * (NH * HS * T)) + (nh * (HS * T)) + (t * HS) + hs;
+            int vaccum_idx = b * (NH * T * HS) + nh * (T * HS) + t * HS + hs;
 
             out[ idx ] = vaccum[ vaccum_idx ];
         }
     }
 
     // ========================================================================
-    // Backward - Column Major
+    // Backward
     // ========================================================================
 
     /**
-     * @brief Scatter row-major dout into column-major dvaccum (FP32).
+     * @brief Scatter concatenated gradient into per-head gradients (FP32).
      *
-     * Reads dout [B, T, C] and writes to dvaccum in column-major per-head layout
-     * [B, NH, HS, T].
+     * Reads dout [B, T, C] and writes to dvaccum [B, NH, T, HS].
      *
      * Preconditions:
      * - dout size >= B * T * C
-     * - dvaccum size >= B * NH * HS * T
+     * - dvaccum size >= B * NH * T * HS
      *
      * Side-effects:
      * - Writes to device buffer dvaccum.
      *
-     * @param dvaccum Output column-major gradient buffer [B, NH, HS, T].
-     * @param dout Input row-major gradient buffer [B, T, C].
+     * @param dvaccum Output gradient buffer [B, NH, T, HS].
+     * @param dout Input gradient buffer [B, T, C].
      * @param B Batch size.
      * @param T Sequence length.
      * @param NH Number of heads.
@@ -271,27 +262,26 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             int nh = c / HS;
             int hs = c % HS;
 
-            // Column-major [HS, T]: column t starts at t*HS, row hs is offset hs
-            int dvaccum_idx = (b * (NH * HS * T)) + (nh * (HS * T)) + (t * HS) + hs;
+            int dvaccum_idx = b * (NH * T * HS) + nh * (T * HS) + t * HS + hs;
 
             dvaccum[ dvaccum_idx ] = dout[ idx ];
         }
     }
 
     /**
-     * @brief Scatter row-major dout into column-major dvaccum (FP16).
+     * @brief Scatter concatenated gradient into per-head gradients (FP16).
      *
      * FP16 variant of unpermute_backward_fp32_kernel.
      *
      * Preconditions:
      * - dout size >= B * T * C
-     * - dvaccum size >= B * NH * HS * T
+     * - dvaccum size >= B * NH * T * HS
      *
      * Side-effects:
      * - Writes to device buffer dvaccum.
      *
-     * @param dvaccum Output column-major gradient buffer [B, NH, HS, T].
-     * @param dout Input row-major gradient buffer [B, T, C].
+     * @param dvaccum Output gradient buffer [B, NH, T, HS].
+     * @param dout Input gradient buffer [B, T, C].
      * @param B Batch size.
      * @param T Sequence length.
      * @param NH Number of heads.
@@ -314,30 +304,29 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             int nh = c / HS;
             int hs = c % HS;
 
-            // Column-major [HS, T]: column t starts at t*HS, row hs is offset hs
-            int dvaccum_idx = (b * (NH * HS * T)) + (nh * (HS * T)) + (t * HS) + hs;
+            int dvaccum_idx = b * (NH * T * HS) + nh * (T * HS) + t * HS + hs;
 
             dvaccum[ dvaccum_idx ] = dout[ idx ];
         }
     }
 
     /**
-     * @brief Pack column-major dq/dk/dv into row-major dinp (FP32) for upstream gradient.
+     * @brief Pack per-head gradients dq/dk/dv into concatenated dinp (FP32).
      *
-     * Reads column-major per-head gradients dq/dk/dv ([B, NH, HS, T]) and writes
-     * them back into the original row-major concatenated layout dinp [B, T, 3*C].
+     * Reads per-head gradients dq/dk/dv ([B, NH, T, HS]) and writes
+     * them back into the concatenated layout dinp [B, T, 3*C].
      *
      * Preconditions:
-     * - dq/dk/dv size >= B * NH * HS * T
+     * - dq/dk/dv size >= B * NH * T * HS
      * - dinp size >= B * T * 3 * C
      *
      * Side-effects:
      * - Writes to device buffer dinp.
      *
-     * @param dinp Output concatenated gradient buffer in row-major [B, T, 3*C].
-     * @param dq Input column-major gradient buffer for Q [B, NH, HS, T].
-     * @param dk Input column-major gradient buffer for K [B, NH, HS, T].
-     * @param dv Input column-major gradient buffer for V [B, NH, HS, T].
+     * @param dinp Output concatenated gradient buffer [B, T, 3*C].
+     * @param dq Input gradient buffer for Q [B, NH, T, HS].
+     * @param dk Input gradient buffer for K [B, NH, T, HS].
+     * @param dv Input gradient buffer for V [B, NH, T, HS].
      * @param B Batch size.
      * @param T Sequence length.
      * @param NH Number of heads.
@@ -367,8 +356,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             int dinp_k_idx = base_idx + C + head_offset;
             int dinp_v_idx = base_idx + 2 * C + head_offset;
 
-            // Column-major [HS, T]: column t starts at t*HS, row hs is offset hs
-            int in_idx = b * (NH * HS * T) + nh * (HS * T) + t * HS + hs;
+            int in_idx = b * (NH * T * HS) + nh * (T * HS) + t * HS + hs;
 
             dinp[ dinp_q_idx ] = dq[ in_idx ];
             dinp[ dinp_k_idx ] = dk[ in_idx ];
@@ -377,21 +365,21 @@ namespace Mila::Dnn::Compute::Cuda::Attention
     }
 
     /**
-     * @brief Pack column-major dq/dk/dv into row-major dinp (FP16).
+     * @brief Pack per-head gradients dq/dk/dv into concatenated dinp (FP16).
      *
      * FP16 variant of permute_backward_fp32_kernel.
      *
      * Preconditions:
-     * - dq/dk/dv size >= B * NH * HS * T
+     * - dq/dk/dv size >= B * NH * T * HS
      * - dinp size >= B * T * 3 * C
      *
      * Side-effects:
      * - Writes to device buffer dinp.
      *
-     * @param dinp Output concatenated gradient buffer in row-major [B, T, 3*C].
-     * @param dq Input column-major gradient buffer for Q [B, NH, HS, T].
-     * @param dk Input column-major gradient buffer for K [B, NH, HS, T].
-     * @param dv Input column-major gradient buffer for V [B, NH, HS, T].
+     * @param dinp Output concatenated gradient buffer [B, T, 3*C].
+     * @param dq Input gradient buffer for Q [B, NH, T, HS].
+     * @param dk Input gradient buffer for K [B, NH, T, HS].
+     * @param dv Input gradient buffer for V [B, NH, T, HS].
      * @param B Batch size.
      * @param T Sequence length.
      * @param NH Number of heads.
@@ -421,8 +409,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             int dinp_k_idx = base_idx + C + head_offset;
             int dinp_v_idx = base_idx + 2 * C + head_offset;
 
-            // Column-major [HS, T]: column t starts at t*HS, row hs is offset hs
-            int in_idx = b * (NH * HS * T) + nh * (HS * T) + t * HS + hs;
+            int in_idx = b * (NH * T * HS) + nh * (T * HS) + t * HS + hs;
 
             dinp[ dinp_q_idx ] = dq[ in_idx ];
             dinp[ dinp_k_idx ] = dk[ in_idx ];
@@ -431,14 +418,11 @@ namespace Mila::Dnn::Compute::Cuda::Attention
     }
 
     // ========================================================================
-    // Host Functions - FP32 - Column Major
+    // Host Functions - FP32
     // ========================================================================
 
     /**
-     * @brief Launch permute_qkv_fp32_kernel to split row-major X into column-major Q/K/V.
-     *
-     * This launcher computes thread grid size and dispatches the FP32 kernel on the
-     * provided CUDA stream.
+     * @brief Launch permute_qkv_fp32_kernel to split X into Q/K/V.
      *
      * Preconditions:
      * - Device pointers must be valid and sized as documented in the kernel Doxygen.
@@ -446,10 +430,10 @@ namespace Mila::Dnn::Compute::Cuda::Attention
      * Side-effects:
      * - Launches a CUDA kernel and checks for launch errors.
      *
-     * @param Q Output pointer for queries (device), column-major [B, NH, HS, T].
-     * @param K Output pointer for keys (device), column-major [B, NH, HS, T].
-     * @param V Output pointer for values (device), column-major [B, NH, HS, T].
-     * @param X Input pointer (device) in row-major [B, T, 3 * NH * HS].
+     * @param Q Output pointer for queries (device) [B, NH, T, HS].
+     * @param K Output pointer for keys (device) [B, NH, T, HS].
+     * @param V Output pointer for values (device) [B, NH, T, HS].
+     * @param X Input pointer (device) [B, T, 3 * NH * HS].
      * @param B Batch size.
      * @param T Sequence length.
      * @param NH Number of heads.
@@ -474,10 +458,8 @@ namespace Mila::Dnn::Compute::Cuda::Attention
     /**
      * @brief Launch unpermute_output_fp32_kernel to reorder vaccum into out.
      *
-     * Computes grid size and launches the FP32 unpermute kernel on the provided stream.
-     *
-     * @param vaccum Input column-major buffer [B, NH, HS, T].
-     * @param out Output row-major buffer [B, T, C].
+     * @param vaccum Input buffer [B, NH, T, HS].
+     * @param out Output buffer [B, T, C].
      * @param B Batch size.
      * @param T Sequence length.
      * @param NH Number of heads.
@@ -501,8 +483,8 @@ namespace Mila::Dnn::Compute::Cuda::Attention
     /**
      * @brief Launch unpermute_backward_fp32_kernel to scatter dout into dvaccum.
      *
-     * @param dvaccum Output column-major gradient buffer [B, NH, HS, T].
-     * @param dout Input row-major gradient buffer [B, T, C].
+     * @param dvaccum Output gradient buffer [B, NH, T, HS].
+     * @param dout Input gradient buffer [B, T, C].
      * @param B Batch size.
      * @param T Sequence length.
      * @param NH Number of heads.
@@ -522,12 +504,12 @@ namespace Mila::Dnn::Compute::Cuda::Attention
     }
 
     /**
-     * @brief Launch permute_backward_fp32_kernel to pack column-major dq/dk/dv into dinp.
+     * @brief Launch permute_backward_fp32_kernel to pack dq/dk/dv into dinp.
      *
-     * @param dinp Output concatenated gradient buffer in row-major [B, T, 3*C].
-     * @param dq Input column-major gradient buffer for Q [B, NH, HS, T].
-     * @param dk Input column-major gradient buffer for K [B, NH, HS, T].
-     * @param dv Input column-major gradient buffer for V [B, NH, HS, T].
+     * @param dinp Output concatenated gradient buffer [B, T, 3*C].
+     * @param dq Input gradient buffer for Q [B, NH, T, HS].
+     * @param dk Input gradient buffer for K [B, NH, T, HS].
+     * @param dv Input gradient buffer for V [B, NH, T, HS].
      * @param B Batch size.
      * @param T Sequence length.
      * @param NH Number of heads.
@@ -548,18 +530,16 @@ namespace Mila::Dnn::Compute::Cuda::Attention
     }
 
     // ========================================================================
-    // Host Functions - FP16 - Column Major
+    // Host Functions - FP16
     // ========================================================================
 
     /**
-     * @brief Launch permute_qkv_fp16_kernel to split row-major X into column-major Q/K/V.
+     * @brief Launch permute_qkv_fp16_kernel to split X into Q/K/V.
      *
-     * FP16 launcher of cuda_permute_qkv_fp32.
-     *
-     * @param Q Output pointer for queries (device), column-major [B, NH, HS, T].
-     * @param K Output pointer for keys (device), column-major [B, NH, HS, T].
-     * @param V Output pointer for values (device), column-major [B, NH, HS, T].
-     * @param X Input pointer (device) in row-major [B, T, 3 * NH * HS].
+     * @param Q Output pointer for queries (device) [B, NH, T, HS].
+     * @param K Output pointer for keys (device) [B, NH, T, HS].
+     * @param V Output pointer for values (device) [B, NH, T, HS].
+     * @param X Input pointer (device) [B, T, 3 * NH * HS].
      * @param B Batch size.
      * @param T Sequence length.
      * @param NH Number of heads.
@@ -580,10 +560,10 @@ namespace Mila::Dnn::Compute::Cuda::Attention
     }
 
     /**
-     * @brief Launch unpermute_output_fp16_kernel to reorder vaccum into out (FP16).
+     * @brief Launch unpermute_output_fp16_kernel to reorder vaccum into out.
      *
-     * @param vaccum Input column-major buffer [B, NH, HS, T].
-     * @param out Output row-major buffer [B, T, C].
+     * @param vaccum Input buffer [B, NH, T, HS].
+     * @param out Output buffer [B, T, C].
      * @param B Batch size.
      * @param T Sequence length.
      * @param NH Number of heads.
@@ -603,10 +583,10 @@ namespace Mila::Dnn::Compute::Cuda::Attention
     }
 
     /**
-     * @brief Launch unpermute_backward_fp16_kernel to scatter dout into dvaccum (FP16).
+     * @brief Launch unpermute_backward_fp16_kernel to scatter dout into dvaccum.
      *
-     * @param dvaccum Output column-major gradient buffer [B, NH, HS, T].
-     * @param dout Input row-major gradient buffer [B, T, C].
+     * @param dvaccum Output gradient buffer [B, NH, T, HS].
+     * @param dout Input gradient buffer [B, T, C].
      * @param B Batch size.
      * @param T Sequence length.
      * @param NH Number of heads.
@@ -626,12 +606,12 @@ namespace Mila::Dnn::Compute::Cuda::Attention
     }
 
     /**
-     * @brief Launch permute_backward_fp16_kernel to pack column-major dq/dk/dv into dinp (FP16).
+     * @brief Launch permute_backward_fp16_kernel to pack dq/dk/dv into dinp.
      *
-     * @param dinp Output concatenated gradient buffer in row-major [B, T, 3*C].
-     * @param dq Input column-major gradient buffer for Q [B, NH, HS, T].
-     * @param dk Input column-major gradient buffer for K [B, NH, HS, T].
-     * @param dv Input column-major gradient buffer for V [B, NH, HS, T].
+     * @param dinp Output concatenated gradient buffer [B, T, 3*C].
+     * @param dq Input gradient buffer for Q [B, NH, T, HS].
+     * @param dk Input gradient buffer for K [B, NH, T, HS].
+     * @param dv Input gradient buffer for V [B, NH, T, HS].
      * @param B Batch size.
      * @param T Sequence length.
      * @param NH Number of heads.

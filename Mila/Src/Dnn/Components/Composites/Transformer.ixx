@@ -311,7 +311,7 @@ namespace Mila::Dnn
 
             // Debug: when the destination input_grad is a concrete Tensor of this device / precision,
             // print its buffer contents (toString(true) will provide host-readable representation).
- /*           if ( auto* in_grad_t = dynamic_cast<TensorType*>(&input_grad) )
+            /* if ( auto* in_grad_t = dynamic_cast<TensorType*>(&input_grad) )
             {
                 Tensor<TPrecision, CpuMemoryResource> host_copy( Device::Cpu(), static_cast<const TensorType&>(input_grad).shape() );
                 host_copy.setName( this->getName() + ".input_grad_host_copy" );
