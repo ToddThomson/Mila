@@ -89,55 +89,55 @@ void printUsage()
 
 bool parseCommandLine( int argc, char** argv, CharLMConfig& config )
 {
-    for (int i = 1; i < argc; i++)
+    for ( int i = 1; i < argc; i++ )
     {
-        std::string arg = argv[i];
+        std::string arg = argv[ i ];
 
-        if (arg == "--help")
+        if ( arg == "--help" )
         {
             printUsage();
             return false;
         }
-        else if (arg == "--data-file" && i + 1 < argc)
+        else if ( arg == "--data-file" && i + 1 < argc )
         {
-            config.data_file = argv[++i];
+            config.data_file = argv[ ++i ];
         }
-        else if (arg == "--batch-size" && i + 1 < argc)
+        else if ( arg == "--batch-size" && i + 1 < argc )
         {
-            config.batch_size = std::stoi( argv[++i] );
+            config.batch_size = std::stoi( argv[ ++i ] );
         }
-        else if (arg == "--seq-length" && i + 1 < argc)
+        else if ( arg == "--seq-length" && i + 1 < argc )
         {
-            config.seq_length = std::stoi( argv[++i] );
+            config.seq_length = std::stoi( argv[ ++i ] );
         }
-        else if (arg == "--epochs" && i + 1 < argc)
+        else if ( arg == "--epochs" && i + 1 < argc )
         {
-            config.epochs = std::stoi( argv[++i] );
+            config.epochs = std::stoi( argv[ ++i ] );
         }
-        else if (arg == "--learning-rate" && i + 1 < argc)
+        else if ( arg == "--learning-rate" && i + 1 < argc )
         {
-            config.learning_rate = std::stof( argv[++i] );
+            config.learning_rate = std::stof( argv[ ++i ] );
         }
-        else if (arg == "--beta1" && i + 1 < argc)
+        else if ( arg == "--beta1" && i + 1 < argc )
         {
-            config.beta1 = std::stof( argv[++i] );
+            config.beta1 = std::stof( argv[ ++i ] );
         }
-        else if (arg == "--beta2" && i + 1 < argc)
+        else if ( arg == "--beta2" && i + 1 < argc )
         {
-            config.beta2 = std::stof( argv[++i] );
+            config.beta2 = std::stof( argv[ ++i ] );
         }
-        else if (arg == "--weight-decay" && i + 1 < argc)
+        else if ( arg == "--weight-decay" && i + 1 < argc )
         {
-            config.weight_decay = std::stof( argv[++i] );
+            config.weight_decay = std::stof( argv[ ++i ] );
         }
-        else if (arg == "--device" && i + 1 < argc)
+        else if ( arg == "--device" && i + 1 < argc )
         {
-            std::string device = argv[++i];
-            if (device == "CPU")
+            std::string device = argv[ ++i ];
+            if ( device == "CPU" )
             {
                 config.compute_device = DeviceType::Cpu;
             }
-            else if (device == "cuda")
+            else if ( device == "cuda" )
             {
                 config.compute_device = DeviceType::Cuda;
             }
@@ -146,22 +146,22 @@ bool parseCommandLine( int argc, char** argv, CharLMConfig& config )
                 std::cerr << "Unknown device type: " << device << ". Using default: cuda" << std::endl;
             }
         }
-        else if (arg == "--precision-policy" && i + 1 < argc)
+        else if ( arg == "--precision-policy" && i + 1 < argc )
         {
-            std::string precision = argv[++i];
-            if (precision == "auto")
+            std::string precision = argv[ ++i ];
+            if ( precision == "auto" )
             {
                 config.precisionPolicy = ComputePrecision::Policy::Auto;
             }
-            else if (precision == "performance")
+            else if ( precision == "performance" )
             {
                 config.precisionPolicy = ComputePrecision::Policy::Performance;
             }
-            else if (precision == "accuracy")
+            else if ( precision == "accuracy" )
             {
                 config.precisionPolicy = ComputePrecision::Policy::Accuracy;
             }
-            else if (precision == "disabled")
+            else if ( precision == "disabled" )
             {
                 config.precisionPolicy = ComputePrecision::Policy::Native;
             }
@@ -170,39 +170,39 @@ bool parseCommandLine( int argc, char** argv, CharLMConfig& config )
                 std::cerr << "Unknown precision policy: " << precision << ". Using default: auto" << std::endl;
             }
         }
-        else if (arg == "--embedding-dim" && i + 1 < argc)
+        else if ( arg == "--embedding-dim" && i + 1 < argc )
         {
-            config.embedding_dim = std::stoi( argv[++i] );
+            config.embedding_dim = std::stoi( argv[ ++i ] );
         }
-        else if (arg == "--num-heads" && i + 1 < argc)
+        else if ( arg == "--num-heads" && i + 1 < argc )
         {
-            config.num_heads = std::stoi( argv[++i] );
+            config.num_heads = std::stoi( argv[ ++i ] );
         }
-        else if (arg == "--num-layers" && i + 1 < argc)
+        else if ( arg == "--num-layers" && i + 1 < argc )
         {
-            config.num_layers = std::stoi( argv[++i] );
+            config.num_layers = std::stoi( argv[ ++i ] );
         }
-        else if (arg == "--sample-temperature" && i + 1 < argc)
+        else if ( arg == "--sample-temperature" && i + 1 < argc )
         {
-            config.sample_temperature = std::stof( argv[++i] );
+            config.sample_temperature = std::stof( argv[ ++i ] );
         }
-        else if (arg == "--sample-length" && i + 1 < argc)
+        else if ( arg == "--sample-length" && i + 1 < argc )
         {
-            config.sample_length = std::stoi( argv[++i] );
+            config.sample_length = std::stoi( argv[ ++i ] );
         }
-        else if (arg == "--sample-every" && i + 1 < argc)
+        else if ( arg == "--sample-every" && i + 1 < argc )
         {
-            config.sample_every_n_epochs = std::stoi( argv[++i] );
+            config.sample_every_n_epochs = std::stoi( argv[ ++i ] );
         }
-        else if (arg == "--lr-decay" && i + 1 < argc)
+        else if ( arg == "--lr-decay" && i + 1 < argc )
         {
-            config.lr_decay = std::stof( argv[++i] );
+            config.lr_decay = std::stof( argv[ ++i ] );
         }
-        else if (arg == "--lr-decay-every" && i + 1 < argc)
+        else if ( arg == "--lr-decay-every" && i + 1 < argc )
         {
-            config.lr_decay_every_n_epochs = static_cast<size_t>( std::stoll( argv[++i] ) );
+            config.lr_decay_every_n_epochs = static_cast<size_t>(std::stoll( argv[ ++i ] ));
         }
-        else if (arg.substr( 0, 2 ) == "--")
+        else if ( arg.substr( 0, 2 ) == "--" )
         {
             std::cerr << "Unknown option: " << arg << std::endl;
             printUsage();
@@ -229,7 +229,7 @@ bool parseCommandLine( int argc, char** argv, CharLMConfig& config )
     std::cout << "  LR decay factor: " << config.lr_decay << std::endl;
     std::cout << "  LR decay every N epochs: " << config.lr_decay_every_n_epochs << std::endl;
 
-    if (!fs::exists( config.data_file ))
+    if ( !fs::exists( config.data_file ) )
     {
         std::cerr << "Data file not found: " << config.data_file << std::endl;
         std::cerr << "Please provide a text file for character-level language modeling." << std::endl;
@@ -289,34 +289,34 @@ float sequenceCrossEntropyLoss(
     const Tensor<TDataType, CpuMemoryResource>& logits,
     const Tensor<TensorDataType::INT32, CpuMemoryResource>& targets )
 {
-    size_t batch_size = logits.shape()[0];
-    size_t seq_length = logits.shape()[1];
-    size_t vocab_size = logits.shape()[2];
+    size_t batch_size = logits.shape()[ 0 ];
+    size_t seq_length = logits.shape()[ 1 ];
+    size_t vocab_size = logits.shape()[ 2 ];
 
     float loss = 0.0f;
 
-    for (size_t b = 0; b < batch_size; ++b)
+    for ( size_t b = 0; b < batch_size; ++b )
     {
-        for (size_t t = 0; t < seq_length; ++t)
+        for ( size_t t = 0; t < seq_length; ++t )
         {
             float max_logit = -std::numeric_limits<float>::infinity();
-            for (size_t v = 0; v < vocab_size; ++v)
+            for ( size_t v = 0; v < vocab_size; ++v )
             {
                 size_t idx = b * seq_length * vocab_size + t * vocab_size + v;
-                max_logit = std::max( max_logit, static_cast<float>( logits.data()[idx] ) );
+                max_logit = std::max( max_logit, static_cast<float>( logits.data()[ idx ] ) );
             }
 
             float denom = 0.0f;
-            for (size_t v = 0; v < vocab_size; ++v)
+            for ( size_t v = 0; v < vocab_size; ++v )
             {
                 size_t idx = b * seq_length * vocab_size + t * vocab_size + v;
-                float exp_val = std::exp( static_cast<float>( logits.data()[idx] ) - max_logit );
+                float exp_val = std::exp( static_cast<float>( logits.data()[ idx ] ) - max_logit );
                 denom += exp_val;
             }
 
-            size_t target_idx = static_cast<size_t>( targets.data()[b * seq_length + t] );
+            size_t target_idx = static_cast<size_t>( targets.data()[ b * seq_length + t ] );
             size_t logit_idx = b * seq_length * vocab_size + t * vocab_size + target_idx;
-            float prob = std::exp( static_cast<float>( logits.data()[logit_idx] ) - max_logit ) / denom;
+            float prob = std::exp( static_cast<float>( logits.data()[ logit_idx ] ) - max_logit ) / denom;
             loss += -std::log( prob );
         }
     }
@@ -394,7 +394,7 @@ void logParameterAndGradientNorms( CharTransformer<TDeviceType, TDataType>* mode
 
     try
     {
-        params = model->getParameters();
+        params = model->getParametersForDebug();
     }
     catch ( const std::exception& )
     {
@@ -404,7 +404,7 @@ void logParameterAndGradientNorms( CharTransformer<TDeviceType, TDataType>* mode
 
     try
     {
-        grads = model->getGradients();
+        grads = model->getGradientsForDebug();
     }
     catch ( const std::exception& )
     {
@@ -418,7 +418,7 @@ void logParameterAndGradientNorms( CharTransformer<TDeviceType, TDataType>* mode
 
     for ( ITensor* p : params )
     {
-        auto* dp = dynamic_cast<DeviceTensor*>( p );
+        auto* dp = dynamic_cast<DeviceTensor*>(p);
         if ( !dp ) continue;
 
         auto host = toHost<TDataType>( *dp );
@@ -442,7 +442,7 @@ void logParameterAndGradientNorms( CharTransformer<TDeviceType, TDataType>* mode
 
     for ( ITensor* g : grads )
     {
-        auto* dg = dynamic_cast<DeviceTensor*>( g );
+        auto* dg = dynamic_cast<DeviceTensor*>(g);
         if ( !dg ) continue;
 
         auto host = toHost<TDataType>( *dg );
@@ -461,12 +461,12 @@ void logParameterAndGradientNorms( CharTransformer<TDeviceType, TDataType>* mode
     }
 
     std::cout << "  [NORM] params: count=" << param_count
-              << " mean=" << (param_count ? (sum_param_norm / param_count) : 0.0)
-              << " max=" << max_param_norm
-              << " | grads: count=" << grad_count
-              << " mean=" << (grad_count ? (sum_grad_norm / grad_count) : 0.0)
-              << " max=" << max_grad_norm
-              << std::endl;
+        << " mean=" << (param_count ? (sum_param_norm / param_count) : 0.0)
+        << " max=" << max_param_norm
+        << " | grads: count=" << grad_count
+        << " mean=" << (grad_count ? (sum_grad_norm / grad_count) : 0.0)
+        << " max=" << max_grad_norm
+        << std::endl;
 }
 
 /// <brief>Clip gradients in-place on device by copying to host, scaling, and copying back.
@@ -498,7 +498,7 @@ void clipGradients( CharTransformer<TDeviceType, TDataType>* model, float max_no
 
     for ( ITensor* g : grads )
     {
-        auto* dg = dynamic_cast<DeviceTensor*>( g );
+        auto* dg = dynamic_cast<DeviceTensor*>(g);
         if ( !dg ) continue;
 
         HostTensor host = toHost<TDataType>( *dg ); // copy to host
@@ -508,25 +508,25 @@ void clipGradients( CharTransformer<TDeviceType, TDataType>* model, float max_no
             sumsq += v * v;
         }
 
-        host_pairs.emplace_back( dg, std::move(host) );
+        host_pairs.emplace_back( dg, std::move( host ) );
     }
 
     double total_norm = std::sqrt( sumsq );
 
-    if ( total_norm <= static_cast<double>( max_norm ) || total_norm == 0.0 )
+    if ( total_norm <= static_cast<double>(max_norm) || total_norm == 0.0 )
     {
         return;
     }
 
-    const float scale = static_cast<float>( max_norm / total_norm );
+    const float scale = static_cast<float>(max_norm / total_norm);
 
     // Scale host copies and copy back to device
-    for ( auto &pair : host_pairs )
+    for ( auto& pair : host_pairs )
     {
-        HostTensor &host = pair.second;
+        HostTensor& host = pair.second;
         for ( size_t i = 0; i < host.size(); ++i )
         {
-            host.data()[ i ] = ( host.data()[ i ] * scale );
+            host.data()[ i ] = (host.data()[ i ] * scale);
         }
 
         // Copy scaled host gradient back to device tensor
@@ -534,9 +534,289 @@ void clipGradients( CharTransformer<TDeviceType, TDataType>* model, float max_no
     }
 }
 
+// -----------------------------------------------------------------------------
+// Quick validation helper inserted to catch zero/NaN output grads immediately
+// -----------------------------------------------------------------------------
 template<DeviceType TDeviceType, TensorDataType TDataType, typename THostMR>
     requires PrecisionSupportedOnDevice<TDataType, TDeviceType> &&
-             (std::is_same_v<THostMR, CudaPinnedMemoryResource> || std::is_same_v<THostMR, CpuMemoryResource>)
+(std::is_same_v<THostMR, CudaPinnedMemoryResource> || std::is_same_v<THostMR, CpuMemoryResource>)
+void validateOutputGradAndLogIfBad(
+    CharTransformer<TDeviceType, TDataType>* model,
+    size_t epoch,
+    size_t batch_index,
+    float batch_loss,
+    float batch_perplexity,
+    const Tensor<TDataType, CpuMemoryResource>& logits_cpu,
+    const Tensor<TDataType, CpuMemoryResource>& output_grad_cpu,
+    const Tensor<TensorDataType::INT32, CpuMemoryResource>& targets_cpu,
+    float learning_rate,
+    DeviceId device_id )
+{
+    (void)model;
+    (void)epoch;
+    (void)batch_index;
+    (void)batch_loss;
+    (void)batch_perplexity;
+    (void)learning_rate;
+    (void)device_id;
+
+    // Quick stats for logits and output gradients
+    const auto* logits_ptr = logits_cpu.data();
+    size_t logits_n = logits_cpu.size();
+
+    double logits_sum_abs = 0.0;
+    double logits_max_abs = 0.0;
+    size_t logits_nan = 0;
+
+    for ( size_t i = 0; i < logits_n; ++i )
+    {
+        double v = static_cast<double>( logits_ptr[ i ] );
+        if ( !std::isfinite( v ) ) ++logits_nan;
+        double av = std::abs( v );
+        logits_sum_abs += av;
+        logits_max_abs = std::max( logits_max_abs, av );
+    }
+
+    const auto* outg_ptr = output_grad_cpu.data();
+    size_t outg_n = output_grad_cpu.size();
+
+    double outg_sum_abs = 0.0;
+    double outg_max_abs = 0.0;
+    size_t outg_nan = 0;
+
+    for ( size_t i = 0; i < outg_n; ++i )
+    {
+        double v = static_cast<double>( outg_ptr[ i ] );
+        if ( !std::isfinite( v ) ) ++outg_nan;
+        double av = std::abs( v );
+        outg_sum_abs += av;
+        outg_max_abs = std::max( outg_max_abs, av );
+    }
+
+    // If output_grad is (near) zero everywhere, or any NaNs in logits/output_grad,
+    // emit full diagnostics via dumpBatchDiagnostics.
+    constexpr double kTiny = 1e-30;
+    bool suspicious = false;
+
+    if ( outg_sum_abs <= kTiny || std::isnan( outg_sum_abs ) )
+        suspicious = true;
+
+    if ( logits_nan != 0 || outg_nan != 0 )
+        suspicious = true;
+
+    // Validate targets are in-range for the vocabulary dimension
+    int64_t vocab_size = static_cast<int64_t>(logits_cpu.shape().back());
+    for ( size_t b = 0; b < static_cast<size_t>( targets_cpu.shape()[ 0 ] ); ++b )
+    {
+        for ( size_t t = 0; t < static_cast<size_t>( targets_cpu.shape()[ 1 ] ); ++t )
+        {
+            int32_t tid = targets_cpu.data()[ b * targets_cpu.shape()[ 1 ] + t ];
+            if ( tid < 0 || tid >= vocab_size )
+            {
+                suspicious = true;
+                std::cerr << "Invalid target index detected: " << tid
+                    << " (vocab_size=" << vocab_size << ") at batch=" << b
+                    << " time=" << t << "\n";
+                break;
+            }
+        }
+        if ( suspicious && logits_nan == 0 && outg_nan == 0 ) break;
+    }
+
+    if ( suspicious )
+    {
+        // Print compact summary (use scientific so small values are visible)
+        std::cerr << std::scientific << std::setprecision( 6 );
+        std::cerr << "Quick stats: logits mean_abs=" << (logits_sum_abs / (logits_n ? logits_n : 1))
+            << " max_abs=" << logits_max_abs << " nan_count=" << logits_nan << "\n";
+        std::cerr << "Quick stats: out_grad mean_abs=" << (outg_sum_abs / (outg_n ? outg_n : 1))
+            << " max_abs=" << outg_max_abs << " nan_count=" << outg_nan << "\n";
+        std::cerr << std::defaultfloat;
+
+        // Call the heavier dump which throws to abort and capture state
+        dumpBatchDiagnostics<TDeviceType, TDataType, THostMR>(
+            model,
+            epoch,
+            batch_index,
+            batch_loss,
+            batch_perplexity,
+            logits_cpu,
+            output_grad_cpu,
+            targets_cpu,
+            learning_rate,
+            device_id );
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Batch-level diagnostics helper (host-side).
+//
+// Called when a loss / perplexity explosion is detected. Collects concise
+// statistics for logits, output gradients and first few parameter gradient
+// tensors. This helper is intentionally expensive and only used in debug
+// scenarios to localize the root cause of numerical explosions.
+//
+// Postcondition: throws std::runtime_error to abort training once diagnostics
+// are emitted so developer can inspect logs / saved dumps.
+template<DeviceType TDeviceType, TensorDataType TDataType, typename THostMR>
+    requires PrecisionSupportedOnDevice<TDataType, TDeviceType> &&
+(std::is_same_v<THostMR, CudaPinnedMemoryResource> || std::is_same_v<THostMR, CpuMemoryResource>)
+void dumpBatchDiagnostics(
+    CharTransformer<TDeviceType, TDataType>* model,
+    size_t epoch,
+    size_t batch_index,
+    float batch_loss,
+    float batch_perplexity,
+    const Tensor<TDataType, CpuMemoryResource>& logits_cpu,
+    const Tensor<TDataType, CpuMemoryResource>& output_grad_cpu,
+    const Tensor<TensorDataType::INT32, CpuMemoryResource>& targets_cpu,
+    float learning_rate,
+    DeviceId device_id )
+{
+    std::cerr << "\n=== PERPLEXITY EXPLOSION DIAGNOSTICS ===\n";
+    std::cerr << "Epoch: " << epoch << ", Batch: " << batch_index << "\n";
+    std::cerr << "Device: " << device_id.toString() << ", LR: " << learning_rate << "\n";
+    std::cerr << "Batch loss: " << batch_loss << ", Perplexity: " << batch_perplexity << "\n";
+
+    try
+    {
+        // Basic stats for logits
+        const auto* logits_ptr = logits_cpu.data();
+        size_t logits_n = logits_cpu.size();
+
+        double sum_abs = 0.0;
+        double max_abs = 0.0;
+        size_t nan_count = 0;
+
+        for ( size_t i = 0; i < logits_n; ++i )
+        {
+            double v = static_cast<double>( logits_ptr[ i ] );
+            if ( !std::isfinite( v ) ) ++nan_count;
+            double av = std::abs( v );
+            sum_abs += av;
+            if ( av > max_abs ) max_abs = av;
+        }
+
+        double mean_abs = logits_n ? (sum_abs / static_cast<double>(logits_n)) : 0.0;
+
+        std::cerr << "Logits (host) stats: mean_abs=" << mean_abs << " max_abs=" << max_abs
+            << " nan_count=" << nan_count << " total_elems=" << logits_n << "\n";
+
+        // Basic stats for output gradients
+        const auto* outg_ptr = output_grad_cpu.data();
+        size_t outg_n = output_grad_cpu.size();
+
+        sum_abs = 0.0;
+        max_abs = 0.0;
+        nan_count = 0;
+
+        for ( size_t i = 0; i < outg_n; ++i )
+        {
+            double v = static_cast<double>( outg_ptr[ i ] );
+            if ( !std::isfinite( v ) ) ++nan_count;
+            double av = std::abs( v );
+            sum_abs += av;
+            if ( av > max_abs ) max_abs = av;
+        }
+
+        mean_abs = outg_n ? (sum_abs / static_cast<double>(outg_n)) : 0.0;
+
+        std::cerr << "Output grad (host) stats: mean_abs=" << mean_abs << " max_abs=" << max_abs
+            << " nan_count=" << nan_count << " total_elems=" << outg_n << "\n";
+
+        // Print first positions for human inspection (first batch, first time-step)
+        size_t vocab_size = logits_cpu.shape().back();
+        std::cerr << "Sample logits [b=0,t=0] first 16 values:\n";
+        size_t base = 0 * logits_cpu.shape()[ 1 ] * vocab_size + 0 * vocab_size;
+        for ( size_t v = 0; v < std::min<size_t>( vocab_size, 16 ); ++v )
+        {
+            std::cerr << static_cast<float>( logits_ptr[ base + v ] ) << " ";
+        }
+        std::cerr << "\n";
+
+        std::cerr << "Sample output_grad [b=0,t=0] first 16 values:\n";
+        base = 0 * output_grad_cpu.shape()[ 1 ] * vocab_size + 0 * vocab_size;
+        for ( size_t v = 0; v < std::min<size_t>( vocab_size, 16 ); ++v )
+        {
+            std::cerr << static_cast<float>( outg_ptr[ base + v ] ) << " ";
+        }
+        std::cerr << "\n";
+
+        // Print a small slice of targets
+        std::cerr << "Sample targets [b=0] first 16 tokens:\n";
+        for ( size_t i = 0; i < std::min<size_t>( 16, targets_cpu.shape()[ 1 ] ); ++i )
+        {
+            std::cerr << static_cast<int>( targets_cpu.data()[ i ] ) << " ";
+        }
+        std::cerr << "\n";
+
+        // Log parameter & gradient norms (uses defined helper)
+        try
+        {
+            logParameterAndGradientNorms<TDeviceType, TDataType>( model );
+        }
+        catch ( const std::exception& e )
+        {
+            std::cerr << "Failed to log parameter/gradient norms: " << e.what() << "\n";
+        }
+
+        // Try to dump first few gradient tensors (host copies) for deeper inspection.
+        try
+        {
+            auto grads = model->getGradientsForDebug();
+
+            size_t dump_count = std::min<size_t>( grads.size(), 4 );
+            std::cerr << "Inspecting up to " << dump_count << " gradient tensors (host copies):\n";
+
+            for ( size_t gi = 0; gi < dump_count; ++gi )
+            {
+                ITensor* g = grads[ gi ];
+                // Only handle device tensors that can be copied to host via toHost
+                using DeviceMR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
+                using DeviceTensor = Tensor<TDataType, DeviceMR>;
+                auto* dg = dynamic_cast<DeviceTensor*>( g );
+                if ( !dg ) continue;
+
+                // Ensure device work is complete and then copy to host
+                model->synchronize();
+
+                auto host_copy = toHost<TDataType>( *dg );
+
+                double s = 0.0;
+                double maxv = 0.0;
+                size_t nan_ct = 0;
+                for ( size_t i = 0; i < host_copy.size(); ++i )
+                {
+                    double v = static_cast<double>( host_copy.data()[ i ] );
+                    if ( !std::isfinite( v ) ) ++nan_ct;
+                    s += std::abs( v );
+                    maxv = std::max( maxv, std::abs( v ) );
+                }
+
+                std::cerr << "Grad tensor[" << gi << "]: size=" << host_copy.size()
+                    << " mean_abs=" << (host_copy.size() ? (s / host_copy.size()) : 0.0)
+                    << " max_abs=" << maxv << " nan_count=" << nan_ct << "\n";
+            }
+        }
+        catch ( const std::exception& e )
+        {
+            std::cerr << "Failed to inspect model gradients: " << e.what() << "\n";
+        }
+    }
+    catch ( const std::exception& e )
+    {
+        std::cerr << "Diagnostics failed: " << e.what() << "\n";
+    }
+
+    std::cerr << "=== END DIAGNOSTICS ===\n\n";
+
+    // Abort training to allow developer inspection of logs
+    throw std::runtime_error( "Perplexity/loss explosion detected - diagnostics emitted" );
+}
+
+template<DeviceType TDeviceType, TensorDataType TDataType, typename THostMR>
+    requires PrecisionSupportedOnDevice<TDataType, TDeviceType> &&
+(std::is_same_v<THostMR, CudaPinnedMemoryResource> || std::is_same_v<THostMR, CpuMemoryResource>)
 std::string generateSample(
     CharTransformer<TDeviceType, TDataType>* model,
     const CharVocabulary& vocab,
@@ -620,11 +900,11 @@ std::string generateSample(
 
 template<DeviceType TDeviceType, TensorDataType TDataType, typename THostMR>
     requires PrecisionSupportedOnDevice<TDataType, TDeviceType> &&
-             (std::is_same_v<THostMR, CudaPinnedMemoryResource> || std::is_same_v<THostMR, CpuMemoryResource>)
+(std::is_same_v<THostMR, CudaPinnedMemoryResource> || std::is_same_v<THostMR, CpuMemoryResource>)
 void trainCharLM( const CharLMConfig& config )
 {
     using DeviceMR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
-    DeviceId device_id = Device::getDeviceId<TDeviceType>(0);
+    DeviceId device_id = Device::getDeviceId<TDeviceType>( 0 );
 
     CharDataLoader<THostMR> train_loader(
         config.data_file,
@@ -667,17 +947,17 @@ void trainCharLM( const CharLMConfig& config )
 
     auto optimizer = model->createOptimizer<AdamWOptimizer<TDeviceType, TDataType>>(
         AdamWConfig()
-            .withLearningRate( config.learning_rate )
-            .withBeta1( config.beta1 )
-            .withBeta2( config.beta2 )
-            .withEpsilon( config.epsilon )
-            .withWeightDecay( config.weight_decay )
+        .withLearningRate( config.learning_rate )
+        .withBeta1( config.beta1 )
+        .withBeta2( config.beta2 )
+        .withEpsilon( config.epsilon )
+        .withWeightDecay( config.weight_decay )
     );
 
     std::cout << "Optimizer initialized with " << optimizer->getParameterCount()
         << " parameter groups" << std::endl;
 
-    if (config.lr_decay != 1.0f && config.lr_decay_every_n_epochs == 0)
+    if ( config.lr_decay != 1.0f && config.lr_decay_every_n_epochs == 0 )
     {
         // apply decay every epoch by default when a decay factor is set
         const_cast<CharLMConfig&>(config).lr_decay_every_n_epochs = 1;
@@ -697,19 +977,19 @@ void trainCharLM( const CharLMConfig& config )
     std::cout << "Starting training for " << config.epochs << " epochs..." << std::endl;
     std::cout << "Total batches per epoch: " << train_loader.numBatches() << std::endl;
 
-    for (size_t epoch = 0; epoch < config.epochs; ++epoch)
+    for ( size_t epoch = 0; epoch < config.epochs; ++epoch )
     {
-        if (config.lr_decay != 1.0f &&
+        if ( config.lr_decay != 1.0f &&
             config.lr_decay_every_n_epochs > 0 &&
             epoch > 0 &&
-            ( (epoch % config.lr_decay_every_n_epochs) == 0 ) )
+            ((epoch % config.lr_decay_every_n_epochs) == 0) )
         {
             float old_lr = optimizer->getLearningRate();
             float new_lr = old_lr * config.lr_decay;
             optimizer->setLearningRate( new_lr );
 
-            std::cout << "Adjusted learning rate: " << std::scientific << std::setprecision(3)
-                      << old_lr << " -> " << new_lr << std::endl;
+            std::cout << "Adjusted learning rate: " << std::scientific << std::setprecision( 3 )
+                << old_lr << " -> " << new_lr << std::endl;
         }
 
         train_loader.reset();
@@ -719,13 +999,16 @@ void trainCharLM( const CharLMConfig& config )
 
         auto start_time = std::chrono::high_resolution_clock::now();
 
-        while (train_loader.hasNext())
+        while ( train_loader.hasNext() )
         {
             train_loader.nextBatch();
 
+            std::cout << "\n=== Epoch " << epoch << " Batch " << (batches + 1)
+                << " / " << train_loader.numBatches() << " ===\n";
+
             // Load input and target batches to device
             // NOTE: moving the targets to device required for when loss is computed on device ( not yet implemented )
-            
+
             copy( train_loader.inputs(), input_batch );
             copy( train_loader.targets(), target_batch );
 
@@ -747,51 +1030,72 @@ void trainCharLM( const CharLMConfig& config )
             zero( output_grad_cpu );
             sequenceCrossEntropyGradient( logits_cpu, targets_cpu, output_grad_cpu );
 
+            // Quick validation and debugging hook: abort with diagnostics if something is wrong
+            validateOutputGradAndLogIfBad<TDeviceType, TDataType, THostMR>(
+                model.get(),
+                epoch,
+                batches + 1,
+                batch_loss,
+                batch_perplexity,
+                logits_cpu,
+                output_grad_cpu,
+                targets_cpu,
+                optimizer->getLearningRate(),
+                device_id );
+
+            // If loss is exploding, emit diagnostics and abort (host-side check).
+            constexpr float kLossExplosionThreshold = 10.0f;
+            constexpr float kPerplexityExplosionThreshold = 1e4f;
+
+            if ( !std::isfinite( batch_loss ) ||
+                batch_loss > kLossExplosionThreshold ||
+                batch_perplexity > kPerplexityExplosionThreshold )
+            {
+                // Use 1-based batch index for human-friendly reporting
+                dumpBatchDiagnostics<TDeviceType, TDataType, THostMR>(
+                    model.get(),
+                    epoch,
+                    batches + 1,
+                    batch_loss,
+                    batch_perplexity,
+                    logits_cpu,
+                    output_grad_cpu,
+                    targets_cpu,
+                    optimizer->getLearningRate(),
+                    device_id );
+            }
+
             //std::clog << "Output Grad:\n" << output_grad_cpu.toString( true ) << std::endl;
 
-            //// DEBUG: Gradient verification
-            //std::cout << "\n=== GRADIENT VERIFICATION ===\n";
+            // DEBUG: Gradient verification — show only the target gradient
+            std::cout << "\n=== GRADIENT VERIFICATION ===\n";
 
-            //// Check first position
-            //int b = 0, t = 0;
-            //int target_token = targets_cpu.data()[ b * 128 + t ];
-            //std::cout << "Position [0,0] target token: " << target_token << "\n";
+            int b = 0;
+            int t = 0;
+            int target_token = targets_cpu.data()[ b * static_cast<size_t>(targets_cpu.shape()[ 1 ]) + t ];
+            std::cout << "Position [0,0] target token: " << target_token << "\n";
 
-            //// Print gradients for first position (all 66 vocab entries)
-            //std::cout << "Gradients for position [0,0]:\n";
-            //for ( int v = 0; v < 66; ++v ) {
-            //    size_t idx = 0 * 128 * 66 + 0 * 66 + v;
-            //    float grad = output_grad_cpu.data()[ idx ];
-            //    if ( v == target_token ) {
-            //        std::cout << "  [" << v << "] (TARGET): " << grad << "\n";
-            //    }
-            //    else if ( v < 5 || v > 60 ) {  // Show first 5 and last 5
-            //        std::cout << "  [" << v << "]: " << grad << "\n";
-            //    }
-            //}
+            size_t vocab_size = static_cast<size_t>(logits_cpu.shape().back());
+            size_t base = static_cast<size_t>(b) * logits_cpu.shape()[ 1 ] * vocab_size + static_cast<size_t>(t) * vocab_size;
 
-            //// Verify: sum of all gradients for one position should be close to 0
-            //float sum = 0.0f;
-            //for ( int v = 0; v < 66; ++v ) {
-            //    size_t idx = 0 * 128 * 66 + 0 * 66 + v;
-            //    sum += output_grad_cpu.data()[ idx ];
-            //}
-            //std::cout << "Sum of gradients (should be ~0): " << sum << "\n";
-
-            //// Count how many are negative
-            //int neg_count = 0;
-            //for ( size_t i = 0; i < 32 * 128 * 66; ++i ) {
-            //    if ( output_grad_cpu.data()[ i ] < 0 ) neg_count++;
-            //}
-            //std::cout << "Number of negative gradients: " << neg_count
-            //    << " (should be " << (32 * 128) << ")\n";
+            if ( target_token >= 0 && static_cast<size_t>(target_token) < vocab_size )
+            {
+                size_t tidx = static_cast<size_t>(target_token);
+                float grad = output_grad_cpu.data()[ base + tidx ];
+                std::cout << std::scientific << std::setprecision( 6 )
+                    << "Target gradient [" << tidx << "]: " << grad << std::defaultfloat << "\n";
+            }
+            else
+            {
+                std::cout << "Target index out of range: " << target_token << "\n";
+            }
 
             copy( output_grad_cpu, output_grad );
 
             model->zeroGradients();
 
             model->backward( input_batch, output_grad );
-            
+
             // Ensure all gradients are ready before optimizer step
             model->synchronize();
 
@@ -852,7 +1156,7 @@ void trainCharLM( const CharLMConfig& config )
             epoch_loss += batch_loss;
             batches++;
 
-            if (batches % 50 == 0 || batches == train_loader.numBatches())
+            if ( batches % 50 == 0 || batches == train_loader.numBatches() )
             {
                 std::cout << "Epoch " << (epoch + 1) << " [" << batches << "/"
                     << train_loader.numBatches() << "] - Loss: " << std::fixed
@@ -887,11 +1191,11 @@ void trainCharLM( const CharLMConfig& config )
         }
 
         // Generate sample every N epochs (or never if sample_every_n_epochs == 0)
-        if (config.sample_every_n_epochs > 0 && 
-            ((epoch + 1) % config.sample_every_n_epochs == 0 || epoch + 1 == config.epochs))
+        if ( config.sample_every_n_epochs > 0 &&
+            ((epoch + 1) % config.sample_every_n_epochs == 0 || epoch + 1 == config.epochs) )
         {
             std::cout << "\n--- Generated Sample (Epoch " << (epoch + 1) << ") ---" << std::endl;
-            
+
             try
             {
                 std::string sample = generateSample<TDeviceType, TDataType, THostMR>(
@@ -902,11 +1206,11 @@ void trainCharLM( const CharLMConfig& config )
                     epoch );
                 std::cout << sample << std::endl;
             }
-            catch (const std::exception& e)
+            catch ( const std::exception& e )
             {
                 std::cerr << "Error generating sample: " << e.what() << std::endl;
             }
-            
+
             std::cout << "--- End Sample ---\n" << std::endl;
         }
     }
@@ -924,32 +1228,32 @@ int main( int argc, char** argv )
         Mila::initialize();
 
         CharLMConfig config;
-        if (!parseCommandLine( argc, argv, config ))
+        if ( !parseCommandLine( argc, argv, config ) )
         {
             return 1;
         }
 
-        if (config.compute_device == DeviceType::Cuda)
+        if ( config.compute_device == DeviceType::Cuda )
         {
             try
             {
                 std::cout << "Using CUDA device" << std::endl;
                 trainCharLM<DeviceType::Cuda, TensorDataType::FP32, CudaPinnedMemoryResource>( config );
             }
-            catch (const std::exception& e)
+            catch ( const std::exception& e )
             {
                 std::cerr << "CUDA error: " << e.what() << std::endl;
                 throw;
             }
         }
 
-        if (config.compute_device == DeviceType::Cpu)
+        if ( config.compute_device == DeviceType::Cpu )
         {
             std::cout << "Using CPU device" << std::endl;
             trainCharLM<DeviceType::Cpu, TensorDataType::FP32, CpuMemoryResource>( config );
         }
     }
-    catch (const std::exception& e)
+    catch ( const std::exception& e )
     {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;

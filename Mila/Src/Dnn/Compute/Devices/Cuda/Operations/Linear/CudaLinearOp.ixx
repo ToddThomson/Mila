@@ -530,7 +530,9 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 int out_features,
                 cudaStream_t stream )
             {
-                throw std::logic_error( "CudaLinearOp::backward for FP32 is not yet implemented" );
+                cuda_matmul_backward_fp32( input_grad, weight_grad, bias_grad,
+                    output_grad, input, weight,
+                    batch_size, in_features, out_features, stream );
             }
         };
 
@@ -826,7 +828,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             cached_out_features_ = static_cast<int>(config_.getOutputFeatures());
 
             cached_cublaslt_handle_ = context_->getCublasLtHandle();
-            use_cublaslt_ = (cached_cublaslt_handle_ != nullptr) && supportsCuBLASLt();
+            use_cublaslt_ = false; // FIXME: (cached_cublaslt_handle_ != nullptr) && supportsCuBLASLt();
 
             cached_precision_policy_ = config_.getPrecisionPolicy();
 

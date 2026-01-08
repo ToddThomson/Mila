@@ -338,26 +338,6 @@ namespace Mila::Dnn
             return grads;
         }
 
-        /**
-         * @brief Get weight gradient tensor.
-         *
-         * @return Shared pointer to weight gradient, or nullptr if not in training mode
-         */
-        std::shared_ptr<TensorType> getWeightGrad() const noexcept
-        {
-            return weight_grad_;
-        }
-
-        /**
-         * @brief Get bias gradient tensor.
-         *
-         * @return Shared pointer to bias gradient, or nullptr if bias disabled or not in training mode
-         */
-        std::shared_ptr<TensorType> getBiasGrad() const noexcept
-        {
-            return bias_grad_;
-        }
-
         // ====================================================================
         // Component interface
         // ====================================================================
@@ -384,30 +364,6 @@ namespace Mila::Dnn
             oss << "Parameter count: " << parameterCount() << std::endl;
 
             return oss.str();
-        }
-
-        // ====================================================================
-        // Parameter accessors
-        // ====================================================================
-
-        /**
-         * @brief Return shared ownership of the weight tensor.
-         *
-         * @returns Shared pointer to the weight tensor.
-         */
-        std::shared_ptr<TensorType> getWeight() const noexcept
-        {
-            return weight_;
-        }
-
-        /**
-         * @brief Return shared ownership of the bias tensor.
-         *
-         * @returns Shared pointer to the bias tensor, or nullptr if no bias.
-         */
-        std::shared_ptr<TensorType> getBias() const noexcept
-        {
-            return bias_;
         }
 
         /**

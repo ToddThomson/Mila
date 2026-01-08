@@ -37,6 +37,16 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         int outer_size, int C, int OC,
         cudaStream_t stream );
 
+    void cuda_matmul_backward_fp32(
+        float* dX,
+        float* dW,
+        float* dB,
+        const float* dY,
+        const float* X,
+        const float* weight,
+        int outer_size, int C, int OC,
+        cudaStream_t stream );
+
     void cuda_matmul_forward_fp16(
         half* Y, const half* X,
         const half* weight, const half* bias,

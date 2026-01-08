@@ -131,37 +131,44 @@ namespace Mila::Dnn
             }*/
 
             ln1_->forward( input, *ln1_output_ );
+            this->getExecutionContext()->synchronize();
             /*if ( ln1_output_ )
             {
                 std::clog << this->getName() << ": ln1_output:\n" << ln1_output_->toString( true ) << std::endl;
             }*/
             
             qkv_proj_->forward( *ln1_output_, *qkv_output_ );
+            this->getExecutionContext()->synchronize();
             /*if ( qkv_output_ )
             {
                 std::clog << this->getName() << ": qkv_output:\n" << qkv_output_->toString( true ) << std::endl;
             }*/
             
             attn_->forward( *qkv_output_, *attn_output_ );
+            this->getExecutionContext()->synchronize();
             /*if ( attn_output_ )
             {
                 std::clog << this->getName() << ": attn_output:\n" << attn_output_->toString( true ) << std::endl;
             }*/
 
             res1_->forward( input, *attn_output_, *res1_output_ );
+            this->getExecutionContext()->synchronize();
             /*if ( res1_output_ )
             {
                 std::clog << this->getName() << ": res1_output:\n" << res1_output_->toString( true ) << std::endl;
             }*/
 
             ln2_->forward( *res1_output_, *ln2_output_ );
+            this->getExecutionContext()->synchronize();
             
             //std::clog << this->getName() << ": ln2_output:\n" << ln2_output_->toString( true ) << std::endl;
-            
 
             ffn_->forward( *ln2_output_, *ffn_output_ );
+            this->getExecutionContext()->synchronize();
 
             res2_->forward( *res1_output_, *ffn_output_, output );
+            this->getExecutionContext()->synchronize();
+
             // If output is a concrete Tensor on this device/precision, print detailed representation.
             /*if ( auto* out_t = dynamic_cast<TensorType*>(&output) )
             {
@@ -237,6 +244,7 @@ namespace Mila::Dnn
 
             // Copy output gradient to starting buffer
             copy( static_cast<const TensorType&>(output_grad), *d_act_1_ );
+            this->getExecutionContext()->synchronize();
 
             // Dump after copy into d_act_1_
             //dumpTensorType( *d_act_1_, "d_act_1_after_copy" );
@@ -250,6 +258,7 @@ namespace Mila::Dnn
                 *d_act_2_,         // input_a_grad -> gradient for res1_output (residual path)
                 *d_act_3_          // input_b_grad -> gradient for ffn_output (FFN branch)
             );
+            this->getExecutionContext()->synchronize();
 
             // Dump gradients from res2 backward
             //dumpTensorType( *d_act_2_, "d_act_2_after_res2_backward" );
@@ -257,17 +266,20 @@ namespace Mila::Dnn
 
             // === Backprop through FFN branch ===
             ffn_->backward( *ln2_output_, *d_act_3_, *d_act_4_ );
+            this->getExecutionContext()->synchronize();
 
             // Dump after ffn backward
             //dumpTensorType( *d_act_4_, "d_act_4_after_ffn_backward" );
 
             ln2_->backward( *res1_output_, *d_act_4_, *d_act_3_ );
+            this->getExecutionContext()->synchronize();
 
             // Dump after ln2 backward (d_act_3_ updated)
             //dumpTensorType( *d_act_3_, "d_act_3_after_ln2_backward" );
 
             // Accumulate FFN branch gradient into res1_output gradient
             add( *d_act_2_, *d_act_3_, *d_act_2_ );  // d_act_2_ now has total gradient for res1_output
+            this->getExecutionContext()->synchronize();
 
             // Dump after accumulation into d_act_2_
             //dumpTensorType( *d_act_2_, "d_act_2_after_add_ffn" );
@@ -277,10 +289,11 @@ namespace Mila::Dnn
             res1_->backward(
                 input,             // input_a (original input, residual path)
                 *attn_output_,     // input_b (attention output)
-                *d_act_2_,         // output_grad (total gradient for res1_output)
+                *d_act_2_,         // output_grad ( total gradient for res1_output )
                 *d_act_3_,         // input_a_grad -> gradient for input (residual path)
                 *d_act_1_          // input_b_grad -> gradient for attn_output (attention branch)
             );
+            this->getExecutionContext()->synchronize();
 
             // Dump after res1 backward
             //dumpTensorType( *d_act_3_, "d_act_3_after_res1_backward" );
@@ -288,26 +301,26 @@ namespace Mila::Dnn
 
             // === Backprop through attention branch ===
             attn_->backward( *qkv_output_, *d_act_1_, *d_qkv_ );
-            
             this->getExecutionContext()->synchronize();
 
             // Dump after attention backward (d_qkv_)
             //dumpTensorType( *d_qkv_, "d_qkv_after_attn_backward" );
 
             qkv_proj_->backward( *ln1_output_, *d_qkv_, *d_act_1_ );
-
             this->getExecutionContext()->synchronize();
 
             // Dump after qkv_proj backward (d_act_1_)
             //dumpTensorType( *d_act_1_, "d_act_1_after_qkv_proj_backward" );
 
             ln1_->backward( input, *d_act_1_, *d_act_4_ );
+            this->getExecutionContext()->synchronize();
 
             // Dump after ln1 backward (d_act_4_)
             //dumpTensorType( *d_act_4_, "d_act_4_after_ln1_backward" );
 
             // Accumulate attention branch gradient into input gradient
-            add( *d_act_3_, *d_act_4_, static_cast<TensorType&>(input_grad), this->getExecutionContext() );
+            add( *d_act_3_, *d_act_4_, static_cast<TensorType&>(input_grad) /*, this->getExecutionContext() */ );
+            this->getExecutionContext()->synchronize();
 
             // Debug: when the destination input_grad is a concrete Tensor of this device / precision,
             // print its buffer contents (toString(true) will provide host-readable representation).
@@ -329,19 +342,19 @@ namespace Mila::Dnn
         {
             // Zero gradients in pre-allocated buffers
             if ( d_act_1_ )
-                zeros( *d_act_1_ );
+                zero( *d_act_1_ );
             
             if ( d_act_2_ )
-                zeros( *d_act_2_ );
+                zero( *d_act_2_ );
             
             if ( d_act_3_ )
-                zeros( *d_act_3_ );
+                zero( *d_act_3_ );
             
             if ( d_act_4_ )
-                zeros( *d_act_4_ );
+                zero( *d_act_4_ );
             
             if ( d_qkv_ )
-                zeros( *d_qkv_ );
+                zero( *d_qkv_ );
 
             // Zero gradients in all sub-components
             attn_->zeroGradients();
@@ -486,18 +499,23 @@ namespace Mila::Dnn
             // Backward gradient buffers (pre-allocated for reuse)
             d_act_1_ = std::make_shared<TensorType>( device, input_shape );
             d_act_1_->setName( this->getName() + ".d_act_1" );
+            zero( *d_act_1_ );
 
             d_act_2_ = std::make_shared<TensorType>( device, input_shape );
             d_act_2_->setName( this->getName() + ".d_act_2" );
+            zero( *d_act_2_ );
 
             d_act_3_ = std::make_shared<TensorType>( device, input_shape );
             d_act_3_->setName( this->getName() + ".d_act_3" );
+            zero( *d_act_3_ );
 
             d_act_4_ = std::make_shared<TensorType>( device, input_shape );
             d_act_4_->setName( this->getName() + ".d_act_4" );
+            zero( *d_act_4_ );
 
             d_qkv_ = std::make_shared<TensorType>( device, qkv_shape );
             d_qkv_->setName( this->getName() + ".d_qkv" );
+            zero( *d_qkv_ );
         }
 
         void onTrainingChanging( bool is_training ) override

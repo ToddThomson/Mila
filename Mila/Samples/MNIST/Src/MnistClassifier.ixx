@@ -194,7 +194,7 @@ namespace Mila::Mnist
          *
          * @throws std::runtime_error if classifier has not been built
          */
-        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
+        void backward( const ITensor& input, const ITensor& output_grad /*, ITensor& input_grad */ )
         {
             if ( !this->isBuilt() )
             {
@@ -207,7 +207,7 @@ namespace Mila::Mnist
             gelu2_->backward( *hidden2_pre_act_, *hidden2_grad_, *hidden2_pre_grad_ );
             fc2_->backward( *hidden1_, *hidden2_pre_grad_, *hidden1_grad_ );
             gelu1_->backward( *hidden1_pre_act_, *hidden1_grad_, *hidden1_pre_grad_ );
-            fc1_->backward( input, *hidden1_pre_grad_, input_grad );
+            fc1_->backward( input, *hidden1_pre_grad_, *input_grad_ );
         }
 
         void zeroGradients() override
@@ -411,6 +411,9 @@ namespace Mila::Mnist
             // Allocate intermediate activation buffers
             auto device = this->getDeviceId();
 
+            input_grad_ = std::make_shared<TensorType>( device, input_shape_ );
+            input_grad_->setName( this->getName() + ".input_grad" );
+
             hidden1_pre_act_ = std::make_shared<TensorType>( device, hidden1_shape_ );
             hidden1_pre_act_->setName( this->getName() + ".hidden1_pre_act" );
 
@@ -468,6 +471,7 @@ namespace Mila::Mnist
         std::shared_ptr<TensorType> hidden2_{ nullptr };
 
         // Gradient buffers (pre-allocated during onBuilding)
+        std::shared_ptr<TensorType> input_grad_{ nullptr };
         std::shared_ptr<TensorType> hidden2_grad_{ nullptr };
         std::shared_ptr<TensorType> hidden2_pre_grad_{ nullptr };
         std::shared_ptr<TensorType> hidden1_grad_{ nullptr };

@@ -56,14 +56,24 @@ namespace Mila::Dnn
      *
      * @tparam TDeviceType Compile-time device identifier for this component.
      * @tparam TPrecision Tensor data precision for this component.
+     * 
+     * @par Trusted Collaborators
+     * This class grants private access to:
+     * - CompositeComponent: Parent components that manage child execution contexts
+     *   and aggregate parameters from child components.
+     * - Network: Top-level graph coordinator that collects parameters and gradients
+     *   for optimization and serialization.
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
     class Component
     {
-        // Allow composite parent to manage child execution contexts
+        // Trusted collaborators for internal coordination
         template<DeviceType, TensorDataType>
         friend class CompositeComponent;
+
+        template<DeviceType, TensorDataType>
+        friend class Network;
 
     public:
 
@@ -234,24 +244,6 @@ namespace Mila::Dnn
          * @brief Return number of scalar trainable parameters owned by this module.
          */
         virtual size_t parameterCount() const = 0;
-
-        /**
-         * @brief Return non-owning pointers to parameter tensors.
-         *
-         * The returned tensor pointers remain valid for the lifetime of the
-         * module. Order should be canonical (weights before biases).
-         */
-        virtual std::vector<ITensor*> getParameters() const = 0;
-
-        /**
-         * @brief Return non-owning pointers to parameter gradient tensors.
-         *
-         * Only valid when the module is in training mode.
-         *
-         * @throws std::runtime_error if called when not in training mode or
-         *         before the module has been built.
-         */
-        virtual std::vector<ITensor*> getGradients() const = 0;
 
         /**
          * @brief Clear all model-owned gradients for this component.
@@ -543,6 +535,24 @@ namespace Mila::Dnn
         virtual void onBuilding( const shape_t& input_shape )
         {
         }
+
+        /**
+         * @brief Return non-owning pointers to parameter tensors.
+         *
+         * The returned tensor pointers remain valid for the lifetime of the
+         * module. Order should be canonical (weights before biases).
+         */
+        virtual std::vector<ITensor*> getParameters() const = 0;
+
+        /**
+         * @brief Return non-owning pointers to parameter gradient tensors.
+         *
+         * Only valid when the module is in training mode.
+         *
+         * @throws std::runtime_error if called when not in training mode or
+         *         before the module has been built.
+         */
+        virtual std::vector<ITensor*> getGradients() const = 0;
 
     private:
 

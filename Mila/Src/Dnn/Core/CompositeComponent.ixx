@@ -352,13 +352,81 @@ namespace Mila::Dnn
             return count;
         }
 
+        
+
+        // ====================================================================
+        // Synchronization
+        // ====================================================================
+
         /**
-         * @brief Get all parameters from all children.
+         * @brief Synchronize all child components.
          *
-         * @return Vector of non-owning pointers to parameter tensors
-         *
-         * @throws std::runtime_error if called before build()
+         * Waits for outstanding device operations on all children.
          */
+        void synchronize() override
+        {
+            // All children share this composite's ExecutionContext and stream
+            // One synchronization is sufficient due to CUDA stream ordering
+            this->getExecutionContext()->synchronize();
+        }
+
+        // ====================================================================
+        // Device Information
+        // ====================================================================
+
+        /**
+         * @brief Get the compute device for this composite.
+         *
+         * Returns the device from the shared execution context.
+         *
+         * @return DeviceId for this composite and its children
+         */
+        DeviceId getDeviceId() const override
+        {
+            return this->getExecutionContext()->getDeviceId();
+        }
+
+        // ====================================================================
+        // Component Information
+        // ====================================================================
+
+        /**
+         * @brief Generate a human-readable description.
+         *
+         * @return String representation showing children
+         */
+        std::string toString() const override
+        {
+            std::ostringstream oss;
+            oss << this->getName() << " { children: [";
+
+            bool first = true;
+
+            for ( const auto& [name, component] : child_component_map_ )
+            {
+                if ( !first )
+                {
+                    oss << ", ";
+                }
+
+                first = false;
+                oss << name << ": " << component->getName();
+            }
+
+            oss << "] }";
+
+            return oss.str();
+        }
+
+    protected:
+
+        /**
+                * @brief Get all parameters from all children.
+                *
+                * @return Vector of non-owning pointers to parameter tensors
+                *
+                * @throws std::runtime_error if called before build()
+                */
         std::vector<ITensor*> getParameters() const override
         {
             if ( !this->isBuilt() )
@@ -436,72 +504,6 @@ namespace Mila::Dnn
 
             return grads;
         }
-
-        // ====================================================================
-        // Synchronization
-        // ====================================================================
-
-        /**
-         * @brief Synchronize all child components.
-         *
-         * Waits for outstanding device operations on all children.
-         */
-        void synchronize() override
-        {
-            // All children share this composite's ExecutionContext and stream
-            // One synchronization is sufficient due to CUDA stream ordering
-            this->getExecutionContext()->synchronize();
-        }
-
-        // ====================================================================
-        // Device Information
-        // ====================================================================
-
-        /**
-         * @brief Get the compute device for this composite.
-         *
-         * Returns the device from the shared execution context.
-         *
-         * @return DeviceId for this composite and its children
-         */
-        DeviceId getDeviceId() const override
-        {
-            return this->getExecutionContext()->getDeviceId();
-        }
-
-        // ====================================================================
-        // Component Information
-        // ====================================================================
-
-        /**
-         * @brief Generate a human-readable description.
-         *
-         * @return String representation showing children
-         */
-        std::string toString() const override
-        {
-            std::ostringstream oss;
-            oss << this->getName() << " { children: [";
-
-            bool first = true;
-
-            for ( const auto& [name, component] : child_component_map_ )
-            {
-                if ( !first )
-                {
-                    oss << ", ";
-                }
-
-                first = false;
-                oss << name << ": " << component->getName();
-            }
-
-            oss << "] }";
-
-            return oss.str();
-        }
-
-    protected:
 
         /**
          * @brief Virtual hook for graph optimization after construction.
@@ -731,6 +733,7 @@ namespace Mila::Dnn
          */
         std::unordered_map<std::string, ComponentPtr> child_component_map_;
 
+       
         /**
          * @brief Replace N consecutive components with a single fused component.
          */

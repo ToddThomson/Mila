@@ -254,10 +254,10 @@ namespace Mila::Dnn::Compute
             const float* X = static_cast<const float*>(input.rawData());
 
             // DEBUG:
-            if ( const auto* in_t = dynamic_cast<const TensorType*>(&input) )
+            /*if ( const auto* in_t = dynamic_cast<const TensorType*>(&input) )
             {
                 std::clog << this->getName() << ": ln input:\n" << in_t->toString( true ) << std::endl;
-            }
+            }*/
             //----
 
             float* Y = static_cast<float*>(output.rawData());

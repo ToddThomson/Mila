@@ -114,51 +114,56 @@ namespace Mila::Dnn::Compute::Cuda::Residual
          * device pointers compatible with the CUDA kernels.
          */
         void forward(
-            const ITensor& input_a,
-            const ITensor& input_b,
+            const ITensor& input_A,
+            const ITensor& input_B,
             ITensor& output ) const override
         {
-            const NativeType* X1 = static_cast<const NativeType*>(input_a.rawData());
-            const NativeType* X2 = static_cast<const NativeType*>(input_b.rawData());
+            const NativeType* A = static_cast<const NativeType*>(input_A.rawData());
+            const NativeType* B = static_cast<const NativeType*>(input_B.rawData());
             NativeType* Y = static_cast<NativeType*>(output.rawData());
 
-            if (!X1 || !X2 || !Y)
+            if ( !A || !B || !Y )
             {
                 throw std::runtime_error( "CudaResidualOp::forward - null tensor data pointer" );
             }
 
-            const size_t N = input_a.size();
-
             cudaStream_t stream = context_->getStream();
 
-            Detail::cuda_residual_impl<NativeType>::forward( Y, X1, X2, N, stream );
+            Detail::cuda_residual_impl<NativeType>::forward( Y, A, B, N_, stream );
         }
 
         /**
-         * @brief Backward pass: not implemented for CUDA residual op.
-         *
-         * Throws std::runtime_error if invoked.
+         * @brief Backward pass
          */
         void backward(
-            const ITensor& input_a,
-            const ITensor& input_b,
+            const ITensor& input_A,
+            const ITensor& input_B,
             const ITensor& output_grad,
-            ITensor& input_a_grad,
-            ITensor& input_b_grad ) const override
+            ITensor& A_grad,
+            ITensor& B_grad ) const override
         {
             const NativeType* dY = static_cast<const NativeType*>(output_grad.rawData());
-            NativeType* dX1 = static_cast<NativeType*>(input_a_grad.rawData());
-            NativeType* dX2 = static_cast<NativeType*>(input_b_grad.rawData());
+            NativeType* dA = static_cast<NativeType*>(A_grad.rawData());
+            NativeType* dB = static_cast<NativeType*>(B_grad.rawData());
 
-            if (!dY || !dX1 || !dX2)
+            if (!dY || !dA || !dB)
             {
                 throw std::runtime_error( "CudaResidualOp::backward - null gradient tensor data pointer" );
             }
 
-            const size_t N = input_a.size();
             cudaStream_t stream = context_->getStream();
 
-            Detail::cuda_residual_impl<NativeType>::backward( dX1, dX2, dY, N, stream );
+            Detail::cuda_residual_impl<NativeType>::backward( dA, dB, dY, N_, stream );
+        }
+
+        void build( const shape_t& input_shape )
+        {
+            N_ = 1;
+
+            for ( const auto& dim : input_shape )
+            {
+                N_ *= dim;
+            }
         }
 
         OperationType getOperationType() const override
@@ -173,8 +178,9 @@ namespace Mila::Dnn::Compute::Cuda::Residual
 
     private:
         
-        CudaExecutionContext* context_; ///< Execution context for CUDA resources.
+        CudaExecutionContext* context_{ nullptr };
         ResidualConfig config_;
+        int N_{ 0 };
     };
 
     export class CudaResidualOpRegistrar

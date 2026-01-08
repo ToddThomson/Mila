@@ -221,14 +221,14 @@ namespace Mila::Dnn
         void zeroGradients() override
         {
             // Zero gradients in preallocated buffers
-            zero( *fc2_grad_, this->getExecutionContext() );
+            zero( *fc2_grad_ /* this->getExecutionContext() */);
             
             if ( config_.useLayerNorm() )
             {
-                zero( *norm_grad_, this->getExecutionContext() );
+                zero( *norm_grad_ /* this->getExecutionContext() */);
             }
             
-            zero( *act_grad_, this->getExecutionContext() );
+            zero( *act_grad_ /* this->getExecutionContext() */);
 
             // Zero gradients in all child components
             fc1_->zeroGradients();
@@ -383,14 +383,17 @@ namespace Mila::Dnn
             // Preallocate gradient buffers used in backward() to avoid per-call allocation
             fc2_grad_ = std::make_shared<TensorType>( device, cached_hidden_shape_ );
             fc2_grad_->setName( this->getName() + ".fc2_grad" );
+            zero( *fc2_grad_ );
 
             act_grad_ = std::make_shared<TensorType>( device, cached_hidden_shape_ );
             act_grad_->setName( this->getName() + ".act_grad" );
+            zero( *act_grad_ );
 
             if ( config_.useLayerNorm() )
             {
                 norm_grad_ = std::make_shared<TensorType>( device, cached_hidden_shape_ );
                 norm_grad_->setName( this->getName() + ".norm_grad" );
+                zero( *norm_grad_ );
             }
         }
 

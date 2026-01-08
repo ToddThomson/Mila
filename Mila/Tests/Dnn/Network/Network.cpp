@@ -529,48 +529,7 @@ namespace Dnn::Networks::Tests
         );
     }
 
-    TEST_F( NetworkTests, GetParameters_BeforeBuild_Throws )
-    {
-        TestableNetwork<DeviceType::Cpu> net( "get_params_pre_build", Device::Cpu() );
-
-        net.addTestComponent( "unbuild", 0 );
-        net.finalizeConstruction();
-
-        EXPECT_THROW(
-            net.getParameters(),
-            std::runtime_error
-        );
-    }
-
-    TEST_F( NetworkTests, GetGradients_NotTraining_Throws )
-    {
-        TestableNetwork<DeviceType::Cpu> net( "grads_no_train", Device::Cpu() );
-
-        net.addTestComponent( "eval", 0 );
-        net.finalizeConstruction();
-
-        net.build( { 1 } );
-
-        EXPECT_FALSE( net.isTraining() );
-        EXPECT_THROW(
-            net.getGradients(),
-            std::runtime_error
-        );
-    }
-
-    TEST_F( NetworkTests, GetGradients_TrainingMode_Succeeds )
-    {
-        TestableNetwork<DeviceType::Cpu> net( "grads_train", Device::Cpu() );
-
-        net.addTestComponent( "train", 0 );
-        net.finalizeConstruction();
-
-        net.build( { 1 } );
-
-        net.setTraining( true );
-
-        EXPECT_NO_THROW( net.getGradients() );
-    }
+    
 
     // ====================================================================
     // Training Mode Tests

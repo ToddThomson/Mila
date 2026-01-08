@@ -195,25 +195,31 @@ namespace Dnn::Components::Layers::Tests
     template<TensorDataType TPrecision>
     void TestGetWeight( const LinearCpuTestData<TPrecision>& data )
     {
-        auto weight = data.component->getWeight();
-        ASSERT_NE( weight, nullptr );
-        EXPECT_EQ( weight->shape()[ 0 ], data.output_features );
-        EXPECT_EQ( weight->shape()[ 1 ], data.input_features );
+        // Use getParameters() (stable public API) and inspect first parameter as weight.
+        auto params = data.component->getParameters();
+        ASSERT_GE( params.size(), 1u );
+
+        auto* weight_it = dynamic_cast<Tensor<TensorDataType::FP32, CpuMemoryResource>*>( params[0] );
+        ASSERT_NE( weight_it, nullptr );
+        EXPECT_EQ( weight_it->shape()[ 0 ], data.output_features );
+        EXPECT_EQ( weight_it->shape()[ 1 ], data.input_features );
     }
 
     template<TensorDataType TPrecision>
     void TestGetBias( const LinearCpuTestData<TPrecision>& data )
     {
-        auto bias = data.component->getBias();
+        auto params = data.component->getParameters();
 
         if ( data.has_bias )
         {
-            ASSERT_NE( bias, nullptr );
-            EXPECT_EQ( bias->shape()[ 0 ], data.output_features );
+            ASSERT_GE( params.size(), 2u );
+            auto* bias_it = dynamic_cast<Tensor<TensorDataType::FP32, CpuMemoryResource>*>( params[1] );
+            ASSERT_NE( bias_it, nullptr );
+            EXPECT_EQ( bias_it->shape()[ 0 ], data.output_features );
         }
         else
         {
-            EXPECT_EQ( bias, nullptr );
+            EXPECT_EQ( params.size(), 1u );
         }
     }
 
@@ -277,11 +283,14 @@ namespace Dnn::Components::Layers::Tests
         data.component->build( data.input_shape );
         data.component->setTraining( true );
 
-        auto weight_grad = data.component->getWeightGrad();
+        // Use getGradients() API to inspect allocated gradient tensors
+        auto grads = data.component->getGradients();
+        ASSERT_GE( grads.size(), 1u );
 
-        ASSERT_NE( weight_grad, nullptr ) << "Weight gradients should be allocated in training mode";
-        EXPECT_EQ( weight_grad->shape()[ 0 ], data.output_features );
-        EXPECT_EQ( weight_grad->shape()[ 1 ], data.input_features );
+        auto* wgrad = dynamic_cast<Tensor<TensorDataType::FP32, CpuMemoryResource>*>( grads[0] );
+        ASSERT_NE( wgrad, nullptr ) << "Weight gradients should be allocated in training mode";
+        EXPECT_EQ( wgrad->shape()[ 0 ], data.output_features );
+        EXPECT_EQ( wgrad->shape()[ 1 ], data.input_features );
     }
 
     template<TensorDataType TPrecision>
@@ -290,16 +299,19 @@ namespace Dnn::Components::Layers::Tests
         data.component->build( data.input_shape );
         data.component->setTraining( true );
 
-        auto bias_grad = data.component->getBiasGrad();
+        auto grads = data.component->getGradients();
 
         if ( data.has_bias )
         {
-            ASSERT_NE( bias_grad, nullptr ) << "Bias gradients should be allocated in training mode";
-            EXPECT_EQ( bias_grad->shape()[ 0 ], data.output_features );
+            ASSERT_GE( grads.size(), 2u );
+            auto* bgrad = dynamic_cast<Tensor<TensorDataType::FP32, CpuMemoryResource>*>( grads[1] );
+            ASSERT_NE( bgrad, nullptr ) << "Bias gradients should be allocated in training mode";
+            EXPECT_EQ( bgrad->shape()[ 0 ], data.output_features );
         }
         else
         {
-            EXPECT_EQ( bias_grad, nullptr ) << "No bias gradient when bias is disabled";
+            // When bias disabled there should be only one gradient (weight)
+            EXPECT_EQ( grads.size(), 1u ) << "No bias gradient when bias is disabled";
         }
     }
 
@@ -757,8 +769,13 @@ namespace Dnn::Components::Layers::Tests
         data.component->setTraining( true );
         EXPECT_TRUE( data.component->isTraining() );
 
-        auto weight_grad = data.component->getWeightGrad();
-        ASSERT_NE( weight_grad, nullptr ) << "Gradients should be initialized when switching to training";
+        // inspect gradients via getGradients()
+        {
+            auto grads = data.component->getGradients();
+            ASSERT_GE( grads.size(), 1u );
+            auto* wg = dynamic_cast<Tensor<TensorDataType::FP32, CpuMemoryResource>*>( grads[0] );
+            ASSERT_NE( wg, nullptr ) << "Gradients should be initialized when switching to training";
+        }
 
         EXPECT_NO_THROW( data.component->forward( input, output ) );
 
@@ -786,13 +803,19 @@ namespace Dnn::Components::Layers::Tests
         data.component->setTraining( true );
         EXPECT_TRUE( data.component->isTraining() );
 
-        auto weight_grad = data.component->getWeightGrad();
-        ASSERT_NE( weight_grad, nullptr ) << "Weight gradients should be allocated when training enabled before build";
-
-        if ( data.has_bias )
+        // Use getGradients() instead of deprecated shared accessors
         {
-            auto bias_grad = data.component->getBiasGrad();
-            ASSERT_NE( bias_grad, nullptr ) << "Bias gradients should be allocated when training enabled before build";
+            auto grads = data.component->getGradients();
+            ASSERT_GE( grads.size(), 1u );
+            auto* wg = dynamic_cast<Tensor<TensorDataType::FP32, CpuMemoryResource>*>( grads[0] );
+            ASSERT_NE( wg, nullptr ) << "Weight gradients should be allocated when training enabled before build";
+
+            if ( data.has_bias )
+            {
+                ASSERT_GE( grads.size(), 2u );
+                auto* bg = dynamic_cast<Tensor<TensorDataType::FP32, CpuMemoryResource>*>( grads[1] );
+                ASSERT_NE( bg, nullptr ) << "Bias gradients should be allocated when training enabled before build";
+            }
         }
 
         CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.input_shape );

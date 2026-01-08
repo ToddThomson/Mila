@@ -167,20 +167,23 @@ bool parseCommandLine( int argc, char** argv, MnistConfig& config )
 }
 
 template<TensorDataType TDataType>
-void softmaxCrossEntropyGradient(
+float softmaxCrossEntropy(
     const Tensor<TDataType, CpuMemoryResource>& logits,
     const Tensor<TDataType, CpuMemoryResource>& targets,
-    Tensor<TDataType, CpuMemoryResource>& output_grad )
+    Tensor<TDataType, CpuMemoryResource>* output_grad = nullptr )
 {
     using HostType = typename TensorHostTypeMap<TDataType>::host_type;
 
     size_t batch_size = logits.shape()[0];
     size_t num_classes = logits.shape()[1];
 
+    float loss = 0.0f;
+
     for (size_t i = 0; i < batch_size; ++i)
     {
-        // Numerical stability: subtract max
+        // Numerical stability: subtract max per row
         float max_logit = -std::numeric_limits<float>::infinity();
+
         for (size_t j = 0; j < num_classes; ++j)
         {
             max_logit = std::max( max_logit,
@@ -189,6 +192,7 @@ void softmaxCrossEntropyGradient(
 
         // Compute softmax denominator
         float denom = 0.0f;
+
         for (size_t j = 0; j < num_classes; ++j)
         {
             float exp_val = std::exp(
@@ -196,80 +200,34 @@ void softmaxCrossEntropyGradient(
             denom += exp_val;
         }
 
-        // Gradient: softmax(logits) - targets
+        // Compute probabilities, accumulate loss and optionally fill gradient
         for (size_t j = 0; j < num_classes; ++j)
         {
             float prob = std::exp(
                 static_cast<float>( logits.data()[i * num_classes + j] ) - max_logit ) / denom;
             float target = static_cast<float>( targets.data()[i * num_classes + j] );
 
-            // dL/dlogit = (prob - target) / batch_size
-            output_grad.data()[i * num_classes + j] =
-                static_cast<HostType>( (prob - target) / static_cast<float>( batch_size ) );
-        }
-    }
-}
-
-template<TensorDataType TDataType>
-float softmaxCrossEntropyLoss( 
-    const Tensor<TDataType, CpuMemoryResource>& logits,
-    const Tensor<TDataType, CpuMemoryResource>& targets )
-{
-    size_t batch_size = logits.shape()[0];
-    size_t num_classes = logits.shape()[1];
-    float loss = 0.0f;
-
-    for (size_t i = 0; i < batch_size; ++i)
-    {
-        // ============================================================
-        // SOFTMAX: Numerical stability with max subtraction
-        // ============================================================
-
-        // Find max logit for numerical stability (prevents overflow in exp)
-        float max_logit = -std::numeric_limits<float>::infinity();
-        for (size_t j = 0; j < num_classes; ++j)
-        {
-            max_logit = std::max( max_logit, static_cast<float>( logits.data()[i * num_classes + j] ) );
-        }
-
-        // ============================================================
-        // SOFTMAX: Compute denominator (sum of exp(logit - max))
-        // ============================================================
-
-        // Compute sum of exp(logit - max_logit) for softmax denominator
-        float denom = 0.0f;
-        for (size_t j = 0; j < num_classes; ++j)
-        {
-            float exp_val = std::exp( static_cast<float>( logits.data()[i * num_classes + j] ) - max_logit );
-            denom += exp_val;
-        }
-
-        // ============================================================
-        // CROSS-ENTROPY: Compute -sum(target * log(softmax(logit)))
-        // ============================================================
-
-        // For each class, compute cross-entropy contribution
-        for (size_t j = 0; j < num_classes; ++j)
-        {
-            float target = static_cast<float>( targets.data()[i * num_classes + j] );
-            
-            if (target > 0.0f)
+            if ( target > 0.0f )
             {
-                // SOFTMAX: prob = exp(logit - max) / denom
-                float prob = std::exp( static_cast<float>(logits.data()[i * num_classes + j]) - max_logit ) / denom;
-
-                // CROSS-ENTROPY: loss += -target * log(prob)
                 loss += -std::log( prob ) * target;
+            }
+
+            if ( output_grad )
+            {
+                // (prob - target) / batch_size
+                output_grad->data()[ i * num_classes + j ] =
+                    static_cast<HostType>( (prob - target) / static_cast<float>( batch_size ) );
             }
         }
     }
 
     // Average loss over batch
-    return loss / batch_size;
+    return loss / static_cast<float>( batch_size );
 }
 
 template<TensorDataType TDataType, typename MR>
-float computeAccuracy( const Tensor<TDataType, MR>& logits,
+float computeAccuracy( 
+    const Tensor<TDataType, MR>& logits,
     const Tensor<TDataType, MR>& targets )
 {
     size_t batch_size = logits.shape()[0];
@@ -316,7 +274,7 @@ template<DeviceType TDeviceType, TensorDataType TDataType, typename THostMR>
 void trainMnist( const MnistConfig& config )
 {
     // ========================================================================
-	// Mnist training setup using low-level APIs
+	// Mnist training setup using Network API
 	// ========================================================================
 
     using DeviceMR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
@@ -367,7 +325,6 @@ void trainMnist( const MnistConfig& config )
     // Allocate gradient tensors for backward pass
     Tensor<TDataType, CpuMemoryResource> output_grad_cpu( Device::Cpu(), { train_loader.batchSize(), MNIST_NUM_CLASSES } );
     Tensor<TDataType, DeviceMR> output_grad( device_id, { train_loader.batchSize(), MNIST_NUM_CLASSES } );
-    Tensor<TDataType, DeviceMR> input_grad( device_id, input_shape );
 
     std::cout << "Starting training for " << config.epochs << " epochs..." << std::endl;
 
@@ -397,27 +354,20 @@ void trainMnist( const MnistConfig& config )
             // REVIEW: Without passing the exec_context, we are implicitly synchronizing here
             copy( output, logits );
 
-            // Compute loss and accuracy
-            float batch_loss = softmaxCrossEntropyLoss( logits, target_batch );
+            // Compute loss and gradient
+            float batch_loss = softmaxCrossEntropy( logits, target_batch, &output_grad_cpu );
+
+            // Compute accuracy for logging
             float batch_acc = computeAccuracy( logits, target_batch );
-
-            // ============================================================
-            // Backward pass and optimization step
-            // ============================================================
-
-            // 1. Compute loss gradient on CPU
-            zeros( output_grad_cpu );
-            softmaxCrossEntropyGradient( logits, target_batch, output_grad_cpu );
 
             // 2. Copy gradient to device
             copy( output_grad_cpu, output_grad );
 
             // 3. Zero gradients before backward pass
             mnist_net->zeroGradients();
-            zeros( input_grad );
 
             // 4. Backward pass through model (computes parameter gradients)
-            mnist_net->backward( input_batch, output_grad, input_grad );
+            mnist_net->backward( input_batch, output_grad );
 
             // 5. Update parameters using computed gradients
             optimizer->step();
@@ -463,7 +413,9 @@ void trainMnist( const MnistConfig& config )
 
             copy( output, logits, mnist_net->getExecutionContext());
 
-            test_loss += softmaxCrossEntropyLoss( logits, target_batch );
+            // Only compute loss (no gradient) during evaluation
+            test_loss += softmaxCrossEntropy( logits, target_batch );
+
             test_acc += computeAccuracy( logits, target_batch );
 
             test_batches++;
@@ -711,7 +663,7 @@ void trainUsingModel( const MnistConfig& config )
     //        << " - Loss: " << std::fixed << std::setprecision( 4 ) << epoch_loss
     //        << " - Accuracy: " << std::setprecision( 2 ) << (epoch_acc * 100.0f) << "%"
     //        << " - Test Loss: " << std::setprecision( 4 ) << test_loss
-    //        << " - Test Accuracy: " << std::setprecision( 2 ) << (test_acc * 100.0f) << "%"
+    //        << " - Test Accuracy: " << std::setprecision( 2 ) << test_acc * 100.0f << "%"
     //        << " - LR: " << std::scientific << std::setprecision( 3 ) << optimizer->getLearningRate()
     //        << std::endl;
 

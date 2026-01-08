@@ -207,6 +207,7 @@ import Mila;
 
         gelu->build( shape );
         gelu->forward( input, output );
+        gelu->synchronize();
 
         auto host_output = toHost<TensorDataType::FP32>( output );
 

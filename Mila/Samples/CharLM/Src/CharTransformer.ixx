@@ -405,7 +405,6 @@ namespace Mila::CharLM
 
         void zeroGradients() override
         {
-
             // Zero intermediate gradient buffers used in backward pass
             if ( normalized_grad_ )
             {
@@ -430,6 +429,14 @@ namespace Mila::CharLM
             
             final_layernorm_->zeroGradients();
             lm_head_->zeroGradients();
+        }
+        
+        std::vector<ITensor*> getGradientsForDebug() {
+            return this->getGradients();
+        }
+
+        std::vector<ITensor*> getParametersForDebug() {
+            return this->getParameters();
         }
 
         // ====================================================================

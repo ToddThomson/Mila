@@ -393,6 +393,65 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
                 config_.getEpsilon(),
                 stream );
 
+            context_->synchronize();
+
+        #ifndef NDEBUG
+            // Debug: validate LayerNorm output for NaN/Inf or large magnitudes.
+            //try
+            //{
+            //    // Ensure device work is visible to host
+            //    context_->synchronize();
+
+            //    Tensor<TensorDataType::FP32, CpuMemoryResource> host_out( Device::Cpu(), output.shape() );
+            //    host_out.setName( this->getName() + ".forward_output.host_copy" );
+
+            //    // perform ordered copy D2H using the component's execution context
+            //    copy( static_cast<const TensorType&>(output), host_out /* this->getExecutionContext() */);
+
+            //    const auto* ptr = host_out.data();
+            //    size_t n = host_out.size();
+
+            //    double sum_abs = 0.0;
+            //    double max_abs = 0.0;
+            //    size_t nan_ct = 0;
+            //    for ( size_t i = 0; i < n; ++i )
+            //    {
+            //        double v = static_cast<double>( ptr[ i ] );
+            //        if ( !std::isfinite( v ) ) ++nan_ct;
+            //        double av = std::abs( v );
+            //        sum_abs += av;
+            //        if ( av > max_abs ) max_abs = av;
+            //    }
+
+            //    double mean_abs = n ? (sum_abs / static_cast<double>(n)) : 0.0;
+
+            //    constexpr double kLnForwardLimit = 100.0; // debug threshold
+            //    if ( nan_ct != 0 || max_abs > kLnForwardLimit || !std::isfinite( mean_abs ) )
+            //    {
+            //        std::clog << this->getName() << " [DEBUG] LayerNorm forward anomaly: mean_abs="
+            //            << std::scientific << mean_abs << " max_abs=" << max_abs
+            //            << " nan_count=" << nan_ct << " total=" << n << std::defaultfloat << std::endl;
+
+            //        // print small sample (first channel slice b=0,t=0..min(16,channels))
+            //        size_t channels = host_out.shape().back();
+            //        size_t base = 0;
+            //        std::clog << this->getName() << " [DEBUG] sample first 16 elements: ";
+            //        for ( size_t i = 0; i < std::min<size_t>( channels, 16 ); ++i )
+            //        {
+            //            std::clog << std::scientific << static_cast<double>( ptr[ base + i ] ) << " ";
+            //        }
+            //        std::clog << std::defaultfloat << std::endl;
+
+            //        // Suggest calling the heavier diagnostic from caller (Transformer) or throw to abort here:
+            //        // throw std::runtime_error( "LayerNorm forward produced suspicious values - diagnostics logged" );
+            //    }
+            //}
+            //catch ( const std::exception& e )
+            //{
+            //    std::cerr << this->getName() << " [DEBUG] LayerNorm forward diagnostic failed: " << e.what() << std::endl;
+            //}
+        #endif
+
             //context_->synchronize();
             //{
             //    using HostTensorType = Tensor<TensorDataType::FP32, CpuMemoryResource>;

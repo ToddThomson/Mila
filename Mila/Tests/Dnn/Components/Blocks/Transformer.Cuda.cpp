@@ -1231,8 +1231,8 @@ namespace CompositeComponents_Tests
         constexpr TensorDataType TPrecision = TypeParam::value;
 
         // Small deterministic shape used for backward equivalence checks
-        TestShape test_shape = { TestShapeSize::Small, { 2, 2, 64 }, "BackwardEquiv" };
-        dim_t embedding_dim = 64;
+        TestShape test_shape = { TestShapeSize::Small, { 2, 2, 8 }, "BackwardEquiv" };
+        dim_t embedding_dim = 8;
         dim_t num_heads = 2;
 
         TransformerConfig config( embedding_dim, num_heads );

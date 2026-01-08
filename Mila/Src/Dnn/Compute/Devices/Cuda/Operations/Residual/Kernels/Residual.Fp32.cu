@@ -6,8 +6,19 @@
 #include "device_launch_parameters.h"
 #include "CudaUtils.h"
 
+#ifndef NDEBUG
+#  include <cassert>
+#  define KERNEL_ASSERT(cond) assert(cond)
+#else
+#  define KERNEL_ASSERT(cond) ((void)0)
+#endif
+
 namespace Mila::Dnn::Compute::Cuda::Residual
 {
+    // Conservative residual magnitude bound used only for debug assertions.
+    // Chosen to catch explosions while avoiding false positives for common models.
+    static __device__ __constant__ float kResidualAbsLimit = 100.0f;
+
     /**
      * @brief CUDA kernel for element-wise addition of two input tensors with FP32 precision
      *
@@ -19,17 +30,19 @@ namespace Mila::Dnn::Compute::Cuda::Residual
      * @param input_2 Second input tensor (residual connection)
      * @param N Total number of elements in the tensors
      */
-    __global__ void residual_forward_fp32_kernel( 
-        float* out, 
-        const float* input_1, 
-        const float* input_2, 
+    __global__ void residual_forward_fp32_kernel(
+        float* Y,
+        const float* A,
+        const float* B,
         int N )
     {
         int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
-        if (idx < N)
+        if ( idx < N )
         {
-            out[idx] = __ldg( &input_1[idx] ) + __ldg( &input_2[idx] );
+            Y[ idx ] = __ldg( &A[ idx ] ) + __ldg( &B[ idx ] );
+
+            KERNEL_ASSERT( fabsf( Y[ idx ] ) <= kResidualAbsLimit );
         }
     }
 
@@ -45,25 +58,25 @@ namespace Mila::Dnn::Compute::Cuda::Residual
      * @param N Total number of float4 elements (1/4 of total float elements)
      */
     __global__ void residual_forward_fp32_vectorized_kernel(
-        float4* out,
-        const float4* input_1,
-        const float4* input_2,
+        float4* Y,
+        const float4* A,
+        const float4* B,
         int N )
     {
         int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
-        if (idx < N)
+        if ( idx < N )
         {
-            float4 a = __ldg( &input_1[idx] );
-            float4 b = __ldg( &input_2[idx] );
+            float4 a = __ldg( &A[ idx ] );
+            float4 b = __ldg( &B[ idx ] );
 
-            // Element-wise addition of float4
-            out[idx] = make_float4(
-                a.x + b.x,
-                a.y + b.y,
-                a.z + b.z,
-                a.w + b.w
-            );
+            float4 r;
+            r.x = a.x + b.x; KERNEL_ASSERT( fabsf( r.x ) <= kResidualAbsLimit );
+            r.y = a.y + b.y; KERNEL_ASSERT( fabsf( r.y ) <= kResidualAbsLimit );
+            r.z = a.z + b.z; KERNEL_ASSERT( fabsf( r.z ) <= kResidualAbsLimit );
+            r.w = a.w + b.w; KERNEL_ASSERT( fabsf( r.w ) <= kResidualAbsLimit );
+
+            Y[ idx ] = r;
         }
     }
 
@@ -79,47 +92,61 @@ namespace Mila::Dnn::Compute::Cuda::Residual
      * @param N Total number of elements in the tensors
      */
     __global__ void residual_backward_fp32_kernel(
-        float* grad_input_1,
-        float* grad_input_2,
-        const float* grad_output,
+        float* dA,
+        float* dB,
+        const float* dY,
         int N )
     {
         size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
 
         if ( idx < N )
         {
-            float grad = __ldg( &grad_output[ idx ] );
-            grad_input_1[ idx ] = grad;
-            grad_input_2[ idx ] = grad;
+            float grad = __ldg( &dY[ idx ] );
+
+            KERNEL_ASSERT( fabsf( grad ) <= kResidualAbsLimit );
+            
+            dA[ idx ] = grad;
+            dB[ idx ] = grad;
         }
     }
 
     /**
- * @brief Vectorized FP32 backward kernel using float4 for 4x throughput
- *
- * Processes four float values at once when propagating gradients.
- * Uses direct assignment since residual backward simply broadcasts
- * the output gradient to both input gradients.
- *
- * @param grad_input_1 Gradient w.r.t. first input as float4 vectors
- * @param grad_input_2 Gradient w.r.t. second input as float4 vectors
- * @param grad_output Gradient from next layer as float4 vectors
- * @param N Total number of float4 elements
- */
+     * @brief Vectorized FP32 backward kernel using float4 for 4x throughput
+     *
+     * Processes four float values at once when propagating gradients.
+     * Uses direct assignment since residual backward simply broadcasts
+     * the output gradient to both input gradients.
+     *
+     * @param dA Gradient w.r.t. first input as float4 vectors
+     * @param dB Gradient w.r.t. second input as float4 vectors
+     * @param dY Gradient from next layer as float4 vectors
+     * @param N Total number of float4 elements
+     */
     __global__ void residual_backward_fp32_vectorized_kernel(
-        float4* grad_input_1,
-        float4* grad_input_2,
-        const float4* grad_output,
+        float4* dA,
+        float4* dB,
+        const float4* dY,
         int N )
     {
         size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+
         if ( idx < N )
         {
-            float4 grad = __ldg( &grad_output[ idx ] );
-            grad_input_1[ idx ] = grad;
-            grad_input_2[ idx ] = grad;
+            float4 grad = __ldg( &dY[ idx ] );
+
+            KERNEL_ASSERT( fabsf( grad.x ) <= kResidualAbsLimit );
+            KERNEL_ASSERT( fabsf( grad.y ) <= kResidualAbsLimit );
+            KERNEL_ASSERT( fabsf( grad.z ) <= kResidualAbsLimit );
+            KERNEL_ASSERT( fabsf( grad.w ) <= kResidualAbsLimit );
+
+            dA[ idx ] = grad;
+            dB[ idx ] = grad;
         }
     }
+
+    // ========================================================================
+    // Host functions
+    // ========================================================================
 
     /**
      * @brief Host function to launch residual addition kernel with full precision (FP32)
@@ -150,14 +177,12 @@ namespace Mila::Dnn::Compute::Cuda::Residual
     {
         const int block_size = 256;
 
-        if (N % 4 == 0)
+        if ( N % 4 == 0 )
         {
-            // Use float4 vectorized kernel
-            // Alignment is guaranteed by tensor allocation
             const size_t N_float4 = N / 4;
             const int grid_size = ceil_div( static_cast<int>(N_float4), block_size );
 
-            residual_forward_fp32_vectorized_kernel <<<grid_size, block_size, 0, stream >> > (
+            residual_forward_fp32_vectorized_kernel << <grid_size, block_size, 0, stream >> > (
                 reinterpret_cast<float4*>(out),
                 reinterpret_cast<const float4*>(inp1),
                 reinterpret_cast<const float4*>(inp2),
@@ -200,24 +225,24 @@ namespace Mila::Dnn::Compute::Cuda::Residual
     {
         const int block_size = 256;
 
-        if (N % 4 == 0)
+        if ( N % 4 == 0 )
         {
             const size_t N_float4 = N / 4;
             const int grid_size = ceil_div( static_cast<int>(N_float4), block_size );
 
-            residual_backward_fp32_vectorized_kernel<<<grid_size, block_size, 0, stream >> > (
+            residual_backward_fp32_vectorized_kernel << <grid_size, block_size, 0, stream >> > (
                 reinterpret_cast<float4*>(grad_inp1),
                 reinterpret_cast<float4*>(grad_inp2),
                 reinterpret_cast<const float4*>(grad_out),
-                N_float4 );
+                N_float4);
         }
         else
         {
             // Fall back to scalar kernel
             const int grid_size = ceil_div( static_cast<int>(N), block_size );
 
-            residual_backward_fp32_kernel<<<grid_size, block_size, 0, stream >>>(
-                grad_inp1, grad_inp2, grad_out, N );
+            residual_backward_fp32_kernel << <grid_size, block_size, 0, stream >> > (
+                grad_inp1, grad_inp2, grad_out, N);
         }
 
         cudaCheck( cudaGetLastError() );

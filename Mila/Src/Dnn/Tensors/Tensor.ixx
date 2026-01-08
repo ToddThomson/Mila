@@ -748,8 +748,8 @@ namespace Mila::Dnn
             std::ostringstream oss;
 
             // Configuration: adjust these values to control output display
-            constexpr size_t show_rows = 12;  // Number of rows to show at start/end of each dimension
-            constexpr size_t show_cols = 12;  // Number of columns to show at start/end (innermost dimension)
+            constexpr size_t show_rows = 3;  // Number of rows to show at start/end of each dimension
+            constexpr size_t show_cols = 5;  // Number of columns to show at start/end (innermost dimension)
 
             // Indentation per nesting level (2 spaces requested)
             constexpr size_t indent_size = 2;
@@ -762,7 +762,6 @@ namespace Mila::Dnn
                 vs << std::fixed << std::setprecision( 6 ) << value;
                 oss << vs.str();
 
-                // blank line before return
                 return oss.str();
             }
 

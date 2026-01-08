@@ -323,7 +323,7 @@ PUBLIC
         "Src/Dnn/Compute/Operations/OperationRegistrarHelpers.ixx"
         
         "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtHelpers.ixx"
- "Src/Dnn/Tensors/Operations/TensorOps.Zero.ixx")
+ "Src/Dnn/Tensors/Operations/TensorOps.Zero.ixx" "Src/Dnn/Tensors/Tensor.Helpers.ixx")
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
