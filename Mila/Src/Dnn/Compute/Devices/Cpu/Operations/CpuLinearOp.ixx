@@ -1,9 +1,6 @@
 /**
  * @file CpuLinearOp.ixx
- * @brief CPU implementation of Linear (fully connected) operation (TensorDataType-based).
- *
- * Ported to the ExecutionContext / TensorDataType UnaryOperation interface
- * following the two-phase initialization pattern used by CpuLayerNormOp.
+ * @brief CPU implementation of Linear (fully connected) operation.
  */
 
 module;
@@ -16,9 +13,6 @@ module;
 #include <cstdint>
 #include <type_traits>
 #include <optional>
-//#include <numeric>
-//#include <functional>
-//#include <cstdint>
 #ifdef USE_OMP
 #include <omp.h>
 #endif
@@ -206,6 +200,7 @@ namespace Mila::Dnn::Compute
                 std::ostringstream oss;
                 oss << "CpuLinearOp::build - weight output features mismatch. Expected "
                     << config_.getOutputFeatures() << ", got " << weight_out_features_;
+                
                 throw std::invalid_argument( oss.str() );
             }
 
@@ -214,6 +209,7 @@ namespace Mila::Dnn::Compute
                 std::ostringstream oss;
                 oss << "CpuLinearOp::build - weight input features mismatch. Expected "
                     << in_features_ << ", got " << weight_in_features_;
+                
                 throw std::invalid_argument( oss.str() );
             }
 

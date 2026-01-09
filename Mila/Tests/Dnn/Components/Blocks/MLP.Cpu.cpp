@@ -188,14 +188,19 @@ namespace CompositeComponents_Tests
         data.mlp->build( data.input_shape );
 
         TensorType input( data.mlp->getDeviceId(), data.input_shape );
-        TensorType output( data.mlp->getDeviceId(), data.input_shape );
 
         random( input, -1.0f, 1.0f );
 
-        EXPECT_NO_THROW( data.mlp->forward( input, output ) );
+        TensorType* out_ptr = nullptr;
 
-        EXPECT_EQ( output.size(), input.size() );
-        EXPECT_EQ( output.shape(), input.shape() );
+        EXPECT_NO_THROW( { auto& out_ref = data.mlp->forward( input ); out_ptr = &out_ref; } );
+        ASSERT_NE( out_ptr, nullptr );
+
+        auto* out_tensor = out_ptr;
+        ASSERT_NE( out_tensor, nullptr );
+
+        EXPECT_EQ( out_tensor->size(), input.size() );
+        EXPECT_EQ( out_tensor->shape(), input.shape() );
     }
 
     TEST_F( MLPCpuTests, ToString )
@@ -312,12 +317,18 @@ namespace CompositeComponents_Tests
         data.mlp->build( data.input_shape );
 
         TensorType input( data.mlp->getDeviceId(), data.input_shape );
-        TensorType output( data.mlp->getDeviceId(), data.input_shape );
 
         random( input, -1.0f, 1.0f );
 
-        EXPECT_NO_THROW( data.mlp->forward( input, output ) );
-        EXPECT_EQ( output.size(), input.size() );
+        TensorType* out_ptr = nullptr;
+
+        EXPECT_NO_THROW( { auto& out_ref = data.mlp->forward( input ); out_ptr = &out_ref; } );
+        ASSERT_NE( out_ptr, nullptr );
+
+        auto* out_tensor = out_ptr;
+        ASSERT_NE( out_tensor, nullptr );
+
+        EXPECT_EQ( out_tensor->size(), input.size() );
     }
 
     TEST_F( MLPCpuTests, LayerNorm_Forward )
@@ -338,12 +349,18 @@ namespace CompositeComponents_Tests
         data.mlp->build( data.input_shape );
 
         TensorType input( data.mlp->getDeviceId(), data.input_shape );
-        TensorType output( data.mlp->getDeviceId(), data.input_shape );
 
         random( input, -1.0f, 1.0f );
 
-        EXPECT_NO_THROW( data.mlp->forward( input, output ) );
-        EXPECT_EQ( output.shape(), input.shape() );
+        TensorType* out_ptr = nullptr;
+
+        EXPECT_NO_THROW( { auto& out_ref = data.mlp->forward( input ); out_ptr = &out_ref; } );
+        ASSERT_NE( out_ptr, nullptr );
+
+        auto* out_tensor = out_ptr;
+        ASSERT_NE( out_tensor, nullptr );
+
+        EXPECT_EQ( out_tensor->shape(), input.shape() );
     }
 
     TEST_F( MLPCpuTests, LayerNorm_SubModules )
@@ -385,11 +402,13 @@ namespace CompositeComponents_Tests
         using TensorType = CpuTensor<TensorDataType::FP32>;
 
         TensorType input( data.mlp->getDeviceId(), data.input_shape );
-        TensorType output( data.mlp->getDeviceId(), data.input_shape );
 
         random( input, -1.0f, 1.0f );
 
-        EXPECT_NO_THROW( data.mlp->forward( input, output ) );
+        TensorType* out_ptr = nullptr;
+
+        EXPECT_NO_THROW( { auto& out_ref = data.mlp->forward( input ); out_ptr = &out_ref; } );
+        ASSERT_NE( out_ptr, nullptr );
     }
 
     TEST_F( MLPCpuTests, WithContext_Construction )
@@ -422,11 +441,13 @@ namespace CompositeComponents_Tests
         data.mlp->build( data.input_shape );
 
         TensorType input( data.mlp->getDeviceId(), data.input_shape );
-        TensorType output( data.mlp->getDeviceId(), data.input_shape );
 
         random( input, -1.0f, 1.0f );
 
-        EXPECT_NO_THROW( data.mlp->forward( input, output ) );
+        TensorType* out_ptr = nullptr;
+
+        EXPECT_NO_THROW( { auto& out_ref = data.mlp->forward( input ); out_ptr = &out_ref; } );
+        ASSERT_NE( out_ptr, nullptr );
     }
 
     TEST_F( MLPCpuTests, EdgeCase_MediumShape )
@@ -444,11 +465,13 @@ namespace CompositeComponents_Tests
         data.mlp->build( data.input_shape );
 
         TensorType input( data.mlp->getDeviceId(), data.input_shape );
-        TensorType output( data.mlp->getDeviceId(), data.input_shape );
 
         random( input, -1.0f, 1.0f );
 
-        EXPECT_NO_THROW( data.mlp->forward( input, output ) );
+        TensorType* out_ptr = nullptr;
+
+        EXPECT_NO_THROW( { auto& out_ref = data.mlp->forward( input ); out_ptr = &out_ref; } );
+        ASSERT_NE( out_ptr, nullptr );
     }
 
     TEST_F( MLPCpuTests, Error_InvalidConfiguration_ZeroInputFeatures )
@@ -480,7 +503,6 @@ namespace CompositeComponents_Tests
         auto mlp = std::make_shared<MLP<DeviceType::Cpu, TensorDataType::FP32>>( "null_context_test", config, std::nullopt );
 
         CpuTensor<TensorDataType::FP32> input( Device::Cpu(), shape_t{ 2, 16, 768 } );
-        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), shape_t{ 2, 16, 768 } );
 
         EXPECT_THROW(
             mlp->build( shape_t{ 2, 16, 768 } ),
@@ -497,10 +519,9 @@ namespace CompositeComponents_Tests
         auto mlp = std::make_shared<MLP<DeviceType::Cpu, TensorDataType::FP32>>( "unbuild_test", config, Device::Cpu() );
 
         CpuTensor<TensorDataType::FP32> input( mlp->getDeviceId(), test_shape );
-        CpuTensor<TensorDataType::FP32> output( mlp->getDeviceId(), test_shape );
 
         EXPECT_THROW(
-            mlp->forward( input, output ),
+            mlp->forward( input ),
             std::runtime_error
         );
     }
@@ -552,13 +573,14 @@ namespace CompositeComponents_Tests
         data.mlp->build( data.input_shape );
 
         CpuTensor<TensorDataType::FP32> input( data.mlp->getDeviceId(), data.input_shape );
-        CpuTensor<TensorDataType::FP32> output( data.mlp->getDeviceId(), data.input_shape );
 
         for ( int iter = 0; iter < 10; ++iter )
         {
             random( input, -1.0f, 1.0f );
 
-            EXPECT_NO_THROW( data.mlp->forward( input, output ) );
+            Tensor<TensorDataType::FP32, CpuMemoryResource>* out_ptr = nullptr;
+            EXPECT_NO_THROW( { auto& out_ref = data.mlp->forward( input ); out_ptr = &out_ref; } );
+            ASSERT_NE( out_ptr, nullptr );
         }
     }
 }

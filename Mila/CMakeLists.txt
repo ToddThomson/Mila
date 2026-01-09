@@ -165,6 +165,9 @@ PUBLIC
         "Src/Dnn/Tensors/Operations/TensorOps.Math.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps.Fill.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps.Transfer.ixx"
+
+        # Dnn /Tensors / Debug Helpers
+        "Src/Dnn/Tensors/Tensor.Helpers.ixx"
                 
         #---------------------------------------------------------------
         # Dnn / Components

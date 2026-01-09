@@ -64,8 +64,8 @@ namespace Mila::Dnn
      * - Deferred/shared: omit DeviceId and caller must call setExecutionContext() before build().
      *
      * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda)
+     * @tparam TIndex Data type for token indices (typically INT32)
      * @tparam TPrecision Abstract tensor precision (TensorDataType) for embeddings
-     * @tparam TTargets Data type for token indices (typically INT32)
      */
     export template<DeviceType TDeviceType, TensorDataType TIndex = dtype_t::INT32, TensorDataType TPrecision = dtype_t::FP32>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
@@ -109,20 +109,18 @@ namespace Mila::Dnn
         ~Encoder() override = default;
 
         // ====================================================================
-        // Compute operation dispatch
+        // Compute operation dispatch (new API)
         // ====================================================================
 
         /**
-         * @brief Forward pass - delegates to backend operation.
+         * @brief Forward pass - returns component-owned embeddings tensor.
          *
-         * Transforms input token IDs into embeddings:
-         * 1. Looks up token embeddings from wte table
-         * 2. Adds positional embeddings from wpe table
+         * @param input Input token indices tensor [B, T]
+         * @return Reference to component-owned embeddings tensor [B, T, C]
          *
-         * @param input Input tensor containing token IDs [B, T]
-         * @param output Output tensor for embeddings [B, T, C]
+         * @throws std::runtime_error if component is not built or backend not initialized.
          */
-        void forward( const ITensor& input, ITensor& output )
+        EmbeddingsTensorType& forward( const TokenIndexType& input )
         {
             if ( !this->isBuilt() )
             {
@@ -131,16 +129,36 @@ namespace Mila::Dnn
 
             validateInputShape( input );
 
-            operation_->forward( input, output );
+            if ( !operation_ )
+            {
+                throw std::runtime_error( "Encoder: operation backend not initialized" );
+            }
+
+            if ( !owned_output_ )
+            {
+                throw std::runtime_error( "Encoder: owned output buffer not allocated" );
+            }
+
+            operation_->forward( input, *owned_output_ );
+
+            return *owned_output_;
         }
 
         /**
-         * @brief Backward pass - delegates to backend operation.
+         * @brief Backward pass - compute parameter gradients and return owned input-grad.
          *
-         * Computes gradients with respect to embedding parameters.
-         * Token indices are discrete (non-differentiable), so no input gradients.
+         * Token indices are discrete and not differentiable; the backend may still
+         * expect an input-gradient tensor. The component owns a token-index-typed
+         * input-gradient buffer that is passed to the backend and returned.
+         *
+         * @param input Input token indices tensor used during forward.
+         * @param output_grad Gradient w.r.t. embeddings [B, T, C].
+         * @return Reference to component-owned token-index-typed input-grad tensor.
+         *
+         * @throws std::runtime_error if component is not built, not in training mode,
+         *         or backend/buffers are not initialized.
          */
-        void backward( const ITensor& input, const ITensor& output_grad )
+        TokenIndexType& backward( const TokenIndexType& input, const EmbeddingsTensorType& output_grad )
         {
             if ( !this->isBuilt() )
             {
@@ -157,11 +175,19 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Encoder module gradients not initialized. This is a bug." );
             }
 
-            auto device = this->getExecutionContext()->getDeviceId();
-            auto input_shape = input.shape();
-            TokenIndexType input_grad_dummy( device, input_shape );
+            if ( !operation_ )
+            {
+                throw std::runtime_error( "Encoder: operation backend not initialized" );
+            }
 
-            operation_->backward( input, output_grad, input_grad_dummy );
+            if ( !owned_input_grad_ )
+            {
+                throw std::runtime_error( "Encoder: owned input-grad buffer not allocated" );
+            }
+
+            operation_->backward( input, output_grad, *owned_input_grad_ );
+
+            return *owned_input_grad_;
         }
 
         void zeroGradients() override
@@ -236,14 +262,14 @@ namespace Mila::Dnn
             return grads;
         }
 
-        std::shared_ptr<EmbeddingsTensorType> getWteGrad() const noexcept
+        EmbeddingsTensorType* getWteGrad() const noexcept
         {
-            return wte_grad_;
+            return wte_grad_.get();
         }
 
-        std::shared_ptr<EmbeddingsTensorType> getWpeGrad() const noexcept
+        EmbeddingsTensorType* getWpeGrad() const noexcept
         {
-            return wpe_grad_;
+            return wpe_grad_.get();
         }
 
         // ====================================================================
@@ -273,25 +299,6 @@ namespace Mila::Dnn
 
             return oss.str();
         }
-
-        // ====================================================================
-        // Parameter accessors
-        // ====================================================================
-
-        /*std::shared_ptr<EmbeddingsTensorType> getTokenEmbedding() const noexcept
-        {
-            return wte_;
-        }
-
-        std::shared_ptr<EmbeddingsTensorType> getPositionalEmbedding() const noexcept
-        {
-            return wpe_;
-        }*/
-
-        /*const EncoderConfig& getConfig() const noexcept
-        {
-            return config_;
-        }*/
 
         int64_t getVocabularyLength() const noexcept
         {
@@ -330,18 +337,28 @@ namespace Mila::Dnn
         {
             validateInputShape( input_shape );
 
-            //operation_->setTraining( this->isTraining() );
-
             operation_->setParameters( wte_.get(), wpe_.get() );
 
-            // BUG: isTraining() is always false here during build
-            //if ( this->isTraining() )
-            //{
-            //    initializeParameterGradients();
-            //    operation_->setGradients( wte_grad_.get(), wpe_grad_.get() );
-            //}
+            if ( this->isTraining() )
+            {
+                initializeParameterGradients();
+                operation_->setGradients( wte_grad_.get(), wpe_grad_.get() );
+            }
 
             operation_->build( input_shape );
+
+            // Allocate and cache component-owned output and input-grad tensors.
+            auto device = this->getExecutionContext()->getDeviceId();
+
+            shape_t out_shape = input_shape;
+            out_shape.push_back( config_.getChannels() );
+            out_shape[ 2 ] = config_.getChannels();
+
+            owned_output_ = std::make_unique<EmbeddingsTensorType>( device, out_shape );
+            owned_output_->setName( this->getName() + ".output" );
+
+            owned_input_grad_ = std::make_unique<TokenIndexType>( device, input_shape );
+            owned_input_grad_->setName( this->getName() + ".input.grad" );
         }
 
         void onTrainingChanging( bool is_training ) override
@@ -371,16 +388,19 @@ namespace Mila::Dnn
     private:
         EncoderConfig config_;
 
-        std::shared_ptr<EmbeddingsTensorType> wte_{ nullptr };  // Token embeddings (V, C)
-        std::shared_ptr<EmbeddingsTensorType> wpe_{ nullptr };  // Position embeddings (maxT, C)
+        std::unique_ptr<EmbeddingsTensorType> wte_{ nullptr };  // Token embeddings (V, C)
+        std::unique_ptr<EmbeddingsTensorType> wpe_{ nullptr };  // Position embeddings (maxT, C)
 
-        std::shared_ptr<EmbeddingsTensorType> wte_grad_{ nullptr };
-        std::shared_ptr<EmbeddingsTensorType> wpe_grad_{ nullptr };
+        std::unique_ptr<EmbeddingsTensorType> wte_grad_{ nullptr };
+        std::unique_ptr<EmbeddingsTensorType> wpe_grad_{ nullptr };
+
+        std::unique_ptr<TokenIndexType> owned_input_grad_{ nullptr };
+        std::unique_ptr<EmbeddingsTensorType> owned_output_{ nullptr };
 
         std::shared_ptr<UnaryOperation<TDeviceType, TIndex, TPrecision>> operation_{ nullptr };
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
 
-        void validateInputShape( const ITensor& input ) const
+        void validateInputShape( const TokenIndexType& input ) const
         {
             const auto& input_shape = input.shape();
             validateInputShape( input_shape );
@@ -410,14 +430,14 @@ namespace Mila::Dnn
 
             if ( !wte_grad_ )
             {
-                wte_grad_ = std::make_shared<EmbeddingsTensorType>( device, wte_->shape() );
+                wte_grad_ = std::make_unique<EmbeddingsTensorType>( device, wte_->shape() );
                 wte_grad_->setName( this->getName() + ".wte.grad" );
                 zero( *wte_grad_ );
             }
 
             if ( !wpe_grad_ )
             {
-                wpe_grad_ = std::make_shared<EmbeddingsTensorType>( device, wpe_->shape() );
+                wpe_grad_ = std::make_unique<EmbeddingsTensorType>( device, wpe_->shape() );
                 wpe_grad_->setName( this->getName() + ".wpe.grad" );
                 zero( *wpe_grad_ );
             }
@@ -434,13 +454,13 @@ namespace Mila::Dnn
 
             auto device_id = this->getExecutionContext()->getDeviceId();
 
-            wte_ = std::make_shared<EmbeddingsTensorType>( device_id, shape_t{ vocab_size, embedding_dim } );
+            wte_ = std::make_unique<EmbeddingsTensorType>( device_id, shape_t{ vocab_size, embedding_dim } );
             wte_->setName( this->getName() + ".wte" );
             normal<TPrecision, MR>( *wte_, 0.0f, std );
 
-            wpe_ = std::make_shared<EmbeddingsTensorType>( device_id, shape_t{ max_seq_len, embedding_dim } );
+            wpe_ = std::make_unique<EmbeddingsTensorType>( device_id, shape_t{ max_seq_len, embedding_dim } );
             wpe_->setName( this->getName() + ".wpe" );
-            normal<TPrecision, MR>( *wte_, 0.0f, std );
+            normal<TPrecision, MR>( *wpe_, 0.0f, std );
         }
 
         void createOperation()

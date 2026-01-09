@@ -191,38 +191,7 @@ namespace Dnn::Components::Layers::Tests
         }
         EXPECT_EQ( data.component->parameterCount(), expected_count );
     }
-
-    template<TensorDataType TPrecision>
-    void TestGetWeight( const LinearCpuTestData<TPrecision>& data )
-    {
-        // Use getParameters() (stable public API) and inspect first parameter as weight.
-        auto params = data.component->getParameters();
-        ASSERT_GE( params.size(), 1u );
-
-        auto* weight_it = dynamic_cast<Tensor<TensorDataType::FP32, CpuMemoryResource>*>( params[0] );
-        ASSERT_NE( weight_it, nullptr );
-        EXPECT_EQ( weight_it->shape()[ 0 ], data.output_features );
-        EXPECT_EQ( weight_it->shape()[ 1 ], data.input_features );
-    }
-
-    template<TensorDataType TPrecision>
-    void TestGetBias( const LinearCpuTestData<TPrecision>& data )
-    {
-        auto params = data.component->getParameters();
-
-        if ( data.has_bias )
-        {
-            ASSERT_GE( params.size(), 2u );
-            auto* bias_it = dynamic_cast<Tensor<TensorDataType::FP32, CpuMemoryResource>*>( params[1] );
-            ASSERT_NE( bias_it, nullptr );
-            EXPECT_EQ( bias_it->shape()[ 0 ], data.output_features );
-        }
-        else
-        {
-            EXPECT_EQ( params.size(), 1u );
-        }
-    }
-
+    
     template<TensorDataType TPrecision>
     void TestHasBias( const LinearCpuTestData<TPrecision>& data )
     {
@@ -249,70 +218,18 @@ namespace Dnn::Components::Layers::Tests
         data.component->build( data.input_shape );
 
         TensorType input( Device::Cpu(), data.input_shape );
-        TensorType output( Device::Cpu(), data.output_shape );
 
         random( input, -1.0f, 1.0f );
 
-        EXPECT_NO_THROW( data.component->forward( input, output ) );
-        EXPECT_EQ( output.size(),
-            data.output_shape[ 0 ] * data.output_shape[ 1 ] * data.output_shape[ 2 ] );
-        EXPECT_EQ( output.shape(), data.output_shape );
-    }
+        TensorType* out_ptr = nullptr;
+        EXPECT_NO_THROW( out_ptr = &data.component->forward( input ) );
+        ASSERT_NE( out_ptr, nullptr );
 
-    template<TensorDataType TPrecision>
-    void TestGetParameters( const LinearCpuTestData<TPrecision>& data )
-    {
-        auto params = data.component->getParameters();
+        auto& out = *out_ptr;
 
-        if ( data.has_bias )
-        {
-            EXPECT_EQ( params.size(), 2 );
-            EXPECT_NE( params[ 0 ], nullptr );
-            EXPECT_NE( params[ 1 ], nullptr );
-        }
-        else
-        {
-            EXPECT_EQ( params.size(), 1 );
-            EXPECT_NE( params[ 0 ], nullptr );
-        }
-    }
-
-    template<TensorDataType TPrecision>
-    void TestGetWeightGrad( LinearCpuTestData<TPrecision>& data )
-    {
-        data.component->build( data.input_shape );
-        data.component->setTraining( true );
-
-        // Use getGradients() API to inspect allocated gradient tensors
-        auto grads = data.component->getGradients();
-        ASSERT_GE( grads.size(), 1u );
-
-        auto* wgrad = dynamic_cast<Tensor<TensorDataType::FP32, CpuMemoryResource>*>( grads[0] );
-        ASSERT_NE( wgrad, nullptr ) << "Weight gradients should be allocated in training mode";
-        EXPECT_EQ( wgrad->shape()[ 0 ], data.output_features );
-        EXPECT_EQ( wgrad->shape()[ 1 ], data.input_features );
-    }
-
-    template<TensorDataType TPrecision>
-    void TestGetBiasGrad( LinearCpuTestData<TPrecision>& data )
-    {
-        data.component->build( data.input_shape );
-        data.component->setTraining( true );
-
-        auto grads = data.component->getGradients();
-
-        if ( data.has_bias )
-        {
-            ASSERT_GE( grads.size(), 2u );
-            auto* bgrad = dynamic_cast<Tensor<TensorDataType::FP32, CpuMemoryResource>*>( grads[1] );
-            ASSERT_NE( bgrad, nullptr ) << "Bias gradients should be allocated in training mode";
-            EXPECT_EQ( bgrad->shape()[ 0 ], data.output_features );
-        }
-        else
-        {
-            // When bias disabled there should be only one gradient (weight)
-            EXPECT_EQ( grads.size(), 1u ) << "No bias gradient when bias is disabled";
-        }
+        EXPECT_EQ( out.size(),
+            static_cast<size_t>( data.output_shape[ 0 ] * data.output_shape[ 1 ] * data.output_shape[ 2 ] ) );
+        EXPECT_EQ( out.shape(), data.output_shape );
     }
 
     template<TensorDataType TPrecision>
@@ -324,26 +241,32 @@ namespace Dnn::Components::Layers::Tests
         data.component->setTraining( true );
 
         TensorType input( Device::Cpu(), data.input_shape );
-        TensorType output( Device::Cpu(), data.output_shape );
         TensorType output_grad( Device::Cpu(), data.output_shape );
-        TensorType input_grad( Device::Cpu(), data.input_shape );
 
         random( input, -1.0f, 1.0f );
         random( output_grad, -0.1f, 0.1f );
-        zeros( input_grad );
 
-        data.component->forward( input, output );
+        // Use component-owned output from forward
+        TensorType* out_ptr = nullptr;
+        EXPECT_NO_THROW( out_ptr = &data.component->forward( input ) );
+        ASSERT_NE( out_ptr, nullptr );
+
+        TensorType* in_grad_ptr = nullptr;
 
         EXPECT_NO_THROW(
-            data.component->backward( input, output_grad, input_grad )
+            in_grad_ptr = &data.component->backward( input, output_grad )
         ) << "Backward pass should succeed for CPU Linear operation in training mode";
 
-        EXPECT_EQ( input_grad.shape(), data.input_shape );
+        ASSERT_NE( in_grad_ptr, nullptr );
+
+        auto& in_grad = *in_grad_ptr;
+
+        EXPECT_EQ( in_grad.shape(), data.input_shape );
 
         bool has_nonzero_grad = false;
-        for ( size_t i = 0; i < input_grad.size(); ++i )
+        for ( size_t i = 0; i < in_grad.size(); ++i )
         {
-            if ( std::abs( input_grad.data()[ i ] ) > 1e-6f )
+            if ( std::abs( in_grad.data()[ i ] ) > 1e-6f )
             {
                 has_nonzero_grad = true;
                 break;
@@ -394,7 +317,7 @@ namespace Dnn::Components::Layers::Tests
                 "linear_cpu",
                 config,
                 Device::Cuda( 0 )
-            )),
+            )) ,
             std::invalid_argument
         );
     }
@@ -447,21 +370,6 @@ namespace Dnn::Components::Layers::Tests
         TestParameterCount( NoBiasFp32Data() );
     }
 
-    TEST_F( LinearCpuTests, GetWeight )
-    {
-        TestGetWeight( SmallFp32Data() );
-    }
-
-    TEST_F( LinearCpuTests, GetBias_WithBias )
-    {
-        TestGetBias( SmallFp32Data() );
-    }
-
-    TEST_F( LinearCpuTests, GetBias_WithoutBias )
-    {
-        TestGetBias( NoBiasFp32Data() );
-    }
-
     TEST_F( LinearCpuTests, HasBias_True )
     {
         TestHasBias( SmallFp32Data() );
@@ -470,16 +378,6 @@ namespace Dnn::Components::Layers::Tests
     TEST_F( LinearCpuTests, HasBias_False )
     {
         TestHasBias( NoBiasFp32Data() );
-    }
-
-    TEST_F( LinearCpuTests, GetParameters_WithBias )
-    {
-        TestGetParameters( SmallFp32Data() );
-    }
-
-    TEST_F( LinearCpuTests, GetParameters_WithoutBias )
-    {
-        TestGetParameters( NoBiasFp32Data() );
     }
 
     TEST_F( LinearCpuTests, ToString )
@@ -556,7 +454,7 @@ namespace Dnn::Components::Layers::Tests
                 "invalid_fc_cpu",
                 invalid_config,
                 Device::Cpu()
-            )),
+            )) ,
             std::invalid_argument
         );
     }
@@ -571,7 +469,7 @@ namespace Dnn::Components::Layers::Tests
                 "invalid_fc_cpu",
                 invalid_config,
                 Device::Cpu()
-            )),
+            )) ,
             std::invalid_argument
         );
     }
@@ -582,10 +480,9 @@ namespace Dnn::Components::Layers::Tests
             "unbuild_cpu", small_shape_, input_features_, output_features_ );
 
         CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.input_shape );
-        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.output_shape );
 
         EXPECT_THROW(
-            data.component->forward( input, output ),
+            data.component->forward( input ),
             std::runtime_error
         );
     }
@@ -598,10 +495,9 @@ namespace Dnn::Components::Layers::Tests
         shape_t wrong_shape = { 2, 3, 64 };
 
         CpuTensor<TensorDataType::FP32> input( Device::Cpu(), wrong_shape );
-        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), { 2, 3, 32 } );
 
         EXPECT_THROW(
-            data.component->forward( input, output ),
+            data.component->forward( input ),
             std::invalid_argument
         );
     }
@@ -633,37 +529,20 @@ namespace Dnn::Components::Layers::Tests
         data.component->build( data.input_shape );
 
         CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.input_shape );
-        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.output_shape );
 
         for ( int iter = 0; iter < 10; ++iter )
         {
             random( input, -1.0f, 1.0f );
 
-            EXPECT_NO_THROW( data.component->forward( input, output ) );
+            CpuTensor<TensorDataType::FP32>* output = nullptr;
+            EXPECT_NO_THROW( output = &data.component->forward( input ) );
+            ASSERT_NE( output, nullptr );
         }
     }
 
     // ====================================================================
     // Backward Pass Tests
     // ====================================================================
-
-    TEST_F( LinearCpuTests, GetWeightGrad_BeforeBackward )
-    {
-        auto& data = SmallFp32Data();
-        TestGetWeightGrad( data );
-    }
-
-    TEST_F( LinearCpuTests, GetBiasGrad_BeforeBackward_WithBias )
-    {
-        auto& data = SmallFp32Data();
-        TestGetBiasGrad( data );
-    }
-
-    TEST_F( LinearCpuTests, GetBiasGrad_BeforeBackward_WithoutBias )
-    {
-        auto& data = NoBiasFp32Data();
-        TestGetBiasGrad( data );
-    }
 
     TEST_F( LinearCpuTests, Backward_SmallShape )
     {
@@ -690,10 +569,9 @@ namespace Dnn::Components::Layers::Tests
 
         CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.input_shape );
         CpuTensor<TensorDataType::FP32> output_grad( Device::Cpu(), data.output_shape );
-        CpuTensor<TensorDataType::FP32> input_grad( Device::Cpu(), data.input_shape );
 
         EXPECT_THROW(
-            data.component->backward( input, output_grad, input_grad ),
+            data.component->backward( input, output_grad ),
             std::runtime_error
         );
     }
@@ -706,21 +584,25 @@ namespace Dnn::Components::Layers::Tests
         data.component->setTraining( true );
 
         CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.input_shape );
-        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.output_shape );
         CpuTensor<TensorDataType::FP32> output_grad( Device::Cpu(), data.output_shape );
-        CpuTensor<TensorDataType::FP32> input_grad( Device::Cpu(), data.input_shape );
 
         for ( int iter = 0; iter < 5; ++iter )
         {
             random( input, -1.0f, 1.0f );
             random( output_grad, -0.1f, 0.1f );
-            zeros( input_grad );
 
-            data.component->forward( input, output );
+            // establish forward state
+            CpuTensor<TensorDataType::FP32>* out_ptr = nullptr;
+            EXPECT_NO_THROW( out_ptr = &data.component->forward( input ) );
+            ASSERT_NE( out_ptr, nullptr );
+
+            CpuTensor<TensorDataType::FP32>* in_grad_ptr = nullptr;
 
             EXPECT_NO_THROW(
-                data.component->backward( input, output_grad, input_grad )
+                in_grad_ptr = &data.component->backward( input, output_grad )
             ) << "Backward iteration " << iter << " failed";
+
+            ASSERT_NE( in_grad_ptr, nullptr );
         }
     }
 
@@ -752,45 +634,42 @@ namespace Dnn::Components::Layers::Tests
         data.component->build( data.input_shape );
 
         CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.input_shape );
-        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.output_shape );
         CpuTensor<TensorDataType::FP32> output_grad( Device::Cpu(), data.output_shape );
-        CpuTensor<TensorDataType::FP32> input_grad( Device::Cpu(), data.input_shape );
 
         random( input, -1.0f, 1.0f );
         random( output_grad, -0.1f, 0.1f );
 
-        EXPECT_NO_THROW( data.component->forward( input, output ) );
+        // forward in inference mode
+        CpuTensor<TensorDataType::FP32>* out_ptr = nullptr;
+        EXPECT_NO_THROW( out_ptr = &data.component->forward( input ) );
+        ASSERT_NE( out_ptr, nullptr );
 
         EXPECT_THROW(
-            data.component->backward( input, output_grad, input_grad ),
+            data.component->backward( input, output_grad ),
             std::runtime_error
         ) << "Backward should fail in inference mode";
 
         data.component->setTraining( true );
         EXPECT_TRUE( data.component->isTraining() );
 
-        // inspect gradients via getGradients()
-        {
-            auto grads = data.component->getGradients();
-            ASSERT_GE( grads.size(), 1u );
-            auto* wg = dynamic_cast<Tensor<TensorDataType::FP32, CpuMemoryResource>*>( grads[0] );
-            ASSERT_NE( wg, nullptr ) << "Gradients should be initialized when switching to training";
-        }
+        EXPECT_NO_THROW( out_ptr = &data.component->forward( input ) );
+        ASSERT_NE( out_ptr, nullptr );
 
-        EXPECT_NO_THROW( data.component->forward( input, output ) );
-
-        zeros( input_grad );
+        CpuTensor<TensorDataType::FP32>* in_grad_ptr = nullptr;
         EXPECT_NO_THROW(
-            data.component->backward( input, output_grad, input_grad )
+            in_grad_ptr = &data.component->backward( input, output_grad )
         ) << "Backward should work after switching to training mode";
+
+        ASSERT_NE( in_grad_ptr, nullptr );
 
         data.component->setTraining( false );
         EXPECT_FALSE( data.component->isTraining() );
 
-        EXPECT_NO_THROW( data.component->forward( input, output ) );
+        EXPECT_NO_THROW( out_ptr = &data.component->forward( input ) );
+        ASSERT_NE( out_ptr, nullptr );
 
         EXPECT_THROW(
-            data.component->backward( input, output_grad, input_grad ),
+            data.component->backward( input, output_grad ),
             std::runtime_error
         ) << "Backward should fail after switching back to inference mode";
     }
@@ -801,34 +680,22 @@ namespace Dnn::Components::Layers::Tests
 
         data.component->build( data.input_shape );
         data.component->setTraining( true );
+        
         EXPECT_TRUE( data.component->isTraining() );
 
-        // Use getGradients() instead of deprecated shared accessors
-        {
-            auto grads = data.component->getGradients();
-            ASSERT_GE( grads.size(), 1u );
-            auto* wg = dynamic_cast<Tensor<TensorDataType::FP32, CpuMemoryResource>*>( grads[0] );
-            ASSERT_NE( wg, nullptr ) << "Weight gradients should be allocated when training enabled before build";
-
-            if ( data.has_bias )
-            {
-                ASSERT_GE( grads.size(), 2u );
-                auto* bg = dynamic_cast<Tensor<TensorDataType::FP32, CpuMemoryResource>*>( grads[1] );
-                ASSERT_NE( bg, nullptr ) << "Bias gradients should be allocated when training enabled before build";
-            }
-        }
-
         CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.input_shape );
-        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.output_shape );
         CpuTensor<TensorDataType::FP32> output_grad( Device::Cpu(), data.output_shape );
-        CpuTensor<TensorDataType::FP32> input_grad( Device::Cpu(), data.input_shape );
 
         random( input, -1.0f, 1.0f );
         random( output_grad, -0.1f, 0.1f );
-        zeros( input_grad );
 
-        EXPECT_NO_THROW( data.component->forward( input, output ) );
-        EXPECT_NO_THROW( data.component->backward( input, output_grad, input_grad ) );
+        CpuTensor<TensorDataType::FP32>* out_ptr = nullptr;
+        EXPECT_NO_THROW( out_ptr = &data.component->forward( input ) );
+        ASSERT_NE( out_ptr, nullptr );
+
+        CpuTensor<TensorDataType::FP32>* in_grad_ptr = nullptr;
+        EXPECT_NO_THROW( in_grad_ptr = &data.component->backward( input, output_grad ) );
+        ASSERT_NE( in_grad_ptr, nullptr );
     }
 
     TEST_F( LinearCpuTests, Error_BackwardInInferenceMode )
@@ -839,16 +706,16 @@ namespace Dnn::Components::Layers::Tests
         EXPECT_FALSE( data.component->isTraining() );
 
         CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.input_shape );
-        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.output_shape );
         CpuTensor<TensorDataType::FP32> output_grad( Device::Cpu(), data.output_shape );
-        CpuTensor<TensorDataType::FP32> input_grad( Device::Cpu(), data.input_shape );
 
         random( input, -1.0f, 1.0f );
 
-        data.component->forward( input, output );
+        CpuTensor<TensorDataType::FP32>* out_ptr = nullptr;
+        EXPECT_NO_THROW( out_ptr = &data.component->forward( input ) );
+        ASSERT_NE( out_ptr, nullptr );
 
         EXPECT_THROW(
-            data.component->backward( input, output_grad, input_grad ),
+            data.component->backward( input, output_grad ),
             std::runtime_error
         ) << "Backward should throw when component is not in training mode";
     }

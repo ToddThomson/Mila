@@ -43,6 +43,9 @@ import Serialization.Tensor;
 import Serialization.Metadata;
 import nlohmann.json;
 
+// DEBUG:
+import Dnn.TensorHelpers;
+
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
@@ -50,30 +53,13 @@ namespace Mila::Dnn
     using json = nlohmann::json;
 
     /**
-     * @brief Linear (fully connected) component.
+     * @brief Device-templated fully connected (linear) component.
      *
-     * Delegates computation to a device-specific UnaryOperation implementation
-     * registered in the OperationRegistry. All Linear instances share an
-     * ExecutionContext owned by the parent (Network or test fixture).
-     *
-     * Ownership model:
-     * - Linear NEVER owns ExecutionContext in shared mode
-     * - Standalone mode: Linear owns its ExecutionContext (for unit tests)
-     * - Context is shared across component hierarchy when part of Network
-     *
-     * Construction Modes:
-     * - **Standalone mode (device_id provided)**: Creates and owns an ExecutionContext
-     *   for the specified device. Used in unit tests and standalone component usage.
-     * - **Shared mode (device_id not provided)**: Does not create ExecutionContext;
-     *   expects parent to provide one via setExecutionContext(). Used when added
-     *   to Network via addComponent<Linear>(...).
-     *
-     * @tparam TDeviceType Compile-time device type (Cpu, Cuda, Metal, Rocm).
-     * @tparam TPrecision Compile-time tensor precision (FP32, FP16, BF16, etc.).
+     * Delegates compute to a device-specific UnaryOperation implementation.
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    class Linear final : public Component<TDeviceType, TPrecision>
+    class Linear : public Component<TDeviceType, TPrecision>
     {
     public:
         using ComponentBase = Component<TDeviceType, TPrecision>;
@@ -81,44 +67,21 @@ namespace Mila::Dnn
         using TensorType = Tensor<TPrecision, MR>;
 
         /**
-         * @brief Construct Linear with optional ExecutionContext ownership.
+         * @brief Construct a Linear component.
          *
-         * Supports two construction modes:
+         * Constructs with a name and configuration. If `device_id` is provided,
+         * the component creates and owns an ExecutionContext (standalone mode)
+         * and registers it with the base Component via setExecutionContext().
+         * If `device_id` is not provided, the component expects a shared
+         * ExecutionContext to be provided later via setExecutionContext().
          *
-         * **Standalone mode (device_id provided)**:
-         * - Creates and owns an ExecutionContext for the specified device.
-         * - Registers the owned context with the base Component class via setExecutionContext().
-         * - Parameters and backend operation are created in lifecycle hooks.
-         * - Use case: Unit tests, standalone component usage.
+         * @param name Component name.
+         * @param config Layer configuration (validated on construction).
+         * @param device_id Optional device identifier. When present the component
+         *                  creates an owned ExecutionContext for the device.
          *
-         * **Shared mode (device_id not provided)**:
-         * - Does not create ExecutionContext; expects parent to provide one.
-         * - Parent (Network/CompositeComponent) calls setExecutionContext() after construction.
-         * - Parameters and operation created when parent sets context.
-         * - Use case: Components added to Network via addComponent<Linear>(...).
-         *
-         * @param config Linear configuration.
-         * @param device_id Optional device identifier. If provided, creates owned ExecutionContext
-         *                  for standalone mode. If nullopt, expects shared context from parent.
-         *
-         * @throws std::invalid_argument if config is invalid (via config.validate()).
-         * @throws std::invalid_argument if device_id.type does not match TDeviceType.
-         * @throws std::runtime_error if ExecutionContext creation fails (standalone mode).
-         *
-         * @note In standalone mode, setExecutionContext() is called to register the owned
-         *       context with the base class, enabling getExecutionContext() and triggering
-         *       the onExecutionContextSet() hook for initialization.
-         *
-         * @example
-         * // Standalone mode (owns context)
-         * LinearConfig config;
-         * config.setInputFeatures(128).setOutputFeatures(64);
-         * Linear<DeviceType::Cpu, TensorDataType::FP32> linear(config, Device::Cpu());
-         *
-         * @example
-         * // Shared mode (borrows parent's context)
-         * Network<DeviceType::Cpu, TensorDataType::FP32> net(Device::Cpu(), "my_net");
-         * net.addComponent<Linear>("fc1", LinearConfig().setInputFeatures(128).setOutputFeatures(64));
+         * @throws std::invalid_argument if config is invalid or device type mismatches.
+         * @throws std::runtime_error if ExecutionContext creation fails.
          */
         explicit Linear( const std::string& name, const LinearConfig& config, std::optional<DeviceId> device_id = std::nullopt )
             : ComponentBase( name ), config_( config )
@@ -145,11 +108,18 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
-         * @brief Forward pass - delegates to backend operation.
+         * @brief Perform forward pass.
          *
-         * Computes y = x * W^T + b (if bias is enabled).
+         * Uses a component-owned output buffer (allocated in onBuilding()) and
+         * delegates computation to the backend operation.
+         *
+         * @param input Input tensor (device-bound).
+         * @return Reference to the component-owned output tensor.
+         *
+         * @throws std::runtime_error if component not built, backend not initialized,
+         *         or owned output buffer not allocated.
          */
-        void forward( const ITensor& input, ITensor& output )
+        TensorType& forward( const TensorType& input )
         {
             if ( !this->isBuilt() )
             {
@@ -158,15 +128,35 @@ namespace Mila::Dnn
 
             validateInputShape( input.shape() );
 
-            operation_->forward( input, output );
+            if ( !operation_ )
+            {
+                throw std::runtime_error( "Linear: operation backend not initialized" );
+            }
+
+            if ( !owned_output_ )
+            {
+                throw std::runtime_error( "Linear: owned output buffer not allocated" );
+            }
+
+            operation_->forward( input, *owned_output_ );
+
+            return *owned_output_;
         }
 
         /**
-         * @brief Backward pass - delegates to backend operation.
+         * @brief Perform backward pass.
          *
-         * Computes gradients with respect to input and parameters.
+         * Uses a component-owned input-gradient buffer (allocated in onBuilding())
+         * and delegates computation to the backend operation.
+         *
+         * @param input Original forward input tensor.
+         * @param output_grad Gradient with respect to the component output.
+         * @return Reference to the component-owned input-gradient tensor.
+         *
+         * @throws std::runtime_error if component not built, not in training mode,
+         *         or backend not initialized.
          */
-        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
+        TensorType& backward( const TensorType& input, const TensorType& output_grad )
         {
             if ( !this->isBuilt() )
             {
@@ -178,17 +168,23 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Linear Component must be in training mode to call backward. Call setTraining(true) first." );
             }
 
-            if ( !weight_grad_ )
+            // Zero input gradient buffer before accumulation. Backend operation accumulates into this buffer.
+            zero( *owned_input_grad_ );
+
+            // DEBUG: Dump W and B and input
+            //debugDumpTensor<TPrecision,MR>( *weight_, "weight" );
+
+            if ( bias_ )
             {
-                throw std::runtime_error( "Linear Component weight gradients not initialized. This is a bug." );
+                //debugDumpTensor<TPrecision,MR>( *bias_, "bias" );
             }
 
-            if ( config_.hasBias() && !bias_grad_ )
-            {
-                throw std::runtime_error( "Linear Component bias gradients not initialized. This is a bug." );
-            }
+            //debugDumpTensor<TPrecision,MR>( input, "input" );
+            //debugDumpTensor<TPrecision,MR>( output_grad, "output_grad" );
 
-            operation_->backward( input, output_grad, input_grad );
+            operation_->backward( input, output_grad, *owned_input_grad_ );
+
+            return *owned_input_grad_;
         }
 
         void zeroGradients() override
@@ -202,6 +198,12 @@ namespace Mila::Dnn
             {
                 zero( *bias_grad_ );
             }
+
+            // REVIEW: Not strictly necessary, but zero input gradients for safety during testing
+            if ( owned_input_grad_ )
+            {
+                zero( *owned_input_grad_ );
+            }
         }
 
         // ====================================================================
@@ -211,13 +213,11 @@ namespace Mila::Dnn
         /**
          * @brief Save component state to a ModelArchive.
          *
-         * This method writes relative entries into the archive. Callers are
-         * expected to scope the archive (for example "components/<name>/")
-         * before invoking `save_()` so leaf implementations only emit
-         * component-local paths such as "meta.json" and "tensors/weight".
+         * Writes component-local metadata and parameter tensors into the provided archive.
+         * Callers should scope the archive before invoking this method.
          *
-         * @param archive ModelArchive to write to (scoped by caller)
-         * @param mode SerializationMode (currently unused)
+         * @param archive ModelArchive to write to (scoped by caller).
+         * @param mode Serialization mode (currently unused).
          */
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
@@ -299,43 +299,16 @@ namespace Mila::Dnn
             size_t count = 0;
 
             if ( weight_ )
-                count += weight_->size();
-
-            if ( config_.hasBias() && bias_ )
-                count += bias_->size();
-
-            return count;
-        }
-
-        std::vector<ITensor*> getParameters() const override
-        {
-            std::vector<ITensor*> params;
-
-            if ( weight_ )
-                params.push_back( weight_.get() );
-
-            if ( bias_ )
-                params.push_back( bias_.get() );
-
-            return params;
-        }
-
-        std::vector<ITensor*> getGradients() const override
-        {
-            if ( !this->isTraining() )
             {
-                throw std::runtime_error( "Linear: getGradients called when not in training mode" );
+                count += weight_->size();
             }
 
-            std::vector<ITensor*> grads;
+            if ( config_.hasBias() && bias_ )
+            {
+                count += bias_->size();
+            }
 
-            if ( weight_grad_ )
-                grads.push_back( weight_grad_.get() );
-
-            if ( bias_grad_ )
-                grads.push_back( bias_grad_.get() );
-
-            return grads;
+            return count;
         }
 
         // ====================================================================
@@ -367,9 +340,9 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Check whether the component has a bias term.
+         * @brief Whether the component contains a bias parameter.
          *
-         * @returns True if bias is enabled in the configuration.
+         * @return True if bias is enabled in the configuration.
          */
         bool hasBias() const noexcept
         {
@@ -377,9 +350,9 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Get the configuration.
+         * @brief Access the component configuration.
          *
-         * @returns Reference to the LinearConfig.
+         * @return Reference to the LinearConfig.
          */
         const LinearConfig& getConfig() const noexcept
         {
@@ -389,16 +362,11 @@ namespace Mila::Dnn
     protected:
 
         /**
-         * @brief Hook invoked after ExecutionContext is set.
+         * @brief Lifecycle hook executed after ExecutionContext is set.
          *
-         * Called by Component::setExecutionContext() after the context is
-         * registered. Initializes parameters and creates the backend operation.
+         * Initializes parameter tensors and creates the backend operation.
          *
-         * This hook is triggered in two scenarios:
-         * - Standalone mode: Immediately in constructor after owned context creation
-         * - Shared mode: When parent calls setExecutionContext() after construction
-         *
-         * @throws std::runtime_error if parameter initialization or operation creation fails.
+         * @throws std::runtime_error if initialization fails.
          */
         void onExecutionContextSet() override
         {
@@ -408,14 +376,14 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Build the Component using an input shape.
+         * @brief Build the component for a given input shape.
          *
-         * Linear layer parameters are eagerly created in onExecutionContextSet() based
-         * on the configuration. This method binds parameters to the backend
-         * operation and triggers backend-specific setup.
+         * Binds parameters and gradients (if training) to the backend operation,
+         * invokes operation-specific build, and allocates component-owned forward
+         * and input-gradient tensors. Owned tensors use std::unique_ptr to express
+         * exclusive ownership by the component.
          *
-         * If in training mode, also initializes gradient tensors and binds them
-         * to the operation.
+         * @param input_shape Shape of the incoming tensor.
          */
         void onBuilding( const shape_t& input_shape ) override
         {
@@ -424,6 +392,7 @@ namespace Mila::Dnn
             operation_->setParameters( weight_.get(), bias_.get() );
             operation_->setTraining( this->isTraining() );
 
+            // REVIEW: training is never set before build in current Component API.
             if ( this->isTraining() )
             {
                 initializeGradients();
@@ -431,15 +400,32 @@ namespace Mila::Dnn
             }
 
             operation_->build( input_shape );
+
+            // Allocate and cache component-owned output and input-gradient tensors.
+            auto device_id = this->getExecutionContext()->getDeviceId();
+
+            shape_t output_shape = input_shape;
+            if ( !output_shape.empty() )
+            {
+                output_shape.back() = config_.getOutputFeatures();
+            }
+
+            owned_output_ = std::make_unique<TensorType>( device_id, output_shape );
+            owned_output_->setName( this->getName() + ".output" );
+
+            owned_input_grad_ = std::make_unique<TensorType>( device_id, input_shape );
+            owned_input_grad_->setName( this->getName() + ".input.grad" );
+            zero( *owned_input_grad_ );
         }
 
-
         /**
-         * @brief Hook invoked when training mode is about to change.
+         * @brief Hook invoked when training mode is changing.
          *
-         * Propagate training mode to the backend operation and allocate / free
-         * parameter gradient buffers as appropriate. Called with Component's
-         * training mutex held; do not call setTraining() here.
+         * Propagates training mode to the backend operation and allocates or
+         * clears gradient buffers as necessary. Called with the Component's
+         * training mutex held.
+         *
+         * @param is_training New training mode.
          */
         void onTrainingChanging( bool is_training ) override
         {
@@ -456,11 +442,54 @@ namespace Mila::Dnn
 
                 // Prefer to keep gradient buffers allocated for next training phase.
                 if ( weight_grad_ )
+                {
                     zero( *weight_grad_ );
+                }
                 
                 if ( bias_grad_ )
+                {
                     zero( *bias_grad_ );
+                }
             }
+        }
+
+        std::vector<ITensor*> getParameters() const override
+        {
+            std::vector<ITensor*> params;
+
+            if ( weight_ )
+            {
+                params.push_back( weight_.get() );
+            }
+
+            if ( bias_ )
+            {
+                params.push_back( bias_.get() );
+            }
+
+            return params;
+        }
+
+        std::vector<ITensor*> getGradients() const override
+        {
+            if ( !this->isTraining() )
+            {
+                throw std::runtime_error( "Linear: getGradients called when not in training mode" );
+            }
+
+            std::vector<ITensor*> grads;
+
+            if ( weight_grad_ )
+            {
+                grads.push_back( weight_grad_.get() );
+            }
+
+            if ( bias_grad_ )
+            {
+                grads.push_back( bias_grad_.get() );
+            }
+
+            return grads;
         }
 
     private:
@@ -476,10 +505,17 @@ namespace Mila::Dnn
 
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
 
+        // Component-owned forward output and input-gradient tensors (exclusive ownership)
+        std::unique_ptr<TensorType> owned_output_{ nullptr };
+        std::unique_ptr<TensorType> owned_input_grad_{ nullptr };
+
         /**
-         * @brief Validate input shape for linear operation.
+         * @brief Validate input shape for the linear operation.
          *
          * Ensures the last dimension matches the configured input_features.
+         *
+         * @param input_shape Shape to validate.
+         * @throws std::invalid_argument if rank < 1 or feature dim mismatches.
          */
         void validateInputShape( const shape_t& input_shape ) const
         {
@@ -501,14 +537,16 @@ namespace Mila::Dnn
 
         /**
          * @brief Ensure gradient tensors are allocated with correct shapes.
+         *
+         * Allocates weight and bias gradient tensors when needed and zeroes them.
          */
         void initializeGradients()
         {
-            auto device = this->getExecutionContext()->getDeviceId();
+            auto device_id = this->getExecutionContext()->getDeviceId();
 
             if ( !weight_grad_ )
             {
-                weight_grad_ = std::make_shared<TensorType>( device, weight_->shape() );
+                weight_grad_ = std::make_shared<TensorType>( device_id, weight_->shape() );
                 weight_grad_->setName( this->getName() + ".weight.grad" );
 
                 zero( *weight_grad_ );
@@ -516,7 +554,7 @@ namespace Mila::Dnn
 
             if ( config_.hasBias() && !bias_grad_ )
             {
-                bias_grad_ = std::make_shared<TensorType>( device, bias_->shape() );
+                bias_grad_ = std::make_shared<TensorType>( device_id, bias_->shape() );
                 bias_grad_->setName( this->getName() + ".bias.grad" );
 
                 zero( *bias_grad_ );
@@ -526,9 +564,8 @@ namespace Mila::Dnn
         /**
          * @brief Allocate and initialize weight and optional bias tensors.
          *
-         * Called from onExecutionContextSet() hook once device is known.
-         * Tensors are created on the execution context device and initialized
-         * using Xavier initialization for weights. Bias is zero-initialized.
+         * Tensors are created on the ExecutionContext device and weights are
+         * initialized using Xavier initialization. Bias is zero-initialized.
          */
         void initializeParameters()
         {
@@ -554,8 +591,9 @@ namespace Mila::Dnn
         /**
          * @brief Create the backend compute operation.
          *
-         * Called from onExecutionContextSet() hook. Uses the shared ExecutionContext
-         * to request a device-specific UnaryOperation from the OperationRegistry.
+         * Requests a device-specific UnaryOperation from the OperationRegistry.
+         *
+         * @throws std::runtime_error if operation creation fails.
          */
         void createOperation()
         {

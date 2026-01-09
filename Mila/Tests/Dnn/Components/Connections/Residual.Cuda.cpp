@@ -346,9 +346,8 @@ namespace Components_Connections_Tests
 
         CudaTensor<TPrecision> A( Device::Cuda( 0 ), fixture.shape() );
         CudaTensor<TPrecision> B( Device::Cuda( 0 ), fixture.shape() );
-        CudaTensor<TPrecision> Y( Device::Cuda( 0 ), fixture.shape() );
 
-        EXPECT_THROW( fixture.component->forward( A, B, Y ), std::runtime_error );
+        EXPECT_THROW( fixture.component->forward( A, B ), std::runtime_error );
     }
 
     TYPED_TEST( ResidualCudaTests, Build_WithVariousShapes_SetsBuiltState )
@@ -401,21 +400,29 @@ namespace Components_Connections_Tests
 
             CudaTensor<TPrecision> device_A( Device::Cuda( 0 ), fixture.shape() );
             CudaTensor<TPrecision> device_B( Device::Cuda( 0 ), fixture.shape() );
-            CudaTensor<TPrecision> device_Y( Device::Cuda( 0 ), fixture.shape() );
 
             copy( host_A, device_A );
             copy( host_B, device_B );
 
-            EXPECT_NO_THROW( fixture.component->forward( device_A, device_B, device_Y ) )
+            CudaTensor<TPrecision>* out_tensor = nullptr;
+            ASSERT_NO_THROW( out_tensor = &fixture.component->forward( device_A, device_B ) )
                 << "Forward failed for shape: " << test_shape.name;
 
-            EXPECT_EQ( device_Y.size(), device_A.size() )
-                << "Output size mismatch for shape: " << test_shape.name;
+            ASSERT_NE( out_tensor, nullptr );
 
-            EXPECT_EQ( device_Y.shape(), device_A.shape() )
+            EXPECT_EQ( out_tensor->shape(), fixture.shape() )
                 << "Output shape mismatch for shape: " << test_shape.name;
+
+            auto host_out = toHost<TensorDataType::FP32>( *out_tensor );
+
+            EXPECT_EQ( host_out.size(), out_tensor->size() )
+                << "Output size mismatch for shape: " << test_shape.name;
         }
     }
+
+    // ====================================================================
+    // CPU <-> CUDA parity tests
+    // ====================================================================
 
     TYPED_TEST( ResidualCudaTests, Forward_ElementwiseAdd_MatchesCpu )
     {
@@ -447,25 +454,29 @@ namespace Components_Connections_Tests
         random( host_A, -1.0f, 1.0f );
         random( host_B, -1.0f, 1.0f );
 
-        CpuTensor<TensorDataType::FP32> cpu_Y( Device::Cpu(), test_shape.dimensions );
-        cpu_component->forward( host_A, host_B, cpu_Y );
+        // CPU forward (new API)
+        Tensor<TensorDataType::FP32, CpuMemoryResource>* cpu_out_tensor = nullptr;
+        ASSERT_NO_THROW( cpu_out_tensor = &cpu_component->forward( host_A, host_B ) );
+        ASSERT_NE( cpu_out_tensor, nullptr );
 
         CudaTensor<TPrecision> device_A( Device::Cuda( 0 ), test_shape.dimensions );
         CudaTensor<TPrecision> device_B( Device::Cuda( 0 ), test_shape.dimensions );
-        CudaTensor<TPrecision> device_Y( Device::Cuda( 0 ), test_shape.dimensions );
 
         copy( host_A, device_A );
         copy( host_B, device_B );
 
-        cuda_fixture.component->forward( device_A, device_B, device_Y );
+        Tensor<TPrecision, CudaDeviceMemoryResource>* cuda_out_tensor = nullptr;
+        ASSERT_NO_THROW( cuda_out_tensor = &cuda_fixture.component->forward( device_A, device_B ) );
+        ASSERT_NE( cuda_out_tensor, nullptr );
+
         cuda_fixture.component->synchronize();
 
-        CpuTensor<TensorDataType::FP32> cuda_Y_host = toHost<TensorDataType::FP32>( device_Y );
+        CpuTensor<TensorDataType::FP32> cuda_Y_host = toHost<TensorDataType::FP32>( *cuda_out_tensor );
 
         const float eps = PrecisionTraits<TPrecision>::tolerance;
-        for ( size_t i = 0; i < cpu_Y.size(); ++i )
+        for ( size_t i = 0; i < cpu_out_tensor->size(); ++i )
         {
-            float expected = cpu_Y.data()[ i ];
+            float expected = cpu_out_tensor->data()[ i ];
             float got = cuda_Y_host.data()[ i ];
             EXPECT_NEAR( got, expected, eps ) << "Mismatch at index " << i;
         }
@@ -493,15 +504,17 @@ namespace Components_Connections_Tests
 
         CudaTensor<TPrecision> device_A( Device::Cuda( 0 ), minimal_shape.dimensions );
         CudaTensor<TPrecision> device_B( Device::Cuda( 0 ), minimal_shape.dimensions );
-        CudaTensor<TPrecision> device_Y( Device::Cuda( 0 ), minimal_shape.dimensions );
 
         copy( host_A, device_A );
         copy( host_B, device_B );
 
-        EXPECT_NO_THROW( fixture.component->forward( device_A, device_B, device_Y ) );
+        Tensor<TPrecision, CudaDeviceMemoryResource>* out_tensor = nullptr;
+        ASSERT_NO_THROW( out_tensor = &fixture.component->forward( device_A, device_B ) );
+        ASSERT_NE( out_tensor, nullptr );
+
         fixture.component->synchronize();
 
-        CpuTensor<TensorDataType::FP32> host_Y = toHost<TensorDataType::FP32>( device_Y );
+        CpuTensor<TensorDataType::FP32> host_Y = toHost<TensorDataType::FP32>( *out_tensor );
         EXPECT_FLOAT_EQ( host_Y.data()[ 0 ], 3.0f );
     }
 }

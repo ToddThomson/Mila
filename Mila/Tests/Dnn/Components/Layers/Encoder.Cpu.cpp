@@ -57,11 +57,6 @@ namespace Components::Layers::Tests
                 d.config,
                 Device::Cpu() );
 
-            /*if ( d.is_training ) {
-                d.module->build( d.input_shape );
-                d.module->setTraining( true );
-            }*/
-
             return d;
         }
     };
@@ -125,18 +120,20 @@ namespace Components::Layers::Tests
         EXPECT_NO_THROW( d.module->build( d.input_shape ) );
         EXPECT_TRUE( d.module->isBuilt() );
 
-        // Prepare input (INT32 token ids) and output
+        // Prepare input (INT32 token ids)
         CpuIndexTensor input( d.module->getDeviceId(), d.input_shape );
-        CpuTensor<TPrecision> output( d.module->getDeviceId(), d.output_shape );
 
         // Fill token ids
         auto idx_ptr = input.data();
         for ( size_t i = 0; i < input.size(); ++i )
             idx_ptr[ i ] = static_cast<int32_t>( i % static_cast<size_t>( d.vocab_len ) );
 
-        EXPECT_NO_THROW( d.module->forward( input, output ) );
-        EXPECT_EQ( output.shape(), d.output_shape );
-        EXPECT_EQ( output.size(), static_cast<size_t>( d.input_shape[ 0 ] * d.input_shape[ 1 ] * d.channels ) );
+        // Forward now returns a reference to the component-owned tensor
+        auto& out_tensor = d.module->forward( input );
+
+        EXPECT_EQ( out_tensor.shape(), d.output_shape );
+        EXPECT_EQ( out_tensor.size(),
+            static_cast<size_t>( d.input_shape[ 0 ] * d.input_shape[ 1 ] * d.channels ) );
     }
 
     template<TensorDataType TPrecision>
@@ -168,6 +165,45 @@ namespace Components::Layers::Tests
         EXPECT_EQ( wpe_grad->shape()[ 1 ], static_cast<int64_t>(d.channels) );
     }
 
+    // Backward API smoke test: ensures backward returns component-owned input-grad tensor
+    template<TensorDataType TPrecision>
+    void TestBuildForwardBackward( EncoderCpuTestData<TPrecision>& d )
+    {
+        EXPECT_NO_THROW( d.module->build( d.input_shape ) );
+        EXPECT_TRUE( d.module->isBuilt() );
+
+        d.module->setTraining( true );
+
+        // Prepare input (INT32 token ids)
+        CpuIndexTensor input( d.module->getDeviceId(), d.input_shape );
+
+        // Fill token ids
+        auto idx_ptr = input.data();
+        for ( size_t i = 0; i < input.size(); ++i )
+            idx_ptr[ i ] = static_cast<int32_t>( i % static_cast<size_t>( d.vocab_len ) );
+
+        // Forward
+        auto& embeddings = d.module->forward( input );
+
+        EXPECT_EQ( embeddings.shape(), d.output_shape );
+
+        // Prepare an output gradient tensor matching embeddings shape
+        CpuTensor<TPrecision> output_grad( d.module->getDeviceId(), d.output_shape );
+
+        // Fill deterministic gradient values
+        for ( size_t i = 0; i < output_grad.size(); ++i )
+        {
+            output_grad.data()[ i ] = static_cast<float>( (i % 101) ) * 0.01f;
+        }
+
+        // Backward now returns a reference to component-owned input-gradient tensor
+        auto& in_grad = d.module->backward( input, output_grad );
+
+        // Input-grad should match input shape and size
+        EXPECT_EQ( in_grad.shape(), d.input_shape );
+        EXPECT_EQ( in_grad.size(), static_cast<size_t>( d.input_shape[ 0 ] * d.input_shape[ 1 ] ) );
+    }
+
     // Tests
 
     TEST_F( EncoderCpuTests, ParameterCount )
@@ -178,6 +214,11 @@ namespace Components::Layers::Tests
     TEST_F( EncoderCpuTests, BuildAndForward )
     {
         TestBuildAndForward( CpuFp32() );
+    }
+
+    TEST_F( EncoderCpuTests, BuildForwardBackward )
+    {
+        TestBuildForwardBackward( CpuFp32Training() );
     }
 
     TEST_F( EncoderCpuTests, ToStringAndDimensions )
@@ -226,9 +267,13 @@ namespace Components::Layers::Tests
 
         EXPECT_NO_THROW( d.module->build( d.input_shape ) );
         CpuIndexTensor input( d.module->getDeviceId(), d.input_shape );
-        CpuTensor<TensorDataType::FP32> output( d.module->getDeviceId(), d.output_shape );
+
         auto idx_ptr = input.data();
         idx_ptr[ 0 ] = 0;
-        EXPECT_NO_THROW( d.module->forward( input, output ) );
+
+        // Forward returns a reference to the component-owned embeddings tensor
+        auto& out_tensor = d.module->forward( input );
+
+        EXPECT_EQ( out_tensor.shape(), d.output_shape );
     }
 }

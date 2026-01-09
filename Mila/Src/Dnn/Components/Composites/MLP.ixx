@@ -53,28 +53,6 @@ namespace Mila::Dnn
      *
      * Device-templated composite component that implements a standard MLP structure:
      *   Input -> Linear(in_features, hidden_size) -> [LayerNorm] -> Activation -> Linear(hidden_size, in_features) -> Output
-     *
-     * Design philosophy:
-     * - Three-phase initialization: constructor creates architecture graph; onExecutionContextSet() 
-     *   propagates context to children; onBuilding() builds children with shapes and allocates buffers
-     * - Composite component pattern: manages child components (Linear, activation, LayerNorm)
-     * - Context-independent architecture: component graph defined without device knowledge
-     * - Shape-agnostic configuration: input_features and hidden_size define architecture
-     * - Runtime shape determined at onBuilding() time from actual input tensor
-     * - Child components stored as concrete types for type safety and direct access
-     *
-     * Construction Modes:
-     * - **Standalone mode**: Construct with DeviceId to create and own an ExecutionContext.
-     *   The component manages the context lifetime and uses it for operation execution.
-     * - **Shared mode**: Construct without DeviceId; parent (Network/CompositeComponent) 
-     *   provides ExecutionContext via setExecutionContext() after construction.
-     *
-     * Ownership:
-     * - Standalone mode: Component owns its ExecutionContext (stored in owned_exec_context_).
-     * - Shared mode: Component borrows ExecutionContext from parent; lifecycle managed externally.
-     *
-     * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda)
-     * @tparam TPrecision Abstract tensor precision (TensorDataType)
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
@@ -89,54 +67,6 @@ namespace Mila::Dnn
         using GeluType = Gelu<TDeviceType, TPrecision>;
         using LayerNormType = LayerNorm<TDeviceType, TPrecision>;
 
-        /**
-         * @brief Construct MLP with optional ExecutionContext ownership.
-         *
-         * Architecture is created immediately in the constructor (context-independent).
-         * ExecutionContext binding happens either immediately (standalone mode) or 
-         * later when parent calls setExecutionContext() (shared mode).
-         *
-         * Construction sequence:
-         * 1. Validate configuration
-         * 2. Create architecture graph (no device required)
-         * 3. [Standalone only] Create and bind ExecutionContext
-         *
-         * **Standalone mode (device_id provided)**:
-         * - Creates and owns an ExecutionContext for the specified device.
-         * - Registers the owned context with the base Component class via setExecutionContext().
-         * - Context is propagated to children via onExecutionContextSet() hook.
-         * - Use case: Unit tests, standalone component usage.
-         *
-         * **Shared mode (device_id not provided)**:
-         * - Does not create ExecutionContext; expects parent to provide one.
-         * - Parent (Network/CompositeComponent) calls setExecutionContext() after construction.
-         * - Context propagated to children when parent sets it.
-         * - Use case: Components added to Network.
-         *
-         * @param config MLP configuration (input_features, hidden_size, activation, etc.).
-         * @param device_id Optional device identifier. If provided, creates owned ExecutionContext
-         *                  for standalone mode. If nullopt, expects shared context from parent.
-         *
-         * @throws std::invalid_argument if configuration is invalid.
-         * @throws std::invalid_argument if device_id.type does not match TDeviceType.
-         * @throws std::runtime_error if ExecutionContext creation fails (standalone mode).
-         *
-         * @note Architecture is inspectable immediately after construction, even without
-         *       an ExecutionContext. Use hasExecutionContext() to check if context is available.
-         *
-         * @example
-         * // Standalone mode (owns context)
-         * MLPConfig config(768, 3072);
-         * MLP<DeviceType::Cpu, TensorDataType::FP32> mlp(config, Device::Cpu());
-         *
-         * @example
-         * // Shared mode (borrows parent's context)
-         * Network<DeviceType::Cpu, TensorDataType::FP32> net(Device::Cpu(), "my_net");
-         * auto mlp = std::make_shared<MLP<DeviceType::Cpu, TensorDataType::FP32>>(
-         *     MLPConfig(768, 3072), std::nullopt);
-         * mlp->setName("mlp");
-         * net.addComponent(mlp);
-         */
         explicit MLP( const std::string& name, const MLPConfig& config, std::optional<DeviceId> device_id = std::nullopt )
             : CompositeComponentBase( name ), config_( config )
         {
@@ -160,92 +90,117 @@ namespace Mila::Dnn
         ~MLP() override = default;
 
         /**
-         * @brief Forward pass - HOT PATH, pure dispatch to child components.
+         * @brief Forward pass - returns component-owned output tensor.
          *
-         * All setup and validation was done in onBuilding(). This method chains
-         * forward calls through the MLP structure using pre-allocated buffers.
+         * Chains child component forward calls using their new API (returns ITensor*).
+         *
+         * @param input Input tensor bound to the component device.
+         * @return Pointer to ITensor containing output (owned by final Linear child).
+         *
+         * @throws std::runtime_error if component is not built.
          */
-        void forward( const ITensor& input, ITensor& output )
+        TensorType& forward( const TensorType& input )
         {
             if ( !this->isBuilt() )
             {
                 throw std::runtime_error( "MLP component must be built before calling forward." );
             }
 
-            fc1_->forward( input, *fc1_output_ );
+            last_fc1_out_ = &fc1_->forward( input );
+
+            last_norm_out_ = nullptr;
+            last_act_out_ = nullptr;
 
             if ( config_.useLayerNorm() )
             {
-                norm_->forward( *fc1_output_, *norm_output_ );
-                activation_->forward( *norm_output_, *act_output_ );
+                last_norm_out_ = &norm_->forward( *last_fc1_out_ );
+                last_act_out_ = &activation_->forward( *last_norm_out_ );
             }
             else
             {
-                activation_->forward( *fc1_output_, *act_output_ );
+                last_act_out_ = &activation_->forward( *last_fc1_out_ );
             }
 
-            fc2_->forward( *act_output_, output );
+            last_final_out_ = &fc2_->forward( *last_act_out_ );
+
+            return *last_final_out_;
         }
 
         /**
-         * @brief Backward pass - HOT PATH, pure dispatch to child components.
+         * @brief Backward pass - returns pointer to input gradient tensor.
          *
-         * Chains backward calls through the MLP structure in reverse order,
-         * using pre-allocated gradient buffers.
+         * Chains child component backward calls using their new API (returns ITensor*).
+         *
+         * The backward implementation *uses* the tensors produced by the most recent
+         * forward() call (captured above). This avoids recomputing forward during backward.
+         *
+         * @param input Original forward input.
+         * @param output_grad Gradient w.r.t. MLP output.
+         * @return Pointer to ITensor containing gradient w.r.t. input (owned by fc1 child).
+         *
+         * @throws std::runtime_error if component is not built or forward() was not called.
          */
-        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
+        TensorType& backward( const TensorType& input, const TensorType& output_grad )
         {
             if ( !this->isBuilt() )
             {
                 throw std::runtime_error( "MLP component must be built before calling backward." );
             }
 
-            fc2_->backward( *act_output_, output_grad, *fc2_grad_ );
+            // Require that forward() was called so we have the child-owned intermediate tensors.
+            if ( last_fc1_out_ == nullptr || last_act_out_ == nullptr )
+            {
+                throw std::runtime_error( "MLP::backward: forward() must be called before backward() to capture intermediates." );
+            }
 
+            // Backprop through fc2 using the activation output captured during forward.
+            auto& fc2_grad = fc2_->backward( *last_act_out_, output_grad );
+
+            // Backprop through activation and optional norm using captured forward tensors.
             if ( config_.useLayerNorm() )
             {
-                activation_->backward( *norm_output_, *fc2_grad_, *act_grad_ );
+                if ( last_norm_out_ == nullptr )
+                {
+                    throw std::runtime_error( "MLP::backward: missing stored norm output for backward chaining" );
+                }
 
-                norm_->backward( *fc1_output_, *act_grad_, *norm_grad_ );
+                auto& act_grad = activation_->backward( *last_norm_out_, fc2_grad );
 
-                fc1_->backward( input, *norm_grad_, input_grad );
+                auto& norm_grad = norm_->backward( *last_fc1_out_, act_grad );
+
+                auto& input_grad = fc1_->backward( input, norm_grad );
+
+                // Clear cached forward pointers to avoid accidental reuse across calls.
+                clearForwardCache();
+
+                return input_grad;
             }
             else
             {
-                activation_->backward( *fc1_output_, *fc2_grad_, *act_grad_ );
+                auto& act_grad = activation_->backward( *last_fc1_out_, fc2_grad );
 
-                fc1_->backward( input, *act_grad_, input_grad );
+                auto& input_grad = fc1_->backward( input, act_grad );
+
+                clearForwardCache();
+
+                return input_grad;
             }
         }
 
         void zeroGradients() override
         {
-            // Zero gradients in preallocated buffers
-            zero( *fc2_grad_ /* this->getExecutionContext() */);
-            
-            if ( config_.useLayerNorm() )
-            {
-                zero( *norm_grad_ /* this->getExecutionContext() */);
-            }
-            
-            zero( *act_grad_ /* this->getExecutionContext() */);
-
-            // Zero gradients in all child components
+            // Zero gradients in child components and preallocated buffers if present.
             fc1_->zeroGradients();
-            
+
             if ( norm_ )
             {
                 norm_->zeroGradients();
             }
-            
+
             activation_->zeroGradients();
-            
+
             fc2_->zeroGradients();
         }
-
-        // ====================================================================
-        // Serialization
-        // ====================================================================
 
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
@@ -259,10 +214,6 @@ namespace Mila::Dnn
             activation_->save_( archive, mode );
             fc2_->save_( archive, mode );
         }
-
-        // ====================================================================
-        // Component interface
-        // ====================================================================
 
         std::string toString() const override
         {
@@ -288,7 +239,7 @@ namespace Mila::Dnn
             {
                 oss << "Parameter count: " << this->parameterCount() << std::endl;
 
-                oss << "Input shape: (";
+                oss << "Input shape: ("; 
                 for ( size_t i = 0; i < cached_input_shape_.size(); ++i )
                 {
                     oss << cached_input_shape_[ i ];
@@ -297,7 +248,7 @@ namespace Mila::Dnn
                 }
                 oss << ")" << std::endl;
 
-                oss << "Hidden shape: (";
+                oss << "Hidden shape: ("; 
                 for ( size_t i = 0; i < cached_hidden_shape_.size(); ++i )
                 {
                     oss << cached_hidden_shape_[ i ];
@@ -308,7 +259,7 @@ namespace Mila::Dnn
             }
 
             oss << "Sub-Components:" << std::endl;
-            
+
             if ( fc1_ )
             {
                 oss << "  - fc1: " << fc1_->getName() << std::endl;
@@ -334,14 +285,6 @@ namespace Mila::Dnn
 
     protected:
 
-        /**
-         * @brief Hook invoked during build() to initialize component with input shape.
-         *
-         * Validates input shape, computes hidden shape, caches typed pointers to children,
-         * builds all child components with appropriate shapes, and allocates intermediate buffers.
-         *
-         * All children have ExecutionContext at this point (propagated via onExecutionContextSet).
-         */
         void onBuilding( const shape_t& input_shape ) override
         {
             validateInputShape( input_shape );
@@ -366,47 +309,13 @@ namespace Mila::Dnn
             fc2_ = this->template getComponentAs<LinearType>( this->getName() + ".fc2" );
             fc2_->build( cached_hidden_shape_ );
 
-            auto device = this->getDeviceId();
+            // Clear any cached forward pointers on new build.
+            clearForwardCache();
 
-            fc1_output_ = std::make_shared<TensorType>( device, cached_hidden_shape_ );
-            fc1_output_->setName( this->getName() + ".fc1_output" );
-
-            if ( config_.useLayerNorm() )
-            {
-                norm_output_ = std::make_shared<TensorType>( device, cached_hidden_shape_ );
-                norm_output_->setName( this->getName() + ".norm_output" );
-            }
-
-            act_output_ = std::make_shared<TensorType>( device, cached_hidden_shape_ );
-            act_output_->setName( this->getName() + ".act_output" );
-
-            // Preallocate gradient buffers used in backward() to avoid per-call allocation
-            fc2_grad_ = std::make_shared<TensorType>( device, cached_hidden_shape_ );
-            fc2_grad_->setName( this->getName() + ".fc2_grad" );
-            zero( *fc2_grad_ );
-
-            act_grad_ = std::make_shared<TensorType>( device, cached_hidden_shape_ );
-            act_grad_->setName( this->getName() + ".act_grad" );
-            zero( *act_grad_ );
-
-            if ( config_.useLayerNorm() )
-            {
-                norm_grad_ = std::make_shared<TensorType>( device, cached_hidden_shape_ );
-                norm_grad_->setName( this->getName() + ".norm_grad" );
-                zero( *norm_grad_ );
-            }
+            // Preallocate nothing for child-owned forward/backward buffers; children own their buffers.
+            // Keep cached shapes for validation and introspection.
         }
 
-        /**
-         * @brief Hook invoked when training mode is about to change.
-         *
-         * Propagates training mode to all child components (fc1, fc2, activation, norm).
-         * Called by Component::setTraining() with the training mutex held.
-         *
-         * @param is_training New training mode (true = training, false = eval)
-         *
-         * @note Do not call setTraining() from this hook (reentrancy prohibited).
-         */
         void onTrainingChanging( bool is_training ) override
         {
             if ( fc1_ )
@@ -431,7 +340,7 @@ namespace Mila::Dnn
         }
 
     private:
-        
+
         MLPConfig config_;
 
         shape_t cached_input_shape_;
@@ -444,28 +353,13 @@ namespace Mila::Dnn
         std::shared_ptr<LinearType> fc2_{ nullptr };
         std::shared_ptr<LayerNormType> norm_{ nullptr };
 
-        std::shared_ptr<TensorType> fc1_output_{ nullptr };
-        std::shared_ptr<TensorType> norm_output_{ nullptr };
-        std::shared_ptr<TensorType> act_output_{ nullptr };
+        // Captured child-owned tensors from the most recent forward() call.
+        // These are non-owning raw pointers to ITensor objects owned by the child components.
+        TensorType* last_fc1_out_{ nullptr };
+        TensorType* last_norm_out_{ nullptr };
+        TensorType* last_act_out_{ nullptr };
+        TensorType* last_final_out_{ nullptr };
 
-        // Preallocated gradient buffers (allocated in onBuilding)
-        std::shared_ptr<TensorType> fc2_grad_{ nullptr };
-        std::shared_ptr<TensorType> act_grad_{ nullptr };
-        std::shared_ptr<TensorType> norm_grad_{ nullptr };
-
-        /**
-         * @brief Create the MLP block architecture (context-independent).
-         *
-         * Defines the computational graph based on configuration:
-         *   fc1 -> [norm] -> activation -> fc2
-         *
-         * Components are created in shared mode (no ExecutionContext).
-         * Context binding happens later via setExecutionContext() which
-         * triggers onExecutionContextSet() hook for context propagation.
-         *
-         * Called from constructor before any device resources are bound.
-         * This enables architecture introspection without requiring a device.
-         */
         void createGraph()
         {
             addLinear( "fc1", config_.getInputFeatures(), config_.getHiddenSize() );
@@ -479,13 +373,6 @@ namespace Mila::Dnn
             addLinear( "fc2", config_.getHiddenSize(), config_.getInputFeatures() );
         }
 
-        /**
-         * @brief Helper to create and register a linear layer child component.
-         *
-         * @param suffix Component name suffix (will be prefixed with MLP name)
-         * @param in_features Input feature dimension
-         * @param out_features Output feature dimension
-         */
         void addLinear( const std::string& suffix, dim_t in_features, dim_t out_features )
         {
             auto cfg = LinearConfig( in_features, out_features )
@@ -496,11 +383,6 @@ namespace Mila::Dnn
             this->addComponent( component );
         }
 
-        /**
-         * @brief Helper to create and register a normalization layer child component.
-         *
-         * @param suffix Component name suffix
-         */
         void addLayerNorm( const std::string& suffix )
         {
             auto cfg = LayerNormConfig().withAxis( -1 );
@@ -510,11 +392,6 @@ namespace Mila::Dnn
             this->addComponent( component );
         }
 
-        /**
-         * @brief Helper to create and register an activation layer child component.
-         *
-         * @param suffix Component name suffix
-         */
         void addActivation( const std::string& suffix )
         {
             switch ( config_.getActivationType() )
@@ -531,9 +408,6 @@ namespace Mila::Dnn
             }
         }
 
-        /**
-         * @brief Validate input shape for MLP operation.
-         */
         void validateInputShape( const shape_t& input_shape ) const
         {
             if ( input_shape.empty() )
@@ -550,6 +424,14 @@ namespace Mila::Dnn
                     << config_.getInputFeatures() << ", got " << input_features;
                 throw std::invalid_argument( oss.str() );
             }
+        }
+
+        void clearForwardCache() noexcept
+        {
+            last_fc1_out_ = nullptr;
+            last_norm_out_ = nullptr;
+            last_act_out_ = nullptr;
+            last_final_out_ = nullptr;
         }
     };
 }

@@ -868,7 +868,7 @@ std::string generateSample(
 
         copy( context_cpu, context_device );
 
-        model->forward( context_device, logits_device );
+        auto& logits_ptr = model->forward( context_device );
         model->synchronize();
 
         copy( logits_device, logits_cpu );
@@ -968,7 +968,7 @@ void trainCharLM( const CharLMConfig& config )
     Tensor<TensorDataType::INT32, DeviceMR> input_batch( device_id, input_shape );
     Tensor<TensorDataType::INT32, DeviceMR> target_batch( device_id, input_shape );
 
-    Tensor<TDataType, DeviceMR> output( device_id, logits_shape );
+    //Tensor<TDataType, DeviceMR> output( device_id, logits_shape );
     Tensor<TDataType, CpuMemoryResource> logits_cpu( Device::Cpu(), logits_shape );
     Tensor<TensorDataType::INT32, CpuMemoryResource> targets_cpu( Device::Cpu(), input_shape );
     Tensor<TDataType, CpuMemoryResource> output_grad_cpu( Device::Cpu(), logits_shape );
@@ -1017,7 +1017,7 @@ void trainCharLM( const CharLMConfig& config )
             //std::clog << "Targets batch:\n" << train_loader.targets().toString( true ) << std::endl;
 
             // Run forward to get logits on device
-            model->forward( input_batch, output );
+            auto& output = model->forward( input_batch );
             model->synchronize();
 
             // Move logits and targets to host and compute loss + output gradients on CPU

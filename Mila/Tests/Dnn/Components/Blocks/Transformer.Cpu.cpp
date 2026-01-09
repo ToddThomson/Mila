@@ -576,10 +576,9 @@ namespace CompositeComponents_Tests
         );
 
         CpuTensor input( Device::Cpu(), fixture.shape() );
-        CpuTensor output( Device::Cpu(), fixture.shape() );
 
         EXPECT_THROW(
-            fixture.component->forward( input, output ),
+            fixture.component->forward( input ),
             std::runtime_error
         );
     }
@@ -606,17 +605,16 @@ namespace CompositeComponents_Tests
             fixture.component->build( fixture.shape() );
 
             CpuTensor input( Device::Cpu(), fixture.shape() );
-            CpuTensor output( Device::Cpu(), fixture.shape() );
 
             random( input, -0.5f, 0.5f );
 
-            EXPECT_NO_THROW( fixture.component->forward( input, output ) )
-                << "Forward failed for shape: " << test_shape.name;
+            // Call new forward signature that returns a reference to component-owned tensor
+            auto& out = fixture.component->forward( input );
 
-            EXPECT_EQ( output.size(), input.size() )
+            EXPECT_EQ( out.size(), input.size() )
                 << "Output size mismatch for shape: " << test_shape.name;
 
-            EXPECT_EQ( output.shape(), input.shape() )
+            EXPECT_EQ( out.shape(), input.shape() )
                 << "Output shape mismatch for shape: " << test_shape.name;
         }
     }
@@ -636,14 +634,14 @@ namespace CompositeComponents_Tests
         fixture.component->build( fixture.shape() );
 
         CpuTensor input( Device::Cpu(), fixture.shape() );
-        CpuTensor output( Device::Cpu(), fixture.shape() );
 
         for ( int iter = 0; iter < 3; ++iter )
         {
             random( input, -0.5f, 0.5f );
 
-            EXPECT_NO_THROW( fixture.component->forward( input, output ) )
-                << "Forward failed on iteration " << iter;
+            auto& out = fixture.component->forward( input );
+
+            EXPECT_EQ( out.size(), input.size() ) << "Forward failed on iteration " << iter;
         }
     }
 
@@ -663,16 +661,13 @@ namespace CompositeComponents_Tests
             true // training mode
         );
 
-        //fixture.component->build( fixture.shape() );
-
         CpuTensor input( Device::Cpu(), fixture.shape() );
-        CpuTensor output( Device::Cpu(), fixture.shape() );
 
         random( input, -0.5f, 0.5f );
 
-        EXPECT_NO_THROW( fixture.component->forward( input, output ) );
+        auto& out = fixture.component->forward( input );
 
-        EXPECT_EQ( output.size(), input.size() );
+        EXPECT_EQ( out.size(), input.size() );
     }
 
     // ====================================================================
@@ -696,12 +691,11 @@ namespace CompositeComponents_Tests
         fixture.component->build( fixture.shape() );
 
         CpuTensor input( Device::Cpu(), fixture.shape() );
-        CpuTensor output( Device::Cpu(), fixture.shape() );
 
         random( input, -0.5f, 0.5f );
 
-        EXPECT_NO_THROW( fixture.component->forward( input, output ) );
-        EXPECT_EQ( output.size(), input.size() );
+        auto& out = fixture.component->forward( input );
+        EXPECT_EQ( out.size(), input.size() );
     }
 
     TEST_F( TransformerCpuTests, CustomHiddenDimension_Forward_ProducesValidOutput )
@@ -721,12 +715,11 @@ namespace CompositeComponents_Tests
         fixture.component->build( fixture.shape() );
 
         CpuTensor input( Device::Cpu(), fixture.shape() );
-        CpuTensor output( Device::Cpu(), fixture.shape() );
 
         random( input, -0.5f, 0.5f );
 
-        EXPECT_NO_THROW( fixture.component->forward( input, output ) );
-        EXPECT_EQ( output.shape(), input.shape() );
+        auto& out = fixture.component->forward( input );
+        EXPECT_EQ( out.shape(), input.shape() );
     }
 
     TEST_F( TransformerCpuTests, VariousActivationTypes_Forward_AllSucceed )
@@ -755,12 +748,12 @@ namespace CompositeComponents_Tests
             fixture.component->build( fixture.shape() );
 
             CpuTensor input( Device::Cpu(), fixture.shape() );
-            CpuTensor output( Device::Cpu(), fixture.shape() );
 
             random( input, -0.5f, 0.5f );
 
-            EXPECT_NO_THROW( fixture.component->forward( input, output ) )
-                << "Forward failed for activation: " << static_cast<int>(activation);
+            auto& out = fixture.component->forward( input );
+
+            EXPECT_EQ( out.size(), input.size() ) << "Forward failed for activation: " << static_cast<int>(activation);
         }
     }
 
@@ -802,13 +795,12 @@ namespace CompositeComponents_Tests
         fixture.component->build( fixture.shape() );
 
         CpuTensor input( Device::Cpu(), fixture.shape() );
-        CpuTensor output( Device::Cpu(), fixture.shape() );
 
         random( input, -0.5f, 0.5f );
 
-        EXPECT_NO_THROW( fixture.component->forward( input, output ) );
-        EXPECT_EQ( output.size(), input.size() );
-        EXPECT_EQ( output.shape(), input.shape() );
+        auto& out = fixture.component->forward( input );
+
+        EXPECT_EQ( out.shape(), input.shape() );
     }
 
     // ====================================================================
@@ -863,11 +855,11 @@ namespace CompositeComponents_Tests
         fixture.component->build( fixture.shape() );
 
         CpuTensor input( Device::Cpu(), fixture.shape() );
-        CpuTensor output( Device::Cpu(), fixture.shape() );
 
         random( input, -0.5f, 0.5f );
 
-        EXPECT_NO_THROW( fixture.component->forward( input, output ) );
+        auto& out = fixture.component->forward( input );
+        (void)out;
     }
 
     TEST_F( TransformerCpuTests, EdgeCase_SingleHead_Forward )
@@ -885,11 +877,11 @@ namespace CompositeComponents_Tests
         fixture.component->build( fixture.shape() );
 
         CpuTensor input( Device::Cpu(), fixture.shape() );
-        CpuTensor output( Device::Cpu(), fixture.shape() );
 
         random( input, -0.5f, 0.5f );
 
-        EXPECT_NO_THROW( fixture.component->forward( input, output ) );
+        auto& out = fixture.component->forward( input );
+        (void)out;
     }
 
     TEST_F( TransformerCpuTests, EdgeCase_LargeHeadCount_Forward )
@@ -907,11 +899,11 @@ namespace CompositeComponents_Tests
         fixture.component->build( fixture.shape() );
 
         CpuTensor input( Device::Cpu(), fixture.shape() );
-        CpuTensor output( Device::Cpu(), fixture.shape() );
 
         random( input, -0.5f, 0.5f );
 
-        EXPECT_NO_THROW( fixture.component->forward( input, output ) );
+        auto& out = fixture.component->forward( input );
+        (void)out;
     }
 
     // ====================================================================
@@ -933,8 +925,6 @@ namespace CompositeComponents_Tests
         fixture.component->build( fixture.shape() );
 
         CpuTensor input( Device::Cpu(), fixture.shape() );
-        CpuTensor output1( Device::Cpu(), fixture.shape() );
-        CpuTensor output2( Device::Cpu(), fixture.shape() );
 
         // Fill with specific values for deterministic test
         for ( size_t i = 0; i < input.size(); ++i )
@@ -942,17 +932,20 @@ namespace CompositeComponents_Tests
             input.data()[ i ] = 0.1f * (i % 10) - 0.5f;
         }
 
-        // Run forward twice with same input
-        fixture.component->forward( input, output1 );
-        fixture.component->forward( input, output2 );
+        // Run forward twice with same input and capture host copies of outputs
+        auto& out1 = fixture.component->forward( input );
+        CpuTensor out1_host = toHost<TensorDataType::FP32>( out1 );
+
+        auto& out2 = fixture.component->forward( input );
+        CpuTensor out2_host = toHost<TensorDataType::FP32>( out2 );
 
         // Outputs should be identical
         const float epsilon = 1e-6f;
         bool outputs_match = true;
 
-        for ( size_t i = 0; i < output1.size(); ++i )
+        for ( size_t i = 0; i < out1_host.size(); ++i )
         {
-            float diff = std::abs( output1.data()[ i ] - output2.data()[ i ] );
+            float diff = std::abs( out1_host.data()[ i ] - out2_host.data()[ i ] );
             if ( diff > epsilon )
             {
                 outputs_match = false;
@@ -983,18 +976,17 @@ namespace CompositeComponents_Tests
         fixture.component->build( fixture.shape() );
 
         CpuTensor input( Device::Cpu(), fixture.shape() );
-        CpuTensor output( Device::Cpu(), fixture.shape() );
 
         // Test with larger input values
         random( input, -5.0f, 5.0f );
 
-        EXPECT_NO_THROW( fixture.component->forward( input, output ) );
+        auto& out = fixture.component->forward( input );
 
         // Check output is not NaN or infinite
         bool output_valid = true;
-        for ( size_t i = 0; i < output.size(); ++i )
+        for ( size_t i = 0; i < out.size(); ++i )
         {
-            float val = output.data()[ i ];
+            float val = out.data()[ i ];
             if ( std::isnan( val ) || std::isinf( val ) )
             {
                 output_valid = false;
@@ -1021,13 +1013,13 @@ namespace CompositeComponents_Tests
         fixture.component->build( fixture.shape() );
 
         CpuTensor input( Device::Cpu(), fixture.shape() );
-        CpuTensor output( Device::Cpu(), fixture.shape() );
 
         // Zero input
         zeros( input );
 
-        EXPECT_NO_THROW( fixture.component->forward( input, output ) );
-        EXPECT_EQ( output.size(), input.size() );
+        auto& out = fixture.component->forward( input );
+
+        EXPECT_EQ( out.size(), input.size() );
     }
 
     TEST_F( TransformerCpuTests, Forward_WithSmallInputValues_HandlesGracefully )
@@ -1045,13 +1037,13 @@ namespace CompositeComponents_Tests
         fixture.component->build( fixture.shape() );
 
         CpuTensor input( Device::Cpu(), fixture.shape() );
-        CpuTensor output( Device::Cpu(), fixture.shape() );
 
         // Test with very small input values
         random( input, -1e-6f, 1e-6f );
 
-        EXPECT_NO_THROW( fixture.component->forward( input, output ) );
-        EXPECT_EQ( output.size(), input.size() );
+        auto& out = fixture.component->forward( input );
+
+        EXPECT_EQ( out.size(), input.size() );
     }
 
     // ====================================================================

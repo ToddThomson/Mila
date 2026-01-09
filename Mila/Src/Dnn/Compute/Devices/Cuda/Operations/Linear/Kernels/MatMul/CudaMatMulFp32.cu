@@ -201,7 +201,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
     __global__ void matmul_backward_fp32_scalar_kernel(
         float* dX,
         float* dW,
-        float* dbias,
+        float* dB,
         const float* dY,
         const float* X,
         const float* weight,
@@ -219,9 +219,9 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
         float dy = dY[ row * OC + col ];
 
-        if ( dbias != nullptr )
+        if ( dB != nullptr )
         {
-            atomicAdd( &dbias[ col ], dy );
+            atomicAdd( &dB[ col ], dy );
         }
 
         // Accumulate dW and dX contributions

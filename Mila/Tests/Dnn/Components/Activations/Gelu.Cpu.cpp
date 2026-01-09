@@ -4,11 +4,6 @@
  *
  * Verifies basic API, forward/backward invocation, config, and constructor
  * behavior for the CPU-specialized Gelu module.
- *
- * Tests assert behavior for both registered and unregistered backend operation:
- * - If the backend operation is registered the module should construct and operate.
- * - If the backend operation is not registered the Gelu constructor must throw.
- * - Forward and backward passes are validated for correctness.
  */
 
 #include <gtest/gtest.h>
@@ -168,7 +163,6 @@ namespace Dnn::Components::Activations::Tests
         auto device = d.gelu->getDeviceId();
 
         Tensor<dtype_t::FP32, MR> input( device, d.shape );
-        Tensor<dtype_t::FP32, MR> output( device, d.shape );
 
         for ( size_t i = 0; i < input.size(); ++i )
         {
@@ -177,8 +171,9 @@ namespace Dnn::Components::Activations::Tests
 
         d.gelu->build( d.shape );
 
-        EXPECT_NO_THROW( d.gelu->forward( input, output ) );
-        EXPECT_EQ( output.size(), input.size() );
+        auto& out = d.gelu->forward( input );
+
+        EXPECT_EQ( out.size(), input.size() );
     }
 
     TEST_F( GeluCpuTests, Forward_OutputMatchesReference )
@@ -194,7 +189,6 @@ namespace Dnn::Components::Activations::Tests
         std::vector<int64_t> shape = { 2, 3, 4 };
 
         Tensor<dtype_t::FP32, MR> input( device_id, shape );
-        Tensor<dtype_t::FP32, MR> output( device_id, shape );
 
         for ( size_t i = 0; i < input.size(); ++i )
         {
@@ -202,7 +196,8 @@ namespace Dnn::Components::Activations::Tests
         }
 
         gelu->build( shape );
-        gelu->forward( input, output );
+
+        auto& out = gelu->forward( input );
 
         const float tolerance = 1e-4f;
 
@@ -210,7 +205,7 @@ namespace Dnn::Components::Activations::Tests
         {
             float input_val = input.data()[ i ];
             float expected = geluReference( input_val );
-            float actual = output.data()[ i ];
+            float actual = out.data()[ i ];
             float diff = std::abs( expected - actual );
 
             EXPECT_LT( diff, tolerance )
@@ -238,22 +233,21 @@ namespace Dnn::Components::Activations::Tests
         std::vector<int64_t> shape = { 2, 4, 8 };
 
         Tensor<dtype_t::FP32, MR> input( device_id, shape );
-        Tensor<dtype_t::FP32, MR> output( device_id, shape );
         Tensor<dtype_t::FP32, MR> output_grad( device_id, shape );
-        Tensor<dtype_t::FP32, MR> input_grad( device_id, shape );
 
         for ( size_t i = 0; i < input.size(); ++i )
         {
             input.data()[ i ] = static_cast<float>( i ) / input.size() * 4.0f - 2.0f;
             output_grad.data()[ i ] = 1.0f;
-            input_grad.data()[ i ] = 0.0f;
         }
 
         gelu->build( shape );
         gelu->setTraining( true );
-        gelu->forward( input, output );
+        gelu->forward( input );
 
-        EXPECT_NO_THROW( gelu->backward( input, output_grad, input_grad ) );
+        auto& in_grad = gelu->backward( input, output_grad );
+
+        (void)in_grad; // silence unused-variable in release builds
     }
 
     TEST_F( GeluCpuTests, Backward_ProducesCorrectShape )
@@ -269,17 +263,16 @@ namespace Dnn::Components::Activations::Tests
         std::vector<int64_t> shape = { 3, 5, 7 };
 
         Tensor<dtype_t::FP32, MR> input( device_id, shape );
-        Tensor<dtype_t::FP32, MR> output( device_id, shape );
         Tensor<dtype_t::FP32, MR> output_grad( device_id, shape );
-        Tensor<dtype_t::FP32, MR> input_grad( device_id, shape );
 
         gelu->build( shape );
         gelu->setTraining( true );
-        gelu->forward( input, output );
-        gelu->backward( input, output_grad, input_grad );
+        gelu->forward( input );
 
-        EXPECT_EQ( input_grad.shape(), input.shape() );
-        EXPECT_EQ( input_grad.size(), input.size() );
+        auto& in_grad = gelu->backward( input, output_grad );
+
+        EXPECT_EQ( in_grad.shape(), input.shape() );
+        EXPECT_EQ( in_grad.size(), input.size() );
     }
 
     TEST_F( GeluCpuTests, Backward_GradientsMatchReference )
@@ -295,21 +288,19 @@ namespace Dnn::Components::Activations::Tests
         std::vector<int64_t> shape = { 2, 3, 4 };
 
         Tensor<dtype_t::FP32, MR> input( device_id, shape );
-        Tensor<dtype_t::FP32, MR> output( device_id, shape );
         Tensor<dtype_t::FP32, MR> output_grad( device_id, shape );
-        Tensor<dtype_t::FP32, MR> input_grad( device_id, shape );
 
         for ( size_t i = 0; i < input.size(); ++i )
         {
             input.data()[ i ] = static_cast<float>( i ) / input.size() * 4.0f - 2.0f;
             output_grad.data()[ i ] = 1.0f;
-            input_grad.data()[ i ] = 0.0f;
         }
 
         gelu->build( shape );
         gelu->setTraining( true );
-        gelu->forward( input, output );
-        gelu->backward( input, output_grad, input_grad );
+        gelu->forward( input );
+
+        auto& in_grad = gelu->backward( input, output_grad );
 
         const float tolerance = 1e-3f;
 
@@ -318,7 +309,7 @@ namespace Dnn::Components::Activations::Tests
             float x = input.data()[ i ];
             float grad_out = output_grad.data()[ i ];
             float expected = geluGradientReference( x ) * grad_out;
-            float actual = input_grad.data()[ i ];
+            float actual = in_grad.data()[ i ];
             float diff = std::abs( expected - actual );
 
             EXPECT_LT( diff, tolerance )
@@ -342,21 +333,19 @@ namespace Dnn::Components::Activations::Tests
         std::vector<int64_t> shape = { 2, 3, 4 };
 
         Tensor<dtype_t::FP32, MR> input( device_id, shape );
-        Tensor<dtype_t::FP32, MR> output( device_id, shape );
         Tensor<dtype_t::FP32, MR> output_grad( device_id, shape );
-        Tensor<dtype_t::FP32, MR> input_grad( device_id, shape );
 
         for ( size_t i = 0; i < input.size(); ++i )
         {
             input.data()[ i ] = static_cast<float>( i ) / input.size() * 4.0f - 2.0f;
             output_grad.data()[ i ] = static_cast<float>( i + 1 ) * 0.1f;
-            input_grad.data()[ i ] = 0.0f;
         }
-        
+
         gelu->build( shape );
         gelu->setTraining( true );
-        gelu->forward( input, output );
-        gelu->backward( input, output_grad, input_grad );
+        gelu->forward( input );
+
+        auto& in_grad = gelu->backward( input, output_grad );
 
         const float tolerance = 1e-3f;
 
@@ -365,7 +354,7 @@ namespace Dnn::Components::Activations::Tests
             float x = input.data()[ i ];
             float grad_out = output_grad.data()[ i ];
             float expected = geluGradientReference( x ) * grad_out;
-            float actual = input_grad.data()[ i ];
+            float actual = in_grad.data()[ i ];
             float diff = std::abs( expected - actual );
 
             EXPECT_LT( diff, tolerance )
@@ -386,25 +375,23 @@ namespace Dnn::Components::Activations::Tests
         std::vector<int64_t> shape = { 2, 3, 4 };
 
         Tensor<dtype_t::FP32, MR> input( device_id, shape );
-        Tensor<dtype_t::FP32, MR> output( device_id, shape );
         Tensor<dtype_t::FP32, MR> output_grad( device_id, shape );
-        Tensor<dtype_t::FP32, MR> input_grad( device_id, shape );
 
         for ( size_t i = 0; i < input.size(); ++i )
         {
             input.data()[ i ] = static_cast<float>( i ) / input.size() * 2.0f;
             output_grad.data()[ i ] = 0.0f;
-            input_grad.data()[ i ] = 0.0f;
         }
 
         gelu->build( shape );
         gelu->setTraining( true );
-        gelu->forward( input, output );
-        gelu->backward( input, output_grad, input_grad );
+        gelu->forward( input );
 
-        for ( size_t i = 0; i < input_grad.size(); ++i )
+        auto& in_grad = gelu->backward( input, output_grad );
+
+        for ( size_t i = 0; i < in_grad.size(); ++i )
         {
-            EXPECT_FLOAT_EQ( input_grad.data()[ i ], 0.0f )
+            EXPECT_FLOAT_EQ( in_grad.data()[ i ], 0.0f )
                 << "Expected zero gradient at index " << i;
         }
     }
@@ -422,9 +409,7 @@ namespace Dnn::Components::Activations::Tests
         std::vector<int64_t> shape = { 1, 8 };
 
         Tensor<dtype_t::FP32, MR> input( device_id, shape );
-        Tensor<dtype_t::FP32, MR> output( device_id, shape );
         Tensor<dtype_t::FP32, MR> output_grad( device_id, shape );
-        Tensor<dtype_t::FP32, MR> input_grad( device_id, shape );
 
         std::vector<float> test_values = { -10.0f, -1.0f, -0.1f, 0.0f, 0.1f, 1.0f, 10.0f, 100.0f };
 
@@ -432,20 +417,20 @@ namespace Dnn::Components::Activations::Tests
         {
             input.data()[ i ] = test_values[ i ];
             output_grad.data()[ i ] = 1.0f;
-            input_grad.data()[ i ] = 0.0f;
         }
 
         gelu->build( shape );
         gelu->setTraining( true );
 
-        EXPECT_NO_THROW( gelu->forward( input, output ) );
-        EXPECT_NO_THROW( gelu->backward( input, output_grad, input_grad ) );
+        EXPECT_NO_THROW( gelu->forward( input ) );
 
-        for ( size_t i = 0; i < input_grad.size(); ++i )
+        auto& in_grad = gelu->backward( input, output_grad );
+
+        for ( size_t i = 0; i < in_grad.size(); ++i )
         {
-            EXPECT_FALSE( std::isnan( input_grad.data()[ i ] ) )
+            EXPECT_FALSE( std::isnan( in_grad.data()[ i ] ) )
                 << "NaN gradient at index " << i << " for input " << test_values[ i ];
-            EXPECT_FALSE( std::isinf( input_grad.data()[ i ] ) )
+            EXPECT_FALSE( std::isinf( in_grad.data()[ i ] ) )
                 << "Inf gradient at index " << i << " for input " << test_values[ i ];
         }
     }
@@ -464,9 +449,8 @@ namespace Dnn::Components::Activations::Tests
 
         Tensor<dtype_t::FP32, MR> input( device_id, shape );
         Tensor<dtype_t::FP32, MR> output_grad( device_id, shape );
-        Tensor<dtype_t::FP32, MR> input_grad( device_id, shape );
 
-        EXPECT_THROW( gelu->backward( input, output_grad, input_grad ), std::runtime_error );
+        EXPECT_THROW( gelu->backward( input, output_grad ), std::runtime_error );
     }
 
     TEST_F( GeluCpuTests, Backward_AccumulatesGradients )
@@ -482,36 +466,37 @@ namespace Dnn::Components::Activations::Tests
         std::vector<int64_t> shape = { 2, 3 };
 
         Tensor<dtype_t::FP32, MR> input( device_id, shape );
-        Tensor<dtype_t::FP32, MR> output( device_id, shape );
-        Tensor<dtype_t::FP32, MR> output_grad( device_id, shape );
-        Tensor<dtype_t::FP32, MR> input_grad( device_id, shape );
+        Tensor<dtype_t::FP32, MR> output_grad_zero( device_id, shape );
+        Tensor<dtype_t::FP32, MR> output_grad_one( device_id, shape );
 
         for ( size_t i = 0; i < input.size(); ++i )
         {
             input.data()[ i ] = 0.5f;
-            output_grad.data()[ i ] = 1.0f;
-            input_grad.data()[ i ] = 10.0f;
+            output_grad_zero.data()[ i ] = 0.0f;
+            output_grad_one.data()[ i ] = 1.0f;
         }
-        
+
         gelu->build( shape );
         gelu->setTraining( true );
-        gelu->forward( input, output );
+        gelu->forward( input );
 
-        std::vector<float> initial_grads( input_grad.size() );
+        // First obtain the owned input-grad tensor and initialize it to 10.0f
+        auto& in_grad = gelu->backward( input, output_grad_zero );
 
-        for ( size_t i = 0; i < input_grad.size(); ++i )
+        for ( size_t i = 0; i < in_grad.size(); ++i )
         {
-            initial_grads[ i ] = input_grad.data()[ i ];
+            in_grad.data()[ i ] = 10.0f;
         }
 
-        gelu->backward( input, output_grad, input_grad );
+        // Now run backward with non-zero output gradient; backend should accumulate
+        gelu->backward( input, output_grad_one );
 
         float expected_delta = geluGradientReference( 0.5f ) * 1.0f;
 
-        for ( size_t i = 0; i < input_grad.size(); ++i )
+        for ( size_t i = 0; i < in_grad.size(); ++i )
         {
-            float expected_total = initial_grads[ i ] + expected_delta;
-            float actual = input_grad.data()[ i ];
+            float expected_total = 10.0f + expected_delta;
+            float actual = in_grad.data()[ i ];
             float diff = std::abs( expected_total - actual );
 
             EXPECT_LT( diff, 1e-3f )

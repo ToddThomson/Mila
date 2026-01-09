@@ -6,7 +6,7 @@
  * - If the backend operation is registered the module should construct and operate.
  * - If the backend operation is not registered the Gelu constructor must throw.
  * - Forward and backward passes are validated for correctness.
- * - CPU-CUDA equivalence is verified for both forward and backward passes.
+ * - CPU-CUDA equivalence is verified for forward results.
  */
 
 #include <gtest/gtest.h>
@@ -20,7 +20,7 @@
 
 import Mila;
 
-    namespace Dnn::Components::Activations::Tests
+namespace Dnn::Components::Activations::Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
@@ -161,7 +161,6 @@ import Mila;
         auto cuda_device = d.gelu_module->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( cuda_device, d.shape );
-        Tensor<TensorDataType::FP32, MR> output( cuda_device, d.shape );
 
         auto cpu_device = Device::Cpu();
         Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( cpu_device, d.shape );
@@ -175,8 +174,16 @@ import Mila;
 
         d.gelu_module->build( d.shape );
 
-        ASSERT_NO_THROW( d.gelu_module->forward( input, output ) );
-        EXPECT_EQ( output.size(), input.size() );
+        Tensor<TensorDataType::FP32, MR>* out_ptr = nullptr;
+        ASSERT_NO_THROW(
+            {
+                auto& out_ref = d.gelu_module->forward( input );
+                out_ptr = &out_ref;
+            }
+        );
+        ASSERT_NE( out_ptr, nullptr );
+
+        EXPECT_EQ( out_ptr->size(), input.size() );
     }
 
     TEST_F( GeluCudaTests, Forward_OutputMatchesReference )
@@ -193,7 +200,6 @@ import Mila;
         auto cuda_device = gelu->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( cuda_device, shape );
-        Tensor<TensorDataType::FP32, MR> output( cuda_device, shape );
 
         DeviceId cpu_device{ DeviceType::Cpu, 0 };
         Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( cpu_device, shape );
@@ -206,10 +212,12 @@ import Mila;
         copy( host_input, input );
 
         gelu->build( shape );
-        gelu->forward( input, output );
+
+        auto& out_tensor = gelu->forward( input );
+
         gelu->synchronize();
 
-        auto host_output = toHost<TensorDataType::FP32>( output );
+        auto host_output = toHost<TensorDataType::FP32>( out_tensor );
 
         const float tolerance = 1e-4f;
 
@@ -246,9 +254,7 @@ import Mila;
         auto cuda_device = gelu->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( cuda_device, shape );
-        Tensor<TensorDataType::FP32, MR> output( cuda_device, shape );
         Tensor<TensorDataType::FP32, MR> output_grad( cuda_device, shape );
-        Tensor<TensorDataType::FP32, MR> input_grad( cuda_device, shape );
 
         DeviceId cpu_device{ DeviceType::Cpu, 0 };
         Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( cpu_device, shape );
@@ -266,9 +272,18 @@ import Mila;
         // Build before enabling training to satisfy Component lifecycle contract.
         gelu->build( shape );
         gelu->setTraining( true );
-        gelu->forward( input, output );
+        gelu->forward( input );
 
-        EXPECT_NO_THROW( gelu->backward( input, output_grad, input_grad ) );
+        Tensor<TensorDataType::FP32, MR>* in_grad_ptr = nullptr;
+
+        EXPECT_NO_THROW(
+            {
+                auto& ig = gelu->backward( input, output_grad );
+                in_grad_ptr = &ig;
+            }
+        );
+
+        ASSERT_NE( in_grad_ptr, nullptr );
     }
 
     TEST_F( GeluCudaTests, Backward_ProducesCorrectShape )
@@ -285,18 +300,28 @@ import Mila;
         auto cuda_device = gelu->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( cuda_device, shape );
-        Tensor<TensorDataType::FP32, MR> output( cuda_device, shape );
         Tensor<TensorDataType::FP32, MR> output_grad( cuda_device, shape );
-        Tensor<TensorDataType::FP32, MR> input_grad( cuda_device, shape );
 
         // Build before enabling training to satisfy Component lifecycle contract.
         gelu->build( shape );
         gelu->setTraining( true );
-        gelu->forward( input, output );
-        gelu->backward( input, output_grad, input_grad );
+        gelu->forward( input );
 
-        EXPECT_EQ( input_grad.shape(), input.shape() );
-        EXPECT_EQ( input_grad.size(), input.size() );
+        Tensor<TensorDataType::FP32, MR>* in_grad_ptr = nullptr;
+
+        ASSERT_NO_THROW(
+            {
+                auto& ig = gelu->backward( input, output_grad );
+                in_grad_ptr = &ig;
+            }
+        );
+
+        ASSERT_NE( in_grad_ptr, nullptr );
+
+        auto& in_grad = *in_grad_ptr;
+
+        EXPECT_EQ( in_grad.shape(), input.shape() );
+        EXPECT_EQ( in_grad.size(), input.size() );
     }
 
     TEST_F( GeluCudaTests, Backward_GradientsMatchReference )
@@ -313,33 +338,39 @@ import Mila;
         auto cuda_device = gelu->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( cuda_device, shape );
-        Tensor<TensorDataType::FP32, MR> output( cuda_device, shape );
         Tensor<TensorDataType::FP32, MR> output_grad( cuda_device, shape );
-        Tensor<TensorDataType::FP32, MR> input_grad( cuda_device, shape );
 
         DeviceId cpu_device{ DeviceType::Cpu, 0 };
         Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( cpu_device, shape );
         Tensor<TensorDataType::FP32, CpuMemoryResource> host_output_grad( cpu_device, shape );
-        Tensor<TensorDataType::FP32, CpuMemoryResource> host_input_grad( cpu_device, shape );
 
         for ( size_t i = 0; i < host_input.size(); ++i )
         {
             host_input.data()[ i ] = static_cast<float>( i ) / host_input.size() * 4.0f - 2.0f;
             host_output_grad.data()[ i ] = 1.0f;
-            host_input_grad.data()[ i ] = 0.0f;
         }
 
         copy( host_input, input );
         copy( host_output_grad, output_grad );
-        copy( host_input_grad, input_grad );
 
         // Build before enabling training to satisfy Component lifecycle contract.
         gelu->build( shape );
         gelu->setTraining( true );
-        gelu->forward( input, output );
-        gelu->backward( input, output_grad, input_grad );
+        gelu->forward( input );
 
-        auto host_input_grad_result = toHost<TensorDataType::FP32>( input_grad );
+        Tensor<TensorDataType::FP32, MR>* in_grad_ptr = nullptr;
+
+        ASSERT_NO_THROW(
+            {
+                auto& ig = gelu->backward( input, output_grad );
+                in_grad_ptr = &ig;
+            }
+        );
+
+        ASSERT_NE( in_grad_ptr, nullptr );
+
+        auto& in_grad_device = *in_grad_ptr;
+        auto host_input_grad_result = toHost<TensorDataType::FP32>( in_grad_device );
 
         const float tolerance = 1e-3f;
 
@@ -373,9 +404,7 @@ import Mila;
         auto cuda_device = gelu->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( cuda_device, shape );
-        Tensor<TensorDataType::FP32, MR> output( cuda_device, shape );
         Tensor<TensorDataType::FP32, MR> output_grad( cuda_device, shape );
-        Tensor<TensorDataType::FP32, MR> input_grad( cuda_device, shape );
 
         DeviceId cpu_device{ DeviceType::Cpu, 0 };
         Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( cpu_device, shape );
@@ -393,10 +422,10 @@ import Mila;
         // Build before enabling training to satisfy Component lifecycle contract.
         gelu->build( shape );
         gelu->setTraining( true );
-        gelu->forward( input, output );
-        gelu->backward( input, output_grad, input_grad );
+        gelu->forward( input );
 
-        auto host_input_grad = toHost<TensorDataType::FP32>( input_grad );
+        auto& in_grad_device = gelu->backward( input, output_grad );
+        auto host_input_grad = toHost<TensorDataType::FP32>( in_grad_device );
 
         const float tolerance = 1e-3f;
 
@@ -427,9 +456,7 @@ import Mila;
         auto cuda_device = gelu->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( cuda_device, shape );
-        Tensor<TensorDataType::FP32, MR> output( cuda_device, shape );
         Tensor<TensorDataType::FP32, MR> output_grad( cuda_device, shape );
-        Tensor<TensorDataType::FP32, MR> input_grad( cuda_device, shape );
 
         DeviceId cpu_device{ DeviceType::Cpu, 0 };
         Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( cpu_device, shape );
@@ -448,10 +475,10 @@ import Mila;
         gelu->build( shape );
         gelu->setTraining( true );
 
-        gelu->forward( input, output );
-        gelu->backward( input, output_grad, input_grad );
+        gelu->forward( input );
 
-        auto host_input_grad = toHost<TensorDataType::FP32>( input_grad );
+        auto& in_grad_device = gelu->backward( input, output_grad );
+        auto host_input_grad = toHost<TensorDataType::FP32>( in_grad_device );
 
         for ( size_t i = 0; i < host_input_grad.size(); ++i )
         {
@@ -474,9 +501,7 @@ import Mila;
         auto cuda_device = gelu->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( cuda_device, shape );
-        Tensor<TensorDataType::FP32, MR> output( cuda_device, shape );
         Tensor<TensorDataType::FP32, MR> output_grad( cuda_device, shape );
-        Tensor<TensorDataType::FP32, MR> input_grad( cuda_device, shape );
 
         DeviceId cpu_device{ DeviceType::Cpu, 0 };
         Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( cpu_device, shape );
@@ -497,10 +522,19 @@ import Mila;
         gelu->build( shape );
         gelu->setTraining( true );
 
-        EXPECT_NO_THROW( gelu->forward( input, output ) );
-        EXPECT_NO_THROW( gelu->backward( input, output_grad, input_grad ) );
+        EXPECT_NO_THROW( gelu->forward( input ) );
 
-        auto host_input_grad = toHost<TensorDataType::FP32>( input_grad );
+        Tensor<TensorDataType::FP32, MR>* in_grad_ptr = nullptr;
+        ASSERT_NO_THROW(
+            {
+                auto& ig = gelu->backward( input, output_grad );
+                in_grad_ptr = &ig;
+            }
+        );
+
+        ASSERT_NE( in_grad_ptr, nullptr );
+
+        auto host_input_grad = toHost<TensorDataType::FP32>( *in_grad_ptr );
 
         for ( size_t i = 0; i < host_input_grad.size(); ++i )
         {
@@ -553,7 +587,6 @@ import Mila;
         auto cuda_gelu = std::make_shared<GeluCuda>( "gelu", config, cuda_id );
 
         Tensor<TensorDataType::FP32, CpuMemoryResource> cpu_input( cpu_id, shape );
-        Tensor<TensorDataType::FP32, CpuMemoryResource> cpu_output( cpu_id, shape );
 
         for ( size_t i = 0; i < cpu_input.size(); ++i )
         {
@@ -561,23 +594,29 @@ import Mila;
         }
 
         cpu_gelu->build( cpu_input.shape() );
-        cpu_gelu->forward( cpu_input, cpu_output );
+
+        auto& cpu_out_tensor = cpu_gelu->forward( cpu_input );
+        ASSERT_FALSE( &cpu_out_tensor == nullptr );
 
         Tensor<TensorDataType::FP32, MR> cuda_input( cuda_id, shape );
+        // Copy the original CPU input to the CUDA input so both implementations
+        // receive the same raw data for forward equivalence testing.
         copy( cpu_input, cuda_input );
 
-        Tensor<TensorDataType::FP32, MR> cuda_output( cuda_id, shape );
-
         cuda_gelu->build( cuda_input.shape() );
-        cuda_gelu->forward( cuda_input, cuda_output );
 
-        auto cuda_output_host = toHost<TensorDataType::FP32>( cuda_output );
+        auto& cuda_out_tensor = cuda_gelu->forward( cuda_input );
+        cuda_gelu->synchronize();
+
+        ASSERT_FALSE( &cuda_out_tensor == nullptr );
+
+        auto cuda_output_host = toHost<TensorDataType::FP32>( cuda_out_tensor );
 
         const float epsilon = 1e-3f;
 
-        for ( size_t i = 0; i < cpu_output.size(); ++i )
+        for ( size_t i = 0; i < cpu_out_tensor.size(); ++i )
         {
-            float cpu_val = cpu_output.data()[ i ];
+            float cpu_val = cpu_out_tensor.data()[ i ];
             float gpu_val = cuda_output_host.data()[ i ];
             float diff = std::abs( cpu_val - gpu_val );
 

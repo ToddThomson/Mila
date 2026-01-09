@@ -61,11 +61,6 @@ namespace Components::Layers::Tests
                 Device::Cuda( 0 )
             );
 
-            /*if ( is_training )
-            {
-                d.module->setTraining( true );
-            }*/
-
             return d;
         }
     };
@@ -155,7 +150,6 @@ namespace Components::Layers::Tests
 
         // Device tensors created from module's device id
         CudaIndexTensor device_input( d.module->getDeviceId(), d.input_shape );
-        CudaTensor<TPrecision> device_output( d.module->getDeviceId(), d.output_shape );
 
         // Fill host input then copy to device
         HostIndexTensor host_input( Device::Cpu(), d.input_shape );
@@ -167,8 +161,57 @@ namespace Components::Layers::Tests
 
         copy( host_input, device_input );
 
-        EXPECT_NO_THROW( d.module->forward( device_input, device_output ) );
-        EXPECT_EQ( device_output.shape(), d.output_shape );
+        // Forward now returns a reference to the component-owned embeddings tensor
+        auto& out_tensor = d.module->forward( device_input );
+
+        EXPECT_EQ( out_tensor.shape(), d.output_shape );
+    }
+
+    template<TensorDataType TPrecision>
+    void TestBuildForwardBackward( EncoderCudaTestData<TPrecision>& d )
+    {
+        if ( !d.module )
+        {
+            GTEST_SKIP() << "Module not initialized";
+        }
+
+        // Build first, then enable training according to component lifecycle rules
+        EXPECT_NO_THROW( d.module->build( d.input_shape ) );
+        EXPECT_TRUE( d.module->isBuilt() );
+
+        d.module->setTraining( true );
+
+        // Prepare token indices on host and copy to device
+        HostIndexTensor host_input( Device::Cpu(), d.input_shape );
+        auto hptr = host_input.data();
+        for ( size_t i = 0; i < host_input.size(); ++i )
+        {
+            hptr[ i ] = static_cast<int32_t>( i % static_cast<size_t>( d.vocab_len ) );
+        }
+
+        CudaIndexTensor device_input( d.module->getDeviceId(), d.input_shape );
+        copy( host_input, device_input );
+
+        // Forward -> embeddings (device tensor)
+        auto& embeddings = d.module->forward( device_input );
+        EXPECT_EQ( embeddings.shape(), d.output_shape );
+
+        // Prepare output gradient on host then copy to device
+        HostTensor<TPrecision> host_out_grad( Device::Cpu(), d.output_shape );
+        for ( size_t i = 0; i < host_out_grad.size(); ++i )
+        {
+            host_out_grad.data()[ i ] = static_cast<float>( (i % 101) ) * 0.01f;
+        }
+
+        CudaTensor<TPrecision> device_out_grad( d.module->getDeviceId(), d.output_shape );
+        copy( host_out_grad, device_out_grad );
+
+        // Backward returns reference to component-owned input-gradient tensor (token indices type)
+        auto& in_grad = d.module->backward( device_input, device_out_grad );
+
+        // Input-grad should match input shape and size
+        EXPECT_EQ( in_grad.shape(), d.input_shape );
+        EXPECT_EQ( in_grad.size(), static_cast<size_t>( d.input_shape[ 0 ] * d.input_shape[ 1 ] ) );
     }
 
     template<TensorDataType TPrecision>
@@ -206,6 +249,14 @@ namespace Components::Layers::Tests
         if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
         TestBuildAndForward( CudaFp32() );
+    }
+
+    TEST_F( EncoderCudaTests, BuildForwardBackward )
+    {
+        if ( !cuda_available_ ) 
+            GTEST_SKIP() << "CUDA not available";
+
+        TestBuildForwardBackward( CudaFp32Training() );
     }
 
     TEST_F( EncoderCudaTests, Training_GradientsAllocated )

@@ -66,9 +66,8 @@ namespace Components::Layers::Tests
         EXPECT_NO_THROW( module->build( input_shape ) );
         EXPECT_TRUE( module->isBuilt() );
 
-        // Prepare concatenated QKV input and output tensors in model-layout
+        // Prepare concatenated QKV input in model-layout
         CpuTensor<TensorDataType::FP32> input( dev, input_shape );
-        CpuTensor<TensorDataType::FP32> output( dev, output_shape );
 
         // Fill deterministic values on CPU
         for ( size_t i = 0; i < input.size(); ++i )
@@ -76,12 +75,55 @@ namespace Components::Layers::Tests
             input.data()[ i ] = static_cast<float>( (i % 100) ) * 0.01f;
         }
 
-        // Forward should accept single concatenated input and produce model-layout output
-        EXPECT_NO_THROW( module->forward( input, output ) );
+        // Forward now returns a reference to the component-owned Tensor
+        auto& out_tensor = module->forward( input );
 
-        // Output shape / size checks
-        EXPECT_EQ( output.shape(), output_shape );
-        EXPECT_EQ( output.size(), static_cast<size_t>( B * T * C ) );
+        // Output shape / size checks using Tensor interface
+        EXPECT_EQ( out_tensor.shape(), output_shape );
+        EXPECT_EQ( out_tensor.size(), static_cast<size_t>( B * T * C ) );
+    }
+
+    TEST_F( AttentionCpuTests, ForwardAndBackward_ReturnsInputGradient )
+    {
+        const int64_t B = 2;
+        const int64_t T = 3;
+        const int64_t C = 32; // embedding dim
+        const int64_t heads = 4;
+
+        AttentionConfig cfg( C, heads );
+
+        DeviceId dev{ DeviceType::Cpu, 0 };
+        auto module = std::make_shared<Attention<DeviceType::Cpu, TensorDataType::FP32>>( "attn_bwd", cfg, dev );
+
+        shape_t input_shape = { B, T, static_cast<int64_t>(3 * C) };
+        shape_t output_shape = { B, T, static_cast<int64_t>(C) };
+
+        module->build( input_shape );
+
+        // Prepare input and output-grad tensors
+        CpuTensor<TensorDataType::FP32> input( dev, input_shape );
+        CpuTensor<TensorDataType::FP32> output_grad( dev, output_shape );
+
+        for ( size_t i = 0; i < input.size(); ++i )
+        {
+            input.data()[ i ] = static_cast<float>( (i % 100) ) * 0.01f;
+        }
+
+        for ( size_t i = 0; i < output_grad.size(); ++i )
+        {
+            output_grad.data()[ i ] = static_cast<float>( ((i + 3) % 100) ) * 0.01f;
+        }
+
+        // Enable training mode to allow backward
+        module->setTraining( true );
+        EXPECT_TRUE( module->isTraining() );
+
+        // Call backward: returns reference to component-owned input-gradient tensor
+        auto& in_grad = module->backward( input, output_grad );
+
+        // Input-grad should match input shape and size
+        EXPECT_EQ( in_grad.shape(), input_shape );
+        EXPECT_EQ( in_grad.size(), static_cast<size_t>( B * T * 3 * C ) );
     }
 
     TEST_F( AttentionCpuTests, ToStringContainsInfo )

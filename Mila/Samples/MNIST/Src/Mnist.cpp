@@ -318,9 +318,7 @@ void trainMnist( const MnistConfig& config )
     // Allocate tensors for training
     Tensor<TDataType, DeviceMR> input_batch( device_id, input_shape );
     Tensor<TDataType, CpuMemoryResource> target_batch( Device::Cpu(), { train_loader.batchSize(), MNIST_NUM_CLASSES } );
-
     Tensor<TDataType, CpuMemoryResource> logits( Device::Cpu(), { train_loader.batchSize(), MNIST_NUM_CLASSES } );
-    Tensor<TDataType, DeviceMR> output( device_id, { train_loader.batchSize(), MNIST_NUM_CLASSES } );
 
     // Allocate gradient tensors for backward pass
     Tensor<TDataType, CpuMemoryResource> output_grad_cpu( Device::Cpu(), { train_loader.batchSize(), MNIST_NUM_CLASSES } );
@@ -347,12 +345,11 @@ void trainMnist( const MnistConfig& config )
             copy( train_loader.targets(), target_batch );
 
             // Forward pass
-            mnist_net->forward( input_batch, output );
+            auto& output_ptr = mnist_net->forward( input_batch );
             mnist_net->synchronize();
 
             // Copy output to CPU for loss computation
-            // REVIEW: Without passing the exec_context, we are implicitly synchronizing here
-            copy( output, logits );
+            copy( output_ptr, logits );
 
             // Compute loss and gradient
             float batch_loss = softmaxCrossEntropy( logits, target_batch, &output_grad_cpu );
@@ -409,9 +406,9 @@ void trainMnist( const MnistConfig& config )
             copy( test_loader.inputs(), input_batch );
             copy( test_loader.targets(), target_batch );
 
-            mnist_net->forward( input_batch, output );
+            auto& output_ptr = mnist_net->forward( input_batch );
 
-            copy( output, logits, mnist_net->getExecutionContext());
+            copy( output_ptr, logits );
 
             // Only compute loss (no gradient) during evaluation
             test_loss += softmaxCrossEntropy( logits, target_batch );

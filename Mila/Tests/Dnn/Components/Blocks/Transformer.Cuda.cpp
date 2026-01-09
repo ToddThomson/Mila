@@ -746,10 +746,9 @@ namespace CompositeComponents_Tests
         );
 
         CudaTensor<TPrecision> input( Device::Cuda( 0 ), fixture.shape() );
-        CudaTensor<TPrecision> output( Device::Cuda( 0 ), fixture.shape() );
 
         EXPECT_THROW(
-            fixture.component->forward( input, output ),
+            fixture.component->forward( input ),
             std::runtime_error
         );
     }
@@ -786,21 +785,23 @@ namespace CompositeComponents_Tests
             random( host_input, -0.5f, 0.5f );
 
             CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), fixture.shape() );
-            CudaTensor<TPrecision> device_output( Device::Cuda( 0 ), fixture.shape() );
-
             copy( host_input, device_input );
 
-            EXPECT_NO_THROW( fixture.component->forward( device_input, device_output ) )
-                << "Forward failed for shape: " << test_shape.name;
+            EXPECT_NO_THROW(
+                {
+                    auto& out = fixture.component->forward( device_input );
+                    (void)out;
+                }
+            ) << "Forward failed for shape: " << test_shape.name;
 
-            EXPECT_EQ( device_output.size(), device_input.size() )
-                << "Output size mismatch for shape: " << test_shape.name;
+            auto& out = fixture.component->forward( device_input );
 
-            EXPECT_EQ( device_output.shape(), device_input.shape() )
+            EXPECT_EQ( out.shape(), device_input.shape() )
                 << "Output shape mismatch for shape: " << test_shape.name;
 
-            CpuTensor<TensorDataType::FP32> host_output = toHost<TensorDataType::FP32>( device_output );
-            EXPECT_EQ( host_output.size(), device_input.size() )
+            auto host_output = toHost<TensorDataType::FP32>( out );
+
+            EXPECT_EQ( host_output.size(), out.size() )
                 << "Host output size mismatch for shape: " << test_shape.name;
         }
     }
@@ -828,15 +829,18 @@ namespace CompositeComponents_Tests
 
         CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), fixture.shape() );
         CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), fixture.shape() );
-        CudaTensor<TPrecision> device_output( Device::Cuda( 0 ), fixture.shape() );
 
         for ( int iter = 0; iter < 3; ++iter )
         {
             random( host_input, -0.5f, 0.5f );
             copy( host_input, device_input );
 
-            EXPECT_NO_THROW( fixture.component->forward( device_input, device_output ) )
-                << "Forward failed on iteration " << iter;
+            EXPECT_NO_THROW(
+                {
+                    auto& out = fixture.component->forward( device_input );
+                    (void)out;
+                }
+            ) << "Forward failed on iteration " << iter;
         }
     }
 
@@ -871,12 +875,17 @@ namespace CompositeComponents_Tests
         random( host_input, -0.5f, 0.5f );
 
         CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), fixture.shape() );
-        CudaTensor<TPrecision> device_output( Device::Cuda( 0 ), fixture.shape() );
-
         copy( host_input, device_input );
 
-        EXPECT_NO_THROW( fixture.component->forward( device_input, device_output ) );
-        EXPECT_EQ( device_output.size(), device_input.size() );
+        EXPECT_NO_THROW(
+            {
+                auto& out = fixture.component->forward( device_input );
+                (void)out;
+            }
+        );
+
+        auto& out = fixture.component->forward( device_input );
+        EXPECT_EQ( out.size(), device_input.size() );
     }
 
     TYPED_TEST( TransformerCudaTests, CustomHiddenDimension_Forward_ProducesValidOutput )
@@ -906,12 +915,17 @@ namespace CompositeComponents_Tests
         random( host_input, -0.5f, 0.5f );
 
         CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), fixture.shape() );
-        CudaTensor<TPrecision> device_output( Device::Cuda( 0 ), fixture.shape() );
-
         copy( host_input, device_input );
 
-        EXPECT_NO_THROW( fixture.component->forward( device_input, device_output ) );
-        EXPECT_EQ( device_output.shape(), device_input.shape() );
+        EXPECT_NO_THROW(
+            {
+                auto& out = fixture.component->forward( device_input );
+                (void)out;
+            }
+        );
+
+        auto& out = fixture.component->forward( device_input );
+        EXPECT_EQ( out.shape(), device_input.shape() );
     }
 
     TYPED_TEST( TransformerCudaTests, VariousActivationTypes_Forward_AllSucceed )
@@ -951,12 +965,14 @@ namespace CompositeComponents_Tests
             random( host_input, -0.5f, 0.5f );
 
             CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), fixture.shape() );
-            CudaTensor<TPrecision> device_output( Device::Cuda( 0 ), fixture.shape() );
-
             copy( host_input, device_input );
 
-            EXPECT_NO_THROW( fixture.component->forward( device_input, device_output ) )
-                << "Forward failed for activation: " << static_cast<int>(activation);
+            EXPECT_NO_THROW(
+                {
+                    auto& out = fixture.component->forward( device_input );
+                    (void)out;
+                }
+            ) << "Forward failed for activation: " << static_cast<int>(activation);
         }
     }
 
@@ -1015,13 +1031,17 @@ namespace CompositeComponents_Tests
         random( host_input, -0.5f, 0.5f );
 
         CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), fixture.shape() );
-        CudaTensor<TPrecision> device_output( Device::Cuda( 0 ), fixture.shape() );
-
         copy( host_input, device_input );
 
-        EXPECT_NO_THROW( fixture.component->forward( device_input, device_output ) );
-        EXPECT_EQ( device_output.size(), device_input.size() );
-        EXPECT_EQ( device_output.shape(), device_input.shape() );
+        EXPECT_NO_THROW(
+            {
+                auto& out = fixture.component->forward( device_input );
+                (void)out;
+            }
+        );
+
+        auto& out = fixture.component->forward( device_input );
+        EXPECT_EQ( out.shape(), device_input.shape() );
     }
 
     // ====================================================================
@@ -1093,11 +1113,9 @@ namespace CompositeComponents_Tests
         random( host_input, -0.5f, 0.5f );
 
         CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), fixture.shape() );
-        CudaTensor<TPrecision> device_output( Device::Cuda( 0 ), fixture.shape() );
-
         copy( host_input, device_input );
 
-        EXPECT_NO_THROW( fixture.component->forward( device_input, device_output ) );
+        EXPECT_NO_THROW( { auto& out = fixture.component->forward( device_input ); (void)out; } );
     }
 
     TYPED_TEST( TransformerCudaTests, EdgeCase_SingleHead_Forward )
@@ -1125,11 +1143,9 @@ namespace CompositeComponents_Tests
         random( host_input, -0.5f, 0.5f );
 
         CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), fixture.shape() );
-        CudaTensor<TPrecision> device_output( Device::Cuda( 0 ), fixture.shape() );
-
         copy( host_input, device_input );
 
-        EXPECT_NO_THROW( fixture.component->forward( device_input, device_output ) );
+        EXPECT_NO_THROW( { auto& out = fixture.component->forward( device_input ); (void)out; } );
     }
 
     // ====================================================================
@@ -1171,27 +1187,28 @@ namespace CompositeComponents_Tests
         CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), test_shape.dimensions );
         random( host_input, -0.1f, 0.1f ); // Smaller range for stability
 
-        CpuTensor<TensorDataType::FP32> cpu_output( Device::Cpu(), test_shape.dimensions );
-        cpu_transformer->forward( host_input, cpu_output );
+        // CPU forward (new API)
+        ASSERT_NO_THROW( { auto& cpu_out = cpu_transformer->forward( host_input ); (void)cpu_out; } );
+        auto& cpu_out = cpu_transformer->forward( host_input );
 
+        // CUDA forward (new API)
         CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), test_shape.dimensions );
-        CudaTensor<TPrecision> device_output( Device::Cuda( 0 ), test_shape.dimensions );
-        
         copy( host_input, device_input );
-        
-        cuda_fixture.component->forward( device_input, device_output );
+
+        ASSERT_NO_THROW( { auto& cuda_out = cuda_fixture.component->forward( device_input ); (void)cuda_out; } );
+        auto& cuda_out = cuda_fixture.component->forward( device_input );
         cuda_fixture.component->synchronize();
 
-        CpuTensor<TensorDataType::FP32> cuda_output_host = toHost<TensorDataType::FP32>( device_output );
+        CpuTensor<TensorDataType::FP32> cuda_output_host = toHost<TensorDataType::FP32>( cuda_out );
 
         const float epsilon = PrecisionTraits<TPrecision>::tolerance;
         bool all_close = true;
         size_t first_mismatch_idx = 0;
         float max_diff = 0.0f;
 
-        for ( size_t i = 0; i < cpu_output.size(); ++i )
+        for ( size_t i = 0; i < cpu_out.size(); ++i )
         {
-            float cpu_val = cpu_output.data()[ i ];
+            float cpu_val = cpu_out.data()[ i ];
             float cuda_val = cuda_output_host.data()[ i ];
             float diff = std::abs( cpu_val - cuda_val );
 
@@ -1211,7 +1228,7 @@ namespace CompositeComponents_Tests
         EXPECT_TRUE( all_close )
             << "CPU and CUDA implementations produced different results\n"
             << "First mismatch at index " << first_mismatch_idx << "\n"
-            << "CPU value: " << cpu_output.data()[ first_mismatch_idx ] << "\n"
+            << "CPU value: " << cpu_out.data()[ first_mismatch_idx ] << "\n"
             << "CUDA value: " << cuda_output_host.data()[ first_mismatch_idx ] << "\n"
             << "Max difference: " << max_diff << "\n"
             << "Tolerance: " << epsilon;
@@ -1265,15 +1282,14 @@ namespace CompositeComponents_Tests
         CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), test_shape.dimensions );
         random( host_input, -0.1f, 0.1f );
         
-        // Forward pass (necessary to populate any internal state)
-        CpuTensor<TensorDataType::FP32> cpu_output( Device::Cpu(), test_shape.dimensions );
-        cpu_transformer->forward( host_input, cpu_output );
+        // CPU forward (new API)
+        auto& cpu_out = cpu_transformer->forward( host_input );
 
+        // CUDA forward (new API)
         CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), test_shape.dimensions );
-        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda( 0 ), test_shape.dimensions );
         copy( host_input, device_input );
 
-        cuda_transformer->forward( device_input, device_output );
+        auto& cuda_out = cuda_transformer->forward( device_input );
         cuda_transformer->synchronize();
 
         CpuTensor<TensorDataType::FP32> host_output_grad( Device::Cpu(), test_shape.dimensions );
@@ -1282,22 +1298,20 @@ namespace CompositeComponents_Tests
             data[ i ] = static_cast<float>( i );
         }
 
-        // CPU backward
-        CpuTensor<TensorDataType::FP32> cpu_input_grad( Device::Cpu(), test_shape.dimensions );
-        cpu_transformer->backward( host_input, host_output_grad, cpu_input_grad );
+        // CPU backward (new API) -> returns component-owned input grad
+        auto& cpu_in_grad = cpu_transformer->backward( host_input, host_output_grad );
 
-        // CUDA backward
+        // CUDA backward (new API)
         CudaTensor<TensorDataType::FP32> device_output_grad( Device::Cuda( 0 ), test_shape.dimensions );
-        CudaTensor<TensorDataType::FP32> device_input_grad( Device::Cuda( 0 ), test_shape.dimensions );
         copy( host_output_grad, device_output_grad );
 
-        cuda_transformer->backward( device_input, device_output_grad, device_input_grad );
+        auto& cuda_in_grad = cuda_transformer->backward( device_input, device_output_grad );
         cuda_transformer->synchronize();
 
-        CpuTensor<TensorDataType::FP32> cuda_input_grad_host = toHost<TensorDataType::FP32>( device_input_grad );
+        CpuTensor<TensorDataType::FP32> cuda_input_grad_host = toHost<TensorDataType::FP32>( cuda_in_grad );
 
         std::cout << "CPU backward input gradient: " << std::endl;
-        std::cout << cpu_input_grad.toString( true ) << std::endl;
+        std::cout << cpu_in_grad.toString( true ) << std::endl;
         std::cout << "CUDA backward input gradient: " << std::endl;
         std::cout << cuda_input_grad_host.toString( true ) << std::endl;
 
@@ -1307,9 +1321,9 @@ namespace CompositeComponents_Tests
         size_t first_mismatch = 0;
         float max_diff = 0.0f;
 
-        for ( size_t i = 0; i < cpu_input_grad.size(); ++i )
+        for ( size_t i = 0; i < cpu_in_grad.size(); ++i )
         {
-            float cpu_val = cpu_input_grad.data()[ i ];
+            float cpu_val = cpu_in_grad.data()[ i ];
             float cuda_val = cuda_input_grad_host.data()[ i ];
             float diff = std::abs( cpu_val - cuda_val );
 
@@ -1326,7 +1340,7 @@ namespace CompositeComponents_Tests
         EXPECT_TRUE( all_close )
             << "CPU and CUDA backward input gradients differ\n"
             << "First mismatch index: " << first_mismatch << "\n"
-            << "CPU value: " << cpu_input_grad.data()[ first_mismatch ] << "\n"
+            << "CPU value: " << cpu_in_grad.data()[ first_mismatch ] << "\n"
             << "CUDA value: " << cuda_input_grad_host.data()[ first_mismatch ] << "\n"
             << "Max difference: " << max_diff << "\n"
             << "Tolerance: " << epsilon;
@@ -1370,39 +1384,41 @@ namespace CompositeComponents_Tests
         // deterministic pattern for easier debugging
         for ( size_t i = 0; i < host_input.size(); ++i ) host_input.data()[ i ] = static_cast<float>( i ) * 0.01f;
 
-        CpuTensor<TensorDataType::FP32> host_output_cpu( Device::Cpu(), test_shape.dimensions );
-        cpu_transformer->forward( host_input, host_output_cpu );
+        // CPU forward (new API)
+        ASSERT_NO_THROW( { auto& cpu_out = cpu_transformer->forward( host_input ); (void)cpu_out; } );
+        auto& cpu_out = cpu_transformer->forward( host_input );
 
         CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), test_shape.dimensions );
-        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda( 0 ), test_shape.dimensions );
         copy( host_input, device_input );
 
-        cuda_transformer->forward( device_input, device_output );
+        // CUDA forward (new API)
+        ASSERT_NO_THROW( { auto& cuda_out = cuda_transformer->forward( device_input ); (void)cuda_out; } );
+        auto& cuda_out = cuda_transformer->forward( device_input );
         cuda_transformer->synchronize();
 
         // deterministic output grad
         CpuTensor<TensorDataType::FP32> host_output_grad( Device::Cpu(), test_shape.dimensions );
         for ( size_t i = 0; i < host_output_grad.size(); ++i ) host_output_grad.data()[ i ] = 1.0f;
 
-        CpuTensor<TensorDataType::FP32> cpu_input_grad( Device::Cpu(), test_shape.dimensions );
-        cpu_transformer->backward( host_input, host_output_grad, cpu_input_grad );
+        // CPU backward (new API)
+        auto& cpu_in_grad = cpu_transformer->backward( host_input, host_output_grad );
 
+        // CUDA backward (new API)
         CudaTensor<TensorDataType::FP32> device_output_grad( Device::Cuda( 0 ), test_shape.dimensions );
-        CudaTensor<TensorDataType::FP32> device_input_grad( Device::Cuda( 0 ), test_shape.dimensions );
         copy( host_output_grad, device_output_grad );
 
-        cuda_transformer->backward( device_input, device_output_grad, device_input_grad );
+        auto& cuda_in_grad = cuda_transformer->backward( device_input, device_output_grad );
         cuda_transformer->synchronize();
 
-        CpuTensor<TensorDataType::FP32> cuda_input_grad_host = toHost<TensorDataType::FP32>( device_input_grad );
+        CpuTensor<TensorDataType::FP32> cuda_input_grad_host = toHost<TensorDataType::FP32>( cuda_in_grad );
 
         // Sanity checks: sizes and exact-ish equality
-        EXPECT_EQ( cpu_input_grad.size(), cuda_input_grad_host.size() );
+        EXPECT_EQ( cpu_in_grad.size(), cuda_input_grad_host.size() );
 
         const float epsilon = PrecisionTraits<TPrecision>::tolerance;
-        for ( size_t i = 0; i < cpu_input_grad.size(); ++i )
+        for ( size_t i = 0; i < cpu_in_grad.size(); ++i )
         {
-            EXPECT_NEAR( cpu_input_grad.data()[ i ], cuda_input_grad_host.data()[ i ], epsilon )
+            EXPECT_NEAR( cpu_in_grad.data()[ i ], cuda_input_grad_host.data()[ i ], epsilon )
                 << "Mismatch at element " << i;
         }
     }

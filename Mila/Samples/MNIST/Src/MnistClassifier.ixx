@@ -155,59 +155,109 @@ namespace Mila::Mnist
         }
 
         // ====================================================================
-        // Compute operation dispatch
+        // Compute operation dispatch (new API: component-owned outputs)
         // ====================================================================
 
         /**
-         * @brief Forward pass - HOT PATH, pure dispatch to child components.
+         * @brief Forward pass using child components' new forward() API.
          *
-         * All setup and validation was done in onBuilding(). This method chains
-         * forward calls through the classifier structure using pre-allocated buffers.
+         * Chains component-owned outputs without allocating intermediate network
+         * activation buffers. Final logits are copied into network-owned output
+         * buffer to preserve the external return semantics.
          *
-         * @param input Input tensor containing flattened MNIST images (batch_size, 784)
-         * @param output Output tensor for class logits (batch_size, 10)
-         *
-         * @throws std::runtime_error if classifier has not been built
+         * @param input Forward input tensor
+         * @return Pointer to network-owned output tensor (logits)
          */
-        void forward( const ITensor& input, ITensor& output )
+        TensorType& forward( const TensorType& input )
         {
             if ( !this->isBuilt() )
             {
                 throw std::runtime_error( "MnistClassifier: must be built before forward pass" );
             }
 
-            fc1_->forward( input, *hidden1_pre_act_ );
-            gelu1_->forward( *hidden1_pre_act_, *hidden1_ );
-            fc2_->forward( *hidden1_, *hidden2_pre_act_ );
-            gelu2_->forward( *hidden2_pre_act_, *hidden2_ );
-            output_fc_->forward( *hidden2_, output );
+            auto& fc1_out = fc1_->forward( input );
+            this->getExecutionContext()->synchronize();
+
+            fc1_out_ptr_ = &fc1_out;
+
+            auto& gelu1_out = gelu1_->forward( *fc1_out_ptr_ );
+            this->getExecutionContext()->synchronize();
+
+            gelu1_out_ptr_ = &gelu1_out;
+
+            auto& fc2_out = fc2_->forward( *gelu1_out_ptr_ );
+            this->getExecutionContext()->synchronize();
+
+            fc2_out_ptr_ = &fc2_out;
+
+            auto& gelu2_out = gelu2_->forward( *fc2_out_ptr_ );
+            this->getExecutionContext()->synchronize();
+
+            gelu2_out_ptr_ = &gelu2_out;
+
+            auto& logits = output_fc_->forward( *gelu2_out_ptr_ );
+            this->getExecutionContext()->synchronize();
+
+            logits_ptr_ = &logits;
+
+            // Copy final logits into network-owned output buffer and return it
+            //copy( *logits_ptr_, *owned_output_ );
+            //this->getExecutionContext()->synchronize();
+
+            return *logits_ptr_;
         }
 
         /**
-         * @brief Backward pass - HOT PATH, pure dispatch to child components.
+         * @brief Backward pass using child components' new backward() API.
          *
-         * Chains backward calls through the classifier structure in reverse order.
+         * Chains component backward calls using the forward inputs/outputs that
+         * were cached during the forward() call (component-owned pointers).
+         * Returns the component-owned input-gradient produced by the first layer.
          *
          * @param input Original forward input tensor
          * @param output_grad Gradient w.r.t. classifier output
-         * @param input_grad Gradient w.r.t. classifier input (output)
-         *
-         * @throws std::runtime_error if classifier has not been built
+         * @return Pointer to component-owned input gradient tensor
          */
-        void backward( const ITensor& input, const ITensor& output_grad /*, ITensor& input_grad */ )
+        TensorType& backward( const TensorType& input, const TensorType& output_grad )
         {
             if ( !this->isBuilt() )
             {
                 throw std::runtime_error( "MnistClassifier: must be built before backward pass" );
             }
 
-            // Use pre-allocated gradient buffers created during onBuilding().
-            // Caller must call zeroGradients() to ensure buffers are cleared before use.
-            output_fc_->backward( *hidden2_, output_grad, *hidden2_grad_ );
-            gelu2_->backward( *hidden2_pre_act_, *hidden2_grad_, *hidden2_pre_grad_ );
-            fc2_->backward( *hidden1_, *hidden2_pre_grad_, *hidden1_grad_ );
-            gelu1_->backward( *hidden1_pre_act_, *hidden1_grad_, *hidden1_pre_grad_ );
-            fc1_->backward( input, *hidden1_pre_grad_, *input_grad_ );
+            if ( !this->isTraining() )
+            {
+                throw std::runtime_error( "MnistClassifier: backward requires training mode (setTraining(true))." );
+            }
+
+            // Validate we have cached forward activation pointers
+            if ( !gelu2_out_ptr_ || !fc2_out_ptr_ || !gelu1_out_ptr_ || !fc1_out_ptr_ )
+            {
+                throw std::runtime_error( "MnistClassifier: forward activations not present for backward. Call forward() before backward()." );
+            }
+
+            // output_fc backward -> gradient w.r.t. gelu2_out (component-owned)
+            auto& hidden2_grad_ptr = output_fc_->backward( *gelu2_out_ptr_, output_grad );
+            this->getExecutionContext()->synchronize();
+
+            // gelu2 backward -> gradient w.r.t. fc2_out (component-owned)
+            auto& hidden2_pre_grad_ptr = gelu2_->backward( *fc2_out_ptr_, hidden2_grad_ptr );
+            this->getExecutionContext()->synchronize();
+
+            // fc2 backward -> gradient w.r.t. gelu1_out (component-owned)
+            auto& hidden1_grad_ptr = fc2_->backward( *gelu1_out_ptr_, hidden2_pre_grad_ptr );
+            this->getExecutionContext()->synchronize();
+
+            // gelu1 backward -> gradient w.r.t. fc1_out (component-owned)
+            auto& hidden1_pre_grad_ptr = gelu1_->backward( *fc1_out_ptr_, hidden1_grad_ptr );
+            this->getExecutionContext()->synchronize();
+
+            // fc1 backward -> gradient w.r.t. input (component-owned)
+            auto& input_grad_ptr = fc1_->backward( input, hidden1_pre_grad_ptr );
+            this->getExecutionContext()->synchronize();
+
+            // Return the component-owned input gradient
+            return input_grad_ptr;
         }
 
         void zeroGradients() override
@@ -218,32 +268,8 @@ namespace Mila::Mnist
                 return;
             }
 
-            // Zero activation/hidden gradients allocated during build
-            if ( hidden2_grad_ )
-            {
-                //zeros( *hidden2_grad_ );
-                zero( *hidden2_grad_ );
-            }
-
-            if ( hidden2_pre_grad_ )
-            {
-                //zeros( *hidden2_pre_grad_ );
-                zero( *hidden2_pre_grad_ );
-            }
-
-            if ( hidden1_grad_ )
-            {
-                //zeros( *hidden1_grad_ );
-                zero( *hidden1_grad_ );
-            }
-
-            if ( hidden1_pre_grad_ )
-            {
-                //zeros( *hidden1_pre_grad_ );
-                zero( *hidden1_pre_grad_ );
-            }
-
-            // Zero gradients in child components
+            // Zero gradients in child components only; intermediate activation
+            // buffers and grads are owned and managed by components now.
             fc1_->zeroGradients();
             fc2_->zeroGradients();
             output_fc_->zeroGradients();
@@ -337,7 +363,7 @@ namespace Mila::Mnist
          * @brief Save classifier-specific configuration (required by Network base).
          *
          * Implements the serialization contract by writing type identifier
-         * and configuration metadata to enable reconstruction via Load().
+         * and configuration metadata to enable reconstruction via Load(). 
          *
          * @param archive Archive to write to
          * @param mode Serialization mode (passed from Network::save())
@@ -365,18 +391,6 @@ namespace Mila::Mnist
             archive.writeMetadata( "classifier_meta.json", meta );
         }
 
-        /**
-         * @brief Hook invoked during build() to initialize classifier with input shape.
-         *
-         * Validates input shape, computes per-layer shapes, caches typed pointers to children,
-         * builds all child components with appropriate shapes, and allocates intermediate buffers.
-         *
-         * All children have ExecutionContext at this point (propagated in constructor).
-         *
-         * @param input_shape Expected input tensor shape
-         *
-         * @throws std::invalid_argument if input_shape is invalid for MNIST
-         */
         void onBuilding( const shape_t& input_shape ) override
         {
             validateInputShape( input_shape );
@@ -408,36 +422,18 @@ namespace Mila::Mnist
             output_fc_ = this->template getComponentAs<LinearType>( this->getName() + ".output" );
             output_fc_->build( hidden2_shape_ );
 
-            // Allocate intermediate activation buffers
+            // Allocate network-owned output buffer (logits)
             auto device = this->getDeviceId();
 
-            input_grad_ = std::make_shared<TensorType>( device, input_shape_ );
-            input_grad_->setName( this->getName() + ".input_grad" );
+            owned_output_ = std::make_shared<TensorType>( device, output_shape_ );
+            owned_output_->setName( this->getName() + ".output" );
 
-            hidden1_pre_act_ = std::make_shared<TensorType>( device, hidden1_shape_ );
-            hidden1_pre_act_->setName( this->getName() + ".hidden1_pre_act" );
-
-            hidden1_ = std::make_shared<TensorType>( device, hidden1_shape_ );
-            hidden1_->setName( this->getName() + ".hidden1" );
-
-            hidden2_pre_act_ = std::make_shared<TensorType>( device, hidden2_shape_ );
-            hidden2_pre_act_->setName( this->getName() + ".hidden2_pre_act" );
-
-            hidden2_ = std::make_shared<TensorType>( device, hidden2_shape_ );
-            hidden2_->setName( this->getName() + ".hidden2" );
-
-            // Pre-allocate gradient tensors used during backward propagation.
-            hidden2_grad_ = std::make_shared<TensorType>( device, hidden2_shape_ );
-            hidden2_grad_->setName( this->getName() + ".hidden2_grad" );
-
-            hidden2_pre_grad_ = std::make_shared<TensorType>( device, hidden2_shape_ );
-            hidden2_pre_grad_->setName( this->getName() + ".hidden2_pre_grad" );
-
-            hidden1_grad_ = std::make_shared<TensorType>( device, hidden1_shape_ );
-            hidden1_grad_->setName( this->getName() + ".hidden1_grad" );
-
-            hidden1_pre_grad_ = std::make_shared<TensorType>( device, hidden1_shape_ );
-            hidden1_pre_grad_->setName( this->getName() + ".hidden1_pre_grad" );
+            // Clear cached component pointers used for chaining (will be set during forward)
+            fc1_out_ptr_ = nullptr;
+            gelu1_out_ptr_ = nullptr;
+            fc2_out_ptr_ = nullptr;
+            gelu2_out_ptr_ = nullptr;
+            logits_ptr_ = nullptr;
         }
 
     private:
@@ -464,18 +460,15 @@ namespace Mila::Mnist
         std::shared_ptr<GeluType> gelu2_{ nullptr };
         std::shared_ptr<LinearType> output_fc_{ nullptr };
 
-        // Activation buffers (allocated during onBuilding)
-        std::shared_ptr<TensorType> hidden1_pre_act_{ nullptr };
-        std::shared_ptr<TensorType> hidden1_{ nullptr };
-        std::shared_ptr<TensorType> hidden2_pre_act_{ nullptr };
-        std::shared_ptr<TensorType> hidden2_{ nullptr };
+        // Component-owned activation pointers cached during forward
+        TensorType* fc1_out_ptr_{ nullptr };
+        TensorType* gelu1_out_ptr_{ nullptr };
+        TensorType* fc2_out_ptr_{ nullptr };
+        TensorType* gelu2_out_ptr_{ nullptr };
+        TensorType* logits_ptr_{ nullptr };
 
-        // Gradient buffers (pre-allocated during onBuilding)
-        std::shared_ptr<TensorType> input_grad_{ nullptr };
-        std::shared_ptr<TensorType> hidden2_grad_{ nullptr };
-        std::shared_ptr<TensorType> hidden2_pre_grad_{ nullptr };
-        std::shared_ptr<TensorType> hidden1_grad_{ nullptr };
-        std::shared_ptr<TensorType> hidden1_pre_grad_{ nullptr };
+        // Network-owned forward output buffer (new API)
+        std::shared_ptr<TensorType> owned_output_{ nullptr };
 
         /**
          * @brief Create the MNIST classifier network graph (context-independent).
@@ -507,7 +500,7 @@ namespace Mila::Mnist
             auto cfg = LinearConfig( in_features, out_features )
                 .withBias( false );
 
-            auto linear = std::make_shared<LinearType>(
+            auto linear = std::make_shared<LinearType>( 
                 this->getName() + "." + suffix, cfg, std::nullopt );
 
             this->addComponent( linear );

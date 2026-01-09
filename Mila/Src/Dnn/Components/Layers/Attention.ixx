@@ -57,13 +57,6 @@ namespace Mila::Dnn
      * The backend compute implementation (registered as "AttentionOp") must
      * accept the concatenated QKV input and produce an output of shape
      *   output shape == [B, T, embedding_dim]
-     *
-     * Construction modes:
-     * - Standalone: provide DeviceId and component will create and own an ExecutionContext.
-     * - Deferred/shared: omit DeviceId and caller must call setExecutionContext() before build().
-     *
-     * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda)
-     * @tparam TPrecision Abstract tensor precision (TensorDataType)
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
@@ -102,25 +95,59 @@ namespace Mila::Dnn
         ~Attention() override = default;
 
         // ====================================================================
-        // Compute operation dispatch
+        // Compute operation dispatch (new API)
         // ====================================================================
 
-        void forward( const ITensor& input, ITensor& output )
+        /**
+         * @brief Run forward pass and return component-owned output tensor.
+         *
+         * Allocates and reuses an output tensor owned by the component (allocated
+         * in onBuilding()). Delegates to backend `operation_->forward`.
+         *
+         * @param input Concatenated QKV input tensor.
+         * @return Reference to component-owned TensorType containing the forward result.
+         *
+         * @throws std::runtime_error if component not built or backend not initialized.
+         */
+        TensorType& forward( const TensorType& input )
         {
             if ( !this->isBuilt() )
             {
                 throw std::runtime_error( "Attention module must be built before calling forward." );
             }
 
-            validateForwardShapes( input, output );
+            validateConcatenatedQKVShape( input.shape() );
 
-            operation_->forward( input, output );
+            if ( !operation_ )
+            {
+                throw std::runtime_error( "Attention: operation backend not initialized" );
+            }
+
+            if ( !owned_output_ )
+            {
+                throw std::runtime_error( "Attention: owned output buffer not allocated" );
+            }
+
+            operation_->forward( input, *owned_output_ );
+
+            return *owned_output_;
         }
 
-        void backward(
-            const ITensor& input,
-            const ITensor& output_grad,
-            ITensor& input_grad )
+        /**
+         * @brief Run backward pass and return component-owned input-gradient tensor.
+         *
+         * Uses an input-gradient tensor owned by the component (allocated in onBuilding())
+         * and delegates to backend `operation_->backward`.
+         *
+         * @param input Concatenated QKV input tensor used by forward.
+         * @param output_grad Gradient w.r.t. the module output.
+         * @return Reference to component-owned TensorType containing the input gradient.
+         *
+         * @throws std::runtime_error if component not built, not in training mode, or backend not initialized.
+         */
+        TensorType& backward(
+            const TensorType& input,
+            const TensorType& output_grad )
         {
             if ( !this->isBuilt() )
             {
@@ -132,9 +159,21 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Attention must be in training mode to call backward. Call setTraining(true) first." );
             }
 
-            validateBackwardShapes( input, output_grad, input_grad );
+            validateConcatenatedQKVShape( input.shape() );
 
-            operation_->backward( input, output_grad, input_grad );
+            if ( !operation_ )
+            {
+                throw std::runtime_error( "Attention: operation backend not initialized" );
+            }
+
+            if ( !owned_input_grad_ )
+            {
+                throw std::runtime_error( "Attention: owned input-grad buffer not allocated" );
+            }
+
+            operation_->backward( input, output_grad, *owned_input_grad_ );
+
+            return *owned_input_grad_;
         }
 
         // ====================================================================
@@ -229,6 +268,20 @@ namespace Mila::Dnn
             operation_->setParameters( nullptr, nullptr );
 
             operation_->build( input_shape );
+
+            input_shape_ = input_shape;
+
+            // Allocate component-owned forward output and input-grad tensors.
+            auto device = this->getExecutionContext()->getDeviceId();
+
+            shape_t out_shape = input_shape_;
+            out_shape.back() = config_.getEmbeddingDim();
+
+            owned_output_ = std::make_unique<TensorType>( device, out_shape );
+            owned_output_->setName( this->getName() + ".output" );
+
+            owned_input_grad_ = std::make_unique<TensorType>( device, input_shape_ );
+            owned_input_grad_->setName( this->getName() + ".input.grad" );
         }
 
         void onTrainingChanging( bool is_training ) override
@@ -246,6 +299,10 @@ namespace Mila::Dnn
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
 
+        // Component-owned buffers (new API): forward output and input gradient
+        std::unique_ptr<TensorType> owned_output_{ nullptr };
+        std::unique_ptr<TensorType> owned_input_grad_{ nullptr };
+
         void validateConcatenatedQKVShape( const shape_t& shape ) const
         {
             if ( shape.size() != 3 )
@@ -262,62 +319,6 @@ namespace Mila::Dnn
                 oss << "Attention: expected concatenated QKV trailing dimension " << expected
                     << " (3 * embedding_dim), got " << trailing;
                 throw std::invalid_argument( oss.str() );
-            }
-        }
-
-        void validateForwardShapes( const ITensor& input, const ITensor& output ) const
-        {
-            const auto& in_shape = input.shape();
-            const auto& out_shape = output.shape();
-
-            validateConcatenatedQKVShape( in_shape );
-
-            if ( out_shape.size() != 3 )
-            {
-                throw std::invalid_argument( "Attention: output must be 3D model-layout [B, T, embedding_dim]" );
-            }
-
-            const int64_t out_trailing = out_shape.back();
-            const int64_t expected_out = config_.getEmbeddingDim();
-
-            if ( out_trailing != expected_out )
-            {
-                std::ostringstream oss;
-                oss << "Attention: expected output trailing dimension " << expected_out
-                    << " (embedding_dim), got " << out_trailing;
-                throw std::invalid_argument( oss.str() );
-            }
-
-            if ( in_shape[ 0 ] != out_shape[ 0 ] || in_shape[ 1 ] != out_shape[ 1 ] )
-            {
-                throw std::invalid_argument( "Attention: input and output batch/sequence dimensions must match" );
-            }
-        }
-
-        void validateBackwardShapes(
-            const ITensor& input,
-            const ITensor& output_grad,
-            const ITensor& input_grad ) const
-        {
-            const auto& in_shape = input.shape();
-            validateConcatenatedQKVShape( in_shape );
-
-            const auto& outg_shape = output_grad.shape();
-            if ( outg_shape.size() != 3 || outg_shape.back() != config_.getEmbeddingDim() )
-            {
-                throw std::invalid_argument( "Attention: output_grad must have model-layout trailing dim == embedding_dim" );
-            }
-
-            const auto& ing_shape = input_grad.shape();
-            if ( ing_shape.size() != 3 || ing_shape.back() != config_.getEmbeddingDim() * 3 )
-            {
-                throw std::invalid_argument( "Attention: input_grad must have model-layout trailing dim == 3 * embedding_dim" );
-            }
-
-            if ( in_shape[ 0 ] != outg_shape[ 0 ] || in_shape[ 1 ] != outg_shape[ 1 ] ||
-                in_shape[ 0 ] != ing_shape[ 0 ] || in_shape[ 1 ] != ing_shape[ 1 ] )
-            {
-                throw std::invalid_argument( "Attention: batch/sequence dimensions must match across input, output_grad and input_grad" );
             }
         }
 

@@ -6,12 +6,6 @@
  * configurable connection types (Addition, ScaledAddition, Gated) and optional
  * projection when input/output dimensions differ. Computation is delegated to
  * a device-specific binary operation backend obtained from the OperationRegistry.
- *
- * This implementation is device- and precision-parameterized and follows the
- * same component interface used by other layers (see `Component.ixx` and `Linear.ixx`).
- *
- * @tparam TDeviceType Compile-time device identifier (DeviceType::Cpu or DeviceType::Cuda).
- * @tparam TPrecision  Abstract tensor precision (TensorDataType).
  */
 
 module;
@@ -63,6 +57,12 @@ namespace Mila::Dnn
      * Delegates binary residual computation to a device-specific backend
      * operation. Parameters (if any) and any projection tensors are stored as
      * `Tensor` instances bound to the associated execution context.
+     *
+     * New API:
+     * - `forward(...)` returns pointer to a component-owned output `ITensor`
+     * - `backward(...)` returns pointer to a component-owned input-gradient for the first input.
+     *   The component also owns the gradient for the second input which can be
+     *   accessed via `getInputBGrad()`.
      *
      * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda).
      * @tparam TPrecision  Abstract tensor precision (TensorDataType).
@@ -121,14 +121,20 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Execute the forward pass.
+         * @brief Execute the forward pass and return component-owned output tensor.
          *
-         * Delegates to the backend binary operation. Inputs and outputs are
-         * provided as abstract `ITensor` references to remain device-agnostic.
+         * The returned pointer is owned by the component and is valid until the
+         * component is destroyed or rebuilt. The backend BinaryOperation signature
+         * is unchanged; the component provides the owned output tensor when
+         * invoking the backend.
+         *
+         * @param input_a Left input tensor.
+         * @param input_b Right input tensor.
+         * @return Pointer to component-owned ITensor containing the forward result.
          *
          * @throws std::runtime_error if component has not been built or backend missing.
          */
-        void forward( const ITensor& input_a, const ITensor& input_b, ITensor& output )
+        TensorType& forward( const TensorType& input_a, const TensorType& input_b )
         {
             if ( !this->isBuilt() )
             {
@@ -140,31 +146,53 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Residual::forward: operation backend not initialized" );
             }
 
-            operation_->forward( input_a, input_b, output );
+            if ( !owned_output_ )
+            {
+                throw std::runtime_error( "Residual::forward: owned output buffer not allocated" );
+            }
+
+            operation_->forward( input_a, input_b, *owned_output_ );
+
+            return *owned_output_;
         }
 
         /**
-         * @brief Execute the backward pass
+         * @brief Execute the backward pass and return component-owned gradient for input_a.
          *
-         * @throws std::runtime_error if backend not initialized.
+         * Component owns both input gradients (for input_a and input_b). The method
+         * returns the gradient tensor for `input_a`. The gradient for `input_b` can
+         * be accessed via `getInputBGrad()` after calling `backward()`.
+         *
+         * @param input_a Left forward input.
+         * @param input_b Right forward input.
+         * @param output_grad Gradient with respect to the component output.
+         * @return Pointer to component-owned ITensor containing gradient w.r.t. input_a.
+         *
+         * @throws std::runtime_error if backend not initialized or if component not built/training.
          */
-        void backward( 
-            const ITensor& input_a, const ITensor& input_b,
-            const ITensor& output_grad, 
-            ITensor& input_a_grad, ITensor& input_b_grad )
+        std::pair<TensorType&, TensorType&> backward(
+            const TensorType& input_a,
+            const TensorType& input_b,
+            const TensorType& output_grad )
         {
-            if ( !operation_ )
+            if ( !this->isBuilt() )
             {
-                throw std::runtime_error( "Residual::backward: operation backend not initialized" );
+                throw std::runtime_error( "Residual::backward: component must be built before backward pass" );
+            }
+
+            if ( !this->isTraining() )
+            {
+                throw std::runtime_error( "Residual::backward: component must be in training mode to compute gradients" );
             }
 
             operation_->backward(
                 input_a,
                 input_b,
                 output_grad,
-                input_a_grad,
-                input_b_grad
-            );
+                *owned_input_a_grad_,
+                *owned_input_b_grad_ );
+
+            return { *owned_input_a_grad_, *owned_input_b_grad_ };
         }
 
         /**
@@ -188,16 +216,6 @@ namespace Mila::Dnn
             // No-op placeholder; serialize parameter tensors if needed
             (void)archive;
             (void)mode;
-        }
-
-        std::vector<ITensor*> getParameters() const override
-        {
-            return {};
-        }
-
-        std::vector<ITensor*> getGradients() const override
-        {
-            return {};
         }
 
         DeviceId getDeviceId() const override
@@ -248,6 +266,22 @@ namespace Mila::Dnn
             operation_->build( input_shape );
 
             input_shape_ = input_shape;
+
+            // Allocate component-owned forward output and input-gradient tensors.
+            auto device = this->getExecutionContext()->getDeviceId();
+
+            // Output shape is same as input_a/input_b output (assume reduction of features handled in op)
+            owned_output_ = std::make_shared<TensorType>( device, input_shape_ );
+            owned_output_->setName( this->getName() + ".output" );
+
+            // Allocate gradients for both inputs (same shape as respective inputs)
+            owned_input_a_grad_ = std::make_shared<TensorType>( device, input_shape_ );
+            owned_input_a_grad_->setName( this->getName() + ".input_a.grad" );
+            zero( *owned_input_a_grad_ );
+
+            owned_input_b_grad_ = std::make_shared<TensorType>( device, input_shape_ );
+            owned_input_b_grad_->setName( this->getName() + ".input_b.grad" );
+            zero( *owned_input_b_grad_ );
         }
 
         /**
@@ -267,6 +301,31 @@ namespace Mila::Dnn
             }
         }
 
+        /**
+         * @brief Return non-owning pointers to parameter tensors.
+         *
+         * Residual has no trainable parameter tensors by default; return empty list.
+         */
+        std::vector<ITensor*> getParameters() const override
+        {
+            return {};
+        }
+
+        /**
+         * @brief Return non-owning pointers to parameter gradient tensors.
+         *
+         * Only valid in training mode. Residual has no trainable parameters by default.
+         */
+        std::vector<ITensor*> getGradients() const override
+        {
+            if ( !this->isTraining() )
+            {
+                throw std::runtime_error( "Residual: getGradients called when not in training mode" );
+            }
+
+            return {};
+        }
+
     private:
 
         ResidualConfig config_;
@@ -274,6 +333,12 @@ namespace Mila::Dnn
 
         std::shared_ptr<BinaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
+
+        // REVIEW: should be unique_ptr for owned buffers
+        // Component-owned buffers
+        std::shared_ptr<TensorType> owned_output_{ nullptr };
+        std::shared_ptr<TensorType> owned_input_a_grad_{ nullptr };
+        std::shared_ptr<TensorType> owned_input_b_grad_{ nullptr };
 
         /**
          * @brief Create backend BinaryOperation from OperationRegistry.

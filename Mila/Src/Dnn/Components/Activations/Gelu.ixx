@@ -163,54 +163,49 @@ namespace Mila::Dnn
          * @brief Run the forward computation for this GELU component.
          *
          * Delegates the computation to the device-specific UnaryOperation backend.
-         * The caller must ensure `input` and `output` are allocated on the same
-         * device as this component and that `build()` has been called.
+         * The component owns an output buffer that is allocated during onBuilding().
          *
          * @param input Const reference to the input tensor (non-owning).
-         * @param output Reference to the tensor that will receive results (caller-allocated).
+         * @return Pointer to an ITensor containing the forward result.
          *
          * @throws std::runtime_error if component has not been built via build().
          * @throws std::runtime_error if operation backend is not initialized.
          */
-        void forward( const ITensor& input, ITensor& output )
+        TensorType& forward( const TensorType& input )
         {
             if ( !this->isBuilt() )
             {
                 throw std::runtime_error( "Gelu::forward: component must be built before forward pass" );
             }
 
-            if ( !operation_ )
-            {
-                throw std::runtime_error( "Gelu::forward: operation backend not initialized" );
-            }
+            operation_->forward( input, *output_ );
 
-            operation_->forward( input, output );
+            return *output_;
         }
 
         /**
          * @brief Compute gradients with respect to the component input.
          *
          * Delegates to the backend UnaryOperation::backward implementation to compute
-         * the gradient of GELU with respect to the input. For GELU, there are no
-         * trainable parameters, so this only computes input gradients.
+         * the gradient of GELU with respect to the input. The component owns the
+         * input gradient buffer which is allocated during onBuilding().
          *
          * The gradient computation follows the chain rule:
          * dL/dinput = dL/doutput * dGELU(input)/dinput
          *
          * @param input Const reference to the original forward input.
          * @param output_grad Const reference to the gradient w.r.t. component output (?L/?output).
-         * @param input_grad Reference to the tensor to be populated with the gradient
-         *                   w.r.t. the component input (?L/?input, caller-allocated).
+         * @return Pointer to an ITensor containing the computed input gradient.
          *
          * @throws std::runtime_error if component has not been built via build().
          * @throws std::runtime_error if component is not in training mode.
          * @throws std::runtime_error if operation backend is not initialized.
          *
          * @note GELU has no parameters, so no parameter gradients are computed.
-         * @note The implementation accumulates into input_grad (does not overwrite).
+         * @note The implementation may accumulate into the returned tensor (backend-dependent).
          * @note Requires setTraining(true) for gradient computation in some backends.
          */
-        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
+        TensorType& backward( const TensorType& input, const TensorType& output_grad )
         {
             if ( !this->isBuilt() )
             {
@@ -222,12 +217,17 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Gelu::backward: component must be in training mode to compute gradients" );
             }
 
-            if ( !operation_ )
-            {
-                throw std::runtime_error( "Gelu::backward: operation backend not initialized" );
-            }
+            // NOTE: Do not zero the owned input-gradient buffer here. Some callers
+            // (unit tests and higher-level components) expect the operation to
+            // accumulate into the returned tensor across multiple backward calls.
+            // The backend UnaryOperation implementations perform accumulation
+            // using += semantics.
+            //
+            // zero( *input_grad_ );  // removed to preserve accumulation semantics
 
-            operation_->backward( input, output_grad, input_grad );
+            operation_->backward( input, output_grad, *input_grad_ );
+
+            return *input_grad_;
         }
 
         /**
@@ -478,6 +478,15 @@ namespace Mila::Dnn
 
             operation_->build( input_shape );
             input_shape_ = input_shape;
+
+            // Allocate owned output and input-gradient tensors with device binding.
+            // Buffers are owned by this component and reused across calls.
+            DeviceId dev_id = this->getExecutionContext()->getDeviceId();
+
+            output_ = std::make_unique<TensorType>( dev_id, input_shape_ );
+
+            input_grad_ = std::make_unique<TensorType>( dev_id, input_shape_ );
+            zero( *input_grad_ );
         }
 
         /**
@@ -507,8 +516,12 @@ namespace Mila::Dnn
 
         GeluConfig config_;
         shape_t input_shape_;
+       
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
+
+        std::unique_ptr<TensorType> output_{ nullptr };
+        std::unique_ptr<TensorType> input_grad_{ nullptr };
 
         /**
          * @brief Validate metadata from archive during deserialization.

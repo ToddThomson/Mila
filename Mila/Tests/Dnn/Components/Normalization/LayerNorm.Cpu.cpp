@@ -238,13 +238,19 @@ namespace Dnn::Components::Normalization::Tests
         data.module->build( data.shape );
 
         TensorType input( Device::Cpu(), data.shape );
-        TensorType output( Device::Cpu(), data.shape );
 
         random( input, -2.0f, 2.0f );
 
-        EXPECT_NO_THROW( data.module->forward( input, output ) );
-        EXPECT_EQ( output.size(), input.size() );
-        EXPECT_EQ( output.shape(), input.shape() );
+        TensorType* out_ptr = nullptr;
+
+        EXPECT_NO_THROW( { auto& out_ref = data.module->forward( input ); out_ptr = &out_ref; } );
+        ASSERT_NE( out_ptr, nullptr );
+
+        auto* out = out_ptr;
+        ASSERT_NE( out, nullptr );
+
+        EXPECT_EQ( out->size(), input.size() );
+        EXPECT_EQ( out->shape(), input.shape() );
     }
 
     template<TensorDataType TPrecision>
@@ -461,7 +467,6 @@ namespace Dnn::Components::Normalization::Tests
         data.module->build( data.shape );
 
         CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.shape );
-        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.shape );
 
         std::mt19937 rng( 123 );
         std::uniform_real_distribution<float> dist( -5.0f, 5.0f );
@@ -496,9 +501,14 @@ namespace Dnn::Components::Normalization::Tests
             }
         }
 
-        data.module->forward( input, output );
+        Tensor<TensorDataType::FP32, CpuMemoryResource>* out_ptr = nullptr;
+        EXPECT_NO_THROW( { auto& out_ref = data.module->forward( input ); out_ptr = &out_ref; } );
+        ASSERT_NE( out_ptr, nullptr );
 
-        ValidateNormalization<TensorDataType::FP32>( output, data.normalized_shape, data.config.getEpsilon() );
+        auto* out_tensor = out_ptr;
+        ASSERT_NE( out_tensor, nullptr );
+
+        ValidateNormalization<TensorDataType::FP32>( *out_tensor, data.normalized_shape, data.config.getEpsilon() );
     }
 
     TEST_F( LayerNormCpuTests, Forward_MultipleTrailingDims )
@@ -512,7 +522,6 @@ namespace Dnn::Components::Normalization::Tests
         data.module->build( data.shape );
 
         CpuTensor<TensorDataType::FP32> input( Device::Cpu(), shape );
-        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), shape );
 
         std::mt19937 rng( 456 );
         std::uniform_real_distribution<float> dist( -3.0f, 3.0f );
@@ -524,8 +533,14 @@ namespace Dnn::Components::Normalization::Tests
             input_ptr[i] = dist( rng );
         }
 
-        EXPECT_NO_THROW( data.module->forward( input, output ) );
-        EXPECT_EQ( output.size(), input.size() );
+        Tensor<TensorDataType::FP32, CpuMemoryResource>* out_ptr = nullptr;
+        EXPECT_NO_THROW( { auto& out_ref = data.module->forward( input ); out_ptr = &out_ref; } );
+        ASSERT_NE( out_ptr, nullptr );
+
+        auto* out_tensor = out_ptr;
+        ASSERT_NE( out_tensor, nullptr );
+
+        EXPECT_EQ( out_tensor->size(), input.size() );
     }
 
     TEST_F( LayerNormCpuTests, WithAxis_Construction )
@@ -600,7 +615,6 @@ namespace Dnn::Components::Normalization::Tests
         data.module->build( data.shape );
 
         CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.shape );
-        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.shape );
 
         auto input_ptr = input.data();
 
@@ -609,7 +623,9 @@ namespace Dnn::Components::Normalization::Tests
             input_ptr[i] = 0.0f;
         }
 
-        EXPECT_NO_THROW( data.module->forward( input, output ) );
+        Tensor<TensorDataType::FP32, CpuMemoryResource>* out_ptr = nullptr;
+        EXPECT_NO_THROW( { auto& out_ref = data.module->forward( input ); out_ptr = &out_ref; } );
+        ASSERT_NE( out_ptr, nullptr );
     }
 
     TEST_F( LayerNormCpuTests, EdgeCase_ConstantValues )
@@ -618,7 +634,6 @@ namespace Dnn::Components::Normalization::Tests
         data.module->build( data.shape );
 
         CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.shape );
-        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.shape );
 
         auto input_ptr = input.data();
 
@@ -627,7 +642,9 @@ namespace Dnn::Components::Normalization::Tests
             input_ptr[i] = 5.0f;
         }
 
-        EXPECT_NO_THROW( data.module->forward( input, output ) );
+        Tensor<TensorDataType::FP32, CpuMemoryResource>* out_ptr = nullptr;
+        EXPECT_NO_THROW( { auto& out_ref = data.module->forward( input ); out_ptr = &out_ref; } );
+        ASSERT_NE( out_ptr, nullptr );
     }
 
     TEST_F( LayerNormCpuTests, Error_BuildWithoutContext )
@@ -661,10 +678,9 @@ namespace Dnn::Components::Normalization::Tests
             "unbuild", medium_shape_, -1 );
 
         CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.shape );
-        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.shape );
 
         EXPECT_THROW(
-            data.module->forward( input, output ),
+            data.module->forward( input ),
             std::runtime_error
         );
     }
@@ -677,10 +693,9 @@ namespace Dnn::Components::Normalization::Tests
         shape_t wrong_shape = { 2, 3, 8 };
 
         CpuTensor<TensorDataType::FP32> input( Device::Cpu(), wrong_shape );
-        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), wrong_shape );
 
         EXPECT_THROW(
-            data.module->forward( input, output ),
+            data.module->forward( input ),
             std::invalid_argument
         );
     }
@@ -712,7 +727,6 @@ namespace Dnn::Components::Normalization::Tests
         data.module->build( data.shape );
 
         CpuTensor<TensorDataType::FP32> input( Device::Cpu(), data.shape );
-        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), data.shape );
 
         std::mt19937 rng( 789 );
         std::uniform_real_distribution<float> dist( -2.0f, 2.0f );
@@ -726,7 +740,9 @@ namespace Dnn::Components::Normalization::Tests
                 input_ptr[i] = dist( rng );
             }
 
-            EXPECT_NO_THROW( data.module->forward( input, output ) );
+            Tensor<TensorDataType::FP32, CpuMemoryResource>* out_ptr = nullptr;
+            EXPECT_NO_THROW( { auto& out_ref = data.module->forward( input ); out_ptr = &out_ref; } );
+            ASSERT_NE( out_ptr, nullptr );
         }
     }
 }
