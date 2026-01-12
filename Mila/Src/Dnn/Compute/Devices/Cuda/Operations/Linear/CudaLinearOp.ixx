@@ -828,7 +828,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             cached_out_features_ = static_cast<int>(config_.getOutputFeatures());
 
             cached_cublaslt_handle_ = context_->getCublasLtHandle();
-            use_cublaslt_ = false; // FIXME: (cached_cublaslt_handle_ != nullptr) && supportsCuBLASLt();
+            use_cublaslt_ = (cached_cublaslt_handle_ != nullptr) && supportsCuBLASLt();
 
             cached_precision_policy_ = config_.getPrecisionPolicy();
 
@@ -933,7 +933,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
                 // 1. Compute input gradient: dX = W * dY
                 // OVERWRITE input gradient (beta=0), not accumulate
-				const float beta_input = 0.0f; // This fixes the invalid arg we were having
+				const float beta_input = 0.0f;
 
                 Detail::execute_cublaslt_plan(
                     cached_cublaslt_handle_,
@@ -943,12 +943,12 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     output_grad_ptr,
                     &beta_input,
                     input_grad_ptr,
-					static_cast<const NativeType*>(nullptr), // no bias
+					static_cast<const NativeType*>(nullptr),
                     stream );
 
-                // 2. Compute weight gradient: dW = X * dY^T
+                // 2. Compute weight gradient: dW += X * dY^T
 				// ACCUMULATE into weight gradient (beta=1)
-				const float beta_params = 1.0f;
+                const float beta_params = 0.0f; // FIXME was 1.0f;
                 
                 Detail::execute_cublaslt_plan(
                     cached_cublaslt_handle_,

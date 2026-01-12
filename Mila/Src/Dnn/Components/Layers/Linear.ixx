@@ -128,16 +128,6 @@ namespace Mila::Dnn
 
             validateInputShape( input.shape() );
 
-            if ( !operation_ )
-            {
-                throw std::runtime_error( "Linear: operation backend not initialized" );
-            }
-
-            if ( !owned_output_ )
-            {
-                throw std::runtime_error( "Linear: owned output buffer not allocated" );
-            }
-
             operation_->forward( input, *owned_output_ );
 
             return *owned_output_;
@@ -168,7 +158,10 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Linear Component must be in training mode to call backward. Call setTraining(true) first." );
             }
 
-            // Zero input gradient buffer before accumulation. Backend operation accumulates into this buffer.
+            // Zero input gradient buffer before backward pass. No exeptions.
+            // Backend ops use accumulation (atomicAdd/+=) which requires pre-zeroed buffers
+            // to prevent gradient buildup across calls. Without this, gradients grow linearly
+            // with each call -> explosion.
             zero( *owned_input_grad_ );
 
             // DEBUG: Dump W and B and input
@@ -359,6 +352,46 @@ namespace Mila::Dnn
             return config_;
         }
 
+        std::vector<ITensor*> getParameters() const override
+        {
+            std::vector<ITensor*> params;
+
+            if ( weight_ )
+            {
+                params.push_back( weight_.get() );
+            }
+
+            if ( bias_ )
+            {
+                params.push_back( bias_.get() );
+            }
+
+            return params;
+        }
+
+        std::vector<ITensor*> getGradients() const override
+        {
+            if ( !this->isTraining() )
+            {
+                throw std::runtime_error( "Linear: getGradients called when not in training mode" );
+            }
+
+            std::vector<ITensor*> grads;
+
+            if ( weight_grad_ )
+            {
+                grads.push_back( weight_grad_.get() );
+            }
+
+            if ( bias_grad_ )
+            {
+                grads.push_back( bias_grad_.get() );
+            }
+
+            return grads;
+        }
+
+
     protected:
 
         /**
@@ -453,45 +486,7 @@ namespace Mila::Dnn
             }
         }
 
-        std::vector<ITensor*> getParameters() const override
-        {
-            std::vector<ITensor*> params;
-
-            if ( weight_ )
-            {
-                params.push_back( weight_.get() );
-            }
-
-            if ( bias_ )
-            {
-                params.push_back( bias_.get() );
-            }
-
-            return params;
-        }
-
-        std::vector<ITensor*> getGradients() const override
-        {
-            if ( !this->isTraining() )
-            {
-                throw std::runtime_error( "Linear: getGradients called when not in training mode" );
-            }
-
-            std::vector<ITensor*> grads;
-
-            if ( weight_grad_ )
-            {
-                grads.push_back( weight_grad_.get() );
-            }
-
-            if ( bias_grad_ )
-            {
-                grads.push_back( bias_grad_.get() );
-            }
-
-            return grads;
-        }
-
+        
     private:
 
         LinearConfig config_;

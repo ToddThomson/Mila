@@ -146,6 +146,7 @@ namespace Mila::Dnn::Compute
             {
                 float x = input_data[i];
                 float cube = static_cast<float>( 0.044715f * x * x * x );
+                
                 output_data[i] = static_cast<float>( 0.5f * x * (1.0f + tanhf( GELU_SCALING_FACTOR * (x + cube) )) );
             }
         }

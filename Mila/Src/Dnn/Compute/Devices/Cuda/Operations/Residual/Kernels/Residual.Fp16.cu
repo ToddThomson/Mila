@@ -139,6 +139,7 @@ namespace Mila::Dnn::Compute::Cuda::Residual
         half* out,
         const half* inp1,
         const half* inp2,
+        float scale,
         int N,
         cudaStream_t stream ) {
 

@@ -16,10 +16,10 @@ namespace CompositeComponents_Tests
         EXPECT_EQ( cfg.getEmbeddingDim(), 64 );
         EXPECT_EQ( cfg.getNumHeads(), 8 );
         EXPECT_EQ( cfg.getHiddenDimension(), 0 ); // not set -> 0
-        EXPECT_TRUE( cfg.useBias() );
+        EXPECT_FALSE( cfg.useBias() );
         EXPECT_EQ( cfg.getActivationType(), ActivationType::Gelu );
 
-        // Default name comes from ModuleConfig ("unnamed") so validate should succeed
+        // Default name comes from ComponentConfig ("unnamed") so validate should succeed
         EXPECT_NO_THROW( cfg.validate() );
     }
 

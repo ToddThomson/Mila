@@ -507,12 +507,12 @@ namespace Dnn::Components::Activations::Tests
         Tensor<TensorDataType::FP32, CpuMemoryResource> host_input( cpu_device, shape );
         Tensor<TensorDataType::FP32, CpuMemoryResource> host_output_grad( cpu_device, shape );
 
-        std::vector<float> test_values = { -10.0f, -1.0f, -0.1f, 0.0f, 0.1f, 1.0f, 10.0f, 100.0f };
+        std::vector<float> test_values = { -10.0f, -1.0f, -0.1f, 0.0f, 0.1f, 1.0f, 10.0f, 50.0f };
 
         for ( size_t i = 0; i < test_values.size(); ++i )
         {
             host_input.data()[ i ] = test_values[ i ];
-            host_output_grad.data()[ i ] = 1.0f;
+            host_output_grad.data()[ i ] = 1.0f + i;
         }
 
         copy( host_input, input );
@@ -523,6 +523,8 @@ namespace Dnn::Components::Activations::Tests
         gelu->setTraining( true );
 
         EXPECT_NO_THROW( gelu->forward( input ) );
+
+        EXPECT_NO_THROW( gelu->zeroGradients() );
 
         Tensor<TensorDataType::FP32, MR>* in_grad_ptr = nullptr;
         ASSERT_NO_THROW(

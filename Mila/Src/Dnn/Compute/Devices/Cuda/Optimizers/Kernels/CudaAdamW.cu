@@ -4,6 +4,14 @@
 #include "device_launch_parameters.h"
 #include "../../Helpers/CudaUtils.h"
 
+#ifndef NDEBUG
+#  include <cassert>
+#  define KERNEL_ASSERT(cond) assert(cond)
+#else
+#  define KERNEL_ASSERT(cond) ((void)0)
+#endif
+
+
 namespace Mila::Dnn::Compute
 {
     // ============================================================================
@@ -41,6 +49,14 @@ namespace Mila::Dnn::Compute
         float learning_rate, float beta1, float beta2, float beta1_correction, float beta2_correction, float eps, float weight_decay,
         float grad_scale, unsigned int seed )
     {
+        // Sanity check thresholds
+        constexpr float kGradAbsLimit = 500.0f;        // Gradients can spike temporarily
+        constexpr float kMomentAbsLimit = 250.0f;      // Accumulated gradients
+        constexpr float kAdaptiveLRAbsLimit = 100.0f;  // Normalized update magnitude
+        constexpr float kParamAbsLimit = 10.0f;        // Actual parameter values
+        constexpr float kParamChangeAbsLimit = 1.0f;   // Optional: limit |new - old|
+        constexpr int kNumParamsToPrint = 2;
+
         int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
         if (idx >= num_parameters)
@@ -48,26 +64,100 @@ namespace Mila::Dnn::Compute
             return;
         }
 
-        // get the gradient, m, and v for this parameter
+        // Load gradient
         float grad = grad_scale * (float)grads_memory[idx];
+
+        // Check 1: Gradient sanity
+        if ( !isfinite( grad ) || fabsf( grad ) > kGradAbsLimit ) {
+            printf(
+                "AdamW DEBUG gradient: block=%d thread=%d idx=%d grad_raw=%f grad_scaled=%f grad_scale=%f\n",
+                blockIdx.x, threadIdx.x, idx, (float)grads_memory[ idx ], grad, grad_scale
+            );
+        }
+        KERNEL_ASSERT( isfinite( grad ) );
+        KERNEL_ASSERT( fabsf( grad ) <= kGradAbsLimit );
+
         float m = m_memory[idx];
         float v = v_memory[idx];
 
-        // update the first moment (momentum)
+        // Update first moment (momentum)
         m = lerp( grad, m, beta1 );
+
+        // Check 2: First moment sanity
+        if ( !isfinite( m ) || fabsf( m ) > kMomentAbsLimit ) {
+            printf(
+                "AdamW DEBUG m: block=%d thread=%d idx=%d m=%f grad=%f beta1=%f m_old=%f\n",
+                blockIdx.x, threadIdx.x, idx, m, grad, beta1, m_memory[ idx ]
+            );
+        }
+        KERNEL_ASSERT( isfinite( m ) );
+        KERNEL_ASSERT( fabsf( m ) <= kMomentAbsLimit );
+        
         m_memory[idx] = m;
 
-        // update the second moment (RMSprop)
+        // Update second moment (RMSprop)
         v = lerp( grad * grad, v, beta2 );
+
+        // Check 3: Second moment sanity
+        if ( !isfinite( v ) || fabsf( v ) > kMomentAbsLimit * kMomentAbsLimit ) {
+            printf(
+                "AdamW DEBUG v: block=%d thread=%d idx=%d v=%f grad²=%f beta2=%f v_old=%f\n",
+                blockIdx.x, threadIdx.x, idx, v, grad * grad, beta2, v_memory[ idx ]
+            );
+        }
+        KERNEL_ASSERT( isfinite( v ) );
+        KERNEL_ASSERT( v >= 0.0f );  // Second moment must be non-negative
+        KERNEL_ASSERT( fabsf( v ) <= kMomentAbsLimit * kMomentAbsLimit );
+
         v_memory[idx] = v;
+        
         m /= beta1_correction;  // m_hat
         v /= beta2_correction;  // v_hat
 
         // fetch the old value of this parameter as a float, from either source
         float old_param = (master_params_memory != NULL) ? master_params_memory[idx] : (float)params_memory[idx];
 
+        // Check 4: Old parameter sanity
+        if ( !isfinite( old_param ) || fabsf( old_param ) > kParamAbsLimit ) {
+            printf(
+                "AdamW DEBUG old_param: block=%d thread=%d idx=%d old_param=%f\n",
+                blockIdx.x, threadIdx.x, idx, old_param
+            );
+        }
+        KERNEL_ASSERT( isfinite( old_param ) );
+        KERNEL_ASSERT( fabsf( old_param ) <= kParamAbsLimit );
+
         // update this parameter
         float param = old_param - (learning_rate * (m / (sqrtf( v ) + eps) + weight_decay * old_param));
+
+        // DEBUG: Print first N parameters
+        /*if ( idx < kNumParamsToPrint ) {
+            printf(
+                "AdamW[%d]: old=%+9.6f grad=%+9.6f m=%+9.6f v=%+9.6f "
+                "new=%+9.6f delta=%+9.6f\n",
+                idx, old_param, grad, m, v, param, param - old_param
+            );
+        }*/
+
+        // Check 6: Final parameter sanity
+        if ( !isfinite( param ) || fabsf( param ) > kParamAbsLimit ) {
+            printf(
+                "AdamW DEBUG param: block=%d thread=%d idx=%d param=%f old_param=%f lr=%f wd=%f\n",
+                blockIdx.x, threadIdx.x, idx, param, old_param, learning_rate, weight_decay
+            );
+        }
+        KERNEL_ASSERT( isfinite( param ) );
+        KERNEL_ASSERT( fabsf( param ) <= kParamAbsLimit );
+
+        float param_change = param - old_param;
+
+        if ( !isfinite( param_change ) || fabsf( param_change ) > kParamChangeAbsLimit ) {
+            printf(
+                "AdamW DEBUG param_change: block=%d thread=%d idx=%d change=%f old=%f new=%f\n",
+                blockIdx.x, threadIdx.x, idx, param_change, old_param, param
+            );
+        }
+        KERNEL_ASSERT( fabsf( param_change ) <= kParamChangeAbsLimit );
 
         // Update our low precision version of the parameters using stochastic rounding
         // this will be used in the next forward pass

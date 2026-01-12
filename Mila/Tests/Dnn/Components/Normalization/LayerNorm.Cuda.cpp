@@ -962,7 +962,7 @@ namespace Components_Normalization_LayerNorm_Tests
 
 
     // ====================================================================
-    // Deterministic Tests (new API)
+    // Deterministic Tests
     // ====================================================================
 
     TYPED_TEST( LayerNormCudaTests, Forward_Deterministic_ReproducibleWithSeed )
@@ -999,7 +999,7 @@ namespace Components_Normalization_LayerNorm_Tests
             copy( host_input1, device_input1 );
 
             Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>* out1_ptr = nullptr;
-            cuda_comp->build( shape.shape );
+            
             ASSERT_NO_THROW( { auto& out_ref = cuda_comp->forward( device_input1 ); out1_ptr = &out_ref; } );
             ASSERT_NE( out1_ptr, nullptr );
 

@@ -8,6 +8,7 @@ namespace Mila::Dnn::Compute::Cuda::Residual
     void cuda_residual_forward_fp32(
         float* Y,
         const float* X1, const float* X2,
+        float scale,
         int N,
         cudaStream_t stream );
 
@@ -35,6 +36,7 @@ namespace Mila::Dnn::Compute::Cuda::Residual
     void cuda_residual_forward_fp16(
         half* Y,
         const half* X1, const half* X2,
+        float scale,
         int N,
         cudaStream_t stream );
 

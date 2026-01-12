@@ -1282,10 +1282,8 @@ namespace CompositeComponents_Tests
         CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), test_shape.dimensions );
         random( host_input, -0.1f, 0.1f );
         
-        // CPU forward (new API)
         auto& cpu_out = cpu_transformer->forward( host_input );
 
-        // CUDA forward (new API)
         CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), test_shape.dimensions );
         copy( host_input, device_input );
 
@@ -1293,17 +1291,22 @@ namespace CompositeComponents_Tests
         cuda_transformer->synchronize();
 
         CpuTensor<TensorDataType::FP32> host_output_grad( Device::Cpu(), test_shape.dimensions );
+        
         float* data = host_output_grad.data();
-        for ( size_t i = 0; i < host_output_grad.size(); ++i ) {
-            data[ i ] = static_cast<float>( i );
+        const float grad_scale = 0.5f;
+        for ( size_t i = 0; i < host_output_grad.size(); ++i )
+        {
+            data[ i ] = host_input.data()[ i ] * grad_scale;
         }
 
-        // CPU backward (new API) -> returns component-owned input grad
+        cpu_transformer->zeroGradients();
+
         auto& cpu_in_grad = cpu_transformer->backward( host_input, host_output_grad );
 
-        // CUDA backward (new API)
         CudaTensor<TensorDataType::FP32> device_output_grad( Device::Cuda( 0 ), test_shape.dimensions );
         copy( host_output_grad, device_output_grad );
+
+        cuda_transformer->zeroGradients();
 
         auto& cuda_in_grad = cuda_transformer->backward( device_input, device_output_grad );
         cuda_transformer->synchronize();
@@ -1353,6 +1356,19 @@ namespace CompositeComponents_Tests
             GTEST_SKIP() << "CUDA not available";
         }
 
+        // TJT: This test fails intermittently
+
+        //    The difference between cpu_in_grad.data()[ i ] and cuda_input_grad_host.data()[ i ] is 0.27118046581745148, which exceeds epsilon, where
+        //    cpu_in_grad.data()[ i ] evaluates to 0.32491850852966309,
+        //    cuda_input_grad_host.data()[ i ] evaluates to 0.053738042712211609, and
+        //    epsilon evaluates to 9.9999997473787516e-05.
+        //    Mismatch at element 0
+        //    #2 - The difference between cpu_in_grad.data()[ i ] and cuda_input_grad_host.data()[ i ] is 0.023988515138626099, which exceeds epsilon, where
+        //    cpu_in_grad.data()[ i ] evaluates to 0.066527165472507477,
+        //    cuda_input_grad_host.data()[ i ] evaluates to 0.042538650333881378, and
+        //    epsilon evaluates to 9.9999997473787516e-05.
+        //    Mismatch at element 1
+
         constexpr TensorDataType TPrecision = TypeParam::value;
 
         // Minimal deterministic case (batch=1, seq=1) to ensure shapes and indexing are correct
@@ -1380,33 +1396,38 @@ namespace CompositeComponents_Tests
         cuda_transformer->build( test_shape.dimensions );
         cuda_transformer->setTraining( true );
 
-        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), test_shape.dimensions );
-        // deterministic pattern for easier debugging
-        for ( size_t i = 0; i < host_input.size(); ++i ) host_input.data()[ i ] = static_cast<float>( i ) * 0.01f;
+        // Create deterministic input with known seed
+        Mila::Core::RandomGenerator::getInstance().setSeed( 12345 );
 
-        // CPU forward (new API)
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), test_shape.dimensions );
+        random( host_input, -0.1f, 0.1f );
+
         ASSERT_NO_THROW( { auto& cpu_out = cpu_transformer->forward( host_input ); (void)cpu_out; } );
         auto& cpu_out = cpu_transformer->forward( host_input );
 
         CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), test_shape.dimensions );
         copy( host_input, device_input );
 
-        // CUDA forward (new API)
         ASSERT_NO_THROW( { auto& cuda_out = cuda_transformer->forward( device_input ); (void)cuda_out; } );
         auto& cuda_out = cuda_transformer->forward( device_input );
         cuda_transformer->synchronize();
 
         // deterministic output grad
         CpuTensor<TensorDataType::FP32> host_output_grad( Device::Cpu(), test_shape.dimensions );
-        for ( size_t i = 0; i < host_output_grad.size(); ++i ) host_output_grad.data()[ i ] = 1.0f;
+        float* data = host_output_grad.data();
+        const float grad_scale = 0.5f;
+        for ( size_t i = 0; i < host_output_grad.size(); ++i )
+        {
+            data[ i ] = host_input.data()[ i ] * grad_scale;
+        }
 
-        // CPU backward (new API)
+        cpu_transformer->zeroGradients();
         auto& cpu_in_grad = cpu_transformer->backward( host_input, host_output_grad );
 
-        // CUDA backward (new API)
         CudaTensor<TensorDataType::FP32> device_output_grad( Device::Cuda( 0 ), test_shape.dimensions );
         copy( host_output_grad, device_output_grad );
 
+        cuda_transformer->zeroGradients();
         auto& cuda_in_grad = cuda_transformer->backward( device_input, device_output_grad );
         cuda_transformer->synchronize();
 

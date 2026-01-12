@@ -185,6 +185,12 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Encoder: owned input-grad buffer not allocated" );
             }
 
+            // Zero input gradient buffer before backward pass. No exeptions.
+            // Backend ops use accumulation (atomicAdd/+=) which requires pre-zeroed buffers
+            // to prevent gradient buildup across calls. Without this, gradients grow linearly
+            // with each call -> explosion.
+            zero( *owned_input_grad_ /*, this->getExecutionContext() */);
+
             operation_->backward( input, output_grad, *owned_input_grad_ );
 
             return *owned_input_grad_;
@@ -194,12 +200,12 @@ namespace Mila::Dnn
         {
             if ( wte_grad_ )
             {
-                zero( *wte_grad_, this->getExecutionContext() );
+                zero( *wte_grad_ /*, this->getExecutionContext() */);
             }
 
             if ( wpe_grad_ )
             {
-                zero( *wpe_grad_, this->getExecutionContext() );
+                zero( *wpe_grad_ /*, this->getExecutionContext() */);
             }
         }
 

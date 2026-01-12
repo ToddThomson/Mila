@@ -96,6 +96,13 @@ namespace Mila::Dnn
             return std::forward<Self>( self );
         }
 
+        template <typename Self>
+        decltype(auto) withResidualScale( this Self&& self, float scale )
+        {
+            self.residual_scale_ = scale;
+            return std::forward<Self>( self );
+        }
+
         /**
          * @brief Get the embedding dimension.
          *
@@ -144,6 +151,16 @@ namespace Mila::Dnn
         ActivationType getActivationType() const noexcept
         {
             return activation_type_;
+        }
+
+        /**
+         * @brief Get the residual scaling factor.
+         *
+         * @return float Residual scaling factor.
+         */
+        float getResidualScale() const noexcept
+        {
+            return residual_scale_;
         }
 
         /**
@@ -251,7 +268,8 @@ namespace Mila::Dnn
         dim_t embedding_dim_;
         dim_t num_heads_;
         dim_t hidden_dim_ = 0;  // Default to 4x embedding_dim
-        bool use_bias_ = true;
+        bool use_bias_ = false;
         ActivationType activation_type_ = ActivationType::Gelu;
+        float residual_scale_ = 1.0f;
     };
 }

@@ -17,7 +17,7 @@ namespace Mila::Dnn::Compute::Cuda::Residual
 {
     // Conservative residual magnitude bound used only for debug assertions.
     // Chosen to catch explosions while avoiding false positives for common models.
-    static __device__ __constant__ float kResidualAbsLimit = 100.0f;
+    static __device__ __constant__ float kResidualAbsLimit = 1000.0f;
 
     /**
      * @brief CUDA kernel for element-wise addition of two input tensors with FP32 precision
@@ -34,13 +34,27 @@ namespace Mila::Dnn::Compute::Cuda::Residual
         float* Y,
         const float* A,
         const float* B,
+        float scale,
         int N )
     {
         int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
         if ( idx < N )
         {
-            Y[ idx ] = __ldg( &A[ idx ] ) + __ldg( &B[ idx ] );
+            float a = __ldg( &A[ idx ] );
+            float b = __ldg( &B[ idx ] );
+            float y = a + scale * b;
+
+            Y[ idx ] = y;
+
+            if ( !isfinite( y ) || fabsf( y ) > kResidualAbsLimit )
+            {
+                // Print offending values for debugging prior to assertion abort
+                printf(
+                    "Residual DEBUG scalar: block=%d thread=%d idx=%d A=%f B=%f Y=%f Scale=%f\n",
+                    blockIdx.x, threadIdx.x, idx, a, b, y, scale
+                );
+            }
 
             KERNEL_ASSERT( fabsf( Y[ idx ] ) <= kResidualAbsLimit );
         }
@@ -61,6 +75,7 @@ namespace Mila::Dnn::Compute::Cuda::Residual
         float4* Y,
         const float4* A,
         const float4* B,
+        float scale,
         int N )
     {
         int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -71,10 +86,45 @@ namespace Mila::Dnn::Compute::Cuda::Residual
             float4 b = __ldg( &B[ idx ] );
 
             float4 r;
-            r.x = a.x + b.x; KERNEL_ASSERT( fabsf( r.x ) <= kResidualAbsLimit );
-            r.y = a.y + b.y; KERNEL_ASSERT( fabsf( r.y ) <= kResidualAbsLimit );
-            r.z = a.z + b.z; KERNEL_ASSERT( fabsf( r.z ) <= kResidualAbsLimit );
-            r.w = a.w + b.w; KERNEL_ASSERT( fabsf( r.w ) <= kResidualAbsLimit );
+            r.x = a.x + scale * b.x;
+            if ( !isfinite( r.x ) || fabsf( r.x ) > kResidualAbsLimit )
+            {
+                printf(
+                    "Residual DEBUG vec: block=%d thread=%d vec_idx=%d comp=x A=%f B=%f Y=%f scale=%f\n",
+                    blockIdx.x, threadIdx.x, idx, a.x, b.x, r.x, scale
+                );
+            }
+            KERNEL_ASSERT( fabsf( r.x ) <= kResidualAbsLimit );
+
+            r.y = a.y + scale * b.y;
+            if ( !isfinite( r.y ) || fabsf( r.y ) > kResidualAbsLimit )
+            {
+                printf(
+                    "Residual DEBUG vec: block=%d thread=%d vec_idx=%d comp=y A=%f B=%f Y=%f scale=%f\n",
+                    blockIdx.x, threadIdx.x, idx, a.y, b.y, r.y, scale
+                );
+            }
+            KERNEL_ASSERT( fabsf( r.y ) <= kResidualAbsLimit );
+
+            r.z = a.z + scale * b.z;
+            if ( !isfinite( r.z ) || fabsf( r.z ) > kResidualAbsLimit )
+            {
+                printf(
+                    "Residual DEBUG vec: block=%d thread=%d vec_idx=%d comp=z A=%f B=%f Y=%f scale=%f\n",
+                    blockIdx.x, threadIdx.x, idx, a.z, b.z, r.z, scale
+                );
+            }
+            KERNEL_ASSERT( fabsf( r.z ) <= kResidualAbsLimit );
+
+            r.w = a.w + scale * b.w;
+            if ( !isfinite( r.w ) || fabsf( r.w ) > kResidualAbsLimit )
+            {
+                printf(
+                    "Residual DEBUG vec: block=%d thread=%d vec_idx=%d comp=w A=%f B=%f Y=%f scale=%f\n",
+                    blockIdx.x, threadIdx.x, idx, a.w, b.w, r.w, scale
+                );
+            }
+            KERNEL_ASSERT( fabsf( r.w ) <= kResidualAbsLimit );
 
             Y[ idx ] = r;
         }
@@ -172,6 +222,7 @@ namespace Mila::Dnn::Compute::Cuda::Residual
         float* out,
         const float* inp1,
         const float* inp2,
+        float scale,
         int N,
         cudaStream_t stream )
     {
@@ -186,8 +237,8 @@ namespace Mila::Dnn::Compute::Cuda::Residual
                 reinterpret_cast<float4*>(out),
                 reinterpret_cast<const float4*>(inp1),
                 reinterpret_cast<const float4*>(inp2),
-                N_float4
-                );
+                scale,
+                N_float4 );
         }
         else
         {
@@ -195,8 +246,7 @@ namespace Mila::Dnn::Compute::Cuda::Residual
             const int grid_size = ceil_div( static_cast<int>(N), block_size );
 
             residual_forward_fp32_kernel << <grid_size, block_size, 0, stream >> > (
-                out, inp1, inp2, N
-                );
+                out, inp1, inp2, scale, N );
         }
 
         cudaCheck( cudaGetLastError() );

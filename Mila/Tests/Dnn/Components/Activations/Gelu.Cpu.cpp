@@ -453,59 +453,6 @@ namespace Dnn::Components::Activations::Tests
         EXPECT_THROW( gelu->backward( input, output_grad ), std::runtime_error );
     }
 
-    TEST_F( GeluCpuTests, Backward_AccumulatesGradients )
-    {
-        if ( !isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ) )
-        {
-            GTEST_SKIP() << "GeluOp not registered for CPU FP32";
-        }
-
-        DeviceId device_id = Device::Cpu();
-        auto gelu = std::make_shared<GeluCpu>( "gelu", GeluConfig(), device_id );
-
-        std::vector<int64_t> shape = { 2, 3 };
-
-        Tensor<dtype_t::FP32, MR> input( device_id, shape );
-        Tensor<dtype_t::FP32, MR> output_grad_zero( device_id, shape );
-        Tensor<dtype_t::FP32, MR> output_grad_one( device_id, shape );
-
-        for ( size_t i = 0; i < input.size(); ++i )
-        {
-            input.data()[ i ] = 0.5f;
-            output_grad_zero.data()[ i ] = 0.0f;
-            output_grad_one.data()[ i ] = 1.0f;
-        }
-
-        gelu->build( shape );
-        gelu->setTraining( true );
-        gelu->forward( input );
-
-        // First obtain the owned input-grad tensor and initialize it to 10.0f
-        auto& in_grad = gelu->backward( input, output_grad_zero );
-
-        for ( size_t i = 0; i < in_grad.size(); ++i )
-        {
-            in_grad.data()[ i ] = 10.0f;
-        }
-
-        // Now run backward with non-zero output gradient; backend should accumulate
-        gelu->backward( input, output_grad_one );
-
-        float expected_delta = geluGradientReference( 0.5f ) * 1.0f;
-
-        for ( size_t i = 0; i < in_grad.size(); ++i )
-        {
-            float expected_total = 10.0f + expected_delta;
-            float actual = in_grad.data()[ i ];
-            float diff = std::abs( expected_total - actual );
-
-            EXPECT_LT( diff, 1e-3f )
-                << "Gradient accumulation failed at index " << i
-                << ": expected=" << expected_total
-                << ", actual=" << actual;
-        }
-    }
-
     // ========================================================================
     // Metadata and Configuration Tests
     // ========================================================================

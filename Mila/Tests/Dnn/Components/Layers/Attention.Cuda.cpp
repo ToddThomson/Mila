@@ -858,9 +858,9 @@ namespace Components_Layers_Attention_Tests
             copy( host_input, device_input );
             copy( host_output_grad, device_output_grad );
 
-            auto& ing_tensor = cuda_comp->backward( device_input, device_output_grad );
+            auto& input_grad = cuda_comp->backward( device_input, device_output_grad );
 
-            auto host_input_grad = toHost<TensorDataType::FP32>( ing_tensor );
+            auto host_input_grad = toHost<TensorDataType::FP32>( input_grad );
 
             auto* grad_data = host_input_grad.data();
             size_t total = host_input_grad.size();

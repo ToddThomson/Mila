@@ -36,11 +36,11 @@ struct CharLMConfig
     int64_t batch_size = 32;
     int64_t seq_length = 128;
     size_t epochs = 200;
-    float learning_rate = 0.0003f; // 1e-4f; // we've tried 3e-4f; 0.001f, 0.0005f
+    float learning_rate = 0.001f; // 1e-4f; // we've tried 3e-4f; 0.001f, 0.0005f
     float beta1 = 0.9f;
     float beta2 = 0.999f;
     float epsilon = 1e-8f;
-    float weight_decay = 0.001f; // we've tried 0.01f, 0.001f, 0.0001f
+    float weight_decay = 0.01f; // we've tried 0.01f, 0.001f, 0.0001f
     DeviceType compute_device = DeviceType::Cuda;
     TensorDataType precision = TensorDataType::FP32;
     ComputePrecision::Policy precisionPolicy = ComputePrecision::Policy::Auto;
@@ -52,7 +52,7 @@ struct CharLMConfig
 
     float sample_temperature = 0.8f;
     int64_t sample_length = 300;
-    size_t sample_every_n_epochs = 5;
+    size_t sample_every_n_epochs = 2;
     std::string sample_prompt = "ROMEO:\n";
 
     // Simple epoch-based learning-rate scheduler:
@@ -384,7 +384,7 @@ int32_t sampleFromLogits(
 //   device/precision types.
 // -----------------------------------------------------------------------------
 template<DeviceType TDeviceType, TensorDataType TDataType>
-void logParameterAndGradientNorms( CharTransformer<TDeviceType, TDataType>* model )
+void logParameterAndGradientNorms( CharTransformer<TDeviceType, TDataType>* model, bool isStarting = false )
 {
     using DeviceMR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
     using DeviceTensor = Tensor<TDataType, DeviceMR>;
@@ -431,6 +431,16 @@ void logParameterAndGradientNorms( CharTransformer<TDeviceType, TDataType>* mode
         }
 
         double norm = std::sqrt( s );
+
+        if ( norm > 40.0 || ( isStarting && norm > 25.0 ) ) {
+            // Flag large tensors: print tensor name (or fallback) and stats using std::format -> std::cout
+            const std::string tensor_name = p->getName().empty() ? "(unnamed)" : p->getName();
+            std::cout << std::format(
+                " WARN Param[{}, '{}']: L2_norm={:.2f} (size={})\n",
+                param_count, tensor_name, norm, host.size()
+            );
+        }
+
         sum_param_norm += norm;
         max_param_norm = std::max( max_param_norm, norm );
         param_count++;
@@ -455,6 +465,14 @@ void logParameterAndGradientNorms( CharTransformer<TDeviceType, TDataType>* mode
         }
 
         double norm = std::sqrt( s );
+
+        if ( norm > 20.0 ) {
+            // Flag large tensors
+            const std::string tensor_name = g->getName().empty() ? "(unnamed)" : g->getName();
+            printf( " WARN Grad[%zu, '%s']: L2_norm=%.2f (size=%zu)\n",
+                param_count, tensor_name, norm, host.size() );
+        }
+
         sum_grad_norm += norm;
         max_grad_norm = std::max( max_grad_norm, norm );
         grad_count++;
@@ -977,6 +995,16 @@ void trainCharLM( const CharLMConfig& config )
     std::cout << "Starting training for " << config.epochs << " epochs..." << std::endl;
     std::cout << "Total batches per epoch: " << train_loader.numBatches() << std::endl;
 
+    std::cout << "Starting Params and Grads" << std::endl;
+    try
+    {
+        logParameterAndGradientNorms<TDeviceType, TDataType>( model.get(), true );
+    }
+    catch ( const std::exception& e )
+    {
+        std::cerr << "Warning: failed to log parameter/gradient norms: " << e.what() << std::endl;
+    }
+
     for ( size_t epoch = 0; epoch < config.epochs; ++epoch )
     {
         if ( config.lr_decay != 1.0f &&
@@ -1003,18 +1031,10 @@ void trainCharLM( const CharLMConfig& config )
         {
             train_loader.nextBatch();
 
-            std::cout << "\n=== Epoch " << epoch << " Batch " << (batches + 1)
-                << " / " << train_loader.numBatches() << " ===\n";
-
             // Load input and target batches to device
             // NOTE: moving the targets to device required for when loss is computed on device ( not yet implemented )
-
             copy( train_loader.inputs(), input_batch );
             copy( train_loader.targets(), target_batch );
-
-            // DEBUG: print first input batch
-            //std::clog << "Inputs batch:\n" << train_loader.inputs().toString( true ) << std::endl;
-            //std::clog << "Targets batch:\n" << train_loader.targets().toString( true ) << std::endl;
 
             // Run forward to get logits on device
             auto& output = model->forward( input_batch );
@@ -1030,66 +1050,6 @@ void trainCharLM( const CharLMConfig& config )
             zero( output_grad_cpu );
             sequenceCrossEntropyGradient( logits_cpu, targets_cpu, output_grad_cpu );
 
-            // Quick validation and debugging hook: abort with diagnostics if something is wrong
-            validateOutputGradAndLogIfBad<TDeviceType, TDataType, THostMR>(
-                model.get(),
-                epoch,
-                batches + 1,
-                batch_loss,
-                batch_perplexity,
-                logits_cpu,
-                output_grad_cpu,
-                targets_cpu,
-                optimizer->getLearningRate(),
-                device_id );
-
-            // If loss is exploding, emit diagnostics and abort (host-side check).
-            constexpr float kLossExplosionThreshold = 10.0f;
-            constexpr float kPerplexityExplosionThreshold = 1e4f;
-
-            if ( !std::isfinite( batch_loss ) ||
-                batch_loss > kLossExplosionThreshold ||
-                batch_perplexity > kPerplexityExplosionThreshold )
-            {
-                // Use 1-based batch index for human-friendly reporting
-                dumpBatchDiagnostics<TDeviceType, TDataType, THostMR>(
-                    model.get(),
-                    epoch,
-                    batches + 1,
-                    batch_loss,
-                    batch_perplexity,
-                    logits_cpu,
-                    output_grad_cpu,
-                    targets_cpu,
-                    optimizer->getLearningRate(),
-                    device_id );
-            }
-
-            //std::clog << "Output Grad:\n" << output_grad_cpu.toString( true ) << std::endl;
-
-            // DEBUG: Gradient verification — show only the target gradient
-            std::cout << "\n=== GRADIENT VERIFICATION ===\n";
-
-            int b = 0;
-            int t = 0;
-            int target_token = targets_cpu.data()[ b * static_cast<size_t>(targets_cpu.shape()[ 1 ]) + t ];
-            std::cout << "Position [0,0] target token: " << target_token << "\n";
-
-            size_t vocab_size = static_cast<size_t>(logits_cpu.shape().back());
-            size_t base = static_cast<size_t>(b) * logits_cpu.shape()[ 1 ] * vocab_size + static_cast<size_t>(t) * vocab_size;
-
-            if ( target_token >= 0 && static_cast<size_t>(target_token) < vocab_size )
-            {
-                size_t tidx = static_cast<size_t>(target_token);
-                float grad = output_grad_cpu.data()[ base + tidx ];
-                std::cout << std::scientific << std::setprecision( 6 )
-                    << "Target gradient [" << tidx << "]: " << grad << std::defaultfloat << "\n";
-            }
-            else
-            {
-                std::cout << "Target index out of range: " << target_token << "\n";
-            }
-
             copy( output_grad_cpu, output_grad );
 
             model->zeroGradients();
@@ -1099,70 +1059,43 @@ void trainCharLM( const CharLMConfig& config )
             // Ensure all gradients are ready before optimizer step
             model->synchronize();
 
-            // Clip gradients to avoid spikes
-            //clipGradients<TDeviceType, TDataType>( model.get(), 10.0f );
-
-            // TEMPORARY DIAGNOSTIC: Check if gradients are actually being set
-            /*if ( batches == 1 && epoch == 0 )
-            {
-                try
-                {
-                    auto grads = model->getGradients();
-                    std::cout << "\n=== CHECKING MODEL GRADIENTS AFTER BACKWARD ===\n";
-                    std::cout << "Total gradient tensors: " << grads.size() << "\n";
-
-                    size_t zero_count = 0;
-                    size_t nonzero_count = 0;
-
-                    for ( size_t i = 0; i < std::min( grads.size(), size_t( 5 ) ); ++i )
-                    {
-                        auto* grad_fp32 = dynamic_cast<Tensor<TDataType, DeviceMR>*>( grads[ i ] );
-                        if ( grad_fp32 )
-                        {
-                            auto host_grad = toHost<TDataType>( *grad_fp32 );
-
-                            double sum = 0.0;
-                            size_t zeros = 0;
-                            for ( size_t j = 0; j < host_grad.size(); ++j )
-                            {
-                                double val = static_cast<double>( host_grad.data()[ j ] );
-                                sum += std::abs( val );
-                                if ( val == 0.0 ) zeros++;
-                            }
-
-                            std::cout << "Gradient " << i << ": size=" << host_grad.size()
-                                << " zeros=" << zeros
-                                << " mean_abs=" << (sum / host_grad.size())
-                                << "\n";
-
-                            if ( zeros == host_grad.size() ) zero_count++;
-                            else nonzero_count++;
-                        }
-                    }
-
-                    std::cout << "Summary: " << nonzero_count << " non-zero, "
-                        << zero_count << " all-zero gradient tensors (first 5)\n";
-                    std::cout << "=== END GRADIENT CHECK ===\n\n";
-                }
-                catch ( const std::exception& e )
-                {
-                    std::cerr << "Gradient check failed: " << e.what() << "\n";
-                }
-            }*/
-
             optimizer->step();
             model->synchronize();
 
             epoch_loss += batch_loss;
             batches++;
 
-            if ( batches % 50 == 0 || batches == train_loader.numBatches() )
+            if ( batches == 1 || batch_perplexity > 10000.0f || std::isnan( batch_perplexity ) )
+            {
+                std::cout << "Epoch " << (epoch + 1) << batches << std::endl;
+                try
+                {
+                    logParameterAndGradientNorms<TDeviceType, TDataType>( model.get() );
+                }
+                catch ( const std::exception& e )
+                {
+                    std::cerr << "Warning: failed to log parameter/gradient norms: " << e.what() << std::endl;
+                }
+                
+            }
+
+            if ( batches % 10 == 0 || batches == train_loader.numBatches() )
             {
                 std::cout << "Epoch " << (epoch + 1) << " [" << batches << "/"
                     << train_loader.numBatches() << "] - Loss: " << std::fixed
                     << std::setprecision( 4 ) << batch_loss
                     << " - Perplexity: " << std::setprecision( 2 ) << batch_perplexity
                     << std::endl;
+
+                // Log parameter and gradient norms)
+                try
+                {
+                    logParameterAndGradientNorms<TDeviceType, TDataType>( model.get() );
+                }
+                catch ( const std::exception& e )
+                {
+                    std::cerr << "Warning: failed to log parameter/gradient norms: " << e.what() << std::endl;
+                }
             }
         }
 

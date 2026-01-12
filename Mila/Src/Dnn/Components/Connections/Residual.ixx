@@ -184,6 +184,11 @@ namespace Mila::Dnn
             {
                 throw std::runtime_error( "Residual::backward: component must be in training mode to compute gradients" );
             }
+            // Zero BOTH owned input gradient buffers before backward pass.
+            // Backend ops use accumulation (atomicAdd/+=) which requires pre-zeroed
+            // buffers to prevent gradient buildup across calls.
+            zero( *owned_input_a_grad_ /*, this->getExecutionContext() */);
+            zero( *owned_input_b_grad_ /*, this->getExecutionContext() */);
 
             operation_->backward(
                 input_a,
@@ -238,6 +243,31 @@ namespace Mila::Dnn
             oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
 
             return oss.str();
+        }
+
+        /**
+         * @brief Return non-owning pointers to parameter tensors.
+         *
+         * Residual has no trainable parameter tensors by default; return empty list.
+         */
+        std::vector<ITensor*> getParameters() const override
+        {
+            return {};
+        }
+
+        /**
+         * @brief Return non-owning pointers to parameter gradient tensors.
+         *
+         * Only valid in training mode. Residual has no trainable parameters by default.
+         */
+        std::vector<ITensor*> getGradients() const override
+        {
+            if ( !this->isTraining() )
+            {
+                throw std::runtime_error( "Residual: getGradients called when not in training mode" );
+            }
+
+            return {};
         }
 
     protected:
@@ -301,30 +331,7 @@ namespace Mila::Dnn
             }
         }
 
-        /**
-         * @brief Return non-owning pointers to parameter tensors.
-         *
-         * Residual has no trainable parameter tensors by default; return empty list.
-         */
-        std::vector<ITensor*> getParameters() const override
-        {
-            return {};
-        }
-
-        /**
-         * @brief Return non-owning pointers to parameter gradient tensors.
-         *
-         * Only valid in training mode. Residual has no trainable parameters by default.
-         */
-        std::vector<ITensor*> getGradients() const override
-        {
-            if ( !this->isTraining() )
-            {
-                throw std::runtime_error( "Residual: getGradients called when not in training mode" );
-            }
-
-            return {};
-        }
+        
 
     private:
 

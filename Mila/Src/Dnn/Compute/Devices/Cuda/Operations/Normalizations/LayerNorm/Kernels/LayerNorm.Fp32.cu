@@ -122,11 +122,21 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
             size_t offset = static_cast<size_t>(i) * static_cast<size_t>(inner_size);
             float val = x[ offset ];
             float w = weight ? weight[i] : 1.0f;
-            float res = s * ( val - m ) * w;
-            if ( bias != nullptr )
+            float b = bias ? bias[ i ] : 0.0f;
+            float res = s * ( val - m ) * w + b;
+
+        #ifndef NDEBUG
+            constexpr float kLayerNormOutputAbsLimit = 50.0f;  // Normalized output should be small
+            if ( !isfinite( res ) || fabsf( res ) > kLayerNormOutputAbsLimit )
             {
-                res += bias[i];
+                printf(
+                    "LayerNorm OUTPUT anomaly: idx=%d i=%d val=%f mean=%f rstd=%f weight=%f bias=%f output=%f\n",
+                    idx, i, val, m, s, w, b, res
+                );
+                assert( false );
             }
+        #endif
+
             o[ offset ] = res;
         }
     }

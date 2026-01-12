@@ -284,6 +284,7 @@ namespace Mila::CharLM
             logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
             this->getExecutionContext()->synchronize();
 
+            // REVIEW: This doesn't seem right. Why not just pass the logits_ptr_ back to the caller?
             copy( *dynamic_cast<const TensorType*>( logits_ptr_ ), *owned_output_ );
             this->getExecutionContext()->synchronize();
 
@@ -637,9 +638,10 @@ namespace Mila::CharLM
                 TransformerConfig tf_cfg( static_cast<dim_t>( config_.embedding_dim ),
                     static_cast<dim_t>( config_.num_heads ) );
 
-                tf_cfg.withHiddenDimension( static_cast<dim_t>( config_.mlp_hidden_dim ) );
-                tf_cfg.withBias( false )
-                    .withActivation( ActivationType::Gelu );
+                tf_cfg.withHiddenDimension( static_cast<dim_t>( config_.mlp_hidden_dim ) )
+                    .withBias( false )
+                    .withActivation( ActivationType::Gelu )
+                    .withResidualScale( 1.0f / sqrtf( static_cast<float>( config_.num_layers ) ) );
 
                 auto layer = std::make_shared<TransformerBlockType>(
                     this->getName() + ".tf_layer_" + std::to_string( i ), tf_cfg, std::nullopt );

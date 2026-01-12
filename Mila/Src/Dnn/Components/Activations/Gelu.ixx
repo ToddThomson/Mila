@@ -217,13 +217,11 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Gelu::backward: component must be in training mode to compute gradients" );
             }
 
-            // NOTE: Do not zero the owned input-gradient buffer here. Some callers
-            // (unit tests and higher-level components) expect the operation to
-            // accumulate into the returned tensor across multiple backward calls.
-            // The backend UnaryOperation implementations perform accumulation
-            // using += semantics.
-            //
-            // zero( *input_grad_ );  // removed to preserve accumulation semantics
+            // Zero input gradient buffer before backward pass. No exeptions.
+            // Backend ops use accumulation (atomicAdd/+=) which requires pre-zeroed buffers
+            // to prevent gradient buildup across calls. Without this, gradients grow linearly
+            // with each call -> explosion.
+            zero( *input_grad_ );
 
             operation_->backward( input, output_grad, *input_grad_ );
 

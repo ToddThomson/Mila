@@ -50,9 +50,9 @@ namespace Mila::Dnn::Compute::Cuda::Residual
         template<>
         struct cuda_residual_impl<float>
         {
-            static inline void forward( float* Y, const float* X1, const float* X2, int N, cudaStream_t stream )
+            static inline void forward( float* Y, const float* X1, const float* X2, float scale, int N, cudaStream_t stream )
             {
-                cuda_residual_forward_fp32( Y, X1, X2, N, stream );
+                cuda_residual_forward_fp32( Y, X1, X2, scale, N, stream );
             }
 
             static inline void backward( float* dX1, float* dX2, const float* dY, size_t N, cudaStream_t stream )
@@ -64,9 +64,9 @@ namespace Mila::Dnn::Compute::Cuda::Residual
         template<>
         struct cuda_residual_impl<half>
         {
-            static inline void forward( half* Y, const half* X1, const half* X2, int N, cudaStream_t stream )
+            static inline void forward( half* Y, const half* X1, const half* X2, float scale, int N, cudaStream_t stream )
             {
-                cuda_residual_forward_fp16( Y, X1, X2, N, stream );
+                cuda_residual_forward_fp16( Y, X1, X2, scale, N, stream );
             }
             
             static inline void backward( half* dX1, half* dX2, const half* dY, size_t N, cudaStream_t stream )
@@ -105,6 +105,8 @@ namespace Mila::Dnn::Compute::Cuda::Residual
             {
                 throw std::invalid_argument( "CudaResidualOp requires a non-null CUDA execution context" );
             }
+
+            scale_ = config_.getScalingFactor();
         }
 
         /**
@@ -129,15 +131,15 @@ namespace Mila::Dnn::Compute::Cuda::Residual
 
             cudaStream_t stream = context_->getStream();
 
-            Detail::cuda_residual_impl<NativeType>::forward( Y, A, B, N_, stream );
+            Detail::cuda_residual_impl<NativeType>::forward( Y, A, B, scale_, N_, stream );
         }
 
         /**
          * @brief Backward pass
          */
         void backward(
-            const ITensor& input_A,
-            const ITensor& input_B,
+            const ITensor& input_A, // REVIEW: Unused
+            const ITensor& input_B, // REVIEW: Unused
             const ITensor& output_grad,
             ITensor& A_grad,
             ITensor& B_grad ) const override
@@ -181,6 +183,7 @@ namespace Mila::Dnn::Compute::Cuda::Residual
         CudaExecutionContext* context_{ nullptr };
         ResidualConfig config_;
         int N_{ 0 };
+        float scale_{ 1.0f };
     };
 
     export class CudaResidualOpRegistrar

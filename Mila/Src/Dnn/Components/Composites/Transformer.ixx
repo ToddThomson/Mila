@@ -12,6 +12,9 @@ module;
 #include <string>
 #include <sstream>
 #include <iostream>
+#include <iomanip>
+#include <format>
+#include <utility>
 #include <stdexcept>
 #include <cstdint>
 #include <type_traits>
@@ -48,6 +51,9 @@ import Dnn.Components.Linear;
 import Dnn.Blocks.MLP;
 import Serialization.ModelArchive;
 import Serialization.Mode;
+
+// DEBUG:
+import Dnn.TensorHelpers;
 
 namespace Mila::Dnn
 {
@@ -163,14 +169,14 @@ namespace Mila::Dnn
             this->getExecutionContext()->synchronize();
 
             // Cache non-owning pointers produced by the last forward for use by backward().
-            // FIXME:
-            /*last_ln1_out_  = ln1_out;
-            last_qkv_out_  = qkv_out;
-            last_attn_out_ = attn_out;
-            last_res1_out_ = res1_out;
-            last_ln2_out_  = ln2_out;
-            last_ffn_out_  = ffn_out;
-            last_res2_out_ = res2_out;*/
+            // REVIEW: If you need these for backward, just call the components' accessors:
+            last_ln1_out_  = &ln1_out;
+            last_qkv_out_  = &qkv_out;
+            last_attn_out_ = &attn_out;
+            last_res1_out_ = &res1_out;
+            last_ln2_out_  = &ln2_out;
+            last_ffn_out_  = &ffn_out;
+            last_res2_out_ = &res2_out;
 
             // Copy final child output into the transformer's encapsulated output buffer
             // to preserve the component contract (forward returns pointer to transformer's buffer).
@@ -179,7 +185,7 @@ namespace Mila::Dnn
 
             forward_executed_ = this->isTraining();
 
-            return *output_buffer_;
+            return res2_out;
         }
 
         /**
@@ -217,73 +223,39 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Transformer::backward: a training-mode forward() must be executed before backward()" );
             }
 
-            // Use last cached pointers produced by forward() to route backward calls.
-            
-            // Residual::backward returns input_a_grad pointer and exposes input_b_grad via getInputBGrad().
+            // Backward through res2
+            auto [d_res1_from_res2, d_ffn_from_res2] =
+                res2_->backward( *last_res1_out_, *last_ffn_out_, output_grad );
 
-            // res2 backward -> produces grad for res1_output and ffn_output
-            auto [d_res1_from_res2, d_ffn_from_res2] = res2_->backward( *last_res1_out_, *last_ffn_out_, output_grad );
-            this->getExecutionContext()->synchronize();
-
-            // FFN backward: returns gradient w.r.t ln2_output
+            // FFN branch
             auto& d_ln2_from_ffn = ffn_->backward( *last_ln2_out_, d_ffn_from_res2 );
-            this->getExecutionContext()->synchronize();
-
-            // LayerNorm2 backward: returns gradient w.r.t res1_output
             auto& d_res1_from_ln2 = ln2_->backward( *last_res1_out_, d_ln2_from_ffn );
-            this->getExecutionContext()->synchronize();
 
-            // Accumulate FFN branch gradient into res1_output gradient
-            // result stored in d_res1_accum (we reuse d_act_2_ buffer for final accumulation)
-            // Use device-agnostic add: add(src1, src2, dst)
-            // First, ensure d_act_2_ is zeroed, then add d_res1_from_res2 + d_res1_from_ln2 -> d_act_2_
-            zero( *d_act_2_ );
-            //add( *d_res1_from_res2, *d_res1_from_ln2, *d_act_2_ );
-            this->getExecutionContext()->synchronize();
+            // ACCUMULATE at res1_out junction using d_res1_accum_
+            zero( *d_res1_accum_ );
+            add( d_res1_from_res2, d_res1_from_ln2, *d_res1_accum_ );
 
-            // Residual1 backward: splits into gradients for input and attention output
-            auto [d_input_from_res1, d_attn_from_res1] = res1_->backward( input, *last_attn_out_, *d_act_2_ );
-            this->getExecutionContext()->synchronize();
+            // Backward through res1
+            auto [d_input_from_res1, d_attn_from_res1] =
+                res1_->backward( input, *last_attn_out_, *d_res1_accum_ );
 
-
-            // Attention backward -> produces gradient w.r.t qkv projection output
+            // Attention branch
             auto& d_qkv = attn_->backward( *last_qkv_out_, d_attn_from_res1 );
-            this->getExecutionContext()->synchronize();
-
-            // QKV projection backward -> produces gradient w.r.t ln1 output
             auto& d_ln1 = qkv_proj_->backward( *last_ln1_out_, d_qkv );
-            this->getExecutionContext()->synchronize();
-
-            // LayerNorm1 backward -> produces gradient w.r.t input
             auto& d_input_from_ln1 = ln1_->backward( input, d_ln1 );
-            this->getExecutionContext()->synchronize();
 
-            // Accumulate input gradients from residual path and ln1 path into the component-owned d_input_
+            // ACCUMULATE at input junction using d_input_
             zero( *d_input_ );
-            //add( *d_input_from_res1, *d_input_from_ln1, d_input_ );
-            this->getExecutionContext()->synchronize();
+            add( d_input_from_res1, d_input_from_ln1, *d_input_ );
 
             forward_executed_ = false;
-
             return *d_input_;
         }
 
         void zeroGradients() override
         {
-            if ( d_act_1_ )
-                zero( *d_act_1_ );
-
-            if ( d_act_2_ )
-                zero( *d_act_2_ );
-
-            if ( d_act_3_ )
-                zero( *d_act_3_ );
-
-            if ( d_act_4_ )
-                zero( *d_act_4_ );
-
-            if ( d_qkv_ )
-                zero( *d_qkv_ );
+            if ( d_res1_accum_ )
+                zero( *d_res1_accum_ );
 
             if ( d_input_ )
                 zero( *d_input_ );
@@ -405,52 +377,32 @@ namespace Mila::Dnn
 
             auto device = this->getDeviceId();
 
-            // Forward activation buffers (kept for compatibility / optional use)
-            ln1_output_ = std::make_shared<TensorType>( device, input_shape );
-            ln1_output_->setName( this->getName() + ".lnorm_1_output" );
+            //// Forward activation buffers (kept for compatibility / optional use)
+            //ln1_output_ = std::make_shared<TensorType>( device, input_shape );
+            //ln1_output_->setName( this->getName() + ".lnorm_1_output" );
 
-            qkv_output_ = std::make_shared<TensorType>( device, qkv_shape );
-            qkv_output_->setName( this->getName() + ".qkv_output" );
+            //qkv_output_ = std::make_shared<TensorType>( device, qkv_shape );
+            //qkv_output_->setName( this->getName() + ".qkv_output" );
 
-            attn_output_ = std::make_shared<TensorType>( device, input_shape );
-            attn_output_->setName( this->getName() + ".attn_output" );
+            //attn_output_ = std::make_shared<TensorType>( device, input_shape );
+            //attn_output_->setName( this->getName() + ".attn_output" );
 
-            res1_output_ = std::make_shared<TensorType>( device, input_shape );
-            res1_output_->setName( this->getName() + ".res_1_output" );
+            //res1_output_ = std::make_shared<TensorType>( device, input_shape );
+            //res1_output_->setName( this->getName() + ".res_1_output" );
 
-            ln2_output_ = std::make_shared<TensorType>( device, input_shape );
-            ln2_output_->setName( this->getName() + ".lnorm_2_output" );
+            //ln2_output_ = std::make_shared<TensorType>( device, input_shape );
+            //ln2_output_->setName( this->getName() + ".lnorm_2_output" );
 
-            ffn_output_ = std::make_shared<TensorType>( device, input_shape );
-            ffn_output_->setName( this->getName() + ".ffn_output" );
+            //ffn_output_ = std::make_shared<TensorType>( device, input_shape );
+            //ffn_output_->setName( this->getName() + ".ffn_output" );
 
-            res2_output_ = std::make_shared<TensorType>( device, input_shape );
-            res2_output_->setName( this->getName() + ".res_2_output" );
-
-            // Owned block output buffer (encapsulated)
-            output_buffer_ = std::make_shared<TensorType>( device, input_shape );
-            output_buffer_->setName( this->getName() + ".output" );
-
-            // Backward gradient buffers (pre-allocated for reuse)
-            d_act_1_ = std::make_shared<TensorType>( device, input_shape );
-            d_act_1_->setName( this->getName() + ".d_act_1" );
-            zero( *d_act_1_ );
-
-            d_act_2_ = std::make_shared<TensorType>( device, input_shape );
-            d_act_2_->setName( this->getName() + ".d_act_2" );
-            zero( *d_act_2_ );
-
-            d_act_3_ = std::make_shared<TensorType>( device, input_shape );
-            d_act_3_->setName( this->getName() + ".d_act_3" );
-            zero( *d_act_3_ );
-
-            d_act_4_ = std::make_shared<TensorType>( device, input_shape );
-            d_act_4_->setName( this->getName() + ".d_act_4" );
-            zero( *d_act_4_ );
-
-            d_qkv_ = std::make_shared<TensorType>( device, qkv_shape );
-            d_qkv_->setName( this->getName() + ".d_qkv" );
-            zero( *d_qkv_ );
+            //res2_output_ = std::make_shared<TensorType>( device, input_shape );
+            //res2_output_->setName( this->getName() + ".res_2_output" );
+            
+            // Backward gradient buffers for residual paths
+            d_res1_accum_ = std::make_shared<TensorType>( device, input_shape );
+            d_res1_accum_->setName( this->getName() + ".d_res1_accum" );
+            zero( *d_res1_accum_ );
 
             // Owned input-gradient buffer (strict encapsulation)
             d_input_ = std::make_shared<TensorType>( device, input_shape );
@@ -488,24 +440,8 @@ namespace Mila::Dnn
         std::shared_ptr<ResidualType> res2_{ nullptr };
         std::shared_ptr<MLPType> ffn_{ nullptr };
 
-        // Forward activation buffers (legacy/optional)
-        std::shared_ptr<TensorType> ln1_output_{ nullptr };
-        std::shared_ptr<TensorType> qkv_output_{ nullptr };
-        std::shared_ptr<TensorType> attn_output_{ nullptr };
-        std::shared_ptr<TensorType> res1_output_{ nullptr };
-        std::shared_ptr<TensorType> ln2_output_{ nullptr };
-        std::shared_ptr<TensorType> ffn_output_{ nullptr };
-        std::shared_ptr<TensorType> res2_output_{ nullptr };
-
-        // Owned block output buffer (encapsulated)
-        std::shared_ptr<TensorType> output_buffer_{ nullptr };
-
-        // Backward gradient buffers (pre-allocated)
-        std::shared_ptr<TensorType> d_act_1_{ nullptr };
-        std::shared_ptr<TensorType> d_act_2_{ nullptr };
-        std::shared_ptr<TensorType> d_act_3_{ nullptr };
-        std::shared_ptr<TensorType> d_act_4_{ nullptr };
-        std::shared_ptr<TensorType> d_qkv_{ nullptr };
+        // Backward gradient buffers for residual paths
+        std::shared_ptr<TensorType> d_res1_accum_{ nullptr };
 
         // Owned input-gradient buffer (encapsulated)
         std::shared_ptr<TensorType> d_input_{ nullptr };
@@ -540,12 +476,12 @@ namespace Mila::Dnn
             this->addComponent( qkv_component );
 
             ResidualConfig res_cfg1;
-            res_cfg1.withScalingFactor( 1.0f );
+            res_cfg1.withScalingFactor( config_.getResidualScale() );
             auto res1_component = std::make_shared<ResidualType>( this->getName() + ".res_1", res_cfg1, std::nullopt );
             this->addComponent( res1_component );
 
             ResidualConfig res_cfg2;
-            res_cfg2.withScalingFactor( 1.0f );
+            res_cfg2.withScalingFactor( config_.getResidualScale() );
             auto res2_component = std::make_shared<ResidualType>( this->getName() + ".res_2", res_cfg2, std::nullopt );
             this->addComponent( res2_component );
 

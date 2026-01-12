@@ -49,10 +49,21 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Serialization;
 
     /**
-     * @brief Multi-Layer Perceptron (MLP) block for neural networks.
+     * @brief Multi-Layer Perceptron (MLP) composite component.
      *
      * Device-templated composite component that implements a standard MLP structure:
      *   Input -> Linear(in_features, hidden_size) -> [LayerNorm] -> Activation -> Linear(hidden_size, in_features) -> Output
+     *
+     * The component composes child components (Linear, optional LayerNorm, Activation) and
+     * delegates forward/backward calls to them. Child components own intermediate tensors;
+     * MLP stores non-owning pointers to those tensors after forward() to chain backward().
+     *
+     * Threading: call sites must ensure that forward/backward/zeroGradients are invoked
+     * in a thread-safe manner relative to one another; this class does not provide internal
+     * synchronization.
+     *
+     * @tparam TDeviceType Device type for execution (CPU, CUDA, ...).
+     * @tparam TPrecision  Tensor data precision (Fp32, Fp16, etc.). Must be supported on the device.
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
@@ -67,6 +78,21 @@ namespace Mila::Dnn
         using GeluType = Gelu<TDeviceType, TPrecision>;
         using LayerNormType = LayerNorm<TDeviceType, TPrecision>;
 
+        /**
+         * @brief Construct an MLP component.
+         *
+         * The constructor validates the provided `config`, constructs the internal
+         * child component graph, and optionally creates and assigns an execution context
+         * when `device_id` is provided.
+         *
+         * @param name      Component name used to name child subcomponents.
+         * @param config    MLP configuration (input features, hidden size, activation, bias, layer-norm flag).
+         * @param device_id Optional device identifier; when present the MLP creates an owned execution context
+         *                  bound to that device and sets it on the component. If the provided `device_id`
+         *                  type does not match the template `TDeviceType`, an exception is thrown.
+         *
+         * @throws std::invalid_argument if `device_id` is present but has a mismatched device type.
+         */
         explicit MLP( const std::string& name, const MLPConfig& config, std::optional<DeviceId> device_id = std::nullopt )
             : CompositeComponentBase( name ), config_( config )
         {
@@ -87,17 +113,33 @@ namespace Mila::Dnn
             }
         }
 
+        /**
+         * @brief Default destructor.
+         *
+         * Child components are stored as shared_ptr and will be destroyed automatically.
+         */
         ~MLP() override = default;
 
         /**
-         * @brief Forward pass - returns component-owned output tensor.
+         * @brief Forward pass.
          *
-         * Chains child component forward calls using their new API (returns ITensor*).
+         * Chains child component forward calls:
+         *   - fc1_->forward(input)
+         *   - optional norm_->forward(...)
+         *   - activation_->forward(...)
+         *   - fc2_->forward(...)
          *
-         * @param input Input tensor bound to the component device.
-         * @return Pointer to ITensor containing output (owned by final Linear child).
+         * The function stores non-owning pointers to child-owned intermediate tensors produced
+         * during the forward call; these pointers are used by `backward()` to chain gradients.
          *
-         * @throws std::runtime_error if component is not built.
+         * Preconditions:
+         *   - Component must be built (onBuilding called).
+         *   - Input tensor must be bound to the same device/context as the component.
+         *
+         * @param input Input tensor bound to this component's device/context.
+         * @return Reference to the output tensor produced by the final Linear child (owned by that child).
+         *
+         * @throws std::runtime_error if the component is not built prior to calling forward.
          */
         TensorType& forward( const TensorType& input )
         {
@@ -127,18 +169,26 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Backward pass - returns pointer to input gradient tensor.
+         * @brief Backward pass using captured forward intermediates.
          *
-         * Chains child component backward calls using their new API (returns ITensor*).
+         * Uses the child-owned tensors captured by the most recent `forward()` invocation
+         * to chain backward calls without recomputing forward:
+         *   - fc2_->backward(captured_activation_output, output_grad)
+         *   - activation_->backward(...)
+         *   - optional norm_->backward(...)
+         *   - fc1_->backward(input, ...)
          *
-         * The backward implementation *uses* the tensors produced by the most recent
-         * forward() call (captured above). This avoids recomputing forward during backward.
+         * The method clears the cached forward pointers before returning to avoid accidental reuse.
          *
-         * @param input Original forward input.
-         * @param output_grad Gradient w.r.t. MLP output.
-         * @return Pointer to ITensor containing gradient w.r.t. input (owned by fc1 child).
+         * Preconditions:
+         *   - Component must be built.
+         *   - `forward()` must have been called previously to populate internal forward caches.
          *
-         * @throws std::runtime_error if component is not built or forward() was not called.
+         * @param input       The original input tensor passed to `forward()`; required by fc1_->backward.
+         * @param output_grad Gradient tensor w.r.t. the MLP output.
+         * @return Reference to the input-gradient tensor (owned by the `fc1` child).
+         *
+         * @throws std::runtime_error if the component is not built or if `forward()` was not called.
          */
         TensorType& backward( const TensorType& input, const TensorType& output_grad )
         {
@@ -187,6 +237,12 @@ namespace Mila::Dnn
             }
         }
 
+        /**
+         * @brief Zero gradients for all child components.
+         *
+         * Recursively zeroes optimizer/parameter gradients in children. Safe to call
+         * regardless of build state; child pointers are checked before use.
+         */
         void zeroGradients() override
         {
             // Zero gradients in child components and preallocated buffers if present.
@@ -202,6 +258,14 @@ namespace Mila::Dnn
             fc2_->zeroGradients();
         }
 
+        /**
+         * @brief Serialize parameters to a model archive.
+         *
+         * Saves child component parameters and state into the provided archive in a deterministic order.
+         *
+         * @param archive Serialization archive to write to.
+         * @param mode    Serialization mode (enum driven by Serialization::Mode).
+         */
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
             fc1_->save_( archive, mode );
@@ -215,6 +279,14 @@ namespace Mila::Dnn
             fc2_->save_( archive, mode );
         }
 
+        /**
+         * @brief Human-readable status and configuration summary.
+         *
+         * Produces a multi-line string describing the component name, shapes, parameter counts,
+         * activation and layer-norm usage, device assignment (if set), and child component names.
+         *
+         * @return String containing component introspection information suitable for logging.
+         */
         std::string toString() const override
         {
             std::ostringstream oss;
@@ -285,6 +357,17 @@ namespace Mila::Dnn
 
     protected:
 
+        /**
+         * @brief Build-time callback invoked by the CompositeComponent framework.
+         *
+         * Validates the provided `input_shape`, computes the hidden shape, and builds
+         * each child component with the appropriate shape. After building, any cached
+         * forward pointers are cleared to guarantee a clean state for subsequent forward calls.
+         *
+         * @param input_shape Shape of the input tensor. The last dimension must equal config_.getInputFeatures().
+         *
+         * @throws std::invalid_argument if `input_shape` rank < 1 or last dimension mismatches config.
+         */
         void onBuilding( const shape_t& input_shape ) override
         {
             validateInputShape( input_shape );
@@ -311,11 +394,16 @@ namespace Mila::Dnn
 
             // Clear any cached forward pointers on new build.
             clearForwardCache();
-
-            // Preallocate nothing for child-owned forward/backward buffers; children own their buffers.
-            // Keep cached shapes for validation and introspection.
         }
 
+        /**
+         * @brief Called when the training/inference mode changes.
+         *
+         * Propagates the training flag to child components so they can adjust behavior
+         * (dropout, batch/statistics, etc.) as needed.
+         *
+         * @param is_training True if switching to training mode; false for evaluation mode.
+         */
         void onTrainingChanging( bool is_training ) override
         {
             if ( fc1_ )
@@ -360,6 +448,12 @@ namespace Mila::Dnn
         TensorType* last_act_out_{ nullptr };
         TensorType* last_final_out_{ nullptr };
 
+        /**
+         * @brief Build the internal component graph according to `config_`.
+         *
+         * Adds children (fc1, optional norm, activation, fc2) using helper add* methods.
+         * Called from the constructor; does not perform shape-dependent build calls.
+         */
         void createGraph()
         {
             addLinear( "fc1", config_.getInputFeatures(), config_.getHiddenSize() );
@@ -373,6 +467,15 @@ namespace Mila::Dnn
             addLinear( "fc2", config_.getHiddenSize(), config_.getInputFeatures() );
         }
 
+        /**
+         * @brief Helper to create and add a Linear child component.
+         *
+         * The created Linear component uses the parent's name plus the provided suffix.
+         *
+         * @param suffix      Suffix appended to parent name for the child component.
+         * @param in_features Number of input features for the linear layer.
+         * @param out_features Number of output features for the linear layer.
+         */
         void addLinear( const std::string& suffix, dim_t in_features, dim_t out_features )
         {
             auto cfg = LinearConfig( in_features, out_features )
@@ -383,6 +486,13 @@ namespace Mila::Dnn
             this->addComponent( component );
         }
 
+        /**
+         * @brief Helper to create and add a LayerNorm child component.
+         *
+         * The LayerNorm is constructed with axis=-1 by default to normalize the last dimension.
+         *
+         * @param suffix Suffix appended to parent name for the child component.
+         */
         void addLayerNorm( const std::string& suffix )
         {
             auto cfg = LayerNormConfig().withAxis( -1 );
@@ -392,6 +502,15 @@ namespace Mila::Dnn
             this->addComponent( component );
         }
 
+        /**
+         * @brief Helper to create and add the configured activation component.
+         *
+         * Currently supports ActivationType::Gelu. Throws on unsupported activations.
+         *
+         * @param suffix Suffix appended to parent name for the child component.
+         *
+         * @throws std::invalid_argument if the activation type in config_ is unsupported.
+         */
         void addActivation( const std::string& suffix )
         {
             switch ( config_.getActivationType() )
@@ -408,6 +527,16 @@ namespace Mila::Dnn
             }
         }
 
+        /**
+         * @brief Validate input shape against the MLP configuration.
+         *
+         * Ensures the input tensor has rank >= 1 and that its last dimension
+         * matches `config_.getInputFeatures()`.
+         *
+         * @param input_shape Shape to validate.
+         *
+         * @throws std::invalid_argument when rank < 1 or last-dimension mismatch.
+         */
         void validateInputShape( const shape_t& input_shape ) const
         {
             if ( input_shape.empty() )
@@ -426,6 +555,12 @@ namespace Mila::Dnn
             }
         }
 
+        /**
+         * @brief Clear cached non-owning forward pointers.
+         *
+         * Safe to call at any time; used to avoid accidental reuse of child-owned
+         * tensors across forward/backward cycles. No side effects beyond pointer reset.
+         */
         void clearForwardCache() noexcept
         {
             last_fc1_out_ = nullptr;

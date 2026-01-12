@@ -56,9 +56,8 @@ namespace Mila::Dnn
      * @brief Device-templated Layer Normalization component.
      *
      * Provides forward and backward APIs that operate on concrete Tensor types.
-     * Delegates heavy compute to a UnaryOperation backend registered in the
-     * OperationRegistry. Parameters (weight/bias) and parameter gradients are
-     * owned by the component.
+     * Delegates heavy compute to a UnaryOperation backend. Parameters (weight/bias)
+     * and parameter gradients are owned by the component.
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
@@ -184,6 +183,12 @@ namespace Mila::Dnn
                 throw std::runtime_error( "LayerNorm: owned input-grad buffer not allocated" );
             }
 
+            // Zero input gradient buffer before backward pass. No exeptions.
+            // Backend ops use accumulation (atomicAdd/+=) which requires pre-zeroed buffers
+            // to prevent gradient buildup across calls. Without this, gradients grow linearly
+            // with each call -> explosion.
+            zero( *owned_input_grad_ );
+
             operation_->backward( input, output_grad, *owned_input_grad_ );
 
             return *owned_input_grad_;
@@ -193,12 +198,12 @@ namespace Mila::Dnn
         {
             if ( weight_grad_ )
             {
-                zero( *weight_grad_, this->getExecutionContext() );
+                zero( *weight_grad_ /*, this->getExecutionContext() */);
             }
 
             if ( config_.hasBias() && bias_grad_ )
             {
-                zero( *bias_grad_, this->getExecutionContext() );
+                zero( *bias_grad_ /*, this->getExecutionContext()*/ );
             }
         }
 

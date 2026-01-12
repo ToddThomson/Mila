@@ -18,6 +18,7 @@ module;
 
 export module Dnn.Component;
 
+export import :BuildConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
@@ -100,28 +101,37 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
-         * @brief Build the component with the given input shape.
+         * @brief Build the component with the given input shape (convenience).
          *
-         * This method performs a one-time initialization of the component based
-         * on the input shape. It is idempotent in the sense that calling build()
-         * multiple times is an error rather than a no-op.
+         * Convenience overload that constructs a minimal BuildConfig from the
+         * provided `input_shape` and delegates to the canonical `build(config)`.
          *
-         * Build sequence:
-         * 1. Verify component is not already built (throws if already built)
-         * 2. Invoke onBuilding(input_shape) hook for pre-build setup
-         * 3. Mark component as built
+         * @param input_shape The shape of the input tensor (full-batch first).
          *
-         * Exception safety:
-         * - If onBuilding() throws, the component remains unbuilt
-         * - Component is in a valid state and build() may be retried
-         *
-         * @param input_shape The shape of the input tensor.
-         *
-         * @throws std::logic_error if component is already built.
-         * @throws std::invalid_argument if input_shape is invalid for this component.
+         * @throws std::runtime_error if component is already built.
+         * @throws std::invalid_argument if input_shape / derived config is invalid.
          * @throws Any exception from onBuilding().
          */
         virtual void build( const shape_t& input_shape ) final
+        {
+            BuildConfig cfg( input_shape );
+            build( cfg );
+        }
+
+        /**
+         * @brief Build the component with the provided build configuration.
+         *
+         * Canonical build entrypoint. Validates the provided config and then
+         * invokes the `onBuilding(const BuildConfig&)` hook for component-specific
+         * initialization.
+         *
+         * @param config Build-time configuration (must include full input_shape).
+         *
+         * @throws std::runtime_error if component is already built.
+         * @throws std::invalid_argument if config.validate() fails.
+         * @throws Any exception from onBuilding().
+         */
+        virtual void build( const BuildConfig& config ) final
         {
             if ( isBuilt() )
             {
@@ -136,7 +146,9 @@ namespace Mila::Dnn
                 );
             }
 
-            onBuilding( input_shape );
+            config.validate();
+
+            onBuilding( config );
 
             built_ = true;
         }
@@ -356,6 +368,24 @@ namespace Mila::Dnn
          */
         virtual std::string toString() const = 0;
 
+        /**
+         * @brief Return non-owning pointers to parameter tensors.
+         *
+         * The returned tensor pointers remain valid for the lifetime of the
+         * componet. Order should be canonical (weights before biases).
+         */
+        virtual std::vector<ITensor*> getParameters() const = 0;
+
+        /**
+         * @brief Return non-owning pointers to parameter gradient tensors.
+         *
+         * Only valid when the component is in training mode.
+         *
+         * @throws std::runtime_error if called when not in training mode or
+         *         before the component has been built.
+         */
+        virtual std::vector<ITensor*> getGradients() const = 0;
+
     protected:
 
         /**
@@ -498,7 +528,7 @@ namespace Mila::Dnn
          *   will be restored by `setTraining()`.
          *
          * Threading:
-         * - Hook runs with `training_mutex_` held; callers may use `isTraining()`
+         * - Hook runs with `training_mutex_` held; callers may use `isTraining()` 
          *   to observe the updated mode inside the hook.
          *
          * @param is_training true if training mode is enabled (gradients allowed).
@@ -508,51 +538,34 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Hook invoked before the component is built.
+         * @brief Hook invoked before the component is built (canonical).
          *
-         * The hook is called after `isBuilt()` has been verified as false but
-         * before the component is marked as built. Implementations should perform
-         * any validation, child component preparation, or pre-build setup required.
+         * Receives the full `BuildConfig` including input_shape and micro-batching
+         * hints. Implementations should perform validation specific to the module
+         * and allocate device resources as needed.
          *
-         * Preconditions and expectations:
-         * - MUST NOT call `build()` (no reentrancy).
-         * - Should avoid throwing; if an exception is thrown it will be
-         *   propagated to the caller of `build()` and the component will
-         *   remain in an unbuilt state.
-         * - Called while the component is guaranteed to be in an unbuilt state.
+         * Default implementation forwards to the legacy `onBuilding(const shape_t&)`
+         * to preserve derived-class compatibility.
          *
-         * Threading:
-         * - Hook runs before any state modification; implementations requiring
-         *   thread safety should use appropriate synchronization.
+         * @param config Build-time configuration.
+         */
+        virtual void onBuilding( const BuildConfig& config )
+        {
+            onBuilding( config.inputShape() );
+        }
+
+        /**
+         * @brief Legacy hook invoked before the component is built.
          *
-         * Common use cases:
-         * - CompositeComponent: propagate build to children
-         * - Network: validate graph connectivity
-         * - Custom components: allocate auxiliary resources
+         * Provided for backwards compatibility: components that previously
+         * implemented `onBuilding(const shape_t&)` will continue to be called
+         * when the canonical `onBuilding(const BuildConfig&)` forwards to this.
          *
          * @param input_shape The shape that will be used for building.
          */
         virtual void onBuilding( const shape_t& input_shape )
         {
         }
-
-        /**
-         * @brief Return non-owning pointers to parameter tensors.
-         *
-         * The returned tensor pointers remain valid for the lifetime of the
-         * module. Order should be canonical (weights before biases).
-         */
-        virtual std::vector<ITensor*> getParameters() const = 0;
-
-        /**
-         * @brief Return non-owning pointers to parameter gradient tensors.
-         *
-         * Only valid when the module is in training mode.
-         *
-         * @throws std::runtime_error if called when not in training mode or
-         *         before the module has been built.
-         */
-        virtual std::vector<ITensor*> getGradients() const = 0;
 
     private:
 

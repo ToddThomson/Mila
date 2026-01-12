@@ -118,16 +118,6 @@ namespace Mila::Dnn
 
             validateConcatenatedQKVShape( input.shape() );
 
-            if ( !operation_ )
-            {
-                throw std::runtime_error( "Attention: operation backend not initialized" );
-            }
-
-            if ( !owned_output_ )
-            {
-                throw std::runtime_error( "Attention: owned output buffer not allocated" );
-            }
-
             operation_->forward( input, *owned_output_ );
 
             return *owned_output_;
@@ -161,15 +151,8 @@ namespace Mila::Dnn
 
             validateConcatenatedQKVShape( input.shape() );
 
-            if ( !operation_ )
-            {
-                throw std::runtime_error( "Attention: operation backend not initialized" );
-            }
-
-            if ( !owned_input_grad_ )
-            {
-                throw std::runtime_error( "Attention: owned input-grad buffer not allocated" );
-            }
+            // Zero input gradient buffer before backward pass. No exceptions.
+            zero( *owned_input_grad_ /*, this->getExecutionContext() */ );
 
             operation_->backward( input, output_grad, *owned_input_grad_ );
 

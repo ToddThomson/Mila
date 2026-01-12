@@ -418,15 +418,13 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-    protected:
-
         /**
-                * @brief Get all parameters from all children.
-                *
-                * @return Vector of non-owning pointers to parameter tensors
-                *
-                * @throws std::runtime_error if called before build()
-                */
+               * @brief Get all parameters from all children.
+               *
+               * @return Vector of non-owning pointers to parameter tensors
+               *
+               * @throws std::runtime_error if called before build()
+               */
         std::vector<ITensor*> getParameters() const override
         {
             if ( !this->isBuilt() )
@@ -504,6 +502,10 @@ namespace Mila::Dnn
 
             return grads;
         }
+
+    protected:
+
+       
 
         /**
          * @brief Virtual hook for graph optimization after construction.

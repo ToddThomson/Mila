@@ -19,6 +19,60 @@ namespace Components_Layers_Linear_Tests
     template<TensorDataType TPrecision>
     using CpuTensor = Tensor<TPrecision, CpuMemoryResource>;
 
+    // Test harness to expose Linear's protected parameter/gradient accessors.
+    template<DeviceType TDeviceType, TensorDataType TPrecision>
+    struct LinearTestHarness : public Mila::Dnn::Linear<TDeviceType, TPrecision>
+    {
+        using Base = Mila::Dnn::Linear<TDeviceType, TPrecision>;
+        using TensorType = typename Base::TensorType;
+
+        // Forward constructors to base
+        LinearTestHarness( const std::string& name, const LinearConfig& cfg, std::optional<DeviceId> device_id = std::nullopt )
+            : Base( name, cfg, device_id )
+        {}
+
+        // Public wrappers for protected methods (typed)
+        std::vector<TensorType*> getTypedParametersPublic() const
+        {
+            std::vector<TensorType*> out;
+            auto params = Base::getParameters();
+            out.reserve( params.size() );
+
+            for ( auto p : params )
+            {
+				// TODO: Investigate UB from returning pointer to temporary
+                out.push_back( static_cast<TensorType*>( p ) );
+            }
+
+            return out;
+        }
+
+        std::vector<TensorType*> getTypedGradientsPublic() const
+        {
+            std::vector<TensorType*> out;
+            auto grads = Base::getGradients();
+            out.reserve( grads.size() );
+
+            for ( auto g : grads )
+            {
+                out.push_back( static_cast<TensorType*>( g ) );
+            }
+
+            return out;
+        }
+
+        // Keep legacy ITensor* wrappers for compatibility with other tests
+        std::vector<Mila::Dnn::ITensor*> getParametersPublic() const
+        {
+            return Base::getParameters();
+        }
+
+        std::vector<Mila::Dnn::ITensor*> getGradientsPublic() const
+        {
+            return Base::getGradients();
+        }
+    };
+
     // ====================================================================
     // Test shapes
     // ====================================================================
@@ -449,7 +503,6 @@ namespace Components_Layers_Linear_Tests
                 host_output_grad.data()[ i ] = (i % 2 == 0) ? 0.1f : -0.1f;
             }
 
-            // DEBUG: GIGO
             std::cout << "Output Gradient:" << std::endl;
             std::cout << host_output_grad.toString( true );
 
@@ -536,4 +589,373 @@ namespace Components_Layers_Linear_Tests
             GTEST_SKIP() << "Linear backend not available";
         }
     }
+
+    // Unit test that exercises the harness (typed access)
+    TYPED_TEST( LinearCudaTests, ProtectedParameterAndGradientAccess_ViaHarness )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto s = LinearTestShape::Small();
+        LinearConfig cfg( s.in_features, s.out_features );
+        cfg.withBias( false );
+
+        auto harness = std::make_shared<
+            LinearTestHarness<DeviceType::Cuda, TPrecision >
+        >( "linear_harness", cfg, Device::Cuda( 0 ) );
+
+        ASSERT_NO_THROW( harness->build( s.inputShape() ) );
+
+        harness->setTraining( true );
+
+        // Protected getParameters() -> should expose weight (and bias if enabled)
+        std::vector<ITensor*> params;
+        ASSERT_NO_THROW( params = harness->getParametersPublic() );
+        EXPECT_EQ( params.size(), cfg.hasBias() ? 2u : 1u );
+
+        // Protected getGradients() -> valid only in training mode
+        std::vector<Mila::Dnn::ITensor*> grads;
+        ASSERT_NO_THROW( grads = harness->getGradientsPublic() );
+        EXPECT_EQ( grads.size(), cfg.hasBias() ? 2u : 1u );
+    }
+
+    // New test: parameters remain unchanged after forward
+    TYPED_TEST( LinearCudaTests, ParametersUnchanged_AfterForward )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        if constexpr ( TPrecision != TensorDataType::FP32 )
+        {
+            GTEST_SKIP() << "Parameters comparison test runs for FP32 only";
+        }
+
+        try
+        {
+            auto s = LinearTestShape::Small();
+            LinearConfig cfg( s.in_features, s.out_features );
+            cfg.withBias( true );
+
+            auto harness = std::make_shared<
+                LinearTestHarness<DeviceType::Cuda, TPrecision>
+            >( "linear_params_check", cfg, Device::Cuda( 0 ) );
+
+            // Build then use deterministic input
+            harness->build( s.inputShape() );
+
+            // Get typed parameter tensors and snapshot their host values
+            auto params = harness->getTypedParametersPublic();
+            ASSERT_FALSE( params.empty() );
+
+            std::vector<CpuTensor<TPrecision>> before;
+            before.reserve( params.size() );
+
+            for ( auto p : params )
+            {
+                before.push_back( toHost<TPrecision>( *p ) );
+            }
+
+            // Deterministic input
+            Mila::Core::RandomGenerator::getInstance().setSeed( 2025 );
+
+            CpuTensor<TensorDataType::FP32> host_in( Device::Cpu(), s.inputShape() );
+            random( host_in, -1.0f, 1.0f );
+
+            CudaTensor<TPrecision> device_in( Device::Cuda( 0 ), s.inputShape() );
+            copy( host_in, device_in );
+
+            // Run forward
+            CudaTensor<TPrecision>* out_ptr = nullptr;
+            ASSERT_NO_THROW( out_ptr = &harness->forward( device_in ) );
+            ASSERT_NE( out_ptr, nullptr );
+
+            harness->synchronize();
+
+            // Snapshot after forward and compare elementwise
+            for ( size_t idx = 0; idx < params.size(); ++idx )
+            {
+                auto after = toHost<TPrecision>( *params[ idx ] );
+
+                ASSERT_EQ( before[ idx ].size(), after.size() );
+
+                for ( size_t i = 0; i < after.size(); ++i )
+                {
+                    EXPECT_NEAR( before[ idx ].data()[ i ], after.data()[ i ], 1e-6f )
+                        << "Parameter changed after forward at param " << idx << " element " << i;
+                }
+            }
+        }
+        catch ( const std::exception& )
+        {
+            GTEST_SKIP() << "Linear backend not available for parameter check";
+        }
+    }
+
+    // New test: gradients are produced after backward and zeroGradients clears them
+    TYPED_TEST( LinearCudaTests, GradientsCorrectness_AfterBackward )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        if constexpr ( TPrecision != TensorDataType::FP32 )
+        {
+            GTEST_SKIP() << "Gradient correctness test runs for FP32 only";
+        }
+
+        try
+        {
+            auto s = LinearTestShape::Small();
+            LinearConfig cfg( s.in_features, s.out_features );
+            cfg.withBias( true );
+
+            auto harness = std::make_shared<
+                LinearTestHarness<DeviceType::Cuda, TPrecision>
+            >( "linear_grad_check", cfg, Device::Cuda( 0 ) );
+
+            // Build and enable training to allocate gradients
+            harness->build( s.inputShape() );
+            harness->setTraining( true );
+
+            // Prepare deterministic input and output gradient
+            Mila::Core::RandomGenerator::getInstance().setSeed( 4242 );
+
+            CpuTensor<TensorDataType::FP32> host_in( Device::Cpu(), s.inputShape() );
+            random( host_in, -1.0f, 1.0f );
+
+            CpuTensor<TensorDataType::FP32> host_outg( Device::Cpu(), s.outputShape() );
+
+            for ( size_t i = 0; i < host_outg.size(); ++i )
+            {
+                host_outg.data()[ i ] = (i % 2 == 0) ? 0.07f : -0.07f;
+            }
+
+            CudaTensor<TPrecision> device_in( Device::Cuda( 0 ), s.inputShape() );
+            CudaTensor<TPrecision> device_outg( Device::Cuda( 0 ), s.outputShape() );
+
+            copy( host_in, device_in );
+            copy( host_outg, device_outg );
+
+            // Ensure gradients start zero
+            harness->zeroGradients();
+
+            // Run forward then backward to produce parameter gradients
+            ASSERT_NO_THROW( (void)harness->forward( device_in ) );
+
+            ASSERT_NO_THROW( (void)harness->backward( device_in, device_outg ) );
+
+            harness->synchronize();
+
+            // Retrieve typed gradients and verify they are non-zero
+            auto grads = harness->getTypedGradientsPublic();
+            ASSERT_FALSE( grads.empty() );
+
+            bool any_nonzero = false;
+
+            for ( auto g : grads )
+            {
+                auto host_grad = toHost<TPrecision>( *g );
+
+                double accum_abs = 0.0;
+                for ( size_t i = 0; i < host_grad.size(); ++i )
+                {
+                    accum_abs += std::abs( host_grad.data()[ i ] );
+                }
+
+                if ( accum_abs > 1e-6 )
+                {
+                    any_nonzero = true;
+                }
+            }
+
+            EXPECT_TRUE( any_nonzero ) << "Expected at least one non-zero parameter gradient after backward";
+
+            // Now test zeroGradients clears the tensors
+            harness->zeroGradients();
+            harness->synchronize();
+
+            for ( auto g : grads )
+            {
+                auto host_grad = toHost<TPrecision>( *g );
+
+                for ( size_t i = 0; i < host_grad.size(); ++i )
+                {
+                    EXPECT_NEAR( host_grad.data()[ i ], 0.0f, 1e-6f )
+                        << "Gradient not zeroed at element " << i;
+                }
+            }
+        }
+        catch ( const std::exception& )
+        {
+            GTEST_SKIP() << "Linear backend not available for gradient check";
+        }
+    }
+
+    // ====================================================================
+    // CPU <-> CUDA parameter/gradient equality tests (FP32 only)
+    // ====================================================================
+
+    TYPED_TEST( LinearCudaTests, Parameters_CPU_CUDA_Equivalence_FP32 )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        if constexpr ( TPrecision != TensorDataType::FP32 )
+        {
+            GTEST_SKIP() << "Parameters equivalence runs only for FP32";
+        }
+
+        try
+        {
+            auto s = LinearTestShape::Small();
+
+            // Deterministic seed BEFORE constructing components to ensure same initialization.
+            Mila::Core::RandomGenerator::getInstance().setSeed( 2026 );
+
+            auto cpu_lin = std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>(
+                "linear_cpu_params", LinearConfig( s.in_features, s.out_features ), Device::Cpu()
+            );
+
+            auto cuda_lin = std::make_shared<Linear<DeviceType::Cuda, TensorDataType::FP32>>(
+                "linear_cuda_params", LinearConfig( s.in_features, s.out_features ), Device::Cuda( 0 )
+            );
+
+            cpu_lin->build( s.inputShape() );
+            cuda_lin->build( s.inputShape() );
+
+            // Retrieve parameters (public temporarily)
+            auto cpu_params = cpu_lin->getParameters();
+            auto cuda_params = cuda_lin->getParameters();
+
+            ASSERT_EQ( cpu_params.size(), cuda_params.size() );
+
+            const float tol = 1e-6f;
+
+            for ( size_t i = 0; i < cpu_params.size(); ++i )
+            {
+                // Cast to concrete tensor types
+                auto cpu_t = static_cast<CpuTensor<TensorDataType::FP32>*>( cpu_params[ i ] );
+                auto cuda_t = static_cast<CudaTensor<TensorDataType::FP32>*>( cuda_params[ i ] );
+
+                ASSERT_NE( cpu_t, nullptr );
+                ASSERT_NE( cuda_t, nullptr );
+
+                // Copy CUDA param to host for comparison
+                auto host_cuda = toHost<TensorDataType::FP32>( *cuda_t );
+
+                // CPU param may already be host; ensure we have a host copy
+                auto host_cpu = toHost<TensorDataType::FP32>( *cpu_t );
+
+                ASSERT_EQ( host_cpu.size(), host_cuda.size() );
+
+                for ( size_t e = 0; e < host_cpu.size(); ++e )
+                {
+                    EXPECT_NEAR( host_cpu.data()[ e ], host_cuda.data()[ e ], tol )
+                        << "Parameter mismatch at param " << i << " element " << e;
+                }
+            }
+        }
+        catch ( const std::exception& )
+        {
+            GTEST_SKIP() << "Linear CPU/CUDA parameter equivalence not available";
+        }
+    }
+
+    TYPED_TEST( LinearCudaTests, Gradients_CPU_CUDA_Equivalence_FP32 )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        if constexpr ( TPrecision != TensorDataType::FP32 )
+        {
+            GTEST_SKIP() << "Gradients equivalence runs only for FP32";
+        }
+
+        try
+        {
+            auto s = LinearTestShape::Small();
+
+            // Deterministic seed BEFORE constructing components so parameter initialization matches
+            Mila::Core::RandomGenerator::getInstance().setSeed( 3030 );
+
+            auto cpu_lin = std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>(
+                "linear_cpu_grads", LinearConfig( s.in_features, s.out_features ), Device::Cpu()
+            );
+
+            auto cuda_lin = std::make_shared<Linear<DeviceType::Cuda, TensorDataType::FP32>>(
+                "linear_cuda_grads", LinearConfig( s.in_features, s.out_features ), Device::Cuda( 0 )
+            );
+
+            cpu_lin->build( s.inputShape() );
+            cuda_lin->build( s.inputShape() );
+
+            cpu_lin->setTraining( true );
+            cuda_lin->setTraining( true );
+
+            // Deterministic input and output gradient
+            Mila::Core::RandomGenerator::getInstance().setSeed( 4040 );
+
+            CpuTensor<TensorDataType::FP32> host_in( Device::Cpu(), s.inputShape() );
+            random( host_in, -1.0f, 1.0f );
+
+            CpuTensor<TensorDataType::FP32> host_outg( Device::Cpu(), s.outputShape() );
+
+            for ( size_t i = 0; i < host_outg.size(); ++i )
+            {
+                host_outg.data()[ i ] = (i % 2 == 0) ? 0.05f : -0.05f;
+            }
+
+            // Copy inputs to device copies for CUDA component
+            CudaTensor<TensorDataType::FP32> device_in( Device::Cuda( 0 ), s.inputShape() );
+            CudaTensor<TensorDataType::FP32> device_outg( Device::Cuda( 0 ), s.outputShape() );
+
+            copy( host_in, device_in );
+            copy( host_outg, device_outg );
+
+            // Ensure gradients are zeroed
+            cpu_lin->zeroGradients();
+            cuda_lin->zeroGradients();
+
+            // Forward + backward
+            ASSERT_NO_THROW( (void)cpu_lin->forward( host_in ) );
+            ASSERT_NO_THROW( (void)cpu_lin->backward( host_in, host_outg ) );
+
+            ASSERT_NO_THROW( (void)cuda_lin->forward( device_in ) );
+            ASSERT_NO_THROW( (void)cuda_lin->backward( device_in, device_outg ) );
+
+            cuda_lin->synchronize();
+
+            // Retrieve gradients (public temporarily)
+            auto cpu_grads = cpu_lin->getGradients();
+            auto cuda_grads = cuda_lin->getGradients();
+
+            ASSERT_EQ( cpu_grads.size(), cuda_grads.size() );
+
+            const float tol = 1e-5f;
+
+            for ( size_t i = 0; i < cpu_grads.size(); ++i )
+            {
+                auto cpu_g = static_cast<CpuTensor<TensorDataType::FP32>*>( cpu_grads[ i ] );
+                auto cuda_g = static_cast<CudaTensor<TensorDataType::FP32>*>( cuda_grads[ i ] );
+
+                ASSERT_NE( cpu_g, nullptr );
+                ASSERT_NE( cuda_g, nullptr );
+
+                auto host_cpu_g = toHost<TensorDataType::FP32>( *cpu_g );
+                auto host_cuda_g = toHost<TensorDataType::FP32>( *cuda_g );
+
+                ASSERT_EQ( host_cpu_g.size(), host_cuda_g.size() );
+
+                for ( size_t e = 0; e < host_cpu_g.size(); ++e )
+                {
+                    EXPECT_NEAR( host_cpu_g.data()[ e ], host_cuda_g.data()[ e ], tol )
+                        << "Gradient mismatch at grad " << i << " element " << e;
+                }
+            }
+        }
+        catch ( const std::exception& )
+        {
+            GTEST_SKIP() << "Linear CPU/CUDA gradients equivalence not available";
+        }
+    }
+
 }

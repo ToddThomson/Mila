@@ -288,10 +288,11 @@ void trainMnist( const MnistConfig& config )
     MnistDataLoader<TensorDataType::FP32, THostMR> train_loader( config.data_directory, config.batch_size, true, device_id );
     MnistDataLoader<TensorDataType::FP32, THostMR> test_loader( config.data_directory, config.batch_size, false, device_id );
 
-    // Build the model with the input shape from the data loader
-    shape_t input_shape = { train_loader.batchSize(), MNIST_IMAGE_SIZE };
-    
-    mnist_net->build( input_shape );
+    // Build the model with the provided input shape
+    shape_t input_shape = { config.batch_size, MNIST_IMAGE_SIZE };
+
+    BuildConfig cfg( input_shape );
+    mnist_net->build( cfg );
 
     std::cout << "Mnist Classifier built successfully!" << std::endl;
     std::cout << mnist_net->toString() << std::endl;

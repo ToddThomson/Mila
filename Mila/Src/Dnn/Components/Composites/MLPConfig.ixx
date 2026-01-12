@@ -109,7 +109,7 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Get the hidden (intermediate) layer size.
+         * @brief Get the hidden layer size.
          *
          * @return Hidden layer dimension.
          */
