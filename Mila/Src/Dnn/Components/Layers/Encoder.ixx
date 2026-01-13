@@ -384,10 +384,10 @@ namespace Mila::Dnn
                 operation_->clearGradients();
 
                 if ( wte_grad_ )
-                    zeros( *wte_grad_ );
+                    zero( *wte_grad_ );
                 
                 if ( wpe_grad_ )
-                    zeros( *wpe_grad_ );
+                    zero( *wpe_grad_ );
             }
         }
 
@@ -456,17 +456,17 @@ namespace Mila::Dnn
             int64_t embedding_dim = config_.getChannels();
 
             // Standard deviation = 1/sqrt(embedding_dim)
-            float std = 1.0f / std::sqrt( static_cast<float>(embedding_dim) );
+            float std_dev = 1.0f / std::sqrt( static_cast<float>(embedding_dim) );
 
             auto device_id = this->getExecutionContext()->getDeviceId();
 
             wte_ = std::make_unique<EmbeddingsTensorType>( device_id, shape_t{ vocab_size, embedding_dim } );
             wte_->setName( this->getName() + ".wte" );
-            normal<TPrecision, MR>( *wte_, 0.0f, std );
+            normal( *wte_, std_dev );
 
             wpe_ = std::make_unique<EmbeddingsTensorType>( device_id, shape_t{ max_seq_len, embedding_dim } );
             wpe_->setName( this->getName() + ".wpe" );
-            normal<TPrecision, MR>( *wpe_, 0.0f, std );
+            normal( *wpe_, std_dev );
         }
 
         void createOperation()

@@ -86,7 +86,7 @@ namespace Mila::CharLM
                     "Please run CharPreprocessor first to create preprocessed files." );
             }
 
-            // Read vocabulary size from .vocab file header (don't load full vocabulary)
+            // Read vocabulary size and optional special token ids from .vocab file header
             loadVocabSize();
 
             // Load tokenized data and validate tokens against vocab size
@@ -118,6 +118,12 @@ namespace Mila::CharLM
             std::cout << "  Total sequences: " << num_sequences_ << std::endl;
             std::cout << "  Batches: " << num_batches_ << std::endl;
             std::cout << "  Device: " << device_.toString() << std::endl;
+
+            // Expose pad/unk info if present
+            if ( pad_token_id_ >= 0 || unk_token_id_ >= 0 )
+            {
+                std::cout << "  PAD id: " << pad_token_id_ << "  UNK id: " << unk_token_id_ << std::endl;
+            }
         }
 
         int64_t numBatches() const override
@@ -224,6 +230,22 @@ namespace Mila::CharLM
             return seq_length_;
         }
 
+        /**
+         * @brief Gets pad token id if present, otherwise -1.
+         */
+        int padTokenId() const
+        {
+            return pad_token_id_;
+        }
+
+        /**
+         * @brief Gets unk token id if present, otherwise -1.
+         */
+        int unkTokenId() const
+        {
+            return unk_token_id_;
+        }
+
     private:
         DeviceId device_;
         bool is_training_;
@@ -232,6 +254,9 @@ namespace Mila::CharLM
         size_t num_sequences_;
         int64_t num_batches_;
         size_t vocab_size_;
+
+        int pad_token_id_{ -1 };
+        int unk_token_id_{ -1 };
 
         std::string vocab_file_;
         std::string tokens_file_;
@@ -271,7 +296,7 @@ namespace Mila::CharLM
         }
 
         /**
-         * @brief Loads vocabulary size from .vocab file header.
+         * @brief Loads vocabulary size and optional special token ids from .vocab file header.
          */
         void loadVocabSize()
         {
@@ -281,12 +306,54 @@ namespace Mila::CharLM
                 throw std::runtime_error( "Cannot open vocabulary file: " + vocab_file_ );
             }
 
-            // Read only the vocabulary size from header
+            // Read vocabulary size (written as size_t by CharPreprocessor/CharVocabulary)
             file.read( reinterpret_cast<char*>(&vocab_size_), sizeof( vocab_size_ ) );
 
-            if (!file || vocab_size_ == 0)
+            if (file.fail() || vocab_size_ == 0)
             {
                 throw std::runtime_error( "Invalid vocabulary file: " + vocab_file_ );
+            }
+
+            // Attempt to read has_special flag (written as bool)
+            bool has_special = false;
+            file.read( reinterpret_cast<char*>(&has_special), sizeof( has_special ) );
+
+            if (file.fail())
+            {
+                // Older files might not contain the flag; treat as no special tokens.
+                file.clear();
+                pad_token_id_ = -1;
+                unk_token_id_ = -1;
+
+                // Rewind to end of header already read (nothing else to do)
+                return;
+            }
+
+            if (has_special)
+            {
+                // Read pad/unk ids (written as int types)
+                int pad = -1;
+                int unk = -1;
+
+                file.read( reinterpret_cast<char*>(&pad), sizeof( pad ) );
+                if (file.fail())
+                {
+                    throw std::runtime_error( "Error reading pad_token_id from: " + vocab_file_ );
+                }
+
+                file.read( reinterpret_cast<char*>(&unk), sizeof( unk ) );
+                if (file.fail())
+                {
+                    throw std::runtime_error( "Error reading unk_token_id from: " + vocab_file_ );
+                }
+
+                pad_token_id_ = pad;
+                unk_token_id_ = unk;
+            }
+            else
+            {
+                pad_token_id_ = -1;
+                unk_token_id_ = -1;
             }
         }
 

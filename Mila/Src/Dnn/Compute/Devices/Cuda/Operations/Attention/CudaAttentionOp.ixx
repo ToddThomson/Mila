@@ -673,22 +673,6 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 B_, T_, NH_, HS_,
                 stream );
 
-            /*context_->synchronize();
-            {
-                shape_t dVout_shape = { B_, NH_, T_, HS_ };
-                std::string dVout_dump = dump_tensor<NativeType>(
-                    dVout_, dVout_shape, this->getName() + ".dbg.dVout", 4, stream );
-                Utils::Logger::info( this->getName() + ": dbg.dVout (device dump):\n" + dVout_dump );
-            }*/
-
-            /*context_->synchronize();
-            {
-                shape_t att_shape = { B_, NH_, T_, T_ };
-                std::string att_dump = dump_tensor<NativeType>(
-                    att_, att_shape, this->getName() + ".dbg.att", 4, stream );
-                Utils::Logger::info( this->getName() + ": dbg.att (device dump):\n" + att_dump );
-            }*/
-
             // Compute dV = Att^T @ dVout^T
             execute_plan<NativeType>(
                 cublaslt_handle_,
@@ -699,24 +683,6 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 dV_,
                 nullptr,
                 stream );
-
-            //context_->synchronize();
-            //{
-            //    // TJT: Verified correctness of dV via unit tests.
-
-            //    shape_t dv_shape = { B_, NH_, T_, HS_ };
-            //    std::string dv_dump = dump_tensor<NativeType>(
-            //        dV_, dv_shape, this->getName() + ".dbg.dV", 4, stream );
-            //    Utils::Logger::info( this->getName() + ": dbg.dV (device dump):\n" + dv_dump );
-            //}
-
-            /*context_->synchronize();
-            {
-                shape_t v_shape = { B_, NH_, T_, HS_ };
-                std::string v_dump = dump_tensor<NativeType>(
-                    v_, v_shape, this->getName() + ".dbg.V_backward", 4, stream );
-                Utils::Logger::info( this->getName() + ": dbg.V (for backward, device dump):\n" + v_dump );
-            }*/
 
             // Compute dAtt = dVout^T @ V
             execute_plan<NativeType>(
@@ -729,87 +695,35 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 nullptr,
                 stream );
 
-            //context_->synchronize();
-            //{
-            //    // TJT: Verified correctness of dAtt via unit tests.
-
-            //    // Dump dAtt using CublasLtHelpers debug utility for column-major tensors.
-            //    shape_t datt_shape = { B_, NH_, T_, T_ };
-            //    std::string datt_dump = dump_tensor<NativeType>(
-            //        datt_, datt_shape, this->getName() + ".dbg.dAtt", 4, stream );
-            //    Utils::Logger::info( this->getName() + ": dbg.dAtt (device dump):\n" + datt_dump );
-            //}
-
             Detail::cuda_mha_kernels<NativeType>::softmax_backward(
                 dpreatt_, datt_, att_,
-                scale,
+                1.0f, // TJT: Scale must be the same as used in forward
                 B_, NH_, T_,
                 stream );
 
-            //context_->synchronize();
-            //{
-            //    // TJT: Verified correctness of dPreatt via unit tests.
-
-            //    shape_t dpreatt_shape = { B_, NH_, T_, T_ };
-            //    std::string dpreatt_dump = dump_tensor<NativeType>(
-            //        dpreatt_, dpreatt_shape, this->getName() + ".dbg.dPreatt", 4, stream );
-            //    Utils::Logger::info( this->getName() + ": dbg.dPreatt (for backward, device dump):\n" + dpreatt_dump );
-            //}
-
-            /*context_->synchronize();
-            {
-                shape_t k_shape = { B_, NH_, T_, HS_ };
-                std::string k_dump = dump_tensor<NativeType>(
-                    k_, k_shape, this->getName() + ".dbg.K_backward", 4, stream );
-                Utils::Logger::info( this->getName() + ": dbg.K (for backward, device dump):\n" + k_dump );
-            }*/
-
             // Compute dQ = dPreatt @ K^T
+            // Note: scale is applied here to match forward scaling
             execute_plan<NativeType>(
                 cublaslt_handle_,
                 backward_q_plan_,
-                &alpha,
+                &scale,
                 dpreatt_, k_,
                 &beta,
                 dq_,
                 nullptr,
                 stream );
 
-            /*context_->synchronize();
-            {
-                shape_t dq_shape = { B_, NH_, HS_, T_ };
-                
-                std::string dq_dump = dump_tensor<NativeType>(
-                    dq_, dq_shape, this->getName() + ".dbg.dQ", 4, stream );
-                Utils::Logger::info( this->getName() + ": dbg.dQ (device dump):\n" + dq_dump );
-            }*/
-
-            /*context_->synchronize();
-            {
-                shape_t q_shape = { B_, NH_, HS_, T_ };
-                std::string q_dump = dump_tensor<NativeType>(
-                    q_, q_shape, this->getName() + ".dbg.Q_backward", 4, stream );
-                Utils::Logger::info( this->getName() + ": dbg.Q (for backward, device dump):\n" + q_dump );
-            }   */
-
             // Compute dK = dPreatt^T @ Q^T
+            // Note: scale is applied here to match forward scaling
             execute_plan<NativeType>(
                 cublaslt_handle_,
                 backward_k_plan_,
-                &alpha,
+                &scale,
                 dpreatt_, q_,
                 &beta,
                 dk_,
                 nullptr,
                 stream );
-
-            /*context_->synchronize();
-            {
-                shape_t dk_shape = { B_, NH_, HS_, T_ };
-                std::string dk_dump = dump_tensor<NativeType>(
-                    dk_, dk_shape, this->getName() + ".dbg.dK", 4, stream );
-                Utils::Logger::info( this->getName() + ": dbg.dK (device dump):\n" + dk_dump );
-            }*/
 
             // Permute gradients back to concatenated QKV format
             Detail::cuda_mha_kernels<NativeType>::permute_backward(

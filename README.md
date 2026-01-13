@@ -7,8 +7,9 @@
 Mila Deep Neural Network Library
 
 ## Prerelease Notice
-Mila, version 0.9.959-alpha
+Mila, version 0.9.960-alpha
 This is a an internal development only build of Mila.
+The CharLM sample now can generate Shakespeare-like text after training for 5 epochs! Amazing!
 
 ## Roadmap
 Mila is targeting a **v0.1.0-beta release in 10-12 weeks (late February, 2026 )** featuring a stable high-level Model API, GPU-accelerated loss functions, comprehensive checkpointing, and production-quality MNIST examples with 98%+ accuracy. 

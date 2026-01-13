@@ -26,7 +26,6 @@ void printUsage()
     std::cout << std::endl;
     std::cout << "Options:" << std::endl;
     std::cout << "  --force    Force rebuild even if preprocessed files exist" << std::endl;
-    std::cout << "  --special  Add special tokens (PAD, UNK) to vocabulary" << std::endl;
     std::cout << "  --help     Show this help message" << std::endl;
 }
 
@@ -35,8 +34,8 @@ int main( int argc, char** argv )
     try
     {
         std::string input_file;
-        bool force_rebuild = false;
-        bool add_special = false;
+        bool force_rebuild = true;
+        bool add_special = true;
 
         for (int i = 1; i < argc; ++i)
         {
@@ -51,10 +50,6 @@ int main( int argc, char** argv )
             {
                 force_rebuild = true;
             }
-            else if (arg == "--special" || arg == "-s")
-            {
-                add_special = true;
-            }
             else if (input_file.empty())
             {
                 input_file = arg;
@@ -67,7 +62,6 @@ int main( int argc, char** argv )
             }
         }
 
-        // If no input file was provided, default to the TinyShakespear dataset path.
         if (input_file.empty())
         {
             input_file = "../Data/DataSets/TinyShakespeare/input.txt";

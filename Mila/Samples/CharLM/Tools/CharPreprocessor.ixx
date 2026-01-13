@@ -58,7 +58,7 @@ namespace Mila::CharLM
         static std::pair<size_t, size_t> preprocess(
             const std::string& text_file,
             bool force_rebuild = false,
-            bool add_special_tokens = false )
+            bool add_special_tokens = true )
         {
             if (!fs::exists( text_file ))
             {
@@ -81,7 +81,7 @@ namespace Mila::CharLM
             std::string text = loadText( text_file );
             std::cout << "  Loaded " << text.size() << " characters" << std::endl;
 
-            // Build vocabulary
+            // Build vocabulary (always allow caller to request specials; default is true)
             CharVocabulary vocab;
             size_t vocab_size = vocab.buildFromText( text, add_special_tokens );
             std::cout << "  Built vocabulary: " << vocab_size << " tokens" << std::endl;

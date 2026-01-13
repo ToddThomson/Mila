@@ -49,49 +49,79 @@ namespace Mila::CharLM
          * @param add_special_tokens Whether to add special tokens (pad, unk)
          * @return Number of tokens in vocabulary
          */
-        size_t buildFromText( const std::string& text, bool add_special_tokens = false )
+        size_t buildFromText( const std::string& text, bool add_special_tokens = true )
         {
             char_to_idx_.clear();
             idx_to_char_.clear();
 
-            // Collect unique characters
-            std::unordered_map<char, bool> unique_chars;
-            for (char c : text)
+            // Reset special-token state to avoid stale ids when rebuilding without specials.
+            pad_token_id_ = -1;
+            unk_token_id_ = -1;
+
+            // Normalize end-of-line:
+            // - Convert CRLF ("\r\n") to single LF ('\n')
+            // - Convert isolated CR ("\r") to LF ('\n')
+            // This ensures CRLF is not counted as two distinct tokens.
+            std::string norm;
+            norm.reserve( text.size() );
+            for ( size_t i = 0; i < text.size(); ++i )
             {
-                unique_chars[c] = true;
+                char c = text[ i ];
+                if ( c == '\r' )
+                {
+                    if ( i + 1 < text.size() && text[ i + 1 ] == '\n' )
+                    {
+                        // Skip the CR; the following '\n' will be processed normally.
+                        continue;
+                    }
+
+                    // Convert standalone '\r' to '\n' for consistency.
+                    norm.push_back( '\n' );
+                }
+                else
+                {
+                    norm.push_back( c );
+                }
             }
 
-            // Sort for deterministic ordering
-            std::vector<char> sorted_chars;
-            sorted_chars.reserve( unique_chars.size() );
-            for (const auto& [c, _] : unique_chars)
+            // Collect unique bytes using unsigned char for deterministic ordering
+            std::unordered_map<unsigned char, bool> unique_bytes;
+            for ( char c : norm )
             {
-                sorted_chars.push_back( c );
+                unique_bytes[ static_cast<unsigned char>( c ) ] = true;
             }
-            std::sort( sorted_chars.begin(), sorted_chars.end() );
+
+            // Sort for deterministic ordering on unsigned byte value
+            std::vector<unsigned char> sorted_bytes;
+            sorted_bytes.reserve( unique_bytes.size() );
+            for ( const auto &kv : unique_bytes )
+            {
+                sorted_bytes.push_back( kv.first );
+            }
+            std::sort( sorted_bytes.begin(), sorted_bytes.end() );
 
             // Add special tokens at the beginning if requested
             int idx = 0;
-            if (add_special_tokens)
+            if ( add_special_tokens )
             {
-                // Reserve indices for special tokens
                 pad_token_id_ = idx++;
                 unk_token_id_ = idx++;
-                
+
                 idx_to_char_.push_back( '\0' );  // PAD token
                 idx_to_char_.push_back( '\1' );  // UNK token
-                
+
                 char_to_idx_['\0'] = pad_token_id_;
                 char_to_idx_['\1'] = unk_token_id_;
             }
 
             // Add regular characters
-            for (char c : sorted_chars)
+            for ( unsigned char ub : sorted_bytes )
             {
-                if (!add_special_tokens || (c != '\0' && c != '\1'))
+                char c = static_cast<char>( ub );
+                if ( !add_special_tokens || ( c != '\0' && c != '\1' ) )
                 {
                     idx_to_char_.push_back( c );
-                    char_to_idx_[c] = idx++;
+                    char_to_idx_[ c ] = idx++;
                 }
             }
 

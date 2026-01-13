@@ -242,7 +242,7 @@ namespace Mila::Dnn::Compute
 
             cudaError_t error = cudaStreamCreateWithFlags(
                 &stream_,
-                cudaStreamNonBlocking
+                cudaStreamDefault // DEBUG: changed from cudaStreamNonBlocking
             );
 
             if ( error != cudaSuccess )

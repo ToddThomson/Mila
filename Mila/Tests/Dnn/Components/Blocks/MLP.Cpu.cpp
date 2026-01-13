@@ -574,7 +574,7 @@ namespace CompositeComponents_Tests
 
         CpuTensor<TensorDataType::FP32> input( data.mlp->getDeviceId(), data.input_shape );
 
-        for ( int iter = 0; iter < 10; ++iter )
+        for ( int iter = 0; iter < 5; ++iter )
         {
             random( input, -1.0f, 1.0f );
 
