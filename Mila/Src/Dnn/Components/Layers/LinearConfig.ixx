@@ -1,16 +1,12 @@
 /**
  * @file LinearConfig.ixx
- * @brief Configuration interface for the Linear module in the Mila DNN framework.
+ * @brief Configuration for the Linear (fully connected) layer.
  *
- * Defines the LinearConfig class, providing a type-safe fluent interface for configuring
- * Linear (fully connected) layer modules. Inherits from ModuleConfig CRTP base and adds
- * Linear-specific options: input/output feature dimensions and bias configuration.
- *
- * Exposed as part of the Linear module via module partitions.
+ * Provides fluent setters, validation, and metadata serialization for Linear.
  */
 
 module;
-#include <memory> // for nlohmann::json to compile in VS2026
+#include <memory>
 #include <stdexcept>
 #include <cstdint>
 #include <string>
@@ -23,29 +19,22 @@ export module Dnn.Components.Linear:Config;
 import Dnn.Component;
 import Dnn.ComponentConfig;
 import Dnn.TensorTypes;
-import nlohmann.json;
+import Serialization.Metadata;
 
 namespace Mila::Dnn
 {
-    using json = nlohmann::json;
+    using Serialization::SerializationMetadata;
 
     /**
      * @class LinearConfig
      * @brief Configuration object for a Linear (fully connected) layer.
      *
-     * LinearConfig provides a minimal, type-safe fluent interface for describing the
-     * parameters required to construct a Linear layer: the number of input features,
-     * the number of output features, and whether the layer contains a bias term.
+     * LinearConfig describes parameters required to construct a Linear layer:
+     * input and output feature dimensions and whether a bias is present.
      *
-     * Typical usage:
-     * @code
-     * LinearConfig cfg{128, 64};
-     * cfg.withBias(true).validate();
-     * @endcode
-     *
-     * @note Instances are lightweight value objects intended to be passed into module
-     *       factories or constructors. Validation should be invoked prior to creating
-     *       runtime objects to surface configuration errors early.
+     * Instances are lightweight value objects intended to be passed into module
+     * factories or constructors. Call `validate()` prior to constructing runtime
+     * objects to surface configuration errors early.
      */
     export class LinearConfig : public ComponentConfig
     {
@@ -53,24 +42,20 @@ namespace Mila::Dnn
         /**
          * @brief Construct a LinearConfig with required feature dimensions.
          *
-         * The constructor initializes the two required dimensions for the Linear layer.
-         *
-         * @param input_features Number of input features (channels). Must be > 0.
-         * @param output_features Number of output features (channels). Must be > 0.
+         * @param input_features Number of input features (must be > 0).
+         * @param output_features Number of output features (must be > 0).
          */
         LinearConfig( dim_t input_features, dim_t output_features )
-			: input_features_( input_features ), output_features_( output_features )
+            : input_features_( input_features ), output_features_( output_features )
         {
         }
 
         /**
-         * @brief C++23-style fluent setter for bias enable flag.
+         * @brief Fluent setter for bias enable flag.
          *
-         * Uses the explicit object parameter style so chaining preserves the
-         * exact value category (lvalue/rvalue) of the caller.
-         *
+         * @tparam Self Concrete config type (deduced via explicit object parameter)
          * @param has_bias True to include a bias parameter, false to omit it.
-         * @return Self&& Reference to this configuration (for chaining).
+         * @return Self&& Reference to this configuration for chaining.
          */
         template <typename Self>
         Self&& withBias( this Self&& self, bool has_bias )
@@ -80,10 +65,10 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief C++23-style fluent setter for input features.
+         * @brief Fluent setter for input features.
          *
-         * Provided to support fluent construction patterns when the caller
-         * prefers setters over the constructor.
+         * @param input_features Number of input features.
+         * @return Self&& Reference to this configuration for chaining.
          */
         template <typename Self>
         Self&& withInputFeatures( this Self&& self, dim_t input_features )
@@ -93,10 +78,10 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief C++23-style fluent setter for output features.
+         * @brief Fluent setter for output features.
          *
-         * Provided to support fluent construction patterns when the caller
-         * prefers setters over the constructor.
+         * @param output_features Number of output features.
+         * @return Self&& Reference to this configuration for chaining.
          */
         template <typename Self>
         Self&& withOutputFeatures( this Self&& self, dim_t output_features )
@@ -135,105 +120,91 @@ namespace Mila::Dnn
         /**
          * @brief Validate the configuration values.
          *
-         * This method performs checks that the configuration is usable for constructing
-         * a runtime Linear module. It calls the base class validate implementation and
-         * then checks Linear-specific constraints.
-         *
-         * @throws std::invalid_argument If any required parameter is invalid.
+         * Throws std::invalid_argument when the configuration is invalid.
          */
         void validate() const override
         {
-            if (input_features_ <= 0 || output_features_ <= 0)
+            if ( input_features_ <= 0 || output_features_ <= 0 )
             {
                 throw std::invalid_argument( "LinearConfig: Input and output features must be greater than zero" );
             }
         }
 
         /**
-         * @brief Serialize this configuration to JSON (ModuleConfig interface).
+         * @brief Convert configuration into SerializationMetadata.
          *
          * Produces keys:
-         * - "name" : string
-         * - "precision" : integer (underlying value of ComputePrecision::Policy)
+         * - "precision" : integer (ComputePrecision::Policy)
          * - "input_features" : integer
          * - "output_features" : integer
          * - "has_bias" : boolean
+         *
+         * @return SerializationMetadata Metadata representing this configuration.
          */
-        json toJson() const
+        SerializationMetadata toMetadata() const override
         {
-            json j;
-            //j["name"] = name_;
-            j["precision"] = static_cast<int>( precision_ );
-            j["input_features"] = static_cast<int64_t>( input_features_ );
-            j["output_features"] = static_cast<int64_t>( output_features_ );
-            j["has_bias"] = has_bias_;
+            SerializationMetadata meta;
+            meta.set( "precision", static_cast<int64_t>( precision_ ) )
+                .set( "input_features", static_cast<int64_t>( input_features_ ) )
+                .set( "output_features", static_cast<int64_t>( output_features_ ) )
+                .set( "has_bias", has_bias_ );
 
-            return j;
+            return meta;
         }
 
         /**
-         * @brief Deserialize configuration from JSON (ModuleConfig interface).
+         * @brief Populate configuration from provided metadata.
          *
-         * Missing keys leave fields at their current values. Type errors are
-         * propagated from nlohmann::json getters.
+         * Missing keys are ignored, leaving defaults intact. Type mismatches
+         * result in no assignment (use tryGet* helpers).
+         *
+         * @param meta Metadata to read configuration values from.
          */
-        void fromJson( const json& j )
+        void fromMetadata( const SerializationMetadata& meta ) override
         {
-            /*if ( j.contains( "name" ) )
+            if ( auto p = meta.tryGetInt( "precision" ) )
             {
-                name_ = j.at( "name" ).get<std::string>();
-            }*/
-
-            if ( j.contains( "precision" ) )
-            {
-                precision_ = static_cast<decltype( precision_)>( j.at( "precision" ).get<int>() );
+                precision_ = static_cast<decltype( precision_ )>( *p );
             }
 
-            if ( j.contains( "input_features" ) )
+            if ( auto in = meta.tryGetInt( "input_features" ) )
             {
-                input_features_ = static_cast<dim_t>( j.at( "input_features" ).get<int64_t>() );
+                input_features_ = static_cast<dim_t>( *in );
             }
 
-            if ( j.contains( "output_features" ) )
+            if ( auto out = meta.tryGetInt( "output_features" ) )
             {
-                output_features_ = static_cast<dim_t>( j.at( "output_features" ).get<int64_t>() );
+                output_features_ = static_cast<dim_t>( *out );
             }
 
-            if ( j.contains( "has_bias" ) )
+            if ( auto hb = meta.tryGetBool( "has_bias" ) )
             {
-                has_bias_ = j.at( "has_bias" ).get<bool>();
+                has_bias_ = *hb;
             }
         }
 
+        /**
+         * @brief Human-readable summary suitable for logging.
+         * @return std::string Compact description of the configuration.
+         */
         std::string toString() const override
         {
             std::ostringstream oss;
             oss << "LinearConfig(input_features=" << input_features_
                 << ", output_features=" << output_features_
                 << ", has_bias=" << std::boolalpha << has_bias_ << ")";
+
             return oss.str();
-		}
+        }
 
     private:
-        /**
-         * @brief Number of input features (channels) expected by the layer.
-         *
-         * Must be greater than zero.
-         */
+        /** Number of input features (must be > 0). */
         dim_t input_features_;
 
-        /**
-         * @brief Number of output features (channels) produced by the layer.
-         *
-         * Must be greater than zero.
-         */
+        /** Number of output features (must be > 0). */
         dim_t output_features_;
 
-        /**
-         * @brief Whether the layer has a bias term.
-         *
-         * Default is true.
-         */
+        /** Whether the layer has a bias term. Default is true. */
         bool has_bias_{ true };
     };
 }

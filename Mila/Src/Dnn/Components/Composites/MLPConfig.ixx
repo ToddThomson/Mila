@@ -2,9 +2,7 @@
  * @file MLPConfig.ixx
  * @brief Configuration for the MLP block.
  *
- * Provides a fluent configuration object used to construct MLP modules.
- * Use the fluent setters to build configuration instances and call `validate()`
- * before using the config to construct runtime modules.
+ * Provides a fluent configuration object used to construct MLP components.
  */
 
 module;
@@ -19,11 +17,11 @@ export module Dnn.Blocks.MLP:Config;
 import Dnn.TensorTypes;
 import Dnn.ComponentConfig;
 import Dnn.ActivationType;
-import nlohmann.json;
+import Serialization.Metadata;
 
 namespace Mila::Dnn
 {
-    using json = nlohmann::json;
+    using Serialization::SerializationMetadata;
 
     /**
      * @brief Configuration class for the Multi-Layer Perceptron (MLP) block.
@@ -35,18 +33,6 @@ namespace Mila::Dnn
      *
      * The MLP block structure is:
      *   Input -> Linear(in_features, hidden_size) -> [LayerNorm] -> Activation -> Linear(hidden_size, in_features) -> Output
-     *
-     * Usage example:
-     * @code
-     * MLPConfig cfg(512, 2048);  // input_features=512, hidden_size=2048
-     * cfg.withBias(true)
-     *    .withActivation(ActivationType::Gelu)
-     *    .withLayerNorm(false)
-     *    .withName("mlp_block");
-     * cfg.validate();
-     * @endcode
-     *
-     * @see ComponentConfig
      */
     export class MLPConfig : public ComponentConfig
     {
@@ -56,9 +42,6 @@ namespace Mila::Dnn
          *
          * @param input_features Number of input (and output) features (must be > 0).
          * @param hidden_size Size of the intermediate hidden layer (must be > 0).
-         *
-         * The MLP expands from input_features to hidden_size in the first linear layer,
-         * applies activation, then projects back down to input_features in the second layer.
          */
         MLPConfig( dim_t input_features, dim_t hidden_size )
 			: input_features_( input_features ), hidden_size_( hidden_size )
@@ -155,8 +138,6 @@ namespace Mila::Dnn
          */
         void validate() const override
         {
-            ComponentConfig::validate();
-
             if (input_features_ <= 0)
             {
                 throw std::invalid_argument( "MLPConfig: Input features must be greater than zero" );
@@ -169,74 +150,71 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Serialize this configuration to JSON (ModuleConfig interface).
+         * @brief Convert configuration into SerializationMetadata.
          *
-         * Keys:
-         * - "name" : string
+         * Produces keys:
          * - "precision" : integer (underlying value of ComputePrecision::Policy)
          * - "input_features" : integer
          * - "hidden_size" : integer
          * - "has_bias" : boolean
          * - "activation" : integer (ActivationType)
          * - "use_layer_norm" : boolean
+         *
+         * @return SerializationMetadata Metadata representing this configuration.
          */
-        /*json toJson() const override
+        SerializationMetadata toMetadata() const override
         {
-            json j;
-            j["name"] = name_;
-            j["precision"] = static_cast<int>( precision_ );
-            j["input_features"] = static_cast<int64_t>( input_features_ );
-            j["hidden_size"] = static_cast<int64_t>( hidden_size_ );
-            j["has_bias"] = has_bias_;
-            j["activation"] = static_cast<int>( activation_type_ );
-            j["use_layer_norm"] = use_layer_norm_;
+            SerializationMetadata meta;
+            meta.set( "precision", static_cast<int64_t>( precision_ ) )
+                .set( "input_features", static_cast<int64_t>( input_features_ ) )
+                .set( "hidden_size", static_cast<int64_t>( hidden_size_ ) )
+                .set( "has_bias", has_bias_ )
+                .set( "activation", static_cast<int64_t>( activation_type_ ) )
+                .set( "use_layer_norm", use_layer_norm_ );
 
-            return j;
-        }*/
+            return meta;
+        }
 
         /**
-         * @brief Deserialize configuration from JSON (ModuleConfig interface).
+         * @brief Populate configuration from provided metadata.
          *
-         * Missing keys leave fields at their current values. Type errors are
-         * propagated from nlohmann::json getters.
+         * Missing keys are ignored. Type-safe try-get helpers are used to avoid
+         * throwing on absent fields and to preserve forward/backward compatibility.
+         *
+         * @param meta Metadata to read configuration values from.
          */
-        /*void fromJson( const json& j ) override
+        void fromMetadata( const SerializationMetadata& meta ) override
         {
-            if ( j.contains( "name" ) )
+            if ( auto p = meta.tryGetInt( "precision" ) )
             {
-                name_ = j.at( "name" ).get<std::string>();
+                precision_ = static_cast<decltype( precision_ )>( *p );
             }
 
-            if ( j.contains( "precision" ) )
+            if ( auto in = meta.tryGetInt( "input_features" ) )
             {
-                precision_ = static_cast<decltype( precision_)>( j.at( "precision" ).get<int>() );
+                input_features_ = static_cast<dim_t>( *in );
             }
 
-            if ( j.contains( "input_features" ) )
+            if ( auto hs = meta.tryGetInt( "hidden_size" ) )
             {
-                input_features_ = static_cast<dim_t>( j.at( "input_features" ).get<int64_t>() );
+                hidden_size_ = static_cast<dim_t>( *hs );
             }
 
-            if ( j.contains( "hidden_size" ) )
+            if ( auto hb = meta.tryGetBool( "has_bias" ) )
             {
-                hidden_size_ = static_cast<dim_t>( j.at( "hidden_size" ).get<int64_t>() );
+                has_bias_ = *hb;
             }
 
-            if ( j.contains( "has_bias" ) )
+            if ( auto act = meta.tryGetInt( "activation" ) )
             {
-                has_bias_ = j.at( "has_bias" ).get<bool>();
+                activation_type_ = static_cast<ActivationType>( *act );
             }
 
-            if ( j.contains( "activation" ) )
+            if ( auto ln = meta.tryGetBool( "use_layer_norm" ) )
             {
-                activation_type_ = static_cast<ActivationType>( j.at( "activation" ).get<int>() );
+                use_layer_norm_ = *ln;
             }
-
-            if ( j.contains( "use_layer_norm" ) )
-            {
-                use_layer_norm_ = j.at( "use_layer_norm" ).get<bool>();
-            }
-        }*/
+        }
 
         std::string toString() const override
         {

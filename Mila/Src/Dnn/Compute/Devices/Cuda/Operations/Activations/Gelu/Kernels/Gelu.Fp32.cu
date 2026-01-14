@@ -144,7 +144,7 @@ namespace Mila::Dnn::Compute::Cuda::Gelu
         const int block_size = 128;
         const int grid_size = ceil_div( N, block_size );
 
-        gelu_backward_fp32_kernel << <grid_size, block_size, 0, stream >> > (dX, X, dY, N);
+        gelu_backward_fp32_kernel<<< grid_size, block_size, 0, stream >>> (dX, X, dY, N);
 
         cudaCheck( cudaGetLastError() );
     }

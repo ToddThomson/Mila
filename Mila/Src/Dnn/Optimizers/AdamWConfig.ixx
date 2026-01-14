@@ -1,8 +1,8 @@
 /**
  * @file AdamWConfig.ixx
- * @brief Configuration for AdamW optimizer.
+ * @brief AdamW optimizer configuration.
  *
- * Provides fluent configuration API for AdamW optimizer hyperparameters.
+ * Fluent setters, validation and metadata serialization for AdamW hyperparameters.
  */
 
 module;
@@ -14,52 +14,23 @@ module;
 export module Dnn.Optimizers.AdamWConfig;
 
 import Dnn.ComponentConfig;
-import nlohmann.json;
+import Serialization.Metadata;
 
 namespace Mila::Dnn::Optimizers
 {
     using namespace Mila::Dnn;
-    using json = nlohmann::json;
+    using Serialization::SerializationMetadata;
 
     /**
      * @brief Configuration for AdamW optimizer.
      *
-     * Encapsulates all hyperparameters for the AdamW optimization algorithm.
-     * Provides fluent setters following the builder pattern for easy configuration.
-     *
-     * Default values are based on the original Adam/AdamW papers and common practice:
-     * - Learning rate: 0.001 (1e-3)
-     * - Beta1: 0.9 (first moment decay)
-     * - Beta2: 0.999 (second moment decay)
-     * - Epsilon: 1e-8 (numerical stability)
-     * - Weight decay: 0.01 (L2 regularization strength)
-     *
-     * Example usage:
-     * @code
-     * auto config = AdamWConfig()
-     *     .withLearningRate(0.001f)
-     *     .withBeta1(0.9f)
-     *     .withBeta2(0.999f)
-     *     .withWeightDecay(0.01f);
-     *
-     * auto optimizer = std::make_shared<AdamWOptimizer<DeviceType::Cuda, TensorDataType::FP32>>(
-     *     exec_context, config);
-     * @endcode
+     * Encapsulates hyperparameters for AdamW and provides fluent setters,
+     * validation and conversion to/from the framework's metadata abstraction.
      */
     export class AdamWConfig : public ComponentConfig
     {
     public:
-        /**
-         * @brief Default constructor.
-         */
-        /*AdamWConfig()
-			: ComponentConfig( "AdamW" )
-        {
-        }*/
-
-        // ====================================================================
-        // Fluent Setters
-        // ====================================================================
+        // Fluent setters
 
         template <typename Self>
         decltype(auto) withLearningRate( this Self&& self, float learning_rate ) noexcept
@@ -96,179 +67,139 @@ namespace Mila::Dnn::Optimizers
             return std::forward<Self>( self );
         }
 
-        // ====================================================================
         // Getters
-        // ====================================================================
 
-        /**
-         * @brief Get learning rate.
-         */
         float getLearningRate() const noexcept
         {
             return learning_rate_;
         }
 
-        /**
-         * @brief Get beta1 parameter.
-         */
         float getBeta1() const noexcept
         {
             return beta1_;
         }
 
-        /**
-         * @brief Get beta2 parameter.
-         */
         float getBeta2() const noexcept
         {
             return beta2_;
         }
 
-        /**
-         * @brief Get epsilon parameter.
-         */
         float getEpsilon() const noexcept
         {
             return epsilon_;
         }
 
-        /**
-         * @brief Get weight decay coefficient.
-         */
         float getWeightDecay() const noexcept
         {
             return weight_decay_;
         }
 
-        // ====================================================================
         // Validation
-        // ====================================================================
 
         /**
          * @brief Validate configuration parameters.
          *
-         * Ensures all hyperparameters are within valid ranges:
-         * - learning_rate > 0
-         * - 0 < beta1 < 1
-         * - 0 < beta2 < 1
-         * - epsilon > 0
-         * - weight_decay >= 0
-         *
-         * @throws std::invalid_argument if any parameter is invalid
+         * Throws std::invalid_argument on invalid parameters.
          */
         void validate() const override
         {
-            ComponentConfig::validate();
-
-            if (learning_rate_ <= 0.0f)
+            if ( learning_rate_ <= 0.0f )
             {
                 throw std::invalid_argument( "AdamWConfig: learning rate must be positive" );
             }
 
-            if (beta1_ <= 0.0f || beta1_ >= 1.0f)
+            if ( beta1_ <= 0.0f || beta1_ >= 1.0f )
             {
                 std::ostringstream oss;
                 oss << "AdamWConfig: beta1 must be in (0, 1), got " << beta1_;
                 throw std::invalid_argument( oss.str() );
             }
 
-            if (beta2_ <= 0.0f || beta2_ >= 1.0f)
+            if ( beta2_ <= 0.0f || beta2_ >= 1.0f )
             {
                 std::ostringstream oss;
                 oss << "AdamWConfig: beta2 must be in (0, 1), got " << beta2_;
                 throw std::invalid_argument( oss.str() );
             }
 
-            if (epsilon_ <= 0.0f)
+            if ( epsilon_ <= 0.0f )
             {
                 throw std::invalid_argument( "AdamWConfig: epsilon must be positive" );
             }
 
-            if (weight_decay_ < 0.0f)
+            if ( weight_decay_ < 0.0f )
             {
                 throw std::invalid_argument( "AdamWConfig: weight decay must be non-negative" );
             }
         }
 
-        // ====================================================================
-        // JSON Serialization (ModuleConfig interface)
-        // ====================================================================
+        // Metadata serialization (new API)
 
         /**
-         * @brief Serialize configuration to JSON.
+         * @brief Convert configuration into SerializationMetadata.
          *
-         * Keys:
-         * - "name" : string
-         * - "precision" : integer (underlying value of ComputePrecision::Policy)
-         * - "learning_rate" : float
-         * - "beta1" : float
-         * - "beta2" : float
-         * - "epsilon" : float
-         * - "weight_decay" : float
+         * Keys produced:
+         * - "precision" : integer
+         * - "learning_rate" : double
+         * - "beta1" : double
+         * - "beta2" : double
+         * - "epsilon" : double
+         * - "weight_decay" : double
          */
-        json toJson() const
+        SerializationMetadata toMetadata() const override
         {
-            json j;
-            //j["name"] = name_;
-            j["precision"] = static_cast<int>( precision_ );
-            j["learning_rate"] = learning_rate_;
-            j["beta1"] = beta1_;
-            j["beta2"] = beta2_;
-            j["epsilon"] = epsilon_;
-            j["weight_decay"] = weight_decay_;
+            SerializationMetadata meta;
+            meta.set( "precision", static_cast<int64_t>( precision_ ) )
+                .set( "learning_rate", learning_rate_ )
+                .set( "beta1", beta1_ )
+                .set( "beta2", beta2_ )
+                .set( "epsilon", epsilon_ )
+                .set( "weight_decay", weight_decay_ );
 
-            return j;
+            return meta;
         }
 
         /**
-         * @brief Deserialize configuration from JSON.
+         * @brief Populate configuration from provided metadata.
          *
-         * Missing keys leave fields at their current values. Type errors are
-         * propagated from nlohmann::json getters.
+         * Missing keys are ignored; type-safe try-get helpers are used so
+         * incorrect/missing entries don't throw but simply leave defaults intact.
          */
-        void fromJson( const json& j )
-        {/*
-            if ( j.contains( "name" ) )
+        void fromMetadata( const SerializationMetadata& meta ) override
+        {
+            if ( auto p = meta.tryGetInt( "precision" ) )
             {
-                name_ = j.at( "name" ).get<std::string>();
-            }*/
-
-            if ( j.contains( "precision" ) )
-            {
-                precision_ = static_cast<decltype(precision_)>( j.at( "precision" ).get<int>() );
+                precision_ = static_cast<decltype( precision_ )>( *p );
             }
 
-            if ( j.contains( "learning_rate" ) )
+            if ( auto v = meta.tryGetFloat( "learning_rate" ) )
             {
-                learning_rate_ = j.at( "learning_rate" ).get<float>();
+                learning_rate_ = *v;
             }
 
-            if ( j.contains( "beta1" ) )
+            if ( auto b1 = meta.tryGetFloat( "beta1" ) )
             {
-                beta1_ = j.at( "beta1" ).get<float>();
+                beta1_ = *b1;
             }
 
-            if ( j.contains( "beta2" ) )
+            if ( auto b2 = meta.tryGetFloat( "beta2" ) )
             {
-                beta2_ = j.at( "beta2" ).get<float>();
+                beta2_ = *b2;
             }
 
-            if ( j.contains( "epsilon" ) )
+            if ( auto eps = meta.tryGetFloat( "epsilon" ) )
             {
-                epsilon_ = j.at( "epsilon" ).get<float>();
+                epsilon_ = *eps;
             }
 
-            if ( j.contains( "weight_decay" ) )
+            if ( auto wd = meta.tryGetFloat( "weight_decay" ) )
             {
-                weight_decay_ = j.at( "weight_decay" ).get<float>();
+                weight_decay_ = *wd;
             }
         }
 
-        /**
-         * @brief Produce a short, human-readable summary of this configuration.
-         *
-         * Overrides ComponentConfig::toString() to include AdamW-specific fields.
-		 */
+        // String summary
+
         std::string toString() const override
         {
             std::ostringstream oss;
@@ -277,12 +208,11 @@ namespace Mila::Dnn::Optimizers
                 << ", beta2=" << beta2_
                 << ", epsilon=" << epsilon_
                 << ", weight_decay=" << weight_decay_ << "\")";
-            
+
             return oss.str();
-		}
+        }
 
     private:
-
         float learning_rate_{ 0.001f };
         float beta1_{ 0.9f };
         float beta2_{ 0.999f };

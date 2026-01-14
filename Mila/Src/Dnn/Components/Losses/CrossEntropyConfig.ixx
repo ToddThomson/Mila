@@ -1,10 +1,8 @@
 /**
  * @file CrossEntropyConfig.ixx
- * @brief Configuration interface for the fused SoftmaxCrossEntropy module.
+ * @brief Configuration for the fused SoftmaxCrossEntropy loss module.
  *
- * Provides minimal configuration matching the actual CPU/CUDA kernel implementations.
- * This is the configuration for the FUSED softmax + cross-entropy loss operation.
- *
+ * Minimal configuration used by the fused softmax + cross-entropy kernels.
  */
 
 module;
@@ -19,14 +17,17 @@ export module Dnn.Components.SoftmaxCrossEntropy:Config;
 
 import Dnn.Component;
 import Dnn.ComponentConfig;
-import nlohmann.json;
+import Serialization.Metadata;
 
 namespace Mila::Dnn
 {
-    using json = nlohmann::json;
+    using Serialization::SerializationMetadata;
 
     /**
      * @brief Configuration for fused SoftmaxCrossEntropy loss.
+     *
+     * Provides a lightweight value object containing the vocabulary size
+     * required by the fused softmax + cross-entropy kernels.
      */
     export class CrossEntropyConfig : public ComponentConfig
     {
@@ -44,12 +45,9 @@ namespace Mila::Dnn
          *
          * @param vocab_size The size of the vocabulary (number of classes).
          *                   Must be > 0. Kernels validate: 0 <= target < vocab_size.
-         *
-         * Example:
-         *   CrossEntropyConfig(50257)  // GPT-2 vocab size
          */
         explicit CrossEntropyConfig( int64_t vocab_size )
-			: vocab_size_( vocab_size )
+            : vocab_size_( vocab_size )
         {
         }
 
@@ -70,7 +68,6 @@ namespace Mila::Dnn
          * @brief Get the vocabulary size.
          *
          * Used by kernels to validate target indices.
-         * Targets outside [0, vocab_size) are automatically ignored (loss/grad = 0).
          *
          * @return int64_t The vocabulary size
          */
@@ -88,8 +85,6 @@ namespace Mila::Dnn
          */
         void validate() const override
         {
-            //ComponentConfig::validate();
-
             if (vocab_size_ <= 0)
             {
                 throw std::invalid_argument(
@@ -98,60 +93,56 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Serialize configuration to JSON (ModuleConfig interface).
+         * @brief Convert configuration into SerializationMetadata.
          *
          * Produces keys:
-         * - "name" : string
          * - "precision" : integer (underlying value of ComputePrecision::Policy)
          * - "vocab_size" : integer
+         *
+         * @return SerializationMetadata Metadata representing this configuration.
          */
-        json toJson() const
+        SerializationMetadata toMetadata() const override
         {
-            json j;
-            //j["name"] = name_;
-            //j["precision"] = static_cast<int>( precision_ );
-            //j["vocab_size"] = vocab_size_;
+            SerializationMetadata meta;
+            meta.set( "precision", static_cast<int64_t>( precision_ ) )
+                .set( "vocab_size", static_cast<int64_t>( vocab_size_ ) );
 
-            return j;
+            return meta;
         }
 
         /**
-         * @brief Deserialize configuration from JSON (ModuleConfig interface).
+         * @brief Populate configuration from provided metadata.
          *
-         * Missing keys leave fields at their current values.
+         * Missing keys are ignored, leaving defaults intact. Type-safe try-get
+         * helpers are used to avoid throwing on absent fields.
+         *
+         * @param meta Metadata to read configuration values from.
          */
-        void fromJson( const json& j )
+        void fromMetadata( const SerializationMetadata& meta ) override
         {
-            //if ( j.contains( "name" ) )
-            //{
-            //    name_ = j.at( "name" ).get<std::string>();
-            //}
-            /*
-            if ( j.contains( "precision" ) )
+            if ( auto p = meta.tryGetInt( "precision" ) )
             {
-                precision_ = static_cast<decltype(precision_)>( j.at( "precision" ).get<int>() );
+                precision_ = static_cast<decltype( precision_ )>( *p );
             }
 
-            if ( j.contains( "vocab_size" ) )
+            if ( auto v = meta.tryGetInt( "vocab_size" ) )
             {
-                vocab_size_ = j.at( "vocab_size" ).get<int64_t>();
-            }*/
+                vocab_size_ = *v;
+            }
         }
 
         /**
-         * @brief String representation of the configuration (ModuleConfig interface).
+         * @brief String representation of the configuration.
          *
          * @return std::string Human-readable description of the configuration.
-		 */
+         */
         std::string toString() const override
         {
             std::ostringstream oss;
-			oss << "CrossEntropyConfig(vocab_size=" << vocab_size_ << ")";
+            oss << "CrossEntropyConfig(vocab_size=" << vocab_size_ << ")";
 
-            
             return oss.str();
-
-		}
+        }
 
     private:
         int64_t vocab_size_ = 0;  ///< Number of classes in the vocabulary

@@ -8,6 +8,7 @@ namespace Dnn::Components::Activations::Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
+    using Mila::Dnn::Serialization::SerializationMetadata;
 
     class GeluConfigTests : public ::testing::Test {
     protected:
@@ -80,7 +81,7 @@ namespace Dnn::Components::Activations::Tests
         }
         catch ( const std::invalid_argument& e ) {
             std::string error_msg = e.what();
-            EXPECT_TRUE( error_msg.find( "Only the Tanh approximation method is currently supported" ) != std::string::npos );
+            EXPECT_TRUE( error_msg.find( "only the Tanh approximation method is currently supported" ) != std::string::npos );
         }
     }
 
@@ -149,14 +150,14 @@ namespace Dnn::Components::Activations::Tests
         EXPECT_EQ( cfg.getApproximationMethod(), GeluConfig::ApproximationMethod::Exact );
     }
 
-    TEST_F( GeluConfigTests, JsonSerializationRoundTrip ) {
+    TEST_F( GeluConfigTests, MetadataSerializationRoundTrip ) {
         GeluConfig config;
         config.withApproximationMethod( GeluConfig::ApproximationMethod::Sigmoid );
 
-        auto j = config.toJson();
+        SerializationMetadata meta = config.toMetadata();
 
         GeluConfig loaded;
-        loaded.fromJson( j );
+        loaded.fromMetadata( meta );
 
         EXPECT_EQ( loaded.getApproximationMethod(), GeluConfig::ApproximationMethod::Sigmoid );
     }

@@ -52,7 +52,7 @@ namespace Mila::Dnn
          */
         void validate() const override
         {
-            ComponentConfig::validate();
+            // No op
         }
 
         /**
@@ -60,7 +60,7 @@ namespace Mila::Dnn
          *
          * @return SerializationMetadata containing configuration parameters
          */
-        SerializationMetadata toSerializationMetadata() const
+        SerializationMetadata toMetadata() const
         {
             SerializationMetadata meta;
             meta.set( "precision", static_cast<int64_t>( precision_ ) )
@@ -76,7 +76,7 @@ namespace Mila::Dnn
          *
          * @param meta SerializationMetadata containing configuration parameters
          */
-        void fromSerializationMetadata( const SerializationMetadata& meta )
+        void fromMetadata( const SerializationMetadata& meta )
         {
             if ( meta.has( "precision" ) )
             {

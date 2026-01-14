@@ -490,6 +490,18 @@ std::string generateSample(
 
     size_t vocab_size = vocab.size();
 
+
+    // REVIEW: Currently inference uses the same B and T as training.
+    // This can be improved in the future by allowing different sizes.
+
+    // TODO: Support an inference pipeline using buildFrom( train_model, B_infer, T_infer )
+    //      where B_infer = 1 and T_infer = 1 or any other desired value.
+    //
+    /*
+    *   
+    
+    */
+
     int64_t model_batch_size = config.batch_size;
     int64_t model_seq_length = config.seq_length;
 

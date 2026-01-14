@@ -19,10 +19,26 @@ namespace Dnn::Components::Tests
         MockComponentConfig()
         {}
 
+        SerializationMetadata toMetadata() const override
+        {
+            SerializationMetadata meta;
+            meta.set( "precision", static_cast<int64_t>( getPrecisionPolicy() ) );
+
+            return meta;
+        }
+
+        void fromMetadata( const SerializationMetadata& meta ) override
+        {
+            if ( auto p = meta.tryGetInt( "precision" ) )
+            {
+                precision_ = static_cast<decltype( precision_ )>( *p );
+            }
+        }
+
         void validate() const override
         {}
 
-        std::string toString() const
+        std::string toString() const override
         {
             std::ostringstream oss;
             oss << "MockComponentConfig( precision_policy=" << static_cast<int>(getPrecisionPolicy())

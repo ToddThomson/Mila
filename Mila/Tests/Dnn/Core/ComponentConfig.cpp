@@ -10,20 +10,40 @@ namespace Dnn::Components::Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
+    using Mila::Dnn::Serialization::SerializationMetadata;
 
     class TestComponentConfig : public ComponentConfig {
     public:
         // Test-only derived class; no additional behavior required.
         TestComponentConfig() = default;
 
-        void validate() const override {
+        SerializationMetadata toMetadata() const override
+        {
+            SerializationMetadata meta;
+            meta.set( "precision", static_cast<int64_t>( getPrecisionPolicy() ) );
+
+            return meta;
+        }
+
+        void fromMetadata( const SerializationMetadata& meta ) override
+        {
+            if ( auto p = meta.tryGetInt( "precision" ) )
+            {
+                precision_ = static_cast<decltype( precision_ )>( *p );
+            }
+        }
+
+        void validate() const override
+        {
             // No additional validation for test config
         }
 
-        std::string toString() const {
+        std::string toString() const override
+        {
             std::ostringstream oss;
-            oss << "TestComponentConfig( precision_policy=" << static_cast<int>(getPrecisionPolicy())
+            oss << "TestComponentConfig( precision_policy=" << static_cast<int>( getPrecisionPolicy() )
                 << ")";
+
             return oss.str();
         }
     };
@@ -105,10 +125,36 @@ namespace Dnn::Components::Tests
             return custom_option_;
         }
 
-        void validate() const override {
-            // Enforce base validation first (currently no-op) then custom rules
-            ComponentConfig::validate();
+        SerializationMetadata toMetadata() const override
+        {
+            SerializationMetadata meta;
+            meta.set( "precision", static_cast<int64_t>( getPrecisionPolicy() ) )
+                .set( "custom_option", static_cast<int64_t>( custom_option_ ) )
+                .set( "device_name", device_name_ );
 
+            return meta;
+        }
+
+        void fromMetadata( const SerializationMetadata& meta ) override
+        {
+            if ( auto p = meta.tryGetInt( "precision" ) )
+            {
+                precision_ = static_cast<decltype( precision_ )>( *p );
+            }
+
+            if ( auto co = meta.tryGetInt( "custom_option" ) )
+            {
+                custom_option_ = static_cast<int>( *co );
+            }
+
+            if ( auto dn = meta.tryGetString( "device_name" ) )
+            {
+                device_name_ = *dn;
+            }
+        }
+
+        void validate() const override {
+            // Enforce custom rules only (base has no-op/abstract)
             if ( custom_option_ < 0 )
             {
                 throw std::invalid_argument( "Custom option must be non-negative" );
@@ -121,6 +167,7 @@ namespace Dnn::Components::Tests
                 << ", device_name=" << device_name_
                 << ", custom_option=" << custom_option_
                 << ")";
+
             return oss.str();
         }
 

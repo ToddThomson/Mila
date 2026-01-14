@@ -201,7 +201,7 @@ namespace Mila::Dnn
          *
          * @return SerializationMetadata containing configuration fields
          */
-        SerializationMetadata toSerializationMetadata() const
+        SerializationMetadata toMetadata() const override
         {
             SerializationMetadata meta;
             meta.set( "precision", static_cast<int64_t>( precision_ ) )
@@ -228,7 +228,7 @@ namespace Mila::Dnn
          *
          * @param meta SerializationMetadata containing configuration parameters
          */
-        void fromSerializationMetadata( const SerializationMetadata& meta )
+        void fromMetadata( const SerializationMetadata& meta ) override
         {
             if ( auto prec = meta.tryGetInt( "precision" ) )
             {

@@ -1,6 +1,9 @@
 /**
- * @file ModuleConfig.ixx
- * @brief Base configuration class for neural network component architecture parameters.
+ * @file ComponentConfig.ixx
+ * @brief Base configuration interface for DNN components.
+ *
+ * Provides construction-time configuration primitives shared by all component
+ * configuration types (precision policy and serialization/validation hooks).
  */
 
 module;
@@ -11,58 +14,76 @@ module;
 
 export module Dnn.ComponentConfig;
 
+import Serialization.Metadata;
 import Compute.Precision;
-//import nlohmann.json;
 
 namespace Mila::Dnn
 {
-	//using json = nlohmann::json;
+    using Serialization::SerializationMetadata;
     using namespace Mila::Dnn::Compute;
 
     /**
-     * @brief Base configuration class for neural network component architecture.
+     * @brief Abstract base for component configuration objects.
      *
-     * ModuleConfig provides common architectural configuration properties:
-     * - Name: Component identifier for logging/debugging
-     * - Precision policy: Computation precision strategy (performance vs accuracy)
+     * ComponentConfig defines the public API common to all configuration
+     * objects:
+     *  - serialization to/from the framework's metadata abstraction
+     *  - configuration validation
+     *  - a compact string summary
      *
-     * These are CONSTRUCTION-TIME parameters that define the component's structure.
-     * Runtime state (training mode, device, etc.) is managed by the Module itself.
+     * Implementations are expected to override the pure-virtual members and
+     * include base-field handling (precision_) when appropriate.
      */
     export class ComponentConfig
     {
     public:
-        
+
+        /**
+         * @brief Virtual destructor for polymorphic base.
+         */
         virtual ~ComponentConfig() = default;
 
         /**
-         * @brief Serialize configuration to JSON
-         */
-        //virtual json toJson() const = 0;
-
-        /**
-         * @brief Deserialize configuration from JSON
-         */
-        //virtual void fromJson( const json2& j ) = 0;
-
-        /**
-         * @brief Sets the name of the component with fluent interface.
+         * @brief Convert configuration into a SerializationMetadata object.
          *
-         * @param name The name to assign to this component
-         * @return Reference to self for method chaining
+         * Implementations should include any fields required to fully reconstruct
+         * the configuration via `fromMetadata`.
+         *
+         * @return SerializationMetadata Metadata representation of the config.
          */
-        /*template <typename Self>
-        Self&& withName( this Self&& self, std::string name )
-        {
-            self.name_ = std::move( name );
-            return std::forward<Self>( self );
-        }*/
+        virtual SerializationMetadata toMetadata() const = 0;
 
         /**
-         * @brief Sets the compute precision policy with fluent interface.
+         * @brief Populate configuration from provided metadata.
          *
-         * @param policy The compute precision policy to use
-         * @return Reference to self for method chaining
+         * Implementations should read available keys and leave missing keys
+         * at their current/default values to preserve forward/backward
+         * compatibility.
+         *
+         * @param meta Metadata to read configuration values from.
+         */
+        virtual void fromMetadata( const SerializationMetadata& meta ) = 0;
+
+        /**
+         * @brief Validate configuration parameters.
+         *
+         * Called by callers to ensure the configuration represents a valid,
+         * constructible component. Implementations must throw
+         * std::invalid_argument (or a derived exception) when validation fails.
+         *
+         * @throws std::invalid_argument If the configuration is invalid.
+         */
+        virtual void validate() const = 0;
+
+        /**
+         * @brief Fluent setter for the compute precision policy.
+         *
+         * Sets the precision policy used during component construction and
+         * returns the concrete configuration object for chaining.
+         *
+         * @tparam Self CRTP/self type (deduced via C++23 `this` parameter)
+         * @param policy Precision policy to set.
+         * @return Self&& Reference to the concrete config for chaining.
          */
         template <typename Self>
         Self&& withPrecisionPolicy( this Self&& self, ComputePrecision::Policy policy )
@@ -72,19 +93,9 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Gets the configured component name.
+         * @brief Get the configured precision policy.
          *
-         * @return const std::string& The component name
-         */
-        /*const std::string& getName() const
-        {
-            return name_;
-        }*/
-
-        /**
-         * @brief Gets the configured precision policy.
-         *
-         * @return ComputePrecision::Policy The precision policy
+         * @return ComputePrecision::Policy The configured precision policy.
          */
         ComputePrecision::Policy getPrecisionPolicy() const
         {
@@ -92,79 +103,21 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Produce a short, human-readable summary of this configuration.
+         * @brief Produce a short, human-readable summary of the configuration.
          *
-         * Default implementation includes the configured name and a numeric
-         * representation of the precision policy. Concrete configuration types
-         * should override this method to expose additional, module-specific
-         * parameters.
+         * Implementations should return a compact, single-line description
+         * suitable for logging and debugging.
+         *
+         * @return std::string Human-readable summary of the configuration.
          */
         virtual std::string toString() const = 0;
 
-        /**
-         * @brief Validates the configuration.
-         *
-         * @throws std::invalid_argument If the configuration is invalid
-         */
-        virtual void validate() const
-        {
-            /*if (!isIdentifier( name_ ))
-            {
-                throw std::invalid_argument(
-                    "ComponentConfig::validate: name must start with a letter and contain only "
-                    "letters, digits, '.', '_', '-' (1..128 chars)" );
-            }*/
-        }
-
     protected:
 
-        /** @brief Precision policy for computation */
+        // REVIEW: Should we deprecate the default precision policy?
+        // It is not currently used and is an old development concept.
+
+        /** @brief Precision policy used for computation. */
         ComputePrecision::Policy precision_ = ComputePrecision::Policy::Auto;
-        
-	private:
-
-        //static bool isIdentifier( const std::string& s ) noexcept
-        //{
-        //    // Simple, deterministic ASCII-only check to avoid regex / compiler issues.
-        //    // Rule: start with A-Za-z, then allow A-Za-z0-9 . _ - ; length 1..128.
-        //    constexpr std::size_t kMinLen = 1;
-        //    constexpr std::size_t kMaxLen = 128;
-
-        //    if (s.size() < kMinLen || s.size() > kMaxLen)
-        //    {
-        //        return false;
-        //    }
-
-        //    auto isAsciiAlpha = []( unsigned char c ) noexcept {
-        //        return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
-        //        };
-
-        //    auto isAsciiAlphaNum = []( unsigned char c ) noexcept {
-        //        return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
-        //        };
-
-        //    const unsigned char first = static_cast<unsigned char>(s[0]);
-        //    if (!isAsciiAlpha( first ))
-        //    {
-        //        return false;
-        //    }
-
-        //    for (unsigned char uc : s)
-        //    {
-        //        if (isAsciiAlphaNum( uc ))
-        //        {
-        //            continue;
-        //        }
-
-        //        if (uc == '.' || uc == '_' || uc == '-')
-        //        {
-        //            continue;
-        //        }
-
-        //        return false;
-        //    }
-
-        //    return true;
-        //}
-    };  
+    };
 }

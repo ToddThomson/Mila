@@ -1,16 +1,11 @@
 /**
  * @file GeluConfig.ixx
- * @brief Configuration interface for the GELU activation module in the Mila DNN framework.
+ * @brief Configuration for the GELU activation module.
  *
- * Defines the GeluConfig class, providing a type-safe fluent interface for configuring
- * Gaussian Error Linear Unit (GELU) activation function modules. Inherits from ModuleConfig 
- * CRTP base and adds GELU-specific options: approximation method.
- *
- * Exposed as part of the Gelu module via module partitions.
+ * Provides fluent setters and serialization/validation hooks for GELU-specific options.
  */
 
 module;
-#include <memory> // for nlohmann::json to compile in VS2026
 #include <stdexcept>
 #include <string>
 #include <sstream>
@@ -20,21 +15,21 @@ export module Dnn.Components.Gelu:Config;
 
 import Dnn.Component;
 import Dnn.ComponentConfig;
-import nlohmann.json;
+import Serialization.Metadata;
 
 namespace Mila::Dnn
 {
-    using json = nlohmann::json;
+    using Serialization::SerializationMetadata;
 
     /**
      * @brief Configuration class for GELU module.
      *
      * Provides a type-safe fluent interface for configuring GELU modules.
      */
-    export class GeluConfig : public ComponentConfig 
+    export class GeluConfig : public ComponentConfig
     {
     public:
-        
+
         /**
          * @brief Approximation methods for the GELU activation function.
          */
@@ -46,7 +41,7 @@ namespace Mila::Dnn
 
         static constexpr std::string_view toString( GeluConfig::ApproximationMethod method ) noexcept
         {
-            switch (method)
+            switch ( method )
             {
                 case GeluConfig::ApproximationMethod::Exact:
                     return "Exact";
@@ -63,12 +58,9 @@ namespace Mila::Dnn
          * @brief Configure the approximation method for GELU computation.
          *
          * Note: Currently, only the Tanh approximation method is supported.
-         * Setting other methods will cause validation to fail when the configuration is used.
          *
-         * Uses C++23 "explicit object parameter" fluent API to enable perfect
-         * forwarding of derived types when chaining.
-         *
-         * @param method The approximation method to use (only ApproximationMethod::Tanh is currently supported)
+         * @tparam Self Deduction of the concrete config type via C++23 explicit object parameter
+         * @param method The approximation method to use
          * @return Self&& Reference to this for method chaining
          */
         template <typename Self>
@@ -88,80 +80,69 @@ namespace Mila::Dnn
         /**
          * @brief Validate configuration parameters.
          *
-         * Currently, only the Tanh approximation method is supported for GELU computation.
-         * Setting other approximation methods will cause validation to fail.
-         *
-         * @throws std::invalid_argument If validation fails or an unsupported approximation method is selected
+         * Implementations must throw std::invalid_argument on invalid configuration.
          */
-        void validate() const {
-            ComponentConfig::validate();
-
-            // Validate that only Tanh approximation method is used
-            if ( approximation_method_ != ApproximationMethod::Tanh ) {
-                throw std::invalid_argument( "Only the Tanh approximation method is currently supported for GELU" );
+        void validate() const override
+        {
+            // Only Tanh currently supported
+            if ( approximation_method_ != ApproximationMethod::Tanh )
+            {
+                throw std::invalid_argument(
+                    "GeluConfig::validate: only the Tanh approximation method is currently supported" );
             }
         }
 
         /**
-         * @brief Serialize this configuration to JSON.
+         * @brief Convert configuration into framework metadata.
          *
-         * The serialized form contains:
-         * - "name" : string
-         * - "precision" : integer (underlying value of ComputePrecision::Policy)
-         * - "approximation_method" : string (one of "Exact", "Tanh", "Sigmoid")
+         * Includes base fields (precision) and GELU-specific options.
+         *
+         * @return SerializationMetadata Metadata representing this configuration.
          */
-        json toJson() const
+        SerializationMetadata toMetadata() const override
         {
-            json j;
-            //j["name"] = name_;
-            j["precision"] = static_cast<int>(precision_);
-            j["approximation_method"] = std::string( GeluConfig::toString( approximation_method_ ) );
+            SerializationMetadata meta;
+            meta.set( "precision", static_cast<int64_t>( precision_ ) )
+                .set( "approximation_method", std::string( GeluConfig::toString( approximation_method_ ) ) );
 
-            return j;
+            return meta;
         }
 
         /**
-         * @brief Deserialize configuration from JSON.
+         * @brief Populate configuration from provided metadata.
          *
-         * Accepts the same keys produced by toJson(). Missing keys leave fields
-         * at their current (default) values. Unknown approximation method strings
-         * result in std::invalid_argument.
+         * Missing keys are ignored leaving defaults intact. Unknown approximation
+         * method strings result in std::invalid_argument.
+         *
+         * @param meta Metadata to read configuration values from.
          */
-        void fromJson( const json& j )
+        void fromMetadata( const SerializationMetadata& meta ) override
         {
-            // Read name if present
-            /*if (j.contains( "name" ))
+            if ( auto prec = meta.tryGetInt( "precision" ) )
             {
-                name_ = j.at( "name" ).get<std::string>();
-            }*/
-
-            // Read precision if present (stored as integer)
-            if (j.contains( "precision" ))
-            {
-                precision_ = static_cast<decltype(precision_)>(j.at( "precision" ).get<int>());
+                precision_ = static_cast<decltype( precision_ )>( *prec );
             }
 
-            // Read approximation method if present
-            if (j.contains( "approximation_method" ))
+            if ( auto method = meta.tryGetString( "approximation_method" ) )
             {
-                const std::string method = j.at( "approximation_method" ).get<std::string>();
+                const std::string m = *method;
 
-                // Map string values to enum; exact-match required
-                if (method == "Exact")
+                if ( m == "Exact" )
                 {
                     approximation_method_ = ApproximationMethod::Exact;
                 }
-                else if (method == "Tanh")
+                else if ( m == "Tanh" )
                 {
                     approximation_method_ = ApproximationMethod::Tanh;
                 }
-                else if (method == "Sigmoid")
+                else if ( m == "Sigmoid" )
                 {
                     approximation_method_ = ApproximationMethod::Sigmoid;
                 }
                 else
                 {
-                    throw std::invalid_argument( "GeluConfig::fromJson: unknown approximation_method: " + method );
+                    throw std::invalid_argument(
+                        "GeluConfig::fromMetadata: unknown approximation_method: " + m );
                 }
             }
         }
@@ -169,18 +150,21 @@ namespace Mila::Dnn
         /**
          * @brief Produce a short, human-readable summary of this configuration.
          *
-         * Overrides ComponentConfig::toString() to include GELU-specific fields.
-		 */
+         * Suitable for logging and debugging.
+         *
+         * @return std::string Human-readable summary of the configuration.
+         */
         std::string toString() const override
         {
             std::ostringstream oss;
             oss << "GeluConfig: { ";
             oss << "precision=" << static_cast<int>( precision_ ) << ", ";
-            oss << "approximation_method=" << static_cast<std::string_view>(GeluConfig::toString( approximation_method_ ));
+            oss << "approximation_method=" << static_cast<std::string_view>(
+                GeluConfig::toString( approximation_method_ ) );
             oss << " }";
-            
+
             return oss.str();
-		}
+        }
 
     private:
         ApproximationMethod approximation_method_ = ApproximationMethod::Tanh;

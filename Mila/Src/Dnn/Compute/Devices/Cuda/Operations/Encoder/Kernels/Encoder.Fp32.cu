@@ -52,6 +52,30 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
         }
     }
 
+    __global__ void encoder_forward_fp32_kernel_v2(
+        float4* __restrict__ Y,
+        const int* __restrict__ X,
+        const float4* __restrict__ Wte,
+        const float4* __restrict__ Wpe,
+        int B, int T, int C )
+    {
+        int C4 = C / 4;
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        int total = B * T * C4;
+
+        if ( idx < total ) {
+            int bt = idx / C4;
+            int c4 = idx % C4;
+            int t = bt % T;
+            int ix = X[ bt ];
+
+            // Single 128-bit load + 128-bit load + 128-bit store
+            float4 a = Wte[ ix * C4 + c4 ];
+            float4 b = Wpe[ t * C4 + c4 ];
+            Y[ bt * C4 + c4 ] = add_float4( a, b );
+        }
+    }
+
     /**
      * @brief CUDA kernel for encoder backward pass using float4 vectorization
      *
@@ -96,7 +120,7 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
             atomicAdd( &dWte[ ix * C4 + c4 ].z, grad.z );
             atomicAdd( &dWte[ ix * C4 + c4 ].w, grad.w );
 
- /*           if ( bt == 0 && c4 == 0 ) {
+            /*  if ( bt == 0 && c4 == 0 ) {
                 printf( "dWte after: %.6f, %.6f, %.6f, %.6f\n",
                     dWte[ ix * C4 + c4 ].x, dWte[ ix * C4 + c4 ].y,
                     dWte[ ix * C4 + c4 ].z, dWte[ ix * C4 + c4 ].w );
@@ -108,6 +132,10 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
             atomicAdd( &dWpe[ t * C4 + c4 ].w, grad.w );
         }
     }
+
+    // ========================================================================
+    // Host functions
+    // ========================================================================
 
     /**
      * @brief Host function to launch encoder forward pass with full precision (FP32)
@@ -130,6 +158,7 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
         int B, int T, int C,
         cudaStream_t stream )
     {
+        // REVIEW: C must be divisible by 4 for float4 vectorization
         assert( C % 4 == 0 );
 
         int C4 = C / 4;
@@ -137,6 +166,16 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
         // For C=256, C4=64, this is perfect
         dim3 grid( B * T );    // 32 * 128 = 4,096 blocks
         dim3 block( C4 );      // 64 threads
+
+        // --------------------------------------------------------------------
+        // REVIEW: Alternative launch configuration
+        // int C4 = C / 4;
+        // constexpr int BLOCK_SIZE = 256;  // Optimal block size
+
+        // Each block processes multiple BT positions
+        // int num_elements = B * T * C4;
+        // int grid_size = (num_elements + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        // --------------------------------------------------------------------
 
         encoder_forward_fp32_kernel << <grid, block, 0, stream >> > (
             reinterpret_cast<float4*>(Y), X,

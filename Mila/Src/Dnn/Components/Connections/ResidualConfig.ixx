@@ -94,8 +94,6 @@ namespace Mila::Dnn
 
         void validate() const override
         {
-            ComponentConfig::validate();
-
             if ( scaling_factor_ <= 0.0f )
             {
                 throw std::invalid_argument( "ResidualConfig: scaling_factor must be > 0" );
@@ -112,7 +110,7 @@ namespace Mila::Dnn
          * Produces a SerializationMetadata object containing the configuration
          * fields suitable for writing into an archive by the caller.
          */
-        SerializationMetadata toMetadata() const
+        SerializationMetadata toMetadata() const override
         {
             SerializationMetadata meta;
             meta.set( "precision", static_cast<int64_t>( precision_ ) )
@@ -128,7 +126,7 @@ namespace Mila::Dnn
          * Reads available fields from the provided metadata and updates the
          * configuration object accordingly.
          */
-        void fromMetadata( const SerializationMetadata& meta )
+        void fromMetadata( const SerializationMetadata& meta ) override
         {
             if ( auto prec = meta.tryGetInt( "precision" ) )
             {

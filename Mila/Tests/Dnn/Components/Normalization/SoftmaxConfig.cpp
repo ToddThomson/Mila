@@ -8,7 +8,7 @@ namespace Components_Normalization_Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
-    using namespace Mila::Dnn::Serialization;
+    using Mila::Dnn::Serialization::SerializationMetadata;
 
     class SoftmaxConfigTests : public ::testing::Test
     {
@@ -107,12 +107,12 @@ namespace Components_Normalization_Tests
         EXPECT_NO_THROW( cfg.validate() );
     }
 
-    TEST_F( SoftmaxConfigTests, ToSerializationMetadata_IncludesAllFields )
+    TEST_F( SoftmaxConfigTests, ToMetadata_IncludesAllFields )
     {
         SoftmaxConfig cfg;
         cfg.withAxis( 7 ).withPrecisionPolicy( ComputePrecision::Policy::Accuracy );
 
-        auto meta = cfg.toSerializationMetadata();
+        auto meta = cfg.toMetadata();
 
         EXPECT_TRUE( meta.has( "axis" ) );
         EXPECT_EQ( meta.getInt( "axis" ), 7 );
@@ -121,11 +121,11 @@ namespace Components_Normalization_Tests
         EXPECT_EQ( meta.getInt( "precision" ), static_cast<int64_t>( ComputePrecision::Policy::Accuracy ) );
     }
 
-    TEST_F( SoftmaxConfigTests, ToSerializationMetadata_DefaultValues )
+    TEST_F( SoftmaxConfigTests, ToMetadata_DefaultValues )
     {
         SoftmaxConfig cfg;
 
-        auto meta = cfg.toSerializationMetadata();
+        auto meta = cfg.toMetadata();
 
         EXPECT_TRUE( meta.has( "axis" ) );
         EXPECT_EQ( meta.getInt( "axis" ), -1 );
@@ -134,20 +134,20 @@ namespace Components_Normalization_Tests
         EXPECT_EQ( meta.getInt( "precision" ), static_cast<int64_t>( ComputePrecision::Policy::Auto ) );
     }
 
-    TEST_F( SoftmaxConfigTests, FromSerializationMetadata_AllFields )
+    TEST_F( SoftmaxConfigTests, FromMetadata_AllFields )
     {
         SerializationMetadata meta;
         meta.set( "axis", int64_t( 5 ) )
             .set( "precision", static_cast<int64_t>( ComputePrecision::Policy::Performance ) );
 
         SoftmaxConfig cfg;
-        cfg.fromSerializationMetadata( meta );
+        cfg.fromMetadata( meta );
 
         EXPECT_EQ( cfg.getAxis(), 5 );
         EXPECT_EQ( cfg.getPrecisionPolicy(), ComputePrecision::Policy::Performance );
     }
 
-    TEST_F( SoftmaxConfigTests, FromSerializationMetadata_PartialFields )
+    TEST_F( SoftmaxConfigTests, FromMetadata_PartialFields )
     {
         SoftmaxConfig cfg;
         cfg.withAxis( 10 ).withPrecisionPolicy( ComputePrecision::Policy::Accuracy );
@@ -155,48 +155,48 @@ namespace Components_Normalization_Tests
         SerializationMetadata meta;
         meta.set( "axis", int64_t( 3 ) );
 
-        cfg.fromSerializationMetadata( meta );
+        cfg.fromMetadata( meta );
 
         EXPECT_EQ( cfg.getAxis(), 3 );
         EXPECT_EQ( cfg.getPrecisionPolicy(), ComputePrecision::Policy::Accuracy );
     }
 
-    TEST_F( SoftmaxConfigTests, FromSerializationMetadata_EmptyMetadata )
+    TEST_F( SoftmaxConfigTests, FromMetadata_EmptyMetadata )
     {
         SoftmaxConfig cfg;
         cfg.withAxis( 7 ).withPrecisionPolicy( ComputePrecision::Policy::Performance );
 
         SerializationMetadata meta;
 
-        cfg.fromSerializationMetadata( meta );
+        cfg.fromMetadata( meta );
 
         EXPECT_EQ( cfg.getAxis(), 7 );
         EXPECT_EQ( cfg.getPrecisionPolicy(), ComputePrecision::Policy::Performance );
     }
 
-    TEST_F( SoftmaxConfigTests, Serialization_RoundTrip )
+    TEST_F( SoftmaxConfigTests, Metadata_RoundTrip )
     {
         SoftmaxConfig original;
         original.withAxis( 2 ).withPrecisionPolicy( ComputePrecision::Policy::Accuracy );
 
-        auto meta = original.toSerializationMetadata();
+        auto meta = original.toMetadata();
 
         SoftmaxConfig restored;
-        restored.fromSerializationMetadata( meta );
+        restored.fromMetadata( meta );
 
         EXPECT_EQ( restored.getAxis(), original.getAxis() );
         EXPECT_EQ( restored.getPrecisionPolicy(), original.getPrecisionPolicy() );
     }
 
-    TEST_F( SoftmaxConfigTests, Serialization_NegativeAxis )
+    TEST_F( SoftmaxConfigTests, Metadata_NegativeAxis )
     {
         SoftmaxConfig original;
         original.withAxis( -1 );
 
-        auto meta = original.toSerializationMetadata();
+        auto meta = original.toMetadata();
 
         SoftmaxConfig restored;
-        restored.fromSerializationMetadata( meta );
+        restored.fromMetadata( meta );
 
         EXPECT_EQ( restored.getAxis(), -1 );
     }
