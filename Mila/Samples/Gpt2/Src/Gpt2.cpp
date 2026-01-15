@@ -1,5 +1,3 @@
-// ----------------------------------------------------------------------------
-// GPT2 training application
 #include <time.h>
 #include <iostream>
 #include <chrono>
@@ -7,230 +5,359 @@
 #include <vector>
 #include <memory>
 #include <variant>
+#include <format>
+#include <iomanip>
 
 import Mila;
-import Utils.StepLogger;
 
+import Gpt2.Transformer;
+import Gpt2.CheckpointReader;
 import Gpt2App.Gpt2DataLoader;
 import Gpt2App.Gpt2Tokenizer;
 import Gpt2App.Gpt2Config;
-import Gpt2App.Gpt2Model;
 
-unsigned int random_u32( uint64_t* state ) {
-	// xorshift rng: https://en.wikipedia.org/wiki/Xorshift#xorshift.2A
-	*state ^= *state >> 12;
-	*state ^= *state << 25;
-	*state ^= *state >> 27;
-	return (*state * 0x2545F4914F6CDD1Dull) >> 32;
-}
-float random_f32( uint64_t* state ) { // random float32 in [0,1)
-	return (random_u32( state ) >> 8) / 16777216.0f;
-}
+namespace
+{
+    struct Gpt2TrainConfig
+    {
+        std::string train_data = "data/datasets/tinyshakespeare/tiny_shakespeare_train.bin";
+        std::string val_data = "data/datasets/tinyshakespeare/tiny_shakespeare_val.bin";
+        size_t batch_size = 4;
+        size_t seq_length = 64;
+        size_t epochs = 1;
+        float learning_rate = 3e-4f;
+        float beta1 = 0.9f;
+        float beta2 = 0.999f;
+        float eps = 1e-8f;
+        float weight_decay = 0.0f;
+        std::string device = "CUDA";
+        int sample_every = 20;
+    };
 
-// ----------------------------------------------------------------------------
-// CLI, poor man's argparse
+    // Cross-entropy loss and gradient (host CPU, float)
+    static float sequenceCrossEntropyLossCpu(
+        const Mila::Dnn::Tensor<Mila::Dnn::dtype_t::FP32, Mila::Dnn::CpuMemoryResource>& logits,
+        const Mila::Dnn::Tensor<Mila::Dnn::dtype_t::INT32, Mila::Dnn::CpuMemoryResource>& targets )
+    {
+        using namespace Mila::Dnn;
+        size_t B = logits.shape()[0];
+        size_t T = logits.shape()[1];
+        size_t V = logits.shape()[2];
 
-void error_usage() {
-	std::cerr << ("Usage:   ./train_gpt2fp32cu [options]\n");
-	std::cerr << ("Options:\n");
-	std::cerr << ("  -i <string> train data filename pattern (default = dev/data/tinyshakespeare/tiny_shakespeare_train.bin)\n");
-	std::cerr << ("  -j <string> val data filename pattern (default = dev/data/tinyshakespeare/tiny_shakespeare_val.bin)\n");
-	std::cerr << ("  -o <string> output log file (default = NULL)\n");
-	std::cerr << ("  -b <int>    batch size B (default = 4)\n");
-	std::cerr << ("  -t <int>    sequence length T (default = 1024)\n");
-	std::cerr << ("  -l <float>  learning rate (default = 3e-4f)\n");
-	std::cerr << ("  -v <int>    val_loss_every, how often we evaluate val loss (default = 20)\n");
-	std::cerr << ("  -m <int>    val_max_steps, up to how many val batches to estimate val loss? (default = 20)\n");
-	std::cerr << ("  -s <int>    sample_every, how often we inference the model (default = 20)\n");
-	std::cerr << ("  -g <int>    genT, how many steps of inference we do (default = 64)\n");
-	std::cerr << ("  -c <string> compute type (default = auto)\n");
-	std::cerr << ("  -h          print this help message\n");
+        double total_nll = 0.0;
+        size_t count = 0;
 
-	exit( EXIT_FAILURE );
-}
+        const float* lptr = reinterpret_cast<const float*>(logits.rawData());
+        const int32_t* tptr = reinterpret_cast<const int32_t*>(targets.rawData());
 
-int main( int argc, char* argv[] ) {
-	using namespace Gpt2App;
-	using namespace Mila::Dnn;
+        for ( size_t b = 0; b < B; ++b )
+        {
+            for ( size_t t = 0; t < T; ++t )
+            {
+                size_t base = (b * T + t) * V;
 
-	Mila::initialize();
-	std::cout << "Mila version: " << Mila::getAPIVersion().ToString() << std::endl;
+                // find max for numerical stability
+                float mx = lptr[ base ];
+                for ( size_t v = 1; v < V; ++v ) mx = std::max( mx, lptr[ base + v ] );
 
-	// read in the (optional) command line arguments
-	std::string train_data_pattern = "data/datasets/tinyshakespeare/tiny_shakespeare_train.bin";
-	std::string val_data_pattern = "data/datasets/tinyshakespeare/tiny_shakespeare_val.bin";
-	std::string output_log_file;
-	size_t B = 4; // batch size
-	size_t T = 64; // sequence length max
-	float learning_rate = 3e-4f;
-	int val_loss_every = 20; // every how many steps do we eval validation loss?
-	int val_max_steps = 20; // how many batches max do we eval for validation loss?
-	int sample_every = 20; // every how many steps to do inference?
-	int genT = 64; // number of steps of inference we will do
-	std::string compute_type = "CUDA";
-	
-	for ( int i = 1; i < argc; i += 2 ) {
-		if ( i + 1 >= argc ) { error_usage(); } // must have arg after flag
-		if ( argv[ i ][ 0 ] != '-' ) { error_usage(); } // must start with dash
-		if ( strlen( argv[ i ] ) != 2 ) { error_usage(); } // must be -x (one dash, one letter)
-		// read in the args
-		if ( argv[ i ][ 1 ] == 'i' ) { train_data_pattern = argv[ i + 1 ]; }
-		else if ( argv[ i ][ 1 ] == 'j' ) { val_data_pattern = argv[ i + 1 ]; }
-		else if ( argv[ i ][ 1 ] == 'o' ) { output_log_file = argv[ i + 1 ]; }
-		else if ( argv[ i ][ 1 ] == 'b' ) { B = atoi( argv[ i + 1 ] ); }
-		else if ( argv[ i ][ 1 ] == 't' ) { T = atoi( argv[ i + 1 ] ); }
-		else if ( argv[ i ][ 1 ] == 'l' ) { learning_rate = atof( argv[ i + 1 ] ); }
-		else if ( argv[ i ][ 1 ] == 'v' ) { val_loss_every = atoi( argv[ i + 1 ] ); }
-		else if ( argv[ i ][ 1 ] == 'm' ) { val_max_steps = atoi( argv[ i + 1 ] ); }
-		else if ( argv[ i ][ 1 ] == 's' ) { sample_every = atoi( argv[ i + 1 ] ); }
-		else if ( argv[ i ][ 1 ] == 'g' ) { genT = atoi( argv[ i + 1 ] ); }
-		else if ( argv[ i ][ 1 ] == 'c' ) { compute_type = argv[ i + 1 ]; }
-		else if ( argv[ i ][ 1 ] == 'h' ) { error_usage(); }
-		else { error_usage(); }
-	}
+                double denom = 0.0;
+                for ( size_t v = 0; v < V; ++v ) denom += std::exp( static_cast<double>( lptr[ base + v ] - mx ) );
 
-	std::cout << "+-----------------------+---------------------------------------------------------+\n";
-	std::cout << "| Parameter             | Value                                                   |\n";
-	std::cout << "+-----------------------+---------------------------------------------------------+\n";
-	std::cout << std::format( "| train data pattern    | {:<55} |\n", train_data_pattern );
-	std::cout << std::format( "| val data pattern      | {:<55} |\n", val_data_pattern );
-	std::cout << std::format( "| output log file       | {:<55} |\n", output_log_file.empty() ? "Logging to stdout" : output_log_file );
-	std::cout << std::format( "| batch size B          | {:<55d} |\n", B );
-	std::cout << std::format( "| sequence length T     | {:<55d} |\n", T );
-	std::cout << std::format( "| learning rate         | {:<55f} |\n", learning_rate );
-	std::cout << std::format( "| val_loss_every        | {:<55d} |\n", val_loss_every );
-	std::cout << std::format( "| val_max_steps         | {:<55d} |\n", val_max_steps );
-	std::cout << std::format( "| sample_every          | {:<55d} |\n", sample_every );
-	std::cout << std::format( "| genT                  | {:<55d} |\n", genT );
-	std::cout << std::format( "| compute type          | {:<55} |\n", compute_type );
-	std::cout << "+-----------------------+---------------------------------------------------------+\n";
+                int32_t target = tptr[ b * T + t ];
+                double num = std::exp( static_cast<double>( lptr[ base + target ] - mx ) );
 
-	// set up the Logger
-	Mila::Utils::StepLogger logger( output_log_file );
+                double prob = num / denom;
+                total_nll += -std::log( std::max( prob, 1e-12 ) );
+                ++count;
+            }
+        }
 
-	auto devices = Compute::list_devices();
-	std::cout << "Available compute devices: ";
-	for ( const auto& device : devices ) {
-		std::cout << device << " ";
-	}
-	std::cout << std::endl;
+        if ( count == 0 ) return 0.0f;
 
-	Compute::DeviceType device_type = Compute::toDeviceType( compute_type );
+        return static_cast<float>( total_nll / static_cast<double>( count ) );
+    }
 
-	// Set device context once before creating model
-	//Compute::DeviceContext::instance().setDevice( compute_type );
+    static void sequenceCrossEntropyGradientCpu(
+        const Mila::Dnn::Tensor<Mila::Dnn::dtype_t::FP32, Mila::Dnn::CpuMemoryResource>& logits,
+        const Mila::Dnn::Tensor<Mila::Dnn::dtype_t::INT32, Mila::Dnn::CpuMemoryResource>& targets,
+        Mila::Dnn::Tensor<Mila::Dnn::dtype_t::FP32, Mila::Dnn::CpuMemoryResource>& out_grad )
+    {
+        using namespace Mila::Dnn;
+        size_t B = logits.shape()[0];
+        size_t T = logits.shape()[1];
+        size_t V = logits.shape()[2];
 
-	// Create model - it will use whatever device is currently set
-	ModelConfig config;
-	//auto model = std::make_unique<Gpt2Model<float>>( config, B, T );
-	//model->fromCheckpoint("data/models/gpt2/gpt2_124M.bin");
-	//model->print();
+        const float* lptr = reinterpret_cast<const float*>(logits.rawData());
+        int32_t* tptr = const_cast<int32_t*>( reinterpret_cast<const int32_t*>(targets.rawData()) );
+        float* gptr = reinterpret_cast<float*>(out_grad.rawData());
 
-	// Use the model MR for tensor types
-	//using MR = typename decltype(model)::element_type::MR;
+        // compute per-position softmax then subtract 1 on target index, normalize by total tokens
+        size_t total_positions = B * T;
+        const float norm = 1.0f / static_cast<float>( total_positions );
 
-	// build DataLoaders for both train and val
-	auto train_loader = Gpt2DataLoader<int>( train_data_pattern, B, T, 0, 1, true );
-	auto val_loader = Gpt2DataLoader<int>( val_data_pattern, B, T, 0, 1, false );
+        for ( size_t b = 0; b < B; ++b )
+        {
+            for ( size_t t = 0; t < T; ++t )
+            {
+                size_t base = (b * T + t) * V;
 
-	int train_num_batches = train_loader.num_tokens() / (B * T); // let's do 1 epoch by default for now
-	int val_num_batches = val_loader.num_tokens() / (B * T);
-	if ( val_num_batches > val_max_steps ) {
-		val_num_batches = val_max_steps;
-	}
-	std::cout << std::format( "val_num_batches: {:<55d} |\n", val_num_batches );
+                // numerically stable softmax
+                float mx = lptr[ base ];
+                for ( size_t v = 1; v < V; ++v ) mx = std::max( mx, lptr[ base + v ] );
 
-	// TJT: Adjusted
-	val_num_batches = 5;
+                double denom = 0.0;
+                for ( size_t v = 0; v < V; ++v ) denom += std::exp( static_cast<double>( lptr[ base + v ] - mx ) );
 
-	// build the Tokenizer
-	Tokenizer tokenizer = Tokenizer( "data/models/gpt2/gpt2_tokenizer.bin" );
+                int32_t target = tptr[ b * T + t ];
 
-	// Cpu Tensor for generating samples from the model.
-	uint64_t rng_state = 1337;
-	//Tensor<int, MR> gen_tokens( std::vector<size_t>( { B, T } ) );
+                for ( size_t v = 0; v < V; ++v )
+                {
+                    double prob = std::exp( static_cast<double>( lptr[ base + v ] - mx ) ) / denom;
+                    double grad = prob - ( static_cast<int32_t>( v ) == target ? 1.0 : 0.0 );
+                    gptr[ base + v ] = static_cast<float>( grad * norm );
+                }
+            }
+        }
+    }
+} // namespace
 
-	// Training loop
-	for ( int step = 0; step <= 40; step++ ) {
-		// once in a while estimate the validation loss
-		// TJT: Adjusted to never run
-		if ( step % 10 == 100 ) {
-			float val_loss = 0.0f;
-			val_loader.reset();
-			std::cout << "Calculating validation loss: .";
+int main( int argc, char* argv[] )
+{
+    using namespace Mila::Dnn;
+    using namespace Mila::Dnn::Compute;
+    using namespace Mila::Gpt2;
 
-			for ( int i = 0; i < val_num_batches; i++ ) {
-				val_loader.next_batch();
-				// FIXME:
-				//model->forward( val_loader.inputs(), val_loader.targets() );
-				//val_loss += model->get_mean_loss();
-				std::cout << ".";
-			}
-			std::cout << std::endl;
-			val_loss /= val_num_batches;
-			std::cout << "val loss: " << val_loss << std::endl;
-		}
+    try
+    {
+        Mila::initialize();
 
-		// once in a while do model inference to print generated text
-		if ( step > 0 && step % 2 /* 0 */ == 0 ) {
-			// fill up gen_tokens with the GPT2_EOT, which kicks off the generation
-			for ( int b = 0; b < B; ++b ) {
-				for ( int t = 0; t < T; ++t ) {
-					//gen_tokens[ b, t ] = tokenizer.get_eot_token();
-				}
-			}
-			// now sample from the model autoregressively
-			std::cout << "generating:\n---\n";
-			for ( int t = 1; t < genT; t++ ) {
-				// note that inference is very wasteful here because for each token
-				// we re-calculate the forward pass for all of (B,T) positions from scratch
-				// but the inference here is just for sanity checking anyway
-				// and we can maybe optimize a bit more later, with careful tests
-				//Tensor<int> empty_targets;
-				//model->forward( gen_tokens, empty_targets );
+        // Simple CLI (reuse defaults or minimal parsing)
+        Gpt2TrainConfig cfg;
 
-				// furthermore, below we're only using b=0 (i.e. the first row) of all B rows
-				// we're in principle running B "inference streams" in parallel here
-				// but only using position 0
-				// get the Vp-dimensional vector probs[0, t-1, :]
-				//auto probs = model->getProbabilities();
+        for ( int i = 1; i + 1 < argc; i += 2 )
+        {
+            std::string opt = argv[ i ];
+            std::string val = argv[ i + 1 ];
+            if ( opt == "-b" ) cfg.batch_size = static_cast<size_t>( std::stoi( val ) );
+            else if ( opt == "-t" ) cfg.seq_length = static_cast<size_t>( std::stoi( val ) );
+            else if ( opt == "-c" ) cfg.device = val;
+            else if ( opt == "-i" ) cfg.train_data = val;
+        }
 
-				//float* probs = reinterpret_cast<float*>(acts.probs.data()) + ((t - 1) * model.get_config().padded_vocab_size);
-				float coin = random_f32( &rng_state );
-				// note we're only sampling from the first V elements, ignoring padding
-				// (the probabilities in the padded region should be zero anyway)
-				//int next_token = model->sampleMult( probs, model->get_config().vocab_size, t, coin );
-				//gen_tokens[ 0, t ] = next_token;
+        std::cout << "Gpt2 training (minimal) - using device: " << cfg.device << std::endl;
 
-				// print the generated token, either using the Tokenizer or a fallback
-				//if ( tokenizer.init_ok ) {
-				//const char* token_str = tokenizer.decode( next_token );
-				//std::cout << token_str;
-				//}
-				//else {
-				//    // fall back to printing the token id
-				//    std::cout <<( "%d ", next_token );
-				//}
-				fflush( stdout );
-			}
-			std::cout << "\n---\n";
-		}
+        // Choose device
+        DeviceType dev_type = Compute::toDeviceType( cfg.device );
 
-		// Training step
-		auto start_time = std::chrono::steady_clock::now();
+        if ( dev_type == DeviceType::Cuda )
+        {
+            try
+            {
+                // run on CUDA
+                DeviceId device_id = Device::getDeviceId<DeviceType::Cuda>( 0 );
 
-		train_loader.next_batch();
+                // Data loader
+                auto train_loader = Gpt2App::Gpt2DataLoader<int>( cfg.train_data, cfg.batch_size, cfg.seq_length, 0, 1, true );
 
-		//model.forward( train_loader.inputs(), train_loader.targets() );
-		//model.zero_grads();
-		//model.backward();
-		//model.update( 1e-4f, 0.9f, 0.999f, 1e-8f, 0.0f, step + 1 );
+                // Tokenizer (load vocab)
+                Gpt2App::Tokenizer tokenizer( "data/models/gpt2/gpt2_tokenizer.bin" );
 
-		auto end_time = std::chrono::steady_clock::now();
-		double time_elapsed_s = std::chrono::duration<double>( end_time - start_time ).count();
-		//total_sum_iteration_time_s += time_elapsed_s;
-//		auto log_msg = std::format( "step {}/{}: train loss {} ({} ms)\n", step + 1, train_num_batches, model->get_mean_loss(), time_elapsed_s * 1000 );
-		//logger.log_step( step + 1, log_msg );
-	}
-	return 0;
+                // Build transformer config (match fields used in GptTransformer)
+                GptTransformerConfig model_cfg;
+                model_cfg.vocab_size = tokenizer.getVocabularySize();
+                model_cfg.max_seq_length = static_cast<int>( cfg.seq_length );
+                model_cfg.embedding_dim = 768; // choose reasonable default or expose via CLI
+                model_cfg.num_heads = 12;
+                model_cfg.num_layers = 12;
+                model_cfg.mlp_hidden_dim = 3072;
+
+                // Create model
+                auto model = std::make_unique< GptTransformer<DeviceType::Cuda, dtype_t::FP32> >(
+                    "gpt2", model_cfg, device_id );
+
+                shape_t input_shape = { static_cast<int64_t>( cfg.batch_size ), static_cast<int64_t>( cfg.seq_length ) };
+                model->build( input_shape );
+
+                std::cout << "Built GPT-2 network:" << std::endl;
+                std::cout << model->toString() << std::endl;
+
+                model->setTraining( true );
+
+                auto optimizer = model->createOptimizer< Mila::Dnn::Optimizers::AdamWOptimizer<DeviceType::Cuda, dtype_t::FP32> >(
+                    Mila::Dnn::Optimizers::AdamWConfig()
+                        .withLearningRate( cfg.learning_rate )
+                        .withBeta1( cfg.beta1 )
+                        .withBeta2( cfg.beta2 )
+                        .withEpsilon( cfg.eps )
+                        .withWeightDecay( cfg.weight_decay )
+                );
+
+                std::cout << "Optimizer parameter groups: " << optimizer->getParameterCount() << std::endl;
+
+                // Prepare tensors
+                using DeviceMR = typename DeviceTypeTraits<DeviceType::Cuda>::memory_resource;
+                Tensor<dtype_t::INT32, DeviceMR> input_batch( device_id, input_shape );
+                Tensor<dtype_t::INT32, DeviceMR> target_batch( device_id, input_shape );
+
+                shape_t logits_shape = { static_cast<int64_t>( cfg.batch_size ), static_cast<int64_t>( cfg.seq_length ), static_cast<int64_t>( model_cfg.vocab_size ) };
+
+                Tensor<dtype_t::FP32, CpuMemoryResource> logits_cpu( Device::Cpu(), logits_shape );
+                Tensor<dtype_t::INT32, CpuMemoryResource> targets_cpu( Device::Cpu(), input_shape );
+                Tensor<dtype_t::FP32, CpuMemoryResource> output_grad_cpu( Device::Cpu(), logits_shape );
+                Tensor<dtype_t::FP32, DeviceMR> output_grad_dev( device_id, logits_shape );
+
+                std::cout << "Starting training loop (epochs=" << cfg.epochs << ")..." << std::endl;
+
+                for ( size_t epoch = 0; epoch < cfg.epochs; ++epoch )
+                {
+                    train_loader.reset();
+                    size_t batch_idx = 0;
+                    double epoch_loss = 0.0;
+
+                    auto epoch_start = std::chrono::high_resolution_clock::now();
+
+                    while ( train_loader.hasNext() )
+                    {
+                        train_loader.next_batch();
+
+                        // copy data from loader to device tensors
+                        copy( train_loader.inputs(), input_batch );
+                        copy( train_loader.targets(), target_batch );
+
+                        auto& logits_dev = model->forward( input_batch );
+                        model->getExecutionContext()->synchronize();
+
+                        // Move logits & targets to CPU
+                        copy( logits_dev, logits_cpu );
+                        copy( target_batch, targets_cpu );
+
+                        // Compute loss on CPU
+                        float batch_loss = sequenceCrossEntropyLossCpu( logits_cpu, targets_cpu );
+                        epoch_loss += batch_loss;
+
+                        // Compute gradient on CPU and copy to device
+                        std::memset( output_grad_cpu.rawData(), 0, output_grad_cpu.getStorageSize() );
+                        sequenceCrossEntropyGradientCpu( logits_cpu, targets_cpu, output_grad_cpu );
+
+                        copy( output_grad_cpu, output_grad_dev );
+
+                        // Backprop
+                        model->zeroGradients();
+                        model->backward( input_batch, output_grad_dev );
+                        model->getExecutionContext()->synchronize();
+
+                        optimizer->step();
+                        model->getExecutionContext()->synchronize();
+
+                        ++batch_idx;
+
+                        if ( batch_idx % 50 == 0 )
+                        {
+                            std::cout << std::format( "Epoch {} batch {} - loss {:.4f}\n", epoch + 1, batch_idx, batch_loss );
+                        }
+                    }
+
+                    auto epoch_end = std::chrono::high_resolution_clock::now();
+                    double epoch_time = std::chrono::duration<double>( epoch_end - epoch_start ).count();
+
+                    std::cout << std::format( "Epoch {}/{} finished - avg loss {:.4f} - time {:.2f}s\n",
+                        epoch + 1, cfg.epochs, epoch_loss / std::max<size_t>( 1, batch_idx ), epoch_time );
+                }
+            }
+            catch ( const std::exception& e )
+            {
+                std::cerr << "CUDA run error: " << e.what() << std::endl;
+                return 1;
+            }
+        }
+        else
+        {
+            // CPU path (mirror CUDA but using DeviceType::Cpu)
+            DeviceId device_id = Device::getDeviceId<DeviceType::Cpu>( 0 );
+
+            auto train_loader = Gpt2App::Gpt2DataLoader<int>( cfg.train_data, cfg.batch_size, cfg.seq_length, 0, 1, true );
+            Gpt2App::Tokenizer tokenizer( "data/models/gpt2/gpt2_tokenizer.bin" );
+
+            GptTransformerConfig model_cfg;
+            model_cfg.vocab_size = tokenizer.getVocabularySize();
+            model_cfg.max_seq_length = static_cast<int>( cfg.seq_length );
+            model_cfg.embedding_dim = 512;
+            model_cfg.num_heads = 8;
+            model_cfg.num_layers = 6;
+            model_cfg.mlp_hidden_dim = 2048;
+
+            auto model = std::make_unique< GptTransformer<DeviceType::Cpu, dtype_t::FP32> >(
+                "gpt2", model_cfg, device_id );
+
+            shape_t input_shape = { static_cast<int64_t>( cfg.batch_size ), static_cast<int64_t>( cfg.seq_length ) };
+            model->build( input_shape );
+
+            model->setTraining( true );
+
+            auto optimizer = model->createOptimizer< Mila::Dnn::Optimizers::AdamWOptimizer<DeviceType::Cpu, dtype_t::FP32> >(
+                Mila::Dnn::Optimizers::AdamWConfig()
+                    .withLearningRate( cfg.learning_rate )
+                    .withBeta1( cfg.beta1 )
+                    .withBeta2( cfg.beta2 )
+                    .withEpsilon( cfg.eps )
+                    .withWeightDecay( cfg.weight_decay )
+            );
+
+            using DeviceMR = typename DeviceTypeTraits<DeviceType::Cpu>::memory_resource;
+            Tensor<dtype_t::INT32, DeviceMR> input_batch( device_id, input_shape );
+            Tensor<dtype_t::INT32, DeviceMR> target_batch( device_id, input_shape );
+
+            shape_t logits_shape = { static_cast<int64_t>( cfg.batch_size ), static_cast<int64_t>( cfg.seq_length ), static_cast<int64_t>( model_cfg.vocab_size ) };
+
+            Tensor<dtype_t::FP32, CpuMemoryResource> logits_cpu( Device::Cpu(), logits_shape );
+            Tensor<dtype_t::INT32, CpuMemoryResource> targets_cpu( Device::Cpu(), input_shape );
+            Tensor<dtype_t::FP32, CpuMemoryResource> output_grad_cpu( Device::Cpu(), logits_shape );
+            Tensor<dtype_t::FP32, DeviceMR> output_grad_dev( device_id, logits_shape );
+
+            for ( size_t epoch = 0; epoch < cfg.epochs; ++epoch )
+            {
+                train_loader.reset();
+                size_t batch_idx = 0;
+
+                while ( train_loader.hasNext() )
+                {
+                    train_loader.next_batch();
+
+                    copy( train_loader.inputs(), input_batch );
+                    copy( train_loader.targets(), target_batch );
+
+                    auto& logits_dev = model->forward( input_batch );
+                    model->getExecutionContext()->synchronize();
+
+                    copy( logits_dev, logits_cpu );
+                    copy( target_batch, targets_cpu );
+
+                    float batch_loss = sequenceCrossEntropyLossCpu( logits_cpu, targets_cpu );
+
+                    std::memset( output_grad_cpu.rawData(), 0, output_grad_cpu.getStorageSize() );
+                    sequenceCrossEntropyGradientCpu( logits_cpu, targets_cpu, output_grad_cpu );
+
+                    copy( output_grad_cpu, output_grad_dev );
+
+                    model->zeroGradients();
+                    model->backward( input_batch, output_grad_dev );
+                    model->getExecutionContext()->synchronize();
+
+                    optimizer->step();
+                    model->getExecutionContext()->synchronize();
+
+                    ++batch_idx;
+                }
+
+                std::cout << std::format( "Epoch {}/{} done\n", epoch + 1, cfg.epochs );
+            }
+        }
+    }
+    catch ( const std::exception& e )
+    {
+        std::cerr << "Fatal: " << e.what() << std::endl;
+        return 1;
+    }
+
+    return 0;
 }

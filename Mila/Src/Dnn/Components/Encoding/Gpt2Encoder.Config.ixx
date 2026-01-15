@@ -15,7 +15,7 @@ module;
 #include <utility>
 #include <sstream>
 
-export module Dnn.Components.Encoder:Config;
+export module Dnn.Components.Gpt2Encoder:Config;
 
 import Dnn.Component;
 import Dnn.ComponentConfig;

@@ -1,9 +1,8 @@
 /**
- * @file CharTransformer.ixx
- * @brief Character-level transformer for language modeling.
+ * @file Gpt2Transformer.ixx
+ * @brief GPT-2 style transformer network (decoder-only) for autoregressive language modeling.
  *
- * Device-templated network implementing a transformer architecture
- * for character-level next-token prediction.
+ * Device-templated network implementing a GPT-2 style transformer decoder.
  */
 
 module;
@@ -20,55 +19,35 @@ module;
 #include <optional>
 #include <cassert>
 
-export module CharLM.Transformer;
-
-export import :Config;
+export module Gpt2.Transformer;
 
 import Mila;
 import Dnn.Network;
-import Cuda.Error; // Debugging
+import Cuda.Error;
+import Gpt2.CheckpointReader;
 
-namespace Mila::CharLM
+namespace Mila::Gpt2
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Serialization;
 
     /**
-     * @brief Character-level transformer for autoregressive language modeling.
+     * @brief GPT-2 style transformer (decoder-only) for autoregressive token prediction.
      *
-     * Transformer decoder architecture for next-character prediction:
-     *   Input tokens (B, T) -> Embeddings (B, T, D) -> Transformer Blocks -> Logits (B, T, V)
-     * Where:
-     *   B = batch size
-     *   T = sequence length
-     *   D = embedding dimension
-     *   V = vocabulary size
+     * Construction and serialization patterns mirror CharTransformer:
+     *  - Create and own ExecutionContext for specified device
+     *  - Build component graph via createGraph() (context-independent)
+     *  - Propagate context via setExecutionContext()
+     *  - onBuilding() builds children with shapes and allocates outputs
      *
-     * Construction Pattern:
-     * 1. Constructor creates and owns ExecutionContext for specified device
-     * 2. Component graph is built via createGraph() (context-independent)
-     * 3. Context is propagated to self and all children via setExecutionContext()
-     * 4. onBuilding() hook builds children with shapes and allocates buffers
-     *
-     * Serialization Contract:
-     * - Implements save_() override to write type identifier and configuration
-     * - Provides static Load() factory method for type-safe deserialization
-     * - Base Network class handles component graph topology serialization
-     *
-     * New compute API:
-     * - Child components return component-owned ITensor* from forward()
-     * - Child components return component-owned ITensor* from backward()
-     * - Network chains those pointers and caches component-owned activation
-     *   pointers required for backward; no longer allocates per-stage activation
-     *   buffers itself.
-     *
-     * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda)
-     * @tparam TPrecision Abstract tensor precision (TensorDataType)
+     * Template parameters:
+     *  - TDeviceType: device type (Cpu/Cuda)
+     *  - TPrecision: tensor precision
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    class CharTransformer : public Network<TDeviceType, TPrecision>
+    class GptTransformer : public Network<TDeviceType, TPrecision>
     {
     public:
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
@@ -79,24 +58,19 @@ namespace Mila::CharLM
         using TransformerBlockType = Transformer<TDeviceType, TPrecision>;
         using EncoderType = Encoder<TDeviceType, dtype_t::INT32, TPrecision>;
         using TokenIndexType = Tensor<dtype_t::INT32, MR>;
+        using MLPType = MLP<TDeviceType, TPrecision>;
         using ComponentPtr = typename NetworkBase::ComponentPtr;
 
         /**
-         * @brief Construct CharTransformer network.
+         * @brief Construct GptTransformer.
          *
-         * Follows the concrete network construction pattern:
-         * 1. Create and own ExecutionContext for specified device
-         * 2. Build component graph (context-independent)
-         * 3. Propagate context to self and all children
+         * @param name Network name
+         * @param config GPT transformer configuration
+         * @param device_id Device identifier for execution
          *
-         * @param config Transformer configuration
-         * @param device_id Device identifier for network execution
-         *
-         * @throws std::invalid_argument if config is invalid
-         * @throws std::invalid_argument if device_id.type does not match TDeviceType
-         * @throws std::runtime_error if ExecutionContext creation fails
+         * @throws std::invalid_argument on invalid config or device mismatch
          */
-        explicit CharTransformer( const std::string& name, const CharTransformerConfig& config, DeviceId device_id )
+        explicit GptTransformer( const std::string& name, const Gpt2Config& config, DeviceId device_id )
             : NetworkBase( name ), owned_context_( createExecutionContext( device_id ) ), config_( config )
         {
             config_.validate();
@@ -104,7 +78,7 @@ namespace Mila::CharLM
             if ( device_id.type != TDeviceType )
             {
                 throw std::invalid_argument(
-                    std::format( "CharTransformer: device type mismatch: expected {}, got {}",
+                    std::format( "GptTransformer: device type mismatch: expected {}, got {}",
                         deviceTypeToString( TDeviceType ),
                         deviceTypeToString( device_id.type ) ) );
             }
@@ -114,32 +88,20 @@ namespace Mila::CharLM
             this->setExecutionContext( owned_context_.get() );
         }
 
-        ~CharTransformer() override = default;
+        ~GptTransformer() override = default;
 
         /**
-         * @brief Load CharTransformer from archive.
+         * @brief Load GptTransformer from archive.
          *
-         * Static factory method for type-safe deserialization. Reconstructs
-         * the transformer by:
-         * 1. Reading configuration from archive metadata
-         * 2. Constructing via normal constructor (creates graph + context)
-         * 3. Building with saved input shape
-         * 4. Loading component weights into built components
-         *
-         * @param archive Archive containing serialized transformer
-         * @param device_id Device for execution (may differ from saved device)
-         * @return Unique pointer to reconstructed CharTransformer
-         *
-         * @throws std::runtime_error if archive is malformed
-         * @throws std::runtime_error if configuration is invalid
+         * Reads metadata, constructs network, builds with saved shape and loads weights.
          */
-        static std::unique_ptr<CharTransformer> Load( ModelArchive& archive, DeviceId device_id )
+        static std::unique_ptr<GptTransformer> Load( ModelArchive& archive, DeviceId device_id )
         {
             auto scope = ModelArchive::ScopedScope( archive, "network" );
 
             SerializationMetadata meta = archive.readMetadata( "transformer_meta.json" );
 
-            CharTransformerConfig config;
+            GptTransformerConfig config;
 
             config.vocab_size = meta.getInt( "vocab_size" );
             config.max_seq_length = meta.getInt( "max_seq_length" );
@@ -148,7 +110,7 @@ namespace Mila::CharLM
             config.num_layers = meta.getInt( "num_layers" );
             config.mlp_hidden_dim = meta.getInt( "mlp_hidden_dim" );
 
-            auto transformer = std::make_unique<CharTransformer>( config, device_id );
+            auto transformer = std::make_unique<GptTransformer>( archive.getName(), config, device_id );
 
             shape_t input_shape = meta.getShape( "input_shape" );
             transformer->build( input_shape );
@@ -159,38 +121,26 @@ namespace Mila::CharLM
         }
 
         // ====================================================================
-        // Compute operation dispatch (new API: component-owned outputs)
+        // Compute API (component-owned outputs)
         // ====================================================================
 
-        /**
-         * @brief Forward pass using child components' new forward() API.
-         *
-         * Chains component-owned outputs without allocating intermediate network
-         * activation buffers. Final logits are copied into network-owned output
-         * buffer to preserve the external return semantics.
-         *
-         * @param input Forward input tensor
-         * @return Pointer to network-owned output tensor (logits)
-         */
         TensorType& forward( const TokenIndexType& input )
         {
             if ( !this->isBuilt() )
             {
-                throw std::runtime_error( "CharTransformer must be built before calling forward." );
+                throw std::runtime_error( "GptTransformer must be built before calling forward." );
             }
 
             encoder_out_ptr_ = &encoder_->forward( input );
             this->getExecutionContext()->synchronize();
 
-            // Set first block input
             if ( block_input_ptrs_.empty() || block_input_ptrs_.size() != transformer_blocks_.size() )
             {
-                throw std::runtime_error( "CharTransformer: forward internal state not initialized" );
+                throw std::runtime_error( "GptTransformer: forward internal state not initialized" );
             }
 
             block_input_ptrs_[ 0 ] = encoder_out_ptr_;
 
-            // Transformer blocks (chain component-owned outputs)
             for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
             {
                 auto& block_out = transformer_blocks_[ i ]->forward( *block_input_ptrs_[ i ] );
@@ -204,76 +154,56 @@ namespace Mila::CharLM
                 }
             }
 
-            // Final layernorm forward -> normalized (component-owned)
             normalized_ptr_ = &final_layernorm_->forward( *block_output_ptrs_.back() );
             this->getExecutionContext()->synchronize();
 
-            // LM head forward -> logits (component-owned)
             logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
             this->getExecutionContext()->synchronize();
 
-            // REVIEW: This doesn't seem right. Why not just pass the logits_ptr_ back to the caller?
-            copy( *dynamic_cast<const TensorType*>( logits_ptr_ ), *owned_output_ );
+            copy( *dynamic_cast<const TensorType*>(logits_ptr_), *owned_output_ );
             this->getExecutionContext()->synchronize();
 
             return *owned_output_;
         }
 
-        /**
-         * @brief Backward pass using child components' new backward() API.
-         *
-         * Chains component backward calls using the forward inputs/outputs that
-         * were cached during the forward() call (component-owned pointers).
-         * Returns the component-owned input-gradient produced by the encoder.
-         *
-         * @param input Original forward input tensor
-         * @param output_grad Gradient w.r.t. transformer output (logits)
-         * @return Reference to component-owned input gradient tensor (token-index typed)
-         */
         TokenIndexType& backward( const TokenIndexType& input, const TensorType& output_grad )
         {
             if ( !this->isBuilt() )
             {
-                throw std::runtime_error( "CharTransformer must be built before calling backward." );
+                throw std::runtime_error( "GptTransformer must be built before calling backward." );
             }
 
             if ( !this->isTraining() )
             {
-                throw std::runtime_error( "CharTransformer: backward requires training mode (setTraining(true))." );
+                throw std::runtime_error( "GptTransformer: backward requires training mode (setTraining(true))." );
             }
 
-            // Validate we have cached forward activation pointers
             if ( !encoder_out_ptr_ )
             {
-                throw std::runtime_error( "CharTransformer: forward activations not present for backward. Call forward() before backward()." );
+                throw std::runtime_error( "GptTransformer: forward activations not present for backward. Call forward() before backward()." );
             }
 
             for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
             {
                 if ( !block_input_ptrs_[ i ] || !block_output_ptrs_[ i ] )
                 {
-                    throw std::runtime_error(
-                        std::format( "CharTransformer: missing cached activation for block {}", i ) );
+                    throw std::runtime_error( std::format( "GptTransformer: missing cached activation for block {}", i ) );
                 }
             }
 
             if ( !normalized_ptr_ || !logits_ptr_ )
             {
-                throw std::runtime_error( "CharTransformer: missing final activations for backward" );
+                throw std::runtime_error( "GptTransformer: missing final activations for backward" );
             }
 
-            // LM head backward -> gradient w.r.t. normalized (component-owned)
             auto& normalized_grad_ptr = lm_head_->backward( *normalized_ptr_, output_grad );
             this->getExecutionContext()->synchronize();
 
-            // Final layernorm backward -> gradient w.r.t. last block output (component-owned)
             auto& last_block_grad_ptr = final_layernorm_->backward( *block_output_ptrs_.back(), normalized_grad_ptr );
             this->getExecutionContext()->synchronize();
 
-            // Backprop through transformer blocks in reverse order
             TensorType* curr_grad = &last_block_grad_ptr;
 
-            // Then update the assignment inside the loop:
             for ( int64_t i = static_cast<int64_t>(transformer_blocks_.size()) - 1; i >= 0; --i )
             {
                 auto& block_grad_ptr = transformer_blocks_[ static_cast<size_t>(i) ]->backward(
@@ -284,7 +214,6 @@ namespace Mila::CharLM
                 this->getExecutionContext()->synchronize();
             }
 
-            // Encoder backward -> gradient w.r.t. input (component-owned)
             auto& input_grad_ptr = encoder_->backward( input, *curr_grad );
             this->getExecutionContext()->synchronize();
 
@@ -293,14 +222,11 @@ namespace Mila::CharLM
 
         void zeroGradients() override
         {
-            // If not built, nothing to clear
             if ( !this->isBuilt() )
             {
                 return;
             }
 
-            // Zero gradients in child components only; intermediate activation
-            // buffers and grads are owned and managed by components now.
             encoder_->zeroGradients();
 
             for ( auto& block : transformer_blocks_ )
@@ -312,23 +238,11 @@ namespace Mila::CharLM
             lm_head_->zeroGradients();
         }
 
-        std::vector<ITensor*> getGradientsForDebug() {
-            return this->getGradients();
-        }
-
-        std::vector<ITensor*> getParametersForDebug() {
-            return this->getParameters();
-        }
-
-        // ====================================================================
-        // Component interface
-        // ====================================================================
-
         std::string toString() const override
         {
             std::ostringstream oss;
             oss << std::endl;
-            oss << "CharTransformer: " << this->getName() << std::endl;
+            oss << "GptTransformer: " << this->getName() << std::endl;
             oss << "Device: " << this->getDeviceId().toString() << std::endl;
 
             oss << "Architecture:" << std::endl;
@@ -383,21 +297,45 @@ namespace Mila::CharLM
             return NetworkBase::getExecutionContext();
         }
 
-    protected:
-
         /**
-         * @brief Save transformer-specific configuration (required by Network base).
+         * @brief Initialize this transformer's components from a GPT-2 checkpoint.
          *
-         * Implements the serialization contract by writing type identifier
-         * and configuration metadata to enable reconstruction via Load().
-         *
-         * @param archive Archive to write to
-         * @param mode Serialization mode (passed from Network::save())
+         * Delegates to small helpers that load checkpoint blobs and apply them to
+         * the encoder, per-layer blocks, and final layer-norm.
          */
+        void initializeFromCheckpoint( const std::string& checkpoint_path )
+        {
+            static_assert( std::is_same_v<typename TensorDataTypeTraits<TPrecision>::value_type, float>,
+                "initializeFromCheckpoint requires TPrecision == dtype_t::FP32." );
+
+            if ( !this->isBuilt() )
+            {
+                throw std::runtime_error( "GptTransformer: must be built before initializing from checkpoint." );
+            }
+
+            ModelConfig ckpt_cfg{};
+            ParameterTensors params{};
+            std::array<size_t, NumberOfParameterTensors> param_sizes{};
+
+            readCheckpoint( checkpoint_path, ckpt_cfg, params, param_sizes );
+
+            validateCheckpointCompatibility( ckpt_cfg );
+
+            applyEncoderParams( params );
+
+            for ( size_t layer = 0; layer < static_cast<size_t>( config_.num_layers ); ++layer )
+            {
+                applyLayerParams( layer, params );
+            }
+
+            applyFinalLayerNorm( params );
+        }
+
+    protected:
         void save_( ModelArchive& archive, SerializationMode /*mode*/ ) const override
         {
             SerializationMetadata meta;
-            meta.set( "type", "CharTransformer" )
+            meta.set( "type", "GptTransformer" )
                 .set( "version", int64_t( 1 ) )
                 .set( "name", this->getName() )
                 .set( "vocab_size", config_.vocab_size )
@@ -419,32 +357,11 @@ namespace Mila::CharLM
             archive.writeMetadata( "transformer_meta.json", meta );
         }
 
-        /**
-         * @brief Called when training mode changes.
-         *
-         * Previously this class allocated activation buffers for backward.
-         * With the new component-owned forward/backward API the network no
-         * longer needs to allocate per-stage activations; simply propagate the
-         * change to the base class.
-         */
         void onTrainingChanging( bool is_training ) override
         {
             NetworkBase::onTrainingChanging( is_training );
         }
 
-        /**
-         * @brief Hook invoked during build() to initialize transformer with input shape.
-         *
-         * Validates input shape, computes per-layer shapes, caches typed pointers to children,
-         * builds all child components with appropriate shapes, and allocates network-owned
-         * output buffer. Components now own intermediate activations.
-         *
-         * All children have ExecutionContext at this point (propagated in constructor).
-         *
-         * @param input_shape Expected input tensor shape
-         *
-         * @throws std::invalid_argument if input_shape is invalid for transformer
-         */
         void onBuilding( const shape_t& input_shape ) override
         {
             validateInputShape( input_shape );
@@ -475,25 +392,21 @@ namespace Mila::CharLM
 
             auto device_id = this->getDeviceId();
 
-            // Allocate network-owned output buffer (logits)
             owned_output_ = std::make_shared<TensorType>( device_id, output_shape_ );
             owned_output_->setName( this->getName() + ".output" );
 
-            // Prepare vectors to cache component-owned activation pointers during forward
             block_input_ptrs_.assign( transformer_blocks_.size(), nullptr );
             block_output_ptrs_.assign( transformer_blocks_.size(), nullptr );
 
-            // Clear cached pointers
             encoder_out_ptr_ = nullptr;
             normalized_ptr_ = nullptr;
             logits_ptr_ = nullptr;
         }
 
     private:
-
         std::unique_ptr<IExecutionContext> owned_context_{ nullptr };
 
-        CharTransformerConfig config_;
+        Gpt2Config config_;
 
         shape_t input_shape_;
         shape_t embedding_shape_;
@@ -506,47 +419,217 @@ namespace Mila::CharLM
         std::shared_ptr<LayerNormType> final_layernorm_{ nullptr };
         std::shared_ptr<LinearType> lm_head_{ nullptr };
 
-        // Network-owned forward output buffer (logits)
         std::shared_ptr<TensorType> owned_output_{ nullptr };
 
-        // Component-owned activation pointers cached during forward (no network allocation)
         TensorType* encoder_out_ptr_{ nullptr };
         std::vector<TensorType*> block_input_ptrs_;
         std::vector<TensorType*> block_output_ptrs_;
-        
+
         TensorType* normalized_ptr_{ nullptr };
         TensorType* logits_ptr_{ nullptr };
 
-        /**
-         * @brief Validate input shape for CharTransformer.
-         *
-         * @throws std::invalid_argument if shape is invalid
-         */
+        // -------------------------------------------------------------------
+        // Helpers extracted from initializeFromCheckpoint to keep it short
+        // -------------------------------------------------------------------
+
+        void validateCheckpointCompatibility( const ModelConfig& ckpt_cfg ) const
+        {
+            if ( static_cast<size_t>( config_.num_layers ) != static_cast<size_t>( ckpt_cfg.num_layers ) )
+            {
+                throw std::runtime_error( std::format( "Checkpoint has {} layers but transformer config expects {}",
+                    ckpt_cfg.num_layers, config_.num_layers ) );
+            }
+
+            if ( static_cast<size_t>( config_.embedding_dim ) != static_cast<size_t>( ckpt_cfg.channels ) )
+            {
+                throw std::runtime_error( std::format( "Checkpoint embedding dim {} != network embedding dim {}",
+                    ckpt_cfg.channels, config_.embedding_dim ) );
+            }
+        }
+
+        void copyHostVectorToComponentTensor( const std::vector<float>& src, ITensor* dst_itensor )
+        {
+            if ( !dst_itensor )
+            {
+                throw std::runtime_error( "initializeFromCheckpoint: destination tensor is null" );
+            }
+
+            if ( dst_itensor->getDataType() != dtype_t::FP32 )
+            {
+                throw std::runtime_error( "initializeFromCheckpoint: destination tensor is not FP32" );
+            }
+
+            const size_t dst_elems = dst_itensor->size();
+            if ( dst_elems != src.size() )
+            {
+                std::ostringstream oss;
+                oss << "initializeFromCheckpoint: size mismatch (dst=" << dst_elems << ", src=" << src.size() << ")";
+                throw std::runtime_error( oss.str() );
+            }
+
+            using HostTensor = Tensor<dtype_t::FP32, CpuMemoryResource>;
+            HostTensor host_tensor( Device::Cpu(), shape_t{ static_cast<int64_t>( dst_elems ) } );
+
+            std::memcpy( const_cast<void*>( host_tensor.rawData() ), src.data(), dst_elems * sizeof( float ) );
+
+            Tensor<dtype_t::FP32, MR>& dst_tensor = *reinterpret_cast<Tensor<dtype_t::FP32, MR>*>( dst_itensor );
+
+            copy( host_tensor, dst_tensor );
+            this->getExecutionContext()->synchronize();
+        }
+
+        void copySliceToParam( const std::vector<float>& src, size_t offset, size_t count, ITensor* dst )
+        {
+            if ( count == 0 )
+                return;
+
+            std::vector<float> slice;
+            slice.assign( src.begin() + offset, src.begin() + offset + count );
+
+            copyHostVectorToComponentTensor( slice, dst );
+        }
+
+        void applyEncoderParams( const ParameterTensors& params )
+        {
+            if ( !encoder_ )
+                return;
+
+            auto enc_params = encoder_->getParameters();
+
+            if ( enc_params.size() >= 1 && !params.wte.empty() )
+                copyHostVectorToComponentTensor( params.wte, enc_params[ 0 ] );
+
+            if ( enc_params.size() >= 2 && !params.wpe.empty() )
+                copyHostVectorToComponentTensor( params.wpe, enc_params[ 1 ] );
+        }
+
+        void applyLayerParams( size_t layer, const ParameterTensors& params )
+        {
+            const size_t C = static_cast<size_t>( config_.embedding_dim );
+
+            const std::string block_name = this->getName() + ".tf_layer_" + std::to_string( layer );
+
+            // ln1
+            if ( auto ln1 = this->template getComponentAs<LayerNormType>( block_name + ".lnorm_1" ) )
+            {
+                auto p = ln1->getParameters();
+                const size_t per = C;
+                const size_t off = layer * per;
+
+                if ( p.size() >= 1 ) copySliceToParam( params.ln1w, off, per, p[ 0 ] );
+                if ( p.size() >= 2 ) copySliceToParam( params.ln1b, off, per, p[ 1 ] );
+            }
+
+            // qkv projection
+            if ( auto qkv = this->template getComponentAs<LinearType>( block_name + ".fc_qkv_proj" ) )
+            {
+                auto p = qkv->getParameters();
+                const size_t per_w = (3 * C) * C;
+                const size_t per_b = 3 * C;
+                const size_t off_w = layer * per_w;
+                const size_t off_b = layer * per_b;
+
+                if ( p.size() >= 1 ) copySliceToParam( params.qkvw, off_w, per_w, p[ 0 ] );
+                if ( p.size() >= 2 && !params.qkvb.empty() ) copySliceToParam( params.qkvb, off_b, per_b, p[ 1 ] );
+            }
+
+            // attn proj (optional)
+            if ( auto att_proj = this->template getComponentAs<LinearType>( block_name + ".attn_proj" ) )
+            {
+                auto p = att_proj->getParameters();
+                const size_t per_w = C * C;
+                const size_t per_b = C;
+                const size_t off_w = layer * per_w;
+                const size_t off_b = layer * per_b;
+
+                if ( p.size() >= 1 ) copySliceToParam( params.attprojw, off_w, per_w, p[ 0 ] );
+                if ( p.size() >= 2 && !params.attprojb.empty() ) copySliceToParam( params.attprojb, off_b, per_b, p[ 1 ] );
+            }
+
+            // ln2
+            if ( auto ln2 = this->template getComponentAs<LayerNormType>( block_name + ".lnorm_2" ) )
+            {
+                auto p = ln2->getParameters();
+                const size_t per = C;
+                const size_t off = layer * per;
+
+                if ( p.size() >= 1 ) copySliceToParam( params.ln2w, off, per, p[ 0 ] );
+                if ( p.size() >= 2 ) copySliceToParam( params.ln2b, off, per, p[ 1 ] );
+            }
+
+            // ffn (MLP) -> fc1 and fc2
+            if ( auto ffn = this->template getComponentAs<MLPType>( block_name + ".mlp" ) )
+            {
+                // fc1
+                try
+                {
+                    auto fc1 = ffn->template getComponentAs<LinearType>( ffn->getName() + ".fc1" );
+                    if ( fc1 )
+                    {
+                        auto p = fc1->getParameters();
+                        const size_t per_w1 = (4 * C) * C;
+                        const size_t per_b1 = 4 * C;
+                        const size_t off_w1 = layer * per_w1;
+                        const size_t off_b1 = layer * per_b1;
+
+                        if ( p.size() >= 1 ) copySliceToParam( params.fcw, off_w1, per_w1, p[ 0 ] );
+                        if ( p.size() >= 2 && !params.fcb.empty() ) copySliceToParam( params.fcb, off_b1, per_b1, p[ 1 ] );
+                    }
+                }
+                catch ( ... ) {}
+
+                // fc2
+                try
+                {
+                    auto fc2 = ffn->template getComponentAs<LinearType>( ffn->getName() + ".fc2" );
+                    if ( fc2 )
+                    {
+                        auto p = fc2->getParameters();
+                        const size_t per_w2 = C * (4 * C);
+                        const size_t per_b2 = C;
+                        const size_t off_w2 = layer * per_w2;
+                        const size_t off_b2 = layer * per_b2;
+
+                        if ( p.size() >= 1 ) copySliceToParam( params.fcprojw, off_w2, per_w2, p[ 0 ] );
+                        if ( p.size() >= 2 && !params.fcprojb.empty() ) copySliceToParam( params.fcprojb, off_b2, per_b2, p[ 1 ] );
+                    }
+                }
+                catch ( ... ) {}
+            }
+        }
+
+        void applyFinalLayerNorm( const ParameterTensors& params )
+        {
+            if ( !final_layernorm_ )
+                return;
+
+            auto p = final_layernorm_->getParameters();
+
+            if ( p.size() >= 1 && !params.lnfw.empty() )
+                copyHostVectorToComponentTensor( params.lnfw, p[ 0 ] );
+
+            if ( p.size() >= 2 && !params.lnfb.empty() )
+                copyHostVectorToComponentTensor( params.lnfb, p[ 1 ] );
+        }
+
+        // -------------------------------------------------------------------
+
         void validateInputShape( const shape_t& input_shape ) const
         {
             if ( input_shape.size() != 2 )
             {
                 throw std::invalid_argument(
-                    "CharTransformer: input must have rank 2 (batch_size, seq_length)" );
+                    "GptTransformer: input must have rank 2 (batch_size, seq_length)" );
             }
 
             if ( input_shape[ 1 ] > config_.max_seq_length )
             {
                 throw std::invalid_argument(
-                    std::format( "CharTransformer: sequence length {} exceeds maximum {}",
+                    std::format( "GptTransformer: sequence length {} exceeds maximum {}",
                         input_shape[ 1 ], config_.max_seq_length ) );
             }
         }
 
-        /**
-         * @brief Create the CharTransformer network graph (context-independent).
-         *
-         * Defines the computational graph:
-         *   encoder -> transformer_blocks -> final_layernorm -> lm_head
-         *
-         * Components are created without ExecutionContext (shared mode).
-         * Context will be propagated after this method returns via setExecutionContext().
-         */
         void createGraph()
         {
             EncoderConfig enc_cfg;
@@ -594,18 +677,8 @@ namespace Mila::CharLM
             this->addComponent( lm_head );
         }
 
-        /**
-         * @brief Load component weights from archive.
-         *
-         * Helper method for Load() to populate weights into already-built components.
-         * Base Network class handles component graph traversal; this method loads
-         * weights into each component.
-         *
-         * @param archive Archive containing serialized weights
-         * @param transformer Transformer instance with built components
-         */
         static void loadComponentWeights( ModelArchive& /*archive*/,
-            CharTransformer* /*transformer*/ )
+            GptTransformer* /*transformer*/ )
         {}
     };
 }

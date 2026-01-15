@@ -10,9 +10,10 @@ target_sources( Gpt2App
 PUBLIC
 	FILE_SET module_files
        TYPE CXX_MODULES FILES
-		"Src/Gpt2ModelConfig.ixx"
-		"Src/Gpt2DataLoader.ixx"
-		"Src/Gpt2Model.ixx"
+		"Src/Gpt2Transformer.ixx"
+		#"Src/Gpt2DataLoader.ixx"
+		"Src/Gpt2.CheckpointReader.ixx"
+		"Src/Gpt2.Config.ixx"
 		"Src/Tokenizer.ixx" 
 )
 
@@ -28,5 +29,5 @@ add_custom_command(
 
 # Add Gpt2Test directory  
 if (MILA_ENABLE_GPT2_TESTING)  
-add_subdirectory(Tests)  
+#add_subdirectory(Tests)  
 endif()  

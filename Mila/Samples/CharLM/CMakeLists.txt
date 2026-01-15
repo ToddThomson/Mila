@@ -14,10 +14,10 @@ PUBLIC
 	FILE_SET module_files
        TYPE CXX_MODULES FILES
 		"Src/CharTransformer.ixx"
+		"Src/CharTransformer.Config.ixx"
 		"Src/CharDataLoader.ixx"
 		"Tools/CharVocabulary.ixx"
-		
-)
+ )
 
 if( MILA_ENABLE_COPY_MODEL_DATA )
     add_dependencies( CharLM MilaCopyData )

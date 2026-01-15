@@ -14,11 +14,11 @@ module;
 #include <stdexcept>
 #include <cstdint>
 #include <type_traits>
-#include "Kernels/Encoder.cuh"
+#include "Kernels/Gpt2Encoder.cuh"
 
-export module Compute.CudaEncoderOp;
+export module Compute.CudaGpt2EncoderOp;
 
-import Dnn.Components.Encoder;
+import Dnn.Components.Gpt2Encoder;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;

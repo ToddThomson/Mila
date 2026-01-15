@@ -68,15 +68,15 @@ namespace Mila::Dnn::Compute::Cuda::Gelu
             cuda_gelu_impl( const GeluConfig& config ) {
                 switch (config.getApproximationMethod())
                 {
-                    /*case GeluConfig::ApproximationMethod::Exact:
+                    /*case ApproximationMethod::Exact:
                         forward_func = &gelu_exact_forward_fp32;
                         backward_func = &gelu_exact_backward_fp32;
                         break;
-                    case GeluConfig::ApproximationMethod::Sigmoid:
+                    case ApproximationMethod::Sigmoid:
                         forward_func = &gelu_sigmoid_forward_fp32;
                         backward_func = &gelu_sigmoid_backward_fp32;
                         break;*/
-                case GeluConfig::ApproximationMethod::Tanh:
+                case ApproximationMethod::Tanh:
                 default:
                     forward_func = &cuda_gelu_forward_fp32;
                     backward_func = &cuda_gelu_backward_fp32;

@@ -125,7 +125,7 @@ namespace Dnn::Components::Activations::Tests
 
     TEST_F( GeluCpuTests, Constructor_InvalidConfig_ThrowsInvalidArgument )
     {
-        GeluConfig bad_cfg = GeluConfig().withApproximationMethod( GeluConfig::ApproximationMethod::Exact );
+        GeluConfig bad_cfg = GeluConfig().withApproximationMethod( ApproximationMethod::Exact );
 
         EXPECT_THROW(
             GeluCpu( "gelu", bad_cfg, Device::Cpu() ),
@@ -490,7 +490,7 @@ namespace Dnn::Components::Activations::Tests
 
         auto d = GeluCpuTestData::Create( batch_, seq_, chan_ );
 
-        EXPECT_EQ( d.gelu->getApproximationMethod(), GeluConfig::ApproximationMethod::Tanh );
+        EXPECT_EQ( d.gelu->getApproximationMethod(), ApproximationMethod::Tanh );
     }
 
     TEST_F( GeluCpuTests, DeviceId_DeviceTypeMatchesOrConstructorThrows )

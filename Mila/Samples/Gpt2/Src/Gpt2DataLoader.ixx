@@ -32,16 +32,11 @@ module;
 #include <array>
 #include <iostream>
 
-#include "../../../Src/Core/rand.h"
-
-export module Gpt2App.Gpt2DataLoader;
+export module Gpt2.DataLoader;
 
 import Mila;
 
-import Helpers.Memory;
-import Misc.Glob;
-
-namespace Gpt2App
+namespace Mila::Gpt2
 {
     using namespace Mila;
     using namespace Mila::Dnn;

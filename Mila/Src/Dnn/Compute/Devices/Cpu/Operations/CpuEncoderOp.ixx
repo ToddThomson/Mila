@@ -19,7 +19,7 @@ module;
 
 export module Compute.CpuEncoderOp;
 
-import Dnn.Components.Encoder;
+import Dnn.Components.Gpt2Encoder;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;

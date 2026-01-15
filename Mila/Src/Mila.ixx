@@ -172,10 +172,11 @@ export import Dnn.TensorInitializers;
 // Dnn - Components
 // ====================================================================
 export import Dnn.ActivationType;
+export import Dnn.ApproximationMethod;
 export import Dnn.ConnectionType;
 
 export import Dnn.Components.Attention;
-export import Dnn.Components.Encoder;
+export import Dnn.Components.Gpt2Encoder;
 export import Dnn.Components.Gelu;
 export import Dnn.Components.LayerNorm;
 export import Dnn.Components.Linear;

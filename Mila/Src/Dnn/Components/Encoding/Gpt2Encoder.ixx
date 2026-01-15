@@ -17,7 +17,7 @@ module;
 #include <cstdint>
 #include <optional>
 
-export module Dnn.Components.Encoder;
+export module Dnn.Components.Gpt2Encoder;
 export import :Config;
 
 import Dnn.Component;

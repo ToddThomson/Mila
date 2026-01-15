@@ -9,8 +9,12 @@ add_library( Mila STATIC
     #--------------------------------------------------------------------------
     # Cuda Operations Kernels
     #--------------------------------------------------------------------------
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Encoder/Kernels/Encoder.Fp32.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Encoder/Kernels/Encoder.Fp16.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Gpt2Encoder/Kernels/Gpt2Encoder.Fp32.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Gpt2Encoder/Kernels/gpt2Encoder.Fp16.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Gpt2Encoder/Kernels/Gpt2Encoder.cuh"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.Fp32.cu"
+    #"Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.Fp16.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.cuh"
 
     "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Kernels/CudaAttention.cuh"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Kernels/CudaAttention.Permute.cu"
@@ -28,6 +32,9 @@ add_library( Mila STATIC
     "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/Kernels/LayerNorm.Fp32.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/Kernels/LayerNorm.Fp16.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/Kernels/LayerNorm.cuh"
+
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/RmsNorm/Kernels/RmsNorm.Fp32.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/RmsNorm/Kernels/RmsNorm.cuh"
 
     "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/Kernels/Softmax.Fp32.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/Kernels/Softmax.Fp16.cu"
@@ -177,23 +184,31 @@ PUBLIC
         "Src/Dnn/Components/Activations/ActivationType.ixx"
         "Src/Dnn/Components/Activations/Gelu.ixx"
         "Src/Dnn/Components/Activations/GeluConfig.ixx"
+        "Src/Dnn/Components/Activations/Swiglu.ixx"
+        "Src/Dnn/Components/Activations/Swiglu.Config.ixx"
         
         # Components - Connections
         "Src/Dnn/Components/Connections/ConnectionType.ixx"
         "Src/Dnn/Components/Connections/Residual.ixx"
         "Src/Dnn/Components/Connections/ResidualConfig.ixx"
 
+        # Components - Encoding
+        "Src/Dnn/Components/Encoding/Gpt2Encoder.ixx"
+        "Src/Dnn/Components/Encoding/Gpt2Encoder.Config.ixx"
+        "Src/Dnn/Components/Encoding/RopeEncoder.ixx"
+        "Src/Dnn/Components/Encoding/RopeEncoder.Config.ixx"
+
         # Components - Layers
         "Src/Dnn/Components/Layers/Attention.ixx"
         "Src/Dnn/Components/Layers/AttentionConfig.ixx"
         "Src/Dnn/Components/Layers/Linear.ixx"
         "Src/Dnn/Components/Layers/LinearConfig.ixx"
-        "Src/Dnn/Components/Layers/Encoder.ixx"
-        "Src/Dnn/Components/Layers/EncoderConfig.ixx"
 
         # Components - Normalization / Losses / Regularization / Composites
         "Src/Dnn/Components/Normalization/LayerNorm.ixx"
         "Src/Dnn/Components/Normalization/LayerNormConfig.ixx"
+        "Src/Dnn/Components/Normalization/RmsNorm.ixx"
+        "Src/Dnn/Components/Normalization/RmsNorm.Config.ixx"
         "Src/Dnn/Components/Normalization/Softmax.ixx"
         "Src/Dnn/Components/Normalization/SoftmaxConfig.ixx"
         
@@ -330,7 +345,9 @@ PUBLIC
 
         "Src/Dnn/Core/ComponentBuildConfig.ixx"
         "Src/Dnn/Core/LearningRateScheduler.ixx"
-)
+        
+        
+ "Src/Dnn/Components/Activations/ApproximationMethod.ixx")
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
@@ -406,10 +423,12 @@ if(MILA_HAS_CUDA)
                 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/CudaOperations.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/CudaAttentionOp.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Operations/Encoder/CudaEncoderOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Gpt2Encoder/CudaGpt2EncoderOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/CudaRopeOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CublasLtMatMulBias.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/CudaGeluOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/CudaSwigluOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/LayerNormOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/CudaSoftmaxOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/CudaResidualOp.ixx"

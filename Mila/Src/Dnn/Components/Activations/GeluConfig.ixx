@@ -15,6 +15,7 @@ export module Dnn.Components.Gelu:Config;
 
 import Dnn.Component;
 import Dnn.ComponentConfig;
+import Dnn.ApproximationMethod;
 import Serialization.Metadata;
 
 namespace Mila::Dnn
@@ -29,30 +30,6 @@ namespace Mila::Dnn
     export class GeluConfig : public ComponentConfig
     {
     public:
-
-        /**
-         * @brief Approximation methods for the GELU activation function.
-         */
-        enum class ApproximationMethod {
-            Exact,       ///< Exact implementation using error function
-            Tanh,        ///< Fast approximation using tanh
-            Sigmoid      ///< Fast approximation using sigmoid
-        };
-
-        static constexpr std::string_view toString( GeluConfig::ApproximationMethod method ) noexcept
-        {
-            switch ( method )
-            {
-                case GeluConfig::ApproximationMethod::Exact:
-                    return "Exact";
-                case GeluConfig::ApproximationMethod::Tanh:
-                    return "Tanh";
-                case GeluConfig::ApproximationMethod::Sigmoid:
-                    return "Sigmoid";
-                default:
-                    return "Unknown";
-            }
-        }
 
         /**
          * @brief Configure the approximation method for GELU computation.
@@ -103,7 +80,7 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
             meta.set( "precision", static_cast<int64_t>( precision_ ) )
-                .set( "approximation_method", std::string( GeluConfig::toString( approximation_method_ ) ) );
+                .set( "approximation_method", std::string( Mila::Dnn::toString( approximation_method_ ) ) );
 
             return meta;
         }
@@ -159,8 +136,7 @@ namespace Mila::Dnn
             std::ostringstream oss;
             oss << "GeluConfig: { ";
             oss << "precision=" << static_cast<int>( precision_ ) << ", ";
-            oss << "approximation_method=" << static_cast<std::string_view>(
-                GeluConfig::toString( approximation_method_ ) );
+            oss << "approximation_method=" << static_cast<std::string_view>( ::Mila::Dnn::toString( approximation_method_ ) );
             oss << " }";
 
             return oss.str();

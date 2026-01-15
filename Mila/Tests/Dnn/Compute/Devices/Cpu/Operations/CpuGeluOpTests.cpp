@@ -302,7 +302,7 @@ namespace Dnn::Compute::Device::Cpu::Operations::Tests
 	TEST_F( CpuGeluOpTests, ApproximationMethods )
 	{
 		// Validate config validation and registry-based creation for Tanh method (if registered)
-		GeluConfig tanh_cfg = GeluConfig().withApproximationMethod( GeluConfig::ApproximationMethod::Tanh );
+		GeluConfig tanh_cfg = GeluConfig().withApproximationMethod( ApproximationMethod::Tanh );
 
 		if (!op_)
 		{
@@ -342,10 +342,10 @@ namespace Dnn::Compute::Device::Cpu::Operations::Tests
 		}
 
 		// Unsupported methods validate() should throw
-		GeluConfig exact_cfg = GeluConfig().withApproximationMethod( GeluConfig::ApproximationMethod::Exact );
+		GeluConfig exact_cfg = GeluConfig().withApproximationMethod( ApproximationMethod::Exact );
 		EXPECT_THROW( exact_cfg.validate(), std::invalid_argument );
 
-		GeluConfig sig_cfg = GeluConfig().withApproximationMethod( GeluConfig::ApproximationMethod::Sigmoid );
+		GeluConfig sig_cfg = GeluConfig().withApproximationMethod( ApproximationMethod::Sigmoid );
 		EXPECT_THROW( sig_cfg.validate(), std::invalid_argument );
 	}
 

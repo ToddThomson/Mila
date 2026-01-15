@@ -18,7 +18,7 @@ export import Dnn.Components.Residual;
 
 // Layers
 export import Dnn.Components.Attention;
-export import Dnn.Components.Encoder;
+export import Dnn.Components.Gpt2Encoder;
 export import Dnn.Components.Linear;
 
 //Losses

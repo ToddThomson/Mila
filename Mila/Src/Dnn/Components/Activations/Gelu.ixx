@@ -26,6 +26,7 @@ import Dnn.ITensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorTypes;
+import Dnn.ApproximationMethod;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
@@ -247,7 +248,7 @@ namespace Mila::Dnn
          *
          * @return Configured GeluConfig::ApproximationMethod value (Exact or Tanh).
          */
-        GeluConfig::ApproximationMethod getApproximationMethod() const
+        ApproximationMethod getApproximationMethod() const
         {
             return config_.getApproximationMethod();
         }
@@ -417,7 +418,7 @@ namespace Mila::Dnn
             oss << "--------------------" << std::endl;
             oss << "Gelu: " << this->getName() << std::endl;
             oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
-            oss << "Approximation Method: " << config_.toString( config_.getApproximationMethod() ) << std::endl;
+            // FIXME: oss << "Approximation Method: " << config_.toString( config_.getApproximationMethod() ) << std::endl;
 
             return oss.str();
         }
