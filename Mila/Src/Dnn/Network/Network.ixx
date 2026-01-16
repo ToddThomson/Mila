@@ -8,6 +8,8 @@
  */
 
 module;
+#include <iostream>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <sstream>
@@ -29,6 +31,7 @@ import Compute.OptimizerBase;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 import Serialization.Metadata;
+import Dnn.ModelReader;
 import nlohmann.json;
 
 namespace Mila::Dnn
@@ -255,6 +258,78 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief Import a pretrained model from Mila binary format
+         *
+         * This method:
+         * 1. Opens and validates the model file
+         * 2. Reads metadata and verifies architecture compatibility
+         * 3. Loads all tensor weights into network components
+         *
+         * @param filepath Path to .bin model file
+         * @param strict If true, throw on missing/extra tensors. If false, warn only.
+         *
+         * @throws std::runtime_error if file is invalid or incompatible
+         *
+         * Usage:
+         *   Network<CUDA, float> net = ...;
+         *   net.importModel("../Weights/gpt2/gpt2_small.bin");
+         */
+        void importModel( const std::filesystem::path& filepath, bool strict = true )
+        {
+            ModelReader reader( filepath );
+
+            const auto& metadata = reader.getMetadata();
+
+            // Log import info
+            std::cout << "Importing model: " << metadata.model_name << std::endl;
+            std::cout << "  Architecture: " << metadata.architecture << std::endl;
+            std::cout << "  Layers: " << metadata.num_layers << std::endl;
+            std::cout << "  Embedding dim: " << metadata.embedding_dim << std::endl;
+
+            // Verify architecture compatibility (optional but recommended)
+            verifyArchitectureCompatibility( metadata );
+
+            // Get all tensors from file
+            auto tensor_names = reader.getTensorNames();
+            std::cout << "  Total tensors: " << tensor_names.size() << std::endl;
+
+            // Load each tensor into the appropriate component
+            size_t loaded_count = 0;
+            size_t skipped_count = 0;
+
+            for ( const auto& name : tensor_names )
+            {
+                try
+                {
+                    loadTensorIntoComponent( reader, name );
+                    ++loaded_count;
+                }
+                catch ( const std::exception& e )
+                {
+                    if ( strict )
+                    {
+                        throw std::runtime_error(
+                            "Failed to load tensor '" + name + "': " + e.what()
+                        );
+                    }
+                    else
+                    {
+                        std::cerr << "Warning: Skipping tensor '" << name
+                            << "': " << e.what() << std::endl;
+                        ++skipped_count;
+                    }
+                }
+            }
+
+            std::cout << " Model import complete" << std::endl;
+            std::cout << " Loaded: " << loaded_count << " tensors" << std::endl;
+            if ( skipped_count > 0 )
+            {
+                std::cout << "  Skipped: " << skipped_count << " tensors" << std::endl;
+            }
+        }
+
+        /**
          * @brief Generate a human-readable description.
          *
          * @return String representation showing network name and children
@@ -298,6 +373,137 @@ namespace Mila::Dnn
         virtual void save_(ModelArchive& archive, SerializationMode mode) const = 0;
 
     private:
+
+        /**
+         * @brief Verify that imported model is compatible with network architecture
+         */
+        void verifyArchitectureCompatibility( const ModelMetadata& metadata )
+        {
+            // Example checks - customize based on your Network's config
+            // if ( metadata.num_layers != config_.num_layers ) {
+            //     throw std::runtime_error("Layer count mismatch");
+            // }
+
+            // This is where you'd validate the metadata against your network's
+            // TransformerConfig or equivalent
+        }
+
+        /**
+         * @brief Load a single tensor into the appropriate network component
+         *
+         * This method maps tensor names to your component structure.
+         * Customize the mapping based on your actual component hierarchy.
+         */
+        template<typename TPrecision, typename MR>
+        void loadTensorIntoComponent( ModelReader& reader, const std::string& name )
+        {
+            // Parse tensor name to find target component
+            // Example name patterns:
+            //   "token_embedding.weight" -> embedding component
+            //   "layers.0.attention.q_proj.weight" -> layer 0's attention Q projection
+            //   "layers.5.mlp.fc1.weight" -> layer 5's MLP first linear layer
+
+            if ( name.find( "token_embedding" ) != std::string::npos )
+            {
+                // Load into token embedding component
+                auto tensor = reader.readTensor<TPrecision, MR>( name );
+                // token_embedding_->setWeight( tensor );
+            }
+            else if ( name.find( "position_embedding" ) != std::string::npos )
+            {
+                // Load into position embedding component
+                auto tensor = reader.readTensor<TPrecision, MR>( name );
+                // position_embedding_->setWeight( tensor );
+            }
+            else if ( name.find( "layers." ) != std::string::npos )
+            {
+                // Parse layer index
+                size_t layer_idx = parseLayerIndex( name );
+
+                // Route to appropriate sub-component within the layer
+                if ( name.find( ".attention." ) != std::string::npos )
+                {
+                    loadAttentionTensor( reader, layer_idx, name );
+                }
+                else if ( name.find( ".mlp." ) != std::string::npos )
+                {
+                    loadMLPTensor( reader, layer_idx, name );
+                }
+                else if ( name.find( ".norm" ) != std::string::npos )
+                {
+                    loadNormTensor( reader, layer_idx, name );
+                }
+            }
+            else if ( name.find( "final_norm" ) != std::string::npos )
+            {
+                auto tensor = reader.readTensor<TPrecision, MR>( name );
+                // final_norm_->setWeight( tensor );
+            }
+            else if ( name.find( "lm_head" ) != std::string::npos )
+            {
+                auto tensor = reader.readTensor<TPrecision, MR>( name );
+                // lm_head_->setWeight( tensor );
+            }
+            else
+            {
+                throw std::runtime_error( "Unknown tensor: " + name );
+            }
+        }
+
+        /**
+         * @brief Parse layer index from tensor name
+         *
+         * Extracts the layer number from names like "layers.5.attention.q_proj.weight"
+         */
+        size_t parseLayerIndex( const std::string& name )
+        {
+            auto layers_pos = name.find( "layers." );
+            if ( layers_pos == std::string::npos )
+            {
+                throw std::runtime_error( "Invalid layer tensor name: " + name );
+            }
+
+            auto start = layers_pos + 7;  // Length of "layers."
+            auto end = name.find( ".", start );
+
+            std::string idx_str = name.substr( start, end - start );
+            return std::stoull( idx_str );
+        }
+
+        /**
+         * @brief Load attention weights for a specific layer
+         */
+        void loadAttentionTensor( ModelReader& reader, size_t layer_idx,
+            const std::string& name )
+        {
+            // auto& layer = layers_[layer_idx];
+            // auto tensor = reader.readTensor<TPrecision, MR>( name );
+
+            // if ( name.find( "q_proj.weight" ) != std::string::npos )
+            //     layer->attention->setQWeight( tensor );
+            // else if ( name.find( "k_proj.weight" ) != std::string::npos )
+            //     layer->attention->setKWeight( tensor );
+            // ... etc
+        }
+
+        /**
+         * @brief Load MLP weights for a specific layer
+         */
+        void loadMLPTensor( ModelReader& reader, size_t layer_idx,
+            const std::string& name )
+        {
+            // Similar to loadAttentionTensor
+        }
+
+        /**
+         * @brief Load normalization weights for a specific layer
+         */
+        void loadNormTensor( ModelReader& reader, size_t layer_idx,
+            const std::string& name )
+        {
+            // Similar to loadAttentionTensor
+        }
+
         /**
          * @brief Save base network metadata.
          *

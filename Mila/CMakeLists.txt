@@ -347,7 +347,7 @@ PUBLIC
         "Src/Dnn/Core/LearningRateScheduler.ixx"
         
         
- "Src/Dnn/Components/Activations/ApproximationMethod.ixx" "Src/Dnn/Components/Composites/Transformer.Presets.ixx" "Src/Dnn/Components/Attention/AttentionType.ixx" "Src/Dnn/Components/Normalization/NormType.ixx" "Src/Dnn/Components/Encoding/EncodingType.ixx")
+ "Src/Dnn/Components/Activations/ApproximationMethod.ixx" "Src/Dnn/Components/Composites/Transformer.Presets.ixx" "Src/Dnn/Components/Attention/AttentionType.ixx" "Src/Dnn/Components/Normalization/NormType.ixx" "Src/Dnn/Components/Encoding/EncodingType.ixx" "Src/Dnn/Network/ModelReader.ixx")
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 

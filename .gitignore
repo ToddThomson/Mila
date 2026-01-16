@@ -11,6 +11,13 @@
 *.userosscache
 *.sln.docstates
 
+# Python Tools for Visual Studio
+.venv/
+*.ptvsinfo
+*.pyc
+*.pyo
+*.pyproj.user
+
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
 
