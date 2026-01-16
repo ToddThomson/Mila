@@ -8,194 +8,175 @@
 
 namespace Mila::Dnn::Compute::Cuda::Rope
 {
-    /**
-     * @brief Adds two float4 vectors element-wise
-     *
-     * @param a First float4 vector
-     * @param b Second float4 vector
-     * @return float4 Result of component-wise addition
-     */
-    __device__ inline float4 add_float4( const float4& a, const float4& b ) {
-        return make_float4( a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w );
-    }
+    // ------------------------------------------------------------------------
+    // RoPE forward/backward kernels (scalar pair-based implementation)
+    //
+    // Implementation notes:
+    // - Rotary embedding is applied to the first `rotary_dim` channels (must be even).
+    // - Channels are processed as 2-element rotation blocks:
+    //     for pair p: c0 = 2*p, c1 = c0+1
+    // - angle = position * inv_freq[p]; inv_freq[p] = base^{-2p/rotary_dim}
+    // - Forward rotation:
+    //     y0 = cos* x0 - sin* x1
+    //     y1 = sin* x0 + cos* x1
+    // - Backward / gradients:
+    //     dx0 = cos* dy0 + sin* dy1
+    //     dx1 = -sin* dy0 + cos* dy1
+    //
+    // This implementation favors clarity and correctness over maximal throughput.
+    // Consider vectorized / precomputed-cos/sin kernels for high-performance paths.
+    // ------------------------------------------------------------------------
 
-    /**
-     * @brief CUDA kernel for RoPE forward pass using float4 vectorization
-     *
-     * This kernel adds token embeddings and positional embeddings. Kept vectorized
-     * layout for memory efficiency. Caller must ensure C is divisible by 4.
-     *
-     * @param Y Output tensor [B, T, C] (as float4)
-     * @param X Input token indices [B, T]
-     * @param Wte Token embedding weights [vocab_size, C] (as float4)
-     * @param Wpe Position embedding weights [max_seq_len, C] (as float4)
-     * @param B Batch size
-     * @param T Sequence length
-     * @param C Hidden dimension size (must be divisible by 4)
-     */
     __global__ void rope_forward_fp32_kernel(
-        float4* Y, const int* X,
-        const float4* Wte, const float4* Wpe,
-        int B, int T, int C )
+        float* __restrict__ out,           // [B*T*C]
+        const int* __restrict__ inp,       // [B*T]
+        const float* __restrict__ wte,     // [vocab_size * C]
+        int B, int T, int C,
+        int rotary_dim, float base )
     {
-        int C4 = C / 4;
-        int bt = blockIdx.x;      // Token index [0, B*T)
-        int c4 = threadIdx.x;     // Channel index [0, C4)
+        const int bt = blockIdx.x;
+        const int tid = threadIdx.x;
+        const int block_threads = blockDim.x;
 
-        if ( bt < B * T ) {
-            int t = bt % T;
-            int ix = X[ bt ];
+        if ( bt >= B * T ) return;
 
-            // Perfect coalescing: consecutive threads access consecutive memory
-            Y[ bt * C4 + c4 ] = add_float4( Wte[ ix * C4 + c4 ], Wpe[ t * C4 + c4 ] );
+        const int t = bt % T;
+        const int ix = inp[ bt ];
+
+        const int pairs = rotary_dim / 2;
+
+        // Process pairs (rotary region)
+        for ( int p = tid; p < pairs; p += block_threads )
+        {
+            const int c0 = 2 * p;
+            const int c1 = c0 + 1;
+
+            const float x0 = wte[ static_cast<size_t>( ix ) * C + c0 ];
+            const float x1 = wte[ static_cast<size_t>( ix ) * C + c1 ];
+
+            // Compute frequency: inv_freq = base^(-2p / rotary_dim)
+            const float exponent = (2.0f * static_cast<float>( p )) / static_cast<float>( rotary_dim );
+            const float inv_freq = powf( base, -exponent );
+
+            // Compute angle and apply rotation
+            const float angle = static_cast<float>(t) * inv_freq;
+            const float s = sinf( angle );
+            const float c = cosf( angle );
+
+            // Rotation matrix: [cos -sin; sin cos]
+            const float y0 = c * x0 - s * x1;
+            const float y1 = s * x0 + c * x1;
+
+            out[ static_cast<size_t>(bt) * C + c0 ] = y0;
+            out[ static_cast<size_t>(bt) * C + c1 ] = y1;
+        }
+
+        // Copy remaining channels (non-rotary region)
+        for ( int c = rotary_dim + tid; c < C; c += block_threads )
+        {
+            out[ static_cast<size_t>( bt ) * C + c ] = wte[ static_cast<size_t>( ix ) * C + c ];
         }
     }
 
-    __global__ void rope_forward_fp32_kernel_v2(
-        float4* __restrict__ Y,
-        const int* __restrict__ X,
-        const float4* __restrict__ Wte,
-        const float4* __restrict__ Wpe,
-        int B, int T, int C )
-    {
-        int C4 = C / 4;
-        int idx = blockIdx.x * blockDim.x + threadIdx.x;
-        int total = B * T * C4;
-
-        if ( idx < total ) {
-            int bt = idx / C4;
-            int c4 = idx % C4;
-            int t = bt % T;
-            int ix = X[ bt ];
-
-            // Single 128-bit load + 128-bit load + 128-bit store
-            float4 a = Wte[ ix * C4 + c4 ];
-            float4 b = Wpe[ t * C4 + c4 ];
-            Y[ bt * C4 + c4 ] = add_float4( a, b );
-        }
-    }
-
-    /**
-     * @brief CUDA kernel for RoPE backward pass using float4 vectorization
-     *
-     * Accumulates gradients from output tensor to token and position embedding weights.
-     * Uses atomicAdd for thread-safe gradient accumulation since multiple positions
-     * may reference the same token embedding.
-     *
-     * @param dWte Gradient for token embedding weights [vocab_size, C] (as float4)
-     * @param dWpe Gradient for position embedding weights [max_seq_len, C] (as float4)
-     * @param dY Gradient from output [B, T, C] (as float4)
-     * @param X Input token indices [B, T]
-     * @param B Batch size
-     * @param T Sequence length
-     * @param C Hidden dimension size (must be divisible by 4)
-     */
     __global__ void rope_backward_fp32_kernel(
-        float4* dWte, float4* dWpe,
-        const float4* dY, const int* X,
-        int B, int T, int C )
+        float* __restrict__ wte_grad,      // [vocab_size * C] (accumulated)
+        const float* __restrict__ dY,      // [B*T*C]
+        const int* __restrict__ inp,       // [B*T]
+        int B, int T, int C,
+        int rotary_dim, float base )
     {
-        int C4 = C / 4;
-        int bt = blockIdx.x;      // Token index [0, B*T)
-        int c4 = threadIdx.x;     // Channel index [0, C4)
+        const int bt = blockIdx.x;
+        const int tid = threadIdx.x;
+        const int block_threads = blockDim.x;
 
-        if ( bt < B * T ) {
-            int t = bt % T;
-            int ix = X[ bt ];
+        if ( bt >= B * T ) return;
 
-            float4 grad = dY[ bt * C4 + c4 ];
+        const int t = bt % T;
+        const int ix = inp[ bt ];
 
-            atomicAdd( &dWte[ ix * C4 + c4 ].x, grad.x );
-            atomicAdd( &dWte[ ix * C4 + c4 ].y, grad.y );
-            atomicAdd( &dWte[ ix * C4 + c4 ].z, grad.z );
-            atomicAdd( &dWte[ ix * C4 + c4 ].w, grad.w );
+        const int pairs = rotary_dim / 2;
 
-            atomicAdd( &dWpe[ t * C4 + c4 ].x, grad.x );
-            atomicAdd( &dWpe[ t * C4 + c4 ].y, grad.y );
-            atomicAdd( &dWpe[ t * C4 + c4 ].z, grad.z );
-            atomicAdd( &dWpe[ t * C4 + c4 ].w, grad.w );
+        // Process pairs (rotary region)
+        for ( int p = tid; p < pairs; p += block_threads )
+        {
+            const int c0 = 2 * p;
+            const int c1 = c0 + 1;
+
+            const float dy0 = dY[ static_cast<size_t>( bt ) * C + c0 ];
+            const float dy1 = dY[ static_cast<size_t>( bt ) * C + c1 ];
+
+            // Compute frequency: inv_freq = base^(-2p / rotary_dim)
+            const float exponent = (2.0f * static_cast<float>( p )) / static_cast<float>( rotary_dim );
+            const float inv_freq = powf( base, -exponent );
+
+            // Compute angle and apply rotation transpose
+            const float angle = static_cast<float>(t) * inv_freq;
+            const float s = sinf( angle );
+            const float c = cosf( angle );
+
+            // Rotation matrix transpose: [cos sin; -sin cos]
+            const float dx0 = c * dy0 + s * dy1;
+            const float dx1 = -s * dy0 + c * dy1;
+
+            // Atomic accumulate into wte_grad
+            atomicAdd( &wte_grad[ static_cast<size_t>(ix) * C + c0 ], dx0 );
+            atomicAdd( &wte_grad[ static_cast<size_t>(ix) * C + c1 ], dx1 );
+        }
+
+        // Remaining channels: gradient is direct copy of dY
+        for ( int c = rotary_dim + tid; c < C; c += block_threads )
+        {
+            const float dy = dY[ static_cast<size_t>( bt ) * C + c ];
+            atomicAdd( &wte_grad[ static_cast<size_t>( ix ) * C + c ], dy );
         }
     }
 
-    // ========================================================================
-    // Host functions
-    // ========================================================================
+    // ------------------------------------------------------------------------
+    // Host launchers
+    // ------------------------------------------------------------------------
 
-    /**
-     * @brief Host function to launch RoPE forward pass with full precision (FP32)
-     *
-     * Combines token embeddings and positional embeddings for transformer input.
-     *
-     * @param Y Output tensor [B, T, C]
-     * @param X Input token indices [B, T]
-     * @param wte Token embedding weights [vocab_size, C]
-     * @param wpe Position embedding weights [max_seq_len, C]
-     * @param B Batch size
-     * @param T Sequence length
-     * @param C Hidden dimension size (must be divisible by 4)
-     * @param stream CUDA stream for asynchronous execution
-     */
     void cuda_rope_forward_fp32(
         float* Y,
         const int* X,
-        const float* wte, const float* wpe,
+        const float* wte,
         int B, int T, int C,
-        cudaStream_t stream )
+        cudaStream_t stream,
+        int rotary_dim, float base )
     {
-        // C must be divisible by 4 for float4 vectorization
-        assert( C % 4 == 0 );
+        // Validate parameters
+        assert( rotary_dim >= 0 && rotary_dim <= C );
+        assert( rotary_dim % 2 == 0 );
 
-        int C4 = C / 4;
+        const int bt_count = B * T;
+        const int threads = 128;
+        const int blocks = bt_count;
 
-        dim3 grid( B * T );
-        dim3 block( C4 );
-
-        rope_forward_fp32_kernel << <grid, block, 0, stream >> > (
-            reinterpret_cast<float4*>(Y), X,
-            reinterpret_cast<const float4*>(wte),
-            reinterpret_cast<const float4*>(wpe),
-            B, T, C);
+        rope_forward_fp32_kernel << < blocks, threads, 0, stream >> > (
+            Y, X, wte, B, T, C, rotary_dim, base);
 
         cudaCheck( cudaGetLastError() );
-
     }
 
-    /**
-     * @brief Host function to launch RoPE backward pass with full precision (FP32)
-     *
-     * Computes gradients for token and position embeddings from output gradient.
-     *
-     * @param dWte Gradient for token embedding weights [vocab_size, C]
-     * @param dWpe Gradient for position embedding weights [max_seq_len, C]
-     * @param dY Gradient from output [B, T, C]
-     * @param X Input token indices [B, T]
-     * @param B Batch size
-     * @param T Sequence length
-     * @param C Hidden dimension size (must be divisible by 4)
-     * @param stream CUDA stream for asynchronous execution
-     */
     void cuda_rope_backward_fp32(
-        float* wte_grad, float* wpe_grad,
+        float* wte_grad,
         const float* dY,
         const int* X,
         int B, int T, int C,
-        cudaStream_t stream )
+        cudaStream_t stream,
+        int rotary_dim, float base )
     {
-        assert( C % 4 == 0 );
+        // Validate parameters
+        assert( rotary_dim >= 0 && rotary_dim <= C );
+        assert( rotary_dim % 2 == 0 );
 
-        int C4 = C / 4;
+        const int bt_count = B * T;
+        const int threads = 128;
+        const int blocks = bt_count;
 
-        dim3 grid( B * T );
-        dim3 block( C4 );
-
-        rope_backward_fp32_kernel << <grid, block, 0, stream >> > (
-            reinterpret_cast<float4*>(wte_grad),
-            reinterpret_cast<float4*>(wpe_grad),
-            reinterpret_cast<const float4*>(dY),
-            X,
-            B, T, C);
+        // Note: wte_grad must be zeroed by caller before this call
+        rope_backward_fp32_kernel << < blocks, threads, 0, stream >> > (
+            wte_grad, dY, X, B, T, C, rotary_dim, base);
 
         cudaCheck( cudaGetLastError() );
-
     }
 }

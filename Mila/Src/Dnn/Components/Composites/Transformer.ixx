@@ -20,7 +20,7 @@ module;
 #include <type_traits>
 #include <optional>
 
-export module Dnn.Blocks.Transformer;
+export module Dnn.Transformer;
 export import :Config;
 
 import Dnn.ITensor;

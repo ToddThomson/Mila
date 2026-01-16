@@ -188,7 +188,7 @@ export import Dnn.Components.Softmax;
 // Dnn - Blocks
 // ============================================================================
 export import Dnn.Blocks.MLP;
-export import Dnn.Blocks.Transformer;
+export import Dnn.Transformer;
 
 // ============================================================================
 // Dnn - Optimizers

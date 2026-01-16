@@ -1,5 +1,5 @@
 /**
- * @file Encoder.ixx
+ * @file Gpt2Encoder.ixx
  * @brief Device-templated Encoder module for token and positional embeddings.
  *
  * Delegates compute to a UnaryOperation backend. Module owns token (wte) and

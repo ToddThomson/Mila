@@ -199,8 +199,8 @@ PUBLIC
         "Src/Dnn/Components/Encoding/RopeEncoder.Config.ixx"
 
         # Components - Layers
-        "Src/Dnn/Components/Layers/Attention.ixx"
-        "Src/Dnn/Components/Layers/AttentionConfig.ixx"
+        "Src/Dnn/Components/Attention/Attention.ixx"
+        "Src/Dnn/Components/Attention/AttentionConfig.ixx"
         "Src/Dnn/Components/Layers/Linear.ixx"
         "Src/Dnn/Components/Layers/LinearConfig.ixx"
 
@@ -347,7 +347,7 @@ PUBLIC
         "Src/Dnn/Core/LearningRateScheduler.ixx"
         
         
- "Src/Dnn/Components/Activations/ApproximationMethod.ixx")
+ "Src/Dnn/Components/Activations/ApproximationMethod.ixx" "Src/Dnn/Components/Composites/Transformer.Presets.ixx" "Src/Dnn/Components/Attention/AttentionType.ixx" "Src/Dnn/Components/Normalization/NormType.ixx" "Src/Dnn/Components/Encoding/EncodingType.ixx")
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
