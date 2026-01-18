@@ -352,8 +352,6 @@ namespace Mila::Dnn
             return count;
         }
 
-        
-
         // ====================================================================
         // Synchronization
         // ====================================================================
@@ -504,8 +502,6 @@ namespace Mila::Dnn
         }
 
     protected:
-
-       
 
         /**
          * @brief Virtual hook for graph optimization after construction.
@@ -734,7 +730,6 @@ namespace Mila::Dnn
          * does not guarantee ordering but provides fast lookup.
          */
         std::unordered_map<std::string, ComponentPtr> child_component_map_;
-
        
         /**
          * @brief Replace N consecutive components with a single fused component.

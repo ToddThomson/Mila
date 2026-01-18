@@ -20,8 +20,9 @@ module;
 #include <type_traits>
 #include <optional>
 
-export module Dnn.Transformer;
+export module Dnn.Blocks.Transformer;
 export import :Config;
+export import :Presets;
 
 import Dnn.ITensor;
 import Dnn.Tensor;
@@ -31,6 +32,7 @@ import Dnn.TensorDataTypeTraits;
 import Dnn.TensorOps;
 import Dnn.TensorInitializers;
 import Dnn.Component;
+import Dnn.ComponentType;
 import Dnn.CompositeComponent;
 import Dnn.ActivationType;
 import Compute.Precision;
@@ -293,6 +295,15 @@ namespace Mila::Dnn
             res1_->load_( archive, mode );
             res2_->load_( archive, mode );
             ffn_->load_( archive, mode );
+        }
+
+        // ====================================================================
+        // Identification and Description
+        // ====================================================================
+
+        const ComponentType getType() const override
+        {
+            return ComponentType::Transformer;
         }
 
         // ====================================================================

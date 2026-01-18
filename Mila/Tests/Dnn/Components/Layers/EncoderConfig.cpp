@@ -19,7 +19,7 @@ namespace Components::Layers::Tests
 
     TEST_F( EncoderConfigTests, FluentSettersAndAccessors )
     {
-        EncoderConfig config;
+        LearnedEncoderConfig config;
         auto& result = config
             .withChannels( 256 )
             .withMaxSequenceLength( 1024 )
@@ -33,7 +33,7 @@ namespace Components::Layers::Tests
 
     TEST_F( EncoderConfigTests, ValidationSuccess )
     {
-        EncoderConfig config;
+        LearnedEncoderConfig config;
         config.withChannels( 128 )
             .withMaxSequenceLength( 512 )
             .withVocabularyLength( 10000 );
@@ -43,7 +43,7 @@ namespace Components::Layers::Tests
 
     TEST_F( EncoderConfigTests, ValidationFailure_ZeroChannels )
     {
-        EncoderConfig config;
+        LearnedEncoderConfig config;
         config.withChannels( 0 )
             .withMaxSequenceLength( 512 )
             .withVocabularyLength( 10000 );
@@ -53,7 +53,7 @@ namespace Components::Layers::Tests
 
     TEST_F( EncoderConfigTests, ValidationFailure_ZeroMaxSequenceLength )
     {
-        EncoderConfig config;
+        LearnedEncoderConfig config;
         config.withChannels( 128 )
             .withMaxSequenceLength( 0 )
             .withVocabularyLength( 10000 );
@@ -63,7 +63,7 @@ namespace Components::Layers::Tests
 
     TEST_F( EncoderConfigTests, ValidationFailure_ZeroVocabularyLength )
     {
-        EncoderConfig config;
+        LearnedEncoderConfig config;
         config.withChannels( 128 )
             .withMaxSequenceLength( 512 )
             .withVocabularyLength( 0 );
@@ -73,7 +73,7 @@ namespace Components::Layers::Tests
 
     TEST_F( EncoderConfigTests, ValidationErrorMessage_Channels )
     {
-        EncoderConfig config;
+        LearnedEncoderConfig config;
         config.withChannels( 0 )
             .withMaxSequenceLength( 16 )
             .withVocabularyLength( 100 );
@@ -92,12 +92,12 @@ namespace Components::Layers::Tests
 
     TEST_F( EncoderConfigTests, ConfigurationPersistence_Copy )
     {
-        EncoderConfig config;
+        LearnedEncoderConfig config;
         config.withChannels( 64 )
             .withMaxSequenceLength( 256 )
             .withVocabularyLength( 20000 );
 
-        EncoderConfig copy = config;
+        LearnedEncoderConfig copy = config;
 
         EXPECT_EQ( copy.getChannels(), 64u );
         EXPECT_EQ( copy.getMaxSequenceLength(), 256u );
@@ -106,7 +106,7 @@ namespace Components::Layers::Tests
 
     TEST_F( EncoderConfigTests, ConfigurationPersistence_Metadata_RoundTrip )
     {
-        EncoderConfig config;
+        LearnedEncoderConfig config;
         config.withChannels( 512 )
             .withMaxSequenceLength( 2048 )
             .withVocabularyLength( 30000 )
@@ -114,7 +114,7 @@ namespace Components::Layers::Tests
 
         auto meta = config.toMetadata();
 
-        EncoderConfig restored;
+        LearnedEncoderConfig restored;
         restored.fromMetadata( meta );
 
         EXPECT_EQ( restored.getChannels(), 512u );
@@ -125,7 +125,7 @@ namespace Components::Layers::Tests
 
     TEST_F( EncoderConfigTests, EdgeCases_LargeDimensions )
     {
-        EncoderConfig config;
+        LearnedEncoderConfig config;
         config.withChannels( 4096 )
             .withMaxSequenceLength( 16384 )
             .withVocabularyLength( 1000000 );
@@ -138,7 +138,7 @@ namespace Components::Layers::Tests
 
     TEST_F( EncoderConfigTests, EdgeCases_MinimalDimensions )
     {
-        EncoderConfig config;
+        LearnedEncoderConfig config;
         config.withChannels( 1 )
             .withMaxSequenceLength( 1 )
             .withVocabularyLength( 1 );
@@ -151,7 +151,7 @@ namespace Components::Layers::Tests
 
     TEST_F( EncoderConfigTests, DefaultValuesBehavior )
     {
-        EncoderConfig config; // defaults: channels=0, max_seq_len=512, vocab_len=50000
+        LearnedEncoderConfig config; // defaults: channels=0, max_seq_len=512, vocab_len=50000
 
         EXPECT_EQ( config.getChannels(), 0u );
         EXPECT_EQ( config.getMaxSequenceLength(), 512u );
@@ -163,7 +163,7 @@ namespace Components::Layers::Tests
 
     TEST_F( EncoderConfigTests, MethodChainPreservation )
     {
-        EncoderConfig config;
+        LearnedEncoderConfig config;
         config.withChannels( 128 )
             .withMaxSequenceLength( 256 )
             .withVocabularyLength( 1000 );

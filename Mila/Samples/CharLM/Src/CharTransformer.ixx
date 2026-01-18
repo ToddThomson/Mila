@@ -77,7 +77,7 @@ namespace Mila::CharLM
         using LinearType = Linear<TDeviceType, TPrecision>;
         using LayerNormType = LayerNorm<TDeviceType, TPrecision>;
         using TransformerBlockType = Transformer<TDeviceType, TPrecision>;
-        using EncoderType = Encoder<TDeviceType, dtype_t::INT32, TPrecision>;
+        using EncoderType = LearnedEncoder<TDeviceType, dtype_t::INT32, TPrecision>;
         using TokenIndexType = Tensor<dtype_t::INT32, MR>;
         using ComponentPtr = typename NetworkBase::ComponentPtr;
 
@@ -549,7 +549,7 @@ namespace Mila::CharLM
          */
         void createGraph()
         {
-            EncoderConfig enc_cfg;
+            LearnedEncoderConfig enc_cfg;
             enc_cfg.withVocabularyLength( static_cast<size_t>(config_.vocab_size) )
                 .withMaxSequenceLength( static_cast<size_t>(config_.max_seq_length) )
                 .withChannels( static_cast<size_t>(config_.embedding_dim) );

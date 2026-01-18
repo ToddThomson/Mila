@@ -21,6 +21,7 @@ export module Dnn.Components.Gelu;
 export import :Config;
 
 import Dnn.Component;
+import Dnn.ComponentType;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
@@ -157,7 +158,7 @@ namespace Mila::Dnn
         ~Gelu() override = default;
 
         // ====================================================================
-        // Computation
+        // Computation Dispatch
         // ====================================================================
 
         /**
@@ -380,6 +381,15 @@ namespace Mila::Dnn
         std::vector<ITensor*> getGradients() const override
         {
             return {};
+        }
+
+        // ====================================================================
+        // Identification and Description
+        // ====================================================================
+
+        const ComponentType getType() const override
+        {
+            return ComponentType::Gelu;
         }
 
         // ====================================================================

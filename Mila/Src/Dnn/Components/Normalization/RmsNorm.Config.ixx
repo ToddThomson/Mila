@@ -13,7 +13,7 @@ module;
 #include <string>
 #include <utility>
 
-export module RmsNormConfig;
+export module Dnn.Components.RmsNorm:Config;
 
 import Dnn.ComponentConfig;
 import Dnn.TensorTypes;

@@ -26,8 +26,8 @@ namespace Components::Layers::Tests
     {
         shape_t input_shape;
         shape_t output_shape;
-        EncoderConfig config;
-        std::shared_ptr<Encoder<DeviceType::Cuda, TensorDataType::INT32, TPrecision>> module;
+        LearnedEncoderConfig config;
+        std::shared_ptr<LearnedEncoder<DeviceType::Cuda, TensorDataType::INT32, TPrecision>> module;
         int64_t channels;
         int64_t max_seq_len;
         int64_t vocab_len;
@@ -55,7 +55,7 @@ namespace Components::Layers::Tests
                 .withVocabularyLength( static_cast<size_t>(vocab_len) );
 
             // Construct in standalone mode so component owns its ExecutionContext
-            d.module = std::make_shared<Encoder<DeviceType::Cuda, TensorDataType::INT32, TPrecision>>(
+            d.module = std::make_shared<LearnedEncoder<DeviceType::Cuda, TensorDataType::INT32, TPrecision>>(
                 name,
                 d.config,
                 Device::Cuda( 0 )
@@ -279,10 +279,10 @@ namespace Components::Layers::Tests
     {
         if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
-        EncoderConfig cfg;
+        LearnedEncoderConfig cfg;
         cfg.withChannels( 16 ).withMaxSequenceLength( 8 ).withVocabularyLength( 100 );
 
-        auto component = std::make_shared<Encoder<DeviceType::Cuda, TensorDataType::INT32, TensorDataType::FP32>>(
+        auto component = std::make_shared<LearnedEncoder<DeviceType::Cuda, TensorDataType::INT32, TensorDataType::FP32>>(
             "deferred_cuda_encoder",
             cfg );
 
@@ -293,13 +293,13 @@ namespace Components::Layers::Tests
     {
         if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
-        EncoderConfig cfg;
+        LearnedEncoderConfig cfg;
         cfg.withChannels( 16 )
             .withMaxSequenceLength( 8 )
             .withVocabularyLength( 100 );
 
         EXPECT_THROW(
-            ( (void)std::make_shared<Encoder<DeviceType::Cuda, TensorDataType::INT32, TensorDataType::FP32>>(
+            ( (void)std::make_shared<LearnedEncoder<DeviceType::Cuda, TensorDataType::INT32, TensorDataType::FP32>>(
                 "invalid_device",
                 cfg,
                 Device::Cpu() ) ),

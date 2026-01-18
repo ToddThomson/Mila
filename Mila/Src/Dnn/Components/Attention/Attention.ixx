@@ -22,6 +22,7 @@ export module Dnn.Components.Attention;
 export import :Config;
 
 import Dnn.Component;
+import Dnn.ComponentType;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -186,6 +187,11 @@ namespace Mila::Dnn
         // ====================================================================
         // Component interface
         // ====================================================================
+
+        const ComponentType getType() const override
+        {
+            return ComponentType::Attention;
+        }
 
         DeviceId getDeviceId() const override
         {

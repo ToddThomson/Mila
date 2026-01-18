@@ -103,8 +103,8 @@ class MilaWeightWriter:
                 assert f.tell() == offset, f"Offset mismatch: expected {offset}, got {f.tell()}"
                 data.tofile(f)
         
-        print(f"? Wrote {len(self.tensors)} tensors to {self.output_path}")
-        print(f"  File size: {self.output_path.stat().st_size / 1024**2:.2f} MB")
+        print(f"Wrote {len(self.tensors)} tensors to {self.output_path}")
+        print(f"File size: {self.output_path.stat().st_size / 1024**2:.2f} MB")
     
     def _write_header(self, f: BinaryIO):
         """Write file header"""
@@ -140,4 +140,3 @@ def convert_dtype(tensor: np.ndarray, target_dtype: str) -> np.ndarray:
         return t.view(torch.uint16).numpy()
     else:
         return tensor
-

@@ -21,6 +21,7 @@ export module Dnn.Components.RopeEncoder;
 export import :Config;
 
 import Dnn.Component;
+import Dnn.ComponentType;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -178,6 +179,11 @@ namespace Mila::Dnn
         size_t parameterCount() const override
         {
             return 0;
+        }
+
+        const ComponentType getType() const override
+        {
+            return ComponentType::RopeEncoder;
         }
 
         DeviceId getDeviceId() const override

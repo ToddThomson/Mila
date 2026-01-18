@@ -24,6 +24,7 @@ export module Dnn.Components.LayerNorm;
 export import :Config;
 
 import Dnn.Component;
+import Dnn.ComponentType;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -280,6 +281,11 @@ namespace Mila::Dnn
         // ====================================================================
         // Component interface
         // ====================================================================
+
+        const ComponentType getType() const override
+        {
+            return ComponentType::LayerNorm;
+        }
 
         DeviceId getDeviceId() const override
         {

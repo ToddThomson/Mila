@@ -8,8 +8,12 @@ module;
 export module Dnn.ModelReader;
 
 import Dnn.Tensor;
+import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
+import Compute.Device;
+import Compute.DeviceId;
+import Compute.CpuMemoryResource;
 
 namespace Mila::Dnn
 {
@@ -159,22 +163,54 @@ namespace Mila::Dnn
          * @param name Tensor name
          * @return Tensor containing the data (converted to TPrecision if needed)
          */
-        template<TensorDataType TDataType, typename MR>
-        Tensor<TDataType, MR> readTensor( const std::string& name )
+        std::unique_ptr<ITensor> readTensor( const std::string& name )
         {
             const auto& meta = getTensorMetadata( name );
-
-            // Create tensor with correct shape
-            Tensor<TDataType, MR> tensor( meta.shape );
 
             // Read raw bytes
             auto bytes = readTensorBytes( name );
 
-            // Convert from file dtype to target dtype
-            convertAndCopyData( bytes.data(), meta.dtype,
-                tensor.data(), meta.nbytes );
+            // Use host CPU memory resource for reader-created tensors.
+            Compute::DeviceId host_dev = Compute::Device::Cpu();
 
-            return tensor;
+            // Concrete host memory resource type
+            using HostMR = Compute::CpuMemoryResource;
+
+            switch ( meta.dtype )
+            {
+                case 0: // float32
+                {
+                    auto t = std::make_unique<Tensor<TensorDataType::FP32, HostMR>>( host_dev, meta.shape );
+                    convertAndCopyData<float>( bytes.data(), meta.dtype, t->data(), meta.nbytes );
+                    return t;
+                }
+                
+                // REVIEW: a host tensors cannot be float16 or bfloat16 directly
+                
+                //case 1: // float16 (stored as uint16_t)
+                //{
+                //    auto t = std::make_unique<Tensor<TensorDataType::FP16, HostMR>>( host_dev, meta.shape );
+                //    convertAndCopyData<uint16_t>( bytes.data(), meta.dtype, t->data(), meta.nbytes );
+                //    return t;
+                //}
+
+                //case 2: // bfloat16 (stored as uint16_t)
+                //{
+                //    auto t = std::make_unique<Tensor<TensorDataType::BF16, HostMR>>( host_dev, meta.shape );
+                //    convertAndCopyData<uint16_t>( bytes.data(), meta.dtype, t->data(), meta.nbytes );
+                //    return t;
+                //}
+
+                case 3: // int32
+                {
+                    auto t = std::make_unique<Tensor<TensorDataType::INT32, HostMR>>( host_dev, meta.shape );
+                    convertAndCopyData<int32_t>( bytes.data(), meta.dtype, t->data(), meta.nbytes );
+                    return t;
+                }
+
+                default:
+                    throw std::runtime_error( "Unsupported dtype in model file: " + std::to_string( meta.dtype ) );
+            }
         }
 
     private:
@@ -323,12 +359,18 @@ namespace Mila::Dnn
                 // Read dtype
                 file_.read( reinterpret_cast<char*>(&meta.dtype), sizeof( meta.dtype ) );
 
-                // Read shape
+                // Read shape (on-disk dims are stored as uint32_t; convert to dim_t)
                 uint32_t ndim;
                 file_.read( reinterpret_cast<char*>(&ndim), sizeof( ndim ) );
+
                 meta.shape.resize( ndim );
-                file_.read( reinterpret_cast<char*>(meta.shape.data()),
-                    ndim * sizeof( dim_t ) );
+
+                for ( uint32_t d = 0; d < ndim; ++d )
+                {
+                    uint32_t dim32;
+                    file_.read( reinterpret_cast<char*>( &dim32 ), sizeof( dim32 ) );
+                    meta.shape[ d ] = static_cast<dim_t>( dim32 );
+                }
 
                 // Read offset and size
                 file_.read( reinterpret_cast<char*>(&meta.offset), sizeof( meta.offset ) );

@@ -186,4 +186,3 @@ if __name__ == '__main__':
     
     args = parser.parse_args()
     convert_gpt2(args.model, args.output, args.dtype)
-

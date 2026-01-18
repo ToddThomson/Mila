@@ -19,6 +19,7 @@ module;
 export module Dnn.Component;
 
 export import :BuildConfig;
+import Dnn.ComponentType;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
@@ -312,12 +313,21 @@ namespace Mila::Dnn
          *
          * The name is used for logging, diagnostics, and serialization.
          *
-         * @return Component name string
+         * @return Component full hierarchical path
          */
         const std::string getName() const
         {
             return name_;
         }
+
+        /**
+         * @brief Get the component type identifier.
+         *
+         * Used for serialization and runtime type identification.
+         *
+         * @return Component type enum
+         */
+        virtual const ComponentType getType() const = 0;
 
         // ====================================================================
         // Device information and access

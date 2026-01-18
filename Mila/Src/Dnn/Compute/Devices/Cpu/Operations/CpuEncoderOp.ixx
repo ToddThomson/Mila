@@ -19,7 +19,7 @@ module;
 
 export module Compute.CpuEncoderOp;
 
-import Dnn.Components.Gpt2Encoder;
+import Dnn.Components.LearnedEncoder;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -84,7 +84,7 @@ namespace Mila::Dnn::Compute
         using OperationBase = UnaryOperation<DeviceType::Cpu, TensorDataType::INT32, TensorDataType::FP32>;
         using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
         using TensorType = Tensor<TensorDataType::FP32, MR>;
-        using ConfigType = EncoderConfig;
+        using ConfigType = LearnedEncoderConfig;
 
         /**
          * @brief Construct with execution context and configuration.
@@ -96,7 +96,7 @@ namespace Mila::Dnn::Compute
          * Ownership:
          * - The operation stores the provided execution context shared_ptr.
          */
-        explicit CpuEncoderOp( IExecutionContext* context, const EncoderConfig& config )
+        explicit CpuEncoderOp( IExecutionContext* context, const LearnedEncoderConfig& config )
             : context_( context ), config_( config )
         {
             if ( !context )
@@ -415,7 +415,7 @@ namespace Mila::Dnn::Compute
 
     private:
 
-        EncoderConfig config_;
+        LearnedEncoderConfig config_;
         IExecutionContext* context_{ nullptr };
 
         bool is_built_{ false };

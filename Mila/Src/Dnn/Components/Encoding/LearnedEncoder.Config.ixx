@@ -15,7 +15,7 @@ module;
 #include <utility>
 #include <sstream>
 
-export module Dnn.Components.Gpt2Encoder:Config;
+export module Dnn.Components.LearnedEncoder:Config;
 
 import Dnn.Component;
 import Dnn.ComponentConfig;
@@ -31,7 +31,7 @@ namespace Mila::Dnn
      *
      * Provides a type-safe fluent interface for configuring Encoder modules.
      */
-    export class EncoderConfig : public ComponentConfig {
+    export class LearnedEncoderConfig : public ComponentConfig {
     public:
         
         /**

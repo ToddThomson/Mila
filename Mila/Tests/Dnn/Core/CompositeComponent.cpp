@@ -80,6 +80,11 @@ namespace Dnn::Core::Tests
             return std::string( "TestChild:" ) + this->getName();
         }
 
+        const ComponentType getType() const override
+        {
+            return ComponentType::MockComponent;
+        }
+
         DeviceId getDeviceId() const override
         {
 
@@ -141,6 +146,11 @@ namespace Dnn::Core::Tests
         {
             auto component = std::make_shared<TestChildComponent>( name, param_count, std::nullopt );
             this->addComponent( component );
+        }
+
+        const ComponentType getType() const override
+        {
+            return ComponentType::MockComponent;
         }
 
     protected:

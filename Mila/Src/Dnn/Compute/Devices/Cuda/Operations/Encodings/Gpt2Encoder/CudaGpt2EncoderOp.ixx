@@ -18,7 +18,7 @@ module;
 
 export module Compute.CudaGpt2EncoderOp;
 
-import Dnn.Components.Gpt2Encoder;
+import Dnn.Components.LearnedEncoder;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -129,9 +129,9 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 
         // Expose ConfigType so registrar helpers can statically cast ComponentConfig
-        using ConfigType = EncoderConfig;
+        using ConfigType = LearnedEncoderConfig;
 
-        CudaEncoderOp( IExecutionContext* context, const EncoderConfig& config )
+        CudaEncoderOp( IExecutionContext* context, const LearnedEncoderConfig& config )
             : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaEncoderOp" ) ), config_( config ), impl_()
         {
             config_.validate();
@@ -343,7 +343,7 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
         }*/
 
     private:
-        EncoderConfig config_;
+        LearnedEncoderConfig config_;
         CudaExecutionContext* context_;
         Detail::cuda_encoder_impl<NativeType> impl_;
 

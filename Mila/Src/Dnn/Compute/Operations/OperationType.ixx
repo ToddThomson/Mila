@@ -24,7 +24,9 @@ namespace Mila::Dnn::Compute
 		FusedOp,               ///< Fused operation combining multiple operations for performance optimization
 		LinearOp,			   ///< Linear (fully connected/dense) layer operation
 		GeluOp,                ///< Gaussian Error Linear Unit activation function
+        SwigluOp,              ///< SwiGLU activation function
 		LayerNormOp,           ///< Layer normalization operation
+        RmsNormOp,           ///< RMS normalization operation
 		AttentionOp,			///< Multi-head attention operation for transformers
 		ResidualOp,            ///< Residual connection operation
 		SoftmaxOp              ///< Softmax activation function

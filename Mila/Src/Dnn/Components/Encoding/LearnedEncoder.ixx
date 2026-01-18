@@ -17,10 +17,11 @@ module;
 #include <cstdint>
 #include <optional>
 
-export module Dnn.Components.Gpt2Encoder;
+export module Dnn.Components.LearnedEncoder;
 export import :Config;
 
 import Dnn.Component;
+import Dnn.ComponentType;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -69,7 +70,7 @@ namespace Mila::Dnn
      */
     export template<DeviceType TDeviceType, TensorDataType TIndex = dtype_t::INT32, TensorDataType TPrecision = dtype_t::FP32>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    class Encoder : public Component<TDeviceType, TPrecision>
+    class LearnedEncoder : public Component<TDeviceType, TPrecision>
     {
     public:
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
@@ -88,7 +89,7 @@ namespace Mila::Dnn
          * @param config Encoder configuration
          * @param device_id Optional DeviceId to create owned ExecutionContext (standalone mode)
          */
-        explicit Encoder( const std::string& name, const EncoderConfig& config, std::optional<DeviceId> device_id = std::nullopt )
+        explicit LearnedEncoder( const std::string& name, const LearnedEncoderConfig& config, std::optional<DeviceId> device_id = std::nullopt )
             : ComponentBase( name ), config_( config )
         {
             config_.validate();
@@ -106,7 +107,7 @@ namespace Mila::Dnn
             }
         }
 
-        ~Encoder() override = default;
+        ~LearnedEncoder() override = default;
 
         // ====================================================================
         // Compute operation dispatch (new API)
@@ -282,6 +283,11 @@ namespace Mila::Dnn
         // Component interface
         // ====================================================================
 
+        const ComponentType getType() const override
+        {
+            return ComponentType::LearnedEncoder;
+        }
+
         DeviceId getDeviceId() const override
         {
             return this->getExecutionContext()->getDeviceId();
@@ -392,7 +398,7 @@ namespace Mila::Dnn
         }
 
     private:
-        EncoderConfig config_;
+        LearnedEncoderConfig config_;
 
         std::unique_ptr<EmbeddingsTensorType> wte_{ nullptr };  // Token embeddings (V, C)
         std::unique_ptr<EmbeddingsTensorType> wpe_{ nullptr };  // Position embeddings (maxT, C)

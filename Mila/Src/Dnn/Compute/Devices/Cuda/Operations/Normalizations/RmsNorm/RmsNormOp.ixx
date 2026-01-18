@@ -377,8 +377,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
 
         OperationType getOperationType() const override
         {
-            // Keep the LayerNorm operation type for compatibility with existing registries.
-            return OperationType::LayerNormOp;
+            return OperationType::RmsNormOp;
         }
 
         std::string getName() const override

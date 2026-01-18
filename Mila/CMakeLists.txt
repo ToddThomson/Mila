@@ -193,8 +193,8 @@ PUBLIC
         "Src/Dnn/Components/Connections/ResidualConfig.ixx"
 
         # Components - Encoding
-        "Src/Dnn/Components/Encoding/Gpt2Encoder.ixx"
-        "Src/Dnn/Components/Encoding/Gpt2Encoder.Config.ixx"
+        "Src/Dnn/Components/Encoding/LearnedEncoder.ixx"
+        "Src/Dnn/Components/Encoding/LearnedEncoder.Config.ixx"
         "Src/Dnn/Components/Encoding/RopeEncoder.ixx"
         "Src/Dnn/Components/Encoding/RopeEncoder.Config.ixx"
 

@@ -144,6 +144,11 @@ namespace CompositeComponents_Tests
             return config_;
         }
 
+        const ComponentType getType() const override
+        {
+            return ComponentType::MockComponent;
+        }
+
     protected:
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {

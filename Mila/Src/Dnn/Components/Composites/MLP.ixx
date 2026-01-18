@@ -23,6 +23,7 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.Component;
+import Dnn.ComponentType;
 import Dnn.CompositeComponent;
 import Dnn.ActivationType;
 import Compute.Precision;
@@ -277,6 +278,15 @@ namespace Mila::Dnn
 
             activation_->save_( archive, mode );
             fc2_->save_( archive, mode );
+        }
+
+        // ====================================================================
+        // Identification and Description
+        // ====================================================================
+
+        const ComponentType getType() const override
+        {
+            return ComponentType::Mlp;
         }
 
         /**

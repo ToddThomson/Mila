@@ -16,6 +16,7 @@ export module Dnn.Components.Dropout;
 export import :Config;
 
 import Dnn.Component;
+import Dnn.ComponentType;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTraits;
@@ -247,6 +248,15 @@ namespace Mila::Dnn
          */
         void load( ModelArchive& archive ) override {
             // No-op: Dropout is a stateless module with no parameters to load
+        }
+
+        // ====================================================================
+        // Identification and Description
+        // ====================================================================
+
+        const ComponentType getType() const override
+        {
+            return ComponentType::Dropout;
         }
 
         /**

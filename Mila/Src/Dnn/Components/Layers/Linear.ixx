@@ -20,6 +20,7 @@ export module Dnn.Components.Linear;
 export import :Config;
 
 import Dnn.Component;
+import Dnn.ComponentType;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -308,6 +309,11 @@ namespace Mila::Dnn
         // Component interface
         // ====================================================================
 
+        const ComponentType getType() const override
+        {
+            return ComponentType::Linear;
+        }
+
         DeviceId getDeviceId() const override
         {
             return this->getExecutionContext()->getDeviceId();
@@ -390,7 +396,6 @@ namespace Mila::Dnn
 
             return grads;
         }
-
 
     protected:
 

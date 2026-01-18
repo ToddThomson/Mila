@@ -23,8 +23,8 @@ namespace Components::Layers::Tests
     {
         shape_t input_shape;
         shape_t output_shape;
-        EncoderConfig config;
-        std::shared_ptr<Encoder<DeviceType::Cpu, TensorDataType::INT32, TPrecision>> module;
+        LearnedEncoderConfig config;
+        std::shared_ptr<LearnedEncoder<DeviceType::Cpu, TensorDataType::INT32, TPrecision>> module;
         int64_t channels;
         int64_t max_seq_len;
         int64_t vocab_len;
@@ -52,7 +52,7 @@ namespace Components::Layers::Tests
                 .withVocabularyLength( static_cast<size_t>(vocab_len) );
 
             // Construct in standalone mode (component creates/uses a DeviceId for Cpu)
-            d.module = std::make_shared<Encoder<DeviceType::Cpu, TensorDataType::INT32, TPrecision>>(
+            d.module = std::make_shared<LearnedEncoder<DeviceType::Cpu, TensorDataType::INT32, TPrecision>>(
                 name,
                 d.config,
                 Device::Cpu() );
@@ -234,10 +234,10 @@ namespace Components::Layers::Tests
     TEST_F( EncoderCpuTests, Constructor_WithoutDeviceId_AllowsDeferredContext_BuildThrows )
     {
         // Construct in shared mode (no device id) — build should fail because no execution context set
-        EncoderConfig config;
+        LearnedEncoderConfig config;
         config.withChannels( 16 ).withMaxSequenceLength( 8 ).withVocabularyLength( 100 );
 
-        auto component = std::make_shared<Encoder<DeviceType::Cpu, TensorDataType::INT32, TensorDataType::FP32>>(
+        auto component = std::make_shared<LearnedEncoder<DeviceType::Cpu, TensorDataType::INT32, TensorDataType::FP32>>(
             "deferred_ctx_encoder",
             config );
 
@@ -247,13 +247,13 @@ namespace Components::Layers::Tests
     TEST_F( EncoderCpuTests, Constructor_WithInvalidDevice_ThrowsInvalidArgument )
     {
         // Passing a wrong device type for a CPU-instantiated encoder should throw
-        EncoderConfig config;
+        LearnedEncoderConfig config;
         config.withChannels( 16 )
             .withMaxSequenceLength( 8 )
             .withVocabularyLength( 100 );
 
         EXPECT_THROW(
-            ((void)std::make_shared<Encoder<DeviceType::Cpu, TensorDataType::INT32, TensorDataType::FP32>>(
+            ((void)std::make_shared<LearnedEncoder<DeviceType::Cpu, TensorDataType::INT32, TensorDataType::FP32>>(
                 "invalid_device",
                 config,
                 Device::Cuda( 0 ) ) ),

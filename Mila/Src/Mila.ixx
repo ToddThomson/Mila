@@ -143,6 +143,7 @@ export import Compute.OperationRegistryHelpers;
 // Dnn - Core
 // ====================================================================
 export import Dnn.Component;
+export import Dnn.ComponentType;
 export import Dnn.ComponentConfig;
 export import Dnn.CompositeComponent;
 
@@ -176,9 +177,12 @@ export import Dnn.ApproximationMethod;
 export import Dnn.ConnectionType;
 
 export import Dnn.Components.Attention;
-export import Dnn.Components.Gpt2Encoder;
+export import Dnn.Components.LearnedEncoder;
+export import Dnn.Components.RopeEncoder;
 export import Dnn.Components.Gelu;
+export import Dnn.Components.Swiglu;
 export import Dnn.Components.LayerNorm;
+export import Dnn.Components.RmsNorm;
 export import Dnn.Components.Linear;
 export import Dnn.Components.Residual;
 export import Dnn.Components.Softmax;
@@ -188,7 +192,7 @@ export import Dnn.Components.Softmax;
 // Dnn - Blocks
 // ============================================================================
 export import Dnn.Blocks.MLP;
-export import Dnn.Transformer;
+export import Dnn.Blocks.Transformer;
 
 // ============================================================================
 // Dnn - Optimizers

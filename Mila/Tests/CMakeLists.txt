@@ -195,7 +195,9 @@ add_executable( MilaTests
     #"Dnn/Components/Losses/CrossEntropy.Config.cpp"
 
     #"Dnn/Serialization/ModelArchive.cpp" 
-)
+    "Dnn/Components/Blocks/Transformer.Presets.cpp"
+    "Dnn/Components/Blocks/Transformer.Gpt2.cpp"
+ "Dnn/Network/Network.Gpt2.cpp")
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
 

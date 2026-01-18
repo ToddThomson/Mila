@@ -24,19 +24,19 @@ module;
 export module Dnn.Network;
 
 import Dnn.CompositeComponent;
+import Dnn.ComponentType;
 import Dnn.TensorDataType;
 import Compute.DeviceType;
+import Compute.DeviceTypeTraits;
 import Compute.DeviceId;
 import Compute.OptimizerBase;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 import Serialization.Metadata;
 import Dnn.ModelReader;
-import nlohmann.json;
 
 namespace Mila::Dnn
 {
-    using json = nlohmann::json;
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Serialization;
 
@@ -114,6 +114,7 @@ namespace Mila::Dnn
     class Network : public CompositeComponent<TDeviceType, TPrecision>
     {
     public:
+        using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using CompositeBase = CompositeComponent<TDeviceType, TPrecision>;
         using ComponentPtr = typename CompositeBase::ComponentPtr;
 
@@ -280,7 +281,7 @@ namespace Mila::Dnn
 
             const auto& metadata = reader.getMetadata();
 
-            // Log import info
+            // DEBUG: Log import info
             std::cout << "Importing model: " << metadata.model_name << std::endl;
             std::cout << "  Architecture: " << metadata.architecture << std::endl;
             std::cout << "  Layers: " << metadata.num_layers << std::endl;
@@ -301,7 +302,7 @@ namespace Mila::Dnn
             {
                 try
                 {
-                    loadTensorIntoComponent( reader, name );
+                    loadTensorIntoComponent(reader, name);
                     ++loaded_count;
                 }
                 catch ( const std::exception& e )
@@ -327,6 +328,11 @@ namespace Mila::Dnn
             {
                 std::cout << "  Skipped: " << skipped_count << " tensors" << std::endl;
             }
+        }
+
+        const ComponentType getType() const override
+        {
+            return ComponentType::Network;
         }
 
         /**
@@ -394,60 +400,70 @@ namespace Mila::Dnn
          * This method maps tensor names to your component structure.
          * Customize the mapping based on your actual component hierarchy.
          */
-        template<typename TPrecision, typename MR>
         void loadTensorIntoComponent( ModelReader& reader, const std::string& name )
         {
-            // Parse tensor name to find target component
-            // Example name patterns:
-            //   "token_embedding.weight" -> embedding component
-            //   "layers.0.attention.q_proj.weight" -> layer 0's attention Q projection
-            //   "layers.5.mlp.fc1.weight" -> layer 5's MLP first linear layer
+            // Split "component_path.param" (e.g. "layers.0.mlp.fc1.weight")
+            auto last_dot = name.rfind( '.' );
+            if ( last_dot == std::string::npos )
+                throw std::runtime_error( "Invalid tensor name (no parameter part): " + name );
 
-            if ( name.find( "token_embedding" ) != std::string::npos )
-            {
-                // Load into token embedding component
-                auto tensor = reader.readTensor<TPrecision, MR>( name );
-                // token_embedding_->setWeight( tensor );
-            }
-            else if ( name.find( "position_embedding" ) != std::string::npos )
-            {
-                // Load into position embedding component
-                auto tensor = reader.readTensor<TPrecision, MR>( name );
-                // position_embedding_->setWeight( tensor );
-            }
-            else if ( name.find( "layers." ) != std::string::npos )
-            {
-                // Parse layer index
-                size_t layer_idx = parseLayerIndex( name );
+            std::string comp_path = name.substr( 0, last_dot );
+            std::string param_name = name.substr( last_dot + 1 );
 
-                // Route to appropriate sub-component within the layer
-                if ( name.find( ".attention." ) != std::string::npos )
-                {
-                    loadAttentionTensor( reader, layer_idx, name );
-                }
-                else if ( name.find( ".mlp." ) != std::string::npos )
-                {
-                    loadMLPTensor( reader, layer_idx, name );
-                }
-                else if ( name.find( ".norm" ) != std::string::npos )
-                {
-                    loadNormTensor( reader, layer_idx, name );
-                }
-            }
-            else if ( name.find( "final_norm" ) != std::string::npos )
+            // Lookup child component (throws std::out_of_range if not found)
+            std::shared_ptr<Component<TDeviceType, TPrecision>> target;
+            try
             {
-                auto tensor = reader.readTensor<TPrecision, MR>( name );
-                // final_norm_->setWeight( tensor );
+                target = this->getComponent( comp_path );
             }
-            else if ( name.find( "lm_head" ) != std::string::npos )
+            catch ( const std::out_of_range& )
             {
-                auto tensor = reader.readTensor<TPrecision, MR>( name );
-                // lm_head_->setWeight( tensor );
+                throw std::runtime_error( "No component named '" + comp_path + "' for tensor '" + name + "'" );
             }
-            else
+
+            // Read host-backed tensor from ModelReader (host/CPU ITensor)
+            auto host_tensor = reader.readTensor( name );
+            if ( !host_tensor )
+                throw std::runtime_error( "ModelReader failed to produce host tensor for '" + name + "'" );
+
+            // Example: handle a Linear layer (replace/add other component types as needed)
+            try
             {
-                throw std::runtime_error( "Unknown tensor: " + name );
+                // Use getComponentAs to get a typed pointer (validates the type)
+                //auto linear = this->getComponentAs<Linear<TDeviceType, TPrecision>>( comp_path );
+
+                // TODO:
+                // 1) Allocate a device tensor of type Tensor<TPrecision, MR> using this->getDeviceId()
+                // 2) Convert/copy data from host_tensor->rawData() into the device tensor
+                // 3) Call the concrete setter on the component:
+                //      if ( param_name == "weight" ) linear->setWeight( std::move(device_tensor) );
+                //      else if ( param_name == "bias" ) linear->setBias( std::move(device_tensor) );
+                //      else throw unknown param
+                //
+                // Concrete setter names/signatures vary by component; implement per-component logic here.
+
+                std::cout << "Installed parameter '" << param_name << "' into Linear '" << comp_path << "'" << std::endl;
+                return;
             }
+            catch ( const std::exception& ) {
+                // Not a Linear (or cast failed) — fall through to generic/dynamic checks below
+            }
+
+            // Generic dynamic-cast fallback for other component types:
+            if ( auto dyn = std::dynamic_pointer_cast<Component<TDeviceType, TPrecision>>(target) )
+            {
+                // TODO: inspect dyn's concrete runtime type and dispatch to appropriate setter.
+                // Example pattern:
+                //   if ( auto emb = std::dynamic_pointer_cast<EmbeddingType>(dyn) ) { ... }
+                //   else if ( auto norm = std::dynamic_pointer_cast<LayerNormType>(dyn) ) { ... }
+                //
+                // For now, report resolution and require concrete installation implementation.
+                std::cout << "Resolved tensor '" << name << "' -> component '" << comp_path
+                    << "' param '" << param_name << "'. Implement setter dispatch." << std::endl;
+                return;
+            }
+
+            throw std::runtime_error( "Unable to dispatch tensor '" + name + "' to component '" + comp_path + "'" );
         }
 
         /**

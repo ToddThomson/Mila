@@ -22,6 +22,7 @@ export import :Config;
 
 import Dnn.Components.Gelu;
 import Dnn.Component;
+import Dnn.ComponentType;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
@@ -175,6 +176,15 @@ namespace Mila::Dnn
 
         std::vector<ITensor*> getGradients() const override {
             return {};
+        }
+
+        // ====================================================================
+        // Identification and Description
+        // ====================================================================
+
+        const ComponentType getType() const override
+        {
+            return ComponentType::Swiglu;
         }
 
         DeviceId getDeviceId() const override

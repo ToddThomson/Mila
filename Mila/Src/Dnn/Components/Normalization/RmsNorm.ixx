@@ -20,10 +20,12 @@ module;
 #include <utility>
 #include <optional>
 
-export module RmsNorm;
+export module Dnn.Components.RmsNorm;
 
-import RmsNormConfig;
+export import :Config;
+
 import Dnn.Component;
+import Dnn.ComponentType;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;

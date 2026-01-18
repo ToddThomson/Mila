@@ -23,6 +23,7 @@ export module Dnn.Components.Residual;
 export import :Config;
 
 import Dnn.Component;
+import Dnn.ComponentType;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -221,6 +222,15 @@ namespace Mila::Dnn
             // No-op placeholder; serialize parameter tensors if needed
             (void)archive;
             (void)mode;
+        }
+
+        // ====================================================================
+        // Identification and Description
+        // ====================================================================
+
+        const ComponentType getType() const override
+        {
+            return ComponentType::Residual;
         }
 
         DeviceId getDeviceId() const override

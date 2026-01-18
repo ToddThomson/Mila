@@ -8,17 +8,19 @@ export module Components.MilaComponents;
 
 // Activations
 export import Dnn.Components.Gelu;
+export import Dnn.Components.Swiglu;
 
 // Composite Layers
 export import Dnn.Blocks.MLP;
-// FIXME: export import Dnn.Blocks.Transformer;
+export import Dnn.Blocks.Transformer;
 
 // Connection Layers
 export import Dnn.Components.Residual;
 
 // Layers
 export import Dnn.Components.Attention;
-export import Dnn.Components.Gpt2Encoder;
+export import Dnn.Components.LearnedEncoder;
+export import Dnn.Components.RopeEncoder;
 export import Dnn.Components.Linear;
 
 //Losses

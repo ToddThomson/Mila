@@ -9,7 +9,7 @@
 module;
 #include <cstdint>
 
-export module Dnn.Transformer:Presets;
+export module Dnn.Blocks.Transformer:Presets;
 
 import :Config;
 import Dnn.ActivationType;
@@ -20,6 +20,33 @@ namespace Mila::Dnn
     using Mila::Dnn::TransformerConfig;
     using Mila::Dnn::ActivationType;
     using Mila::Dnn::dim_t;
+
+    /**
+     * Usage Examples:
+     *
+     * // Use a preset directly
+     * auto config = Mila::Dnn::GPT2_Small();
+     * auto transformer = Transformer( config );
+     *
+     * // Customize a preset
+     * auto config = Mila::Dnn::Llama3_2_1B()
+     *     .withResidualScale( 0.5f );  // Custom residual scaling
+     *
+     * // Mix and match for research
+     * auto hybrid = Mila::Dnn::Llama3_8B()
+     *     .withBias( true )  // Add bias (normally false for Llama)
+     *     .withActivation( ActivationType::Gelu );  // Try GELU instead of SwiGLU
+     *
+     * // Advanced: Component-level control
+     * // (Your HAL layer handles norm type, attention type, positional encoding)
+     * auto config = Mila::Dnn::Presets::Llama3_8B();
+     * auto transformer = Transformer::Builder()
+     *     .withConfig( config )
+     *     .withNormType( NormType::RMSNorm )
+     *     .withAttentionType( AttentionType::GroupedQuery, 8 )  // 8 KV heads
+     *     .withEncoding( PositionalType::RoPE, 500000.0f )
+     *     .build();
+     */
 
     // ========================================================================
     // GPT-2 Preset Family
@@ -254,29 +281,3 @@ namespace Mila::Dnn
 
 } // namespace Mila::Dnn::Presets
 
-/**
- * Usage Examples:
- *
- * // Use a preset directly
- * auto config = Mila::Dnn::Presets::GPT2_Small();
- * auto transformer = Transformer( config );
- *
- * // Customize a preset
- * auto config = Mila::Dnn::Presets::Llama3_2_1B()
- *     .withResidualScale( 0.5f );  // Custom residual scaling
- *
- * // Mix and match for research
- * auto hybrid = Mila::Dnn::Presets::Llama3_8B()
- *     .withBias( true )  // Add bias (normally false for Llama)
- *     .withActivation( ActivationType::Gelu );  // Try GELU instead of SwiGLU
- *
- * // Advanced: Component-level control
- * // (Your HAL layer handles norm type, attention type, positional encoding)
- * auto config = Mila::Dnn::Presets::Llama3_8B();
- * auto transformer = Transformer::Builder()
- *     .withConfig( config )
- *     .withNormType( NormType::RMSNorm )
- *     .withAttentionType( AttentionType::GroupedQuery, 8 )  // 8 KV heads
- *     .withEncoding( PositionalType::RoPE, 500000.0f )
- *     .build();
- */

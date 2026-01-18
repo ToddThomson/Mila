@@ -11,7 +11,7 @@ module;
 #include <sstream>
 #include <optional>
 
-export module Dnn.Transformer:Config;
+export module Dnn.Blocks.Transformer:Config;
 
 import Dnn.TensorTypes;
 import Dnn.ComponentConfig;

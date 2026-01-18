@@ -152,6 +152,11 @@ namespace Dnn::Components::Tests
             return oss.str();
         }
 
+        const ComponentType getType() const override
+        {
+            return ComponentType::MockComponent;
+        }
+
         DeviceId getDeviceId() const override
         {
             return this->getExecutionContext()->getDeviceId();

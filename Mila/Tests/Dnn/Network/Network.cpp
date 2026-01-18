@@ -84,6 +84,11 @@ namespace Dnn::Networks::Tests
             return std::string( "TestComponent:" ) + this->getName();
         }
 
+        const ComponentType getType() const override
+        {
+            return ComponentType::MockComponent;
+        }
+
         DeviceId getDeviceId() const override
         {
             return this->getExecutionContext()->getDeviceId();
@@ -174,6 +179,11 @@ namespace Dnn::Networks::Tests
         {
             throw std::runtime_error(
                 "TestableNetwork::Load: deserialization not implemented for test class" );
+        }
+
+        const ComponentType getType() const override
+        {
+            return ComponentType::MockComponent;
         }
 
     protected:

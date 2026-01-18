@@ -3,7 +3,7 @@
  * @brief Defines attention mechanism types used by transformer components.
  */
 
-    module;
+module;
 #include <string>
 #include <stdexcept>
 
