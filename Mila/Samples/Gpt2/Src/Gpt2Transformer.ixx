@@ -373,18 +373,18 @@ namespace Mila::Gpt2
             embedding_shape_ = { batch_size_, seq_length_, config_.embedding_dim };
             output_shape_ = { batch_size_, seq_length_, config_.vocab_size };
 
-            encoder_ = this->template getComponentAs<EncoderType>( this->getName() + ".encoder" );
+            encoder_ = this->template getComponentAs<EncoderType>( this->getName() + ".lenc" );
             encoder_->build( input_shape );
 
             for ( int64_t i = 0; i < config_.num_layers; ++i )
             {
-                std::string block_name = this->getName() + ".tf_layer_" + std::to_string( i );
+                std::string block_name = this->getName() + ".tf.layer_" + std::to_string( i );
                 auto block = this->template getComponentAs<TransformerBlockType>( block_name );
                 block->build( embedding_shape_ );
                 transformer_blocks_.push_back( block );
             }
 
-            final_layernorm_ = this->template getComponentAs<LayerNormType>( this->getName() + ".final_layernorm" );
+            final_layernorm_ = this->template getComponentAs<LayerNormType>( this->getName() + ".ln_final" );
             final_layernorm_->build( embedding_shape_ );
 
             lm_head_ = this->template getComponentAs<LinearType>( this->getName() + ".lm_head" );

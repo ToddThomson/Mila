@@ -158,7 +158,11 @@ namespace Mila::Dnn
             auto& attn_out = attn_->forward( qkv_out );
             this->getExecutionContext()->synchronize();
 
-            auto& res1_out = res1_->forward( input, attn_out );
+            // BUG: The Gpt2 based transformer was missing the output projection fc layer here!!!
+            auto& out_proj = out_proj_->forward( attn_out );
+            this->getExecutionContext()->synchronize();
+
+            auto& res1_out = res1_->forward( input, out_proj ); // Was attn_out due to missing output_projection fc layer );
             this->getExecutionContext()->synchronize();
 
             auto& ln2_out = ln2_->forward( res1_out );
@@ -175,6 +179,7 @@ namespace Mila::Dnn
             last_ln1_out_  = &ln1_out;
             last_qkv_out_  = &qkv_out;
             last_attn_out_ = &attn_out;
+            last_out_proj_out_ = &out_proj;
             last_res1_out_ = &res1_out;
             last_ln2_out_  = &ln2_out;
             last_ffn_out_  = &ffn_out;
@@ -238,11 +243,15 @@ namespace Mila::Dnn
             add( d_res1_from_res2, d_res1_from_ln2, *d_res1_accum_ );
 
             // Backward through res1
-            auto [d_input_from_res1, d_attn_from_res1] =
-                res1_->backward( input, *last_attn_out_, *d_res1_accum_ );
+            auto [d_input_from_res1, d_out_proj_from_res1 /* was d_attn_from_res1 */] =
+                res1_->backward( input, *last_out_proj_out_, /* *last_attn_out_, */ *d_res1_accum_ );
+
+            // BUG FIX: Added backward through out_proj layer
+            auto& d_attn_from_out_proj = out_proj_->backward( *last_attn_out_, d_out_proj_from_res1 );
+            this->getExecutionContext()->synchronize();
 
             // Attention branch
-            auto& d_qkv = attn_->backward( *last_qkv_out_, d_attn_from_res1 );
+            auto& d_qkv = attn_->backward( *last_qkv_out_, d_attn_from_out_proj /* was d_attn_from_res1 */);
             auto& d_ln1 = qkv_proj_->backward( *last_ln1_out_, d_qkv );
             auto& d_input_from_ln1 = ln1_->backward( input, d_ln1 );
 
@@ -264,6 +273,7 @@ namespace Mila::Dnn
 
             attn_->zeroGradients();
             qkv_proj_->zeroGradients();
+            out_proj_->zeroGradients();
             ln1_->zeroGradients();
             ln2_->zeroGradients();
             res1_->zeroGradients();
@@ -281,6 +291,7 @@ namespace Mila::Dnn
             ln1_->save_( archive, mode );
             ln2_->save_( archive, mode );
             qkv_proj_->save_( archive, mode );
+            out_proj_->save_( archive, mode );
             res1_->save_( archive, mode );
             res2_->save_( archive, mode );
             ffn_->save_( archive, mode );
@@ -292,6 +303,7 @@ namespace Mila::Dnn
             ln1_->load_( archive, mode );
             ln2_->load_( archive, mode );
             qkv_proj_->load_( archive, mode );
+            out_proj_->load_( archive, mode );
             res1_->load_( archive, mode );
             res2_->load_( archive, mode );
             ffn_->load_( archive, mode );
@@ -362,11 +374,14 @@ namespace Mila::Dnn
 
             cached_input_shape_ = input_shape;
 
-            ln1_ = this->template getComponentAs<LayerNormType>( this->getName() + ".lnorm_1" );
+            ln1_ = this->template getComponentAs<LayerNormType>( this->getName() + ".ln_1" );
             ln1_->build( input_shape );
 
             qkv_proj_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_qkv_proj" );
             qkv_proj_->build( input_shape );
+
+            out_proj_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_out_proj" );
+            out_proj_->build( input_shape );
 
             shape_t qkv_shape = input_shape;
             qkv_shape.back() = static_cast<int64_t>(config_.getEmbeddingDim() * 3);
@@ -374,7 +389,7 @@ namespace Mila::Dnn
             attn_ = this->template getComponentAs<AttentionType>( this->getName() + ".attn" );
             attn_->build( qkv_shape );
 
-            ln2_ = this->template getComponentAs<LayerNormType>( this->getName() + ".lnorm_2" );
+            ln2_ = this->template getComponentAs<LayerNormType>( this->getName() + ".ln_2" );
             ln2_->build( input_shape );
 
             res1_ = this->template getComponentAs<ResidualType>( this->getName() + ".res_1" );
@@ -427,6 +442,7 @@ namespace Mila::Dnn
             if ( ln1_ )      ln1_->setTraining( is_training );
             if ( ln2_ )      ln2_->setTraining( is_training );
             if ( qkv_proj_ ) qkv_proj_->setTraining( is_training );
+            if ( out_proj_ ) out_proj_->setTraining( is_training );
             if ( res1_ )     res1_->setTraining( is_training );
             if ( res2_ )     res2_->setTraining( is_training );
             if ( ffn_ )      ffn_->setTraining( is_training );
@@ -447,6 +463,7 @@ namespace Mila::Dnn
         std::shared_ptr<LayerNormType> ln1_{ nullptr };
         std::shared_ptr<LayerNormType> ln2_{ nullptr };
         std::shared_ptr<LinearType> qkv_proj_{ nullptr };
+        std::shared_ptr<LinearType> out_proj_{ nullptr };
         std::shared_ptr<ResidualType> res1_{ nullptr };
         std::shared_ptr<ResidualType> res2_{ nullptr };
         std::shared_ptr<MLPType> ffn_{ nullptr };
@@ -461,6 +478,7 @@ namespace Mila::Dnn
         TensorType* last_ln1_out_{ nullptr };
         TensorType* last_qkv_out_{ nullptr };
         TensorType* last_attn_out_{ nullptr };
+        TensorType* last_out_proj_out_{ nullptr };  // BUG FIX: Added for output projection layer
         TensorType* last_res1_out_{ nullptr };
         TensorType* last_ln2_out_{ nullptr };
         TensorType* last_ffn_out_{ nullptr };
@@ -474,17 +492,23 @@ namespace Mila::Dnn
             this->addComponent( attn_component );
 
             auto ln1_cfg = LayerNormConfig().withNormalizedShape( shape_t{ static_cast<int64_t>(config_.getEmbeddingDim()) } );
-            auto ln1_component = std::make_shared<LayerNormType>( this->getName() + ".lnorm_1", ln1_cfg, std::nullopt );
+            auto ln1_component = std::make_shared<LayerNormType>( this->getName() + ".ln_1", ln1_cfg, std::nullopt );
             this->addComponent( ln1_component );
 
             auto ln2_cfg = LayerNormConfig().withNormalizedShape( shape_t{ static_cast<int64_t>(config_.getEmbeddingDim()) } );
-            auto ln2_component = std::make_shared<LayerNormType>( this->getName() + ".lnorm_2", ln2_cfg, std::nullopt );
+            auto ln2_component = std::make_shared<LayerNormType>( this->getName() + ".ln_2", ln2_cfg, std::nullopt );
             this->addComponent( ln2_component );
 
             auto qkv_cfg = LinearConfig( static_cast<dim_t>(config_.getEmbeddingDim()), static_cast<dim_t>(config_.getEmbeddingDim() * 3) );
             qkv_cfg.withBias( config_.useBias() );
             auto qkv_component = std::make_shared<LinearType>( this->getName() + ".fc_qkv_proj", qkv_cfg, std::nullopt );
             this->addComponent( qkv_component );
+
+            // BUG: Missing output_proj layer
+            auto out_proj_cfg = LinearConfig( static_cast<dim_t>(config_.getEmbeddingDim()), static_cast<dim_t>(config_.getEmbeddingDim()) );
+            out_proj_cfg.withBias( config_.useBias() );
+            auto out_proj_component = std::make_shared<LinearType>( this->getName() + ".fc_out_proj", out_proj_cfg, std::nullopt );
+            this->addComponent( out_proj_component );
 
             ResidualConfig res_cfg1;
             res_cfg1.withScalingFactor( config_.getResidualScale() );

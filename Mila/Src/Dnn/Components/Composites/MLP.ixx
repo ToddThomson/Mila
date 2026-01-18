@@ -387,19 +387,19 @@ namespace Mila::Dnn
             cached_hidden_shape_ = input_shape;
             cached_hidden_shape_.back() = config_.getHiddenSize();
 
-            fc1_ = this->template getComponentAs<LinearType>( this->getName() + ".fc1" );
+            fc1_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_1" );
             fc1_->build( input_shape );
 
             if ( config_.useLayerNorm() )
             {
-                norm_ = this->template getComponentAs<LayerNormType>( this->getName() + ".norm" );
+                norm_ = this->template getComponentAs<LayerNormType>( this->getName() + ".ln" );
                 norm_->build( cached_hidden_shape_ );
             }
 
-            activation_ = this->template getComponentAs<GeluType>( this->getName() + ".act" );
+            activation_ = this->template getComponentAs<GeluType>( this->getName() + ".gelu" );
             activation_->build( cached_hidden_shape_ );
 
-            fc2_ = this->template getComponentAs<LinearType>( this->getName() + ".fc2" );
+            fc2_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_2" );
             fc2_->build( cached_hidden_shape_ );
 
             // Clear any cached forward pointers on new build.
@@ -466,15 +466,15 @@ namespace Mila::Dnn
          */
         void createGraph()
         {
-            addLinear( "fc1", config_.getInputFeatures(), config_.getHiddenSize() );
+            addLinear( "fc_1", config_.getInputFeatures(), config_.getHiddenSize() );
 
             if ( config_.useLayerNorm() )
             {
-                addLayerNorm( "norm" );
+                addLayerNorm( "ln" );
             }
 
-            addActivation( "act" );
-            addLinear( "fc2", config_.getHiddenSize(), config_.getInputFeatures() );
+            addActivation( "gelu" );
+            addLinear( "fc_2", config_.getHiddenSize(), config_.getInputFeatures() );
         }
 
         /**

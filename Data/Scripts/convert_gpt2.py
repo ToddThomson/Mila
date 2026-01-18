@@ -20,25 +20,32 @@ from common import MilaWeightWriter, convert_dtype
 
 def convert_gpt2(model_name: str, output_path: str, dtype: str = 'float32'):
     """
-    Convert GPT-2 model to Mila format.
+    Convert GPT-2 model to Mila component format.
     
     GPT-2 Architecture (Mila component mapping):
-    - transformer.wte.weight -> token_embedding.weight
-    - transformer.wpe.weight -> position_embedding.weight
-    - transformer.h.{i}.ln_1.weight -> layers.{i}.norm1.weight
-    - transformer.h.{i}.ln_1.bias -> layers.{i}.norm1.bias
-    - transformer.h.{i}.attn.c_attn.weight -> layers.{i}.attention.qkv_proj.weight
-    - transformer.h.{i}.attn.c_attn.bias -> layers.{i}.attention.qkv_proj.bias
-    - transformer.h.{i}.attn.c_proj.weight -> layers.{i}.attention.out_proj.weight
-    - transformer.h.{i}.attn.c_proj.bias -> layers.{i}.attention.out_proj.bias
-    - transformer.h.{i}.ln_2.weight -> layers.{i}.norm2.weight
-    - transformer.h.{i}.ln_2.bias -> layers.{i}.norm2.bias
-    - transformer.h.{i}.mlp.c_fc.weight -> layers.{i}.mlp.fc1.weight
-    - transformer.h.{i}.mlp.c_fc.bias -> layers.{i}.mlp.fc1.bias
-    - transformer.h.{i}.mlp.c_proj.weight -> layers.{i}.mlp.fc2.weight
-    - transformer.h.{i}.mlp.c_proj.bias -> layers.{i}.mlp.fc2.bias
-    - transformer.ln_f.weight -> final_norm.weight
-    - transformer.ln_f.bias -> final_norm.bias
+    - transformer.wte.weight -> wte.weight
+    - transformer.wpe.weight -> wpe.weight
+
+    - transformer.h.{i}.ln_1.weight -> tf.layer_{i}.ln_1.weight
+    - transformer.h.{i}.ln_1.bias -> tf.layer_{i}.ln_1.bias
+
+    - transformer.h.{i}.attn.c_attn.weight -> tf.layer_{i}.fc_qkv_proj.weight
+    - transformer.h.{i}.attn.c_attn.bias -> tf.layer_{i}.fc_qkv_proj.bias
+
+    - transformer.h.{i}.attn.c_proj.weight -> tf.layer_{i}.fc_out_proj.weight
+    - transformer.h.{i}.attn.c_proj.bias -> tf.layer_{i}.fc_out_proj.bias
+
+    - transformer.h.{i}.ln_2.weight -> tf.layer_{i}.ln_2.weight
+    - transformer.h.{i}.ln_2.bias -> tf.layer_{i}.ln_2.bias
+
+    - transformer.h.{i}.mlp.c_fc.weight -> tf.layer_{i}.mlp.fc_1.weight
+    - transformer.h.{i}.mlp.c_fc.bias -> tf.layer_{i}.mlp.fc_1.bias
+    - transformer.h.{i}.mlp.c_proj.weight -> tf.layer_{i}.mlp.fc_2.weight
+    - transformer.h.{i}.mlp.c_proj.bias -> tf.layer_{i}.mlp.fc_2.bias
+
+    - transformer.ln_f.weight -> ln_final.weight
+    - transformer.ln_f.bias -> ln_final.bias
+
     - lm_head.weight -> lm_head.weight
     """
     
@@ -75,88 +82,88 @@ def convert_gpt2(model_name: str, output_path: str, dtype: str = 'float32'):
     # Convert weights
     state_dict = model.state_dict()
     
-    # Token embeddings
+    # Token embeddings (HuggingFace transformer.wte -> Mila wte)
     writer.add_tensor(
-        'token_embedding.weight',
+        'wte.weight',
         convert_dtype(state_dict['transformer.wte.weight'].numpy(), dtype)
     )
     
-    # Position embeddings
+    # Position embeddings (transformer.wpe -> wpe)
     writer.add_tensor(
-        'position_embedding.weight',
+        'wpe.weight',
         convert_dtype(state_dict['transformer.wpe.weight'].numpy(), dtype)
     )
     
-    # Transformer layers
+    # Transformer layers using the new mapping (tf.layer_{i}.*)
     for i in range(config.n_layer):
         prefix_hf = f'transformer.h.{i}'
-        prefix_mila = f'layers.{i}'
+        prefix_mila = f'tf.layer_{i}'
         
         # Layer Norm 1 (pre-attention)
         writer.add_tensor(
-            f'{prefix_mila}.norm1.weight',
+            f'{prefix_mila}.ln_1.weight',
             convert_dtype(state_dict[f'{prefix_hf}.ln_1.weight'].numpy(), dtype)
         )
         writer.add_tensor(
-            f'{prefix_mila}.norm1.bias',
+            f'{prefix_mila}.ln_1.bias',
             convert_dtype(state_dict[f'{prefix_hf}.ln_1.bias'].numpy(), dtype)
         )
         
-        # Attention (c_attn is fused QKV projection)
+        # Attention (c_attn is fused QKV projection -> fc_qkv_proj)
         writer.add_tensor(
-            f'{prefix_mila}.attention.qkv_proj.weight',
+            f'{prefix_mila}.fc_qkv_proj.weight',
             convert_dtype(state_dict[f'{prefix_hf}.attn.c_attn.weight'].numpy(), dtype)
         )
         writer.add_tensor(
-            f'{prefix_mila}.attention.qkv_proj.bias',
+            f'{prefix_mila}.fc_qkv_proj.bias',
             convert_dtype(state_dict[f'{prefix_hf}.attn.c_attn.bias'].numpy(), dtype)
         )
         
-        # Attention output projection
+        # Attention output projection -> fc_out_proj
         writer.add_tensor(
-            f'{prefix_mila}.attention.out_proj.weight',
+            f'{prefix_mila}.fc_out_proj.weight',
             convert_dtype(state_dict[f'{prefix_hf}.attn.c_proj.weight'].numpy(), dtype)
         )
         writer.add_tensor(
-            f'{prefix_mila}.attention.out_proj.bias',
+            f'{prefix_mila}.fc_out_proj.bias',
             convert_dtype(state_dict[f'{prefix_hf}.attn.c_proj.bias'].numpy(), dtype)
         )
         
         # Layer Norm 2 (pre-MLP)
         writer.add_tensor(
-            f'{prefix_mila}.norm2.weight',
+            f'{prefix_mila}.ln_2.weight',
             convert_dtype(state_dict[f'{prefix_hf}.ln_2.weight'].numpy(), dtype)
         )
         writer.add_tensor(
-            f'{prefix_mila}.norm2.bias',
+            f'{prefix_mila}.ln_2.bias',
             convert_dtype(state_dict[f'{prefix_hf}.ln_2.bias'].numpy(), dtype)
         )
         
-        # MLP
+        # MLP (c_fc -> mlp.fc_1, c_proj -> mlp.fc_2)
         writer.add_tensor(
-            f'{prefix_mila}.mlp.fc1.weight',
+            f'{prefix_mila}.mlp.fc_1.weight',
             convert_dtype(state_dict[f'{prefix_hf}.mlp.c_fc.weight'].numpy(), dtype)
         )
         writer.add_tensor(
-            f'{prefix_mila}.mlp.fc1.bias',
+            f'{prefix_mila}.mlp.fc_1.bias',
             convert_dtype(state_dict[f'{prefix_hf}.mlp.c_fc.bias'].numpy(), dtype)
         )
         writer.add_tensor(
-            f'{prefix_mila}.mlp.fc2.weight',
+            f'{prefix_mila}.mlp.fc_2.weight',
             convert_dtype(state_dict[f'{prefix_hf}.mlp.c_proj.weight'].numpy(), dtype)
         )
         writer.add_tensor(
-            f'{prefix_mila}.mlp.fc2.bias',
+            f'{prefix_mila}.mlp.fc_2.bias',
             convert_dtype(state_dict[f'{prefix_hf}.mlp.c_proj.bias'].numpy(), dtype)
         )
     
-    # Final layer norm
+    # Final layer norm -> ln_final
     writer.add_tensor(
-        'final_norm.weight',
+        'ln_final.weight',
         convert_dtype(state_dict['transformer.ln_f.weight'].numpy(), dtype)
     )
     writer.add_tensor(
-        'final_norm.bias',
+        'ln_final.bias',
         convert_dtype(state_dict['transformer.ln_f.bias'].numpy(), dtype)
     )
     

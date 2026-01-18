@@ -407,19 +407,19 @@ namespace Mila::Mnist
             output_shape_.back() = MNIST_NUM_CLASSES;
 
             // Cache typed pointers to children
-            fc1_ = this->template getComponentAs<LinearType>( this->getName() + ".fc1" );
+            fc1_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_1" );
             fc1_->build( input_shape );
 
-            gelu1_ = this->template getComponentAs<GeluType>( this->getName() + ".gelu1" );
+            gelu1_ = this->template getComponentAs<GeluType>( this->getName() + ".gelu_1" );
             gelu1_->build( hidden1_shape_ );
 
-            fc2_ = this->template getComponentAs<LinearType>( this->getName() + ".fc2" );
+            fc2_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_2" );
             fc2_->build( hidden1_shape_ );
 
-            gelu2_ = this->template getComponentAs<GeluType>( this->getName() + ".gelu2" );
+            gelu2_ = this->template getComponentAs<GeluType>( this->getName() + ".gelu_2" );
             gelu2_->build( hidden2_shape_ );
 
-            output_fc_ = this->template getComponentAs<LinearType>( this->getName() + ".output" );
+            output_fc_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_output" );
             output_fc_->build( hidden2_shape_ );
 
             // Allocate network-owned output buffer (logits)
@@ -481,11 +481,11 @@ namespace Mila::Mnist
          */
         void createGraph()
         {
-            addLinear( "fc1", MNIST_IMAGE_SIZE, HIDDEN1_SIZE );
-            addActivation( "gelu1" );
-            addLinear( "fc2", HIDDEN1_SIZE, HIDDEN2_SIZE );
-            addActivation( "gelu2" );
-            addLinear( "output", HIDDEN2_SIZE, MNIST_NUM_CLASSES );
+            addLinear( "fc_1", MNIST_IMAGE_SIZE, HIDDEN1_SIZE );
+            addActivation( "gelu_1" );
+            addLinear( "fc_2", HIDDEN1_SIZE, HIDDEN2_SIZE );
+            addActivation( "gelu_2" );
+            addLinear( "fc_output", HIDDEN2_SIZE, MNIST_NUM_CLASSES );
         }
 
         /**
@@ -500,7 +500,7 @@ namespace Mila::Mnist
             auto cfg = LinearConfig( in_features, out_features )
                 .withBias( false );
 
-            auto linear = std::make_shared<LinearType>( 
+            auto linear = std::make_shared<LinearType>(
                 this->getName() + "." + suffix, cfg, std::nullopt );
 
             this->addComponent( linear );
