@@ -402,7 +402,7 @@ namespace Mila::Dnn
          */
         void loadTensorIntoComponent( ModelReader& reader, const std::string& name )
         {
-            // Split "component_path.param" (e.g. "layers.0.mlp.fc1.weight")
+            // Split "component_path.param" (e.g. "tf.layer_0.mlp.fc_1.weight")
             auto last_dot = name.rfind( '.' );
             if ( last_dot == std::string::npos )
                 throw std::runtime_error( "Invalid tensor name (no parameter part): " + name );
@@ -549,37 +549,39 @@ namespace Mila::Dnn
         }
         
         /**
-         * @brief Save component graph topology.
-         *
-         * Writes the component manifest (list of child components) and
-         * recursively saves each component's state with scoped namespacing.
-         *
-         * Archive structure:
-         * - network/architecture.json: Component manifest metadata
-         * - network/components_list.json: Array of component names (for ordering)
-         * - network/component_<name>.json: Individual component descriptor
-         * - components/<name>/...: Component state (via recursive save_)
-         *
-         * Components are saved in deterministic (sorted by name) order for
-         * reproducible archives.
-         *
-         * @param archive Archive to write to
-         * @param mode Serialization mode (passed to children)
-         */
+ * @brief Save component graph topology.
+ *
+ * Writes the component manifest (list of child components) and
+ * recursively saves each component's state with scoped namespacing.
+ *
+ * Archive structure:
+ * - network/architecture.json: Component manifest metadata
+ * - network/components_list.json: Array of component names (for ordering)
+ * - network/component_<name>.json: Individual component descriptor
+ * - components/<name>/...: Component state (via recursive save_)
+ *
+ * Components are saved in deterministic (sorted by name) order for
+ * reproducible archives.
+ *
+ * @param archive Archive to write to
+ * @param mode Serialization mode (passed to children)
+ */
         void saveComponentGraph( ModelArchive& archive, SerializationMode mode ) const
         {
-            const auto& named_map = this->getNamedComponents();
+            // Use the insertion-order component list API (getComponents) instead of the
+            // deprecated getNamedComponents() map.
+            const auto& components = this->getComponents();
             std::vector<std::string> names;
-            names.reserve( named_map.size() );
+            names.reserve( components.size() );
 
-            for ( const auto& pair : named_map )
+            for ( const auto& comp : components )
             {
-                names.push_back( pair.first );
+                names.push_back( comp->getName() );
             }
 
             std::sort( names.begin(), names.end() );
 
-            // Save architecture metadata (component count)
+            // Save architecture metadata
             SerializationMetadata arch_meta;
             arch_meta.set( "num_components", static_cast<int64_t>(names.size()) );
             archive.writeMetadata( "network/architecture.json", arch_meta );
@@ -597,12 +599,20 @@ namespace Mila::Dnn
                 archive.writeMetadata( "network/component_" + nm + ".json", comp_desc );
             }
 
+            // Build a local name -> component map for fast lookup
+            std::unordered_map<std::string, ComponentPtr> name_map;
+            name_map.reserve( components.size() );
+            for ( const auto& comp : components )
+            {
+                name_map.emplace( comp->getName(), comp );
+            }
+
             // Recursively save each child component
             for ( const auto& nm : names )
             {
-                auto it = named_map.find( nm );
+                auto it = name_map.find( nm );
 
-                if ( it == named_map.end() )
+                if ( it == name_map.end() )
                 {
                     throw std::runtime_error(
                         "Network::save: inconsistent component map for '" + nm + "'" );

@@ -12,11 +12,13 @@
 - Core NN components with backward() implemented (Linear, Gelu, Softmax, CrossEntropy, etc.)
 - CUDA + CPU kernels for all built-in components and backend operations
 - MLP Block implementation
+- Gpt Block implementation
+- Llama Block implementation
 - MNIST network implementation
 - MNIST data pipeline (functional)
 - DatasetReader interface (good, not production-ready)
 - AdamW optimizer (working with MNIST training loop)
-- Low-level training API (working)
+- Network level training API (working)
 - Test-driven development (~60% coverage)
 
 ### 🚧 Needs Work

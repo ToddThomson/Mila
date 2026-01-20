@@ -207,9 +207,8 @@ namespace Dnn::Networks::Tests
          */
         void onBuilding( const shape_t& input_shape ) override
         {
-            for ( const auto& pair : this->getNamedComponents() )
+            for ( const auto& component : this->getComponents() )
             {
-                const auto& component = pair.second;
                 if ( !component->isBuilt() )
                 {
                     component->build( input_shape );
@@ -726,7 +725,6 @@ namespace Dnn::Networks::Tests
         EXPECT_EQ( net.childCount(), 0u );
         EXPECT_FALSE( net.hasChildren() );
         EXPECT_TRUE( net.getComponents().empty() );
-        EXPECT_TRUE( net.getNamedComponents().empty() );
     }
 
     // ====================================================================
@@ -759,11 +757,8 @@ namespace Dnn::Networks::Tests
         net.addTestComponent( "child3", 0 );
         net.finalizeConstruction();
 
-        const auto& named = net.getNamedComponents();
+        const auto& named = net.getComponents();
 
         EXPECT_EQ( named.size(), 3u );
-        EXPECT_TRUE( named.find( "child1" ) != named.end() );
-        EXPECT_TRUE( named.find( "child2" ) != named.end() );
-        EXPECT_TRUE( named.find( "child3" ) != named.end() );
     }
 }

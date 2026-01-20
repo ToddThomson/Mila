@@ -12,7 +12,7 @@ module;
 #include <utility>
 #include <sstream>
 
-export module Dnn.Blocks.MLP:Config;
+export module Dnn.Components.MLP:Config;
 
 import Dnn.TensorTypes;
 import Dnn.ComponentConfig;

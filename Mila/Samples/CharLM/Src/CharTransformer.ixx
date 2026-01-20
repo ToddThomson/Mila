@@ -76,7 +76,7 @@ namespace Mila::CharLM
         using TensorType = Tensor<TPrecision, MR>;
         using LinearType = Linear<TDeviceType, TPrecision>;
         using LayerNormType = LayerNorm<TDeviceType, TPrecision>;
-        using TransformerBlockType = Transformer<TDeviceType, TPrecision>;
+        using TransformerBlockType = GptBlock<TDeviceType, TPrecision>;
         using EncoderType = LearnedEncoder<TDeviceType, dtype_t::INT32, TPrecision>;
         using TokenIndexType = Tensor<dtype_t::INT32, MR>;
         using ComponentPtr = typename NetworkBase::ComponentPtr;
@@ -563,10 +563,10 @@ namespace Mila::CharLM
 
             for ( int64_t i = 0; i < config_.num_layers; ++i )
             {
-                TransformerConfig tf_cfg( static_cast<dim_t>( config_.embedding_dim ),
+                GptBlockConfig tf_cfg( static_cast<dim_t>( config_.embedding_dim ),
                     static_cast<dim_t>( config_.num_heads ) );
 
-                tf_cfg.withHiddenDimension( static_cast<dim_t>( config_.mlp_hidden_dim ) )
+                tf_cfg.withHiddenSize( static_cast<dim_t>( config_.mlp_hidden_dim ) )
                     .withBias( false )
                     .withActivation( ActivationType::Gelu )
                     .withResidualScale( 1.0f / sqrtf( static_cast<float>( config_.num_layers ) ) );

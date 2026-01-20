@@ -157,7 +157,7 @@ namespace Dnn::Core::Tests
 
         void onBuilding( const shape_t& input_shape ) override
         {
-            for ( const auto& [name, component] : this->getNamedComponents() )
+            for ( const auto& component : this->getComponents() )
             {
                 if ( !component->isBuilt() )
                 {
@@ -525,7 +525,6 @@ namespace Dnn::Core::Tests
         EXPECT_EQ( comp_->childCount(), 0u );
         EXPECT_FALSE( comp_->hasChildren() );
         EXPECT_TRUE( comp_->getComponents().empty() );
-        EXPECT_TRUE( comp_->getNamedComponents().empty() );
     }
 
     TEST_F( CompositeComponentTests, GetComponents_ReturnsInsertionOrder )
@@ -540,20 +539,6 @@ namespace Dnn::Core::Tests
         EXPECT_EQ( components[ 0 ]->parameterCount(), 1u );
         EXPECT_EQ( components[ 1 ]->parameterCount(), 2u );
         EXPECT_EQ( components[ 2 ]->parameterCount(), 3u );
-    }
-
-    TEST_F( CompositeComponentTests, GetNamedComponents_ContainsAllChildren )
-    {
-        comp_->addTestChild( "child1", 0 );
-        comp_->addTestChild( "child2", 0 );
-        comp_->addTestChild( "child3", 0 );
-
-        const auto& named = comp_->getNamedComponents();
-
-        EXPECT_EQ( named.size(), 3u );
-        EXPECT_TRUE( named.find( "child1" ) != named.end() );
-        EXPECT_TRUE( named.find( "child2" ) != named.end() );
-        EXPECT_TRUE( named.find( "child3" ) != named.end() );
     }
 
     // ====================================================================

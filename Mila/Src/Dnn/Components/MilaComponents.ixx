@@ -11,8 +11,9 @@ export import Dnn.Components.Gelu;
 export import Dnn.Components.Swiglu;
 
 // Composite Layers
-export import Dnn.Blocks.MLP;
-export import Dnn.Blocks.Transformer;
+export import Dnn.Components.MLP;
+export import Dnn.Components.GptBlock;
+export import Dnn.Components.LlamaBlock;
 
 // Connection Layers
 export import Dnn.Components.Residual;

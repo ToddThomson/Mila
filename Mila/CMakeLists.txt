@@ -219,9 +219,9 @@ PUBLIC
         #"Src/Dnn/Components/Regularization/DropoutConfig.ixx"
         
         "Src/Dnn/Components/Composites/MLP.ixx"
-        "Src/Dnn/Components/Composites/MLPConfig.ixx"
-        "Src/Dnn/Components/Composites/Transformer.ixx"
-        "Src/Dnn/Components/Composites/Transformer.Config.ixx"
+        "Src/Dnn/Components/Composites/MLP.Config.ixx"
+        "Src/Dnn/Components/Composites/GptBlock.ixx"
+        "Src/Dnn/Components/Composites/GptBlock.Config.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Compute (core)
@@ -306,8 +306,8 @@ PUBLIC
         #----------------------------------------------------------------------
         # Network
         #----------------------------------------------------------------------
-        "Src/Dnn/Network/Network.ixx"
-        "Src/Dnn/Network/NetworkFactory.ixx"
+        "Src/Dnn/Core/Network.ixx"
+        "Src/Dnn/Core/NetworkFactory.ixx"
 
         #----------------------------------------------------------------------
         # Dnn / Modeling
@@ -347,7 +347,7 @@ PUBLIC
         "Src/Dnn/Core/LearningRateScheduler.ixx"
         
         
- "Src/Dnn/Components/Activations/ApproximationMethod.ixx" "Src/Dnn/Components/Composites/Transformer.Presets.ixx" "Src/Dnn/Components/Attention/AttentionType.ixx" "Src/Dnn/Components/Normalization/NormType.ixx" "Src/Dnn/Components/Encoding/EncodingType.ixx" "Src/Dnn/Network/ModelReader.ixx")
+ "Src/Dnn/Components/Activations/ApproximationMethod.ixx" "Src/Dnn/Networks/Gpt.Presets.ixx" "Src/Dnn/Components/Attention/AttentionType.ixx" "Src/Dnn/Components/Normalization/NormType.ixx" "Src/Dnn/Components/Encoding/EncodingType.ixx" "Src/Dnn/Core/ModelReader.ixx" "Src/Dnn/Networks/Gpt.ixx" "Src/Dnn/Components/Composites/LlamaBlock.ixx" "Src/Dnn/Components/Composites/LlamaBlock.Config.ixx" "Src/Dnn/Networks/Gpt.Config.ixx" "Src/Dnn/Networks/Llama.ixx" "Src/Dnn/Networks/Llama.Config.ixx" "Src/Dnn/Networks/TransformerConfig.ixx" "Src/Dnn/Networks/Llama.Presets.ixx" "Src/Dnn/Data/Tokenizer.ixx" "Src/Dnn/Data/GptTokenizer.ixx" "Src/Dnn/Data/LlamaTokenizer.ixx")
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 

@@ -807,7 +807,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                     "CudaAttentionOp: input must have rank 3 (batch_size, seq_length, 3*embedding_dim)" );
             }
 
-            const int64_t expected_qkv_dim = 3 * config_.getEmbeddingDim();
+            const int64_t expected_qkv_dim = 3 * config_.getEmbeddingSize();
 
             if ( input_shape[ 2 ] != expected_qkv_dim )
             {

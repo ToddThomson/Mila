@@ -1,17 +1,10 @@
-/**
- * @file TransformerConfig.ixx (Extended Version)
- * @brief Enhanced configuration supporting component selection for presets.
- */
-
 module;
 #include <stdexcept>
-#include <vector>
-#include <utility>
 #include <string>
 #include <sstream>
 #include <optional>
 
-export module Dnn.Blocks.Transformer:Config;
+export module Dnn.Components.LlamaBlock:Config;
 
 import Dnn.TensorTypes;
 import Dnn.ComponentConfig;
@@ -26,42 +19,41 @@ namespace Mila::Dnn
     using Serialization::SerializationMetadata;
 
     /**
-     * @brief Configuration class for Transformer modules.
+     * @brief LLaMA-style transformer block configuration.
      *
-     * Holds the embedding dimension, attention head count, MLP/attention options,
-     * and component type selections for architectural flexibility.
+     * Provides the LLaMA-favored defaults (RMSNorm, RoPE with large theta, MQA KV heads = 1)
+     * and the fluent API used by factories and tests. This partition derives from
+     * ComponentConfig directly and is independent from the GPT block partition.
      */
-    export class TransformerConfig : public ComponentConfig
+    export class LlamaBlockConfig : public ComponentConfig
     {
     public:
-        /**
-         * @brief Construct a Transformer configuration.
-         *
-         * @param embedding_dim Model embedding dimension. Must be > 0.
-         * @param num_heads Number of query attention heads. Must be > 0 and must divide embedding_dim evenly.
-         */
-        TransformerConfig( dim_t embedding_dim, dim_t num_heads )
+        LlamaBlockConfig( dim_t embedding_dim, dim_t num_heads )
             : embedding_dim_( embedding_dim ), num_heads_( num_heads )
         {
             if ( embedding_dim <= 0 )
             {
-                throw std::invalid_argument( "TransformerConfig: embedding_dim must be > 0" );
+                throw std::invalid_argument( "LlamaTransformerBlockConfig: embedding_dim must be > 0" );
             }
 
             if ( num_heads <= 0 )
             {
-                throw std::invalid_argument( "TransformerConfig: num_heads must be > 0" );
+                throw std::invalid_argument( "LlamaTransformerBlockConfig: num_heads must be > 0" );
             }
 
             if ( embedding_dim % num_heads != 0 )
             {
-                throw std::invalid_argument( "TransformerConfig: embedding_dim must be divisible by num_heads" );
+                throw std::invalid_argument( "LlamaTransformerBlockConfig: embedding_dim must be divisible by num_heads" );
             }
-        }
 
-        // ====================================================================
-        // Fluent setters for dimensions and basic config
-        // ====================================================================
+            // LLaMA defaults
+            norm_type_ = NormType::RMSNorm;
+            encoding_type_ = EncodingType::RoPE;
+            rope_theta_ = 500000.0f;
+            norm_epsilon_ = 1e-5f;
+            num_kv_heads_ = 1;     // Multi-Query Attention common in LLaMA
+            max_seq_len_ = 8192;
+        }
 
         template <typename Self>
         decltype(auto) withHiddenDimension( this Self&& self, dim_t hidden_dim )
@@ -91,15 +83,6 @@ namespace Mila::Dnn
             return std::forward<Self>( self );
         }
 
-        // ====================================================================
-        // Fluent setters for component selection (Llama-specific features)
-        // ====================================================================
-
-        /**
-         * @brief Set normalization layer type.
-         *
-         * @param norm_type LayerNorm (GPT-2) or RMSNorm (LLaMA)
-         */
         template <typename Self>
         decltype(auto) withNormType( this Self&& self, NormType norm_type )
         {
@@ -107,11 +90,6 @@ namespace Mila::Dnn
             return std::forward<Self>( self );
         }
 
-        /**
-         * @brief Set attention mechanism type.
-         *
-         * @param attention_type Standard (MHA), GroupedQuery (GQA), or MultiQuery (MQA)
-         */
         template <typename Self>
         decltype(auto) withAttentionType( this Self&& self, AttentionType attention_type )
         {
@@ -119,28 +97,18 @@ namespace Mila::Dnn
             return std::forward<Self>( self );
         }
 
-        /**
-         * @brief Set number of key-value heads for GQA/MQA.
-         *
-         * @param num_kv_heads Number of KV heads. For MQA, use 1. For GQA, typically 4-8.
-         *                     Must divide num_heads evenly.
-         */
         template <typename Self>
         decltype(auto) withKVHeads( this Self&& self, dim_t num_kv_heads )
         {
-            if ( num_kv_heads > 0 && self.num_heads_ % num_kv_heads != 0 )
+            if ( num_kv_heads > 0 && (self.num_heads_ % num_kv_heads != 0) )
             {
-                throw std::invalid_argument( "num_heads must be divisible by num_kv_heads" );
+                throw std::invalid_argument( "LlamaTransformerBlockConfig: num_heads must be divisible by num_kv_heads" );
             }
+
             self.num_kv_heads_ = num_kv_heads;
             return std::forward<Self>( self );
         }
 
-        /**
-         * @brief Set positional encoding type.
-         *
-         * @param pos_type Learned (GPT-2), RoPE (LLaMA), or ALiBi (MPT/BLOOM)
-         */
         template <typename Self>
         decltype(auto) withEncoding( this Self&& self, EncodingType pos_type )
         {
@@ -148,11 +116,6 @@ namespace Mila::Dnn
             return std::forward<Self>( self );
         }
 
-        /**
-         * @brief Set RoPE theta base frequency.
-         *
-         * @param theta Base frequency for RoPE. LLaMA 3 uses 500000.0f.
-         */
         template <typename Self>
         decltype(auto) withRoPETheta( this Self&& self, float theta )
         {
@@ -160,11 +123,6 @@ namespace Mila::Dnn
             return std::forward<Self>( self );
         }
 
-        /**
-         * @brief Set RoPE scaling factor for extended context.
-         *
-         * @param scale_factor Scaling factor. LLaMA 3.1 uses 8.0f for 128K context.
-         */
         template <typename Self>
         decltype(auto) withRoPEScaling( this Self&& self, float scale_factor )
         {
@@ -172,11 +130,6 @@ namespace Mila::Dnn
             return std::forward<Self>( self );
         }
 
-        /**
-         * @brief Set maximum sequence length for positional encodings.
-         *
-         * @param max_seq_len Maximum sequence length. LLaMA 3: 8192, LLaMA 3.1: 131072
-         */
         template <typename Self>
         decltype(auto) withMaxSequenceLength( this Self&& self, dim_t max_seq_len )
         {
@@ -184,11 +137,6 @@ namespace Mila::Dnn
             return std::forward<Self>( self );
         }
 
-        /**
-         * @brief Set RMSNorm epsilon for numerical stability.
-         *
-         * @param eps Epsilon value. LLaMA uses 1e-5f.
-         */
         template <typename Self>
         decltype(auto) withNormEpsilon( this Self&& self, float eps )
         {
@@ -196,11 +144,9 @@ namespace Mila::Dnn
             return std::forward<Self>( self );
         }
 
-        // ====================================================================
         // Getters
-        // ====================================================================
 
-        dim_t getEmbeddingDim() const noexcept {
+        dim_t getEmbeddingSize() const noexcept {
             return embedding_dim_;
         }
         dim_t getNumHeads() const noexcept {
@@ -219,18 +165,18 @@ namespace Mila::Dnn
             return residual_scale_;
         }
 
-        // Component selection getters
         NormType getNormType() const noexcept {
             return norm_type_;
         }
         AttentionType getAttentionType() const noexcept {
             return attention_type_;
         }
+
         dim_t getNumKVHeads() const noexcept
         {
-            // Default to num_heads if not set (standard MHA)
             return num_kv_heads_ > 0 ? num_kv_heads_ : num_heads_;
         }
+
         EncodingType getEncodingType() const noexcept {
             return encoding_type_;
         }
@@ -247,56 +193,53 @@ namespace Mila::Dnn
             return norm_epsilon_;
         }
 
-        /**
-         * @brief Get effective hidden dimension with default fallback.
-         *
-         * @return Hidden dimension, defaulting to 4x embedding_dim if not set.
-         */
         dim_t getEffectiveHiddenDimension() const noexcept
         {
             return hidden_dim_ > 0 ? hidden_dim_ : (embedding_dim_ * 4);
         }
 
+        // Validation
+
         void validate() const override
         {
             if ( embedding_dim_ <= 0 )
             {
-                throw std::invalid_argument( "Embedding dimension must be greater than zero" );
+                throw std::invalid_argument( "LlamaTransformerBlockConfig: embedding_dim must be greater than zero" );
             }
 
             if ( num_heads_ == 0 )
             {
-                throw std::invalid_argument( "Number of attention heads must be greater than zero" );
+                throw std::invalid_argument( "LlamaTransformerBlockConfig: num_heads must be greater than zero" );
             }
 
             if ( embedding_dim_ % num_heads_ != 0 )
             {
-                throw std::invalid_argument( "Embedding dimension must be divisible by number of heads" );
+                throw std::invalid_argument( "LlamaTransformerBlockConfig: embedding_dim must be divisible by num_heads" );
             }
 
-            // Validate KV heads for GQA/MQA
             if ( num_kv_heads_ > 0 )
             {
                 if ( num_heads_ % num_kv_heads_ != 0 )
                 {
-                    throw std::invalid_argument( "Number of query heads must be divisible by number of KV heads" );
+                    throw std::invalid_argument( "LlamaTransformerBlockConfig: num_heads must be divisible by num_kv_heads" );
                 }
 
                 if ( attention_type_ == AttentionType::Standard && num_kv_heads_ != num_heads_ )
                 {
-                    throw std::invalid_argument( "Standard attention requires num_kv_heads == num_heads" );
+                    throw std::invalid_argument( "LlamaTransformerBlockConfig: standard attention requires num_kv_heads == num_heads" );
                 }
             }
 
-            // Validate RoPE settings
             if ( encoding_type_ == EncodingType::RoPE )
             {
                 if ( rope_theta_ <= 0.0f )
                 {
-                    throw std::invalid_argument( "RoPE theta must be positive" );
+                    throw std::invalid_argument( "LlamaTransformerBlockConfig: RoPE theta must be positive" );
                 }
             }
         }
+
+        // Serialization
 
         SerializationMetadata toMetadata() const
         {
@@ -357,7 +300,7 @@ namespace Mila::Dnn
         std::string toString() const override
         {
             std::ostringstream oss;
-            oss << "Transformer Configuration:\n";
+            oss << "LLaMA Transformer Block Configuration:\n";
             oss << "  Embedding Dim: " << embedding_dim_ << "\n";
             oss << "  Num Heads: " << num_heads_ << "\n";
             oss << "  Num KV Heads: " << getNumKVHeads() << "\n";
@@ -381,11 +324,11 @@ namespace Mila::Dnn
                     break;
                 case EncodingType::ALiBi: oss << "ALiBi\n"; break;
             }
+
             return oss.str();
         }
 
     private:
-        // Original fields
         dim_t embedding_dim_;
         dim_t num_heads_;
         dim_t hidden_dim_ = 0;
@@ -393,36 +336,13 @@ namespace Mila::Dnn
         ActivationType activation_type_ = ActivationType::Gelu;
         float residual_scale_ = 1.0f;
 
-        // Component selection fields
-        NormType norm_type_ = NormType::LayerNorm;
-        AttentionType attention_type_ = AttentionType::Standard;
-        dim_t num_kv_heads_ = 0;  // 0 means use num_heads (standard MHA)
-        EncodingType encoding_type_ = EncodingType::Learned;
-        float rope_theta_ = 10000.0f;
+        NormType norm_type_ = NormType::RMSNorm;
+        AttentionType attention_type_ = AttentionType::MultiQuery;
+        dim_t num_kv_heads_ = 1;
+        EncodingType encoding_type_ = EncodingType::RoPE;
+        float rope_theta_ = 500000.0f;
         float rope_scaling_factor_ = 1.0f;
-        dim_t max_seq_len_ = 2048;
+        dim_t max_seq_len_ = 8192;
         float norm_epsilon_ = 1e-5f;
     };
 }
-
-/**
- * Usage Example with Presets:
- *
- * // Simple GPT-2 (defaults work)
- * auto config = Presets::GPT2_Small();
- * auto model = Transformer<DeviceType::CUDA, float32>(config);
- *
- * // Llama 3 8B (explicitly configure components)
- * auto config = Presets::Llama3_8B();
- * auto model = Transformer<DeviceType::CUDA, bfloat16>(config);
- * // Your createGraph() will inspect config to build RMSNorm, GQA, SwiGLU, RoPE
- *
- * // Research: Llama architecture with LayerNorm instead of RMSNorm
- * auto config = Presets::Llama3_8B()
- *     .withNormType(NormType::LayerNorm);
- *
- * // Research: GPT-2 but with RoPE instead of learned positions
- * auto config = Presets::GPT2_Small()
- *     .withPositionalEncoding(EncodingType::RoPE)
- *     .withRoPETheta(10000.0f);
- */

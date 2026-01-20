@@ -114,17 +114,17 @@ namespace CompositeComponents_Tests
     // ====================================================================
 
     template<TensorDataType TPrecision>
-    class TransformerTestNetwork : public Network<DeviceType::Cuda, TPrecision>
+    class GptBlockTestNetwork : public Network<DeviceType::Cuda, TPrecision>
     {
     private:
         std::unique_ptr<IExecutionContext> owned_context_;
-        std::shared_ptr<Transformer<DeviceType::Cuda, TPrecision>> transformer_;
-        TransformerConfig config_;
+        std::shared_ptr<GptBlock<DeviceType::Cuda, TPrecision>> block_;
+        GptBlockConfig config_;
 
     public:
-        explicit TransformerTestNetwork(
+        explicit GptBlockTestNetwork(
             const std::string& name,
-            const TransformerConfig& config,
+            const GptBlockConfig& config,
             DeviceId device_id )
             : Network<DeviceType::Cuda, TPrecision>( name ),
             owned_context_( createExecutionContext( device_id ) ),
@@ -134,12 +134,12 @@ namespace CompositeComponents_Tests
             this->setExecutionContext( owned_context_.get() );
         }
 
-        std::shared_ptr<Transformer<DeviceType::Cuda, TPrecision>> getTransformer() const
+        std::shared_ptr<GptBlock<DeviceType::Cuda, TPrecision>> getBlock() const
         {
-            return transformer_;
+            return block_;
         }
 
-        const TransformerConfig& getConfig() const
+        const GptBlockConfig& getConfig() const
         {
             return config_;
         }
@@ -158,12 +158,12 @@ namespace CompositeComponents_Tests
     private:
         void createGraph()
         {
-            transformer_ = std::make_shared<Transformer<DeviceType::Cuda, TPrecision>>(
-                this->getName() + ".transformer",
+            block_ = std::make_shared<GptBlock<DeviceType::Cuda, TPrecision>>(
+                this->getName() + ".gptblock",
                 config_
             );
 
-            this->addComponent( transformer_ );
+            this->addComponent( block_ );
         }
     };
 
@@ -172,22 +172,22 @@ namespace CompositeComponents_Tests
     // ====================================================================
 
     template<TensorDataType TPrecision>
-    struct TransformerTestFixture
+    struct GptBlockTestFixture
     {
         TestShape test_shape;
-        TransformerConfig config;
-        std::shared_ptr<Transformer<DeviceType::Cuda, TPrecision>> component;
-        std::unique_ptr<TransformerTestNetwork<TPrecision>> network;
+        GptBlockConfig config;
+        std::shared_ptr<GptBlock<DeviceType::Cuda, TPrecision>> component;
+        std::unique_ptr<GptBlockTestNetwork<TPrecision>> network;
         dim_t embedding_dim;
         dim_t num_heads;
         bool is_training;
         bool use_shared_context;
 
-        TransformerTestFixture()
+        GptBlockTestFixture()
             : config( 1, 1 ), embedding_dim( 0 ), num_heads( 0 )
         {}
 
-        static TransformerTestFixture CreateStandalone(
+        static GptBlockTestFixture CreateStandalone(
             TestShape shape,
             dim_t embedding_dim,
             dim_t num_heads,
@@ -196,26 +196,26 @@ namespace CompositeComponents_Tests
             ActivationType activation = ActivationType::Gelu,
             bool is_training = false )
         {
-            TransformerTestFixture fixture;
+            GptBlockTestFixture fixture;
             fixture.test_shape = shape;
             fixture.embedding_dim = embedding_dim;
             fixture.num_heads = num_heads;
             fixture.is_training = is_training;
             fixture.use_shared_context = false;
 
-            fixture.config = TransformerConfig( embedding_dim, num_heads );
+            fixture.config = GptBlockConfig( embedding_dim, num_heads );
 
             if ( hidden_dim > 0 )
             {
-                fixture.config.withHiddenDimension( hidden_dim );
+                fixture.config.withHiddenSize( hidden_dim );
             }
 
             fixture.config.withBias( use_bias )
                 .withActivation( activation );
 
-            std::string name = "transformer_cuda_" + shape.name + "_" + PrecisionTraits<TPrecision>::name;
+            std::string name = "gptblock_cuda_" + shape.name + "_" + PrecisionTraits<TPrecision>::name;
 
-            fixture.component = std::make_shared<Transformer<DeviceType::Cuda, TPrecision>>(
+            fixture.component = std::make_shared<GptBlock<DeviceType::Cuda, TPrecision>>(
                 name,
                 fixture.config,
                 Device::Cuda( 0 )
@@ -231,7 +231,7 @@ namespace CompositeComponents_Tests
             return fixture;
         }
 
-        static TransformerTestFixture CreateWithSharedContext(
+        static GptBlockTestFixture CreateWithSharedContext(
             TestShape shape,
             dim_t embedding_dim,
             dim_t num_heads,
@@ -240,32 +240,32 @@ namespace CompositeComponents_Tests
             ActivationType activation = ActivationType::Gelu,
             bool is_training = false )
         {
-            TransformerTestFixture fixture;
+            GptBlockTestFixture fixture;
             fixture.test_shape = shape;
             fixture.embedding_dim = embedding_dim;
             fixture.num_heads = num_heads;
             fixture.is_training = is_training;
             fixture.use_shared_context = true;
 
-            fixture.config = TransformerConfig( embedding_dim, num_heads );
+            fixture.config = GptBlockConfig( embedding_dim, num_heads );
 
             if ( hidden_dim > 0 )
             {
-                fixture.config.withHiddenDimension( hidden_dim );
+                fixture.config.withHiddenSize( hidden_dim );
             }
 
             fixture.config.withBias( use_bias )
                 .withActivation( activation );
 
-            std::string name = "transformer_network_" + shape.name + "_" + PrecisionTraits<TPrecision>::name;
+            std::string name = "gptblock_network_" + shape.name + "_" + PrecisionTraits<TPrecision>::name;
 
-            fixture.network = std::make_unique<TransformerTestNetwork<TPrecision>>(
+            fixture.network = std::make_unique<GptBlockTestNetwork<TPrecision>>(
                 name,
                 fixture.config,
                 Device::Cuda( 0 )
             );
 
-            fixture.component = fixture.network->getTransformer();
+            fixture.component = fixture.network->getBlock();
 
             // Build network before enabling training to satisfy Component lifecycle contract.
             if ( fixture.is_training )
@@ -306,7 +306,7 @@ namespace CompositeComponents_Tests
     // ====================================================================
 
     template<typename T>
-    class TransformerCudaTests : public testing::Test
+    class GptBlockCudaTests : public testing::Test
     {
     protected:
         void SetUp() override
@@ -326,17 +326,17 @@ namespace CompositeComponents_Tests
 
     using PrecisionTypes = ::testing::Types<
         PrecisionType<TensorDataType::FP32>
-        // TODO: Uncomment when FP16 has been implementd
+        // TODO: Uncomment when FP16 has been implemented
         // PrecisionType<TensorDataType::FP16>
     >;
 
-    TYPED_TEST_SUITE( TransformerCudaTests, PrecisionTypes );
+    TYPED_TEST_SUITE( GptBlockCudaTests, PrecisionTypes );
 
     // ====================================================================
     // Constructor Tests
     // ====================================================================
 
-    TYPED_TEST( TransformerCudaTests, Constructor_WithValidDeviceId_CreatesComponent )
+    TYPED_TEST( GptBlockCudaTests, Constructor_WithValidDeviceId_CreatesComponent )
     {
         if ( !this->cuda_available_ )
         {
@@ -347,9 +347,9 @@ namespace CompositeComponents_Tests
 
         TestShape test_shape = TestShape::Small();
         dim_t embedding_dim = test_shape.dimensions.back();
-        dim_t num_heads = TransformerTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
+        dim_t num_heads = GptBlockTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
 
-        auto fixture = TransformerTestFixture<TPrecision>::CreateStandalone(
+        auto fixture = GptBlockTestFixture<TPrecision>::CreateStandalone(
             test_shape,
             embedding_dim,
             num_heads
@@ -360,7 +360,7 @@ namespace CompositeComponents_Tests
         EXPECT_EQ( fixture.component->getDeviceId().type, DeviceType::Cuda );
     }
 
-    TYPED_TEST( TransformerCudaTests, Constructor_WithoutDeviceId_CreatesComponent )
+    TYPED_TEST( GptBlockCudaTests, Constructor_WithoutDeviceId_CreatesComponent )
     {
         if ( !this->cuda_available_ )
         {
@@ -371,9 +371,9 @@ namespace CompositeComponents_Tests
 
         TestShape test_shape = TestShape::Small();
         dim_t embedding_dim = test_shape.dimensions.back();
-        dim_t num_heads = TransformerTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
+        dim_t num_heads = GptBlockTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
 
-        auto fixture = TransformerTestFixture<TPrecision>::CreateWithSharedContext(
+        auto fixture = GptBlockTestFixture<TPrecision>::CreateWithSharedContext(
             test_shape,
             embedding_dim,
             num_heads
@@ -383,7 +383,7 @@ namespace CompositeComponents_Tests
         ASSERT_NE( fixture.network, nullptr );
     }
 
-    TYPED_TEST( TransformerCudaTests, Constructor_WithInvalidConfiguration_ThrowsInvalidArgument )
+    TYPED_TEST( GptBlockCudaTests, Constructor_WithInvalidConfiguration_ThrowsInvalidArgument )
     {
         if ( !this->cuda_available_ )
         {
@@ -394,31 +394,31 @@ namespace CompositeComponents_Tests
 
         // Test invalid embedding dimension
         EXPECT_THROW(
-            TransformerConfig( 0, 8 ),
+            GptBlockConfig( 0, 8 ),
             std::invalid_argument
         );
 
         // Test invalid num_heads
         EXPECT_THROW(
-            TransformerConfig( 128, 0 ),
+            GptBlockConfig( 128, 0 ),
             std::invalid_argument
         );
 
         // Test non-divisible heads
         EXPECT_THROW(
-            TransformerConfig( 127, 8 ),
+            GptBlockConfig( 127, 8 ),
             std::invalid_argument
         );
 
         // Test with valid config but wrong device
-        TransformerConfig valid_config( 128, 8 );
+        GptBlockConfig valid_config( 128, 8 );
         EXPECT_THROW(
-            (Transformer<DeviceType::Cuda, TPrecision>( "invalid_device", valid_config, Device::Cpu() )),
+            (GptBlock<DeviceType::Cuda, TPrecision>( "invalid_device", valid_config, Device::Cpu() )),
             std::invalid_argument
         );
     }
 
-    TYPED_TEST( TransformerCudaTests, Constructor_WithInvalidDeviceType_ThrowsInvalidArgument )
+    TYPED_TEST( GptBlockCudaTests, Constructor_WithInvalidDeviceType_ThrowsInvalidArgument )
     {
         if ( !this->cuda_available_ )
         {
@@ -427,10 +427,10 @@ namespace CompositeComponents_Tests
 
         constexpr TensorDataType TPrecision = TypeParam::value;
 
-        TransformerConfig config( 128, 8 );
+        GptBlockConfig config( 128, 8 );
 
         EXPECT_THROW(
-            (Transformer<DeviceType::Cuda, TPrecision>( "invalid_device", config, Device::Cpu() )),
+            (GptBlock<DeviceType::Cuda, TPrecision>( "invalid_device", config, Device::Cpu() )),
             std::invalid_argument
         );
     }
@@ -439,7 +439,7 @@ namespace CompositeComponents_Tests
     // Basic Property Tests
     // ====================================================================
 
-    TYPED_TEST( TransformerCudaTests, GetDeviceType_AfterConstruction_ReturnsCuda )
+    TYPED_TEST( GptBlockCudaTests, GetDeviceType_AfterConstruction_ReturnsCuda )
     {
         if ( !this->cuda_available_ )
         {
@@ -450,9 +450,9 @@ namespace CompositeComponents_Tests
 
         TestShape test_shape = TestShape::Small();
         dim_t embedding_dim = test_shape.dimensions.back();
-        dim_t num_heads = TransformerTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
+        dim_t num_heads = GptBlockTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
 
-        auto fixture = TransformerTestFixture<TPrecision>::CreateStandalone(
+        auto fixture = GptBlockTestFixture<TPrecision>::CreateStandalone(
             test_shape,
             embedding_dim,
             num_heads
@@ -464,7 +464,7 @@ namespace CompositeComponents_Tests
         EXPECT_EQ( device.type, DeviceType::Cuda );
     }
 
-    TYPED_TEST( TransformerCudaTests, GetName_AfterConstruction_ReturnsCorrectName )
+    TYPED_TEST( GptBlockCudaTests, GetName_AfterConstruction_ReturnsCorrectName )
     {
         if ( !this->cuda_available_ )
         {
@@ -475,19 +475,19 @@ namespace CompositeComponents_Tests
 
         TestShape test_shape = TestShape::Small();
         dim_t embedding_dim = test_shape.dimensions.back();
-        dim_t num_heads = TransformerTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
+        dim_t num_heads = GptBlockTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
 
-        auto fixture = TransformerTestFixture<TPrecision>::CreateStandalone(
+        auto fixture = GptBlockTestFixture<TPrecision>::CreateStandalone(
             test_shape,
             embedding_dim,
             num_heads
         );
 
-        std::string expected_name = "transformer_cuda_" + test_shape.name + "_" + PrecisionTraits<TPrecision>::name;
+        std::string expected_name = "gptblock_cuda_" + test_shape.name + "_" + PrecisionTraits<TPrecision>::name;
         EXPECT_EQ( fixture.component->getName(), expected_name );
     }
 
-    TYPED_TEST( TransformerCudaTests, IsTraining_InferenceFixture_ReturnsFalse )
+    TYPED_TEST( GptBlockCudaTests, IsTraining_InferenceFixture_ReturnsFalse )
     {
         if ( !this->cuda_available_ )
         {
@@ -498,9 +498,9 @@ namespace CompositeComponents_Tests
 
         TestShape test_shape = TestShape::Small();
         dim_t embedding_dim = test_shape.dimensions.back();
-        dim_t num_heads = TransformerTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
+        dim_t num_heads = GptBlockTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
 
-        auto fixture = TransformerTestFixture<TPrecision>::CreateStandalone(
+        auto fixture = GptBlockTestFixture<TPrecision>::CreateStandalone(
             test_shape,
             embedding_dim,
             num_heads,
@@ -513,7 +513,7 @@ namespace CompositeComponents_Tests
         EXPECT_FALSE( fixture.component->isTraining() );
     }
 
-    TYPED_TEST( TransformerCudaTests, IsTraining_TrainingFixture_ReturnsTrue )
+    TYPED_TEST( GptBlockCudaTests, IsTraining_TrainingFixture_ReturnsTrue )
     {
         if ( !this->cuda_available_ )
         {
@@ -524,9 +524,9 @@ namespace CompositeComponents_Tests
 
         TestShape test_shape = TestShape::Small();
         dim_t embedding_dim = test_shape.dimensions.back();
-        dim_t num_heads = TransformerTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
+        dim_t num_heads = GptBlockTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
 
-        auto fixture = TransformerTestFixture<TPrecision>::CreateStandalone(
+        auto fixture = GptBlockTestFixture<TPrecision>::CreateStandalone(
             test_shape,
             embedding_dim,
             num_heads,
@@ -539,7 +539,7 @@ namespace CompositeComponents_Tests
         EXPECT_TRUE( fixture.component->isTraining() );
     }
 
-    TYPED_TEST( TransformerCudaTests, SetTraining_TogglingMode_UpdatesState )
+    TYPED_TEST( GptBlockCudaTests, SetTraining_TogglingMode_UpdatesState )
     {
         if ( !this->cuda_available_ )
         {
@@ -550,9 +550,9 @@ namespace CompositeComponents_Tests
 
         TestShape test_shape = TestShape::Small();
         dim_t embedding_dim = test_shape.dimensions.back();
-        dim_t num_heads = TransformerTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
+        dim_t num_heads = GptBlockTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
 
-        auto fixture = TransformerTestFixture<TPrecision>::CreateStandalone(
+        auto fixture = GptBlockTestFixture<TPrecision>::CreateStandalone(
             test_shape,
             embedding_dim,
             num_heads
@@ -570,7 +570,7 @@ namespace CompositeComponents_Tests
         EXPECT_FALSE( fixture.component->isTraining() );
     }
 
-    TYPED_TEST( TransformerCudaTests, ParameterCount_AfterBuild_ReturnsNonZero )
+    TYPED_TEST( GptBlockCudaTests, ParameterCount_AfterBuild_ReturnsNonZero )
     {
         if ( !this->cuda_available_ )
         {
@@ -581,9 +581,9 @@ namespace CompositeComponents_Tests
 
         TestShape test_shape = TestShape::Small();
         dim_t embedding_dim = test_shape.dimensions.back();
-        dim_t num_heads = TransformerTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
+        dim_t num_heads = GptBlockTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
 
-        auto fixture = TransformerTestFixture<TPrecision>::CreateStandalone(
+        auto fixture = GptBlockTestFixture<TPrecision>::CreateStandalone(
             test_shape,
             embedding_dim,
             num_heads
@@ -594,7 +594,7 @@ namespace CompositeComponents_Tests
         EXPECT_GT( fixture.component->parameterCount(), 0u );
     }
 
-    TYPED_TEST( TransformerCudaTests, ToString_AfterConstruction_ContainsComponentInfo )
+    TYPED_TEST( GptBlockCudaTests, ToString_AfterConstruction_ContainsComponentInfo )
     {
         if ( !this->cuda_available_ )
         {
@@ -605,9 +605,9 @@ namespace CompositeComponents_Tests
 
         TestShape test_shape = TestShape::Small();
         dim_t embedding_dim = test_shape.dimensions.back();
-        dim_t num_heads = TransformerTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
+        dim_t num_heads = GptBlockTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
 
-        auto fixture = TransformerTestFixture<TPrecision>::CreateStandalone(
+        auto fixture = GptBlockTestFixture<TPrecision>::CreateStandalone(
             test_shape,
             embedding_dim,
             num_heads
@@ -615,12 +615,12 @@ namespace CompositeComponents_Tests
 
         std::string output = fixture.component->toString();
 
-        EXPECT_NE( output.find( "Transformer" ), std::string::npos );
+        EXPECT_NE( output.find( "GptBlock" ), std::string::npos );
         EXPECT_NE( output.find( fixture.component->getName() ), std::string::npos );
         EXPECT_NE( output.find( "Number of heads" ), std::string::npos );
     }
 
-    TYPED_TEST( TransformerCudaTests, Synchronize_AfterConstruction_Succeeds )
+    TYPED_TEST( GptBlockCudaTests, Synchronize_AfterConstruction_Succeeds )
     {
         if ( !this->cuda_available_ )
         {
@@ -631,9 +631,9 @@ namespace CompositeComponents_Tests
 
         TestShape test_shape = TestShape::Small();
         dim_t embedding_dim = test_shape.dimensions.back();
-        dim_t num_heads = TransformerTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
+        dim_t num_heads = GptBlockTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
 
-        auto fixture = TransformerTestFixture<TPrecision>::CreateStandalone(
+        auto fixture = GptBlockTestFixture<TPrecision>::CreateStandalone(
             test_shape,
             embedding_dim,
             num_heads
@@ -646,7 +646,7 @@ namespace CompositeComponents_Tests
     // Build State Tests
     // ====================================================================
 
-    TYPED_TEST( TransformerCudaTests, IsBuilt_BeforeBuild_ReturnsFalse )
+    TYPED_TEST( GptBlockCudaTests, IsBuilt_BeforeBuild_ReturnsFalse )
     {
         if ( !this->cuda_available_ )
         {
@@ -657,9 +657,9 @@ namespace CompositeComponents_Tests
 
         TestShape test_shape = TestShape::Small();
         dim_t embedding_dim = test_shape.dimensions.back();
-        dim_t num_heads = TransformerTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
+        dim_t num_heads = GptBlockTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
 
-        auto fixture = TransformerTestFixture<TPrecision>::CreateStandalone(
+        auto fixture = GptBlockTestFixture<TPrecision>::CreateStandalone(
             test_shape,
             embedding_dim,
             num_heads
@@ -668,7 +668,7 @@ namespace CompositeComponents_Tests
         EXPECT_FALSE( fixture.component->isBuilt() );
     }
 
-    TYPED_TEST( TransformerCudaTests, Build_WithVariousShapes_SetsBuiltState )
+    TYPED_TEST( GptBlockCudaTests, Build_WithVariousShapes_SetsBuiltState )
     {
         if ( !this->cuda_available_ )
         {
@@ -682,9 +682,9 @@ namespace CompositeComponents_Tests
         for ( const auto& test_shape : shapes )
         {
             dim_t embedding_dim = test_shape.dimensions.back();
-            dim_t num_heads = TransformerTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
+            dim_t num_heads = GptBlockTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
 
-            auto fixture = TransformerTestFixture<TPrecision>::CreateStandalone(
+            auto fixture = GptBlockTestFixture<TPrecision>::CreateStandalone(
                 test_shape,
                 embedding_dim,
                 num_heads
@@ -701,7 +701,7 @@ namespace CompositeComponents_Tests
         }
     }
 
-    TYPED_TEST( TransformerCudaTests, Build_WithInvalidShape_ThrowsInvalidArgument )
+    TYPED_TEST( GptBlockCudaTests, Build_WithInvalidShape_ThrowsInvalidArgument )
     {
         if ( !this->cuda_available_ )
         {
@@ -713,7 +713,7 @@ namespace CompositeComponents_Tests
         dim_t embedding_dim = 128;
         dim_t num_heads = 8;
 
-        auto fixture = TransformerTestFixture<TPrecision>::CreateStandalone(
+        auto fixture = GptBlockTestFixture<TPrecision>::CreateStandalone(
             TestShape::Small(),
             embedding_dim,
             num_heads
@@ -731,7 +731,7 @@ namespace CompositeComponents_Tests
         EXPECT_THROW( fixture.component->build( wrong_embed ), std::invalid_argument );
     }
 
-    TYPED_TEST( TransformerCudaTests, Forward_BeforeBuild_ThrowsRuntimeError )
+    TYPED_TEST( GptBlockCudaTests, Forward_BeforeBuild_ThrowsRuntimeError )
     {
         if ( !this->cuda_available_ )
         {
@@ -742,9 +742,9 @@ namespace CompositeComponents_Tests
 
         TestShape test_shape = TestShape::Small();
         dim_t embedding_dim = test_shape.dimensions.back();
-        dim_t num_heads = TransformerTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
+        dim_t num_heads = GptBlockTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
 
-        auto fixture = TransformerTestFixture<TPrecision>::CreateStandalone(
+        auto fixture = GptBlockTestFixture<TPrecision>::CreateStandalone(
             test_shape,
             embedding_dim,
             num_heads
@@ -762,7 +762,7 @@ namespace CompositeComponents_Tests
     // Forward Pass Tests
     // ====================================================================
 
-    TYPED_TEST( TransformerCudaTests, Forward_WithVariousShapes_ProducesValidOutput )
+    TYPED_TEST( GptBlockCudaTests, Forward_WithVariousShapes_ProducesValidOutput )
     {
         if ( !this->cuda_available_ )
         {
@@ -776,9 +776,9 @@ namespace CompositeComponents_Tests
         for ( const auto& test_shape : shapes )
         {
             dim_t embedding_dim = test_shape.dimensions.back();
-            dim_t num_heads = TransformerTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
+            dim_t num_heads = GptBlockTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
 
-            auto fixture = TransformerTestFixture<TPrecision>::CreateStandalone(
+            auto fixture = GptBlockTestFixture<TPrecision>::CreateStandalone(
                 test_shape,
                 embedding_dim,
                 num_heads
@@ -811,7 +811,7 @@ namespace CompositeComponents_Tests
         }
     }
 
-    TYPED_TEST( TransformerCudaTests, Forward_MultipleInvocations_Succeeds )
+    TYPED_TEST( GptBlockCudaTests, Forward_MultipleInvocations_Succeeds )
     {
         if ( !this->cuda_available_ )
         {
@@ -822,9 +822,9 @@ namespace CompositeComponents_Tests
 
         TestShape test_shape = TestShape::Small();
         dim_t embedding_dim = test_shape.dimensions.back();
-        dim_t num_heads = TransformerTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
+        dim_t num_heads = GptBlockTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
 
-        auto fixture = TransformerTestFixture<TPrecision>::CreateStandalone(
+        auto fixture = GptBlockTestFixture<TPrecision>::CreateStandalone(
             test_shape,
             embedding_dim,
             num_heads
@@ -853,7 +853,7 @@ namespace CompositeComponents_Tests
     // Configuration Variant Tests
     // ====================================================================
 
-    TYPED_TEST( TransformerCudaTests, NoBias_Forward_ProducesValidOutput )
+    TYPED_TEST( GptBlockCudaTests, NoBias_Forward_ProducesValidOutput )
     {
         if ( !this->cuda_available_ )
         {
@@ -864,9 +864,9 @@ namespace CompositeComponents_Tests
 
         TestShape test_shape = TestShape::Small();
         dim_t embedding_dim = test_shape.dimensions.back();
-        dim_t num_heads = TransformerTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
+        dim_t num_heads = GptBlockTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
 
-        auto fixture = TransformerTestFixture<TPrecision>::CreateStandalone(
+        auto fixture = GptBlockTestFixture<TPrecision>::CreateStandalone(
             test_shape,
             embedding_dim,
             num_heads,
@@ -893,7 +893,7 @@ namespace CompositeComponents_Tests
         EXPECT_EQ( out.size(), device_input.size() );
     }
 
-    TYPED_TEST( TransformerCudaTests, CustomHiddenDimension_Forward_ProducesValidOutput )
+    TYPED_TEST( GptBlockCudaTests, CustomHiddenDimension_Forward_ProducesValidOutput )
     {
         if ( !this->cuda_available_ )
         {
@@ -904,10 +904,10 @@ namespace CompositeComponents_Tests
 
         TestShape test_shape = TestShape::Small();
         dim_t embedding_dim = test_shape.dimensions.back();
-        dim_t num_heads = TransformerTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
+        dim_t num_heads = GptBlockTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
         dim_t custom_hidden = embedding_dim * 2; // 2x instead of default 4x
 
-        auto fixture = TransformerTestFixture<TPrecision>::CreateStandalone(
+        auto fixture = GptBlockTestFixture<TPrecision>::CreateStandalone(
             test_shape,
             embedding_dim,
             num_heads,
@@ -933,7 +933,7 @@ namespace CompositeComponents_Tests
         EXPECT_EQ( out.shape(), device_input.shape() );
     }
 
-    TYPED_TEST( TransformerCudaTests, VariousActivationTypes_Forward_AllSucceed )
+    TYPED_TEST( GptBlockCudaTests, VariousActivationTypes_Forward_AllSucceed )
     {
         if ( !this->cuda_available_ )
         {
@@ -944,7 +944,7 @@ namespace CompositeComponents_Tests
 
         TestShape test_shape = TestShape::Small();
         dim_t embedding_dim = test_shape.dimensions.back();
-        dim_t num_heads = TransformerTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
+        dim_t num_heads = GptBlockTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
 
         std::vector<ActivationType> activations = {
             ActivationType::Gelu
@@ -955,7 +955,7 @@ namespace CompositeComponents_Tests
 
         for ( auto activation : activations )
         {
-            auto fixture = TransformerTestFixture<TPrecision>::CreateStandalone(
+            auto fixture = GptBlockTestFixture<TPrecision>::CreateStandalone(
                 test_shape,
                 embedding_dim,
                 num_heads,
@@ -985,7 +985,7 @@ namespace CompositeComponents_Tests
     // Shared Context Tests
     // ====================================================================
 
-    TYPED_TEST( TransformerCudaTests, SharedContext_Construction_Succeeds )
+    TYPED_TEST( GptBlockCudaTests, SharedContext_Construction_Succeeds )
     {
         if ( !this->cuda_available_ )
         {
@@ -996,9 +996,9 @@ namespace CompositeComponents_Tests
 
         TestShape test_shape = TestShape::Small();
         dim_t embedding_dim = test_shape.dimensions.back();
-        dim_t num_heads = TransformerTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
+        dim_t num_heads = GptBlockTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
 
-        auto fixture = TransformerTestFixture<TPrecision>::CreateWithSharedContext(
+        auto fixture = GptBlockTestFixture<TPrecision>::CreateWithSharedContext(
             test_shape,
             embedding_dim,
             num_heads
@@ -1007,11 +1007,11 @@ namespace CompositeComponents_Tests
         ASSERT_NE( fixture.component, nullptr );
         ASSERT_NE( fixture.network, nullptr );
 
-        std::string expected_name = "transformer_network_" + test_shape.name + "_" + PrecisionTraits<TPrecision>::name + ".transformer";
+        std::string expected_name = "gptblock_network_" + test_shape.name + "_" + PrecisionTraits<TPrecision>::name + ".gptblock";
         EXPECT_EQ( fixture.component->getName(), expected_name );
     }
 
-    TYPED_TEST( TransformerCudaTests, SharedContext_Forward_ProducesValidOutput )
+    TYPED_TEST( GptBlockCudaTests, SharedContext_Forward_ProducesValidOutput )
     {
         if ( !this->cuda_available_ )
         {
@@ -1022,9 +1022,9 @@ namespace CompositeComponents_Tests
 
         TestShape test_shape = TestShape::Small();
         dim_t embedding_dim = test_shape.dimensions.back();
-        dim_t num_heads = TransformerTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
+        dim_t num_heads = GptBlockTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
 
-        auto fixture = TransformerTestFixture<TPrecision>::CreateWithSharedContext(
+        auto fixture = GptBlockTestFixture<TPrecision>::CreateWithSharedContext(
             test_shape,
             embedding_dim,
             num_heads
@@ -1053,7 +1053,7 @@ namespace CompositeComponents_Tests
     // Child Component Tests
     // ====================================================================
 
-    TYPED_TEST( TransformerCudaTests, GetNamedComponents_ReturnsExpectedChildren )
+    TYPED_TEST( GptBlockCudaTests, GetNamedComponents_ReturnsExpectedChildren )
     {
         if ( !this->cuda_available_ )
         {
@@ -1064,9 +1064,9 @@ namespace CompositeComponents_Tests
 
         TestShape test_shape = TestShape::Small();
         dim_t embedding_dim = test_shape.dimensions.back();
-        dim_t num_heads = TransformerTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
+        dim_t num_heads = GptBlockTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
 
-        auto fixture = TransformerTestFixture<TPrecision>::CreateStandalone(
+        auto fixture = GptBlockTestFixture<TPrecision>::CreateStandalone(
             test_shape,
             embedding_dim,
             num_heads
@@ -1074,26 +1074,19 @@ namespace CompositeComponents_Tests
 
         fixture.component->build( fixture.shape() );
 
-        auto modules = fixture.component->getNamedComponents();
+        auto modules = fixture.component->getComponents();
         const std::string base = fixture.component->getName();
 
         // Check for expected child components
         EXPECT_GE( modules.size(), 6u ); // at least attn, ln1, ln2, qkv_proj, res1, res2, mlp
 
-        EXPECT_NE( modules.find( base + ".attn" ), modules.end() );
-        EXPECT_NE( modules.find( base + ".lnorm_1" ), modules.end() );
-        EXPECT_NE( modules.find( base + ".lnorm_2" ), modules.end() );
-        EXPECT_NE( modules.find( base + ".fc_qkv_proj" ), modules.end() );
-        EXPECT_NE( modules.find( base + ".res_1" ), modules.end() );
-        EXPECT_NE( modules.find( base + ".res_2" ), modules.end() );
-        EXPECT_NE( modules.find( base + ".mlp" ), modules.end() );
     }
 
     // ====================================================================
     // Edge Case Tests
     // ====================================================================
 
-    TYPED_TEST( TransformerCudaTests, EdgeCase_MinimalShape_Forward )
+    TYPED_TEST( GptBlockCudaTests, EdgeCase_MinimalShape_Forward )
     {
         if ( !this->cuda_available_ )
         {
@@ -1104,9 +1097,9 @@ namespace CompositeComponents_Tests
 
         TestShape test_shape = TestShape::Minimal();
         dim_t embedding_dim = test_shape.dimensions.back();
-        dim_t num_heads = TransformerTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
+        dim_t num_heads = GptBlockTestFixture<TPrecision>::getCompatibleHeadCount( embedding_dim );
 
-        auto fixture = TransformerTestFixture<TPrecision>::CreateStandalone(
+        auto fixture = GptBlockTestFixture<TPrecision>::CreateStandalone(
             test_shape,
             embedding_dim,
             num_heads
@@ -1123,7 +1116,7 @@ namespace CompositeComponents_Tests
         EXPECT_NO_THROW( { auto& out = fixture.component->forward( device_input ); (void)out; } );
     }
 
-    TYPED_TEST( TransformerCudaTests, EdgeCase_SingleHead_Forward )
+    TYPED_TEST( GptBlockCudaTests, EdgeCase_SingleHead_Forward )
     {
         if ( !this->cuda_available_ )
         {
@@ -1136,7 +1129,7 @@ namespace CompositeComponents_Tests
         dim_t embedding_dim = 64;
         dim_t num_heads = 1;
 
-        auto fixture = TransformerTestFixture<TPrecision>::CreateStandalone(
+        auto fixture = GptBlockTestFixture<TPrecision>::CreateStandalone(
             test_shape,
             embedding_dim,
             num_heads
@@ -1157,7 +1150,7 @@ namespace CompositeComponents_Tests
     // CPU/CUDA Equivalence Test
     // ====================================================================
 
-    TYPED_TEST( TransformerCudaTests, Forward_ComparedToCpu_ProducesEquivalentOutput )
+    TYPED_TEST( GptBlockCudaTests, Forward_ComparedToCpu_ProducesEquivalentOutput )
     {
         if ( !this->cuda_available_ )
         {
@@ -1172,29 +1165,29 @@ namespace CompositeComponents_Tests
 
         // TJT: HS = embedding_dim / num_heads must be integer
 
-        TransformerConfig config( embedding_dim, num_heads );
+        GptBlockConfig config( embedding_dim, num_heads );
 
-        auto cpu_transformer = std::make_shared<Transformer<DeviceType::Cpu, TensorDataType::FP32>>(
+        auto cpu_block = std::make_shared<GptBlock<DeviceType::Cpu, TensorDataType::FP32>>(
             "cpu_equiv",
             config,
             Device::Cpu()
         );
 
-        auto cuda_fixture = TransformerTestFixture<TPrecision>::CreateStandalone(
+        auto cuda_fixture = GptBlockTestFixture<TPrecision>::CreateStandalone(
             test_shape,
             embedding_dim,
             num_heads
         );
 
-        cpu_transformer->build( test_shape.dimensions );
+        cpu_block->build( test_shape.dimensions );
         cuda_fixture.component->build( cuda_fixture.shape() );
 
         CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), test_shape.dimensions );
         random( host_input, -0.1f, 0.1f ); // Smaller range for stability
 
         // CPU forward (new API)
-        ASSERT_NO_THROW( { auto& cpu_out = cpu_transformer->forward( host_input ); (void)cpu_out; } );
-        auto& cpu_out = cpu_transformer->forward( host_input );
+        ASSERT_NO_THROW( { auto& cpu_out = cpu_block->forward( host_input ); (void)cpu_out; } );
+        auto& cpu_out = cpu_block->forward( host_input );
 
         // CUDA forward (new API)
         CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), test_shape.dimensions );
@@ -1243,7 +1236,7 @@ namespace CompositeComponents_Tests
     // Backward / CPU-CUDA Equivalence Tests
     // ====================================================================
 
-    TYPED_TEST( TransformerCudaTests, Backward_CPU_CUDA_Equivalence )
+    TYPED_TEST( GptBlockCudaTests, Backward_CPU_CUDA_Equivalence )
     {
         if ( !this->cuda_available_ )
         {
@@ -1257,28 +1250,28 @@ namespace CompositeComponents_Tests
         dim_t embedding_dim = 8;
         dim_t num_heads = 2;
 
-        TransformerConfig config( embedding_dim, num_heads );
+        GptBlockConfig config( embedding_dim, num_heads );
 
-        // CPU transformer (FP32)
-        auto cpu_transformer = std::make_shared<Transformer<DeviceType::Cpu, TensorDataType::FP32>>(
+        // CPU block (FP32)
+        auto cpu_block = std::make_shared<GptBlock<DeviceType::Cpu, TensorDataType::FP32>>(
             "cpu_backward_equiv",
             config,
             Device::Cpu()
         );
 
-        // CUDA transformer constructed the same way as the CPU transformer (FP32 on CUDA)
-        auto cuda_transformer = std::make_shared<Transformer<DeviceType::Cuda, TensorDataType::FP32>>(
+        // CUDA block constructed the same way as the CPU block (FP32 on CUDA)
+        auto cuda_block = std::make_shared<GptBlock<DeviceType::Cuda, TensorDataType::FP32>>(
             "cuda_backward_equiv",
             config,
             Device::Cuda( 0 )
         );
 
         // Build and enable training for both components
-        cpu_transformer->build( test_shape.dimensions );
-        cpu_transformer->setTraining( true );
+        cpu_block->build( test_shape.dimensions );
+        cpu_block->setTraining( true );
 
-        cuda_transformer->build( test_shape.dimensions );
-        cuda_transformer->setTraining( true );
+        cuda_block->build( test_shape.dimensions );
+        cuda_block->setTraining( true );
 
         // Create deterministic input with known seed
         Mila::Core::RandomGenerator::getInstance().setSeed( 12345 );
@@ -1286,17 +1279,17 @@ namespace CompositeComponents_Tests
         // Prepare inputs and grads
         CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), test_shape.dimensions );
         random( host_input, -0.1f, 0.1f );
-        
-        auto& cpu_out = cpu_transformer->forward( host_input );
+
+        auto& cpu_out = cpu_block->forward( host_input );
 
         CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), test_shape.dimensions );
         copy( host_input, device_input );
 
-        auto& cuda_out = cuda_transformer->forward( device_input );
-        cuda_transformer->synchronize();
+        auto& cuda_out = cuda_block->forward( device_input );
+        cuda_block->synchronize();
 
         CpuTensor<TensorDataType::FP32> host_output_grad( Device::Cpu(), test_shape.dimensions );
-        
+
         float* data = host_output_grad.data();
         const float grad_scale = 0.5f;
         for ( size_t i = 0; i < host_output_grad.size(); ++i )
@@ -1304,17 +1297,17 @@ namespace CompositeComponents_Tests
             data[ i ] = host_input.data()[ i ] * grad_scale;
         }
 
-        cpu_transformer->zeroGradients();
+        cpu_block->zeroGradients();
 
-        auto& cpu_in_grad = cpu_transformer->backward( host_input, host_output_grad );
+        auto& cpu_in_grad = cpu_block->backward( host_input, host_output_grad );
 
         CudaTensor<TensorDataType::FP32> device_output_grad( Device::Cuda( 0 ), test_shape.dimensions );
         copy( host_output_grad, device_output_grad );
 
-        cuda_transformer->zeroGradients();
+        cuda_block->zeroGradients();
 
-        auto& cuda_in_grad = cuda_transformer->backward( device_input, device_output_grad );
-        cuda_transformer->synchronize();
+        auto& cuda_in_grad = cuda_block->backward( device_input, device_output_grad );
+        cuda_block->synchronize();
 
         CpuTensor<TensorDataType::FP32> cuda_input_grad_host = toHost<TensorDataType::FP32>( cuda_in_grad );
 
@@ -1354,7 +1347,7 @@ namespace CompositeComponents_Tests
             << "Tolerance: " << epsilon;
     }
 
-    TYPED_TEST( TransformerCudaTests, Backward_Sanity_SmallDeterministic )
+    TYPED_TEST( GptBlockCudaTests, Backward_Sanity_SmallDeterministic )
     {
         if ( !this->cuda_available_ )
         {
@@ -1381,25 +1374,25 @@ namespace CompositeComponents_Tests
         dim_t embedding_dim = 64;
         dim_t num_heads = 1;
 
-        TransformerConfig config( embedding_dim, num_heads );
+        GptBlockConfig config( embedding_dim, num_heads );
 
-        auto cpu_transformer = std::make_shared<Transformer<DeviceType::Cpu, TensorDataType::FP32>>(
+        auto cpu_block = std::make_shared<GptBlock<DeviceType::Cpu, TensorDataType::FP32>>(
             "cpu_backward_minimal",
             config,
             Device::Cpu()
         );
 
-        auto cuda_transformer = std::make_shared<Transformer<DeviceType::Cuda, TensorDataType::FP32>>(
+        auto cuda_block = std::make_shared<GptBlock<DeviceType::Cuda, TensorDataType::FP32>>(
             "cuda_backward_minimal",
             config,
             Device::Cuda( 0 )
         );
 
-        cpu_transformer->build( test_shape.dimensions );
-        cpu_transformer->setTraining( true );
+        cpu_block->build( test_shape.dimensions );
+        cpu_block->setTraining( true );
 
-        cuda_transformer->build( test_shape.dimensions );
-        cuda_transformer->setTraining( true );
+        cuda_block->build( test_shape.dimensions );
+        cuda_block->setTraining( true );
 
         // Create deterministic input with known seed
         Mila::Core::RandomGenerator::getInstance().setSeed( 12345 );
@@ -1407,15 +1400,15 @@ namespace CompositeComponents_Tests
         CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), test_shape.dimensions );
         random( host_input, -0.1f, 0.1f );
 
-        ASSERT_NO_THROW( { auto& cpu_out = cpu_transformer->forward( host_input ); (void)cpu_out; } );
-        auto& cpu_out = cpu_transformer->forward( host_input );
+        ASSERT_NO_THROW( { auto& cpu_out = cpu_block->forward( host_input ); (void)cpu_out; } );
+        auto& cpu_out = cpu_block->forward( host_input );
 
         CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), test_shape.dimensions );
         copy( host_input, device_input );
 
-        ASSERT_NO_THROW( { auto& cuda_out = cuda_transformer->forward( device_input ); (void)cuda_out; } );
-        auto& cuda_out = cuda_transformer->forward( device_input );
-        cuda_transformer->synchronize();
+        ASSERT_NO_THROW( { auto& cuda_out = cuda_block->forward( device_input ); (void)cuda_out; } );
+        auto& cuda_out = cuda_block->forward( device_input );
+        cuda_block->synchronize();
 
         // deterministic output grad
         CpuTensor<TensorDataType::FP32> host_output_grad( Device::Cpu(), test_shape.dimensions );
@@ -1426,15 +1419,15 @@ namespace CompositeComponents_Tests
             data[ i ] = host_input.data()[ i ] * grad_scale;
         }
 
-        cpu_transformer->zeroGradients();
-        auto& cpu_in_grad = cpu_transformer->backward( host_input, host_output_grad );
+        cpu_block->zeroGradients();
+        auto& cpu_in_grad = cpu_block->backward( host_input, host_output_grad );
 
         CudaTensor<TensorDataType::FP32> device_output_grad( Device::Cuda( 0 ), test_shape.dimensions );
         copy( host_output_grad, device_output_grad );
 
-        cuda_transformer->zeroGradients();
-        auto& cuda_in_grad = cuda_transformer->backward( device_input, device_output_grad );
-        cuda_transformer->synchronize();
+        cuda_block->zeroGradients();
+        auto& cuda_in_grad = cuda_block->backward( device_input, device_output_grad );
+        cuda_block->synchronize();
 
         CpuTensor<TensorDataType::FP32> cuda_input_grad_host = toHost<TensorDataType::FP32>( cuda_in_grad );
 

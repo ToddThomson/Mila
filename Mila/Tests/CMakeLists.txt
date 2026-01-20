@@ -141,13 +141,13 @@ add_executable( MilaTests
     # --------------------------------------------------------------
     # Components::Blocks Tests
     # --------------------------------------------------------------
-    "Dnn/Components/Blocks/MLP.Cpu.cpp"
-    "Dnn/Components/Blocks/MLP.Cuda.cpp"
-    "Dnn/Components/Blocks/MLPConfig.cpp"
+    "Dnn/Components/Composites/MLP.Cpu.cpp"
+    "Dnn/Components/Composites/MLP.Cuda.cpp"
+    "Dnn/Components/Composites/MLPConfig.cpp"
 
-    "Dnn/Components/Blocks/Transformer.Config.cpp"
-    "Dnn/Components/Blocks/Transformer.Cpu.cpp"
-    "Dnn/Components/Blocks/Transformer.Cuda.cpp"
+    "Dnn/Components/Composites/GptBlock.Config.cpp"
+    "Dnn/Components/Composites/GptBlock.Cpu.cpp"
+    "Dnn/Components/Composites/GptBlock.Cuda.cpp"
     
     # --------------------------------------------------------------
     # Data Tests
@@ -195,9 +195,9 @@ add_executable( MilaTests
     #"Dnn/Components/Losses/CrossEntropy.Config.cpp"
 
     #"Dnn/Serialization/ModelArchive.cpp" 
-    "Dnn/Components/Blocks/Transformer.Presets.cpp"
-    "Dnn/Components/Blocks/Transformer.Gpt2.cpp"
- "Dnn/Network/Network.Gpt2.cpp")
+    "Dnn/Networks/Gpt.Presets.cpp"
+    "Dnn/Networks/Gpt.cpp"
+ "Dnn/Networks/Llama.cpp" "Dnn/Networks/Llama.Presets.cpp")
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
 

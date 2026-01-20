@@ -20,9 +20,8 @@ module;
 #include <type_traits>
 #include <optional>
 
-export module Dnn.Blocks.Transformer;
+export module Dnn.Components.GptBlock;
 export import :Config;
-export import :Presets;
 
 import Dnn.ITensor;
 import Dnn.Tensor;
@@ -50,7 +49,7 @@ import Dnn.Components.LayerNorm;
 import Dnn.Components.Attention;
 import Dnn.Components.Residual;
 import Dnn.Components.Linear;
-import Dnn.Blocks.MLP;
+import Dnn.Components.MLP;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 
@@ -76,7 +75,7 @@ namespace Mila::Dnn
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    class Transformer : public CompositeComponent<TDeviceType, TPrecision>
+    class GptBlock : public CompositeComponent<TDeviceType, TPrecision>
     {
     public:
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
@@ -99,7 +98,7 @@ namespace Mila::Dnn
          *   ExecutionContext is created and bound (standalone mode). Otherwise the
          *   component expects a parent to set an ExecutionContext (shared mode).
          */
-        explicit Transformer( const std::string& name, const TransformerConfig& config, std::optional<DeviceId> device_id = std::nullopt )
+        explicit GptBlock( const std::string& name, const GptBlockConfig& config, std::optional<DeviceId> device_id = std::nullopt )
             : CompositeComponentBase( name ), config_( config )
         {
             config_.validate();
@@ -119,7 +118,7 @@ namespace Mila::Dnn
             }
         }
 
-        ~Transformer() override = default;
+        ~GptBlock() override = default;
 
         // ====================================================================
         // Forward and backward dispatch (hot path)
@@ -341,7 +340,7 @@ namespace Mila::Dnn
             }
 
             oss << "Number of heads: " << config_.getNumHeads() << std::endl;
-            oss << "MLP hidden dimension: " << config_.getHiddenDimension() << std::endl;
+            oss << "MLP hidden dimension: " << config_.getHiddenSize() << std::endl;
             oss << "Architecture: Pre-LN" << std::endl;
 
             if ( this->hasExecutionContext() )
@@ -384,7 +383,7 @@ namespace Mila::Dnn
             out_proj_->build( input_shape );
 
             shape_t qkv_shape = input_shape;
-            qkv_shape.back() = static_cast<int64_t>(config_.getEmbeddingDim() * 3);
+            qkv_shape.back() = static_cast<int64_t>(config_.getEmbeddingSize() * 3);
 
             attn_ = this->template getComponentAs<AttentionType>( this->getName() + ".attn" );
             attn_->build( qkv_shape );
@@ -451,7 +450,7 @@ namespace Mila::Dnn
         }
 
     private:
-        TransformerConfig config_;
+        GptBlockConfig config_;
 
         shape_t cached_input_shape_;
 
@@ -486,26 +485,26 @@ namespace Mila::Dnn
 
         void createGraph()
         {
-            auto attn_cfg = AttentionConfig( config_.getEmbeddingDim(), config_.getNumHeads() );
+            auto attn_cfg = AttentionConfig( config_.getEmbeddingSize(), config_.getNumHeads() );
 
             auto attn_component = std::make_shared<AttentionType>( this->getName() + ".attn", attn_cfg, std::nullopt );
             this->addComponent( attn_component );
 
-            auto ln1_cfg = LayerNormConfig().withNormalizedShape( shape_t{ static_cast<int64_t>(config_.getEmbeddingDim()) } );
+            auto ln1_cfg = LayerNormConfig().withNormalizedShape( shape_t{ static_cast<int64_t>(config_.getEmbeddingSize()) } );
             auto ln1_component = std::make_shared<LayerNormType>( this->getName() + ".ln_1", ln1_cfg, std::nullopt );
             this->addComponent( ln1_component );
 
-            auto ln2_cfg = LayerNormConfig().withNormalizedShape( shape_t{ static_cast<int64_t>(config_.getEmbeddingDim()) } );
+            auto ln2_cfg = LayerNormConfig().withNormalizedShape( shape_t{ static_cast<int64_t>(config_.getEmbeddingSize()) } );
             auto ln2_component = std::make_shared<LayerNormType>( this->getName() + ".ln_2", ln2_cfg, std::nullopt );
             this->addComponent( ln2_component );
 
-            auto qkv_cfg = LinearConfig( static_cast<dim_t>(config_.getEmbeddingDim()), static_cast<dim_t>(config_.getEmbeddingDim() * 3) );
+            auto qkv_cfg = LinearConfig( static_cast<dim_t>(config_.getEmbeddingSize()), static_cast<dim_t>(config_.getEmbeddingSize() * 3) );
             qkv_cfg.withBias( config_.useBias() );
             auto qkv_component = std::make_shared<LinearType>( this->getName() + ".fc_qkv_proj", qkv_cfg, std::nullopt );
             this->addComponent( qkv_component );
 
             // BUG: Missing output_proj layer
-            auto out_proj_cfg = LinearConfig( static_cast<dim_t>(config_.getEmbeddingDim()), static_cast<dim_t>(config_.getEmbeddingDim()) );
+            auto out_proj_cfg = LinearConfig( static_cast<dim_t>(config_.getEmbeddingSize()), static_cast<dim_t>(config_.getEmbeddingSize()) );
             out_proj_cfg.withBias( config_.useBias() );
             auto out_proj_component = std::make_shared<LinearType>( this->getName() + ".fc_out_proj", out_proj_cfg, std::nullopt );
             this->addComponent( out_proj_component );
@@ -520,13 +519,13 @@ namespace Mila::Dnn
             auto res2_component = std::make_shared<ResidualType>( this->getName() + ".res_2", res_cfg2, std::nullopt );
             this->addComponent( res2_component );
 
-            dim_t hidden_dim = static_cast<dim_t>(config_.getHiddenDimension());
+            dim_t hidden_dim = static_cast<dim_t>(config_.getHiddenSize());
             if ( hidden_dim == 0 )
             {
-                hidden_dim = static_cast<dim_t>(config_.getEmbeddingDim() * 4);
+                hidden_dim = static_cast<dim_t>(config_.getEmbeddingSize() * 4);
             }
 
-            auto mlp_cfg = MLPConfig( static_cast<dim_t>(config_.getEmbeddingDim()), static_cast<dim_t>(hidden_dim) );
+            auto mlp_cfg = MLPConfig( static_cast<dim_t>(config_.getEmbeddingSize()), static_cast<dim_t>(hidden_dim) );
             mlp_cfg.withBias( config_.useBias() )
                    .withActivation( config_.getActivationType() );
 
@@ -542,11 +541,11 @@ namespace Mila::Dnn
             }
 
             int64_t trailing = input_shape.back();
-            if ( trailing != static_cast<int64_t>(config_.getEmbeddingDim()) )
+            if ( trailing != static_cast<int64_t>(config_.getEmbeddingSize()) )
             {
                 std::ostringstream oss;
-                oss << "Transformer: embedding dimension mismatch. Config says "
-                    << config_.getEmbeddingDim() << " got " << trailing;
+                oss << "GptBlock: embedding dimension mismatch. Config says "
+                    << config_.getEmbeddingSize() << " got " << trailing;
                 throw std::invalid_argument( oss.str() );
             }
         }

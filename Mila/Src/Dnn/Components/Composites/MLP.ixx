@@ -14,7 +14,7 @@ module;
 #include <cstdint>
 #include <optional>
 
-export module Dnn.Blocks.MLP;
+export module Dnn.Components.MLP;
 export import :Config;
 
 import Dnn.ITensor;

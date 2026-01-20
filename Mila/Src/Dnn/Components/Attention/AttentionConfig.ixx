@@ -66,7 +66,7 @@ namespace Mila::Dnn
         /**
          * @brief Get the embedding dimension.
          */
-        dim_t getEmbeddingDim() const noexcept
+        dim_t getEmbeddingSize() const noexcept
         {
             return embedding_dim_;
         }

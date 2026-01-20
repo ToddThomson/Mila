@@ -67,7 +67,7 @@ def convert_gpt2(model_name: str, output_path: str, dtype: str = 'float32'):
         'architecture': 'gpt2',
         'model_name': model_name,
         'vocab_size': config.vocab_size,
-        'max_position_embeddings': config.n_positions,
+        'max_seq_length': config.n_positions,
         'embedding_dim': config.n_embd,
         'num_layers': config.n_layer,
         'num_heads': config.n_head,

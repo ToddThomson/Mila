@@ -140,12 +140,18 @@ export import Compute.OperationRegistryHelpers;
 // FUTURE: export import Compute.VulkanTensorTraits;
 
 // ====================================================================
-// Dnn - Core
+// Dnn - Core, Components, and Composite Components
 // ====================================================================
 export import Dnn.Component;
 export import Dnn.ComponentType;
 export import Dnn.ComponentConfig;
 export import Dnn.CompositeComponent;
+
+// ============================================================================
+// Dnn -Core Network
+// ============================================================================
+export import Dnn.Network;
+export import Dnn.NetworkFactory;
 
 // ====================================================================
 // Dnn - Tensors
@@ -189,10 +195,11 @@ export import Dnn.Components.Softmax;
 //export import Dnn.Components.SoftmaxCrossEntropy;
 
 // ============================================================================
-// Dnn - Blocks
+// Dnn - Composite Components
 // ============================================================================
-export import Dnn.Blocks.MLP;
-export import Dnn.Blocks.Transformer;
+export import Dnn.Components.MLP;
+export import Dnn.Components.GptBlock;
+export import Dnn.Components.LlamaBlock;
 
 // ============================================================================
 // Dnn - Optimizers
@@ -221,10 +228,10 @@ export import Serialization.ModelSerializer;
 export import Serialization.ZipSerializer;
 
 // ============================================================================
-// Network
+// Networks
 // ============================================================================
-export import Dnn.Network;
-export import Dnn.NetworkFactory;
+export import Dnn.Networks.Gpt;
+export import Dnn.Networks.Llama;
 
 // ============================================================================
 // Modeling

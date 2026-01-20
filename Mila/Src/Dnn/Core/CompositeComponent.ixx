@@ -17,6 +17,7 @@ module;
 #include <sstream>
 #include <algorithm>
 #include <format>
+#include <string_view>
 
 export module Dnn.CompositeComponent;
 
@@ -47,34 +48,15 @@ namespace Mila::Dnn
      *
      * Architecture Philosophy:
      * - Context-independent graph creation: Architecture defined without device knowledge
-     * - Three-phase lifecycle: Graph creation ? Context binding ? Shape binding
+     * - Three-phase lifecycle: Graph creation -> Context binding -> Shape binding
      * - Automatic context propagation: Base class propagates context to all children
      * - Component-owns-name: Children manage their own identity via getName()
      *
-     * Features:
-     * - Component-based child registration via addComponent(component)
-     * - Automatic context propagation to children via onExecutionContextSet()
-     * - Aggregate parameters and gradients across children
-     * - Propagate training mode to all children
-     * - Recursive serialization of child hierarchy
-     * - Template method pattern for build lifecycle
-     *
-     * ExecutionContext ownership:
-     * - CompositeComponent NEVER owns ExecutionContext
-     * - All instances share an ExecutionContext owned by parent (Network or test fixture)
-     * - Context is propagated to all children automatically
-     *
-     * Child component construction pattern:
-     * 1. Derived class constructs child components in createGraph() (called from constructor)
-     * 2. Children are created in shared mode (no ExecutionContext initially)
-     * 3. Children call setName() to establish hierarchical identity
-     * 4. Children are registered via addComponent(component)
-     * 5. When parent gets context, onExecutionContextSet() propagates to all children
-     *
-     * Design patterns:
-     * - Template Method: build() calls onBuilding() to build children with shapes
-     * - Composite: manages child lifecycle and aggregates operations
-     * - Hook Method: onExecutionContextSet() propagates context to children
+     * NOTE:
+     * - `getComponent()` performs direct child lookup only.
+     * - For path-based / full-graph resolution use `findComponent()` or `tryFindComponent()`
+     *   on the Network (root) or call `findComponent()` on a composite to resolve
+     *   dot-separated paths (e.g. "encoder.mlp.fc1").
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
     class CompositeComponent : public Component<TDeviceType, TPrecision>
@@ -171,7 +153,7 @@ namespace Mila::Dnn
             if ( this->hasExecutionContext() )
             {
                 component->setExecutionContext( this->getExecutionContext() );
-                // This is a bug: setTraining cannot be called until after build()!
+                // FIXME: This is a bug: setTraining cannot be called until after build()!
                 // component->setTraining( this->isTraining() );
             }
 
@@ -186,17 +168,20 @@ namespace Mila::Dnn
 
             child_component_map_[ name ] = component;
             child_components_.push_back( component );
-            
+
             return *this;
         }
 
         /**
-         * @brief Retrieve a child component by name.
+         * @brief Retrieve a direct child component by name.
          *
-         * @param name Name of the child component
-         * @return Shared pointer to the child component (base type)
+         * This performs direct (non-recursive) lookup of immediate children only.
+         * Use `findComponent()` to resolve dot-separated paths across the subgraph.
          *
-         * @throws std::out_of_range if no component with that name exists
+         * @param name Name of the direct child component
+         * @return Shared pointer to the component
+         *
+         * @throws std::out_of_range if the direct child is not found
          */
         ComponentPtr getComponent( const std::string& name ) const
         {
@@ -205,11 +190,158 @@ namespace Mila::Dnn
             if ( it == child_component_map_.end() )
             {
                 throw std::out_of_range(
-                    std::format( "No component named '{}' found", name )
+                    std::format( "No direct child component named '{}' found", name )
                 );
             }
 
             return it->second;
+        }
+
+        /**
+         * @brief Try to resolve a dot-separated component path within this composite.
+         *
+         * Non-throwing version: returns nullptr if any segment is not found or if a
+         * path segment attempts to traverse into a non-composite leaf.
+         *
+         * Example:
+         *   auto ptr = composite->tryFindComponent("encoder.mlp.fc1");
+         *
+         * @param path Dot-separated path (e.g. "layer_0.mlp.fc_1")
+         * @return ComponentPtr or nullptr when not found / invalid traversal
+         */
+        ComponentPtr tryFindComponent( const std::string& path ) const
+        {
+            // Empty path -> not found
+            if ( path.empty() )
+            {
+                return nullptr;
+            }
+
+            size_t pos = 0;
+            size_t next = path.find( '.' );
+            std::string segment = path.substr( 0, next );
+
+            auto it = child_component_map_.find( segment );
+            if ( it == child_component_map_.end() )
+            {
+                return nullptr;
+            }
+
+            ComponentPtr current = it->second;
+
+            // No remaining path -> return the direct child
+            if ( next == std::string::npos )
+            {
+                return current;
+            }
+
+            std::string remaining = path.substr( next + 1 );
+
+            // Traverse remaining segments
+            while ( true )
+            {
+                // current must be composite to traverse deeper
+                auto composite = std::dynamic_pointer_cast<const CompositeComponent>( current );
+                if ( !composite )
+                {
+                    return nullptr;
+                }
+
+                // find next segment
+                next = remaining.find( '.' );
+                segment = remaining.substr( 0, next );
+
+                auto childIt = composite->child_component_map_.find( segment );
+                if ( childIt == composite->child_component_map_.end() )
+                {
+                    return nullptr;
+                }
+
+                current = childIt->second;
+
+                if ( next == std::string::npos )
+                {
+                    break;
+                }
+
+                remaining = remaining.substr( next + 1 );
+            }
+
+            return current;
+        }
+
+        /**
+         * @brief Resolve a dot-separated component path within this composite.
+         *
+         * Throwing version of tryFindComponent(): throws std::out_of_range when not found
+         * and std::runtime_error when the path attempts to traverse a non-composite.
+         *
+         * @param path Dot-separated path (e.g. "layer_0.mlp.fc_1")
+         * @return Shared pointer to the component
+         *
+         * @throws std::out_of_range if a segment is not found
+         * @throws std::runtime_error if traversal encounters a non-composite before the end
+         */
+        ComponentPtr findComponent( const std::string& path ) const
+        {
+            if ( path.empty() )
+            {
+                throw std::out_of_range( "Empty component path" );
+            }
+
+            size_t next = path.find( '.' );
+            std::string first_segment = path.substr( 0, next );
+
+            auto it = child_component_map_.find( first_segment );
+            if ( it == child_component_map_.end() )
+            {
+                throw std::out_of_range(
+                    std::format( "No component named '{}' found in path '{}'", first_segment, path )
+                );
+            }
+
+            ComponentPtr current = it->second;
+
+            if ( next == std::string::npos )
+            {
+                return current;
+            }
+
+            std::string remaining = path.substr( next + 1 );
+
+            while ( true )
+            {
+                auto composite = std::dynamic_pointer_cast<const CompositeComponent>( current );
+                if ( !composite )
+                {
+                    throw std::runtime_error(
+                        std::format( "Component '{}' in path '{}' is not composite, cannot traverse to '{}'",
+                            current->getName(), path, remaining )
+                    );
+                }
+
+                next = remaining.find( '.' );
+                std::string segment = remaining.substr( 0, next );
+
+                auto childIt = composite->child_component_map_.find( segment );
+                if ( childIt == composite->child_component_map_.end() )
+                {
+                    throw std::out_of_range(
+                        std::format( "No component named '{}' found in path '{}'", segment, path )
+                    );
+                }
+
+                current = childIt->second;
+
+                if ( next == std::string::npos )
+                {
+                    break;
+                }
+
+                remaining = remaining.substr( next + 1 );
+            }
+
+            return current;
         }
 
         /**
@@ -233,15 +365,15 @@ namespace Mila::Dnn
             return child_components_;
         }
 
-        /**
-         * @brief Get the named child components map.
-         *
-         * @return Map of names to child component pointers
-         */
-        const std::unordered_map<std::string, ComponentPtr>& getNamedComponents() const
-        {
-            return child_component_map_;
-        }
+        ///**
+        // * @brief Get the named child components map.
+        // *
+        // * @return Map of names to child component pointers
+        // */
+        //const std::unordered_map<std::string, ComponentPtr>& getNamedComponents() const
+        //{
+        //    return child_component_map_;
+        //}
 
         /**
          * @brief Remove a child component by name.
@@ -560,29 +692,17 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Retrieve a typed child component by name (for derived class use).
+         * @brief Retrieve a typed child component by name.
          *
          * Helper method for derived composites (like MLP) that need to cache typed
          * pointers to children in their onBuilding() hook. Performs dynamic_pointer_cast
          * and validates the cast succeeded.
          *
-         * Intended usage pattern:
-         * @code
-         * void MLP::onBuilding(const shape_t& input_shape) override
-         * {
-         *     // Cache typed pointers once during build
-         *     fc1_ = this->getComponentAs<LinearType>(this->getName() + ".fc1");
-         *     activation_ = this->getComponentAs<GeluType>(this->getName() + ".act");
-         *     fc2_ = this->getComponentAs<LinearType>(this->getName() + ".fc2");
-         *
-         *     // Build children with computed shapes
-         *     fc1_->build(input_shape);
-         *     // ...
-         * }
-         * @endcode
+         * Note: This resolves direct children only. For full-path resolution use
+         * `findComponent()` on the appropriate root composite or Network.
          *
          * @tparam TComponent Expected component type
-         * @param name Name of the component to retrieve
+         * @param name Name of the direct child component
          * @return Shared pointer to component with correct type
          *
          * @throws std::out_of_range if component name not found
@@ -592,7 +712,7 @@ namespace Mila::Dnn
         std::shared_ptr<TComponent> getComponentAs( const std::string& name ) const
         {
             auto base = getComponent( name );
-            auto typed = std::dynamic_pointer_cast<TComponent>( base );
+            auto typed = std::dynamic_pointer_cast<TComponent>(base);
 
             if ( !typed )
             {
@@ -729,8 +849,8 @@ namespace Mila::Dnn
          * Note: insertion order is preserved by `child_components_`; this unordered_map
          * does not guarantee ordering but provides fast lookup.
          */
-        std::unordered_map<std::string, ComponentPtr> child_component_map_;
-       
+        std::unordered_map<std::string, ComponentPtr, std::hash<std::string_view>, std::equal_to<>> child_component_map_;
+
         /**
          * @brief Replace N consecutive components with a single fused component.
          */

@@ -7,7 +7,7 @@
 Mila Deep Neural Network Library
 
 ## Prerelease Notice
-Mila, version 0.9.966-alpha
+Mila, version 0.9.967-alpha
 This is a an internal development only build of Mila.
 The CharLM sample now can generate Shakespeare-like text after training for 5 epochs! Amazing!
 

@@ -214,17 +214,17 @@ namespace Mila::Dnn
             oss << "--------------------" << std::endl;
             oss << "Attention: " << this->getName() << std::endl;
             oss << "Device Id: " << this->getExecutionContext()->getDeviceId().toString() << std::endl;
-            oss << "Embedding dimension: " << config_.getEmbeddingDim() << std::endl;
+            oss << "Embedding dimension: " << config_.getEmbeddingSize() << std::endl;
             oss << "Number of heads: " << config_.getNumHeads() << std::endl;
-            oss << "Head size: " << (config_.getEmbeddingDim() / config_.getNumHeads()) << std::endl;
+            oss << "Head size: " << (config_.getEmbeddingSize() / config_.getNumHeads()) << std::endl;
             oss << "Parameter count: " << parameterCount() << std::endl;
 
             return oss.str();
         }
 
-        int64_t getEmbeddingDim() const noexcept
+        int64_t getEmbeddingSize() const noexcept
         {
-            return config_.getEmbeddingDim();
+            return config_.getEmbeddingSize();
         }
 
         int64_t getNumHeads() const noexcept
@@ -264,7 +264,7 @@ namespace Mila::Dnn
             auto device = this->getExecutionContext()->getDeviceId();
 
             shape_t out_shape = input_shape_;
-            out_shape.back() = config_.getEmbeddingDim();
+            out_shape.back() = config_.getEmbeddingSize();
 
             owned_output_ = std::make_unique<TensorType>( device, out_shape );
             owned_output_->setName( this->getName() + ".output" );
@@ -300,7 +300,7 @@ namespace Mila::Dnn
             }
 
             const int64_t trailing = shape.back();
-            const int64_t expected = config_.getEmbeddingDim() * 3;
+            const int64_t expected = config_.getEmbeddingSize() * 3;
 
             if ( trailing != expected )
             {

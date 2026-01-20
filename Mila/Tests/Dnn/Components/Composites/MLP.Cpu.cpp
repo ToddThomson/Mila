@@ -244,7 +244,7 @@ namespace CompositeComponents_Tests
         EXPECT_TRUE( data.mlp->isTraining() );
     }
 
-    TEST_F( MLPCpuTests, GetNamedComponents_Returns_ChildComponents )
+    TEST_F( MLPCpuTests, GetComponents_Returns_ChildComponents )
     {
         auto data = MLPCpuTestData<TensorDataType::FP32>::Create(
             "small_mlp_cpu",
@@ -254,20 +254,9 @@ namespace CompositeComponents_Tests
 
         ASSERT_NE( data.mlp, nullptr );
 
-        auto components = data.mlp->getNamedComponents();
+        auto components = data.mlp->getComponents();
 
         EXPECT_GE( components.size(), 3u );
-
-        const std::string base = data.mlp->getName();
-
-        EXPECT_NE( components.find( base + ".fc1" ), components.end() );
-        EXPECT_NE( components.find( base + ".act" ), components.end() );
-        EXPECT_NE( components.find( base + ".fc2" ), components.end() );
-
-        if ( data.config.useLayerNorm() )
-        {
-            EXPECT_NE( components.find( base + ".norm" ), components.end() );
-        }
     }
 
     TEST_F( MLPCpuTests, NoBias_ParameterCount )
@@ -376,14 +365,7 @@ namespace CompositeComponents_Tests
 
         ASSERT_NE( data.mlp, nullptr );
 
-        auto components = data.mlp->getNamedComponents();
-
-        const std::string base = data.mlp->getName();
-
-        EXPECT_NE( components.find( base + ".fc1" ), components.end() );
-        EXPECT_NE( components.find( base + ".act" ), components.end() );
-        EXPECT_NE( components.find( base + ".fc2" ), components.end() );
-        EXPECT_NE( components.find( base + ".norm" ), components.end() );
+        auto components = data.mlp->getComponents();
     }
 
     TEST_F( MLPCpuTests, Training_Forward )

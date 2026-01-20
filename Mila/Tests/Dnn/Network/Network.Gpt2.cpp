@@ -12,13 +12,33 @@ using namespace Mila::Dnn::Serialization;
 namespace Dnn::Networks::Tests
 {
     // Minimal concrete Network used for testing importModel (implements required hook).
+    // This TestNetwork constructs a tiny GPT-2-like component hierarchy:
+    //  - "tf" -> "layer_0" -> "mlp" -> "fc_0"
+    // Composite nodes are instances of CompositeComponent and can be traversed
+    // with dot-separated paths (matching importModel's path resolution).
     class TestNetwork : public Network<DeviceType::Cpu, TensorDataType::FP32>
     {
     public:
         explicit TestNetwork( const std::string& name )
             : Network<DeviceType::Cpu, TensorDataType::FP32>( name )
         {
-            // Create and own an execution context, then propagate it to base/network children.
+            // Build a minimal component graph (context-independent).
+            // Use CompositeComponent for intermediate and leaf nodes so path traversal works.
+            using Composite = CompositeComponent<DeviceType::Cpu, TensorDataType::FP32>;
+            auto tf = std::make_shared<Composite>( "tf" );
+            auto layer0 = std::make_shared<Composite>( "layer_0" );
+            auto mlp = std::make_shared<Composite>( "mlp" );
+            auto fc0 = std::make_shared<Composite>( "fc_0" );
+
+            // Assemble hierarchy: tf -> layer_0 -> mlp -> fc_0
+            mlp->addComponent( fc0 );
+            layer0->addComponent( mlp );
+            tf->addComponent( layer0 );
+
+            // Add top-level transformer composite to the network
+            this->addComponent( tf );
+
+            // Now create and own an execution context, then propagate it to base/network children.
             owned_ctx_ = createExecutionContext( Device::Cpu() );
             this->setExecutionContext( owned_ctx_.get() );
         }
