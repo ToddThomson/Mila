@@ -16,11 +16,11 @@ module;
 #include <cstdint>
 #include <utility>
 
-export module CharLM.Preprocessor;
+export module Data.CharTokenizer:Preprocessor;
 
-import CharLM.Vocabulary;
+import Data.CharTokenizer:Vocabulary;
 
-namespace Mila::CharLM
+namespace Mila::Data
 {
     namespace fs = std::filesystem;
 
@@ -40,7 +40,7 @@ namespace Mila::CharLM
      * These files can be efficiently loaded by CharDataLoader without
      * repeating expensive preprocessing steps.
      */
-    export class CharPreprocessor
+    export class CharTokenizerTrainer
     {
     public:
         /**
@@ -55,7 +55,7 @@ namespace Mila::CharLM
          * @param add_special_tokens Add padding/unknown tokens to vocabulary
          * @return Pair of (vocab_size, num_tokens)
          */
-        static std::pair<size_t, size_t> preprocess(
+        static std::pair<size_t, size_t> train(
             const std::string& text_file,
             bool force_rebuild = false,
             bool add_special_tokens = true )

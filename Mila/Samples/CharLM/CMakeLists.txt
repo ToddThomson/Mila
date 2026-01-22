@@ -13,16 +13,16 @@ target_sources( CharLM
 PUBLIC
 	FILE_SET module_files
        TYPE CXX_MODULES FILES
-		"Src/CharTransformer.ixx"
-		"Src/CharTransformer.Config.ixx"
-		"Src/CharDataLoader.ixx"
-		"Tools/CharVocabulary.ixx"
- )
+		"Src/CharLMTransformer.ixx"
+		"Src/CharLMTransformer.Config.ixx"
+		"Src/CharLMDataLoader.ixx"
+		#"Tools/CharVocabulary.ixx"
+		"Src/CharLMTokenizer.ixx"
+		"Src/CharLMTrainer.ixx"
+)
 
 if( MILA_ENABLE_COPY_MODEL_DATA )
     add_dependencies( CharLM MilaCopyData )
 endif()
 
 target_link_libraries( CharLM PRIVATE Mila CUDA::cudart )
-
-add_subdirectory( Tools )

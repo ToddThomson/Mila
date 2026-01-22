@@ -14,7 +14,7 @@ export module CharLM.Transformer:Config;
 import Dnn.ComponentConfig;
 import Serialization.Metadata;
 
-namespace Mila::CharLM
+namespace CharLM
 {
     using Mila::Dnn::ComponentConfig;
     using Mila::Dnn::Serialization::SerializationMetadata;

@@ -12,11 +12,12 @@ module;
 #include <stdexcept>
 #include <memory>
 
-export module CharLM.CharDataLoader;
+export module CharLM.DataLoader;
 
 import Mila;
+import CharLM.Tokenizer; // need access to concrete CharLMTokenizer::loadTokensFromFile
 
-namespace Mila::CharLM
+namespace CharLM
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
@@ -32,68 +33,86 @@ namespace Mila::CharLM
      */
     export template<typename TMemoryResource>
         requires (std::is_same_v<TMemoryResource, CudaPinnedMemoryResource> ||
-                  std::is_same_v<TMemoryResource, CpuMemoryResource>)
-    class CharDataLoader : public DatasetReader<TensorDataType::INT32, TensorDataType::INT32, TMemoryResource>
+    std::is_same_v<TMemoryResource, CpuMemoryResource>)
+        class CharLMDataLoader : public DataLoader<TensorDataType::INT32, TensorDataType::INT32, TMemoryResource>
     {
     public:
-        using BaseLoader = DatasetReader<TensorDataType::INT32, TensorDataType::INT32, TMemoryResource>;
+        using BaseLoader = DataLoader<TensorDataType::INT32, TensorDataType::INT32, TMemoryResource>;
         using HostType = typename TensorHostTypeMap<TensorDataType::INT32>::host_type;
         using TensorType = Tensor<TensorDataType::INT32, TMemoryResource>;
 
         /**
          * @brief Constructs character-level data loader from preprocessed files.
          *
+         * Tokenizer is required and must be constructed during preprocessing so
+         * the loader can rely on tokenizer-provided vocabulary and special tokens.
+         *
          * @param text_file_base Base path to preprocessed files (without extensions)
          * @param batch_size Number of sequences per batch
          * @param seq_length Length of each sequence (context window)
          * @param is_training Whether to shuffle sequences (training mode)
          * @param device Compute device for tensor allocation
+         * @param tokenizer Shared pointer to a concrete Tokenizer instance (required)
          * @param stride Step size for sliding window (default: seq_length for non-overlapping)
          */
-        CharDataLoader(
+        CharLMDataLoader(
             const std::string& text_file_base,
-            int64_t batch_size,
-            int64_t seq_length,
+            int64_t batch_size, int64_t seq_length,
             bool is_training,
             DeviceId device,
+            std::shared_ptr<Tokenizer> tokenizer,
             int64_t stride = -1 )
-            : BaseLoader( batch_size ),
-            seq_length_( seq_length ),
-            is_training_( is_training ),
-            device_( validateDeviceId( device ) ),
-            stride_( stride > 0 ? stride : seq_length )
+            : BaseLoader( batch_size ), seq_length_( seq_length ), is_training_( is_training ), device_( validateDeviceId( device ) ),
+            stride_( stride > 0 ? stride : seq_length ), tokenizer_( std::move( tokenizer ) )
         {
-            if (seq_length_ <= 0)
+            if ( seq_length_ <= 0 )
             {
                 throw std::invalid_argument( "Sequence length must be positive" );
             }
 
-            vocab_file_ = text_file_base + ".vocab";
-            tokens_file_ = text_file_base + ".tokens";
-
-            // Verify preprocessed files exist
-            if (!fs::exists( vocab_file_ ))
+            if ( !tokenizer_ )
             {
-                throw std::runtime_error(
-                    "Vocabulary file not found: " + vocab_file_ + "\n" +
-                    "Please run CharPreprocessor first to create preprocessed files." );
+                throw std::invalid_argument( "Tokenizer must be provided to CharDataLoader" );
             }
 
-            if (!fs::exists( tokens_file_ ))
+            tokens_file_ = text_file_base + ".tokens";
+
+            // Verify preprocessed tokens file exists
+            if ( !fs::exists( tokens_file_ ) )
             {
                 throw std::runtime_error(
                     "Tokens file not found: " + tokens_file_ + "\n" +
                     "Please run CharPreprocessor first to create preprocessed files." );
             }
 
-            // Read vocabulary size and optional special token ids from .vocab file header
-            loadVocabSize();
+            // Use tokenizer-provided vocabulary metadata
+            vocab_size_ = tokenizer_->getVocabSize();
+            if ( vocab_size_ == 0 )
+            {
+                throw std::runtime_error( "Tokenizer returned empty vocabulary" );
+            }
 
-            // Load tokenized data and validate tokens against vocab size
-            loadTokens();
+            pad_token_id_ = tokenizer_->getPadTokenId().has_value()
+                ? static_cast<int>(tokenizer_->getPadTokenId().value())
+                : -1;
+
+            // Tokenizer interface does not expose UNK explicitly; preserve -1 if absent.
+            unk_token_id_ = -1;
+
+            // Load tokenized data via concrete tokenizer helper
+            {
+                auto concrete = std::dynamic_pointer_cast<CharLMTokenizer>( tokenizer_ );
+                if ( !concrete )
+                {
+                    throw std::runtime_error( "CharLMDataLoader requires a CharLMTokenizer instance for token file I/O" );
+                }
+
+                tokens_ = concrete->loadTokensFromFile( tokens_file_ );
+            }
+
             createSequences();
 
-            if (is_training_)
+            if ( is_training_ )
             {
                 shuffleIndices();
             }
@@ -135,7 +154,7 @@ namespace Mila::CharLM
         {
             BaseLoader::reset();
 
-            if (is_training_)
+            if ( is_training_ )
             {
                 shuffleIndices();
             }
@@ -143,51 +162,51 @@ namespace Mila::CharLM
 
         void nextBatch() override
         {
-            if (this->currentBatch() >= num_batches_)
+            if ( this->currentBatch() >= num_batches_ )
             {
                 return;
             }
 
             size_t batch_start = this->currentBatch() * this->batchSize();
 
-            for (size_t i = 0; i < this->batchSize(); ++i)
+            for ( size_t i = 0; i < this->batchSize(); ++i )
             {
-                size_t seq_start_idx = indices_[batch_start + i];
+                size_t seq_start_idx = indices_[ batch_start + i ];
 
                 // Copy input sequence (tokens[start : start+seq_length])
-                for (int64_t t = 0; t < seq_length_; ++t)
+                for ( int64_t t = 0; t < seq_length_; ++t )
                 {
-                    const int32_t token = tokens_[seq_start_idx + t];
+                    const TokenId token = tokens_[ seq_start_idx + t ];
 
                     // Safety check: ensure token still within vocabulary bounds
-                    if (token < 0 || static_cast<uint32_t>(token) >= vocab_size_)
+                    if ( !tokenizer_->isValidToken( token ) || token >= static_cast<TokenId>( vocab_size_ ) )
                     {
                         throw std::runtime_error(
                             "CharDataLoader::nextBatch - token index out of range at global token position " +
-                            std::to_string(seq_start_idx + t) + ": value=" + std::to_string(token) +
-                            ", vocab_size=" + std::to_string(vocab_size_) );
+                            std::to_string( seq_start_idx + t ) + ": value=" + std::to_string( token ) +
+                            ", vocab_size=" + std::to_string( vocab_size_ ) );
                     }
 
-                    input_tensor_->data()[i * seq_length_ + t] =
-                        static_cast<HostType>( token );
+                    input_tensor_->data()[ i * seq_length_ + t ] =
+                        static_cast<HostType>(token);
                 }
 
                 // Copy target sequence (tokens[start+1 : start+seq_length+1])
-                for (int64_t t = 0; t < seq_length_; ++t)
+                for ( int64_t t = 0; t < seq_length_; ++t )
                 {
-                    const int32_t token = tokens_[seq_start_idx + t + 1];
+                    const TokenId token = tokens_[ seq_start_idx + t + 1 ];
 
                     // Safety check: ensure token still within vocabulary bounds
-                    if (token < 0 || static_cast<uint32_t>(token) >= vocab_size_)
+                    if ( !tokenizer_->isValidToken( token ) || token >= static_cast<TokenId>( vocab_size_ ) )
                     {
                         throw std::runtime_error(
                             "CharDataLoader::nextBatch - target token index out of range at global token position " +
-                            std::to_string(seq_start_idx + t + 1) + ": value=" + std::to_string(token) +
-                            ", vocab_size=" + std::to_string(vocab_size_) );
+                            std::to_string( seq_start_idx + t + 1 ) + ": value=" + std::to_string( token ) +
+                            ", vocab_size=" + std::to_string( vocab_size_ ) );
                     }
 
-                    target_tensor_->data()[i * seq_length_ + t] =
-                        static_cast<HostType>( token );
+                    target_tensor_->data()[ i * seq_length_ + t ] =
+                        static_cast<HostType>(token);
                 }
             }
 
@@ -258,13 +277,13 @@ namespace Mila::CharLM
         int pad_token_id_{ -1 };
         int unk_token_id_{ -1 };
 
-        std::string vocab_file_;
         std::string tokens_file_;
-        std::vector<int32_t> tokens_;               // Loaded from preprocessed file
+        std::vector<TokenId> tokens_;               // Loaded from preprocessed file (TokenId aligns with Tokenizer)
         std::vector<size_t> indices_;               // Start indices for sequences
 
         std::shared_ptr<TensorType> input_tensor_;
         std::shared_ptr<TensorType> target_tensor_;
+        std::shared_ptr<Tokenizer> tokenizer_;
 
         /**
          * @brief Validates device and ensures it matches memory resource requirements.
@@ -272,9 +291,9 @@ namespace Mila::CharLM
         static DeviceId validateDeviceId(
             DeviceId device )
         {
-            if constexpr (std::is_same_v<TMemoryResource, CpuMemoryResource>)
+            if constexpr ( std::is_same_v<TMemoryResource, CpuMemoryResource> )
             {
-                if (device.type != DeviceType::Cpu)
+                if ( device.type != DeviceType::Cpu )
                 {
                     throw std::runtime_error(
                         "CpuMemoryResource requires CPU device, got " +
@@ -282,9 +301,9 @@ namespace Mila::CharLM
                 }
             }
 
-            if constexpr (std::is_same_v<TMemoryResource, CudaPinnedMemoryResource>)
+            if constexpr ( std::is_same_v<TMemoryResource, CudaPinnedMemoryResource> )
             {
-                if (device.type != DeviceType::Cuda)
+                if ( device.type != DeviceType::Cuda )
                 {
                     throw std::runtime_error(
                         "CudaPinnedMemoryResource requires CUDA device, got " +
@@ -296,122 +315,12 @@ namespace Mila::CharLM
         }
 
         /**
-         * @brief Loads vocabulary size and optional special token ids from .vocab file header.
-         */
-        void loadVocabSize()
-        {
-            std::ifstream file( vocab_file_, std::ios::binary );
-            if (!file)
-            {
-                throw std::runtime_error( "Cannot open vocabulary file: " + vocab_file_ );
-            }
-
-            // Read vocabulary size (written as size_t by CharPreprocessor/CharVocabulary)
-            file.read( reinterpret_cast<char*>(&vocab_size_), sizeof( vocab_size_ ) );
-
-            if (file.fail() || vocab_size_ == 0)
-            {
-                throw std::runtime_error( "Invalid vocabulary file: " + vocab_file_ );
-            }
-
-            // Attempt to read has_special flag (written as bool)
-            bool has_special = false;
-            file.read( reinterpret_cast<char*>(&has_special), sizeof( has_special ) );
-
-            if (file.fail())
-            {
-                // Older files might not contain the flag; treat as no special tokens.
-                file.clear();
-                pad_token_id_ = -1;
-                unk_token_id_ = -1;
-
-                // Rewind to end of header already read (nothing else to do)
-                return;
-            }
-
-            if (has_special)
-            {
-                // Read pad/unk ids (written as int types)
-                int pad = -1;
-                int unk = -1;
-
-                file.read( reinterpret_cast<char*>(&pad), sizeof( pad ) );
-                if (file.fail())
-                {
-                    throw std::runtime_error( "Error reading pad_token_id from: " + vocab_file_ );
-                }
-
-                file.read( reinterpret_cast<char*>(&unk), sizeof( unk ) );
-                if (file.fail())
-                {
-                    throw std::runtime_error( "Error reading unk_token_id from: " + vocab_file_ );
-                }
-
-                pad_token_id_ = pad;
-                unk_token_id_ = unk;
-            }
-            else
-            {
-                pad_token_id_ = -1;
-                unk_token_id_ = -1;
-            }
-        }
-
-        /**
-         * @brief Loads tokenized data from preprocessed binary file.
-         *
-         * Validates that each token index is within [0, vocab_size_).
-         */
-        void loadTokens()
-        {
-            std::ifstream file( tokens_file_, std::ios::binary );
-            
-            if (!file)
-            {
-                throw std::runtime_error( "Cannot open tokens file: " + tokens_file_ );
-            }
-
-            // Read header
-            size_t num_tokens;
-            file.read( reinterpret_cast<char*>(&num_tokens), sizeof( num_tokens ) );
-
-            if (num_tokens == 0)
-            {
-                throw std::runtime_error( "Empty tokens file: " + tokens_file_ );
-            }
-
-            // Read tokens
-            tokens_.resize( num_tokens );
-            file.read( reinterpret_cast<char*>(tokens_.data()), num_tokens * sizeof( int32_t ) );
-
-            if (!file)
-            {
-                throw std::runtime_error( "Error reading tokens file: " + tokens_file_ );
-            }
-
-            // Validate tokens are within vocabulary bounds
-            for ( size_t i = 0; i < tokens_.size(); ++i )
-            {
-                int32_t tok = tokens_[i];
-
-                if ( tok < 0 || static_cast<uint32_t>(tok) >= vocab_size_ )
-                {
-                    throw std::runtime_error(
-                        "Invalid token index in tokens file at position " + std::to_string(i) +
-                        ": value=" + std::to_string(tok) +
-                        ", vocab_size=" + std::to_string(vocab_size_) +
-                        ". Ensure tokens were preprocessed with the same vocabulary." );
-                }
-            }
-        }
-
-        /**
          * @brief Creates sequence start indices for sliding window approach.
          */
         void createSequences()
         {
             // Need seq_length+1 tokens for input and shifted target
-            if (tokens_.size() < static_cast<size_t>(seq_length_ + 1))
+            if ( tokens_.size() < static_cast<size_t>(seq_length_ + 1) )
             {
                 throw std::runtime_error(
                     "Token sequence too short for sequence length " + std::to_string( seq_length_ ) );
@@ -421,7 +330,7 @@ namespace Mila::CharLM
             size_t max_start = tokens_.size() - seq_length_;
 
             // Store sequence start indices instead of full sequences
-            for (size_t start = 0; start < max_start; start += stride_)
+            for ( size_t start = 0; start < max_start; start += stride_ )
             {
                 indices_.push_back( start );
             }

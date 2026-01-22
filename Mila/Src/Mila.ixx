@@ -215,7 +215,9 @@ export import Dnn.Optimizers.AdamWConfig;
 // ============================================================================
 // Dnn - Data
 // ============================================================================
-export import Data.DatasetReader;
+export import Data.DataLoader;
+export import Data.Tokenizer;
+export import Data.Gpt2Tokenizer;
 
 // ============================================================================
 // Serialization

@@ -12,7 +12,7 @@ export module Data.LlamaTokenizer;
 
 import Data.Tokenizer;
 
-namespace Mila::Data
+namespace Mila::Dnn::Data
 {
     export class LlamaTokenizer : public Tokenizer {
     public:

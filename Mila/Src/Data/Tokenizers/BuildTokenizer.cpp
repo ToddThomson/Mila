@@ -15,11 +15,11 @@
 #include <stdexcept>
 #include <exception>
 
-import CharLM.Preprocessor;
+import Data.CharTokenizerPreprocessor;
 
 void printUsage()
 {
-    std::cout << "Usage: PreprocessText <input_text_file> [--force]" << std::endl;
+    std::cout << "Usage: TokenizerBuilder <input_text_file> [--force]" << std::endl;
     std::cout << std::endl;
     std::cout << "Preprocesses text file for character-level language modeling." << std::endl;
     std::cout << "Creates vocabulary and tokenized data files." << std::endl;

@@ -4,12 +4,15 @@ module;
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <filesystem>
 
 export module Data.Tokenizer;
 
-
-namespace Mila::Data
+namespace Mila::Dnn::Data
 {
+    // Factory function - loads any tokenizer type
+    //std::unique_ptr<Tokenizer> loadTokenizer( const std::filesystem::path& vocabulary_path );
+
     // Token ID type
     export using TokenId = uint32_t;
 
@@ -44,5 +47,4 @@ namespace Mila::Data
         // Check if token ID is valid
         virtual bool isValidToken( TokenId tokenId ) const = 0;
     };
-
 }

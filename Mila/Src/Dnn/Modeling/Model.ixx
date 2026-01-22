@@ -27,7 +27,7 @@ import Compute.DeviceTypeTraits;
 import Compute.DeviceId;
 import Compute.OptimizerBase;
 import Compute.ExecutionContext;
-import Data.DatasetReader;
+import Data.DataLoader;
 import Dnn.Network;
 import Dnn.NetworkFactory;
 
@@ -239,8 +239,8 @@ namespace Mila::Dnn
          * Postconditions:
          * - Checkpoints may be written to disk via saveTrainingCheckpoint
          *
-         * @param train_reader Dataset reader for training data
-         * @param val_reader Optional dataset reader for validation data
+         * @param training_loader Dataset reader for training data
+         * @param eval_loader Optional dataset reader for validation data
          * @return TrainingHistory that accumulates per-epoch statistics
          *
          * @note Current implementation is a placeholder - trainEpoch() and
@@ -248,8 +248,8 @@ namespace Mila::Dnn
          */
         template<TensorDataType TInputType, TensorDataType TTargetType, typename TMemoryResource>
         TrainingHistory train(
-            Data::DatasetReader<TInputType, TTargetType, TMemoryResource>& train_reader,
-            std::optional<Data::DatasetReader<TInputType, TTargetType, TMemoryResource>*> val_reader = std::nullopt )
+            Data::DataLoader<TInputType, TTargetType, TMemoryResource>& training_loader,
+            std::optional<Data::DataLoader<TInputType, TTargetType, TMemoryResource>*> eval_loader = std::nullopt )
         {
             TrainingHistory history;
 
@@ -267,7 +267,7 @@ namespace Mila::Dnn
                 history.train_losses.push_back( train_loss );
 
                 double val_loss = 0.0;
-                if ( val_reader.has_value() )
+                if ( eval_loader.has_value() )
                 {
                     network_->setTraining( false );
                     val_loss = validateEpoch();
@@ -286,7 +286,7 @@ namespace Mila::Dnn
 
                 if ( config_.getVerbose() )
                 {
-                    if ( val_reader.has_value() )
+                    if ( eval_loader.has_value() )
                     {
                         Utils::Logger::info_fmt( "Epoch {}/{}: loss = {:.6f}, val_loss = {:.6f}",
                             epoch + 1, config_.getEpochs(), train_loss, val_loss );

@@ -28,7 +28,7 @@ import Mila;
 import Dnn.Network;
 import Cuda.Error; // Debugging
 
-namespace Mila::CharLM
+namespace CharLM
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;

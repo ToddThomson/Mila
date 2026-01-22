@@ -5,7 +5,7 @@
  * This module provides a sophisticated data loading framework for efficiently feeding
  * heterogeneous data into neural network models during training and evaluation processes.
  * Uses abstract TensorDataType enumeration to enable seamless operation across different
- * compute devices (CPU, CUDA, Metal, OpenCL, Vulkan) without exposing device-specific
+ * compute devices (CPU, CUDA, Metal, Rocm ) without exposing device-specific
  * concrete types to host compilation.
  *
  * Key architectural features:
@@ -25,7 +25,7 @@ module;
 #include <string>
 #include <sstream>
 
-export module Data.DatasetReader;
+export module Data.DataLoader;
 
 import Dnn.Tensor;
 import Dnn.TensorDataType;
@@ -35,7 +35,6 @@ import Compute.MemoryResource;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaPinnedMemoryResource;
 import Compute.CpuMemoryResource;
-
 
 namespace Mila::Dnn::Data
 {
@@ -86,11 +85,8 @@ namespace Mila::Dnn::Data
      * @endcode
      */
     export template<TensorDataType TInputDataType, TensorDataType TTargetDataType, typename TMemoryResource>
-    class DatasetReader {
+    class DataLoader {
         public:
-            // ====================================================================
-            // Type Aliases and Compile-Time Properties
-            // ====================================================================
 
             using InputDataType = TensorDataType;                                      ///< Input tensor abstract data type
             using TargetDataType = TensorDataType;                                     ///< Target tensor abstract data type
@@ -122,7 +118,7 @@ namespace Mila::Dnn::Data
              * @note Larger batches generally improve throughput but require more memory
              * @note Consider GPU memory constraints when selecting batch size for device training
              */
-            explicit DatasetReader( int64_t batch_size )
+            explicit DataLoader( int64_t batch_size )
                 : batch_size_( batch_size ), current_batch_( 0 ) {
                 if ( batch_size == 0 ) {
                     throw std::invalid_argument( "Batch size must be greater than zero" );
@@ -135,7 +131,7 @@ namespace Mila::Dnn::Data
              * Provides proper resource cleanup for polymorphic destruction,
              * enabling safe use of base class pointers to derived instances.
              */
-            virtual ~DatasetReader() = default;
+            virtual ~DataLoader() = default;
 
             /**
              * @brief Copy operations explicitly deleted for performance safety
@@ -143,8 +139,8 @@ namespace Mila::Dnn::Data
              * Prevents accidental expensive copy operations involving large datasets
              * and complex internal state management.
              */
-            DatasetReader( const DatasetReader& ) = delete;
-            DatasetReader& operator=( const DatasetReader& ) = delete;
+            DataLoader( const DataLoader& ) = delete;
+            DataLoader& operator=( const DataLoader& ) = delete;
 
             /**
              * @brief Move operations for efficient ownership transfer
@@ -152,8 +148,8 @@ namespace Mila::Dnn::Data
              * Enables efficient transfer of data loader instances without
              * copying internal state or dataset references.
              */
-            DatasetReader( DatasetReader&& ) = default;
-            DatasetReader& operator=( DatasetReader&& ) = default;
+            DataLoader( DataLoader&& ) = default;
+            DataLoader& operator=( DataLoader&& ) = default;
 
             // ====================================================================
             // Dataset Properties and Introspection
@@ -451,7 +447,7 @@ namespace Mila::Dnn::Data
      */
     export template<TensorDataType TInputDataType = TensorDataType::FP32,
         TensorDataType TTargetDataType = TInputDataType>
-        using CpuDataLoader = DatasetReader<TInputDataType, TTargetDataType, CpuMemoryResource>;
+        using CpuDataLoader = DataLoader<TInputDataType, TTargetDataType, CpuMemoryResource>;
 
     /**
      * @brief Pinned memory data loader optimized for GPU training
@@ -465,7 +461,7 @@ namespace Mila::Dnn::Data
      */
     export template<TensorDataType TInputDataType = TensorDataType::FP32,
         TensorDataType TTargetDataType = TInputDataType>
-        using PinnedDataLoader = DatasetReader<TInputDataType, TTargetDataType, CudaPinnedMemoryResource>;
+        using PinnedDataLoader = DataLoader<TInputDataType, TTargetDataType, CudaPinnedMemoryResource>;
 
     /**
      * @brief Mixed-precision data loader for advanced training workflows
@@ -474,5 +470,5 @@ namespace Mila::Dnn::Data
      * and targets, enabling advanced mixed-precision training strategies.
      */
     export template<TensorDataType TInputDataType, TensorDataType TTargetDataType>
-        using MixedPrecisionDataLoader = DatasetReader<TInputDataType, TTargetDataType, CudaPinnedMemoryResource>;
+        using MixedPrecisionDataLoader = DataLoader<TInputDataType, TTargetDataType, CudaPinnedMemoryResource>;
 }

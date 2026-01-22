@@ -31,13 +31,13 @@ namespace Mila::CharLM
      * - Save/load functionality for caching
      * - Fast lookups via hash maps
      */
-    export class CharVocabulary
+    export class CharTokenizerVocabulary
     {
     public:
         /**
          * @brief Constructs empty vocabulary.
          */
-        CharVocabulary() = default;
+        CharTokenizerVocabulary() = default;
 
         /**
          * @brief Builds vocabulary from text corpus.
