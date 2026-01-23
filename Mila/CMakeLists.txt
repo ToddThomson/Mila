@@ -360,11 +360,22 @@ PUBLIC
         "Src/Dnn/Networks/Llama.Config.ixx"
         "Src/Dnn/Networks/TransformerConfig.ixx"
         "Src/Dnn/Networks/Llama.Presets.ixx"
+
         "Src/Dnn/Data/Tokenizer.ixx"
         "Src/Dnn/Data/Gpt2Tokenizer.ixx"
         "Src/Dnn/Data/LlamaTokenizer.ixx"
-        "Src/Dnn/Data/Vocabulary.ixx"
+        "Src/Dnn/Data/TokenizerVocabulary.ixx"
         "Src/Dnn/Data/TokenizerType.ixx"
+        
+        "Src/Data/Core/TokenizerTrainer.ixx"
+        "Src/Data/Core/TokenizerFactory.ixx"
+
+        "src/Data/Tokenizers/BpeTokenizer/BpeTrainer.ixx"
+        "src/Data/Tokenizers/BpeTokenizer/BpeTrainer.Config.ixx"
+
+        "src/Data/Tokenizers/CharTokenizer/CharTokenizer.ixx"
+        "src/Data/Tokenizers/CharTokenizer/CharTokenizerTrainer.ixx"
+        "src/Data/Tokenizers/CharTokenizer/CharTokenizerVocabulary.ixx"
 )
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
@@ -398,7 +409,9 @@ if(MILA_HAS_CPU)
                 #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxCrossEntropyOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Optimizers/CpuAdamWOptimizer.ixx"
-     "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Zero.ixx")
+                "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Zero.ixx"
+    )
+
     target_compile_definitions( Mila PUBLIC MILA_HAS_CPU)
     list(APPEND MILA_INSTALL_FILE_SET_ARGS FILE_SET cpu_modules DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
@@ -453,7 +466,8 @@ if(MILA_HAS_CUDA)
                 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/CudaSoftmaxCrossEntropyOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Optimizers/CudaAdamWOptimizer.ixx"
-     "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Zero.ixx")
+                "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Zero.ixx"
+    )
 
     target_link_libraries( Mila PUBLIC 
         CUDA::cudart
@@ -690,6 +704,9 @@ endif()
 
 # Generate documentation with Doxygen
 add_subdirectory( Docs )
+
+# Add data tokenization tools
+add_subdirectory( Src/Data/Utils )
 
 # Configure code coverage for MSVC
 if( MILA_ENABLE_COVERAGE AND MSVC)

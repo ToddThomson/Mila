@@ -8,6 +8,8 @@
 module;
 #include <string>
 #include <vector>
+#include <cstdint>
+#include <unordered_set>
 #include <unordered_map>
 #include <span>
 #include <optional>
@@ -265,20 +267,10 @@ namespace Mila::Dnn::Data
                 padTokenId_ = padId;
             }
 
-            // Original GPT-2 Unicode-aware regex pattern:
-            //pattern_ = std::regex(
-            //    R"('s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+)"
-            //);
-
-            // ASCII-only fallback pattern (uncomment to use):
-            //pattern_splitter_ = std::regex(
-            //    "'s|'t|'re|'ve|'m|'ll|'d| ?[a-zA-Z]+| ?[0-9]+| ?[^\\s\\w]+|\\s+(?!\\S)|\\s+" );
-            // TJT: slight changes
-            //  R"('s|'t|'re|'ve|'m|'ll|'d| ?[A-Za-z]+| ?[0-9]+| ?[^\sA-Za-z0-9]+|\s+(?!\S)|\s+)"
-
             // Try to use the original GPT-2 Unicode-aware regex first.
             // If the platform's std::regex does not support \p{L}/\p{N} it will throw
             // std::regex_error and we fall back to an ASCII-compatible pattern.
+            // The limitation of the fallback is that it won't handle Non-Latin characters
             try {
                 pattern_ = std::regex(
                     R"('s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+)"
@@ -288,6 +280,7 @@ namespace Mila::Dnn::Data
                 // ASCII fallback: mirrors GPT-2 splitting behavior for ASCII text.
                 // This fallback will be used on MSVC where \p escapes are unsupported.
                 std::cerr << "Warning: std::regex does not support \\p Unicode properties on this platform; using ASCII fallback tokenizer splitting.\n";
+                
                 pattern_ = std::regex(
                     R"('s|'t|'re|'ve|'m|'ll|'d| ?[A-Za-z]+| ?[0-9]+| ?[^\sA-Za-z0-9]+|\s+(?!\S)|\s+)"
                 );

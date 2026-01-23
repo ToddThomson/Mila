@@ -14,68 +14,71 @@ module;
 #include <algorithm>
 #include <stdexcept>
 #include <cstdint>
+#include <filesystem>
+#include <optional>
 
-export module CharLM.Vocabulary;
+export module Data.CharTokenizerVocabulary;
 
-namespace Mila::CharLM
+import Data.TokenizerVocabulary;
+
+namespace Mila::Data
 {
+    using Mila::Dnn::Data::TokenizerVocabulary;
+    namespace fs = std::filesystem;
+
     /**
      * @brief Character vocabulary for tokenization.
      *
-     * Manages bidirectional mappings between characters and token indices.
-     * Supports serialization to disk for preprocessing pipelines.
+     * Implements the generic TokenizerVocabulary interface so the character
+     * vocabulary can be used anywhere a TokenizerVocabulary is required.
      *
-     * Features:
-     * - Deterministic vocabulary ordering (sorted by character code)
-     * - Special token support (padding, unknown, etc.)
-     * - Save/load functionality for caching
-     * - Fast lookups via hash maps
+     * Notes:
+     * - Tokens are single bytes (char). Callers should document UTF-8 usage
+     *   if they expect multi-byte characters; this implementation operates on
+     *   raw bytes and normalizes CRLF to LF during buildFromText().
+     * - Special token ids (pad/unk) are optional; when present their ids are
+     *   returned by tokenToId() for unknown tokens if configured.
      */
-    export class CharTokenizerVocabulary
+    export class CharTokenizerVocabulary : public TokenizerVocabulary
     {
     public:
         /**
-         * @brief Constructs empty vocabulary.
+         * @brief Construct an empty vocabulary.
          */
         CharTokenizerVocabulary() = default;
 
         /**
          * @brief Builds vocabulary from text corpus.
          *
-         * Extracts unique characters and creates sorted, deterministic mappings.
-         * Optionally adds special tokens for padding, unknown characters, etc.
+         * Extracts unique bytes and creates sorted, deterministic mappings.
+         * Optionally adds special tokens for padding and unknown values.
          *
-         * @param text Source text for vocabulary extraction
-         * @param add_special_tokens Whether to add special tokens (pad, unk)
-         * @return Number of tokens in vocabulary
+         * @param text Source text for vocabulary extraction.
+         * @param add_special_tokens Whether to include PAD and UNK at the start.
+         * @return Number of tokens in vocabulary after build.
          */
         size_t buildFromText( const std::string& text, bool add_special_tokens = true )
         {
             char_to_idx_.clear();
             idx_to_char_.clear();
 
-            // Reset special-token state to avoid stale ids when rebuilding without specials.
             pad_token_id_ = -1;
             unk_token_id_ = -1;
 
-            // Normalize end-of-line:
-            // - Convert CRLF ("\r\n") to single LF ('\n')
-            // - Convert isolated CR ("\r") to LF ('\n')
-            // This ensures CRLF is not counted as two distinct tokens.
             std::string norm;
             norm.reserve( text.size() );
+
             for ( size_t i = 0; i < text.size(); ++i )
             {
                 char c = text[ i ];
+
                 if ( c == '\r' )
                 {
                     if ( i + 1 < text.size() && text[ i + 1 ] == '\n' )
                     {
-                        // Skip the CR; the following '\n' will be processed normally.
                         continue;
                     }
 
-                    // Convert standalone '\r' to '\n' for consistency.
                     norm.push_back( '\n' );
                 }
                 else
@@ -84,24 +87,24 @@ namespace Mila::CharLM
                 }
             }
 
-            // Collect unique bytes using unsigned char for deterministic ordering
             std::unordered_map<unsigned char, bool> unique_bytes;
             for ( char c : norm )
             {
                 unique_bytes[ static_cast<unsigned char>( c ) ] = true;
             }
 
-            // Sort for deterministic ordering on unsigned byte value
             std::vector<unsigned char> sorted_bytes;
             sorted_bytes.reserve( unique_bytes.size() );
+
             for ( const auto &kv : unique_bytes )
             {
                 sorted_bytes.push_back( kv.first );
             }
+
             std::sort( sorted_bytes.begin(), sorted_bytes.end() );
 
-            // Add special tokens at the beginning if requested
             int idx = 0;
+
             if ( add_special_tokens )
             {
                 pad_token_id_ = idx++;
@@ -114,10 +117,10 @@ namespace Mila::CharLM
                 char_to_idx_['\1'] = unk_token_id_;
             }
 
-            // Add regular characters
             for ( unsigned char ub : sorted_bytes )
             {
                 char c = static_cast<char>( ub );
+
                 if ( !add_special_tokens || ( c != '\0' && c != '\1' ) )
                 {
                     idx_to_char_.push_back( c );
@@ -129,24 +132,21 @@ namespace Mila::CharLM
         }
 
         /**
-         * @brief Saves vocabulary to file.
+         * @brief Serialize the vocabulary to disk.
          *
-         * Format:
-         *   Line 1: vocab_size
-         *   Line 2: has_special_tokens (0 or 1)
-         *   Lines 3+: character_code (one per line)
+         * Produces the same binary format as the previous string-based save().
+         * Throws std::runtime_error on I/O errors.
          *
-         * @param filename Path to output vocabulary file
+         * @param path Filesystem path to write the vocabulary to.
          */
-        void save( const std::string& filename ) const
+        void save( const std::filesystem::path& path ) const override
         {
-            std::ofstream file( filename, std::ios::binary );
+            std::ofstream file( path.string(), std::ios::binary );
             if (!file)
             {
-                throw std::runtime_error( "Cannot open vocabulary file for writing: " + filename );
+                throw std::runtime_error( "Cannot open vocabulary file for writing: " + path.string() );
             }
 
-            // Write header
             size_t vocab_size = idx_to_char_.size();
             file.write( reinterpret_cast<const char*>(&vocab_size), sizeof( vocab_size ) );
 
@@ -159,7 +159,6 @@ namespace Mila::CharLM
                 file.write( reinterpret_cast<const char*>(&unk_token_id_), sizeof( unk_token_id_ ) );
             }
 
-            // Write characters
             for (char c : idx_to_char_)
             {
                 file.write( &c, sizeof( char ) );
@@ -167,28 +166,30 @@ namespace Mila::CharLM
 
             if (!file)
             {
-                throw std::runtime_error( "Error writing vocabulary file: " + filename );
+                throw std::runtime_error( "Error writing vocabulary file: " + path.string() );
             }
         }
 
         /**
-         * @brief Loads vocabulary from file.
+         * @brief Load vocabulary state from disk.
          *
-         * @param filename Path to vocabulary file
-         * @return Number of tokens loaded
+         * Replaces the in-memory state with the contents of the file.
+         * Throws std::runtime_error on I/O or format errors.
+         *
+         * @param path Filesystem path to read the vocabulary from.
+         * @return Number of tokens loaded.
          */
-        size_t load( const std::string& filename )
+        void load( const std::filesystem::path& path ) override
         {
-            std::ifstream file( filename, std::ios::binary );
+            std::ifstream file( path.string(), std::ios::binary );
             if (!file)
             {
-                throw std::runtime_error( "Cannot open vocabulary file: " + filename );
+                throw std::runtime_error( "Cannot open vocabulary file: " + path.string() );
             }
 
             char_to_idx_.clear();
             idx_to_char_.clear();
 
-            // Read header
             size_t vocab_size;
             file.read( reinterpret_cast<char*>(&vocab_size), sizeof( vocab_size ) );
 
@@ -206,9 +207,8 @@ namespace Mila::CharLM
                 unk_token_id_ = -1;
             }
 
-            // Read characters
             idx_to_char_.resize( vocab_size );
-            for (size_t i = 0; i < vocab_size; ++i)
+            for ( size_t i = 0; i < vocab_size; ++i )
             {
                 char c;
                 file.read( &c, sizeof( char ) );
@@ -218,74 +218,119 @@ namespace Mila::CharLM
 
             if (!file)
             {
-                throw std::runtime_error( "Error reading vocabulary file: " + filename );
+                throw std::runtime_error( "Error reading vocabulary file: " + path.string() );
             }
-
-            return vocab_size;
         }
 
         /**
-         * @brief Converts character to token index.
+         * @brief Returns vocabulary size.
          *
-         * @param c Character to convert
-         * @return Token index, or unk_token_id if character not in vocabulary
+         * Implements TokenizerVocabulary::getSize().
+         *
+         * @return Number of tokens.
          */
+        size_t getSize() const override
+        {
+            return idx_to_char_.size();
+        }
+
+        /**
+         * @brief Map a token string to its numeric id.
+         *
+         * For character vocabulary the token string is interpreted by its first
+         * byte. If the token is not present and an unknown token id is configured
+         * the unknown id is returned. If no unknown token exists, an empty optional
+         * is returned.
+         *
+         * @param token Token string to look up.
+         * @return optional id if available, or empty optional if not found and no UNK.
+         */
+        std::optional<uint32_t> tokenToId( const std::string& token ) const override
+        {
+            if ( token.empty() )
+            {
+                return std::nullopt;
+            }
+
+            unsigned char c = static_cast<unsigned char>( token[0] );
+            auto it = char_to_idx_.find( static_cast<char>( c ) );
+
+            if ( it != char_to_idx_.end() )
+            {
+                return static_cast<uint32_t>( it->second );
+            }
+
+            if ( unk_token_id_ >= 0 )
+            {
+                return static_cast<uint32_t>( unk_token_id_ );
+            }
+
+            return std::nullopt;
+        }
+
+        /**
+         * @brief Map a numeric id back to its token string.
+         *
+         * Returns empty optional if id is out of range.
+         *
+         * @param id Token id to convert.
+         * @return optional token string.
+         */
+        std::optional<std::string> idToToken( uint32_t id ) const override
+        {
+            if ( id < idx_to_char_.size() )
+            {
+                return std::string( 1, idx_to_char_[ static_cast<size_t>( id ) ] );
+            }
+            return std::nullopt;
+        }
+
+        /**
+         * @name Backwards-compatible char-level API
+         *
+         * These helpers preserve the existing char-specific API used elsewhere
+         * in the codebase.
+         */
+        ///@{
         int charToIndex( char c ) const
         {
             auto it = char_to_idx_.find( c );
-            if (it != char_to_idx_.end())
+            if ( it != char_to_idx_.end() )
             {
                 return it->second;
             }
             return unk_token_id_ >= 0 ? unk_token_id_ : 0;
         }
 
-        /**
-         * @brief Converts token index to character.
-         *
-         * @param idx Token index
-         * @return Character, or '?' if index out of range
-         */
         char indexToChar( int idx ) const
         {
-            if (idx >= 0 && idx < static_cast<int>( idx_to_char_.size() ))
+            if ( idx >= 0 && idx < static_cast<int>( idx_to_char_.size() ) )
             {
-                return idx_to_char_[idx];
+                return idx_to_char_[ static_cast<size_t>( idx ) ];
             }
             return '?';
         }
 
-        /**
-         * @brief Gets vocabulary size.
-         */
         size_t size() const
         {
-            return idx_to_char_.size();
+            return getSize();
         }
 
-        /**
-         * @brief Gets padding token ID.
-         */
         int padTokenId() const
         {
             return pad_token_id_;
         }
 
-        /**
-         * @brief Gets unknown token ID.
-         */
         int unkTokenId() const
         {
             return unk_token_id_;
         }
 
-        /**
-         * @brief Checks if vocabulary has special tokens.
-         */
         bool hasSpecialTokens() const
         {
             return pad_token_id_ >= 0;
         }
+        ///@}
 
     private:
         std::unordered_map<char, int> char_to_idx_;
